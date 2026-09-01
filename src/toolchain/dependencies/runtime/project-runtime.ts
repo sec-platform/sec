@@ -1,20 +1,28 @@
 import crypto from 'node:crypto';
-import { lstatSync, readFileSync, realpathSync } from 'node:fs';
+import { lstatSync, realpathSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { generatedStateDigest, generatedStateDomainProviderMaterialDigest, type GeneratedStateCleanupProfile, type GeneratedStateInventory, type GeneratedStatePhysicalIdentity, type GeneratedStateRegistration } from '../../../runtime-state/generated-state/contract.ts';
 import type { GeneratedStateWorktreeRetirementProvider } from '../../../runtime-state/generated-state/lifecycle.ts';
-import { assertRetainedNoFollowCapability, assertSameNoFollowDirectoryIdentity, copyNoFollowDirectoryTreesBulk, createExclusiveNoFollowDirectory, createExclusiveNoFollowRandomDirectory, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectExactNoFollowLinkEntry, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileEntry, PhysicalNoFollowError, publishExclusiveDurableCanonicalFile, publishExclusiveNoFollowLink, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectoryAcrossParents, relocateRetainedNoFollowLinkAcrossParents, replaceDurableCanonicalFile, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryChain, type PhysicalDirectoryIdentity, type RetainedNoFollowOrdinaryFile } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { buildIsolatedProcessEnvironment, ensureIsolatedProcessDirectories, ISOLATED_VERIFICATION_ENV_KEY, pathEnvKey, RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, runCommand, runRetainedCommand, type CommandResult } from '../../../runtime-state/physical/runtime/process.ts';
+import { assertPhysicalGenerationRetirementReceipt, assertRetainedNoFollowCapability, assertSameNoFollowDirectoryIdentity, copyNoFollowDirectoryTreesBulk, createExclusiveNoFollowDirectory, createExclusiveNoFollowRandomDirectory, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectExactNoFollowLinkEntry, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowDirectoryLeaf, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileEntry, materializeRetainedNoFollowProvenDirectoryGeneration, openWindowsLegacySealedDirectoryRelocation, PhysicalNoFollowError, prepareWindowsLegacySealedDirectoryRelocation, publishExclusiveDurableCanonicalFile, publishExclusiveNoFollowLink, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectoryAcrossParents, relocateRetainedNoFollowLinkAcrossParents, relocateWindowsLegacySealedDirectory, replaceDurableCanonicalFile, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, retireNoFollowDirectoryTree, retireNoFollowProvenDirectoryGeneration, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryChain, type PhysicalDirectoryIdentity, type PhysicalGenerationRetirementReceipt, type RetainedNoFollowOrdinaryFile, type RetainedNoFollowProvenDirectoryGeneration, type WindowsLegacySealedDirectoryRelocationCapability } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { buildIsolatedProcessEnvironment, ensureIsolatedProcessDirectories, ISOLATED_VERIFICATION_ENV_KEY, issueRetainedCommandBoundary, pathEnvKey, RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, runRetainedCommand, type CommandResult } from '../../../runtime-state/physical/runtime/process.ts';
 import {
   parseGitWorktreeAdminLocator,
   parseGitWorktreeAdminPath
 } from '../../../runtime-state/worktree-closeout-contract.ts';
 import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
 import { canonicalEquals, canonicalJson, compareCodeUnits, digest, sortedKeys, uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import {
+  bindSecSemanticOperation,
+  compileSecCapabilityBinding,
+  compileSecSemanticOperationPlan,
+  issueSecSemanticOperationAttemptContext,
+  type SecBoundSemanticOperation
+} from '../../../system-architecture/operation/semantic.ts';
 import { ensureDir, formatJsonFile, isFileNotFoundError, pathExists, readJson, writeJson, writeText, type CommitFence } from '../../../workspace/files.ts';
 import { compilerRoot, isPathInside } from '../../../workspace/runtime/paths.ts';
 import { loadCanonicalBunRuntimeVersion } from '../../runtime.ts';
+import type { DependencyFreshnessLockObservation } from '../contract/dependency-freshness.ts';
 import {
   buildRuntimeDependencyMaterializationBinding,
   buildRuntimePackageManifest,
@@ -27,13 +35,101 @@ import {
   parseRuntimeDependencyPackageReference,
   RUNTIME_DEPENDENCY_PACKAGE_NAMES,
   RUNTIME_DEPS_PREBOUND_BINDING_FILE,
-  type RootPackageJson,
   type RuntimeDependencyMaterializationBinding,
   type RuntimeDependencyResolutionEdge,
   type RuntimeDependencyResolvedPackage,
   type RuntimeDependencySpec,
   type RuntimeDependencyToolchainBinding
 } from '../contract/runtime-dependency-spec.ts';
+import {
+  assertCompilerDependencyInputsCurrent,
+  compilerDependencyIdentity,
+  compilerDependencyInputFenceMatches,
+  compilerDependencyManifestAuthority,
+  compilerInstallConfigSha256,
+  currentRuntimeExecutableIdentity,
+  observeCompilerDependencyIdentity,
+  type CompilerDependencyIdentity,
+  type RuntimeExecutableIdentity
+} from './compiler-materialization-input.ts';
+import {
+  generatedStatePhysicalIdentity,
+  hasExactObjectKeys,
+  isCanonicalAbsolutePath,
+  isCanonicalGeneratedStatePhysicalIdentity,
+  isSha256Digest,
+  sameGeneratedStateIdentity,
+  sourceGenerationWithPath,
+  transitionAbsentSlot,
+  transitionSlotFromPhysical,
+  transitionSlotMatches,
+  type DependencyTransitionJournal,
+  type DependencyTransitionSlot,
+  type RuntimeDependencySourceGeneration
+} from './dependency-transition/contract.ts';
+import {
+  inspectLegacyDependencyTransitionNamespace,
+  migrateLegacyDependencyTransitionUnderLease
+} from './dependency-transition/migration.ts';
+import {
+  advanceDependencyTransition,
+  assertDirectStageRootSelector,
+  assertTransitionBackupSelector,
+  assertTransitionOperationKey,
+  beginDependencyTransition,
+  compilerTransitionBackupPath,
+  markDependencyTransitionFailure,
+  projectTransitionBackupPath,
+  readDependencyTransition,
+  readDependencyTransitionLedger,
+  transitionFailure
+} from './dependency-transition/operation.ts';
+import {
+  inspectActiveDependencyTransitionRollover,
+  recoverDependencyTransitionRollover
+} from './dependency-transition/rollover.ts';
+import {
+  DEPENDENCY_COMMAND_OUTPUT_BYTES_CAPACITY,
+  dependencyTransitionNamespacePaths,
+  ensureDependencyTransitionNamespace,
+  inspectDependencyTransitionNamespace,
+  observeDependencyTransitionSlot,
+  readNoFollowDirectNames,
+  writeDurableTransitionFile
+} from './dependency-transition/store.ts';
+import { sameHostPath } from './host-path.ts';
+import {
+  COMPILER_DEPENDENCY_EXECUTION_RETENTION_POLICY,
+  MAX_DEPENDENCY_OPERATION_TIMEOUT_MS,
+  runtimeDependencyOperationContext,
+  runtimeDependencyOperationDeadlineAt,
+  runtimeDependencyOperationEffectFence,
+  runtimeDependencyOperationOptions,
+  runtimeDependencyOperationRemainingMs,
+  waitForRuntimeDependencyOperation,
+  type RuntimeDependencyInstallOptions,
+  type RuntimeDependencyOperationOptions
+} from './operation-context.ts';
+import {
+  measureRuntimeDependencyOperationPhaseAsync
+} from './operation-telemetry.ts';
+import {
+  isGeneratedStatePhysicalIdentity,
+  isRuntimeDependencySourceGeneration,
+  RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
+  RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES,
+  runtimeDependencySourceGeneration,
+  runtimeDependencyTreeIdentity,
+  sameRuntimeDependencySourceGenerationContent
+} from './source-generation.ts';
+
+export {
+  observeCompilerDependencyMaterializationInput,
+  type CompilerDependencyMaterializationDigest,
+  type CompilerDependencyMaterializationInputProjection
+} from './compiler-materialization-input.ts';
+export type { RuntimeDependencySourceGeneration } from './dependency-transition/contract.ts';
+export { COMPILER_DEPENDENCY_EXECUTION_RETENTION_POLICY } from './operation-context.ts';
 
 export interface RuntimeDepsStamp {
   binding: Readonly<RuntimeDependencyMaterializationBinding>;
@@ -43,20 +139,6 @@ export interface RuntimeDepsStamp {
   installedAt: string;
   sourceGeneration: Readonly<RuntimeDependencySourceGeneration>;
   target: Readonly<RuntimeDependencyTargetIdentity>;
-}
-
-export interface RuntimeDependencySourceGeneration {
-  readonly schema: 'sec-runtime-dependency-source-generation-v1';
-  readonly ownerRoot: string;
-  readonly ownerRootPhysical: Readonly<GeneratedStatePhysicalIdentity>;
-  readonly sourcePath: string;
-  readonly physical: Readonly<GeneratedStatePhysicalIdentity>;
-  readonly bindingDigest: `sha256:${string}`;
-  /** Digest of every no-follow source-tree entry, including content bytes. */
-  readonly treeDigest: `sha256:${string}`;
-  /** Number of entries covered by treeDigest; part of the bounded contract. */
-  readonly treeEntryCount: number;
-  readonly epoch: `sha256:${string}`;
 }
 
 export interface RuntimeDependencyTargetIdentity {
@@ -85,6 +167,153 @@ export interface CompilerDepsReadyState {
   readonly sourceGeneration?: Readonly<RuntimeDependencySourceGeneration>;
   source: 'existing' | 'installed';
   readonly transitionDigest: `sha256:${string}`;
+  readonly executionGenerationAuthority: CompilerDependencyExecutionGenerationAuthority;
+}
+
+/**
+ * Opaque dependency-owner authority for materializing one read-only compiler
+ * dependency generation. The visible digest is an identity projection only;
+ * the private issuer record owns the physical root, content proof and lease.
+ */
+export interface CompilerDependencyExecutionGenerationAuthority {
+  readonly generationDigest: `sha256:${string}`;
+}
+
+export interface CompilerDependencyExecutionRetirementReceipt {
+  readonly schema: 'sec-compiler-dependency-execution-retirement-v1';
+  readonly generationDigest: `sha256:${string}`;
+  readonly generationPhysical: Readonly<GeneratedStatePhysicalIdentity>;
+  readonly leaseId: `sha256:${string}`;
+  readonly releaseRecordDigest: `sha256:${string}`;
+  readonly terminal: 'released';
+}
+
+export interface CompilerDependencyEnvironmentRetirementReceipt {
+  readonly owner: 'compiler-dependency-runtime';
+  readonly root: string;
+  readonly rootIdentity:
+    | Readonly<{
+        readonly state: 'present';
+        readonly physical: GeneratedStatePhysicalIdentity;
+      }>
+    | Readonly<{
+        readonly state: 'absent';
+        readonly absenceDigest: `sha256:${string}`;
+      }>;
+  readonly operationId: string;
+  readonly outcome: string;
+  readonly locatorPreimage:
+    | Readonly<{ readonly state: 'absent' }>
+    | Readonly<{
+        readonly state: 'present';
+        readonly physical: GeneratedStatePhysicalIdentity;
+        readonly linkTarget: string;
+      }>;
+  readonly locatorRetirement: 'not-required' | 'retired';
+  readonly nodeModulesReadback: 'absent';
+  readonly generationCollection: 'complete' | 'root-absent';
+  readonly terminal: 'retired';
+  readonly receiptDigest: `sha256:${string}`;
+}
+
+export interface RetainedCompilerDependencyExecutionGeneration {
+  readonly directRootResolution: DependencyFreshnessLockObservation;
+  readonly physicalGeneration: RetainedNoFollowProvenDirectoryGeneration;
+  retire(): Promise<CompilerDependencyExecutionRetirementReceipt>;
+}
+
+const issuedCompilerDependencyExecutionRetirementReceipts = new WeakSet<object>();
+const issuedCompilerDependencyEnvironmentRetirementReceipts = new WeakSet<object>();
+
+function issueCompilerDependencyEnvironmentRetirementReceipt(
+  unsigned: Omit<CompilerDependencyEnvironmentRetirementReceipt, 'receiptDigest'>
+): CompilerDependencyEnvironmentRetirementReceipt {
+  const receipt = Object.freeze({
+    ...unsigned,
+    receiptDigest: generatedStateDigest(canonicalJson(unsigned))
+  });
+  issuedCompilerDependencyEnvironmentRetirementReceipts.add(receipt);
+  return receipt;
+}
+
+export function assertCompilerDependencyExecutionRetirementReceipt(
+  receipt: CompilerDependencyExecutionRetirementReceipt
+): void {
+  if (!issuedCompilerDependencyExecutionRetirementReceipts.has(receipt)) {
+    throw new SecError(
+      'RUNTIME-DEPS-004',
+      'Compiler dependency execution retirement receipt was not issued by its owner'
+    );
+  }
+}
+
+export function assertCompilerDependencyEnvironmentRetirementReceipt(
+  receipt: CompilerDependencyEnvironmentRetirementReceipt,
+  expectedRoot: string
+): void {
+  if (!issuedCompilerDependencyEnvironmentRetirementReceipts.has(receipt)) {
+    throw new SecError(
+      'RUNTIME-DEPS-004',
+      'Compiler dependency environment retirement receipt was not issued by its owner'
+    );
+  }
+  const root = path.resolve(expectedRoot);
+  const { receiptDigest, ...unsigned } = receipt;
+  const validRootIdentity = receipt.rootIdentity.state === 'present'
+    ? isCanonicalGeneratedStatePhysicalIdentity(receipt.rootIdentity.physical)
+    : isSha256Digest(receipt.rootIdentity.absenceDigest);
+  const validLocatorPreimage = receipt.locatorPreimage.state === 'absent' ||
+    (isCanonicalGeneratedStatePhysicalIdentity(receipt.locatorPreimage.physical) &&
+      typeof receipt.locatorPreimage.linkTarget === 'string' &&
+      receipt.locatorPreimage.linkTarget.length > 0);
+  const validTerminalProjection = receipt.rootIdentity.state === 'absent'
+    ? receipt.locatorPreimage.state === 'absent' &&
+      receipt.locatorRetirement === 'not-required' &&
+      receipt.generationCollection === 'root-absent'
+    : receipt.generationCollection === 'complete' &&
+      (receipt.locatorPreimage.state === 'absent'
+        ? receipt.locatorRetirement === 'not-required'
+        : receipt.locatorRetirement === 'retired');
+  if (receipt.owner !== 'compiler-dependency-runtime' || receipt.root !== root ||
+      !isCanonicalAbsolutePath(receipt.root) || receipt.operationId.length === 0 ||
+      receipt.outcome.length === 0 || receipt.nodeModulesReadback !== 'absent' ||
+      receipt.terminal !== 'retired' || !validRootIdentity || !validLocatorPreimage ||
+      !validTerminalProjection || !isSha256Digest(receiptDigest) ||
+      generatedStateDigest(canonicalJson(unsigned)) !== receiptDigest) {
+    throw new SecError(
+      'RUNTIME-DEPS-004',
+      'Compiler dependency environment retirement receipt is malformed or belongs to another root'
+    );
+  }
+  issuedCompilerDependencyEnvironmentRetirementReceipts.delete(receipt);
+}
+
+type CompilerDependencyExecutionGenerationAuthorityRecord = Readonly<{
+  directRootResolution: DependencyFreshnessLockObservation;
+  root: string;
+  sourceGeneration: Readonly<RuntimeDependencySourceGeneration>;
+}>;
+
+const compilerDependencyExecutionGenerationAuthorities =
+  new WeakMap<object, CompilerDependencyExecutionGenerationAuthorityRecord>();
+
+function issueCompilerDependencyExecutionGenerationAuthority(
+  record: CompilerDependencyExecutionGenerationAuthorityRecord
+): CompilerDependencyExecutionGenerationAuthority {
+  const authority = Object.freeze({ generationDigest: record.sourceGeneration.epoch });
+  compilerDependencyExecutionGenerationAuthorities.set(authority, record);
+  return authority;
+}
+
+export function assertCompilerDependencyExecutionGenerationAuthority(
+  authority: CompilerDependencyExecutionGenerationAuthority
+): void {
+  if (!compilerDependencyExecutionGenerationAuthorities.has(authority)) {
+    throw new SecError(
+      'RUNTIME-DEPS-004',
+      'Compiler dependency execution generation authority was not issued by its owner'
+    );
+  }
 }
 
 export interface DependencyAuthorityPaths {
@@ -120,107 +349,6 @@ interface CompilerDepsBinding {
 }
 
 const COMPILER_DEPS_BINDING_FILE = '.sec-compiler-deps-binding-v5.json' as const;
-const DEFAULT_DEPENDENCY_LOCK_TIMEOUT_MS = 300_000;
-const MAX_DEPENDENCY_OPERATION_TIMEOUT_MS = DEFAULT_DEPENDENCY_LOCK_TIMEOUT_MS;
-const DEFAULT_DEPENDENCY_LOCK_POLL_INTERVAL_MS = 50;
-const MAX_DEPENDENCY_LOCK_POLL_INTERVAL_MS = 1_000;
-const RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES = 100_000;
-const RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES = 2 * 1024 * 1024 * 1024;
-const RUNTIME_DEPENDENCY_OPERATION_CONTEXT = Symbol('sec-runtime-dependency-operation-context-v1');
-
-export interface RuntimeDependencyInstallOptions {
-  beforeCommit?: CommitFence;
-  commandRunner?: typeof runCommand;
-  installMode?: 'allow' | 'offline-copy-only' | 'prebound-only';
-  lockTimeoutMs?: number;
-  /** Monotonic source captured into one operation ledger and reused by every budget check. */
-  monotonicNowMs?: () => number;
-  now?: () => string;
-  pollIntervalMs?: number;
-  rematerialize?: boolean;
-  sharedDepsRoot?: string;
-  signal?: AbortSignal;
-  skipSharedDepsWarmup?: boolean;
-  sleep?: (ms: number) => Promise<void>;
-  testCompilerPublishPlatform?: NodeJS.Platform;
-  testCompilerPublishHook?: (stage: 'active-backed-up') => void | Promise<void>;
-  testProjectProjectionHook?: (
-    stage: 'prepared' | 'backed-up' | 'published' | 'binding-validated' | 'stamp-readback'
-  ) => void | Promise<void>;
-  testCompilerBridgeValidationHook?: (
-    stage: 'binding-observed' | 'final-binding-observed'
-  ) => void | Promise<void>;
-  /** Package-local fault injection for the Windows lock-file settlement owner. */
-  testInstallLockDelete?: (filePath: string, attempt: number) => void | Promise<void>;
-  testInstallLockDeletePlatform?: NodeJS.Platform;
-  testCompilerRename?: (source: string, target: string) => Promise<void>;
-  generatedStateLifecycle?: Readonly<{
-    born(relativePath: string, operationId: string): Promise<void>;
-    /** Read-only adoption of an issuer-created active registration. */
-    bind?: (
-      relativePath: string,
-      expected?: Readonly<{
-        owner?: string;
-        producer?: string;
-        ruleId?: string;
-        physical?: GeneratedStatePhysicalIdentity;
-      }>
-    ) => Promise<GeneratedStateRegistration>;
-    /** Re-activate one exact retired predecessor after owner-local rollback. */
-    restore?: (
-      relativePath: string,
-      expectedRegistrationDigest: `sha256:${string}`,
-      expectedPhysical: GeneratedStatePhysicalIdentity,
-      outcome: string
-    ) => Promise<GeneratedStateRegistration>;
-    retired(relativePath: string, outcome: string): Promise<GeneratedStateRegistration | void>;
-    settleRetired?: (
-      relativePath: string,
-      expected?: Readonly<{
-        owner?: string;
-        producer?: string;
-        ruleId?: string;
-        physical?: GeneratedStatePhysicalIdentity;
-      }>
-    ) => Promise<boolean>;
-    /** Terminalize one exact active registration after its physical root is already absent. */
-    settleAbsent?: (
-      relativePath: string,
-      expected: Readonly<{
-        owner: string;
-        producer: string;
-        ruleId: string;
-        physical: GeneratedStatePhysicalIdentity;
-      }>,
-      outcome: string
-    ) => Promise<Readonly<{
-      schema: 'sec-generated-state-absent-registration-settlement-v1';
-      relativePath: string;
-      registrationDigest: `sha256:${string}`;
-      retirementRef: `sha256:${string}`;
-      physical: GeneratedStatePhysicalIdentity;
-      outcome: string;
-      terminal: 'disposed';
-      receiptDigest: `sha256:${string}`;
-    }>>;
-    disposed(relativePath: string, outcome: string): Promise<void>;
-  }>;
-}
-
-type RuntimeDependencyOperationContext = Readonly<{
-  deadlineAtMonotonicMs: number;
-  initialBudgetMs: number;
-  monotonicNowMs: () => number;
-  operationId: string;
-  pollIntervalMs: number;
-  signal: AbortSignal | undefined;
-  startedAtMonotonicMs: number;
-}>;
-
-type RuntimeDependencyOperationOptions<T extends RuntimeDependencyInstallOptions = RuntimeDependencyInstallOptions> =
-  T & Readonly<{
-    [RUNTIME_DEPENDENCY_OPERATION_CONTEXT]: RuntimeDependencyOperationContext;
-  }>;
 
 async function bindCanonicalGeneratedStateLifecycle(
   options: RuntimeDependencyOperationOptions,
@@ -239,18 +367,53 @@ async function bindCanonicalGeneratedStateLifecycle(
 
 export async function disposeCanonicalSharedDependencies(
   options: RuntimeDependencyInstallOptions = {},
-  outcome = 'maintainer-clean-requested'
+  outcome = 'maintainer-clean-requested',
+  dependencyRoot = compilerRoot
 ): Promise<boolean> {
   const operationOptions = runtimeDependencyOperationOptions(options);
-  const sharedDepsRoot = defaultSharedDepsRoot();
+  const root = path.resolve(dependencyRoot);
+  const sharedDepsRoot = dependencyAuthorityPaths(root).sharedDepsRoot;
+  runtimeDependencyOperationRemainingMs(operationOptions, 'Shared dependency retirement admission');
   const observedRoot = await physicalSharedDependencyDirectory(sharedDepsRoot, true);
   if (observedRoot === null) return false;
-  const lifecycleOptions = await bindCanonicalGeneratedStateLifecycle(operationOptions, compilerRoot);
+  const spec = loadRuntimeDependencySpec(path.join(root, 'package.json'));
+  const lifecycleOptions = await bindCanonicalGeneratedStateLifecycle(operationOptions, root);
   const lifecycle = lifecycleOptions.generatedStateLifecycle;
-  if (lifecycle === undefined) {
-    throw new Error('Canonical shared dependencies have no generated-state lifecycle owner.');
+  const observeRetirement = lifecycle?.observeRetirement;
+  if (lifecycle === undefined || observeRetirement === undefined || lifecycle.bind === undefined) {
+    throw new SecError(
+      'IMPORT-AUTHORITY-004',
+      'Shared dependency retirement requires owner-issued provenance observation and binding; physical root is preserved'
+    );
   }
-  return withCompilerDependencyTransitionLease(compilerRoot, lifecycleOptions, async () => {
+
+  const preLeaseInventory = await sharedDependencyRetirementInventory(
+    observedRoot,
+    spec,
+    lifecycleOptions,
+    'Shared dependency retirement pre-lease inventory'
+  );
+  const expectation = sharedDependencyLifecycleExpectation(
+    generatedStatePhysicalIdentity(observedRoot)
+  );
+  const preLeaseObservation = await observeRetirement('.shared-deps', expectation);
+  const { assertGeneratedStateRetirementObservation } = await import(
+    '../../../runtime-state/generated-state/lifecycle.ts'
+  );
+  assertGeneratedStateRetirementObservation(preLeaseObservation);
+  if (preLeaseObservation.status !== 'active') {
+    throw new SecError(
+      'IMPORT-AUTHORITY-004',
+      'Legacy shared dependency root has no exact active owner registration; physical root is preserved',
+      {
+        inventoryDigest: preLeaseInventory.treeDigest,
+        membership: preLeaseInventory.membership,
+        observationDigest: preLeaseObservation.observationDigest,
+        status: preLeaseObservation.status
+      }
+    );
+  }
+  return withCompilerDependencyTransitionLease(root, lifecycleOptions, async (leaseOptions) => {
     const current = await physicalSharedDependencyDirectory(sharedDepsRoot, true);
     if (current === null || !sameGeneratedStateIdentity(
       generatedStatePhysicalIdentity(current),
@@ -258,12 +421,170 @@ export async function disposeCanonicalSharedDependencies(
     )) {
       throw new SecError(
         'IMPORT-AUTHORITY-004',
-        'Canonical shared dependency root changed before lifecycle disposal; current state is preserved'
+        'Shared dependency root changed before lifecycle disposal; current state is preserved'
       );
     }
-    await bindExistingSharedDependencyRoot(lifecycleOptions, current);
-    await lifecycle.disposed('.shared-deps', outcome);
+    const currentInventory = await sharedDependencyRetirementInventory(
+      current,
+      spec,
+      leaseOptions,
+      'Shared dependency retirement under-lease inventory'
+    );
+    if (currentInventory.treeDigest !== preLeaseInventory.treeDigest ||
+        currentInventory.treeEntryCount !== preLeaseInventory.treeEntryCount ||
+        currentInventory.membership !== preLeaseInventory.membership) {
+      throw new SecError(
+        'IMPORT-AUTHORITY-004',
+        'Shared dependency root changed before lifecycle disposal; current state is preserved'
+      );
+    }
+    await bindExistingSharedDependencyRoot(leaseOptions, current);
+    await runtimeDependencyOperationEffectFence(leaseOptions, 'Shared dependency retirement');
+    const receipt = await lifecycle.disposed('.shared-deps', {
+      outcome,
+      profile: 'all-rebuildable'
+    });
+    const { assertGeneratedStateDisposalReceipt } = await import(
+      '../../../runtime-state/generated-state/lifecycle.ts'
+    );
+    assertGeneratedStateDisposalReceipt(receipt);
+    if (receipt.profile !== 'all-rebuildable' || receipt.terminal !== 'disposed' ||
+        !sameGeneratedStateIdentity(receipt.physical, generatedStatePhysicalIdentity(current)) ||
+        physicalSharedDependencyDirectory(sharedDepsRoot, true) !== null) {
+      throw new SecError(
+        'IMPORT-AUTHORITY-004',
+        'Shared dependency retirement terminal receipt differs from the admitted root'
+      );
+    }
+    runtimeDependencyOperationRemainingMs(leaseOptions, 'Shared dependency retirement receipt readback');
     return true;
+  });
+}
+
+/**
+ * Retire the compiler dependency projection and every consumer-zero immutable
+ * generation owned by one dependency root.  Filesystem callers cannot safely
+ * remove a published root directly because the physical owner deliberately
+ * seals generations against mutation; cleanup is therefore a domain
+ * operation, not a recursive-delete transport.
+ */
+export async function disposeCompilerDependencyEnvironment(
+  dependencyRoot: string,
+  options: RuntimeDependencyInstallOptions = {},
+  outcome = 'maintainer-clean-requested'
+): Promise<CompilerDependencyEnvironmentRetirementReceipt> {
+  const root = path.resolve(dependencyRoot);
+  if (outcome.length === 0) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency environment retirement outcome is absent');
+  }
+  const boundedOptions = runtimeDependencyOperationOptions(options);
+  return measureRuntimeDependencyOperationPhaseAsync(boundedOptions, 'cleanup', async () => {
+    const admittedRoot = inspectExactNoFollowDirectoryPresence(
+      root,
+      'Compiler dependency environment retirement root'
+    );
+    if (admittedRoot.state === 'absent') {
+      const rootIdentity = Object.freeze({
+        state: 'absent' as const,
+        absenceDigest: generatedStateDigest(canonicalJson({ root, state: 'absent' }))
+      });
+      const unsigned = Object.freeze({
+        owner: 'compiler-dependency-runtime' as const,
+        root,
+        rootIdentity,
+        operationId: runtimeDependencyOperationContext(boundedOptions).operationId,
+        outcome,
+        locatorPreimage: Object.freeze({ state: 'absent' as const }),
+        locatorRetirement: 'not-required' as const,
+        nodeModulesReadback: 'absent' as const,
+        generationCollection: 'root-absent' as const,
+        terminal: 'retired' as const
+      });
+      return issueCompilerDependencyEnvironmentRetirementReceipt(unsigned);
+    }
+    const admittedRootPhysical = generatedStatePhysicalIdentity(admittedRoot.directory.target);
+    const operationOptions = await bindCanonicalGeneratedStateLifecycle(
+      boundedOptions,
+      root
+    );
+    return withCompilerDependencyTransitionLease(root, operationOptions, async (leaseOptions) => {
+      runtimeDependencyOperationRemainingMs(
+        leaseOptions,
+        'Compiler dependency environment retirement admission'
+      );
+      const underLeaseRoot = inspectNoFollowDirectoryChain(
+        root,
+        'Compiler dependency environment retirement root under lease'
+      ).target;
+      if (!sameGeneratedStateIdentity(
+        generatedStatePhysicalIdentity(underLeaseRoot),
+        admittedRootPhysical
+      )) {
+        throw new SecError(
+          'RUNTIME-DEPS-004',
+          'Compiler dependency environment root changed before retirement'
+        );
+      }
+      const locator = compilerDependencyLocatorObservation(root, 'node_modules');
+      const locatorPreimage = locator === null
+        ? Object.freeze({ state: 'absent' as const })
+        : Object.freeze({
+            state: 'present' as const,
+            physical: locator.source,
+            linkTarget: locator.linkTarget
+          });
+      if (locator === null && inspectExactNoFollowDirectoryPresence(
+        path.join(root, 'node_modules'),
+        'Compiler dependency environment retirement locator preimage'
+      ).state !== 'absent') {
+        throw new SecError(
+          'IMPORT-AUTHORITY-004',
+          'Compiler dependency environment retirement encountered an unmanaged node_modules directory'
+        );
+      }
+      if (locator !== null) {
+        await disposeCompilerDependencyLocator(root, leaseOptions, outcome);
+      }
+      await collectReleasedCompilerDependencyGenerations(root, leaseOptions);
+      if (inspectExactNoFollowDirectoryPresence(
+        path.join(root, 'node_modules'),
+        'Compiler dependency environment retirement locator terminal readback'
+      ).state !== 'absent') {
+        throw new SecError(
+          'IMPORT-AUTHORITY-004',
+          'Compiler dependency environment retirement left its canonical locator'
+        );
+      }
+      const finalRoot = inspectNoFollowDirectoryChain(
+        root,
+        'Compiler dependency environment retirement root terminal readback'
+      ).target;
+      if (!sameGeneratedStateIdentity(
+        generatedStatePhysicalIdentity(finalRoot),
+        admittedRootPhysical
+      )) {
+        throw new SecError(
+          'RUNTIME-DEPS-004',
+          'Compiler dependency environment root changed before terminal readback'
+        );
+      }
+      const unsigned = Object.freeze({
+        owner: 'compiler-dependency-runtime' as const,
+        root,
+        rootIdentity: Object.freeze({
+          state: 'present' as const,
+          physical: admittedRootPhysical
+        }),
+        operationId: runtimeDependencyOperationContext(leaseOptions).operationId,
+        outcome,
+        locatorPreimage,
+        locatorRetirement: locator === null ? 'not-required' as const : 'retired' as const,
+        nodeModulesReadback: 'absent' as const,
+        generationCollection: 'complete' as const,
+        terminal: 'retired' as const
+      });
+      return issueCompilerDependencyEnvironmentRetirementReceipt(unsigned);
+    });
   });
 }
 
@@ -296,263 +617,11 @@ function defaultSharedDepsRoot(): string {
   return dependencyAuthorityPaths().sharedDepsRoot;
 }
 
-function sortedRecord(record: Record<string, string> | undefined): Record<string, string> {
-  return Object.fromEntries(Object.entries(record ?? {}).sort(([left], [right]) => compareCodeUnits(left, right)));
-}
-
-interface CompilerDependencyIdentity {
-  architecture: string;
-  bunExecutablePath: string;
-  bunExecutableSha256: string;
-  bunVersion: string;
-  declaredBunVersion: string;
-  dependencyManifestSha256: string;
-  installConfigSha256: string | null;
-  lockSha256: string;
-  manifestHash: string;
-  packageNames: string[];
-  packageSourceSha256: string;
-  packageVersions: Record<string, string>;
-  platform: NodeJS.Platform;
-}
-
-function compilerInstallConfigSha256(bytes: Uint8Array | null): string {
-  const install = bytes === null
-    ? null
-    : (Bun.TOML.parse(Buffer.from(bytes).toString('utf8')) as Record<string, unknown>).install ?? null;
-  return digest(JSON.stringify(canonicalJson({ install })));
-}
-
-type RuntimeExecutableIdentity = Readonly<{
-  path: string;
-  sha256: string;
-  signature: string;
-}>;
-
-// Only coalesce observations that are currently in flight.  A settled
-// executable digest is never retained as a process-global positive cache;
-// every later operation re-proves the physical file and its bytes.
-let runtimeExecutableIdentityInFlight: Promise<RuntimeExecutableIdentity> | null = null;
-
-type CompilerDependencyManifestAuthority = Readonly<{
-  declaredBunVersion: string;
-  dependencies: Record<string, string>;
-  dependencyManifestSha256: string;
-  devDependencies: Record<string, string>;
-}>;
-
-function compilerDependencyManifestAuthority(
-  packageJsonBytes: Uint8Array
-): CompilerDependencyManifestAuthority {
-  const packageJson = JSON.parse(Buffer.from(packageJsonBytes).toString('utf8')) as
-    RootPackageJson & { packageManager?: string };
-  const packageManagerMatch = /^bun@([^\s]+)$/u.exec(packageJson.packageManager ?? '');
-  if (!packageManagerMatch) {
-    throw new SecError('IMPORT-AUTHORITY-001', 'Root packageManager must pin one Bun version exactly');
-  }
-  const dependencies = sortedRecord(packageJson.dependencies);
-  const devDependencies = sortedRecord(packageJson.devDependencies);
-  return Object.freeze({
-    declaredBunVersion: packageManagerMatch[1]!,
-    dependencies,
-    dependencyManifestSha256: digest(JSON.stringify({
-      dependencies,
-      devDependencies,
-      packageManager: packageJson.packageManager
-    })),
-    devDependencies
-  });
-}
-
-async function currentRuntimeExecutableIdentity(refresh = false): Promise<RuntimeExecutableIdentity> {
-  if (!refresh && runtimeExecutableIdentityInFlight !== null) {
-    return runtimeExecutableIdentityInFlight;
-  }
-  const observation = (async (): Promise<RuntimeExecutableIdentity> => {
-    const executablePath = await fs.realpath(process.execPath);
-    const metadata = await fs.lstat(executablePath, { bigint: true });
-    if (!metadata.isFile() || metadata.isSymbolicLink()) {
-      throw new SecError('IMPORT-AUTHORITY-001', 'Bun runtime executable must be one physical file');
-    }
-    const signature = [
-      executablePath,
-      metadata.dev,
-      metadata.ino,
-      metadata.mode,
-      metadata.size,
-      metadata.mtimeNs
-    ].join(':');
-    const executableBytes = await fs.readFile(executablePath);
-    const after = await fs.lstat(executablePath, { bigint: true });
-    if (metadata.dev !== after.dev || metadata.ino !== after.ino || metadata.mode !== after.mode ||
-      metadata.size !== after.size || metadata.mtimeNs !== after.mtimeNs ||
-      !sameHostPath(await fs.realpath(process.execPath), executablePath)) {
-      throw new SecError('IMPORT-AUTHORITY-001', 'Bun runtime executable changed during observation');
-    }
-    return Object.freeze({
-      path: executablePath,
-      sha256: digest(executableBytes),
-      signature
-    });
-  })();
-  if (refresh) return observation;
-  runtimeExecutableIdentityInFlight = observation;
-  try {
-    return await observation;
-  } finally {
-    if (runtimeExecutableIdentityInFlight === observation) {
-      runtimeExecutableIdentityInFlight = null;
-    }
-  }
-}
-
-async function compilerDependencyIdentity(root: string): Promise<CompilerDependencyIdentity> {
-  const [packageJsonBytes, lockfileBytes, installConfigBytes, runtimeExecutable] = await Promise.all([
-    fs.readFile(path.join(root, 'package.json')),
-    fs.readFile(path.join(root, 'bun.lock')),
-    fs.readFile(path.join(root, 'bunfig.toml')).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === 'ENOENT') return null;
-      throw error;
-    }),
-    currentRuntimeExecutableIdentity()
-  ]);
-  const manifestAuthority = compilerDependencyManifestAuthority(packageJsonBytes);
-  const { dependencies, devDependencies } = manifestAuthority;
-  const canonicalBunVersion = await loadCanonicalBunRuntimeVersion(root);
-  const runtime = {
-    architecture: process.arch,
-    bunVersion: process.versions.bun ?? 'unknown',
-    declaredBunVersion: manifestAuthority.declaredBunVersion,
-    platform: process.platform
-  };
-  if (runtime.bunVersion === 'unknown') {
-    throw new SecError('IMPORT-AUTHORITY-001', 'Compiler dependency bootstrap must run under Bun');
-  }
-  if (runtime.declaredBunVersion !== canonicalBunVersion || runtime.bunVersion !== canonicalBunVersion) {
-    throw new SecError(
-      'IMPORT-AUTHORITY-001',
-      `Bun runtime identity mismatch: canonical=${canonicalBunVersion}, packageManager=${runtime.declaredBunVersion}, actual=${runtime.bunVersion}`
-    );
-  }
-  const packageVersions = { ...dependencies, ...devDependencies };
-  const lockSha256 = digest(lockfileBytes);
-  const installConfigSha256 = compilerInstallConfigSha256(installConfigBytes);
-  const manifestContent = (configSha256: string | null) => JSON.stringify({
-    dependencyManifestSha256: manifestAuthority.dependencyManifestSha256,
-    installConfigSha256: configSha256,
-    lockSha256,
-    runtime: {
-      ...runtime,
-      bunExecutablePath: runtimeExecutable.path,
-      bunExecutableSha256: runtimeExecutable.sha256
-    }
-  });
-  return {
-    ...runtime,
-    bunExecutablePath: runtimeExecutable.path,
-    bunExecutableSha256: runtimeExecutable.sha256,
-    dependencyManifestSha256: manifestAuthority.dependencyManifestSha256,
-    installConfigSha256,
-    lockSha256,
-    manifestHash: digest(manifestContent(installConfigSha256)),
-    packageNames: sortedKeys(packageVersions),
-    packageSourceSha256: digest(packageJsonBytes),
-    packageVersions
-  };
-}
-
-/**
- * Re-prove the small compiler input surface immediately around the Bun
- * effect.  The staging copy is already durable, but a same-inode mutation of
- * the source package/lock/config or version marker must invalidate the
- * operation before/after the child runs; a root-directory identity alone is
- * not a descendant content fence.
- */
-function assertCompilerDependencyInputsCurrent(
-  root: string,
-  expected: CompilerDependencyIdentity
-): void {
-  const sourceRoot = inspectNoFollowDirectoryChain(
-    root,
-    'Compiler dependency input source root fence'
-  ).target;
-  const readInput = (name: 'package.json' | 'bun.lock' | 'bunfig.toml'): Uint8Array | null => {
-    const entry = inspectNoFollowOrdinaryFileEntry(sourceRoot, name);
-    if (entry === null) return null;
-    if (entry.kind !== 'file' || entry.bytes === null) {
-      throw new SecError(
-        'IMPORT-AUTHORITY-001',
-        `Compiler dependency input ${name} is not an ordinary no-follow file`
-      );
-    }
-    return entry.bytes;
-  };
-  const packageBytes = readInput('package.json');
-  const lockBytes = readInput('bun.lock');
-  const configBytes = readInput('bunfig.toml');
-  if (packageBytes === null || digest(packageBytes) !== expected.packageSourceSha256 ||
-      lockBytes === null || digest(lockBytes) !== expected.lockSha256 ||
-      compilerInstallConfigSha256(configBytes) !== expected.installConfigSha256) {
-    throw new SecError(
-      'IMPORT-AUTHORITY-001',
-      'Compiler dependency source inputs changed around materialization'
-    );
-  }
-  const versionPath = path.join(sourceRoot.path, '.bun-version');
-  let version: string;
-  try {
-    const versionBytes = readNoFollowOrdinaryFile(sourceRoot, '.bun-version');
-    version = versionBytes === null ? '' : Buffer.from(versionBytes).toString('utf8').trim();
-  } catch (error) {
-    throw new SecError(
-      'IMPORT-AUTHORITY-001',
-      'Compiler dependency version marker is not an ordinary no-follow file',
-      { versionPath, cause: error instanceof Error ? error.message : String(error) }
-    );
-  }
-  if (version !== expected.bunVersion) {
-    throw new SecError(
-      'IMPORT-AUTHORITY-001',
-      'Compiler dependency Bun version marker changed around materialization'
-    );
-  }
-  assertSameNoFollowDirectoryIdentity(sourceRoot, 'Compiler dependency input source root readback');
-}
-
-function compilerDependencyInputFenceMatches(
-  root: string,
-  expected: CompilerDependencyIdentity
-): boolean {
-  try {
-    const packageJsonBytes = readFileSync(path.join(root, 'package.json'));
-    const lockfileBytes = readFileSync(path.join(root, 'bun.lock'));
-    let installConfigBytes: Buffer | null;
-    try {
-      installConfigBytes = readFileSync(path.join(root, 'bunfig.toml'));
-    } catch (error) {
-      if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') throw error;
-      installConfigBytes = null;
-    }
-    const manifest = compilerDependencyManifestAuthority(packageJsonBytes);
-    const canonicalBunVersion = readFileSync(path.join(root, '.bun-version'), 'utf8').trim();
-    return manifest.declaredBunVersion === expected.declaredBunVersion &&
-      manifest.dependencyManifestSha256 === expected.dependencyManifestSha256 &&
-      digest(lockfileBytes) === expected.lockSha256 &&
-      compilerInstallConfigSha256(installConfigBytes) === expected.installConfigSha256 &&
-      canonicalBunVersion === expected.bunVersion;
-  } catch {
-    return false;
-  }
-}
-
 function dependencyPackagePath(nodeModulesPath: string, packageName: string): string {
   return path.join(nodeModulesPath, ...packageName.split('/'), 'package.json');
 }
 
 const criticalCompilerDependencyEntries = new Set([
-  '@ts-morph/common',
-  'code-block-writer',
-  'ts-morph',
   'typescript'
 ]);
 
@@ -625,15 +694,50 @@ async function compilerDependencyPackageBindings(
   nodeModulesPath: string,
   identity: CompilerDependencyIdentity
 ): Promise<readonly CompilerDependencyPackageBinding[]> {
-  const packageNames = [...identity.packageNames];
-  if (identity.packageVersions['ts-morph']) {
-    packageNames.push('@ts-morph/common', 'code-block-writer');
-  }
-  return Promise.all(uniqueSorted(packageNames).map((packageName) => compilerDependencyPackageBinding(
+  return Promise.all(uniqueSorted(identity.packageNames).map((packageName) => compilerDependencyPackageBinding(
     nodeModulesPath,
     packageName,
     identity.packageVersions[packageName] ?? '*'
   )));
+}
+
+function compilerDependencyDirectRootResolution(
+  binding: Readonly<CompilerDepsBinding>,
+  identity: CompilerDependencyIdentity
+): DependencyFreshnessLockObservation {
+  const packageByDeclaredName = new Map(binding.packages.map((entry) => [entry.name, entry]));
+  if (packageByDeclaredName.size !== identity.packageNames.length) {
+    throw new SecError(
+      'RUNTIME-DEPS-004',
+      'Compiler dependency generation has no exact direct-root resolution'
+    );
+  }
+  const entries = identity.packageNames.map((declaredName) => {
+    const packageBinding = packageByDeclaredName.get(declaredName);
+    const declaredReference = identity.packageVersions[declaredName];
+    if (packageBinding === undefined || declaredReference === undefined) {
+      throw new SecError(
+        'RUNTIME-DEPS-004',
+        `Compiler dependency direct root is absent from its binding: ${declaredName}`
+      );
+    }
+    const expected = compilerDependencyManifestExpectation(declaredName, declaredReference);
+    if (!isExactPackageVersion(packageBinding.version)) {
+      throw new SecError(
+        'RUNTIME-DEPS-004',
+        `Compiler dependency direct root has no exact resolved version: ${declaredName}`
+      );
+    }
+    return Object.freeze({
+      declaredName,
+      packageName: expected.name,
+      resolvedVersion: packageBinding.version
+    });
+  });
+  return Object.freeze({
+    entries: Object.freeze(entries),
+    lockDigest: `sha256:${binding.lockSha256}` as const
+  });
 }
 
 const COMPILER_DEPS_BINDING_KEYS = Object.freeze([
@@ -798,179 +902,6 @@ function sleepMs(delayMs: number): Promise<void> {
   });
 }
 
-function runtimeDependencyPositiveBoundedInteger(
-  field: 'lockTimeoutMs' | 'pollIntervalMs',
-  configured: number | undefined,
-  fallback: number,
-  maximum: number
-): number {
-  const value = configured ?? fallback;
-  if (!Number.isSafeInteger(value) || value <= 0 || value > maximum) {
-    throw new SecError(
-      'RUNTIME-DEPS-003',
-      `Runtime dependency ${field} must be a positive safe integer within its canonical ceiling`,
-      { field, maximum, value }
-    );
-  }
-  return value;
-}
-
-function defaultRuntimeDependencyMonotonicNowMs(): number {
-  return performance.now();
-}
-
-/**
- * Capture one monotonic source for an operation.  The wrapper is the operation
- * ledger: nested helpers reuse it, and a broken injected source cannot silently
- * move an absolute deadline backwards.
- */
-function createRuntimeDependencyMonotonicLedger(
-  source: () => number
-): () => number {
-  let previous = Number.NEGATIVE_INFINITY;
-  return () => {
-    const observed = source();
-    if (!Number.isFinite(observed) || observed < previous) {
-      throw new SecError(
-        'RUNTIME-DEPS-003',
-        'Runtime dependency operation monotonic clock is invalid or moved backwards',
-        { observed, previous }
-      );
-    }
-    previous = observed;
-    return observed;
-  };
-}
-
-function runtimeDependencyOperationOptions<T extends RuntimeDependencyInstallOptions>(
-  options: T
-): RuntimeDependencyOperationOptions<T> {
-  const initialBudgetMs = runtimeDependencyPositiveBoundedInteger(
-    'lockTimeoutMs',
-    options.lockTimeoutMs,
-    DEFAULT_DEPENDENCY_LOCK_TIMEOUT_MS,
-    MAX_DEPENDENCY_OPERATION_TIMEOUT_MS
-  );
-  const pollIntervalMs = runtimeDependencyPositiveBoundedInteger(
-    'pollIntervalMs',
-    options.pollIntervalMs,
-    DEFAULT_DEPENDENCY_LOCK_POLL_INTERVAL_MS,
-    MAX_DEPENDENCY_LOCK_POLL_INTERVAL_MS
-  );
-  const existing = (options as unknown as Partial<RuntimeDependencyOperationOptions<T>>)
-    [RUNTIME_DEPENDENCY_OPERATION_CONTEXT];
-  const monotonicNowMs = existing?.monotonicNowMs ?? createRuntimeDependencyMonotonicLedger(
-    options.monotonicNowMs ?? defaultRuntimeDependencyMonotonicNowMs
-  );
-  const nowMonotonicMs = monotonicNowMs();
-  const deadlineAtMonotonicMs = Math.min(
-    existing?.deadlineAtMonotonicMs ?? Number.POSITIVE_INFINITY,
-    nowMonotonicMs + initialBudgetMs
-  );
-  const context = existing !== undefined &&
-      deadlineAtMonotonicMs === existing.deadlineAtMonotonicMs &&
-      pollIntervalMs === existing.pollIntervalMs &&
-      options.signal === existing.signal
-    ? existing
-    : Object.freeze({
-        deadlineAtMonotonicMs,
-        initialBudgetMs: existing?.initialBudgetMs ?? initialBudgetMs,
-        monotonicNowMs,
-        operationId: existing?.operationId ?? crypto.randomUUID(),
-        pollIntervalMs,
-        signal: options.signal ?? existing?.signal,
-        startedAtMonotonicMs: existing?.startedAtMonotonicMs ?? nowMonotonicMs
-      });
-  context.signal?.throwIfAborted();
-  return {
-    ...options,
-    lockTimeoutMs: Math.min(initialBudgetMs, context.initialBudgetMs),
-    pollIntervalMs,
-    [RUNTIME_DEPENDENCY_OPERATION_CONTEXT]: context
-  };
-}
-
-function runtimeDependencyOperationContext(
-  options: RuntimeDependencyInstallOptions
-): RuntimeDependencyOperationContext {
-  return (options as Partial<RuntimeDependencyOperationOptions>)[RUNTIME_DEPENDENCY_OPERATION_CONTEXT] ??
-    runtimeDependencyOperationOptions(options)[RUNTIME_DEPENDENCY_OPERATION_CONTEXT];
-}
-
-function runtimeDependencyOperationRemainingMs(
-  options: RuntimeDependencyInstallOptions,
-  label: string,
-  minimumMs = 1
-): number {
-  const context = runtimeDependencyOperationContext(options);
-  context.signal?.throwIfAborted();
-  const observedAtMonotonicMs = context.monotonicNowMs();
-  const remainingMs = context.deadlineAtMonotonicMs - observedAtMonotonicMs;
-  if (!Number.isFinite(remainingMs) || remainingMs < minimumMs) {
-    throw new SecError('RUNTIME-DEPS-003', `${label} exceeded the runtime dependency operation deadline`, {
-      initialBudgetMs: context.initialBudgetMs,
-      minimumMs,
-      observedAtMonotonicMs,
-      remainingMs: Math.max(0, Math.floor(remainingMs))
-    });
-  }
-  return remainingMs;
-}
-
-async function waitForRuntimeDependencyOperation(
-  options: RuntimeDependencyInstallOptions,
-  requestedDelayMs: number,
-  sleep: (ms: number) => Promise<void>,
-  label: string
-): Promise<void> {
-  const context = runtimeDependencyOperationContext(options);
-  const remainingMs = runtimeDependencyOperationRemainingMs(options, label);
-  const boundedDelayMs = Math.max(1, Math.min(requestedDelayMs, Math.floor(remainingMs)));
-  let abortListener: (() => void) | undefined;
-  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
-  const aborted = context.signal === undefined
-    ? null
-    : new Promise<never>((_resolve, reject) => {
-        abortListener = () => reject(context.signal?.reason ?? new Error(`${label} was aborted`));
-        context.signal?.addEventListener('abort', abortListener, { once: true });
-      });
-  const deadline = new Promise<never>((_resolve, reject) => {
-    deadlineTimer = setTimeout(() => reject(new SecError(
-      'RUNTIME-DEPS-003',
-      `${label} exceeded the runtime dependency operation deadline`,
-      { initialBudgetMs: context.initialBudgetMs }
-    )), Math.max(1, Math.ceil(remainingMs)));
-  });
-  try {
-    await Promise.race([
-      sleep(boundedDelayMs),
-      deadline,
-      ...(aborted === null ? [] : [aborted])
-    ]);
-  } finally {
-    if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
-    if (abortListener !== undefined) context.signal?.removeEventListener('abort', abortListener);
-  }
-  runtimeDependencyOperationRemainingMs(options, label);
-}
-
-async function runtimeDependencyOperationEffectFence(
-  options: RuntimeDependencyOperationOptions,
-  label: string
-): Promise<void> {
-  runtimeDependencyOperationRemainingMs(options, `${label} admission`);
-  await options.beforeCommit?.();
-  runtimeDependencyOperationRemainingMs(options, `${label} effect`);
-}
-
-function runtimeDependencyOperationDeadlineAt(
-  options: RuntimeDependencyOperationOptions,
-  label: string
-): number {
-  runtimeDependencyOperationRemainingMs(options, label);
-  return runtimeDependencyOperationContext(options).deadlineAtMonotonicMs;
-}
-
 async function hasCompleteRuntimeDeps(
   nodeModulesPath: string,
   spec?: RuntimeDependencySpec
@@ -1124,7 +1055,13 @@ async function resolveRuntimePackageRoot(
   let cursor = path.resolve(fromPackageRoot);
   const modulesRoot = path.resolve(nodeModulesPath);
   while (isPathInside(modulesRoot, cursor)) {
-    const candidate = path.basename(cursor).toLocaleLowerCase('en-US') === 'node_modules'
+    // An immutable compiler generation is itself the package container even
+    // though its durable leaf is `generation-<epoch>` rather than
+    // `node_modules`.  Package resolution must therefore derive the root
+    // container from the retained authority, not from its presentation name.
+    // Nested package containers still use their real `node_modules` leaf.
+    const candidate = sameHostPath(cursor, modulesRoot) ||
+      path.basename(cursor).toLocaleLowerCase('en-US') === 'node_modules'
       ? path.join(cursor, ...relativeSegments)
       : path.join(cursor, 'node_modules', ...relativeSegments);
     const physical = await physicalRuntimePackageRoot(modulesRoot, candidate);
@@ -1388,170 +1325,6 @@ async function writeManifestIfChanged(
   await writePhysicalControlText(filePath, nextText, commitFence);
 }
 
-function generatedStatePhysicalIdentity(
-  identity: Readonly<Pick<PhysicalDirectoryIdentity, 'device' | 'inode' | 'objectId'>>
-): GeneratedStatePhysicalIdentity {
-  return Object.freeze({
-    device: identity.device,
-    inode: identity.inode,
-    objectId: identity.objectId
-  });
-}
-
-function isGeneratedStatePhysicalIdentity(value: unknown): value is GeneratedStatePhysicalIdentity {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
-  const identity = value as Partial<GeneratedStatePhysicalIdentity>;
-  return typeof identity.device === 'string' && identity.device.length > 0 &&
-    typeof identity.inode === 'string' && identity.inode.length > 0 &&
-    typeof identity.objectId === 'string' && identity.objectId.length > 0;
-}
-
-function isSha256Digest(value: unknown): value is `sha256:${string}` {
-  return typeof value === 'string' && /^sha256:[0-9a-f]{64}$/u.test(value);
-}
-
-function sameGeneratedStateIdentity(
-  left: Readonly<GeneratedStatePhysicalIdentity>,
-  right: Readonly<GeneratedStatePhysicalIdentity>
-): boolean {
-  return left.device === right.device && left.inode === right.inode && left.objectId === right.objectId;
-}
-
-type RuntimeDependencySourceGenerationInput = Readonly<{
-  binding: unknown;
-  options: RuntimeDependencyOperationOptions;
-  ownerRoot: string;
-  sourcePath: string;
-}>;
-
-/**
- * A source-generation inventory is an invocation-local observation, not a
- * cache of authority.  Concurrent consumers may join the same in-flight
- * scan, but the entry is removed as soon as the scan settles and every
- * caller still performs its own effect-boundary readback.  This prevents a
- * waiter fan-out from repeating the 11k-entry root fence while preserving
- * mutation invalidation and fresh-process semantics.
- */
-const runtimeDependencySourceGenerationInFlight = new Map<
-  string,
-  Promise<RuntimeDependencySourceGeneration>
->();
-
-function runtimeDependencySourceGenerationKey(
-  input: RuntimeDependencySourceGenerationInput
-): string {
-  return JSON.stringify([
-    path.resolve(input.ownerRoot),
-    path.resolve(input.sourcePath),
-    generatedStateDigest(input.binding),
-    runtimeDependencyOperationContext(input.options).operationId
-  ]);
-}
-
-async function runtimeDependencySourceGenerationInternal(
-  input: RuntimeDependencySourceGenerationInput
-): Promise<RuntimeDependencySourceGeneration> {
-  const options = runtimeDependencyOperationOptions(input.options);
-  const context = runtimeDependencyOperationContext(options);
-  runtimeDependencyOperationRemainingMs(options, 'Runtime dependency source generation admission');
-  const owner = inspectNoFollowDirectoryChain(
-    input.ownerRoot,
-    'Runtime dependency source owner root'
-  ).target;
-  const source = inspectNoFollowDirectoryChain(
-    input.sourcePath,
-    'Runtime dependency source generation'
-  ).target;
-  const ownerRootPhysical = generatedStatePhysicalIdentity(owner);
-  const physical = generatedStatePhysicalIdentity(source);
-  const bindingDigest = generatedStateDigest(input.binding);
-  const treeInventory = scanNoFollowDirectoryTreeInventory(source, {
-    deadlineAtMs: context.deadlineAtMonotonicMs,
-    maximumBytes: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
-    maximumEntries: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES,
-    signal: context.signal
-  });
-  runtimeDependencyOperationRemainingMs(options, 'Runtime dependency source generation readback');
-  const currentOwner = assertSameNoFollowDirectoryIdentity(
-    owner,
-    'Runtime dependency source owner root readback'
-  ).target;
-  const currentSource = assertSameNoFollowDirectoryIdentity(
-    source,
-    'Runtime dependency source generation readback'
-  ).target;
-  if (!sameGeneratedStateIdentity(
-    generatedStatePhysicalIdentity(currentOwner),
-    ownerRootPhysical
-  ) || !sameGeneratedStateIdentity(
-    generatedStatePhysicalIdentity(currentSource),
-    physical
-  )) {
-    throw new SecError(
-      'RUNTIME-DEPS-004',
-      'Runtime dependency source physical identity changed during generation inventory'
-    );
-  }
-  const treeEntries = Object.freeze(treeInventory.map((entry) => Object.freeze({
-    relativePath: entry.relativePath,
-    kind: entry.kind,
-    device: entry.device,
-    inode: entry.inode,
-    size: entry.size,
-    contentDigest: entry.contentDigest,
-    linkTarget: entry.linkTarget
-  })));
-  const treeDigest = generatedStateDigest(Object.freeze({
-    schema: 'sec-runtime-dependency-source-tree-v1',
-    entries: treeEntries
-  }));
-  const treeEntryCount = treeEntries.length;
-  const epoch = generatedStateDigest(Object.freeze({
-    schema: 'sec-runtime-dependency-generation-epoch-v1',
-    ownerRoot: path.resolve(input.ownerRoot),
-    ownerRootPhysical,
-    physical,
-    bindingDigest,
-    treeDigest,
-    treeEntryCount
-  }));
-  return Object.freeze({
-    schema: 'sec-runtime-dependency-source-generation-v1' as const,
-    ownerRoot: path.resolve(input.ownerRoot),
-    ownerRootPhysical,
-    sourcePath: path.resolve(input.sourcePath),
-    physical,
-    bindingDigest,
-    treeDigest,
-    treeEntryCount,
-    epoch
-  });
-}
-
-async function runtimeDependencySourceGeneration(
-  input: RuntimeDependencySourceGenerationInput
-): Promise<RuntimeDependencySourceGeneration> {
-  const key = runtimeDependencySourceGenerationKey(input);
-  const existing = runtimeDependencySourceGenerationInFlight.get(key);
-  if (existing !== undefined) return existing;
-  const pending = runtimeDependencySourceGenerationInternal(input);
-  runtimeDependencySourceGenerationInFlight.set(key, pending);
-  try {
-    return await pending;
-  } finally {
-    if (runtimeDependencySourceGenerationInFlight.get(key) === pending) {
-      runtimeDependencySourceGenerationInFlight.delete(key);
-    }
-  }
-}
-
-function sameRuntimeDependencySourceGenerationContent(
-  left: RuntimeDependencySourceGeneration,
-  right: RuntimeDependencySourceGeneration
-): boolean {
-  return left.treeDigest === right.treeDigest && left.treeEntryCount === right.treeEntryCount;
-}
-
 async function runtimeDependencyTargetIdentity(
   targetPath: string
 ): Promise<RuntimeDependencyTargetIdentity | null> {
@@ -1604,22 +1377,6 @@ async function runtimeDependencyTargetIdentity(
   });
 }
 
-function isRuntimeDependencySourceGeneration(
-  value: unknown
-): value is RuntimeDependencySourceGeneration {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
-  const source = value as Partial<RuntimeDependencySourceGeneration>;
-  return source.schema === 'sec-runtime-dependency-source-generation-v1' &&
-    typeof source.ownerRoot === 'string' && path.isAbsolute(source.ownerRoot) &&
-    typeof source.sourcePath === 'string' && path.isAbsolute(source.sourcePath) &&
-    isGeneratedStatePhysicalIdentity(source.ownerRootPhysical) &&
-    isGeneratedStatePhysicalIdentity(source.physical) &&
-    isSha256Digest(source.bindingDigest) &&
-    isSha256Digest(source.treeDigest) &&
-    typeof source.treeEntryCount === 'number' && Number.isSafeInteger(source.treeEntryCount) && source.treeEntryCount >= 0 &&
-    isSha256Digest(source.epoch);
-}
-
 function isRuntimeDependencyTargetIdentity(
   value: unknown
 ): value is RuntimeDependencyTargetIdentity {
@@ -1629,3667 +1386,6 @@ function isRuntimeDependencyTargetIdentity(
     (target.kind === 'directory' || target.kind === 'link') &&
     isGeneratedStatePhysicalIdentity(target.physical) &&
     (target.linkTarget === null || typeof target.linkTarget === 'string');
-}
-
-type DependencyTransitionKind =
-  | 'compiler-generation'
-  | 'compiler-locator'
-  | 'compiler-bridge'
-  | 'runtime-projection'
-  | 'project-projection';
-
-type DependencyTransitionPhase =
-  | 'prepared'
-  | 'backed-up'
-  | 'published'
-  | 'binding-validated'
-  | 'stamp-readback'
-  | 'complete'
-  | 'rolled-back'
-  | 'recovery-required';
-
-type DependencyTransitionSlot = Readonly<{
-  readonly path: string;
-  readonly kind: 'absent' | 'directory' | 'link';
-  readonly physical: Readonly<GeneratedStatePhysicalIdentity> | null;
-  readonly linkTarget: string | null;
-  readonly bindingDigest: `sha256:${string}` | null;
-}>;
-
-interface DependencyTransitionJournal {
-  readonly schema: 'sec-dependency-transition-journal-v2';
-  readonly recordDigest: `sha256:${string}`;
-  readonly previousRecordDigest: `sha256:${string}` | null;
-  readonly sequence: number;
-  readonly operationKey: `sha256:${string}`;
-  readonly attemptNonce: string;
-  readonly kind: DependencyTransitionKind;
-  readonly ownerRoot: string;
-  readonly ownerRootPhysical: Readonly<GeneratedStatePhysicalIdentity>;
-  readonly destination: DependencyTransitionSlot;
-  readonly preimage: DependencyTransitionSlot;
-  readonly stage: DependencyTransitionSlot | null;
-  /**
-   * The operation-created staging container is a separate authority from the
-   * staged `node_modules` child.  Recovery must retain both identities before
-   * it can dispose anything; a path/name alone is never a cleanup authority.
-   */
-  readonly stageRoot: DependencyTransitionSlot | null;
-  readonly backup: DependencyTransitionSlot | null;
-  readonly sourceGeneration: Readonly<RuntimeDependencySourceGeneration>;
-  readonly phase: DependencyTransitionPhase;
-  readonly durability: 'known' | 'unknown';
-  readonly failure: Readonly<{ code: string; message: string }> | null;
-}
-
-type DependencyTransitionUnsigned = Omit<DependencyTransitionJournal, 'recordDigest'>;
-
-/**
- * The pre-v2 journal grammar is intentionally kept private to migration.  It
- * is not assignable to the normal reader's record type and is never returned
- * by a production readiness/read path.
- */
-type LegacyRuntimeDependencySourceGeneration = Omit<
-  RuntimeDependencySourceGeneration,
-  'treeDigest' | 'treeEntryCount'
-> & Partial<Pick<RuntimeDependencySourceGeneration, 'treeDigest' | 'treeEntryCount'>>;
-
-type LegacyDependencyTransitionJournal = Omit<
-  DependencyTransitionJournal,
-  'schema' | 'sourceGeneration' | 'stageRoot'
-> & {
-  readonly schema: typeof DEPENDENCY_TRANSITION_LEGACY_SCHEMA;
-  readonly sourceGeneration: Readonly<LegacyRuntimeDependencySourceGeneration>;
-};
-
-const DEPENDENCY_TRANSITION_SCHEMA = 'sec-dependency-transition-journal-v2' as const;
-const DEPENDENCY_TRANSITION_LEGACY_SCHEMA = 'sec-dependency-transition-journal-v1' as const;
-const DEPENDENCY_TRANSITION_POINTER_SCHEMA = 'sec-dependency-transition-pointer-v2' as const;
-const DEPENDENCY_TRANSITION_MIGRATION_SCHEMA = 'sec-dependency-transition-migration-v1' as const;
-
-interface DependencyTransitionNamespace {
-  readonly ownerRoot: PhysicalDirectoryIdentity;
-  readonly backupRoot: PhysicalDirectoryIdentity;
-  readonly journalRoot: PhysicalDirectoryIdentity;
-  readonly recordsRoot: PhysicalDirectoryIdentity;
-  readonly rolloversRoot: PhysicalDirectoryIdentity | null;
-}
-
-interface DependencyTransitionMigrationIntent {
-  readonly schema: typeof DEPENDENCY_TRANSITION_MIGRATION_SCHEMA;
-  readonly intentDigest: `sha256:${string}`;
-  readonly previousIntentDigest: `sha256:${string}` | null;
-  readonly phase: 'prepared' | 'complete';
-  readonly ownerRoot: string;
-  readonly ownerRootPhysical: Readonly<GeneratedStatePhysicalIdentity>;
-  readonly sourceSchema: typeof DEPENDENCY_TRANSITION_LEGACY_SCHEMA;
-  readonly sourceJournalRootPath: string;
-  readonly sourceJournalRootPhysical: Readonly<GeneratedStatePhysicalIdentity>;
-  readonly sourceRecordsRootPath: string;
-  readonly sourceRecordsRootPhysical: Readonly<GeneratedStatePhysicalIdentity>;
-  readonly sourceLedgerDigest: `sha256:${string}`;
-  readonly sourceRecordCount: number;
-  readonly targetSchema: typeof DEPENDENCY_TRANSITION_SCHEMA;
-  readonly targetJournalRootPath: string;
-  readonly targetJournalRootPhysical: Readonly<GeneratedStatePhysicalIdentity>;
-  readonly targetRecordsRootPath: string;
-  readonly targetRecordsRootPhysical: Readonly<GeneratedStatePhysicalIdentity>;
-  readonly targetLedgerDigest: `sha256:${string}`;
-  readonly targetRecordCount: number;
-}
-
-/**
- * The mutable `current.json` file is only a best-effort locator.  It is not a
- * transition authority: a caller must derive the one maximal tip from the
- * immutable record ledger before it can inspect or perform recovery effects.
- * Keeping this distinction explicit prevents a concurrent/external pointer
- * writer from making an older or foreign record appear authoritative.
- */
-interface DependencyTransitionLedger {
-  readonly namespace: DependencyTransitionNamespace;
-  readonly records: ReadonlyMap<`sha256:${string}`, DependencyTransitionJournal>;
-  readonly ledgerDigest: `sha256:${string}`;
-  readonly tip: DependencyTransitionJournal | null;
-}
-
-const DEPENDENCY_TRANSITION_RECORD_CAPACITY = 10_000;
-// Transition records are small canonical journal envelopes.  Reading their
-// bounded bytes in one retained no-follow census avoids reopening every leaf
-// after a metadata scan (O(records x phase writes)) while keeping the ledger
-// memory/deadline contract explicit.  Dependency trees use the streaming
-// inventory path and never enter this budget.
-const DEPENDENCY_TRANSITION_RECORD_BYTES_CAPACITY = 64 * 1024 * 1024;
-const DEPENDENCY_COMMAND_OUTPUT_BYTES_CAPACITY = DEPENDENCY_TRANSITION_RECORD_BYTES_CAPACITY;
-const DEPENDENCY_TRANSITION_ROLLOVER_TRIGGER = 9_000;
-const DEPENDENCY_TRANSITION_ROLLOVER_NAMESPACE_CAPACITY = 4_096;
-const DEPENDENCY_TRANSITION_ROLLOVER_SCHEMA = 'sec-dependency-transition-rollover-v1' as const;
-
-type DependencyTransitionRolloverPhase =
-  | 'prepared'
-  | 'staged'
-  | 'backed-up'
-  | 'published'
-  | 'retiring'
-  | 'retired'
-  | 'complete';
-
-interface DependencyTransitionRolloverIntent {
-  readonly schema: typeof DEPENDENCY_TRANSITION_ROLLOVER_SCHEMA;
-  readonly intentDigest: `sha256:${string}`;
-  readonly previousIntentDigest: `sha256:${string}` | null;
-  readonly sequence: number;
-  readonly phase: DependencyTransitionRolloverPhase;
-  readonly ownerRoot: string;
-  readonly ownerRootPhysical: Readonly<GeneratedStatePhysicalIdentity>;
-  readonly recordsRootPath: string;
-  readonly sourceRecordsRootPhysical: Readonly<GeneratedStatePhysicalIdentity>;
-  readonly retiredRecordsPath: string;
-  readonly retiredRecordsPhysical: Readonly<GeneratedStatePhysicalIdentity> | null;
-  readonly retiredRecordsDisposed: boolean;
-  readonly nextRecordsPath: string;
-  readonly nextRecordsPhysical: Readonly<GeneratedStatePhysicalIdentity> | null;
-  readonly publishedRecordsRootPhysical: Readonly<GeneratedStatePhysicalIdentity> | null;
-  readonly terminalRecordDigest: `sha256:${string}`;
-  readonly ledgerDigest: `sha256:${string}`;
-  readonly recordCount: number;
-  readonly checkpoint: DependencyTransitionJournal;
-}
-
-function dependencyTransitionNamespacePaths(ownerRoot: string): Readonly<{
-  backupRoot: string;
-  journalRoot: string;
-  recordsRoot: string;
-  rolloversRoot: string;
-}> {
-  const backupRoot = path.join(ownerRoot, '.tmp', 'dependency-installs', 'compiler-backups');
-  const journalRoot = path.join(backupRoot, '.dependency-transition-v2');
-  return Object.freeze({
-    backupRoot,
-    journalRoot,
-    recordsRoot: path.join(journalRoot, 'records'),
-    rolloversRoot: path.join(journalRoot, 'rollovers')
-  });
-}
-
-function dependencyTransitionLegacyNamespacePaths(ownerRoot: string): Readonly<{
-  backupRoot: string;
-  journalRoot: string;
-  recordsRoot: string;
-}> {
-  const backupRoot = path.join(ownerRoot, '.tmp', 'dependency-installs', 'compiler-backups');
-  const journalRoot = path.join(backupRoot, '.dependency-transition-v1');
-  return Object.freeze({
-    backupRoot,
-    journalRoot,
-    recordsRoot: path.join(journalRoot, 'records')
-  });
-}
-
-function dependencyTransitionDigestWithoutRecord(
-  record: DependencyTransitionUnsigned
-): `sha256:${string}` {
-  return generatedStateDigest(canonicalJson(record));
-}
-
-/**
- * A rollover checkpoint is a compact successor for an already authenticated
- * terminal ledger.  It is deliberately not a copy of the caller's next
- * prepared operation: accepting caller fields here would let a forged
- * prepared intent become the new ledger root during crash recovery.  The
- * checkpoint keeps the terminal topology/physical receipts and derives its
- * operation identity from both the old terminal digest and the complete
- * source-ledger digest.  Recovery proves this derivation while the old ledger
- * is still present, before it is moved to the retired archive.
- */
-function dependencyTransitionTerminalCheckpoint(
-  terminal: DependencyTransitionJournal,
-  ledgerDigest: `sha256:${string}`
-): DependencyTransitionJournal {
-  if (terminal.phase !== 'complete' && terminal.phase !== 'rolled-back') {
-    throw new SecError('RUNTIME-DEPS-004', 'Only a terminal dependency transition can seed a rollover checkpoint');
-  }
-  const unsigned: DependencyTransitionUnsigned = Object.freeze({
-    schema: DEPENDENCY_TRANSITION_SCHEMA,
-    previousRecordDigest: null,
-    sequence: 1,
-    operationKey: generatedStateDigest(Object.freeze({
-      schema: 'sec-dependency-transition-rollover-checkpoint-operation-v1',
-      terminalRecordDigest: terminal.recordDigest,
-      ledgerDigest
-    })),
-    attemptNonce: `rollover-checkpoint:${terminal.recordDigest.slice('sha256:'.length)}`,
-    kind: terminal.kind,
-    ownerRoot: terminal.ownerRoot,
-    ownerRootPhysical: terminal.ownerRootPhysical,
-    destination: terminal.destination,
-    preimage: terminal.preimage,
-    stage: terminal.stage,
-    stageRoot: terminal.stageRoot,
-    backup: terminal.backup,
-    sourceGeneration: terminal.sourceGeneration,
-    phase: terminal.phase,
-    durability: terminal.durability,
-    failure: terminal.failure
-  });
-  return Object.freeze({
-    ...unsigned,
-    recordDigest: dependencyTransitionDigestWithoutRecord(unsigned)
-  }) as DependencyTransitionJournal;
-}
-
-function dependencyTransitionRecordBytes(record: DependencyTransitionJournal): Buffer {
-  // Journal records are immutable evidence.  Their digest is over canonical
-  // JSON and the bytes published under the digest-named path must use that
-  // same canonical ordering; a merely parseable pretty-printed variant is a
-  // collision, not a record we may adopt.
-  return Buffer.from(formatJsonFile(canonicalJson(record)), 'utf8');
-}
-
-const DEPENDENCY_TRANSITION_RECORD_KEYS = Object.freeze([
-  'attemptNonce', 'backup', 'destination', 'durability', 'failure',
-  'kind', 'operationKey', 'ownerRoot', 'ownerRootPhysical', 'phase',
-  'preimage', 'previousRecordDigest', 'recordDigest', 'schema',
-  'sequence', 'sourceGeneration', 'stage', 'stageRoot'
-]);
-const DEPENDENCY_TRANSITION_LEGACY_RECORD_KEYS = Object.freeze([
-  'attemptNonce', 'backup', 'destination', 'durability', 'failure',
-  'kind', 'operationKey', 'ownerRoot', 'ownerRootPhysical', 'phase',
-  'preimage', 'previousRecordDigest', 'recordDigest', 'schema',
-  'sequence', 'sourceGeneration', 'stage'
-]);
-const DEPENDENCY_TRANSITION_POINTER_KEYS = Object.freeze(['recordDigest', 'schema']);
-const DEPENDENCY_TRANSITION_MIGRATION_KEYS = Object.freeze([
-  'intentDigest', 'ownerRoot', 'ownerRootPhysical', 'phase',
-  'previousIntentDigest', 'schema', 'sourceJournalRootPath',
-  'sourceJournalRootPhysical', 'sourceLedgerDigest', 'sourceRecordCount',
-  'sourceRecordsRootPath', 'sourceRecordsRootPhysical', 'targetJournalRootPath', 'targetJournalRootPhysical',
-  'targetLedgerDigest', 'targetRecordCount', 'targetRecordsRootPath',
-  'targetRecordsRootPhysical', 'targetSchema', 'sourceSchema'
-]);
-const DEPENDENCY_TRANSITION_ROLLOVER_KEYS = Object.freeze([
-  'checkpoint', 'intentDigest', 'nextRecordsPath', 'nextRecordsPhysical',
-  'previousIntentDigest', 'sequence',
-  'ownerRoot', 'ownerRootPhysical', 'phase', 'publishedRecordsRootPhysical',
-  'recordCount', 'recordsRootPath', 'retiredRecordsPath', 'retiredRecordsPhysical',
-  'retiredRecordsDisposed', 'ledgerDigest',
-  'schema', 'sourceRecordsRootPhysical', 'terminalRecordDigest'
-]);
-const DEPENDENCY_TRANSITION_SLOT_KEYS = Object.freeze([
-  'bindingDigest', 'kind', 'linkTarget', 'path', 'physical'
-]);
-const RUNTIME_SOURCE_GENERATION_KEYS = Object.freeze([
-  'bindingDigest', 'epoch', 'ownerRoot', 'ownerRootPhysical', 'physical',
-  'sourcePath', 'treeDigest', 'treeEntryCount', 'schema'
-]);
-const LEGACY_RUNTIME_SOURCE_GENERATION_KEYS = Object.freeze([
-  'bindingDigest', 'epoch', 'ownerRoot', 'ownerRootPhysical', 'physical',
-  'sourcePath', 'schema'
-]);
-const GENERATED_STATE_PHYSICAL_IDENTITY_KEYS = Object.freeze(['device', 'inode', 'objectId']);
-
-function hasExactObjectKeys(
-  value: unknown,
-  keys: readonly string[]
-): value is Record<string, unknown> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value) ||
-      Object.getPrototypeOf(value) !== Object.prototype) return false;
-  return Object.keys(value).sort(compareCodeUnits).join('\0') ===
-    [...keys].sort(compareCodeUnits).join('\0');
-}
-
-function isCanonicalAbsolutePath(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0 && !value.includes('\0') &&
-    path.isAbsolute(value) && path.resolve(value) === value;
-}
-
-function isCanonicalGeneratedStatePhysicalIdentity(value: unknown): value is GeneratedStatePhysicalIdentity {
-  return hasExactObjectKeys(value, GENERATED_STATE_PHYSICAL_IDENTITY_KEYS) &&
-    typeof value.device === 'string' && value.device.length > 0 &&
-    typeof value.inode === 'string' && value.inode.length > 0 &&
-    typeof value.objectId === 'string' && value.objectId.length > 0;
-}
-
-function isCanonicalDependencyTransitionSlot(value: unknown): value is DependencyTransitionSlot {
-  if (!hasExactObjectKeys(value, DEPENDENCY_TRANSITION_SLOT_KEYS) ||
-      !isCanonicalAbsolutePath(value.path) ||
-      !(['absent', 'directory', 'link'] as readonly string[]).includes(value.kind as string) ||
-      (value.bindingDigest !== null && !isSha256Digest(value.bindingDigest)) ||
-      (value.linkTarget !== null && typeof value.linkTarget !== 'string')) return false;
-  if (value.kind === 'absent') {
-    return value.physical === null && value.linkTarget === null && value.bindingDigest === null;
-  }
-  if (!isCanonicalGeneratedStatePhysicalIdentity(value.physical)) return false;
-  return value.kind === 'link' ? value.linkTarget !== null : value.linkTarget === null;
-}
-
-function isCanonicalRuntimeDependencySourceGeneration(
-  value: unknown
-): value is RuntimeDependencySourceGeneration {
-  if (!hasExactObjectKeys(value, RUNTIME_SOURCE_GENERATION_KEYS) ||
-      value.schema !== 'sec-runtime-dependency-source-generation-v1' ||
-      !isCanonicalAbsolutePath(value.ownerRoot) ||
-      !isCanonicalAbsolutePath(value.sourcePath) ||
-      !isCanonicalGeneratedStatePhysicalIdentity(value.ownerRootPhysical) ||
-      !isCanonicalGeneratedStatePhysicalIdentity(value.physical) ||
-      !isSha256Digest(value.bindingDigest) || !isSha256Digest(value.treeDigest) ||
-      !Number.isSafeInteger(value.treeEntryCount) || (value.treeEntryCount as number) < 0 ||
-      !isSha256Digest(value.epoch)) return false;
-  return true;
-}
-
-function isCanonicalLegacyRuntimeDependencySourceGeneration(
-  value: unknown
-): value is LegacyRuntimeDependencySourceGeneration {
-  if (hasExactObjectKeys(value, RUNTIME_SOURCE_GENERATION_KEYS)) {
-    return isCanonicalRuntimeDependencySourceGeneration(value);
-  }
-  if (!hasExactObjectKeys(value, LEGACY_RUNTIME_SOURCE_GENERATION_KEYS) ||
-      value.schema !== 'sec-runtime-dependency-source-generation-v1' ||
-      !isCanonicalAbsolutePath(value.ownerRoot) ||
-      !isCanonicalAbsolutePath(value.sourcePath) ||
-      !isCanonicalGeneratedStatePhysicalIdentity(value.ownerRootPhysical) ||
-      !isCanonicalGeneratedStatePhysicalIdentity(value.physical) ||
-      !isSha256Digest(value.bindingDigest) || !isSha256Digest(value.epoch)) return false;
-  return true;
-}
-
-function parseDependencyTransitionRecord(
-  bytes: Uint8Array,
-  expectedName?: string
-): DependencyTransitionJournal {
-  let value: unknown;
-  try {
-    value = JSON.parse(Buffer.from(bytes).toString('utf8')) as unknown;
-  } catch (error) {
-    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition journal record is not JSON', {
-      cause: error instanceof Error ? error.message : String(error)
-    });
-  }
-  if (!hasExactObjectKeys(value, DEPENDENCY_TRANSITION_RECORD_KEYS)) {
-    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition journal record has noncanonical keys');
-  }
-  const record = value as unknown as DependencyTransitionJournal;
-  if (record.schema !== DEPENDENCY_TRANSITION_SCHEMA || !isSha256Digest(record.recordDigest) ||
-      !isSha256Digest(record.previousRecordDigest) && record.previousRecordDigest !== null ||
-      !Number.isSafeInteger(record.sequence) || record.sequence < 1 ||
-      !isSha256Digest(record.operationKey) || typeof record.attemptNonce !== 'string' ||
-      record.attemptNonce.length === 0 || !(['compiler-generation', 'compiler-locator', 'compiler-bridge', 'runtime-projection', 'project-projection'] as readonly string[]).includes(record.kind) ||
-      !isCanonicalAbsolutePath(record.ownerRoot) ||
-      !isCanonicalGeneratedStatePhysicalIdentity(record.ownerRootPhysical) ||
-      !isCanonicalDependencyTransitionSlot(record.destination) ||
-      !isCanonicalDependencyTransitionSlot(record.preimage) ||
-      (record.stage !== null && !isCanonicalDependencyTransitionSlot(record.stage)) ||
-      (record.stageRoot !== null && !isCanonicalDependencyTransitionSlot(record.stageRoot)) ||
-      (record.backup !== null && !isCanonicalDependencyTransitionSlot(record.backup)) ||
-      !isCanonicalRuntimeDependencySourceGeneration(record.sourceGeneration) ||
-      !(['prepared', 'backed-up', 'published', 'binding-validated', 'stamp-readback', 'complete', 'rolled-back', 'recovery-required'] as readonly string[]).includes(record.phase) ||
-      !(['known', 'unknown'] as readonly string[]).includes(record.durability) ||
-      (record.failure !== null && (!hasExactObjectKeys(record.failure, ['code', 'message']) ||
-        typeof record.failure.code !== 'string' || record.failure.code.length === 0 ||
-        typeof record.failure.message !== 'string' || record.failure.message.length === 0))) {
-    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition journal record fields are invalid');
-  }
-  if (record.destination.path !== record.preimage.path ||
-      (record.stage === null) !== (record.stageRoot === null) ||
-      (record.stage !== null && record.stageRoot !== null && (
-        path.dirname(record.stage.path) !== record.stageRoot.path ||
-        (record.stageRoot.kind === 'absent' && record.stage.kind !== 'absent') ||
-        (record.stageRoot.kind !== 'directory' && record.stageRoot.kind !== 'absent')
-      )) ||
-      (record.backup !== null && path.dirname(record.backup.path) !==
-        path.join(record.ownerRoot, '.tmp', 'dependency-installs', 'compiler-backups'))) {
-    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition journal topology is noncanonical');
-  }
-  if (record.kind === 'compiler-bridge' && (
-    record.preimage.kind !== 'absent' ||
-    record.stage !== null ||
-    record.stageRoot !== null ||
-    record.backup !== null ||
-    record.sourceGeneration.ownerRoot !== path.dirname(record.sourceGeneration.sourcePath) ||
-    path.basename(record.sourceGeneration.sourcePath).toLocaleLowerCase('en-US') !== 'node_modules' ||
-    path.resolve(record.destination.path) === path.resolve(record.sourceGeneration.sourcePath)
-  )) {
-    throw new SecError('RUNTIME-DEPS-002', 'Compiler bridge transition journal topology is noncanonical');
-  }
-  if (expectedName !== undefined && expectedName !== transitionRecordName(record.recordDigest)) {
-    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition journal filename does not match its digest');
-  }
-  const { recordDigest: _recordDigest, ...unsigned } = record;
-  if (dependencyTransitionDigestWithoutRecord(unsigned) !== record.recordDigest) {
-    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition journal record digest is invalid');
-  }
-  if (formatJsonFile(canonicalJson(record)) !== Buffer.from(bytes).toString('utf8')) {
-    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition journal record bytes are not canonical');
-  }
-  return Object.freeze(record);
-}
-
-function assertDependencyTransitionRecordBytes(bytes: Uint8Array): void {
-  parseDependencyTransitionRecord(bytes);
-}
-
-/**
- * Parse the pre-stageRoot journal grammar only while performing the one-way
- * v1 -> v2 migration.  This deliberately uses the old insertion-order digest
- * and byte representation; accepting those bytes from the normal reader would
- * turn a schema migration into an accidental dual-read compatibility path.
- */
-function parseLegacyDependencyTransitionRecord(
-  bytes: Uint8Array,
-  expectedName?: string
-): LegacyDependencyTransitionJournal {
-  let value: unknown;
-  try {
-    value = JSON.parse(Buffer.from(bytes).toString('utf8')) as unknown;
-  } catch (error) {
-    throw new SecError('RUNTIME-DEPS-002', 'Legacy dependency transition journal record is not JSON', {
-      cause: error instanceof Error ? error.message : String(error)
-    });
-  }
-  if (!hasExactObjectKeys(value, DEPENDENCY_TRANSITION_LEGACY_RECORD_KEYS)) {
-    throw new SecError('RUNTIME-DEPS-002', 'Legacy dependency transition journal record has noncanonical keys');
-  }
-  const record = value as unknown as LegacyDependencyTransitionJournal;
-  if (record.schema !== DEPENDENCY_TRANSITION_LEGACY_SCHEMA || !isSha256Digest(record.recordDigest) ||
-      (!isSha256Digest(record.previousRecordDigest) && record.previousRecordDigest !== null) ||
-      !Number.isSafeInteger(record.sequence) || record.sequence < 1 ||
-      !isSha256Digest(record.operationKey) || typeof record.attemptNonce !== 'string' ||
-      record.attemptNonce.length === 0 ||
-      !(['compiler-generation', 'compiler-locator', 'compiler-bridge', 'runtime-projection', 'project-projection'] as readonly string[]).includes(record.kind) ||
-      !isCanonicalAbsolutePath(record.ownerRoot) ||
-      !isCanonicalGeneratedStatePhysicalIdentity(record.ownerRootPhysical) ||
-      !isCanonicalDependencyTransitionSlot(record.destination) ||
-      !isCanonicalDependencyTransitionSlot(record.preimage) ||
-      (record.stage !== null && !isCanonicalDependencyTransitionSlot(record.stage)) ||
-      (record.backup !== null && !isCanonicalDependencyTransitionSlot(record.backup)) ||
-      !isCanonicalLegacyRuntimeDependencySourceGeneration(record.sourceGeneration) ||
-      !(['prepared', 'backed-up', 'published', 'binding-validated', 'stamp-readback', 'complete', 'rolled-back', 'recovery-required'] as readonly string[]).includes(record.phase) ||
-      !(['known', 'unknown'] as readonly string[]).includes(record.durability) ||
-      (record.failure !== null && (!hasExactObjectKeys(record.failure, ['code', 'message']) ||
-        typeof record.failure.code !== 'string' || record.failure.code.length === 0 ||
-        typeof record.failure.message !== 'string' || record.failure.message.length === 0))) {
-    throw new SecError('RUNTIME-DEPS-002', 'Legacy dependency transition journal record fields are invalid');
-  }
-  if (record.destination.path !== record.preimage.path ||
-      (record.backup !== null && path.dirname(record.backup.path) !==
-        path.join(record.ownerRoot, '.tmp', 'dependency-installs', 'compiler-backups')) ||
-      (record.kind === 'compiler-bridge' && (
-        record.preimage.kind !== 'absent' ||
-        record.stage !== null ||
-        record.backup !== null ||
-        record.sourceGeneration.ownerRoot !== path.dirname(record.sourceGeneration.sourcePath) ||
-        path.basename(record.sourceGeneration.sourcePath).toLocaleLowerCase('en-US') !== 'node_modules' ||
-        path.resolve(record.destination.path) === path.resolve(record.sourceGeneration.sourcePath)
-      ))) {
-    throw new SecError('RUNTIME-DEPS-002', 'Legacy dependency transition journal topology is noncanonical');
-  }
-  if (expectedName !== undefined && expectedName !== transitionRecordName(record.recordDigest)) {
-    throw new SecError('RUNTIME-DEPS-002', 'Legacy dependency transition journal filename does not match its digest');
-  }
-  const { recordDigest: _recordDigest, ...unsigned } = record;
-  if (generatedStateDigest(unsigned) !== record.recordDigest) {
-    throw new SecError('RUNTIME-DEPS-002', 'Legacy dependency transition journal record digest is invalid');
-  }
-  if (formatJsonFile(record) !== Buffer.from(bytes).toString('utf8')) {
-    throw new SecError('RUNTIME-DEPS-002', 'Legacy dependency transition journal record bytes are not canonical');
-  }
-  return Object.freeze(record);
-}
-
-function assertDependencyTransitionPointerBytes(bytes: Uint8Array): void {
-  let value: unknown;
-  try {
-    value = JSON.parse(Buffer.from(bytes).toString('utf8')) as unknown;
-  } catch (error) {
-    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition pointer is not JSON', {
-      cause: error instanceof Error ? error.message : String(error)
-    });
-  }
-  if (!hasExactObjectKeys(value, DEPENDENCY_TRANSITION_POINTER_KEYS)) {
-    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition pointer has noncanonical keys');
-  }
-  const pointer = value as { schema: string; recordDigest: string };
-  if (pointer.schema !== DEPENDENCY_TRANSITION_POINTER_SCHEMA || !isSha256Digest(pointer.recordDigest) ||
-      formatJsonFile(canonicalJson(value)) !== Buffer.from(bytes).toString('utf8')) {
-    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition pointer schema is invalid');
-  }
-}
-
-function dependencyTransitionMigrationIntentStableDigest(
-  intent: Omit<DependencyTransitionMigrationIntent, 'intentDigest' | 'schema'>
-): `sha256:${string}` {
-  return generatedStateDigest(canonicalJson(Object.freeze({
-    schema: DEPENDENCY_TRANSITION_MIGRATION_SCHEMA,
-    previousIntentDigest: intent.previousIntentDigest,
-    phase: intent.phase,
-    ownerRoot: intent.ownerRoot,
-    ownerRootPhysical: intent.ownerRootPhysical,
-    sourceSchema: intent.sourceSchema,
-    sourceJournalRootPath: intent.sourceJournalRootPath,
-    sourceJournalRootPhysical: intent.sourceJournalRootPhysical,
-    sourceRecordsRootPath: intent.sourceRecordsRootPath,
-    sourceRecordsRootPhysical: intent.sourceRecordsRootPhysical,
-    sourceLedgerDigest: intent.sourceLedgerDigest,
-    sourceRecordCount: intent.sourceRecordCount,
-    targetSchema: intent.targetSchema,
-    targetJournalRootPath: intent.targetJournalRootPath,
-    targetJournalRootPhysical: intent.targetJournalRootPhysical,
-    targetRecordsRootPath: intent.targetRecordsRootPath,
-    targetRecordsRootPhysical: intent.targetRecordsRootPhysical,
-    targetLedgerDigest: intent.targetLedgerDigest,
-    targetRecordCount: intent.targetRecordCount
-  })));
-}
-
-function dependencyTransitionMigrationIntentFileName(
-  intentDigest: `sha256:${string}`,
-  phase: 'prepared' | 'complete'
-): string {
-  return `migration-${intentDigest.slice('sha256:'.length)}-${phase}.json`;
-}
-
-function dependencyTransitionMigrationIntentBytes(
-  intent: DependencyTransitionMigrationIntent
-): Buffer {
-  return Buffer.from(formatJsonFile(canonicalJson(intent)), 'utf8');
-}
-
-function parseDependencyTransitionMigrationIntent(
-  bytes: Uint8Array,
-  expectedName?: string
-): DependencyTransitionMigrationIntent {
-  let value: unknown;
-  try {
-    value = JSON.parse(Buffer.from(bytes).toString('utf8')) as unknown;
-  } catch (error) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration intent is not JSON', {
-      cause: error instanceof Error ? error.message : String(error)
-    });
-  }
-  if (!hasExactObjectKeys(value, DEPENDENCY_TRANSITION_MIGRATION_KEYS)) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration intent has noncanonical keys');
-  }
-  const intent = value as unknown as DependencyTransitionMigrationIntent;
-  if (intent.schema !== DEPENDENCY_TRANSITION_MIGRATION_SCHEMA ||
-      !isSha256Digest(intent.intentDigest) ||
-      (intent.previousIntentDigest !== null && !isSha256Digest(intent.previousIntentDigest)) ||
-      !(['prepared', 'complete'] as readonly string[]).includes(intent.phase) ||
-      !isCanonicalAbsolutePath(intent.ownerRoot) ||
-      !isCanonicalGeneratedStatePhysicalIdentity(intent.ownerRootPhysical) ||
-      intent.sourceSchema !== DEPENDENCY_TRANSITION_LEGACY_SCHEMA ||
-      !isCanonicalAbsolutePath(intent.sourceJournalRootPath) ||
-      !isCanonicalGeneratedStatePhysicalIdentity(intent.sourceJournalRootPhysical) ||
-      !isCanonicalAbsolutePath(intent.sourceRecordsRootPath) ||
-      !isCanonicalGeneratedStatePhysicalIdentity(intent.sourceRecordsRootPhysical) ||
-      !isSha256Digest(intent.sourceLedgerDigest) ||
-      !Number.isSafeInteger(intent.sourceRecordCount) || intent.sourceRecordCount < 1 ||
-      intent.sourceRecordCount > DEPENDENCY_TRANSITION_RECORD_CAPACITY ||
-      intent.targetSchema !== DEPENDENCY_TRANSITION_SCHEMA ||
-      !isCanonicalAbsolutePath(intent.targetJournalRootPath) ||
-      !isCanonicalGeneratedStatePhysicalIdentity(intent.targetJournalRootPhysical) ||
-      !isCanonicalAbsolutePath(intent.targetRecordsRootPath) ||
-      !isCanonicalGeneratedStatePhysicalIdentity(intent.targetRecordsRootPhysical) ||
-      !isSha256Digest(intent.targetLedgerDigest) ||
-      !Number.isSafeInteger(intent.targetRecordCount) || intent.targetRecordCount < 0 ||
-      intent.targetRecordCount > DEPENDENCY_TRANSITION_RECORD_CAPACITY ||
-      (intent.phase === 'prepared' && intent.previousIntentDigest !== null) ||
-      (intent.phase === 'complete' && intent.previousIntentDigest === null) ||
-      dependencyTransitionMigrationIntentStableDigest(intent) !== intent.intentDigest) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration intent fields are invalid');
-  }
-  const legacyPaths = dependencyTransitionLegacyNamespacePaths(intent.ownerRoot);
-  const targetPaths = dependencyTransitionNamespacePaths(intent.ownerRoot);
-  if (path.resolve(intent.sourceJournalRootPath) !== path.resolve(legacyPaths.journalRoot) ||
-      path.resolve(intent.sourceRecordsRootPath) !== path.resolve(legacyPaths.recordsRoot) ||
-      path.dirname(intent.sourceRecordsRootPath) !== intent.sourceJournalRootPath ||
-      path.resolve(intent.targetJournalRootPath) !== path.resolve(targetPaths.journalRoot) ||
-      path.resolve(intent.targetRecordsRootPath) !== path.resolve(targetPaths.recordsRoot) ||
-      path.dirname(intent.targetRecordsRootPath) !== intent.targetJournalRootPath ||
-      expectedName !== undefined && expectedName !== dependencyTransitionMigrationIntentFileName(
-        intent.intentDigest,
-        intent.phase
-      )) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration intent topology is noncanonical');
-  }
-  if (formatJsonFile(canonicalJson(intent)) !== Buffer.from(bytes).toString('utf8')) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration intent bytes are not canonical');
-  }
-  return Object.freeze(intent);
-}
-
-function assertDependencyTransitionMigrationIntentBytes(bytes: Uint8Array): void {
-  parseDependencyTransitionMigrationIntent(bytes);
-}
-
-function rolloverIntentStableDigest(
-  intent: Pick<DependencyTransitionRolloverIntent,
-    'previousIntentDigest' | 'sequence' | 'ownerRoot' | 'ownerRootPhysical' |
-    'recordsRootPath' | 'sourceRecordsRootPhysical' |
-    'retiredRecordsPath' | 'nextRecordsPath' | 'terminalRecordDigest' | 'ledgerDigest' |
-    'recordCount' | 'checkpoint'>
-): `sha256:${string}` {
-  return generatedStateDigest(Object.freeze({
-    schema: DEPENDENCY_TRANSITION_ROLLOVER_SCHEMA,
-    previousIntentDigest: intent.previousIntentDigest,
-    sequence: intent.sequence,
-    ownerRoot: intent.ownerRoot,
-    ownerRootPhysical: intent.ownerRootPhysical,
-    recordsRootPath: intent.recordsRootPath,
-    sourceRecordsRootPhysical: intent.sourceRecordsRootPhysical,
-    retiredRecordsPath: intent.retiredRecordsPath,
-    nextRecordsPath: intent.nextRecordsPath,
-    terminalRecordDigest: intent.terminalRecordDigest,
-    ledgerDigest: intent.ledgerDigest,
-    recordCount: intent.recordCount,
-    checkpointDigest: intent.checkpoint.recordDigest
-  }));
-}
-
-function rolloverIntentFileName(
-  intentDigest: `sha256:${string}`,
-  phase: DependencyTransitionRolloverPhase
-): string {
-  return `rollover-${intentDigest.slice('sha256:'.length)}-${phase}.json`;
-}
-
-function rolloverResidueStem(
-  intent: Pick<DependencyTransitionRolloverIntent,
-    'previousIntentDigest' | 'sequence' | 'ownerRoot' | 'terminalRecordDigest' |
-    'ledgerDigest' | 'recordCount' | 'checkpoint'>
-): string {
-  return generatedStateDigest(Object.freeze({
-    schema: DEPENDENCY_TRANSITION_ROLLOVER_SCHEMA,
-    previousIntentDigest: intent.previousIntentDigest,
-    sequence: intent.sequence,
-    ownerRoot: path.resolve(intent.ownerRoot),
-    terminalRecordDigest: intent.terminalRecordDigest,
-    ledgerDigest: intent.ledgerDigest,
-    recordCount: intent.recordCount,
-    checkpointDigest: intent.checkpoint.recordDigest
-  })).slice('sha256:'.length, 'sha256:'.length + 48);
-}
-
-function parseDependencyTransitionRolloverIntent(
-  bytes: Uint8Array,
-  expectedName?: string
-): DependencyTransitionRolloverIntent {
-  let value: unknown;
-  try {
-    value = JSON.parse(Buffer.from(bytes).toString('utf8')) as unknown;
-  } catch (error) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover intent is not JSON', {
-      cause: error instanceof Error ? error.message : String(error)
-    });
-  }
-  if (!hasExactObjectKeys(value, DEPENDENCY_TRANSITION_ROLLOVER_KEYS)) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover intent has noncanonical keys');
-  }
-  const intent = value as unknown as DependencyTransitionRolloverIntent;
-  if (intent.schema !== DEPENDENCY_TRANSITION_ROLLOVER_SCHEMA ||
-      !isSha256Digest(intent.intentDigest) ||
-      (intent.previousIntentDigest !== null && !isSha256Digest(intent.previousIntentDigest)) ||
-      !Number.isSafeInteger(intent.sequence) || intent.sequence < 1 ||
-      !(['prepared', 'staged', 'backed-up', 'published', 'retiring', 'retired', 'complete'] as readonly string[]).includes(intent.phase) ||
-      !isCanonicalAbsolutePath(intent.ownerRoot) ||
-      !isCanonicalGeneratedStatePhysicalIdentity(intent.ownerRootPhysical) ||
-      !isCanonicalAbsolutePath(intent.recordsRootPath) ||
-      !isCanonicalGeneratedStatePhysicalIdentity(intent.sourceRecordsRootPhysical) ||
-      !isCanonicalAbsolutePath(intent.retiredRecordsPath) ||
-      !isCanonicalAbsolutePath(intent.nextRecordsPath) ||
-      (intent.retiredRecordsPhysical !== null &&
-        !isCanonicalGeneratedStatePhysicalIdentity(intent.retiredRecordsPhysical)) ||
-      (intent.nextRecordsPhysical !== null &&
-        !isCanonicalGeneratedStatePhysicalIdentity(intent.nextRecordsPhysical)) ||
-      (intent.publishedRecordsRootPhysical !== null &&
-        !isCanonicalGeneratedStatePhysicalIdentity(intent.publishedRecordsRootPhysical)) ||
-      !isSha256Digest(intent.terminalRecordDigest) ||
-      !isSha256Digest(intent.ledgerDigest) ||
-      !Number.isSafeInteger(intent.recordCount) || intent.recordCount < 1 ||
-      intent.recordCount > DEPENDENCY_TRANSITION_RECORD_CAPACITY ||
-      typeof intent.retiredRecordsDisposed !== 'boolean' ||
-      parseDependencyTransitionRecord(
-        Buffer.from(formatJsonFile(canonicalJson(intent.checkpoint)), 'utf8')
-      ).recordDigest !== intent.checkpoint.recordDigest) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover intent fields are invalid');
-  }
-  const journalRoot = path.dirname(intent.recordsRootPath);
-  const rolloversRoot = path.join(journalRoot, 'rollovers');
-  const residueStem = rolloverResidueStem(intent);
-  if (path.dirname(intent.retiredRecordsPath) !== rolloversRoot ||
-      path.dirname(intent.nextRecordsPath) !== rolloversRoot ||
-      path.basename(intent.retiredRecordsPath) !== `records-retired-${residueStem}` ||
-      path.basename(intent.nextRecordsPath) !== `records-next-${residueStem}` ||
-       (intent.checkpoint.phase !== 'complete' && intent.checkpoint.phase !== 'rolled-back') ||
-      intent.checkpoint.sequence !== 1 ||
-      intent.checkpoint.previousRecordDigest !== null ||
-      intent.checkpoint.ownerRoot !== intent.ownerRoot ||
-      (intent.phase === 'prepared' && (
-        intent.retiredRecordsPhysical !== null ||
-        intent.nextRecordsPhysical !== null ||
-        intent.publishedRecordsRootPhysical !== null ||
-        intent.retiredRecordsDisposed
-      )) ||
-      (intent.phase === 'staged' && (
-        intent.retiredRecordsPhysical !== null ||
-        intent.nextRecordsPhysical === null ||
-        intent.publishedRecordsRootPhysical !== null ||
-        intent.retiredRecordsDisposed
-      )) ||
-      (intent.phase === 'backed-up' && (
-        intent.retiredRecordsPhysical === null ||
-        intent.nextRecordsPhysical === null ||
-        intent.publishedRecordsRootPhysical !== null ||
-        intent.retiredRecordsDisposed
-      )) ||
-      ((intent.phase === 'published' || intent.phase === 'retiring') && (
-        intent.retiredRecordsPhysical === null ||
-        intent.nextRecordsPhysical !== null ||
-        intent.publishedRecordsRootPhysical === null ||
-        intent.retiredRecordsDisposed
-      )) ||
-      ((intent.phase === 'retired' || intent.phase === 'complete') && (
-        intent.retiredRecordsPhysical !== null ||
-        intent.nextRecordsPhysical !== null ||
-        intent.publishedRecordsRootPhysical === null ||
-        !intent.retiredRecordsDisposed
-      )) ||
-      rolloverIntentStableDigest(intent) !== intent.intentDigest) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover intent topology or digest is invalid');
-  }
-  if (expectedName !== undefined && expectedName !== rolloverIntentFileName(intent.intentDigest, intent.phase)) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover intent filename does not match its digest');
-  }
-  if (formatJsonFile(canonicalJson(intent)) !== Buffer.from(bytes).toString('utf8')) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover intent bytes are not canonical');
-  }
-  return Object.freeze(intent);
-}
-
-function assertDependencyTransitionRolloverIntentBytes(bytes: Uint8Array): void {
-  parseDependencyTransitionRolloverIntent(bytes);
-}
-
-function writeDurableTransitionFile(
-  parent: PhysicalDirectoryIdentity,
-  name: string,
-  bytes: Uint8Array,
-  validate: (candidate: Uint8Array) => void,
-  immutable = false,
-  expectedExisting?: Readonly<{ device: string; inode: string }> | null
-): void {
-  const existing = inspectNoFollowOrdinaryFileEntry(parent, name);
-  if (immutable && existing !== null) {
-    const current = readNoFollowOrdinaryFile(parent, name);
-    if (current === null) {
-      throw new SecError('RUNTIME-DEPS-002', 'Immutable dependency transition record disappeared before reuse');
-    }
-    validate(current);
-    if (!Buffer.from(current).equals(Buffer.from(bytes))) {
-      throw new SecError('RUNTIME-DEPS-002', 'Immutable dependency transition record collides with different canonical bytes', {
-        path: path.join(parent.path, name)
-      });
-    }
-    return;
-  }
-  if (expectedExisting !== undefined) {
-    replaceDurableCanonicalFile({ parent, name, bytes, validate, expectedExisting });
-    return;
-  }
-  if (existing === null) {
-    publishExclusiveDurableCanonicalFile({ parent, name, bytes, validate });
-  } else {
-    replaceDurableCanonicalFile({ parent, name, bytes, validate });
-  }
-}
-
-function transitionRecordName(digestValue: `sha256:${string}`): string {
-  return `record-${digestValue.slice('sha256:'.length)}.json`;
-}
-
-async function ensureDependencyTransitionNamespace(
-  ownerRoot: string,
-  options: RuntimeDependencyOperationOptions
-): Promise<DependencyTransitionNamespace> {
-  await runtimeDependencyOperationEffectFence(options, 'Dependency transition namespace creation');
-  const owner = inspectNoFollowDirectoryChain(ownerRoot, 'Dependency transition owner root').target;
-  const paths = dependencyTransitionNamespacePaths(owner.path);
-  // This is the only namespace creation route. Existing names are reopened
-  // without following links, so a foreign/reparse path fails closed.
-  const backupRoot = createNoFollowOrdinaryDirectoryChain(owner, [
-    '.tmp', 'dependency-installs', 'compiler-backups'
-  ]);
-  const journalRoot = createNoFollowOrdinaryDirectoryChain(backupRoot, [
-    '.dependency-transition-v2'
-  ]);
-  const recordsRoot = createNoFollowOrdinaryDirectoryChain(journalRoot, ['records']);
-  const rolloversRoot = createNoFollowOrdinaryDirectoryChain(journalRoot, ['rollovers']);
-  if (paths.backupRoot !== backupRoot.path || paths.journalRoot !== journalRoot.path ||
-    paths.recordsRoot !== recordsRoot.path || paths.rolloversRoot !== rolloversRoot.path) {
-    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition namespace path normalization changed');
-  }
-  runtimeDependencyOperationRemainingMs(options, 'Dependency transition namespace creation readback');
-  return Object.freeze({ ownerRoot: owner, backupRoot, journalRoot, recordsRoot, rolloversRoot });
-}
-
-function inspectDependencyTransitionNamespace(
-  ownerRoot: string
-): DependencyTransitionNamespace | null {
-  try {
-    const owner = inspectNoFollowDirectoryChain(ownerRoot, 'Dependency transition owner root').target;
-    const paths = dependencyTransitionNamespacePaths(owner.path);
-    const backupRoot = inspectNoFollowDirectoryChain(paths.backupRoot, 'Dependency transition backup root').target;
-    const journalRoot = inspectNoFollowDirectoryChain(paths.journalRoot, 'Dependency transition journal root').target;
-    const recordsRoot = inspectNoFollowDirectoryChain(paths.recordsRoot, 'Dependency transition records root').target;
-    let rolloversRoot: PhysicalDirectoryIdentity | null;
-    try {
-      rolloversRoot = inspectNoFollowDirectoryChain(paths.rolloversRoot, 'Dependency transition rollovers root').target;
-    } catch (error) {
-      if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') {
-        // Older journals predate bounded ledger rollover.  The writer creates
-        // this optional owner-local namespace before its first rollover; a
-        // read-only inspection must remain effect-free.
-        rolloversRoot = null;
-      } else {
-        throw error;
-      }
-    }
-    if (paths.backupRoot !== backupRoot.path || paths.journalRoot !== journalRoot.path ||
-        paths.recordsRoot !== recordsRoot.path ||
-        (rolloversRoot !== null && paths.rolloversRoot !== rolloversRoot.path)) {
-      throw new SecError('RUNTIME-DEPS-002', 'Dependency transition namespace path normalization changed');
-    }
-    return Object.freeze({ ownerRoot: owner, backupRoot, journalRoot, recordsRoot, rolloversRoot });
-  } catch (error) {
-    if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') return null;
-    throw error;
-  }
-}
-
-/**
- * Inspect the retired v1 namespace without creating any directory and without
- * treating its records as current authority.  The migration owner uses this
- * physical snapshot as its source preimage; every normal reader ignores this
- * namespace except to report that an explicit migration is required.
- */
-function inspectLegacyDependencyTransitionNamespace(
-  ownerRoot: string
-): DependencyTransitionNamespace | null {
-  try {
-    const owner = inspectNoFollowDirectoryChain(ownerRoot, 'Legacy dependency transition owner root').target;
-    const paths = dependencyTransitionLegacyNamespacePaths(owner.path);
-    const backupRoot = inspectNoFollowDirectoryChain(
-      paths.backupRoot,
-      'Legacy dependency transition backup root'
-    ).target;
-    const journalRoot = inspectNoFollowDirectoryChain(
-      paths.journalRoot,
-      'Legacy dependency transition journal root'
-    ).target;
-    const recordsRoot = inspectNoFollowDirectoryChain(
-      paths.recordsRoot,
-      'Legacy dependency transition records root'
-    ).target;
-    if (paths.backupRoot !== backupRoot.path || paths.journalRoot !== journalRoot.path ||
-        paths.recordsRoot !== recordsRoot.path) {
-      throw new SecError('RUNTIME-DEPS-002', 'Legacy dependency transition namespace path normalization changed');
-    }
-    return Object.freeze({
-      ownerRoot: owner,
-      backupRoot,
-      journalRoot,
-      recordsRoot,
-      rolloversRoot: null
-    });
-  } catch (error) {
-    if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') return null;
-    throw error;
-  }
-}
-
-type DependencyTransitionRolloverNamespace = Readonly<{
-  ownerRoot: PhysicalDirectoryIdentity;
-  journalRoot: PhysicalDirectoryIdentity;
-  rolloversRoot: PhysicalDirectoryIdentity;
-  recordsRootPath: string;
-}>;
-
-function inspectDependencyTransitionRolloverNamespace(
-  ownerRoot: string
-): DependencyTransitionRolloverNamespace | null {
-  try {
-    const owner = inspectNoFollowDirectoryChain(ownerRoot, 'Dependency transition rollover owner root').target;
-    const paths = dependencyTransitionNamespacePaths(owner.path);
-    const backupRoot = inspectNoFollowDirectoryChain(
-      paths.backupRoot,
-      'Dependency transition rollover backup root'
-    ).target;
-    const journalRoot = inspectNoFollowDirectoryChain(
-      paths.journalRoot,
-      'Dependency transition rollover journal root'
-    ).target;
-    const rolloversRoot = inspectNoFollowDirectoryChain(
-      paths.rolloversRoot,
-      'Dependency transition rollover namespace'
-    ).target;
-    if (paths.backupRoot !== backupRoot.path || paths.journalRoot !== journalRoot.path ||
-        paths.rolloversRoot !== rolloversRoot.path) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover namespace path normalization changed');
-    }
-    return Object.freeze({
-      ownerRoot: owner,
-      journalRoot,
-      rolloversRoot,
-      recordsRootPath: paths.recordsRoot
-    });
-  } catch (error) {
-    if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') return null;
-    throw error;
-  }
-}
-
-async function readNoFollowDirectNames(
-  directory: PhysicalDirectoryIdentity,
-  label: string,
-  maximumEntries: number,
-  options: RuntimeDependencyOperationOptions
-): Promise<readonly string[]> {
-  runtimeDependencyOperationRemainingMs(options, `${label} admission`);
-  const before = assertSameNoFollowDirectoryIdentity(directory, `${label} before read`).target;
-  const names = await fs.readdir(before.path, 'utf8');
-  runtimeDependencyOperationRemainingMs(options, `${label} readback`);
-  if (names.length > maximumEntries) {
-    throw new SecError('RUNTIME-DEPS-004', `${label} entry capacity exceeded`, {
-      maximumEntries,
-      observedEntries: names.length
-    });
-  }
-  const after = assertSameNoFollowDirectoryIdentity(directory, `${label} after read`).target;
-  if (!sameGeneratedStateIdentity(
-    generatedStatePhysicalIdentity(before),
-    generatedStatePhysicalIdentity(after)
-  )) {
-    throw new SecError('RUNTIME-DEPS-004', `${label} identity changed during direct read`);
-  }
-  return Object.freeze(names.sort(compareCodeUnits));
-}
-
-function dependencyTransitionLedgerDigest(
-  records: ReadonlyMap<`sha256:${string}`, Readonly<{ recordDigest: `sha256:${string}` }>>
-): `sha256:${string}` {
-  // Each immutable record digest already binds its canonical bytes.  The
-  // ordered digest set therefore forms a compact, content-addressed ledger
-  // receipt without rereading every record when a rollover phase advances.
-  return generatedStateDigest(Object.freeze({
-    schema: 'sec-dependency-transition-ledger-v1',
-    recordDigests: Object.freeze([...records.keys()].sort(compareCodeUnits))
-  }));
-}
-
-function inspectOptionalNoFollowDirectoryChild(
-  parent: PhysicalDirectoryIdentity,
-  name: string,
-  label: string
-): PhysicalDirectoryIdentity | null {
-  try {
-    return inspectNoFollowDirectoryChild(parent, name, label);
-  } catch (error) {
-    if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') return null;
-    throw error;
-  }
-}
-
-function makeDependencyTransitionRolloverIntent(input: Readonly<{
-  readonly namespace: DependencyTransitionNamespace;
-  readonly terminal: DependencyTransitionJournal;
-  readonly previousIntentDigest: `sha256:${string}` | null;
-  readonly sequence: number;
-  readonly ledgerDigest: `sha256:${string}`;
-  readonly recordCount: number;
-  readonly checkpoint: DependencyTransitionJournal;
-  readonly nextRecordsPhysical: Readonly<GeneratedStatePhysicalIdentity> | null;
-}>): DependencyTransitionRolloverIntent {
-  if (input.namespace.rolloversRoot === null) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover namespace is unavailable');
-  }
-  const stem = rolloverResidueStem({
-    previousIntentDigest: input.previousIntentDigest,
-    sequence: input.sequence,
-    ownerRoot: input.namespace.ownerRoot.path,
-    terminalRecordDigest: input.terminal.recordDigest,
-    ledgerDigest: input.ledgerDigest,
-    recordCount: input.recordCount,
-    checkpoint: input.checkpoint
-  });
-  const retiredRecordsPath = path.join(input.namespace.rolloversRoot.path, `records-retired-${stem}`);
-  const nextRecordsPath = path.join(input.namespace.rolloversRoot.path, `records-next-${stem}`);
-  const stableInput = Object.freeze({
-    previousIntentDigest: input.previousIntentDigest,
-    sequence: input.sequence,
-    ownerRoot: input.namespace.ownerRoot.path,
-    ownerRootPhysical: generatedStatePhysicalIdentity(input.namespace.ownerRoot),
-    recordsRootPath: input.namespace.recordsRoot.path,
-    sourceRecordsRootPhysical: generatedStatePhysicalIdentity(input.namespace.recordsRoot),
-    retiredRecordsPath,
-    nextRecordsPath,
-    terminalRecordDigest: input.terminal.recordDigest,
-    ledgerDigest: input.ledgerDigest,
-    recordCount: input.recordCount,
-    checkpoint: input.checkpoint
-  });
-  const intentDigest = rolloverIntentStableDigest(stableInput);
-  return Object.freeze({
-    schema: DEPENDENCY_TRANSITION_ROLLOVER_SCHEMA,
-    intentDigest,
-    previousIntentDigest: stableInput.previousIntentDigest,
-    sequence: stableInput.sequence,
-    phase: 'prepared',
-    ownerRoot: stableInput.ownerRoot,
-    ownerRootPhysical: stableInput.ownerRootPhysical,
-    recordsRootPath: stableInput.recordsRootPath,
-    sourceRecordsRootPhysical: stableInput.sourceRecordsRootPhysical,
-    retiredRecordsPath,
-    retiredRecordsPhysical: null,
-    retiredRecordsDisposed: false,
-    nextRecordsPath,
-    nextRecordsPhysical: input.nextRecordsPhysical,
-    publishedRecordsRootPhysical: null,
-    terminalRecordDigest: stableInput.terminalRecordDigest,
-    ledgerDigest: input.ledgerDigest,
-    recordCount: input.recordCount,
-    checkpoint: input.checkpoint
-  });
-}
-
-function advanceDependencyTransitionRolloverIntent(
-  previous: DependencyTransitionRolloverIntent,
-  phase: DependencyTransitionRolloverPhase,
-  patch: Readonly<Partial<Pick<DependencyTransitionRolloverIntent,
-    'retiredRecordsPhysical' | 'retiredRecordsDisposed' | 'nextRecordsPhysical' |
-    'publishedRecordsRootPhysical'>>>
-): DependencyTransitionRolloverIntent {
-  const next = Object.freeze({ ...previous, phase, ...patch });
-  if (rolloverIntentStableDigest(next) !== previous.intentDigest) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover identity changed between phases');
-  }
-  return next;
-}
-
-async function assertDependencyTransitionRolloverCheckpoint(
-  recordsRoot: PhysicalDirectoryIdentity,
-  intent: DependencyTransitionRolloverIntent,
-  options: RuntimeDependencyOperationOptions
-): Promise<void> {
-  const expectedName = transitionRecordName(intent.checkpoint.recordDigest);
-  const names = await readNoFollowDirectNames(
-    recordsRoot,
-    'Dependency transition rollover checkpoint records',
-    2,
-    options
-  );
-  if (names.length !== 1 || names[0] !== expectedName) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover checkpoint directory contains unknown residue', {
-      expectedName,
-      names
-    });
-  }
-  const entry = inspectNoFollowOrdinaryFileEntry(recordsRoot, expectedName);
-  if (entry === null || entry.bytes === null) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover checkpoint disappeared');
-  }
-  const checkpoint = parseDependencyTransitionRecord(entry.bytes, expectedName);
-  if (checkpoint.recordDigest !== intent.checkpoint.recordDigest ||
-      !Buffer.from(entry.bytes).equals(dependencyTransitionRecordBytes(intent.checkpoint))) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover checkpoint bytes differ');
-  }
-}
-
-function assertDependencyTransitionRolloverCheckpointDerived(
-  intent: DependencyTransitionRolloverIntent,
-  terminal: DependencyTransitionJournal
-): void {
-  const expected = dependencyTransitionTerminalCheckpoint(terminal, intent.ledgerDigest);
-  if (!Buffer.from(dependencyTransitionRecordBytes(expected)).equals(
-    dependencyTransitionRecordBytes(intent.checkpoint)
-  )) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover checkpoint is not derived from its authenticated terminal ledger tip');
-  }
-}
-
-function assertDependencyTransitionRolloverOwner(
-  namespace: DependencyTransitionRolloverNamespace,
-  intent: DependencyTransitionRolloverIntent
-): void {
-  if (intent.ownerRoot !== namespace.ownerRoot.path ||
-      intent.recordsRootPath !== namespace.recordsRootPath ||
-      !sameGeneratedStateIdentity(
-        generatedStatePhysicalIdentity(namespace.ownerRoot),
-        intent.ownerRootPhysical
-      )) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover intent belongs to a foreign owner root');
-  }
-}
-
-function assertDependencyTransitionRolloverDirectory(
-  actual: PhysicalDirectoryIdentity | null,
-  expected: Readonly<GeneratedStatePhysicalIdentity> | null,
-  label: string
-): PhysicalDirectoryIdentity {
-  if (actual === null || expected === null ||
-      !sameGeneratedStateIdentity(generatedStatePhysicalIdentity(actual), expected)) {
-    throw new SecError('RUNTIME-DEPS-004', `${label} is absent or has a foreign physical identity`, {
-      expected,
-      actual: actual === null ? null : generatedStatePhysicalIdentity(actual)
-    });
-  }
-  return actual;
-}
-
-function assertDependencyTransitionTerminalRolloverReady(
-  terminal: DependencyTransitionJournal,
-  namespace: DependencyTransitionNamespace
-): void {
-  if (terminal.phase !== 'complete' && terminal.phase !== 'rolled-back') {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition ledger reached capacity before a terminal receipt');
-  }
-  if (terminal.stage !== null && terminal.stage.kind !== 'absent' ||
-      terminal.stageRoot !== null && terminal.stageRoot.kind !== 'absent' ||
-      terminal.backup !== null && terminal.backup.kind !== 'absent') {
-    throw new SecError('RUNTIME-DEPS-004', 'Terminal dependency transition retains an unknown stage or backup residue');
-  }
-  if (terminal.destination.kind !== 'absent' && terminal.destination.physical === null) {
-    throw new SecError('RUNTIME-DEPS-004', 'Terminal dependency transition destination has no physical identity');
-  }
-  if (terminal.ownerRoot !== namespace.ownerRoot.path ||
-      !sameGeneratedStateIdentity(terminal.ownerRootPhysical, generatedStatePhysicalIdentity(namespace.ownerRoot))) {
-    throw new SecError('RUNTIME-DEPS-004', 'Terminal dependency transition owner identity changed');
-  }
-}
-
-type DependencyTransitionRolloverArchiveEntry = Readonly<{
-  readonly relativePath: string;
-  readonly device: string;
-  readonly inode: string;
-  readonly recordDigest: `sha256:${string}`;
-  readonly bytesDigest: `sha256:${string}`;
-}>;
-
-const DEPENDENCY_TRANSITION_ROLLOVER_DISPOSAL_INVENTORY_SCHEMA =
-  'sec-dependency-transition-rollover-disposal-inventory-v1' as const;
-const DEPENDENCY_TRANSITION_ROLLOVER_DISPOSAL_INVENTORY_KEYS = Object.freeze([
-  'archivePhysical', 'entries', 'intentDigest', 'inventoryDigest', 'ledgerDigest',
-  'recordCount', 'schema'
-]);
-const DEPENDENCY_TRANSITION_ROLLOVER_DISPOSAL_INVENTORY_ENTRY_KEYS = Object.freeze([
-  'bytesDigest', 'device', 'inode', 'recordDigest', 'relativePath'
-]);
-
-interface DependencyTransitionRolloverDisposalInventory {
-  readonly schema: typeof DEPENDENCY_TRANSITION_ROLLOVER_DISPOSAL_INVENTORY_SCHEMA;
-  readonly inventoryDigest: `sha256:${string}`;
-  readonly intentDigest: `sha256:${string}`;
-  readonly archivePhysical: Readonly<GeneratedStatePhysicalIdentity>;
-  readonly ledgerDigest: `sha256:${string}`;
-  readonly recordCount: number;
-  readonly entries: readonly DependencyTransitionRolloverArchiveEntry[];
-}
-
-function rolloverDisposalInventoryName(
-  intent: DependencyTransitionRolloverIntent
-): string {
-  return `disposal-inventory-${intent.intentDigest.slice('sha256:'.length)}.json`;
-}
-
-function rolloverDisposalInventoryBytesDigest(bytes: Uint8Array): `sha256:${string}` {
-  return generatedStateDigest(Object.freeze({
-    encoding: 'base64',
-    bytes: Buffer.from(bytes).toString('base64')
-  }));
-}
-
-function rolloverDisposalInventoryStableDigest(
-  inventory: Omit<DependencyTransitionRolloverDisposalInventory, 'inventoryDigest'>
-): `sha256:${string}` {
-  return generatedStateDigest(Object.freeze({
-    schema: inventory.schema,
-    intentDigest: inventory.intentDigest,
-    archivePhysical: inventory.archivePhysical,
-    ledgerDigest: inventory.ledgerDigest,
-    recordCount: inventory.recordCount,
-    entries: inventory.entries
-  }));
-}
-
-function parseDependencyTransitionRolloverDisposalInventory(
-  bytes: Uint8Array,
-  expectedName: string,
-  intent: DependencyTransitionRolloverIntent,
-  archivePhysical: Readonly<GeneratedStatePhysicalIdentity>
-): DependencyTransitionRolloverDisposalInventory {
-  let value: unknown;
-  try {
-    value = JSON.parse(Buffer.from(bytes).toString('utf8')) as unknown;
-  } catch (error) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency rollover disposal inventory is not JSON', {
-      cause: error instanceof Error ? error.message : String(error)
-    });
-  }
-  if (!hasExactObjectKeys(value, DEPENDENCY_TRANSITION_ROLLOVER_DISPOSAL_INVENTORY_KEYS)) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency rollover disposal inventory has noncanonical keys');
-  }
-  const inventory = value as unknown as DependencyTransitionRolloverDisposalInventory;
-  if (inventory.schema !== DEPENDENCY_TRANSITION_ROLLOVER_DISPOSAL_INVENTORY_SCHEMA ||
-      !isSha256Digest(inventory.inventoryDigest) ||
-      !isSha256Digest(inventory.intentDigest) ||
-      !isCanonicalGeneratedStatePhysicalIdentity(inventory.archivePhysical) ||
-      !isSha256Digest(inventory.ledgerDigest) ||
-      !Number.isSafeInteger(inventory.recordCount) || inventory.recordCount < 1 ||
-      inventory.recordCount > DEPENDENCY_TRANSITION_RECORD_CAPACITY ||
-      !Array.isArray(inventory.entries) || inventory.entries.length !== inventory.recordCount ||
-      inventory.entries.some((entry) => !hasExactObjectKeys(entry, DEPENDENCY_TRANSITION_ROLLOVER_DISPOSAL_INVENTORY_ENTRY_KEYS) ||
-        typeof entry.relativePath !== 'string' || !/^record-[0-9a-f]{64}\.json$/u.test(entry.relativePath) ||
-        typeof entry.device !== 'string' || entry.device.length === 0 ||
-        typeof entry.inode !== 'string' || entry.inode.length === 0 ||
-        !isSha256Digest(entry.recordDigest) || !isSha256Digest(entry.bytesDigest))) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency rollover disposal inventory fields are invalid');
-  }
-  const entries = [...inventory.entries].sort((left, right) => compareCodeUnits(left.relativePath, right.relativePath));
-  if (entries.some((entry, index) => entry !== inventory.entries[index])) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency rollover disposal inventory entries are not canonicalized');
-  }
-  for (let index = 1; index < entries.length; index += 1) {
-    if (entries[index - 1]!.relativePath === entries[index]!.relativePath) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency rollover disposal inventory contains duplicate record names');
-    }
-  }
-  if (inventory.intentDigest !== intent.intentDigest ||
-      !sameGeneratedStateIdentity(inventory.archivePhysical, archivePhysical) ||
-      inventory.recordCount !== intent.recordCount || inventory.ledgerDigest !== intent.ledgerDigest ||
-      rolloverDisposalInventoryStableDigest(inventory) !== inventory.inventoryDigest ||
-      expectedName !== rolloverDisposalInventoryName(intent) ||
-      formatJsonFile(canonicalJson(inventory)) !== Buffer.from(bytes).toString('utf8')) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency rollover disposal inventory binding is invalid');
-  }
-  return Object.freeze({ ...inventory, entries: Object.freeze(entries) });
-}
-
-async function inspectDependencyTransitionRolloverArchive(
-  archive: PhysicalDirectoryIdentity,
-  intent: DependencyTransitionRolloverIntent,
-  options: RuntimeDependencyOperationOptions
-): Promise<readonly DependencyTransitionRolloverArchiveEntry[]> {
-  const names = await readNoFollowDirectNames(
-    archive,
-    'Dependency transition retired records archive',
-    intent.recordCount + 2,
-    options
-  );
-  const records = new Map<`sha256:${string}`, DependencyTransitionJournal>();
-  const entries: DependencyTransitionRolloverArchiveEntry[] = [];
-  const inventoryName = rolloverDisposalInventoryName(intent);
-  let inventory: DependencyTransitionRolloverDisposalInventory | null = null;
-  for (const name of names) {
-    if (name === inventoryName) {
-      const inventoryEntry = inspectNoFollowOrdinaryFileEntry(archive, name);
-      if (inventoryEntry === null || inventoryEntry.bytes === null || inventoryEntry.kind !== 'file') {
-        throw new SecError('RUNTIME-DEPS-004', 'Dependency rollover disposal inventory disappeared or is not an ordinary file');
-      }
-      if (inventory !== null) {
-        throw new SecError('RUNTIME-DEPS-004', 'Dependency rollover disposal inventory is duplicated');
-      }
-      inventory = parseDependencyTransitionRolloverDisposalInventory(
-        inventoryEntry.bytes,
-        name,
-        intent,
-        generatedStatePhysicalIdentity(archive)
-      );
-      continue;
-    }
-    if (!/^record-[0-9a-f]{64}\.json$/u.test(name)) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition retired records contain unknown residue', { name });
-    }
-    const entry = inspectNoFollowOrdinaryFileEntry(archive, name);
-    if (entry === null || entry.bytes === null || entry.kind !== 'file') {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition retired record disappeared or is not an ordinary file', { name });
-    }
-    const record = parseDependencyTransitionRecord(entry.bytes, name);
-    if (records.has(record.recordDigest)) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition retired records contain a duplicate digest', { name });
-    }
-    records.set(record.recordDigest, record);
-    entries.push(Object.freeze({
-      relativePath: name,
-      device: entry.device,
-      inode: entry.inode,
-      recordDigest: record.recordDigest,
-      bytesDigest: rolloverDisposalInventoryBytesDigest(entry.bytes)
-    }));
-  }
-  if (records.size !== intent.recordCount ||
-      dependencyTransitionLedgerDigest(records) !== intent.ledgerDigest ||
-      !records.has(intent.terminalRecordDigest)) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition retired records ledger digest differs and is preserved', {
-      expectedLedgerDigest: intent.ledgerDigest,
-      recordCount: intent.recordCount,
-      observedRecordCount: records.size,
-      terminalRecordDigest: intent.terminalRecordDigest
-    });
-  }
-  if (inventory !== null && (
-    inventory.entries.length !== entries.length ||
-    inventory.entries.some((expected, index) => {
-      const actual = entries.find((entry) => entry.relativePath === expected.relativePath);
-      return actual === undefined || actual.device !== expected.device || actual.inode !== expected.inode ||
-        actual.recordDigest !== expected.recordDigest || actual.bytesDigest !== expected.bytesDigest;
-    })
-  )) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency rollover disposal inventory does not match its untouched archive');
-  }
-  return Object.freeze(entries.sort((left, right) => compareCodeUnits(left.relativePath, right.relativePath)));
-}
-
-async function ensureDependencyTransitionRolloverDisposalInventory(
-  archive: PhysicalDirectoryIdentity,
-  intent: DependencyTransitionRolloverIntent,
-  options: RuntimeDependencyOperationOptions
-): Promise<DependencyTransitionRolloverDisposalInventory> {
-  const inventoryName = rolloverDisposalInventoryName(intent);
-  const existing = inspectNoFollowOrdinaryFileEntry(archive, inventoryName);
-  if (existing !== null) {
-    if (existing.bytes === null || existing.kind !== 'file') {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency rollover disposal inventory is foreign and preserved');
-    }
-    const inventory = parseDependencyTransitionRolloverDisposalInventory(
-      existing.bytes,
-      inventoryName,
-      intent,
-      generatedStatePhysicalIdentity(archive)
-    );
-    // A crash may have removed any prefix of the inventoried records before
-    // the disposal receipt advanced.  The immutable inventory is the
-    // closed-world authority for that effect: validate only the exact
-    // remaining subset, preserving missing entries as already-disposed
-    // evidence.  Requiring the full archive here would make a crash after the
-    // first leaf permanently unrecoverable.
-    await assertDependencyTransitionRolloverArchiveSubset(archive, inventory, inventoryName, options);
-    return inventory;
-  }
-  const entries = await inspectDependencyTransitionRolloverArchive(archive, intent, options);
-  const inventoryUnsigned: Omit<DependencyTransitionRolloverDisposalInventory, 'inventoryDigest'> = Object.freeze({
-    schema: DEPENDENCY_TRANSITION_ROLLOVER_DISPOSAL_INVENTORY_SCHEMA,
-    intentDigest: intent.intentDigest,
-    archivePhysical: generatedStatePhysicalIdentity(archive),
-    ledgerDigest: intent.ledgerDigest,
-    recordCount: intent.recordCount,
-    entries
-  });
-  const inventory = Object.freeze({
-    ...inventoryUnsigned,
-    inventoryDigest: rolloverDisposalInventoryStableDigest(inventoryUnsigned)
-  });
-  const bytes = Buffer.from(formatJsonFile(canonicalJson(inventory)), 'utf8');
-  await runtimeDependencyOperationEffectFence(options, 'Dependency rollover disposal inventory publication');
-  writeDurableTransitionFile(
-    archive,
-    inventoryName,
-    bytes,
-    (candidate) => parseDependencyTransitionRolloverDisposalInventory(
-      candidate,
-      inventoryName,
-      intent,
-      generatedStatePhysicalIdentity(archive)
-    ),
-    true
-  );
-  const readback = inspectNoFollowOrdinaryFileEntry(archive, inventoryName);
-  if (readback === null || readback.bytes === null) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency rollover disposal inventory disappeared after publication');
-  }
-  return parseDependencyTransitionRolloverDisposalInventory(
-    readback.bytes,
-    inventoryName,
-    intent,
-    generatedStatePhysicalIdentity(archive)
-  );
-}
-
-async function assertDependencyTransitionRolloverArchiveSubset(
-  archive: PhysicalDirectoryIdentity,
-  inventory: DependencyTransitionRolloverDisposalInventory,
-  inventoryName: string,
-  options: RuntimeDependencyOperationOptions
-): Promise<void> {
-  const names = await readNoFollowDirectNames(
-    archive,
-    'Dependency transition retired records archive inventoried subset',
-    inventory.recordCount + 1,
-    options
-  );
-  const expectedByName = new Map(inventory.entries.map((entry) => [entry.relativePath, entry]));
-  for (const name of names) {
-    if (name === inventoryName) continue;
-    const expected = expectedByName.get(name);
-    if (expected === undefined) {
-      throw new SecError(
-        'RUNTIME-DEPS-004',
-        'Dependency transition retired records contain foreign residue outside the disposal inventory',
-        { name }
-      );
-    }
-    const entry = inspectNoFollowOrdinaryFileEntry(archive, name);
-    if (entry === null || entry.kind !== 'file' || entry.bytes === null ||
-        entry.device !== expected.device || entry.inode !== expected.inode ||
-        rolloverDisposalInventoryBytesDigest(entry.bytes) !== expected.bytesDigest) {
-      throw new SecError(
-        'RUNTIME-DEPS-004',
-        'Dependency transition retired record changed after disposal inventory publication',
-        { name }
-      );
-    }
-    const record = parseDependencyTransitionRecord(entry.bytes, name);
-    if (record.recordDigest !== expected.recordDigest) {
-      throw new SecError(
-        'RUNTIME-DEPS-004',
-        'Dependency transition retired record digest differs from disposal inventory',
-        { name }
-      );
-    }
-  }
-}
-
-async function disposeDependencyTransitionRolloverArchive(
-  namespace: DependencyTransitionRolloverNamespace,
-  intent: DependencyTransitionRolloverIntent,
-  options: RuntimeDependencyOperationOptions
-): Promise<void> {
-  const archiveName = path.basename(intent.retiredRecordsPath);
-  const archive = inspectOptionalNoFollowDirectoryChild(
-    namespace.rolloversRoot,
-    archiveName,
-    'Dependency transition retired records archive'
-  );
-  if (archive === null) return;
-  if (intent.retiredRecordsPhysical === null ||
-      !sameGeneratedStateIdentity(generatedStatePhysicalIdentity(archive), intent.retiredRecordsPhysical)) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition retired records archive identity changed and is preserved');
-  }
-  const inventoryName = rolloverDisposalInventoryName(intent);
-  const inventoryEntry = inspectNoFollowOrdinaryFileEntry(archive, inventoryName);
-  if (inventoryEntry === null || inventoryEntry.bytes === null || inventoryEntry.kind !== 'file') {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency rollover disposal inventory is absent; archive is preserved');
-  }
-  const inventory = parseDependencyTransitionRolloverDisposalInventory(
-    inventoryEntry.bytes,
-    inventoryName,
-    intent,
-    generatedStatePhysicalIdentity(archive)
-  );
-  const names = await readNoFollowDirectNames(
-    archive,
-    'Dependency transition retired records archive disposal',
-    intent.recordCount + 2,
-    options
-  );
-  const expectedByName = new Map(inventory.entries.map((entry) => [entry.relativePath, entry]));
-  for (const name of names) {
-    if (name === inventoryName) continue;
-    const expected = expectedByName.get(name);
-    if (expected === undefined) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition retired records contain foreign residue during disposal', { name });
-    }
-    const entry = inspectNoFollowOrdinaryFileEntry(archive, name);
-    if (entry === null || entry.bytes === null || entry.kind !== 'file' ||
-        entry.device !== expected.device || entry.inode !== expected.inode ||
-        rolloverDisposalInventoryBytesDigest(entry.bytes) !== expected.bytesDigest) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition retired record changed after disposal inventory publication', { name });
-    }
-    await runtimeDependencyOperationEffectFence(options, 'Dependency transition retired record disposal');
-    deleteRetainedNoFollowEntry({
-      root: archive,
-      relativePath: name,
-      kind: 'file',
-      device: expected.device,
-      inode: expected.inode,
-      ancestorDirectories: Object.freeze([])
-    });
-  }
-  const remainingNames = await readNoFollowDirectNames(
-    archive,
-    'Dependency transition retired records archive disposal readback',
-    intent.recordCount + 2,
-    options
-  );
-  if (remainingNames.length !== 1 || remainingNames[0] !== inventoryName) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition retired archive contains unexpected residue after record disposal', {
-      remainingNames
-    });
-  }
-  const inventoryAfter = inspectNoFollowOrdinaryFileEntry(archive, inventoryName);
-  if (inventoryAfter === null || inventoryAfter.bytes === null || inventoryAfter.kind !== 'file' ||
-      !Buffer.from(inventoryAfter.bytes).equals(Buffer.from(inventoryEntry.bytes))) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency rollover disposal inventory changed before archive retirement');
-  }
-  await runtimeDependencyOperationEffectFence(options, 'Dependency transition rollover inventory disposal');
-  deleteRetainedNoFollowEntry({
-    root: archive,
-    relativePath: inventoryName,
-    kind: 'file',
-    device: inventoryEntry.device,
-    inode: inventoryEntry.inode,
-    ancestorDirectories: Object.freeze([])
-  });
-  const archiveAfter = inspectOptionalNoFollowDirectoryChild(
-    namespace.rolloversRoot,
-    archiveName,
-    'Dependency transition retired records archive after descendant disposal'
-  );
-  if (archiveAfter === null || !sameGeneratedStateIdentity(
-    generatedStatePhysicalIdentity(archiveAfter),
-    intent.retiredRecordsPhysical
-  )) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition retired records archive disappeared before root disposal');
-  }
-  await runtimeDependencyOperationEffectFence(options, 'Dependency transition rollover archive disposal');
-  deleteRetainedNoFollowEntry({
-    root: namespace.rolloversRoot,
-    relativePath: archiveName,
-    kind: 'directory',
-    device: intent.retiredRecordsPhysical.device,
-    inode: intent.retiredRecordsPhysical.inode,
-    ancestorDirectories: Object.freeze([])
-  });
-  if (inspectOptionalNoFollowDirectoryChild(
-    namespace.rolloversRoot,
-    archiveName,
-    'Dependency transition retired records archive final readback'
-  ) !== null) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition retired records archive remains after disposal');
-  }
-}
-
-async function assertDependencyTransitionTerminalReadback(
-  terminal: DependencyTransitionJournal,
-  options: RuntimeDependencyOperationOptions
-): Promise<void> {
-  runtimeDependencyOperationRemainingMs(options, 'Dependency transition terminal readback admission');
-  const destination = await observeDependencyTransitionSlot(
-    terminal.destination.path,
-    terminal.destination.bindingDigest
-  );
-  if (!transitionSlotMatches(destination, terminal.destination)) {
-    throw new SecError('RUNTIME-DEPS-004', 'Terminal dependency transition destination or binding readback drifted');
-  }
-  const source = await observeDependencyTransitionSlot(terminal.sourceGeneration.sourcePath);
-  if (source.kind !== 'directory' || source.physical === null ||
-      !sameGeneratedStateIdentity(source.physical, terminal.sourceGeneration.physical)) {
-    throw new SecError('RUNTIME-DEPS-004', 'Terminal dependency transition source generation readback drifted');
-  }
-}
-
-async function writeDependencyTransitionRolloverIntentPhase(
-  namespace: DependencyTransitionRolloverNamespace,
-  intent: DependencyTransitionRolloverIntent,
-  options: RuntimeDependencyOperationOptions
-): Promise<void> {
-  await runtimeDependencyOperationEffectFence(options, `Dependency transition rollover ${intent.phase} receipt publication`);
-  const bytes = Buffer.from(formatJsonFile(canonicalJson(intent)), 'utf8');
-  writeDurableTransitionFile(
-    namespace.rolloversRoot,
-    rolloverIntentFileName(intent.intentDigest, intent.phase),
-    bytes,
-    assertDependencyTransitionRolloverIntentBytes,
-    true
-  );
-  runtimeDependencyOperationRemainingMs(options, `Dependency transition rollover ${intent.phase} receipt readback`);
-}
-
-type DependencyTransitionRolloverObservation = Readonly<{
-  namespace: DependencyTransitionRolloverNamespace;
-  active: DependencyTransitionRolloverIntent | null;
-  latestComplete: DependencyTransitionRolloverIntent | null;
-}>;
-
-const DEPENDENCY_TRANSITION_ROLLOVER_PHASE_ORDER: Readonly<Record<DependencyTransitionRolloverPhase, number>> =
-  Object.freeze({
-    prepared: 0,
-    staged: 1,
-    'backed-up': 2,
-    published: 3,
-    retiring: 4,
-    retired: 5,
-    complete: 6
-  });
-
-async function inspectActiveDependencyTransitionRollover(
-  ownerRoot: string,
-  options: RuntimeDependencyOperationOptions
-): Promise<DependencyTransitionRolloverObservation | null> {
-  runtimeDependencyOperationRemainingMs(options, 'Dependency transition rollover census admission');
-  const namespace = inspectDependencyTransitionRolloverNamespace(ownerRoot);
-  if (namespace === null) return null;
-  const names = await readNoFollowDirectNames(
-    namespace.rolloversRoot,
-    'Dependency transition rollover namespace',
-    DEPENDENCY_TRANSITION_ROLLOVER_NAMESPACE_CAPACITY,
-    options
-  );
-  const phasePattern = /^rollover-[0-9a-f]{64}-(prepared|staged|backed-up|published|retiring|retired|complete)\.json$/u;
-  const residuePattern = /^records-(?:retired|next)-[0-9a-f]{48}$/u;
-  const grouped = new Map<string, Map<DependencyTransitionRolloverPhase, DependencyTransitionRolloverIntent>>();
-  const referencedResidue = new Set<string>();
-  for (const name of names) {
-    if (residuePattern.test(name)) {
-      referencedResidue.add(name);
-      continue;
-    }
-    if (!phasePattern.test(name)) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover namespace contains unknown residue', {
-        name
-      });
-    }
-    const entry = inspectNoFollowOrdinaryFileEntry(namespace.rolloversRoot, name);
-    if (entry === null || entry.bytes === null) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover intent disappeared during census', { name });
-    }
-    const intent = parseDependencyTransitionRolloverIntent(entry.bytes, name);
-    if (intent.ownerRoot !== namespace.ownerRoot.path || intent.recordsRootPath !== namespace.recordsRootPath) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover intent belongs to a foreign topology', { name });
-    }
-    const phases = grouped.get(intent.intentDigest) ?? new Map<DependencyTransitionRolloverPhase, DependencyTransitionRolloverIntent>();
-    if (phases.has(intent.phase)) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover phase is duplicated', {
-        intentDigest: intent.intentDigest,
-        phase: intent.phase
-      });
-    }
-    phases.set(intent.phase, intent);
-    grouped.set(intent.intentDigest, phases);
-  }
-
-  let active: DependencyTransitionRolloverIntent | null = null;
-  const latestIntents: DependencyTransitionRolloverIntent[] = [];
-  const referencedNames = new Set<string>();
-  for (const phases of grouped.values()) {
-    const ordered = [...phases.values()].sort((left, right) =>
-      DEPENDENCY_TRANSITION_ROLLOVER_PHASE_ORDER[left.phase] -
-      DEPENDENCY_TRANSITION_ROLLOVER_PHASE_ORDER[right.phase]
-    );
-    if (ordered[0]?.phase !== 'prepared') {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover chain has no prepared phase');
-    }
-    for (let index = 0; index < ordered.length; index += 1) {
-      if (DEPENDENCY_TRANSITION_ROLLOVER_PHASE_ORDER[ordered[index]!.phase] !== index) {
-        throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover chain skips a phase');
-      }
-      if (index > 0 && ordered[index]!.intentDigest !== ordered[index - 1]!.intentDigest) {
-        throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover chain changed intent identity');
-      }
-    }
-    const latest = ordered.at(-1)!;
-    latestIntents.push(latest);
-    if (!latest.retiredRecordsDisposed) {
-      referencedNames.add(path.basename(latest.retiredRecordsPath));
-    }
-    if (latest.nextRecordsPhysical !== null) {
-      referencedNames.add(path.basename(latest.nextRecordsPath));
-    }
-  }
-  for (const name of referencedResidue) {
-    if (!referencedNames.has(name)) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover residue is foreign and preserved', { name });
-    }
-  }
-  if (latestIntents.length === 0) {
-    return Object.freeze({ namespace, active: null, latestComplete: null });
-  }
-  const intentByDigest = new Map(latestIntents.map((intent) => [intent.intentDigest, intent]));
-  const childByPredecessor = new Map<`sha256:${string}`, `sha256:${string}`>();
-  const roots: DependencyTransitionRolloverIntent[] = [];
-  for (const intent of latestIntents) {
-    if (intent.previousIntentDigest === null) {
-      if (intent.sequence !== 1) {
-        throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover root sequence is not one');
-      }
-      roots.push(intent);
-      continue;
-    }
-    const predecessor = intentByDigest.get(intent.previousIntentDigest);
-    if (predecessor === undefined || predecessor.sequence !== intent.sequence - 1) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover predecessor is missing or has an invalid sequence');
-    }
-    const existingChild = childByPredecessor.get(intent.previousIntentDigest);
-    if (existingChild !== undefined && existingChild !== intent.intentDigest) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover predecessor has a forked child');
-    }
-    childByPredecessor.set(intent.previousIntentDigest, intent.intentDigest);
-  }
-  if (roots.length !== 1) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover receipts contain multiple roots');
-  }
-  const visited = new Set<`sha256:${string}`>();
-  let cursor: DependencyTransitionRolloverIntent | undefined = roots[0];
-  while (cursor !== undefined) {
-    if (visited.has(cursor.intentDigest)) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover receipts contain a cycle');
-    }
-    visited.add(cursor.intentDigest);
-    const childDigest = childByPredecessor.get(cursor.intentDigest);
-    cursor = childDigest === undefined ? undefined : intentByDigest.get(childDigest);
-    if (childDigest !== undefined && cursor === undefined) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover child disappeared during census');
-    }
-  }
-  if (visited.size !== latestIntents.length) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover receipts contain a disconnected epoch');
-  }
-  const tips = latestIntents.filter((intent) => !childByPredecessor.has(intent.intentDigest));
-  if (tips.length !== 1) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover receipts do not have one maximal tip');
-  }
-  const tip = tips[0]!;
-  if (tip.phase !== 'complete') {
-    active = tip;
-  }
-  for (const intent of latestIntents) {
-    if (intent.phase !== 'complete' && intent.intentDigest !== tip.intentDigest) {
-      throw new SecError('RUNTIME-DEPS-004', 'Multiple incomplete dependency transition rollovers require owner recovery');
-    }
-  }
-  const completeIntents = latestIntents.filter((intent) => intent.phase === 'complete');
-  let latestComplete: DependencyTransitionRolloverIntent | null = null;
-  for (const intent of completeIntents) {
-    if (latestComplete !== null && latestComplete.sequence === intent.sequence) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover complete receipts fork at one sequence');
-    }
-    if (latestComplete === null || intent.sequence > latestComplete.sequence) latestComplete = intent;
-  }
-  runtimeDependencyOperationRemainingMs(options, 'Dependency transition rollover census readback');
-  return Object.freeze({ namespace, active, latestComplete });
-}
-
-async function recoverDependencyTransitionRollover(
-  ownerRoot: string,
-  options: RuntimeDependencyOperationOptions
-): Promise<void> {
-  runtimeDependencyOperationRemainingMs(options, 'Dependency transition rollover recovery admission');
-  const observation = await inspectActiveDependencyTransitionRollover(ownerRoot, options);
-  if (observation === null || observation.active === null) return;
-  const { namespace } = observation;
-  let intent = observation.active;
-  assertDependencyTransitionRolloverOwner(namespace, intent);
-  const journalRoot = assertSameNoFollowDirectoryIdentity(
-    namespace.journalRoot,
-    'Dependency transition rollover journal root recovery'
-  ).target;
-  const rolloversRoot = assertSameNoFollowDirectoryIdentity(
-    namespace.rolloversRoot,
-    'Dependency transition rollover namespace recovery'
-  ).target;
-  if (!sameGeneratedStateIdentity(
-    generatedStatePhysicalIdentity(journalRoot),
-    generatedStatePhysicalIdentity(namespace.journalRoot)
-  ) || !sameGeneratedStateIdentity(
-    generatedStatePhysicalIdentity(rolloversRoot),
-    generatedStatePhysicalIdentity(namespace.rolloversRoot)
-  )) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover namespace identity changed before recovery');
-  }
-
-  const retiredName = path.basename(intent.retiredRecordsPath);
-  const nextName = path.basename(intent.nextRecordsPath);
-  const sourceRecordsPhysical = intent.sourceRecordsRootPhysical;
-  const expectedNextPhysical = intent.nextRecordsPhysical;
-
-  // A prepared receipt is still before the source move.  Authenticate the
-  // complete source ledger before creating any recovery residue; caller-supplied
-  // fields in a forged self-digest intent must never become an archive or
-  // checkpoint authority.
-  if (intent.phase === 'prepared') {
-    const source = inspectOptionalNoFollowDirectoryChild(
-      journalRoot,
-      path.basename(namespace.recordsRootPath),
-      'Dependency transition rollover prepared source records'
-    );
-    const retainedSource = assertDependencyTransitionRolloverDirectory(
-      source,
-      sourceRecordsPhysical,
-      'Dependency transition rollover prepared source records'
-    );
-    const sourceLedger = readDependencyTransitionRecordSet(
-      retainedSource,
-      namespace.ownerRoot.path,
-      runtimeDependencyOperationContext(options),
-      'Dependency transition rollover prepared source ledger'
-    );
-    assertDependencyTransitionRolloverLedgerBinding(
-      sourceLedger,
-      intent,
-      'Dependency transition rollover prepared source ledger'
-    );
-  }
-
-  if (intent.phase === 'prepared') {
-    let next = inspectOptionalNoFollowDirectoryChild(
-      rolloversRoot,
-      nextName,
-      'Dependency transition rollover next records'
-    );
-    if (next !== null) {
-      const names = await readNoFollowDirectNames(
-        next,
-        'Dependency transition rollover next records pre-staged contents',
-        2,
-        options
-      );
-      const expectedCheckpointName = transitionRecordName(intent.checkpoint.recordDigest);
-      if (names.length > 1 || names.length === 1 && names[0] !== expectedCheckpointName) {
-        throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover next records contain unknown pre-staged residue');
-      }
-    }
-    if (expectedNextPhysical !== null) {
-      throw new SecError('RUNTIME-DEPS-004', 'Prepared dependency transition rollover unexpectedly contains a next-root identity');
-    }
-    if (next === null) {
-      await runtimeDependencyOperationEffectFence(options, 'Dependency transition rollover recovery next-root creation');
-    }
-    const stagedNext = next ?? createExclusiveNoFollowDirectory(rolloversRoot, nextName);
-    const staged = advanceDependencyTransitionRolloverIntent(intent, 'staged', {
-      retiredRecordsPhysical: null,
-      retiredRecordsDisposed: false,
-      nextRecordsPhysical: generatedStatePhysicalIdentity(stagedNext),
-      publishedRecordsRootPhysical: null
-    });
-    await writeDependencyTransitionRolloverIntentPhase(namespace, staged, options);
-    intent = staged;
-  }
-
-  if (intent.phase === 'staged') {
-    const next = assertDependencyTransitionRolloverDirectory(
-      inspectOptionalNoFollowDirectoryChild(
-        rolloversRoot,
-        nextName,
-        'Dependency transition rollover next records'
-      ),
-      intent.nextRecordsPhysical,
-      'Dependency transition rollover next records'
-    );
-    const checkpointName = transitionRecordName(intent.checkpoint.recordDigest);
-    const checkpointEntry = inspectNoFollowOrdinaryFileEntry(next, checkpointName);
-    if (checkpointEntry === null) {
-      await runtimeDependencyOperationEffectFence(options, 'Dependency transition rollover recovery checkpoint publication');
-      writeDurableTransitionFile(
-        next,
-        checkpointName,
-        dependencyTransitionRecordBytes(intent.checkpoint),
-        assertDependencyTransitionRecordBytes,
-        true
-      );
-    }
-    await assertDependencyTransitionRolloverCheckpoint(next, intent, options);
-    // Re-read the source/archive immediately before the move.  If a previous
-    // process already completed that effect, the operation-owned retired root
-    // is the only acceptable evidence; a missing/foreign root is preserved.
-    const sourceBeforeMove = inspectOptionalNoFollowDirectoryChild(
-      journalRoot,
-      path.basename(namespace.recordsRootPath),
-      'Dependency transition rollover source records before archive move'
-    );
-    if (sourceBeforeMove !== null) {
-      const retainedSourceBeforeMove = assertDependencyTransitionRolloverDirectory(
-        sourceBeforeMove,
-        sourceRecordsPhysical,
-        'Dependency transition rollover source records before archive move'
-      );
-      const sourceLedgerBeforeMove = readDependencyTransitionRecordSet(
-        retainedSourceBeforeMove,
-        namespace.ownerRoot.path,
-        runtimeDependencyOperationContext(options),
-        'Dependency transition rollover source ledger before archive move'
-      );
-      assertDependencyTransitionRolloverLedgerBinding(
-        sourceLedgerBeforeMove,
-        intent,
-        'Dependency transition rollover source ledger before archive move'
-      );
-    }
-    const retired = inspectOptionalNoFollowDirectoryChild(
-      rolloversRoot,
-      retiredName,
-      'Dependency transition rollover retired records'
-    );
-    if (retired === null) {
-      const source = sourceBeforeMove;
-      const retainedSource = assertDependencyTransitionRolloverDirectory(
-        source,
-        sourceRecordsPhysical,
-        'Dependency transition rollover source records'
-      );
-      await runtimeDependencyOperationEffectFence(options, 'Dependency transition rollover archive move');
-      const moved = relocateRetainedNoFollowDirectoryAcrossParents({
-        directory: retainedSource,
-        destinationParent: rolloversRoot,
-        tombstoneName: retiredName
-      });
-      if (!sameGeneratedStateIdentity(generatedStatePhysicalIdentity(moved), sourceRecordsPhysical)) {
-        throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover retired records identity changed during move');
-      }
-    } else if (!sameGeneratedStateIdentity(
-      generatedStatePhysicalIdentity(retired),
-      sourceRecordsPhysical
-    )) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover retired records are foreign and preserved');
-    }
-    if (retired !== null) {
-      const archivedLedger = readDependencyTransitionRecordSet(
-        retired,
-        namespace.ownerRoot.path,
-        runtimeDependencyOperationContext(options),
-        'Dependency transition rollover retired ledger'
-      );
-      assertDependencyTransitionRolloverLedgerBinding(
-        archivedLedger,
-        intent,
-        'Dependency transition rollover retired ledger'
-      );
-    }
-    const sourceAfter = inspectOptionalNoFollowDirectoryChild(
-      journalRoot,
-      path.basename(namespace.recordsRootPath),
-      'Dependency transition rollover source records readback'
-    );
-    if (sourceAfter !== null) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover source records remain after archive move');
-    }
-    const retiredAfter = inspectOptionalNoFollowDirectoryChild(
-      rolloversRoot,
-      retiredName,
-      'Dependency transition rollover retired records readback'
-    );
-    const nextAfter = inspectOptionalNoFollowDirectoryChild(
-      rolloversRoot,
-      nextName,
-      'Dependency transition rollover next records readback'
-    );
-    const updated = advanceDependencyTransitionRolloverIntent(intent, 'backed-up', {
-      retiredRecordsPhysical: retiredAfter === null
-        ? null
-        : generatedStatePhysicalIdentity(retiredAfter),
-      retiredRecordsDisposed: false,
-      nextRecordsPhysical: nextAfter === null
-        ? null
-        : generatedStatePhysicalIdentity(nextAfter),
-      publishedRecordsRootPhysical: null
-    });
-    if (updated.retiredRecordsPhysical === null || updated.nextRecordsPhysical === null) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover archive readback is incomplete');
-    }
-    await writeDependencyTransitionRolloverIntentPhase(namespace, updated, options);
-    intent = updated;
-  }
-
-  if (intent.phase === 'backed-up') {
-    const retired = inspectOptionalNoFollowDirectoryChild(
-      rolloversRoot,
-      retiredName,
-      'Dependency transition rollover retired records'
-    );
-    assertDependencyTransitionRolloverDirectory(
-      retired,
-      intent.retiredRecordsPhysical,
-      'Dependency transition rollover retired records'
-    );
-    const next = inspectOptionalNoFollowDirectoryChild(
-      rolloversRoot,
-      nextName,
-      'Dependency transition rollover next records'
-    );
-    const canonical = inspectOptionalNoFollowDirectoryChild(
-      journalRoot,
-      path.basename(namespace.recordsRootPath),
-      'Dependency transition rollover canonical records'
-    );
-    let published: PhysicalDirectoryIdentity;
-    if (canonical === null) {
-      const retainedNext = assertDependencyTransitionRolloverDirectory(
-        next,
-        intent.nextRecordsPhysical,
-        'Dependency transition rollover next records'
-      );
-      await assertDependencyTransitionRolloverCheckpoint(retainedNext, intent, options);
-      await runtimeDependencyOperationEffectFence(options, 'Dependency transition rollover canonical records publication');
-      published = relocateRetainedNoFollowDirectoryAcrossParents({
-        directory: retainedNext,
-        destinationParent: journalRoot,
-        tombstoneName: path.basename(namespace.recordsRootPath)
-      });
-    } else {
-      if (next !== null) {
-        throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover has both next and canonical records roots');
-      }
-      published = assertDependencyTransitionRolloverDirectory(
-        canonical,
-        intent.nextRecordsPhysical,
-        'Dependency transition rollover canonical records'
-      );
-      await assertDependencyTransitionRolloverCheckpoint(published, intent, options);
-    }
-    const canonicalAfter = inspectOptionalNoFollowDirectoryChild(
-      journalRoot,
-      path.basename(namespace.recordsRootPath),
-      'Dependency transition rollover canonical records readback'
-    );
-    if (canonicalAfter === null || !sameGeneratedStateIdentity(
-      generatedStatePhysicalIdentity(canonicalAfter),
-      generatedStatePhysicalIdentity(published)
-    )) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover canonical records identity changed during publish');
-    }
-    const nextAfter = inspectOptionalNoFollowDirectoryChild(
-      rolloversRoot,
-      nextName,
-      'Dependency transition rollover next records readback'
-    );
-    if (nextAfter !== null) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover next records remain after publish');
-    }
-    const updated = advanceDependencyTransitionRolloverIntent(intent, 'published', {
-      retiredRecordsPhysical: intent.retiredRecordsPhysical,
-      retiredRecordsDisposed: false,
-      nextRecordsPhysical: null,
-      publishedRecordsRootPhysical: generatedStatePhysicalIdentity(canonicalAfter)
-    });
-    await writeDependencyTransitionRolloverIntentPhase(namespace, updated, options);
-    intent = updated;
-  }
-
-  if (intent.phase === 'published') {
-    const retired = inspectOptionalNoFollowDirectoryChild(
-      rolloversRoot,
-      retiredName,
-      'Dependency transition rollover retired records'
-    );
-    assertDependencyTransitionRolloverDirectory(
-      retired,
-      intent.retiredRecordsPhysical,
-      'Dependency transition rollover retired records'
-    );
-    const canonical = inspectOptionalNoFollowDirectoryChild(
-      journalRoot,
-      path.basename(namespace.recordsRootPath),
-      'Dependency transition rollover canonical records'
-    );
-    const retainedCanonical = assertDependencyTransitionRolloverDirectory(
-      canonical,
-      intent.publishedRecordsRootPhysical,
-      'Dependency transition rollover canonical records'
-    );
-    await assertDependencyTransitionRolloverCheckpoint(retainedCanonical, intent, options);
-    if (inspectOptionalNoFollowDirectoryChild(
-      rolloversRoot,
-      nextName,
-      'Dependency transition rollover next records final readback'
-    ) !== null) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover next records unexpectedly reappeared');
-    }
-    // Publish/read back a closed-world disposal inventory before touching any
-    // archived record.  It binds every expected name, canonical bytes digest,
-    // and physical identity, so a crash after any individual delete can resume
-    // from the exact remaining subset without broad recursive cleanup.
-    await ensureDependencyTransitionRolloverDisposalInventory(retired!, intent, options);
-    const updated = advanceDependencyTransitionRolloverIntent(intent, 'retiring', {
-      retiredRecordsPhysical: intent.retiredRecordsPhysical,
-      retiredRecordsDisposed: false,
-      nextRecordsPhysical: null,
-      publishedRecordsRootPhysical: intent.publishedRecordsRootPhysical
-    });
-    await writeDependencyTransitionRolloverIntentPhase(namespace, updated, options);
-    intent = updated;
-  }
-
-  if (intent.phase === 'retiring') {
-    const retired = inspectOptionalNoFollowDirectoryChild(
-      rolloversRoot,
-      retiredName,
-      'Dependency transition retiring records archive'
-    );
-    if (retired !== null) {
-      assertDependencyTransitionRolloverDirectory(
-        retired,
-        intent.retiredRecordsPhysical,
-        'Dependency transition retiring records archive'
-      );
-      await disposeDependencyTransitionRolloverArchive(namespace, intent, options);
-    }
-    if (inspectOptionalNoFollowDirectoryChild(
-      rolloversRoot,
-      retiredName,
-      'Dependency transition retired records archive readback'
-    ) !== null) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition retired records archive remains after retiring effect');
-    }
-    const canonical = inspectOptionalNoFollowDirectoryChild(
-      journalRoot,
-      path.basename(namespace.recordsRootPath),
-      'Dependency transition retired canonical records'
-    );
-    const published = assertDependencyTransitionRolloverDirectory(
-      canonical,
-      intent.publishedRecordsRootPhysical,
-      'Dependency transition retired canonical records'
-    );
-    await assertDependencyTransitionRolloverCheckpoint(published, intent, options);
-    const updated = advanceDependencyTransitionRolloverIntent(intent, 'retired', {
-      retiredRecordsPhysical: null,
-      retiredRecordsDisposed: true,
-      nextRecordsPhysical: null,
-      publishedRecordsRootPhysical: intent.publishedRecordsRootPhysical
-    });
-    await writeDependencyTransitionRolloverIntentPhase(namespace, updated, options);
-    intent = updated;
-  }
-
-  if (intent.phase === 'retired') {
-    if (inspectOptionalNoFollowDirectoryChild(
-      rolloversRoot,
-      retiredName,
-      'Dependency transition retired records final archive readback'
-    ) !== null) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition retired records archive reappeared');
-    }
-    const canonical = inspectOptionalNoFollowDirectoryChild(
-      journalRoot,
-      path.basename(namespace.recordsRootPath),
-      'Dependency transition completed canonical records'
-    );
-    const published = assertDependencyTransitionRolloverDirectory(
-      canonical,
-      intent.publishedRecordsRootPhysical,
-      'Dependency transition completed canonical records'
-    );
-    await assertDependencyTransitionRolloverCheckpoint(published, intent, options);
-    const updated = advanceDependencyTransitionRolloverIntent(intent, 'complete', {
-      retiredRecordsPhysical: null,
-      retiredRecordsDisposed: true,
-      nextRecordsPhysical: null,
-      publishedRecordsRootPhysical: intent.publishedRecordsRootPhysical
-    });
-    await writeDependencyTransitionRolloverIntentPhase(namespace, updated, options);
-  }
-  runtimeDependencyOperationRemainingMs(options, 'Dependency transition rollover recovery readback');
-}
-
-type DependencyTransitionRecordSet = Readonly<{
-  readonly records: ReadonlyMap<`sha256:${string}`, DependencyTransitionJournal>;
-  readonly ledgerDigest: `sha256:${string}`;
-  readonly tip: DependencyTransitionJournal | null;
-}>;
-
-/**
- * Read and validate one immutable records root under one fixed deadline.  This
- * helper is also used by rollover recovery while the old root is still the
- * source of truth; recovery must not call the normal reader because that
- * reader intentionally blocks whenever an active rollover exists.
- */
-function readDependencyTransitionRecordSet(
-  recordsRoot: PhysicalDirectoryIdentity,
-  ownerRoot: string,
-  operation: RuntimeDependencyOperationContext,
-  label: string
-): DependencyTransitionRecordSet {
-  const before = assertSameNoFollowDirectoryIdentity(recordsRoot, `${label} before census`).target;
-  // Records are bounded canonical control bytes.  Keep one retained
-  // no-follow traversal and parse the bytes it already read instead of doing
-  // a second path lookup for every record.  The aggregate byte ceiling is
-  // part of admission, so a forged large/unknown record cannot turn this
-  // optimization into an unbounded read.
-  const census = scanNoFollowDirectoryTree(before, {
-    deadlineAtMs: operation.deadlineAtMonotonicMs,
-    maximumEntries: DEPENDENCY_TRANSITION_RECORD_CAPACITY,
-    maximumBytes: DEPENDENCY_TRANSITION_RECORD_BYTES_CAPACITY
-  });
-  const records = new Map<`sha256:${string}`, DependencyTransitionJournal>();
-  for (const entry of census) {
-    if (operation.monotonicNowMs() > operation.deadlineAtMonotonicMs) {
-      throw new SecError('RUNTIME-DEPS-004', `${label} exceeded its read deadline`, {
-        deadlineAtMs: operation.deadlineAtMonotonicMs,
-        observedEntries: records.size
-      });
-    }
-    if (entry.kind !== 'file' || !/^record-[0-9a-f]{64}\.json$/u.test(entry.relativePath)) {
-      throw new SecError('RUNTIME-DEPS-002', `${label} contains an unknown physical entry`);
-    }
-    if (entry.bytes === null) {
-      throw new SecError('RUNTIME-DEPS-002', `${label} record disappeared during census`);
-    }
-    const record = parseDependencyTransitionRecord(entry.bytes, entry.relativePath);
-    if (record.ownerRoot !== ownerRoot) {
-      throw new SecError('RUNTIME-DEPS-002', `${label} record belongs to a foreign owner root`);
-    }
-    if (records.has(record.recordDigest)) {
-      throw new SecError('RUNTIME-DEPS-002', `${label} record digest is duplicated`);
-    }
-    records.set(record.recordDigest, record);
-  }
-  if (operation.monotonicNowMs() > operation.deadlineAtMonotonicMs) {
-    throw new SecError('RUNTIME-DEPS-004', `${label} exceeded its read deadline after record validation`, {
-      deadlineAtMs: operation.deadlineAtMonotonicMs,
-      observedEntries: records.size
-    });
-  }
-  const after = assertSameNoFollowDirectoryIdentity(recordsRoot, `${label} after census`).target;
-  if (!sameGeneratedStateIdentity(
-    generatedStatePhysicalIdentity(before),
-    generatedStatePhysicalIdentity(after)
-  )) {
-    throw new SecError('RUNTIME-DEPS-002', `${label} identity changed during census`);
-  }
-  if (records.size === 0) {
-    return Object.freeze({
-      records,
-      ledgerDigest: dependencyTransitionLedgerDigest(records),
-      tip: null
-    });
-  }
-
-  // The immutable ledger is a single predecessor chain.  A mutable pointer
-  // is never consulted to select either the root or the maximal tip.
-  const children = new Map<`sha256:${string}`, `sha256:${string}`>();
-  const roots: DependencyTransitionJournal[] = [];
-  for (const record of records.values()) {
-    if (operation.monotonicNowMs() > operation.deadlineAtMonotonicMs) {
-      throw new SecError('RUNTIME-DEPS-004', `${label} exceeded its graph-validation deadline`, {
-        deadlineAtMs: operation.deadlineAtMonotonicMs,
-        observedEntries: records.size
-      });
-    }
-    if (record.previousRecordDigest === null) {
-      if (record.sequence !== 1) {
-        throw new SecError('RUNTIME-DEPS-002', `${label} root record sequence is not one`);
-      }
-      roots.push(record);
-      continue;
-    }
-    const predecessor = records.get(record.previousRecordDigest);
-    if (predecessor === undefined || predecessor.sequence !== record.sequence - 1) {
-      throw new SecError('RUNTIME-DEPS-002', `${label} predecessor is missing or has an invalid sequence`);
-    }
-    const previousChild = children.get(record.previousRecordDigest);
-    if (previousChild !== undefined && previousChild !== record.recordDigest) {
-      throw new SecError('RUNTIME-DEPS-002', `${label} predecessor has a forked child chain`);
-    }
-    children.set(record.previousRecordDigest, record.recordDigest);
-  }
-  if (roots.length !== 1) {
-    throw new SecError('RUNTIME-DEPS-002', `${label} contains multiple immutable epochs`);
-  }
-  const visited = new Set<`sha256:${string}`>();
-  let cursor: DependencyTransitionJournal | undefined = roots[0];
-  while (cursor !== undefined) {
-    if (operation.monotonicNowMs() > operation.deadlineAtMonotonicMs) {
-      throw new SecError('RUNTIME-DEPS-004', `${label} exceeded its chain-validation deadline`, {
-        deadlineAtMs: operation.deadlineAtMonotonicMs,
-        observedEntries: records.size
-      });
-    }
-    if (visited.has(cursor.recordDigest)) {
-      throw new SecError('RUNTIME-DEPS-002', `${label} chain contains a cycle`);
-    }
-    visited.add(cursor.recordDigest);
-    const childDigest = children.get(cursor.recordDigest);
-    cursor = childDigest === undefined ? undefined : records.get(childDigest);
-    if (childDigest !== undefined && cursor === undefined) {
-      throw new SecError('RUNTIME-DEPS-002', `${label} child disappeared during immutable census`);
-    }
-  }
-  if (visited.size !== records.size) {
-    throw new SecError('RUNTIME-DEPS-002', `${label} contains a disconnected or foreign fork`);
-  }
-  const tips = [...records.values()].filter(({ recordDigest }) => !children.has(recordDigest));
-  if (tips.length !== 1) {
-    throw new SecError('RUNTIME-DEPS-002', `${label} does not have one maximal immutable tip`);
-  }
-  if (operation.monotonicNowMs() > operation.deadlineAtMonotonicMs) {
-    throw new SecError('RUNTIME-DEPS-004', `${label} exceeded its final read deadline`, {
-      deadlineAtMs: operation.deadlineAtMonotonicMs,
-      observedEntries: records.size
-    });
-  }
-  return Object.freeze({
-    records,
-    ledgerDigest: dependencyTransitionLedgerDigest(records),
-    tip: tips[0]!
-  });
-}
-
-type LegacyDependencyTransitionRecordSet = Readonly<{
-  records: ReadonlyMap<`sha256:${string}`, LegacyDependencyTransitionJournal>;
-  ledgerDigest: `sha256:${string}`;
-  recordsRootPhysical: Readonly<GeneratedStatePhysicalIdentity>;
-  chains: readonly (readonly LegacyDependencyTransitionJournal[])[];
-}>;
-
-/**
- * Validate one legacy records root as a forest of operation-local chains.  The
- * old writer allowed several completed operation chains to share one root;
- * migration canonicalizes that forest into one v2 predecessor chain.  A
- * missing predecessor, duplicate sequence, fork, foreign owner, or digest
- * mismatch is a source-authority failure and therefore happens before any v2
- * namespace effect.
- */
-function readLegacyDependencyTransitionRecordSet(
-  recordsRoot: PhysicalDirectoryIdentity,
-  ownerRoot: string,
-  ownerRootPhysical: Readonly<GeneratedStatePhysicalIdentity>,
-  operation: RuntimeDependencyOperationContext,
-  label: string
-): LegacyDependencyTransitionRecordSet {
-  const before = assertSameNoFollowDirectoryIdentity(recordsRoot, `${label} before census`).target;
-  const census = scanNoFollowDirectoryTree(before, {
-    deadlineAtMs: operation.deadlineAtMonotonicMs,
-    maximumEntries: DEPENDENCY_TRANSITION_RECORD_CAPACITY,
-    maximumBytes: DEPENDENCY_TRANSITION_RECORD_BYTES_CAPACITY
-  });
-  const records = new Map<`sha256:${string}`, LegacyDependencyTransitionJournal>();
-  for (const entry of census) {
-    if (operation.monotonicNowMs() > operation.deadlineAtMonotonicMs) {
-      throw new SecError('RUNTIME-DEPS-004', `${label} exceeded its read deadline`, {
-        deadlineAtMs: operation.deadlineAtMonotonicMs,
-        observedEntries: records.size
-      });
-    }
-    if (entry.kind !== 'file' || !/^record-[0-9a-f]{64}\.json$/u.test(entry.relativePath)) {
-      throw new SecError('RUNTIME-DEPS-002', `${label} contains an unknown physical entry`);
-    }
-    if (entry.bytes === null) {
-      throw new SecError('RUNTIME-DEPS-002', `${label} record disappeared during census`);
-    }
-    const record = parseLegacyDependencyTransitionRecord(entry.bytes, entry.relativePath);
-    if (record.ownerRoot !== ownerRoot ||
-        !sameGeneratedStateIdentity(record.ownerRootPhysical, ownerRootPhysical)) {
-      throw new SecError('RUNTIME-DEPS-002', `${label} record belongs to a foreign owner root or physical epoch`);
-    }
-    if (records.has(record.recordDigest)) {
-      throw new SecError('RUNTIME-DEPS-002', `${label} record digest is duplicated`);
-    }
-    records.set(record.recordDigest, record);
-  }
-  const after = assertSameNoFollowDirectoryIdentity(recordsRoot, `${label} after census`).target;
-  if (!sameGeneratedStateIdentity(
-    generatedStatePhysicalIdentity(before),
-    generatedStatePhysicalIdentity(after)
-  )) {
-    throw new SecError('RUNTIME-DEPS-002', `${label} identity changed during census`);
-  }
-  if (records.size === 0) {
-    throw new SecError('RUNTIME-DEPS-004', `${label} has no legacy records to migrate`);
-  }
-
-  const grouped = new Map<`sha256:${string}`, LegacyDependencyTransitionJournal[]>();
-  const children = new Map<`sha256:${string}`, `sha256:${string}`>();
-  for (const record of records.values()) {
-    const chain = grouped.get(record.operationKey);
-    if (chain === undefined) grouped.set(record.operationKey, [record]);
-    else chain.push(record);
-    if (record.previousRecordDigest !== null) {
-      const previousChild = children.get(record.previousRecordDigest);
-      if (previousChild !== undefined && previousChild !== record.recordDigest) {
-        throw new SecError('RUNTIME-DEPS-002', `${label} contains a forked legacy predecessor`);
-      }
-      children.set(record.previousRecordDigest, record.recordDigest);
-    }
-  }
-
-  const chains = [...grouped.values()].map((chain) => {
-    chain.sort((left, right) => left.sequence - right.sequence ||
-      compareCodeUnits(left.recordDigest, right.recordDigest));
-    let previous: LegacyDependencyTransitionJournal | undefined;
-    for (const record of chain) {
-      if (previous === undefined) {
-        if (record.sequence !== 1 || record.previousRecordDigest !== null) {
-          throw new SecError('RUNTIME-DEPS-002', `${label} legacy chain has an invalid root`);
-        }
-      } else if (record.sequence !== previous.sequence + 1 ||
-          record.previousRecordDigest !== previous.recordDigest) {
-        throw new SecError('RUNTIME-DEPS-002', `${label} legacy chain has a missing or forked predecessor`);
-      }
-      previous = record;
-    }
-    return Object.freeze(chain.slice()) as readonly LegacyDependencyTransitionJournal[];
-  });
-  chains.sort((left, right) => compareCodeUnits(left[0]!.operationKey, right[0]!.operationKey));
-  if (chains.length === 0) {
-    throw new SecError('RUNTIME-DEPS-004', `${label} has no complete legacy chain`);
-  }
-  operation.signal?.throwIfAborted();
-  const graphReadbackNow = operation.monotonicNowMs();
-  if (graphReadbackNow > operation.deadlineAtMonotonicMs) {
-    throw new SecError('RUNTIME-DEPS-004', `${label} exceeded its graph-validation deadline`, {
-      deadlineAtMs: operation.deadlineAtMonotonicMs,
-      observedEntries: records.size
-    });
-  }
-  return Object.freeze({
-    records,
-    ledgerDigest: dependencyTransitionLedgerDigest(records),
-    recordsRootPhysical: generatedStatePhysicalIdentity(after),
-    chains: Object.freeze(chains)
-  });
-}
-
-type MigratedDependencyTransitionRecords = Readonly<{
-  records: ReadonlyMap<`sha256:${string}`, DependencyTransitionJournal>;
-  ordered: readonly DependencyTransitionJournal[];
-  ledgerDigest: `sha256:${string}`;
-}>;
-
-async function buildMigratedDependencyTransitionRecords(
-  source: LegacyDependencyTransitionRecordSet
-): Promise<MigratedDependencyTransitionRecords> {
-  const records = new Map<`sha256:${string}`, DependencyTransitionJournal>();
-  for (const chain of source.chains) {
-    const terminal = chain.at(-1);
-    if (terminal === undefined || (terminal.phase !== 'complete' && terminal.phase !== 'rolled-back')) {
-      throw new SecError(
-        'RUNTIME-DEPS-004',
-        'Legacy dependency transition migration requires every chain to be terminal',
-        {
-          operationKey: terminal?.operationKey ?? null,
-          phase: terminal?.phase ?? null
-        }
-      );
-    }
-  }
-  if (source.chains.length === 0) {
-    throw new SecError('RUNTIME-DEPS-004', 'Legacy dependency transition migration has no records');
-  }
-  // Legacy source-generation receipts predate the bounded source-tree digest.
-  // Translating them into v2 operation records would manufacture proof that
-  // never existed.  The immutable v1 root remains the historical evidence;
-  // the v2 migration intent binds that complete terminal ledger and starts a
-  // fresh, empty v2 operation ledger for future transitions.
-  const ordered = Object.freeze([]) as readonly DependencyTransitionJournal[];
-  return Object.freeze({
-    records,
-    ordered,
-    ledgerDigest: dependencyTransitionLedgerDigest(records)
-  });
-}
-
-type DependencyTransitionMigrationIntents = Readonly<{
-  prepared: DependencyTransitionMigrationIntent | null;
-  complete: DependencyTransitionMigrationIntent | null;
-}>;
-
-async function readDependencyTransitionMigrationIntents(
-  namespace: DependencyTransitionNamespace,
-  options: RuntimeDependencyOperationOptions
-): Promise<DependencyTransitionMigrationIntents> {
-  const names = await readNoFollowDirectNames(
-    namespace.journalRoot,
-    'Dependency transition migration intent namespace',
-    64,
-    options
-  );
-  for (const name of names) {
-    if (name === 'current.json' || name === 'records' || name === 'rollovers' ||
-        /^migration-[0-9a-f]{64}-(?:prepared|complete)\.json$/u.test(name)) {
-      continue;
-    }
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration namespace contains unknown residue', { name });
-  }
-  let prepared: DependencyTransitionMigrationIntent | null = null;
-  let complete: DependencyTransitionMigrationIntent | null = null;
-  for (const name of names) {
-    if (!name.startsWith('migration-')) continue;
-    const entry = inspectNoFollowOrdinaryFileEntry(namespace.journalRoot, name);
-    if (entry === null || entry.bytes === null) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration intent disappeared during census', { name });
-    }
-    const intent = parseDependencyTransitionMigrationIntent(entry.bytes, name);
-    if (path.resolve(intent.ownerRoot) !== namespace.ownerRoot.path ||
-        path.resolve(intent.targetJournalRootPath) !== namespace.journalRoot.path ||
-        path.resolve(intent.targetRecordsRootPath) !== namespace.recordsRoot.path ||
-        !sameGeneratedStateIdentity(
-          intent.ownerRootPhysical,
-          generatedStatePhysicalIdentity(namespace.ownerRoot)
-        ) ||
-        !sameGeneratedStateIdentity(
-          intent.targetJournalRootPhysical,
-          generatedStatePhysicalIdentity(namespace.journalRoot)
-        ) ||
-        !sameGeneratedStateIdentity(
-          intent.targetRecordsRootPhysical,
-          generatedStatePhysicalIdentity(namespace.recordsRoot)
-        )) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration intent is foreign to its target namespace', { name });
-    }
-    if (intent.phase === 'prepared') {
-      if (prepared !== null) {
-        throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration has duplicate prepared intents');
-      }
-      prepared = intent;
-    } else {
-      if (complete !== null) {
-        throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration has duplicate complete intents');
-      }
-      complete = intent;
-    }
-  }
-  if (complete !== null && (prepared === null || complete.previousIntentDigest !== prepared.intentDigest)) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration complete intent has no prepared predecessor');
-  }
-  return Object.freeze({ prepared, complete });
-}
-
-function assertDependencyTransitionMigrationSourceBinding(
-  intent: DependencyTransitionMigrationIntent,
-  source: DependencyTransitionNamespace,
-  sourceLedger: LegacyDependencyTransitionRecordSet
-): void {
-  if (path.resolve(intent.ownerRoot) !== source.ownerRoot.path ||
-      path.resolve(intent.sourceJournalRootPath) !== source.journalRoot.path ||
-      path.resolve(intent.sourceRecordsRootPath) !== source.recordsRoot.path ||
-      !sameGeneratedStateIdentity(
-        intent.ownerRootPhysical,
-        generatedStatePhysicalIdentity(source.ownerRoot)
-      ) ||
-      !sameGeneratedStateIdentity(
-        intent.sourceJournalRootPhysical,
-        generatedStatePhysicalIdentity(source.journalRoot)
-      ) ||
-      !sameGeneratedStateIdentity(
-        intent.sourceRecordsRootPhysical,
-        sourceLedger.recordsRootPhysical
-      ) ||
-      intent.sourceLedgerDigest !== sourceLedger.ledgerDigest ||
-      intent.sourceRecordCount !== sourceLedger.records.size) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration source changed and is preserved');
-  }
-}
-
-/**
- * The normal v2 reader may retain the old namespace as recovery evidence, but
- * it must not parse the retired v1 grammar.  Once the one-way migration is
- * complete, the immutable intent is the only source-side receipt the normal
- * reader needs; this check therefore binds only the retained namespace paths
- * and physical identities.  Full v1 record validation belongs exclusively to
- * `migrateLegacyDependencyTransitionUnderLease`.
- */
-function assertDependencyTransitionMigrationSourceNamespaceBinding(
-  intent: DependencyTransitionMigrationIntent,
-  source: DependencyTransitionNamespace
-): void {
-  if (path.resolve(intent.ownerRoot) !== source.ownerRoot.path ||
-      path.resolve(intent.sourceJournalRootPath) !== source.journalRoot.path ||
-      path.resolve(intent.sourceRecordsRootPath) !== source.recordsRoot.path ||
-      !sameGeneratedStateIdentity(
-        intent.ownerRootPhysical,
-        generatedStatePhysicalIdentity(source.ownerRoot)
-      ) ||
-      !sameGeneratedStateIdentity(
-        intent.sourceJournalRootPhysical,
-        generatedStatePhysicalIdentity(source.journalRoot)
-      ) ||
-      !sameGeneratedStateIdentity(
-        intent.sourceRecordsRootPhysical,
-        generatedStatePhysicalIdentity(source.recordsRoot)
-      )) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration source namespace changed and is preserved');
-  }
-}
-
-function assertDependencyTransitionMigrationTargetBinding(
-  intent: DependencyTransitionMigrationIntent,
-  target: DependencyTransitionNamespace
-): void {
-  if (path.resolve(intent.targetJournalRootPath) !== target.journalRoot.path ||
-      path.resolve(intent.targetRecordsRootPath) !== target.recordsRoot.path ||
-      !sameGeneratedStateIdentity(
-        intent.targetJournalRootPhysical,
-        generatedStatePhysicalIdentity(target.journalRoot)
-      ) ||
-      !sameGeneratedStateIdentity(
-        intent.targetRecordsRootPhysical,
-        generatedStatePhysicalIdentity(target.recordsRoot)
-      )) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration target changed and is preserved');
-  }
-}
-
-async function writeDependencyTransitionMigrationIntent(
-  namespace: DependencyTransitionNamespace,
-  intent: DependencyTransitionMigrationIntent,
-  options: RuntimeDependencyOperationOptions,
-  verifySourceBeforeWrite?: () => Promise<void>
-): Promise<void> {
-  await runtimeDependencyOperationEffectFence(
-    options,
-    `Dependency transition migration ${intent.phase} intent publication`
-  );
-  const name = dependencyTransitionMigrationIntentFileName(intent.intentDigest, intent.phase);
-  const bytes = dependencyTransitionMigrationIntentBytes(intent);
-  await verifySourceBeforeWrite?.();
-  // Source verification can itself perform a bounded census.  Re-admit the
-  // actual durable publication after that readback so an expired/aborted
-  // operation cannot turn the migration evidence into a late filesystem
-  // effect, and so the caller's final commit fence is observed immediately
-  // before the immutable write.
-  await runtimeDependencyOperationEffectFence(
-    options,
-    `Dependency transition migration ${intent.phase} intent effect`
-  );
-  writeDurableTransitionFile(
-    namespace.journalRoot,
-    name,
-    bytes,
-    assertDependencyTransitionMigrationIntentBytes,
-    true
-  );
-  const readback = inspectNoFollowOrdinaryFileEntry(namespace.journalRoot, name);
-  if (readback === null || readback.bytes === null || !Buffer.from(readback.bytes).equals(bytes)) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration intent disappeared after publication', { name });
-  }
-  parseDependencyTransitionMigrationIntent(readback.bytes, name);
-}
-
-function dependencyTransitionMigrationIntent(
-  input: Readonly<Omit<DependencyTransitionMigrationIntent, 'intentDigest' | 'schema'>>
-): DependencyTransitionMigrationIntent {
-  return Object.freeze({
-    ...input,
-    schema: DEPENDENCY_TRANSITION_MIGRATION_SCHEMA,
-    intentDigest: dependencyTransitionMigrationIntentStableDigest(input)
-  });
-}
-
-async function assertLegacyDependencyTransitionUnchanged(
-  source: DependencyTransitionNamespace,
-  expected: LegacyDependencyTransitionRecordSet,
-  options: RuntimeDependencyOperationOptions,
-  label: string
-): Promise<LegacyDependencyTransitionRecordSet> {
-  await runtimeDependencyOperationRemainingMs(options, `${label} admission`);
-  const currentNamespace = inspectLegacyDependencyTransitionNamespace(source.ownerRoot.path);
-  if (currentNamespace === null ||
-      !sameGeneratedStateIdentity(
-        generatedStatePhysicalIdentity(currentNamespace.journalRoot),
-        generatedStatePhysicalIdentity(source.journalRoot)
-      ) ||
-      !sameGeneratedStateIdentity(
-        generatedStatePhysicalIdentity(currentNamespace.recordsRoot),
-        expected.recordsRootPhysical
-      )) {
-    throw new SecError('RUNTIME-DEPS-004', `${label} namespace physical identity changed and is preserved`);
-  }
-  const current = readLegacyDependencyTransitionRecordSet(
-    currentNamespace.recordsRoot,
-    currentNamespace.ownerRoot.path,
-    generatedStatePhysicalIdentity(currentNamespace.ownerRoot),
-    runtimeDependencyOperationContext(options),
-    label
-  );
-  if (current.records.size !== expected.records.size || current.ledgerDigest !== expected.ledgerDigest) {
-    throw new SecError('RUNTIME-DEPS-004', `${label} immutable records changed and are preserved`, {
-      expectedLedgerDigest: expected.ledgerDigest,
-      observedLedgerDigest: current.ledgerDigest,
-      expectedRecordCount: expected.records.size,
-      observedRecordCount: current.records.size
-    });
-  }
-  return current;
-}
-
-async function publishMigratedDependencyTransitionRecords(
-  namespace: DependencyTransitionNamespace,
-  expected: MigratedDependencyTransitionRecords,
-  options: RuntimeDependencyOperationOptions
-): Promise<void> {
-  const current = readDependencyTransitionRecordSet(
-    namespace.recordsRoot,
-    namespace.ownerRoot.path,
-    runtimeDependencyOperationContext(options),
-    'Dependency transition v2 migration target records'
-  );
-  if (current.records.size > expected.ordered.length) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration target contains extra records');
-  }
-  let publishedCount = current.records.size;
-  for (let index = 0; index < expected.ordered.length; index += 1) {
-    const record = expected.ordered[index]!;
-    const existing = current.records.get(record.recordDigest);
-    if (existing !== undefined) {
-      if (!Buffer.from(dependencyTransitionRecordBytes(existing)).equals(
-        dependencyTransitionRecordBytes(record)
-      )) {
-        throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration target record collides with different bytes', {
-          recordDigest: record.recordDigest
-        });
-      }
-      continue;
-    }
-    if (index !== publishedCount) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration target has a non-prefix partial chain', {
-        expectedIndex: index,
-        observedRecordCount: publishedCount
-      });
-    }
-    await runtimeDependencyOperationEffectFence(
-      options,
-      'Dependency transition v2 migration record publication'
-    );
-    writeDurableTransitionFile(
-      namespace.recordsRoot,
-      transitionRecordName(record.recordDigest),
-      dependencyTransitionRecordBytes(record),
-      assertDependencyTransitionRecordBytes,
-      true
-    );
-    publishedCount += 1;
-  }
-  const final = readDependencyTransitionRecordSet(
-    namespace.recordsRoot,
-    namespace.ownerRoot.path,
-    runtimeDependencyOperationContext(options),
-    'Dependency transition v2 migration target readback'
-  );
-  if (final.records.size !== expected.records.size || final.ledgerDigest !== expected.ledgerDigest ||
-      final.tip?.recordDigest !== expected.ordered.at(-1)?.recordDigest) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition v2 migration target readback is incomplete');
-  }
-}
-
-async function migrateLegacyDependencyTransitionUnderLease(
-  ownerRoot: string,
-  options: RuntimeDependencyOperationOptions
-): Promise<void> {
-  const legacyNamespace = inspectLegacyDependencyTransitionNamespace(ownerRoot);
-  const targetNamespace = inspectDependencyTransitionNamespace(ownerRoot);
-  if (legacyNamespace === null) {
-    if (targetNamespace !== null) {
-      // A new installation may legitimately have created an empty v2 root
-      // before any transition was recorded.  There is no legacy source to
-      // migrate, and normal v2 readers remain the sole authority.
-      const intents = await readDependencyTransitionMigrationIntents(targetNamespace, options);
-      if (intents.prepared !== null || intents.complete !== null) {
-        throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration source evidence is missing and is preserved', {
-          preparedIntentDigest: intents.prepared?.intentDigest ?? null,
-          completeIntentDigest: intents.complete?.intentDigest ?? null
-        });
-      }
-      return;
-    }
-    return;
-  }
-  const legacyNames = await readNoFollowDirectNames(
-    legacyNamespace.journalRoot,
-    'Legacy dependency transition namespace',
-    64,
-    options
-  );
-  for (const name of legacyNames) {
-    if (name !== 'current.json' && name !== 'records') {
-      throw new SecError('RUNTIME-DEPS-004', 'Legacy dependency transition namespace contains unknown residue', { name });
-    }
-  }
-  const source = readLegacyDependencyTransitionRecordSet(
-    legacyNamespace.recordsRoot,
-    legacyNamespace.ownerRoot.path,
-    generatedStatePhysicalIdentity(legacyNamespace.ownerRoot),
-    runtimeDependencyOperationContext(options),
-    'Legacy dependency transition migration source'
-  );
-  const migrated = await buildMigratedDependencyTransitionRecords(source);
-
-  if (targetNamespace !== null) {
-    const intents = await readDependencyTransitionMigrationIntents(targetNamespace, options);
-    if (intents.complete !== null) {
-      assertDependencyTransitionMigrationSourceBinding(intents.complete, legacyNamespace, source);
-      // A completed migration binds the target namespace and the initial
-      // migration derivation, not the target ledger's permanent terminal
-      // contents.  Normal v2 operations append immutable records after this
-      // receipt is published; their single-chain parser owns that later
-      // integrity.  Requiring the live ledger to remain byte-for-byte equal
-      // to the migration-time empty ledger would make the first legitimate
-      // post-migration transition poison every future admission.
-      readDependencyTransitionRecordSet(
-        targetNamespace.recordsRoot,
-        targetNamespace.ownerRoot.path,
-        runtimeDependencyOperationContext(options),
-        'Dependency transition v2 migration completed target'
-      );
-      assertDependencyTransitionMigrationTargetBinding(intents.complete, targetNamespace);
-      if (intents.complete.targetLedgerDigest !== migrated.ledgerDigest ||
-          intents.complete.targetRecordCount !== migrated.records.size) {
-        throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration completed target is not derived from its source');
-      }
-      return;
-    }
-    if (intents.prepared === null) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition v2 namespace exists without a migration intent; target is preserved');
-    }
-    assertDependencyTransitionMigrationSourceBinding(intents.prepared, legacyNamespace, source);
-    if (intents.prepared.targetLedgerDigest !== migrated.ledgerDigest ||
-        intents.prepared.targetRecordCount !== migrated.records.size) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration target derivation changed');
-    }
-    await publishMigratedDependencyTransitionRecords(targetNamespace, migrated, options);
-    const sourceAfter = await assertLegacyDependencyTransitionUnchanged(
-      legacyNamespace,
-      source,
-      options,
-      'Dependency transition migration source readback'
-    );
-    assertDependencyTransitionMigrationSourceBinding(intents.prepared, legacyNamespace, sourceAfter);
-    const complete = dependencyTransitionMigrationIntent({
-      ...intents.prepared,
-      phase: 'complete',
-      previousIntentDigest: intents.prepared.intentDigest
-    });
-    await writeDependencyTransitionMigrationIntent(
-      targetNamespace,
-      complete,
-      options,
-      async () => {
-        await assertLegacyDependencyTransitionUnchanged(
-          legacyNamespace,
-          sourceAfter,
-          options,
-          'Dependency transition migration final source fence'
-        );
-      }
-    );
-    const terminal = migrated.ordered.at(-1);
-    if (terminal !== undefined) {
-      writeDependencyTransitionPointerCache(targetNamespace, terminal.recordDigest);
-    }
-    return;
-  }
-
-  // Source validation and transformation complete before the first v2
-  // namespace effect.  The second source census after the fence closes the
-  // physical/digest CAS window without touching the retained v1 evidence.
-  await runtimeDependencyOperationEffectFence(options, 'Dependency transition v2 migration namespace admission');
-  const sourceAtEffect = await assertLegacyDependencyTransitionUnchanged(
-    legacyNamespace,
-    source,
-    options,
-    'Dependency transition migration source effect preimage'
-  );
-  const namespace = await ensureDependencyTransitionNamespace(ownerRoot, options);
-  const targetBefore = readDependencyTransitionRecordSet(
-    namespace.recordsRoot,
-    namespace.ownerRoot.path,
-    runtimeDependencyOperationContext(options),
-    'Dependency transition v2 migration target preflight'
-  );
-  if (targetBefore.records.size !== 0) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition v2 target appeared during migration');
-  }
-  const prepared = dependencyTransitionMigrationIntent({
-    previousIntentDigest: null,
-    phase: 'prepared',
-    ownerRoot: namespace.ownerRoot.path,
-    ownerRootPhysical: generatedStatePhysicalIdentity(namespace.ownerRoot),
-    sourceSchema: DEPENDENCY_TRANSITION_LEGACY_SCHEMA,
-    sourceJournalRootPath: legacyNamespace.journalRoot.path,
-    sourceJournalRootPhysical: generatedStatePhysicalIdentity(legacyNamespace.journalRoot),
-    sourceRecordsRootPath: legacyNamespace.recordsRoot.path,
-    sourceRecordsRootPhysical: sourceAtEffect.recordsRootPhysical,
-    sourceLedgerDigest: sourceAtEffect.ledgerDigest,
-    sourceRecordCount: sourceAtEffect.records.size,
-    targetSchema: DEPENDENCY_TRANSITION_SCHEMA,
-    targetJournalRootPath: namespace.journalRoot.path,
-    targetJournalRootPhysical: generatedStatePhysicalIdentity(namespace.journalRoot),
-    targetRecordsRootPath: namespace.recordsRoot.path,
-    targetRecordsRootPhysical: generatedStatePhysicalIdentity(namespace.recordsRoot),
-    targetLedgerDigest: migrated.ledgerDigest,
-    targetRecordCount: migrated.records.size
-  });
-  await writeDependencyTransitionMigrationIntent(
-    namespace,
-    prepared,
-    options,
-    async () => {
-      await assertLegacyDependencyTransitionUnchanged(
-        legacyNamespace,
-        sourceAtEffect,
-        options,
-        'Dependency transition migration source prepared fence'
-      );
-    }
-  );
-  await publishMigratedDependencyTransitionRecords(namespace, migrated, options);
-  const sourceAfter = await assertLegacyDependencyTransitionUnchanged(
-    legacyNamespace,
-    sourceAtEffect,
-    options,
-    'Dependency transition migration source final readback'
-  );
-  assertDependencyTransitionMigrationSourceBinding(prepared, legacyNamespace, sourceAfter);
-  const complete = dependencyTransitionMigrationIntent({
-    ...prepared,
-    phase: 'complete',
-    previousIntentDigest: prepared.intentDigest
-  });
-  await writeDependencyTransitionMigrationIntent(
-    namespace,
-    complete,
-    options,
-    async () => {
-      await assertLegacyDependencyTransitionUnchanged(
-        legacyNamespace,
-        sourceAfter,
-        options,
-        'Dependency transition migration final source fence'
-      );
-    }
-  );
-  const terminal = migrated.ordered.at(-1);
-  if (terminal !== undefined) {
-    writeDependencyTransitionPointerCache(namespace, terminal.recordDigest);
-  }
-}
-
-function assertDependencyTransitionRolloverLedgerBinding(
-  observed: DependencyTransitionRecordSet,
-  intent: DependencyTransitionRolloverIntent,
-  label: string
-): DependencyTransitionJournal {
-  if (observed.records.size !== intent.recordCount || observed.ledgerDigest !== intent.ledgerDigest ||
-      observed.tip === null || observed.tip.recordDigest !== intent.terminalRecordDigest) {
-    throw new SecError('RUNTIME-DEPS-004', `${label} does not match the rollover terminal ledger receipt`, {
-      expectedLedgerDigest: intent.ledgerDigest,
-      observedLedgerDigest: observed.ledgerDigest,
-      expectedRecordCount: intent.recordCount,
-      observedRecordCount: observed.records.size,
-      expectedTerminalRecordDigest: intent.terminalRecordDigest,
-      observedTerminalRecordDigest: observed.tip?.recordDigest ?? null
-    });
-  }
-  const terminal = observed.records.get(intent.terminalRecordDigest);
-  if (terminal === undefined || (terminal.phase !== 'complete' && terminal.phase !== 'rolled-back')) {
-    throw new SecError('RUNTIME-DEPS-004', `${label} terminal record is missing or nonterminal`);
-  }
-  assertDependencyTransitionRolloverCheckpointDerived(intent, terminal);
-  return terminal;
-}
-
-async function readDependencyTransitionLedger(
-  ownerRoot: string,
-  options: RuntimeDependencyOperationOptions
-): Promise<DependencyTransitionLedger | null> {
-  runtimeDependencyOperationRemainingMs(options, 'Dependency transition ledger admission');
-  // Read-only admission must not create `.tmp/dependency-installs` or a
-  // journal namespace. The writer/recovery effect boundary is the only route
-  // allowed to create those directories.
-  const activeRollover = await inspectActiveDependencyTransitionRollover(ownerRoot, options);
-  if (activeRollover !== null && activeRollover.active !== null) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition ledger rollover requires owner recovery', {
-      intentDigest: activeRollover.active.intentDigest,
-      phase: activeRollover.active.phase,
-      terminalRecordDigest: activeRollover.active.terminalRecordDigest
-    });
-  }
-  const namespace = inspectDependencyTransitionNamespace(ownerRoot);
-  const legacyNamespace = inspectLegacyDependencyTransitionNamespace(ownerRoot);
-  let completedMigration: DependencyTransitionMigrationIntent | null = null;
-  if (namespace === null) {
-    if (legacyNamespace !== null) {
-      throw new SecError('RUNTIME-DEPS-004', 'Legacy dependency transition journal requires an owner migration before it can be read', {
-        schema: DEPENDENCY_TRANSITION_LEGACY_SCHEMA,
-        namespace: legacyNamespace.journalRoot.path
-      });
-    }
-    return null;
-  }
-  const migrationIntents = await readDependencyTransitionMigrationIntents(namespace, options);
-  if (legacyNamespace !== null) {
-    if (migrationIntents.complete === null) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition schema migration is incomplete; target is preserved', {
-        namespace: namespace.journalRoot.path,
-        preparedIntentDigest: migrationIntents.prepared?.intentDigest ?? null
-      });
-    }
-    // The v2 reader does not dual-read the retired grammar.  It only verifies
-    // that the retained source namespace still has the physical identity
-    // recorded by the completed migration intent; the migration entry alone
-    // is allowed to parse and digest v1 records.
-    assertDependencyTransitionMigrationSourceNamespaceBinding(migrationIntents.complete, legacyNamespace);
-    completedMigration = migrationIntents.complete;
-  } else if (migrationIntents.prepared !== null || migrationIntents.complete !== null) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration source evidence is missing and is preserved', {
-      preparedIntentDigest: migrationIntents.prepared?.intentDigest ?? null,
-      completeIntentDigest: migrationIntents.complete?.intentDigest ?? null
-    });
-  }
-  const latestCompleteRollover = activeRollover?.latestComplete ?? null;
-  if (latestCompleteRollover !== null && !sameGeneratedStateIdentity(
-    generatedStatePhysicalIdentity(namespace.recordsRoot),
-    latestCompleteRollover.publishedRecordsRootPhysical!
-  )) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition records root is not the latest complete rollover publication');
-  }
-  const observed = readDependencyTransitionRecordSet(
-    namespace.recordsRoot,
-    namespace.ownerRoot.path,
-    runtimeDependencyOperationContext(options),
-    'Dependency transition records'
-  );
-  const { records, tip } = observed;
-  if (completedMigration !== null) {
-    assertDependencyTransitionMigrationTargetBinding(completedMigration, namespace);
-  }
-  if (records.size === 0 && latestCompleteRollover !== null) {
-    throw new SecError('RUNTIME-DEPS-004', 'Latest complete dependency transition rollover has no checkpoint in its published records root');
-  }
-  if (latestCompleteRollover !== null) {
-    const checkpoint = records.get(latestCompleteRollover.checkpoint.recordDigest);
-    if (checkpoint === undefined ||
-        !Buffer.from(dependencyTransitionRecordBytes(checkpoint)).equals(
-          dependencyTransitionRecordBytes(latestCompleteRollover.checkpoint)
-        ) ||
-        checkpoint.previousRecordDigest !== null || checkpoint.sequence !== 1) {
-      throw new SecError('RUNTIME-DEPS-004', 'Published dependency transition records root does not contain the latest complete rollover checkpoint');
-    }
-  }
-  runtimeDependencyOperationRemainingMs(options, 'Dependency transition ledger readback');
-  return Object.freeze({ namespace, records, ledgerDigest: observed.ledgerDigest, tip });
-}
-
-async function readDependencyTransition(
-  ownerRoot: string,
-  options: RuntimeDependencyOperationOptions
-): Promise<DependencyTransitionJournal | null> {
-  return (await readDependencyTransitionLedger(ownerRoot, options))?.tip ?? null;
-}
-
-function writeDependencyTransitionPointerCache(
-  namespace: DependencyTransitionNamespace,
-  recordDigest: `sha256:${string}`
-): void {
-  // `current.json` is intentionally not replaced.  It is a disposable
-  // locator/cache and may have been written by an external process between
-  // our immutable-record publication and this best-effort hint.  Replacing it
-  // would turn a check-then-replace race into an apparent authority race.  The
-  // immutable census remains the only source of the transition tip.
-  const pointer = Object.freeze({
-    schema: DEPENDENCY_TRANSITION_POINTER_SCHEMA,
-    recordDigest
-  });
-  const pointerBytes = Buffer.from(formatJsonFile(canonicalJson(pointer)), 'utf8');
-  let existing: ReturnType<typeof inspectNoFollowOrdinaryFileEntry>;
-  try {
-    existing = inspectNoFollowOrdinaryFileEntry(namespace.journalRoot, 'current.json');
-  } catch {
-    // A foreign/reparse cache entry is preserved.  It cannot affect recovery.
-    return;
-  }
-  if (existing === null) {
-    try {
-      publishExclusiveDurableCanonicalFile({
-        parent: namespace.journalRoot,
-        name: 'current.json',
-        bytes: pointerBytes,
-        validate: assertDependencyTransitionPointerBytes
-      });
-    } catch {
-      // Another process may have won the cache publication.  Re-readers use
-      // the immutable ledger and therefore do not need a pointer repair.
-    }
-    return;
-  }
-  if (existing.bytes !== null && Buffer.from(existing.bytes).equals(pointerBytes)) return;
-  // Different, malformed, or stale bytes are unknown cache residue; leave it
-  // untouched rather than overwriting an external writer.
-}
-
-async function rolloverDependencyTransitionLedger(
-  ownerRoot: string,
-  ledger: DependencyTransitionLedger,
-  terminal: DependencyTransitionJournal,
-  options: RuntimeDependencyOperationOptions
-): Promise<DependencyTransitionJournal> {
-  runtimeDependencyOperationRemainingMs(options, 'Dependency transition rollover admission');
-  assertDependencyTransitionTerminalRolloverReady(terminal, ledger.namespace);
-  if (ledger.tip?.recordDigest !== terminal.recordDigest ||
-      ledger.records.size < DEPENDENCY_TRANSITION_ROLLOVER_TRIGGER ||
-      ledger.records.size > DEPENDENCY_TRANSITION_RECORD_CAPACITY ||
-      ledger.ledgerDigest !== dependencyTransitionLedgerDigest(ledger.records)) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition ledger rollover predecessor receipt is invalid');
-  }
-  // The new root is a receipt for the already authenticated terminal ledger,
-  // never a caller-supplied prepared operation.  This derivation must happen
-  // before the durable intent so a crash cannot turn arbitrary caller fields
-  // into recovery authority.
-  const checkpoint = dependencyTransitionTerminalCheckpoint(
-    terminal,
-    ledger.ledgerDigest
-  );
-  await assertDependencyTransitionTerminalReadback(terminal, options);
-  for (const slot of [terminal.stage, terminal.stageRoot, terminal.backup]) {
-    if (slot === null) continue;
-    const current = await observeDependencyTransitionSlot(slot.path, slot.bindingDigest);
-    if (!transitionSlotMatches(current, slot)) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition terminal residue changed before ledger rollover');
-    }
-  }
-  const namespace = await ensureDependencyTransitionNamespace(ownerRoot, options);
-  if (namespace.rolloversRoot === null ||
-      !sameGeneratedStateIdentity(
-        generatedStatePhysicalIdentity(namespace.ownerRoot),
-        terminal.ownerRootPhysical
-      ) ||
-      !sameGeneratedStateIdentity(
-        generatedStatePhysicalIdentity(namespace.recordsRoot),
-        generatedStatePhysicalIdentity(ledger.namespace.recordsRoot)
-      )) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition ledger namespace changed before rollover');
-  }
-  const priorRollover = await inspectActiveDependencyTransitionRollover(ownerRoot, options);
-  if (priorRollover?.active !== null) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover already has an active recovery intent');
-  }
-  const previousIntentDigest = priorRollover?.latestComplete?.intentDigest ?? null;
-  const sequence = (priorRollover?.latestComplete?.sequence ?? 0) + 1;
-  if (!Number.isSafeInteger(sequence) || sequence < 1) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover sequence exhausted');
-  }
-  const stem = rolloverResidueStem({
-    previousIntentDigest,
-    sequence,
-    ownerRoot: namespace.ownerRoot.path,
-    terminalRecordDigest: terminal.recordDigest,
-    ledgerDigest: ledger.ledgerDigest,
-    recordCount: ledger.records.size,
-    checkpoint
-  });
-  const nextName = `records-next-${stem}`;
-  const retiredName = `records-retired-${stem}`;
-  const existingNext = inspectOptionalNoFollowDirectoryChild(
-    namespace.rolloversRoot,
-    nextName,
-    'Dependency transition rollover next records preflight'
-  );
-  const existingRetired = inspectOptionalNoFollowDirectoryChild(
-    namespace.rolloversRoot,
-    retiredName,
-    'Dependency transition rollover retired records preflight'
-  );
-  if (existingNext !== null || existingRetired !== null) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover residue is foreign or belongs to an unresolved prior operation', {
-      nextName,
-      retiredName
-    });
-  }
-  const intent = makeDependencyTransitionRolloverIntent({
-    namespace,
-    terminal,
-    previousIntentDigest,
-    sequence,
-    ledgerDigest: ledger.ledgerDigest,
-    recordCount: ledger.records.size,
-    checkpoint,
-    nextRecordsPhysical: null
-  });
-  await writeDependencyTransitionRolloverIntentPhase(
-    Object.freeze({
-      ownerRoot: namespace.ownerRoot,
-      journalRoot: namespace.journalRoot,
-      rolloversRoot: namespace.rolloversRoot,
-      recordsRootPath: namespace.recordsRoot.path
-    }),
-    intent,
-    options
-  );
-  // The prepared intent is the durable owner receipt before any new records
-  // root exists.  Recovery can therefore finish a crash after namespace
-  // creation without treating an unreferenced `records-next-*` directory as
-  // a foreign cleanup candidate.
-  await runtimeDependencyOperationEffectFence(options, 'Dependency transition rollover next-root creation');
-  const next = createExclusiveNoFollowDirectory(namespace.rolloversRoot, nextName);
-  const staged = advanceDependencyTransitionRolloverIntent(intent, 'staged', {
-    retiredRecordsPhysical: null,
-    retiredRecordsDisposed: false,
-    nextRecordsPhysical: generatedStatePhysicalIdentity(next),
-    publishedRecordsRootPhysical: null
-  });
-  await writeDependencyTransitionRolloverIntentPhase(
-    Object.freeze({
-      ownerRoot: namespace.ownerRoot,
-      journalRoot: namespace.journalRoot,
-      rolloversRoot: namespace.rolloversRoot,
-      recordsRootPath: namespace.recordsRoot.path
-    }),
-    staged,
-    options
-  );
-  await runtimeDependencyOperationEffectFence(options, 'Dependency transition rollover checkpoint publication');
-  writeDurableTransitionFile(
-    next,
-    transitionRecordName(checkpoint.recordDigest),
-    dependencyTransitionRecordBytes(checkpoint),
-    assertDependencyTransitionRecordBytes,
-    true
-  );
-  await assertDependencyTransitionRolloverCheckpoint(next, staged, options);
-  await recoverDependencyTransitionRollover(ownerRoot, options);
-  const after = await readDependencyTransitionLedger(ownerRoot, options);
-  if (after === null || after.tip === null || after.tip.recordDigest !== checkpoint.recordDigest) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition ledger rollover did not publish its checkpoint');
-  }
-  return after.tip;
-}
-
-async function writeDependencyTransition(
-  ownerRoot: string,
-  unsigned: DependencyTransitionUnsigned,
-  options: RuntimeDependencyOperationOptions,
-  expectedCurrentRecordDigest: `sha256:${string}` | null = null
-): Promise<DependencyTransitionJournal> {
-  const namespace = await ensureDependencyTransitionNamespace(ownerRoot, options);
-  const currentLedger = await readDependencyTransitionLedger(ownerRoot, options);
-  if (expectedCurrentRecordDigest === null) {
-    // A new immutable epoch may only start from an empty ledger.  The
-    // immutable census, rather than current.json, is the expected-current CAS
-    // preimage for this root publication.
-    if (currentLedger?.tip !== null && currentLedger?.tip !== undefined) {
-      throw new SecError('RUNTIME-DEPS-002', 'Dependency transition immutable ledger already has a predecessor', {
-        expectedCurrentRecordDigest,
-        currentRecordDigest: currentLedger.tip.recordDigest,
-        ownerRoot: namespace.ownerRoot.path
-      });
-    }
-  } else {
-    if (currentLedger?.tip === null || currentLedger === null ||
-        currentLedger.tip.recordDigest !== expectedCurrentRecordDigest) {
-      throw new SecError('RUNTIME-DEPS-002', 'Dependency transition expected-current record digest does not match the immutable ledger tip', {
-        expectedCurrentRecordDigest,
-        currentRecordDigest: currentLedger?.tip?.recordDigest ?? null,
-        ownerRoot: namespace.ownerRoot.path
-      });
-    }
-    if (currentLedger.records.size >= DEPENDENCY_TRANSITION_ROLLOVER_TRIGGER) {
-      if (unsigned.phase !== 'prepared') {
-        throw new SecError('RUNTIME-DEPS-004', 'Dependency transition ledger is at rollover capacity during an active operation', {
-          recordCount: currentLedger.records.size,
-          capacity: DEPENDENCY_TRANSITION_RECORD_CAPACITY
-        });
-      }
-      const checkpoint = await rolloverDependencyTransitionLedger(
-        ownerRoot,
-        currentLedger,
-        currentLedger.tip,
-        options
-      );
-      // Rollover publishes only the authenticated terminal checkpoint.  The
-      // caller's operation is a normal child of that checkpoint and is
-      // written only after the new root has been recovered/read back.
-      const childUnsigned = Object.freeze({
-        ...unsigned,
-        previousRecordDigest: checkpoint.recordDigest,
-        sequence: checkpoint.sequence + 1
-      });
-      return writeDependencyTransition(
-        ownerRoot,
-        childUnsigned,
-        options,
-        checkpoint.recordDigest
-      );
-    }
-    // The full ledger census above is the expected-current CAS.  Re-parse the
-    // digest-named predecessor at the write boundary as a cheap byte-level
-    // guard against an external replacement after that census.
-    const predecessorName = transitionRecordName(expectedCurrentRecordDigest);
-    const predecessorEntry = inspectNoFollowOrdinaryFileEntry(namespace.recordsRoot, predecessorName);
-    if (predecessorEntry === null || predecessorEntry.bytes === null) {
-      throw new SecError('RUNTIME-DEPS-002', 'Dependency transition expected immutable predecessor is missing', {
-        expectedCurrentRecordDigest,
-        ownerRoot: namespace.ownerRoot.path
-      });
-    }
-    const predecessor = parseDependencyTransitionRecord(predecessorEntry.bytes, predecessorName);
-    if (predecessor.recordDigest !== expectedCurrentRecordDigest ||
-        currentLedger.records.get(expectedCurrentRecordDigest)?.recordDigest !== predecessor.recordDigest) {
-      throw new SecError('RUNTIME-DEPS-002', 'Dependency transition expected immutable predecessor digest changed', {
-        expectedCurrentRecordDigest,
-        currentRecordDigest: predecessor.recordDigest,
-        ownerRoot: namespace.ownerRoot.path
-      });
-    }
-  }
-  const recordDigest = dependencyTransitionDigestWithoutRecord(unsigned);
-  const record = Object.freeze({ ...unsigned, recordDigest }) as DependencyTransitionJournal;
-  const recordBytes = dependencyTransitionRecordBytes(record);
-  await runtimeDependencyOperationEffectFence(options, 'Dependency transition immutable record publication');
-  writeDurableTransitionFile(
-    namespace.recordsRoot,
-    transitionRecordName(recordDigest),
-    recordBytes,
-    assertDependencyTransitionRecordBytes,
-    true
-  );
-  // The expected predecessor was derived from a complete immutable census
-  // immediately before this exclusive record publication.  Cooperative
-  // writers are serialized by the compiler-root lease; a non-cooperative
-  // writer can only add a forked immutable record, which the next admission
-  // census rejects before any transition effect.  Do not recensus the whole
-  // ledger after every record: that would turn one operation into a repeated
-  // full-root fence on the Windows path.  The pointer update below is only a
-  // non-authoritative cache hint.
-  runtimeDependencyOperationRemainingMs(options, 'Dependency transition immutable record readback');
-  writeDependencyTransitionPointerCache(namespace, recordDigest);
-  return record;
-}
-
-function transitionSlotFromPhysical(input: Readonly<{
-  path: string;
-  kind: 'directory' | 'link';
-  physical: Readonly<GeneratedStatePhysicalIdentity>;
-  linkTarget?: string | null;
-  bindingDigest?: `sha256:${string}` | null;
-}>): DependencyTransitionSlot {
-  return Object.freeze({
-    path: path.resolve(input.path),
-    kind: input.kind,
-    physical: input.physical,
-    linkTarget: input.linkTarget ?? null,
-    bindingDigest: input.bindingDigest ?? null
-  });
-}
-
-function transitionAbsentSlot(pathValue: string): DependencyTransitionSlot {
-  return Object.freeze({
-    path: path.resolve(pathValue),
-    kind: 'absent' as const,
-    physical: null,
-    linkTarget: null,
-    bindingDigest: null
-  });
-}
-
-async function observeDependencyTransitionSlot(
-  targetPath: string,
-  expectedBindingDigest?: `sha256:${string}` | null
-): Promise<DependencyTransitionSlot> {
-  const absolute = path.resolve(targetPath);
-  try {
-    const parent = inspectNoFollowDirectoryChain(
-      path.dirname(absolute),
-      'Dependency transition slot parent'
-    ).target;
-    const name = path.basename(absolute);
-    let link: ReturnType<typeof inspectNoFollowLinkEntry>;
-    try {
-      link = inspectNoFollowLinkEntry(parent, name);
-    } catch (error) {
-      if (error instanceof PhysicalNoFollowError &&
-        (error.code === 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED' ||
-          error.code === 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH')) {
-        link = null;
-      } else {
-        throw error;
-      }
-    }
-    if (link !== null) {
-      if (link.kind !== 'link' || link.linkTarget === null) {
-        throw new SecError('RUNTIME-DEPS-004', 'Dependency transition slot is an invalid link');
-      }
-      return transitionSlotFromPhysical({
-        path: absolute,
-        kind: 'link',
-        physical: Object.freeze({
-          device: link.device,
-          inode: link.inode,
-          objectId: generatedStateDigest({ kind: 'link', target: link.linkTarget })
-        }),
-        linkTarget: link.linkTarget,
-        bindingDigest: expectedBindingDigest ?? null
-      });
-    }
-    const directory = inspectExactNoFollowDirectoryPresence(
-      absolute,
-      'Dependency transition slot'
-    );
-    if (directory.state === 'absent') return transitionAbsentSlot(absolute);
-    return transitionSlotFromPhysical({
-      path: absolute,
-      kind: 'directory',
-      physical: generatedStatePhysicalIdentity(directory.directory.target),
-      bindingDigest: expectedBindingDigest ?? null
-    });
-  } catch (error) {
-    if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') {
-      return transitionAbsentSlot(absolute);
-    }
-    throw error;
-  }
-}
-
-function transitionSlotMatches(
-  actual: DependencyTransitionSlot,
-  expected: DependencyTransitionSlot
-): boolean {
-  if (actual.kind !== expected.kind || path.resolve(actual.path) !== path.resolve(expected.path)) return false;
-  if (actual.kind === 'absent') return true;
-  return expected.physical !== null && actual.physical !== null &&
-    sameGeneratedStateIdentity(actual.physical, expected.physical) &&
-    (expected.kind !== 'link' || actual.linkTarget === expected.linkTarget);
-}
-
-function sourceGenerationWithPath(
-  source: RuntimeDependencySourceGeneration,
-  sourcePath: string
-): RuntimeDependencySourceGeneration {
-  return Object.freeze({ ...source, sourcePath: path.resolve(sourcePath) });
-}
-
-function transitionFailure(error: unknown): Readonly<{ code: string; message: string }> {
-  return Object.freeze({
-    code: error instanceof SecError ? error.code :
-      error instanceof PhysicalNoFollowError ? error.code :
-        (error as NodeJS.ErrnoException).code ?? 'UNKNOWN',
-    message: error instanceof Error ? error.message : String(error)
-  });
-}
-
-function transitionOperationKey(input: Readonly<{
-  kind: DependencyTransitionKind;
-  ownerRoot: string;
-  destinationPath: string;
-  preimage: DependencyTransitionSlot;
-  stage: DependencyTransitionSlot | null;
-  stageRoot: DependencyTransitionSlot | null;
-  backup: DependencyTransitionSlot | null;
-  sourceGeneration: RuntimeDependencySourceGeneration;
-}>): `sha256:${string}` {
-  // `sourcePath` may change from an operation-created staging child to the
-  // active compiler destination after a successful rename.  Bind the
-  // operation to the immutable source physical/content observation, not that
-  // mutable path spelling, so recovery can audit the stage-to-active receipt.
-  const sourceGeneration = Object.freeze({
-    schema: input.sourceGeneration.schema,
-    ownerRoot: input.sourceGeneration.ownerRoot,
-    ownerRootPhysical: input.sourceGeneration.ownerRootPhysical,
-    physical: input.sourceGeneration.physical,
-    bindingDigest: input.sourceGeneration.bindingDigest,
-    treeDigest: input.sourceGeneration.treeDigest,
-    treeEntryCount: input.sourceGeneration.treeEntryCount,
-    epoch: input.sourceGeneration.epoch
-  });
-  // Journal records are persisted as recursively canonical JSON.  Hash the
-  // same canonical projection here: otherwise a valid record re-read after
-  // JSON parsing has alphabetized nested slot keys and no longer reproduces
-  // the in-memory insertion-order hash created at begin time.
-  return generatedStateDigest(canonicalJson(Object.freeze({
-    schema: 'sec-dependency-transition-operation-v1',
-    kind: input.kind,
-    ownerRoot: path.resolve(input.ownerRoot),
-    destinationPath: path.resolve(input.destinationPath),
-    preimage: input.preimage,
-    stagePath: input.stage?.path ?? null,
-    stageRootPath: input.stageRoot?.path ?? null,
-    backupPath: input.backup?.path ?? null,
-    sourceGeneration
-  })));
-}
-
-async function beginDependencyTransition(input: Readonly<{
-  kind: DependencyTransitionKind;
-  ownerRoot: string;
-  destinationPath: string;
-  stagePath: string | null;
-  stageRootPath?: string | null;
-  backupPath: string | null;
-  sourceGeneration: RuntimeDependencySourceGeneration;
-  bindingDigest: `sha256:${string}` | null;
-  options: RuntimeDependencyOperationOptions;
-}>): Promise<DependencyTransitionJournal> {
-  runtimeDependencyOperationRemainingMs(input.options, 'Dependency transition begin admission');
-  const ownerRoot = inspectNoFollowDirectoryChain(
-    input.ownerRoot,
-    'Dependency transition owner root'
-  ).target;
-  const destination = await observeDependencyTransitionSlot(input.destinationPath, input.bindingDigest);
-  const preimage = destination;
-  const stage = input.stagePath === null
-    ? null
-    : await observeDependencyTransitionSlot(input.stagePath, input.bindingDigest);
-  const stageRoot = input.stageRootPath === undefined || input.stageRootPath === null
-    ? null
-    : await observeDependencyTransitionSlot(input.stageRootPath, input.bindingDigest);
-  const backup = input.backupPath === null
-    ? null
-    : await observeDependencyTransitionSlot(input.backupPath, input.bindingDigest);
-  if (input.backupPath !== null) {
-    const expectedBackupPath = input.kind === 'compiler-generation'
-      ? compilerTransitionBackupPath(ownerRoot.path, 'node_modules', input.sourceGeneration)
-      : input.kind === 'compiler-locator'
-        ? compilerTransitionBackupPath(ownerRoot.path, 'locator-preimage', input.sourceGeneration)
-        : input.kind === 'runtime-projection'
-          ? compilerTransitionBackupPath(ownerRoot.path, 'runtime', input.sourceGeneration)
-          : input.stageRootPath === null || input.stageRootPath === undefined
-            ? null
-            : projectTransitionBackupPath(
-              ownerRoot.path,
-              path.dirname(path.dirname(path.resolve(input.stageRootPath))),
-              preimage,
-              input.sourceGeneration
-            );
-    if (expectedBackupPath === null || path.resolve(input.backupPath) !== path.resolve(expectedBackupPath)) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition backup path is not derived from canonical operation inputs');
-    }
-  }
-  if (backup !== null && backup.kind !== 'absent') {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition backup path is occupied by a foreign identity and is preserved', {
-      backupPath: backup.path,
-      backupKind: backup.kind
-    });
-  }
-  if (stage !== null && stage.kind === 'absent') {
-    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition stage disappeared before durable intent');
-  }
-  if (stageRoot !== null && stageRoot.kind === 'absent') {
-    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition staging root disappeared before durable intent');
-  }
-  if (stage !== null && stageRoot !== null && stage.kind !== 'absent' && stageRoot.kind !== 'absent') {
-    const relativeStage = path.relative(stageRoot.path, stage.path);
-    if (relativeStage.startsWith('..') || path.isAbsolute(relativeStage) || relativeStage.length === 0) {
-      throw new SecError('RUNTIME-DEPS-002', 'Dependency transition stage is not contained by its recorded staging root');
-    }
-  }
-  const current = await readDependencyTransition(ownerRoot.path, input.options);
-  if (current !== null && current.phase !== 'complete' && current.phase !== 'rolled-back') {
-    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition already has an active owner-local operation', {
-      currentRecordDigest: current.recordDigest,
-      currentPhase: current.phase,
-      ownerRoot: ownerRoot.path
-    });
-  }
-  const operationKey = transitionOperationKey({
-    kind: input.kind,
-    ownerRoot: ownerRoot.path,
-    destinationPath: input.destinationPath,
-    preimage,
-    stage,
-    stageRoot,
-    backup,
-    sourceGeneration: input.sourceGeneration
-  });
-  return writeDependencyTransition(ownerRoot.path, {
-    schema: DEPENDENCY_TRANSITION_SCHEMA,
-    previousRecordDigest: current?.recordDigest ?? null,
-    sequence: (current?.sequence ?? 0) + 1,
-    operationKey,
-    attemptNonce: crypto.randomUUID(),
-    kind: input.kind,
-    ownerRoot: ownerRoot.path,
-    ownerRootPhysical: generatedStatePhysicalIdentity(ownerRoot),
-    destination,
-    preimage,
-    stage,
-    stageRoot,
-    backup,
-    sourceGeneration: input.sourceGeneration,
-    phase: 'prepared',
-    durability: 'known',
-    failure: null
-  }, input.options, current?.recordDigest ?? null);
-}
-
-async function advanceDependencyTransition(
-  previous: DependencyTransitionJournal,
-  patch: Readonly<Partial<Pick<DependencyTransitionJournal, 'destination' | 'stage' | 'stageRoot' | 'backup' | 'sourceGeneration' | 'phase' | 'durability' | 'failure'>>>,
-  options: RuntimeDependencyOperationOptions
-): Promise<DependencyTransitionJournal> {
-  // A malformed or foreign predecessor must never be allowed to publish a
-  // successor and thereby postpone the topology failure until recovery.
-  assertTransitionOperationKey(previous);
-  const { recordDigest: _recordDigest, ...withoutDigest } = previous;
-  const successor = Object.freeze({
-    ...withoutDigest,
-    previousRecordDigest: previous.recordDigest,
-    sequence: previous.sequence + 1,
-    ...patch
-  });
-  const successorOperationKey = transitionOperationKey({
-    kind: successor.kind,
-    ownerRoot: successor.ownerRoot,
-    destinationPath: successor.destination.path,
-    preimage: successor.preimage,
-    stage: successor.stage,
-    stageRoot: successor.stageRoot,
-    backup: successor.backup,
-    sourceGeneration: successor.sourceGeneration
-  });
-  if (successorOperationKey !== previous.operationKey) {
-    throw new SecError(
-      'RUNTIME-DEPS-004',
-      'Dependency transition successor changes the immutable operation topology',
-      {
-        expectedOperationKey: previous.operationKey,
-        successorOperationKey,
-        previousRecordDigest: previous.recordDigest,
-        previousSequence: previous.sequence,
-        nextSequence: successor.sequence,
-        kind: successor.kind,
-        previousPhase: previous.phase,
-        nextPhase: successor.phase
-      }
-    );
-  }
-  return writeDependencyTransition(previous.ownerRoot, successor, options, previous.recordDigest);
-}
-
-async function markDependencyTransitionFailure(
-  record: DependencyTransitionJournal,
-  error: unknown,
-  options: RuntimeDependencyOperationOptions,
-  phase: DependencyTransitionPhase = 'recovery-required'
-): Promise<DependencyTransitionJournal> {
-  return advanceDependencyTransition(record, {
-    phase,
-    durability: 'unknown',
-    failure: transitionFailure(error)
-  }, options);
 }
 
 type DependencyTransitionStageAuthority = Readonly<{
@@ -5527,10 +1623,15 @@ async function readCompilerDependencyStageIntents(
 ): Promise<Readonly<{
   active: readonly CompilerDependencyStageIntent[];
   representedStagePaths: ReadonlySet<string>;
+  settled: readonly CompilerDependencyStageIntent[];
 }>> {
   const intentRoot = await compilerDependencyStageIntentRoot(root, options, false);
   if (intentRoot === null) {
-    return Object.freeze({ active: Object.freeze([]), representedStagePaths: new Set<string>() });
+    return Object.freeze({
+      active: Object.freeze([]),
+      representedStagePaths: new Set<string>(),
+      settled: Object.freeze([])
+    });
   }
   const names = await readNoFollowDirectNames(
     intentRoot,
@@ -5561,6 +1662,7 @@ async function readCompilerDependencyStageIntents(
     byOperation.set(intent.operationKey, phases);
   }
   const active: CompilerDependencyStageIntent[] = [];
+  const terminal: CompilerDependencyStageIntent[] = [];
   for (const [operationKey, phases] of byOperation) {
     const prepared = phases.get('prepared');
     const disposing = phases.get('disposing');
@@ -5572,9 +1674,15 @@ async function readCompilerDependencyStageIntents(
       throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency stage intent chain is partial or foreign', { operationKey });
     }
     if (settled === undefined) active.push(disposing ?? prepared);
+    else terminal.push(settled);
   }
   active.sort((left, right) => compareCodeUnits(left.operationKey, right.operationKey));
-  return Object.freeze({ active: Object.freeze(active), representedStagePaths });
+  terminal.sort((left, right) => compareCodeUnits(left.operationKey, right.operationKey));
+  return Object.freeze({
+    active: Object.freeze(active),
+    representedStagePaths,
+    settled: Object.freeze(terminal)
+  });
 }
 
 async function settleCompilerDependencyStageIntent(
@@ -5800,7 +1908,8 @@ async function recoverCompilerDependencyStageIntents(
         !sameGeneratedStateIdentity(generatedStatePhysicalIdentity(owner), intent.ownerRootPhysical)) {
       throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency stage intent owner epoch changed; residue is preserved');
     }
-    const transitionStageRoot = pendingTransition?.kind === 'compiler-generation' &&
+    const transitionStageRoot = (pendingTransition?.kind === 'compiler-generation' ||
+        pendingTransition?.kind === 'compiler-local-locator') &&
         pendingTransition.phase !== 'complete' && pendingTransition.phase !== 'rolled-back'
       ? pendingTransition.stageRoot
       : null;
@@ -5990,7 +2099,21 @@ async function disposeDependencyTransitionStage(
     // lifecycle error would let a forged journal turn an arbitrary directory
     // into deletion authority after the validation interval.
     await runtimeDependencyOperationEffectFence(options, 'Dependency transition staging lifecycle disposal');
-    await options.generatedStateLifecycle.disposed(relativeStagePath, outcome);
+    const disposalReceipt = await options.generatedStateLifecycle.disposed(relativeStagePath, {
+      outcome,
+      profile: 'automatic'
+    });
+    const { assertGeneratedStateDisposalReceipt } = await import(
+      '../../../runtime-state/generated-state/lifecycle.ts'
+    );
+    assertGeneratedStateDisposalReceipt(disposalReceipt);
+    if (disposalReceipt.relativePath !== relativeStagePath ||
+        disposalReceipt.profile !== 'automatic' || disposalReceipt.terminal !== 'disposed') {
+      throw new SecError(
+        'RUNTIME-DEPS-004',
+        'Dependency transition staging lifecycle receipt differs; residue is preserved'
+      );
+    }
     runtimeDependencyOperationRemainingMs(options, 'Dependency transition staging lifecycle disposal readback');
     const afterLifecycleRoot = await observeDependencyTransitionSlot(stageRootPath);
     if (afterLifecycleRoot.kind === 'absent') return;
@@ -6248,24 +2371,6 @@ async function sharedDependencyAuthorityResidue(sharedDepsRoot: string): Promise
   }));
   return observed.filter((name): name is (typeof SHARED_DEPENDENCY_FORBIDDEN_AUTHORITY_FILES)[number] =>
     name !== null);
-}
-
-function sameHostPath(left: string, right: string): boolean {
-  const normalize = (value: string): string => {
-    const resolved = path.resolve(value);
-    if (process.platform !== 'win32') return resolved;
-    const withoutDevicePrefix = resolved.startsWith('\\\\?\\UNC\\')
-      ? `\\\\${resolved.slice('\\\\?\\UNC\\'.length)}`
-      : resolved.startsWith('\\\\?\\')
-        ? resolved.slice('\\\\?\\'.length)
-        : resolved;
-    return withoutDevicePrefix.toLocaleLowerCase('en-US');
-  };
-  const resolvedLeft = normalize(left);
-  const resolvedRight = normalize(right);
-  return process.platform === 'win32'
-    ? resolvedLeft === resolvedRight
-    : resolvedLeft === resolvedRight;
 }
 
 function physicalSharedDependencyDirectory(
@@ -7028,83 +3133,90 @@ async function withInstallLock<T>(
   const context = runtimeDependencyOperationContext(operationOptions);
   const pollIntervalMs = context.pollIntervalMs;
   const sleep = operationOptions.sleep ?? sleepMs;
-  let owner: InstallLockOwner | null = null;
-  let ownerObservation: NoFollowOwnedFileObservation | null = null;
+  const { owner, ownerObservation } = await measureRuntimeDependencyOperationPhaseAsync(
+    operationOptions,
+    'lease-wait',
+    async () => {
+      let owner: InstallLockOwner | null = null;
+      let ownerObservation: NoFollowOwnedFileObservation | null = null;
 
-  // Every caller admits the lock below an already-created owner namespace.
-  // Reopening that namespace through the no-follow chain prevents a redirected
-  // parent from becoming the lease's hidden second authority.
-  runtimeDependencyOperationRemainingMs(operationOptions, 'Install lock parent admission');
-  inspectNoFollowDirectoryChain(path.dirname(lockPath), 'Install lock parent');
+      // Every caller admits the lock below an already-created owner namespace.
+      // Reopening that namespace through the no-follow chain prevents a redirected
+      // parent from becoming the lease's hidden second authority.
+      runtimeDependencyOperationRemainingMs(operationOptions, 'Install lock parent admission');
+      inspectNoFollowDirectoryChain(path.dirname(lockPath), 'Install lock parent');
 
-  while (true) {
-    runtimeDependencyOperationRemainingMs(operationOptions, 'Install lock admission');
-    if (await reclaimLockIsActive(`${lockPath}.reclaim`)) {
-      await waitForRuntimeDependencyOperation(
-        operationOptions,
-        pollIntervalMs,
-        sleep,
-        `Waiting for install lock reclaim marker ${lockPath}`
-      );
-      continue;
-    }
-    runtimeDependencyOperationRemainingMs(operationOptions, 'Install lock publication fence');
-    await operationOptions.beforeCommit?.();
-    runtimeDependencyOperationRemainingMs(operationOptions, 'Install lock publication');
-    owner = {
-      createdAt: (operationOptions.now ?? (() => new Date().toISOString()))(),
-      pid: process.pid,
-      token: crypto.randomUUID()
-    };
-    const parent = inspectNoFollowDirectoryChain(path.dirname(lockPath), 'Install lock parent').target;
-    const ownerBytes = Buffer.from(formatJsonFile(owner), 'utf8');
-    try {
-      publishExclusiveDurableCanonicalFile({
-        parent,
-        name: path.basename(lockPath),
-        bytes: ownerBytes,
-        validate: (bytes) => {
-          const value = JSON.parse(Buffer.from(bytes).toString('utf8')) as unknown;
-          if (!isInstallLockOwner(value)) throw new Error('Install lock owner record is malformed.');
+      while (true) {
+        runtimeDependencyOperationRemainingMs(operationOptions, 'Install lock admission');
+        if (await reclaimLockIsActive(`${lockPath}.reclaim`)) {
+          await waitForRuntimeDependencyOperation(
+            operationOptions,
+            pollIntervalMs,
+            sleep,
+            `Waiting for install lock reclaim marker ${lockPath}`
+          );
+          continue;
         }
-      });
-      runtimeDependencyOperationRemainingMs(operationOptions, 'Install lock publication readback');
-    } catch (error) {
-      // A valid existing lease, or a recently-created malformed lease, is
-      // contention rather than an invitation to replace its bytes.  The
-      // exact reclaimer below decides whether an old identity may be
-      // removed. Parent/reparse failures remain typed blockers.
-      const contention = error instanceof PhysicalNoFollowError &&
-        error.code === 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED'
-        ? observeNoFollowOwnedFile(lockPath, 'Install lock contention') !== null
-        : (() => {
-            const existing = observeNoFollowOwnedFile(lockPath, 'Install lock contention');
-            return existing !== null;
-          })();
-      if (!contention) throw error;
-    }
-    const current = observeNoFollowOwnedFile(lockPath, 'Install lock owner');
-    if (current !== null) {
-      const currentOwner = parseInstallLockOwner(readNoFollowOwnedFileJson(current, 'Install lock owner'));
-      if (currentOwner?.token === owner.token) {
-        ownerObservation = current;
-        break;
+        runtimeDependencyOperationRemainingMs(operationOptions, 'Install lock publication fence');
+        await operationOptions.beforeCommit?.();
+        runtimeDependencyOperationRemainingMs(operationOptions, 'Install lock publication');
+        owner = {
+          createdAt: (operationOptions.now ?? (() => new Date().toISOString()))(),
+          pid: process.pid,
+          token: crypto.randomUUID()
+        };
+        const parent = inspectNoFollowDirectoryChain(path.dirname(lockPath), 'Install lock parent').target;
+        const ownerBytes = Buffer.from(formatJsonFile(owner), 'utf8');
+        try {
+          publishExclusiveDurableCanonicalFile({
+            parent,
+            name: path.basename(lockPath),
+            bytes: ownerBytes,
+            validate: (bytes) => {
+              const value = JSON.parse(Buffer.from(bytes).toString('utf8')) as unknown;
+              if (!isInstallLockOwner(value)) throw new Error('Install lock owner record is malformed.');
+            }
+          });
+          runtimeDependencyOperationRemainingMs(operationOptions, 'Install lock publication readback');
+        } catch (error) {
+          // A valid existing lease, or a recently-created malformed lease, is
+          // contention rather than an invitation to replace its bytes.  The
+          // exact reclaimer below decides whether an old identity may be
+          // removed. Parent/reparse failures remain typed blockers.
+          const contention = error instanceof PhysicalNoFollowError &&
+            error.code === 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED'
+            ? observeNoFollowOwnedFile(lockPath, 'Install lock contention') !== null
+            : (() => {
+                const existing = observeNoFollowOwnedFile(lockPath, 'Install lock contention');
+                return existing !== null;
+              })();
+          if (!contention) throw error;
+        }
+        const current = observeNoFollowOwnedFile(lockPath, 'Install lock owner');
+        if (current !== null) {
+          const currentOwner = parseInstallLockOwner(readNoFollowOwnedFileJson(current, 'Install lock owner'));
+          if (currentOwner?.token === owner.token) {
+            ownerObservation = current;
+            break;
+          }
+        }
+        owner = null;
+        ownerObservation = null;
+        runtimeDependencyOperationRemainingMs(operationOptions, 'Install lock orphan recovery');
+        if (await reclaimOrphanInstallLock(lockPath, operationOptions)) {
+          runtimeDependencyOperationRemainingMs(operationOptions, 'Install lock orphan recovery readback');
+          continue;
+        }
+        await waitForRuntimeDependencyOperation(
+          operationOptions,
+          pollIntervalMs,
+          sleep,
+          `Waiting for install lock ${lockPath}`
+        );
       }
+      return Object.freeze({ owner, ownerObservation });
     }
-    owner = null;
-    ownerObservation = null;
-    runtimeDependencyOperationRemainingMs(operationOptions, 'Install lock orphan recovery');
-    if (await reclaimOrphanInstallLock(lockPath, operationOptions)) {
-      runtimeDependencyOperationRemainingMs(operationOptions, 'Install lock orphan recovery readback');
-      continue;
-    }
-    await waitForRuntimeDependencyOperation(
-      operationOptions,
-      pollIntervalMs,
-      sleep,
-      `Waiting for install lock ${lockPath}`
-    );
-  }
+  );
 
   let callbackFailed = false;
   let callbackFailure: unknown;
@@ -7227,6 +3339,7 @@ async function withCompilerDependencyTransitionLease<T>(
   runtimeDependencyOperationRemainingMs(operationOptions, 'Compiler dependency lease namespace readback');
   const leasePath = path.join(root, '.tmp', 'dependency-installs', 'compiler.lock');
   return withInstallLock(leasePath, operationOptions, async () => {
+    await measureRuntimeDependencyOperationPhaseAsync(operationOptions, 'recovery', async () => {
     // Compiler staging is born before package installation and therefore has
     // its own durable recovery intent. Recover that owner-local effect before
     // reading publication transitions; the latter deliberately begins only
@@ -7241,11 +3354,12 @@ async function withCompilerDependencyTransitionLease<T>(
     const pending = await readDependencyTransition(root, operationOptions);
     await recoverCompilerDependencyStageIntents(root, operationOptions, pending);
     if (pending !== null && pending.phase !== 'complete' && pending.phase !== 'rolled-back') {
-      if (pending.kind === 'compiler-generation' || pending.kind === 'compiler-locator') {
+      if (pending.kind === 'compiler-generation' || pending.kind === 'compiler-local-locator' ||
+          pending.kind === 'compiler-locator') {
         await recoverCompilerDependencyTransition(
           root,
           dependencyAuthorityPaths(root).compilerModulesRoot,
-          await compilerDependencyIdentity(root),
+          await observeCompilerDependencyIdentity(root, operationOptions),
           operationOptions
         );
       } else if (pending.kind === 'compiler-bridge') {
@@ -7261,7 +3375,14 @@ async function withCompilerDependencyTransitionLease<T>(
     // legacy. Reversing this order can retire a live journal input or let an
     // unrelated unknown sibling prevent the journal's zero-effect rollback.
     await migrateRegisteredLegacyCompilerDependencyStages(root, operationOptions);
-    return callback(operationOptions);
+    });
+    const result = await callback(operationOptions);
+    // Consumer release is durable before reclamation.  Collection runs under
+    // this same compiler-root lease, so a generation can be physically
+    // retired only after the exact consumer census is terminal and the
+    // active locator no longer selects it.
+    await collectReleasedCompilerDependencyGenerations(root, operationOptions);
+    return result;
   });
 }
 
@@ -7488,84 +3609,93 @@ async function runBunInstall(
     ...commandBounds,
     ...(isolated ? { envMode: 'replace' as const } : {})
   };
-  let bunResult: CommandResult;
-  if (commandRunner !== undefined) {
-    // A caller-provided command runner is an explicit test/provider seam. It
-    // remains path-compatible so existing deterministic fixtures can observe
-    // the command without owning the production executable effect.
-    bunResult = await commandRunner(process.execPath, commandArgs, runOptions);
-  } else {
-    const expected = expectedExecutable ?? await currentRuntimeExecutableIdentity(true);
-    const executableParent = inspectNoFollowDirectoryChain(
-      path.dirname(expected.path),
-      'Bun executable retained parent'
-    );
-    const executable = retainNoFollowOrdinaryFile(
-      executableParent,
-      path.basename(expected.path),
-      undefined,
-      'Bun executable retained capability',
-      RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-      'executable'
-    );
-    const workingDirectoryChain = inspectNoFollowDirectoryChain(
-      workingDirectory,
-      'Bun retained working directory'
-    );
-    const retainedWorkingDirectory = retainNoFollowDirectoryForChildProcess(
-      workingDirectoryChain,
-      RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
-      'Bun retained working directory capability'
-    );
-    try {
-      assertRetainedNoFollowCapability(executable, 'executable', 'Bun executable capability');
-      assertRetainedNoFollowCapability(
-        retainedWorkingDirectory,
-        'working-directory',
-        'Bun working directory capability'
-      );
-      const observed = executable.digest();
-      if (!sameHostPath(executable.path, expected.path) || observed.byteDigest !== `sha256:${expected.sha256}`) {
-        throw new SecError(
-          'IMPORT-AUTHORITY-001',
-          'Bun runtime executable changed before retained compiler spawn'
+  const operationOptions = runtimeDependencyOperationOptions(options);
+  const bunResult = await measureRuntimeDependencyOperationPhaseAsync(
+    operationOptions,
+    'install',
+    async () => {
+      let result: CommandResult;
+      if (commandRunner !== undefined) {
+        // A caller-provided command runner is an explicit test/provider seam. It
+        // remains path-compatible so existing deterministic fixtures can observe
+        // the command without owning the production executable effect.
+        result = await commandRunner(process.execPath, commandArgs, runOptions);
+      } else {
+        const expected = expectedExecutable ?? await currentRuntimeExecutableIdentity(true);
+        const executableParent = inspectNoFollowDirectoryChain(
+          path.dirname(expected.path),
+          'Bun executable retained parent'
         );
-      }
-      const expectedExecutableSize = observed.size;
-      const assertRetainedExecutableCurrent = (): void => {
-        executable.assertCurrent();
-        const current = executable.digest();
-        // Metadata/identity fences catch ordinary replacement and timestamp
-        // drift.  The same retained handle must also re-read the bytes so an
-        // in-place same-size rewrite cannot pass by preserving metadata.
-        if (current.size !== expectedExecutableSize || current.byteDigest !== `sha256:${expected.sha256}`) {
-          throw new SecError(
-            'IMPORT-AUTHORITY-001',
-            'Bun runtime executable bytes changed during retained compiler spawn'
+        const executable = retainNoFollowOrdinaryFile(
+          executableParent,
+          path.basename(expected.path),
+          undefined,
+          'Bun executable retained capability',
+          RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+          'executable'
+        );
+        const workingDirectoryChain = inspectNoFollowDirectoryChain(
+          workingDirectory,
+          'Bun retained working directory'
+        );
+        const retainedWorkingDirectory = retainNoFollowDirectoryForChildProcess(
+          workingDirectoryChain,
+          RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+          'Bun retained working directory capability'
+        );
+        try {
+          assertRetainedNoFollowCapability(executable, 'executable', 'Bun executable capability');
+          assertRetainedNoFollowCapability(
+            retainedWorkingDirectory,
+            'working-directory',
+            'Bun working directory capability'
           );
-        }
-      };
-      const { cwd: _workingDirectory, ...retainedRunOptions } = runOptions;
-      bunResult = await runRetainedCommand({
-        executable,
-        workingDirectory: retainedWorkingDirectory
-      }, commandArgs, {
-        ...retainedRunOptions,
-        ...commandBounds,
-        beforeSpawn: async () => {
-          await options.beforeCommit?.();
-          await inputFence?.();
+          const observed = executable.digest();
+          if (!sameHostPath(executable.path, expected.path) || observed.byteDigest !== `sha256:${expected.sha256}`) {
+            throw new SecError(
+              'IMPORT-AUTHORITY-001',
+              'Bun runtime executable changed before retained compiler spawn'
+            );
+          }
+          const expectedExecutableSize = observed.size;
+          const assertRetainedExecutableCurrent = (): void => {
+            executable.assertCurrent();
+            const current = executable.digest();
+            // Metadata/identity fences catch ordinary replacement and timestamp
+            // drift.  The same retained handle must also re-read the bytes so an
+            // in-place same-size rewrite cannot pass by preserving metadata.
+            if (current.size !== expectedExecutableSize || current.byteDigest !== `sha256:${expected.sha256}`) {
+              throw new SecError(
+                'IMPORT-AUTHORITY-001',
+                'Bun runtime executable bytes changed during retained compiler spawn'
+              );
+            }
+          };
+          const { cwd: _workingDirectory, ...retainedRunOptions } = runOptions;
+          const retainedCommandBoundary = issueRetainedCommandBoundary({
+            executable,
+            workingDirectory: retainedWorkingDirectory
+          });
+          result = await runRetainedCommand(retainedCommandBoundary, commandArgs, {
+            ...retainedRunOptions,
+            ...commandBounds,
+            beforeSpawn: async () => {
+              await options.beforeCommit?.();
+              await inputFence?.();
+              assertRetainedExecutableCurrent();
+              retainedWorkingDirectory.assertCurrent();
+            }
+          });
           assertRetainedExecutableCurrent();
           retainedWorkingDirectory.assertCurrent();
+        } finally {
+          retainedWorkingDirectory.dispose();
+          executable.dispose();
         }
-      });
-      assertRetainedExecutableCurrent();
-      retainedWorkingDirectory.assertCurrent();
-    } finally {
-      retainedWorkingDirectory.dispose();
-      executable.dispose();
+      }
+      return result;
     }
-  }
+  );
   runtimeDependencyOperationRemainingMs(options, 'Compiler dependency command settlement');
   await options.beforeCommit?.();
   runtimeDependencyOperationRemainingMs(options, 'Compiler dependency command final fence');
@@ -8071,110 +4201,6 @@ async function publishProjectDependencyProjection(
   }
 }
 
-function assertDirectStageRootSelector(
-  stageRoot: DependencyTransitionSlot,
-  parent: string,
-  prefix: string
-): void {
-  const stageRootPath = path.resolve(stageRoot.path);
-  if (path.dirname(stageRootPath) !== path.resolve(parent) ||
-      !path.basename(stageRootPath).startsWith(prefix)) {
-    throw new SecError(
-      'RUNTIME-DEPS-004',
-      'Dependency transition stage root is outside its canonical operation selector',
-      { stageRootPath, parent: path.resolve(parent), prefix }
-    );
-  }
-  if (stageRoot.kind !== 'directory' && stageRoot.kind !== 'absent') {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition stage root is not an ordinary directory slot');
-  }
-}
-
-function assertTransitionBackupSelector(
-  transition: DependencyTransitionJournal,
-  expectedPath?: string
-): void {
-  if (transition.backup === null) return;
-  const backupParent = path.join(
-    transition.ownerRoot, '.tmp', 'dependency-installs', 'compiler-backups'
-  );
-  if (path.dirname(transition.backup.path) !== backupParent ||
-      !/^(?:node_modules|locator-preimage|runtime|project-preimage)-[0-9a-f]{16,64}$/u.test(path.basename(transition.backup.path))) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition backup path is outside its canonical selector');
-  }
-  if (expectedPath !== undefined && path.resolve(transition.backup.path) !== path.resolve(expectedPath)) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition backup path is not the operation-derived slot');
-  }
-}
-
-function compilerTransitionBackupPath(
-  ownerRoot: string,
-  prefix: 'node_modules' | 'locator-preimage' | 'runtime',
-  sourceGeneration: RuntimeDependencySourceGeneration
-): string {
-  const namespace = dependencyTransitionNamespacePaths(path.resolve(ownerRoot));
-  return path.join(
-    namespace.backupRoot,
-    `${prefix}-${sourceGeneration.epoch.slice('sha256:'.length, 'sha256:'.length + 24)}`
-  );
-}
-
-function projectTransitionBackupPath(
-  ownerRoot: string,
-  projectRoot: string,
-  preimage: DependencyTransitionSlot,
-  sourceGeneration: RuntimeDependencySourceGeneration
-): string {
-  const namespace = dependencyTransitionNamespacePaths(path.resolve(ownerRoot));
-  return path.join(
-    namespace.backupRoot,
-    `project-preimage-${generatedStateDigest({
-      schema: 'sec-project-dependency-preimage-v1',
-      projectRoot: path.resolve(projectRoot),
-      target: preimage,
-      sourceGeneration
-    }).slice('sha256:'.length, 'sha256:'.length + 32)}`
-  );
-}
-
-function assertTransitionOperationKey(
-  transition: DependencyTransitionJournal
-): void {
-  const expected = transitionOperationKey({
-    kind: transition.kind,
-    ownerRoot: transition.ownerRoot,
-    destinationPath: transition.destination.path,
-    preimage: transition.preimage,
-    stage: transition.stage,
-    stageRoot: transition.stageRoot,
-    backup: transition.backup,
-    sourceGeneration: transition.sourceGeneration
-  });
-  if (expected !== transition.operationKey) {
-    throw new SecError(
-      'RUNTIME-DEPS-004',
-      'Dependency transition operation identity is not bound to its canonical topology',
-      {
-        expectedOperationKey: expected,
-        actualOperationKey: transition.operationKey,
-        recordDigest: transition.recordDigest,
-        kind: transition.kind,
-        phase: transition.phase,
-        attemptNonce: transition.attemptNonce,
-        sequence: transition.sequence,
-        previousRecordDigest: transition.previousRecordDigest,
-        ownerRoot: transition.ownerRoot,
-        destinationPath: transition.destination.path,
-        preimage: transition.preimage,
-        stagePath: transition.stage?.path ?? null,
-        stageRootPath: transition.stageRoot?.path ?? null,
-        backupPath: transition.backup?.path ?? null,
-        sourceGeneration: transition.sourceGeneration
-      }
-    );
-  }
-}
-
 function assertCompilerTransitionRecoveryTopology(
   transition: DependencyTransitionJournal,
   root: string,
@@ -8189,7 +4215,9 @@ function assertCompilerTransitionRecoveryTopology(
   assertTransitionOperationKey(transition);
   const expectedBackupPath = transition.kind === 'compiler-generation'
     ? compilerTransitionBackupPath(canonicalRoot, 'node_modules', transition.sourceGeneration)
-    : transition.kind === 'compiler-locator'
+    : transition.kind === 'compiler-local-locator'
+      ? compilerTransitionBackupPath(canonicalRoot, 'generation', transition.sourceGeneration)
+      : transition.kind === 'compiler-locator'
       ? compilerTransitionBackupPath(canonicalRoot, 'locator-preimage', transition.sourceGeneration)
       : transition.kind === 'runtime-projection'
         ? compilerTransitionBackupPath(canonicalRoot, 'runtime', transition.sourceGeneration)
@@ -8211,6 +4239,26 @@ function assertCompilerTransitionRecoveryTopology(
         (transition.sourceGeneration.sourcePath !== transition.stage.path &&
           transition.sourceGeneration.sourcePath !== canonicalDestination)) {
       throw new SecError('IMPORT-AUTHORITY-004', 'Compiler generation transition source path is foreign');
+    }
+    return;
+  }
+  if (transition.kind === 'compiler-local-locator') {
+    if (transition.backup === null ||
+        transition.sourceGeneration.ownerRoot !== canonicalRoot ||
+        path.resolve(transition.sourceGeneration.sourcePath) !== path.resolve(transition.backup.path)) {
+      throw new SecError('IMPORT-AUTHORITY-004', 'Local compiler locator transition generation slot is foreign');
+    }
+    if (transition.stage !== null && transition.stageRoot !== null) {
+      assertDirectStageRootSelector(
+        transition.stageRoot,
+        path.join(canonicalRoot, '.tmp', 'dependency-installs'),
+        'c.staging-'
+      );
+      if (transition.stage.path !== path.join(transition.stageRoot.path, 'node_modules')) {
+        throw new SecError('IMPORT-AUTHORITY-004', 'Local compiler locator stage is not its exact node_modules child');
+      }
+    } else if (transition.stage !== null || transition.stageRoot !== null) {
+      throw new SecError('IMPORT-AUTHORITY-004', 'Local compiler locator staging topology is incomplete');
     }
     return;
   }
@@ -8527,6 +4575,7 @@ type CompilerDependencyBridgeSourceObservation = Readonly<{
  * recovery effect is admitted.
  */
 async function compilerDependencyBridgeSourceObservation(
+  ownerRootInput: string,
   sourcePath: string,
   options: RuntimeDependencyOperationOptions,
   expected?: Readonly<{
@@ -8538,14 +4587,17 @@ async function compilerDependencyBridgeSourceObservation(
     treeEntryCount: number;
   }>
 ): Promise<CompilerDependencyBridgeSourceObservation> {
+  const ownerRoot = path.resolve(ownerRootInput);
   const absoluteSourcePath = path.resolve(sourcePath);
-  if (path.basename(absoluteSourcePath).toLocaleLowerCase('en-US') !== 'node_modules') {
+  const canonicalNodeModulesPath = dependencyAuthorityPaths(ownerRoot).compilerModulesRoot;
+  const currentGenerationPath = path.resolve(await fs.realpath(canonicalNodeModulesPath));
+  if (!isPathInside(ownerRoot, absoluteSourcePath) ||
+      !sameHostPath(currentGenerationPath, absoluteSourcePath)) {
     throw new SecError(
       'IMPORT-AUTHORITY-004',
-      'Compiler dependency bridge source is outside the canonical node_modules generation'
+      'Compiler dependency bridge source is not the current canonical node_modules generation'
     );
   }
-  const ownerRoot = path.dirname(absoluteSourcePath);
   const ownerIdentity = await compilerDependencyIdentity(ownerRoot);
   const binding = await compilerDependencyGenerationBinding(
     ownerRoot,
@@ -8599,8 +4651,8 @@ function assertCompilerDependencyBridgeTransitionTopology(
       transition.preimage.path !== destination ||
       transition.preimage.kind !== 'absent' ||
       transition.stage !== null || transition.stageRoot !== null || transition.backup !== null ||
-      transition.sourceGeneration.ownerRoot !== path.dirname(transition.sourceGeneration.sourcePath) ||
-      path.basename(transition.sourceGeneration.sourcePath).toLocaleLowerCase('en-US') !== 'node_modules' ||
+      transition.sourceGeneration.ownerRoot !== ownerRoot ||
+      !isPathInside(ownerRoot, transition.sourceGeneration.sourcePath) ||
       path.resolve(destination) === path.resolve(transition.sourceGeneration.sourcePath)) {
     throw new SecError(
       'IMPORT-AUTHORITY-004',
@@ -8681,6 +4733,7 @@ async function recoverCompilerDependencyBridgeTransition(
       ));
     }
     const source = await compilerDependencyBridgeSourceObservation(
+      ownerRoot,
       transition.sourceGeneration.sourcePath,
       options,
       transition.sourceGeneration
@@ -8796,7 +4849,11 @@ export async function withProjectDependencyBridge<T>(
       consumerRoot,
       operationOptions
     );
-    const source = await compilerDependencyBridgeSourceObservation(sourcePath, operationOptions);
+    const source = await compilerDependencyBridgeSourceObservation(
+      compilerDependencyRoot,
+      sourcePath,
+      operationOptions
+    );
     const existing = await observeDependencyTransitionSlot(
       bridgePath,
       generatedStateDigest(source.binding)
@@ -8811,7 +4868,12 @@ export async function withProjectDependencyBridge<T>(
       runtimeDependencyOperationRemainingMs(operationOptions, 'Project dependency bridge callback admission');
       const result = await callback();
       runtimeDependencyOperationRemainingMs(operationOptions, 'Project dependency bridge callback settlement');
-      await compilerDependencyBridgeSourceObservation(source.sourcePath, operationOptions, source.sourceGeneration);
+      await compilerDependencyBridgeSourceObservation(
+        compilerDependencyRoot,
+        source.sourcePath,
+        operationOptions,
+        source.sourceGeneration
+      );
       const after = await observeDependencyTransitionSlot(bridgePath);
       if (after.kind !== 'link' || !compilerDependencyBridgeLinkMatches(bridgePath, source, after)) {
         throw new SecError(
@@ -8859,7 +4921,12 @@ export async function withProjectDependencyBridge<T>(
       runtimeDependencyOperationRemainingMs(operationOptions, 'Project dependency bridge callback admission');
       const result = await callback();
       runtimeDependencyOperationRemainingMs(operationOptions, 'Project dependency bridge callback settlement');
-      await compilerDependencyBridgeSourceObservation(source.sourcePath, operationOptions, source.sourceGeneration);
+      await compilerDependencyBridgeSourceObservation(
+        compilerDependencyRoot,
+        source.sourcePath,
+        operationOptions,
+        source.sourceGeneration
+      );
       await removeCompilerDependencyBridge(consumerRoot, source, transition, operationOptions);
       return result;
     } catch (error) {
@@ -8888,7 +4955,12 @@ async function removeCompilerDependencyBridge(
   // the exact source generation admitted in the journal.  Re-prove that fact
   // before cleanup as well as before publication; otherwise a callback error
   // could turn a source-path drift into an implicit delete authority.
-  await compilerDependencyBridgeSourceObservation(source.sourcePath, options, source.sourceGeneration);
+  await compilerDependencyBridgeSourceObservation(
+    transition.ownerRoot,
+    source.sourcePath,
+    options,
+    source.sourceGeneration
+  );
   const bridgePath = path.join(path.resolve(consumerRoot), 'node_modules');
   const current = await observeDependencyTransitionSlot(bridgePath);
   if (current.kind === 'absent') {
@@ -9401,6 +5473,10 @@ async function publishCompilerDependencyGeneration(
     namespace.backupRoot.path,
     `node_modules-${sourceGeneration.epoch.slice('sha256:'.length, 'sha256:'.length + 24)}`
   );
+  const activePreimage = await observeDependencyTransitionSlot(activeNodeModulesPath);
+  const preimageAuthority = activePreimage.kind === 'directory'
+    ? await compilerDependencyGeneratedPreimageAuthority(root, activeNodeModulesPath, options)
+    : null;
   let transition = await beginDependencyTransition({
     kind: 'compiler-generation',
     ownerRoot: root,
@@ -9410,6 +5486,7 @@ async function publishCompilerDependencyGeneration(
     backupPath,
     sourceGeneration,
     bindingDigest,
+    preimageBindingDigest: preimageAuthority?.authorityDigest ?? null,
     options
   });
   let activeBackedUp = false;
@@ -9421,7 +5498,15 @@ async function publishCompilerDependencyGeneration(
       if (transition.preimage.kind !== 'directory') {
         throw new SecError('IMPORT-AUTHORITY-004', 'Existing compiler dependency target is foreign and preserved');
       }
-      await compilerDependencyGeneratedPreimageDigest(activeNodeModulesPath);
+      const currentPreimageAuthority = await compilerDependencyGeneratedPreimageAuthority(
+        root,
+        activeNodeModulesPath,
+        options
+      );
+      if (currentPreimageAuthority.authorityDigest !== transition.preimage.bindingDigest) {
+        throw new SecError('IMPORT-AUTHORITY-004', 'Compiler dependency preimage authority changed before quarantine');
+      }
+      await retireCompilerDependencyExecutionProofIfPresent(root, activeNodeModulesPath, options);
       retiredPreimageRegistrationDigest = await bindAndRetireCompilerDependencyPreimage(
         options,
         transition.preimage.physical!,
@@ -9550,6 +5635,107 @@ async function publishCompilerDependencyGeneration(
   }
 }
 
+async function publishLocalCompilerDependencyLocator(
+  root: string,
+  activeNodeModulesPath: string,
+  stagingRoot: string | null,
+  stageIntent: CompilerDependencyStageIntent | null,
+  binding: CompilerDepsBinding,
+  identity: CompilerDependencyIdentity,
+  sourceGeneration: RuntimeDependencySourceGeneration,
+  options: RuntimeDependencyOperationOptions
+): Promise<RuntimeDependencySourceGeneration> {
+  return measureRuntimeDependencyOperationPhaseAsync(options, 'publication', () =>
+    publishLocalCompilerDependencyLocatorInternal(
+      root,
+      activeNodeModulesPath,
+      stagingRoot,
+      stageIntent,
+      binding,
+      identity,
+      sourceGeneration,
+      options
+    ));
+}
+
+async function publishLocalCompilerDependencyLocatorInternal(
+  root: string,
+  activeNodeModulesPath: string,
+  stagingRoot: string | null,
+  stageIntent: CompilerDependencyStageIntent | null,
+  binding: CompilerDepsBinding,
+  identity: CompilerDependencyIdentity,
+  sourceGeneration: RuntimeDependencySourceGeneration,
+  options: RuntimeDependencyOperationOptions
+): Promise<RuntimeDependencySourceGeneration> {
+  const generationPath = compilerTransitionBackupPath(root, 'generation', sourceGeneration);
+  const active = await observeDependencyTransitionSlot(activeNodeModulesPath);
+  let preimageBindingDigest: `sha256:${string}` | null = null;
+  if (active.kind === 'directory') {
+    preimageBindingDigest = (await compilerDependencyGeneratedPreimageAuthority(
+      root,
+      activeNodeModulesPath,
+      options
+    )).authorityDigest;
+  } else if (active.kind === 'link') {
+    const preimageBinding = await compilerDependencyConsumerBridgeBinding(
+      root,
+      activeNodeModulesPath,
+      identity,
+      options
+    );
+    if (preimageBinding === null) {
+      throw new SecError('IMPORT-AUTHORITY-004', 'Compiler dependency locator preimage has no canonical binding');
+    }
+    preimageBindingDigest = generatedStateDigest(preimageBinding);
+  } else if (active.kind !== 'absent') {
+    throw new SecError('IMPORT-AUTHORITY-004', 'Compiler dependency locator preimage is foreign and preserved');
+  }
+  const stagedPath = stagingRoot === null ? null : path.join(stagingRoot, 'node_modules');
+  let transition = await beginDependencyTransition({
+    kind: 'compiler-local-locator',
+    ownerRoot: root,
+    destinationPath: activeNodeModulesPath,
+    stagePath: stagedPath,
+    stageRootPath: stagingRoot,
+    backupPath: generationPath,
+    sourceGeneration: sourceGenerationWithPath(sourceGeneration, generationPath),
+    bindingDigest: generatedStateDigest(binding),
+    preimageBindingDigest,
+    options
+  });
+  try {
+    await recoverCompilerDependencyTransition(root, activeNodeModulesPath, identity, options);
+    const terminal = await readDependencyTransition(root, options);
+    if (terminal === null || terminal.operationKey !== transition.operationKey ||
+        terminal.phase !== 'complete' || terminal.kind !== 'compiler-local-locator') {
+      throw new SecError(
+        'IMPORT-AUTHORITY-004',
+        'Compiler dependency immutable generation transition has no terminal receipt'
+      );
+    }
+    transition = terminal;
+    if (stageIntent !== null && stagingRoot !== null) {
+      const intents = await readCompilerDependencyStageIntents(root, options);
+      if (intents.active.some((candidate) => candidate.intentDigest === stageIntent.intentDigest)) {
+        throw new SecError(
+          'IMPORT-AUTHORITY-004',
+          'Compiler dependency immutable generation retained its staging intent after publication'
+        );
+      }
+    }
+    return transition.sourceGeneration;
+  } catch (error) {
+    await markDependencyTransitionFailure(transition, error, options).catch(() => undefined);
+    throw new SecError('IMPORT-AUTHORITY-004', 'Compiler dependency immutable generation publication failed', {
+      cause: error instanceof Error ? error.message : String(error),
+      causeDetails: error instanceof SecError ? error.details : null,
+      recoveryRequired: true,
+      transitionDigest: transition.recordDigest
+    });
+  }
+}
+
 async function createCompilerDependencyLocator(
   linkPath: string,
   sourcePath: string,
@@ -9643,7 +5829,19 @@ async function recoverCompilerDependencyTransition(
     });
   };
 
-  const currentActive = () => observeDependencyTransitionSlot(activePath, transition.sourceGeneration.bindingDigest);
+  const currentActive = async (): Promise<DependencyTransitionSlot> => {
+    const observed = await observeDependencyTransitionSlot(activePath);
+    if (observed.kind === 'directory' && observed.physical !== null &&
+        transition.preimage.kind === 'directory' && transition.preimage.physical !== null &&
+        sameGeneratedStateIdentity(observed.physical, transition.preimage.physical)) {
+      return observeDependencyTransitionSlot(activePath, transition.preimage.bindingDigest);
+    }
+    if (observed.kind === 'directory' && observed.physical !== null &&
+        sameGeneratedStateIdentity(observed.physical, transition.sourceGeneration.physical)) {
+      return observeDependencyTransitionSlot(activePath, transition.sourceGeneration.bindingDigest);
+    }
+    return observed;
+  };
   const currentStage = () => stagePath === null
     ? Promise.resolve<DependencyTransitionSlot | null>(null)
     : observeDependencyTransitionSlot(stagePath, transition.sourceGeneration.bindingDigest);
@@ -9652,7 +5850,12 @@ async function recoverCompilerDependencyTransition(
     : observeDependencyTransitionSlot(stageRootPath, transition.sourceGeneration.bindingDigest);
   const currentBackup = () => backupPath === null
     ? Promise.resolve<DependencyTransitionSlot | null>(null)
-    : observeDependencyTransitionSlot(backupPath, transition.preimage.bindingDigest);
+    : observeDependencyTransitionSlot(
+      backupPath,
+      transition.kind === 'compiler-local-locator'
+        ? transition.sourceGeneration.bindingDigest
+        : transition.preimage.bindingDigest
+    );
 
   try {
     assertCompilerTransitionRecoveryTopology(initialTransition, root, nodeModulesPath);
@@ -9660,6 +5863,61 @@ async function recoverCompilerDependencyTransition(
     let stage = await currentStage();
     let stageRoot = await currentStageRoot();
     let backup = await currentBackup();
+
+    // A preimage and a new target are independent authorities.  An earlier
+    // writer incorrectly copied the target binding digest into the prepared
+    // preimage slot.  That operation published no target effect, so recovery
+    // may only settle its exact operation-owned stage and record the unchanged
+    // active physical preimage as rolled back.  A successor transition must
+    // then authenticate the preimage from its own persisted binding and
+    // actual bytes; the old record is never upgraded or treated as authority.
+    if (transition.kind === 'compiler-generation' && transition.phase === 'recovery-required' &&
+        transition.failure?.code === 'IMPORT-AUTHORITY-004' &&
+        transition.preimage.bindingDigest === transition.sourceGeneration.bindingDigest &&
+        transition.preimage.kind === 'directory' && transition.preimage.physical !== null &&
+        active.kind === 'directory' && active.physical !== null &&
+        sameGeneratedStateIdentity(active.physical, transition.preimage.physical) &&
+        transition.stage?.kind === 'directory' && transition.stage.physical !== null &&
+        stage?.kind === 'directory' && stage.physical !== null &&
+        sameGeneratedStateIdentity(stage.physical, transition.stage.physical) &&
+        transition.stageRoot?.kind === 'directory' && transition.stageRoot.physical !== null &&
+        stageRoot?.kind === 'directory' && stageRoot.physical !== null &&
+        sameGeneratedStateIdentity(stageRoot.physical, transition.stageRoot.physical) &&
+        backup?.kind === 'absent') {
+      const stageIntents = await readCompilerDependencyStageIntents(root, options);
+      const stageIntent = stageIntents.active.find((intent) =>
+        stageRootPath !== null && path.resolve(intent.stageRootPath) === path.resolve(stageRootPath));
+      if (stageIntent === undefined) {
+        return failRecovery(new SecError(
+          'IMPORT-AUTHORITY-004',
+          'Compiler dependency invalid transition stage has no exact disposal authority'
+        ));
+      }
+      await settleCompilerDependencyStageIntent(
+        root,
+        stageIntent,
+        'invalid-preimage-authority-transition-rolled-back',
+        options
+      );
+      stage = await currentStage();
+      stageRoot = await currentStageRoot();
+      if (stage?.kind !== 'absent' || stageRoot?.kind !== 'absent') {
+        return failRecovery(new SecError(
+          'IMPORT-AUTHORITY-004',
+          'Compiler dependency invalid transition stage settlement did not reach terminal absence'
+        ));
+      }
+      transition = await advanceDependencyTransition(transition, {
+        destination: active,
+        stage,
+        stageRoot,
+        backup,
+        phase: 'rolled-back',
+        durability: 'known',
+        failure: transition.failure
+      }, options);
+      return;
+    }
 
     if (transition.kind === 'compiler-generation' &&
         (transition.phase === 'prepared' || transition.phase === 'recovery-required') &&
@@ -9694,6 +5952,58 @@ async function recoverCompilerDependencyTransition(
         return;
       }
     }
+    if (transition.kind === 'compiler-generation' && transition.phase === 'recovery-required' &&
+        transition.preimage.kind === 'directory' && transition.preimage.physical !== null &&
+        active.kind === 'directory' && active.physical !== null &&
+        sameGeneratedStateIdentity(active.physical, transition.preimage.physical) &&
+        transition.stage?.kind === 'directory' && transition.stage.physical !== null &&
+        stage?.kind === 'directory' && stage.physical !== null &&
+        sameGeneratedStateIdentity(stage.physical, transition.stage.physical) &&
+        transition.stageRoot?.kind === 'directory' && transition.stageRoot.physical !== null &&
+        stageRoot?.kind === 'directory' && stageRoot.physical !== null &&
+        sameGeneratedStateIdentity(stageRoot.physical, transition.stageRoot.physical) &&
+        backup?.kind === 'absent') {
+      // The preimage relocation produced no topology Effect.  Retrying that
+      // operation is unsafe on Windows because another process may still be
+      // consuming the exact active generation.  The journal already proves
+      // the unchanged preimage, exact operation-owned stage and absent
+      // backup, so the only recovery action is to retire the stage and close
+      // this attempt as rolled back.  A successor operation can then publish
+      // an immutable generation and switch only the locator.
+      const stageIntents = await readCompilerDependencyStageIntents(root, options);
+      const stageIntent = stageIntents.active.find((intent) =>
+        stageRootPath !== null && path.resolve(intent.stageRootPath) === path.resolve(stageRootPath));
+      if (stageIntent === undefined) {
+        return failRecovery(new SecError(
+          'IMPORT-AUTHORITY-004',
+          'Compiler dependency failed relocation stage has no exact disposal authority'
+        ));
+      }
+      await settleCompilerDependencyStageIntent(
+        root,
+        stageIntent,
+        'preimage-relocation-not-applied-rolled-back',
+        options
+      );
+      stage = await currentStage();
+      stageRoot = await currentStageRoot();
+      if (stage?.kind !== 'absent' || stageRoot?.kind !== 'absent') {
+        return failRecovery(new SecError(
+          'IMPORT-AUTHORITY-004',
+          'Compiler dependency failed relocation stage did not reach terminal absence'
+        ));
+      }
+      await advanceDependencyTransition(transition, {
+        destination: active,
+        stage,
+        stageRoot,
+        backup,
+        phase: 'rolled-back',
+        durability: 'known',
+        failure: transition.failure
+      }, options);
+      return;
+    }
     if (transition.stageRoot !== null &&
         (stageRoot === null || !transitionSlotMatches(stageRoot, transition.stageRoot))) {
       // A crash can occur after the exact retained disposal effect and before
@@ -9701,11 +6011,29 @@ async function recoverCompilerDependencyTransition(
       // recorded absent, an absent live root is a safe already-disposed
       // topology; no new deletion authority is inferred from it.  Any
       // reappeared or substituted root remains a typed residue blocker.
+      let durableStageSettlement = false;
+      const recordedStageRoot = transition.stageRoot;
+      const recordedStagePhysical = recordedStageRoot.physical;
+      if (transition.kind === 'compiler-local-locator' &&
+          transition.phase === 'recovery-required' &&
+          transition.stage?.kind === 'directory' && stage?.kind === 'absent' &&
+          recordedStageRoot.kind === 'directory' && recordedStagePhysical !== null &&
+          stageRoot?.kind === 'absent' &&
+          backup?.kind === 'directory' && backup.physical !== null &&
+          sameGeneratedStateIdentity(backup.physical, transition.sourceGeneration.physical)) {
+        const stageIntents = await readCompilerDependencyStageIntents(root, options);
+        durableStageSettlement = stageIntents.settled.some((intent) =>
+          (intent.outcome === 'immutable-generation-published' ||
+            intent.outcome === 'generation-staging-recovered') &&
+          path.resolve(intent.stageRootPath) === path.resolve(recordedStageRoot.path) &&
+          sameGeneratedStateIdentity(intent.stageRootPhysical, recordedStagePhysical)
+        );
+      }
       const alreadyDisposed = transition.stageRoot.kind === 'directory' &&
         transition.stage?.kind === 'absent' && stageRoot?.kind === 'absent' &&
         (transition.phase === 'published' || transition.phase === 'binding-validated' ||
           transition.phase === 'stamp-readback' || transition.phase === 'recovery-required');
-      if (!alreadyDisposed) {
+      if (!alreadyDisposed && !durableStageSettlement) {
         return failRecovery(new SecError('IMPORT-AUTHORITY-004', 'Compiler dependency staging root identity changed and is preserved'));
       }
     }
@@ -9720,19 +6048,37 @@ async function recoverCompilerDependencyTransition(
         transition.preimage.physical !== null &&
         sameGeneratedStateIdentity(active.physical!, transition.preimage.physical) &&
         backup?.kind === 'absent') {
-        await compilerDependencyGeneratedPreimageDigest(activePath, {
+        const preimageAuthority = await compilerDependencyGeneratedPreimageAuthority(root, activePath, options, {
           // v2 is never a ready generation.  It is consumed only by this
           // durable recovery branch after the current v3 stage, exact
           // preimage physical epoch, backup absence and transition identity
           // have all been read back under the compiler-root lease.
           allowLegacyRuntimeMaterializationV2: transition.phase === 'recovery-required'
         });
-        await bindAndRetireCompilerDependencyPreimage(
+        if (preimageAuthority.authorityDigest !== transition.preimage.bindingDigest) {
+          return failRecovery(new SecError(
+            'IMPORT-AUTHORITY-004',
+            'Compiler dependency preimage authority differs from the durable transition'
+          ));
+        }
+        await retireCompilerDependencyExecutionProofIfPresent(root, activePath, options);
+        await ensureCompilerDependencyPreimageRetiredForRecovery(
           options,
           transition.preimage.physical!,
           'generation-recovery-superseded'
         );
-        await renameCompilerDependencyDirectory(activePath, backupPath, options);
+        if (process.platform === 'win32' && transition.phase === 'recovery-required' &&
+            preimageAuthority.reason === 'binding-content-diverged') {
+          await relocateLegacyCompilerDependencyPreimage(
+            root,
+            transition,
+            preimageAuthority,
+            options,
+            backupPath
+          );
+        } else {
+          await renameCompilerDependencyDirectory(activePath, backupPath, options);
+        }
         transition = await advanceDependencyTransition(transition, {
           destination: transitionAbsentSlot(activePath),
           backup: await observeDependencyTransitionSlot(backupPath, transition.preimage.bindingDigest),
@@ -9866,6 +6212,279 @@ async function recoverCompilerDependencyTransition(
       return;
     }
 
+    if (transition.kind === 'compiler-local-locator') {
+      if (backupPath === null) {
+        return failRecovery(new SecError('IMPORT-AUTHORITY-004', 'Local compiler locator has no immutable generation slot'));
+      }
+      let generation = await currentBackup();
+      if (generation?.kind === 'absent' && stage?.kind === 'directory' && stageRoot?.kind === 'directory') {
+        await renameCompilerDependencyDirectory(stage.path, backupPath, options);
+        generation = await currentBackup();
+        stage = await currentStage();
+        stageRoot = await currentStageRoot();
+      } else if (generation?.kind === 'absent' && transition.preimage.kind === 'directory' &&
+          transition.preimage.physical !== null && active.kind === 'directory' && active.physical !== null &&
+          sameGeneratedStateIdentity(active.physical, transition.preimage.physical)) {
+        const preimageAuthority = await compilerDependencyGeneratedPreimageAuthority(
+          root,
+          activePath,
+          options
+        );
+        if (preimageAuthority.authorityDigest !== transition.preimage.bindingDigest) {
+          return failRecovery(new SecError(
+            'IMPORT-AUTHORITY-004',
+            'Local compiler locator preimage authority differs from the durable transition'
+          ));
+        }
+        await retireCompilerDependencyExecutionProofIfPresent(root, activePath, options);
+        await bindAndRetireCompilerDependencyPreimage(
+          options,
+          transition.preimage.physical,
+          'local-generation-locator-migration'
+        );
+        await renameCompilerDependencyDirectory(activePath, backupPath, options);
+        active = await currentActive();
+        generation = await currentBackup();
+      }
+      if (generation?.kind !== 'directory' || generation.physical === null ||
+          !sameGeneratedStateIdentity(generation.physical, expectedSourcePhysical)) {
+        return failRecovery(new SecError(
+          'IMPORT-AUTHORITY-004',
+          'Local compiler immutable generation is absent or changed'
+        ));
+      }
+      const generationBinding = await compilerDependencyGenerationBinding(
+        root,
+        backupPath,
+        path.join(backupPath, COMPILER_DEPS_BINDING_FILE),
+        identity
+      );
+      if (generationBinding === null ||
+          generatedStateDigest(generationBinding) !== transition.sourceGeneration.bindingDigest) {
+        return failRecovery(new SecError(
+          'IMPORT-AUTHORITY-004',
+          'Local compiler immutable generation binding drifted'
+        ));
+      }
+      const immutableSourceGeneration = await runtimeDependencySourceGeneration({
+        binding: generationBinding,
+        options,
+        ownerRoot: root,
+        sourcePath: backupPath
+      });
+      if (immutableSourceGeneration.epoch !== transition.sourceGeneration.epoch ||
+          !sameRuntimeDependencySourceGenerationContent(
+            immutableSourceGeneration,
+            transition.sourceGeneration
+          ) ||
+          !sameGeneratedStateIdentity(
+            immutableSourceGeneration.physical,
+            transition.sourceGeneration.physical
+          )) {
+        return failRecovery(new SecError(
+          'IMPORT-AUTHORITY-004',
+          'Local compiler immutable generation changed before read-only sealing'
+        ));
+      }
+      if (transition.preimage.kind === 'directory' && transition.preimage.physical !== null) {
+        if (active.kind === 'directory' && active.physical !== null &&
+            sameGeneratedStateIdentity(active.physical, transition.preimage.physical)) {
+          const preimageAuthority = await compilerDependencyGeneratedPreimageAuthority(
+            root,
+            activePath,
+            options
+          );
+          if (preimageAuthority.authorityDigest !== transition.preimage.bindingDigest) {
+            return failRecovery(new SecError(
+              'IMPORT-AUTHORITY-004',
+              'Local compiler locator preimage authority differs before legacy cutover'
+            ));
+          }
+          const legacyBinding = await readCompilerDepsBinding(
+            path.join(activePath, COMPILER_DEPS_BINDING_FILE)
+          );
+          if (legacyBinding === null) {
+            return failRecovery(new SecError(
+              'IMPORT-AUTHORITY-004',
+              'Legacy compiler dependency generation has no canonical binding'
+            ));
+          }
+          const legacyGeneration = await runtimeDependencySourceGeneration({
+            binding: legacyBinding,
+            options,
+            ownerRoot: root,
+            sourcePath: activePath
+          });
+          const legacyGenerationPath = compilerTransitionBackupPath(
+            root,
+            'generation',
+            legacyGeneration
+          );
+          if (sameHostPath(legacyGenerationPath, backupPath)) {
+            return failRecovery(new SecError(
+              'IMPORT-AUTHORITY-004',
+              'Legacy and replacement compiler dependency generations have the same durable locator'
+            ));
+          }
+          if (process.platform !== 'win32') {
+            return failRecovery(new SecError(
+              'RUNTIME-DEPS-004',
+              'Legacy compiler dependency locator cutover requires a platform-owned durable relocation capability'
+            ));
+          }
+          await retireCompilerDependencyExecutionProofIfPresent(root, activePath, options);
+          await ensureCompilerDependencyPreimageRetiredForRecovery(
+            options,
+            transition.preimage.physical,
+            'local-generation-locator-cutover'
+          );
+          const relocated = await relocateLegacyCompilerDependencyPreimage(
+            root,
+            transition,
+            preimageAuthority,
+            options,
+            legacyGenerationPath
+          );
+          if (!sameGeneratedStateIdentity(relocated.physical, transition.preimage.physical)) {
+            return failRecovery(new SecError(
+              'IMPORT-AUTHORITY-004',
+              'Legacy compiler dependency relocation changed its physical generation'
+            ));
+          }
+          active = await currentActive();
+        } else if (active.kind === 'absent' && process.platform === 'win32') {
+          // A crash after the owner-issued physical relocation leaves the
+          // prepared/complete relocation intent as the only recovery input.
+          // Reopen that exact capability and read the terminal topology back;
+          // never infer relocation authority from absence alone.
+          await relocateLegacyCompilerDependencyPreimage(
+            root,
+            transition,
+            null,
+            options
+          );
+          active = await currentActive();
+        }
+        if (active.kind === 'absent') {
+          await settleRetiredCompilerDependencyGeneration(
+            options,
+            transition.preimage.physical
+          );
+        }
+      }
+      const activeAlreadyPublished = active.kind === 'link' &&
+        sameHostPath(await fs.realpath(activePath).catch(() => ''), backupPath);
+      if (active.kind === 'link' && !activeAlreadyPublished) {
+        const locator = compilerDependencyLocatorObservation(root, 'node_modules');
+        if (locator === null || transition.preimage.kind !== 'link' ||
+            transition.preimage.physical === null ||
+            !sameGeneratedStateIdentity(locator.source, transition.preimage.physical)) {
+          return failRecovery(new SecError(
+            'IMPORT-AUTHORITY-004',
+            'Local compiler locator preimage changed and is preserved'
+          ));
+        }
+        await disposeCompilerDependencyLocator(
+          root,
+          options,
+          'incompatible-compiler-dependency-locator'
+        );
+        active = await currentActive();
+      }
+      // Publication order is part of the capability contract: a locator may
+      // never expose a writable generation.  The persisted proof is issued
+      // and read back under this same compiler-root transition lease before
+      // the link can become visible to any consumer.
+      await ensureCompilerDependencyGenerationReadOnlyProof(
+        root,
+        immutableSourceGeneration,
+        options
+      );
+      if (active.kind === 'absent') {
+        await createCompilerDependencyLocator(activePath, backupPath, generation.physical, options);
+        active = await currentActive();
+      }
+      if (active.kind !== 'link' || !sameHostPath(await fs.realpath(activePath).catch(() => ''), backupPath)) {
+        return failRecovery(new SecError(
+          'IMPORT-AUTHORITY-004',
+          'Local compiler locator failed exact publication readback'
+        ));
+      }
+      const observedBinding = await compilerDependencyConsumerBridgeBinding(
+        root,
+        activePath,
+        identity,
+        options
+      );
+      if (observedBinding === null || generatedStateDigest(observedBinding) !==
+          transition.sourceGeneration.bindingDigest) {
+        return failRecovery(new SecError(
+          'IMPORT-AUTHORITY-004',
+          'Local compiler locator binding differs after publication'
+        ));
+      }
+      if (compilerDependencyLocatorObservation(root, 'node_modules') === null) {
+        return failRecovery(new SecError('IMPORT-AUTHORITY-004', 'Local compiler locator identity disappeared'));
+      }
+      // The transition owner created this exact locator. `born` is keyed by
+      // deterministic producer inputs and is therefore the recovery-capable
+      // publication path whether this invocation performed the link Effect
+      // or merely read it back after a crash.
+      await recoverCompilerDependencyLocatorLifecycle({
+        binding: observedBinding,
+        identity,
+        options,
+        root,
+        stageRoot,
+        stageRootPath,
+        transition
+      });
+      if (stageRootPath !== null && stageRoot?.kind === 'directory') {
+        const stageIntents = await readCompilerDependencyStageIntents(root, options);
+        const stageIntent = stageIntents.active.find((intent) =>
+          path.resolve(intent.stageRootPath) === path.resolve(stageRootPath));
+        if (stageIntent === undefined) {
+          return failRecovery(new SecError(
+            'IMPORT-AUTHORITY-004',
+            'Local compiler locator stage has no exact settlement intent'
+          ));
+        }
+        await settleCompilerDependencyStageIntent(
+          root,
+          stageIntent,
+          'immutable-generation-published',
+          options
+        );
+      }
+      stage = await currentStage();
+      stageRoot = await currentStageRoot();
+      const sourceGeneration = await runtimeDependencySourceGeneration({
+        binding: observedBinding,
+        options,
+        ownerRoot: root,
+        sourcePath: backupPath
+      });
+      if (sourceGeneration.epoch !== immutableSourceGeneration.epoch ||
+          !sameRuntimeDependencySourceGenerationContent(sourceGeneration, immutableSourceGeneration) ||
+          !sameGeneratedStateIdentity(sourceGeneration.physical, immutableSourceGeneration.physical)) {
+        return failRecovery(new SecError(
+          'IMPORT-AUTHORITY-004',
+          'Local compiler immutable generation changed before terminal receipt'
+        ));
+      }
+      await advanceDependencyTransition(transition, {
+        destination: active,
+        stage: stage ?? (stagePath === null ? null : transitionAbsentSlot(stagePath)),
+        stageRoot: stageRoot ?? (stageRootPath === null ? null : transitionAbsentSlot(stageRootPath)),
+        backup: generation,
+        sourceGeneration,
+        phase: 'complete',
+        durability: 'known',
+        failure: null
+      }, options);
+      return;
+    }
+
     if (transition.kind === 'compiler-locator') {
       const sourcePath = transition.sourceGeneration.sourcePath;
       const sourceOwnerRoot = path.dirname(sourcePath);
@@ -9896,7 +6515,18 @@ async function recoverCompilerDependencyTransition(
       if (transition.preimage.kind === 'directory' && backupPath !== null && transition.phase === 'prepared' &&
         active.kind === 'directory' && transition.preimage.physical !== null && active.physical !== null &&
         sameGeneratedStateIdentity(active.physical, transition.preimage.physical) && backup?.kind === 'absent') {
-        await compilerDependencyGeneratedPreimageDigest(activePath);
+        const preimageAuthority = await compilerDependencyGeneratedPreimageAuthority(
+          root,
+          activePath,
+          options
+        );
+        if (preimageAuthority.authorityDigest !== transition.preimage.bindingDigest) {
+          return failRecovery(new SecError(
+            'IMPORT-AUTHORITY-004',
+            'Linked compiler dependency preimage authority differs from the durable transition'
+          ));
+        }
+        await retireCompilerDependencyExecutionProofIfPresent(root, activePath, options);
         await bindAndRetireCompilerDependencyPreimage(
           options,
           transition.preimage.physical!,
@@ -10094,6 +6724,17 @@ class CompilerDependencyBridgeIncompatibleError extends SecError {
   }
 }
 
+function isCanonicalLocalCompilerDependencyGeneration(
+  consumerRoot: string,
+  generationPath: string
+): boolean {
+  const resolvedRoot = path.resolve(consumerRoot);
+  const resolvedGeneration = path.resolve(generationPath);
+  const backupRoot = dependencyTransitionNamespacePaths(resolvedRoot).backupRoot;
+  return path.dirname(resolvedGeneration) === backupRoot &&
+    /^generation-[0-9a-f]{24}$/u.test(path.basename(resolvedGeneration));
+}
+
 async function compilerDependencyConsumerBridgeBinding(
   consumerRoot: string,
   bridgePath: string,
@@ -10109,10 +6750,14 @@ async function compilerDependencyConsumerBridgeBinding(
   try {
     const generationPath = path.resolve(await fs.realpath(bridgePath));
     const generationMetadata = await fs.lstat(generationPath, { bigint: true });
-    const ownerRoot = path.dirname(generationPath);
+    const localGeneration = isCanonicalLocalCompilerDependencyGeneration(
+      consumerRoot,
+      generationPath
+    );
+    const ownerRoot = localGeneration ? path.resolve(consumerRoot) : path.dirname(generationPath);
     if (!generationMetadata.isDirectory() || generationMetadata.isSymbolicLink() ||
-      path.basename(generationPath).toLocaleLowerCase('en-US') !== 'node_modules' ||
-      sameHostPath(ownerRoot, consumerRoot)) {
+      (!localGeneration && path.basename(generationPath).toLocaleLowerCase('en-US') !== 'node_modules') ||
+      (!localGeneration && sameHostPath(ownerRoot, consumerRoot))) {
       throw new Error('Dependency consumer bridge target is not one external physical generation.');
     }
     const ownerIdentity = await compilerDependencyIdentity(ownerRoot);
@@ -10126,6 +6771,14 @@ async function compilerDependencyConsumerBridgeBinding(
       ownerIdentity
     );
     if (binding === null) {
+      if (localGeneration) {
+        // A dependency-input change makes the previous immutable local
+        // generation a legitimate stale locator preimage.  Classify that
+        // owner-bound state as incompatible so the transition lease can
+        // replace only the locator; an external generation still requires a
+        // positive owner binding and remains a typed authority failure.
+        throw new CompilerDependencyBridgeIncompatibleError(bridgePath);
+      }
       throw new Error('Dependency consumer bridge target has no valid owner binding.');
     }
     await options.testCompilerBridgeValidationHook?.('binding-observed');
@@ -10323,8 +6976,13 @@ async function validateCompilerDependencyLocatorPlan(
   const relativeGeneration = path.relative(consumerRoot, generationPath);
   const generationIsExternal = relativeGeneration === '..' || relativeGeneration.startsWith(`..${path.sep}`) ||
     path.isAbsolute(relativeGeneration);
-  if (consumerRoot !== plan.consumerRoot || generationPath !== plan.generationPath || !generationIsExternal) {
-    throw new Error('Compiler dependency locator provider plan paths are not canonical external-generation paths.');
+  const generationIsLocalImmutable = isCanonicalLocalCompilerDependencyGeneration(
+    consumerRoot,
+    generationPath
+  );
+  if (consumerRoot !== plan.consumerRoot || generationPath !== plan.generationPath ||
+      (!generationIsExternal && !generationIsLocalImmutable)) {
+    throw new Error('Compiler dependency locator provider plan paths are not canonical generation paths.');
   }
   const observedConsumer = compilerDependencyConsumerIdentity(consumerRoot);
   if (!sameGeneratedStatePhysicalIdentity(observedConsumer, plan.consumer)) {
@@ -10684,10 +7342,11 @@ async function resolveLinkedWorktreeDependencyGeneration(input: Readonly<{
     ownerAuthority.assertCurrent();
     if (ownerIdentity.manifestHash !== input.consumerIdentity.manifestHash) return null;
     const nodeModulesPath = dependencyAuthorityPaths(ownerRoot).compilerModulesRoot;
+    const generationPath = path.resolve(await fs.realpath(nodeModulesPath).catch(() => nodeModulesPath));
     const binding = await compilerDependencyGenerationBinding(
       ownerRoot,
-      nodeModulesPath,
-      path.join(nodeModulesPath, COMPILER_DEPS_BINDING_FILE),
+      generationPath,
+      path.join(generationPath, COMPILER_DEPS_BINDING_FILE),
       ownerIdentity
     );
     ownerAuthority.assertCurrent();
@@ -10697,8 +7356,8 @@ async function resolveLinkedWorktreeDependencyGeneration(input: Readonly<{
       compilerDependencyIdentity(input.consumerRoot),
       compilerDependencyGenerationBinding(
         ownerRoot,
-        nodeModulesPath,
-        path.join(nodeModulesPath, COMPILER_DEPS_BINDING_FILE),
+        generationPath,
+        path.join(generationPath, COMPILER_DEPS_BINDING_FILE),
         ownerIdentity
       )
     ]);
@@ -10715,10 +7374,10 @@ async function resolveLinkedWorktreeDependencyGeneration(input: Readonly<{
       binding: finalBinding,
       options: input.options,
       ownerRoot,
-      sourcePath: nodeModulesPath
+      sourcePath: generationPath
     });
     ownerAuthority.assertCurrent();
-    return Object.freeze({ binding: finalBinding, nodeModulesPath, sourceGeneration });
+    return Object.freeze({ binding: finalBinding, nodeModulesPath: generationPath, sourceGeneration });
   } finally {
     ownerAuthority.dispose();
   }
@@ -10756,14 +7415,15 @@ async function bindExistingCompilerDependencyLocator(
   }
 }
 
-async function disposeIncompatibleCompilerDependencyLocator(
+async function disposeCompilerDependencyLocator(
   root: string,
-  options: RuntimeDependencyInstallOptions
+  options: RuntimeDependencyInstallOptions,
+  outcome: string
 ): Promise<boolean> {
   const locator = compilerDependencyLocatorObservation(root, 'node_modules');
   if (locator === null) return false;
   const lifecycle = options.generatedStateLifecycle;
-  if (lifecycle?.bind === undefined || lifecycle.settleRetired === undefined) {
+  if (lifecycle?.bind === undefined || lifecycle.observeRetirement === undefined) {
     throw new SecError(
       'IMPORT-AUTHORITY-004',
       'Incompatible compiler dependency locator has no lifecycle disposal authority'
@@ -10775,10 +7435,26 @@ async function disposeIncompatibleCompilerDependencyLocator(
     ruleId: COMPILER_NODE_MODULES_LIFECYCLE_RULE,
     physical: locator.source
   });
-  if (await lifecycle.settleRetired('node_modules', expected)) return true;
-  await lifecycle.bind('node_modules', expected);
-  await lifecycle.retired('node_modules', 'incompatible-compiler-dependency-locator');
-  await lifecycle.disposed('node_modules', 'incompatible-compiler-dependency-locator');
+  const observation = await lifecycle.observeRetirement('node_modules', expected);
+  const { assertGeneratedStateDisposalReceipt, assertGeneratedStateRetirementObservation } = await import(
+    '../../../runtime-state/generated-state/lifecycle.ts'
+  );
+  assertGeneratedStateRetirementObservation(observation);
+  if (observation.status === 'active') await lifecycle.bind('node_modules', expected);
+  else if (observation.status !== 'retired-present') {
+    throw new SecError(
+      'IMPORT-AUTHORITY-004',
+      'Incompatible compiler dependency locator retirement state is not recoverable'
+    );
+  }
+  const receipt = await lifecycle.disposed('node_modules', {
+    outcome,
+    profile: 'all-rebuildable'
+  });
+  assertGeneratedStateDisposalReceipt(receipt);
+  if (receipt.relativePath !== 'node_modules' || receipt.profile !== 'all-rebuildable') {
+    throw new SecError('IMPORT-AUTHORITY-004', 'Compiler dependency locator disposal receipt differs');
+  }
   if (compilerDependencyLocatorObservation(root, 'node_modules') !== null) {
     throw new SecError(
       'IMPORT-AUTHORITY-004',
@@ -10808,15 +7484,75 @@ async function publishCompilerDependencyLocatorLifecycle(
     'node_modules',
     `compiler-dependency-bridge:${identity.manifestHash}:${generatedStateDigest(binding)}`
   );
-  const registrationBinding = await compilerDependencyConsumerBridgeBinding(
-    root,
-    path.join(root, 'node_modules'),
-    identity,
-    options
-  );
-  if (registrationBinding === null || !canonicalEquals(registrationBinding, binding)) {
-    throw new SecError('IMPORT-AUTHORITY-004', 'Compiler dependency locator changed after lifecycle publication');
+  await bindExistingCompilerDependencyLocator(root, identity, binding, options);
+}
+
+async function recoverCompilerDependencyLocatorLifecycle(input: Readonly<{
+  binding: CompilerDepsBinding;
+  identity: CompilerDependencyIdentity;
+  options: RuntimeDependencyInstallOptions;
+  root: string;
+  stageRoot: DependencyTransitionSlot | null;
+  stageRootPath: string | null;
+  transition: DependencyTransitionJournal;
+}>): Promise<void> {
+  const lifecycle = input.options.generatedStateLifecycle;
+  const observeRetirement = lifecycle?.observeRetirement;
+  if (lifecycle === undefined || observeRetirement === undefined || lifecycle.bind === undefined) {
+    throw new SecError(
+      'IMPORT-AUTHORITY-004',
+      'Compiler dependency locator recovery requires producer provenance observation and binding'
+    );
   }
+  const locator = compilerDependencyLocatorObservation(input.root, 'node_modules');
+  if (locator === null) {
+    throw new SecError('IMPORT-AUTHORITY-004', 'Recovered compiler dependency locator has no physical identity');
+  }
+  const expected = Object.freeze({
+    owner: COMPILER_NODE_MODULES_LIFECYCLE_OWNER,
+    producer: COMPILER_NODE_MODULES_LIFECYCLE_PRODUCER,
+    ruleId: COMPILER_NODE_MODULES_LIFECYCLE_RULE,
+    physical: locator.source
+  });
+  const observation = await observeRetirement('node_modules', expected);
+  const { assertGeneratedStateRetirementObservation } = await import(
+    '../../../runtime-state/generated-state/lifecycle.ts'
+  );
+  assertGeneratedStateRetirementObservation(observation);
+  if (observation.status === 'active') {
+    await bindExistingCompilerDependencyLocator(
+      input.root,
+      input.identity,
+      input.binding,
+      input.options
+    );
+    return;
+  }
+  const recordedStagePhysical = input.transition.stageRoot?.physical;
+  const recoverableStageRegistration = observation.status === 'mismatch' &&
+    input.stageRootPath !== null && input.stageRoot?.kind === 'directory' &&
+    input.stageRoot.physical !== null && recordedStagePhysical !== null &&
+    recordedStagePhysical !== undefined &&
+    sameGeneratedStateIdentity(input.stageRoot.physical, recordedStagePhysical);
+  if (recoverableStageRegistration) {
+    const relativeStageRoot = path.relative(input.root, input.stageRootPath!).replaceAll('\\', '/');
+    await lifecycle.bind(
+      relativeStageRoot,
+      compilerDependencyStagingLifecycleExpectation(input.stageRoot!.physical!)
+    );
+    await publishCompilerDependencyLocatorLifecycle(
+      input.root,
+      input.identity,
+      input.binding,
+      input.options
+    );
+    return;
+  }
+  throw new SecError(
+    'IMPORT-AUTHORITY-004',
+    'Compiler dependency locator provenance is foreign, stale, retired, or unresolved and is preserved',
+    { observationDigest: observation.observationDigest, status: observation.status }
+  );
 }
 
 async function deleteExactCompilerDependencyLocator(
@@ -10865,6 +7601,71 @@ const COMPILER_STAGING_LIFECYCLE_RULE = 'compiler-dependency-staging' as const;
 const SHARED_DEPS_LIFECYCLE_OWNER = 'project-runtime' as const;
 const SHARED_DEPS_LIFECYCLE_PRODUCER = 'ensure-shared-deps-ready' as const;
 const SHARED_DEPS_LIFECYCLE_RULE = 'shared-dependency-cache' as const;
+
+function sharedDependencyLifecycleExpectation(
+  physical: GeneratedStatePhysicalIdentity
+): Readonly<{
+  owner: typeof SHARED_DEPS_LIFECYCLE_OWNER;
+  producer: typeof SHARED_DEPS_LIFECYCLE_PRODUCER;
+  ruleId: typeof SHARED_DEPS_LIFECYCLE_RULE;
+  physical: GeneratedStatePhysicalIdentity;
+}> {
+  return Object.freeze({
+    owner: SHARED_DEPS_LIFECYCLE_OWNER,
+    producer: SHARED_DEPS_LIFECYCLE_PRODUCER,
+    ruleId: SHARED_DEPS_LIFECYCLE_RULE,
+    physical
+  });
+}
+
+type SharedDependencyRetirementInventory = Readonly<{
+  membership: 'current-spec' | 'not-current-spec';
+  treeDigest: `sha256:${string}`;
+  treeEntryCount: number;
+}>;
+
+async function sharedDependencyRetirementInventory(
+  root: PhysicalDirectoryIdentity,
+  spec: RuntimeDependencySpec,
+  options: RuntimeDependencyOperationOptions,
+  label: string
+): Promise<SharedDependencyRetirementInventory> {
+  runtimeDependencyOperationRemainingMs(options, `${label} admission`);
+  const before = assertSameNoFollowDirectoryIdentity(root, `${label} root before inventory`).target;
+  const inventory = scanNoFollowDirectoryTreeInventory(before, {
+    deadlineAtMs: runtimeDependencyOperationDeadlineAt(options, label),
+    maximumBytes: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
+    maximumEntries: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES,
+    signal: runtimeDependencyOperationContext(options).signal
+  });
+  const stampPresent = inventory.some(({ relativePath }) =>
+    relativePath === 'runtime-deps.stamp.json'
+  );
+  const stamp = stampPresent
+    ? await readRuntimeDepsStamp(path.join(before.path, 'runtime-deps.stamp.json'))
+    : null;
+  if (stampPresent && stamp === null) {
+    throw new SecError(
+      'RUNTIME-DEPS-002',
+      'Shared dependency retirement cannot classify a present noncanonical runtime dependency stamp; physical root is preserved'
+    );
+  }
+  const after = assertSameNoFollowDirectoryIdentity(root, `${label} root after inventory`).target;
+  if (!sameGeneratedStateIdentity(
+    generatedStatePhysicalIdentity(before),
+    generatedStatePhysicalIdentity(after)
+  )) {
+    throw new SecError(
+      'IMPORT-AUTHORITY-004',
+      'Shared dependency root identity changed during bounded retirement inventory; physical root is preserved'
+    );
+  }
+  const identity = runtimeDependencyTreeIdentity(inventory);
+  return Object.freeze({
+    membership: stamp?.manifestHash === spec.manifestHash ? 'current-spec' : 'not-current-spec',
+    ...identity
+  });
+}
 
 function compilerDependencyGenerationLifecycleExpectation(
   physical?: GeneratedStatePhysicalIdentity
@@ -10983,6 +7784,11 @@ async function recoverCompilerDependencyGenerationLifecycle(input: Readonly<{
     // settle the prior retired target registration while the target is absent,
     // then replay the original rename and issuer birth.  Every interruption of
     // this sequence remains recognizable from the immutable transition record.
+    await retireCompilerDependencyExecutionProofIfPresent(
+      input.root,
+      input.active.path,
+      input.options
+    );
     await renameCompilerDependencyDirectory(input.active.path, input.stagePath, input.options);
     let activeRestored = false;
     try {
@@ -11138,18 +7944,220 @@ async function bindAndRetireCompilerDependencyPreimage(
   }
 }
 
+async function ensureCompilerDependencyPreimageRetiredForRecovery(
+  options: RuntimeDependencyInstallOptions,
+  expectedPhysical: GeneratedStatePhysicalIdentity,
+  outcome: string
+): Promise<void> {
+  const lifecycle = options.generatedStateLifecycle;
+  if (lifecycle === undefined) {
+    throw new SecError(
+      'IMPORT-AUTHORITY-004',
+      'Compiler dependency recovery has no producer provenance lifecycle'
+    );
+  }
+  if (lifecycle.observeRetirement !== undefined) {
+    runtimeDependencyOperationRemainingMs(
+      options,
+      'Compiler dependency preimage retirement observation'
+    );
+    const observation = await lifecycle.observeRetirement(
+      'node_modules',
+      compilerDependencyGenerationLifecycleExpectation(expectedPhysical)
+    );
+    const { assertGeneratedStateRetirementObservation } = await import(
+      '../../../runtime-state/generated-state/lifecycle.ts'
+    );
+    assertGeneratedStateRetirementObservation(observation);
+    if (observation.status === 'retired-present' && observation.physical !== null &&
+        sameGeneratedStateIdentity(observation.physical, expectedPhysical)) return;
+    if (observation.status !== 'active') {
+      throw new SecError(
+        'IMPORT-AUTHORITY-004',
+        'Compiler dependency recovery requires an exact retired-present lifecycle observation',
+        { status: observation.status, observationDigest: observation.observationDigest }
+      );
+    }
+  }
+  await bindAndRetireCompilerDependencyPreimage(options, expectedPhysical, outcome);
+}
+
 /**
  * Proves that an incompatible physical directory is an SEC-generated
  * dependency generation before it may be moved out of the active locator.
  * The binding is not required to match the new epoch, but its own package
  * manifests and immutable envelope must still match the physical preimage.
  */
-async function compilerDependencyGeneratedPreimageDigest(
+type CompilerDependencyPreimagePackageObservation = Readonly<{
+  locator: string;
+  expectedManifestSha256: string;
+  expectedVersion: string;
+  actualDeclaredName: string;
+  actualManifestSha256: string;
+  actualVersion: string;
+  matchesBinding: boolean;
+}>;
+
+type CompilerDependencyPreimageAuthority = Readonly<{
+  schema: 'sec-compiler-dependency-quarantine-preimage-v1';
+  authorityDigest: `sha256:${string}`;
+  bindingDigest: `sha256:${string}`;
+  runtimeMaterializationDigest: `sha256:${string}` | null;
+  packages: readonly CompilerDependencyPreimagePackageObservation[];
+  physical: Readonly<GeneratedStatePhysicalIdentity>;
+  treeDigest: `sha256:${string}`;
+  treeEntryCount: number;
+  reason: 'binding-current' | 'binding-content-diverged';
+}>;
+
+type CompilerDependencyLegacyRelocationIntent = Readonly<{
+  schema: 'sec-compiler-dependency-legacy-relocation-intent-v1';
+  intentDigest: `sha256:${string}`;
+  previousIntentDigest: `sha256:${string}` | null;
+  phase: 'prepared' | 'complete';
+  operationKey: `sha256:${string}`;
+  transitionRecordDigest: `sha256:${string}`;
+  preimageAuthorityDigest: `sha256:${string}`;
+  targetGenerationDigest: `sha256:${string}`;
+  sourcePath: string;
+  destinationPath: string;
+  sourcePhysical: Readonly<GeneratedStatePhysicalIdentity>;
+  relocationProofText: string;
+  relocationProofDigest: `sha256:${string}`;
+  predecessorDescriptorDigest: `sha256:${string}` | null;
+  temporaryDescriptorDigest: `sha256:${string}` | null;
+}>;
+
+function compilerDependencyLegacyRelocationIntent(
+  input: Omit<CompilerDependencyLegacyRelocationIntent, 'intentDigest' | 'schema'>
+): CompilerDependencyLegacyRelocationIntent {
+  const unsigned = Object.freeze({
+    schema: 'sec-compiler-dependency-legacy-relocation-intent-v1' as const,
+    ...input
+  });
+  return Object.freeze({ ...unsigned, intentDigest: generatedStateDigest(unsigned) });
+}
+
+function parseCompilerDependencyLegacyRelocationIntent(
+  bytes: Uint8Array,
+  expectedName?: string
+): CompilerDependencyLegacyRelocationIntent {
+  let value: unknown;
+  try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); } catch (error) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency legacy relocation intent is invalid JSON', {
+      cause: error instanceof Error ? error.message : String(error)
+    });
+  }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency legacy relocation intent is invalid');
+  }
+  const intent = value as CompilerDependencyLegacyRelocationIntent;
+  const keys = [
+    'destinationPath', 'intentDigest', 'operationKey', 'phase', 'predecessorDescriptorDigest',
+    'preimageAuthorityDigest', 'previousIntentDigest', 'relocationProofDigest',
+    'relocationProofText', 'schema', 'sourcePath', 'sourcePhysical', 'targetGenerationDigest',
+    'temporaryDescriptorDigest', 'transitionRecordDigest'
+  ];
+  if (Object.keys(value).sort(compareCodeUnits).join('\0') !== keys.sort(compareCodeUnits).join('\0') ||
+      intent.schema !== 'sec-compiler-dependency-legacy-relocation-intent-v1' ||
+      !isSha256Digest(intent.intentDigest) || !isSha256Digest(intent.operationKey) ||
+      !isSha256Digest(intent.transitionRecordDigest) || !isSha256Digest(intent.preimageAuthorityDigest) ||
+      !isSha256Digest(intent.targetGenerationDigest) || !isSha256Digest(intent.relocationProofDigest) ||
+      !isGeneratedStatePhysicalIdentity(intent.sourcePhysical) ||
+      !path.isAbsolute(intent.sourcePath) || !path.isAbsolute(intent.destinationPath) ||
+      !['prepared', 'complete'].includes(intent.phase) ||
+      !(intent.previousIntentDigest === null || isSha256Digest(intent.previousIntentDigest)) ||
+      !(intent.predecessorDescriptorDigest === null || isSha256Digest(intent.predecessorDescriptorDigest)) ||
+      !(intent.temporaryDescriptorDigest === null || isSha256Digest(intent.temporaryDescriptorDigest)) ||
+      digest(Buffer.from(intent.relocationProofText, 'utf8')) !== intent.relocationProofDigest.slice('sha256:'.length) ||
+      compilerDependencyLegacyRelocationIntent({
+        previousIntentDigest: intent.previousIntentDigest,
+        phase: intent.phase,
+        operationKey: intent.operationKey,
+        transitionRecordDigest: intent.transitionRecordDigest,
+        preimageAuthorityDigest: intent.preimageAuthorityDigest,
+        targetGenerationDigest: intent.targetGenerationDigest,
+        sourcePath: intent.sourcePath,
+        destinationPath: intent.destinationPath,
+        sourcePhysical: intent.sourcePhysical,
+        relocationProofText: intent.relocationProofText,
+        relocationProofDigest: intent.relocationProofDigest,
+        predecessorDescriptorDigest: intent.predecessorDescriptorDigest,
+        temporaryDescriptorDigest: intent.temporaryDescriptorDigest
+      }).intentDigest !== intent.intentDigest ||
+      (expectedName !== undefined && expectedName !== `relocation-${intent.operationKey.slice('sha256:'.length)}-${intent.phase}.json`)) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency legacy relocation intent differs from its canonical identity');
+  }
+  return Object.freeze(intent);
+}
+
+function assertCompilerDependencyLegacyRelocationIntentBytes(bytes: Uint8Array): void {
+  parseCompilerDependencyLegacyRelocationIntent(bytes);
+}
+
+function compilerDependencyLegacyRelocationOperation(
+  transition: DependencyTransitionJournal,
+  options: RuntimeDependencyOperationOptions
+): SecBoundSemanticOperation {
+  const context = runtimeDependencyOperationContext(options);
+  const contractDigest = generatedStateDigest(Object.freeze({
+    schema: 'sec-compiler-dependency-legacy-relocation-contract-v1',
+    operationKey: transition.operationKey,
+    preimage: transition.preimage,
+    targetGenerationDigest: transition.sourceGeneration.epoch
+  }));
+  const attempt = issueSecSemanticOperationAttemptContext({
+    authorityGrantDigest: transition.recordDigest,
+    runIdDigest: generatedStateDigest(Object.freeze({ operationId: context.operationId })),
+    resumeEpochDigest: transition.previousRecordDigest
+  });
+  const requirement = Object.freeze({
+    id: 'runtime-physical.legacy-relocation',
+    contractDigest,
+    effectKinds: Object.freeze(['filesystem', 'persistent-state'] as const),
+    failureKinds: Object.freeze([
+      'descriptor-drift', 'identity-drift', 'deadline-exhausted', 'relocation-failed'
+    ])
+  });
+  const plan = compileSecSemanticOperationPlan({
+    operation: 'compiler-dependency.legacy-relocation',
+    intentDigest: transition.operationKey,
+    // Recovery attempts change the journal tip, but never the stable physical
+    // operation identity.  Bind retries to the immutable operation key and
+    // keep the current record only in the attempt authority grant.
+    decisionDigest: transition.operationKey,
+    deadlineAtUnixMs: Date.now() + Math.max(1, Math.floor(runtimeDependencyOperationRemainingMs(
+      options,
+      'Compiler dependency legacy relocation operation admission'
+    ))),
+    aggregateBudgets: Object.freeze([
+      Object.freeze({ resource: 'duration-ms' as const, maximum: Math.max(1, Math.floor(
+        context.deadlineAtMonotonicMs - performance.now()
+      )) }),
+      Object.freeze({ resource: 'records' as const, maximum: 2 })
+    ]),
+    requirements: Object.freeze([requirement]),
+    attempt
+  });
+  const binding = compileSecCapabilityBinding({
+    requirementId: requirement.id,
+    contractDigest,
+    providerIdentityDigest: generatedStateDigest(Object.freeze({
+      schema: 'sec-runtime-physical-provider-v1',
+      platform: process.platform
+    }))
+  });
+  return bindSecSemanticOperation(plan, [binding]);
+}
+
+async function compilerDependencyGeneratedPreimageAuthority(
+  ownerRoot: string,
   nodeModulesPath: string,
+  options: RuntimeDependencyOperationOptions,
   recovery: Readonly<{ allowLegacyRuntimeMaterializationV2: boolean }> = Object.freeze({
     allowLegacyRuntimeMaterializationV2: false
   })
-): Promise<`sha256:${string}`> {
+): Promise<CompilerDependencyPreimageAuthority> {
   const bindingPath = path.join(nodeModulesPath, COMPILER_DEPS_BINDING_FILE);
   const bindingMetadata = await fs.lstat(bindingPath).catch((error: NodeJS.ErrnoException) => {
     if (error.code === 'ENOENT') return null;
@@ -11203,6 +8211,7 @@ async function compilerDependencyGeneratedPreimageDigest(
     }
   }
   const packageNames = new Set<string>();
+  const packageObservations: CompilerDependencyPreimagePackageObservation[] = [];
   for (const rawPackage of binding.packages) {
     if (rawPackage === null || typeof rawPackage !== 'object' || Array.isArray(rawPackage)
         || Object.getPrototypeOf(rawPackage) !== Object.prototype) {
@@ -11254,14 +8263,885 @@ async function compilerDependencyGeneratedPreimageDigest(
     // those identities differ (for example `@typescript/native` resolves to
     // the `typescript` package).  The exact manifest digest binds the declared
     // package name without conflating it with the locator identity.
-    if (digest(manifestBytes) !== packageBinding.manifestSha256
-        || typeof manifest.name !== 'string'
+    const actualManifestSha256 = digest(manifestBytes);
+    if (typeof manifest.name !== 'string'
         || !/^(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+$/u.test(manifest.name)
-        || manifest.version !== packageBinding.version) {
-      throw new SecError('IMPORT-AUTHORITY-004', 'Compiler dependency preimage package manifest changed and is preserved');
+        || typeof manifest.version !== 'string' || manifest.version.length === 0) {
+      throw new SecError('IMPORT-AUTHORITY-004', 'Compiler dependency preimage package manifest identity is invalid and preserved');
+    }
+    packageObservations.push(Object.freeze({
+      locator: packageBinding.name,
+      expectedManifestSha256: packageBinding.manifestSha256,
+      expectedVersion: packageBinding.version,
+      actualDeclaredName: manifest.name,
+      actualManifestSha256,
+      actualVersion: manifest.version,
+      matchesBinding: actualManifestSha256 === packageBinding.manifestSha256 &&
+        manifest.version === packageBinding.version
+    }));
+  }
+  packageObservations.sort((left, right) => compareCodeUnits(left.locator, right.locator));
+  const bindingDigest = generatedStateDigest(binding);
+  const runtimeMaterializationDigest = binding.runtimeMaterialization === null
+    ? null
+    : generatedStateDigest(binding.runtimeMaterialization);
+  const reason = packageObservations.every(({ matchesBinding }) => matchesBinding)
+    ? 'binding-current' as const
+    : 'binding-content-diverged' as const;
+  const authorityBasis = Object.freeze({
+    schema: 'sec-compiler-dependency-quarantine-preimage-v1' as const,
+    bindingDigest,
+    runtimeMaterializationDigest,
+    packages: Object.freeze(packageObservations),
+    reason
+  });
+  const generation = await runtimeDependencySourceGeneration({
+    binding: authorityBasis,
+    options,
+    ownerRoot,
+    sourcePath: nodeModulesPath
+  });
+  const unsigned = Object.freeze({
+    ...authorityBasis,
+    physical: generation.physical,
+    treeDigest: generation.treeDigest,
+    treeEntryCount: generation.treeEntryCount
+  });
+  return Object.freeze({
+    ...unsigned,
+    authorityDigest: generatedStateDigest(unsigned)
+  });
+}
+
+async function relocateLegacyCompilerDependencyPreimage(
+  root: string,
+  transition: DependencyTransitionJournal,
+  authority: CompilerDependencyPreimageAuthority | null,
+  options: RuntimeDependencyOperationOptions,
+  requestedDestinationPath?: string
+): Promise<Readonly<{
+  destinationPath: string;
+  physical: GeneratedStatePhysicalIdentity;
+}>> {
+  if (process.platform !== 'win32' || transition.preimage.kind !== 'directory' ||
+      transition.preimage.physical === null ||
+      (authority !== null && transition.preimage.bindingDigest !== authority.authorityDigest)) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency legacy relocation admission is not satisfied');
+  }
+  const namespace = await ensureDependencyTransitionNamespace(root, options);
+  await runtimeDependencyOperationEffectFence(options, 'Compiler dependency legacy relocation namespace creation');
+  const intentRoot = createNoFollowOrdinaryDirectoryChain(
+    namespace.backupRoot,
+    ['legacy-relocations']
+  );
+  const preparedName = `relocation-${transition.operationKey.slice('sha256:'.length)}-prepared.json`;
+  const completeName = `relocation-${transition.operationKey.slice('sha256:'.length)}-complete.json`;
+  const operation = compilerDependencyLegacyRelocationOperation(transition, options);
+  const existingComplete = inspectNoFollowOrdinaryFileEntry(intentRoot, completeName);
+  if (existingComplete !== null && existingComplete.bytes !== null) {
+    const complete = parseCompilerDependencyLegacyRelocationIntent(existingComplete.bytes, completeName);
+    if (complete.phase !== 'complete' ||
+        complete.preimageAuthorityDigest !== transition.preimage.bindingDigest ||
+        complete.targetGenerationDigest !== transition.sourceGeneration.epoch ||
+        complete.operationKey !== transition.operationKey ||
+        complete.sourcePath !== transition.preimage.path ||
+        !sameGeneratedStateIdentity(complete.sourcePhysical, transition.preimage.physical) ||
+        !sameHostPath(path.dirname(complete.destinationPath), namespace.backupRoot.path) ||
+        (requestedDestinationPath !== undefined &&
+          !sameHostPath(complete.destinationPath, requestedDestinationPath))) {
+      throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency legacy relocation completion is foreign');
+    }
+    const relocated = relocateWindowsLegacySealedDirectory(
+      openWindowsLegacySealedDirectoryRelocation({
+        operation,
+        recoveryProofText: complete.relocationProofText
+      })
+    );
+    return Object.freeze({
+      destinationPath: complete.destinationPath,
+      physical: generatedStatePhysicalIdentity(relocated.destination)
+    });
+  }
+  let prepared: CompilerDependencyLegacyRelocationIntent;
+  let relocationCapability: WindowsLegacySealedDirectoryRelocationCapability;
+  const existingPrepared = inspectNoFollowOrdinaryFileEntry(intentRoot, preparedName);
+  if (existingPrepared !== null && existingPrepared.bytes !== null) {
+    prepared = parseCompilerDependencyLegacyRelocationIntent(existingPrepared.bytes, preparedName);
+    relocationCapability = openWindowsLegacySealedDirectoryRelocation({
+      operation,
+      recoveryProofText: prepared.relocationProofText
+    });
+  } else {
+    if (authority === null || requestedDestinationPath === undefined) {
+      throw new SecError(
+        'RUNTIME-DEPS-004',
+        'Compiler dependency legacy relocation has no durable prepared authority'
+      );
+    }
+    if (!sameHostPath(path.dirname(requestedDestinationPath), namespace.backupRoot.path)) {
+      throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency legacy relocation destination is foreign');
+    }
+    const source = inspectNoFollowDirectoryChain(
+      transition.preimage.path,
+      'Compiler dependency legacy relocation source'
+    ).target;
+    if (!sameGeneratedStateIdentity(generatedStatePhysicalIdentity(source), authority.physical)) {
+      throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency legacy relocation source physical identity changed');
+    }
+    relocationCapability = prepareWindowsLegacySealedDirectoryRelocation({
+      directory: source,
+      destinationParent: namespace.backupRoot,
+      destinationName: path.basename(requestedDestinationPath),
+      operation
+    });
+    const proofText = relocationCapability.recoveryProofText;
+    prepared = compilerDependencyLegacyRelocationIntent({
+      previousIntentDigest: null,
+      phase: 'prepared',
+      operationKey: transition.operationKey,
+      transitionRecordDigest: transition.recordDigest,
+      preimageAuthorityDigest: authority.authorityDigest,
+      targetGenerationDigest: transition.sourceGeneration.epoch,
+      sourcePath: transition.preimage.path,
+      destinationPath: requestedDestinationPath,
+      sourcePhysical: authority.physical,
+      relocationProofText: proofText,
+      relocationProofDigest: `sha256:${digest(Buffer.from(proofText, 'utf8'))}`,
+      predecessorDescriptorDigest: null,
+      temporaryDescriptorDigest: null
+    });
+    await runtimeDependencyOperationEffectFence(options, 'Compiler dependency legacy relocation intent publication');
+    writeDurableTransitionFile(
+      intentRoot,
+      preparedName,
+      Buffer.from(canonicalProviderBytes(prepared), 'utf8'),
+      assertCompilerDependencyLegacyRelocationIntentBytes,
+      true
+    );
+    const readback = inspectNoFollowOrdinaryFileEntry(intentRoot, preparedName);
+    if (readback === null || readback.bytes === null ||
+        parseCompilerDependencyLegacyRelocationIntent(readback.bytes, preparedName).intentDigest !== prepared.intentDigest) {
+      throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency legacy relocation intent failed readback');
     }
   }
-  return generatedStateDigest(binding);
+  if (prepared.operationKey !== transition.operationKey ||
+      prepared.preimageAuthorityDigest !== transition.preimage.bindingDigest ||
+      prepared.targetGenerationDigest !== transition.sourceGeneration.epoch ||
+      prepared.sourcePath !== transition.preimage.path ||
+      !sameGeneratedStateIdentity(prepared.sourcePhysical, transition.preimage.physical) ||
+      (requestedDestinationPath !== undefined &&
+        !sameHostPath(prepared.destinationPath, requestedDestinationPath)) ||
+      !sameHostPath(path.dirname(prepared.destinationPath), namespace.backupRoot.path)) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency legacy relocation prepared identity is foreign');
+  }
+  await runtimeDependencyOperationEffectFence(options, 'Compiler dependency legacy relocation');
+  const relocated = relocateWindowsLegacySealedDirectory(relocationCapability);
+  const complete = compilerDependencyLegacyRelocationIntent({
+    previousIntentDigest: prepared.intentDigest,
+    phase: 'complete',
+    operationKey: prepared.operationKey,
+    transitionRecordDigest: transition.recordDigest,
+    preimageAuthorityDigest: prepared.preimageAuthorityDigest,
+    targetGenerationDigest: prepared.targetGenerationDigest,
+    sourcePath: prepared.sourcePath,
+    destinationPath: prepared.destinationPath,
+    sourcePhysical: prepared.sourcePhysical,
+    relocationProofText: prepared.relocationProofText,
+    relocationProofDigest: prepared.relocationProofDigest,
+    predecessorDescriptorDigest: relocated.predecessorDescriptorDigest,
+    temporaryDescriptorDigest: relocated.temporaryDescriptorDigest
+  });
+  await runtimeDependencyOperationEffectFence(options, 'Compiler dependency legacy relocation completion publication');
+  writeDurableTransitionFile(
+    intentRoot,
+    completeName,
+    Buffer.from(canonicalProviderBytes(complete), 'utf8'),
+    assertCompilerDependencyLegacyRelocationIntentBytes,
+    true
+  );
+  const completionReadback = inspectNoFollowOrdinaryFileEntry(intentRoot, completeName);
+  if (completionReadback === null || completionReadback.bytes === null ||
+      parseCompilerDependencyLegacyRelocationIntent(completionReadback.bytes, completeName).intentDigest !== complete.intentDigest) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency legacy relocation completion failed readback');
+  }
+  return Object.freeze({
+    destinationPath: prepared.destinationPath,
+    physical: generatedStatePhysicalIdentity(relocated.destination)
+  });
+}
+
+const COMPILER_DEPENDENCY_CONSUMER_SCHEMA = 'sec-compiler-dependency-consumer-v1' as const;
+const COMPILER_DEPENDENCY_CONSUMER_RECORD_KEYS = Object.freeze([
+  'generationDigest', 'generationPhysical', 'generationPath', 'leaseId',
+  'phase', 'previousRecordDigest', 'recordDigest', 'schema'
+]);
+
+interface CompilerDependencyConsumerRecord {
+  readonly schema: typeof COMPILER_DEPENDENCY_CONSUMER_SCHEMA;
+  readonly recordDigest: `sha256:${string}`;
+  readonly previousRecordDigest: `sha256:${string}` | null;
+  readonly leaseId: `sha256:${string}`;
+  readonly generationDigest: `sha256:${string}`;
+  readonly generationPath: string;
+  readonly generationPhysical: GeneratedStatePhysicalIdentity;
+  readonly phase: 'acquired' | 'released';
+}
+
+type CompilerDependencyConsumerUnsigned = Omit<CompilerDependencyConsumerRecord, 'recordDigest'>;
+
+function compilerDependencyConsumerRecord(
+  input: CompilerDependencyConsumerUnsigned
+): CompilerDependencyConsumerRecord {
+  const unsigned = Object.freeze({ ...input });
+  return Object.freeze({
+    ...unsigned,
+    recordDigest: generatedStateDigest(canonicalJson(unsigned))
+  });
+}
+
+function parseCompilerDependencyConsumerRecord(
+  bytes: Uint8Array,
+  expectedName?: string
+): CompilerDependencyConsumerRecord {
+  let value: unknown;
+  try {
+    value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as unknown;
+  } catch (error) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer record is not canonical JSON', {
+      cause: error instanceof Error ? error.message : String(error)
+    });
+  }
+  if (!hasExactObjectKeys(value, COMPILER_DEPENDENCY_CONSUMER_RECORD_KEYS)) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer record has noncanonical keys');
+  }
+  const record = value as unknown as CompilerDependencyConsumerRecord;
+  if (record.schema !== COMPILER_DEPENDENCY_CONSUMER_SCHEMA ||
+      !isSha256Digest(record.recordDigest) ||
+      (!isSha256Digest(record.previousRecordDigest) && record.previousRecordDigest !== null) ||
+      !isSha256Digest(record.leaseId) || !isSha256Digest(record.generationDigest) ||
+      !isCanonicalAbsolutePath(record.generationPath) ||
+      !isCanonicalGeneratedStatePhysicalIdentity(record.generationPhysical) ||
+      (record.phase !== 'acquired' && record.phase !== 'released')) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer record fields are invalid');
+  }
+  const { recordDigest: _recordDigest, ...unsigned } = record;
+  if (generatedStateDigest(canonicalJson(unsigned)) !== record.recordDigest) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer record digest is invalid');
+  }
+  const expectedBytes = formatJsonFile(canonicalJson(record));
+  if (expectedBytes !== Buffer.from(bytes).toString('utf8')) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer record bytes are noncanonical');
+  }
+  if (expectedName !== undefined && expectedName !==
+      `consumer-${record.leaseId.slice('sha256:'.length)}-${record.phase}.json`) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer filename differs from its lease');
+  }
+  return Object.freeze(record);
+}
+
+async function compilerDependencyConsumerRoot(
+  root: string,
+  options: RuntimeDependencyOperationOptions
+): Promise<PhysicalDirectoryIdentity> {
+  const namespace = await ensureDependencyTransitionNamespace(root, options);
+  await runtimeDependencyOperationEffectFence(options, 'Compiler dependency consumer namespace publication');
+  return createNoFollowOrdinaryDirectoryChain(namespace.journalRoot, ['consumers']);
+}
+
+async function acquireCompilerDependencyConsumer(
+  root: string,
+  sourceGeneration: RuntimeDependencySourceGeneration,
+  options: RuntimeDependencyOperationOptions
+): Promise<CompilerDependencyConsumerRecord> {
+  const consumers = await compilerDependencyConsumerRoot(root, options);
+  const leaseId = generatedStateDigest(Object.freeze({
+    schema: 'sec-compiler-dependency-consumer-lease-id-v1',
+    generationDigest: sourceGeneration.epoch,
+    generationPhysical: sourceGeneration.physical,
+    nonce: crypto.randomUUID()
+  }));
+  const record = compilerDependencyConsumerRecord({
+    schema: COMPILER_DEPENDENCY_CONSUMER_SCHEMA,
+    previousRecordDigest: null,
+    leaseId,
+    generationDigest: sourceGeneration.epoch,
+    generationPath: path.resolve(sourceGeneration.sourcePath),
+    generationPhysical: sourceGeneration.physical,
+    phase: 'acquired'
+  });
+  const name = `consumer-${leaseId.slice('sha256:'.length)}-acquired.json`;
+  await runtimeDependencyOperationEffectFence(options, 'Compiler dependency consumer acquisition');
+  publishExclusiveDurableCanonicalFile({
+    parent: consumers,
+    name,
+    bytes: Buffer.from(formatJsonFile(canonicalJson(record)), 'utf8'),
+    validate: (candidate) => { parseCompilerDependencyConsumerRecord(candidate, name); }
+  });
+  const readback = inspectNoFollowOrdinaryFileEntry(consumers, name);
+  if (readback === null || readback.bytes === null ||
+      parseCompilerDependencyConsumerRecord(readback.bytes, name).recordDigest !== record.recordDigest) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer acquisition failed readback');
+  }
+  return record;
+}
+
+async function releaseCompilerDependencyConsumerUnderLease(
+  root: string,
+  acquired: CompilerDependencyConsumerRecord,
+  retirement: PhysicalGenerationRetirementReceipt,
+  options: RuntimeDependencyOperationOptions
+): Promise<CompilerDependencyConsumerRecord> {
+  assertPhysicalGenerationRetirementReceipt(retirement);
+  if (acquired.phase !== 'acquired' || path.resolve(retirement.root.path) !== acquired.generationPath ||
+      retirement.root.device !== acquired.generationPhysical.device ||
+      retirement.root.inode !== acquired.generationPhysical.inode ||
+      retirement.root.objectId !== acquired.generationPhysical.objectId) {
+    throw new SecError('RUNTIME-DEPS-004', 'Physical retirement receipt does not bind the acquired dependency consumer');
+  }
+  const consumers = await compilerDependencyConsumerRoot(root, options);
+  const released = compilerDependencyConsumerRecord({
+    schema: COMPILER_DEPENDENCY_CONSUMER_SCHEMA,
+    previousRecordDigest: acquired.recordDigest,
+    leaseId: acquired.leaseId,
+    generationDigest: acquired.generationDigest,
+    generationPath: acquired.generationPath,
+    generationPhysical: acquired.generationPhysical,
+    phase: 'released'
+  });
+  const name = `consumer-${acquired.leaseId.slice('sha256:'.length)}-released.json`;
+  const existing = inspectNoFollowOrdinaryFileEntry(consumers, name);
+  if (existing !== null && existing.bytes !== null) {
+    const parsed = parseCompilerDependencyConsumerRecord(existing.bytes, name);
+    if (parsed.recordDigest !== released.recordDigest) {
+      throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer release receipt is foreign');
+    }
+    return parsed;
+  }
+  await runtimeDependencyOperationEffectFence(options, 'Compiler dependency consumer release');
+  publishExclusiveDurableCanonicalFile({
+    parent: consumers,
+    name,
+    bytes: Buffer.from(formatJsonFile(canonicalJson(released)), 'utf8'),
+    validate: (candidate) => { parseCompilerDependencyConsumerRecord(candidate, name); }
+  });
+  const readback = inspectNoFollowOrdinaryFileEntry(consumers, name);
+  if (readback === null || readback.bytes === null ||
+      parseCompilerDependencyConsumerRecord(readback.bytes, name).recordDigest !== released.recordDigest) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer release failed readback');
+  }
+  return released;
+}
+
+async function releaseCompilerDependencyConsumer(
+  root: string,
+  acquired: CompilerDependencyConsumerRecord,
+  retirement: PhysicalGenerationRetirementReceipt
+): Promise<CompilerDependencyConsumerRecord> {
+  return withCompilerDependencyTransitionLease(
+    root,
+    { lockTimeoutMs: 30_000 },
+    async (options) => {
+      return releaseCompilerDependencyConsumerUnderLease(root, acquired, retirement, options);
+    }
+  );
+}
+
+const COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA =
+  'sec-compiler-dependency-consumer-zero-v1' as const;
+const COMPILER_DEPENDENCY_CONSUMER_ZERO_KEYS = Object.freeze([
+  'censusDigest', 'generationDigest', 'generationPath', 'generationPhysical',
+  'receiptDigest', 'schema', 'terminal'
+]);
+
+interface CompilerDependencyConsumerZeroReceipt {
+  readonly schema: typeof COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA;
+  readonly censusDigest: `sha256:${string}`;
+  readonly generationDigest: `sha256:${string}`;
+  readonly generationPath: string;
+  readonly generationPhysical: GeneratedStatePhysicalIdentity;
+  readonly receiptDigest: `sha256:${string}`;
+  readonly terminal: 'consumer-zero';
+}
+
+function compilerDependencyConsumerZeroReceipt(input: Omit<
+  CompilerDependencyConsumerZeroReceipt,
+  'receiptDigest'
+>): CompilerDependencyConsumerZeroReceipt {
+  const unsigned = Object.freeze({ ...input });
+  return Object.freeze({
+    ...unsigned,
+    receiptDigest: generatedStateDigest(canonicalJson(unsigned))
+  });
+}
+
+function parseCompilerDependencyConsumerZeroReceipt(
+  bytes: Uint8Array,
+  expectedName?: string
+): CompilerDependencyConsumerZeroReceipt {
+  let value: unknown;
+  try {
+    value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as unknown;
+  } catch (error) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer-zero receipt is not canonical JSON', {
+      cause: error instanceof Error ? error.message : String(error)
+    });
+  }
+  if (!hasExactObjectKeys(value, COMPILER_DEPENDENCY_CONSUMER_ZERO_KEYS)) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer-zero receipt has noncanonical keys');
+  }
+  const receipt = value as unknown as CompilerDependencyConsumerZeroReceipt;
+  if (receipt.schema !== COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA ||
+      !isSha256Digest(receipt.censusDigest) || !isSha256Digest(receipt.generationDigest) ||
+      !isSha256Digest(receipt.receiptDigest) || !isCanonicalAbsolutePath(receipt.generationPath) ||
+      !isCanonicalGeneratedStatePhysicalIdentity(receipt.generationPhysical) ||
+      receipt.terminal !== 'consumer-zero') {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer-zero receipt fields are invalid');
+  }
+  const { receiptDigest: _receiptDigest, ...unsigned } = receipt;
+  if (generatedStateDigest(canonicalJson(unsigned)) !== receipt.receiptDigest ||
+      formatJsonFile(canonicalJson(receipt)) !== Buffer.from(bytes).toString('utf8')) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer-zero receipt digest or bytes changed');
+  }
+  const canonicalName = `zero-${receipt.generationDigest.slice('sha256:'.length, 'sha256:'.length + 24)}-${receipt.censusDigest.slice('sha256:'.length, 'sha256:'.length + 24)}.json`;
+  if (expectedName !== undefined && expectedName !== canonicalName) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer-zero receipt filename differs');
+  }
+  return Object.freeze(receipt);
+}
+
+type CompilerDependencyConsumerCensus = Readonly<{
+  active: readonly CompilerDependencyConsumerRecord[];
+  censusDigest: `sha256:${string}`;
+}>;
+
+function readCompilerDependencyConsumerCensus(
+  consumers: PhysicalDirectoryIdentity,
+  generation: Readonly<{
+    epoch: `sha256:${string}`;
+    physical: GeneratedStatePhysicalIdentity;
+    sourcePath: string;
+  }>,
+  options: RuntimeDependencyOperationOptions
+): CompilerDependencyConsumerCensus {
+  const context = runtimeDependencyOperationContext(options);
+  const inventory = scanNoFollowDirectoryTreeInventory(consumers, {
+    deadlineAtMs: context.deadlineAtMonotonicMs,
+    maximumBytes: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
+    maximumEntries: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES,
+    signal: context.signal
+  });
+  const records = new Map<string, Partial<Record<'acquired' | 'released', CompilerDependencyConsumerRecord>>>();
+  const recordDigests: string[] = [];
+  for (const entry of inventory) {
+    if (entry.kind !== 'file' || entry.relativePath.includes('/')) {
+      throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer namespace contains unknown residue');
+    }
+    const bytes = readNoFollowOrdinaryFile(consumers, entry.relativePath);
+    if (bytes === null) {
+      throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer record disappeared during census');
+    }
+    if (entry.relativePath.startsWith('zero-')) {
+      parseCompilerDependencyConsumerZeroReceipt(bytes, entry.relativePath);
+      continue;
+    }
+    const record = parseCompilerDependencyConsumerRecord(bytes, entry.relativePath);
+    const phases = records.get(record.leaseId) ?? {};
+    if (phases[record.phase] !== undefined) {
+      throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer lease has duplicate phase records');
+    }
+    phases[record.phase] = record;
+    records.set(record.leaseId, phases);
+    recordDigests.push(record.recordDigest);
+  }
+  const active: CompilerDependencyConsumerRecord[] = [];
+  for (const [leaseId, phases] of records) {
+    const acquired = phases.acquired;
+    const released = phases.released;
+    if (acquired === undefined || (released !== undefined &&
+        (released.previousRecordDigest !== acquired.recordDigest ||
+          released.generationDigest !== acquired.generationDigest ||
+          released.generationPath !== acquired.generationPath ||
+          !sameGeneratedStateIdentity(released.generationPhysical, acquired.generationPhysical)))) {
+      throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer lease chain is partial or foreign', {
+        leaseId
+      });
+    }
+    if (released === undefined && acquired.generationDigest === generation.epoch &&
+        sameHostPath(acquired.generationPath, generation.sourcePath) &&
+        sameGeneratedStateIdentity(acquired.generationPhysical, generation.physical)) {
+      active.push(acquired);
+    }
+  }
+  recordDigests.sort(compareCodeUnits);
+  active.sort((left, right) => compareCodeUnits(left.leaseId, right.leaseId));
+  return Object.freeze({
+    active: Object.freeze(active),
+    censusDigest: generatedStateDigest(Object.freeze({
+      schema: 'sec-compiler-dependency-consumer-census-v1',
+      recordDigests: Object.freeze(recordDigests)
+    }))
+  });
+}
+
+async function publishCompilerDependencyConsumerZeroReceipt(
+  consumers: PhysicalDirectoryIdentity,
+  generation: RuntimeDependencySourceGeneration,
+  censusDigest: `sha256:${string}`,
+  options: RuntimeDependencyOperationOptions
+): Promise<CompilerDependencyConsumerZeroReceipt> {
+  const receipt = compilerDependencyConsumerZeroReceipt({
+    schema: COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA,
+    censusDigest,
+    generationDigest: generation.epoch,
+    generationPath: path.resolve(generation.sourcePath),
+    generationPhysical: generation.physical,
+    terminal: 'consumer-zero'
+  });
+  const name = `zero-${generation.epoch.slice('sha256:'.length, 'sha256:'.length + 24)}-${censusDigest.slice('sha256:'.length, 'sha256:'.length + 24)}.json`;
+  const existing = inspectNoFollowOrdinaryFileEntry(consumers, name);
+  if (existing === null) {
+    await runtimeDependencyOperationEffectFence(
+      options,
+      'Compiler dependency consumer-zero receipt publication'
+    );
+    publishExclusiveDurableCanonicalFile({
+      parent: consumers,
+      name,
+      bytes: Buffer.from(formatJsonFile(canonicalJson(receipt)), 'utf8'),
+      validate: (candidate) => { parseCompilerDependencyConsumerZeroReceipt(candidate, name); }
+    });
+  }
+  const readback = inspectNoFollowOrdinaryFileEntry(consumers, name);
+  if (readback === null || readback.bytes === null ||
+      parseCompilerDependencyConsumerZeroReceipt(readback.bytes, name).receiptDigest !== receipt.receiptDigest) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer-zero receipt failed readback');
+  }
+  return receipt;
+}
+
+async function collectReleasedCompilerDependencyGenerations(
+  root: string,
+  options: RuntimeDependencyOperationOptions
+): Promise<void> {
+  const namespace = inspectDependencyTransitionNamespace(root);
+  if (namespace === null) return;
+  const activePath = dependencyAuthorityPaths(root).compilerModulesRoot;
+  let activeGenerationPath: string | null = null;
+  try {
+    activeGenerationPath = path.resolve(await fs.realpath(activePath));
+  } catch (error) {
+    if (!isFileNotFoundError(error)) throw error;
+  }
+  type GenerationCandidate = Readonly<{
+    generationDigest: `sha256:${string}`;
+    generationPath: string;
+    generationPhysical: GeneratedStatePhysicalIdentity;
+    sourceGeneration: RuntimeDependencySourceGeneration | null;
+  }>;
+  const uniqueGenerations = new Map<string, GenerationCandidate>();
+  const releasedLegacyGenerations = new Map<string, GeneratedStatePhysicalIdentity>();
+  const generationKey = (generationDigest: `sha256:${string}`, generationPath: string): string =>
+    `${generationDigest}\0${generationPath}`;
+  const ledger = await readDependencyTransitionLedger(root, options);
+  for (const transition of ledger?.records.values() ?? []) {
+    if (transition.kind !== 'compiler-local-locator' || transition.phase !== 'complete') continue;
+    const candidate: GenerationCandidate = Object.freeze({
+      generationDigest: transition.sourceGeneration.epoch,
+      generationPath: transition.sourceGeneration.sourcePath,
+      generationPhysical: transition.sourceGeneration.physical,
+      sourceGeneration: transition.sourceGeneration
+    });
+    uniqueGenerations.set(generationKey(candidate.generationDigest, candidate.generationPath), candidate);
+  }
+  let consumers = inspectNoFollowDirectoryChild(namespace.journalRoot, 'consumers');
+  const consumerRecords: CompilerDependencyConsumerRecord[] = [];
+  const consumerZeroReceipts: CompilerDependencyConsumerZeroReceipt[] = [];
+  if (consumers !== null) {
+    const acquiredInventory = scanNoFollowDirectoryTreeInventory(consumers, {
+      deadlineAtMs: runtimeDependencyOperationContext(options).deadlineAtMonotonicMs,
+      maximumBytes: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
+      maximumEntries: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES,
+      signal: runtimeDependencyOperationContext(options).signal
+    });
+    for (const entry of acquiredInventory) {
+      if (entry.kind !== 'file' || entry.relativePath.includes('/')) {
+        throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer namespace contains unknown residue');
+      }
+      const bytes = readNoFollowOrdinaryFile(consumers, entry.relativePath);
+      if (bytes === null) {
+        throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer record disappeared during collection');
+      }
+      if (entry.relativePath.startsWith('zero-')) {
+        consumerZeroReceipts.push(parseCompilerDependencyConsumerZeroReceipt(bytes, entry.relativePath));
+        continue;
+      }
+      consumerRecords.push(parseCompilerDependencyConsumerRecord(bytes, entry.relativePath));
+    }
+  }
+  const legacyRelocations = inspectNoFollowDirectoryChild(
+    namespace.backupRoot,
+    'legacy-relocations'
+  );
+  if (legacyRelocations !== null) {
+    const relocationInventory = scanNoFollowDirectoryTreeInventory(legacyRelocations, {
+      deadlineAtMs: runtimeDependencyOperationContext(options).deadlineAtMonotonicMs,
+      maximumBytes: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
+      maximumEntries: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES,
+      signal: runtimeDependencyOperationContext(options).signal
+    });
+    const relocationRecords = new Map<string, CompilerDependencyLegacyRelocationIntent>();
+    for (const entry of relocationInventory) {
+      if (entry.kind !== 'file' || entry.relativePath.includes('/')) {
+        throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency legacy relocation namespace contains unknown residue');
+      }
+      const bytes = readNoFollowOrdinaryFile(legacyRelocations, entry.relativePath);
+      if (bytes === null) {
+        throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency legacy relocation record disappeared during collection');
+      }
+      const intent = parseCompilerDependencyLegacyRelocationIntent(bytes, entry.relativePath);
+      relocationRecords.set(`${intent.operationKey}\0${intent.phase}`, intent);
+    }
+    for (const intent of relocationRecords.values()) {
+      if (intent.phase === 'prepared' &&
+          !relocationRecords.has(`${intent.operationKey}\0complete`)) {
+        throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency legacy relocation is nonterminal');
+      }
+      if (intent.phase !== 'complete') continue;
+      const prepared = relocationRecords.get(`${intent.operationKey}\0prepared`);
+      const transition = ledger?.records.get(intent.transitionRecordDigest);
+      const preparedTransition = prepared === undefined
+        ? undefined
+        : ledger?.records.get(prepared.transitionRecordDigest);
+      let transitionDescendsFromPrepared = false;
+      if (transition !== undefined && preparedTransition !== undefined && ledger !== null) {
+        let cursor: DependencyTransitionJournal | undefined = transition;
+        const visited = new Set<`sha256:${string}`>();
+        while (cursor !== undefined && !visited.has(cursor.recordDigest)) {
+          if (cursor.recordDigest === preparedTransition.recordDigest) {
+            transitionDescendsFromPrepared = true;
+            break;
+          }
+          visited.add(cursor.recordDigest);
+          cursor = cursor.previousRecordDigest === null
+            ? undefined
+            : ledger.records.get(cursor.previousRecordDigest);
+        }
+      }
+      if (prepared === undefined || intent.previousIntentDigest !== prepared.intentDigest ||
+          intent.preimageAuthorityDigest !== prepared.preimageAuthorityDigest ||
+          intent.targetGenerationDigest !== prepared.targetGenerationDigest ||
+          intent.sourcePath !== prepared.sourcePath ||
+          intent.destinationPath !== prepared.destinationPath ||
+          intent.relocationProofDigest !== prepared.relocationProofDigest ||
+          intent.relocationProofText !== prepared.relocationProofText ||
+          !sameGeneratedStateIdentity(intent.sourcePhysical, prepared.sourcePhysical) ||
+          transition === undefined ||
+          preparedTransition === undefined ||
+          !transitionDescendsFromPrepared ||
+          (transition.kind !== 'compiler-generation' &&
+            transition.kind !== 'compiler-local-locator') ||
+          transition.kind !== preparedTransition.kind ||
+          transition.operationKey !== intent.operationKey ||
+          preparedTransition.operationKey !== intent.operationKey ||
+          transition.preimage.kind !== 'directory' ||
+          preparedTransition.preimage.kind !== 'directory' ||
+          transition.preimage.physical === null ||
+          preparedTransition.preimage.physical === null ||
+          transition.preimage.bindingDigest !== intent.preimageAuthorityDigest ||
+          preparedTransition.preimage.bindingDigest !== intent.preimageAuthorityDigest ||
+          !sameHostPath(transition.preimage.path, intent.sourcePath) ||
+          !sameHostPath(preparedTransition.preimage.path, intent.sourcePath) ||
+          !sameGeneratedStateIdentity(transition.preimage.physical, intent.sourcePhysical) ||
+          !sameGeneratedStateIdentity(preparedTransition.preimage.physical, intent.sourcePhysical) ||
+          transition.sourceGeneration.epoch !== intent.targetGenerationDigest ||
+          preparedTransition.sourceGeneration.epoch !== intent.targetGenerationDigest ||
+          !sameHostPath(
+            path.dirname(intent.destinationPath),
+            dependencyTransitionNamespacePaths(root).backupRoot
+          ) ||
+          (transition.kind === 'compiler-generation' &&
+            (transition.backup === null ||
+              !sameHostPath(transition.backup.path, intent.destinationPath)))) {
+        throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency legacy relocation chain is partial or foreign');
+      }
+      const destination = inspectExactNoFollowDirectoryPresence(
+        intent.destinationPath,
+        'Compiler dependency relocated legacy generation'
+      );
+      if (destination.state === 'absent') {
+        const terminal = consumerZeroReceipts.find((receipt) =>
+          sameHostPath(receipt.generationPath, intent.destinationPath) &&
+          sameGeneratedStateIdentity(receipt.generationPhysical, intent.sourcePhysical));
+        if (terminal === undefined) {
+          throw new SecError(
+            'RUNTIME-DEPS-004',
+            'Absent compiler dependency relocated legacy generation has no consumer-zero receipt'
+          );
+        }
+        continue;
+      }
+      const binding = await readCompilerDepsBinding(
+        path.join(intent.destinationPath, COMPILER_DEPS_BINDING_FILE)
+      );
+      if (binding === null) {
+        throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency relocated legacy generation binding is absent');
+      }
+      const generation = await runtimeDependencySourceGeneration({
+        binding,
+        options,
+        ownerRoot: root,
+        sourcePath: intent.destinationPath
+      });
+      if (!sameGeneratedStateIdentity(generation.physical, intent.sourcePhysical)) {
+        throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency relocated legacy generation identity differs');
+      }
+      if (transition.kind === 'compiler-local-locator' && !sameHostPath(
+        compilerTransitionBackupPath(root, 'generation', generation),
+        intent.destinationPath
+      )) {
+        throw new SecError(
+          'RUNTIME-DEPS-004',
+          'Compiler dependency relocated legacy generation path differs from its exact generation identity'
+        );
+      }
+      const key = generationKey(generation.epoch, generation.sourcePath);
+      releasedLegacyGenerations.set(key, generation.physical);
+      uniqueGenerations.set(key, Object.freeze({
+        generationDigest: generation.epoch,
+        generationPath: generation.sourcePath,
+        generationPhysical: generation.physical,
+        sourceGeneration: generation
+      }));
+    }
+  }
+  for (const record of consumerRecords) {
+    if (record.phase === 'acquired') {
+      const key = generationKey(record.generationDigest, record.generationPath);
+      const existing = uniqueGenerations.get(key);
+      uniqueGenerations.set(key, Object.freeze({
+        generationDigest: record.generationDigest,
+        generationPath: record.generationPath,
+        generationPhysical: record.generationPhysical,
+        sourceGeneration: existing?.sourceGeneration ?? null
+      }));
+    }
+  }
+  const candidates = [...uniqueGenerations.values()].filter((candidate) =>
+    activeGenerationPath === null || !sameHostPath(activeGenerationPath, candidate.generationPath));
+  if (candidates.length === 0) return;
+  consumers ??= await compilerDependencyConsumerRoot(root, options);
+  for (const acquired of candidates) {
+    const releasedLegacyPhysical = releasedLegacyGenerations.get(generationKey(
+      acquired.generationDigest,
+      acquired.generationPath
+    ));
+    if (!isCanonicalLocalCompilerDependencyGeneration(root, acquired.generationPath) &&
+        (releasedLegacyPhysical === undefined || !sameGeneratedStateIdentity(
+          releasedLegacyPhysical,
+          acquired.generationPhysical
+        ))) {
+      throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer names a foreign generation path');
+    }
+    const censusProjection = Object.freeze({
+      epoch: acquired.generationDigest,
+      physical: acquired.generationPhysical,
+      sourcePath: acquired.generationPath
+    });
+    const census = readCompilerDependencyConsumerCensus(consumers, censusProjection, options);
+    // An acquired consumer is the complete negative authority for GC.  Do
+    // not even reopen its physical generation: on Windows the consumer's
+    // retained handles deliberately exclude publisher mutation/deletion and
+    // physical probing here would turn a correct live holder into an error.
+    if (census.active.length !== 0) continue;
+    const generationPresent = await fs.lstat(acquired.generationPath).then(
+      (metadata) => metadata.isDirectory() && !metadata.isSymbolicLink(),
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return false;
+        throw error;
+      }
+    );
+    if (!generationPresent) {
+      const zero = consumerZeroReceipts.find((receipt) =>
+        receipt.generationDigest === acquired.generationDigest &&
+        sameHostPath(receipt.generationPath, acquired.generationPath) &&
+        sameGeneratedStateIdentity(receipt.generationPhysical, acquired.generationPhysical)
+      );
+      if (zero === undefined) {
+        throw new SecError(
+          'RUNTIME-DEPS-004',
+          'Absent compiler dependency generation has no exact consumer-zero receipt',
+          {
+            generationDigest: acquired.generationDigest,
+            generationPath: acquired.generationPath
+          }
+        );
+      }
+      continue;
+    }
+    const binding = await readCompilerDepsBinding(path.join(acquired.generationPath, COMPILER_DEPS_BINDING_FILE));
+    if (binding === null) {
+      throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency released generation binding is absent');
+    }
+    const observedGeneration = await runtimeDependencySourceGeneration({
+      binding,
+      options,
+      ownerRoot: root,
+      sourcePath: acquired.generationPath
+    });
+    if (!sameGeneratedStateIdentity(observedGeneration.physical, acquired.generationPhysical)) {
+      throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency released generation physical authority differs');
+    }
+    const generation = observedGeneration.epoch === acquired.generationDigest
+      ? observedGeneration
+      : acquired.sourceGeneration;
+    if (generation === null || generation.epoch !== acquired.generationDigest ||
+        !sameHostPath(generation.sourcePath, acquired.generationPath) ||
+        !sameGeneratedStateIdentity(generation.physical, acquired.generationPhysical) ||
+        generatedStateDigest(binding) !== generation.bindingDigest) {
+      throw new SecError(
+        'RUNTIME-DEPS-004',
+        'Compiler dependency released generation has no owner-issued pre-mutation authority'
+      );
+    }
+    await publishCompilerDependencyConsumerZeroReceipt(consumers, generation, census.censusDigest, options);
+    // The persisted proof is the only authority that may restore publisher
+    // write/delete access.  Reopen the exact child only after that terminal
+    // ACL/mode readback; attempting a deletion-capable parent-relative open
+    // while the proven tree is still read-only correctly fails on Windows.
+    await retireCompilerDependencyExecutionProofIfPresent(
+      root,
+      acquired.generationPath,
+      options,
+      generation
+    );
+    const generationRoot = inspectNoFollowDirectoryChain(
+      acquired.generationPath,
+      'Compiler dependency released generation collection root'
+    ).target;
+    if (!sameGeneratedStateIdentity(generatedStatePhysicalIdentity(generationRoot), acquired.generationPhysical)) {
+      throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency released generation physical identity changed');
+    }
+    const inventory = scanNoFollowDirectoryTreeInventory(generationRoot, {
+      deadlineAtMs: runtimeDependencyOperationContext(options).deadlineAtMonotonicMs,
+      maximumBytes: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
+      maximumEntries: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES,
+      signal: runtimeDependencyOperationContext(options).signal
+    });
+    await runtimeDependencyOperationEffectFence(options, 'Compiler dependency consumer-zero generation retirement');
+    const parent = assertSameNoFollowDirectoryIdentity(
+      namespace.backupRoot,
+      'Compiler dependency generation collection parent'
+    ).target;
+    retireNoFollowDirectoryTree({
+      deadlineAtMonotonicMs: runtimeDependencyOperationContext(options).deadlineAtMonotonicMs,
+      inventory,
+      parent,
+      root: generationRoot
+    });
+    if (inspectNoFollowDirectoryLeaf(parent, path.basename(acquired.generationPath)) !== null) {
+      throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer-zero collection left generation residue');
+    }
+  }
 }
 
 type RetiredCompilerDependencyPreimage = Readonly<{
@@ -11271,6 +9151,102 @@ type RetiredCompilerDependencyPreimage = Readonly<{
   retiredRegistrationDigest: `sha256:${string}` | null;
 }>;
 
+async function retireCompilerDependencyExecutionProofIfPresent(
+  root: string,
+  sourcePath: string,
+  options: RuntimeDependencyOperationOptions,
+  expectedSourceGeneration?: RuntimeDependencySourceGeneration
+): Promise<void> {
+  const namespace = inspectDependencyTransitionNamespace(root);
+  if (namespace === null) return;
+  const proofRoot = inspectNoFollowDirectoryChild(namespace.backupRoot, 'read-only-generations');
+  if (proofRoot === null) return;
+  const binding = await readCompilerDepsBinding(path.join(sourcePath, COMPILER_DEPS_BINDING_FILE));
+  if (binding === null) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency generation binding is unavailable before proof retirement');
+  }
+  const sourceGeneration = expectedSourceGeneration ?? await runtimeDependencySourceGeneration({
+    binding,
+    options,
+    ownerRoot: root,
+    sourcePath
+  });
+  if (!sameHostPath(sourceGeneration.sourcePath, sourcePath) ||
+      !sameHostPath(sourceGeneration.ownerRoot, root) ||
+      generatedStateDigest(binding) !== sourceGeneration.bindingDigest) {
+    throw new SecError(
+      'RUNTIME-DEPS-004',
+      'Compiler dependency execution proof retirement authority is foreign'
+    );
+  }
+  const sourceRoot = inspectNoFollowDirectoryChain(
+    sourcePath,
+    'Compiler dependency execution proof retirement source root'
+  ).target;
+  if (!sameGeneratedStateIdentity(
+    generatedStatePhysicalIdentity(sourceRoot),
+    sourceGeneration.physical
+  )) {
+    throw new SecError(
+      'RUNTIME-DEPS-004',
+      'Compiler dependency execution proof retirement physical identity changed'
+    );
+  }
+  const proofName = `${sourceGeneration.epoch.slice('sha256:'.length)}.json`;
+  const proofPath = path.join(proofRoot.path, proofName);
+  const proofObservation = observeNoFollowOwnedFile(
+    proofPath,
+    'Compiler dependency execution proof retirement'
+  );
+  if (proofObservation === null) return;
+  const proofBytes = readNoFollowOrdinaryFile(proofRoot, proofName);
+  const proofReadback = observeNoFollowOwnedFile(
+    proofPath,
+    'Compiler dependency execution proof retirement readback'
+  );
+  if (proofBytes === null || proofReadback === null ||
+      !sameNoFollowOwnedFileObservation(proofObservation, proofReadback)) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency execution proof changed before retirement');
+  }
+  let proofText: string;
+  try {
+    proofText = new TextDecoder('utf-8', { fatal: true }).decode(proofBytes);
+  } catch (error) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency execution proof is not exact UTF-8', {
+      cause: error instanceof Error ? error.message : String(error)
+    });
+  }
+  await runtimeDependencyOperationEffectFence(options, 'Compiler dependency execution generation retirement');
+  const context = runtimeDependencyOperationContext(options);
+  const remainingMs = runtimeDependencyOperationRemainingMs(
+    options,
+    'Compiler dependency execution generation retirement'
+  );
+  await retireNoFollowProvenDirectoryGeneration({
+    binding: {
+      generationDigest: sourceGeneration.epoch,
+      treeDigest: sourceGeneration.treeDigest,
+      treeEntryCount: sourceGeneration.treeEntryCount
+    },
+    // The operation ledger is monotonic and may return a fractional remainder.
+    // The physical owner requires one bounded wall-clock integer; floor rather
+    // than round so this projection can only narrow the parent budget.
+    deadlineAtUnixMs: Date.now() + Math.max(1, Math.floor(remainingMs)),
+    proofText,
+    root: sourceRoot,
+    signal: context.signal
+  });
+  await runtimeDependencyOperationEffectFence(options, 'Compiler dependency execution proof retirement receipt');
+  deleteNoFollowOwnedFile(
+    proofPath,
+    proofObservation,
+    'Compiler dependency execution proof retirement'
+  );
+  if (observeNoFollowOwnedFile(proofPath, 'Compiler dependency execution proof retirement terminal') !== null) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency execution proof retirement left nonterminal residue');
+  }
+}
+
 async function retireIncompatibleCompilerDependencyTarget(
   root: string,
   nodeModulesPath: string,
@@ -11279,7 +9255,12 @@ async function retireIncompatibleCompilerDependencyTarget(
 ): Promise<RetiredCompilerDependencyPreimage | null> {
   const identity = await compilerDependencyDirectoryIdentity(nodeModulesPath);
   if (identity === null) return null;
-  const bindingDigest = await compilerDependencyGeneratedPreimageDigest(nodeModulesPath);
+  const preimageAuthority = await compilerDependencyGeneratedPreimageAuthority(
+    root,
+    nodeModulesPath,
+    options
+  );
+  const bindingDigest = preimageAuthority.authorityDigest;
   const backupsRoot = path.join(root, '.tmp', 'dependency-installs', 'compiler-backups');
   const backupPath = requestedBackupPath ?? path.join(
     backupsRoot,
@@ -11302,6 +9283,7 @@ async function retireIncompatibleCompilerDependencyTarget(
       'Compiler dependency preimage changed before producer provenance binding and is preserved'
     );
   }
+  await retireCompilerDependencyExecutionProofIfPresent(root, nodeModulesPath, options);
   const retiredRegistrationDigest = await bindAndRetireCompilerDependencyPreimage(
     options,
     Object.freeze({
@@ -11359,6 +9341,218 @@ async function restoreRetiredCompilerDependencyTarget(
 
 type CompilerDependencyTransitionKind = 'none' | 'generation-published' | 'locator-published';
 
+async function ensureCompilerDependencyGenerationReadOnlyProof(
+  root: string,
+  sourceGeneration: RuntimeDependencySourceGeneration,
+  options: RuntimeDependencyOperationOptions
+): Promise<Readonly<{
+  proofText: string;
+  sourceRoot: PhysicalDirectoryIdentity;
+}>> {
+  runtimeDependencyOperationRemainingMs(
+    options,
+    'Compiler dependency read-only generation admission'
+  );
+  const sourceRoot = inspectNoFollowDirectoryChain(
+    sourceGeneration.sourcePath,
+    'Compiler dependency read-only generation root'
+  ).target;
+  if (!sameGeneratedStateIdentity(
+    generatedStatePhysicalIdentity(sourceRoot),
+    sourceGeneration.physical
+  )) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency read-only generation root changed');
+  }
+  const namespace = await ensureDependencyTransitionNamespace(root, options);
+  await runtimeDependencyOperationEffectFence(
+    options,
+    'Compiler dependency execution proof namespace publication'
+  );
+  const proofRoot = createNoFollowOrdinaryDirectoryChain(
+    namespace.backupRoot,
+    ['read-only-generations']
+  );
+  const proofName = `${sourceGeneration.epoch.slice('sha256:'.length)}.json`;
+  const proofBytes = readNoFollowOrdinaryFile(proofRoot, proofName);
+  let proofText: string | null;
+  try {
+    proofText = proofBytes === null
+      ? null
+      : new TextDecoder('utf-8', { fatal: true }).decode(proofBytes);
+  } catch (error) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency execution proof is not exact UTF-8', {
+      cause: error instanceof Error ? error.message : String(error)
+    });
+  }
+  const context = runtimeDependencyOperationContext(options);
+  let materialized: Readonly<{
+    generation: RetainedNoFollowProvenDirectoryGeneration;
+    proofText: string;
+  }>;
+  if (proofText === null) {
+    const inventory = scanNoFollowDirectoryTreeInventory(sourceRoot, {
+      deadlineAtMs: context.deadlineAtMonotonicMs,
+      maximumBytes: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
+      maximumEntries: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES,
+      signal: context.signal
+    });
+    const observedTree = runtimeDependencyTreeIdentity(inventory);
+    if (observedTree.treeDigest !== sourceGeneration.treeDigest
+        || observedTree.treeEntryCount !== sourceGeneration.treeEntryCount) {
+      throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency read-only generation content changed');
+    }
+    materialized = await materializeRetainedNoFollowProvenDirectoryGeneration({
+      binding: {
+        generationDigest: sourceGeneration.epoch,
+        treeDigest: sourceGeneration.treeDigest,
+        treeEntryCount: sourceGeneration.treeEntryCount
+      },
+      deadlineAtUnixMs: Date.now() + Math.max(1, Math.floor(
+        runtimeDependencyOperationRemainingMs(options, 'Compiler dependency read-only generation seal')
+      )),
+      inventory,
+      proofText: null,
+      root: sourceRoot,
+      signal: context.signal
+    });
+  } else {
+    materialized = await materializeRetainedNoFollowProvenDirectoryGeneration({
+      binding: {
+        generationDigest: sourceGeneration.epoch,
+        treeDigest: sourceGeneration.treeDigest,
+        treeEntryCount: sourceGeneration.treeEntryCount
+      },
+      deadlineAtUnixMs: Date.now() + Math.max(1, Math.floor(
+        runtimeDependencyOperationRemainingMs(options, 'Compiler dependency read-only generation reopen')
+      )),
+      proofText,
+      root: sourceRoot,
+      signal: context.signal
+    });
+  }
+  let effectiveProofText: string;
+  let retirement: PhysicalGenerationRetirementReceipt | null = null;
+  try {
+    await materialized.generation.assertAuthorityCurrent();
+    effectiveProofText = materialized.proofText;
+  } finally {
+    retirement = await materialized.generation.retire();
+    assertPhysicalGenerationRetirementReceipt(retirement);
+  }
+  if (proofBytes === null) {
+    await runtimeDependencyOperationEffectFence(
+      options,
+      'Compiler dependency execution proof publication'
+    );
+    const bytes = Buffer.from(effectiveProofText, 'utf8');
+    publishExclusiveDurableCanonicalFile({
+      parent: proofRoot,
+      name: proofName,
+      bytes,
+      validate(candidate) {
+        if (!Buffer.from(candidate).equals(bytes)) {
+          throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency execution proof bytes changed');
+        }
+      }
+    });
+  }
+  const readback = readNoFollowOrdinaryFile(proofRoot, proofName);
+  if (readback === null || Buffer.from(readback).toString('utf8') !== effectiveProofText) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency execution proof readback changed');
+  }
+  return Object.freeze({ proofText: effectiveProofText, sourceRoot });
+}
+
+export async function retainCompilerDependencyExecutionGeneration(
+  authority: CompilerDependencyExecutionGenerationAuthority,
+  input: Readonly<{ deadlineAtUnixMs: number; signal?: AbortSignal }>
+): Promise<RetainedCompilerDependencyExecutionGeneration> {
+  assertCompilerDependencyExecutionGenerationAuthority(authority);
+  const record = compilerDependencyExecutionGenerationAuthorities.get(authority)!;
+  if (!Number.isSafeInteger(input.deadlineAtUnixMs) || input.deadlineAtUnixMs <= Date.now()
+      || input.signal?.aborted === true) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency execution generation admission expired');
+  }
+  const lockTimeoutMs = Math.max(1, Math.min(
+    MAX_DEPENDENCY_OPERATION_TIMEOUT_MS,
+    input.deadlineAtUnixMs - Date.now()
+  ));
+  const admitted = await withCompilerDependencyTransitionLease(
+    record.root,
+    { deadlineAtUnixMs: input.deadlineAtUnixMs, lockTimeoutMs, signal: input.signal },
+    async (options) => {
+      runtimeDependencyOperationRemainingMs(options, 'Compiler dependency execution generation admission');
+      const sealed = await ensureCompilerDependencyGenerationReadOnlyProof(
+        record.root,
+        record.sourceGeneration,
+        options
+      );
+      const acquired = await acquireCompilerDependencyConsumer(
+        record.root,
+        record.sourceGeneration,
+        options
+      );
+      return Object.freeze({
+        acquired,
+        proofText: sealed.proofText,
+        sourceRoot: sealed.sourceRoot
+      });
+    }
+  );
+  const currentRoot = assertSameNoFollowDirectoryIdentity(
+    admitted.sourceRoot,
+    'Compiler dependency execution generation post-lease root'
+  ).target;
+  const materialized = await materializeRetainedNoFollowProvenDirectoryGeneration({
+    binding: {
+      generationDigest: record.sourceGeneration.epoch,
+      treeDigest: record.sourceGeneration.treeDigest,
+      treeEntryCount: record.sourceGeneration.treeEntryCount
+    },
+    deadlineAtUnixMs: input.deadlineAtUnixMs,
+    proofText: admitted.proofText,
+    root: currentRoot,
+    signal: input.signal
+  });
+  try {
+    await materialized.generation.assertAuthorityCurrent();
+  } catch (error) {
+    try {
+      const physicalReceipt = await materialized.generation.retire();
+      await releaseCompilerDependencyConsumer(record.root, admitted.acquired, physicalReceipt);
+    } catch { /* durable acquisition residue preserves the authority failure */ }
+    throw error;
+  }
+  let retirement: Promise<CompilerDependencyExecutionRetirementReceipt> | null = null;
+  return Object.freeze({
+    directRootResolution: record.directRootResolution,
+    physicalGeneration: materialized.generation,
+    retire: () => {
+      if (retirement !== null) return retirement;
+      retirement = (async () => {
+        const physicalReceipt = await materialized.generation.retire();
+        assertPhysicalGenerationRetirementReceipt(physicalReceipt);
+        const released = await releaseCompilerDependencyConsumer(
+          record.root,
+          admitted.acquired,
+          physicalReceipt
+        );
+        const receipt: CompilerDependencyExecutionRetirementReceipt = Object.freeze({
+          schema: 'sec-compiler-dependency-execution-retirement-v1' as const,
+          generationDigest: admitted.acquired.generationDigest,
+          generationPhysical: Object.freeze({ ...admitted.acquired.generationPhysical }),
+          leaseId: admitted.acquired.leaseId,
+          releaseRecordDigest: released.recordDigest,
+          terminal: 'released' as const
+        });
+        issuedCompilerDependencyExecutionRetirementReceipts.add(receipt);
+        return receipt;
+      })();
+      return retirement;
+    }
+  });
+}
+
 function createCompilerDepsReadyState(input: Readonly<{
   binding: Readonly<CompilerDepsBinding>;
   identity: CompilerDependencyIdentity;
@@ -11386,7 +9580,12 @@ function createCompilerDepsReadyState(input: Readonly<{
     runtimeMaterialization: input.binding.runtimeMaterialization,
     sourceGeneration: input.sourceGeneration,
     source: input.source,
-    transitionDigest
+    transitionDigest,
+    executionGenerationAuthority: issueCompilerDependencyExecutionGenerationAuthority({
+      directRootResolution: compilerDependencyDirectRootResolution(input.binding, input.identity),
+      root: input.root,
+      sourceGeneration: input.sourceGeneration
+    })
   });
 }
 
@@ -11426,7 +9625,9 @@ async function observeCompilerDependencyReady(
   if (bridge.status === 'ready') {
     const bridgeBinding = bridge.binding;
     const generationPath = path.resolve(await fs.realpath(nodeModulesPath));
-    const ownerRoot = path.dirname(generationPath);
+    const ownerRoot = isCanonicalLocalCompilerDependencyGeneration(root, generationPath)
+      ? path.resolve(root)
+      : path.dirname(generationPath);
     const sourceGeneration = await runtimeDependencySourceGeneration({
       binding: bridgeBinding,
       options,
@@ -11461,6 +9662,94 @@ async function observeCompilerDependencyReady(
   });
 }
 
+/**
+ * Observe only an already-published compiler dependency generation and issue
+ * the same opaque authority consumed by the retained execution owner. This
+ * path never recovers, publishes, installs or repairs dependency state. A
+ * nonterminal owner journal is therefore a typed blocker, not an invitation
+ * to turn a freshness/read operation into a writer.
+ */
+export async function observeCompilerDependencyExecutionGenerationAuthority(
+  options: RuntimeDependencyInstallOptions = {},
+  compilerDependencyRoot = compilerRoot
+): Promise<CompilerDependencyExecutionGenerationAuthority | null> {
+  const operationOptions = runtimeDependencyOperationOptions(options);
+  const root = path.resolve(compilerDependencyRoot);
+  const nodeModulesPath = dependencyAuthorityPaths(root).compilerModulesRoot;
+  runtimeDependencyOperationRemainingMs(
+    operationOptions,
+    'Compiler dependency generation observation admission'
+  );
+  await operationOptions.beforeCommit?.();
+  runtimeDependencyOperationRemainingMs(
+    operationOptions,
+    'Compiler dependency generation observation source admission'
+  );
+  const pendingTransition = await readDependencyTransition(root, operationOptions);
+  if (pendingTransition !== null && pendingTransition.phase !== 'complete' &&
+      pendingTransition.phase !== 'rolled-back') {
+    throw new SecError(
+      'RUNTIME-DEPS-004',
+      'Compiler dependency generation observation is blocked by nonterminal recovery state'
+    );
+  }
+  const identity = await observeCompilerDependencyIdentity(root, operationOptions);
+  const observed = await observeCompilerDependencyReady(
+    root,
+    nodeModulesPath,
+    identity,
+    operationOptions
+  );
+  if (observed === null) {
+    const slot = await observeDependencyTransitionSlot(nodeModulesPath);
+    if (slot.kind === 'absent') return null;
+    throw new SecError(
+      'RUNTIME-DEPS-004',
+      'Compiler dependency generation is present without an exact owner binding'
+    );
+  }
+  if (observed.kind === 'incompatible-bridge') {
+    throw new SecError(
+      'RUNTIME-DEPS-004',
+      'Compiler dependency generation observation found an incompatible locator'
+    );
+  }
+  runtimeDependencyOperationRemainingMs(
+    operationOptions,
+    'Compiler dependency generation observation readback admission'
+  );
+  await operationOptions.beforeCommit?.();
+  assertCompilerDependencyInputsCurrent(root, identity);
+  const finalIdentity = await observeCompilerDependencyIdentity(root, operationOptions);
+  const finalObservation = await observeCompilerDependencyReady(
+    root,
+    nodeModulesPath,
+    finalIdentity,
+    operationOptions
+  );
+  runtimeDependencyOperationRemainingMs(
+    operationOptions,
+    'Compiler dependency generation observation final readback'
+  );
+  if (finalObservation === null || finalObservation.kind === 'incompatible-bridge' ||
+      finalObservation.kind !== observed.kind || !canonicalEquals(finalIdentity, identity) ||
+      !canonicalEquals(finalObservation.binding, observed.binding) ||
+      !canonicalEquals(finalObservation.sourceGeneration, observed.sourceGeneration)) {
+    throw new SecError(
+      'RUNTIME-DEPS-004',
+      'Compiler dependency generation changed during observation'
+    );
+  }
+  return issueCompilerDependencyExecutionGenerationAuthority({
+    directRootResolution: compilerDependencyDirectRootResolution(
+      finalObservation.binding,
+      finalIdentity
+    ),
+    root,
+    sourceGeneration: finalObservation.sourceGeneration
+  });
+}
+
 async function ensureCompilerDepsReadyInternal(
   options: RuntimeDependencyInstallOptions = {},
   compilerDependencyRoot = compilerRoot
@@ -11479,7 +9768,7 @@ async function ensureCompilerDepsReadyInternal(
     await withCompilerDependencyTransitionLease(root, lifecycleOptions, async () => undefined);
   }
 
-  const identity = await compilerDependencyIdentity(root);
+  const identity = await observeCompilerDependencyIdentity(root, lifecycleOptions);
   const activeRollover = await inspectActiveDependencyTransitionRollover(root, lifecycleOptions);
   if (activeRollover !== null && activeRollover.active !== null) {
     // Admission is still read-only; the lease callback above is the only
@@ -11514,7 +9803,11 @@ async function ensureCompilerDepsReadyInternal(
           'Compiler dependency locator changed before incompatible-state retirement'
         );
       }
-      if (!await disposeIncompatibleCompilerDependencyLocator(root, lockedOptions)) {
+      if (!await disposeCompilerDependencyLocator(
+        root,
+        lockedOptions,
+        'incompatible-compiler-dependency-locator'
+      )) {
         throw new SecError(
           'IMPORT-AUTHORITY-004',
           'Incompatible compiler dependency locator disappeared before lifecycle disposal'
@@ -11547,12 +9840,12 @@ async function ensureCompilerDepsReadyInternal(
     });
   }
   if (observed?.kind === 'local-generation') {
-    return withCompilerDependencyTransitionLease(root, lifecycleOptions, async () => {
+    return withCompilerDependencyTransitionLease(root, lifecycleOptions, async (lockedOptions) => {
       const current = await observeCompilerDependencyReady(
         root,
         nodeModulesPath,
         identity,
-        lifecycleOptions
+        lockedOptions
       );
       if (current?.kind !== 'local-generation') {
         throw new SecError(
@@ -11560,19 +9853,29 @@ async function ensureCompilerDepsReadyInternal(
           'Compiler dependency generation changed before lifecycle binding; current state is preserved'
         );
       }
-      if (lifecycleOptions.generatedStateLifecycle !== undefined) {
+      if (lockedOptions.generatedStateLifecycle !== undefined) {
         await bindExistingCompilerDependencyGeneration(
-          lifecycleOptions,
+          lockedOptions,
           current.sourceGeneration.physical
         );
       }
+      const migratedGeneration = await publishLocalCompilerDependencyLocator(
+        root,
+        nodeModulesPath,
+        null,
+        null,
+        current.binding,
+        identity,
+        current.sourceGeneration,
+        lockedOptions
+      );
       return createCompilerDepsReadyState({
         binding: current.binding,
         identity,
-        kind: 'none',
+        kind: 'locator-published',
         nodeModulesPath,
         root,
-        sourceGeneration: current.sourceGeneration,
+        sourceGeneration: migratedGeneration,
         source: 'existing'
       });
     });
@@ -11608,7 +9911,11 @@ async function ensureCompilerDepsReadyInternal(
         source: 'existing'
       });
     }
-    await disposeIncompatibleCompilerDependencyLocator(root, lockedOptions);
+    await disposeCompilerDependencyLocator(
+      root,
+      lockedOptions,
+      'incompatible-compiler-dependency-locator'
+    );
     const lockedExisting = await ready();
     if (lockedExisting !== null) {
       const existingSourceGeneration = await runtimeDependencySourceGeneration({
@@ -11623,13 +9930,23 @@ async function ensureCompilerDepsReadyInternal(
           existingSourceGeneration.physical
         );
       }
+      const migratedGeneration = await publishLocalCompilerDependencyLocator(
+        root,
+        nodeModulesPath,
+        null,
+        null,
+        lockedExisting,
+        identity,
+        existingSourceGeneration,
+        lockedOptions
+      );
       const readyState = createCompilerDepsReadyState({
         binding: lockedExisting,
         identity,
-        kind: 'none',
+        kind: 'locator-published',
         nodeModulesPath,
         root,
-        sourceGeneration: existingSourceGeneration,
+        sourceGeneration: migratedGeneration,
         source: 'existing'
       });
       return readyState;
@@ -11656,9 +9973,14 @@ async function ensureCompilerDepsReadyInternal(
       let transition: DependencyTransitionJournal | null = null;
       try {
         const currentTarget = await observeDependencyTransitionSlot(nodeModulesPath);
-        if (currentTarget.kind === 'directory') {
-          await compilerDependencyGeneratedPreimageDigest(nodeModulesPath);
-        } else if (currentTarget.kind !== 'absent') {
+        const preimageAuthority = currentTarget.kind === 'directory'
+          ? await compilerDependencyGeneratedPreimageAuthority(
+            root,
+            nodeModulesPath,
+            lockedOptions
+          )
+          : null;
+        if (currentTarget.kind !== 'directory' && currentTarget.kind !== 'absent') {
           throw new SecError('IMPORT-AUTHORITY-004', 'Foreign compiler dependency locator target is preserved');
         }
         transition = await beginDependencyTransition({
@@ -11669,6 +9991,7 @@ async function ensureCompilerDepsReadyInternal(
           backupPath: locatorBackupPath,
           sourceGeneration,
           bindingDigest: generatedStateDigest(sharedWorktreeGeneration.binding),
+          preimageBindingDigest: preimageAuthority?.authorityDigest ?? null,
           options: lockedOptions
         });
         if (transition.preimage.kind === 'directory') {
@@ -11792,31 +10115,52 @@ async function ensureCompilerDepsReadyInternal(
     }
 
     const staged = await stageCompilerDependencyGeneration(root, identity, lockedOptions);
-    await publishCompilerDependencyGeneration(
+    const stagedBinding = await compilerDependencyGenerationBinding(
+      root,
+      path.join(staged.stagingRoot, 'node_modules'),
+      path.join(staged.stagingRoot, 'node_modules', COMPILER_DEPS_BINDING_FILE),
+      identity
+    );
+    if (stagedBinding === null) {
+      throw new SecError('IMPORT-AUTHORITY-002', 'Staged compiler dependency generation has no valid binding');
+    }
+    const stagedGeneration = await runtimeDependencySourceGeneration({
+      binding: stagedBinding,
+      options: lockedOptions,
+      ownerRoot: root,
+      sourcePath: path.join(staged.stagingRoot, 'node_modules')
+    });
+    const publishedGeneration = await publishLocalCompilerDependencyLocator(
       root,
       nodeModulesPath,
       staged.stagingRoot,
       staged.stageIntent,
+      stagedBinding,
       identity,
+      stagedGeneration,
       lockedOptions
     );
-    const published = await ready();
-    if (published === null) {
+    const published = await measureRuntimeDependencyOperationPhaseAsync(
+      lockedOptions,
+      'validation',
+      () => observeCompilerDependencyReady(
+        root,
+        nodeModulesPath,
+        identity,
+        lockedOptions
+      )
+    );
+    if (published?.kind !== 'external-bridge' || !canonicalEquals(published.binding, stagedBinding)) {
       throw new SecError('IMPORT-AUTHORITY-002', 'Published compiler dependency generation failed validation');
     }
 
     const readyState = createCompilerDepsReadyState({
-      binding: published,
+      binding: published.binding,
       identity,
       kind: 'generation-published',
       nodeModulesPath,
       root,
-      sourceGeneration: await runtimeDependencySourceGeneration({
-        binding: published,
-        options: lifecycleOptions,
-        ownerRoot: root,
-        sourcePath: nodeModulesPath
-      }),
+      sourceGeneration: publishedGeneration,
       source: 'installed'
     });
     return readyState;

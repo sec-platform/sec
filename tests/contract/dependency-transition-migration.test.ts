@@ -233,6 +233,25 @@ test('retires a valid terminal legacy ledger into one immutable v2 admission and
   }
 });
 
+test('accepts a native empty v2 namespace without legacy source or migration intent', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-transition-native-v2-'));
+  try {
+    const targetRoot = targetJournalRoot(root);
+    await mkdir(path.join(targetRoot, 'records'), { recursive: true });
+    await mkdir(path.join(targetRoot, 'rollovers'));
+
+    await migrateDependencyTransitionJournal(root, {
+      lockTimeoutMs: 30_000
+    });
+
+    const backupRoot = path.dirname(targetRoot);
+    expect(await readdir(backupRoot)).not.toContain(LEGACY_NAMESPACE);
+    expect(await readRegularFiles(targetRoot)).toEqual(new Map());
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('rejects a well-formed legacy chain whose final phase is not terminal', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-transition-nonterminal-'));
   try {
