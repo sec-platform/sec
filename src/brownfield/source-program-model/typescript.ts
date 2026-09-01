@@ -923,6 +923,14 @@ function spanFor(sourceFile: ts.SourceFile, node: ts.Node): SourceProgramSpan {
   });
 }
 
+function semanticDeclarationText(sourceFile: ts.SourceFile, node: ts.Node): string {
+  return node.getText(sourceFile).replace(/\r\n?/gu, '\n');
+}
+
+function executionScopeName(span: SourceProgramSpan): string {
+  return `@execution-scope:${span.startLine}:${span.startColumn}`;
+}
+
 function declarationNameNode(node: ts.Node): ts.Identifier | ts.StringLiteral | ts.NumericLiteral | null {
   if (ts.isConstructorDeclaration(node)) return null;
   if (
@@ -1494,19 +1502,19 @@ function compileExactFactGenerationForCachedModel(
       const start = node.getStart(sourceFile, false);
       const expected = expectedByPathAndStart.get(`${sourcePath}\0${start}`) ?? [];
       for (const declaration of expected) {
+        const span = spanFor(sourceFile, node);
         const name = declarationName(node) ?? (
           ts.isExportSpecifier(node)
             ? node.name.text
             : sourceSurface === 'test' && ts.isFunctionLike(node)
-              ? `@execution-scope:${start}`
+              ? executionScopeName(span)
               : null
         );
         if (name !== declaration.name || ts.SyntaxKind[node.kind] !== declaration.kind) continue;
-        const span = spanFor(sourceFile, node);
         const declarationDigest = sha256({
           kind: ts.SyntaxKind[node.kind],
           name,
-          source: node.getText(sourceFile)
+          source: semanticDeclarationText(sourceFile, node)
         });
         if (span.end !== declaration.span.end
             || declarationDigest !== declaration.declarationDigest
@@ -1895,10 +1903,13 @@ function compileTypeScriptSourceProgramModelIncrementalInternal(
   }
   const model = bindCurrentExactReturnProvenances(
     bindTypeScriptModelToRepositoryCompilation(
-      assembleCanonicalTypeScriptModel(input.sourceRevision, [
-        ...reusableState.factShards.filter(({ path: repositoryPathValue }) => reusablePath(repositoryPathValue)),
-        ...regeneratedShards.filter(({ path: repositoryPathValue }) => regeneratedPath(repositoryPathValue))
-      ]),
+      assembleCanonicalTypeScriptModel(
+        input.sourceRevision,
+        [
+          ...reusableState.factShards.filter(({ path: repositoryPathValue }) => reusablePath(repositoryPathValue)),
+          ...regeneratedShards.filter(({ path: repositoryPathValue }) => regeneratedPath(repositoryPathValue))
+        ]
+      ),
       input.repositoryCompilation
     ),
     input
@@ -2011,7 +2022,7 @@ function compileTypeScriptSourceProgramModelInternal(
       const declarationSpan = spanFor(sourceFile, node);
       const name = declarationName(node) ?? (
         sourceSurface === 'test' && ts.isFunctionLike(node)
-          ? `@execution-scope:${declarationSpan.start}`
+          ? executionScopeName(declarationSpan)
           : null
       );
       if (name !== null) {
@@ -2031,7 +2042,7 @@ function compileTypeScriptSourceProgramModelInternal(
         const declarationDigest = sha256({
           kind: ts.SyntaxKind[node.kind],
           name,
-          source: node.getText(sourceFile)
+          source: semanticDeclarationText(sourceFile, node)
         });
         const declaration: SourceProgramDeclaration = Object.freeze({
           observationId: sha256({
@@ -2072,7 +2083,7 @@ function compileTypeScriptSourceProgramModelInternal(
         const declarationDigest = sha256({
           kind: ts.SyntaxKind[element.kind],
           name,
-          source: element.getText(sourceFile)
+          source: semanticDeclarationText(sourceFile, element)
         });
         const declaration: SourceProgramDeclaration = Object.freeze({
           observationId: sha256({
@@ -2602,8 +2613,18 @@ function compileTypeScriptSourceProgramModelInternal(
         unknowns.push(Object.freeze({
           code: 'computed-property-unresolved',
           path: sourcePath,
-          detail: node.argumentExpression.getText(sourceFile).slice(0, 256),
+          detail: semanticDeclarationText(sourceFile, node.argumentExpression).slice(0, 256),
           span: spanFor(sourceFile, node.argumentExpression)
+        }));
+      }
+      if (ts.isComputedPropertyName(node)
+          && !ts.isStringLiteralLike(node.expression)
+          && !ts.isNumericLiteral(node.expression)) {
+        unknowns.push(Object.freeze({
+          code: 'computed-property-unresolved',
+          path: sourcePath,
+          detail: semanticDeclarationText(sourceFile, node.expression).slice(0, 256),
+          span: spanFor(sourceFile, node.expression)
         }));
       }
       ts.forEachChild(node, visit);

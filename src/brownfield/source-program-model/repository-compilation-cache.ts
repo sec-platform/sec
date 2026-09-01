@@ -1,7 +1,10 @@
 import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 
 import type { TypeScriptSourceProgramFactShard } from './typescript-fact-shards.ts';
-import type { SourceProgramTypeScriptCompilerIdentity } from './typescript.ts';
+import {
+  assertSourceProgramTypeScriptCompilerIdentity,
+  type SourceProgramTypeScriptCompilerIdentity
+} from './typescript.ts';
 
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 const GENERATION_KEYS = Object.freeze([
@@ -18,12 +21,13 @@ const GENERATION_SCHEMA_DIGEST = sha256(Object.freeze({
   identity: 'repository-source-program-semantic-generation',
   authority: 'source-program-model',
   cache: 'optional-nonauthoritative-content-addressed-hint',
-  version: 1
+  receiptGrammar: GENERATION_KEYS
 })) as `sha256:${string}`;
 const CACHE_SCHEMA = Object.freeze({
   identity: 'repository-source-program-compilation-generation-store',
   keyDimensions: Object.freeze(['source-program-semantic-generation']),
   publication: 'immutable-canonical-fact-pack-and-manifest-last',
+  generationReceiptSchemaDigest: GENERATION_SCHEMA_DIGEST,
   semanticAuthority: 'none-cache-is-disposable-acceleration',
   scope: 'disposable-runtime-cache'
 });
@@ -77,6 +81,7 @@ function generationDimensions(input: IssueRepositoryCompilationGenerationInput) 
 export function issueRepositoryCompilationGenerationReceipt(
   input: IssueRepositoryCompilationGenerationInput
 ): RepositoryCompilationGenerationReceipt {
+  assertSourceProgramTypeScriptCompilerIdentity(input.compiler);
   const dimensions = generationDimensions(input);
   const generationDigest = sha256(dimensions) as `sha256:${string}`;
   const { schemaDigest: _schemaDigest, ...receipt } = Object.freeze({

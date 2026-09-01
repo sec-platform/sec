@@ -1,8 +1,20 @@
-import { compareCodeUnits, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
-import type {
-  SecModuleCausalRelationKind,
-  SecModuleOperationRole,
-  SecRepositoryModuleMembership
+import {
+  compareCodeUnits,
+  deepFreeze,
+  sha256
+} from '../../system-architecture/foundation/runtime/canonical.ts';
+import {
+  compileSecRepositoryModuleArchitectureProjection,
+  type SecModuleCausalRelationKind,
+  type SecModuleOperationRole,
+  type SecRepositoryModuleArchitectureProjection,
+  type SecRepositoryModuleBoundaryViolation,
+  type SecRepositoryModuleEdgeWitness,
+  type SecRepositoryModuleFileStrongComponent,
+  type SecRepositoryModuleMembership,
+  type SecRepositoryModuleOwnerEdge,
+  type SecRepositoryModuleReciprocalPair,
+  type SecRepositoryModuleStrongComponent
 } from '../../system-architecture/repository-modules/contract.ts';
 import {
   sourceProgramSurfaceForPath,
@@ -14,6 +26,14 @@ import {
   assertRepositorySourceProgramCompilationReceipt,
   type RepositorySourceProgramCompilationReceipt
 } from './repository-compilation.ts';
+
+type SourceProgramReconciliationBinding = Readonly<{
+  before: RepositorySourceProgramCompilationReceipt;
+  after: RepositorySourceProgramCompilationReceipt;
+}>;
+
+const sourceProgramReconciliationBindings =
+  new WeakMap<SourceProgramReconciliationProjection, SourceProgramReconciliationBinding>();
 
 export const SOURCE_PROGRAM_RECONCILIATION_PHASES = Object.freeze([
   'consumer',
@@ -120,10 +140,18 @@ export type SourceProgramReconciliationProjection = Readonly<{
 export type CompileSourceProgramReconciliationProjectionInput = Readonly<{
   before: RepositorySourceProgramCompilationReceipt;
   after: RepositorySourceProgramCompilationReceipt;
-  beforeMembership: SecRepositoryModuleMembership;
-  afterMembership: SecRepositoryModuleMembership;
   providerEvidence?: readonly SourceProgramReconciliationProviderEvidence[];
 }>;
+
+const issuedSourceProgramReconciliationProjections = new WeakSet<object>();
+
+export function assertSourceProgramReconciliationProjection(
+  value: SourceProgramReconciliationProjection
+): void {
+  if (!issuedSourceProgramReconciliationProjections.has(value)) {
+    throw new Error('Architecture evolution requires one compiler-issued reconciliation projection');
+  }
+}
 
 type BoundRelation = Readonly<{
   subject: string;
@@ -147,6 +175,8 @@ type ReconciliationModelIndex = Readonly<{
   declarationsByPathName: ReadonlyMap<string, readonly SourceProgramDeclaration[]>;
   consumerPathsByTarget: ReadonlyMap<string, readonly string[]>;
   referencesByTarget: ReadonlyMap<string, readonly SourceProgramReference[]>;
+  referencesBySource: ReadonlyMap<string, readonly SourceProgramReference[]>;
+  moduleInitializationReferencesByPath: ReadonlyMap<string, readonly SourceProgramReference[]>;
 }>;
 
 function declarationAddress(
@@ -185,7 +215,18 @@ function reconciliationModelIndex(model: SourceProgramModel): ReconciliationMode
   }
   const consumerPathsByTarget = new Map<string, Set<string>>();
   const referencesByTarget = new Map<string, SourceProgramReference[]>();
+  const referencesBySource = new Map<string, SourceProgramReference[]>();
+  const moduleInitializationReferencesByPath = new Map<string, SourceProgramReference[]>();
   for (const reference of model.references) {
+    if (reference.sourceObservationId === null) {
+      const moduleReferences = moduleInitializationReferencesByPath.get(reference.path) ?? [];
+      moduleReferences.push(reference);
+      moduleInitializationReferencesByPath.set(reference.path, moduleReferences);
+    } else {
+      const sourceReferences = referencesBySource.get(reference.sourceObservationId) ?? [];
+      sourceReferences.push(reference);
+      referencesBySource.set(reference.sourceObservationId, sourceReferences);
+    }
     if (reference.targetObservationId === null) continue;
     const consumerPaths = consumerPathsByTarget.get(reference.targetObservationId) ?? new Set<string>();
     consumerPaths.add(reference.path);
@@ -207,7 +248,15 @@ function reconciliationModelIndex(model: SourceProgramModel): ReconciliationMode
     ))),
     referencesByTarget: new Map([...referencesByTarget].map(([key, references]) => (
       [key, Object.freeze(references)] as const
-    )))
+    ))),
+    referencesBySource: new Map([...referencesBySource].map(([key, references]) => (
+      [key, Object.freeze(references)] as const
+    ))),
+    moduleInitializationReferencesByPath: new Map(
+      [...moduleInitializationReferencesByPath].map(([key, references]) => (
+        [key, Object.freeze(references)] as const
+      ))
+    )
   });
 }
 
@@ -300,6 +349,44 @@ function consumerPaths(
   return index.consumerPathsByTarget.get(declaration.observationId) ?? Object.freeze([]);
 }
 
+function transitiveConsumerPaths(
+  index: ReconciliationModelIndex,
+  declaration: SourceProgramDeclaration
+): readonly string[] {
+  const paths = new Set<string>();
+  const visited = new Set<string>([declaration.observationId]);
+  const pending = [declaration.observationId];
+  while (pending.length > 0) {
+    const targetObservationId = pending.shift()!;
+    for (const reference of index.referencesByTarget.get(targetObservationId) ?? []) {
+      paths.add(reference.path);
+      if (reference.sourceObservationId === null
+          || visited.has(reference.sourceObservationId)) continue;
+      visited.add(reference.sourceObservationId);
+      pending.push(reference.sourceObservationId);
+    }
+  }
+  return sortedUnique(paths);
+}
+
+function transitiveDependencyPaths(
+  index: ReconciliationModelIndex,
+  references: readonly SourceProgramReference[]
+): readonly string[] {
+  const paths = new Set<string>();
+  const visited = new Set<string>();
+  const pending = [...references];
+  while (pending.length > 0) {
+    const reference = pending.shift()!;
+    if (reference.targetPath !== null) paths.add(reference.targetPath);
+    if (reference.targetObservationId === null
+        || visited.has(reference.targetObservationId)) continue;
+    visited.add(reference.targetObservationId);
+    pending.push(...(index.referencesBySource.get(reference.targetObservationId) ?? []));
+  }
+  return sortedUnique(paths);
+}
+
 function referenceIdentity(
   reference: SourceProgramReference,
   index: ReconciliationModelIndex
@@ -338,6 +425,16 @@ function relationDeclarationPairs(
   return pairs;
 }
 
+function declarationOrder(
+  left: SourceProgramDeclaration,
+  right: SourceProgramDeclaration
+): number {
+  return left.span.start - right.span.start
+    || left.span.end - right.span.end
+    || compareCodeUnits(left.declarationDigest, right.declarationDigest)
+    || compareCodeUnits(left.observationId, right.observationId);
+}
+
 function compileChanges(
   before: SourceProgramModel,
   after: SourceProgramModel,
@@ -348,12 +445,59 @@ function compileChanges(
 ): readonly SourceProgramReconciliationDeclarationChange[] {
   const pairs = new Map(relationDeclarationPairs(beforeRelations, afterRelations));
   const pairedAfterIds = new Set([...pairs.values()].map(({ after: declaration }) => declaration.observationId));
+  const beforeByExactAddress = new Map<string, SourceProgramDeclaration[]>();
+  const afterByExactAddress = new Map<string, SourceProgramDeclaration[]>();
   const afterByStableKey = new Map<string, SourceProgramDeclaration[]>();
   for (const declaration of after.declarations) {
+    const exactAddress = `${declaration.moduleId ?? ''}\0${declaration.path}\0${declaration.name}\0${declaration.kind}\0${declaration.exported}`;
+    const exactGroup = afterByExactAddress.get(exactAddress) ?? [];
+    exactGroup.push(declaration);
+    afterByExactAddress.set(exactAddress, exactGroup);
     const key = `${declaration.moduleId ?? ''}\0${declaration.name}\0${declaration.kind}\0${declaration.exported}`;
     const group = afterByStableKey.get(key) ?? [];
     group.push(declaration);
     afterByStableKey.set(key, group);
+  }
+  for (const declaration of before.declarations) {
+    const exactAddress = `${declaration.moduleId ?? ''}\0${declaration.path}\0${declaration.name}\0${declaration.kind}\0${declaration.exported}`;
+    const group = beforeByExactAddress.get(exactAddress) ?? [];
+    group.push(declaration);
+    beforeByExactAddress.set(exactAddress, group);
+  }
+  for (const [exactAddress, rawBeforeGroup] of beforeByExactAddress) {
+    const beforeGroup = rawBeforeGroup
+      .filter(({ observationId }) => !pairs.has(observationId))
+      .sort(declarationOrder);
+    const afterGroup = (afterByExactAddress.get(exactAddress) ?? [])
+      .filter(({ observationId }) => !pairedAfterIds.has(observationId))
+      .sort(declarationOrder);
+    const unmatchedAfter = new Set(afterGroup.map(({ observationId }) => observationId));
+    for (const beforeDeclaration of beforeGroup) {
+      const exactDigest = afterGroup.find((afterDeclaration) => (
+        unmatchedAfter.has(afterDeclaration.observationId)
+        && afterDeclaration.declarationDigest === beforeDeclaration.declarationDigest
+      ));
+      if (exactDigest === undefined) continue;
+      pairs.set(beforeDeclaration.observationId, Object.freeze({
+        before: beforeDeclaration,
+        after: exactDigest
+      }));
+      pairedAfterIds.add(exactDigest.observationId);
+      unmatchedAfter.delete(exactDigest.observationId);
+    }
+    const remainingBefore = beforeGroup.filter(({ observationId }) => !pairs.has(observationId));
+    const remainingAfter = afterGroup.filter(({ observationId }) => unmatchedAfter.has(observationId));
+    const remainingAfterIterator = remainingAfter.values();
+    for (const beforeDeclaration of remainingBefore) {
+      const nextAfter = remainingAfterIterator.next();
+      if (nextAfter.done) break;
+      const afterDeclaration = nextAfter.value;
+      pairs.set(beforeDeclaration.observationId, Object.freeze({
+        before: beforeDeclaration,
+        after: afterDeclaration
+      }));
+      pairedAfterIds.add(afterDeclaration.observationId);
+    }
   }
   for (const declaration of before.declarations) {
     if (pairs.has(declaration.observationId)) continue;
@@ -586,10 +730,12 @@ export function compileSourceProgramReconciliationProjection(
   assertRepositorySourceProgramCompilationReceipt(input.after);
   const beforeModelIndex = reconciliationModelIndex(input.before.model);
   const afterModelIndex = reconciliationModelIndex(input.after.model);
-  const beforeRelations = bindRelations(beforeModelIndex, input.beforeMembership);
-  const afterRelations = bindRelations(afterModelIndex, input.afterMembership);
-  const beforeRoles = bindRoles(beforeModelIndex, input.beforeMembership);
-  const afterRoles = bindRoles(afterModelIndex, input.afterMembership);
+  const beforeMembership = input.before.workspaceSnapshot.moduleMembership;
+  const afterMembership = input.after.workspaceSnapshot.moduleMembership;
+  const beforeRelations = bindRelations(beforeModelIndex, beforeMembership);
+  const afterRelations = bindRelations(afterModelIndex, afterMembership);
+  const beforeRoles = bindRoles(beforeModelIndex, beforeMembership);
+  const afterRoles = bindRoles(afterModelIndex, afterMembership);
   const changes = compileChanges(
     input.before.model,
     input.after.model,
@@ -774,8 +920,68 @@ export function compileSourceProgramReconciliationProjection(
   }
   const changedPaths = new Set(changes.flatMap(({ before, after }) => [before?.path, after?.path]
     .filter((path): path is string => path !== undefined)));
-  for (const unknown of [...input.before.model.unknowns, ...input.after.model.unknowns]) {
-    if (unknown.path !== '.' && !changedPaths.has(unknown.path)) continue;
+  const beforeFileDigests = new Map(input.before.model.files.map(({ path, contentDigest }) => (
+    [path, contentDigest] as const
+  )));
+  const afterFileDigests = new Map(input.after.model.files.map(({ path, contentDigest }) => (
+    [path, contentDigest] as const
+  )));
+  const changedSourcePaths = new Set([...new Set([
+    ...beforeFileDigests.keys(),
+    ...afterFileDigests.keys()
+  ])].filter((path) => beforeFileDigests.get(path) !== afterFileDigests.get(path)));
+  const beforeUnknowns = new Set(input.before.model.unknowns.map(({ code, path, detail }) => (
+    sha256({ code, path, detail })
+  )));
+  const changedAfterDeclarations = new Map(input.after.model.declarations.map((declaration) => (
+    [declaration.observationId, declaration] as const
+  )));
+  const changedAfterSpans = changes.flatMap(({ after }) => {
+    if (after === null) return [];
+    const declaration = changedAfterDeclarations.get(after.observationId);
+    return declaration === undefined ? [] : [declaration];
+  });
+  const changedConsumerPaths = new Set(changes.flatMap(({
+    beforeConsumerPaths,
+    afterConsumerPaths
+  }) => [...beforeConsumerPaths, ...afterConsumerPaths]));
+  for (const unknown of input.after.model.unknowns) {
+    const stableUnknownId = sha256({
+      code: unknown.code,
+      path: unknown.path,
+      detail: unknown.detail
+    });
+    const introduced = !beforeUnknowns.has(stableUnknownId);
+    const containingDeclaration = unknown.span === null
+      ? null
+      : input.after.model.declarations
+          .filter((declaration) => declaration.path === unknown.path
+            && unknown.span!.start >= declaration.span.start
+            && unknown.span!.end <= declaration.span.end)
+          .sort((left, right) => (
+            (left.span.end - left.span.start) - (right.span.end - right.span.start)
+            || declarationOrder(left, right)
+          ))[0] ?? null;
+    const intersectsChangedDeclaration = containingDeclaration === null
+      ? changedSourcePaths.has(unknown.path)
+      : changedAfterSpans.some((declaration) => (
+          declaration.path === unknown.path
+          && unknown.span!.start >= declaration.span.start
+          && unknown.span!.end <= declaration.span.end
+        ));
+    const changedConsumerFrontier = containingDeclaration !== null
+      && transitiveConsumerPaths(afterModelIndex, containingDeclaration).some((consumerPath) => (
+        changedSourcePaths.has(consumerPath) || changedConsumerPaths.has(consumerPath)
+      ));
+    const dependencyReferences = containingDeclaration === null
+      ? afterModelIndex.moduleInitializationReferencesByPath.get(unknown.path) ?? []
+      : afterModelIndex.referencesBySource.get(containingDeclaration.observationId) ?? [];
+    const changedDependencyFrontier = transitiveDependencyPaths(
+      afterModelIndex,
+      dependencyReferences
+    ).some((dependencyPath) => changedSourcePaths.has(dependencyPath));
+    if (!introduced && !intersectsChangedDeclaration
+        && !changedConsumerFrontier && !changedDependencyFrontier) continue;
     reasons.push(reconciliationReason(
       'changed-path-source-program-unknown',
       unknown.code,
@@ -825,11 +1031,498 @@ export function compileSourceProgramReconciliationProjection(
     providerEvidence,
     unresolvedReasons
   };
-  return Object.freeze({
+  const projection = Object.freeze({
     ...canonical,
     before: Object.freeze(canonical.before),
     after: Object.freeze(canonical.after),
     frontiers: Object.freeze(canonical.frontiers),
     projectionDigest: sha256(canonical) as `sha256:${string}`
+  });
+  issuedSourceProgramReconciliationProjections.add(projection);
+  sourceProgramReconciliationBindings.set(projection, Object.freeze({
+    before: input.before,
+    after: input.after
+  }));
+  return projection;
+}
+
+export type SourceProgramArchitectureEvolutionBlockerCode =
+  | 'architecture-aggregate-facade-added'
+  | 'architecture-cycle-added'
+  | 'architecture-cycle-expanded'
+  | 'architecture-reciprocal-pair-added'
+  | 'architecture-surface-became-unresolved'
+  | 'architecture-violation-added'
+  | 'reconciliation-unresolved';
+
+export type SourceProgramArchitectureEvolutionBlocker = Readonly<{
+  code: SourceProgramArchitectureEvolutionBlockerCode;
+  subjects: readonly string[];
+  detailDigest: `sha256:${string}`;
+}>;
+
+export type SourceProgramArchitectureEvolutionChange = Readonly<{
+  changeId: `sha256:${string}`;
+  kind: SourceProgramReconciliationDeclarationChange['kind'];
+  subjects: readonly string[];
+  sourcePath: string | null;
+  targetPath: string | null;
+  consumerPaths: readonly string[];
+  changeDigest: `sha256:${string}`;
+}>;
+
+export type SourceProgramArchitectureEvolutionReference = Readonly<{
+  status: 'blocked' | 'no-change' | 'ready';
+  direction: 'blocked' | 'improving' | 'neutral';
+  before: Readonly<{
+    sourceRevision: string;
+    modelDigest: string;
+    architectureDigest: `sha256:${string}`;
+  }>;
+  after: Readonly<{
+    sourceRevision: string;
+    modelDigest: string;
+    architectureDigest: `sha256:${string}`;
+  }>;
+  reconciliationProjectionDigest: `sha256:${string}`;
+  changes: readonly SourceProgramArchitectureEvolutionChange[];
+  changedPaths: readonly string[];
+  consumerPaths: readonly string[];
+  retirementPaths: readonly string[];
+  graphDelta: Readonly<{
+    addedOwnerEdges: readonly string[];
+    removedOwnerEdges: readonly string[];
+    addedOwnerEdgeWitnesses: readonly string[];
+    removedOwnerEdgeWitnesses: readonly string[];
+    addedReciprocalPairs: readonly string[];
+    removedReciprocalPairs: readonly string[];
+    addedStrongComponents: readonly string[];
+    removedStrongComponents: readonly string[];
+    addedOwnerCycleRelations: readonly string[];
+    removedOwnerCycleRelations: readonly string[];
+    addedFileCycleRelations: readonly string[];
+    removedFileCycleRelations: readonly string[];
+    addedCyclicEdgeWitnesses: readonly string[];
+    removedCyclicEdgeWitnesses: readonly string[];
+    expandedCyclicStructuralEdges: readonly string[];
+    contractedCyclicStructuralEdges: readonly string[];
+    addedFeedbackCuts: readonly string[];
+    removedFeedbackCuts: readonly string[];
+    addedViolations: readonly string[];
+    removedViolations: readonly string[];
+    addedAggregateFacades: readonly string[];
+    removedAggregateFacades: readonly string[];
+    addedUnresolvedSurfaces: readonly string[];
+    removedUnresolvedSurfaces: readonly string[];
+  }>;
+  blockers: readonly SourceProgramArchitectureEvolutionBlocker[];
+  referenceDigest: `sha256:${string}`;
+}>;
+
+function ownerEdgeKey(edge: SecRepositoryModuleOwnerEdge): string {
+  return `${edge.fromOwner}->${edge.toOwner}`;
+}
+
+function reciprocalPairKey(pair: SecRepositoryModuleReciprocalPair): string {
+  return [...pair.ownerIds].sort(compareCodeUnits).join('<->');
+}
+
+function strongComponentKey(component: SecRepositoryModuleStrongComponent): string {
+  return [...component.ownerIds].sort(compareCodeUnits).join('<->');
+}
+
+function edgeWitnessKey(witness: SecRepositoryModuleEdgeWitness): string {
+  return `${witness.fromPath}->${witness.toPath}\0${witness.kind}\0${witness.specifier}`;
+}
+
+function ownerEdgeWitnessKeys(edges: readonly SecRepositoryModuleOwnerEdge[]): readonly string[] {
+  return sortedUnique(edges.flatMap((edge) => edge.witnesses.map((witness) => (
+    `${edge.fromOwner}->${edge.toOwner}\0${edgeWitnessKey(witness)}`
+  ))));
+}
+
+function ownerCycleRelations(
+  components: readonly SecRepositoryModuleStrongComponent[]
+): readonly string[] {
+  return sortedUnique(components.flatMap(({ ownerIds }) => {
+    const owners = [...ownerIds].sort(compareCodeUnits);
+    return owners.flatMap((left, leftIndex) => owners
+      .slice(leftIndex + 1)
+      .map((right) => `${left}<->${right}`));
+  }));
+}
+
+function fileCycleRelations(
+  components: readonly SecRepositoryModuleFileStrongComponent[]
+): readonly string[] {
+  return sortedUnique(components.flatMap(({ ownerId, paths, edges }) => {
+    const members = [...paths].sort(compareCodeUnits);
+    if (members.length === 1) {
+      const only = members[0]!;
+      return edges.some(({ fromPath, toPath }) => fromPath === only && toPath === only)
+        ? [`${ownerId}\0${only}<->${only}`]
+        : [];
+    }
+    return members.flatMap((left, leftIndex) => members
+      .slice(leftIndex + 1)
+      .map((right) => `${ownerId}\0${left}<->${right}`));
+  }));
+}
+
+function fileCycleEdgeWitnesses(
+  components: readonly SecRepositoryModuleFileStrongComponent[]
+): readonly string[] {
+  return sortedUnique(components.flatMap(({ ownerId, edges }) => edges.map((edge) => (
+    `${ownerId}\0${edgeWitnessKey(edge)}`
+  ))));
+}
+
+function violationKey(violation: SecRepositoryModuleBoundaryViolation): string {
+  // `detail` may carry revision-bound evidence digests. The violation identity
+  // is its stable rule and graph endpoints; changing proof bytes must not look
+  // like one violation was retired while a different violation was added.
+  return `${violation.code}\0${violation.from}\0${violation.to}`;
+}
+
+function difference(after: readonly string[], before: readonly string[]): readonly string[] {
+  const beforeSet = new Set(before);
+  return sortedUnique(after.filter((value) => !beforeSet.has(value)));
+}
+
+function architectureIdentity(
+  architecture: SecRepositoryModuleArchitectureProjection
+): Readonly<{
+  digest: `sha256:${string}`;
+  ownerEdges: readonly string[];
+  ownerEdgeWitnesses: readonly string[];
+  reciprocalPairs: readonly string[];
+  strongComponents: readonly string[];
+  ownerCycles: readonly string[];
+  fileCycles: readonly string[];
+  cyclicEdgeWitnesses: readonly string[];
+  cyclicStructuralEdgeCounts: ReadonlyMap<string, number>;
+  feedbackCuts: readonly string[];
+  violations: readonly string[];
+}> {
+  const ownerEdges = sortedUnique(architecture.ownerEdges.map(ownerEdgeKey));
+  const ownerEdgeWitnesses = ownerEdgeWitnessKeys(architecture.ownerEdges);
+  const reciprocalPairs = sortedUnique(architecture.reciprocalPairs.map(reciprocalPairKey));
+  const strongComponents = sortedUnique(architecture.strongComponents.map(strongComponentKey));
+  const ownerCycles = ownerCycleRelations(architecture.strongComponents);
+  const fileCycles = fileCycleRelations(architecture.fileStrongComponents);
+  const cyclicEdgeWitnesses = sortedUnique([
+    ...ownerEdgeWitnessKeys(architecture.strongComponents.flatMap(({ edges }) => edges)),
+    ...fileCycleEdgeWitnesses(architecture.fileStrongComponents)
+  ]);
+  const cyclicStructuralEdgeCounts = new Map<string, number>();
+  const addStructuralWitness = (
+    ownerEdge: string,
+    witness: SecRepositoryModuleEdgeWitness
+  ): void => {
+    const key = `${ownerEdge}\0${witness.fromPath}->${witness.toPath}\0${witness.kind}`;
+    cyclicStructuralEdgeCounts.set(key, (cyclicStructuralEdgeCounts.get(key) ?? 0) + 1);
+  };
+  for (const component of architecture.strongComponents) {
+    for (const edge of component.edges) {
+      for (const witness of edge.witnesses) {
+        addStructuralWitness(`${edge.fromOwner}->${edge.toOwner}`, witness);
+      }
+    }
+  }
+  for (const component of architecture.fileStrongComponents) {
+    for (const witness of component.edges) {
+      addStructuralWitness(`${component.ownerId}->${component.ownerId}`, witness);
+    }
+  }
+  const feedbackCuts = ownerEdgeWitnessKeys(architecture.feedbackCuts);
+  const violations = sortedUnique(architecture.violations.map(violationKey));
+  const canonical = deepFreeze({
+    ownerEdges,
+    ownerEdgeWitnesses,
+    reciprocalPairs,
+    strongComponents,
+    ownerCycles,
+    fileCycles,
+    cyclicEdgeWitnesses,
+    feedbackCuts,
+    violations,
+    aggregateFacadePaths: sortedUnique(architecture.aggregateFacadePaths),
+    unresolvedAggregateSurfacePaths: sortedUnique(architecture.unresolvedAggregateSurfacePaths)
+  });
+  return deepFreeze({
+    ...canonical,
+    cyclicStructuralEdgeCounts,
+    digest: sha256(canonical) as `sha256:${string}`
+  });
+}
+
+function structuralCountDelta(
+  after: ReadonlyMap<string, number>,
+  before: ReadonlyMap<string, number>,
+  direction: 'expanded' | 'contracted'
+): readonly string[] {
+  return sortedUnique([...new Set([...after.keys(), ...before.keys()])].flatMap((key) => {
+    const beforeCount = before.get(key) ?? 0;
+    const afterCount = after.get(key) ?? 0;
+    const changed = direction === 'expanded'
+      ? afterCount > beforeCount
+      : afterCount < beforeCount;
+    return changed ? [`${key}\0${beforeCount}->${afterCount}`] : [];
+  }));
+}
+
+function blocker(
+  code: SourceProgramArchitectureEvolutionBlockerCode,
+  subjects: Iterable<string>,
+  detail: unknown
+): SourceProgramArchitectureEvolutionBlocker {
+  return deepFreeze({
+    code,
+    subjects: sortedUnique(subjects),
+    detailDigest: sha256(detail) as `sha256:${string}`
+  });
+}
+
+function reconciliationBlocker(
+  reason: SourceProgramReconciliationReason
+): SourceProgramArchitectureEvolutionBlocker {
+  return blocker('reconciliation-unresolved', [reason.subject, ...reason.paths], reason);
+}
+
+function changeReference(
+  change: SourceProgramReconciliationDeclarationChange
+): SourceProgramArchitectureEvolutionChange {
+  const canonical = deepFreeze({
+    changeId: change.changeId,
+    kind: change.kind,
+    subjects: sortedUnique(change.subjects),
+    sourcePath: change.before?.path ?? null,
+    targetPath: change.after?.path ?? null,
+    consumerPaths: sortedUnique([
+      ...change.beforeConsumerPaths,
+      ...change.afterConsumerPaths
+    ])
+  });
+  return deepFreeze({
+    ...canonical,
+    changeDigest: sha256(canonical) as `sha256:${string}`
+  });
+}
+
+/**
+ * Compile the post-change architecture reference from the same compiler-issued
+ * Source Program and repository-module graph. This is not a second graph and
+ * accepts no caller path list, expected count, compatibility alias, or manual
+ * migration table. Every path and dependency is derived from the exact before
+ * and after projections.
+ */
+export function compileSourceProgramArchitectureEvolutionReference(input: Readonly<{
+  reconciliation: SourceProgramReconciliationProjection;
+}>): SourceProgramArchitectureEvolutionReference {
+  assertSourceProgramReconciliationProjection(input.reconciliation);
+  const binding = sourceProgramReconciliationBindings.get(input.reconciliation);
+  if (binding === undefined) {
+    throw new Error('Architecture evolution requires one reconciliation-bound source graph');
+  }
+  const beforeArchitecture = compileSecRepositoryModuleArchitectureProjection(
+    binding.before.workspaceSnapshot.moduleGraph,
+    binding.before.workspaceSnapshot.moduleMembership,
+    binding.before.model
+  );
+  const afterArchitecture = compileSecRepositoryModuleArchitectureProjection(
+    binding.after.workspaceSnapshot.moduleGraph,
+    binding.after.workspaceSnapshot.moduleMembership,
+    binding.after.model
+  );
+  const beforeIdentity = architectureIdentity(beforeArchitecture);
+  const afterIdentity = architectureIdentity(afterArchitecture);
+  const changes = Object.freeze(input.reconciliation.changes
+    .map(changeReference)
+    .sort((left, right) => compareCodeUnits(left.changeId, right.changeId)));
+  const addedOwnerEdges = difference(afterIdentity.ownerEdges, beforeIdentity.ownerEdges);
+  const removedOwnerEdges = difference(beforeIdentity.ownerEdges, afterIdentity.ownerEdges);
+  const addedOwnerEdgeWitnesses = difference(
+    afterIdentity.ownerEdgeWitnesses,
+    beforeIdentity.ownerEdgeWitnesses
+  );
+  const removedOwnerEdgeWitnesses = difference(
+    beforeIdentity.ownerEdgeWitnesses,
+    afterIdentity.ownerEdgeWitnesses
+  );
+  const addedReciprocalPairs = difference(
+    afterIdentity.reciprocalPairs,
+    beforeIdentity.reciprocalPairs
+  );
+  const removedReciprocalPairs = difference(
+    beforeIdentity.reciprocalPairs,
+    afterIdentity.reciprocalPairs
+  );
+  const addedStrongComponents = difference(
+    afterIdentity.strongComponents,
+    beforeIdentity.strongComponents
+  );
+  const removedStrongComponents = difference(
+    beforeIdentity.strongComponents,
+    afterIdentity.strongComponents
+  );
+  const addedOwnerCycleRelations = difference(
+    afterIdentity.ownerCycles,
+    beforeIdentity.ownerCycles
+  );
+  const removedOwnerCycleRelations = difference(
+    beforeIdentity.ownerCycles,
+    afterIdentity.ownerCycles
+  );
+  const addedFileCycleRelations = difference(
+    afterIdentity.fileCycles,
+    beforeIdentity.fileCycles
+  );
+  const removedFileCycleRelations = difference(
+    beforeIdentity.fileCycles,
+    afterIdentity.fileCycles
+  );
+  const addedCyclicEdgeWitnesses = difference(
+    afterIdentity.cyclicEdgeWitnesses,
+    beforeIdentity.cyclicEdgeWitnesses
+  );
+  const removedCyclicEdgeWitnesses = difference(
+    beforeIdentity.cyclicEdgeWitnesses,
+    afterIdentity.cyclicEdgeWitnesses
+  );
+  const expandedCyclicStructuralEdges = structuralCountDelta(
+    afterIdentity.cyclicStructuralEdgeCounts,
+    beforeIdentity.cyclicStructuralEdgeCounts,
+    'expanded'
+  );
+  const contractedCyclicStructuralEdges = structuralCountDelta(
+    afterIdentity.cyclicStructuralEdgeCounts,
+    beforeIdentity.cyclicStructuralEdgeCounts,
+    'contracted'
+  );
+  const addedFeedbackCuts = difference(afterIdentity.feedbackCuts, beforeIdentity.feedbackCuts);
+  const removedFeedbackCuts = difference(beforeIdentity.feedbackCuts, afterIdentity.feedbackCuts);
+  const addedViolations = difference(afterIdentity.violations, beforeIdentity.violations);
+  const removedViolations = difference(beforeIdentity.violations, afterIdentity.violations);
+  const addedAggregateFacades = difference(
+    afterArchitecture.aggregateFacadePaths,
+    beforeArchitecture.aggregateFacadePaths
+  );
+  const removedAggregateFacades = difference(
+    beforeArchitecture.aggregateFacadePaths,
+    afterArchitecture.aggregateFacadePaths
+  );
+  const addedUnresolvedSurfaces = difference(
+    afterArchitecture.unresolvedAggregateSurfacePaths,
+    beforeArchitecture.unresolvedAggregateSurfacePaths
+  );
+  const removedUnresolvedSurfaces = difference(
+    beforeArchitecture.unresolvedAggregateSurfacePaths,
+    afterArchitecture.unresolvedAggregateSurfacePaths
+  );
+  const blockers: SourceProgramArchitectureEvolutionBlocker[] = [
+    ...input.reconciliation.unresolvedReasons.map(reconciliationBlocker),
+    ...(addedReciprocalPairs.length === 0 ? [] : [blocker(
+      'architecture-reciprocal-pair-added', addedReciprocalPairs, { addedReciprocalPairs }
+    )]),
+    ...(addedOwnerCycleRelations.length === 0 && addedFileCycleRelations.length === 0
+      ? [] : [blocker(
+      'architecture-cycle-added',
+      [...addedOwnerCycleRelations, ...addedFileCycleRelations],
+      { addedOwnerCycleRelations, addedFileCycleRelations }
+    )]),
+    ...(expandedCyclicStructuralEdges.length === 0
+      ? [] : [blocker(
+      'architecture-cycle-expanded',
+      expandedCyclicStructuralEdges,
+      { expandedCyclicStructuralEdges }
+    )]),
+    ...(addedViolations.length === 0 ? [] : [blocker(
+      'architecture-violation-added', addedViolations, { addedViolations }
+    )]),
+    ...(addedAggregateFacades.length === 0 ? [] : [blocker(
+      'architecture-aggregate-facade-added', addedAggregateFacades, { addedAggregateFacades }
+    )]),
+    ...(addedUnresolvedSurfaces.length === 0 ? [] : [blocker(
+      'architecture-surface-became-unresolved',
+      addedUnresolvedSurfaces,
+      { addedUnresolvedSurfaces }
+    )])
+  ];
+  const uniqueBlockers = Object.freeze([...new Map(blockers.map((item) => [
+    `${item.code}\0${item.subjects.join('\0')}\0${item.detailDigest}`,
+    item
+  ])).values()].sort((left, right) => compareCodeUnits(
+    `${left.code}\0${left.subjects.join('\0')}\0${left.detailDigest}`,
+    `${right.code}\0${right.subjects.join('\0')}\0${right.detailDigest}`
+  )));
+  const graphDelta = deepFreeze({
+    addedOwnerEdges,
+    removedOwnerEdges,
+    addedOwnerEdgeWitnesses,
+    removedOwnerEdgeWitnesses,
+    addedReciprocalPairs,
+    removedReciprocalPairs,
+    addedStrongComponents,
+    removedStrongComponents,
+    addedOwnerCycleRelations,
+    removedOwnerCycleRelations,
+    addedFileCycleRelations,
+    removedFileCycleRelations,
+    addedCyclicEdgeWitnesses,
+    removedCyclicEdgeWitnesses,
+    expandedCyclicStructuralEdges,
+    contractedCyclicStructuralEdges,
+    addedFeedbackCuts,
+    removedFeedbackCuts,
+    addedViolations,
+    removedViolations,
+    addedAggregateFacades,
+    removedAggregateFacades,
+    addedUnresolvedSurfaces,
+    removedUnresolvedSurfaces
+  });
+  const changed = changes.length > 0
+    || Object.values(graphDelta).some((values) => values.length > 0);
+  const improving = removedReciprocalPairs.length > 0
+    || removedOwnerEdges.length > 0
+    || removedOwnerCycleRelations.length > 0
+    || removedFileCycleRelations.length > 0
+    || contractedCyclicStructuralEdges.length > 0
+    || removedViolations.length > 0
+    || removedAggregateFacades.length > 0
+    || removedUnresolvedSurfaces.length > 0;
+  const canonical = deepFreeze({
+    status: uniqueBlockers.length > 0
+      ? 'blocked' as const
+      : changed ? 'ready' as const : 'no-change' as const,
+    direction: uniqueBlockers.length > 0
+      ? 'blocked' as const
+      : improving ? 'improving' as const : 'neutral' as const,
+    before: {
+      sourceRevision: input.reconciliation.before.sourceRevision,
+      modelDigest: input.reconciliation.before.modelDigest,
+      architectureDigest: beforeIdentity.digest
+    },
+    after: {
+      sourceRevision: input.reconciliation.after.sourceRevision,
+      modelDigest: input.reconciliation.after.modelDigest,
+      architectureDigest: afterIdentity.digest
+    },
+    reconciliationProjectionDigest: input.reconciliation.projectionDigest,
+    changes,
+    changedPaths: sortedUnique(changes.flatMap(({ sourcePath, targetPath }) => [
+      ...(sourcePath === null ? [] : [sourcePath]),
+      ...(targetPath === null ? [] : [targetPath])
+    ])),
+    consumerPaths: sortedUnique(changes.flatMap(({ consumerPaths }) => consumerPaths)),
+    retirementPaths: sortedUnique(changes.flatMap(({ kind, sourcePath }) => (
+      (kind === 'removed' || kind === 'moved') && sourcePath !== null ? [sourcePath] : []
+    ))),
+    graphDelta,
+    blockers: uniqueBlockers
+  });
+  return deepFreeze({
+    ...canonical,
+    referenceDigest: sha256(canonical) as `sha256:${string}`
   });
 }
