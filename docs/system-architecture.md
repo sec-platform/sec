@@ -518,6 +518,9 @@ executable或child discovery前验证不可伪造的operation binding，并一�
 process/input/output aggregate budget；每次child admission不可逆消费同一ledger，single-flight或显式有界并发由该ledger决定，
 close只在全部child完成termination settlement后签发digest-bound receipt。业务runner不得重开deadline、退回失败attempt的资源、
 接受caller duration扩大窗口、结构克隆session、注入第二command runner或用static plan/budget声明代替真实计量。
+semantic operation的total duration/process/input/output预算属于parent operation ledger；单个child transport timeout只是该次物理调用的
+局部上限，必须收窄为`min(parent remaining, transport ceiling)`。不得把同一个child timeout依次发给materialize、handoff、retry、readback
+或cleanup而重复获得完整窗口，也不得用某个transport timeout冒充整个semantic operation的total budget。
 
 physical session只证明进程、输入输出与retained executable/cwd已经物理结算；它不证明领域成功。每个effectful requirement必须由
 对应provider owner签发一张绑定exact attempt、binding与physical disposition的settlement，operation compiler随后验证与execution plan
@@ -545,6 +548,11 @@ aggregate budget、依赖关系、reuse与settlement obligations；通用compile
 absolute deadline/budget并生成DAG。CLI、hook、IDE、CI与workflow只能转交intent或已签发descriptor，不能追加、删除、重排
 requirement；capability owner不能反向选择domain operation。任何中央`operation !== x`推断、命令名switch、路径存在性判断或
 caller提供的普通结构对象都不是requirement authority。
+
+dependency-backed runtime固定为三段单向边界：pre-dependency阶段只运行不依赖待物化包、不能动态装载repository runtime的static kernel；
+dependency owner在自己的Effect、lease、settlement与readback内签发owner-issued materialized dependency result；只有dependency admission
+接受该result后，post-admission runtime才可从已签发generation动态装载完整Compiler/API与领域实现。bootstrap不得返回裸路径、module对象或
+caller可拼装的loader authority，post-admission runtime也不得重扫依赖、猜测安装完成或回退到pre-dependency第二实现。
 
 源码归一化是`development.import-normalization`领域能力，执行claim、join、reuse与terminal继续由Verification Action唯一拥有。
 归一化subject只绑定会改变结果的normalizer完整producer closure、contract/config、exact base-to-candidate selected source blobs与兼容parent ActionKeys；
@@ -629,6 +637,12 @@ Git tree或remote object store观察时必须相同。`PhysicalObservationReceip
 explicit unknown frontier；新增语言只新增provider-owned selector/fact shard，不修改一个全局扩展名表或万能generation算法。Semantic Admission
 将Source Program facts、authoritative Contracts和adopted assertions汇合为新immutable semantic snapshot；Evidence若需要进入语义世界，也必须经
 显式admission产生新snapshot，不能修改旧snapshot。
+
+`WorkspaceSnapshot → Source Program`是唯一source revision owner链：Workspace Snapshot一次性签发exact content/source snapshot identity，
+Source Program只从该identity签发唯一semantic source revision及bounded facts。任何fact shard、incremental index或repository compilation cache
+都只能是按exact content address索引的non-authoritative projection；cache miss、tamper、partial或producer drift必须回到同一owner clean compile，
+不能提升cache key、mtime、目录或provider session为source revision。plan、preview、query、audit和其他read-only operation不得创建或更新cache、
+journal、temporary generation、generated state或live source；需要持久物化时必须进入独立获权的Effect operation。
 
 当一个semantic input只消费更宽Content Manifest或Workspace Observation的resolved closure时，其identity只包含实际closure、解析合同与必要外部generation；完整workspace、provider session、physical epoch和读取receipt只进入observation/evidence identity。更宽content generation可以作为保守的廉价失效索引，不能嵌入更窄pure result、冒充其业务依赖或迫使无关字节变化重签semantic identity。
 
@@ -947,6 +961,10 @@ old repository/source/consumer/effect graph
 → baseline/provenance/owner cutover
 → old path, facade, alias, mirror and migration-state retirement
 ```
+
+下一阶段transaction必须复用既有module/source graph、before/after Reconciliation Projection与canonical workspace write lease；relocation和
+import/symbol rewrite只能从同一Source Program facts派生，并把已有domain state migration terminal作为typed input。不得引入Nx或其他第二
+dependency graph、手工path/consumer表、第二workspace writer，也不得用compatibility facade、alias或新旧双route跨越迁移。
 
 Plan必须绑定source revision、每个preimage/target physical identity、old/new module graph digest、unknown frontier、迁移顺序、
 验证闭包和terminal deletion set。进程崩溃或任一CAS失败时，只能从durable intent继续、回滚exact prior state或返回

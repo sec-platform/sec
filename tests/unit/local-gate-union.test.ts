@@ -4,7 +4,7 @@ import {
   buildLocalAffectedCheckPlan,
   type AffectedTestPlan,
   type LocalAffectedGateId
-} from '../../src/development/runner/affected-plan.ts';
+} from '../../src/development/runner/affected-plan-contract.ts';
 import {
   classifyAffectedSelectionTrustBoundary,
   defaultAffectedSelectionProjectionContext,

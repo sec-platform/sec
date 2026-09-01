@@ -9,15 +9,20 @@ import { compileSecOperationDemandGraph } from '../../src/control/operation/dema
 import {
   affectedTestPlanExitCode,
   compileAffectedTestSelectionSemanticOperation
-} from '../../src/development/runner/affected-plan.ts';
+} from '../../src/development/runner/affected-plan-contract.ts';
 import { runLocalAffectedCheck } from '../../src/development/runner/check-runner.ts';
-import { runCheckAffectedCommand } from '../../src/development/runner/cli.ts';
 import {
+  handoffDevRunnerToFreshProcess,
+  runCheckAffectedCommand
+} from '../../src/development/runner/cli.ts';
+import {
+  assertMaterializedOperationDependencyBootstrapResult,
   createDependencyFreshProcessHandoff,
   DEV_RUNNER_FRESH_PROCESS_TRANSITION_ENV,
   ensureOperationDependencies,
   reuseOperationDependencies
 } from '../../src/development/runner/dependency-bootstrap.ts';
+import { DEFAULT_TEST_TIMEOUT_MS } from '../../src/development/runner/test-execution-policy.ts';
 import {
   observeCompilerDependencyExecutionGenerationAuthority,
   observeCompilerDependencyMaterializationInput,
@@ -334,6 +339,11 @@ test('one process-local materialization is reusable only for a covered demand cl
     ensureCompilerDeps: async () => compilerReady('existing')
   }));
 
+  expect(() => assertMaterializedOperationDependencyBootstrapResult(result)).not.toThrow();
+  expect(() => assertMaterializedOperationDependencyBootstrapResult(
+    Object.freeze({ ...result })
+  )).toThrow('was not materialized by this process');
+  expect(await handoffDevRunnerToFreshProcess(result)).toBeNull();
   expect(reuseOperationDependencies(result, fastGraph)).toBe(result);
   expect(() => reuseOperationDependencies(result, compileSecOperationDemandGraph({
     operation: 'dependency-setup',
@@ -344,8 +354,10 @@ test('one process-local materialization is reusable only for a covered demand cl
     .toThrow('was not materialized by this process');
 });
 
-test('dependency generation transitions require one exact fresh-process handoff', () => {
+test('dependency generation transitions require one exact fresh-process handoff', async () => {
   const transitioned = compilerReady('installed');
+  await expect(handoffDevRunnerToFreshProcess(compilerReady('existing')))
+    .rejects.toThrow('was not materialized by this process');
   expect(createDependencyFreshProcessHandoff(transitioned, {})).toEqual({
     schema: 'sec-dependency-fresh-process-handoff-v1',
     transitionDigest: transitioned.transitionDigest
@@ -439,4 +451,4 @@ test.serial('check:affected --plan full call chain is non-persistent and uses th
     expect(fs.readFileSync(cachePath)).toEqual(cacheBefore.bytes);
     expect(cacheAfter.mtimeMs).toBe(cacheBefore.mtimeMs);
   }
-});
+}, DEFAULT_TEST_TIMEOUT_MS);

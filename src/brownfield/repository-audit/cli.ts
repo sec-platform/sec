@@ -55,10 +55,6 @@ import {
   PhysicalResourceCompositeSettlementError,
   settlePhysicalResources
 } from '../../runtime-state/physical/runtime/resource-settlement.ts';
-import {
-  openContentAddressedWorkspaceCacheSession,
-  type ContentAddressedWorkspaceCacheSession
-} from '../../runtime-state/workspace-state/content-addressed-workspace-cache.ts';
 import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateEnvironment } from '../../runtime-state/workspace-state/layout.ts';
 import { compareCodeUnits, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { issueSecOperationRequirementBindingContext } from '../../system-architecture/operation/requirement-binding-context.ts';
@@ -86,6 +82,10 @@ import {
   SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH
 } from '../../verification/trust/contract/root.ts';
 import { tsconfigRelativePath } from '../../workspace/runtime/paths.ts';
+import {
+  createSourceProgramCompilationOperation,
+  type SourceProgramCompilationOperation
+} from '../source-program-model/compilation-operation.ts';
 import { SOURCE_PROGRAM_BLOCKING_CANDIDATE_CODES, sourceProgramSurfaceForPath, type SourceProgramCandidate, type SourceProgramFileInput, type SourceProgramModel, type SourceProgramOwnerIntentEvidence, type SourceProgramSupersessionReceipt } from '../source-program-model/contract.ts';
 import {
   compileSourceProgramDeclarationTopology,
@@ -96,7 +96,6 @@ import {
   compileSourceProgramReconciliationProjection
 } from '../source-program-model/reconciliation-projection.ts';
 import { buildSourceProgramAggregateImportReductionPatch, compileSourceProgramAggregateImportReductionPlan, compileSourceProgramGraphCutReductionPlan, compileSourceProgramSupersessionEvidence, compileSourceProgramSupersessionEvidenceIdentity, compileSourceProgramSupersessionReceipt, compileSourceProgramTestRetirementReceipt, compileSourceProgramUnusedSymbolProviderReceipt, compileSourceProgramVersionSuffixReductionPlan, parseSourceProgramSupersessionEvidence, projectSourceProgramTestRetirementDispositions, renderSourceProgramGraphCutReductionPatch, renderSourceProgramVersionSuffixReductionPatch, type SourceProgramSupersessionEvidence, type SourceProgramSupersessionEvidenceIdentity, type SourceProgramUnusedSymbolEvidence, type SourceProgramUnusedSymbolProviderReceipt } from '../source-program-model/reduction.ts';
-import { createRepositoryCompilationCacheProvider } from '../source-program-model/repository-compilation-cache-provider.ts';
 import { compileRepositorySourceProgramCompilation } from '../source-program-model/repository-compilation.ts';
 import { compileSourceProgramOwnerIntentEvidence, summarizeSourceProgramTopology } from '../source-program-model/repository.ts';
 import { compileSourceProgramTestBaselineEvidence, compileSourceProgramTestValue, reconcileSourceProgramTestValueWithSupersession, SOURCE_PROGRAM_BLOCKING_TEST_FINDING_CODES, summarizeSourceProgramTestUnknownDispositionClusters, type SourceProgramTestBaselineEvidence, type SourceProgramTestFinding } from '../source-program-model/test-value.ts';
@@ -104,7 +103,8 @@ import { querySourceProgramModel, releaseTypeScriptSourceProgramWorkspace } from
 import {
   acquireExactGitTreeWorkspaceSourceSnapshot,
   acquireWorkingTreeWorkspaceSourceSnapshot,
-  compileWorkspaceTypeScriptProjectInput
+  compileWorkspaceTypeScriptProjectInput,
+  type WorkspaceSourceFile
 } from '../source-program-model/workspace-source-snapshot.ts';
 
 const DEFAULT_REPOSITORY_ROOT = compilerRuntimeLayout.packageRoot;
@@ -116,10 +116,10 @@ const SOURCE_PROGRAM_AUDIT_INPUT_BUDGET_BYTES = 1024 * 1024;
 const SOURCE_PROGRAM_AUDIT_STREAM_BUDGET_BYTES = 64 * 1024 * 1024;
 const SOURCE_PROGRAM_AUDIT_GIT_PROCESS_BUDGET = 128;
 const SOURCE_PROGRAM_AUDIT_STDERR_BUDGET_BYTES = 4 * 1024 * 1024;
+const SOURCE_PROGRAM_AUDIT_MAX_SETTLEMENT_RESERVE_MS = 5_000;
 export const SOURCE_PROGRAM_AUDIT_DEADLINE_ENV = 'SEC_REPOSITORY_AUDIT_DEADLINE_AT_UNIX_MS';
 const SOURCE_PROGRAM_AUDIT_OPERATION = 'brownfield.repository-audit.source-program';
 const SOURCE_PROGRAM_AUDIT_REQUIREMENT = 'brownfield.repository-audit.worker-process';
-const SOURCE_PROGRAM_CACHE_REQUIREMENT = 'brownfield.repository-audit.source-program-cache';
 const HEURISTIC_MARKER = /(?:必须|不得|禁止|只允许|仅当|只有|需要|应当|优先|默认|触发|停止|回退|重算|fail[- ]?closed|DO NOT MERGE|reload_if|gate_owner|\bmust\b|\bshould\b|\bnever\b|\bdo\s+not\b)/iu;
 const AGENT_CONTEXT_MARKER = /(?:\bAgent\b|\bCodex\b|\bWork\s+Package\b|\bTask\s+Envelope\b|\bSkill\b|\bReview\b|\bCI\b|\bGate\b|\bmerge\b|\bbranch\b|\btool\b|工具|文档|验证|仓库|上下文|恢复|分派|权限|\bowner\b|\bauthority\b)/iu;
 const STRONG_AGENT_CONTEXT_MARKER = /(?<![/\\])\b(?:Agent|Codex)\b/iu;
@@ -1042,7 +1042,7 @@ async function revisionSourceProgramFiles(
   session: GitReadSession,
   entries: readonly GitTreeEntry[]
 ): Promise<Readonly<{
-  files: readonly SourceProgramFileInput[];
+  files: readonly WorkspaceSourceFile[];
   unknowns: readonly import('../source-program-model/contract.ts').SourceProgramUnknown[];
 }>> {
   const readableEntries = entries.filter(({ type, mode, size }) =>
@@ -1051,7 +1051,7 @@ async function revisionSourceProgramFiles(
     && size !== null
     && size <= MAX_TEXT_FILE_BYTES);
   const blobs = await readBatchGitBlobs(session, readableEntries);
-  const files: SourceProgramFileInput[] = [];
+  const files: WorkspaceSourceFile[] = [];
   const unknowns: import('../source-program-model/contract.ts').SourceProgramUnknown[] = [];
   for (const entry of entries) {
     if (entry.type !== 'blob' || (entry.mode !== '100644' && entry.mode !== '100755')) continue;
@@ -1089,6 +1089,7 @@ async function revisionSourceProgramFiles(
     }
     files.push(Object.freeze({
       path: entry.path,
+      mode: entry.mode,
       source,
       contentDigest: rawSha256(read.bytes)
     }));
@@ -1107,11 +1108,14 @@ async function compileRevisionSupersessionEvidence(
   unknowns: readonly import('../source-program-model/contract.ts').SourceProgramUnknown[],
   identity: SourceProgramSupersessionEvidenceIdentity,
   dependencyGeneration: RetainedNoFollowProvenDirectoryGeneration,
+  dependencyGenerationDigest: `sha256:${string}`,
+  operation: SourceProgramCompilationOperation,
   cachedEvidence: SourceProgramSupersessionEvidence | null
 ): Promise<Readonly<{
   compilation: ReturnType<typeof compileRepositorySourceProgramCompilation>;
   evidence: SourceProgramSupersessionEvidence;
   membership: SecRepositoryModuleMembership;
+  sourceFiles: readonly WorkspaceSourceFile[];
 }>> {
   const descriptorSources = files
     .filter(({ path: repositoryPath }) => path.posix.basename(repositoryPath) === 'sec.module.json')
@@ -1142,11 +1146,12 @@ async function compileRevisionSupersessionEvidence(
   const projectInput = compileWorkspaceTypeScriptProjectInput(
     workspaceSnapshot,
     tsconfigRelativePath,
-    { dependencyGeneration }
+    { dependencyGeneration, dependencyGenerationDigest }
   );
   const compilation = compileRepositorySourceProgramCompilation({
     workspaceSnapshot,
     projectInput,
+    operation,
     reviewedProcessDispatchers,
     unknowns: revisionUnknowns
   });
@@ -1154,6 +1159,7 @@ async function compileRevisionSupersessionEvidence(
   return Object.freeze({
     compilation,
     membership,
+    sourceFiles: workspaceSnapshot.files,
     evidence: cachedEvidence ?? compileSourceProgramSupersessionEvidence({
       model,
       tests: compileSourceProgramTestValue({
@@ -1278,7 +1284,7 @@ async function compileWorkingTreeSourceProgram(
   moduleBoundaryFailures: readonly string[];
   baselineTestPaths: readonly string[];
   baselineTestEvidence: readonly SourceProgramTestBaselineEvidence[];
-  baselineSourceFiles: readonly SourceProgramFileInput[];
+  baselineSourceFiles: readonly WorkspaceSourceFile[];
   baselineSourceProgramCompilation: ReturnType<typeof compileRepositorySourceProgramCompilation>;
   baselineModuleMembership: SecRepositoryModuleMembership;
   baselineSupersessionEvidence: SourceProgramSupersessionEvidence;
@@ -1286,7 +1292,7 @@ async function compileWorkingTreeSourceProgram(
   currentIntentEvidence: readonly SourceProgramOwnerIntentEvidence[];
   moduleMembership: SecRepositoryModuleMembership;
   reviewedProcessDispatchers: readonly string[];
-  sourceFiles: readonly SourceProgramFileInput[];
+  sourceFiles: readonly WorkspaceSourceFile[];
 }>> {
   const runtime = await import('../../toolchain/dependencies/runtime.ts');
   const authority = await runtime.observeCompilerDependencyExecutionGenerationAuthority(
@@ -1296,7 +1302,7 @@ async function compileWorkingTreeSourceProgram(
   if (authority === null) {
     throw new Error('Working-tree Source Program audit requires one admitted compiler dependency generation.');
   }
-  const retained = await runtime.retainCompilerDependencyExecutionGeneration(authority, {
+  const retained = await runtime.retainCompilerDependencyReadGeneration(authority, {
     deadlineAtUnixMs
   });
   try {
@@ -1307,7 +1313,8 @@ async function compileWorkingTreeSourceProgram(
         repositoryRoot,
         supersessionBaseline,
         deadlineAtUnixMs,
-        retained.physicalGeneration
+        retained.physicalGeneration,
+        retained.generationDigest
       )
     );
   } finally {
@@ -1315,77 +1322,13 @@ async function compileWorkingTreeSourceProgram(
   }
 }
 
-function openRepositoryCompilationCacheSession(input: Readonly<{
-  repositoryRoot: string;
-  deadlineAtUnixMs: number;
-  sourceByteLength: number;
-  sourceFileCount: number;
-}>): ContentAddressedWorkspaceCacheSession {
-  const durationMs = input.deadlineAtUnixMs - Date.now();
-  if (!Number.isSafeInteger(durationMs) || durationMs < 1
-      || !Number.isSafeInteger(input.sourceByteLength) || input.sourceByteLength < 0
-      || !Number.isSafeInteger(input.sourceFileCount) || input.sourceFileCount < 1) {
-    throw new Error('Repository compilation cache requires one live, bounded Source Program operation.');
-  }
-  const repository = inspectNoFollowDirectoryChain(
-    input.repositoryRoot,
-    'Repository compilation cache repository root'
-  ).target;
-  const contractDigest = sha256({
-    operation: 'brownfield.repository-compilation-cache',
-    physicalProvider: 'runtime-state.content-addressed-workspace-cache',
-    authority: 'non-authoritative-acceleration-only'
-  }) as SecOperationDigest;
-  const plan = compileSecSemanticOperationPlan({
-    operation: 'brownfield.repository-compilation-cache',
-    intentDigest: sha256({
-      repository,
-      sourceByteLength: input.sourceByteLength,
-      sourceFileCount: input.sourceFileCount
-    }) as SecOperationDigest,
-    decisionDigest: contractDigest,
-    deadlineAtUnixMs: input.deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest }),
-    aggregateBudgets: [
-      { resource: 'duration-ms', maximum: durationMs },
-      { resource: 'input-bytes', maximum: SOURCE_PROGRAM_AUDIT_STREAM_BUDGET_BYTES },
-      { resource: 'output-bytes', maximum: SOURCE_PROGRAM_AUDIT_STREAM_BUDGET_BYTES },
-      { resource: 'records', maximum: Math.max(64, input.sourceFileCount * 4) }
-    ],
-    requirements: [{
-      id: SOURCE_PROGRAM_CACHE_REQUIREMENT,
-      contractDigest,
-      effectKinds: ['filesystem'],
-      failureKinds: [
-        'cache.cancelled',
-        'cache.deadline-exhausted',
-        'cache.physical-replacement',
-        'cache.resource-budget-exhausted',
-        'cache.settlement-unproven'
-      ]
-    }]
-  });
-  const operation = bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
-    requirementId: SOURCE_PROGRAM_CACHE_REQUIREMENT,
-    contractDigest,
-    providerIdentityDigest: sha256({
-      provider: 'runtime-state.content-addressed-workspace-cache',
-      repository
-    }) as SecOperationDigest
-  })]);
-  return openContentAddressedWorkspaceCacheSession({
-    operation,
-    requirementId: SOURCE_PROGRAM_CACHE_REQUIREMENT,
-    repository
-  });
-}
-
 async function compileWorkingTreeSourceProgramWithSession(
   session: GitReadSession,
   repositoryRoot: string,
   supersessionBaseline: string,
   deadlineAtUnixMs: number,
-  dependencyGeneration: RetainedNoFollowProvenDirectoryGeneration
+  dependencyGeneration: RetainedNoFollowProvenDirectoryGeneration,
+  dependencyGenerationDigest: `sha256:${string}`
 ): Promise<Readonly<{
   cache: 'hit' | 'incremental' | 'miss';
   sourceProgramCompilation: Readonly<{
@@ -1402,7 +1345,7 @@ async function compileWorkingTreeSourceProgramWithSession(
   moduleBoundaryFailures: readonly string[];
   baselineTestPaths: readonly string[];
   baselineTestEvidence: readonly SourceProgramTestBaselineEvidence[];
-  baselineSourceFiles: readonly SourceProgramFileInput[];
+  baselineSourceFiles: readonly WorkspaceSourceFile[];
   baselineSourceProgramCompilation: ReturnType<typeof compileRepositorySourceProgramCompilation>;
   baselineModuleMembership: SecRepositoryModuleMembership;
   baselineSupersessionEvidence: SourceProgramSupersessionEvidence;
@@ -1410,8 +1353,9 @@ async function compileWorkingTreeSourceProgramWithSession(
   currentIntentEvidence: readonly SourceProgramOwnerIntentEvidence[];
   moduleMembership: SecRepositoryModuleMembership;
   reviewedProcessDispatchers: readonly string[];
-  sourceFiles: readonly SourceProgramFileInput[];
+  sourceFiles: readonly WorkspaceSourceFile[];
 }>> {
+  const compilationOperation = createSourceProgramCompilationOperation({ deadlineAtUnixMs });
   const before = await runGitBytes(session, [
     '-c', 'core.quotepath=false',
     'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=no'
@@ -1460,6 +1404,8 @@ async function compileWorkingTreeSourceProgramWithSession(
     baselineSource.unknowns,
     baselineIdentity,
     dependencyGeneration,
+    dependencyGenerationDigest,
+    compilationOperation,
     cachedBaselineSupersessionEvidence
   );
   const baselineSupersessionEvidence = baselineReconciliation.evidence;
@@ -1467,7 +1413,6 @@ async function compileWorkingTreeSourceProgramWithSession(
     await writeSupersessionEvidenceCache(repositoryRoot, baselineReconciliation.evidence)
       .catch(() => undefined);
   }
-  releaseTypeScriptSourceProgramWorkspace();
   const baselineTestPaths = Object.freeze(
     baselineEntries
       .filter(({ path: repositoryPath }) => isSecRepositoryTestModulePath(repositoryPath))
@@ -1491,10 +1436,9 @@ async function compileWorkingTreeSourceProgramWithSession(
   const candidateTestPaths = new Set(
     presentRepositoryPaths.filter((repositoryPath) => isSecRepositoryTestModulePath(repositoryPath))
   );
-  const baselineTestSource = baselineSource;
   const baselineTestEvidence = compileSourceProgramTestBaselineEvidence(
     baselineTestPaths,
-    baselineTestSource.files.filter(({ path: repositoryPath }) =>
+    baselineReconciliation.sourceFiles.filter(({ path: repositoryPath }) =>
       isSecRepositoryTestModulePath(repositoryPath)
       && !candidateTestPaths.has(repositoryPath)),
     baselineTestRevision,
@@ -1536,29 +1480,16 @@ async function compileWorkingTreeSourceProgramWithSession(
   const projectInput = compileWorkspaceTypeScriptProjectInput(
     workspaceSnapshot,
     tsconfigRelativePath,
-    { dependencyGeneration }
+    { dependencyGeneration, dependencyGenerationDigest }
   );
-  const cacheSession = openRepositoryCompilationCacheSession({
+  const compilation = compileRepositorySourceProgramCompilation({
+    workspaceSnapshot,
+    projectInput,
+    operation: compilationOperation,
     repositoryRoot,
-    deadlineAtUnixMs,
-    sourceByteLength: workspaceSnapshot.sourceByteLength ?? (() => {
-      throw new Error('Repository compilation cache requires a physical Source Program byte observation');
-    })(),
-    sourceFileCount: workspaceSnapshot.files.length
+    reviewedProcessDispatchers,
+    unknowns
   });
-  let compilation: ReturnType<typeof compileRepositorySourceProgramCompilation>;
-  try {
-    compilation = compileRepositorySourceProgramCompilation({
-      workspaceSnapshot,
-      projectInput,
-      cacheProvider: createRepositoryCompilationCacheProvider({ session: cacheSession }),
-      repositoryRoot,
-      reviewedProcessDispatchers,
-      unknowns
-    });
-  } finally {
-    cacheSession.close();
-  }
   const moduleGraph = compilation.workspaceSnapshot.moduleGraph;
   const incrementalCompilation = compilation.typeScriptCompilation;
   const model = compilation.model;
@@ -1596,7 +1527,7 @@ async function compileWorkingTreeSourceProgramWithSession(
     moduleBoundaryFailures: sortedModuleBoundaryFailures,
     baselineTestPaths,
     baselineTestEvidence,
-    baselineSourceFiles: baselineTestSource.files,
+    baselineSourceFiles: baselineReconciliation.sourceFiles,
     baselineSourceProgramCompilation: baselineReconciliation.compilation,
     baselineModuleMembership: baselineReconciliation.membership,
     baselineSupersessionEvidence,
@@ -3084,6 +3015,11 @@ export async function executeSupervisedWorkingTreeSourceProgramAudit(
     throw new Error('Repository audit worker duration is outside its canonical bound.');
   }
   const deadlineAtUnixMs = Date.now() + maximumDurationMs;
+  const settlementReserveMs = Math.max(
+    1,
+    Math.min(SOURCE_PROGRAM_AUDIT_MAX_SETTLEMENT_RESERVE_MS, Math.floor(maximumDurationMs / 20))
+  );
+  const workerDeadlineAtUnixMs = deadlineAtUnixMs - settlementReserveMs;
   const executablePath = path.resolve(process.execPath);
   const workerPath = fileURLToPath(new URL('./worker.ts', import.meta.url));
   let executable: RetainedNoFollowOrdinaryFile | null = null;
@@ -3119,7 +3055,7 @@ export async function executeSupervisedWorkingTreeSourceProgramAudit(
       name: path.basename(workerPath),
       label: 'Source Program audit worker'
     }]);
-    const environment = sourceProgramAuditWorkerEnvironment(deadlineAtUnixMs);
+    const environment = sourceProgramAuditWorkerEnvironment(workerDeadlineAtUnixMs);
     const operation = compileSourceProgramAuditWorkerOperation({
       args,
       bunDigest: executable.digest().byteDigest,

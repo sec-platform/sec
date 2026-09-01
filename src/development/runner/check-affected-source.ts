@@ -1,3 +1,4 @@
+import type { SourceProgramCompilationOperation } from '../../brownfield/source-program-model/compilation-operation.ts';
 import { compileRepositorySourceProgramCompilation } from '../../brownfield/source-program-model/repository-compilation.ts';
 import {
   issueTestImpactProjection,
@@ -16,6 +17,7 @@ import { tsconfigRelativePath } from '../../workspace/runtime/paths.ts';
 export type AffectedTestImpactProjectionIssuer = (
   input: Readonly<{
     dependencyGeneration: RetainedCompilerDependencyReadGeneration;
+    compilationOperation: SourceProgramCompilationOperation;
     repositoryRoot: string;
     session: GitReadSession;
   }>
@@ -41,6 +43,7 @@ export const issueCheckAffectedTestImpactProjection: AffectedTestImpactProjectio
   );
   const compilation = compileRepositorySourceProgramCompilation({
     workspaceSnapshot,
+    operation: input.compilationOperation,
     projectInput,
     repositoryRoot: input.repositoryRoot
   });

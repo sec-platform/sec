@@ -5,7 +5,6 @@ import {
   type SecOperationDemandGraph
 } from '../../control/operation/demand.ts';
 import { canonicalJson, digest } from '../../system-architecture/foundation/runtime/canonical.ts';
-import type { RetainedCompilerDependencyReadGeneration } from '../../toolchain/dependencies/runtime.ts';
 import type {
   VerificationActionKey,
   VerificationActionKeyDigest,
@@ -48,16 +47,6 @@ export interface OperationDependencyBootstrapResult extends DependencyTransition
 
 export interface MaterializedOperationDependencyBootstrapResult
   extends OperationDependencyBootstrapResult, DependencyTransitionBootstrapResult {}
-
-export type OperationDependencyReadGenerationResolution =
-  | Readonly<{
-      status: 'ready';
-      generation: RetainedCompilerDependencyReadGeneration;
-    }>
-  | Readonly<{
-      status: 'unavailable';
-      reason: 'dependency-generation-absent';
-    }>;
 
 const materializedOperationDemands = new WeakMap<
   OperationDependencyBootstrapResult,
@@ -222,12 +211,11 @@ function publishOperationDependencyResult(
 export function reuseOperationDependencies(
   result: OperationDependencyBootstrapResult,
   demandGraph: SecOperationDemandGraph
-): OperationDependencyBootstrapResult {
+): MaterializedOperationDependencyBootstrapResult {
   assertSecOperationDemandGraph(demandGraph);
+  assertMaterializedOperationDependencyBootstrapResult(result);
   const materializedDemand = materializedOperationDemands.get(result);
-  if (materializedDemand === undefined) {
-    throw new Error('Operation dependency result was not materialized by this process.');
-  }
+  if (materializedDemand === undefined) throw new Error('Unreachable dependency provenance state.');
   if (demandGraph.capabilityDemands.some(
     (capability) => !materializedDemand.capabilityDemands.includes(capability)
   )) {
@@ -236,42 +224,12 @@ export function reuseOperationDependencies(
   return result;
 }
 
-/**
- * Retains only an already-published compiler generation. With no admitted
- * bootstrap result this performs the dependency owner's read-only observation;
- * it never installs, repairs, hands off or publishes consumer ledger state.
- */
-export async function retainOperationDependencyReadGeneration(input: Readonly<{
-  dependencies?: OperationDependencyBootstrapResult;
-  deadlineAtUnixMs: number;
-  signal?: AbortSignal;
-}>): Promise<OperationDependencyReadGenerationResolution> {
-  const dependencyRuntime = await import('../../toolchain/dependencies/runtime.ts');
-  let authority;
-  if (input.dependencies !== undefined) {
-    if (!materializedOperationDemands.has(input.dependencies)) {
-      throw new Error('Operation dependency read generation requires an admitted bootstrap result.');
-    }
-    authority = input.dependencies.executionGenerationAuthority;
-  } else {
-    authority = await dependencyRuntime.observeCompilerDependencyExecutionGenerationAuthority({
-      deadlineAtUnixMs: input.deadlineAtUnixMs,
-      signal: input.signal
-    });
-    if (authority === null) {
-      return Object.freeze({
-        status: 'unavailable' as const,
-        reason: 'dependency-generation-absent' as const
-      });
-    }
+export function assertMaterializedOperationDependencyBootstrapResult(
+  result: OperationDependencyBootstrapResult
+): void {
+  if (!materializedOperationDemands.has(result)) {
+    throw new Error('Operation dependency result was not materialized by this process.');
   }
-  return Object.freeze({
-    status: 'ready' as const,
-    generation: await dependencyRuntime.retainCompilerDependencyReadGeneration(authority, {
-      deadlineAtUnixMs: input.deadlineAtUnixMs,
-      signal: input.signal
-    })
-  });
 }
 
 async function issueDependencyBootstrapTerminal(

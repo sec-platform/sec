@@ -28,7 +28,11 @@ export const AFFECTED_GIT_REVALIDATION_AGGREGATE_CEILING = Object.freeze({
   maxExecutableBytes: 512 * 1024 * 1024
 });
 
-const AFFECTED_SELECTION_OPERATION_DURATION_MS = GIT_READ_OPERATION_BUDGET.deadlineMs;
+// The semantic operation includes source acquisition, compiler projection and
+// final Git readback. Individual Git sessions remain capped by their narrower
+// transport budget; the total operation must not alias one child duration.
+const AFFECTED_SELECTION_OPERATION_DURATION_MS = 60_000;
+const AFFECTED_SELECTION_FINAL_READBACK_RESERVE_MS = 5_000;
 
 export interface AffectedTestSelection {
   readonly tests: readonly string[];
@@ -177,6 +181,22 @@ export function compileAffectedTestSelectionSemanticOperation(input: Readonly<{
     contractDigest,
     providerIdentityDigest: contractDigest
   })]);
+}
+
+/**
+ * Source compilation consumes the parent absolute window but must leave one
+ * bounded final Git/readback settlement reserve. No phase may reset either
+ * duration from its own start time.
+ */
+export function affectedSelectionSourceCompilationDeadlineAtUnixMs(
+  operation: SecBoundSemanticOperation
+): number {
+  const deadlineAtUnixMs = operation.plan.attempt.deadlineAtUnixMs
+    - AFFECTED_SELECTION_FINAL_READBACK_RESERVE_MS;
+  if (!Number.isSafeInteger(deadlineAtUnixMs) || deadlineAtUnixMs <= Date.now()) {
+    throw new Error('Affected selection has no remaining Source Program compilation window.');
+  }
+  return deadlineAtUnixMs;
 }
 
 export function affectedTestPlanExitCode(

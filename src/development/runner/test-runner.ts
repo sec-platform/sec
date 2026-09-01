@@ -2,6 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import {
+  createSourceProgramCompilationOperation,
+  type SourceProgramCompilationOperation
+} from '../../brownfield/source-program-model/compilation-operation.ts';
 import type { IssuedTestImpactProjection } from '../../brownfield/source-program-model/test-impact-projection.ts';
 import {
   assertWorkspaceTypeScriptProjectGenerationEvidence,
@@ -36,6 +40,7 @@ import { compilerRoot, posixPath } from '../../workspace/runtime/paths.ts';
 import { GIT_READ_OPERATION_BUDGET } from '../tooling/git/git-read.ts';
 import {
   AFFECTED_GIT_REVALIDATION_AGGREGATE_CEILING,
+  affectedSelectionSourceCompilationDeadlineAtUnixMs,
   affectedTestPlanExitCode,
   compileAffectedTestSelectionSemanticOperation,
   type AffectedPlanIdentity,
@@ -55,10 +60,13 @@ import {
 } from './command-runner.ts';
 import {
   ensureOperationDependencies,
-  retainOperationDependencyReadGeneration,
   reuseOperationDependencies,
   type OperationDependencyBootstrapResult
 } from './dependency-bootstrap.ts';
+import {
+  observeOperationDependencyReadGeneration,
+  retainOperationDependencyReadGeneration
+} from './dependency-read-generation.ts';
 import {
   consumeTestWorkspaceSupervisorChallenge,
   deriveTestWorkspaceRunNamespace,
@@ -493,7 +501,7 @@ function createAffectedGitRevalidationLedger(
 ): AffectedGitRevalidationLedger {
   return {
     operation,
-    deadlineAt: initialSession.deadlineAt,
+    deadlineAt: operation.plan.attempt.deadlineAtUnixMs,
     ...AFFECTED_GIT_REVALIDATION_AGGREGATE_CEILING,
     revalidationCount: 0,
     processCount: initialSession.processCount,
@@ -578,10 +586,10 @@ async function reobserveAffectedGitSelectionState(
   if (resolution.status !== 'ready') return null;
   const session = resolution.session;
   let observedResult: GitSelectionGitObservation | null = null;
+  let closed = false;
   try {
     const observed = await observeGitSelectionState(session, expected.baseSha);
-    const withinBudget = accountAffectedGitRevalidationSession(ledger, session);
-    if (withinBudget && observed !== null && session.failure === null
+    if (observed !== null && session.failure === null
         && observed.gitExecutable === expected.gitExecutable
         && observed.gitProviderRoute === expected.gitProviderRoute
         && JSON.stringify(observed.gitProviderIdentity)
@@ -594,10 +602,17 @@ async function reobserveAffectedGitSelectionState(
     // A revalidation session is an invocation-local capability, not part of
     // the returned plan. Close it on success, typed failure, and exceptions so
     // retained provider resources cannot outlive this observation boundary.
-    await session.close?.();
+    try {
+      await session.close?.();
+      closed = true;
+    } catch {
+      closed = false;
+    }
   }
-  if (session.failure !== null) return null;
-  return observedResult;
+  if (!closed || session.failure !== null) return null;
+  return accountAffectedGitRevalidationSession(ledger, session)
+    ? observedResult
+    : null;
 }
 
 async function gitChangedFiles(
@@ -756,7 +771,7 @@ export async function issueCurrentTestImpactSourceProvider(): Promise<CodexDevel
     throw new Error(`Test budget source snapshot is unavailable: ${resolution.kind}`);
   }
   const session = resolution.session;
-  const dependencyResolution = await retainOperationDependencyReadGeneration({
+  const dependencyResolution = await observeOperationDependencyReadGeneration({
     deadlineAtUnixMs
   });
   if (dependencyResolution.status !== 'ready') {
@@ -765,6 +780,9 @@ export async function issueCurrentTestImpactSourceProvider(): Promise<CodexDevel
   }
   try {
     const observation = await issueCheckAffectedTestImpactProjection({
+      compilationOperation: createSourceProgramCompilationOperation({
+        deadlineAtUnixMs: affectedSelectionSourceCompilationDeadlineAtUnixMs(operation)
+      }),
       dependencyGeneration: dependencyResolution.generation,
       repositoryRoot: compilerRoot,
       session
@@ -799,15 +817,23 @@ function sameGitSelectionObservation(
 
 async function issueAffectedWorkingTreeTestImpactProjection(
   session: GitReadSession,
-  initialObservation: GitSelectionGitObservation,
   issueProjection: AffectedTestImpactProjectionIssuer,
-  dependencyGeneration: RetainedCompilerDependencyReadGeneration
-): Promise<Readonly<{
-  projection: IssuedTestImpactProjection;
-  projectGenerationEvidence: WorkspaceTypeScriptProjectGenerationEvidence;
-}> | null> {
+  dependencyGeneration: RetainedCompilerDependencyReadGeneration,
+  compilationOperation: SourceProgramCompilationOperation
+): Promise<Readonly<
+  | {
+      status: 'ready';
+      projection: IssuedTestImpactProjection;
+      projectGenerationEvidence: WorkspaceTypeScriptProjectGenerationEvidence;
+    }
+  | {
+      status: 'unavailable';
+      reason: 'project-generation-mismatch' | 'non-physical-snapshot';
+    }
+>> {
   const observation = await issueProjection({
     dependencyGeneration,
+    compilationOperation,
     repositoryRoot: compilerRoot,
     session
   });
@@ -819,14 +845,13 @@ async function issueAffectedWorkingTreeTestImpactProjection(
       || projectGenerationEvidence.projectInput.moduleMembershipDigest
         !== projection.moduleMembershipDigest
       || projectGenerationEvidence.projectInput.moduleGraphDigest !== projection.moduleGraphDigest) {
-    return null;
+    return Object.freeze({ status: 'unavailable' as const, reason: 'project-generation-mismatch' as const });
   }
   if (projection.subject.kind !== 'physical-repository'
-      || projection.subject.provenance.kind !== 'working-tree-observation') return null;
-  const finalObservation = await observeGitSelectionState(session, initialObservation.baseSha);
-  if (finalObservation === null
-      || !sameGitSelectionObservation(initialObservation, finalObservation)) return null;
-  return observation;
+      || projection.subject.provenance.kind !== 'working-tree-observation') {
+    return Object.freeze({ status: 'unavailable' as const, reason: 'non-physical-snapshot' as const });
+  }
+  return Object.freeze({ status: 'ready' as const, ...observation });
 }
 
 function allowFullFastFallback(): boolean {
@@ -1459,7 +1484,7 @@ export async function resolveAffectedTestExecution(options: Readonly<{
   verifyAtResolution?: boolean;
 }>): Promise<ResolvedAffectedTestExecution | null> {
   const ownedDependencyResolution = options.dependencyGeneration === undefined
-    ? await retainOperationDependencyReadGeneration({
+    ? await observeOperationDependencyReadGeneration({
         deadlineAtUnixMs: options.operation.plan.attempt.deadlineAtUnixMs
       })
     : null;
@@ -1469,6 +1494,9 @@ export async function resolveAffectedTestExecution(options: Readonly<{
   }
   const dependencyGeneration = options.dependencyGeneration
     ?? ownedDependencyResolution!.generation;
+  const compilationOperation = createSourceProgramCompilationOperation({
+    deadlineAtUnixMs: affectedSelectionSourceCompilationDeadlineAtUnixMs(options.operation)
+  });
   const gitResolution = createAuthorityGitReadSession({
     cwd: compilerRoot,
     operation: options.operation,
@@ -1485,32 +1513,43 @@ export async function resolveAffectedTestExecution(options: Readonly<{
   let testImpactObservation: Awaited<ReturnType<AffectedTestImpactProjectionIssuer>> | null = null;
   let gitRevalidationLedger: AffectedGitRevalidationLedger | null = null;
   let initialSessionFailure = gitSession.failure;
+  let initialSessionClosed = false;
   try {
     changed = await gitChangedFiles(gitSession);
     if (changed !== null) {
-      testImpactObservation = await issueAffectedWorkingTreeTestImpactProjection(
+      const projected = await issueAffectedWorkingTreeTestImpactProjection(
         gitSession,
-        changed.gitObservation,
         options.issueTestImpactProjection,
-        dependencyGeneration
+        dependencyGeneration,
+        compilationOperation
       );
-      gitRevalidationLedger = createAffectedGitRevalidationLedger(
-        options.operation,
-        gitSession,
-        changed.gitObservation.gitExecutableIdentity
-      );
+      if (projected.status === 'ready') {
+        testImpactObservation = projected;
+      } else {
+        console.error(`Affected Test Impact projection is unavailable: ${projected.reason}`);
+      }
     }
     initialSessionFailure = gitSession.failure;
   } finally {
     // The initial Git session is only an observation transport. The frozen
     // plan keeps values, not a live provider capability.
-    await gitSession.close?.();
+    try {
+      await gitSession.close?.();
+      initialSessionClosed = true;
+    } catch {
+      initialSessionClosed = false;
+    }
     initialSessionFailure = gitSession.failure;
     if (ownedDependencyResolution?.status === 'ready') {
       await ownedDependencyResolution.generation.retire();
     }
   }
-  if (initialSessionFailure !== null || changed === null || gitRevalidationLedger === null) return null;
+  if (!initialSessionClosed || initialSessionFailure !== null || changed === null) return null;
+  gitRevalidationLedger = createAffectedGitRevalidationLedger(
+    options.operation,
+    gitSession,
+    changed.gitObservation.gitExecutableIdentity
+  );
   const revalidationLedger = gitRevalidationLedger;
   if (testImpactObservation === null) return null;
   const { projection: testImpactProjection, projectGenerationEvidence } = testImpactObservation;

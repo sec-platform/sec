@@ -5,13 +5,16 @@ import path from 'node:path';
 
 import {
   compileVirtualWorkspaceSourceSnapshot,
-  compileWorkspaceTypeScriptProjectInput
+  compileWorkspaceTypeScriptProjectFactIdentity,
+  compileWorkspaceTypeScriptProjectInput,
+  projectWorkspaceTypeScriptProjectFactIdentity
 } from '../../src/brownfield/source-program-model/workspace-source-snapshot.ts';
 import {
   compileTypecheckActionInput,
   compileTypecheckSemanticOperation,
   requireTypecheckSubordinateTerminal,
   resolveTypecheckBuildInfoPath,
+  runTypecheckWithDependencyAuthority,
   runTypecheckWithProjectGenerationEvidence,
   runTypecheckWithProvider
 } from '../../src/development/runner/typecheck-runner.ts';
@@ -49,6 +52,7 @@ import {
 } from '../../src/verification/action/contract/action.ts';
 
 const DEPENDENCY_TRANSITION_DIGEST = `sha256:${'a'.repeat(64)}` as const;
+const DEPENDENCY_GENERATION_DIGEST = `sha256:${'7'.repeat(64)}` as const;
 const PROJECT_CONFIG_DIGEST = `sha256:${'b'.repeat(64)}` as const;
 const FIXTURE_PROVIDER_VERSION = '1.0.0';
 
@@ -249,7 +253,7 @@ async function withCheckerExecutionBoundary<T>(
   }
 }
 
-function projectInputFixture(
+function workspaceSnapshotFixture(
   configSource = '{"compilerOptions":{"strict":false}}',
   programSource = 'export const checked = true;\n',
   unrelatedSource = 'first projection\n'
@@ -276,7 +280,7 @@ function projectInputFixture(
     repositoryPath,
     contentDigest
   }))) as `sha256:${string}`;
-  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
+  return compileVirtualWorkspaceSourceSnapshot({
     subject: Object.freeze({
       kind: 'virtual-mutation',
       provenance: Object.freeze({
@@ -288,7 +292,17 @@ function projectInputFixture(
     files,
     moduleMembership
   });
-  return compileWorkspaceTypeScriptProjectInput(workspaceSnapshot, 'tsconfig.json');
+}
+
+function projectInputFixture(
+  configSource = '{"compilerOptions":{"strict":false}}',
+  programSource = 'export const checked = true;\n',
+  unrelatedSource = 'first projection\n'
+) {
+  return compileWorkspaceTypeScriptProjectInput(
+    workspaceSnapshotFixture(configSource, programSource, unrelatedSource),
+    'tsconfig.json'
+  );
 }
 
 function currentNativePackageName(): `@typescript/typescript-${string}` {
@@ -492,7 +506,16 @@ test('incremental cache seed is environment-scoped and changes with configuratio
   }
 });
 
-test('typecheck Action identity excludes attempt time and keeps one reusable key for one stable subject', async () => {
+test('typecheck cheap fact admission matches the full ProjectInput identity', () => {
+  const snapshot = workspaceSnapshotFixture();
+  expect(compileWorkspaceTypeScriptProjectFactIdentity(snapshot, 'tsconfig.json', {
+    dependencyGenerationDigest: null
+  })).toEqual(projectWorkspaceTypeScriptProjectFactIdentity(
+    compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json')
+  ));
+});
+
+test('typecheck Action identity is route-neutral and excludes attempt time for one stable subject', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-action-identity-'));
   try {
     const installed = await selectNativeChecker(await writeNativeCheckerFixture(root));
@@ -515,7 +538,7 @@ test('typecheck Action identity excludes attempt time and keeps one reusable key
     ) => createVerificationActionKey(
       compileTypecheckActionInput({
         dependencies,
-        provider: installed.provider,
+        dependencyGenerationDigest: DEPENDENCY_GENERATION_DIGEST,
         projectInput,
         diagnosticArguments: [],
         semanticOperation: semanticAt(deadlineAtUnixMs)
@@ -530,7 +553,7 @@ test('typecheck Action identity excludes attempt time and keeps one reusable key
     const changed = (input: Partial<Parameters<typeof compileTypecheckActionInput>[0]>) =>
       createVerificationActionKey(compileTypecheckActionInput({
         dependencies,
-        provider: installed.provider,
+        dependencyGenerationDigest: DEPENDENCY_GENERATION_DIGEST,
         projectInput,
         diagnosticArguments: [],
         semanticOperation: semanticAt(1_900_000_000_000),
@@ -580,13 +603,15 @@ test('typecheck Action identity excludes attempt time and keeps one reusable key
     const changedInstalled = await selectNativeChecker(path.join(root, 'node_modules'));
     const changedProvider = changedInstalled.provider;
     expect(changed({
-      provider: changedProvider,
       semanticOperation: compileTypecheckSemanticOperation({
         projectConfigPath: changedProvider.projectConfig,
         diagnosticArguments: [],
         checker: changedInstalled,
         deadlineAtUnixMs: 1_900_000_000_000
       })
+    })).toBe(first.actionKey);
+    expect(changed({
+      dependencyGenerationDigest: `sha256:${'6'.repeat(64)}`
     })).not.toBe(first.actionKey);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
@@ -884,6 +909,17 @@ test('unsupported checker arguments fail before cache or process effects', async
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
+});
+
+test('typecheck action admission rejects a structural dependency result before terminal lookup', async () => {
+  await expect(runTypecheckWithDependencyAuthority({
+    executionGenerationAuthority: { generationDigest: DEPENDENCY_GENERATION_DIGEST },
+    nodeModulesPath: path.resolve('node_modules'),
+    manifestHash: 'caller-constructed',
+    requiresFreshProcess: false,
+    source: 'existing',
+    transitionDigest: DEPENDENCY_TRANSITION_DIGEST
+  } as never)).rejects.toThrow('was not materialized by this process');
 });
 
 test('typecheck runner rejects caller-constructed Source Program generation evidence before effects', async () => {

@@ -93,6 +93,7 @@ async function runGenerationChild(
     attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: 30_000 },
+      { resource: 'input-bytes', maximum: 0 },
       { resource: 'output-bytes', maximum: 8 * 1024 * 1024 },
       { resource: 'processes', maximum: 1 }
     ],

@@ -200,6 +200,7 @@ export interface WorkspaceTypeScriptProjectInput {
 export interface WorkspaceTypeScriptProjectFactIdentity {
   readonly projectConfigDigest: `sha256:${string}`;
   readonly projectFactDigest: `sha256:${string}`;
+  readonly rootSourceFacts: readonly WorkspaceTypeScriptSourceFact[];
 }
 
 function typeScriptProjectFactDigest(input: Readonly<{
@@ -219,16 +220,18 @@ export function projectWorkspaceTypeScriptProjectFactIdentity(
   projectInput: WorkspaceTypeScriptProjectInput
 ): WorkspaceTypeScriptProjectFactIdentity {
   assertWorkspaceTypeScriptProjectInput(projectInput);
+  const rootSourceFacts = Object.freeze(projectInput.sourceFacts.filter(({ path: sourcePath }) => (
+    sourcePath !== projectInput.projectConfigPath
+  )));
   return Object.freeze({
     projectConfigDigest: projectInput.projectConfigDigest,
     projectFactDigest: typeScriptProjectFactDigest({
       projectConfigPath: projectInput.projectConfigPath,
       projectConfigDigest: projectInput.projectConfigDigest,
       dependencyGenerationDigest: projectInput.dependencyGenerationDigest,
-      rootSourceFacts: projectInput.sourceFacts.filter(({ path: sourcePath }) => (
-        sourcePath !== projectInput.projectConfigPath
-      ))
-    })
+      rootSourceFacts
+    }),
+    rootSourceFacts
   });
 }
 
@@ -291,6 +294,50 @@ export function compileWorkspaceTypeScriptProjectFactIdentity(
   }
   const rootSources = new Map<string, WorkspaceSourceFile>();
   const pendingSourcePaths: string[] = [];
+  const virtualFile = (repositoryPath: string): string => path.resolve(
+    virtualRoot,
+    ...repositoryPath.split('/')
+  );
+  const repositoryFile = (fileName: string): WorkspaceSourceFile | null => {
+    const repositoryPath = pathInside(virtualRoot, fileName);
+    return repositoryPath === null ? null : snapshot.file(repositoryPath);
+  };
+  const repositoryDirectoryExists = (directoryName: string): boolean => {
+    const repositoryPath = pathInside(virtualRoot, directoryName);
+    if (repositoryPath === null) return false;
+    const prefix = repositoryPath.length === 0 ? '' : `${repositoryPath}/`;
+    return snapshot.files.some(({ path: sourcePath }) => sourcePath.startsWith(prefix));
+  };
+  const moduleResolutionHost: ts.ModuleResolutionHost = {
+    directoryExists: repositoryDirectoryExists,
+    fileExists: (fileName) => repositoryFile(fileName) !== null,
+    getCurrentDirectory: () => virtualRoot,
+    getDirectories: (directoryName) => {
+      const repositoryPath = pathInside(virtualRoot, directoryName);
+      if (repositoryPath === null) return [];
+      const prefix = repositoryPath.length === 0 ? '' : `${repositoryPath}/`;
+      return [...new Set(snapshot.files.flatMap(({ path: sourcePath }) => {
+        if (!sourcePath.startsWith(prefix)) return [];
+        const remainder = sourcePath.slice(prefix.length);
+        const separator = remainder.indexOf('/');
+        return separator === -1 ? [] : [remainder.slice(0, separator)];
+      }))].map((entry) => path.resolve(directoryName, entry));
+    },
+    readFile: (fileName) => repositoryFile(fileName)?.source,
+    realpath: (fileName) => fileName,
+    useCaseSensitiveFileNames: true
+  };
+  const moduleResolutionCache = ts.createModuleResolutionCache(
+    virtualRoot,
+    (fileName) => fileName,
+    parsed.options
+  );
+  const typeReferenceResolutionCache = ts.createTypeReferenceDirectiveResolutionCache(
+    virtualRoot,
+    (fileName) => fileName,
+    parsed.options,
+    moduleResolutionCache
+  );
   const admitSource = (fileName: string): void => {
     const repositoryPath = pathInside(virtualRoot, fileName);
     const source = repositoryPath === null ? null : snapshot.file(repositoryPath);
@@ -305,16 +352,67 @@ export function compileWorkspaceTypeScriptProjectFactIdentity(
   while (pendingSourcePaths.length > 0) {
     const repositoryPath = pendingSourcePaths.pop()!;
     const source = rootSources.get(repositoryPath)!;
-    const references = ts.preProcessFile(source.source, true, true);
-    for (const reference of [...references.importedFiles, ...references.referencedFiles]) {
-      if (reference.fileName !== '.' && !reference.fileName.startsWith('./')
-          && !reference.fileName.startsWith('../')) continue;
-      const referencedPath = pathInside(
-        virtualRoot,
-        path.resolve(virtualRoot, path.dirname(repositoryPath), reference.fileName)
-      );
-      if (referencedPath !== null && snapshot.file(referencedPath) !== null) {
-        admitSource(path.resolve(virtualRoot, ...referencedPath.split('/')));
+    const containingFile = virtualFile(repositoryPath);
+    const impliedNodeFormat = ts.getImpliedNodeFormatForFile(
+      containingFile,
+      moduleResolutionCache,
+      moduleResolutionHost,
+      parsed.options
+    );
+    const sourceFile = ts.createSourceFile(
+      containingFile,
+      source.source,
+      Object.freeze({
+        languageVersion: parsed.options.target ?? ts.ScriptTarget.Latest,
+        impliedNodeFormat
+      }),
+      true,
+      typeScriptScriptKind(repositoryPath)
+    );
+    if (!parsed.options.noResolve) {
+      for (const reference of typeScriptModuleSpecifierLiterals(sourceFile)) {
+        const resolutionMode = ts.getModeForUsageLocation(sourceFile, reference, parsed.options);
+        const resolvedModule = ts.resolveModuleName(
+          reference.text,
+          containingFile,
+          parsed.options,
+          moduleResolutionHost,
+          moduleResolutionCache,
+          undefined,
+          resolutionMode
+        ).resolvedModule;
+        const isJavaScriptSource = resolvedModule?.extension === ts.Extension.Js
+          || resolvedModule?.extension === ts.Extension.Jsx
+          || resolvedModule?.extension === ts.Extension.Mjs
+          || resolvedModule?.extension === ts.Extension.Cjs;
+        if (resolvedModule !== undefined
+            && (!isJavaScriptSource || parsed.options.allowJs === true)
+            && repositoryFile(resolvedModule.resolvedFileName) !== null) {
+          admitSource(resolvedModule.resolvedFileName);
+        }
+      }
+      for (const reference of sourceFile.referencedFiles) {
+        const referencedFileName = ts.resolveTripleslashReference(
+          reference.fileName,
+          containingFile
+        );
+        if (repositoryFile(referencedFileName) !== null) {
+          admitSource(referencedFileName);
+        }
+      }
+      for (const reference of sourceFile.typeReferenceDirectives) {
+        const resolvedFileName = ts.resolveTypeReferenceDirective(
+          reference.fileName,
+          containingFile,
+          parsed.options,
+          moduleResolutionHost,
+          undefined,
+          typeReferenceResolutionCache,
+          ts.getModeForFileReference(reference, sourceFile.impliedNodeFormat)
+        ).resolvedTypeReferenceDirective?.resolvedFileName;
+        if (resolvedFileName !== undefined && repositoryFile(resolvedFileName) !== null) {
+          admitSource(resolvedFileName);
+        }
       }
     }
   }
@@ -335,7 +433,8 @@ export function compileWorkspaceTypeScriptProjectFactIdentity(
       projectConfigDigest,
       dependencyGenerationDigest: input.dependencyGenerationDigest,
       rootSourceFacts
-    })
+    }),
+    rootSourceFacts
   });
 }
 
@@ -434,21 +533,48 @@ function snapshotReadDirectory(
 }
 
 function typeScriptModuleSpecifier(node: ts.Node): string | null {
+  return typeScriptModuleSpecifierLiteral(node)?.text ?? null;
+}
+
+function typeScriptModuleSpecifierLiteral(node: ts.Node): ts.StringLiteralLike | null {
   if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
-      && node.moduleSpecifier !== undefined && ts.isStringLiteral(node.moduleSpecifier)) {
-    return node.moduleSpecifier.text;
+      && node.moduleSpecifier !== undefined && ts.isStringLiteralLike(node.moduleSpecifier)) {
+    return node.moduleSpecifier;
   }
   if (ts.isImportEqualsDeclaration(node)
       && ts.isExternalModuleReference(node.moduleReference)
       && node.moduleReference.expression !== undefined
-      && ts.isStringLiteral(node.moduleReference.expression)) {
-    return node.moduleReference.expression.text;
+      && ts.isStringLiteralLike(node.moduleReference.expression)) {
+    return node.moduleReference.expression;
   }
-  if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword
-      && node.arguments.length === 1 && ts.isStringLiteral(node.arguments[0]!)) {
-    return node.arguments[0]!.text;
+  if (ts.isCallExpression(node) && node.arguments.length >= 1
+      && (node.expression.kind === ts.SyntaxKind.ImportKeyword
+        || (ts.isIdentifier(node.expression) && node.expression.text === 'require'))
+      && ts.isStringLiteralLike(node.arguments[0]!)) {
+    return node.arguments[0]!;
+  }
+  if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)
+      && ts.isStringLiteralLike(node.argument.literal)) {
+    return node.argument.literal;
+  }
+  if (ts.isJSDocImportTag(node) && ts.isStringLiteralLike(node.moduleSpecifier)) {
+    return node.moduleSpecifier;
+  }
+  if (ts.isModuleDeclaration(node) && ts.isStringLiteralLike(node.name)) {
+    return node.name;
   }
   return null;
+}
+
+function typeScriptModuleSpecifierLiterals(sourceFile: ts.SourceFile): readonly ts.StringLiteralLike[] {
+  const literals: ts.StringLiteralLike[] = [];
+  const visit = (node: ts.Node): void => {
+    const literal = typeScriptModuleSpecifierLiteral(node);
+    if (literal !== null) literals.push(literal);
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return Object.freeze(literals);
 }
 
 function parseContainedTypeScriptProjectConfig(
@@ -1019,6 +1145,13 @@ function sourceGeneration(files: readonly WorkspaceSourceFile[]): `sha256:${stri
     schema: 'sec-workspace-source-generation-v1',
     files: files.map(({ path, mode, contentDigest }) => ({ path, mode, contentDigest }))
   }) as `sha256:${string}`;
+}
+
+/** Compile the only source revision grammar used by workspace snapshots and downstream receipts. */
+export function compileWorkspaceSourceRevision(
+  files: readonly (SourceProgramFileInput & Readonly<{ mode?: WorkspaceSourceFileMode }>)[]
+): `sha256:${string}` {
+  return sourceGeneration(canonicalFiles(files));
 }
 
 function membershipDigest(

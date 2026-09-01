@@ -20,6 +20,11 @@ function moduleHref(repositoryPath: string): string {
 
 mock.module(moduleHref('src/development/runner/dependency-bootstrap.ts'), () => ({
   DEV_RUNNER_FRESH_PROCESS_TRANSITION_ENV: 'SEC_DEV_RUNNER_FRESH_PROCESS_TRANSITION_V1',
+  assertMaterializedOperationDependencyBootstrapResult: (dependencies: unknown) => {
+    if (!dependencyReady || dependencies !== materializedDependencies) {
+      throw new Error('Dependency bootstrap provenance did not observe the issued result.');
+    }
+  },
   createDependencyFreshProcessHandoff: () => null,
   ensureOperationDependencies: async () => {
     calls.push('dependency:ensure');

@@ -23,7 +23,8 @@ import {
   compileVirtualWorkspaceSourceSnapshot,
   compileWorkspaceTypeScriptProjectFactIdentity,
   compileWorkspaceTypeScriptProjectInput,
-  issueWorkspaceTypeScriptProjectGenerationEvidence
+  issueWorkspaceTypeScriptProjectGenerationEvidence,
+  projectWorkspaceTypeScriptProjectFactIdentity
 } from './workspace-source-snapshot.ts';
 
 const temporaryRepositories: string[] = [];
@@ -159,6 +160,42 @@ test('Project fact identity is stable across observation sessions and consumes o
   })).toEqual(compileWorkspaceTypeScriptProjectFactIdentity(second, 'tsconfig.json', {
     dependencyGenerationDigest: generationDigest
   }));
+});
+
+test('Project fact identity resolves repository imports with the canonical TypeScript resolver', () => {
+  const snapshot = virtualProjectSnapshot({
+    'tsconfig.json': JSON.stringify({
+      compilerOptions: {
+        allowImportingTsExtensions: true,
+        module: 'NodeNext',
+        moduleResolution: 'NodeNext',
+        noEmit: true
+      },
+      files: ['src/entry.ts']
+    }),
+    'package.json': '{"type":"module"}\n',
+    'src/entry.ts': [
+      "import profile from './profile.json' with { type: 'json' };",
+      "import legacy = require('./legacy.cjs');",
+      "import workerPath from './worker.mjs' with { type: 'file' };",
+      "export { hidden } from './hidden.js';",
+      "void import('./dynamic.mjs', { with: { type: 'file' } });",
+      "type Imported = import('./types.js').Imported;",
+      'export const profileName: Imported = `${profile.name}:${workerPath}:${legacy}`;'
+    ].join('\n'),
+    'src/dynamic.d.mts': 'declare const dynamic: string; export default dynamic;\n',
+    'src/hidden.ts': 'export const hidden = true;\n',
+    'src/legacy.d.cts': 'declare const legacy: string; export = legacy;\n',
+    'src/profile.json': '{"name":"source-program"}\n',
+    'src/types.ts': 'export type Imported = string;\n',
+    'src/worker.d.mts': 'declare const workerPath: string; export default workerPath;\n',
+    'src/worker.mjs': 'export default "worker";\n'
+  });
+  expect(compileWorkspaceTypeScriptProjectFactIdentity(snapshot, 'tsconfig.json', {
+    dependencyGenerationDigest: null
+  })).toEqual(projectWorkspaceTypeScriptProjectFactIdentity(
+    compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json')
+  ));
 });
 
 test('working generation includes dirty and untracked source while excluding deleted membership', async () => {

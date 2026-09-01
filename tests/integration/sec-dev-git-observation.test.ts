@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 
 import {
   compileAffectedTestSelectionSemanticOperation
-} from '../../src/development/runner/affected-plan.ts';
+} from '../../src/development/runner/affected-plan-contract.ts';
 import {
   runRepositoryZeroWriteOperation
 } from '../../src/development/runner/repository-mutation-fence.ts';
@@ -128,7 +128,7 @@ test('trusted Git reads reject ambient config injection', async () => {
     const moduleUrl = pathToFileURL(path.resolve('src/development/tooling/git/git-read.ts')).href;
     const source = [
       `import { withAuthorityGitReadSession } from ${JSON.stringify(pathToFileURL(path.resolve('src/external-capabilities/git-read/authority.ts')).href)};`,
-      `import { compileAffectedTestSelectionSemanticOperation } from ${JSON.stringify(pathToFileURL(path.resolve('src/development/runner/affected-plan.ts')).href)};`,
+      `import { compileAffectedTestSelectionSemanticOperation } from ${JSON.stringify(pathToFileURL(path.resolve('src/development/runner/affected-plan-contract.ts')).href)};`,
       `import { GIT_READ_OPERATION_BUDGET, runGitRead } from ${JSON.stringify(moduleUrl)};`,
       `const operation = compileAffectedTestSelectionSemanticOperation({ purpose: 'check-affected' });`,
       `const result = await withAuthorityGitReadSession({ cwd: ${JSON.stringify(root)}, operation, budget: GIT_READ_OPERATION_BUDGET }, (session) => runGitRead(session, ['config', '--get', 'sec.injected']));`,

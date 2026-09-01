@@ -3,9 +3,9 @@ import path from 'node:path';
 import { compileSecOperationDemandGraph } from '../../control/operation/demand.ts';
 import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
 import { WORKSPACE_TRANSITION_DEADLINE_ENV } from '../workspace-transition/contract.ts';
-import { runDevCommand } from './command-runner.ts';
 import { DEV_RUNNER_ENTRYPOINT_PATH } from './contract.ts';
 import {
+  assertMaterializedOperationDependencyBootstrapResult,
   createDependencyFreshProcessHandoff,
   DEV_RUNNER_FRESH_PROCESS_TRANSITION_ENV,
   ensureOperationDependencies,
@@ -24,6 +24,7 @@ export async function handoffDevRunnerToFreshProcess(
   standardInput?: Uint8Array,
   workspaceTransitionDeadlineAtUnixMs?: number
 ): Promise<number | null> {
+  assertMaterializedOperationDependencyBootstrapResult(dependencies);
   const handoff = createDependencyFreshProcessHandoff(dependencies);
   if (handoff === null) return null;
   const entrypoint = process.argv[1];
@@ -31,6 +32,7 @@ export async function handoffDevRunnerToFreshProcess(
   if (entrypoint === undefined || path.relative(canonicalEntrypoint, path.resolve(entrypoint)) !== '') {
     throw new Error('Dev runner fresh-process handoff has no exact entrypoint identity.');
   }
+  const { runDevCommand } = await import('./command-runner.ts');
   return runDevCommand('bun', [entrypoint, ...process.argv.slice(2)], {
       [DEV_RUNNER_FRESH_PROCESS_TRANSITION_ENV]: handoff.transitionDigest,
       ...(workspaceTransitionDeadlineAtUnixMs === undefined ? {} : {
@@ -240,7 +242,7 @@ async function main(): Promise<void> {
     process.exitCode = await runCheckAffectedCommand(args, {
       runPlan: async () => {
         const { runLocalAffectedCheck } = await import('./check-runner.ts');
-        const { compileAffectedTestSelectionSemanticOperation } = await import('./affected-plan.ts');
+        const { compileAffectedTestSelectionSemanticOperation } = await import('./affected-plan-contract.ts');
         const operation = compileAffectedTestSelectionSemanticOperation({
           purpose: 'check-affected'
         });
@@ -254,7 +256,7 @@ async function main(): Promise<void> {
       handoff: handoffDevRunnerToFreshProcess,
       runExecution: async (dependencies, demand) => {
         const { runLocalAffectedCheck } = await import('./check-runner.ts');
-        const { compileAffectedTestSelectionSemanticOperation } = await import('./affected-plan.ts');
+        const { compileAffectedTestSelectionSemanticOperation } = await import('./affected-plan-contract.ts');
         const operation = compileAffectedTestSelectionSemanticOperation({
           purpose: 'check-affected'
         });

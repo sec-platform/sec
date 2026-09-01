@@ -3,6 +3,7 @@ import nodePath from 'node:path';
 import ts from 'typescript';
 
 import { compareCodeUnits, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { isCanonicalSecOperationBudgetMaximum } from '../../system-architecture/operation/semantic.ts';
 import type {
   SecRepositoryModuleArchitectureProjection,
   SecRepositoryModuleMembership
@@ -42,6 +43,10 @@ import {
   type SourceProgramTestValueCompilation
 } from './test-value.ts';
 import { compileSourceProgramTypeScriptDiagnosticSnapshot } from './typescript.ts';
+import {
+  compileWorkspaceSourceRevision,
+  type WorkspaceSourceFile
+} from './workspace-source-snapshot.ts';
 
 const compiledGraphCutReductionPlans = new WeakSet<object>();
 const compiledAggregateImportReductionPlans = new WeakSet<object>();
@@ -389,12 +394,15 @@ const SOURCE_PROGRAM_OPERATION_RESOURCE_KINDS = new Set([
 ]);
 
 function resourceBudgetIsExact(value: unknown): value is SourceProgramOperationResourceBudget {
-  return hasExactKeys(value, SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA.resourceBudgetKeys)
+  const resource = hasExactKeys(value, SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA.resourceBudgetKeys)
     && typeof value.resource === 'string'
     && SOURCE_PROGRAM_OPERATION_RESOURCE_KINDS.has(value.resource)
+    ? value.resource as SourceProgramOperationResourceBudget['resource']
+    : null;
+  return hasExactKeys(value, SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA.resourceBudgetKeys)
+    && resource !== null
     && typeof value.maximum === 'number'
-    && Number.isSafeInteger(value.maximum)
-    && value.maximum > 0;
+    && isCanonicalSecOperationBudgetMaximum(resource, value.maximum);
 }
 
 function operationObligationEvidenceIsExact(
@@ -942,15 +950,24 @@ export function parseSourceProgramSupersessionEvidence(
 export function compileSourceProgramSupersessionEvidence(
   input: CompileSourceProgramSupersessionEvidenceInput
 ): SourceProgramSupersessionEvidence {
-  if (!sourceProgramModelEvidenceIsExact(input.model)
-      || !sourceProgramTestEvidenceIsExact(input.tests)
-      || input.model.sourceRevision !== input.tests.sourceRevision
-      || input.intentEvidence.some((evidence) => !ownerIntentEvidenceIsExact(evidence))
-      || new Set(input.intentEvidence.map(({ owner }) => owner)).size
-        !== input.intentEvidence.length
-      || !Object.values(input.identity).every((value) => DIGEST.test(value))
-      || input.identity.schemaDigest !== SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA_DIGEST) {
-    throw new Error('Source Program supersession evidence requires exact revision-bound inputs');
+  const invalidOwnerIntent = input.intentEvidence.find((evidence) =>
+    !ownerIntentEvidenceIsExact(evidence));
+  const inputFailures = [
+    ...(!sourceProgramModelEvidenceIsExact(input.model) ? ['model'] : []),
+    ...(!sourceProgramTestEvidenceIsExact(input.tests) ? ['tests'] : []),
+    ...(input.model.sourceRevision !== input.tests.sourceRevision ? ['source-revision'] : []),
+    ...(invalidOwnerIntent === undefined ? [] : [`owner-intent:${invalidOwnerIntent.owner}`]),
+    ...(new Set(input.intentEvidence.map(({ owner }) => owner)).size
+      === input.intentEvidence.length ? [] : ['duplicate-owner-intent']),
+    ...(Object.values(input.identity).every((value) => DIGEST.test(value))
+      ? [] : ['identity-digest']),
+    ...(input.identity.schemaDigest === SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA_DIGEST
+      ? [] : ['schema-digest'])
+  ];
+  if (inputFailures.length > 0) {
+    throw new Error(
+      `Source Program supersession evidence requires exact revision-bound inputs: ${inputFailures.join(', ')}`
+    );
   }
   const productionUnits = compileSourceProgramSemanticUnits(input.model);
   const productionUnitByPath = new Map(productionUnits.map((unit) => [unit.path, unit] as const));
@@ -1396,9 +1413,9 @@ export interface CompileSourceProgramTestRetirementReceiptInput {
   readonly currentModel: SourceProgramModel;
   readonly currentTestCompilation: SourceProgramTestValueCompilation;
   /** Exact tracked baseline bytes, not a caller-authored zero census. */
-  readonly baselineFiles: readonly SourceProgramFileInput[];
+  readonly baselineFiles: readonly WorkspaceSourceFile[];
   /** Exact current bytes compiled into currentModel/currentTestCompilation. */
-  readonly currentFiles: readonly SourceProgramFileInput[];
+  readonly currentFiles: readonly WorkspaceSourceFile[];
 }
 
 export interface SourceProgramTestRetirementDispositionProjection
@@ -1408,16 +1425,6 @@ export interface SourceProgramTestRetirementDispositionProjection
 }
 
 const compiledSourceProgramTestRetirementReceipts = new WeakSet<object>();
-
-function sourceRevisionForExactFiles(files: readonly SourceProgramFileInput[]): string | null {
-  const canonical = [...files].sort((left, right) => compareCodeUnits(left.path, right.path));
-  if (new Set(canonical.map(({ path }) => path)).size !== canonical.length
-      || canonical.some(({ source, contentDigest }) => rawSha256(source) !== contentDigest)) return null;
-  return rawSha256(JSON.stringify(canonical.map(({ path, contentDigest }) => ({
-    path,
-    contentDigest
-  }))));
-}
 
 function supersessionReceiptBindsEvidence(
   receipt: SourceProgramSupersessionReceipt,
@@ -1474,25 +1481,30 @@ function sourceProgramTestPathConsumers(
 export function compileSourceProgramTestRetirementReceipt(
   input: CompileSourceProgramTestRetirementReceiptInput
 ): SourceProgramTestRetirementReceipt {
-  const baselineRevision = sourceRevisionForExactFiles(input.baselineFiles);
-  const currentRevision = sourceRevisionForExactFiles(input.currentFiles);
-  if (!sourceProgramSupersessionEvidenceIsExact(input.baseline)
-      || !sourceProgramSupersessionEvidenceIsExact(input.current)
-      || !sourceProgramModelEvidenceIsExact(input.currentModel)
-      || !sourceProgramTestEvidenceIsExact(input.currentTestCompilation)
-      || baselineRevision !== input.baseline.identity.sourceRevision
-      || currentRevision !== input.current.identity.sourceRevision
-      || input.currentModel.sourceRevision !== currentRevision
-      || input.currentModel.modelDigest !== input.current.source.modelDigest
-      || input.currentTestCompilation.sourceRevision !== currentRevision
-      || input.currentTestCompilation.compilationDigest
-        !== input.current.source.testCompilationDigest
-      || !supersessionReceiptBindsEvidence(
-        input.supersession,
-        input.baseline,
-        input.current
-      )) {
-    throw new Error('Test retirement requires sealed baseline/current Source Program evidence');
+  const baselineRevision = compileWorkspaceSourceRevision(input.baselineFiles);
+  const currentRevision = compileWorkspaceSourceRevision(input.currentFiles);
+  const sealFailures = [
+    ...(!sourceProgramSupersessionEvidenceIsExact(input.baseline) ? ['baseline-evidence'] : []),
+    ...(!sourceProgramSupersessionEvidenceIsExact(input.current) ? ['current-evidence'] : []),
+    ...(!sourceProgramModelEvidenceIsExact(input.currentModel) ? ['current-model'] : []),
+    ...(!sourceProgramTestEvidenceIsExact(input.currentTestCompilation) ? ['current-tests'] : []),
+    ...(baselineRevision !== input.baseline.identity.sourceRevision ? ['baseline-source-revision'] : []),
+    ...(currentRevision !== input.current.identity.sourceRevision ? ['current-source-revision'] : []),
+    ...(input.currentModel.sourceRevision !== currentRevision ? ['model-source-revision'] : []),
+    ...(input.currentModel.modelDigest !== input.current.source.modelDigest ? ['model-digest'] : []),
+    ...(input.currentTestCompilation.sourceRevision !== currentRevision ? ['test-source-revision'] : []),
+    ...(input.currentTestCompilation.compilationDigest
+      !== input.current.source.testCompilationDigest ? ['test-compilation-digest'] : []),
+    ...(!supersessionReceiptBindsEvidence(
+      input.supersession,
+      input.baseline,
+      input.current
+    ) ? ['supersession-receipt'] : [])
+  ];
+  if (sealFailures.length > 0) {
+    throw new Error(
+      `Test retirement requires sealed baseline/current Source Program evidence: ${sealFailures.join(', ')}`
+    );
   }
   const baselineTestPaths = Object.freeze(input.baselineFiles
     .map(({ path }) => path)

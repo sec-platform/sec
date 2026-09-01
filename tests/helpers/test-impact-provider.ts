@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { createRepositoryCompilationCacheProvider } from '../../src/brownfield/source-program-model/repository-compilation-cache-provider.ts';
+import { openRepositoryCompilationCacheSession } from '../../src/brownfield/source-program-model/repository-compilation-cache-session.ts';
 import {
   compileRepositorySourceProgramCompilation,
   repositoryCompilationDiagnosticsForTests
@@ -13,27 +14,14 @@ import {
   acquireExactGitTreeWorkspaceSourceSnapshot,
   acquireWorkingTreeWorkspaceSourceSnapshot,
   compileWorkspaceTypeScriptProjectInput,
-  issueWorkspaceTypeScriptProjectGenerationEvidence,
-  type PhysicalWorkspaceSourceSnapshot,
-  type WorkspaceTypeScriptProjectInput
+  issueWorkspaceTypeScriptProjectGenerationEvidence
 } from '../../src/brownfield/source-program-model/workspace-source-snapshot.ts';
 import { currentActiveDocumentationPaths } from '../../src/control/documentation/active.ts';
 import type { AffectedTestImpactProjectionIssuer } from '../../src/development/runner/check-affected-source.ts';
+import { DEFAULT_TEST_TIMEOUT_MS } from '../../src/development/runner/test-execution-policy.ts';
 import { withAuthorityGitReadSession } from '../../src/external-capabilities/git-read/authority.ts';
 import { isolatedGitReadEnvironment } from '../../src/external-capabilities/git-read/runtime/session.ts';
-import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import {
-  openContentAddressedWorkspaceCacheSession,
-  type ContentAddressedWorkspaceCacheSession
-} from '../../src/runtime-state/workspace-state/content-addressed-workspace-cache.ts';
-import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
-import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecOperationDigest
-} from '../../src/system-architecture/operation/semantic.ts';
+import type { ContentAddressedWorkspaceCacheSession } from '../../src/runtime-state/workspace-state/content-addressed-workspace-cache.ts';
 import { isSecRepositoryTestModulePath } from '../../src/system-architecture/repository-modules/test-module-path.ts';
 import {
   createRepositoryTestImpactSourceProvider,
@@ -43,10 +31,6 @@ import { tsconfigRelativePath } from '../../src/workspace/runtime/paths.ts';
 
 const GIT_OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const FIXTURE_ROOT_PREFIX = 'sec-test-impact-exact-tree-';
-const REPOSITORY_COMPILATION_CACHE_REQUIREMENT =
-  'brownfield.repository-compilation-cache.test-impact-fixture';
-const REPOSITORY_COMPILATION_CACHE_DURATION_MS = 120_000;
-const REPOSITORY_COMPILATION_CACHE_BYTE_BUDGET = 1024 * 1024 * 1024;
 
 type ExactGitFixtureBase = Readonly<{
   provider: CodexDevelopmentTestImpactSourceProvider;
@@ -223,68 +207,6 @@ function writeRunnerProgram(repositoryRoot: string, testPaths: readonly string[]
   })}\n`, 'utf8');
 }
 
-function openRepositoryCompilationCacheSession(input: Readonly<{
-  repositoryRoot: string;
-  snapshot: PhysicalWorkspaceSourceSnapshot;
-  projectInput: WorkspaceTypeScriptProjectInput;
-  deadlineAtUnixMs: number;
-}>): ContentAddressedWorkspaceCacheSession {
-  const contractDigest = sha256(Object.freeze({
-    operation: 'brownfield.repository-compilation-cache',
-    physicalProvider: 'runtime-state.content-addressed-workspace-cache',
-    authority: 'non-authoritative-acceleration-only'
-  })) as SecOperationDigest;
-  const operation = bindSecSemanticOperation(compileSecSemanticOperationPlan({
-    operation: 'brownfield.repository-compilation-cache.test-impact-fixture',
-    intentDigest: sha256(Object.freeze({
-      snapshotIdentityDigest: input.snapshot.identityDigest,
-      snapshotDigest: input.snapshot.snapshotDigest,
-      moduleMembershipDigest: input.snapshot.moduleMembershipDigest,
-      moduleGraphDigest: input.snapshot.moduleGraphDigest,
-      projectInputDigest: input.projectInput.projectInputDigest,
-      projectConfigDigest: input.projectInput.projectConfigDigest,
-      dependencyGenerationDigest: input.projectInput.dependencyGenerationDigest,
-      executionConfigContainment: input.projectInput.executionConfigContainment
-    })) as SecOperationDigest,
-    decisionDigest: contractDigest,
-    deadlineAtUnixMs: input.deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest }),
-    aggregateBudgets: [
-      { resource: 'duration-ms', maximum: REPOSITORY_COMPILATION_CACHE_DURATION_MS },
-      { resource: 'input-bytes', maximum: REPOSITORY_COMPILATION_CACHE_BYTE_BUDGET },
-      { resource: 'output-bytes', maximum: REPOSITORY_COMPILATION_CACHE_BYTE_BUDGET },
-      { resource: 'records', maximum: Math.max(64, input.snapshot.files.length * 4) }
-    ],
-    requirements: [{
-      id: REPOSITORY_COMPILATION_CACHE_REQUIREMENT,
-      contractDigest,
-      effectKinds: ['filesystem'],
-      failureKinds: [
-        'cache.cancelled',
-        'cache.deadline-exhausted',
-        'cache.physical-replacement',
-        'cache.resource-budget-exhausted',
-        'cache.settlement-unproven'
-      ]
-    }]
-  }), [compileSecCapabilityBinding({
-    requirementId: REPOSITORY_COMPILATION_CACHE_REQUIREMENT,
-    contractDigest,
-    providerIdentityDigest: sha256(Object.freeze({
-      provider: 'runtime-state.content-addressed-workspace-cache',
-      repositoryRoot: path.resolve(input.repositoryRoot)
-    })) as SecOperationDigest
-  })]);
-  return openContentAddressedWorkspaceCacheSession({
-    operation,
-    requirementId: REPOSITORY_COMPILATION_CACHE_REQUIREMENT,
-    repository: inspectNoFollowDirectoryChain(
-      input.repositoryRoot,
-      'exact TestImpact repository compilation cache root'
-    ).target
-  });
-}
-
 /**
  * Runner-only fixture. Its immutable synthetic tree models test membership and
  * a clean Git index; it does not claim the repository's production source graph.
@@ -396,7 +318,7 @@ async function createExactRepositoryTestImpactProviderFixture(
 ): Promise<ExactRepositoryTestImpactProviderFixture> {
   const normalizedSourceRoot = path.resolve(sourceRepositoryRoot);
   const deadlineAtUnixMs = options.deadlineAtUnixMs
-    ?? Date.now() + REPOSITORY_COMPILATION_CACHE_DURATION_MS;
+    ?? Date.now() + DEFAULT_TEST_TIMEOUT_MS;
   observeFixturePhase(options, deadlineAtUnixMs, 'admission');
   observeFixturePhase(options, deadlineAtUnixMs, 'source-object-read');
   const sourceCommitSha = exactObjectId(
@@ -455,8 +377,7 @@ async function createExactRepositoryTestImpactProviderFixture(
       observeFixturePhase(options, deadlineAtUnixMs, 'cache-open');
       cacheSession = openRepositoryCompilationCacheSession({
         repositoryRoot: normalizedSourceRoot,
-        snapshot: workspaceSnapshot,
-        projectInput,
+        workspaceSnapshot,
         deadlineAtUnixMs
       });
       observeFixturePhase(options, deadlineAtUnixMs, 'compile');
