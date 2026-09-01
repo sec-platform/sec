@@ -75,6 +75,7 @@ import {
 } from '../../src/control/integration/merge-gate.ts';
 import { createObservedMainHealthInput } from '../../src/control/main-health/main-health-observation.ts';
 import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../src/control/main-health/provider-policy.ts';
+import type { GitHubCheckObservation } from '../../src/external-capabilities/github-read/contract.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../src/verification/action/contract/environment.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../src/verification/action/contract/provider.ts';
 import {
@@ -82,7 +83,6 @@ import {
   issueVerificationActionTestProcessIssuerForTests
 } from '../../src/verification/action/runner.ts';
 import type {
-  GitHubCheckObservation,
   GitHubWorkflowJobObservation,
   GitHubWorkflowRunObservation
 } from '../../src/verification/ci/contract/github-observation.ts';

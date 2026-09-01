@@ -2,8 +2,8 @@
 
 import { createHash } from 'node:crypto';
 
+import type { GitHubCheckObservation } from '../../external-capabilities/github-read/contract.ts';
 import { encodeVerificationActionData } from '../../verification/action/contract/action.ts';
-import type { GitHubCheckObservation } from '../../verification/ci/contract/github-observation.ts';
 import {
   createMainHealthRepairWorkPackagePath,
   DEFAULT_BRANCH_REVISION_HEALTH_PRODUCER_IDENTITY,

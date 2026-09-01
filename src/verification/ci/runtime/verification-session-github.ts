@@ -17,12 +17,12 @@ import {
   type GitHubPullRequestClosingFacts
 } from '../../../control/issues/disposition.ts';
 import { matchesCiCompilerWorkflowRunIdentity } from '../../../control/main-health/provider-policy.ts';
+import type { GitHubCheckObservation } from '../../../external-capabilities/github-read/contract.ts';
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../action/contract/provider.ts';
 import type { ReviewPrincipal, ReviewSnapshot } from '../../review/contract/stability.ts';
 import { createReviewSnapshotDigest, isCodexCleanReviewAboutBlock, isCodexCleanReviewVerdict, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY } from '../../review/contract/stability.ts';
 import type {
-  GitHubCheckObservation,
   GitHubWorkflowJobObservation,
   GitHubWorkflowJobStepObservation,
   GitHubWorkflowRunObservation

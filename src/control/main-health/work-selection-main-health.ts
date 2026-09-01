@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
 
+import type { GitHubCheckObservation } from '../../external-capabilities/github-read/contract.ts';
 import { GITHUB_API_BASE_URL } from '../../external-capabilities/github-read/contract.ts';
 import { readGitHubToken } from '../../external-capabilities/github-read/credential.ts';
 import { acquirePhysicalMutationLease, type PhysicalMutationLeaseHandle } from '../../runtime-state/physical/runtime/mutation-lease.ts';
@@ -9,7 +10,6 @@ import { resolveSecRuntimeStateForRepository } from '../../runtime-state/workspa
 import { acquireSecRuntimeStatePhysicalAuthority, type SecRuntimeStatePhysicalAuthority } from '../../runtime-state/workspace-state/physical-authority.ts';
 import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { encodeVerificationActionData } from '../../verification/action/contract/action.ts';
-import type { GitHubCheckObservation } from '../../verification/ci/contract/github-observation.ts';
 import { createTrustedRuntimeMainHealthSupersessionAuthorization, createTrustedRuntimeMainHealthSupersessionIntent, createTrustedRuntimeMainHealthSupersessionPermit, createTrustedRuntimeMainHealthSupersessionReceipt, parseTrustedRuntimeMainHealthReceipt, parseTrustedRuntimeMainHealthSupersessionIntent, parseTrustedRuntimeMainHealthSupersessionPermit, parseTrustedRuntimeMainHealthSupersessionReceipt, readTrustedRuntimeMainHealthSupersessionPayload, trustedRuntimeMainHealthSupersessionPermitBytes, trustedRuntimeMainHealthSupersessionReceiptBytes, trustedRuntimeMainHealthSupersessionRequestDigest, trustedRuntimeMainHealthSupersessionStatusRequest, type TrustedRuntimeMainHealthSupersessionAuthorization, type TrustedRuntimeMainHealthSupersessionIntent, type TrustedRuntimeMainHealthSupersessionPermit, type TrustedRuntimeMainHealthSupersessionReceipt, type TrustedRuntimeOpaqueDomainPayload } from '../../verification/trusted-runtime/trusted-runtime-container.ts';
 import { dispatchGitHubApiRequest } from '../integration/integration-authorization-status-github.ts';
 import type {
