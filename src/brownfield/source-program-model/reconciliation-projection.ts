@@ -920,12 +920,8 @@ export function compileSourceProgramReconciliationProjection(
   }
   const changedPaths = new Set(changes.flatMap(({ before, after }) => [before?.path, after?.path]
     .filter((path): path is string => path !== undefined)));
-  const beforeFileDigests = new Map(input.before.model.files.map(({ path, contentDigest }) => (
-    [path, contentDigest] as const
-  )));
-  const afterFileDigests = new Map(input.after.model.files.map(({ path, contentDigest }) => (
-    [path, contentDigest] as const
-  )));
+  const beforeFileDigests = new Map(Object.entries(input.before.semanticSourceDigests));
+  const afterFileDigests = new Map(Object.entries(input.after.semanticSourceDigests));
   const changedSourcePaths = new Set([...new Set([
     ...beforeFileDigests.keys(),
     ...afterFileDigests.keys()
