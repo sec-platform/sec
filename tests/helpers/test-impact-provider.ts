@@ -372,7 +372,10 @@ async function createExactRepositoryTestImpactProviderFixture(
       const projectInput = compileWorkspaceTypeScriptProjectInput(
         workspaceSnapshot,
         tsconfigRelativePath,
-        { dependencyGeneration: retainedDependency.physicalGeneration }
+        {
+          dependencyGeneration: retainedDependency.physicalGeneration,
+          dependencyGenerationDigest: retainedDependency.generationDigest
+        }
       );
       observeFixturePhase(options, deadlineAtUnixMs, 'cache-open');
       cacheSession = openRepositoryCompilationCacheSession({
