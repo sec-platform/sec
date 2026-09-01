@@ -4,6 +4,12 @@ import ts from 'typescript';
 
 import { compareCodeUnits, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { compileSecRepositoryModuleGraph, normalizeSecRepositoryPath, resolveSecRepositoryModuleImportCandidates, type SecRepositoryModuleMembership } from '../../system-architecture/repository-modules/contract.ts';
+import {
+  resolveSourceProgramCompilationOperation,
+  sourceProgramCompilationCheckpoint,
+  type SourceProgramCompilationOperation,
+  type SourceProgramCompilationPhase
+} from './compilation-operation.ts';
 import type {
   SourceProgramCapabilityInvocation,
   SourceProgramDeclaration,
@@ -17,6 +23,8 @@ import type {
   SourceProgramQueryResult,
   SourceProgramReference,
   SourceProgramReferenceKind,
+  SourceProgramReturnProvenance,
+  SourceProgramReturnValueProvenance,
   SourceProgramSpan,
   SourceProgramUnknown
 } from './contract.ts';
@@ -33,10 +41,29 @@ export interface CompileTypeScriptSourceProgramModelInput {
   readonly sourceRevision: string;
   readonly files: readonly SourceProgramFileInput[];
   readonly moduleMembership: SecRepositoryModuleMembership;
+  readonly operation?: SourceProgramCompilationOperation;
 }
 
 type CompileTypeScriptSourceProgramModelInternalInput = CompileTypeScriptSourceProgramModelInput & Readonly<{
   repositoryCompilation?: WorkspaceSourceSnapshot;
+  sourceFileIdentities?: ReadonlyMap<string, TypeScriptSourceProgramFileIdentity>;
+}>;
+
+const preparedTypeScriptSourceProgramInputBrand: unique symbol = Symbol(
+  'prepared-typescript-source-program-input'
+);
+const issuedPreparedTypeScriptSourceProgramInputs = new WeakSet<object>();
+
+type PreparedTypeScriptSourceProgramModelInput = CompileTypeScriptSourceProgramModelInternalInput & Readonly<{
+  readonly [preparedTypeScriptSourceProgramInputBrand]: true;
+  readonly operation: SourceProgramCompilationOperation;
+  sourceFileIdentities: ReadonlyMap<string, TypeScriptSourceProgramFileIdentity>;
+}>;
+
+type TypeScriptSourceProgramFileIdentity = Readonly<{
+  file: SourceProgramFileInput;
+  moduleDigest: `sha256:${string}`;
+  rawFileDigest: `sha256:${string}`;
 }>;
 
 export const SOURCE_PROGRAM_TYPESCRIPT_COMPILER_PATH =
@@ -89,6 +116,66 @@ const typeScriptIncrementalStateBrand: unique symbol = Symbol('typescript-source
 const issuedTypeScriptIncrementalStates = new WeakSet<object>();
 const typeScriptCompilerIdentityBrand: unique symbol = Symbol('typescript-source-program-compiler-identity');
 const issuedTypeScriptCompilerIdentities = new WeakSet<object>();
+const typeScriptSourceProgramPerformance = {
+  dependencyAdjacencyLookups: 0,
+  dependencyReferenceVisits: 0,
+  rawSourceHashBytes: 0,
+  rawSourceHashOperations: 0,
+  semanticScopeParseOperations: 0
+};
+
+export interface TypeScriptSourceProgramPerformanceObservation {
+  readonly dependencyAdjacencyLookups: number;
+  readonly dependencyReferenceVisits: number;
+  readonly rawSourceHashBytes: number;
+  readonly rawSourceHashOperations: number;
+  readonly semanticScopeParseOperations: number;
+}
+
+/** Monotonic process-local diagnostics for focused performance tests only. */
+export function observeTypeScriptSourceProgramPerformanceForTests():
+TypeScriptSourceProgramPerformanceObservation {
+  return Object.freeze({ ...typeScriptSourceProgramPerformance });
+}
+const typeScriptRequiredApiClosureBrand: unique symbol = Symbol('typescript-required-api-closure');
+const issuedTypeScriptRequiredApiClosures = new WeakSet<object>();
+
+export interface SourceProgramTypeScriptApiRequirement {
+  readonly apiPath: string;
+  readonly consumerPaths: readonly string[];
+  readonly space: 'type' | 'value';
+  readonly usageCount: number;
+}
+
+export interface SourceProgramTypeScriptApiUnknown {
+  readonly code:
+    | 'typescript-api-member-unresolved'
+    | 'typescript-computed-api-unresolved'
+    | 'typescript-import-unresolved'
+    | 'typescript-namespace-escape'
+    | 'typescript-unstable-entrypoint';
+  readonly detail: string;
+  readonly path: string;
+}
+
+export interface SourceProgramTypeScriptRequiredApiClosure {
+  readonly [typeScriptRequiredApiClosureBrand]: true;
+  readonly authoringDependencyGenerationDigest: `sha256:${string}`;
+  readonly authoringPackageName: 'typescript';
+  readonly authoringProviderRevision: string;
+  readonly closureDigest: `sha256:${string}`;
+  readonly requirements: readonly SourceProgramTypeScriptApiRequirement[];
+  readonly sourceRevision: string;
+  readonly unknowns: readonly SourceProgramTypeScriptApiUnknown[];
+}
+
+export function assertSourceProgramTypeScriptRequiredApiClosure(
+  closure: SourceProgramTypeScriptRequiredApiClosure
+): void {
+  if (!issuedTypeScriptRequiredApiClosures.has(closure)) {
+    throw new Error('TypeScript required API closure is not Source Program issued');
+  }
+}
 
 export function workspaceSourceSnapshotIdentityForTypeScriptModel(
   model: SourceProgramModel
@@ -254,6 +341,7 @@ class TypeScriptSourceProgramWorkspace {
     version: number;
   }>>();
   #canonicalByAbsolute = new Map<string, string>();
+  #operation: SourceProgramCompilationOperation | null = null;
   #projectVersion = 0;
 
   constructor(repositoryRoot: string) {
@@ -270,6 +358,7 @@ class TypeScriptSourceProgramWorkspace {
         .sort(compareCodeUnits)
         .map((repositoryPathValue) => path.resolve(this.#repositoryRoot, repositoryPathValue)),
       getScriptSnapshot: (fileName) => {
+        this.#checkpoint('program-materialization');
         const repositoryPathValue = this.#repositoryPath(fileName);
         if (repositoryPathValue !== null) return this.#files.get(repositoryPathValue)?.snapshot;
         const source = ts.sys.readFile(fileName);
@@ -290,6 +379,7 @@ class TypeScriptSourceProgramWorkspace {
       },
       realpath: ts.sys.realpath,
       resolveModuleNames: (moduleNames, containingFile) => moduleNames.map((moduleName) => {
+        this.#checkpoint('program-materialization');
         const containingRepositoryPath = this.#repositoryPath(containingFile);
         if (containingRepositoryPath !== null && moduleName.startsWith('.')) {
           const targetPath = resolveSecRepositoryModuleImportCandidates(
@@ -309,7 +399,7 @@ class TypeScriptSourceProgramWorkspace {
         // duplicates the canonical TypeScript checker and turns one repository
         // audit into an unbounded node_modules census. External packages remain
         // explicit opaque dependencies in the model compiled below.
-        if (containingRepositoryPath !== null) return undefined;
+        if (containingRepositoryPath !== null && moduleName !== 'typescript') return undefined;
         return ts.resolveModuleName(
           moduleName,
           containingFile,
@@ -322,7 +412,13 @@ class TypeScriptSourceProgramWorkspace {
     this.#service = ts.createLanguageService(host, ts.createDocumentRegistry());
   }
 
-  compile(filesByPath: ReadonlyMap<string, SourceProgramFileInput>): ExactTypeScriptProgram {
+  compile(
+    filesByPath: ReadonlyMap<string, SourceProgramFileInput>,
+    sourceFileIdentities: ReadonlyMap<string, TypeScriptSourceProgramFileIdentity>,
+    operation: SourceProgramCompilationOperation
+  ): ExactTypeScriptProgram {
+    this.#operation = operation;
+    sourceProgramCompilationCheckpoint(operation, 'program-materialization', 'start');
     const nextPaths = new Set(filesByPath.keys());
     let changed = false;
     for (const repositoryPathValue of this.#files.keys()) {
@@ -332,7 +428,10 @@ class TypeScriptSourceProgramWorkspace {
     }
     for (const [repositoryPathValue, file] of filesByPath) {
       const current = this.#files.get(repositoryPathValue);
-      const identityDigest = sourceProgramFileSnapshotDigest(file);
+      const identityDigest = sourceFileIdentities.get(repositoryPathValue)?.rawFileDigest;
+      if (identityDigest === undefined) {
+        throw new Error(`TypeScript Program file identity is absent: ${repositoryPathValue}`);
+      }
       if (current?.identityDigest === identityDigest) continue;
       this.#files.set(repositoryPathValue, Object.freeze({
         identityDigest,
@@ -363,6 +462,7 @@ class TypeScriptSourceProgramWorkspace {
         `TypeScript Program omitted exact repository roots: expected ${rootNames.length}, got ${sourceFiles.length}`
       );
     }
+    sourceProgramCompilationCheckpoint(operation, 'program-materialization', 'complete');
     return Object.freeze({
       checker: program.getTypeChecker(),
       program,
@@ -393,6 +493,10 @@ class TypeScriptSourceProgramWorkspace {
   #repositoryPath(fileName: string): string | null {
     return this.#canonicalByAbsolute.get(this.#absoluteKey(path.resolve(fileName))) ?? null;
   }
+
+  #checkpoint(phase: SourceProgramCompilationPhase): void {
+    if (this.#operation !== null) sourceProgramCompilationCheckpoint(this.#operation, phase);
+  }
 }
 
 let activeTypeScriptWorkspace: TypeScriptSourceProgramWorkspace | null = null;
@@ -413,15 +517,78 @@ function canonicalTypeScriptFile(raw: SourceProgramFileInput): SourceProgramFile
   return Object.freeze({ ...raw, path: repositoryPathValue });
 }
 
-function sourceProgramFileSnapshotDigest(file: SourceProgramFileInput): string {
+function sourceProgramFileSnapshotDigest(
+  file: SourceProgramFileInput,
+  sourceDigest?: string
+): `sha256:${string}` {
+  let exactSourceDigest = sourceDigest;
+  if (exactSourceDigest === undefined) {
+    typeScriptSourceProgramPerformance.rawSourceHashOperations += 1;
+    typeScriptSourceProgramPerformance.rawSourceHashBytes += Buffer.byteLength(file.source, 'utf8');
+    exactSourceDigest = rawSha256(file.source);
+  }
   return sha256({
     declaredContentDigest: file.contentDigest,
-    sourceDigest: rawSha256(file.source)
+    sourceDigest: exactSourceDigest
+  }) as `sha256:${string}`;
+}
+
+function prepareTypeScriptSourceProgramInput(
+  input: CompileTypeScriptSourceProgramModelInternalInput
+): PreparedTypeScriptSourceProgramModelInput {
+  if (issuedPreparedTypeScriptSourceProgramInputs.has(input)) {
+    return input as PreparedTypeScriptSourceProgramModelInput;
+  }
+  const operation = resolveSourceProgramCompilationOperation(input.operation);
+  sourceProgramCompilationCheckpoint(operation, 'admission');
+  input.repositoryCompilation?.assertMatches(input);
+  const trustedSnapshot = input.repositoryCompilation;
+  const identities = new Map<string, TypeScriptSourceProgramFileIdentity>();
+  for (const raw of input.files) {
+    const surface = sourceProgramSurfaceForPath(raw.path);
+    if (!SOURCE_EXTENSION.test(raw.path)
+        || (surface !== 'production' && surface !== 'test')) continue;
+    const file = canonicalTypeScriptFile(raw);
+    if (identities.has(file.path)) {
+      throw new Error(`Source Program Model snapshot contains duplicate path: ${file.path}`);
+    }
+    const trustedFile = trustedSnapshot?.file(file.path) ?? null;
+    if (trustedSnapshot !== undefined && (
+      trustedFile === null || trustedFile.contentDigest !== file.contentDigest
+    )) {
+      throw new Error(`Workspace Source Program file identity is unavailable: ${file.path}`);
+    }
+    identities.set(file.path, Object.freeze({
+      file,
+      moduleDigest: sha256(input.moduleMembership.moduleForPath(file.path)) as `sha256:${string}`,
+      rawFileDigest: sourceProgramFileSnapshotDigest(
+        file,
+        trustedSnapshot === undefined ? undefined : file.contentDigest
+      )
+    }));
+  }
+  return issuePreparedTypeScriptSourceProgramInput({ ...input, operation }, identities);
+}
+
+function issuePreparedTypeScriptSourceProgramInput(
+  input: CompileTypeScriptSourceProgramModelInternalInput & Readonly<{
+    operation: SourceProgramCompilationOperation;
+  }>,
+  sourceFileIdentities: ReadonlyMap<string, TypeScriptSourceProgramFileIdentity>
+): PreparedTypeScriptSourceProgramModelInput {
+  const prepared = Object.freeze({
+    ...input,
+    [preparedTypeScriptSourceProgramInputBrand]: true as const,
+    sourceFileIdentities
   });
+  issuedPreparedTypeScriptSourceProgramInputs.add(prepared);
+  return prepared;
 }
 
 function compileExactTypeScriptProgram(
-  filesByPath: ReadonlyMap<string, SourceProgramFileInput>
+  filesByPath: ReadonlyMap<string, SourceProgramFileInput>,
+  sourceFileIdentities: ReadonlyMap<string, TypeScriptSourceProgramFileIdentity>,
+  operation: SourceProgramCompilationOperation
 ): ExactTypeScriptProgram {
   const repositoryRoot = process.cwd();
   if (activeTypeScriptWorkspace === null || activeTypeScriptWorkspaceRoot !== repositoryRoot) {
@@ -429,7 +596,255 @@ function compileExactTypeScriptProgram(
     activeTypeScriptWorkspace = new TypeScriptSourceProgramWorkspace(repositoryRoot);
     activeTypeScriptWorkspaceRoot = repositoryRoot;
   }
-  return activeTypeScriptWorkspace.compile(filesByPath);
+  return activeTypeScriptWorkspace.compile(filesByPath, sourceFileIdentities, operation);
+}
+
+type TypeScriptImportBinding = Readonly<{
+  exportName: string | null;
+  localSymbol: ts.Symbol;
+}>;
+
+function typeScriptApiUseSpace(node: ts.Node): 'type' | 'value' {
+  let current: ts.Node | undefined = node;
+  while (current !== undefined && !ts.isStatement(current) && !ts.isSourceFile(current)) {
+    if (ts.isTypeNode(current)) return 'type';
+    current = current.parent;
+  }
+  return 'value';
+}
+
+function typeScriptStaticAccess(
+  node: ts.Node,
+  checker: ts.TypeChecker,
+  bindings: ReadonlyMap<ts.Symbol, TypeScriptImportBinding>
+): Readonly<{
+  binding: TypeScriptImportBinding;
+  segments: readonly string[];
+  terminal: ts.Node;
+}> | null {
+  if (ts.isIdentifier(node)) {
+    const symbol = checker.getSymbolAtLocation(node);
+    const binding = symbol === undefined ? undefined : bindings.get(symbol);
+    return binding === undefined ? null : Object.freeze({ binding, segments: Object.freeze([]), terminal: node });
+  }
+  if (ts.isPropertyAccessExpression(node)) {
+    const parent = typeScriptStaticAccess(node.expression, checker, bindings);
+    return parent === null ? null : Object.freeze({
+      binding: parent.binding,
+      segments: Object.freeze([...parent.segments, node.name.text]),
+      terminal: node.name
+    });
+  }
+  if (ts.isElementAccessExpression(node) && ts.isStringLiteralLike(node.argumentExpression)) {
+    const parent = typeScriptStaticAccess(node.expression, checker, bindings);
+    return parent === null ? null : Object.freeze({
+      binding: parent.binding,
+      segments: Object.freeze([...parent.segments, node.argumentExpression.text]),
+      terminal: node.argumentExpression
+    });
+  }
+  if (ts.isQualifiedName(node)) {
+    const parent = typeScriptStaticAccess(node.left, checker, bindings);
+    return parent === null ? null : Object.freeze({
+      binding: parent.binding,
+      segments: Object.freeze([...parent.segments, node.right.text]),
+      terminal: node.right
+    });
+  }
+  return null;
+}
+
+function typeScriptAccessContinues(node: ts.Node): boolean {
+  const parent = node.parent;
+  return (ts.isPropertyAccessExpression(parent) && parent.expression === node)
+    || (ts.isElementAccessExpression(parent) && parent.expression === node)
+    || (ts.isQualifiedName(parent) && parent.left === node);
+}
+
+function isTypeScriptImportBindingIdentifier(node: ts.Node): boolean {
+  return ts.isIdentifier(node) && (
+    ts.isImportClause(node.parent)
+    || ts.isNamespaceImport(node.parent)
+    || ts.isImportSpecifier(node.parent)
+  );
+}
+
+function resolvedTypeScriptApiSymbol(
+  node: ts.Node,
+  checker: ts.TypeChecker
+): ts.Symbol | null {
+  let symbol = checker.getSymbolAtLocation(node);
+  if (symbol === undefined && ts.isStringLiteralLike(node) && ts.isElementAccessExpression(node.parent)) {
+    symbol = checker.getTypeAtLocation(node.parent.expression).getProperty(node.text);
+  }
+  if (symbol === undefined) return null;
+  if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
+    symbol = checker.getAliasedSymbol(symbol);
+  }
+  const declarations = symbol.declarations ?? [];
+  return declarations.some((declaration) => declaration.getSourceFile().isDeclarationFile)
+    ? symbol
+    : null;
+}
+
+function compileTypeScriptRequiredApiClosure(
+  exact: ExactTypeScriptProgram,
+  sourceRevision: string,
+  operation: SourceProgramCompilationOperation
+): SourceProgramTypeScriptRequiredApiClosure {
+  sourceProgramCompilationCheckpoint(operation, 'required-api-closure', 'start');
+  const requirements = new Map<string, {
+    apiPath: string;
+    consumers: Set<string>;
+    space: 'type' | 'value';
+    usageCount: number;
+  }>();
+  const unknowns = new Map<string, SourceProgramTypeScriptApiUnknown>();
+  const pushUnknown = (unknown: SourceProgramTypeScriptApiUnknown): void => {
+    unknowns.set(sha256(unknown), Object.freeze(unknown));
+  };
+
+  for (const sourceFile of exact.sourceFiles) {
+    sourceProgramCompilationCheckpoint(operation, 'required-api-closure');
+    const sourcePath = exact.repositoryPath(sourceFile);
+    if (sourceProgramSurfaceForPath(sourcePath) !== 'production') continue;
+    const bindings = new Map<ts.Symbol, TypeScriptImportBinding>();
+    for (const statement of sourceFile.statements) {
+      if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier)) continue;
+      const moduleSpecifier = statement.moduleSpecifier.text;
+      if (moduleSpecifier !== 'typescript') {
+        if (moduleSpecifier.startsWith('typescript/')) {
+          pushUnknown({
+            code: 'typescript-unstable-entrypoint',
+            detail: moduleSpecifier,
+            path: sourcePath
+          });
+        }
+        continue;
+      }
+      const importClause = statement.importClause;
+      if (importClause === undefined) {
+        pushUnknown({
+          code: 'typescript-import-unresolved',
+          detail: 'side-effect import has no API binding',
+          path: sourcePath
+        });
+        continue;
+      }
+      const addBinding = (identifier: ts.Identifier, exportName: string | null): void => {
+        const localSymbol = exact.checker.getSymbolAtLocation(identifier);
+        if (localSymbol === undefined) {
+          pushUnknown({
+            code: 'typescript-import-unresolved',
+            detail: identifier.text,
+            path: sourcePath
+          });
+          return;
+        }
+        bindings.set(localSymbol, Object.freeze({ exportName, localSymbol }));
+      };
+      if (importClause.name !== undefined) addBinding(importClause.name, null);
+      const namedBindings = importClause.namedBindings;
+      if (namedBindings !== undefined && ts.isNamespaceImport(namedBindings)) {
+        addBinding(namedBindings.name, null);
+      } else if (namedBindings !== undefined) {
+        for (const element of namedBindings.elements) {
+          addBinding(element.name, (element.propertyName ?? element.name).text);
+        }
+      }
+    }
+    // Only files with an admitted `typescript` binding can contribute API
+    // member observations. Scanning every production AST here duplicated the
+    // full semantic observation walk for the overwhelmingly common no-binding
+    // case.
+    if (bindings.size === 0) continue;
+
+    let visitedNodes = 0;
+    const visit = (node: ts.Node): void => {
+      if ((visitedNodes++ & 1023) === 0) {
+        sourceProgramCompilationCheckpoint(operation, 'required-api-closure');
+      }
+      if (ts.isElementAccessExpression(node)
+          && !ts.isStringLiteralLike(node.argumentExpression)
+          && typeScriptStaticAccess(node.expression, exact.checker, bindings) !== null) {
+        pushUnknown({
+          code: 'typescript-computed-api-unresolved',
+          detail: node.argumentExpression.getText(sourceFile).slice(0, 256),
+          path: sourcePath
+        });
+      }
+      const access = typeScriptStaticAccess(node, exact.checker, bindings);
+      if (access !== null && !typeScriptAccessContinues(node) && !isTypeScriptImportBindingIdentifier(node)) {
+        if (access.binding.exportName === null && access.segments.length === 0) {
+          pushUnknown({
+            code: 'typescript-namespace-escape',
+            detail: node.getText(sourceFile).slice(0, 256),
+            path: sourcePath
+          });
+        } else {
+          const apiPath = [access.binding.exportName, ...access.segments]
+            .filter((segment): segment is string => segment !== null)
+            .join('.');
+          const resolved = resolvedTypeScriptApiSymbol(access.terminal, exact.checker);
+          if (apiPath.length === 0 || resolved === null) {
+            pushUnknown({
+              code: 'typescript-api-member-unresolved',
+              detail: apiPath || node.getText(sourceFile).slice(0, 256),
+              path: sourcePath
+            });
+          } else {
+            const space = typeScriptApiUseSpace(node);
+            const key = `${space}\0${apiPath}`;
+            const current = requirements.get(key);
+            if (current === undefined) {
+              requirements.set(key, {
+                apiPath,
+                consumers: new Set([sourcePath]),
+                space,
+                usageCount: 1
+              });
+            } else {
+              current.consumers.add(sourcePath);
+              current.usageCount += 1;
+            }
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+  }
+
+  const canonicalRequirements = Object.freeze([...requirements.values()]
+    .map(({ consumers, ...requirement }) => Object.freeze({
+      ...requirement,
+      consumerPaths: Object.freeze([...consumers].sort(compareCodeUnits))
+    }))
+    .sort((left, right) => compareCodeUnits(
+      `${left.space}\0${left.apiPath}`,
+      `${right.space}\0${right.apiPath}`
+    )));
+  const canonicalUnknowns = Object.freeze([...unknowns.values()].sort((left, right) =>
+    compareCodeUnits(
+      `${left.path}\0${left.code}\0${left.detail}`,
+      `${right.path}\0${right.code}\0${right.detail}`
+    )));
+  const projection = Object.freeze({
+    authoringDependencyGenerationDigest: TYPESCRIPT_WORKSPACE_DEPENDENCY_GENERATION_DIGEST as `sha256:${string}`,
+    authoringPackageName: 'typescript' as const,
+    authoringProviderRevision: ts.version,
+    requirements: canonicalRequirements,
+    sourceRevision,
+    unknowns: canonicalUnknowns
+  });
+  const closure = Object.freeze({
+    [typeScriptRequiredApiClosureBrand]: true as const,
+    ...projection,
+    closureDigest: sha256(projection) as `sha256:${string}`
+  });
+  issuedTypeScriptRequiredApiClosures.add(closure);
+  sourceProgramCompilationCheckpoint(operation, 'required-api-closure', 'complete');
+  return closure;
 }
 
 function diagnosticCategory(category: ts.DiagnosticCategory): SourceProgramTypeScriptDiagnosticEvidence['category'] {
@@ -460,7 +875,19 @@ export function compileSourceProgramTypeScriptDiagnosticSnapshot(input: Readonly
     }
     filesByPath.set(file.path, file);
   }
-  const exact = compileExactTypeScriptProgram(filesByPath);
+  const sourceFileIdentities = new Map([...filesByPath].map(([repositoryPathValue, file]) => [
+    repositoryPathValue,
+    Object.freeze({
+      file,
+      moduleDigest: sha256(null) as `sha256:${string}`,
+      rawFileDigest: sourceProgramFileSnapshotDigest(file)
+    })
+  ] as const));
+  const exact = compileExactTypeScriptProgram(
+    filesByPath,
+    sourceFileIdentities,
+    resolveSourceProgramCompilationOperation()
+  );
   const diagnostics = exact.sourceFiles.flatMap((sourceFile) => [
     ...exact.program.getSyntacticDiagnostics(sourceFile),
     ...exact.program.getSemanticDiagnostics(sourceFile)
@@ -582,6 +1009,284 @@ function literalContext(node: ts.Node): Readonly<{
   return Object.freeze({ context: 'literal', owner: null });
 }
 
+type ReturnProvenanceValues = readonly SourceProgramReturnValueProvenance[];
+
+const OPAQUE_RETURN_PROVENANCE = Object.freeze({ kind: 'opaque' as const });
+const LITERAL_RETURN_PROVENANCE = Object.freeze({ kind: 'literal' as const });
+const MAX_RETURN_PROVENANCE_VALUES = 32;
+const MAX_RETURN_PROVENANCE_ARGUMENTS = 32;
+const MAX_RETURN_PROVENANCE_ARGUMENT_VALUES = 8;
+const currentExactReturnProvenancesByModel = new WeakMap<
+  object,
+  readonly SourceProgramReturnProvenance[]
+>();
+export interface SourceProgramTypeScriptExactFactGenerationReceipt {
+  apiClosureDigest: `sha256:${string}`;
+  semanticInputDigest: `sha256:${string}`;
+  observationInputDigest: `sha256:${string}`;
+  provenanceDigest: `sha256:${string}`;
+}
+type TypeScriptExactFactGenerationReceipt = Readonly<
+  SourceProgramTypeScriptExactFactGenerationReceipt & {
+  apiClosure: SourceProgramTypeScriptRequiredApiClosure;
+  returnProvenances: readonly SourceProgramReturnProvenance[];
+  sourceFiles: ReadonlyMap<string, ts.SourceFile>;
+}>;
+const exactFactGenerationByModel = new WeakMap<object, TypeScriptExactFactGenerationReceipt>();
+
+/** Shards alone are hints; only an exact Program or exact fact-generation receipt is causal. */
+export function sourceProgramCurrentExactReturnProvenances(
+  model: SourceProgramModel
+): readonly SourceProgramReturnProvenance[] | null {
+  return currentExactReturnProvenancesByModel.get(model) ?? null;
+}
+
+/** Exact syntax belongs to the same live TypeChecker generation; consumers cannot reparse bytes. */
+export function sourceProgramTypeScriptSourceFile(
+  model: SourceProgramModel,
+  repositoryPath: string
+): ts.SourceFile | null {
+  return exactFactGenerationByModel.get(model)?.sourceFiles.get(repositoryPath) ?? null;
+}
+
+/** One exact semantic generation owns both reusable facts and causal provenance. */
+export function sourceProgramTypeScriptExactFactGenerationReceipt(
+  model: SourceProgramModel
+): SourceProgramTypeScriptExactFactGenerationReceipt | null {
+  const receipt = exactFactGenerationByModel.get(model);
+  if (receipt === undefined) return null;
+  const {
+    apiClosure: _apiClosure,
+    returnProvenances: _returnProvenances,
+    sourceFiles: _sourceFiles,
+    ...projection
+  } = receipt;
+  return Object.freeze(projection);
+}
+
+export function sourceProgramTypeScriptRequiredApiClosure(
+  model: SourceProgramModel
+): SourceProgramTypeScriptRequiredApiClosure | null {
+  return exactFactGenerationByModel.get(model)?.apiClosure ?? null;
+}
+
+function typeScriptExactFactGenerationIdentity(
+  input: PreparedTypeScriptSourceProgramModelInput
+): Readonly<{
+  semanticInputDigest: `sha256:${string}`;
+  observationInputDigest: `sha256:${string}`;
+}> {
+  const sourceFacts = [...input.sourceFileIdentities.values()]
+    .sort((left, right) => compareCodeUnits(left.file.path, right.file.path))
+    .map(({ file, rawFileDigest, moduleDigest }) => Object.freeze({
+      path: file.path,
+      rawFileDigest,
+      moduleDigest
+    }));
+  const semanticInputDigest = sha256(Object.freeze({
+    compilerRevision: TYPESCRIPT_SOURCE_PROGRAM_COMPILER_REVISION,
+    sourceFacts
+  })) as `sha256:${string}`;
+  return Object.freeze({
+    semanticInputDigest,
+    observationInputDigest: sha256(Object.freeze({
+      semanticInputDigest,
+      sourceRevision: input.sourceRevision,
+      workspaceSnapshotIdentityDigest: input.repositoryCompilation?.identityDigest ?? null
+    })) as `sha256:${string}`
+  });
+}
+
+function issueTypeScriptExactFactGeneration(
+  model: SourceProgramModel,
+  input: PreparedTypeScriptSourceProgramModelInput,
+  apiClosure: SourceProgramTypeScriptRequiredApiClosure,
+  returnProvenances: readonly SourceProgramReturnProvenance[],
+  sourceFiles: ReadonlyMap<string, ts.SourceFile>
+): SourceProgramModel {
+  assertSourceProgramTypeScriptRequiredApiClosure(apiClosure);
+  const identity = typeScriptExactFactGenerationIdentity(input);
+  const canonicalProvenances = Object.freeze([...returnProvenances]);
+  const receipt = Object.freeze({
+    ...identity,
+    apiClosure,
+    apiClosureDigest: apiClosure.closureDigest,
+    provenanceDigest: sha256(canonicalProvenances) as `sha256:${string}`,
+    returnProvenances: canonicalProvenances,
+    sourceFiles
+  });
+  exactFactGenerationByModel.set(model, receipt);
+  currentExactReturnProvenancesByModel.set(model, receipt.returnProvenances);
+  return model;
+}
+
+function canonicalReturnProvenanceValues(
+  values: readonly SourceProgramReturnValueProvenance[]
+): ReturnProvenanceValues {
+  const canonical = [...new Map(values.map((value) => [sha256(value), value] as const))
+    .values()].sort((left, right) => compareCodeUnits(sha256(left), sha256(right)));
+  return canonical.length <= MAX_RETURN_PROVENANCE_VALUES
+    ? Object.freeze(canonical)
+    : Object.freeze([OPAQUE_RETURN_PROVENANCE]);
+}
+
+function functionLikeForReturnProvenance(node: ts.Node): ts.FunctionLikeDeclaration | null {
+  if (ts.isFunctionDeclaration(node)
+      || ts.isMethodDeclaration(node)
+      || ts.isGetAccessorDeclaration(node)
+      || ts.isSetAccessorDeclaration(node)
+      || ts.isConstructorDeclaration(node)
+      || ts.isFunctionExpression(node)
+      || ts.isArrowFunction(node)) return node;
+  if (ts.isVariableDeclaration(node)
+      && node.initializer !== undefined
+      && (ts.isFunctionExpression(node.initializer) || ts.isArrowFunction(node.initializer))) {
+    return node.initializer;
+  }
+  return null;
+}
+
+function unwrapReturnProvenanceExpression(expression: ts.Expression): ts.Expression {
+  let current = expression;
+  while (ts.isParenthesizedExpression(current)
+      || ts.isAsExpression(current)
+      || ts.isTypeAssertionExpression(current)
+      || ts.isNonNullExpression(current)
+      || ts.isSatisfiesExpression(current)
+      || ts.isAwaitExpression(current)) {
+    current = current.expression;
+  }
+  return current;
+}
+
+function compileSourceProgramReturnProvenance(input: Readonly<{
+  checker: ts.TypeChecker;
+  declaration: SourceProgramDeclaration;
+  declarationNode: ts.Node;
+  semanticDeclarationAt(node: ts.Node): SourceProgramDeclaration | null;
+}>): SourceProgramReturnProvenance | null {
+  const functionLike = functionLikeForReturnProvenance(input.declarationNode);
+  if (functionLike === null) return null;
+  const body = functionLike.body;
+  if (body === undefined) {
+    return Object.freeze({
+      path: input.declaration.path,
+      declarationObservationId: input.declaration.observationId,
+      normalReturns: Object.freeze([OPAQUE_RETURN_PROVENANCE])
+    });
+  }
+
+  const parameterBySymbol = new Map<ts.Symbol, number>();
+  functionLike.parameters.forEach((parameter, index) => {
+    if (!ts.isIdentifier(parameter.name)) return;
+    const symbol = input.checker.getSymbolAtLocation(parameter.name);
+    if (symbol !== undefined) parameterBySymbol.set(symbol, index);
+  });
+  const symbolFor = (name: ts.Identifier): ts.Symbol | null =>
+    input.checker.getSymbolAtLocation(name) ?? null;
+  const activeConstSymbols = new Set<ts.Symbol>();
+  const expressionValues = (
+    rawExpression: ts.Expression
+  ): ReturnProvenanceValues => {
+    const expression = unwrapReturnProvenanceExpression(rawExpression);
+    if (ts.isConditionalExpression(expression)) {
+      return canonicalReturnProvenanceValues([
+        ...expressionValues(expression.whenTrue),
+        ...expressionValues(expression.whenFalse)
+      ]);
+    }
+    if (ts.isStringLiteralLike(expression)
+        || ts.isNumericLiteral(expression)
+        || ts.isBigIntLiteral(expression)
+        || expression.kind === ts.SyntaxKind.TrueKeyword
+        || expression.kind === ts.SyntaxKind.FalseKeyword
+        || expression.kind === ts.SyntaxKind.NullKeyword) {
+      return Object.freeze([LITERAL_RETURN_PROVENANCE]);
+    }
+    if (ts.isIdentifier(expression)) {
+      if (expression.text === 'undefined') return Object.freeze([LITERAL_RETURN_PROVENANCE]);
+      const symbol = symbolFor(expression);
+      if (symbol === null) return Object.freeze([OPAQUE_RETURN_PROVENANCE]);
+      const parameterIndex = parameterBySymbol.get(symbol);
+      if (parameterIndex !== undefined) {
+        return Object.freeze([Object.freeze({ kind: 'parameter' as const, index: parameterIndex })]);
+      }
+      if (activeConstSymbols.has(symbol)) return Object.freeze([OPAQUE_RETURN_PROVENANCE]);
+      const declarations = symbol.declarations ?? [];
+      if (declarations.length !== 1 || !ts.isVariableDeclaration(declarations[0])) {
+        return Object.freeze([OPAQUE_RETURN_PROVENANCE]);
+      }
+      const declaration = declarations[0];
+      const declarationList = declaration.parent;
+      if (!ts.isVariableDeclarationList(declarationList)
+          || (declarationList.flags & ts.NodeFlags.Const) === 0
+          || declaration.initializer === undefined
+          || declaration.getStart() >= expression.getStart()) {
+        return Object.freeze([OPAQUE_RETURN_PROVENANCE]);
+      }
+      let owner: ts.Node | undefined = declaration;
+      while (owner !== undefined && owner !== functionLike && !ts.isFunctionLike(owner)) {
+        owner = owner.parent;
+      }
+      if (owner !== functionLike) return Object.freeze([OPAQUE_RETURN_PROVENANCE]);
+      activeConstSymbols.add(symbol);
+      const resolved = expressionValues(declaration.initializer);
+      activeConstSymbols.delete(symbol);
+      return resolved;
+    }
+    if (ts.isCallExpression(expression)) {
+      if (expression.questionDotToken !== undefined || expression.arguments.some(ts.isSpreadElement)) {
+        return Object.freeze([OPAQUE_RETURN_PROVENANCE]);
+      }
+      const callee = unwrapReturnProvenanceExpression(expression.expression);
+      const targetNode = ts.isPropertyAccessExpression(callee) ? callee.name : callee;
+      const target = input.semanticDeclarationAt(targetNode);
+      if (target === null) return Object.freeze([OPAQUE_RETURN_PROVENANCE]);
+      if (expression.arguments.length > MAX_RETURN_PROVENANCE_ARGUMENTS) {
+        return Object.freeze([OPAQUE_RETURN_PROVENANCE]);
+      }
+      const callArguments = expression.arguments.map((argument) => {
+        const values = expressionValues(argument).map((value) => (
+          value.kind === 'call-result' ? OPAQUE_RETURN_PROVENANCE : value
+        ));
+        return values.length > 0 && values.length <= MAX_RETURN_PROVENANCE_ARGUMENT_VALUES
+          ? Object.freeze(values)
+          : Object.freeze([OPAQUE_RETURN_PROVENANCE]);
+      });
+      return Object.freeze([Object.freeze({
+        kind: 'call-result' as const,
+        targetObservationId: target.observationId,
+        arguments: Object.freeze(callArguments)
+      })]);
+    }
+    return Object.freeze([OPAQUE_RETURN_PROVENANCE]);
+  };
+  let normalReturns: ReturnProvenanceValues;
+  if (!ts.isBlock(body)) {
+    normalReturns = expressionValues(body);
+  } else {
+    const terminal = body.statements.at(-1);
+    const prefix = body.statements.slice(0, -1);
+    const prefixIsConstOnly = prefix.every((statement) => (
+      ts.isVariableStatement(statement)
+      && (statement.declarationList.flags & ts.NodeFlags.Const) !== 0
+      && statement.declarationList.declarations.every((declaration) => (
+        ts.isIdentifier(declaration.name) && declaration.initializer !== undefined
+      ))
+    ));
+    normalReturns = prefixIsConstOnly && terminal !== undefined && ts.isReturnStatement(terminal)
+      ? terminal.expression === undefined
+        ? Object.freeze([LITERAL_RETURN_PROVENANCE])
+        : expressionValues(terminal.expression)
+      : Object.freeze([OPAQUE_RETURN_PROVENANCE]);
+  }
+  return Object.freeze({
+    path: input.declaration.path,
+    declarationObservationId: input.declaration.observationId,
+    normalReturns: canonicalReturnProvenanceValues(normalReturns)
+  });
+}
+
 function sourceProgramFileSemantics(sourceFile: ts.SourceFile): Readonly<{
   readonly kind: SourceProgramFileSemanticKind;
   readonly observationClass: 'derived' | 'unknown';
@@ -615,14 +1320,21 @@ function sourceProgramFileSemantics(sourceFile: ts.SourceFile): Readonly<{
 function canonicalTypeScriptModel(input: Readonly<{
   sourceRevision: string;
   fileInputs: ReadonlyMap<string, SourceProgramFileInput>;
+  sourceFileIdentities: ReadonlyMap<string, TypeScriptSourceProgramFileIdentity>;
+  semanticDependencyScopes: ReadonlyMap<
+    string,
+    TypeScriptSourceProgramFactShard['semanticDependencyScope']
+  >;
   moduleMembership: SecRepositoryModuleMembership;
   files: readonly SourceProgramFile[];
   declarations: readonly SourceProgramDeclaration[];
   references: readonly SourceProgramReference[];
+  returnProvenances: readonly SourceProgramReturnProvenance[];
   literals: readonly SourceProgramLiteral[];
   entrypoints: readonly SourceProgramEntrypoint[];
   capabilities: readonly SourceProgramCapabilityInvocation[];
   unknowns: readonly SourceProgramUnknown[];
+  operation: SourceProgramCompilationOperation;
 }>): SourceProgramModel {
   const groupByPath = <Value extends { readonly path: string }>(
     values: readonly Value[]
@@ -637,26 +1349,33 @@ function canonicalTypeScriptModel(input: Readonly<{
   };
   const declarationsByPath = groupByPath(input.declarations);
   const referencesByPath = groupByPath(input.references);
+  const returnProvenancesByPath = groupByPath(input.returnProvenances);
   const literalsByPath = groupByPath(input.literals);
   const entrypointsByPath = groupByPath(input.entrypoints);
   const capabilitiesByPath = groupByPath(input.capabilities);
   const unknownsByPath = groupByPath(input.unknowns);
+  sourceProgramCompilationCheckpoint(input.operation, 'fact-shard-assembly', 'start');
   const shards = input.files.map((file) => {
+    sourceProgramCompilationCheckpoint(input.operation, 'fact-shard-assembly');
     const fileInput = input.fileInputs.get(file.path);
-    if (fileInput === undefined) {
+    const fileIdentity = input.sourceFileIdentities.get(file.path);
+    const semanticDependencyScope = input.semanticDependencyScopes.get(file.path);
+    if (fileInput === undefined || fileIdentity === undefined
+        || semanticDependencyScope === undefined) {
       throw new Error(`TypeScript Source Program fact shard lacks raw source: ${file.path}`);
     }
     return compileTypeScriptSourceProgramFactShard({
       compilerRevision: TYPESCRIPT_SOURCE_PROGRAM_COMPILER_REVISION,
       providerRevision: TYPESCRIPT_SOURCE_PROGRAM_PROVIDER_REVISION,
-      rawFileDigest: sourceProgramFileSnapshotDigest(fileInput),
-      moduleDigest: sha256(input.moduleMembership.moduleForPath(file.path)),
-      semanticDependencyScope: typeScriptSemanticDependencyScope(fileInput),
+      rawFileDigest: fileIdentity.rawFileDigest,
+      moduleDigest: fileIdentity.moduleDigest,
+      semanticDependencyScope,
       facts: Object.freeze({
         path: file.path,
         file,
         declarations: declarationsByPath.get(file.path) ?? Object.freeze([]),
         references: referencesByPath.get(file.path) ?? Object.freeze([]),
+        returnProvenances: returnProvenancesByPath.get(file.path) ?? Object.freeze([]),
         literals: literalsByPath.get(file.path) ?? Object.freeze([]),
         entrypoints: entrypointsByPath.get(file.path) ?? Object.freeze([]),
         capabilities: capabilitiesByPath.get(file.path) ?? Object.freeze([]),
@@ -672,6 +1391,7 @@ function canonicalTypeScriptModel(input: Readonly<{
   });
   compiledTypeScriptModels.add(model);
   factShardsByModel.set(model, Object.freeze(shards));
+  sourceProgramCompilationCheckpoint(input.operation, 'fact-shard-assembly', 'complete');
   return model;
 }
 
@@ -690,17 +1410,11 @@ function assembleCanonicalTypeScriptModel(
   return model;
 }
 
-function typeScriptSemanticDependencyScope(
-  file: SourceProgramFileInput
+function typeScriptSemanticDependencyScopeFromSourceFile(
+  repositoryPathValue: string,
+  sourceFile: ts.SourceFile
 ): TypeScriptSourceProgramFactShard['semanticDependencyScope'] {
-  if (/\.d\.[cm]?ts$/iu.test(file.path)) return 'global-or-ambient';
-  const sourceFile = ts.createSourceFile(
-    file.path,
-    file.source,
-    ts.ScriptTarget.Latest,
-    true,
-    sourceProgramScriptKind(file.path)
-  );
+  if (/\.d\.[cm]?ts$/iu.test(repositoryPathValue)) return 'global-or-ambient';
   const parseDiagnostics = (sourceFile as ts.SourceFile & {
     readonly parseDiagnostics?: readonly ts.Diagnostic[];
   }).parseDiagnostics ?? [];
@@ -724,6 +1438,170 @@ function typeScriptSemanticDependencyScope(
   return globalOrAmbient ? 'global-or-ambient' : 'module-scoped';
 }
 
+function typeScriptSemanticDependencyScope(
+  file: SourceProgramFileInput
+): TypeScriptSourceProgramFactShard['semanticDependencyScope'] {
+  if (/\.d\.[cm]?ts$/iu.test(file.path)) return 'global-or-ambient';
+  typeScriptSourceProgramPerformance.semanticScopeParseOperations += 1;
+  return typeScriptSemanticDependencyScopeFromSourceFile(
+    file.path,
+    ts.createSourceFile(
+      file.path,
+      file.source,
+      ts.ScriptTarget.Latest,
+      true,
+      sourceProgramScriptKind(file.path)
+    )
+  );
+}
+
+function compileExactFactGenerationForCachedModel(
+  model: SourceProgramModel,
+  input: PreparedTypeScriptSourceProgramModelInput
+): TypeScriptExactFactGenerationReceipt {
+  const filesByPath = new Map([...input.sourceFileIdentities].map(([repositoryPathValue, identity]) => (
+    [repositoryPathValue, identity.file] as const
+  )));
+  const exact = compileExactTypeScriptProgram(
+    filesByPath,
+    input.sourceFileIdentities,
+    input.operation
+  );
+  const apiClosure = compileTypeScriptRequiredApiClosure(
+    exact,
+    input.sourceRevision,
+    input.operation
+  );
+  const expectedByPathAndStart = new Map<string, SourceProgramDeclaration[]>();
+  for (const declaration of model.declarations) {
+    const key = `${declaration.path}\0${declaration.span.start}`;
+    const expected = expectedByPathAndStart.get(key);
+    if (expected === undefined) expectedByPathAndStart.set(key, [declaration]);
+    else expected.push(declaration);
+  }
+  const declarationByNode = new Map<ts.Node, SourceProgramDeclaration>();
+  const declarationNodeByObservationId = new Map<string, ts.Node>();
+  sourceProgramCompilationCheckpoint(input.operation, 'declaration-index', 'start');
+  for (const sourceFile of exact.sourceFiles) {
+    sourceProgramCompilationCheckpoint(input.operation, 'declaration-index');
+    const sourcePath = exact.repositoryPath(sourceFile);
+    const sourceSurface = sourceProgramSurfaceForPath(sourcePath);
+    let visitedNodes = 0;
+    const visit = (node: ts.Node): void => {
+      if ((visitedNodes++ & 1023) === 0) {
+        sourceProgramCompilationCheckpoint(input.operation, 'declaration-index');
+      }
+      const start = node.getStart(sourceFile, false);
+      const expected = expectedByPathAndStart.get(`${sourcePath}\0${start}`) ?? [];
+      for (const declaration of expected) {
+        const name = declarationName(node) ?? (
+          ts.isExportSpecifier(node)
+            ? node.name.text
+            : sourceSurface === 'test' && ts.isFunctionLike(node)
+              ? `@execution-scope:${start}`
+              : null
+        );
+        if (name !== declaration.name || ts.SyntaxKind[node.kind] !== declaration.kind) continue;
+        const span = spanFor(sourceFile, node);
+        const declarationDigest = sha256({
+          kind: ts.SyntaxKind[node.kind],
+          name,
+          source: node.getText(sourceFile)
+        });
+        if (span.end !== declaration.span.end
+            || declarationDigest !== declaration.declarationDigest
+            || sha256({ declarationDigest, path: sourcePath, start }) !== declaration.observationId) {
+          continue;
+        }
+        if (declarationNodeByObservationId.has(declaration.observationId)) {
+          throw new Error(`Cached TypeScript declaration is ambiguous: ${declaration.observationId}`);
+        }
+        declarationByNode.set(node, declaration);
+        declarationNodeByObservationId.set(declaration.observationId, node);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+  }
+  if (declarationNodeByObservationId.size !== model.declarations.length) {
+    throw new Error('Cached TypeScript declarations do not match the current exact Program');
+  }
+  sourceProgramCompilationCheckpoint(input.operation, 'declaration-index', 'complete');
+
+  const declarationBySymbol = new Map<ts.Symbol, SourceProgramDeclaration | null>();
+  const semanticDeclarationAt = (node: ts.Node): SourceProgramDeclaration | null => {
+    let symbol = exact.checker.getSymbolAtLocation(node);
+    if (symbol === undefined
+        && ts.isIdentifier(node)
+        && ts.isPropertyAccessExpression(node.parent)
+        && node.parent.name === node) {
+      symbol = exact.checker.getTypeAtLocation(node.parent.expression).getProperty(node.text);
+    }
+    if (symbol === undefined) return null;
+    const initialSymbol = symbol;
+    const initialCached = declarationBySymbol.get(initialSymbol);
+    if (initialCached !== undefined || declarationBySymbol.has(initialSymbol)) {
+      return initialCached ?? null;
+    }
+    if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) symbol = exact.checker.getAliasedSymbol(symbol);
+    const resolvedCached = declarationBySymbol.get(symbol);
+    if (resolvedCached !== undefined || declarationBySymbol.has(symbol)) {
+      declarationBySymbol.set(initialSymbol, resolvedCached ?? null);
+      return resolvedCached ?? null;
+    }
+    const candidates = new Map<string, SourceProgramDeclaration>();
+    for (const nodeDeclaration of symbol.declarations ?? []) {
+      const declaration = declarationByNode.get(nodeDeclaration);
+      if (declaration !== undefined) candidates.set(declaration.observationId, declaration);
+    }
+    const declaration = candidates.size === 1 ? candidates.values().next().value ?? null : null;
+    declarationBySymbol.set(symbol, declaration);
+    declarationBySymbol.set(initialSymbol, declaration);
+    return declaration;
+  };
+  const returnProvenances: SourceProgramReturnProvenance[] = [];
+  sourceProgramCompilationCheckpoint(input.operation, 'return-provenance', 'start');
+  for (const declaration of model.declarations) {
+    sourceProgramCompilationCheckpoint(input.operation, 'return-provenance');
+    const declarationNode = declarationNodeByObservationId.get(declaration.observationId)!;
+    const provenance = compileSourceProgramReturnProvenance({
+      checker: exact.checker,
+      declaration,
+      declarationNode,
+      semanticDeclarationAt
+    });
+    if (provenance !== null) returnProvenances.push(provenance);
+  }
+  sourceProgramCompilationCheckpoint(input.operation, 'return-provenance', 'complete');
+  const sourceFiles = new Map(exact.sourceFiles.map((sourceFile) => [
+    exact.repositoryPath(sourceFile),
+    sourceFile
+  ] as const));
+  issueTypeScriptExactFactGeneration(model, input, apiClosure, returnProvenances, sourceFiles);
+  return exactFactGenerationByModel.get(model)!;
+}
+
+function bindCurrentExactReturnProvenances(
+  model: SourceProgramModel,
+  input: PreparedTypeScriptSourceProgramModelInput,
+  provenanceSource: SourceProgramModel = model
+): SourceProgramModel {
+  const sourceGeneration = exactFactGenerationByModel.get(provenanceSource);
+  if (sourceGeneration !== undefined
+      && sourceGeneration.semanticInputDigest
+        === typeScriptExactFactGenerationIdentity(input).semanticInputDigest) {
+    return issueTypeScriptExactFactGeneration(
+      model,
+      input,
+      sourceGeneration.apiClosure,
+      sourceGeneration.returnProvenances,
+      sourceGeneration.sourceFiles
+    );
+  }
+  compileExactFactGenerationForCachedModel(model, input);
+  return model;
+}
+
 function assertReusableTypeScriptState(
   state: TypeScriptSourceProgramIncrementalState,
   compilerRevision: string
@@ -737,7 +1615,7 @@ function assertReusableTypeScriptState(
 }
 
 function buildIncrementalState(
-  input: CompileTypeScriptSourceProgramModelInput,
+  input: PreparedTypeScriptSourceProgramModelInput,
   model: SourceProgramModel,
   reverseConsumers: Readonly<Record<string, readonly string[]>>,
   compilerRevision: string,
@@ -751,20 +1629,13 @@ function buildIncrementalState(
   if (factShards === undefined) {
     throw new Error('TypeScript Source Program incremental state requires canonical fact shards');
   }
+  const orderedIdentities = [...input.sourceFileIdentities.values()]
+    .sort((left, right) => compareCodeUnits(left.file.path, right.file.path));
   const fileDigests = previousGeneration?.fileDigests ?? Object.freeze(Object.fromEntries(
-    input.files
-      .filter(({ path: repositoryPathValue }) => (
-        SOURCE_EXTENSION.test(repositoryPathValue)
-        && sourceProgramSurfaceForPath(repositoryPathValue) === 'production'
-      ))
-      .sort((left, right) => compareCodeUnits(left.path, right.path))
-      .map((file) => [file.path, sourceProgramFileSnapshotDigest(file)])
+    orderedIdentities.map(({ file, rawFileDigest }) => [file.path, rawFileDigest])
   ));
   const moduleDigests = previousGeneration?.moduleDigests ?? Object.freeze(Object.fromEntries(
-    Object.keys(fileDigests).map((repositoryPathValue) => [
-      repositoryPathValue,
-      sha256(input.moduleMembership.moduleForPath(repositoryPathValue))
-    ])
+    orderedIdentities.map(({ file, moduleDigest }) => [file.path, moduleDigest])
   ));
   const semanticDependencyScopes = Object.freeze(Object.fromEntries(
     factShards.map((shard) => [shard.path, shard.semanticDependencyScope])
@@ -796,7 +1667,10 @@ export function adoptTypeScriptSourceProgramFactShardsFromWorkspaceSnapshot(
   repositoryCompilation: WorkspaceSourceSnapshot,
   generation?: Readonly<{ moduleGraphDigest: `sha256:${string}` }>
 ): TypeScriptSourceProgramIncrementalState {
-  repositoryCompilation.assertMatches(input);
+  const preparedInput = prepareTypeScriptSourceProgramInput({
+    ...input,
+    repositoryCompilation
+  });
   const graph = repositoryCompilation.moduleGraph;
   // A predecessor generation intentionally has a different file census. Its
   // immutable shards seed the incremental compiler, which compares their
@@ -809,9 +1683,10 @@ export function adoptTypeScriptSourceProgramFactShardsFromWorkspaceSnapshot(
     consumers.add(consumer);
     consumersByPath.set(target, consumers);
   };
-  if (generation === undefined) {
-    for (const reference of graph.references) {
-      for (const candidate of reference.candidateTargets) addConsumer(candidate, reference.from);
+  for (const repositoryPathValue of graph.files) {
+    typeScriptSourceProgramPerformance.dependencyAdjacencyLookups += 1;
+    for (const consumer of graph.directConsumers(repositoryPathValue)) {
+      addConsumer(repositoryPathValue, consumer);
     }
   }
   for (const shard of shards) {
@@ -832,7 +1707,7 @@ export function adoptTypeScriptSourceProgramFactShardsFromWorkspaceSnapshot(
     repositoryCompilation
   );
   return buildIncrementalState(
-    input,
+    preparedInput,
     model,
     reverseConsumers,
     TYPESCRIPT_SOURCE_PROGRAM_COMPILER_REVISION,
@@ -856,16 +1731,12 @@ export function adoptTypeScriptSourceProgramFactShardsFromWorkspaceSnapshot(
  * supplied to the compiler so named/star re-exports retain full semantics.
  */
 function compileTypeScriptSourceProgramModelIncrementalInternal(
-  input: CompileTypeScriptSourceProgramModelInternalInput,
+  rawInput: CompileTypeScriptSourceProgramModelInternalInput,
   previous: TypeScriptSourceProgramIncrementalState | null
 ): TypeScriptSourceProgramIncrementalResult {
-  input.repositoryCompilation?.assertMatches(input);
-  const currentFiles = input.files
-    .filter(({ path: repositoryPathValue }) => (
-      SOURCE_EXTENSION.test(repositoryPathValue)
-      && sourceProgramSurfaceForPath(repositoryPathValue) === 'production'
-    ))
-    .map(canonicalTypeScriptFile)
+  const input = prepareTypeScriptSourceProgramInput(rawInput);
+  const currentFiles = [...input.sourceFileIdentities.values()]
+    .map(({ file }) => file)
     .sort((left, right) => compareCodeUnits(left.path, right.path));
   const currentFileByPath = new Map(currentFiles.map((file) => [file.path, file] as const));
   const currentPaths = Object.freeze(currentFiles.map(({ path: repositoryPathValue }) => repositoryPathValue));
@@ -876,23 +1747,19 @@ function compileTypeScriptSourceProgramModelIncrementalInternal(
     : null;
   let changed: readonly string[] | null = null;
   if (reusableState !== null) {
-    const currentModuleDigests = new Map(currentPaths.map((repositoryPathValue) => [
-      repositoryPathValue,
-      sha256(input.moduleMembership.moduleForPath(repositoryPathValue))
-    ] as const));
     const allPaths = new Set([...Object.keys(reusableState.fileDigests), ...currentPaths]);
     changed = Object.freeze([...allPaths].filter((repositoryPathValue) => (
       reusableState.fileDigests[repositoryPathValue]
-        !== (currentFileByPath.has(repositoryPathValue)
-          ? sourceProgramFileSnapshotDigest(currentFileByPath.get(repositoryPathValue)!)
-          : undefined)
-      || reusableState.moduleDigests[repositoryPathValue] !== currentModuleDigests.get(repositoryPathValue)
+        !== input.sourceFileIdentities.get(repositoryPathValue)?.rawFileDigest
+      || reusableState.moduleDigests[repositoryPathValue]
+        !== input.sourceFileIdentities.get(repositoryPathValue)?.moduleDigest
     )));
     if (changed.length === 0) {
       if (input.sourceRevision === reusableState.sourceRevision
           && (input.repositoryCompilation === undefined
             || workspaceSourceSnapshotIdentityForTypeScriptModel(reusableState.model)
               === input.repositoryCompilation.identityDigest)) {
+        bindCurrentExactReturnProvenances(reusableState.model, input);
         return Object.freeze({
           mode: 'exact',
           invalidatedPaths: Object.freeze([]),
@@ -900,9 +1767,13 @@ function compileTypeScriptSourceProgramModelIncrementalInternal(
           state: reusableState
         });
       }
-      const model = bindTypeScriptModelToRepositoryCompilation(
-        assembleCanonicalTypeScriptModel(input.sourceRevision, reusableState.factShards),
-        input.repositoryCompilation
+      const model = bindCurrentExactReturnProvenances(
+        bindTypeScriptModelToRepositoryCompilation(
+          assembleCanonicalTypeScriptModel(input.sourceRevision, reusableState.factShards),
+          input.repositoryCompilation
+        ),
+        input,
+        reusableState.model
       );
       return Object.freeze({
         mode: 'exact',
@@ -925,21 +1796,17 @@ function compileTypeScriptSourceProgramModelIncrementalInternal(
     files: currentPaths,
     readSource: (repositoryPathValue) => currentSources.get(repositoryPathValue) ?? null
   });
-  const reverseConsumerSets = new Map<string, Set<string>>();
-  for (const reference of graph.references) {
-    for (const candidate of reference.candidateTargets) {
-      const consumers = reverseConsumerSets.get(candidate) ?? new Set<string>();
-      consumers.add(reference.from);
-      reverseConsumerSets.set(candidate, consumers);
-    }
-  }
   const reverseConsumers = Object.freeze(Object.fromEntries(
-    [...reverseConsumerSets]
-      .sort(([left], [right]) => compareCodeUnits(left, right))
-      .map(([repositoryPathValue, consumers]) => [
+    [...graph.files]
+      .sort(compareCodeUnits)
+      .map((repositoryPathValue) => {
+        typeScriptSourceProgramPerformance.dependencyAdjacencyLookups += 1;
+        return [
         repositoryPathValue,
-        Object.freeze([...consumers].sort(compareCodeUnits))
-      ])
+        Object.freeze([...graph.directConsumers(repositoryPathValue)].sort(compareCodeUnits))
+        ] as const;
+      })
+      .filter(([, consumers]) => consumers.length > 0)
   ));
   const compileFull = (): TypeScriptSourceProgramIncrementalResult => {
     const model = compileTypeScriptSourceProgramModelInternal(input);
@@ -958,20 +1825,24 @@ function compileTypeScriptSourceProgramModelIncrementalInternal(
     });
   };
   if (reusableState === null || changed === null) return compileFull();
-  const currentSemanticDependencyScopes = new Map(currentFiles.map((file) => [
-    file.path,
-    typeScriptSemanticDependencyScope(file)
-  ] as const));
   const fileSetChanged = Object.keys(reusableState.fileDigests).length !== currentPaths.length
     || currentPaths.some((repositoryPathValue) => reusableState.fileDigests[repositoryPathValue] === undefined);
   const currentModuleGraphDigest = input.repositoryCompilation?.moduleGraphDigest
     ?? sha256(reverseConsumers) as `sha256:${string}`;
   const graphChanged = reusableState.moduleGraphDigest !== currentModuleGraphDigest;
+  if (fileSetChanged || graphChanged) return compileFull();
+  const currentSemanticDependencyScopes = new Map(changed.map((repositoryPathValue) => {
+    const file = currentFileByPath.get(repositoryPathValue);
+    return [
+      repositoryPathValue,
+      file === undefined ? undefined : typeScriptSemanticDependencyScope(file)
+    ] as const;
+  }));
   const globallyCoupledChange = changed.some((repositoryPathValue) => (
     reusableState.semanticDependencyScopes[repositoryPathValue] !== 'module-scoped'
     || currentSemanticDependencyScopes.get(repositoryPathValue) !== 'module-scoped'
   ));
-  if (fileSetChanged || graphChanged || globallyCoupledChange) return compileFull();
+  if (globallyCoupledChange) return compileFull();
 
   const invalidated = new Set(changed);
   const queue = [...changed];
@@ -995,20 +1866,26 @@ function compileTypeScriptSourceProgramModelIncrementalInternal(
   const dependencyQueue = [...invalidatedCurrent];
   while (dependencyQueue.length > 0) {
     const consumer = dependencyQueue.shift()!;
-    for (const reference of graph.references) {
-      if (reference.from !== consumer) continue;
-      for (const candidate of reference.candidateTargets) {
-        if (!currentFileByPath.has(candidate) || compilePaths.has(candidate)) continue;
-        compilePaths.add(candidate);
-        dependencyQueue.push(candidate);
-      }
+    typeScriptSourceProgramPerformance.dependencyAdjacencyLookups += 1;
+    for (const dependency of graph.directDependencies(consumer)) {
+      if (!currentFileByPath.has(dependency) || compilePaths.has(dependency)) continue;
+      compilePaths.add(dependency);
+      dependencyQueue.push(dependency);
     }
   }
-  const regenerated = compileTypeScriptSourceProgramModelInternal({
-    sourceRevision: input.sourceRevision,
-    files: currentFiles.filter(({ path: repositoryPathValue }) => compilePaths.has(repositoryPathValue)),
-    moduleMembership: input.moduleMembership
-  });
+  const regeneratedSourceFileIdentities = new Map(
+    [...input.sourceFileIdentities].filter(([repositoryPathValue]) => (
+      compilePaths.has(repositoryPathValue)
+    ))
+  );
+  const regenerated = compileTypeScriptSourceProgramModelInternal(
+    issuePreparedTypeScriptSourceProgramInput({
+      sourceRevision: input.sourceRevision,
+      files: currentFiles.filter(({ path: repositoryPathValue }) => compilePaths.has(repositoryPathValue)),
+      moduleMembership: input.moduleMembership,
+      operation: input.operation
+    }, regeneratedSourceFileIdentities)
+  );
   const reusablePath = (repositoryPathValue: string): boolean =>
     currentFileByPath.has(repositoryPathValue) && !invalidated.has(repositoryPathValue);
   const regeneratedPath = (repositoryPathValue: string): boolean => invalidatedCurrent.has(repositoryPathValue);
@@ -1016,12 +1893,15 @@ function compileTypeScriptSourceProgramModelIncrementalInternal(
   if (regeneratedShards === undefined) {
     throw new Error('TypeScript Source Program regeneration did not produce fact shards');
   }
-  const model = bindTypeScriptModelToRepositoryCompilation(
-    assembleCanonicalTypeScriptModel(input.sourceRevision, [
-      ...reusableState.factShards.filter(({ path: repositoryPathValue }) => reusablePath(repositoryPathValue)),
-      ...regeneratedShards.filter(({ path: repositoryPathValue }) => regeneratedPath(repositoryPathValue))
-    ]),
-    input.repositoryCompilation
+  const model = bindCurrentExactReturnProvenances(
+    bindTypeScriptModelToRepositoryCompilation(
+      assembleCanonicalTypeScriptModel(input.sourceRevision, [
+        ...reusableState.factShards.filter(({ path: repositoryPathValue }) => reusablePath(repositoryPathValue)),
+        ...regeneratedShards.filter(({ path: repositoryPathValue }) => regeneratedPath(repositoryPathValue))
+      ]),
+      input.repositoryCompilation
+    ),
+    input
   );
   return Object.freeze({
     mode: 'incremental',
@@ -1050,7 +1930,6 @@ export function compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnaps
   previous: TypeScriptSourceProgramIncrementalState | null,
   repositoryCompilation: WorkspaceSourceSnapshot
 ): TypeScriptSourceProgramIncrementalResult {
-  repositoryCompilation.assertMatches(input);
   return compileTypeScriptSourceProgramModelIncrementalInternal({
     ...input,
     repositoryCompilation
@@ -1058,43 +1937,55 @@ export function compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnaps
 }
 
 function compileTypeScriptSourceProgramModelInternal(
-  input: CompileTypeScriptSourceProgramModelInternalInput
+  rawInput: CompileTypeScriptSourceProgramModelInternalInput
 ): SourceProgramModel {
-  input.repositoryCompilation?.assertMatches(input);
+  const input = prepareTypeScriptSourceProgramInput(rawInput);
   if (input.sourceRevision.trim().length === 0) {
     throw new Error('Source Program Model requires a non-empty exact source revision');
   }
-  const filesByPath = new Map<string, SourceProgramFileInput>();
-  for (const raw of input.files) {
-    if (!SOURCE_EXTENSION.test(raw.path)
-        || sourceProgramSurfaceForPath(raw.path) !== 'production') continue;
-    const file = canonicalTypeScriptFile(raw);
-    const repositoryPathValue = file.path;
-    if (filesByPath.has(repositoryPathValue)) {
-      throw new Error(`Source Program Model snapshot contains duplicate path: ${repositoryPathValue}`);
-    }
-    filesByPath.set(repositoryPathValue, file);
-  }
-  const semanticProgram = compileExactTypeScriptProgram(filesByPath);
+  const filesByPath = new Map([...input.sourceFileIdentities].map(([repositoryPathValue, identity]) => (
+    [repositoryPathValue, identity.file] as const
+  )));
+  const semanticProgram = compileExactTypeScriptProgram(
+    filesByPath,
+    input.sourceFileIdentities,
+    input.operation
+  );
+  const typeScriptApiClosure = compileTypeScriptRequiredApiClosure(
+    semanticProgram,
+    input.sourceRevision,
+    input.operation
+  );
   const { checker, sourceFiles } = semanticProgram;
   const sourceFileByPath = new Map(sourceFiles.map((sourceFile) => [
     semanticProgram.repositoryPath(sourceFile),
     sourceFile
   ] as const));
+  const semanticDependencyScopes = new Map<string, TypeScriptSourceProgramFactShard['semanticDependencyScope']>();
   const files: SourceProgramFile[] = [];
   const declarations: SourceProgramDeclaration[] = [];
   const references: SourceProgramReference[] = [];
+  const returnProvenances: SourceProgramReturnProvenance[] = [];
   const literals: SourceProgramLiteral[] = [];
   const entrypoints: SourceProgramEntrypoint[] = [];
   const capabilities: SourceProgramCapabilityInvocation[] = [];
   const unknowns: SourceProgramUnknown[] = [];
   const declarationByNode = new Map<ts.Node, SourceProgramDeclaration>();
+  const declarationNodeByObservationId = new Map<string, ts.Node>();
 
+  sourceProgramCompilationCheckpoint(input.operation, 'file-semantics', 'start');
   for (const [repositoryPathValue, file] of filesByPath) {
+    sourceProgramCompilationCheckpoint(input.operation, 'file-semantics');
     const sourceFile = sourceFileByPath.get(repositoryPathValue);
     const semantics = sourceFile === undefined
       ? Object.freeze({ kind: 'unknown' as const, observationClass: 'unknown' as const })
       : sourceProgramFileSemantics(sourceFile);
+    semanticDependencyScopes.set(
+      repositoryPathValue,
+      sourceFile === undefined
+        ? 'unknown'
+        : typeScriptSemanticDependencyScopeFromSourceFile(repositoryPathValue, sourceFile)
+    );
     files.push(Object.freeze({
       path: repositoryPathValue,
       contentDigest: file.contentDigest,
@@ -1104,22 +1995,39 @@ function compileTypeScriptSourceProgramModelInternal(
       semanticObservationClass: semantics.observationClass
     }));
   }
+  sourceProgramCompilationCheckpoint(input.operation, 'file-semantics', 'complete');
 
+  sourceProgramCompilationCheckpoint(input.operation, 'declaration-index', 'start');
   for (const sourceFile of sourceFiles) {
+    sourceProgramCompilationCheckpoint(input.operation, 'declaration-index');
     const sourcePath = semanticProgram.repositoryPath(sourceFile);
-    if (sourceProgramSurfaceForPath(sourcePath) !== 'production') continue;
+    const sourceSurface = sourceProgramSurfaceForPath(sourcePath);
+    if (sourceSurface !== 'production' && sourceSurface !== 'test') continue;
+    let visitedDeclarationNodes = 0;
     const visit = (node: ts.Node): void => {
-      const name = declarationName(node);
+      if ((visitedDeclarationNodes++ & 1023) === 0) {
+        sourceProgramCompilationCheckpoint(input.operation, 'declaration-index');
+      }
+      const declarationSpan = spanFor(sourceFile, node);
+      const name = declarationName(node) ?? (
+        sourceSurface === 'test' && ts.isFunctionLike(node)
+          ? `@execution-scope:${declarationSpan.start}`
+          : null
+      );
       if (name !== null) {
         let topLevel: ts.Node | undefined = node;
         while (topLevel && !ts.isSourceFile(topLevel.parent)) topLevel = topLevel.parent;
-        const independentlyAddressable = topLevel === node
-          || (ts.isVariableDeclaration(node) && topLevel !== undefined && ts.isVariableStatement(topLevel));
+        const independentlyAddressable = sourceSurface === 'test'
+          ? ts.isFunctionLike(node)
+            || topLevel === node
+            || (ts.isVariableDeclaration(node) && topLevel !== undefined && ts.isVariableStatement(topLevel))
+          : topLevel === node
+            || (ts.isVariableDeclaration(node) && topLevel !== undefined && ts.isVariableStatement(topLevel));
         if (!independentlyAddressable) {
           ts.forEachChild(node, visit);
           return;
         }
-        const span = spanFor(sourceFile, node);
+        const span = declarationSpan;
         const declarationDigest = sha256({
           kind: ts.SyntaxKind[node.kind],
           name,
@@ -1146,6 +2054,7 @@ function compileTypeScriptSourceProgramModelInternal(
         });
         declarations.push(declaration);
         declarationByNode.set(node, declaration);
+        declarationNodeByObservationId.set(declaration.observationId, node);
       }
       ts.forEachChild(node, visit);
     };
@@ -1181,10 +2090,13 @@ function compileTypeScriptSourceProgramModelInternal(
         });
         declarations.push(declaration);
         declarationByNode.set(element, declaration);
+        declarationNodeByObservationId.set(declaration.observationId, element);
       }
     }
   }
+  sourceProgramCompilationCheckpoint(input.operation, 'declaration-index', 'complete');
 
+  const declarationBySymbol = new Map<ts.Symbol, SourceProgramDeclaration | null>();
   const semanticDeclarationAt = (node: ts.Node): SourceProgramDeclaration | null => {
     let symbol = checker.getSymbolAtLocation(node);
     if (symbol === undefined
@@ -1194,18 +2106,38 @@ function compileTypeScriptSourceProgramModelInternal(
       symbol = checker.getTypeAtLocation(node.parent.expression).getProperty(node.text);
     }
     if (symbol === undefined) return null;
+    const cached = declarationBySymbol.get(symbol);
+    if (cached !== undefined || declarationBySymbol.has(symbol)) return cached ?? null;
+    const unresolvedSymbol = symbol;
     if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
       symbol = checker.getAliasedSymbol(symbol);
+    }
+    const resolvedCached = declarationBySymbol.get(symbol);
+    if (resolvedCached !== undefined || declarationBySymbol.has(symbol)) {
+      declarationBySymbol.set(unresolvedSymbol, resolvedCached ?? null);
+      return resolvedCached ?? null;
     }
     const candidates = new Map<string, SourceProgramDeclaration>();
     for (const nodeDeclaration of symbol.declarations ?? []) {
       const declaration = declarationByNode.get(nodeDeclaration);
       if (declaration !== undefined) candidates.set(declaration.observationId, declaration);
     }
-    return candidates.size === 1 ? candidates.values().next().value ?? null : null;
+    const declaration = candidates.size === 1 ? candidates.values().next().value ?? null : null;
+    declarationBySymbol.set(symbol, declaration);
+    declarationBySymbol.set(unresolvedSymbol, declaration);
+    return declaration;
   };
 
   const referenceKeys = new Set<string>();
+  const sourceDeclarationAt = (node: ts.Node): SourceProgramDeclaration | null => {
+    let current: ts.Node | undefined = node;
+    while (current !== undefined && !ts.isSourceFile(current)) {
+      const declaration = declarationByNode.get(current);
+      if (declaration !== undefined) return declaration;
+      current = current.parent;
+    }
+    return null;
+  };
   const pushReference = (
     sourceFile: ts.SourceFile,
     node: ts.Node,
@@ -1216,11 +2148,14 @@ function compileTypeScriptSourceProgramModelInternal(
     moduleSpecifier: string | null = null
   ): void => {
     const span = spanFor(sourceFile, node);
+    const sourceDeclaration = sourceDeclarationAt(node);
     const reference: SourceProgramReference = Object.freeze({
       path: semanticProgram.repositoryPath(sourceFile),
       kind,
       name,
       moduleSpecifier,
+      sourceObservationId: sourceDeclaration?.observationId ?? null,
+      sourceRelation: sourceDeclaration === null ? 'module-initialization' : 'declaration',
       targetObservationId: target?.observationId ?? null,
       targetPath: target?.path ?? targetPathOverride,
       observationClass: target ? 'derived' : targetPathOverride === null ? 'unknown' : 'observed',
@@ -1238,7 +2173,23 @@ function compileTypeScriptSourceProgramModelInternal(
       ? resolveSecRepositoryModuleImportCandidates(sourcePath, specifier)
           .find((candidate) => filesByPath.has(candidate)) ?? null
       : null;
+  sourceProgramCompilationCheckpoint(input.operation, 'return-provenance', 'start');
+  for (const declaration of declarations) {
+    sourceProgramCompilationCheckpoint(input.operation, 'return-provenance');
+    const declarationNode = declarationNodeByObservationId.get(declaration.observationId);
+    if (declarationNode === undefined) continue;
+    const provenance = compileSourceProgramReturnProvenance({
+      checker,
+      declaration,
+      declarationNode,
+      semanticDeclarationAt
+    });
+    if (provenance !== null) returnProvenances.push(provenance);
+  }
+  sourceProgramCompilationCheckpoint(input.operation, 'return-provenance', 'complete');
+  sourceProgramCompilationCheckpoint(input.operation, 'semantic-observations', 'start');
   for (const sourceFile of sourceFiles) {
+    sourceProgramCompilationCheckpoint(input.operation, 'semantic-observations');
     const sourcePath = semanticProgram.repositoryPath(sourceFile);
     const sourceSurface = sourceProgramSurfaceForPath(sourcePath);
     if (sourceSurface === 'fixture' || sourceSurface === 'resource' || sourceSurface === 'workflow') continue;
@@ -1278,7 +2229,11 @@ function compileTypeScriptSourceProgramModelInternal(
         });
       }
     }
+    let visitedDynamicImportNodes = 0;
     const collectDynamicImports = (node: ts.Node): void => {
+      if ((visitedDynamicImportNodes++ & 1023) === 0) {
+        sourceProgramCompilationCheckpoint(input.operation, 'semantic-observations');
+      }
       if (ts.isVariableDeclaration(node)) {
         let initializer = node.initializer;
         while (initializer && (ts.isAwaitExpression(initializer) || ts.isParenthesizedExpression(initializer))) {
@@ -1324,7 +2279,11 @@ function compileTypeScriptSourceProgramModelInternal(
         span: spanFor(sourceFile, synthetic)
       }));
     }
+    let visitedObservationNodes = 0;
     const visit = (node: ts.Node): void => {
+      if ((visitedObservationNodes++ & 1023) === 0) {
+        sourceProgramCompilationCheckpoint(input.operation, 'semantic-observations');
+      }
       if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
         const specifier = node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)
           ? node.moduleSpecifier.text
@@ -1419,7 +2378,16 @@ function compileTypeScriptSourceProgramModelInternal(
       } else if (ts.isIdentifier(node) && !isDeclarationName(node)) {
         const target = semanticDeclarationAt(node);
         if (target !== null) {
-          pushReference(sourceFile, node, node.text, referenceKind(node), target);
+          const binding = importedBindings.get(node.text);
+          pushReference(
+            sourceFile,
+            node,
+            node.text,
+            referenceKind(node),
+            target,
+            binding?.targetPath ?? null,
+            binding?.moduleSpecifier ?? null
+          );
         }
       }
 
@@ -1496,9 +2464,11 @@ function compileTypeScriptSourceProgramModelInternal(
               operations.includes(providerOperation)
             )) ?? null;
         const repositoryProcessProvider = repositoryProvider?.capability === 'process.native';
-        const runtimeBuiltinApi = moduleSpecifier !== null
+        const runtimeBuiltinApi = (moduleSpecifier !== null
           && RUNTIME_BUILTIN_MODULE.test(moduleSpecifier)
-          && !nativeProcess;
+          && !nativeProcess)
+          || (moduleSpecifier === null
+            && (operation === 'fetch' || operation === 'eval' || operation === 'Function'));
         const capability = nativeProcess || repositoryProcessProvider
           ? 'process'
           : repositoryProvider !== null
@@ -1512,7 +2482,16 @@ function compileTypeScriptSourceProgramModelInternal(
                 : null;
         if (capability !== null && operation !== null) {
           const moduleId = input.moduleMembership.moduleForPath(sourcePath)?.moduleId ?? null;
+          const owningDeclarationObservationId = sourceDeclarationAt(node)?.observationId ?? null;
+          const capabilitySpan = spanFor(sourceFile, node);
           capabilities.push(Object.freeze({
+            observationId: sha256({
+              capability,
+              operation,
+              owningDeclarationObservationId,
+              path: sourcePath,
+              start: capabilitySpan.start
+            }),
             path: sourcePath,
             moduleId,
             surface: sourceProgramSurfaceForPath(sourcePath),
@@ -1531,10 +2510,11 @@ function compileTypeScriptSourceProgramModelInternal(
             moduleSpecifier,
             providerCapability: repositoryProvider?.capability ?? null,
             providerModuleId: repositoryProvider === null ? null : importedModule!.moduleId,
+            owningDeclarationObservationId,
             observationClass: nativeProcess || repositoryProvider !== null || subject !== null
               ? 'observed'
               : 'unknown',
-            span: spanFor(sourceFile, node)
+            span: capabilitySpan
           }));
         }
         const dynamicImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
@@ -1584,21 +2564,35 @@ function compileTypeScriptSourceProgramModelInternal(
     };
     visit(sourceFile);
   }
+  sourceProgramCompilationCheckpoint(input.operation, 'semantic-observations', 'complete');
 
-  return bindTypeScriptModelToRepositoryCompilation(
-    canonicalTypeScriptModel({
-      sourceRevision: input.sourceRevision,
-      fileInputs: filesByPath,
-      moduleMembership: input.moduleMembership,
-      files,
-      declarations,
-      references,
-      literals,
-      entrypoints,
-      capabilities,
-      unknowns
-    }),
-    input.repositoryCompilation
+  return issueTypeScriptExactFactGeneration(
+    bindTypeScriptModelToRepositoryCompilation(
+      canonicalTypeScriptModel({
+        sourceRevision: input.sourceRevision,
+        fileInputs: filesByPath,
+        sourceFileIdentities: input.sourceFileIdentities,
+        semanticDependencyScopes,
+        moduleMembership: input.moduleMembership,
+        files,
+        declarations,
+        references,
+        returnProvenances,
+        literals,
+        entrypoints,
+        capabilities,
+        unknowns,
+        operation: input.operation
+      }),
+      input.repositoryCompilation
+    ),
+    input,
+    typeScriptApiClosure,
+    returnProvenances,
+    new Map(sourceFiles.map((sourceFile) => [
+      semanticProgram.repositoryPath(sourceFile),
+      sourceFile
+    ] as const))
   );
 }
 
@@ -1612,7 +2606,6 @@ export function compileTypeScriptSourceProgramModelFromWorkspaceSnapshot(
   input: CompileTypeScriptSourceProgramModelInput,
   repositoryCompilation: WorkspaceSourceSnapshot
 ): SourceProgramModel {
-  repositoryCompilation.assertMatches(input);
   return compileTypeScriptSourceProgramModelInternal({ ...input, repositoryCompilation });
 }
 

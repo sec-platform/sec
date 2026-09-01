@@ -1,4 +1,12 @@
 import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import {
+  resolveSourceProgramCompilationOperation,
+  sourceProgramCompilationCheckpoint,
+  SourceProgramCompilationInterruptedError,
+  sourceProgramCompilationPhaseEvents,
+  type SourceProgramCompilationOperation,
+  type SourceProgramCompilationPhaseEvent
+} from './compilation-operation.ts';
 import type { SourceProgramModel, SourceProgramUnknown } from './contract.ts';
 import type {
   RepositoryCompilationCacheDiagnostics,
@@ -24,7 +32,9 @@ import {
   adoptTypeScriptSourceProgramFactShardsFromWorkspaceSnapshot,
   compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnapshot,
   sourceProgramTypeScriptCompilerIdentity,
+  sourceProgramTypeScriptRequiredApiClosure,
   type CompileTypeScriptSourceProgramModelInput,
+  type SourceProgramTypeScriptRequiredApiClosure,
   type TypeScriptSourceProgramIncrementalResult,
   type TypeScriptSourceProgramIncrementalState
 } from './typescript.ts';
@@ -45,6 +55,7 @@ export type CompileRepositorySourceProgramCompilationInput = Readonly<{
   repositoryRoot?: string;
   reviewedProcessDispatchers?: readonly string[];
   unknowns?: readonly SourceProgramUnknown[];
+  operation?: SourceProgramCompilationOperation;
 }>;
 
 export type CompileVirtualRepositorySourceProgramCompilationInput = Omit<
@@ -64,6 +75,7 @@ export interface RepositorySourceProgramCompilationReceipt {
   readonly cacheReceipt: RepositoryCompilationCacheReceipt | null;
   readonly moduleGraphCompilationCount: 1;
   readonly typeScriptCompilation: TypeScriptSourceProgramIncrementalResult;
+  readonly typeScriptRequiredApiClosure: SourceProgramTypeScriptRequiredApiClosure;
   readonly testObservations: SourceProgramTestObservations;
   readonly model: SourceProgramModel;
   readonly receiptDigest: `sha256:${string}`;
@@ -76,9 +88,27 @@ export interface RepositoryCompilationDiagnostics {
   readonly incrementalExactMs: number;
   readonly testObservationsMs: number;
   readonly repositoryProjectionMs: number;
+  readonly phaseEvents: readonly SourceProgramCompilationPhaseEvent[];
 }
 
 const diagnosticsByContext = new WeakMap<object, RepositoryCompilationDiagnostics>();
+const issuedRepositorySourceProgramCompilationReceipts = new WeakSet<object>();
+
+export function assertRepositorySourceProgramCompilationReceipt(
+  receipt: RepositorySourceProgramCompilationReceipt
+): void {
+  if (!issuedRepositorySourceProgramCompilationReceipts.has(receipt)) {
+    throw new Error('Source Program placement requires one compiler-issued compilation receipt');
+  }
+  assertWorkspaceSourceSnapshot(receipt.workspaceSnapshot);
+  if (receipt.model.sourceRevision !== receipt.sourceRevision
+      || receipt.workspaceSnapshot.identityDigest !== receipt.workspaceSnapshotIdentityDigest
+      || receipt.workspaceSnapshot.snapshotDigest !== receipt.snapshotDigest
+      || receipt.workspaceSnapshot.moduleGraphDigest !== receipt.moduleGraphDigest
+      || receipt.workspaceSnapshot.moduleMembershipDigest !== receipt.moduleMembershipDigest) {
+    throw new Error('Source Program compilation receipt identity is not current');
+  }
+}
 
 /** Process-local diagnostic only; never serialized into a receipt or authority object. */
 export function repositoryCompilationDiagnosticsForTests(
@@ -106,11 +136,14 @@ function loadedTypeScriptState(
 function compileRepositorySourceProgramCompilationCore(
   input: CompileRepositorySourceProgramCompilationInput | CompileVirtualRepositorySourceProgramCompilationInput
 ): RepositorySourceProgramCompilationReceipt {
+  const operation = resolveSourceProgramCompilationOperation(input.operation);
+  sourceProgramCompilationCheckpoint(operation, 'admission', 'start');
   const workspaceSnapshot = input.workspaceSnapshot;
   assertWorkspaceSourceSnapshot(workspaceSnapshot);
   if (input.projectInput !== undefined) {
     assertWorkspaceTypeScriptProjectInputMatchesSnapshot(input.projectInput, workspaceSnapshot);
   }
+  sourceProgramCompilationCheckpoint(operation, 'admission', 'complete');
   const compiler = sourceProgramTypeScriptCompilerIdentity();
   const projectGeneration = issueRepositoryCompilationGenerationReceipt({
     projectInputDigest: input.projectInput?.projectInputDigest ?? null,
@@ -127,6 +160,7 @@ function compileRepositorySourceProgramCompilationCore(
   let exactLoaded: RepositoryCompilationCacheLoad | null = null;
   let loaded: RepositoryCompilationCacheLoad | null = null;
   let cacheReceipt: RepositoryCompilationCacheReceipt | null = null;
+  sourceProgramCompilationCheckpoint(operation, 'cache-read', 'start');
   if (input.cacheProvider !== undefined && input.projectInput !== undefined) {
     try {
       cacheHint = input.cacheProvider.openContentAddressedHint(projectGeneration);
@@ -148,14 +182,17 @@ function compileRepositorySourceProgramCompilationCore(
       cacheReceipt = null;
     }
   }
+  sourceProgramCompilationCheckpoint(operation, 'cache-read', 'complete');
   const modelAssemblyStarted = performance.now();
   const typeScriptInput = Object.freeze({
     sourceRevision: workspaceSnapshot.sourceRevision,
     files: workspaceSnapshot.files,
-    moduleMembership: workspaceSnapshot.moduleMembership
+    moduleMembership: workspaceSnapshot.moduleMembership,
+    operation
   });
   let cachedState: TypeScriptSourceProgramIncrementalState | null = null;
   if (loaded?.status === 'hit') {
+    sourceProgramCompilationCheckpoint(operation, 'fact-shard-assembly', 'start');
     try {
       cachedState = loadedTypeScriptState(workspaceSnapshot, typeScriptInput, loaded);
     } catch {
@@ -167,27 +204,51 @@ function compileRepositorySourceProgramCompilationCore(
       loaded = null;
       cacheReceipt = null;
     }
+    sourceProgramCompilationCheckpoint(operation, 'fact-shard-assembly', 'complete');
   }
   const modelAssemblyMs = performance.now() - modelAssemblyStarted;
   const incrementalExactStarted = performance.now();
-  const typeScriptCompilation = compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnapshot(
-    typeScriptInput,
-    cachedState,
-    workspaceSnapshot
+  let typeScriptCompilation: TypeScriptSourceProgramIncrementalResult;
+  try {
+    typeScriptCompilation = compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnapshot(
+      typeScriptInput,
+      cachedState,
+      workspaceSnapshot
+    );
+  } catch (error) {
+    if (cachedState === null || error instanceof SourceProgramCompilationInterruptedError) throw error;
+    cacheHint = null;
+    exactLoaded = null;
+    loaded = null;
+    cacheReceipt = null;
+    typeScriptCompilation = compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnapshot(
+      typeScriptInput,
+      null,
+      workspaceSnapshot
+    );
+  }
+  const typeScriptRequiredApiClosure = sourceProgramTypeScriptRequiredApiClosure(
+    typeScriptCompilation.model
   );
+  if (typeScriptRequiredApiClosure === null) {
+    throw new Error('Repository compilation lacks one exact TypeScript API requirement closure');
+  }
   const incrementalExactMs = performance.now() - incrementalExactStarted;
   const testObservationInput = Object.freeze({
     productionModel: typeScriptCompilation.model,
     files: workspaceSnapshot.files,
     moduleMembership: workspaceSnapshot.moduleMembership,
+    operation,
     ...(input.repositoryRoot === undefined ? {} : { repositoryRoot: input.repositoryRoot })
   });
+  sourceProgramCompilationCheckpoint(operation, 'test-observations', 'start');
   const testObservationsStarted = performance.now();
   const testObservations = compileSourceProgramTestObservationsFromWorkspaceSnapshot(
     testObservationInput,
     workspaceSnapshot
   );
   const testObservationsMs = performance.now() - testObservationsStarted;
+  sourceProgramCompilationCheckpoint(operation, 'test-observations', 'complete');
   const repositoryInput = Object.freeze({
     sourceRevision: workspaceSnapshot.sourceRevision,
     files: workspaceSnapshot.files,
@@ -199,10 +260,13 @@ function compileRepositorySourceProgramCompilationCore(
       : { reviewedProcessDispatchers: input.reviewedProcessDispatchers }),
     ...(input.unknowns === undefined ? {} : { unknowns: input.unknowns })
   });
+  sourceProgramCompilationCheckpoint(operation, 'repository-projection', 'start');
   const repositoryProjectionStarted = performance.now();
   const model = compileRepositorySourceProgramModelFromWorkspaceSnapshot(repositoryInput, workspaceSnapshot);
   const repositoryProjectionMs = performance.now() - repositoryProjectionStarted;
+  sourceProgramCompilationCheckpoint(operation, 'repository-projection', 'complete');
   if (cacheHint !== null && exactLoaded?.status !== 'hit') {
+    sourceProgramCompilationCheckpoint(operation, 'cache-publish', 'start');
     try {
       const published = cacheHint.publish(typeScriptCompilation.state.factShards);
       if (published.status === 'hit') {
@@ -213,16 +277,9 @@ function compileRepositorySourceProgramCompilationCore(
       // A failed cache publication cannot change the canonical compilation
       // result. The next operation may rebuild or retire the disposable bytes.
     }
+    sourceProgramCompilationCheckpoint(operation, 'cache-publish', 'complete');
   }
-  if (loaded?.status === 'hit') {
-    diagnosticsByContext.set(workspaceSnapshot, Object.freeze({
-      cache: loaded.diagnostics,
-      modelAssemblyMs,
-      incrementalExactMs,
-      testObservationsMs,
-      repositoryProjectionMs
-    }));
-  }
+  sourceProgramCompilationCheckpoint(operation, 'settlement', 'start');
   const canonical = Object.freeze({
     schema: 'sec-repository-source-program-compilation-receipt-v1',
     subjectDigest: workspaceSnapshot.subjectDigest,
@@ -233,10 +290,11 @@ function compileRepositorySourceProgramCompilationCore(
     workspaceSnapshotIdentityDigest: workspaceSnapshot.identityDigest,
     projectGenerationReceiptDigest: projectGeneration.receiptDigest,
     typeScriptModelDigest: typeScriptCompilation.model.modelDigest,
+    typeScriptRequiredApiClosureDigest: typeScriptRequiredApiClosure.closureDigest,
     testObservationDigest: testObservations.observationDigest,
     repositoryModelDigest: model.modelDigest
   });
-  return Object.freeze({
+  const receipt: RepositorySourceProgramCompilationReceipt = Object.freeze({
     subject: workspaceSnapshot.subject,
     subjectDigest: workspaceSnapshot.subjectDigest,
     sourceRevision: workspaceSnapshot.sourceRevision,
@@ -248,11 +306,25 @@ function compileRepositorySourceProgramCompilationCore(
     cacheReceipt,
     moduleGraphCompilationCount: workspaceSnapshot.moduleGraphCompilationCount,
     typeScriptCompilation,
+    typeScriptRequiredApiClosure,
     testObservations,
     model,
     receiptDigest: sha256(canonical) as `sha256:${string}`,
     workspaceSnapshot
   });
+  issuedRepositorySourceProgramCompilationReceipts.add(receipt);
+  sourceProgramCompilationCheckpoint(operation, 'settlement', 'complete');
+  diagnosticsByContext.set(workspaceSnapshot, Object.freeze({
+    cache: loaded?.status === 'hit'
+      ? loaded.diagnostics
+      : Object.freeze({ physicalBytes: 0, semanticParseMs: 0 }),
+    modelAssemblyMs,
+    incrementalExactMs,
+    testObservationsMs,
+    repositoryProjectionMs,
+    phaseEvents: sourceProgramCompilationPhaseEvents(operation)
+  }));
+  return receipt;
 }
 
 export function compileRepositorySourceProgramCompilation(

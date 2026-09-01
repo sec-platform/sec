@@ -1,8 +1,10 @@
 import type { SemanticResponsibilityTargetKind } from '../../semantic/contracts/contract/types.ts';
 import type {
   SecModuleCausalRelation,
-  SecModuleOperationObligation
+  SecModuleOperationObligation,
+  SecModuleOperationRole
 } from '../../system-architecture/repository-modules/contract.ts';
+import { isSecRepositoryTestModulePath } from '../../system-architecture/repository-modules/test-module-path.ts';
 
 export const REPOSITORY_AUDIT_ENTRYPOINT_PATH = 'src/brownfield/repository-audit/cli.ts' as const;
 
@@ -15,8 +17,8 @@ export type SourceProgramSurface =
   | 'workflow'
   | 'resource';
 
-const SOURCE_PROGRAM_TEST_PATH =
-  /(?:^|\/)(?:tests?|__tests__)(?:\/|$)|\.(?:test|spec)\.[cm]?[jt]sx?$/iu;
+const SOURCE_PROGRAM_TEST_DIRECTORY_PATH =
+  /(?:^|\/)(?:tests?|__tests__)(?:\/|$)/iu;
 const SOURCE_PROGRAM_FIXTURE_PATH =
   /(?:^|\/)(?:fixtures?|snapshots?)(?:\/|$)/iu;
 const SOURCE_PROGRAM_RESOURCE_EXTENSION =
@@ -45,7 +47,8 @@ export function isSourceProgramInputPath(repositoryPath: string): boolean {
 
 export function sourceProgramSurfaceForPath(repositoryPath: string): SourceProgramSurface {
   if (SOURCE_PROGRAM_FIXTURE_PATH.test(repositoryPath)) return 'fixture';
-  if (SOURCE_PROGRAM_TEST_PATH.test(repositoryPath)) return 'test';
+  if (SOURCE_PROGRAM_TEST_DIRECTORY_PATH.test(repositoryPath)
+      || isSecRepositoryTestModulePath(repositoryPath)) return 'test';
   if (SOURCE_PROGRAM_CATALOG_RESOURCE_PATH.test(repositoryPath)) return 'resource';
   if (repositoryPath.startsWith('.github/workflows/')) return 'workflow';
   if (SOURCE_PROGRAM_RESOURCE_EXTENSION.test(repositoryPath)) return 'resource';
@@ -65,6 +68,75 @@ export interface SourceProgramFileInput {
   readonly path: string;
   readonly source: string;
   readonly contentDigest: string;
+}
+
+export type SourceProgramSupersessionStatus =
+  | 'equivalent'
+  | 'superseded'
+  | 'owner-decision-required';
+
+export type SourceProgramSupersessionFindingCode =
+  | 'baseline-evidence-invalid'
+  | 'current-evidence-invalid'
+  | 'dynamic-or-external-observation-unresolved'
+  | 'design-intent-unresolved'
+  | 'design-intent-regressed'
+  | 'lifecycle-cost-not-reduced'
+  | 'operation-obligation-unresolved'
+  | 'required-entrypoint-missing'
+  | 'required-production-behavior-missing'
+  | 'required-resource-missing'
+  | 'required-test-boundary-missing'
+  | 'replacement-ambiguous';
+
+export interface SourceProgramSupersessionFinding {
+  readonly code: SourceProgramSupersessionFindingCode;
+  readonly baselineId: string | null;
+  readonly owner: string | null;
+  readonly baselinePaths: readonly string[];
+  readonly currentCandidateIds: readonly string[];
+  readonly detail: string;
+}
+
+export interface SourceProgramSupersessionReplacement {
+  readonly kind: 'entrypoint' | 'production' | 'resource' | 'test';
+  readonly baselineId: string;
+  readonly currentIds: readonly string[];
+  readonly owner: string | null;
+  readonly baselinePaths: readonly string[];
+  readonly currentPaths: readonly string[];
+  readonly proof: 'exact-semantic-obligation' | 'strict-observation-superset';
+}
+
+export interface SourceProgramSupersessionLifecycleCost {
+  readonly productionUnits: number;
+  readonly testUnits: number;
+  readonly owners: number;
+  readonly unresolvedObservations: number;
+  readonly unobservedTestRisk: number;
+}
+
+export interface SourceProgramSupersessionReceipt {
+  readonly status: SourceProgramSupersessionStatus;
+  readonly baseline: Readonly<{
+    readonly sourceRevision: string;
+    readonly modelDigest: string;
+    readonly testCompilationDigest: string;
+    readonly intentEvidenceDigest: string;
+  }>;
+  readonly current: Readonly<{
+    readonly sourceRevision: string;
+    readonly modelDigest: string;
+    readonly testCompilationDigest: string;
+    readonly intentEvidenceDigest: string;
+  }>;
+  readonly lifecycleCost: Readonly<{
+    readonly baseline: SourceProgramSupersessionLifecycleCost;
+    readonly current: SourceProgramSupersessionLifecycleCost;
+  }>;
+  readonly replacements: readonly SourceProgramSupersessionReplacement[];
+  readonly findings: readonly SourceProgramSupersessionFinding[];
+  readonly receiptDigest: string;
 }
 
 export interface SourceProgramFile {
@@ -106,6 +178,9 @@ export interface SourceProgramReference {
   readonly name: string;
   /** Exact local module spelling that introduced this reference, when applicable. */
   readonly moduleSpecifier: string | null;
+  /** Compiler-issued source declaration; null means module-initialization relation. */
+  readonly sourceObservationId: string | null;
+  readonly sourceRelation: 'declaration' | 'module-initialization';
   readonly targetObservationId: string | null;
   readonly targetPath: string | null;
   readonly observationClass: SourceProgramObservationClass;
@@ -219,6 +294,8 @@ export type SourceProgramCapabilityAuthorityClass =
   | 'unresolved-transport';
 
 export interface SourceProgramCapabilityInvocation {
+  /** Stable identity of this exact compiler-observed invocation. */
+  readonly observationId: string;
   readonly path: string;
   readonly moduleId: string | null;
   readonly surface: SourceProgramSurface;
@@ -231,8 +308,21 @@ export interface SourceProgramCapabilityInvocation {
   /** Exact descriptor capability when this call crosses a repository provider boundary. */
   readonly providerCapability: string | null;
   readonly providerModuleId: string | null;
+  /** Exact enclosing declaration/scope. Null is restricted to module initialization. */
+  readonly owningDeclarationObservationId: string | null;
   readonly observationClass: SourceProgramObservationClass;
   readonly span: SourceProgramSpan;
+}
+
+/** Exact module-role binding projected onto one compiler-issued declaration. */
+export interface SourceProgramOperationRoleProvenance {
+  readonly declarationObservationId: string;
+  readonly moduleId: string;
+  readonly capability: string;
+  readonly operation: string;
+  readonly role: SecModuleOperationRole;
+  readonly semanticOperation: string;
+  readonly requirementId: string | null;
 }
 
 export type SourceProgramCandidateCode =
@@ -307,6 +397,29 @@ export interface SourceProgramCausalRelationEvidence {
   readonly evidenceDigest: string;
 }
 
+export type SourceProgramReturnArgumentProvenance =
+  | Readonly<{ readonly kind: 'parameter'; readonly index: number }>
+  | Readonly<{ readonly kind: 'literal' }>
+  | Readonly<{ readonly kind: 'opaque' }>;
+
+export type SourceProgramReturnValueProvenance =
+  | Readonly<{
+    readonly kind: 'call-result';
+    readonly targetObservationId: string;
+    readonly arguments: readonly (readonly SourceProgramReturnArgumentProvenance[])[];
+  }>
+  | SourceProgramReturnArgumentProvenance;
+
+/**
+ * Bounded normal-return provenance cache hint. Causal consumers must use the
+ * current exact live Program receipt instead of trusting a persisted copy.
+ */
+export interface SourceProgramReturnProvenance {
+  readonly path: string;
+  readonly declarationObservationId: string;
+  readonly normalReturns: readonly SourceProgramReturnValueProvenance[];
+}
+
 
 export interface SourceProgramCandidate {
   readonly code: SourceProgramCandidateCode;
@@ -325,6 +438,7 @@ export interface SourceProgramModel {
   readonly files: readonly SourceProgramFile[];
   readonly declarations: readonly SourceProgramDeclaration[];
   readonly references: readonly SourceProgramReference[];
+  readonly returnProvenances: readonly SourceProgramReturnProvenance[];
   readonly literals: readonly SourceProgramLiteral[];
   readonly entrypoints: readonly SourceProgramEntrypoint[];
   readonly entrypointClosures: readonly SourceProgramEntrypointClosure[];

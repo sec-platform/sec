@@ -1,5 +1,6 @@
 import { availableParallelism } from 'node:os';
 
+import { isSecRepositoryTestModulePath } from '../../system-architecture/repository-modules/test-module-path.ts';
 import { FAST_TEST_PROCESS_POLICY_TEST_FILE } from '../../verification/test-impact/contract/budget.ts';
 
 export const DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE = 16;
@@ -279,7 +280,7 @@ export function assertUniqueFastTestProcessIsolationDefinitions(
   const seen = new Set<string>();
   const resourceClasses = new Set<string>(FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER);
   for (const definition of definitions) {
-    if (!/^tests\/.+\.(?:test|spec)\.tsx?$/.test(definition.file)) {
+    if (!isSecRepositoryTestModulePath(definition.file)) {
       throw new Error(`Fast-test process isolation path is invalid: ${definition.file}`);
     }
     if (seen.has(definition.file)) {

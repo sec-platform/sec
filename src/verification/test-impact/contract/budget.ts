@@ -1,7 +1,12 @@
-import { Glob } from 'bun';
-
-import { platformCommand } from '../../../interface/cli/contract.ts';
-import { compareCodeUnits } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import type { TestImpactProjectionReceipt } from '../../../brownfield/source-program-model/test-impact-projection.ts';
+import { platformCommand } from '../../../interface/cli/contract/command.ts';
+import {
+  compareCodeUnits,
+  deepFreeze,
+  sha256,
+  uniqueSorted
+} from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { isSecRepositoryTestModulePath } from '../../../system-architecture/repository-modules/test-module-path.ts';
 
 export type TestBudgetLane = {
   id: 'fast' | 'runtime' | 'all';
@@ -17,8 +22,24 @@ export type SlowTestSuite = {
   parallelSafe: boolean;
   resourceClass: SlowTestResourceClass;
   prRiskBaseline: boolean;
-  files: string[];
+  files: readonly string[];
 };
+
+export type TestBudgetSnapshotGeneration = Readonly<{
+  workspaceSnapshotIdentityDigest: `sha256:${string}`;
+  testObservationDigest: `sha256:${string}`;
+  sourceProjectionDigest: `sha256:${string}`;
+}>;
+
+export type TestBudgetProjection = Readonly<{
+  generation: TestBudgetSnapshotGeneration;
+  generationKey: `sha256:${string}`;
+  testFiles: readonly string[];
+  fastTestFiles: readonly string[];
+  slowTestFiles: readonly string[];
+  slowSuites: readonly SlowTestSuite[];
+  projectionDigest: `sha256:${string}`;
+}>;
 
 export type TestBudgetContract = {
   command: string;
@@ -28,10 +49,10 @@ export type TestBudgetContract = {
   slowLaneCount: number;
   slowLaneIds: TestBudgetLane['id'][];
   slowTestFileCount: number;
-  slowTestFiles: string[];
+  slowTestFiles: readonly string[];
   slowSuiteCount: number;
-  slowSuites: SlowTestSuite[];
-  lanes: TestBudgetLane[];
+  slowSuites: readonly SlowTestSuite[];
+  lanes: readonly TestBudgetLane[];
   localDefault: string;
   fullRuntimeGate: string;
 };
@@ -43,19 +64,8 @@ type SlowTestSuiteDefinition = {
   parallelSafe: boolean;
   resourceClass: SlowTestResourceClass;
   prRiskBaseline: boolean;
-  files: string[];
+  files: readonly string[];
 };
-
-const TEST_FILE_GLOBS = [
-  'src/**/*.test.ts',
-  'src/**/*.spec.ts',
-  'src/**/*.test.tsx',
-  'src/**/*.spec.tsx',
-  'tests/**/*.test.ts',
-  'tests/**/*.spec.ts',
-  'tests/**/*.test.tsx',
-  'tests/**/*.spec.tsx'
-];
 
 export const DOCUMENT_CONTROL_PLANE_LIFECYCLE_TEST_FILE =
   'tests/contract/document-control-plane-lifecycle.test.ts';
@@ -104,7 +114,7 @@ function slowFileSuite(
 
 // Slow e2e suites are file-granular by default so CI can shard them with the
 // highest useful parallelism while PR risk gates run only the impacted files.
-const slowTestSuiteDefinitions: SlowTestSuiteDefinition[] = [
+const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze([
   slowPathSuite(
     'integration-shared-runtime-dependencies',
     'tests/integration/project-dependency-runtime.test.ts',
@@ -201,81 +211,20 @@ const slowTestSuiteDefinitions: SlowTestSuiteDefinition[] = [
     resourceClass: 'runtime-heavy'
   }),
   slowFileSuite('e2e-workspace', 'workspace', 'compiler-workspace-e2e', 120_000, { parallelSafe: true, prRiskBaseline: true })
-];
+]);
 
-const explicitSlowTestFiles = new Set(
+const explicitSlowTestFiles: ReadonlySet<string> = new Set(
   slowTestSuiteDefinitions.flatMap((suite) => suite.files)
 );
 
-function scanTestFilesSync(): string[] {
-  const files = new Set<string>();
-  for (const pattern of TEST_FILE_GLOBS) {
-    const glob = new Glob(pattern);
-    for (const file of glob.scanSync()) {
-      files.add(file.replaceAll('\\', '/'));
-    }
-  }
-  return [...files].sort(compareCodeUnits);
-}
-
-export class TestBudgetCache {
-  private cachedTestFiles: string[] | null = null;
-  private cachedFastTestFiles: string[] | null = null;
-  private cachedSlowTestFiles: string[] | null = null;
-  private cachedSlowTestSuites: SlowTestSuite[] | null = null;
-
-  getTestFilesSync(): string[] {
-    if (this.cachedTestFiles) return this.cachedTestFiles;
-    this.cachedTestFiles = scanTestFilesSync();
-    return this.cachedTestFiles;
-  }
-
-  async getTestFiles(): Promise<string[]> {
-    return this.getTestFilesSync();
-  }
-
-  getSlowTestFilesSync(): string[] {
-    if (this.cachedSlowTestFiles) return this.cachedSlowTestFiles;
-    this.cachedSlowTestFiles = this.getTestFilesSync().filter(isSlowTestFile);
-    return this.cachedSlowTestFiles;
-  }
-
-  async getSlowTestFiles(): Promise<string[]> {
-    return this.getSlowTestFilesSync();
-  }
-
-  getFastTestFilesSync(): string[] {
-    if (this.cachedFastTestFiles) return this.cachedFastTestFiles;
-    this.cachedFastTestFiles = this.getTestFilesSync().filter(isFastTestFile);
-    return this.cachedFastTestFiles;
-  }
-
-  async getFastTestFiles(): Promise<string[]> {
-    return this.getFastTestFilesSync();
-  }
-
-  getSlowTestSuitesSync(): SlowTestSuite[] {
-    if (this.cachedSlowTestSuites) return this.cachedSlowTestSuites;
-    this.cachedSlowTestSuites = this.buildSlowTestSuites();
-    return this.cachedSlowTestSuites;
-  }
-
-  async getSlowTestSuites(): Promise<SlowTestSuite[]> {
-    return this.getSlowTestSuitesSync();
-  }
-
-  private buildSlowTestSuites(): SlowTestSuite[] {
-    const slowFiles = this.getSlowTestFilesSync();
+function buildSlowTestSuites(slowFiles: readonly string[]): readonly SlowTestSuite[] {
     const slowFileSet = new Set(slowFiles);
     const assigned = new Set<string>();
     const suites: SlowTestSuite[] = slowTestSuiteDefinitions
-      .map((definition) => {
+      .flatMap((definition) => {
         const files = definition.files.filter((file) => slowFileSet.has(file)).sort(compareCodeUnits);
         if (files.length !== definition.files.length) {
-          const missing = definition.files.filter((file) => !slowFileSet.has(file));
-          throw new Error(
-            `Slow test suite ${definition.id} references missing test files: ${missing.join(', ')}`
-          );
+          return [];
         }
         for (const file of files) {
           if (assigned.has(file)) {
@@ -283,7 +232,7 @@ export class TestBudgetCache {
           }
           assigned.add(file);
         }
-        return {
+        return [{
           id: definition.id,
           owner: definition.owner,
           timeoutMs: definition.timeoutMs,
@@ -291,7 +240,7 @@ export class TestBudgetCache {
           resourceClass: definition.resourceClass,
           prRiskBaseline: definition.prRiskBaseline,
           files
-        };
+        }];
       });
 
     const unmatched = slowFiles.filter((file) => !assigned.has(file));
@@ -302,84 +251,163 @@ export class TestBudgetCache {
     }
 
     return suites;
+}
+
+function projectionGeneration(
+  source: TestImpactProjectionReceipt
+): TestBudgetSnapshotGeneration {
+  return Object.freeze({
+    workspaceSnapshotIdentityDigest: source.workspaceSnapshotIdentityDigest as `sha256:${string}`,
+    testObservationDigest: source.testObservationDigest as `sha256:${string}`,
+    sourceProjectionDigest: source.projectionDigest as `sha256:${string}`
+  });
+}
+
+function projectionGenerationKey(
+  generation: TestBudgetSnapshotGeneration
+): `sha256:${string}` {
+  return sha256(generation) as `sha256:${string}`;
+}
+
+function budgetProjectionDigest(
+  projection: Omit<TestBudgetProjection, 'projectionDigest'>
+): `sha256:${string}` {
+  return sha256(projection) as `sha256:${string}`;
+}
+
+function compileExactTestBudgetProjection(
+  source: TestImpactProjectionReceipt
+): TestBudgetProjection {
+  const generation = projectionGeneration(source);
+  const generationKey = projectionGenerationKey(generation);
+  const testFiles = uniqueSorted(source.testFiles.filter(isSecRepositoryTestModulePath));
+  const fastTestFiles = testFiles.filter(isFastTestFile);
+  const slowTestFiles = testFiles.filter(isSlowTestFile);
+  const slowSuites = buildSlowTestSuites(slowTestFiles);
+  const unsigned = deepFreeze({
+    generation,
+    generationKey,
+    testFiles,
+    fastTestFiles,
+    slowTestFiles,
+    slowSuites
+  });
+  return deepFreeze({
+    ...unsigned,
+    projectionDigest: budgetProjectionDigest(unsigned)
+  });
+}
+
+function isCurrentCachedProjection(
+  cached: TestBudgetProjection,
+  source: TestImpactProjectionReceipt,
+  generationKey: `sha256:${string}`
+): boolean {
+  if (!Object.isFrozen(cached)
+      || cached.generationKey !== generationKey
+      || cached.generation.sourceProjectionDigest !== source.projectionDigest
+      || cached.generation.testObservationDigest !== source.testObservationDigest
+      || cached.generation.workspaceSnapshotIdentityDigest !== source.workspaceSnapshotIdentityDigest) {
+    return false;
+  }
+  const { projectionDigest, ...unsigned } = cached;
+  return projectionDigest === budgetProjectionDigest(unsigned)
+    && cached.testFiles.every((file) => source.testFiles.includes(file))
+    && cached.testFiles.length === source.testFiles.filter(isSecRepositoryTestModulePath).length
+    && cached.fastTestFiles.every(isFastTestFile)
+    && cached.slowTestFiles.every(isSlowTestFile)
+    && cached.slowSuites.every((suite) => Object.isFrozen(suite) && Object.isFrozen(suite.files));
+}
+
+/**
+ * Invocation-owned cache. Its key is the complete Source Snapshot/Test
+ * Observation generation; cached values never become membership authority.
+ */
+export class TestBudgetProjectionCache {
+  private readonly projections = new Map<`sha256:${string}`, TestBudgetProjection>();
+
+  project(source: TestImpactProjectionReceipt): TestBudgetProjection {
+    const generationKey = projectionGenerationKey(projectionGeneration(source));
+    const cached = this.projections.get(generationKey);
+    if (cached !== undefined && isCurrentCachedProjection(cached, source, generationKey)) {
+      return cached;
+    }
+    const exact = compileExactTestBudgetProjection(source);
+    this.projections.set(generationKey, exact);
+    return exact;
   }
 }
 
-const defaultTestBudgetCache = new TestBudgetCache();
-
-export function getTestFiles(): Promise<string[]> {
-  return defaultTestBudgetCache.getTestFiles();
+export function compileTestBudgetProjection(
+  source: TestImpactProjectionReceipt
+): TestBudgetProjection {
+  return compileExactTestBudgetProjection(source);
 }
 
-export function getTestFilesSync(): string[] {
-  return defaultTestBudgetCache.getTestFilesSync();
+export function getTestFilesSync(projection: TestBudgetProjection): readonly string[] {
+  return projection.testFiles;
 }
 
-export function getSlowTestFiles(): Promise<string[]> {
-  return defaultTestBudgetCache.getSlowTestFiles();
+export function getSlowTestFilesSync(projection: TestBudgetProjection): readonly string[] {
+  return projection.slowTestFiles;
 }
 
-export function getSlowTestFilesSync(): string[] {
-  return defaultTestBudgetCache.getSlowTestFilesSync();
+export function getFastTestFilesSync(projection: TestBudgetProjection): readonly string[] {
+  return projection.fastTestFiles;
 }
 
-export function getFastTestFiles(): Promise<string[]> {
-  return defaultTestBudgetCache.getFastTestFiles();
-}
-
-export function getFastTestFilesSync(): string[] {
-  return defaultTestBudgetCache.getFastTestFilesSync();
-}
-
-export function getSlowTestSuitesSync(): SlowTestSuite[] {
-  return defaultTestBudgetCache.getSlowTestSuitesSync();
-}
-
-export async function getSlowTestSuites(): Promise<SlowTestSuite[]> {
-  return defaultTestBudgetCache.getSlowTestSuites();
+export function getSlowTestSuitesSync(projection: TestBudgetProjection): readonly SlowTestSuite[] {
+  return projection.slowSuites;
 }
 
 export function isKnownSlowTestSuiteId(suiteId: string): boolean {
   return slowTestSuiteIds().includes(suiteId);
 }
 
-export function slowTestSuiteIds(): string[] {
-  return slowTestSuiteDefinitions.map((suite) => suite.id);
+export function slowTestSuiteIds(): readonly string[] {
+  return Object.freeze(slowTestSuiteDefinitions.map((suite) => suite.id));
 }
 
 /** Canonical suite identity for a live, removed, or renamed test path. */
-export function slowTestSuiteIdsForFile(file: string): string[] {
-  return slowTestSuiteDefinitions
+export function slowTestSuiteIdsForFile(file: string): readonly string[] {
+  return Object.freeze(slowTestSuiteDefinitions
     .filter((suite) => suite.files.includes(file))
-    .map((suite) => suite.id);
+    .map((suite) => suite.id));
 }
 
-export function slowTestSuiteFiles(suiteId: string): string[] {
-  return getSlowTestSuitesSync().find((suite) => suite.id === suiteId)?.files ?? [];
+export function slowTestSuiteFiles(
+  projection: TestBudgetProjection,
+  suiteId: string
+): readonly string[] {
+  return projection.slowSuites.find((suite) => suite.id === suiteId)?.files ?? Object.freeze([]);
 }
 
-export function slowTestPrRiskBaselineSuiteIds(): string[] {
-  return getSlowTestSuitesSync().filter((suite) => suite.prRiskBaseline).map((suite) => suite.id);
-}
-
-export function isTestFile(file: string): boolean {
-  return /^tests\/.+\.(test|spec)\.tsx?$/.test(file);
+export function slowTestPrRiskBaselineSuiteIds(
+  projection: TestBudgetProjection
+): readonly string[] {
+  return Object.freeze(projection.slowSuites
+    .filter((suite) => suite.prRiskBaseline)
+    .map((suite) => suite.id));
 }
 
 export function isSlowTestFile(file: string): boolean {
-  return explicitSlowTestFiles.has(file) || /^tests\/e2e\/.+\.(test|spec)\.tsx?$/.test(file);
+  const normalized = file.replaceAll('\\', '/').replace(/^\.\//u, '');
+  return isSecRepositoryTestModulePath(normalized)
+    && (explicitSlowTestFiles.has(normalized) || normalized.startsWith('tests/e2e/'));
 }
 
 export function isFastTestFile(file: string): boolean {
-  return isTestFile(file) && !isSlowTestFile(file);
+  return isSecRepositoryTestModulePath(file) && !isSlowTestFile(file);
 }
 
-export async function buildTestBudgetContract(): Promise<TestBudgetContract> {
-  const lanes = testBudgetLanes.map((lane) => ({ ...lane }));
+export function buildTestBudgetContract(
+  projection: TestBudgetProjection
+): TestBudgetContract {
+  const lanes = Object.freeze(testBudgetLanes.map((lane) => Object.freeze({ ...lane })));
   const slowLaneIds: TestBudgetLane['id'][] = ['runtime', 'all'];
-  const slowFiles = await getSlowTestFiles();
-  const slowSuites = await getSlowTestSuites();
-  return {
+  const slowFiles = projection.slowTestFiles;
+  const slowSuites = projection.slowSuites;
+  return deepFreeze({
     command: platformCommand('test', 'budget', '--json'),
     runnerCommand: 'bun run test:budget',
     defaultLane: 'fast',
@@ -393,7 +421,7 @@ export async function buildTestBudgetContract(): Promise<TestBudgetContract> {
     lanes,
     localDefault: 'bun run check:affected runs affected fast tests and skips broad source fallback unless SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1; use test:slow -- --suite <id>, test:full, or check:full for slow runtime gates',
     fullRuntimeGate: 'affected runtime changes or explicit release/demo verification'
-  };
+  });
 }
 
 export function formatTestBudgetContract(contract: TestBudgetContract): string {
@@ -425,7 +453,7 @@ export function formatTestBudgetContract(contract: TestBudgetContract): string {
   ].join('\n');
 }
 
-const testBudgetLanes: TestBudgetLane[] = [
+const testBudgetLanes: readonly TestBudgetLane[] = deepFreeze([
   {
     id: 'fast',
     command: platformCommand('verify')
@@ -438,4 +466,4 @@ const testBudgetLanes: TestBudgetLane[] = [
     id: 'all',
     command: platformCommand('verify', '--lane', 'all')
   }
-];
+]);

@@ -408,6 +408,8 @@ freeze new use
 → preserve historical decision and incident record
 ```
 
+当被退役对象是compiler、resolver、静态分析器、依赖图或其他会发现`unknown`的观察Provider时，`verify parity`必须包含**exact-version shadow difference**，不能用新实现自身的测试证明自己覆盖了旧实现。对同一exact input snapshot与配置分别保留`old-only | both | new-only | unknown` witness；每个`old-only`只能被replacement owner吸收为同等或更强的typed rejection，或由canonical domain owner以可执行理由裁决为`dominated`。旧版本不可调用、输入/配置未绑定、provider输出不可严格解析、或任一`old-only`未归属时，退役保持typed blocked；不得先删除entry/config/dependency再等待未来补齐。shadow只服务一次迁移裁决，cutover后旧Provider必须连同脚本、配置、lock、cache和专属test oracle原子退役，不能成为永久第二authority。
+
 退役不要求删除历史Evidence，但历史结果必须明确source revision和invalidated状态。旧Provider被撤销时，现有Binding不得自动改绑；必须由Implementation Resolver产生新的Decision，由Delta/Impact比较，再经过Change Management和Verification。
 
 ## 完成判据

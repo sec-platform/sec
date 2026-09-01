@@ -297,6 +297,24 @@ test('repository module capability roles bind exact operations and recovery addr
       }]
     }]
   }, 'src/runtime-store/sec.module.json')).toThrow('has an invalid format');
+
+  expect(parseSecModuleDescriptor({
+    importGraph: 'runtime',
+    externalEntrypoints: [],
+    capabilityProviders: [{
+      capability: 'verification.test-registration',
+      operations: ['register'],
+      operationRoles: [{
+        operation: 'register',
+        role: 'registration-issuer',
+        semanticOperation: 'verification.effectful-test',
+        requirementId: null,
+        recovery: null
+      }]
+    }],
+    operationObligations: []
+  }, 'tests/sec.module.json').capabilityProviders[0]?.operationRoles[0]?.role)
+    .toBe('registration-issuer');
 });
 
 test('repository module conflicts only exact provider settlement and readback relations', () => {

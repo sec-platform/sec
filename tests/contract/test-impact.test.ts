@@ -9,7 +9,7 @@ import { issueTestImpactProjection } from '../../src/brownfield/source-program-m
 import { acquireExactGitTreeWorkspaceSourceSnapshot } from '../../src/brownfield/source-program-model/workspace-source-snapshot.ts';
 import { currentActiveDocumentationPaths } from '../../src/control/documentation/active.ts';
 import { classifyTestImpactSource } from '../../src/verification/test-impact/contract/ownership.ts';
-import { createTestImpactSourceProvider, readRepositoryModuleGraphV1, resolveTestImpactSelectionTrustBoundary, resolveTestOwnership, selectTestsForSources } from '../../src/verification/test-impact/runtime/impact.ts';
+import { createRepositoryTestImpactSourceProvider, isTestImpactModuleGraphInputFile, isTestImpactSourceFile, readRepositoryModuleGraphV1, resolveTestImpactSelectionTrustBoundary, resolveTestOwnership, selectTestsForSources } from '../../src/verification/test-impact/runtime/impact.ts';
 
 function git(root: string, args: readonly string[]): string {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -46,7 +46,7 @@ function sourceProvider(sources: Readonly<Record<string, string>>) {
       commitSha: git(root, ['rev-parse', 'HEAD'])
     });
     const repositoryCompilation = compileRepositorySourceProgramCompilation({ workspaceSnapshot });
-    return createTestImpactSourceProvider({
+    return createRepositoryTestImpactSourceProvider({
       projection: issueTestImpactProjection({
         workspaceSnapshot,
         typeScriptModel: repositoryCompilation.typeScriptCompilation.model,
@@ -127,6 +127,19 @@ test('impact follows executable imports instead of import-like text', () => {
   expect(selection.owners).toEqual(['compiler']);
 });
 
+test('colocated source tests use the canonical repository test-module identity', () => {
+  const source = 'src/compiler/colocated-source.ts';
+  const selected = 'src/compiler/colocated-source.spec.ts';
+  const provider = sourceProvider({
+    [source]: 'export const value = 1;',
+    [selected]: "import { value } from './colocated-source.ts'; void value;"
+  });
+
+  expect(isTestImpactModuleGraphInputFile(selected, provider)).toBe(false);
+  expect(isTestImpactSourceFile(selected, provider)).toBe(false);
+  expect(selectTestsForSources([source], provider).fast).toEqual([selected]);
+});
+
 test('compiler-resolved named barrel references do not select unrelated consumers', () => {
   const alpha = 'src/compiler/virtual-alpha.ts';
   const beta = 'src/compiler/virtual-beta.ts';
@@ -196,16 +209,16 @@ test('imported machine data uses the same reverse dependency graph', () => {
 });
 
 test('non-code product inputs reach tests through semantic module owners', () => {
-  const documentation = selectTestsForSources(['docs/product.md']);
-  expect(documentation.owners).toContain('control.documentation');
-  expect(documentation.fast).toEqual([]);
-  expect(documentation.slow).toEqual([]);
-
   const provider = sourceProvider({
     'catalog/registry/official/ticket.basic/block.manifest.yaml': 'id: ticket.basic\n',
     'src/compiler/virtual-manifest-consumer.ts': 'export const manifestConsumer = true;',
     'tests/unit/virtual-manifest-consumer.test.ts': "import { manifestConsumer } from '../../src/compiler/virtual-manifest-consumer.ts'; void manifestConsumer;"
   });
+  const documentation = selectTestsForSources(['docs/product.md'], provider);
+  expect(documentation.owners).toContain('control.documentation');
+  expect(documentation.fast).toEqual([]);
+  expect(documentation.slow).toEqual([]);
+
   const manifest = selectTestsForSources([
     'catalog/registry/official/ticket.basic/block.manifest.yaml'
   ], provider);

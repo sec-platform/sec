@@ -1,32 +1,52 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
+import type { IssuedTestImpactProjection } from '../../brownfield/source-program-model/test-impact-projection.ts';
+import {
+  assertWorkspaceTypeScriptProjectGenerationEvidence,
+  type WorkspaceTypeScriptProjectGenerationEvidence
+} from '../../brownfield/source-program-model/workspace-source-snapshot.ts';
+import { currentActiveDocumentationPaths } from '../../control/documentation/active.ts';
 import {
   compileSecOperationDemandGraph,
   type SecOperationKind
 } from '../../control/operation/demand.ts';
-import { createAuthorityGitReadSession, type GitExecutableIdentity, type GitReadProviderIdentity, type GitReadProviderResolutionFailure, type GitReadProviderRoute, type GitReadSession, type GitReadSessionCommand } from '../../external-capabilities/git-read/runtime/session.ts';
+import { createAuthorityGitReadSession, type GitExecutableIdentity, type GitReadProviderIdentity, type GitReadProviderRoute, type GitReadSession, type GitReadSessionCommand } from '../../external-capabilities/git-read/runtime/session.ts';
 import { secRuntimeStateEnvironment } from '../../runtime-state/workspace-state/layout.ts';
-import { deepFreeze, rawSha256, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { deepFreeze, rawSha256, sha256, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { uniqueSortedLines } from '../../system-architecture/foundation/runtime/collections.ts';
-import { selectCiPrRiskSlowSuites } from '../../verification/ci/runtime/pr-risk-selection.ts';
+import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
+import { isSecRepositoryTestModulePath } from '../../system-architecture/repository-modules/test-module-path.ts';
+import { selectCiSlowTestClosure } from '../../verification/ci/runtime/slow-test-selection.ts';
 import { buildContractFreezeRunnerInvocations, type ContractFreezeTarget } from '../../verification/freeze.ts';
-import type { VerificationGateResult } from '../../verification/result/contract/result.ts';
 import {
   classifyAffectedSelectionTrustBoundary,
   CodexDevelopmentAffectedInventoryInputs,
   CodexDevelopmentBuildAffectedTestInventory,
   defaultAffectedSelectionProjectionContext,
   isAffectedSelectionFailClosed,
-  projectAffectedSelectionToVerificationGateResult,
-  type AffectedSelectionTrustBoundary
+  projectAffectedSelectionToVerificationGateResult
 } from '../../verification/test-impact/affected.ts';
-import { FAST_TEST_PROCESS_POLICY_TEST_FILE, getFastTestFilesSync, getSlowTestFilesSync, isFastTestFile, isKnownSlowTestSuiteId, isSlowTestFile, isTestFile, slowTestSuiteFiles, slowTestSuiteIds, TEST_ARCHITECTURE_POLICY_TEST_FILE } from '../../verification/test-impact/contract/budget.ts';
-import { createRepositoryTestImpactSourceProvider, formatSlowImpactNotice, isTestImpactModuleGraphInputFile, isTestImpactSourceFile, type CodexDevelopmentTestImpactSourceProvider } from '../../verification/test-impact/runtime/impact.ts';
-import { CodexDevelopmentCreateTestImpactTransitionObservation, gitChangedFileDiffArgs, gitPathBlobBatchArgs, gitUntrackedFileArgs, gitWorkingTreeStatusArgs, parseGitChangedRecordsOutput, parseGitPathBlobBatchOutput, parseGitUntrackedFileOutput, type CodexDevelopmentTestImpactTransitionObservation } from '../../verification/test-impact/runtime/transition.ts';
-import { compilerRoot, posixPath } from '../../workspace/paths.ts';
+import { compileTestBudgetProjection, FAST_TEST_PROCESS_POLICY_TEST_FILE, getFastTestFilesSync, getSlowTestFilesSync, isFastTestFile, isKnownSlowTestSuiteId, isSlowTestFile, slowTestSuiteFiles, slowTestSuiteIds, TEST_ARCHITECTURE_POLICY_TEST_FILE, type TestBudgetProjection } from '../../verification/test-impact/contract/budget.ts';
+import { createRepositoryTestImpactSourceProvider, formatSlowImpactNotice, type CodexDevelopmentTestImpactSourceProvider } from '../../verification/test-impact/runtime/impact.ts';
+import { CodexDevelopmentCreateTestImpactTransitionObservation, gitChangedFileDiffArgs, gitIndexChangedFileDiffArgs, gitPathBlobBatchArgs, gitUntrackedFileArgs, gitWorkingTreeStatusArgs, gitWorktreeChangedFileDiffArgs, parseGitChangedRecordsOutput, parseGitPathBlobBatchOutput, parseGitUntrackedFileOutput, type CodexDevelopmentTestImpactTransitionObservation } from '../../verification/test-impact/runtime/transition.ts';
+import { compilerRoot, posixPath } from '../../workspace/runtime/paths.ts';
+import { GIT_READ_OPERATION_BUDGET } from '../tooling/git/git-read.ts';
+import {
+  AFFECTED_GIT_REVALIDATION_AGGREGATE_CEILING,
+  affectedTestPlanExitCode,
+  compileAffectedTestSelectionSemanticOperation,
+  type AffectedPlanIdentity,
+  type AffectedTestPlan,
+  type AffectedTestSelection
+} from './affected-plan-contract.ts';
+import {
+  issueCheckAffectedTestImpactProjection,
+  type AffectedTestImpactProjectionIssuer
+} from './check-affected-source.ts';
 import {
   boundedUtf8TextTail,
+  DEV_COMMAND_MAX_DURATION_MS,
   devCommandObservationExitCode,
   runDevCommand,
   type DevCommandObservation
@@ -61,7 +81,10 @@ import {
   type FastTestResourceClassLimits
 } from './fast-test-policy.ts';
 import { explicitFastTestMaxConcurrency } from './test-concurrency-policy.ts';
-import { withDefaultTestTimeout } from './test-execution-policy.ts';
+import {
+  compileTestInvocationExecutionPolicy,
+  withDefaultTestTimeout
+} from './test-execution-policy.ts';
 import {
   createTestInvocationRuntimeRoots,
   testInvocationRuntimeIsolationModeForPlatform,
@@ -124,7 +147,7 @@ function testFileMatchesSelector(file: string, selector: string): boolean {
 }
 
 function isTestFileSelector(selector: string): boolean {
-  return /^tests\/.+\.(test|spec)\.tsx?$/.test(selector);
+  return isSecRepositoryTestModulePath(selector);
 }
 
 function selectMatchingTestFiles(availableFiles: string[], selectors: string[], label: string): string[] {
@@ -156,6 +179,15 @@ function fastTestArgs(files: string[], options: string[], innerConcurrency: numb
   return ['test', ...files, ...withDefaultTestTimeout(boundedOptions)];
 }
 
+function managedBunTestArgs(args: readonly string[]): string[] {
+  if (args[0] !== 'test') throw new Error('Managed Bun test invocation must begin with "test".');
+  return ['test', ...withDefaultTestTimeout(args.slice(1))];
+}
+
+function testSupervisorTimeoutMs(args: readonly string[]): number {
+  return compileTestInvocationExecutionPolicy(args, DEV_COMMAND_MAX_DURATION_MS).supervisorTimeoutMs;
+}
+
 export type FastTestInvocationQueue = 'concurrent-shard' | FastTestProcessResourceClass;
 
 export type FastTestInvocation = {
@@ -178,6 +210,7 @@ function fastTestInvocationId(queue: FastTestInvocationQueue, index: number): st
 
 function fastTestInvocations(
   args: string[],
+  budgetProjection: TestBudgetProjection,
   inventory: 'default' | 'complete' = 'default'
 ): FastTestInvocationPlan {
   const { options, selectors } = partitionBunTestArgs(args);
@@ -186,7 +219,7 @@ function fastTestInvocations(
     throw new Error(`Fast test runner cannot run slow test files: ${slowSelectors.join(', ')}`);
   }
 
-  const completeFastFiles = getFastTestFilesSync();
+  const completeFastFiles = [...getFastTestFilesSync(budgetProjection)];
   assertFastTestProcessPolicyInventory(completeFastFiles);
   const availableFiles = selectors.length === 0 && inventory === 'default'
     ? completeFastFiles.filter(isDefaultFastTestFile)
@@ -268,13 +301,18 @@ type SlowTestArgSelection =
   | { kind: 'run'; args: string[] }
   | { kind: 'skip'; message: string };
 
-function slowTestArgSelection(args: string[]): SlowTestArgSelection {
+function slowTestArgSelection(
+  args: string[],
+  budgetProjection: TestBudgetProjection
+): SlowTestArgSelection {
   const { suiteId, bunArgs } = extractSlowTestRunnerArgs(args);
   if (suiteId && !isKnownSlowTestSuiteId(suiteId)) {
     throw new Error(`Unknown slow test suite "${suiteId}". Available suites: ${slowTestSuiteIds().join(', ') || 'none'}`);
   }
 
-  const availableFiles = suiteId ? slowTestSuiteFiles(suiteId) : getSlowTestFilesSync();
+  const availableFiles = suiteId
+    ? slowTestSuiteFiles(budgetProjection, suiteId)
+    : getSlowTestFilesSync(budgetProjection);
   if (availableFiles.length === 0) {
     return { kind: 'skip', message: suiteId ? `No slow files for suite ${suiteId}` : 'No slow test files detected.' };
   }
@@ -290,7 +328,7 @@ function slowTestArgSelection(args: string[]): SlowTestArgSelection {
     kind: 'run',
     args: [
       'test',
-      ...selectMatchingTestFiles(availableFiles, selectors, label),
+      ...selectMatchingTestFiles([...availableFiles], selectors, label),
       ...withDefaultTestTimeout(options)
     ]
   };
@@ -302,9 +340,9 @@ type FullTestInvocation = Readonly<{
   args: string[];
 }>;
 
-function fullTestInvocations(): FullTestInvocation[] {
-  const slowSelection = slowTestArgSelection([]);
-  const fast = fastTestInvocations([], 'complete');
+function fullTestInvocations(budgetProjection: TestBudgetProjection): FullTestInvocation[] {
+  const slowSelection = slowTestArgSelection([], budgetProjection);
+  const fast = fastTestInvocations([], budgetProjection, 'complete');
   return [
     ...fast.concurrentShards.map(({ id, args }) => ({ kind: 'fast' as const, id, args })),
     ...fast.resourceClassOrder.flatMap((resourceClass) => (
@@ -421,6 +459,7 @@ async function observeGitSelectionState(
 }
 
 type AffectedGitRevalidationLedger = {
+  readonly operation: SecBoundSemanticOperation;
   /** Absolute parent wall deadline shared by every revalidation session. */
   readonly deadlineAt: number;
   readonly maxProcesses: number;
@@ -444,26 +483,13 @@ type AffectedGitRevalidationLedger = {
   executableBytes: number;
 };
 
-// These are fixed ceilings for one logical affected operation. They are not
-// derived from a caller-supplied initial session budget, so opening a fresh
-// revalidation session cannot amplify the aggregate envelope.
-const AFFECTED_GIT_REVALIDATION_AGGREGATE_CEILING = Object.freeze({
-  maxProcesses: 256,
-  maxTotalArgumentBytes: 128 * 1024 * 1024,
-  maxStdoutBytes: 512 * 1024 * 1024,
-  maxStderrBytes: 16 * 1024 * 1024,
-  maxRecords: 2_000_000,
-  maxRootObservedBytes: 2 * 1024 * 1024 * 1024,
-  maxReopenRefreshes: 80_000,
-  maxSettlementAttempts: 256,
-  maxExecutableBytes: 512 * 1024 * 1024
-});
-
 function createAffectedGitRevalidationLedger(
+  operation: SecBoundSemanticOperation,
   initialSession: GitReadSession,
   initialIdentity: GitExecutableIdentity | null
 ): AffectedGitRevalidationLedger {
   return {
+    operation,
     deadlineAt: initialSession.deadlineAt,
     ...AFFECTED_GIT_REVALIDATION_AGGREGATE_CEILING,
     revalidationCount: 0,
@@ -526,10 +552,11 @@ async function reobserveAffectedGitSelectionState(
   ledger.revalidationCount += 1;
   const resolution = createAuthorityGitReadSession({
     cwd: compilerRoot,
+    operation: ledger.operation,
     budget: {
       // Each fresh provider session consumes the same parent absolute
       // deadline. The relative value only narrows the transport request; it
-      // is never permission to reset the five-second observation window.
+      // is never permission to reset the owner-issued operation window.
       deadlineMs: Math.min(5_000, remainingDeadlineMs),
       maxProcesses: Math.min(128, processRemaining),
       maxTotalArgumentBytes: Math.min(16 * 1024 * 1024, argumentRemaining),
@@ -600,11 +627,11 @@ async function gitChangedFiles(
   headSha = exactRevision(headRevision.stdout) ?? undefined;
   if (headSha === undefined) return null;
 
-  const tracked = completedGitCommand(await session.run(
-    // `currentRef=null` is the explicit worktree diff boundary. Passing only
-    // one ref would compare HEAD to itself when a base is present and would
-    // silently omit uncommitted source/index changes from the plan identity.
-    gitChangedFileDiffArgs(baseSha === null ? 'HEAD' : headSha, null)
+  const staged = completedGitCommand(await session.run(
+    gitIndexChangedFileDiffArgs(baseSha === null ? 'HEAD' : headSha)
+  ));
+  const unstaged = completedGitCommand(await session.run(
+    gitWorktreeChangedFileDiffArgs()
   ));
   const committedTracked = baseSha === null
     ? null
@@ -617,9 +644,10 @@ async function gitChangedFiles(
     '-c', 'core.untrackedCache=false',
     'ls-files', '--stage', '-z'
   ]));
-  if (tracked === null || (baseSha !== null && committedTracked === null)
+  if (staged === null || unstaged === null || (baseSha !== null && committedTracked === null)
       || untracked === null || worktreeStatus === null || index === null
-      || tracked.code !== 0 || untracked.code !== 0 || worktreeStatus.code !== 0 || index.code !== 0) {
+      || staged.code !== 0 || unstaged.code !== 0 || untracked.code !== 0
+      || worktreeStatus.code !== 0 || index.code !== 0) {
     return null;
   }
   if (committedTracked !== null && committedTracked.code !== 0) return null;
@@ -632,15 +660,21 @@ async function gitChangedFiles(
   );
   if (initialObservation === null) return null;
   try {
-    const records = parseGitChangedRecordsOutput(tracked.stdout);
+    const stagedRecords = parseGitChangedRecordsOutput(staged.stdout);
+    const unstagedRecords = parseGitChangedRecordsOutput(unstaged.stdout);
     const committedRecords = committedTracked === null
       ? []
       : parseGitChangedRecordsOutput(committedTracked.stdout);
-    if (session.consumeRecords(records.length + committedRecords.length) !== null) return null;
+    if (session.consumeRecords(
+      stagedRecords.length + unstagedRecords.length + committedRecords.length
+    ) !== null) return null;
     const untrackedPaths = parseGitUntrackedFileOutput(untracked.stdout);
     if (session.consumeRecords(untrackedPaths.length) !== null) return null;
     const files = uniqueSorted([
-      ...records.flatMap((record) => (
+      ...stagedRecords.flatMap((record) => (
+        record.previousPath === undefined ? [record.path] : [record.previousPath, record.path]
+      )),
+      ...unstagedRecords.flatMap((record) => (
         record.previousPath === undefined ? [record.path] : [record.previousPath, record.path]
       )),
       ...committedRecords.flatMap((record) => (
@@ -702,6 +736,83 @@ async function gitChangedFiles(
   } catch {
     return null;
   }
+}
+
+export async function issueCurrentTestImpactSourceProvider(): Promise<CodexDevelopmentTestImpactSourceProvider> {
+  const operation = compileAffectedTestSelectionSemanticOperation({
+    purpose: 'budget-projection'
+  });
+  const deadlineAtUnixMs = operation.plan.attempt.deadlineAtUnixMs;
+  const resolution = createAuthorityGitReadSession({
+    cwd: compilerRoot,
+    operation,
+    budget: GIT_READ_OPERATION_BUDGET,
+    deadlineAtUnixMs
+  });
+  if (resolution.status !== 'ready') {
+    throw new Error(`Test budget source snapshot is unavailable: ${resolution.kind}`);
+  }
+  const session = resolution.session;
+  try {
+    const observation = await issueCheckAffectedTestImpactProjection({
+      repositoryRoot: compilerRoot,
+      session
+    });
+    return createRepositoryTestImpactSourceProvider({
+      projection: observation.projection,
+      activeDocumentationPaths: currentActiveDocumentationPaths()
+    });
+  } finally {
+    await session.close?.();
+  }
+}
+
+export async function issueCurrentTestBudgetProjection(): Promise<TestBudgetProjection> {
+  const provider = await issueCurrentTestImpactSourceProvider();
+  return compileTestBudgetProjection(provider.projection);
+}
+
+function sameGitSelectionObservation(
+  left: GitSelectionGitObservation,
+  right: GitSelectionGitObservation
+): boolean {
+  return left.headSha === right.headSha
+    && left.indexDigest === right.indexDigest
+    && left.worktreeDigest === right.worktreeDigest
+    && left.gitExecutable === right.gitExecutable
+    && left.gitProviderRoute === right.gitProviderRoute
+    && JSON.stringify(left.gitProviderIdentity) === JSON.stringify(right.gitProviderIdentity)
+    && JSON.stringify(left.gitExecutableIdentity) === JSON.stringify(right.gitExecutableIdentity);
+}
+
+async function issueAffectedWorkingTreeTestImpactProjection(
+  session: GitReadSession,
+  initialObservation: GitSelectionGitObservation,
+  issueProjection: AffectedTestImpactProjectionIssuer
+): Promise<Readonly<{
+  projection: IssuedTestImpactProjection;
+  projectGenerationEvidence: WorkspaceTypeScriptProjectGenerationEvidence;
+}> | null> {
+  const observation = await issueProjection({
+    repositoryRoot: compilerRoot,
+    session
+  });
+  const { projection, projectGenerationEvidence } = observation;
+  assertWorkspaceTypeScriptProjectGenerationEvidence(projectGenerationEvidence);
+  if (projectGenerationEvidence.projectInput.workspaceSnapshotIdentityDigest
+      !== projection.workspaceSnapshotIdentityDigest
+      || projectGenerationEvidence.projectInput.snapshotDigest !== projection.snapshotDigest
+      || projectGenerationEvidence.projectInput.moduleMembershipDigest
+        !== projection.moduleMembershipDigest
+      || projectGenerationEvidence.projectInput.moduleGraphDigest !== projection.moduleGraphDigest) {
+    return null;
+  }
+  if (projection.subject.kind !== 'physical-repository'
+      || projection.subject.provenance.kind !== 'working-tree-observation') return null;
+  const finalObservation = await observeGitSelectionState(session, initialObservation.baseSha);
+  if (finalObservation === null
+      || !sameGitSelectionObservation(initialObservation, finalObservation)) return null;
+  return observation;
 }
 
 function allowFullFastFallback(): boolean {
@@ -941,8 +1052,12 @@ async function runBoundedFastTestInvocations(
     invocations,
     concurrency,
     (invocation) => {
+      const args = managedBunTestArgs(invocation.args);
       return runDevCommand(
-        'bun', invocation.args, fastInvocationEnvironment(env, invocationRuntime, invocation.id), { observe: true }
+        'bun', args, fastInvocationEnvironment(env, invocationRuntime, invocation.id), {
+          observe: true,
+          timeoutMs: testSupervisorTimeoutMs(args)
+        }
       );
     },
     (observation) => devCommandObservationExitCode(observation) !== 0
@@ -1019,27 +1134,17 @@ async function runWithTestInvocationRuntime(
   return exitCode;
 }
 
-interface AffectedTestSelection {
-  readonly tests: readonly string[];
-  readonly slowTests: readonly string[];
-  readonly affectedTests: readonly string[];
-  readonly affectedSlowTests: readonly string[];
-  readonly affectedOwners: readonly string[];
-  readonly sourceChanged: boolean;
-  readonly selectionResolved: boolean;
-  readonly unresolvedModuleFiles: readonly string[];
-}
-
 function affectedTestSelection(
   files: string[],
-  transition?: CodexDevelopmentTestImpactTransitionObservation,
-  provider?: CodexDevelopmentTestImpactSourceProvider
+  budgetProjection: TestBudgetProjection,
+  provider: CodexDevelopmentTestImpactSourceProvider,
+  transition?: CodexDevelopmentTestImpactTransitionObservation
 ): AffectedTestSelection {
-  const currentFastFiles = getFastTestFilesSync();
+  const currentFastFiles = [...getFastTestFilesSync(budgetProjection)];
   assertFastTestProcessPolicyInventory(currentFastFiles);
   const currentTestFiles = new Set([
     ...currentFastFiles,
-    ...getSlowTestFilesSync()
+    ...getSlowTestFilesSync(budgetProjection)
   ]);
   const inventory = CodexDevelopmentBuildAffectedTestInventory(
     CodexDevelopmentAffectedInventoryInputs(files, (file) => currentTestFiles.has(file)),
@@ -1053,7 +1158,7 @@ function affectedTestSelection(
   const processPolicySentinels = files.some(isFastTestFile)
     ? [FAST_TEST_PROCESS_POLICY_TEST_FILE]
     : [];
-  const architecturePolicySentinels = files.some(isTestFile)
+  const architecturePolicySentinels = files.some(isSecRepositoryTestModulePath)
     ? [TEST_ARCHITECTURE_POLICY_TEST_FILE]
     : [];
   const policySentinels = unionTestFiles(processPolicySentinels, architecturePolicySentinels);
@@ -1081,70 +1186,24 @@ function unionTestFiles(...groups: string[][]): string[] {
 
 function unresolvedRiskPaths(
   files: readonly string[],
-  risk: ReturnType<typeof selectCiPrRiskSlowSuites>
+  closure: ReturnType<typeof selectCiSlowTestClosure>
 ): string[] {
-  // `selectCiPrRiskSlowSuites` already performs one batch inventory. Re-running
+  // `selectCiSlowTestClosure` already performs one batch inventory. Re-running
   // it once per changed path rebuilt the same graph and source observation for
   // large deltas. When the aggregate resolution is false, retain the complete
   // changed-path frontier; callers get a conservative typed diagnostic and no
   // path can be authorized from a partial per-file approximation.
-  return risk.resolved ? [] : uniqueSorted([...files]);
+  return closure.resolved ? [] : uniqueSorted([...files]);
 }
-
-export interface AffectedTestPlan {
-  readonly schema: 'sec-affected-test-plan-v1';
-  readonly changedPaths: readonly string[];
-  readonly owners: readonly string[];
-  readonly selectedFastTests: readonly string[];
-  readonly selectedSlowTests: readonly string[];
-  readonly riskSuites: readonly string[];
-  readonly riskTests: readonly string[];
-  readonly riskReasons: readonly string[];
-  readonly unresolvedPaths: readonly string[];
-  readonly resolved: boolean;
-  readonly selectionResolved: AffectedTestSelection;
-  /**
-   * Issue #206 trust boundary classification for this plan. Computed from the
-   * same inputs as `resolved` and `selectionResolved` but projected to a
-   * stable enum so CI and callers can branch on the boundary without
-   * re-deriving it.
-   */
-  readonly selectionTrustBoundary: AffectedSelectionTrustBoundary;
-  /**
-   * Issue #206 projection of the plan-phase trust boundary to the unified
-   * VerificationGateResultV1 model. For fail-closed boundaries this carries
-   * `status: invalidated, reasonCode: selection-unresolved`. For applicable
-   * boundaries this carries `status: not-run` (plan phase; execution outcome
-   * is NOT represented here).
-   */
-  readonly verificationResult: VerificationGateResult;
-  /** Single fallback decision captured at plan admission; never re-read at run time. */
-  readonly broadFallbackEnabled: boolean;
-  /** Provider admission failure retained in a fail-closed plan projection. */
-  readonly gitProviderFailure?: GitReadProviderResolutionFailure;
-  /** Exact observation identity frozen at plan admission and used for the final fence. */
-  readonly identity?: AffectedPlanIdentity;
-}
-
-export type AffectedPlanIdentity = Readonly<{
-  schema: 'sec-affected-plan-identity-v1';
-  baseSha: string | null;
-  headSha: string;
-  indexDigest: `sha256:${string}`;
-  worktreeDigest: `sha256:${string}`;
-  changedPathsDigest: `sha256:${string}`;
-  sourceObservationDigest: `sha256:${string}` | null;
-  sourceEpoch: `sha256:${string}` | null;
-  ruleRevision: string;
-  broadFallbackEnabled: boolean;
-  gitProviderRoute: GitReadProviderRoute;
-  gitProviderIdentityDigest: `sha256:${string}`;
-  gitExecutable: string;
-  gitExecutableDigest: `sha256:${string}` | null;
-}>;
 
 export interface ResolvedAffectedTestExecution {
   readonly plan: AffectedTestPlan;
+  /**
+   * Process-local, Source Program-issued exact bytes for the same observation
+   * that produced `plan`. It is deliberately absent from every JSON plan and
+   * terminal: another process must acquire a new physical observation.
+   */
+  readonly projectGenerationEvidence: WorkspaceTypeScriptProjectGenerationEvidence;
   /** Re-observes the same Git/source/provider identity before any effect. */
   readonly assertCurrent: () => Promise<boolean>;
   readonly run: (preparedDependencies?: OperationDependencyBootstrapResult) => Promise<number>;
@@ -1158,17 +1217,16 @@ function framedChangedPathDigest(files: readonly string[]): `sha256:${string}` {
 function affectedTestPlan(
   files: string[],
   broadFallbackEnabled: boolean,
+  provider: CodexDevelopmentTestImpactSourceProvider,
   transition?: CodexDevelopmentTestImpactTransitionObservation,
-  provider?: CodexDevelopmentTestImpactSourceProvider,
   gitObservation?: GitSelectionGitObservation,
-  observationFailure: 'git' | 'source' | null = null,
-  sourceObservationProvider?: CodexDevelopmentTestImpactSourceProvider,
-  gitProviderFailure?: GitReadProviderResolutionFailure
+  observationFailure: 'git' | 'source' | null = null
 ): AffectedTestPlan {
-  const risk = selectCiPrRiskSlowSuites(files, provider, transition);
-  const selection = affectedTestSelection(files, transition, provider);
+  const budgetProjection = compileTestBudgetProjection(provider.projection);
+  const risk = selectCiSlowTestClosure(files, provider, transition);
+  const selection = affectedTestSelection(files, budgetProjection, provider, transition);
   const unresolvedPaths = unresolvedRiskPaths(files, risk);
-  const sourceObservationUnresolved = sourceObservationProvider?.unresolvedModuleFiles ?? [];
+  const sourceObservationUnresolved = provider.projection.moduleGraph.unresolvedFiles;
   const observedSelection: AffectedTestSelection = observationFailure === 'source'
     ? {
         ...selection,
@@ -1191,8 +1249,7 @@ function affectedTestPlan(
       : selection;
   const selectedFastTests = unionTestFiles([...observedSelection.tests], [...observedSelection.affectedTests]);
   const ownershipResolved = risk.resolved
-    && unresolvedPaths.length === 0
-    && gitProviderFailure === undefined;
+    && unresolvedPaths.length === 0;
   const trustBoundary = classifyAffectedSelectionTrustBoundary({
     gitDiscoveryFailed: observationFailure === 'git',
     ownershipResolved,
@@ -1218,12 +1275,8 @@ function affectedTestPlan(
     indexDigest: gitObservation.indexDigest,
     worktreeDigest: gitObservation.worktreeDigest,
     changedPathsDigest: inputDigest,
-    sourceObservationDigest: sourceObservationProvider?.observation?.sourceDigest
-      ?? provider?.observation?.sourceDigest
-      ?? null,
-    sourceEpoch: sourceObservationProvider?.observation?.sourceEpoch
-      ?? provider?.observation?.sourceEpoch
-      ?? null,
+    sourceObservationDigest: provider.projection.testObservationDigest as `sha256:${string}`,
+    sourceEpoch: provider.projection.workspaceSnapshotIdentityDigest as `sha256:${string}`,
     ruleRevision: 'affected-selection-trust-boundary-v4-observation-session',
     broadFallbackEnabled,
     gitProviderRoute: gitObservation.gitProviderRoute,
@@ -1240,7 +1293,7 @@ function affectedTestPlan(
     selectedSlowTests: unionTestFiles([...observedSelection.slowTests], [...observedSelection.affectedSlowTests]),
     riskSuites: risk.suites,
     riskTests: unionTestFiles(
-      risk.suites.flatMap((suite) => slowTestSuiteFiles(suite)),
+      risk.suites.flatMap((suite) => slowTestSuiteFiles(budgetProjection, suite)),
       risk.slowTests
     ),
     riskReasons: risk.reasons,
@@ -1250,7 +1303,6 @@ function affectedTestPlan(
     selectionTrustBoundary: trustBoundary,
     verificationResult,
     broadFallbackEnabled,
-    ...(gitProviderFailure === undefined ? {} : { gitProviderFailure }),
     identity
   };
 }
@@ -1278,9 +1330,6 @@ function freezeAffectedTestPlan(plan: AffectedTestPlan): AffectedTestPlan {
     }),
     verificationResult: Object.freeze({ ...plan.verificationResult }),
     broadFallbackEnabled: plan.broadFallbackEnabled,
-    ...(plan.gitProviderFailure === undefined
-      ? {}
-      : { gitProviderFailure: Object.freeze({ ...plan.gitProviderFailure }) }),
     ...(plan.identity === undefined ? {} : { identity: Object.freeze({ ...plan.identity }) })
   });
 }
@@ -1290,13 +1339,6 @@ async function runAffectedTestPlan(
   preparedDependencies?: OperationDependencyBootstrapResult
 ): Promise<number> {
   if (!plan.resolved) {
-    if (plan.gitProviderFailure !== undefined) {
-      console.error(
-        `Affected Git provider is unresolved: ${plan.gitProviderFailure.status}/`
-        + `${plan.gitProviderFailure.reason} (${plan.gitProviderFailure.detailDigest}).`
-      );
-      return 1;
-    }
     console.error(`Affected test ownership is unresolved for changed paths: ${plan.unresolvedPaths.join(', ')}`);
     return 1;
   }
@@ -1314,7 +1356,7 @@ async function runAffectedTestPlan(
   // Reuse the selection computed during plan construction instead of recomputing.
   const selection = plan.selectionResolved;
   if (selection.slowTests.length > 0) {
-    console.log(`Changed slow test files require PR risk or release/full verification: ${selection.slowTests.join(', ')}`);
+    console.log(`Changed slow test files require canonical slow-test closure or release/full verification: ${selection.slowTests.join(', ')}`);
   }
 
   const selectedFastTests = [...plan.selectedFastTests];
@@ -1366,37 +1408,34 @@ async function runAffectedTestPlan(
 }
 
 export async function resolveAffectedTestExecution(options: Readonly<{
+  operation: SecBoundSemanticOperation;
+  issueTestImpactProjection: AffectedTestImpactProjectionIssuer;
   /** Callers with an explicit pre-effect fence may defer this first recheck. */
   verifyAtResolution?: boolean;
-}> = {}): Promise<ResolvedAffectedTestExecution | null> {
-  const gitResolution = createAuthorityGitReadSession({ cwd: compilerRoot });
+}>): Promise<ResolvedAffectedTestExecution | null> {
+  const gitResolution = createAuthorityGitReadSession({
+    cwd: compilerRoot,
+    operation: options.operation,
+    budget: GIT_READ_OPERATION_BUDGET
+  });
   if (gitResolution.status !== 'ready') {
-    const plan = freezeAffectedTestPlan(affectedTestPlan(
-      [],
-      false,
-      undefined,
-      undefined,
-      undefined,
-      'git',
-      undefined,
-      gitResolution
-    ));
-    return Object.freeze({
-      plan,
-      assertCurrent: async () => false,
-      run: async (preparedDependencies?: OperationDependencyBootstrapResult) => (
-        runAffectedTestPlan(plan, preparedDependencies)
-      )
-    });
+    return null;
   }
   const gitSession = gitResolution.session;
   let changed: GitChangedFilesResult | null = null;
+  let testImpactObservation: Awaited<ReturnType<AffectedTestImpactProjectionIssuer>> | null = null;
   let gitRevalidationLedger: AffectedGitRevalidationLedger | null = null;
   let initialSessionFailure = gitSession.failure;
   try {
     changed = await gitChangedFiles(gitSession);
     if (changed !== null) {
+      testImpactObservation = await issueAffectedWorkingTreeTestImpactProjection(
+        gitSession,
+        changed.gitObservation,
+        options.issueTestImpactProjection
+      );
       gitRevalidationLedger = createAffectedGitRevalidationLedger(
+        options.operation,
         gitSession,
         changed.gitObservation.gitExecutableIdentity
       );
@@ -1410,24 +1449,21 @@ export async function resolveAffectedTestExecution(options: Readonly<{
   }
   if (initialSessionFailure !== null || changed === null || gitRevalidationLedger === null) return null;
   const revalidationLedger = gitRevalidationLedger;
-  // Every selection mode consumes the same invocation-local source provider.
-  const requiresSourceObservation = changed.files.some((file) => (
-    isTestImpactModuleGraphInputFile(file)
-      && isTestImpactSourceFile(file)
-  ));
-  const sourceObservationProvider = requiresSourceObservation
-    ? createRepositoryTestImpactSourceProvider()
-    : null;
-  const provider = sourceObservationProvider ?? undefined;
+  if (testImpactObservation === null) return null;
+  const { projection: testImpactProjection, projectGenerationEvidence } = testImpactObservation;
+  const sourceObservationProvider = createRepositoryTestImpactSourceProvider({
+    projection: testImpactProjection,
+    activeDocumentationPaths: currentActiveDocumentationPaths()
+  });
+  const provider = sourceObservationProvider;
   const broadFallbackEnabled = allowFullFastFallback();
   const initialPlan = affectedTestPlan(
     changed.files,
     broadFallbackEnabled,
-    changed.transitionObservation,
     provider,
+    changed.transitionObservation,
     changed.gitObservation,
-    null,
-    sourceObservationProvider ?? undefined
+    null
   );
   const assertCurrent = async (): Promise<boolean> => {
     try {
@@ -1435,16 +1471,8 @@ export async function resolveAffectedTestExecution(options: Readonly<{
         changed.gitObservation,
         revalidationLedger
       );
-      const gitStable = finalGitObservation !== null
-        && finalGitObservation.headSha === changed.gitObservation.headSha
-        && finalGitObservation.indexDigest === changed.gitObservation.indexDigest
-        && finalGitObservation.worktreeDigest === changed.gitObservation.worktreeDigest
-        && JSON.stringify(finalGitObservation.gitExecutableIdentity)
-          === JSON.stringify(changed.gitObservation.gitExecutableIdentity);
-      const sourceStable = sourceObservationProvider === null
-        ? true
-        : sourceObservationProvider.verifyObservation?.() ?? false;
-      return gitStable && sourceStable;
+      return finalGitObservation !== null
+        && sameGitSelectionObservation(changed.gitObservation, finalGitObservation);
     } catch {
       // Revalidation is an admission predicate. Any provider/source exception
       // is an unresolved boundary, never permission to continue to a child.
@@ -1463,14 +1491,14 @@ export async function resolveAffectedTestExecution(options: Readonly<{
     : affectedTestPlan(
       changed.files,
       broadFallbackEnabled,
-      changed.transitionObservation,
       provider,
+      changed.transitionObservation,
       changed.gitObservation,
-      observationFailure,
-      sourceObservationProvider ?? undefined
+      observationFailure
     ));
   return Object.freeze({
     plan,
+    projectGenerationEvidence,
     assertCurrent,
     run: async (preparedDependencies?: OperationDependencyBootstrapResult) => {
       // A plan already rejected by ownership/selection admission has no
@@ -1492,18 +1520,10 @@ export async function resolveAffectedTestExecution(options: Readonly<{
   });
 }
 
-/**
- * The affected-plan trust boundary has one exit-code owner. Every plan-only
- * surface consumes this projection so the umbrella check cannot weaken the
- * fail-closed result emitted by test:affected for the same frozen plan.
- */
-export function affectedTestPlanExitCode(
-  plan: Pick<AffectedTestPlan, 'selectionTrustBoundary'>
-): number {
-  return isAffectedSelectionFailClosed(plan.selectionTrustBoundary) ? 1 : 0;
-}
-
-export async function runAffectedTests(args: string[] = []): Promise<number> {
+export async function runAffectedTests(
+  issueTestImpactProjection: AffectedTestImpactProjectionIssuer,
+  args: string[] = []
+): Promise<number> {
   if (args.includes('--plan') && !(args.length === 1 && args[0] === '--plan')) {
     console.error('test:affected --plan cannot be combined with execution arguments.');
     return 1;
@@ -1511,7 +1531,12 @@ export async function runAffectedTests(args: string[] = []): Promise<number> {
   if (args.length > 0 && !(args.length === 1 && args[0] === '--plan')) {
     return runTests(args);
   }
+  const operation = compileAffectedTestSelectionSemanticOperation({
+    purpose: 'check-affected'
+  });
   const execution = await resolveAffectedTestExecution({
+    operation,
+    issueTestImpactProjection,
     // The execution object retains the same frozen plan identity and performs
     // its own last-mile fence immediately before dependency/test effects. A
     // plan query still verifies at resolution; this removes a redundant full
@@ -1540,9 +1565,11 @@ export async function runTests(args: string[] = []): Promise<number> {
     if (selectors.length > 0 && selectors.every(isFastTestFile)) {
       await withOperationDependencies('test-direct-fast', async ({ binPath }) => {
         const environment = pathEnv(binPath);
+        const invocationArgs = managedBunTestArgs(['test', ...args]);
         exitCode = await runWithTestInvocationRuntime(environment, (runtime) =>
           runDevCommand(
-            'bun', ['test', ...args], fastInvocationEnvironment(environment, runtime, 'direct:001')
+            'bun', invocationArgs, fastInvocationEnvironment(environment, runtime, 'direct:001'),
+            { timeoutMs: testSupervisorTimeoutMs(invocationArgs) }
           ));
       });
       return exitCode;
@@ -1553,6 +1580,9 @@ export async function runTests(args: string[] = []): Promise<number> {
     : selectors.length > 0 && selectors.every(isSlowTestFile)
       ? 'test-direct-slow'
       : 'test-direct-ambiguous';
+  const budgetProjection = args.length === 0
+    ? await issueCurrentTestBudgetProjection()
+    : null;
   await withOperationDependencies(directOperation, async ({ binPath }) => {
     const environment = pathEnv(binPath);
     if (args.length > 0) {
@@ -1561,20 +1591,27 @@ export async function runTests(args: string[] = []): Promise<number> {
       // the same invocation runtime boundary as every other fast-capable
       // entrypoint.
       const isProvenSlowOnly = selectors.length > 0 && selectors.every(isSlowTestFile);
+      const invocationArgs = managedBunTestArgs(['test', ...args]);
       exitCode = isProvenSlowOnly
-        ? await runDevCommand('bun', ['test', ...args], environment)
+        ? await runDevCommand('bun', invocationArgs, environment, {
+            timeoutMs: testSupervisorTimeoutMs(invocationArgs)
+          })
         : await runWithTestInvocationRuntime(environment, (runtime) =>
             runDevCommand(
-              'bun', ['test', ...args], fastInvocationEnvironment(environment, runtime, 'direct:001')
+              'bun', invocationArgs, fastInvocationEnvironment(environment, runtime, 'direct:001'),
+              { timeoutMs: testSupervisorTimeoutMs(invocationArgs) }
             ));
       return;
     }
     exitCode = await runWithTestInvocationRuntime(environment, async (runtime) => {
-      for (const invocation of fullTestInvocations()) {
+      for (const invocation of fullTestInvocations(budgetProjection!)) {
         const invocationEnvironment = invocation.kind === 'fast'
           ? fastInvocationEnvironment(environment, runtime, invocation.id)
           : environment;
-        const code = await runDevCommand('bun', invocation.args, invocationEnvironment);
+        const invocationArgs = managedBunTestArgs(invocation.args);
+        const code = await runDevCommand('bun', invocationArgs, invocationEnvironment, {
+          timeoutMs: testSupervisorTimeoutMs(invocationArgs)
+        });
         if (code !== 0) return code;
       }
       return 0;
@@ -1588,6 +1625,7 @@ export async function runFastTests(
   preparedDependencies?: OperationDependencyBootstrapResult
 ): Promise<number> {
   let exitCode = 1;
+  const budgetProjection = await issueCurrentTestBudgetProjection();
   const workspace = await prepareFastTestWorkspaceRun();
   const workspaceEnv = workspace.env;
   let invocationRuntime: TestInvocationRuntimeRoots | null = null;
@@ -1602,7 +1640,7 @@ export async function runFastTests(
     }
     await withOperationDependencies('test-fast', async ({ binPath }) => {
       try {
-        const plan = fastTestInvocations(args);
+        const plan = fastTestInvocations(args, budgetProjection);
         const env = pathEnv(binPath, workspaceEnv);
         exitCode = await runBoundedFastTestInvocations(
           plan.concurrentShards,
@@ -1649,7 +1687,8 @@ export async function runSlowTests(args: string[] = []): Promise<number> {
   let exitCode = 1;
   let selection: SlowTestArgSelection;
   try {
-    selection = slowTestArgSelection(args);
+    const budgetProjection = await issueCurrentTestBudgetProjection();
+    selection = slowTestArgSelection(args, budgetProjection);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     return 1;
@@ -1660,7 +1699,10 @@ export async function runSlowTests(args: string[] = []): Promise<number> {
   }
   await withOperationDependencies('test-slow', async ({ binPath }) => {
     try {
-      exitCode = await runDevCommand('bun', selection.args, pathEnv(binPath));
+      const invocationArgs = managedBunTestArgs(selection.args);
+      exitCode = await runDevCommand('bun', invocationArgs, pathEnv(binPath), {
+        timeoutMs: testSupervisorTimeoutMs(invocationArgs)
+      });
     } catch (error) {
       console.error(error instanceof Error ? error.message : String(error));
       exitCode = 1;
@@ -1675,10 +1717,12 @@ export async function runContractFreeze(targets?: ContractFreezeTarget[]): Promi
     const environment = pathEnv(binPath);
     exitCode = await runWithTestInvocationRuntime(environment, async (runtime) => {
       for (const [index, invocation] of buildContractFreezeRunnerInvocations(targets).entries()) {
+        const invocationArgs = managedBunTestArgs(invocation.args);
         const code = await runDevCommand(
           'bun',
-          invocation.args,
-          fastInvocationEnvironment(environment, runtime, `contract-freeze:${String(index + 1).padStart(3, '0')}`)
+          invocationArgs,
+          fastInvocationEnvironment(environment, runtime, `contract-freeze:${String(index + 1).padStart(3, '0')}`),
+          { timeoutMs: testSupervisorTimeoutMs(invocationArgs) }
         );
         if (code !== 0) return code;
       }

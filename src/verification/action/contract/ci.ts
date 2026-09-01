@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 
+import { assertCanonicalPortableLogicalPath } from '../../../system-architecture/foundation/contract/logical-path.ts';
+import { isSecRepositoryTestModulePath } from '../../../system-architecture/repository-modules/test-module-path.ts';
 import { VERIFICATION_GATE_RESULT_SCHEMA } from '../../result/contract/schema.ts';
 import {
   createVerificationActionKey,
@@ -681,14 +683,12 @@ function canonicalBunTestArguments(args: readonly string[]): readonly string[] {
   const paths = new Set<string>();
   while (index < args.length && !args[index]!.startsWith('-')) {
     const testPath = text(args[index], `gate Bun test path[${index}]`);
-    const segments = testPath.split('/');
-    if (
-      !/^tests\/[a-z0-9][a-z0-9._/-]*\.(?:test|spec)\.(?:[cm]?[jt]s|[jt]sx)$/u.test(testPath) ||
-      testPath.includes('\\') ||
-      testPath.includes('//') ||
-      segments.includes('.') ||
-      segments.includes('..')
-    ) {
+    try {
+      assertCanonicalPortableLogicalPath(testPath, 'gate Bun test path');
+    } catch {
+      fail('gate Bun test path is not canonical and repository-relative.');
+    }
+    if (!isSecRepositoryTestModulePath(testPath)) {
       fail('gate Bun test path is not canonical and repository-relative.');
     }
     if (paths.has(testPath)) fail('gate Bun test paths must be unique.');

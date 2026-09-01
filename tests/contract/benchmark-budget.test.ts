@@ -1,7 +1,8 @@
 import { expect, test } from 'bun:test';
+import { isSecRepositoryTestModulePath } from '../../src/system-architecture/repository-modules/test-module-path.ts';
 import { buildBenchmarkTaskSuiteContract, formatBenchmarkTaskSuiteContract } from '../../src/verification/benchmark/contract.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { buildTestBudgetContract, formatTestBudgetContract, getFastTestFilesSync, getSlowTestSuitesSync, isFastTestFile, isTestFile } from '../../src/verification/test-impact/contract/budget.ts';
+import { buildTestBudgetContract, formatTestBudgetContract, getFastTestFilesSync, isFastTestFile } from '../../src/verification/test-impact/contract/budget.ts';
 import { expectContainsAll } from '../helpers/assertion-helpers.ts';
 import { expectCliVariants } from '../testkit/cli.ts';
 import {
@@ -23,7 +24,7 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
 
   expectContainsAll(formatted, [
     'Benchmark suite engineering-compiler-core (active)',
-    'Task add-block: install one capability block into a clean workspace; gate=resolve compose adapt verify lock explain'
+    'Task add-block: install one capability block into a clean workspace; gate=resolve compose verify lock explain'
   ]);
   expect(JSON.stringify(contract)).not.toContain('\n');
   expectBenchmarkTaskSuiteSelfConsistent(contract);
@@ -35,7 +36,7 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
     tasks: expect.arrayContaining([
       expect.objectContaining({
         id: 'add-block',
-        gate: 'resolve compose adapt verify lock explain',
+        gate: 'resolve compose verify lock explain',
         command: 'bun run demo:quickstart',
         artifactPaths: expect.arrayContaining([
           CI_ARTIFACT_FILES.graphLock,
@@ -120,34 +121,23 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
 });
 
 test('CLI exposes test budget as text and JSON contracts', async () => {
-  const contract = await buildTestBudgetContract();
+  const { issueCurrentTestBudgetProjection } = await import('../../src/development/runner/test-runner.ts');
+  const budgetProjection = await issueCurrentTestBudgetProjection();
+  const contract = buildTestBudgetContract(budgetProjection);
   const formatted = formatTestBudgetContract(contract);
-  const fastTestFiles = getFastTestFilesSync();
-  const importOrganizerSuite = getSlowTestSuitesSync().find((suite) => (
-    suite.id === 'e2e-import-organizer-staged'
-  ));
+  const fastTestFiles = getFastTestFilesSync(budgetProjection);
 
   expectTestBudgetSelfConsistent(contract);
 
-  expect(isTestFile('tests/repair/repair.test.ts')).toBe(true);
+  expect(isSecRepositoryTestModulePath('tests/repair/repair.test.ts')).toBe(true);
   expect(isFastTestFile('tests/repair/repair.test.ts')).toBe(true);
   expect(isFastTestFile('tests/e2e/registry.test.ts')).toBe(false);
-  expect(isTestFile('src/development/runner/test-runner.ts')).toBe(false);
+  expect(isSecRepositoryTestModulePath('src/development/runner/test-runner.ts')).toBe(false);
   expect(fastTestFiles).not.toContain('project/tests/acceptance/customer-flow.test.ts');
   expect(fastTestFiles.some((file) => file.startsWith('tests/e2e/'))).toBe(false);
   expect(fastTestFiles.every((file) => file.startsWith('tests/'))).toBe(true);
-  expect(importOrganizerSuite).toEqual({
-    id: 'e2e-import-organizer-staged',
-    owner: 'compiler-import-organizer-staged-e2e',
-    timeoutMs: 120_000,
-    parallelSafe: true,
-    resourceClass: 'standard',
-    prRiskBaseline: false,
-    files: [
-      'tests/e2e/import-organizer-staged.test.ts',
-      'tests/e2e/import-organizer-worktree-isolation.test.ts'
-    ]
-  });
+  expect(contract.slowTestFiles).toEqual(budgetProjection.slowTestFiles);
+  expect(contract.slowSuites).toEqual(budgetProjection.slowSuites);
 
   expectContainsAll(formatted, [
     'Test budget default lane: fast',

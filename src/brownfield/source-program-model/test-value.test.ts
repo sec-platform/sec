@@ -1,7 +1,8 @@
 import { expect, test } from 'bun:test';
 
 import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
-import type { SourceProgramSupersessionReceipt } from './reduction.ts';
+import { isSecRepositoryTestModulePath } from '../../system-architecture/repository-modules/test-module-path.ts';
+import type { SourceProgramSupersessionReceipt } from './contract.ts';
 import { compileRepositorySourceProgramModel } from './repository.ts';
 import {
   compileSourceProgramTestBaselineEvidence,
@@ -62,7 +63,7 @@ function compile(
     files: sourceFiles,
     model,
     baselineTestPaths: options.baselineTestPaths ?? [
-      ...Object.keys(files).filter((path) => /^(?:src|tests)\/.+\.(?:test|spec)\.[cm]?[jt]sx?$/iu.test(path)),
+      ...Object.keys(files).filter(isSecRepositoryTestModulePath),
       ...missing
     ],
     baselineEvidence: options.baselineEvidence,
