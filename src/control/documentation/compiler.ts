@@ -15,7 +15,10 @@ import {
 export const DOCUMENTATION_SEMANTIC_GRAPH_SCHEMA = 'sec-documentation-semantic-graph' as const;
 export const DOCUMENTATION_VIEW_SCHEMA = 'sec-documentation-view' as const;
 
-export type DocumentationClauseKind = 'stable-decision' | 'temporary-safety-denial';
+export type DocumentationClauseKind =
+  | 'stable-decision'
+  | 'temporary-safety-denial'
+  | 'untyped-observation';
 export type DocumentationAdmission = 'eligible' | 'blocked' | 'unknown' | 'not-applicable';
 export type DocumentationViewKind = 'compact-agent' | 'full-human' | 'admission-obligation';
 
@@ -300,7 +303,7 @@ function parseClauses(record: DocumentationAuthorityRecord, source: string): rea
         title: text(headingMatch[2]!, `${record.path}:${index + 1} heading`),
         level: headingMatch[1]!.length,
         line: index,
-        directive: pendingDirective ?? Object.freeze({ kind: 'stable-decision', blocker: null })
+        directive: pendingDirective ?? Object.freeze({ kind: 'untyped-observation', blocker: null })
       });
       pendingDirective = null;
       pendingDirectiveLine = -1;
@@ -430,6 +433,9 @@ export function compileDocumentationSemanticGraph(
   }) as `sha256:${string}`;
   const blockers = Object.freeze([
     ...(input.admission.status === 'unavailable' ? ['documentation-admission-projection-unavailable'] : []),
+    ...clauses
+      .filter(({ kind }) => kind === 'untyped-observation')
+      .map(({ documentId }) => `documentation-untyped-source:${documentId}`),
     ...clauses.flatMap(({ kind, blocker }) => kind === 'temporary-safety-denial' && blocker !== null
       ? [blocker]
       : []),
@@ -491,7 +497,13 @@ export function compileDocumentationView(
   if (selection.kind === 'full-human') {
     for (const clause of graph.clauses) selected.add(clause.id);
   } else if (selection.kind === 'compact-agent') {
-    for (const clauseId of selection.clauseIds) addWithAncestors(byId.get(clauseId as `clause:${string}`)!);
+    for (const clauseId of selection.clauseIds) {
+      const clause = byId.get(clauseId as `clause:${string}`)!;
+      if (clause.kind === 'untyped-observation') {
+        fail(`compact-agent selection cannot include untyped clause ${clauseId}.`);
+      }
+      addWithAncestors(clause);
+    }
   }
   const clauses = Object.freeze(graph.clauses.filter(({ id }) => selected.has(id)));
   const ownerSet = new Set(selection.ownerDocumentIds);
@@ -524,7 +536,7 @@ export function projectDocumentationClauseSelection(
 ): DocumentationClauseSelectionReference {
   const documentId = token(documentIdInput, 'documentId');
   const clauses = Object.freeze(graph.clauses
-    .filter((clause) => clause.documentId === documentId)
+    .filter((clause) => clause.documentId === documentId && clause.kind !== 'untyped-observation')
     .map((clause) => Object.freeze({
       clauseId: clause.id,
       contentDigest: clause.contentDigest,
