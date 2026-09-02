@@ -1,8 +1,13 @@
-import { compareCodeUnits, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import {
+  compareCodeUnits,
+  rawSha256,
+  sha256
+} from '../../system-architecture/foundation/runtime/canonical.ts';
 import type {
   SourceProgramEntrypointAddress,
   SourceProgramOperationIdentity,
-  SourceProgramOperationProducerClosure
+  SourceProgramOperationProducerClosure,
+  SourceProgramOperationSourceEvidence
 } from './contract.ts';
 import {
   assertRepositorySourceProgramCompilationReceipt,
@@ -20,7 +25,9 @@ export type SourceProgramOperationProducerClosureErrorCode =
   | 'operation-owner-not-unique'
   | 'producer-export-projection-unavailable'
   | 'reachable-file-absent'
-  | 'reachable-graph-unresolved';
+  | 'reachable-file-digest-mismatch'
+  | 'reachable-graph-unresolved'
+  | 'reachable-loader-resource-unresolved';
 
 export class SourceProgramOperationProducerClosureError extends Error {
   readonly code: SourceProgramOperationProducerClosureErrorCode;
@@ -30,6 +37,22 @@ export class SourceProgramOperationProducerClosureError extends Error {
     this.name = 'SourceProgramOperationProducerClosureError';
     this.code = code;
   }
+}
+
+function sourceEvidence(
+  file: RepositorySourceProgramCompilationReceipt['workspaceSnapshot']['files'][number]
+): SourceProgramOperationSourceEvidence {
+  if (rawSha256(file.source) !== file.contentDigest) {
+    throw new SourceProgramOperationProducerClosureError(
+      'reachable-file-digest-mismatch',
+      file.path
+    );
+  }
+  return Object.freeze({
+    path: file.path,
+    source: file.source,
+    contentDigest: file.contentDigest as `sha256:${string}`
+  });
 }
 
 /** Compile the exact descriptor entrypoint and its reachable file graph for one operation. */
@@ -112,27 +135,63 @@ export function compileSourceProgramOperationProducerClosure(
     }
   }
 
-  const files = Object.freeze([...reachable].sort(compareCodeUnits).map((repositoryPath) => {
-    const file = fileByPath.get(repositoryPath);
-    if (file === undefined) {
-      throw new SourceProgramOperationProducerClosureError(
-        'reachable-file-absent',
-        repositoryPath
-      );
-    }
-    return Object.freeze({ path: repositoryPath, contentDigest: file.contentDigest });
-  }));
-  const entrypointAddresses = Object.freeze(operationEntrypoints.map((targetPath) => (
-    `module-entrypoint:${descriptorPath}#${owner.moduleId}:${targetPath}`
-  ) as SourceProgramEntrypointAddress));
+  const unresolvedLoaders = [
+    ...compilation.typeScriptCompilation.model.unknowns
+      .filter(({ code, path }) => reachable.has(path)
+        && (code === 'dynamic-module-unresolved' || code === 'dynamic-runtime-opaque'))
+      .map(({ code, detail, path }) => `${path}:${code}:${detail}`),
+    ...snapshot.moduleGraph.references
+      .filter(({ from, kind, resolvedTarget }) => reachable.has(from)
+        && kind !== 'static'
+        && resolvedTarget === null)
+      .map(({ from, kind, specifier }) => `${from}:${kind}:${specifier}`)
+  ].sort(compareCodeUnits);
+  if (unresolvedLoaders.length > 0) {
+    throw new SourceProgramOperationProducerClosureError(
+      'reachable-loader-resource-unresolved',
+      unresolvedLoaders.join(',')
+    );
+  }
+
+  const implementationFiles = Object.freeze([...reachable]
+    .filter((repositoryPath) => repositoryPath !== descriptorPath)
+    .sort(compareCodeUnits)
+    .map((repositoryPath) => {
+      const file = fileByPath.get(repositoryPath);
+      if (file === undefined) {
+        throw new SourceProgramOperationProducerClosureError(
+          'reachable-file-absent',
+          repositoryPath
+        );
+      }
+      return sourceEvidence(file);
+    }));
+  const descriptorFile = fileByPath.get(descriptorPath);
+  const entrypointFile = fileByPath.get(operationEntrypoints[0]!);
+  if (descriptorFile === undefined || entrypointFile === undefined) {
+    throw new SourceProgramOperationProducerClosureError(
+      'reachable-file-absent',
+      descriptorFile === undefined ? descriptorPath : operationEntrypoints[0]!
+    );
+  }
+  const descriptor = sourceEvidence(descriptorFile);
+  const entrypointEvidence = sourceEvidence(entrypointFile);
+  const entrypoint = Object.freeze({
+    ...entrypointEvidence,
+    address: (
+      `module-entrypoint:${descriptorPath}#${owner.moduleId}:${entrypointEvidence.path}`
+    ) as SourceProgramEntrypointAddress
+  });
   const unsigned = Object.freeze({
+    authority: 'source-evidence-only' as const,
     operation: Object.freeze({
       capability: operation.capability,
       operation: operation.operation
     }),
     moduleId: owner.moduleId,
-    entrypointAddresses,
-    files
+    descriptor,
+    entrypoint,
+    implementationFiles
   });
   const closure = Object.freeze({
     ...unsigned,
