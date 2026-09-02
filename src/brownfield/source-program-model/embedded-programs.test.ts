@@ -134,5 +134,5 @@ test('ordinary TypeScript keeps the canonical module scanner', () => {
   expect(sourceProgramModuleImports(
     'src/example.ts',
     "import { value } from './value.ts';\nexport { value };\n"
-  )).toEqual([{ kind: 'static', specifier: './value.ts' }]);
+  )).toEqual([{ kind: 'static', specifier: './value.ts', typeOnly: false }]);
 });
