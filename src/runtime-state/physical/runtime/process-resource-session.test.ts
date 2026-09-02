@@ -32,6 +32,7 @@ import {
   retainNoFollowOrdinaryFile
 } from './physical-no-follow.ts';
 import {
+  assertProcessResourceSession,
   assertProcessResourceSessionReceipt,
   openProcessResourceSession,
   type ProcessResourceSessionReceipt
@@ -145,13 +146,35 @@ test('process sessions reject structural operation and session clones', async ()
     operation,
     requirementBindingContext: requirementBindingContext(operation)
   });
+  const expectedBinding = {
+    semanticOperation: operation.plan.identity.operation,
+    requirementId: operation.plan.execution.requirements[0]!.id,
+    providerIdentityDigest: operation.bindings[0]!.providerIdentityDigest,
+    maximumDurationMs: 10_000,
+    maximumInputBytes: 16,
+    maximumOutputBytes: 16,
+    maximumProcesses: 2
+  } as const;
+  expect(() => assertProcessResourceSession(session, expectedBinding)).not.toThrow();
   const clone = Object.freeze({ ...session });
+  expect(() => assertProcessResourceSession(clone, expectedBinding))
+    .toThrow(/owner-issued live session/u);
+  expect(() => assertProcessResourceSession(session, {
+    ...expectedBinding,
+    semanticOperation: 'verification.foreign-operation'
+  })).toThrow(/binding differs/u);
+  expect(() => assertProcessResourceSession(session, {
+    ...expectedBinding,
+    providerIdentityDigest: digest('foreign-provider')
+  })).toThrow(/binding differs/u);
   expect(() => clone.close()).toThrow(/owner-issued session/u);
   await expect(clone.run({} as RetainedCommandBoundary, [], {
     maxStderrBytes: 0,
     maxStdoutBytes: 0
   })).rejects.toThrow(/owner-issued session/u);
   session.close();
+  expect(() => assertProcessResourceSession(session, expectedBinding))
+    .toThrow(/current live session/u);
 });
 
 test('process session admission preserves pre-cancelled classification', () => {
@@ -330,6 +353,14 @@ test('process sessions enforce single-flight cancellation and child settlement b
     controller.abort(new Error('test cancellation'));
     await expect(running).rejects.toThrow(/aborted/u);
     expect(session.signal.aborted).toBeTrue();
+    expect(() => assertProcessResourceSession(session, {
+      semanticOperation: operation.plan.identity.operation,
+      requirementId: operation.plan.execution.requirements[0]!.id,
+      maximumDurationMs: 10_000,
+      maximumInputBytes: 16,
+      maximumOutputBytes: 16,
+      maximumProcesses: 2
+    })).toThrow(/current live session/u);
     expect(session.close()).toMatchObject({
       processCount: 1,
       settledProcessCount: 1,
@@ -362,6 +393,14 @@ test('process session deadline is one fixed wall and monotonic cancellation boun
   expect(cooperativeDeadlineAtUnixMs).toBeLessThan(session.deadlineAtUnixMs);
   await Bun.sleep(75);
   expect(session.signal.aborted).toBeTrue();
+  expect(() => assertProcessResourceSession(session, {
+    semanticOperation: operation.plan.identity.operation,
+    requirementId: operation.plan.execution.requirements[0]!.id,
+    maximumDurationMs: 25,
+    maximumInputBytes: 0,
+    maximumOutputBytes: 1,
+    maximumProcesses: 1
+  })).toThrow(/current live session/u);
   await expect(session.run({} as RetainedCommandBoundary, [], {
     maxStderrBytes: 0,
     maxStdoutBytes: 0

@@ -12,13 +12,19 @@ import {
   type RetainedNoFollowSealedDirectoryGeneration
 } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
+  assertProcessResourceSession,
+  type ProcessResourceSession
+} from '../../runtime-state/physical/runtime/process-resource-session.ts';
+import {
   RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-  issueRetainedCommandBoundary,
-  runRetainedCommand,
-  type CommandResult
+  issueRetainedCommandBoundary
 } from '../../runtime-state/physical/runtime/process.ts';
 import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { parseExactJson } from '../../system-architecture/foundation/runtime/exact-json.ts';
+import {
+  assertSecSemanticOperationProjection,
+  type SecBoundSemanticOperation
+} from '../../system-architecture/operation/semantic.ts';
 
 export type TypeScriptCheckerDigest = `sha256:${string}`;
 
@@ -103,6 +109,30 @@ export type TypeScriptNativeCheckerSelectionOptions = Readonly<{
 // test fixture, JSON projection, or object spread into a production process
 // provider.  Consumers must pass the exact object issued by the resolver.
 const issuedTypeScriptCheckers = new WeakSet<object>();
+
+declare const TYPESCRIPT_CHECKER_PROCESS_EXECUTION_ADMISSION: unique symbol;
+
+/**
+ * Process-local authority binding one exact provider-issued checker to the
+ * foundation operation and live bounded process session admitted for it.
+ * Object shape is intentionally not an authority surface.
+ */
+export type TypeScriptCheckerProcessExecutionAdmission = Readonly<{
+  readonly [TYPESCRIPT_CHECKER_PROCESS_EXECUTION_ADMISSION]: true;
+}>;
+
+type TypeScriptCheckerProcessExecutionAdmissionState = Readonly<{
+  checker: InstalledTypeScriptNativeChecker;
+  operation: SecBoundSemanticOperation;
+  processSession: ProcessResourceSession;
+}>;
+
+const TYPESCRIPT_CHECKER_PROCESS_EXECUTION_ADMISSIONS = new WeakMap<
+  object,
+  TypeScriptCheckerProcessExecutionAdmissionState
+>();
+const TYPESCRIPT_TYPECHECK_OPERATION = 'verification.typecheck' as const;
+const TYPESCRIPT_PROJECT_CHECK_REQUIREMENT = 'typescript.project-check' as const;
 
 type TypeScriptAliasManifest = Readonly<{
   name: 'typescript';
@@ -510,11 +540,68 @@ function isStrictPathDescendant(root: string, candidate: string): boolean {
     && !relative.startsWith(`..${path.sep}`);
 }
 
+function assertTypeScriptCheckerProcessExecutionBinding(
+  state: TypeScriptCheckerProcessExecutionAdmissionState
+): void {
+  assertSecSemanticOperationProjection(state.operation);
+  if (state.operation.plan.identity.operation !== TYPESCRIPT_TYPECHECK_OPERATION) {
+    throw new Error('TypeScript checker process admission requires the verification.typecheck operation.');
+  }
+  const requirement = state.operation.plan.execution.requirements.find(
+    ({ id }) => id === TYPESCRIPT_PROJECT_CHECK_REQUIREMENT
+  );
+  const providerBinding = state.operation.bindings.find(
+    ({ requirementId }) => requirementId === TYPESCRIPT_PROJECT_CHECK_REQUIREMENT
+  );
+  if (requirement === undefined
+      || providerBinding === undefined
+      || providerBinding.contractDigest !== requirement.contractDigest
+      || !requirement.effectKinds.includes('process')) {
+    throw new Error('TypeScript checker process admission requires its exact process capability binding.');
+  }
+  assertProcessResourceSession(state.processSession, {
+    semanticOperation: TYPESCRIPT_TYPECHECK_OPERATION,
+    operationIdentityDigest: state.operation.plan.identity.identityDigest,
+    boundAttemptDigest: state.operation.boundAttemptDigest,
+    requirementId: TYPESCRIPT_PROJECT_CHECK_REQUIREMENT,
+    providerIdentityDigest: providerBinding.providerIdentityDigest,
+    maximumDurationMs: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs,
+    maximumInputBytes: 0,
+    maximumOutputBytes: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.maximumStdoutBytes
+      + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.maximumStderrBytes,
+    maximumProcesses: 1
+  });
+}
+
+/**
+ * Issue the only TypeScript-owner authority that may reach the checker process
+ * Effect. The issuer derives operation, provider and budget bindings from
+ * authentic capabilities; callers cannot restate them as strings or booleans.
+ */
+export function issueTypeScriptCheckerProcessExecutionAdmission(input: Readonly<{
+  checker: InstalledTypeScriptNativeChecker;
+  operation: SecBoundSemanticOperation;
+  processSession: ProcessResourceSession;
+}>): TypeScriptCheckerProcessExecutionAdmission {
+  assertTypeScriptNativeChecker(input.checker);
+  const state = Object.freeze({
+    checker: input.checker,
+    operation: input.operation,
+    processSession: input.processSession
+  });
+  assertTypeScriptCheckerProcessExecutionBinding(state);
+  const admission = Object.freeze({}) as TypeScriptCheckerProcessExecutionAdmission;
+  TYPESCRIPT_CHECKER_PROCESS_EXECUTION_ADMISSIONS.set(admission, state);
+  return admission;
+}
+
 /**
  * Execute through the exact provider-issued checker. The production caller
- * supplies its operation deadline plus owner-issued project, dependency and
- * action-private auxiliary capabilities; checking arguments, environment,
- * output bounds and physical process authority remain owned here.
+ * supplies its operation deadline plus owner-issued project, dependency,
+ * action-private auxiliary and checker-process admission capabilities.
+ * Checking arguments, environment, command bounds and the retained command
+ * boundary remain owned here; aggregate process admission and settlement stay
+ * with the session hidden behind the TypeScript-owner admission.
  */
 export async function executeTypeScriptNativeChecker(
   checker: InstalledTypeScriptNativeChecker,
@@ -525,11 +612,24 @@ export async function executeTypeScriptNativeChecker(
     deadlineAtUnixMs: number;
     dependencyDirectory: RetainedNoFollowProvenDirectoryGeneration;
     forwardOutput?: boolean;
+    processExecutionAdmission: TypeScriptCheckerProcessExecutionAdmission;
     signal?: AbortSignal;
     workingDirectory: RetainedNoFollowSealedDirectoryGeneration | RetainedNoFollowProvenDirectoryGeneration;
   }>
 ): Promise<TypeScriptNativeCheckerExecution> {
   assertTypeScriptNativeChecker(checker);
+  const admission = input.processExecutionAdmission !== null
+      && typeof input.processExecutionAdmission === 'object'
+    ? TYPESCRIPT_CHECKER_PROCESS_EXECUTION_ADMISSIONS.get(input.processExecutionAdmission)
+    : undefined;
+  if (admission === undefined) {
+    throw new Error('TypeScript checker execution requires an owner-issued process admission.');
+  }
+  if (admission.checker !== checker) {
+    throw new Error('TypeScript checker process admission belongs to a different checker capability.');
+  }
+  assertTypeScriptCheckerProcessExecutionBinding(admission);
+  const processSession = admission.processSession;
   assertRetainedNoFollowReadOnlyDirectoryGeneration(
     input.workingDirectory,
     'TypeScript checker immutable working generation'
@@ -579,13 +679,17 @@ export async function executeTypeScriptNativeChecker(
   const remaining = (): number => Math.floor(Math.min(
     TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs,
     input.deadlineAtUnixMs - Date.now(),
-    deadlineAtMonotonicMs - performance.now()
+    processSession.deadlineAtUnixMs - Date.now(),
+    deadlineAtMonotonicMs - performance.now(),
+    processSession.deadlineAtMonotonicMs - performance.now()
   ));
   const interruption = (): 'cancelled' | 'deadline-exhausted' | null => (
     input.signal?.aborted === true
       ? 'cancelled'
       : remaining() < 1
         ? 'deadline-exhausted'
+        : processSession.signal.aborted
+          ? 'cancelled'
         : null
   );
   const admitProgress = input.forwardOutput === true
@@ -644,7 +748,7 @@ export async function executeTypeScriptNativeChecker(
     return executionFailure(effectInterruption, 'TypeScript checker operation ended before process effect');
   }
 
-  let result: CommandResult;
+  let result: Awaited<ReturnType<ProcessResourceSession['run']>>;
   {
     let executable: ReturnType<typeof retainNoFollowOrdinaryFile> | null = null;
     try {
@@ -672,7 +776,7 @@ export async function executeTypeScriptNativeChecker(
           { capability: input.auxiliaryDirectory, kind: 'directory' }
         ]
       });
-      result = await runRetainedCommand(boundary, [
+      result = await processSession.run(boundary, [
         ...typeScriptCheckerArguments(
           checker.provider,
           path.join(input.auxiliaryDirectory.childPath, input.buildInfoFileName),
@@ -683,9 +787,7 @@ export async function executeTypeScriptNativeChecker(
         env: typeScriptCheckerEnvironment(process.env),
         envMode: 'replace',
         maxStderrBytes: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.maximumStderrBytes,
-        maxStdoutBytes: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.maximumStdoutBytes,
-        signal: input.signal,
-        timeoutMs: remaining()
+        maxStdoutBytes: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.maximumStdoutBytes
       });
     } catch (error) {
       return executionFailure(
@@ -706,5 +808,10 @@ export async function executeTypeScriptNativeChecker(
   if (finalInterruption !== null) {
     return executionFailure(finalInterruption, 'TypeScript checker operation ended during settlement');
   }
-  return Object.freeze({ status: 'exited' as const, ...result });
+  return Object.freeze({
+    status: 'exited' as const,
+    code: result.result.code,
+    stdout: Buffer.from(result.result.stdout).toString('utf8'),
+    stderr: result.result.stderr
+  });
 }

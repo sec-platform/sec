@@ -33,25 +33,68 @@
       "operationRoles": []
     },
     {
+      "capability": "process.session-identity",
+      "operations": [
+        "assertProcessResourceSession"
+      ],
+      "operationRoles": []
+    },
+    {
       "capability": "runtime-state.physical",
       "operations": [
         "censusRetainedRuntimeGenerations",
+        "materializeRetainedSealedPhysicalExecutionTreeGeneration",
         "materializeRetainedTypeScriptExecutionGeneration",
         "openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot",
         "openRetainedWindowsRuntimeStateDirectory",
         "observeRetainedRuntimeEndpointResidue",
-        "retainCommandAuxiliaryOrdinaryFiles"
+        "retainCommandAuxiliaryOrdinaryFiles",
+        "retainMutableSealedPhysicalExecutionProtectedRoot"
       ],
       "effectKinds": [
         "filesystem"
       ],
       "ownerInternalOperations": [
-        "openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot"
+        "materializeRetainedSealedPhysicalExecutionTreeGeneration",
+        "openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot",
+        "retainMutableSealedPhysicalExecutionProtectedRoot"
       ],
       "operationRoles": []
     }
   ],
   "operationObligations": [
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "process.session-identity",
+        "operation": "assertProcessResourceSession"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "toolchain.typescript"
+        ]
+      },
+      "effect": {
+        "kinds": [],
+        "failureKinds": [],
+        "recovery": "not-applicable"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "records",
+            "maximum": 1
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
     {
       "operation": {
         "kind": "capability",
