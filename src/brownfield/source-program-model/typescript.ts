@@ -360,6 +360,17 @@ export type SourceProgramTypeScriptRenameObservation = Readonly<{
   readonly observationDigest: `sha256:${string}`;
 }>;
 
+export type SourceProgramTypeScriptSyntaxObservation = Readonly<{
+  readonly status: 'resolved';
+  readonly syntax: 'valid' | 'invalid';
+  readonly firstDiagnostic: string | null;
+  readonly observationDigest: `sha256:${string}`;
+}> | Readonly<{
+  readonly status: 'unresolved';
+  readonly reason: 'exact-generation-unavailable' | 'source-file-unavailable';
+  readonly observationDigest: `sha256:${string}`;
+}>;
+
 type ExactTypeScriptProgram = Readonly<{
   checker: ts.TypeChecker;
   program: ts.Program;
@@ -1343,6 +1354,48 @@ export function sourceProgramTypeScriptSourceFile(
   repositoryPath: string
 ): ts.SourceFile | null {
   return exactFactGenerationByModel.get(model)?.sourceFiles.get(repositoryPath) ?? null;
+}
+
+/** Syntax validity is projected from the exact compiler generation; consumers do not reparse source. */
+export function observeSourceProgramTypeScriptSyntax(
+  model: SourceProgramModel,
+  repositoryPath: string
+): SourceProgramTypeScriptSyntaxObservation {
+  const generation = exactFactGenerationByModel.get(model);
+  const unresolved = (
+    reason: Extract<SourceProgramTypeScriptSyntaxObservation, { status: 'unresolved' }>['reason']
+  ): SourceProgramTypeScriptSyntaxObservation => Object.freeze({
+    status: 'unresolved' as const,
+    reason,
+    observationDigest: sha256({
+      status: 'unresolved',
+      reason,
+      sourceRevision: model.sourceRevision,
+      repositoryPath
+    }) as `sha256:${string}`
+  });
+  if (generation === undefined) return unresolved('exact-generation-unavailable');
+  const sourceFile = generation.sourceFiles.get(repositoryPath);
+  if (sourceFile === undefined) return unresolved('source-file-unavailable');
+  const diagnostics = (sourceFile as ts.SourceFile & {
+    readonly parseDiagnostics?: readonly ts.Diagnostic[];
+  }).parseDiagnostics ?? [];
+  const firstDiagnostic = diagnostics[0] === undefined
+    ? null
+    : ts.flattenDiagnosticMessageText(diagnostics[0].messageText, ' ');
+  const canonical = Object.freeze({
+    status: 'resolved' as const,
+    syntax: diagnostics.length === 0 ? 'valid' as const : 'invalid' as const,
+    firstDiagnostic,
+    sourceRevision: model.sourceRevision,
+    repositoryPath
+  });
+  return Object.freeze({
+    status: canonical.status,
+    syntax: canonical.syntax,
+    firstDiagnostic: canonical.firstDiagnostic,
+    observationDigest: sha256(canonical) as `sha256:${string}`
+  });
 }
 
 /** Rename facts are available only while this exact Program generation is current. */

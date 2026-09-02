@@ -42,6 +42,7 @@ import {
   compileTypeScriptSourceProgramModelIncremental,
   observeSourceProgramDurableWorkerInput,
   observeSourceProgramTypeScriptRename,
+  observeSourceProgramTypeScriptSyntax,
   querySourceProgramModel
 } from './typescript.ts';
 import { compileWorkspaceSourceRevision } from './workspace-source-snapshot.ts';
@@ -148,6 +149,36 @@ test('TypeScript rename observations expire with their exact compiler generation
     status: 'unresolved',
     reason: 'exact-generation-unavailable'
   }));
+});
+
+test('TypeScript syntax observations come only from an exact compiler generation', () => {
+  const moduleMembership = Object.freeze({
+    descriptors: Object.freeze([]),
+    graphRoots: Object.freeze([]),
+    moduleRoots: Object.freeze([]),
+    moduleForPath: () => null
+  });
+  const source = 'export const = ;\n';
+  const files = [Object.freeze({
+    path: 'tests/invalid.test.ts',
+    source,
+    contentDigest: rawSha256(source)
+  })];
+  const model = compileTypeScriptSourceProgramModel({
+    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
+    files,
+    moduleMembership
+  });
+
+  expect(observeSourceProgramTypeScriptSyntax(model, 'tests/invalid.test.ts')).toEqual(
+    expect.objectContaining({ status: 'resolved', syntax: 'invalid' })
+  );
+  expect(observeSourceProgramTypeScriptSyntax({ ...model }, 'tests/invalid.test.ts')).toEqual(
+    expect.objectContaining({
+      status: 'unresolved',
+      reason: 'exact-generation-unavailable'
+    })
+  );
 });
 
 test('unbound Source Program facts remain unknown responsibility evidence', () => {
