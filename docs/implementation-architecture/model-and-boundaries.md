@@ -94,6 +94,45 @@ compileSlice(graph, request):
   emit immutable slice + reverse-dependency key
 ```
 
+实现框架的可组合单位是递归`ImplementationScopePackage`，不是全局service、固定五层目录或“所有节点都实现一遍”的模板。它由同一graph按root/purpose生成；最小operation package与全系统package只是展开深度不同：
+
+```text
+ImplementationScopePackage = generated {
+  scopeRef + purposeRef + selectionAndCoverageDigest,
+  exactLogicalAndImplementationRevisionRefs,
+  upstreamSemanticRefs: {
+    definitionAndPolicyRefs,
+    domainOperationAndWorkflowRefs,
+    requirementAndClaimRefs
+  },
+  publicContractRefs,
+  ownedResponsibilityCellRefs,
+  childScopePackageRefs,
+  crossBoundaryPortAndRelationRefs,
+  applicableRealizationFamilyRefs: {
+    purePlanCompilers,
+    stateAndResultRuntime,
+    capabilityRequirements,
+    persistenceAndRecovery,
+    interfaceProjections
+  },
+  conformanceAndEvolutionObligationRefs,
+  each omitted family: notApplicable(derivationRef),
+  unknownFrontier,
+  packageDigest
+}
+
+compileImplementationScope(root, purpose, graph):
+  expand semantic containment recursively
+  reference upstream semantics without copying or re-owning them
+  include only applicable realization families, obligations and public frontier ports
+  keep dependency/call/binding/proof/evolution as typed cross-edges, never tree copies
+  collapse child detail only with identity/revision/contract/blocker digest
+  reject hidden private-state access, duplicate family owner or unexplained omission
+```
+
+package不是运行时对象：authoring时它是compiler input/output closure，运行前收窄为`PurePlan`，admission后才产生live capabilities/session。Domain、Workflow、Provider、Store和Verifier分别实现自己的Responsibility Cells；composition root只组装public ports和immutable plans，不能成为全部逻辑的God orchestrator。一个纯计算Domain因此可以只有contract+algorithm+claims；有durable Effect的Domain才加入state/runtime/recovery；无interface的内部scope不会被迫生成CLI/API。任何后续需求先扩展semantic package/typed relations，再由compiler局部重算适用families，而不是修改一个全局switch。
+
 被分类为`pure-cell`的CodeUnit不得消费任何graph slice，只接收已编译immutable values。只有在consumer profile中声明`model-query`职责的Placement、impact、migration或architecture-audit compiler可以读取其purpose对应slice。Domain operation runtime只消费已编译plan与opaque capabilities，不读取总模型。slice按`graphDigest + purpose + root refs + detail budget + compiler identity`复用；上游变化只失效reverse-reachable slices。所有renderer共享fact/relation refs；摘要必须携带selection、coverage、boundary与frontier digest，因此AI可以从最小上下文继续查询而不把摘要误作完整事实。
 
 ```mermaid

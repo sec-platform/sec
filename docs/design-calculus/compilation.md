@@ -394,6 +394,42 @@ bounded exploration只证明给定envelope；unbounded cardinality、real-time�
 
 ## 9. 通用对抗族
 
+对抗空间不是一张维护者记忆的案例清单。compiler从模型关系生成适用cells；下表只是稳定fault identities的人类投影：
+
+```text
+AdversarialCell =
+  SemanticSurface
+  x LifecyclePhase
+  x Stimulus
+  x Multiplicity
+  x OrderingAndTimeDomain
+  x TrustAndTenantBoundary
+  x ResourceScale
+  x ObservationLossMode
+
+SemanticSurface = identity | definition | authority | capability | binding | resource |
+                  state | effect | settlement | evidence | evolution | interface
+LifecyclePhase  = plan | admit | start | active | settle | recover | cutover | retire
+Stimulus        = replace | duplicate | omit | corrupt | delay | reorder | revoke |
+                  partition | crash | overload | spoof | drift | replay
+Multiplicity    = one | concurrent-many | repeated | recursive | distributed
+OrderingAndTimeDomain = before | during | after | concurrent | reordered
+                        x local-monotonic | issuer-time | wall | remote | unknown
+TrustAndTenantBoundary = same-principal | delegated | revoked | cross-tenant |
+                         cross-repository | public-private | unknown
+ResourceScale   = nominal | exact-boundary | exhausted | adversarial-volume | skewed-share
+ObservationLossMode = complete | partial | stale | missing | contradictory |
+                      observer-failed | disclosure-filtered
+
+compileAdversarialCells(model):
+  derive dimensions from actual typed relations and state machines
+  quotient cells only with a semantics-preservation proof
+  require expected legal terminal or typed frontier for every applicable cell
+  preserve non-applicable derivation; never silently omit a Cartesian region
+```
+
+没有credential的pure function不生成revocation cell；没有tenant boundary的local tool不生成cross-tenant cell；存在external delivery、clock、floating point、human interface或durable erasure requirement时，对应dimensions自动加入。任何真实反例若落在既有cell，只增强该family的generator/oracle；只有不能被现有axes表达时才演进meta-model并重编全域。
+
 | Semantic fault identity | 攻击 | 必须观察 | 合法结果 | 禁止结果 |
 | --- | --- | --- | --- | --- |
 | `identity-spoof` | 同名/同路径冒充身份 | issuer、revision、physical/logical binding | typed mismatch | 按字符串接受 |
@@ -426,6 +462,19 @@ bounded exploration只证明给定envelope；unbounded cardinality、real-time�
 | `bootstrap-dependency-cycle` | Provider bootstrap直接或间接依赖自身workload/capability | bootstrap dependency graph、host primitive roots、journal/store dependency | acyclic rooted bootstrap或typed cycle | 裸启动、顺序碰运气、fallback |
 | `implicit-scheduling-policy` | scheduler以queue/枚举/时钟默认值偷偷决定priority/fairness | SchedulingRequirement、ready set、policy revision、chosen order | governed order/commutative class或typed unbound | scheduler implementation拥有业务政策 |
 | `provider-generation-bleed` | old/new Provider generation、attempt、endpoint或PID被混用 | provider generation、attempt journal、drain/cutover/readback | bounded drain→activate→retire或typed residue | path/PID相同即把旧attempt认作新generation |
+| `revocation-race` | Grant/credential/lease在plan后或Effect中途被撤销 | issuer epoch、use point、settlement obligations | pre-start block；in-flight按owner语义settle/recover | 已缓存PASS继续扩权或把撤销当成功 |
+| `delivery-disorder` | message/event/result重复、延迟、丢失、乱序或分区后重放 | operation/result identity、commit/outbox、consumer state | dedupe/reorder-independent/typed wait-recovery | transport顺序成为Domain truth |
+| `overload-collapse` | 请求/队列/日志/重试/子进程超过容量 | admission、backpressure、parent ledger、fairness | reject/defer/bounded degradation | 无界排队、retry storm、silent drop |
+| `time-domain-corruption` | clock skew、suspend、DST、leap、跨host monotonic比较 | clock domain、uncertainty、issuer epoch | expire/re-admit/unresolved | 延长Grant、复活lease、wall time伪因果 |
+| `nondeterministic-replay` | 相同exact inputs因seed/order/thread/provider产生不同语义结果 | random/clock/schedule/provider revisions、output digest | declared distribution或deterministic equivalence | 挑一次PASS、cache两个结果任取 |
+| `numeric-boundary` | overflow、underflow、NaN、precision、unit/tolerance错配 | numeric domain、unit、rounding、error envelope | exact/bounded/statistical typed result | shape-valid数字冒充有效measurement |
+| `tenant-boundary-crossing` | digest/cache/credential/state相同导致跨tenant/repository复用 | tenant/principal/security epoch、disclosure partition | isolated binding或typed unavailable | content hash授权跨边界读取 |
+| `confidential-observation-leak` | diagnostics/logs/timing/size/projection泄露secret或policy | principal observation partition、declassification、retention | redacted/relational Claim verified | 单轨迹功能PASS即宣称安全 |
+| `retention-erasure-conflict` | recovery/Evidence/cache/backup与删除义务冲突 | legal retention、consumer/claim window、erasure receipt | owner裁决后delete/retain/crypto-erase | “可恢复”无限保留或删后伪readback |
+| `supply-chain-substitution` | package/tool/model/schema/frontend来源被替换或撤回 | provenance、signature/digest、license、support/retirement | verified bind/migrate/block | 名称/版本范围/安装成功即信任 |
+| `observation-blindness` | metrics/logs/health只覆盖成功路径或观测本身失效 | telemetry coverage、sampling、failure channel、observer effects | typed degraded/unobservable | 无告警=健康、observer写业务状态 |
+| `regional-loss` | durable store/worker/host/site整体丢失或不可达 | replication/backup scope、RPO/RTO Claim、restore rehearsal | bounded unavailable/verified restore | 本机journal冒充灾备 |
+| `human-interface-misoperation` | 歧义、不可访问界面、默认确认、复制粘贴或locale差异触发错误Effect | user intent、accessibility/locale、confirmation scope、undo/preview | clear choice/reject/recover | presentation字符串或沉默默认授权 |
 
 ## 10. 场景规格模板
 
