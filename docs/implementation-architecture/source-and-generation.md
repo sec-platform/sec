@@ -361,9 +361,56 @@ LexicalOnly(v) iff
   ∧ every observable change caused by v remains inside an accepted contract equivalence class
 ```
 
-若常量、分支、默认值或算法参数独立改变public behavior、state、Authority、Effect、resource、failure、compatibility或Claim，它不是`LexicalValue`，而是未声明的semantic/policy fact；必须先进入Domain/Contract source再lower。Source Program的literal/data/control-flow facts与property counterexamples负责发现该surplus，名称和scope不能豁免。
+值不以“变量/常量/字段/配置”分类；这些只是表示。角色约束的是某个boundary上的`ValueOccurrence`，不是给semantic Subject永久贴一个标签。同一Subject可经明确relation产生state、observation、derived或representation occurrences；每个occurrence只能有一个role，角色转换必须可追溯：
 
-只有前三类可穿越边界；普通局部变量不是系统实体、没有独立owner记录。所谓“字段归谁”在系统中被消除为以下可计算查询，而不是新增一份per-variable registry：
+```text
+ValueRole =
+  | DefinitionValue      // accepted business/domain meaning or invariant
+  | PolicyParameter      // owner-issued decision input with alternatives/reversal
+  | OperationInput       // request-scoped desired value; no authority by itself
+  | DerivedValue         // pure function of exact refs + algorithm revision
+  | ObservationValue     // measured/read value + method/coverage/uncertainty
+  | StateValue           // state-machine-owned durable or live state
+  | CapabilityValue      // opaque provision/grant/allocation handle; non-serializable authority
+  | RepresentationValue  // schema/encoding/target projection of another role
+  | LexicalValue         // private implementation detail inside one accepted equivalence class
+
+ValueOriginTrace = {
+  valueOccurrenceRef,
+  semanticSubjectRef,
+  role,
+  ownerOrProducerRef,
+  predecessorOccurrenceAndRelationRefs,
+  exactInputRefs,
+  consumerBoundaryRefs,
+  authorityAndLifecycleRefs when applicable,
+  representationAndAddressRefs,
+  revisionOrObservationDigest
+}
+
+ValueRelation =
+  | derivesFrom(inputOccurrenceRefs, algorithmRef)
+  | observes(subjectOrStateRef, methodAndCoverageRef)
+  | represents(sourceOccurrenceRef, schemaAndTargetRef)
+  | transitionsFrom(previousStateOccurrenceRef, transitionRef)
+  | bindsCapability(requirementRef, provisionAndGrantRefs)
+```
+
+| Role | 谁能改变 | 变化如何传播 | 禁止混淆 |
+| --- | --- | --- | --- |
+| DefinitionValue | Product/Domain owner的accepted revision | 重编logical→implementation→claims | 用当前实现、默认值或测试反向定义 |
+| PolicyParameter | policy/decision owner | 重编eligible set/ranking与reverse consumers | scheduler/default/env暗定policy |
+| OperationInput | caller request，经admission约束 | 只影响该OperationKey/plan | caller字段自签Grant/Provider |
+| DerivedValue | canonical algorithm owner；输入变化触发重算 | 按derivation DAG精确失效 | 手写缓存/镜像变第二truth |
+| ObservationValue | observation/provider owner | coverage/frontier决定可支持的Claim | observation冒充Definition或success |
+| StateValue | state-machine owner | 仅合法transition/CAS/readback | 普通赋值、file exists、boolean代替状态 |
+| CapabilityValue | issuer/provider/resource owner | bind/use/settle/expire；不得clone/serialize | DTO、path、function object冒充能力 |
+| RepresentationValue | contract/backend owner；必须引用被表示occurrence | schema/target evolution与consumer migration | 字段名、Vn、path成为semantic identity；序列化descriptor冒充Capability |
+| LexicalValue | owning CodeUnit | 不越过public/durable/effect/proof边界 | 为每个局部值建registry/owner |
+
+若常量、分支、默认值或算法参数独立改变public behavior、state、Authority、Effect、resource、failure、compatibility或Claim，它不再是`LexicalValue`；Source Program必须把它投影为`implementation-semantic-surplus`，直到owner采用为某个非lexical role并补全origin/relation，或删除。名称、scope、`const`、private修饰符和“只是配置”都不能豁免。反之，局部临时量、循环索引和中间表达式若满足`LexicalOnly`，不得为追求可追踪性将其升格为系统实体。
+
+除`LexicalValue`外的occurrence只有在对应public/durable/process/state/effect/proof contract声明后才可穿越该boundary；`CapabilityValue`只能以opaque live capability穿越允许的进程内边界，序列化时只能产生无Authority的descriptor occurrence；`RepresentationValue`不能新增上游语义或Authority。普通局部变量不是系统实体、没有独立owner记录。所谓“字段归谁”被消除为以下可计算查询，而不是新增一份per-variable registry：
 
 | 查询 | 唯一答案来源 |
 | --- | --- |

@@ -16,19 +16,26 @@ domain: implementation-architecture
 
 ```mermaid
 flowchart LR
-  P[Product outcome] --> S[SEC logical architecture]
-  S --> I[Implementation Architecture]
-  I --> R[Responsibility realization]
-  I --> L[Placement and visibility]
-  I --> C[Change Locality]
-  I --> G[Intent-to-Code]
-  R --> SP[Source Program]
-  L --> SP
-  C --> D[Exact delta]
-  G --> D
-  D --> V[Verification and migration]
-  SP --> I
+  PD[Accepted Product/Domain decisions] --> LP[LogicalDesignPackage]
+  LP --> IP[TargetImplementationDesignPackage]
+  OBS[Exact Target/Source/Provider observations] --> IP
+  LP --> CM[ConformanceModel]
+  IP --> CM
+  CUR[Exact current implementation/state/consumer graph] --> MP[Change/Migration Plan]
+  IP --> MP
+  CM --> MP
+  MP --> AD[Live admission: Grant x preimage x capabilities x resources]
+  AD --> EX[Execution/materialization]
+  EX --> SR[Settlement + readback + DomainResult]
+  CM --> VR[Independent Verdict]
+  SR --> VR
+  SR --> EV[Evolution/cutover/retirement]
+  VR --> EV
+  SP[Source Program] --> OBS
+  EV -. authorized revision only .-> PD
 ```
+
+这是对 Design Calculus package/envelope、System Architecture operation和本domain realization/migration关系的公共投影，不另定义第二套artifact。每条实线转交都携带exact input/output refs、coverage/frontier、revision与digest；下游只能refine或observe上游，不能补造缺失的产品决定、Authority、业务成功或Verdict。编码只发生在`TargetImplementationDesignPackage + ConformanceModel + ChangePlan`已闭合之后；执行只发生在live admission之后。
 
 | Owner | 拥有 | 不拥有 |
 | --- | --- | --- |

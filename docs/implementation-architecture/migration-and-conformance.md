@@ -206,7 +206,7 @@ Target Implementation Freeze 前必须成立：
 | component/trust-zone topology | owner uniqueness、static DAG、zone crossing、issuer/producer/verifier separation | topology-unowned / cycle / trust-collapse |
 | data ownership/persistence/consistency | one schema+transition owner、strict read/write、linearization、retention、recovery | competing-writer / invalid-state / unreadable-residue |
 | source placement/visibility | every declaration owned、public-demand minimality、address move equivalence | placement-unresolved / hidden-public-surface |
-| package/entrypoint/interface | real release/runtime/security boundary、parse→invoke→project、no second resolver | package-unjustified / interface-authority |
+| package/entrypoint/interface | real release/runtime/security boundary、parse→invoke→project、machine/human channel separation、intent/accessibility/locale/risk/cancel fidelity、no second resolver | package-unjustified / interface-authority / interaction-drift |
 | compiler/frontend/backend | deterministic exact inputs、coverage/unknown、round-trip、conservative extension | semantic-drift / incomplete-coverage |
 | operation/capability/resource runtime | grant/binding/allocation intersection、at-most-once Effect、settlement/readback | authority-amplified / budget-escaped / effect-unsettled |
 | deployment/profile | cold reconstructibility、profile semantic equivalence、tenant/isolation constraints | profile-drift / hidden-singleton |
@@ -255,6 +255,7 @@ Target Implementation Freeze 前必须成立：
 | `bootstrap-dependency-cycle` | bootstrap dependency DAG只根植于已采用host primitives；待启动Provider及其workload route不可反向可达 |
 | `implicit-scheduling-policy` | execution plan携带SchedulingRequirement；scheduler记录policy revision与chosen order且没有ambient default |
 | `provider-generation-bleed` | every attempt/journal/session pins provider generation；draining generation zero-new-allocation后才retire |
+| `human-interface-misoperation` | `HumanInteractionContract`从operation/result生成；preview/confirmation绑定exact plan+preimage+principal，locale/accessibility/cancel/undo不改变semantic invocation或settlement |
 
 ### 17.2 代表性系统 trace
 

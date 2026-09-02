@@ -78,20 +78,70 @@ canonical form是owner fragments中的事实、约束、状态/转换、决策�
 
 ## 3. 文档种类与唯一职责
 
-| Kind | Authored / generated | 能拥有 | 不能拥有 |
-| --- | --- | --- | --- |
-| source-header | authored strict metadata | 本fragment的document identity/scope/lifecycle/ownership/relations | 正文语义、聚合事实、current result |
-| authority-contract | authored normative fragment | 一个或多个不重叠 owner keys | runtime observation、第二 owner |
-| corpus-contract | authored normative corpus rule | 其注册的 corpus contract | domain fact之外的扩权 |
-| control | machine/owner updated active state | exact current control key | stable principle、历史解释 |
-| machine-ledger | append/CAS machine state | provider/runtime state key | stable architecture |
-| proposal | authored hypothesis/decision candidate | 无 canonical facts | active authority、兼容壳 |
-| documentation-index | generated | 无；只聚合source identity/relations/digests/addresses | 任何事实、owner授权、writeback |
-| navigation | generated | 无 | 事实、裁决、状态 |
-| agent-projection | generated/bounded | 无 | scope、Effect、Truth |
-| public projection | generated | 无 | canonical owner、私有状态 |
+`source-header`是每个source fragment的strict envelope，不是与正文并列的文档种类。目标generation只有三类artifact，不能用可选字段把它们压成一个DTO：
 
-Evidence、测试输出、临时审计报告和聊天不是稳定文档种类；它们进入各自 artifact/runtime owner，或在结算后退役。上表描述目标generation；现行`registry`仍按本文开头的current/target边界由`authority.json`拥有，cutover后才由`source-header + generated documentation-index`取代。
+```text
+DocumentationArtifactClass =
+  | SourceFragment(DocumentSourceRole)
+  | ExternalBoundInput(ExternalCorpusBinding)
+  | GeneratedProjection(ProjectionRole)
+
+DocumentSourceRole =
+  | AuthorityContract { ownershipKeys: nonEmptySet }
+  | AuthorityTopic { ownershipKeys: nonEmptyDisjointSet }
+  | CorpusContract { corpusContractRef, ownershipKeys: nonEmptySet }
+  | ControlDeclaration { controlKey, controlContractRef, controlRevision }
+  | Proposal { proposalRef, decisionFrontierRef }
+  | ImmutableRecord { recordRef, issuerAndProvenanceRef,
+                      authorityCeiling, retentionRef }
+
+DocumentSourceHeader = exact {
+  documentRef,
+  sourceStratumRef,
+  scopeRef,
+  lifecycle,
+  sourceRole: exact DocumentSourceRole variant,
+  disclosureClass
+}
+
+DocumentBodyNode =
+  | ClauseSource { clauseId, statementKind, typedSubjectRefs,
+                   quantifierAndUniverseRef, modality, predicateAstRef,
+                   preconditionRef, observableOrRejectionRef,
+                   sourceAndReversalRefs }
+  | DecisionSource { designDecisionRef }
+  | RelationSource { exact AuthoredDocumentationRelation variant }
+  | ViewDeclaration { exact clause/relation/state/algorithm refs,
+                      selected renderer + presentation parameters }
+  | NonNormativeExplanation { text, optionalReferencedRefs }
+
+ProjectionRole = documentation-index | navigation | agent-view | public-view
+```
+
+| Artifact class | 能拥有 | 不能拥有 |
+| --- | --- | --- |
+| AuthorityContract / AuthorityTopic | 其非空且不重叠的normative ownership keys | runtime observation、其他contract facts |
+| CorpusContract | 注册的documentation corpus rule | domain fact、运行Authority |
+| ControlDeclaration | 一个exact repository-authored desired/selection input及其revision | observed progress、session/pointer、runtime ledger、stable principle |
+| Proposal | 无canonical facts；只保存候选、frontier与target refs | active authority、兼容壳、owner key |
+| ImmutableRecord | 一次过去事实的record identity/provenance/claim ceiling | current Definition、mutable state、owner key |
+| ExternalBoundInput | 无；只引用外部owner允许披露的immutable projection | 把machine state/Evidence/artifact复制进`docs/**` |
+| GeneratedProjection | 无；只聚合或投影exact source/binding refs | 事实、裁决、Authority、writeback |
+
+partition由role严格派生：三个authority roles进入`knowledge`，ControlDeclaration进入`control`，Proposal进入`proposal`，ImmutableRecord进入`immutable-record`；作者不得另填partition制造冲突。Evidence、测试输出、临时审计报告和聊天不是稳定source role；它们进入各自artifact/runtime owner，或在结算后退役。现行`registry`仍按本文开头的current/target边界由`authority.json`拥有，cutover后才由distributed source headers与generated `DocumentationIndex`取代。
+
+Task Capsule、Work Package、operation manifest/plan/journal、Scope/Grant、session与Evidence payload是control/runtime/verification Subjects，不是文档source role；它们必须由各自strict owner存入Runtime State或Artifact Store，并只以`ExternalCorpusBinding`进入授权view。若终态需要长期解释，domain owner可另签发有claim ceiling与retention的`ImmutableRecord`，但不得把原operation payload复制进Markdown或因位于`docs/**`就升格为知识。
+
+`lifecycle`同样受role约束，而不是任意标签：
+
+| source role | legal lifecycle | transition rule |
+| --- | --- | --- |
+| AuthorityContract / AuthorityTopic / CorpusContract | `active → superseded → retired` | 新active revision只有在generation cutover时替代旧revision |
+| ControlDeclaration | `active → superseded → retired` | 新active revision只由control declaration owner按exact cutover替代 |
+| Proposal | `draft → rejected \| superseded` | 采用结果产生新的authority revision；proposal自身不变成authority |
+| ImmutableRecord | `retained → expired → retired` | payload不变；只由retention owner改变可见/保留状态 |
+
+ExternalBoundInput沿外部owner的fresh/stale/terminal语义，GeneratedProjection随source/binding stale并可直接重建；二者不复用source lifecycle。任何role/lifecycle非法组合都在body materialization前拒绝。
 
 ## 4. Canonical model：partition、scope、fragment、relation
 
@@ -99,11 +149,21 @@ Evidence、测试输出、临时审计报告和聊天不是稳定文档种类；
 
 ```text
 CorpusPartition =
-  knowledge        // stable/active normative source
-  | control        // current mutable control projection
-  | machine-state  // append/CAS ledger; prose不得写入
+  knowledge        // stable/active normative authored source
+  | control        // repository-authored current control only
   | proposal       // non-authoritative candidate
   | immutable-record
+
+ExternalCorpusBinding = {
+  sourceKind: machine-state | evidence | runtime-artifact | external-inventory,
+  exactProviderSubjectAndGenerationRefs,
+  principalTenantAndSecurityEpochRefs,
+  parserCoverageFreshnessAndDisclosureRefs,
+  projectedPayloadRef + payloadDigest,
+  authorityCeiling,
+  observationRevision,
+  descriptorDigest
+}
 
 ScopeNode =
   | OwningScope {
@@ -116,24 +176,35 @@ ScopeNode =
 
 DocumentFragment = {
   documentRef,
-  partition,
+  sourceRole: exact DocumentSourceRole variant,
+  partition: derivePartition(sourceRole),
   scopeRef,
-  role: contract | topic | control | ledger | proposal | record,
   lifecycle,
-  ownershipKeys,
+  compiledRelationRefs,
   contentDigest,
   sourceMetadataDigest
 }
 
-DocumentationRelation =
-  | ContainsScope(parentScopeRef, childScopeRef)
+AuthoredDocumentationRelation =
+  | AuthorityTopicOf(topicDocumentRef, contractDocumentRef)
   | DependsOn(sourceDocumentRef, targetDocumentRef, purpose)
-  | ProjectsFrom(projectionRef, sourceRefs)
-  | GeneratedFrom(generatedRef, sourceRefs, compilerRef)
   | Supersedes(newRef, oldRef, cutoverRef)
   | ProposalTargets(proposalRef, targetRefs)
   | Records(recordRef, subjectRefs)
+
+DerivedDocumentationRelation =
+  | ContainsScope(parentScopeRef, childScopeRef)       // from ScopeNode parent refs
+  | ProjectsFrom(projectionRef, sourceRefs)            // from projection descriptor
+  | GeneratedFrom(generatedRef, sourceRefs, compilerRef) // from generator descriptor
+
+DocumentationRelation =
+  | AuthoredDocumentationRelation
+  | DerivedDocumentationRelation
 ```
+
+role只决定本fragment能提出哪类claim，authored跨实体端点只由`RelationSource`拥有：每个`AuthorityTopic`必须有且只有一个`AuthorityTopicOf`；每个`Proposal`必须有且只有一个非空`ProposalTargets`；每个`ImmutableRecord`必须有且只有一个非空`Records`。relation中的source identity必须与header role identity一致。containment和projection/generation provenance不允许手写，分别由`ScopeNode`、projection descriptor和generator descriptor推导。这样role metadata不会复制contract、target或subject关系，派生边也不能通过正文伪造；descriptor/index中的每条边只有一个authoring或derivation origin。
+
+relation variants不可互相代用：`AuthorityTopicOf`授予topic对contract ownership slice的唯一归属，普通`DependsOn`只表达消费依赖；`ProjectsFrom`证明projection的语义来源，`GeneratedFrom`证明materialized bytes的compiler/input provenance。compiler必须拒绝以较弱边满足较强边、同一origin产生竞争边或任一派生边缺少其descriptor source。
 
 `ScopeNode`是递归语义边界，不是目录。`OwningScope`必须有真实contract fragment；`DerivedNamespace`只能由source-stratum/partition/accepted containment relation确定生成，不能拥有事实或由作者创建空分类页。每个scope只有一个containment parent；多归属、依赖、因果、投影和演进通过其他typed relations表达，不伪装成多父目录。
 
@@ -197,26 +268,30 @@ SubscopeRequired(x, parent) =
 
 ## 5. Source metadata、aggregate index 与物理布局
 
-每个canonical fragment在自己的strict source header中一次写入document identity、partition、scope、role、lifecycle、ownership keys和typed relations；header按role使用exact discriminated schema，不是所有字段可选的DTO。正文不重复这些字段。路径、domain label、导航顺序和aggregate records由compiler派生。
+每个canonical fragment在自己的strict `DocumentSourceHeader`中一次写入document identity、source stratum、scope、lifecycle、exact role和disclosure；partition与ownership keys严格从role派生，不由作者重复填写。每条relation只在正文的`RelationSource`中authored一次，compiler再把它投影成fragment descriptor、graph edge与index ref；header、frontmatter和registry不得重复保存relation。正文不重复其他header事实。路径、domain label、导航顺序和aggregate records由compiler派生。
 
-`docs/authority.json`在目标generation中退役authoring职责；目标machine projection为generated、content-addressed `DocumentationIndex`（下方布局中的`documentation-index.json`）。它聚合全部source headers、scope/relations、physical addresses和digests，但不拥有任何事实。当前`authority.json`在迁移完成前仍是唯一现行registry，两个generation不得同时被production consumer接受。
+Markdown只是`DocumentBodyNode`的容器，不是自然语言语义推断器。只有显式`ClauseSource/DecisionSource/RelationSource`能提供canonical meaning；`ViewDeclaration`只能选择同一refs的图、表、公式、算法或人类句式renderer；自由prose一律是`NonNormativeExplanation`。现有brownfield prose、手写Mermaid、表格和代码块在迁移时只产生candidate/unknown，不能凭AI、embedding、标题或格式自动升级为normative clause。owner必须采用为typed source或接受删除/非规范保留。
+
+`docs/authority.json`在目标generation中退役authoring职责；目标machine projection为generated、content-addressed `DocumentationIndex`。它聚合全部source headers、scope/relations、physical addresses和digests，但不拥有任何事实，并发布到Runtime State/Artifact Store而不是提交进authored `docs/**`。当前`authority.json`在迁移完成前仍是唯一现行registry，两个generation不得同时被production consumer接受。
 
 ```text
 docs/
   README.md                         # generated recursive root view
-  documentation-index.json         # generated machine projection
   knowledge/
     <compiled source-stratum>/<recursive semantic scope>/
       contract.md                   # owning scope contract
       <cohesive-fragment>.md
       <child-scope>/contract.md
   control/<scope>/...               # current control only
-  state/<scope>/...                 # machine ledger only
   proposals/<scope>/...             # candidate only
   records/<scope>/...               # immutable retained records only
+
+Runtime State / Artifact Store
+  documentation/<generation>/documentation-index.json
+  documentation/<generation>/views/...   # disposable/generated projections
 ```
 
-`knowledge/control/state/proposals/records`由`CorpusPartition`确定，不是任意业务分类。其下目录由`sourceStratum + scope containment + PlacementDecision + PhysicalPathCapability`编译；address compiler可压缩纯namespace节点并选择短、可读、无case-fold/reserved-name冲突的segments，但不能改变scope identity或relation。禁止同名`<owner>.md`与`<owner>/`、空README/index、`misc/shared/common`、重复owner词段和手工长路径。
+`knowledge/control/proposals/records`由`CorpusPartition`确定，不是任意业务分类。Runtime State、Evidence、cache与artifact不进入`docs/**`；Documentation Compiler只通过`ExternalCorpusBinding`读取其owner签发的immutable descriptor，并把允许披露的内容投影进view。其下目录由`sourceStratum + scope containment + PlacementDecision + PhysicalPathCapability`编译；address compiler可压缩纯namespace节点并选择短、可读、无case-fold/reserved-name冲突的segments，但不能改变scope identity或relation。禁止同名`<owner>.md`与`<owner>/`、空README/index、`misc/shared/common`、重复owner词段和手工长路径。
 
 canonical cross-document reference使用`DocRef(documentRef, optionalClauseRef)`；authoring syntax由Markdown AST frontend映射为typed node，不能以相对path字符串作为identity。human/public renderer把`DocRef`解析为当前relative link；move/reparent只更新generated addresses/views，不改semantic source refs。外部URL是ExternalReference observation，若参与normative claim必须声明freshness/retention/unknown policy。
 
@@ -229,29 +304,45 @@ metadata不是强迫所有格式共用一个frontmatter DTO。各source kind由�
 ```text
 DocumentationSource =
   | AuthoredMarkdown(sourceHeader, markdownAst)
-  | DomainMachineDocument(domainParserRef, canonicalPayload, emittedDescriptor)
-  | GeneratedProjection(generatorRef, exactSourceRefs, emittedDescriptor)
+  | RepositoryMachineDocument(domainParserRef, canonicalDeclarationOrRecordPayload, emittedDescriptor)
+
+TrackedProjectionObservation = {
+  projectionRole,
+  generatorRef,
+  declaredSourceRefs,
+  observedBytesDigest
+}
+
+DocumentationViewInput = {
+  sourceGenerationRef,
+  readRequestRef,
+  externalCorpusBindings: sorted ExternalCorpusBinding[],
+  rendererAndDisclosureRefs
+}
 
 DocumentSourceDescriptor = {
-  documentRef, sourceKind, partition, scopeRef, sourceStratumRef,
-  role, lifecycle, ownershipKeys, typedRelations,
+  documentRef, sourceKind, exactSourceRole, derivedPartition,
+  scopeRef, sourceStratumRef, lifecycle,
+  derivedOwnershipKeys, compiledRelationRefs,
   disclosureClass, payloadDigest, metadataDigest
 }
 ```
 
-authored Markdown header是该fragment metadata的唯一authoring point，按role使用closed exact variants；machine/control/ledger payload继续由其domain strict parser拥有，文档frontend只消费parser签发的descriptor；generated view的descriptor由generator产生。三者都不能由中央手写registry补字段。source grammar/schema revision绑定整个`DocumentationGeneration`，不在每篇文件重复`formatVersion: 1`。
+authored Markdown header是该fragment metadata的唯一authoring point，按role使用closed exact variants；repository control/immutable-record payload继续由其domain strict parser拥有；外部machine state、Evidence与artifact只通过owner签发的`ExternalCorpusBinding`进入purpose-bound view compilation，不变成`DocumentFragment`或canonical source generation。generated projection不是`DocumentationSource`：tracked README等只作为bytes observation与source-derived期望比较，绝不能反向参与graph编译。任何输入都不能由中央手写registry补字段。source grammar/schema revision绑定整个`DocumentationGeneration`，不在每篇文件重复`formatVersion: 1`。
 
-`documentation-index.json`、README、presentation frontmatter、AI/public views全部生成。这样消除中央大清单写热点与header/registry镜像，同时仍由aggregate compiler全局验证duplicate owner、ID/path collision、cycle、unresolved ref和lifecycle。
+`DocumentationIndex`、README、presentation frontmatter、AI/public views全部生成。README只有在Git读者必须零运行时导航时才作为source-bound projection提交；其余index/views进入Runtime State/Artifact Store并可重建。这样消除中央大清单写热点与header/registry镜像，同时仍由aggregate compiler全局验证duplicate owner、ID/path collision、cycle、unresolved ref和lifecycle。
 
 ```text
 compileDocumentationGeneration(snapshot):
-  census every baseline and candidate document-source byte/status
-  strict-parse each source through its uniquely registered frontend
+  census every baseline and candidate source/projection byte/status
+  classify canonical sources separately from tracked projection observations
+  strict-parse each canonical source through its uniquely registered frontend
   normalize emitted DocumentSourceDescriptors
   build normalized partition/scope/document/relation graph
   validate ownership, containment, dependency, lifecycle and disclosure
   compile physical placement under path capability
-  emit aggregate index + recursive views + consumer impact
+  compile aggregate index + source-bound recursive views + consumer impact
+  compare tracked projection bytes with compiled expectations; never ingest them as facts
   read back exact bytes, graph digest and no-unclassified-source frontier
 ```
 
@@ -297,18 +388,30 @@ DocumentationGeneration = immutable {
   frontierDigest
 }
 
+DocumentationViewGeneration = immutable, non-authoritative {
+  viewGenerationRef,
+  sourceGenerationRef + sourceGenerationDigest,
+  readRequestAndSelectionDigest,
+  externalCorpusBindingSetDigest,
+  rendererAndDisclosureDigest,
+  renderedPayloadDigest,
+  frontierAndCoverageDigest
+}
+
 DocumentationIndex = generated {
   indexSchemaRef + indexSchemaDigest,
   generationRef + generationDigest,
   sorted scope/document/relation descriptors,
   physical addresses + payload/metadata digests,
-  generated view descriptors,
+  source-bound view template/descriptors; never per-read external payloads,
   explicit frontier,
   indexDigest
 }
 ```
 
 index exact parser拒绝unknown/duplicate/missing keys、非canonical顺序、foreign generation、digest mismatch和不支持的schema digest。source grammar演进只能生成新DocumentationGeneration并走一次迁移；normal reader只接受active generation，旧grammar parser仅在受控migration input中存在。
+
+`DocumentationGeneration`与`DocumentationViewGeneration`不能共用identity、active pointer或lifecycle。前者是canonical文档source/index的单一代际；后者是某次read的可丢弃projection，external observation变化只使引用它的view stale，不触发source migration。view不得被consumer反向用作owner fact、current control或Evidence本体；需要fresh external状态时重新取得owner descriptor并编译新view。
 
 ### 5.3 Address compiler
 
@@ -360,20 +463,24 @@ DocumentationReadRequest = {
   rootScopeRefs | subjectRefs | ownershipKeys,
   exactGenerationDigest,
   relationKinds,
+  externalObservationRequirementRefs,
   consumerClass,
   disclosureCapability,
   budget: { maximumDepth, maximumNodes, maximumBytes }
 }
 
-compileRead(request):
+compileRead(request, sourceGeneration, boundExternalDescriptors):
   resolve roots against one exact compiled generation
   traverse containment recursively and other relations by purpose policy
   select exact clauses/fragments rather than unrelated sibling files
+  require exact owner-issued external bindings only for selected requirement refs
+  validate binding generation/principal/security epoch/freshness/coverage/disclosure
   enforce disclosure before content materialization
   stop expansion at depth/node/byte limits
   preserve every collapsed frontier identity, revision, blocker and cross-edge
   reject unknown source, invalid relation, duplicate owner or stale generation
-  emit selected graph, frontier, coverage and deterministic selection digest
+  emit non-authoritative DocumentationViewGeneration with selected graph,
+       rendered payload, frontier, coverage and deterministic selection digest
 ```
 
 最小operation context、owner review、public docs与全仓审计共享同一compiler和graph semantics。全量模式只扩大roots、relation policy和budgets，不切换到第二crawler、第二regex graph或第二事实源。budget exhausted不等于完整：输出必须保留可继续展开的frontier；不能把截断投影签成coverage complete。
@@ -408,7 +515,7 @@ flowchart TD
 DocumentationReadResult =
   | ready {
       generationDigest, purpose, selectedNodeRefs,
-      renderedBytes, selectionDigest, coverage,
+      viewGenerationDigest, renderedBytes, selectionDigest, coverage,
       collapsedFrontier
     }
   | unresolved { generationDigest, frontier, affectedPurpose }
@@ -641,14 +748,63 @@ PrincipleViewSet = {
 
 图只在关系、时序、状态、层级或多方交互比文本更清楚时使用；字段合同用表/ADT，算法用伪代码，取舍用决策矩阵，边界用 owner matrix。图、表、伪代码和 prose不能分别拥有不同事实。
 
+不同措辞不等于不同知识。Markdown frontend只解析显式typed body nodes；它不从任意自然语言猜`NormativeClause`。compiler对typed clause/relation refs的normal form做重复、冲突和projection-fidelity检查，再由renderer产生句子、表、图、公式和伪代码：
+
+```text
+ClauseNormalForm = alphaNormalize(
+  quantifier + universe + modality + subjectRefs + predicate +
+  precondition + observable/rejection + sourceRefs + reversal
+)
+
+RichRepresentation =
+  | RelationView { renderer: graph | tree | matrix, exactRelationRefs }
+  | TransitionView { stateMachineRef, selectedStatesAndEdges }
+  | AlgorithmView { algorithmRef, inputOutputAndInvariantRefs }
+  | ExampleView { claimOrClauseRefs, executableArtifactRef | nonNormative }
+  | TranslationView { sourceClauseRefs, locale, semanticEquivalenceRef }
+```
+
+| 检查 | 合法结果 | 拒绝 |
+| --- | --- | --- |
+| 两个authored clause normal form等价 | 合并为一个owner clause；其他位置只引用/生成投影 | 换措辞保留第二份事实 |
+| predicates相交但结论冲突 | 最小冲突核+各自owner/provenance | 依文件顺序或“更具体”暗覆盖 |
+| 图/表声明额外node/edge/state | 先修改canonical relation/state source再重生成 | 图成为第二architecture |
+| 可执行示例/命令 | 绑定真实artifact/compiler/test revision并验证，或明确`nonNormative` | 文本代码冒充可运行合同 |
+| 翻译/公共摘要 | 对source clause refs做meaning-preservation与disclosure检查 | 独立改写规范、漏unknown/blocker |
+| 大段解释 | 产生新的DecisionProof、counterexample、algorithm或boundary ref | 只重复“为什么明显错误”的历史散文 |
+
+semantic equivalence不可仅靠文本embedding或AI相似度裁决；它们只生成candidate pairs。最终由typed refs、predicate normal form、owner adoption或明确`unknown-equivalence`决定。这样既能删除同义散文，又不会把词面相似但量词、权限、生命周期或反转条件不同的规则误合并。
+
 ## 10. 当前平铺generation到目标generation的迁移
+
+当前registry kind不能原样成为目标ontology；迁移frontend按下表一次lift，并把无法唯一决定的scope/contract关系保留为frontier，而不是从path猜：
+
+| current kind | target representation | preservation / retirement obligation |
+| --- | --- | --- |
+| `authority` | 一个OwningScope的`AuthorityContract`，或引用该contract的`AuthorityTopic` | ownership keys不变且仍唯一；contract选择必须由现有domain/owner semantics证明 |
+| `registry` | distributed `DocumentSourceHeader` + generated `DocumentationIndex` | 每个identity/lifecycle/ownership fact恰好迁移一次；旧central registry consumer-zero后退役 |
+| `control` | repository-authored desired/selection input→`ControlDeclaration`；observed progress/session/pointer→Runtime State + `ExternalCorpusBinding` | 保持control key、producer、consumer与revision；不能证明类别时进入frontier，不按旧kind默认保留 |
+| `machine-ledger` | payload进入其Runtime State owner；文档侧只保留`ExternalCorpusBinding`或生成view | exact bytes/state/issuer/consumer/recovery迁移并readback；旧docs path不作normal state store |
+| `proposal` | `Proposal` | target/frontier/provenance保留；owner keys与active Authority保持为空 |
+| `navigation` / `agent-projection` | source-bound `GeneratedProjection` | 从target refs重生成并证明meaning/disclosure；原手写/旧生成地址consumer-zero |
+
+```text
+liftCurrentDocumentation(currentRegistry, exactCorpus):
+  join every registered entry with exact bytes and all source/external consumers
+  classify by current kind without changing its current authority ceiling
+  derive candidate sourceRole, scope and relations from owned semantics
+  require owner adoption where AuthorityContract vs AuthorityTopic is not unique
+  map every current identity/key/relation/consumer to exactly one target or retirement
+  reject unregistered bytes, duplicated targets, path-derived identity and hidden state movement
+  emit preservation map + target source candidates + typed frontier
+```
 
 正式搬迁不等待“全工程所有未来设计完成”；它等待documentation scope在Design Calculus定义的exact universe上递归`DesignClosed`，并满足本领域更强的迁移设计准入：
 
 ```text
 DocumentationMigrationDesignReady =
   MigrationDesignReady(current documentation generation, target generation)
-  and exact source-header frontend grammar + duplicate/unknown rejection frozen
+  and exact source-header/body-node frontend grammar + duplicate/unknown rejection frozen
   and ScopeNode/DocumentFragment/DocumentationRelation laws and schemas frozen
   and stable DocRef/clause identity grammar + renderer semantics frozen
   and tracked-corpus discovery + opaque/binary/untracked frontier semantics frozen
@@ -666,11 +822,13 @@ DocumentationMigrationDesignReady =
 
 当上述predicate对documentation migration的最小完整slice成立、live authority/capability/resource可用，且其余global frontier与该slice可证明不相交时，migration scheduler必须立即发布该slice；不得等待全工程、全部domain或开放世界完成设计。若frontier相交则返回具体relation/cell，不能用“设计还没全部结束”作为阻塞理由。
 
+这里的slice是设计、编译、验证与staging的调度单位，不是独立normal generation。所有ready slices都写入同一个target generation并绑定同一current preimage；跨slice refs在target federation中解析，尚未ready的required slice使generation不可激活。只有target generation的preservation、consumer rewrite、graph/coverage/disclosure与readback obligations整体闭合后，state owner才执行一次generation-level CAS；activation前normal readers只接受current，activation后只接受target。若某个corpus确需独立激活，它必须先被证明为拥有独立reader/writer/identity/lifecycle的separate generation，而不能借“slice”制造混合generation。
+
 ```text
 DocumentationMigration = {
   exactCurrentGenerationDigest,
   currentRegistryAndFrontmatterCensus,
-  targetSourceHeaderAndRelationSchemas,
+  targetSourceHeaderBodyAndRelationSchemas,
   currentToTargetScopeAndFactBijection,
   typedRelationDecomposition,
   targetPlacementPlan,
@@ -685,7 +843,7 @@ DocumentationMigration = {
 
 迁移必须按一个architecture operation完成，不能以逐文件移动制造长期半成品：
 
-1. 冻结role-specific source header、scope/relation、generated index和DocRef schema。
+1. 冻结role-specific source header/body nodes、scope/relation、generated index和DocRef schema。
 2. 对当前`authority.json`、frontmatter、README、全部tracked docs与path consumers做exact census；任何未分类内容进入frontier。
 3. shadow compile当前generation；把重载的`projects`等边拆成明确`DependsOn/ProjectsFrom/GeneratedFrom/ProposalTargets`，证明所有current owner keys、facts、lifecycle和consumer semantics有唯一target。
 4. 由address compiler在真实Windows/Git/renderer capability下生成target paths；验证case-fold、reserved、length、Unicode、same-name file/directory和relative-link rendering。
@@ -752,6 +910,7 @@ Conformance Model从relation/operation/fault coverage生成性质而不是手写
 DocumentationGenerationClosed =
   every tracked documentation source classified in exactly one partition
   and source headers strict, role-discriminated and duplicate-free
+  and every normative body node is explicit typed source while arbitrary prose is non-authoritative
   and containment is a rooted forest with relation-specific graph laws
   and every canonical fact has exactly one owner key
   and every fragment/subscope passes its existence predicate

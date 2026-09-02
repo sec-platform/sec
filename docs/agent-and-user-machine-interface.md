@@ -256,7 +256,39 @@ Agent proposal 永远是 proposal；只有 operation owner 将其绑定到 live 
 
 任何 diagnostic 都必须有最大字节数、redaction policy 与 truncation marker。截断后的 diagnostic 不能作为 parser 输入或 Evidence。
 
-## 11. 可选界面
+## 11. 人类交互合同
+
+人类projection不是把machine JSON换成自然语言。每个可交互operation必须从同一Domain contract生成`HumanInteractionContract`，只拥有表达与交互状态，不拥有业务决定或Authority：
+
+```text
+HumanInteractionContract = generated {
+  operationAndResultRefs,
+  audienceAndDisclosureClass,
+  intentCaptureAndAmbiguityRules,
+  terminologyAndLocaleRefs,
+  unitsTimeZoneRoundingAndOrderingRules,
+  accessibilitySemantics,
+  effectRiskAndPreviewRefs,
+  confirmationOrDelegationRequirement,
+  cancellationUndoCompensationAndRecoveryRefs,
+  progressiveDisclosureAndHelpRefs,
+  interactionDigest
+}
+```
+
+| 关注点 | 必须保持 | 禁止 |
+|---|---|---|
+| intent | 展示被解析的对象、范围、Effect和unknown；歧义返回选择/frontier | 根据默认按钮、最近路径或聊天猜选项 |
+| accessibility | 控件语义、键盘/读屏顺序、焦点、错误定位、非颜色状态等价 | 只有视觉布局可用；动画/颜色承载唯一含义 |
+| localization | locale只改变projection；身份、machine tokens、单位/时区/舍入明确 | 翻译改变枚举、解析器、权限或数值 |
+| risky Effect | preview绑定exact plan/preimage；confirmation绑定scope、expiry、principal | 通用“确定吗”冒充Grant；确认后计划可漂移 |
+| cancellation | 明确before-effect、in-flight、settled/residue语义 | 关闭窗口即声称取消Effect |
+| undo/recovery | 只在Domain提供inverse/compensation/recovery operation时展示 | UI本地回滚冒充durable rollback |
+| compact/detail | 渐进披露但status/blocker/unknown/authority不变 | 为简洁隐藏不可逆后果或失败 |
+
+confirmation不是每个操作的固定弹窗，也不是Authority。低风险只读操作可直接执行；可逆Effect可由已绑定policy授权；不可逆、高影响或歧义Effect只有在Domain/Authority contract要求时才生成scope-bound confirmation。Agent、CLI、IDE与可选UI必须产生等价`OperationInvocation`，并由同一admission重新核对plan/preimage/grant；presentation事件本身不能绕过或替代该核对。
+
+## 12. 可选界面
 
 未来 GUI、Web、插件或远程界面必须作为独立 package 或 repository：
 
@@ -269,7 +301,7 @@ Core -/-> OptionalInterface
 
 SEC 自身不拥有 browser/Playwright/Workbench/UI runtime。Target workspace 可在自身 Target Profile 与 Verification requirement 明确选择外部 Browser Provider；这不把 browser 变成 SEC core 依赖。
 
-## 12. 无代码逻辑验证
+## 13. 无代码逻辑验证
 
 | 场景 | 必须得到 | 必须拒绝 |
 |---|---|---|
@@ -283,8 +315,12 @@ SEC 自身不拥有 browser/Playwright/Workbench/UI runtime。Target workspace �
 | UI/browser 未安装 | core operation 正常 | core 启动失败 |
 | diagnostic 超限或含 secret | 截断且 redacted | 原始输出泄漏 |
 | 未来 consumer 尚不存在 | obligation 保留但不发布空 schema | test-only contract 长期存在 |
+| locale/时区/单位变化 | 相同semantic invocation/result，只有projection变化 | 数值、selector、deadline或Authority变化 |
+| risky Effect 的plan/preimage在确认后漂移 | confirmation stale并重新admit | 使用旧确认执行新Effect |
+| 界面关闭但Effect可能已发生 | journal/readback后给settlement/residue | 显示“已取消”并重复执行 |
+| 键盘、读屏或非颜色模式 | 同一operation、状态与错误可达 | 无法操作或遗漏blocker |
 
-## 13. 完成条件
+## 14. 完成条件
 
 ```text
 InterfaceClosed =
@@ -294,5 +330,6 @@ InterfaceClosed =
   AND compact/full/stream preserve canonical meaning
   AND no interface can mint domain authority
   AND secrets, bounds, cancellation and settlement are explicit
+  AND human interaction preserves intent, accessibility, locale, risk and recovery semantics
   AND optional interfaces are removable without core capability loss
 ```
