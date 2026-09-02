@@ -18,6 +18,7 @@ import {
   DOCUMENTATION_MIGRATION_SOURCE_PROVIDER_REF,
   DOCUMENTATION_MIGRATION_TARGET_CONTRACT_DIGEST,
   encodeDocumentationMigrationDesign,
+  issueDocumentationMigrationConsumerCensus,
   type DocumentationMigrationCorpusEntry
 } from './migration.ts';
 
@@ -90,17 +91,22 @@ function compileDesign(input: Readonly<{
   readonly corpus: readonly DocumentationMigrationCorpusEntry[];
 }>): ReturnType<typeof compileDocumentationMigrationDesign> {
   const sourceGraph = sourceGraphFor(input.registry);
+  const currentGenerationBinding = deriveDocumentationMigrationGenerationBinding({
+    generationRef: sourceGraph.trustedTree,
+    providerRef: DOCUMENTATION_MIGRATION_SOURCE_PROVIDER_REF,
+    revisionOrSnapshotRef: sourceGraph.trustedTree,
+    observationEpoch: sourceGraph.trustedTree,
+    registry: input.registry,
+    corpus: input.corpus,
+    sourceGraph
+  });
   return compileDocumentationMigrationDesign({
-    ...input,
+    registry: input.registry,
     targetContractDigest: DOCUMENTATION_MIGRATION_TARGET_CONTRACT_DIGEST,
-    currentGenerationBinding: deriveDocumentationMigrationGenerationBinding({
-      generationRef: sourceGraph.trustedTree,
-      providerRef: DOCUMENTATION_MIGRATION_SOURCE_PROVIDER_REF,
-      revisionOrSnapshotRef: sourceGraph.trustedTree,
-      observationEpoch: sourceGraph.trustedTree,
-      registry: input.registry,
-      corpus: input.corpus,
-      sourceGraph
+    currentGenerationBinding,
+    consumerCensus: issueDocumentationMigrationConsumerCensus({
+      generationBinding: currentGenerationBinding,
+      entries: input.corpus
     }),
     sourceGraph
   });
@@ -251,18 +257,36 @@ describe('documentation migration design compiler', () => {
     expect(() => compileDocumentationMigrationDesign({
       registry: currentRegistry,
       targetContractDigest: DOCUMENTATION_MIGRATION_TARGET_CONTRACT_DIGEST,
-      corpus: currentCorpus,
       currentGenerationBinding: { ...binding, registryDigest: DIGEST } as never,
+      consumerCensus: issueDocumentationMigrationConsumerCensus({
+        generationBinding: binding,
+        entries: currentCorpus
+      }),
       sourceGraph
     })).toThrow(/not issued by the migration owner/u);
 
     expect(() => compileDocumentationMigrationDesign({
       registry: currentRegistry,
       targetContractDigest: DIGEST,
-      corpus: currentCorpus,
       currentGenerationBinding: binding,
+      consumerCensus: issueDocumentationMigrationConsumerCensus({
+        generationBinding: binding,
+        entries: currentCorpus
+      }),
       sourceGraph
     })).toThrow(/targetContractDigest does not match/u);
+
+    const census = issueDocumentationMigrationConsumerCensus({
+      generationBinding: binding,
+      entries: currentCorpus
+    });
+    expect(() => compileDocumentationMigrationDesign({
+      registry: currentRegistry,
+      targetContractDigest: DOCUMENTATION_MIGRATION_TARGET_CONTRACT_DIGEST,
+      currentGenerationBinding: binding,
+      consumerCensus: { ...census } as never,
+      sourceGraph
+    })).toThrow(/consumer census was not issued/u);
 
     expect(() => deriveDocumentationMigrationGenerationBinding({
       generationRef: sourceGraph.trustedTree,
@@ -289,18 +313,22 @@ describe('documentation migration design compiler', () => {
     const currentRegistry = registry(record('a-authority', 'docs/a.md', 'authority'));
     const currentCorpus = [corpus('docs/a.md', 'tracked-registered', 'a-authority')];
     const sourceGraph = sourceGraphFor(currentRegistry, 'tree-a', true);
+    const currentGenerationBinding = deriveDocumentationMigrationGenerationBinding({
+      generationRef: sourceGraph.trustedTree,
+      providerRef: DOCUMENTATION_MIGRATION_SOURCE_PROVIDER_REF,
+      revisionOrSnapshotRef: sourceGraph.trustedTree,
+      observationEpoch: sourceGraph.trustedTree,
+      registry: currentRegistry,
+      corpus: currentCorpus,
+      sourceGraph
+    });
     const design = compileDocumentationMigrationDesign({
       registry: currentRegistry,
       targetContractDigest: DOCUMENTATION_MIGRATION_TARGET_CONTRACT_DIGEST,
-      corpus: currentCorpus,
-      currentGenerationBinding: deriveDocumentationMigrationGenerationBinding({
-        generationRef: sourceGraph.trustedTree,
-        providerRef: DOCUMENTATION_MIGRATION_SOURCE_PROVIDER_REF,
-        revisionOrSnapshotRef: sourceGraph.trustedTree,
-        observationEpoch: sourceGraph.trustedTree,
-        registry: currentRegistry,
-        corpus: currentCorpus,
-        sourceGraph
+      currentGenerationBinding,
+      consumerCensus: issueDocumentationMigrationConsumerCensus({
+        generationBinding: currentGenerationBinding,
+        entries: currentCorpus
       }),
       sourceGraph
     });
