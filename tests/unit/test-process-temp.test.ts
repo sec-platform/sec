@@ -60,12 +60,37 @@ test('test process temp owns one disjoint generation and removes only that gener
     expect(environment.TMP).toBe(owned.tempRoot);
     expect(environment.TEMP).toBe(owned.tempRoot);
     expect(environment.TMPDIR).toBe(owned.tempRoot);
+    expect(owned.tempRoot).toBe(path.join(owned.processRoot, 'tmp'));
     expect(existsSync(owned.processRoot)).toBe(true);
     await owned.cleanup();
     expect(existsSync(owned.processRoot)).toBe(false);
     expect(existsSync(hostTempRoot)).toBe(true);
   } finally {
     for (const target of [repositoryRoot, hostTempRoot, stateRoot, cacheRoot]) {
+      rmSync(target, { recursive: true, force: true });
+    }
+  }
+});
+
+test('test process temp rejects an unavailable Windows path budget before any generation effect', async () => {
+  if (process.platform !== 'win32') return;
+  const repositoryRoot = generation('sec-temp-budget-repository-');
+  const stateRoot = generation('sec-temp-budget-state-');
+  const cacheRoot = generation('sec-temp-budget-cache-');
+  const hostTempRoot = path.join(tmpdir(), 'x'.repeat(200));
+  try {
+    expect(existsSync(hostTempRoot)).toBe(false);
+    await expect(prepareTestInvocationRuntime({
+      repositoryRoot,
+      hostTempRoot,
+      environment: { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot },
+      pathBudget: 'canonical-test-runtime'
+    })).rejects.toMatchObject({ code: 'TEST_PROCESS_TEMP_PATH_BUDGET_UNAVAILABLE' });
+    expect(existsSync(hostTempRoot)).toBe(false);
+    expect(readdirSync(stateRoot)).toEqual([]);
+    expect(readdirSync(cacheRoot)).toEqual([]);
+  } finally {
+    for (const target of [repositoryRoot, stateRoot, cacheRoot]) {
       rmSync(target, { recursive: true, force: true });
     }
   }

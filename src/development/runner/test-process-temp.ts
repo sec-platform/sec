@@ -38,6 +38,10 @@ const TEST_PROCESS_TEMP_GENERATION_PREFIX = 'g';
 const TEST_RUNTIME_CLEANUP_SCAN_BUDGET_MS = 10_000;
 const TEST_RUNTIME_CLEANUP_MAXIMUM_ENTRIES = 100_000;
 const TEST_PROCESS_TEMP_LOCATOR_HEX_LENGTH = 24;
+const WINDOWS_LEGACY_MAXIMUM_PATH_CHARACTERS = 259;
+// Canonical Bun tests reserve this bounded suffix for nested fixtures and
+// legacy-Windows child tools; lower temp lifecycle APIs do not invent it.
+const TEST_PROCESS_TEMP_REQUIRED_DESCENDANT_CHARACTERS = 160;
 const TEST_INVOCATION_KEY_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
 type TestProcessTempDigest = `sha256:${string}`;
@@ -67,6 +71,7 @@ export interface PreparedTestInvocationRuntime {
 export class TestProcessTempLifecycleError extends Error {
   readonly code:
     | 'TEST_PROCESS_TEMP_OWNED'
+    | 'TEST_PROCESS_TEMP_PATH_BUDGET_UNAVAILABLE'
     | 'TEST_PROCESS_TEMP_RESIDUE_UNKNOWN'
     | 'TEST_PROCESS_TEMP_CLEANUP_FAILED';
 
@@ -75,6 +80,34 @@ export class TestProcessTempLifecycleError extends Error {
     this.name = 'TestProcessTempLifecycleError';
     this.code = code;
   }
+}
+
+function assertTestProcessTempPathBudget(tempRoot: string): void {
+  if (process.platform !== 'win32') return;
+  const normalizedRoot = path.win32.resolve(tempRoot);
+  const availableDescendantCharacters = WINDOWS_LEGACY_MAXIMUM_PATH_CHARACTERS
+    - normalizedRoot.length - 1;
+  if (availableDescendantCharacters < TEST_PROCESS_TEMP_REQUIRED_DESCENDANT_CHARACTERS) {
+    throw new TestProcessTempLifecycleError(
+      'TEST_PROCESS_TEMP_PATH_BUDGET_UNAVAILABLE',
+      `SEC test process temp root leaves ${availableDescendantCharacters} descendant characters; `
+        + `${TEST_PROCESS_TEMP_REQUIRED_DESCENDANT_CHARACTERS} are required.`
+    );
+  }
+}
+
+function plannedTestProcessTempRoot(hostTempRoot: string): string {
+  const locator = '0'.repeat(TEST_PROCESS_TEMP_LOCATOR_HEX_LENGTH);
+  return path.join(
+    path.resolve(hostTempRoot),
+    `${TEST_PROCESS_TEMP_CONTAINER}${locator}`,
+    `${TEST_PROCESS_TEMP_GENERATION_PREFIX}${locator}`,
+    'tmp'
+  );
+}
+
+function assertPlannedTestProcessTempPathBudget(hostTempRoot: string): void {
+  assertTestProcessTempPathBudget(plannedTestProcessTempRoot(hostTempRoot));
 }
 
 export function testInvocationRuntimeIsolationModeForPlatform(
@@ -213,17 +246,6 @@ function assertLocationOutsidePhysicalRoot(
   }
 }
 
-function ownerLocator(owner: PhysicalMutationLeaseOwner): string {
-  const token = owner.token.replaceAll('-', '');
-  if (!/^[0-9a-f]{32}$/u.test(token)) {
-    throw new TestProcessTempLifecycleError(
-      'TEST_PROCESS_TEMP_RESIDUE_UNKNOWN',
-      'SEC test process temp lease owner identity is invalid.'
-    );
-  }
-  return token.slice(0, TEST_PROCESS_TEMP_LOCATOR_HEX_LENGTH);
-}
-
 function digestLocator(digest: TestProcessTempDigest): string {
   return digest.slice('sha256:'.length, 'sha256:'.length + TEST_PROCESS_TEMP_LOCATOR_HEX_LENGTH);
 }
@@ -235,17 +257,13 @@ function requireInvocationKey(value: string): string {
   return value;
 }
 
-function invocationStagingPrefix(invocationDigest: TestProcessTempDigest): string {
-  return `${TEST_PROCESS_TEMP_STAGING_PREFIX}${digestLocator(invocationDigest)}`;
-}
-
-function generationName(
+function generationDigest(
   container: PhysicalDirectoryIdentity,
   invocationDigest: TestProcessTempDigest,
   owner: PhysicalMutationLeaseOwner,
   physical: PhysicalDirectoryIdentity
-): string {
-  const physicalDigest = sha256(Object.freeze({
+): TestProcessTempDigest {
+  return sha256(Object.freeze({
     schema: 'sec-test-process-temp-physical-binding-v1',
     invocationDigest,
     owner,
@@ -260,7 +278,17 @@ function generationName(
       objectId: physical.objectId
     })
   })) as TestProcessTempDigest;
-  return `${TEST_PROCESS_TEMP_GENERATION_PREFIX}${physicalDigest.slice('sha256:'.length)}`;
+}
+
+function generationName(
+  container: PhysicalDirectoryIdentity,
+  invocationDigest: TestProcessTempDigest,
+  owner: PhysicalMutationLeaseOwner,
+  physical: PhysicalDirectoryIdentity
+): string {
+  return `${TEST_PROCESS_TEMP_GENERATION_PREFIX}${digestLocator(
+    generationDigest(container, invocationDigest, owner, physical)
+  )}`;
 }
 
 function topLevelInventory(root: PhysicalDirectoryIdentity) {
@@ -288,8 +316,9 @@ function recoverReclaimedGeneration(input: Readonly<{
   }
   for (const candidate of candidates) {
     const suffix = candidate.relativePath.slice(prefix.length);
-    const match = /^[0-9a-f]{64}$/u.exec(suffix);
-    if (candidate.kind !== 'directory' || match === null) {
+    const hasGenerationDigestShape = /^[0-9a-f]+$/u.test(suffix)
+      && (suffix.length === TEST_PROCESS_TEMP_LOCATOR_HEX_LENGTH || suffix.length === 64);
+    if (candidate.kind !== 'directory' || !hasGenerationDigestShape) {
       throw new TestProcessTempLifecycleError(
         'TEST_PROCESS_TEMP_RESIDUE_UNKNOWN',
         'SEC test process temp reclaimed generation is unknown.'
@@ -300,13 +329,23 @@ function recoverReclaimedGeneration(input: Readonly<{
       candidate.relativePath,
       'SEC test process temp reclaimed generation'
     );
-    if (retained === null
-        || candidate.relativePath !== generationName(
-          input.container,
-          input.invocationDigest,
-          input.owner,
-          retained
-        )) {
+    if (retained === null) {
+      throw new TestProcessTempLifecycleError(
+        'TEST_PROCESS_TEMP_RESIDUE_UNKNOWN',
+        'SEC test process temp reclaimed generation physical identity is unknown.'
+      );
+    }
+    const physicalDigest = generationDigest(
+      input.container,
+      input.invocationDigest,
+      input.owner,
+      retained
+    );
+    const acceptedNames = new Set([
+      `${prefix}${digestLocator(physicalDigest)}`,
+      `${prefix}${physicalDigest.slice('sha256:'.length)}`
+    ]);
+    if (!acceptedNames.has(candidate.relativePath)) {
       throw new TestProcessTempLifecycleError(
         'TEST_PROCESS_TEMP_RESIDUE_UNKNOWN',
         'SEC test process temp reclaimed generation physical identity is unknown.'
@@ -333,19 +372,31 @@ function createChildGeneration(input: Readonly<{
   invocationDigest: TestProcessTempDigest;
   owner: PhysicalMutationLeaseOwner;
 }>): PhysicalDirectoryChain {
-  const stagingName = `${invocationStagingPrefix(input.invocationDigest)}${ownerLocator(input.owner)}${randomBytes(12).toString('hex')}`;
+  const stagingName = `${TEST_PROCESS_TEMP_STAGING_PREFIX}${randomBytes(12).toString('hex')}`;
   const staging = createExclusiveOwnedDirectoryGeneration(input.container, stagingName);
-  const name = generationName(
-    input.container.target,
-    input.invocationDigest,
-    input.owner,
-    staging.target
-  );
-  const target = relocateRetainedNoFollowDirectory({ directory: staging.target, tombstoneName: name });
-  return Object.freeze({
-    target,
-    ancestors: Object.freeze([...input.container.ancestors, target])
-  });
+  try {
+    const name = generationName(
+      input.container.target,
+      input.invocationDigest,
+      input.owner,
+      staging.target
+    );
+    const target = relocateRetainedNoFollowDirectory({ directory: staging.target, tombstoneName: name });
+    return Object.freeze({
+      target,
+      ancestors: Object.freeze([...input.container.ancestors, target])
+    });
+  } catch (error) {
+    try {
+      deleteOwnedDirectoryGeneration(staging, 'SEC test process temp staging generation');
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        'SEC test process temp generation admission and cleanup failed.'
+      );
+    }
+    throw error;
+  }
 }
 
 function createParentOwnedTempSupervisor(input: Readonly<{
@@ -498,6 +549,7 @@ function parseIdentity(value: unknown): PhysicalDirectoryIdentity | null {
 /** Child-side adoption performs no delete Effect; cleanup stays with the direct parent supervisor. */
 export function consumeTestProcessTempAssignmentV1(input: Readonly<{
   environment: NodeJS.ProcessEnv;
+  pathBudget?: 'canonical-test-runtime';
 }>): TestProcessTempRoot | null {
   const serialized = input.environment[TEST_PROCESS_TEMP_ASSIGNMENT_ENV];
   if (serialized === undefined) return null;
@@ -513,6 +565,7 @@ export function consumeTestProcessTempAssignmentV1(input: Readonly<{
   }
   assertSameNoFollowDirectoryIdentity(parent, 'Assigned SEC test process temp parent');
   const tempRoot = path.join(root.path, 'tmp');
+  if (input.pathBudget === 'canonical-test-runtime') assertTestProcessTempPathBudget(tempRoot);
   inspectNoFollowDirectoryChain(tempRoot, 'Assigned SEC test TMP root');
   assignTempEnvironment(input.environment, tempRoot);
   return Object.freeze({
@@ -753,6 +806,7 @@ export async function prepareTestInvocationRuntime(input: Readonly<{
   repositoryRoot: string;
   hostTempRoot: string;
   environment: NodeJS.ProcessEnv;
+  pathBudget?: 'canonical-test-runtime';
 }>): Promise<PreparedTestInvocationRuntime> {
   const environmentSnapshot = captureTestInvocationEnvironment(input.environment);
   let invocation: TestInvocationRuntimeRoots | null = null;
@@ -779,7 +833,15 @@ export async function prepareTestInvocationRuntime(input: Readonly<{
   };
 
   try {
-    const assigned = consumeTestProcessTempAssignmentV1({ environment: input.environment });
+    const enforceCanonicalPathBudget = input.pathBudget === 'canonical-test-runtime';
+    if (enforceCanonicalPathBudget
+        && input.environment[TEST_PROCESS_TEMP_ASSIGNMENT_ENV] === undefined) {
+      assertPlannedTestProcessTempPathBudget(input.hostTempRoot);
+    }
+    const assigned = consumeTestProcessTempAssignmentV1({
+      environment: input.environment,
+      ...(enforceCanonicalPathBudget ? { pathBudget: 'canonical-test-runtime' as const } : {})
+    });
     if (assigned !== null) {
       processTemp = assigned;
       const stateRoot = requireAssignedRuntimeRoot(input.environment, 'SEC_STATE_HOME');

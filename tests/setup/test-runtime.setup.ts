@@ -9,7 +9,8 @@ async function configureTestTempRoot(): Promise<void> {
   const invocationRuntime = await prepareTestInvocationRuntime({
     repositoryRoot: compilerRoot,
     hostTempRoot: tmpdir(),
-    environment: process.env
+    environment: process.env,
+    pathBudget: 'canonical-test-runtime'
   });
   // bunfig preloads this module only for `bun test`, whose ambient lifecycle
   // owns final settlement without adding bun:test to the TCB import closure.
