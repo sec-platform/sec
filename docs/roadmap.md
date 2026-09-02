@@ -2,671 +2,369 @@
 title: 稳定交付路线
 status: active
 domain: roadmap
-last-reviewed: 2026-08-21
+last-reviewed: 2026-09-02
 ---
 
 # 稳定交付路线
 
-本文只拥有稳定 capability DAG、阶段进入/退出条件、物理 Evidence、跨阶段反转条件和产品完成定义。当前 SHA、PR、CI、活动包、blocker、版本和支持矩阵只由 live resolver、代码合同与 `docs/work/**` 拥有。
-
-## 状态解释
-
-路线中的能力只有以下真实层级：
-
-```text
-proposed
-→ contract-frozen
-→ implemented-in-main
-→ physically-verified
-→ packaged/deployed
-→ product-supported
-```
-
-本文件描述依赖和完成门，不自行把任何能力标记为已完成。一个类型、测试、PR、文档或示例存在不能跨越后续层级。
-
-“完整设计一次冻结”与“实现分包进入 main”并不冲突：终态对象、owner、接口、依赖和验收必须先确定；实现仍按可独立验证、迁移和回滚的纵向闭包进入主干。任何分包都不得降低终态来换取局部通过。
-
-## 唯一根 DAG
-
-```text
-R0  Theory / Authority Convergence
- ↓
-R1  Canonical Engineering Semantic Kernel
- ↓
-R2  Verification Truth Kernel
- ↓
-R3  Physical Workspace Observation
- ↓
-R4  TypeScript Source Program Model
- ↓
-R5  Responsibility Reconstruction
- ↓
-R6  Semantic Delta / Impact
- ↓
-R7  Operation / Authorization / Planning
- ↓
-R8  Transactional Controlled Mutation
- ↓
-R9  Brownfield Adoption / Provider Onboarding
- ├──────────────┐
- ↓              ↓
-R10 Target Profile / Type Algebra
- ↓              │
-R11 Application / Behavior / Target Program Lowering
- ↓              │
-R12 General TypeScript Engineering Compiler
- └──────┬───────┘
-        ↓
-R13 Agent / CLI Semantic Operator
- ↓
-R14 Agent Operation Compiler / VerificationSession Cutover
- ↓
-R15 Release / Deployment / Operations
- ↓
-R16 Registry Ecosystem / Additional Languages
-```
-
-R9 与 R10–R12 不是两套产品：Brownfield governance、Provider onboarding 与 deterministic generation 共用 R1 的 Engineering Semantic Model、R5 的 Responsibility、R6 的 Impact、R7 的 Operation、R2 的 Verification truth和R11的Implementation Resolution。外部源码、Provider和Adapter只提供候选、Evidence和可替换实现，不建立第二语义核心或第二最终选择器。
-
-## 横切不变量
-
-以下能力不是独立“治理主线”，而是在出现真实 consumer 时随阶段闭合：
-
-```text
-Determinism / canonical ordering
-Identity / revision / source and implementation binding
-Provenance / Explain / Evidence references
-Security / Permission / Trust boundary
-Implementation eligibility / policy / canonical tie-break
-Binding Delta / Impact
-Compatibility / Migration / Retirement
-Transaction / Fault / Recovery
-Incrementality / Performance / Resource governance
-Documentation / Development governance
-Host / Toolchain / Provider / Adapter / Distribution
-```
-
-横切能力只能满足真实阶段出口，不能因为“以后可能需要”提前扩建完整平台。没有 producer、consumer、迁移和现实验收的合同保持 proposal。
-
-## R0 — Theory / Authority Convergence
-
-### 目标
-
-冻结 SEC 最终产品、两条主链、对象模型、唯一 owner、术语、成熟度和根依赖；消除并列总计划、重复 authority 和动态事实泄漏。
-
-### 必须具备
-
-- `docs/product.md` 只拥有问题、产品结果、边界和成功判据；
-- `docs/system-architecture.md` 只拥有总体对象层、权威流、两条主链、单写者和跨域引用；
-- 本文件是唯一稳定 capability DAG；
-- 每个领域只有一个 canonical 文档/代码 owner；
-- Target/Host、transaction rollback/migration recovery、Responsibility、Implementation Resolution/Block Resolution、Binding Delta/Compatibility、Verification/Support、Role/Operation/Skill 边界唯一；
-- Proposal、Evidence、archive、rolling plan 和 Work Package 不竞争长期 authority；
-- 当前能力与目标设计显式区分。
-- Engineering Principle与Agent Constitution分属System/Domain和Development Governance owner；Principle/Behavior views由同一canonical facts编译，root `AGENTS.md`只作`owns: []` bootstrap projection；
-- L1 relation、L2 constraint、L3 execution/proof与L4 materialization meta-model可在单一active compiler下演进，并有旧/新模型等价、cutover与retirement。
-
-### 退出 Evidence
-
-- registry/ownership/consumer graph 无 duplicate、missing owner 或 cycle；
-- stable docs 无动态 SHA/PR/run；
-- current-control 不定义长期架构；
-- 旧 proposal、阶段计划和 Draft PR 有明确 adopt/adapt/reject/defer/retire disposition；
-- docs doctor、repository audit 和独立 Review闭合。
-- human/formal/role/boundary/enforcement/AI views语义等价；任一view不能改变owner、unknown或拒绝结论；
-- Agent在goal、write、Effect、terminal与counterexample边界消费BehaviorAdmission，candidate instruction不能给自身扩权。
+## 1. 所有权
+
+本文件只拥有稳定 capability DAG、阶段依赖、进入/退出 Evidence、反转条件和产品完成边界。
+
+| 不属于本文件 | 唯一来源 |
+|---|---|
+| 当前 main/SHA/tree/PR/CI/Review | live provider 与 exact readback |
+| 当前 Work Package、blocker、candidate | control plane 与 docs/work |
+| 产品价值与非目标 | product |
+| 对象、关系、owner、operation、resource | system architecture |
+| 兼容、迁移、退役 | change management |
+| Provider 成熟度 | external provider policy |
+| PASS、Evidence、Gate | verification governance |
+| Agent 行为 | development governance |
+
+路线是能力偏序，不是日期表、Issue 镜像或“代码存在即完成”的清单。
+
+## 2. 成熟度
+
+~~~mermaid
+stateDiagram-v2
+  [*] --> Proposed
+  Proposed --> ContractFrozen
+  ContractFrozen --> ImplementedInMain
+  ImplementedInMain --> PhysicallyVerified
+  PhysicallyVerified --> PackagedOrDeployed
+  PackagedOrDeployed --> ProductSupported
+
+  ContractFrozen --> Proposed: design invalidated
+  ImplementedInMain --> ContractFrozen: implementation disproves contract
+  PhysicallyVerified --> ImplementedInMain: environment or evidence invalidated
+  ProductSupported --> PhysicallyVerified: incident EOL or provider withdrawal
+~~~
+
+| 层级 | 可证明 | 不能证明 |
+|---|---|---|
+| proposed | 目标与候选关系已记录 | 合同正确、可实现 |
+| contract-frozen | 对象、owner、输入输出、拒绝边界已冻结 | 代码存在 |
+| implemented-in-main | canonical main 含实现 | 物理环境可用 |
+| physically-verified | exact subject/environment 上成立 | 可分发、受支持 |
+| packaged/deployed | 可重复安装或部署 | 长期支持 |
+| product-supported | 支持策略、运营、撤销与恢复闭合 | 永久有效 |
+
+任何类型、文档、测试、提交、PR 或示例都只能提供其实际层级的 Evidence。
+
+## 3. 唯一能力 DAG
+
+~~~mermaid
+flowchart TD
+  R0[R0 Theory and Authority] --> R1[R1 Engineering Semantic Kernel]
+  R1 --> R2[R2 Verification Truth Kernel]
+  R2 --> R3[R3 Physical Workspace Observation]
+  R3 --> R4[R4 TypeScript Source Program Model]
+  R4 --> R5[R5 Responsibility Reconstruction]
+  R5 --> R6[R6 Semantic Delta and Impact]
+  R6 --> R7[R7 Operation Authorization and Planning]
+  R7 --> R8[R8 Transactional Controlled Mutation]
+  R8 --> R9[R9 Brownfield and Provider Adoption]
+  R9 --> R10[R10 Target Profile and Type Algebra]
+  R10 --> R11[R11 Resolution and Target Lowering]
+  R11 --> R12[R12 General TypeScript Engineering Compiler]
+  R12 --> R13[R13 Agent and CLI Semantic Operator]
+  R13 --> R14[R14 Agent Operation and VerificationSession]
+  R14 --> R15[R15 Release Deployment and Operations]
+  R15 --> R16[R16 Registry and Additional Languages]
+
+  R9 -. governed existing implementation .-> R11
+  R2 -. truth kernel .-> R6
+  R2 -. truth kernel .-> R8
+  R2 -. truth kernel .-> R15
+~~~
+
+这不是十七套子系统。R1 提供共同语义；R2 提供共同真值；R3–R6 提供事实与变化；R7–R8 提供受控行动；R9–R12 提供吸收、选择和生成；R13–R16 提供交互、开发闭环、交付与扩展。
+
+## 4. 阶段合同
+
+| 阶段 | 依赖 | 唯一产物 | 最小退出 Evidence | 反转触发 |
+|---|---|---|---|---|
+| R0 | 用户终局、现实约束 | product boundary、owner map、root DAG | 无并列总计划/owner；稳定文档无动态事实 | 核心对象或 authority 无法共用 |
+| R1 | R0 | validated Engineering Semantic Model | canonical bytes 稳定；三组无关模型不改 core | 第二 identity/revision/loader 出现 |
+| R2 | R1 | Requirement/Gate/Result/Claim/Aggregate | zero-test、unknown、stale、self-proof 不能 PASS | consumer 对同一真值不一致 |
+| R3 | R2 | exact Physical Observation / Content Manifest | tracked/declared inventory 无未解释遗漏；unknown 不等于 absent | 读取路径被当 identity |
+| R4 | R3 | TypeScript Source Program Model | clean/incremental bytes 等价；dynamic/opaque 显式 | 正则/名字图改变 TS 语义 |
+| R5 | R4 | Responsibility decisions、Owner DAG、Placement | owner 由关系闭包导出；至少一项真实 Adopt | 只能靠路径/品牌/人工清单 |
+| R6 | R5 | Fact Delta、Binding Delta、Impact | independently validated endpoints；unknown 保守传播 | comparator 重新 resolve 或判 compatibility |
+| R7 | R6 | immutable Engineering Operation plan | dry-run 零 Effect；caller 不能提交 derived authority | intent、plan、authorization 混合 |
+| R8 | R7 | journaled canonical transition | crash/CAS/rollback/recovery/readback；replay 不重复 Effect | mutation 绕过 journal/lease/fence |
+| R9 | R8 | adopted Brownfield responsibility / Provider candidate | 两个真实外部工程；至少一个 governed mutation | candidate 被自动提升 authority |
+| R10 | R9 | Target Profile、Type Algebra | Host/Target 正交；未知组合 emit 前拒绝 | 从 cwd/host 猜 Target |
+| R11 | R10 | ResolutionDecision、ImplementationBinding、Target Program | hard eligibility 先于 policy；backend 不重选实现 | 库名分支或万能 resolver |
+| R12 | R11 | general TS compiler result | 多类业务、provider switch、round-trip、byte parity | 新业务要求 core 品牌分支 |
+| R13 | R12 | user/Agent semantic projections | CLI/Agent 同 plan；expert pin 也不能绕 eligibility | interface 重算语义或权限 |
+| R14 | R13 | Task Capsule refs、Action DAG、VerificationSession | 一次真实 orient→merge→readback；resume 不靠聊天 | Skill/prose/候选 verifier 自授权 |
+| R15 | R14 | package/deployment/operations truth | reproducible artifact、真实 deploy/rollback、SBOM/attestation | live-worktree copy 或支持状态自报 |
+| R16 | R15 | governed registry/provider/language extension | signed identity、migration/revocation、统一 resolution | 新语言建立第二 semantic core |
+
+每个出口都是合取条件；未满足项保持 typed incomplete，不能由后续阶段倒推为完成。
+
+## 5. R0–R2：基础真值
+
+### R0 — Theory / Authority
 
-### 反转条件
+必须冻结：
 
-若后续真实实现证明核心对象边界、authority、两条主链或Implementation Resolution的位置无法共用同一语义模型，必须返回 R0/R1 重算；禁止在下游新增第二模型、第二Resolver、第二Delta comparator、第二Compatibility evaluator或库名分支掩盖冲突。
+| 对象 | 唯一性要求 |
+|---|---|
+| Product | 问题、终局、边界、成功判据唯一 |
+| Architecture | Subject/Claim/Relation、owner、operation、resource 唯一 |
+| Principles | Engineering 与 Agent principles 分属各自 owner |
+| Meta-model | relation、constraint、execution/proof、materialization 可迁移 |
+| Current state | 只由 live resolver；不得写进稳定路线 |
+
+human/formal/role/boundary/enforcement/AI views 必须由同一 principles 编译；任一视图不能改变 owner、unknown 或拒绝结论。
+
+### R1 — Engineering Semantic Kernel
 
-## R1 — Canonical Engineering Semantic Kernel
+R1 只包含跨语言、Provider、类库和 Target 仍成立的语义：
 
-### 目标
+- stable Entity、Fact、Assertion、Contract、Responsibility、State、Operation、Policy、Permission、Effect、Scenario、Acceptance；
+- identity、authority、confidence、provenance、validity、canonical ordering、semantic revision；
+- raw → strict validate → normalize → deep-freeze 的单边界；
+- conflict、ambiguous、unknown、opaque 是一等状态；
+- Projection、Explain、cache 可重建，不能反向写事实；
+- package、library、Provider、Adapter、Binding 与 semantic identity 分域。
+
+R1 不包含语言 AST、文件路径、品牌类库、完整未来 IR 宇宙或无 consumer 的平台。
+
+### R2 — Verification Truth
+
+~~~mermaid
+flowchart LR
+  REQ[Requirement] --> G[Gate]
+  G --> EX[Execution or reuse]
+  EX --> RES[Result]
+  RES --> C[Claim]
+  C --> A[Aggregate]
+  E[Evidence + exact subject] --> C
+  A --> S{passed failed not-run unsupported invalidated}
+~~~
+
+必须区分 executed/reused/not-executed、applicable/not-applicable、required/not-required。candidate verifier、empty selection、wrong environment、stale Evidence、cleanup failure 与 unsupported provider 都不能产生 PASS。
+
+## 6. R3–R6：事实、源码、所有权和变化
+
+### R3 — Physical Observation
+
+唯一 Content Manifest 覆盖 repository、workspace、package、target、file、config、test、workflow、resource、artifact，并分类 tracked/untracked/ignored/generated/vendor/binary/secret/protected/temporary/opaque。
+
+~~~mermaid
+flowchart LR
+  G[Git object facts] --> CM[Content Manifest]
+  F[Retained filesystem facts] --> CM
+  CM --> SP[Source Program]
+  CM --> TI[Test Impact]
+  CM --> AU[Repository Audit]
+  CM --> RP[AI Read Plan]
+~~~
+
+同一 content universe 只观察一次；dirty frontier 增量读取。symlink、junction/reparse、hardlink、case、Unicode、encoding、mode 和 unreadable 保留真实状态。SEC 手写 production executable source 的目标布局为 src；历史入口只有完成 consumer migration 后才能退役。
+
+### R4 — TypeScript Source Program
+
+| 层 | 产物 | 权威边界 |
+|---|---|---|
+| syntax | file/module/declaration/span/import/export | Compiler API exact snapshot |
+| symbol | definition/reference/alias/re-export/merge | Program/TypeChecker |
+| type | signature/generic/overload/resolution | repository-locked TypeScript |
+| invocation | TypedInvocation / ExternalCallBinding | 类型正确，不推断 runtime behavior |
+| candidate | call/data/control/effect/provider candidates | observed/derived，非 business authority |
+| frontier | dynamic/unknown/opaque/conflict | 不得降为 absent |
+
+事实 shard key 为 content digest + interpreter contract + resolution/config closure。Language Service、watch、worker、cache 只优化等价计算；provider unavailable 不能触发第二语义入口。
+
+R4 性能出口同时要求：
+
+- Source Program、typecheck、audit、test-impact 共用 exact Content Manifest；
+- cold、warm、delta、cache-disabled clean compile 的 bytes/diagnostics 等价；
+- authoring query 使用增量 Language Service；
+- final frozen tree 只产生一次 ActionKey-bound full type evidence；
+- Windows/Provider 物理证明使用 retained session，不为每个进程重复昂贵 shell discovery。
+
+### R5 — Responsibility
+
+Responsibility Cell 由 declaration SCC、single writer/issuer/parser 和 Effect→settlement→readback→recovery 闭包共同生成。
+
+| 状态 | 含义 |
+|---|---|
+| candidate | 机器观察到可能边界 |
+| accepted | domain owner Adopt，形成 authority |
+| rejected | 明确不是该 responsibility |
+| ambiguous | 多个解释不能消解 |
+| opaque | 当前 frontend 无法观察 |
+
+Owner DAG、public surface、Placement certificate、Materialization plan 和 Reduction disposition 从同一 Source Program 编译。path、目录、index、facade、descriptor 或测试不能自报 owner。
+
+### R6 — Delta / Impact
+
+~~~mermaid
+flowchart LR
+  A[Validated snapshot A] --> D[Fact Delta]
+  B[Validated snapshot B] --> D
+  BA[Binding set A] --> BD[Binding Delta]
+  BB[Binding set B] --> BD
+  D --> I[Impact fixpoint]
+  BD --> I
+  I --> V[Verification requirements]
+  I --> C[Change Management]
+  C --> CD[Compatibility Decision]
+  C --> M[Migration obligations]
+~~~
+
+Comparator 只比较 independently validated endpoints；不重新运行 Resolver，不用包名/semver/API 相似度猜匹配或兼容。Impact 区分 definite/possible/unknown，并保留 witness、cycles、predicted/actual/full omission。
+
+## 7. R7–R9：意图、Effect 和吸收
+
+### R7 — Operation / Authorization / Planning
+
+~~~text
+EffectiveGrant =
+  CallerCapability
+  ∩ OperationPolicy
+  ∩ TargetRequirement
+  ∩ SourceOwner
+  ∩ Scope
+  ∩ ProviderCapability
+  ∩ CurrentRevision
+  ∩ VerificationRequirement
+~~~
 
-建立语言、Provider、具体类库与目标无关的 canonical engineering semantics。
-
-### 必须具备
-
-- stable Entity / Fact / Assertion identity；
-- authority、confidence、provenance、evidence reference 和 validity；
-- Semantic Contract；
-- Responsibility、State、Operation、Policy、Permission、Effect、Scenario、Acceptance；
-- deterministic normalization、canonical ordering、semantic revision；
-- raw → validated → deep-frozen single boundary；
-- conflict、ambiguous、unknown 和 opaque；
-- 统一 Pipeline Kernel、transaction/journal/recovery基础设施仅作为真实 producer 的执行内核；
-- Projection、Scenario cache、Explain 都可重建且不反向写事实；
-- package、library、Provider、Adapter、Implementation Decision/Binding与semantic identity严格分域。
-
-### 退出 Evidence
-
-- 同输入 canonical graph byte-stable；
-- consumer只接受统一 validated boundary；
-- 不存在第二 identity、revision、writer、loader 或 pipeline coordinator；
-- Responsibility具有稳定 identity 和 facets，不由文件/Block/UI/类库默认替代；
-- 至少一个真实 Contract/Authoring Source 进入 Engineering IR 并产生可验证消费者结果；
-- Provider或Binding切换保持Contract时不重写semantic revision；
-- 三组无关语义模型不修改 Core 业务分支。
-
-### 禁止提前建设
-
-- 无 consumer 的完整 Application/Behavior/Target IR 宇宙；
-- 把 Source Program Model、AST、代码图、Provider catalog、Implementation Binding或 AI Knowledge Graph 提升为 Engineering IR；
-- 用 path/display name/random UUID/package name 代替 stable identity。
-
-## R2 — Verification Truth Kernel
-
-### 目标
-
-让所有后续“成功”“合格”“兼容”和“受支持”建立在不可假绿的统一 Requirement、Gate、Result、Claim 与 Aggregate 真值上。
-
-### 必须具备
-
-- `passed | failed | not-run | unsupported | invalidated`；
-- executed/reused/not-executed、applicability、owning environment；
-- order-independent claim lattice；
-- duplicate/missing/unknown gate/claim fail closed；
-- not-applicable 与 required-but-not-run 分离；
-- zero-test / unresolved selection 不得 passed；
-- canonical writer profile、artifact readback 重算和 exact structural comparison；
-- blocked prerequisite 与普通物理 failure 分离；
-- candidate不能用自身新增 verifier/selector/Resolver/Delta comparator/Compatibility evaluator/merge rule授权自身；
-- exact input/environment/command/artifact/cleanup/revision/Binding/Delta-subject binding。
-
-### 退出 Evidence
-
-- product writer、artifact validator、Mutation adapter 和 merge/CI consumer 对同一 truth一致；
-- wrong environment、stale Evidence、empty selection、unknown identity、cleanup失败和 self-proof 均无法产生 PASS；
-- physical integration 覆盖成功、失败、invalidated、unsupported、not-run 和 blocked；
-- Provider conformance可以作为Eligibility或Compatibility输入，但不自动成为ResolutionDecision、Binding Delta、Compatibility Decision或Support；
-- old boolean/three-state authority被迁移或明确降为 non-authoritative projection。
-
-### 后继边界
-
-Execution Ledger、Evidence DAG、Run Journal、CI Evidence 新版本、flake平台和完整 Hermetic Runtime只有在真实 R3–R13 consumer需要时增量实现，不作为离开 R2 的无限前置。
-
-## R3 — Physical Workspace Observation
-
-### 目标
-
-在不执行不受信项目代码的前提下，对 exact workspace revision 建立完整、可重复的物理事实。
-
-### 必须具备
-
-- repository/workspace/package/build-target/file/config/test/workflow/resource/artifact inventory；
-- Git/object/content/mode/encoding identity；
-- tracked/untracked/ignored、generated/vendor/binary/secret/protected/temporary/opaque；
-- symlink、junction/reparse、hardlink、case、Unicode 和 path containment；
-- package/export/types/lock/toolchain/build-system/install/native evidence；
-- owner、public/release surface 和 unreadable/unsupported/unresolved frontier；
-- raw/validated observation snapshot 与 deterministic revision。
-
-### 退出 Evidence
-
-- exact revision 的 tracked/declared physical inventory 无未解释遗漏；
-- repeated clean observation byte-stable；
-- unknown/read failure 不被解释为不存在；
-- source、control、cache、runtime materialization 和 recovery state 生命周期可机器分类；
-- package/source bytes可作为R4与Provider onboarding的唯一读取输入；
-- 至少三个无关 TypeScript fixture 和 SEC 自身通过。
-- transport-neutral Merkle Content Manifest复用Git/object或retained filesystem observation，只读取dirty frontier且不为预算额外预扫全部bytes；
-- typecheck、Source Program、test-impact、repository audit、unused/duplicate/hardcode与AI Read Plan不再各自发现同一content universe。
-- SEC手写production executable source只在`src/**`；owner-local proof共置、跨owner proof进入`tests/**`，历史`platform/tooling`与业务型`scripts`达到consumer-zero。
-
-### 禁止提前建设
-
-- 读取路径即获得 semantic identity；
-- 默认执行 install/build/test/browser/network；
-- 一个巨型 Workspace Snapshot 复制所有 domain object。
-
-## R4 — TypeScript Source Program Model
-
-### 目标
-
-把 R3 物理事实提升为 TypeScript 语言级 observed/derived 模型，并提供无专用Adapter时的最低结构化类库调用面，而不越权成为业务语义或正式Provider支持。
-
-### 分层交付
-
-1. file/module/symbol/declaration/source span/import/export/definition/reference；
-2. package/module/exported symbol、signature、generic、overload、normalized type和module resolution；
-3. `TypedInvocation` / `ExternalCallBinding`：结构化连接参数和返回值，生成type-correct external call；
-4. call/reference candidate、minimal control/data flow、state/effect/error/permission/framework/config candidate；
-5. provider coverage、conflict、dynamic/unknown/opaque frontier。
-
-### 必须具备
-
-- independent identity、revision、validator、canonical order、digest 和 freeze；
-- TypeScript Compiler API 等 primary frontend作为首要语法/类型 authority，其他 Provider只补 Evidence；
-- CLI checker、parser、Program/TypeChecker/module resolution、Language Service、source transform/printer与build executable分离为不同capability/version authority；
-- rename/move、overload、declaration merge、generated source、conditional exports、multi-package 和 version skew策略；
-- source span与 physical observation revision binding；
-- package/source/version/integrity与export/type identity；
-- Provider identity、scope、coverage、freshness、diagnostic、resource/network boundary；
-- L1 TypedInvocation明确标记Effect、idempotency、retry、timeout、cancellation、安全和runtime behavior为unknown，除非有独立声明/证据。
-- facts按`content digest + interpreter contract + resolution/config closure`分片；Language Service/worker/watch只提供等价增量性能，不成为第二source truth或fallback；
-- cold、warm、delta与cache-disabled clean compile bytes/diagnostics等价，provider unavailable只改变成本或typed availability。
-
-### 退出 Evidence
-
-- 三个无关 fixture + SEC 三个不相关子系统输出可重复模型；
-- 至少三个无关package可在没有专用Adapter时选择export、连接输入输出并生成type-correct源码；
-- unsupported/ambiguous/dynamic/behavior-unknown边界显式；
-- move/rename不会仅因路径变化无条件丢失identity，也不会靠模型相似度擅自延续；
-- Provider冲突保留，不多数票升格；
-- TypeScript/ts-morph/private compiler对象不泄漏到Engineering Core；
-- model只读，不写 live source。
-
-## R5 — Responsibility Reconstruction
-
-### 目标
-
-从 Source Program Model、Contract、observations 和已有 Facts 生成可解释的 Responsibility candidate，并通过 Reconcile/Adopt 建立真实 authority。
-
-### 必须具备
-
-- source/module/symbol bindings；
-- owned state、readers/writers、operations、effects、permissions、resources、errors、lifecycle；
-- public contract、consumer/provider和Acceptance candidate；
-- confidence、authority class、competing explanations、conflicts和unknown frontier；
-- candidate、accepted、rejected、ambiguous、opaque 的明确状态；
-- explicit Adopt policy；
-- Responsibility identity continuity / split / merge / replace / unknown。
-- Responsibility Partition从declaration SCC、single writer/issuer/parser与Effect-settlement-readback-recovery闭包生成minimal Cells；
-- Owner DAG、public surface、Placement/Materialization certificate与Reduction disposition由同一Source Program编译，path/descriptor/facade不能自报owner。
-
-### 退出 Evidence
-
-- 对 SEC 自身至少三个不相关子系统输出候选，并与domain owner签发的accepted Responsibility decisions及独立Effect/readback事实比较；
-- inferred/observed candidate保持 non-authoritative；
-- 同名/邻近路径/高confidence不能自动Adopt；
-- 至少一个真实 source region完成Reconcile→Adopt并建立owner、Contract、Acceptance和writable boundary。
-
-### 反转条件
-
-若 Responsibility 只能通过业务名称、package品牌或人工逐文件硬编码建立，返回 R1/R4 重算 identity、predicate 和 Source Model。
-
-## R6 — Semantic Delta / Impact
-
-### 目标
-
-对 independently validated semantic snapshots 与 Implementation Binding sets进行确定性结构比较，并保守传播其影响；不在本阶段判断兼容性或选择迁移路线。
-
-### 必须具备
-
-- Authoring/Entity/Fact/Assertion/Source/Implementation Binding/Artifact/Runtime/Evidence Delta分离；
-- independently validated from/to endpoints与可比较lineage；
-- `Fact Delta`和`ImplementationBindingDelta`具有独立identity、revision、comparator contract和canonical payload；
-- Binding change至少区分added、removed、provider-replaced、version/adapter/config/Target/Block/dependency/effect-permission-resource/support变化及unknown/ambiguous；
-- comparator不重新运行Resolver、不按包名、semver、API相似度或测试绿猜配对/兼容；
-- `READS / WRITES / MUTATES / IMPLEMENTS / DEPENDS_ON / REQUIRES / PERFORMS_EFFECT / REQUIRES_PERMISSION / VERIFIED_BY / LOWERS_TO / CONSUMES / PUBLISHES / OWNS` 等真实关系；
-- versioned propagation rule registry；
-- definite/possible/unknown certainty；
-- canonical witness、cycle/fixpoint、unknown frontier；
-- predicted Impact 与 apply 后 actual Impact分离；
-- Provider/version/config/Adapter/Target/dependency变化通过`ImplementationBindingDelta`传播到consumer、Artifact、runtime、Verification、release与support surface；
-- Verification recommendation但不拥有物理 command/test path；
-- Change Management消费Delta/Impact/Evidence后独立产生Compatibility Decision和Migration；
-- predicted vs actual/full omission记录。
-
-### 退出 Evidence
-
-- 同一validated endpoints/comparator/rules产生byte-stable Fact Delta、ImplementationBindingDelta和Impact；
-- added/removed/assertion update/entity-only/Binding replacement方向正确；
-- Requirement、Decision、Binding与Delta identity分域；
-- comparator不重新运行Resolver，不按包名/semver/API相似度猜匹配；
-- cycles收敛且witness稳定；
-- unknown predicate/reference/coverage/Binding endpoint不被当作无影响或兼容；
-- Provider/Binding切换准确传播到consumer、Artifact、package、runtime、Verification、release与support；
-- Compatibility和Migration只由Change Management消费Delta/Impact后裁决；
-- clean/incremental结果等价；
-- 至少三组无关模型、两个实现替换场景和一个 Brownfield unknown/opaque 场景通过；
-- 至少一段真实历史变化用 predicted/actual/full 校准 precision、recall 和 unknown。
-
-## R7 — Operation / Authorization / Planning
-
-### 目标
-
-把用户、Agent 和 CLI 的意图收敛为同一个版本化、受限、可计划的 Engineering Operation，包括实现constraint/preference request，但不允许caller提交derived Eligibility/Decision/Binding/Delta/Compatibility。
-
-### 必须具备
-
-- Operation Registry：target kinds、caller inputs、required predicates、Effects、Permissions、must-preserve、forbidden、expected Delta、minimum Verification、idempotency、rollback/recovery；
-- implementation input：intent/constraint/prefer/require/forbid/pin/custom，字段权限和不可覆盖边界明确；
-- authorization交集：caller capability ∩ operation ∩ target ∩ source owner ∩ path/region ∩ policy ∩ provider ∩ verification ∩ current revision；
-- unique Source Ownership Resolver 和 path proof；
-- plan/dry-run严格只读；
-- isolated deterministic transform；
-- preview canonical rebuild、Implementation re-resolution、Fact/Binding Delta、Impact、Compatibility requirements和Verification union；
-- immutable plan identity、expiry 和 equivalence；
-- unknown/ambiguous/stale/conflicted时拒绝或blocked。
-- provider-neutral Requirement DAG、Claim obligations与OperationKey由domain owner签发；AuthorityGrant、Provision/Binding和Allocation分别由独立owner收窄；
-- 一个absolute deadline与不可逆aggregate ledger覆盖child、retry、readback、cleanup和recovery；physical process/container/git/compiler session只签发transport Settlement，domain terminal必须独立readback。
-
-### 退出 Evidence
-
-- caller无法提交derived path、owner、Eligibility、Decision、Binding、Delta、Compatibility、Impact、risk、Verification、rollback或terminal；
-- 同一输入产生byte-stable plan和implementation request；
-- CLI/Agent对同一request绑定同一canonical plan；
-- `prefer`、`require`、`forbid`、`pin`和`custom`语义不混淆；
-- 至少一个真实semantic operation和一个Brownfield governed-source operation完成plan而不写live workspace。
-
-## R8 — Transactional Controlled Mutation
-
-### 目标
-
-把 R7 的合法 plan安全发布为 canonical transition。
-
-### 必须具备
-
-- unique writer authority / lease；
-- apply内重读、re-resolve owner/path、re-plan/re-resolve implementation；
-- source-byte + semantic CAS；
-- durable journal、staging、prior-state/recovery material；
-- pre-publication Verification；
-- atomic或journaled publication；
-- live canonical rebuild与Implementation re-resolution；
-- actual Fact Delta、ImplementationBindingDelta和Semantic/Implementation Impact；
-- 适用时消费Compatibility Decision与Migration obligations；
-- post-publication/readback Verification；
-- accepted/rejected/rolled-back/recovery-required；
-- crash/fault/TOCTOU、cleanup receipt、retention/compaction。
-
-### 退出 Evidence
-
-- 一个 canonical operation完整通过并发、crash、CAS、publish、rollback和recovery physical proof；
-- 一个 Brownfield governed-source operation保留unowned region、comments和format；
-- stale plan/Binding/Delta subject确定性拒绝；
-- publish前失败无live变化；publish后失败只能exact rollback或recovery-required；
-- terminal replay不重复副作用。
-
-### 禁止降级
-
-不能用“修改一个 TypeScript 常量”或“更新package版本”冒充产品级 Semantic Mutation，除非目标本身是明确Authoring Source、Operation target和canonical contract owner，并完成ImplementationBindingDelta、Compatibility Decision与Verification。
-
-## R9 — Brownfield Adoption / Provider Onboarding
-
-### 目标
-
-让真实既有 TypeScript 工程和任意外部类库在不被强制重写为 Block/SEC 模型的情况下进入可观察、可拥有、可操作、可作为实现候选和可逐步 Normalize 的治理闭环。
-
-### 生命周期
-
-```text
-Attach → Lift → Reconcile → Adopt → Govern → Normalize
-```
-
-外部类库成熟度与该生命周期建立typed mapping：
-
-```text
-L0 physical dependency
-→ L1 typed external invocation
-→ L2 declared governed invocation
-→ L3 observed/inferred Provider or Adapter candidate
-→ L4 verified Provider/Adapter candidate
-→ L5 normalized SEC-owned projection
-```
-
-### 必须具备
-
-- R3 Physical Inventory；
-- R4 Source Program Model与TypedInvocation；
-- R5 Responsibility candidate / Adopt；
-- R6 Fact/Binding Delta与Semantic/Implementation Impact；
-- R7/R8 governed operations；
-- generated/governed/extension/opaque分类；
-- formatting/comment/unowned-region preservation；
-- Provider不越权；
-- black/gray/white区域可见；
-- Provider/Adapter candidate的security/license/freshness/conformance和Target Evidence；
-- Adopt只授权进入正式candidate catalog，不直接产生最终ImplementationBinding；
-- Normalize前完整语义、round-trip、runtime/Acceptance parity、consumer migration、rollback和old-writer/dependency retirement。
-
-### 退出 Evidence
-
-- 至少两个与 SEC reference business 无关的真实 TypeScript 仓库完成 Attach→Adopt；
-- 至少一个无Adapter package完成TypedInvocation并保持unknown behavior；
-- 至少一个Custom/Governed implementation声明Contract/Effect/Verification；
-- 至少一个Provider/Adapter candidate完成conformance并进入正式catalog；
-- 至少一个完整模块完成 Governed Mutation；
-- 至少一个完整可表示模块完成 Normalize、round-trip、Mutation和rollback；
-- source/package/Binding move/change产生deterministic delta census；
-- Core不增加业务或品牌名称分支。
-
-## R10 — Target Profile / Type Algebra
-
-### 目标
-
-建立生成目标的 canonical capability输入和跨层类型语义，作为Implementation hard eligibility和Target lowering的可信输入。
-
-### 必须具备
-
-- Compiler authority唯一拥有 Target Profile；
-- language/runtime/module/delivery/package manager/persistence/database/UI/verification/deployment/capabilities显式；
-- Host、Toolchain、Target、Runtime Environment正交；
-- primitive/nominal/enum/optional/list/map/record/union/result/async/stream等Type Algebra；
-- identity、normalization、compatibility、serialization、target mapping和unsupported；
-- recursion/cycle、union discrimination、nullability、map key、async/stream nesting；
-- Provider/Adapter Target requirements只能引用validated Target/Type，不能自己定义兼容truth；
-- 未知组合在Implementation Resolution或emit前拒绝。
-
-### 退出 Evidence
-
-- profile/type revisions byte-stable；
-- 不从Host/cwd/ambient executable推断Target；
-- 一个Target/Type变化可准确失效Candidate/Decision/Binding及其后继Delta/Compatibility Evidence；
-- 三组无关模型通过；
-- 至少一个真实R11 consumer证明该抽象必要。
-
-## R11 — Application / Behavior / Target Program Lowering
-
-### 目标
-
-按真实Generator/Backend migration建立从目标无关语义、受限行为到具体实现闭包和目标程序的合法化链。
-
-### 必须具备
-
-- 每层一个producer、raw/validated boundary、identity/revision、ordering、validator、deep-freeze、diagnostic和source map；
-- Application IR表达module/service/data/state/operation/policy/effect/verification；
-- Behavior IR只表达可完整验证和lowering的受限行为；
-- 复杂算法进入 Governed Extension/Opaque Boundary；
-- 从validated Application/Behavior派生ImplementationRequirement；
-- Candidate是完整Provider/Reference/Existing/Custom/Block-delivered闭包，不是包名；
-- hard eligibility先检查Contract、Type、Target、Effect/Permission、安全、license、dependency、support与owner；
-- unknown/conflict frontier显式且阻止假eligible；
-- 只在合格候选中应用版本化`stable | minimal | existing-stack | portable | performance | strict-security`等ResolutionPolicy；
-- policy仍并列时使用确定性tie-break并保留完整witness；
-- 冻结ResolutionDecision和exact ImplementationBinding；
-- Block Capability Resolver只返回其领域的BlockProviderBinding，不取得产品级最终选择；
-- Target Program IR只消费Application/Behavior、Target/Type和冻结Binding；
-- Backend只负责AST/printer/formatter/typecheck/package/config/bytes，不重新选库；
-- progressive legality：partial/full/analysis conversion，unsupported-before-emit；
-- legacy resolver/writer read-only shadow → parity → consumer switch → old path deletion。
-
-### 退出 Evidence
-
-- 至少一个真实artifact migration闭合Decision、Binding、bytes、diagnostics、effects、runtime和consumer parity；
-- 同一Contract至少有两个无关合格候选、一个不合格候选和一个unknown候选；
-- 两种ResolutionPolicy可稳定选择不同合格候选并解释原因；
-- `prefer`不合格时可回退，`require/pin`不合格时blocked；
-- 输入/candidate/Map/filesystem枚举顺序不改变Decision/Binding；
-- Target Program IR和Backend不能绕过Binding；
-- clean/incremental Decision、Binding和Target Program parity；
-- Resolver不产生Binding Delta或Compatibility Decision；
-- 无竞争writer/Resolver；
-- Backend不重新解释业务语义或类型兼容；
-- 三组无关模型不修改Core。
-
-### 反转条件
-
-若实现选择只能靠具体库名、业务名、模板组合或散落if/else；若Block Resolver、Backend、Adapter或Agent/CLI interface重新计算最终选择；若Resolver同时拥有Delta comparator或Compatibility evaluator；若hard constraints需要用加权总分抵消，返回R0/R1/R6/R10重算边界，禁止在下游继续扩张。
-
-## R12 — General TypeScript Engineering Compiler
-
-### 目标
-
-形成非业务特化、可增量、可迁移、可发布的 TypeScript 工程编译闭环。
-
-### 必须具备
-
-- 多类业务：state/lifecycle、reservation/concurrency、approval/policy、Governed Extension；
-- 完整Source/Test/Config/Artifact generation；
-- Reference Provider、成熟第三方Provider、repository existing与Custom Provider至少各有适用闭环或明确unsupported；
-- positive、negative、failure、provider switch、upgrade、round-trip场景；
-- clean deterministic compilation基准；
-- Compiler Incremental Graph：content/revision/pass/profile/requirement/candidate/policy/decision/binding/provider/backend key、unknown扩大失效、clean/incremental Decision/Binding/byte parity；
-- cancellation、resource、memory、queue、cache和critical path可观察；
-- Generator Plan与test selection由Acceptance/Impact/ownership派生，无Customer/Ticket硬编码；
-- Provider/package升级先形成new Decision/Binding，由R6生成ImplementationBindingDelta和Impact，再由Change Management签发Compatibility Decision/Migration；
-- Adapter可保持旧合同或Migration明确阻断；
-- old Provider/Adapter/dependency/writer在迁移后退役。
-
-### 退出 Evidence
-
-- 常见新业务能力主要增加Contract/Block/Provider/Adapter，不增加Core业务或品牌分支；
-- 同一Semantic Contract可在Reference和第三方Provider间切换而保持合同；
-- 生成物无TODO/空实现；
-- typecheck/conformance/runtime Acceptance/negative/source mapping闭合；
-- clean/incremental byte-equivalent：Decision、Binding、Fact/Binding Delta与bytes等价；
-- 依赖升级不静默改变timeout/retry/error/serialization/consistency/security语义；
-- Delta comparator、Compatibility evaluator和Resolver没有重复owner；
-- 至少两个外部工程验证反特化。
-
-## R13 — Agent / CLI Semantic Operator
-
-### 目标
-
-把 canonical state、Implementation Resolution、Fact/Binding Delta、Impact、Compatibility、Plan、Evidence 和受控 Operation 形成用户可理解、可细致控制但不需要精通全部类库的产品面。
-
-### 必须具备
-
-- Architecture、Scenario、Data、State、Contract、Effect/Permission/Trust、Implementation、Impact、Evidence投影；
-- 统一Inspector和stable references；
-- unknown/opaque/stale/conflict/成熟度可见；
-- Implementation View显示requirements、candidate closures、Eligibility、Decision、Binding、Binding Delta、Compatibility Decision、淘汰原因、版本和迁移影响；
-- 用户控制模式：intent、constraint、prefer、require、forbid、pin、custom、bounded override；
-- 所有模式进入同一Engineering Operation，interface不计算Eligibility、Binding、Delta或Compatibility；
-- Context Packet从语义、Binding到必要源码渐进装载；
-- Task/Operation view只是typed Operation Envelope投影；
-- CLI/Agent消费同一plan/resolve/apply/query/recover adapter；
-- local transport Host/Origin/capability安全；
-- AI只能提交proposal/candidate，不能扩大permission/path/effect/verification或伪造Decision/Delta/Compatibility；
-- accepted后从canonical revision重载，不使用interface-local patch。
-
-### 退出 Evidence
-
-- machine projection可通过stable references相互下钻；
-- CLI与Agent对同一proposal得到等价plan、Decision、Binding、Delta/Compatibility references；
-- 用户无需理解所有底层库即可声明意图和约束；专家可以精确pin/custom；
-- 用户pin/require不能绕过hard eligibility；
-- interface不能从source diff、test green或semver重算Binding Delta/Compatibility；
-- accepted/rejected/rolled-back/recovery-required稳定；
-- 跨站、越权、stale context和更宽AI proposal均被拒绝；
-- 真实用户可以解释平台选了什么、为什么、哪些候选被拒绝、实际改变了什么和升级会如何迁移。
-
-## R14 — Agent Operation Compiler / VerificationSession Cutover
-
-### 目标
-
-让 SEC 自身开发消费结构化 Engineering Operations、最小充分Verification closure和可恢复
-physical Actions，而不是靠多份 Skill prose、聊天隐状态或 general Run Kernel 维持正确性。
-
-### 最终结构
-
-```text
-Universal Policy
-→ WorkDecision
-→ Task Capsule Compiler
-→ explicit Role + typed Operation Envelope
-→ zero or one applicable trusted Skill
-→ CandidateContent / CandidateGeneration
-→ Requirement + subject-closure Action DAG
-→ VerificationSession references typed owner decisions
-→ pure NextTransition composition
-→ Review / Promotion / main readback
-```
-
-不建立 general Run Kernel。Task Capsule 保持独立 pure compiler output；VerificationSession是唯一
-development run coordinator，只保存Task Capsule、Action/Evidence、Review、Provider与Integration的
-typed refs。Evidence、freshness、health、maturity与next-transition projection不是新状态机。
-
-### 必须具备
-
-- Role与workflow分离；
-- zero or one applicable trusted Skill；
-- Task Capsule compiler与VerificationSession ownership分离；
-- Work selection、permission、Work Package conflict、Impact/Gate selection、Failure/Epoch、Evidence reuse、Integration/merge legality由机器owner决定；
-- CandidateContentId、CandidateGenerationRef、ReviewSubjectId与PromotionId分离；
-- 一个logical run只有一个mutable implementation worktree和一个active candidate ref，finding只产生cheap generation；
-- 首次外部 Evidence/Review/effect 前支持同一 run 的 expected-old `replan|abort`，freeze 不再迫使 scope finding 生成 successor worktree；
-- Skill渐进披露、content-addressed Read Plan与context budget；
-- fresh Worker/Reviewer/Integrator context和独立性；
-- VerificationSession的Run/Event/Transition/Resume state外部化；
-- Requirement tri-state、subject-closure ActionKey、Evidence reuse/failure reuse/in-flight join与`physicalStartsPerActionKey <= 1`；
-- delta-aware Review input与fresh full exact-head receipt；
-- ProspectiveCandidateControl与ActiveMainControl分离；
-- Tier 0 transition root、Tier 1 evolvable TCB与Tier 2 product分层；
-- provider publication从live repository observation绑定default branch，并在effect后拒绝branch identity漂移；
-- 所有跨平台并行写入计划在首个effect前消费唯一portable collision identity，物理filesystem authority继续拥有no-follow与FileId/inode readback；
-- generated TCB lock在push前纯检查，hook执行与hook安装隔离；old-main仅对成对substitution lock漂移
-  产生typed manual-bootstrap Evidence，任何结构漂移继续hard fail；
-- Context compression/restart从authority重算同一next transition；
-- candidate Agent/Skill不能自证trust migration；
-- deterministic behavior 显式路由到 machine owner，Skill corpus 只保留 bounded judgement；替代owner canary后立即 consumer-zero retirement，不留 alias。
-- canonical Agent Constitution由Development Governance拥有，Documentation compiler生成root `AGENTS.md` projection；BehaviorAdmission在task/resume/compaction/delegation/Effect边界重编译且不依赖AI memory；
-- Architecture/Agent Attack Closure从changed subjects、proposed claims与constraint/failure/resource/evolution edges增量生成，未反驳更优方案或high-priority unknown阻止相应Effect/complete claim而不无限阻塞无关工作。
-
-### 收敛切片与顺序
-
-不创建一个只做“最终架构”的umbrella Work Package挡在实现前。每个切片由then-current rolling
-plan映射到既有唯一owner，并作为可独立main/readback的纵向Work Package交付：
-
-1. **Read fast path（#205 → #346）**：#205 独立编译 Task Capsule，#346 只消费其
-   ref/digest/revision 并编译 content-addressed ReadKey/ReadPlan、read receipt、invalidation 与
-   zero-or-one Skill selector projection；VerificationSession 也只保存 Capsule 引用，不拥有其内容或 lifecycle；
-2. **Guidance convergence（#275）— completed**：删除默认 memory/full-orientation/旧命令/旧path guidance，
-   将已有 deterministic behavior 路由到真实 machine owner，并在 consumer-zero readback 后一次退役
-   冗余 Skill ID/file；当前保留八个 bounded Skill。#205 production Task Capsule、issuer-bound Read Plan
-   与真实PRE/FINAL canary只能提供可信结构事实，不能决定并行收益是否大于协调成本；只有未来真实
-   decision owner同时推导delegate与no-delegation并完成consumer-zero，delegation才收敛到终态七个；
-3. **Candidate / Control transaction**：Git-object materializer、one-parent commit、ref CAS、
-   prospective/active control分离、同一worktree/ref generation loop；
-4. **Verification closure**：Requirement tri-state、subject-closure ActionKey、Evidence DAG、heavy
-   test拆成physical Actions、failure/in-flight/unknown outcome resolution；
-5. **ExecutionWave**：只编译work refs、order、conflict、resource与cost，combined candidate必须证明
-   failure isolation和Review/invalidation收益；
-6. **Review / Trust transition**：Review Action、delta packet、new exact-head receipt、Tier 0/1 TCB
-   transition、generated-lock drift prevention与bounded stale-base recovery；
-7. **Promotion / retirement**：single-use integration、remote/local readback、closeout Actions、
-   machine-owned `IssueDisposition`、provider-capability-gated conditional close/reopen、legacy journal/API
-   retirement 与 ordinary candidate canary。partial slice 只能发布 progress，PR/commit/comment prose
-   没有 Issue close authority；受控 PR/merge message 永不生成 GitHub closing lexical pattern，完成只能在
-   exact new-main + MainHealth 后由独立 completion assessment 授权；Program 与 focused Issue 分别计算
-   remaining acceptance/consumer/child census。当前 GitHub Issue PATCH 无原子前置条件，因此 production
-   只发布 `progressed` 与 read-only reconciliation，不能把 read→PATCH→readback 称为 CAS；
-
-切片顺序表达dependency；某些read-only compiler可以并行开发，但canonical writer、control plane、
-workflow与trust transition仍按single-writer集成。每个切片必须同时声明被替代入口和consumer-zero
-删除条件，禁止长期dual write或“新平台建完再迁移”的大爆炸。
-
-### R14 机器化近期候选投影
-
-下列JSON是本roadmap内部唯一的bounded normalized stage projection，不是第二roadmap、Issue镜像或
-长期backlog。它只保存维护者已采纳的静态identity、owner、dependency与selection class；live Issue
-状态/current-spec revision、Work Package registry、branch closeout/control冲突与main identity均由#221 adapter
-在运行时从各自owner重新观察。Issue body只计算raw current-spec digest，任何title/body/comment文字均不
-进入字段解释。选中项的manifest进入main后保留到下一次decision消费；下一纵切片同时删除该旧manifest、
-推进本窗口并保证生成投影仍有二至五个候选。不存在有效live facts时返回`unresolved`，不得从rolling
-prose、caller JSON或本block之外猜测。
-依赖必须只指向block中更早的work，因而block自身是acyclic ordered window；successor count和
-`roadmapDirect`从该结构及其位于canonical roadmap这一事实推导，不持久化第二份derived truth。
-
-Rolling plan不再允许“标题是一份topology、JSON保留另一份旧receipt”的双写。普通WorkDecision、
-committed-candidate replan与MainHealth repair先编译为一个closed typed machine projection，再由一个
-全文renderer原子生成frontmatter、机器块、active/candidate标题和说明。committed replan只绑定sole-parent
-exact HEAD/tree及source manifest/pointer/rolling raw bytes digest，不复制嵌套projection digest或旧prose。
-branch namespace不参与authority；
-transport只按non-default branch、exact base/head、remote ref与可选worktree identity绑定。
+caller 只提交 intent/constraint/prefer/require/forbid/pin/custom；Eligibility、Decision、Binding、Delta、Impact、Compatibility、Verification、rollback 和 terminal 都由 owner 派生。
+
+一个 operation 共享 absolute deadline、AbortSignal 和不可逆 aggregate ledger，覆盖 lock、child、retry、readback、cleanup、recovery。process/container/Git/compiler session 只供应 transport settlement；domain terminal 必须由领域 readback 产生。
+
+### R8 — Transactional Mutation
+
+~~~mermaid
+sequenceDiagram
+  participant O as Operation
+  participant L as Lease owner
+  participant J as Journal owner
+  participant E as Effect capability
+  participant V as Verification
+
+  O->>L: acquire exact subject lease
+  O->>O: reobserve and replan
+  O->>J: durable intent
+  O->>E: stage under shared budget
+  E-->>O: physical settlement
+  O->>V: prepublication proof
+  O->>E: CAS publish
+  O->>O: canonical readback and actual delta
+  O->>V: postpublication proof
+  O->>J: terminal or recovery-required
+  O->>L: release and readback
+~~~
+
+journal schema、stage identity、producer provenance、pointer、rollover 与 migration 必须由同一 transition owner 管理。失败只能是：publish 前零 live change；publish 后 exact rollback；或 typed recovery-required。terminal replay 不重复 Effect。
+
+### R9 — Brownfield / Provider Adoption
+
+~~~mermaid
+flowchart LR
+  A[Attach] --> L[Lift]
+  L --> R[Reconcile]
+  R --> AD[Adopt]
+  AD --> G[Govern]
+  G --> N[Normalize]
+
+  P0[L0 physical dependency] --> P1[L1 typed invocation]
+  P1 --> P2[L2 declared invocation]
+  P2 --> P3[L3 inferred candidate]
+  P3 --> P4[L4 verified candidate]
+  P4 --> P5[L5 normalized projection]
+~~~
+
+Adopt 只把 existing code/Provider/Adapter 放入正式 candidate catalog，不产生最终 Binding。Normalize 必须证明 round-trip、runtime/Acceptance parity、consumer migration、rollback 与 old writer/dependency retirement。
+
+## 8. R10–R12：目标、选择和编译
+
+### R10 — Target Profile / Type Algebra
+
+Target Profile 显式声明 language、runtime、module、delivery、package manager、persistence、database、UI、verification、deployment 与 capabilities。Host、Toolchain、Target、Runtime Environment 正交；SEC 自身 host runtime policy 不能限制 Target workspace 的目标 runtime。
+
+Type Algebra 覆盖 primitive、nominal、enum、optional、list、map、record、union、result、async、stream 及 recursion/nullability/discrimination/serialization/target mapping。未知组合在 Resolution 或 emit 前拒绝。
+
+### R11 — Resolution / Lowering
+
+~~~mermaid
+flowchart TD
+  S[Validated Application and Behavior] --> REQ[Implementation Requirement]
+  TP[Target Profile and Type Algebra] --> REQ
+  REQ --> CAT[Candidate closures]
+  CAT --> EL[Hard eligibility]
+  EL --> POL[Resolution policy]
+  POL --> DEC[Resolution Decision]
+  DEC --> B[Exact Implementation Binding]
+  B --> TPI[Target Program IR]
+  TPI --> BE[Backend AST printer formatter]
+~~~
+
+Candidate 是完整 Provider/Reference/Existing/Custom/Block-delivered closure，不是包名。Contract、Type、Target、Effect/Permission、安全、license、dependency、support 和 owner 是 hard eligibility；policy 只在合格候选中排序。Backend 不得重新选库或解释业务兼容。
+
+Application/Behavior 只表达可验证、可 lowering 的语义；复杂算法进入 Governed Extension/Opaque Boundary。Block Capability Resolver 只解析自己的领域 binding，不拥有产品最终选择。
+
+### R12 — General TypeScript Compiler
+
+出口必须覆盖：
+
+- state/lifecycle、reservation/concurrency、approval/policy、Governed Extension 等无关业务；
+- source/test/config/artifact generation；
+- Reference、第三方、repository-existing 与 Custom implementation；
+- positive、negative、failure、provider switch、upgrade、round-trip；
+- incremental graph 的 content/pass/profile/requirement/candidate/policy/decision/binding/provider/backend keys；
+- unknown 扩大失效；clean/incremental Decision、Binding、Delta 与 bytes 等价；
+- dependency/provider 升级经新 Binding → Binding Delta/Impact → Compatibility/Migration；
+- 新业务主要增加 Contract/Provider/Adapter，不增加 core 品牌分支。
+
+## 9. R13–R14：产品操作面和 SEC 自身开发闭环
+
+### R13 — Agent / CLI Semantic Operator
+
+Architecture、Scenario、State、Contract、Effect/Permission、Implementation、Impact 与 Evidence 通过 stable references 互相下钻。用户可声明 intent、constraint、prefer、require、forbid、pin、custom 和 bounded override；所有模式进入同一 Engineering Operation。
+
+Interface 不计算 Eligibility、Binding、Delta、Compatibility 或 terminal。AI 只能提交 proposal，不能扩大 scope、permission、Effect 或 Verification。
+
+### R14 — Agent Operation Compiler / VerificationSession
+
+~~~mermaid
+flowchart TD
+  U[User outcome] --> WD[WorkDecision]
+  WD --> TC[Task Capsule compiler]
+  TC --> RP[Bounded Read Plan]
+  RP --> SK{zero or one Skill}
+  SK --> C[Candidate generation]
+  C --> AD[Requirement and Action DAG]
+  AD --> VS[VerificationSession]
+  VS --> RV[Independent Review]
+  RV --> PM[Promotion]
+  PM --> MR[New-main readback]
+  MR --> CL[Retirement and cleanup]
+~~~
+
+R14 不建立 general Run Kernel。Task Capsule 是 pure unbound content；VerificationSession 只保存 Task Capsule、Action/Evidence、Review、Provider、Integration 的 typed references。一个 logical run 只有一个 mutable worktree 和一个 active candidate ref；finding 产生同一 run 的新 generation。
+
+关键出口：
+
+- Requirement tri-state、subject-closure ActionKey、fresh PASS reuse、fresh failure reuse、in-flight join；
+- physicalStartsPerActionKey 不大于一；
+- candidate control 与 active-main control 分离；
+- context compression/restart 从 authority 重算，不从聊天恢复权限；
+- candidate Skill/verifier/workflow 不能授权自身；
+- Review subject、Promotion identity 与 Candidate generation 分离；
+- exact new-main readback 后才完成；Issue/PR prose 无完成 authority；
+- legacy Skill/journal/API/branch/worktree 在 consumer-zero + physical readback 后退役。
+
+### 现行 R14 工作选择投影
+
+以下块仍被现行 WorkSelection 与 document-control consumer 读取，因此在迁移完成前必须保持机器可读。它是运行期工作目录的过渡载体，不是稳定 capability DAG；只能由唯一 renderer 原子更新，不得手工成为第二 roadmap。终态是由 canonical work records 编译独立 runtime projection，再将本块及 roadmap reader 一次性退役。
 
 <!-- sec-work-selection-roadmap-catalog-v1:begin -->
 ```json
@@ -799,210 +497,172 @@ transport只按non-default branch、exact base/head、remote ref与可选worktre
 ```
 <!-- sec-work-selection-roadmap-catalog-v1:end -->
 
-### 进入条件
+## 10. R15–R16：交付和扩展
 
-每个收敛切片必须有真实R3–R13 consumer、可重放的编排放大或正确性failure、唯一owner和明确legacy
-retirement；不等待整个R3–R13成熟后再一次性建设R14，也不把R14全部完成作为产品开发前置。
-完整R14退出仍要求真实 Observation、Impact、Operation、Mutation、Resolution、Delta/Compatibility
-与Verification产物。禁止只用治理fixture自我证明VerificationSession、Action reuse或
-NextTransition composition。
+### R15 — Release / Deployment / Operations
 
-### 退出 Evidence
+Release 只从 clean exact tree、Target Profile 与 exact Binding closure 构建。package/public projection、exports、runtime assets、dependencies、licenses、native/install-script、SBOM、checksums、signing/attestation 与 publication receipt 必须闭合。
 
-- 真实产品Work Package完成orient→implement→review→integrate→readback；
-- 恢复不依赖聊天；
-- 每阶段context输入有上限；
-- Skill重复owner和冲突为零；
-- 一个真实Review finding在同一worktree产生新generation且successor worktree为零；
-- fresh ActionKey不重复执行，failed/in-flight/unknown physical outcome均按合同处理；
-- candidate projection failure不改变live main control；
-- worktree closeout同时证明registry与physical target absence，residue从外部durable receipt重入；
-- Issue completion由machine `IssueDisposition`控制；PR title/body、provider closing references 与生成的
-  merge message在 merge 前必须证明零 closing authority；只有 provider capability证明真实条件写且
-  trusted post-main completion assessment存在时才可执行close/reopen，否则保持progress并停止猜测；
-- 失败/重跑/merge transition由typed owner decisions决定。
+Deployment 独立拥有 config、secrets、migration、feature flag、canary、rollback、observability、SLO 与 incident。Support maturity 可因 EOL、incident、Provider withdrawal 或 physical regression 失效，并触发重新 Resolution、Delta/Impact、Compatibility 与 Migration。
 
-## R15 — Release / Deployment / Operations
+### R16 — Registry / Additional Languages
 
-### 目标
+Registry item 必须有 identity、content digest、producer trust、Effect/Permission、conformance、compatibility、migration、revocation/yank 与 supply-chain Evidence。official/private/community 是 policy，不是质量捷径。
 
-从 exact canonical revision、Target Profile和ImplementationBinding构建、验证、发布、部署和运营可追踪产品。
+新语言只增加 Language Frontend、Source Analysis Provider、Language Service/transform、Target Backend、Build/Runtime Adapter 与 cross-language boundary；语言私有 AST/IR 不能成为 Engineering IR，Registry 不能成为第二 Resolver。
 
-### 必须具备
+## 11. 横切能力何时激活
 
-- clean tracked-tree release workspace，禁止live-worktree copy和force-push重写历史；
-- package/public projection、exports、entry、runtime assets、exact Binding/dependency/license/native/install-script closure；
-- SBOM、checksums、signing/attestation、publication receipt；
-- 每个声明Host/Target/platform/Provider Binding的clean install/runtime Evidence；
-- 发布前适用的ImplementationBindingDelta、Compatibility Decision和Migration obligations已闭合；
-- Deployment/config/secrets/migration/feature flag/canary/rollback/observability/SLO/incident；
-- Support maturity与Verification/Compatibility/Implementation selection分离；
-- yank/deprecation/consumer migration；
-- 发布、部署、健康、回滚和事故状态来自唯一Release/Operations truth。
+| 横切能力 | 激活触发 | 必须进入的 owner | 禁止 |\n+|---|---|---|---|\n+| determinism | 两次等价计算或 durable bytes | 产生该结果的 domain owner | 全局排序工具成为第二 owner |\n+| identity/revision | 两个可区分 subject/state | semantic/change owner | path、名字、随机 UUID 冒充 identity |\n+| provenance/Explain | claim 被下游消费 | claim/evidence owner | 自报 digest 自证 authority |\n+| security/permission | operation 触达 trust boundary | operation/provider owner | presentation 或 caller JSON 扩权 |\n+| compatibility/migration | 两个真实可观察状态共存 | change management | 无 consumer 的兼容壳 |\n+| transaction/recovery | Effect 可部分完成或跨进程 | state/effect owner | catch 后当 absent 重做 |\n+| performance/resource | 有真实 latency/cost/budget | resource owner | 每层重置 timeout 或重复扫描 |\n+| docs/governance | 规则跨任务复用 | canonical principle owner | 在 roadmap/AGENTS 重复规则正文 |\n+| external tool | 缺口由成熟能力填补 | provider capability owner | 一对一 wrapper 镜像工具 |\n+
+未来价值不靠空代码保存。尚无 consumer 的合理未来需求记录为 capability obligation：目标、触发条件、必守不变量、潜在 consumer 和拒绝建立实现的原因。consumer 出现后重新进入相应阶段编译。
 
-### 退出 Evidence
+## 12. 受约束扩展轨道
 
-- 可重复package/public artifact；
-- 跨Host canonical parity；
-- 至少一个真实部署和回滚；
-- secret/privacy/supply-chain边界闭合；
-- Provider/Binding撤销可触发Support失效和受控重新Resolution、Delta/Compatibility与Migration；
-- 支持声明可因EOL、incident或physical regression失效。
+~~~mermaid
+flowchart LR
+  P[R0 to R16 product spine] --> W[Workspace Domains]
+  P --> C[Reference Repository Conformance]
+  P --> S[Specialized Target or Provider]
+  W --> P
+  C --> P
+  S --> P
+~~~
 
-## R16 — Registry Ecosystem / Additional Languages
+### Workspace Domain
 
-### 目标
+~~~text
+W0 inventory → W1 validated identity → W2 query/projection
+→ W3 Delta/Impact → W4 governed mutation
+→ W5 migration/compatibility → W6 fault/recovery → W7 supported
+~~~
 
-在 TypeScript纵切片、Brownfield、Implementation Resolution、Delta/Compatibility、Mutation、Release和Provider contract现实闭合后扩展资产、Provider/Adapter生态与语言覆盖。
+Repository、Documentation、Workflow/Gate、Agent Operations、Evidence、Release、Product Decision 等 domain 可在 W1/W2 先提供只读价值；进入 W3 以后必须消费产品主脊的真实 owner。
 
-### Registry / Provider 必须具备
+### Reference Repository Conformance
 
-- identity、content digest、signing/trust、Effect/Permission；
-- ProviderManifest、Adapter Contract、Reference/Custom Provider封装；
-- L0–L5 onboarding、conformance、catalog eligibility和support maturity；
-- compatibility、Verification、Migration、revocation/yank和supply-chain Evidence；
-- official/private/community source显式policy；
-- Block/Contract/Generator/Adapter/Provider/Protocol版本分域；
-- 用户或组织可以注册Custom Provider，但不能自证Eligibility或Support；
-- AI可以生成Provider/Adapter candidate和tests，但只能进入candidate/conformance流程；
-- 消费者升级、退役和历史解释；
-- Registry/Provider catalog不拥有最终Implementation Resolution、Binding Delta或Compatibility。
+~~~text
+C0 exact census → C1 classification → C2 mechanism decisions
+→ C3 owner/entry/public surface coverage → C4 domain bindings
+→ C5 semantic/effect/failure parity → C6 migration/readback
+→ C7 retirement → C8 unexplained delta = 0
+~~~
 
-### 新语言必须具备
+具体参考仓库由 conformance owner 登记，roadmap 不硬编码其资产路径或计数。完成门为 unclassified、undecided、missing parity、unexplained delta、unauthorized retirement 全部为零。
 
-- Language Frontend；
-- Source Analysis Provider；
-- Language Service / Source Transformation边界；
-- Target Backend；
-- Build/Runtime Adapter；
-- cross-language Contract/FFI/RPC/schema/artifact boundary；
-- 不能把语言私有AST/IR提升为通用Engineering IR；
-- 语言能力可以作为Provider候选，但最终实现选择、Binding Delta和Compatibility仍通过统一跨语言contract。
+### Specialized Target / Provider
 
-### 进入条件
+~~~text
+S0 corpus and architecture → S1 physical/provider contract
+→ S2 source-model support → S3 cross-artifact Impact
+→ S4 governed mutation → S5 resolution/lowering/round-trip
+→ S6 runtime/compatibility/acceptance → S7 supported
+~~~
 
-R12/R15闭合。否则扩大Registry、Provider市场或语言只会放大Core缺口。
+Web、Bun/Node/Edge、Persistence、Mobile、Native、Systems、Hardware、High Assurance、ML/Data 都只是可能的 Target/Provider 轨道。它们不得改变 R1 authority，也不得建立第二 compiler、Resolver、Binding comparator 或 Compatibility evaluator。
 
-## Workspace Domain 激活规则
+## 13. 实现切片与反转
 
-Workspace Domain 轨道按真实 consumer 和风险逐步成熟，成熟度阶梯固定为：
+一个实现切片必须纵向闭合：
 
-```text
-W0 inventory
-→ W1 validated identity/revision
-→ W2 query/projection
-→ W3 Delta/Impact
-→ W4 governed mutation
-→ W5 migration/compatibility
-→ W6 fault/recovery
-→ W7 product-supported
-```
+~~~text
+owner contract
+→ production behavior
+→ failure/recovery boundary
+→ targeted Verification
+→ consumer migration
+→ replaced path retirement
+→ exact-main readback
+~~~
 
-覆盖 Domain 至少包括：
+| 观察到的问题 | 返回阶段 | 禁止下游补丁 |
+|---|---|---|
+| identity/owner 不唯一 | R0/R1 | alias、facade、第二 registry |
+| PASS 语义分裂 | R2 | 新 boolean、测试自证 |
+| 同一源码被重复发现 | R3/R4 | 第三份 regex/AST graph |
+| 文件组织只能靠路径清单 | R5 | 固定目录镜像测试 |
+| delta 与 compatibility 混合 | R6/change | 万能 upgrade resolver |
+| plan 有 Effect | R7 | 给 dry-run 加 cleanup |
+| crash 后无法判定 | R8 | 删除 residue 或重做 |
+| Provider candidate 自授权 | R9 | 加 allowlist 名称 |
+| Target 从 Host 推断 | R10 | 平台 if/else |
+| Backend 重新选实现 | R11 | adapter 例外 |
+| 新业务修改 core 品牌分支 | R12 | 增加模板组合 |
+| CLI/Agent 产生权限 | R13/R14 | trusted flag |
+| release 从 live tree 构建 | R15 | 复制后补 hash |
+| 新语言复制语义核心 | R16 | 跨语言同步层 |
 
-- Repository；
-- Documentation；
-- Workflow / Gate；
-- Agent Operations；
-- Evidence；
-- Release；
-- Product Decision / Portfolio。
+架构变化本身是 migration：先冻结新旧 meta-model 的映射与等价条件，再 shadow、比较、切 consumer、退役旧 owner。不能在下游永久维持双写。
 
-Read-only Domain 可以先闭合 W1/W2 提供价值，不要求先实现 W4–W6；但没有 identity/validator 的目录或 ledger 不能冒充 Domain，也不能用只读 inventory 宣称整个 Domain 已产品化。每个 Domain 进入 W3 及以后都必须消费主脊对应的真实 producer/consumer。
+## 14. 执行优先级
 
-## Nexus Conformance 轨道
+~~~text
+Priority =
+  product outcome unblocking
+  × causal centrality
+  × affected consumer closure
+  × failure severity
+  ÷ lifecycle cost
+~~~
 
-Nexus Conformance 是 SEC 自身全资产、全机制、全公开面的无遗漏吸收轨道，不是可选的附属演示：
+优先处理能同时删除重复扫描、重复 owner、重复 Effect 和重复 Evidence 的根节点。基础设施只有真实产品 consumer 时建设；每个非 P0/P1 基础设施切片后，至少两个切片直接推进 R3–R13 产品能力，除非新的真实 blocker 改变因果图。
 
-```text
-N0 exact repository/artifact census
-→ N1 path classification 100%
-→ N2 mechanism decisions 100%
-→ N3 EPR 29/29 + current Skills + entrypoints + public/deployed surfaces
-→ N4 Workspace Domain bindings
-→ N5 accepted semantic / diagnostic / effect / failure parity
-→ N6 consumer migration + shadow/readback
-→ N7 retirement
-→ N8 unexplained delta = 0
-```
+成熟工具优先，但必须先做 capability gap、owner、security/license、operation budget、retirement census；工具输出只提供候选或 Evidence，不能替代领域 consumer。
 
-N0–N4 可以只读并行推进，但正式 Adopt/Normalize 必须消费产品主脊的 Observation、Source Model、Impact、Operation、Implementation Resolution、Delta/Compatibility与Verification真值；N 轨道不能以 ledger 文件存在、计数模板或两个外部演示仓库替代完整无遗漏证明。
+## 15. 无代码逻辑验证
 
-Nexus 完成门固定为：
+| 场景 | 路线结论 |
+|---|---|
+| 类型和测试存在，但没有真实 deploy | 最多 physically-verified，不能 product-supported |
+| 新 provider 输出更丰富 | 进入 R9 candidate；不能跳过 R11 resolution |
+| 同一内容被 typecheck/audit/test-impact 各扫一遍 | R3/R4 出口失败 |
+| TypeScript daemon 更快但产生第二 truth | 拒绝；只允许等价增量投影 |
+| 旧代码有未来设计价值但无 consumer | 保存 capability obligation，不保留 active empty shell |
+| browser UI 从 SEC core 退役 | core graph consumer-zero 后退役；Target browser capability仍可存在 |
+| dry-run 创建缓存或锁 | R7 失败，不用 cleanup 美化 |
+| child 完成但 handle 丢失 | R8 journal/readback；不能重做 Effect |
+| 两个候选都满足合同 | hard eligibility 后按 policy/tie-break 决策 |
+| provider 替换且 API 相同 | 仍产生 Binding Delta，经 Impact/Compatibility |
+| Agent summary 声称已验证 | R14 拒绝，重建 exact Action/Evidence refs |
+| 新语言需要特殊 AST | 增加 frontend/provider；R1 不变 |
+| 路线阶段设计被实现证伪 | 返回最早失效阶段，后继 Evidence stale |
 
-```text
-unclassified = 0
-undecided = 0
-missing parity = 0
-unexplained delta = 0
-unauthorized retirement = 0
-```
+## 16. SEC-TS 首个产品完成边界
 
-## Specialized Target / Provider 轨道
+~~~mermaid
+flowchart LR
+  O[Exact observation] --> S[Source model]
+  S --> R[Responsibility Adopt]
+  R --> D[Delta and Impact]
+  D --> P[Authorized plan]
+  P --> M[Transactional mutation]
+  M --> B[Resolution and Binding]
+  B --> C[Compiler output]
+  C --> U[Agent CLI operation]
+  U --> V[Verification and Review]
+  V --> X[Package deploy rollback]
+~~~
 
-专用 Target 与 Provider 是主脊闭合后的受约束扩展轨道，按真实 corpus/architecture 需求进入：
+SEC-TS 的第一个完整产品边界要求：
 
-```text
-S0 corpus + architecture only
-→ S1 physical inventory / provider contract
-→ S2 Source Program provider support
-→ S3 cross-artifact Impact
-→ S4 governed mutation
-→ S5 deterministic resolution / binding-delta / lowering / round-trip
-→ S6 physical runtime / compatibility / target acceptance
-→ S7 supported target / profile / provider
-```
+1. R1/R2 canonical semantics 与 Verification truth 闭合；
+2. R3/R4 对真实 TypeScript 工程建立可重复 Physical/Source 模型且无重复 content discovery；
+3. R5 至少一个真实 Responsibility Adopt；
+4. R6 predicted/actual Fact/Binding Delta 与 Impact 可校准，Compatibility 独立；
+5. R7/R8 一个 canonical 与一个 Brownfield operation 完成 transaction/recovery；
+6. R9 两个外部工程 Attach→Adopt，至少一个 Provider candidate、一个 Normalize；
+7. R10–R12 对同一 Contract 解析多个无关实现并冻结唯一 Decision/Binding；
+8. R13 用户能声明意图/约束/pin/custom并解释选择、影响与迁移；
+9. R14 完成一次真实 SEC 自身开发、独立 Review、promotion 与 new-main readback；
+10. R15 产生 clean package、真实 deployment 与 rollback；
+11. unknown、opaque、unsupported、Eligibility、Delta、Verification、Compatibility、Support 始终可区分；
+12. 被替代 owner、路径、测试、Provider、adapter、branch、worktree 与临时状态均已按 Evidence 退役。
 
-长期覆盖目标包括：Web、Node/Bun/Edge、Persistence、Mobile、Native、Systems、Hardware、High Assurance 与 ML/Data。任何 S 轨道进入 S1 前必须先有 corpus/architecture 和 provider contract；进入 S5/S6 前必须消费 R1 Engineering Semantic Model、R6 Delta/Impact、R11 Implementation Resolution 与 R2 Verification truth。
-
-S 轨道不得改变 R1 canonical authority，不得在 TypeScript 主脊未闭合时建立第二 compiler core、第二Implementation Resolver、第二Binding comparator或第二Compatibility evaluator，也不能把语言私有 AST/IR 提升为通用 Engineering IR。
-
-## 三轨与主脊的关系
-
-产品主脊 P（R0–R16）是唯一正式能力主线；Workspace Domain（W）、Nexus Conformance（N）、Specialized Target / Provider（S）是受约束交付轨道，不是平行 authority，也不能任意抢占主脊。任何 W/N/S 结果只有进入唯一主链、owner 无竞争、public contract/migration/retirement 一致并通过真实 Verification/Review 后才算闭合。
-
-## 单包退出规则
-
-Work Package只有在以下全部成立后结束：
-
-- 结果进入唯一主链；
-- resolver/comparator/Compatibility/writer等owner无竞争；
-- public contract、migration和retirement一致；
-- positive/negative/failure/compatibility tests通过；
-- required CI/Evidence/independent Review无阻塞；
-- 旧Resolver/Comparator/Compatibility path/Provider/Adapter/writer/dependency路径退役或有明确consumer migration；
-- new-main readback和cleanup完成。
-
-Proposal、类型、实现提交、单平台测试或PR合并只证明相应成熟度，不能提前关闭现实能力目标。
-
-## 路线执行规则
-
-- TypeScript first，Core language/provider-neutral。
-- Observation → Responsibility → Impact → Operation → Mutation 不可颠倒。
-- Application/Behavior → Implementation Resolution → Target Program → Backend不可绕过或反向解释。
-- Old/New Binding → ImplementationBindingDelta/Impact → Compatibility Decision/Migration不可合并成一个万能Resolver或Upgrade函数。
-- Verification truth在所有产品纵切片之前闭合，但后继Evidence平台不能无限阻塞产品线。
-- Brownfield和TypedInvocation是早期通用性证明，不是Generator成熟后的附属功能。
-- 成熟轮子优先；引入必须有capability census、真实试用、Provider边界和duplicate removal，存在开源项目不自动等于应采用。
-- 每次交付一个可合并纵向闭包；Spike默认不合并。
-- 外部能力先作为可替换Provider/Adapter；Provider catalog、Block Resolver、Agent/CLI interface、Backend和Dependency materializer不得复制Implementation Resolution、Binding Delta或Compatibility。
-- 阶段顺序表达依赖，不授权第二loader、writer、revision、resolver、comparator、Compatibility evaluator、selector、cache或pipeline。
-- 当前能力、目标设计、物理验证、分发和现实支持分别标记。
-- 基础设施饥饿保护：每完成一个非 P0/P1 的基础设施包，接下来至少完成两个直接推进 R3–R13 产品主脊的包，除非真实 P0/P1 blocker 打断；格式化、Review 平台、Knowledge Closure、general Run Kernel 与无consumer的完整 Evidence DAG 不得形成基础设施长队。
-- 没有真实阻塞时及时merge/close/cleanup，不制造无证据修改。
-- 新Evidence推翻上游identity、owner、语义、Implementation/Delta/Compatibility边界或产品假设时，返回相应阶段重算，不在下游追加例外。
-
-## SEC-TS 首个完成边界
-
-SEC-TS MVP至少要求：
-
-1. R1/R2 canonical semantics与Verification truth闭合；
-2. R3/R4 对真实TypeScript工程建立可重复Physical/Source模型，并支持无Adapter TypedInvocation；
-3. R5 Responsibility candidate与至少一个Adopt闭合；
-4. R6 predicted/actual Fact/Binding Delta与Semantic/Implementation Impact可校准，Compatibility保持独立裁决；
-5. R7/R8 一个canonical和一个Brownfield operation完成transaction/recovery；
-6. R9 两个外部工程完成Attach→Adopt，至少一个Provider进入正式catalog、一个模块Normalize；
-7. R10–R12 对同一Contract解析至少两个无关实现，冻结唯一Decision/Binding，产生确定性Binding Delta/Impact并在多类无关业务上不修改Core；
-8. R13用户可通过Agent/CLI声明intent/constraints或pin/custom，理解选择、实际Binding变化、Compatibility和Migration原因并执行主要Operation；
-9. R15 clean package、exact Binding closure和至少一个真实部署/rollback；
-10. unknown、opaque、unsupported、Eligibility、Delta、Verification、Compatibility和Support层级始终真实可见。
+~~~text
+ProductComplete =
+  all required stage exits
+  AND no duplicate semantic/effect/truth owner
+  AND no unexplained unknown on the supported surface
+  AND every Effect has settlement and recovery
+  AND every public claim has independent Evidence
+  AND exact distributed/deployed result is read back
+~~~
