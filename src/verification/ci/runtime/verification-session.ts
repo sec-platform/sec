@@ -154,6 +154,7 @@ import {
   executeLocalVerificationActionDag,
   type LocalVerificationActionDagResult
 } from '../../action/runner.ts';
+import { loadVerificationProviderCapabilityLedger } from '../../provider/capability-ledger.ts';
 import { assertProviderRetryGuard, resolveProviderAvailability } from '../../provider/contract/capability.ts';
 import { renderIndependentReviewTrailer, type ReviewStabilityReceipt } from '../../review/contract/stability.ts';
 import { VERIFICATION_REGISTRY_PROJECTION_SCHEMA, VERIFICATION_SESSION_RUNTIME_ENTRYPOINT_PATH, parseVerificationSession, type VerificationRegistryEntry, type VerificationSession } from '../../session/contract/session.ts';
@@ -174,7 +175,6 @@ import {
   CodexDevelopmentDefaultChangedPaths,
   CodexDevelopmentExactGitTestImpactSourceProvider
 } from './ci-orchestration-core.ts';
-import { loadVerificationProviderCapabilityLedger } from './verification-provider-capability-ledger.ts';
 import {
   createVerificationSessionGitHubClient,
   shouldPublishMaintainerReviewWakeup,

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { parseVerificationProviderCapabilityLedger } from '../../src/verification/ci/runtime/verification-provider-capability-ledger.ts';
+import { parseVerificationProviderCapabilityLedger } from '../../src/verification/provider/capability-ledger.ts';
 import { assertProviderCapabilityUsableV1, assertProviderRetryGuard, classifyProviderDiagnosticTextV1, createVerificationProviderAvailabilityEpoch, createVerificationProviderCapability, resolveProviderAvailability, VERIFICATION_PROVIDER_AVAILABILITY_EPOCH_SCHEMA, VERIFICATION_PROVIDER_CAPABILITY_SCHEMA } from '../../src/verification/provider/contract/capability.ts';
 
 const OBSERVED_AT = '2026-08-11T00:00:00.000Z';
