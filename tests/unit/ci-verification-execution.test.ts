@@ -46,7 +46,7 @@ import {
   CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlan,
   CodexDevelopmentCandidateProcessEnvironment,
   CodexDevelopmentCaptureHostedDependencyPhysicalSnapshot,
-  CodexDevelopmentCiVerificationMain,
+  CodexDevelopmentCiVerificationMainForTests,
   CodexDevelopmentComposeHostedEvidence,
   CodexDevelopmentCoordinateHostedActions,
   CodexDevelopmentExecuteHostedActionSut,
@@ -229,9 +229,11 @@ tests:
 `;
 }
 
-function exactManifest() {
+function exactManifest(testIdentity: string) {
+  const source = `${manifestSource()}\n<!-- test-run:${bytesDigest(testIdentity)} -->\n`;
   return {
-    blobSha: '5'.repeat(40), bytes: new TextEncoder().encode(manifestSource()),
+    blobSha: createHash('sha1').update(source).digest('hex'),
+    bytes: new TextEncoder().encode(source),
     mode: '100644' as const, type: 'blob' as const
   };
 }
@@ -250,6 +252,15 @@ function revisions(ref: string): string | null {
 }
 
 function baseOptions(root: string) {
+  const changedFiles = ['docs/product.md'];
+  const manifest = exactManifest(root);
+  const docsGate = buildCiQuickGatePlan({
+    includeImports: false,
+    includeDocs: true,
+    selectedSlowSuites: [],
+    selectedSlowTests: []
+  }).find(({ id }) => id === 'docs-doctor');
+  if (docsGate === undefined) throw new Error('CI test plan requires its documentation gate.');
   return {
     argv: ['--profile', 'quick', '--expected-head', HEAD],
     env: {
@@ -264,8 +275,18 @@ function baseOptions(root: string) {
     // Injected changed-path tests have no immutable source receipt. Use one
     // owner-resolved documentation path; source graph selection is exercised
     // only through the exact Git provider route.
-    changedFiles: () => ['docs/product.md'],
-    readExactGitBlob: () => exactManifest(),
+    changedFiles: () => changedFiles,
+    readExactGitBlob: () => manifest,
+    readGitBlob: () => manifest,
+    testVerificationPlan: {
+      profile: 'quick' as const,
+      changedFiles,
+      selectionResolved: true,
+      selectionReasons: [],
+      affectedOwners: ['product'],
+      affectedSlowTests: [],
+      gates: [docsGate]
+    },
     runGate: executeSentinelGate(root, 0)
   };
 }
@@ -709,12 +730,12 @@ function hostedProviderInputs(
   });
 }
 
-test('CI runner executes every ordinary gate through Action and publishes only V4', async () => {
+test('CI runner executes an ordinary gate through Action and publishes only V4', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-action-'));
   try {
     let evidence: CodexDevelopmentVerificationEvidenceV4 | null = null;
     const calls: string[] = [];
-    const code = await CodexDevelopmentCiVerificationMain({
+    const code = await CodexDevelopmentCiVerificationMainForTests({
       ...baseOptions(root),
       runGate: async (gate, execution) => {
         calls.push(gate.id);
@@ -743,14 +764,14 @@ test('CI runner accepts transition injection only with matching exact changed re
       records: [{ status: 'changed', path: 'src/compiler/orchestration/cli.ts' }],
       readPathBlob: () => null
     });
-    expect(await CodexDevelopmentCiVerificationMain({
+    expect(await CodexDevelopmentCiVerificationMainForTests({
       ...baseOptions(root),
       transitionObservation: transition,
       writeEvidence: () => undefined
     })).toBe(1);
     const { changedFiles: _changedFiles, ...recordOptions } = baseOptions(root);
     void _changedFiles;
-    expect(await CodexDevelopmentCiVerificationMain({
+    expect(await CodexDevelopmentCiVerificationMainForTests({
       ...recordOptions,
       changedRecords: () => [{ status: 'added', path: 'src/compiler/orchestration/cli.ts' }],
       transitionObservation: transition,
@@ -765,7 +786,7 @@ test('multi-commit candidate uses exact current base and never requires HEAD^1',
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-multicommit-'));
   try {
     const refs: string[] = [];
-    const code = await CodexDevelopmentCiVerificationMain({
+    const code = await CodexDevelopmentCiVerificationMainForTests({
       ...baseOptions(root),
       gitRevision: (ref) => {
         refs.push(ref);
@@ -787,7 +808,7 @@ test('formal hosted mode fails closed before physical execution without complete
   try {
     let spawns = 0;
     let writes = 0;
-    const code = await CodexDevelopmentCiVerificationMain({
+    const code = await CodexDevelopmentCiVerificationMainForTests({
       ...baseOptions(root),
       env: { ...baseOptions(root).env, SEC_FORMAL_HOSTED_MODE: '1' },
       runGate: async (gate, execution) => {
@@ -807,13 +828,13 @@ test('formal hosted mode fails closed before physical execution without complete
 test('Action journal reuse is not Evidence without an independent durable result resolver', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-reuse-'));
   try {
-    expect(await CodexDevelopmentCiVerificationMain({
+    expect(await CodexDevelopmentCiVerificationMainForTests({
       ...baseOptions(root),
       writeEvidence: () => undefined
     })).toBe(0);
     let physical = 0;
     let writes = 0;
-    expect(await CodexDevelopmentCiVerificationMain({
+    expect(await CodexDevelopmentCiVerificationMainForTests({
       ...baseOptions(root),
       runGate: async (gate, execution) => {
         physical += 1;
@@ -832,7 +853,7 @@ test('durable known failure reuse remains failed and never executes or promotes 
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-known-failure-'));
   try {
     let first: CodexDevelopmentVerificationEvidenceV4 | null = null;
-    expect(await CodexDevelopmentCiVerificationMain({
+    expect(await CodexDevelopmentCiVerificationMainForTests({
       ...baseOptions(root),
       runGate: executeSentinelGate(root, 1, 'known failure'),
       writeEvidence: (_file, value) => { first = value; }
@@ -842,7 +863,7 @@ test('durable known failure reuse remains failed and never executes or promotes 
     const byActionKey = new Map(terminal.gates.map((gate) => [gate.action.actionKey, gate.result]));
     let physical = 0;
     let reused: CodexDevelopmentVerificationEvidenceV4 | null = null;
-    expect(await CodexDevelopmentCiVerificationMain({
+    expect(await CodexDevelopmentCiVerificationMainForTests({
       ...baseOptions(root),
       runGate: async (gate, execution) => {
         physical += 1;

@@ -1,18 +1,24 @@
-import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 import { compileRepositorySourceProgramCompilation } from '../../../brownfield/source-program-model/repository-compilation.ts';
 import { issueTestImpactProjection } from '../../../brownfield/source-program-model/test-impact-projection.ts';
-import { acquireExactGitTreeWorkspaceSourceSnapshot } from '../../../brownfield/source-program-model/workspace-source-snapshot.ts';
+import {
+  acquireExactGitTreeWorkspaceSourceSnapshotFromSession,
+  type PhysicalWorkspaceSourceSnapshot
+} from '../../../brownfield/source-program-model/workspace-source-snapshot.ts';
 import {
   activeDocumentationPaths,
   parseDocumentationAuthorityRegistry
 } from '../../../control/documentation/authority.ts';
+import { GitReadAuthorityError } from '../../../external-capabilities/git-read/authority.ts';
+import { CodexDevelopmentReadExactGitBlobBytesBatchFromSession } from '../../../external-capabilities/git-read/exact-blob.ts';
 import {
-  CodexDevelopmentReadExactGitBlobEntry
-} from '../../../external-capabilities/git-read/exact-blob.ts';
-import { isolatedGitReadEnvironment } from '../../../external-capabilities/git-read/runtime/session.ts';
+  assertProductionGitReadSession,
+  type GitBlobBytes,
+  type GitReadSession,
+  type GitReadSessionCommand
+} from '../../../external-capabilities/git-read/runtime/session.ts';
 import {
   inspectNoFollowDirectoryChain,
   retainNoFollowDirectoryForChildProcess,
@@ -33,7 +39,7 @@ import { rawSha256, uniqueSorted } from '../../../system-architecture/foundation
 import { issueSecOperationRequirementBindingContext } from '../../../system-architecture/operation/requirement-binding-context.ts';
 import type { SecBoundSemanticOperation } from '../../../system-architecture/operation/semantic.ts';
 import { createRepositoryTestImpactSourceProvider, type CodexDevelopmentTestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
-import { CodexDevelopmentCreateTestImpactTransitionObservation, gitChangedFileDiffArgs, parseGitChangedRecordsOutput, type CodexDevelopmentGitChangedRecord, type CodexDevelopmentTestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
+import { CodexDevelopmentCreateTestImpactTransitionObservation, gitChangedFileDiffArgs, gitPathBlobBatchArgs, gitWorkingTreeStatusArgs, parseGitChangedRecordsOutput, parseGitPathBlobBatchOutput, type CodexDevelopmentGitChangedRecord, type CodexDevelopmentGitPathBlobEntry, type CodexDevelopmentTestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
 export const CODEX_DEVELOPMENT_FAILURE_TAIL_CHARACTER_LIMIT = 24_000;
 export const CODEX_DEVELOPMENT_GATE_STDOUT_BYTE_LIMIT = 8 * 1024 * 1024;
 export const CODEX_DEVELOPMENT_GATE_STDERR_BYTE_LIMIT = 8 * 1024 * 1024;
@@ -74,34 +80,141 @@ export type CodexDevelopmentChangedPathSnapshot = {
   transitionObservation: CodexDevelopmentTestImpactTransitionObservation;
 };
 
-export function CodexDevelopmentDefaultGitRevision(
-  repositoryRoot: string,
-  ref: string
-): string | null {
-  const result = spawnSync('git', ['rev-parse', ref], {
-    cwd: repositoryRoot,
-    encoding: 'utf8',
-    env: isolatedGitReadEnvironment()
-  });
-  return result.status === 0 ? result.stdout.trim() : null;
+export class CodexDevelopmentCiGitObservationError extends Error {
+  constructor(
+    readonly reason: 'invalid-input' | 'command-failed' | 'invalid-output',
+    message: string
+  ) {
+    super(message);
+    this.name = 'CodexDevelopmentCiGitObservationError';
+  }
 }
 
-export function CodexDevelopmentDefaultTrackedTreeIsClean(repositoryRoot: string): boolean {
-  const result = spawnSync('git', [
-    '-c',
-    'core.quotepath=false',
-    '-c',
-    'core.autocrlf=true',
-    'status',
-    '--porcelain=v1',
-    '--untracked-files=normal',
-    '--ignored=no'
-  ], {
-    cwd: repositoryRoot,
-    encoding: 'utf8',
-    env: isolatedGitReadEnvironment()
+function completedGitRead(
+  command: GitReadSessionCommand,
+  label: string
+): Readonly<{ code: number; stdout: Buffer; stderr: string }> {
+  if (command.kind !== 'completed') {
+    throw new GitReadAuthorityError(`${label} did not complete.`, command);
+  }
+  return Object.freeze({
+    code: command.result.code,
+    stdout: Buffer.from(command.result.stdout),
+    stderr: command.result.stderr
   });
-  return result.status === 0 && result.stdout.length === 0;
+}
+
+async function observePathBlobs(
+  session: GitReadSession,
+  revision: string,
+  repositoryPaths: readonly string[]
+): Promise<ReadonlyMap<string, CodexDevelopmentGitPathBlobEntry>> {
+  if (repositoryPaths.length === 0) return new Map();
+  const command = completedGitRead(
+    await session.run(gitPathBlobBatchArgs(revision, repositoryPaths)),
+    'CI changed-path blob observation'
+  );
+  if (command.code !== 0) {
+    throw new CodexDevelopmentCiGitObservationError(
+      'command-failed',
+      `CI changed-path blob observation failed (git exit ${command.code})`
+      + `${command.stderr.trim() ? `: ${command.stderr.trim()}` : ''}`
+    );
+  }
+  const entries = parseGitPathBlobBatchOutput(command.stdout, repositoryPaths);
+  const recordFailure = session.consumeRecords(entries.size);
+  if (recordFailure !== null) {
+    throw new GitReadAuthorityError('CI changed-path blob inventory exceeded its record budget.', recordFailure);
+  }
+  return entries;
+}
+
+export async function CodexDevelopmentReadExactGitBlobs(
+  session: GitReadSession,
+  revision: string,
+  repositoryPaths: readonly string[]
+): Promise<ReadonlyMap<string, GitBlobBytes>> {
+  assertProductionGitReadSession(session);
+  const entries = await observePathBlobs(session, revision, uniqueSorted(repositoryPaths));
+  if (entries.size === 0) return new Map();
+  const orderedEntries = [...entries.entries()].map(([repositoryPath, entry]) => Object.freeze({
+    repositoryPath,
+    blobSha: entry.blobSha,
+    mode: entry.mode,
+    type: 'blob'
+  }));
+  const observed = await CodexDevelopmentReadExactGitBlobBytesBatchFromSession(session, {
+    entries: orderedEntries
+  });
+  const blobs = new Map<string, GitBlobBytes>();
+  for (const blob of observed) {
+    const entry = entries.get(blob.repositoryPath)!;
+    blobs.set(blob.repositoryPath, Object.freeze({
+      blobSha: blob.blobSha,
+      bytes: blob.bytes,
+      mode: entry.mode,
+      type: 'blob' as const
+    }));
+  }
+  return blobs;
+}
+
+export async function CodexDevelopmentDefaultGitRevision(
+  session: GitReadSession,
+  ref: string
+): Promise<string> {
+  assertProductionGitReadSession(session);
+  if (ref.length === 0 || ref.includes('\0')) {
+    throw new CodexDevelopmentCiGitObservationError(
+      'invalid-input',
+      'CI Git revision requires a nonempty NUL-free ref.'
+    );
+  }
+  const command = completedGitRead(
+    await session.run(['rev-parse', '--verify', '--end-of-options', ref]),
+    'CI Git revision observation'
+  );
+  if (command.code !== 0) {
+    throw new CodexDevelopmentCiGitObservationError(
+      'command-failed',
+      `CI Git revision observation failed (git exit ${command.code})`
+      + `${command.stderr.trim() ? `: ${command.stderr.trim()}` : ''}`
+    );
+  }
+  const revision = command.stdout.toString('utf8').trim();
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(revision)) {
+    throw new CodexDevelopmentCiGitObservationError(
+      'invalid-output',
+      'CI Git revision observation did not return one canonical object id.'
+    );
+  }
+  return revision;
+}
+
+export async function CodexDevelopmentDefaultTrackedTreeIsClean(
+  session: GitReadSession
+): Promise<boolean> {
+  assertProductionGitReadSession(session);
+  const command = completedGitRead(
+    await session.run(gitWorkingTreeStatusArgs()),
+    'CI worktree status observation'
+  );
+  if (command.code !== 0) {
+    throw new CodexDevelopmentCiGitObservationError(
+      'command-failed',
+      `CI worktree status observation failed (git exit ${command.code})`
+      + `${command.stderr.trim() ? `: ${command.stderr.trim()}` : ''}`
+    );
+  }
+  const recordCount = command.stdout.reduce(
+    (count, byte) => count + (byte === 0 ? 1 : 0),
+    0
+  );
+  const recordFailure = session.consumeRecords(recordCount);
+  if (recordFailure !== null) {
+    throw new GitReadAuthorityError('CI worktree status exceeded its record budget.', recordFailure);
+  }
+  return command.stdout.length === 0;
 }
 
 export function CodexDevelopmentChangedFilesFromRecords(
@@ -112,63 +225,76 @@ export function CodexDevelopmentChangedFilesFromRecords(
   )));
 }
 
-export function CodexDevelopmentDefaultChangedPaths(
-  repositoryRoot: string,
+export async function CodexDevelopmentDefaultChangedPaths(
+  session: GitReadSession,
   baseSha: string,
   headSha: string
-): CodexDevelopmentChangedPathSnapshot | null {
+): Promise<CodexDevelopmentChangedPathSnapshot> {
+  assertProductionGitReadSession(session);
   if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(baseSha)
-      || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(headSha)) return null;
-  const result = spawnSync('git', gitChangedFileDiffArgs(baseSha, headSha), {
-    cwd: repositoryRoot,
-    encoding: 'buffer',
-    env: isolatedGitReadEnvironment()
-  });
-  if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) return null;
-  try {
-    const records = parseGitChangedRecordsOutput(result.stdout);
-    return {
-      records,
-      files: CodexDevelopmentChangedFilesFromRecords(records),
-      transitionObservation: CodexDevelopmentCreateTestImpactTransitionObservation({
-        baseSha,
-        headSha,
-        records,
-        readPathBlob: (revision, repositoryPath) => {
-          try {
-            const entry = CodexDevelopmentReadExactGitBlobEntry({
-              repositoryRoot,
-              commitSha: revision,
-              repositoryPath
-            });
-            return { mode: entry.mode, blobSha: entry.blobSha };
-          } catch (error) {
-            if (error instanceof Error
-                && error.message === `Exact Git blob path is missing at ${revision}: ${repositoryPath}.`) {
-              return null;
-            }
-            throw error;
-          }
-        }
-      })
-    };
-  } catch {
-    return null;
+      || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(headSha)) {
+    throw new CodexDevelopmentCiGitObservationError(
+      'invalid-input',
+      'CI changed-path observation requires canonical base and head object ids.'
+    );
   }
+  const diff = completedGitRead(
+    await session.run(gitChangedFileDiffArgs(baseSha, headSha)),
+    'CI changed-path transition'
+  );
+  if (diff.code !== 0) {
+    throw new CodexDevelopmentCiGitObservationError(
+      'command-failed',
+      `CI changed-path transition failed (git exit ${diff.code})`
+      + `${diff.stderr.trim() ? `: ${diff.stderr.trim()}` : ''}`
+    );
+  }
+  const records = parseGitChangedRecordsOutput(diff.stdout);
+  const recordFailure = session.consumeRecords(records.length);
+  if (recordFailure !== null) {
+    throw new GitReadAuthorityError('CI changed-path transition exceeded its record budget.', recordFailure);
+  }
+  const removedPaths = uniqueSorted(records
+    .filter(({ status }) => status === 'removed')
+    .map(({ path: repositoryPath }) => repositoryPath));
+  // A GitRead session is deliberately single-flight. Sequential commands
+  // preserve one caller-owned aggregate ledger without weakening the
+  // non-reentrant physical provider contract.
+  const baseBlobs = await observePathBlobs(session, baseSha, removedPaths);
+  const headBlobs = await observePathBlobs(session, headSha, removedPaths);
+  return Object.freeze({
+    records,
+    files: CodexDevelopmentChangedFilesFromRecords(records),
+    transitionObservation: CodexDevelopmentCreateTestImpactTransitionObservation({
+      baseSha,
+      headSha,
+      records,
+      readPathBlob: (revision, repositoryPath) => (
+        (revision === baseSha ? baseBlobs : headBlobs).get(repositoryPath) ?? null
+      )
+    })
+  });
 }
 
 /**
  * The trusted base observes the candidate commit as immutable Git data. The
  * candidate never executes its own selector implementation or chooses files.
  */
-export function CodexDevelopmentExactGitTestImpactSourceProvider(
-  repositoryRoot: string,
+export async function CodexDevelopmentExactGitWorkspaceSourceSnapshot(
+  session: GitReadSession,
   candidateSha: string
-): CodexDevelopmentTestImpactSourceProvider {
-  const workspaceSnapshot = acquireExactGitTreeWorkspaceSourceSnapshot({
-    repositoryRoot,
+): Promise<PhysicalWorkspaceSourceSnapshot> {
+  assertProductionGitReadSession(session);
+  return acquireExactGitTreeWorkspaceSourceSnapshotFromSession({
+    session,
     commitSha: candidateSha
   });
+}
+
+export function CodexDevelopmentTestImpactSourceProviderFromSnapshot(
+  workspaceSnapshot: PhysicalWorkspaceSourceSnapshot,
+  repositoryRoot: string
+): CodexDevelopmentTestImpactSourceProvider {
   const documentationRegistrySource = workspaceSnapshot.file('docs/authority.json')?.source;
   if (documentationRegistrySource === undefined) {
     throw new Error('Exact candidate documentation authority registry was not observed.');

@@ -507,6 +507,12 @@ export const GIT_READ_DEFAULT_OPERATION_BUDGET: GitReadSessionBudget = Object.fr
   maxExecutableBytes: 64 * 1024 * 1024
 });
 
+/** Exact-tree observations may read the complete tracked source graph once. */
+export const GIT_READ_EXACT_TREE_OPERATION_BUDGET: GitReadSessionBudget = Object.freeze({
+  ...GIT_READ_DEFAULT_OPERATION_BUDGET,
+  deadlineMs: 120_000
+});
+
 /**
  * Absolute ceilings for every GitRead transport. Operation-specific callers
  * may narrow these values, but a caller cannot silently widen the canonical

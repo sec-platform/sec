@@ -148,6 +148,8 @@ import {
   CodexDevelopmentWorkPackageManifestDigest
 } from '../../../control/task/contract/work-package.ts';
 import { executeVerifiedCiActionPlan } from '../../../development/runner/verification-action-executor.ts';
+import { withAuthorityGitReadSession } from '../../../external-capabilities/git-read/authority.ts';
+import { GIT_READ_EXACT_TREE_OPERATION_BUDGET } from '../../../external-capabilities/git-read/runtime/session.ts';
 import type { GitHubWorkflowJobObservation, GitHubWorkflowRunObservation } from '../../../external-capabilities/github-api/contract.ts';
 import { createRuntimeStateJournalFileSystem } from '../../../runtime-state/workspace-state/journal-filesystem.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
@@ -175,7 +177,8 @@ import {
 } from '../contract/revision.ts';
 import {
   CodexDevelopmentDefaultChangedPaths,
-  CodexDevelopmentExactGitTestImpactSourceProvider
+  CodexDevelopmentExactGitWorkspaceSourceSnapshot,
+  CodexDevelopmentTestImpactSourceProviderFromSnapshot
 } from './ci-orchestration-core.ts';
 import {
   createVerificationSessionGitHubClient,
@@ -243,17 +246,17 @@ async function createBranchLifecycleVerificationScope(
   });
 }
 
-export function observeVerificationSessionChangedSelection(input: {
+export async function observeVerificationSessionChangedSelection(input: {
   repositoryRoot: string;
   repository: string;
   prNumber: number;
   candidate: GitHubCandidateObservation;
   github: VerificationSessionGitHubClient;
-}): Readonly<{
+}): Promise<Readonly<{
   changedPaths: readonly string[];
-  testImpactSourceProvider: ReturnType<typeof CodexDevelopmentExactGitTestImpactSourceProvider>;
+  testImpactSourceProvider: ReturnType<typeof CodexDevelopmentTestImpactSourceProviderFromSnapshot>;
   testImpactTransition: CodexDevelopmentTestImpactTransitionObservation;
-}> {
+}>> {
   const provider = input.github.observeChangedPaths({
     repository: input.repository,
     prNumber: input.prNumber,
@@ -262,19 +265,29 @@ export function observeVerificationSessionChangedSelection(input: {
     baseSha: input.candidate.baseSha,
     headSha: input.candidate.headSha
   });
-  const exact = CodexDevelopmentDefaultChangedPaths(
-    input.repositoryRoot,
-    input.candidate.baseSha,
-    input.candidate.headSha
-  );
-  if (exact === null || JSON.stringify(exact.files) !== JSON.stringify(provider.paths)) {
+  const exactObservation = await withAuthorityGitReadSession({
+    cwd: input.repositoryRoot,
+    budget: GIT_READ_EXACT_TREE_OPERATION_BUDGET
+  }, async (session) => Object.freeze({
+    exact: await CodexDevelopmentDefaultChangedPaths(
+      session,
+      input.candidate.baseSha,
+      input.candidate.headSha
+    ),
+    workspaceSnapshot: await CodexDevelopmentExactGitWorkspaceSourceSnapshot(
+      session,
+      input.candidate.headSha
+    )
+  }));
+  const { exact } = exactObservation;
+  if (JSON.stringify(exact.files) !== JSON.stringify(provider.paths)) {
     throw new Error('VerificationSession provider inventory differs from the exact Git base/head transition.');
   }
   return Object.freeze({
     changedPaths: Object.freeze([...provider.paths]),
-    testImpactSourceProvider: CodexDevelopmentExactGitTestImpactSourceProvider(
-      input.repositoryRoot,
-      input.candidate.headSha
+    testImpactSourceProvider: CodexDevelopmentTestImpactSourceProviderFromSnapshot(
+      exactObservation.workspaceSnapshot,
+      input.repositoryRoot
     ),
     testImpactTransition: exact.transitionObservation
   });
@@ -4319,7 +4332,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     if (manifest.schema !== 'codex-development-work-package-v1') {
       throw new Error('prepare currently requires the canonical V1 Work Package requiredProfile field.');
     }
-    const changedSelection = observeVerificationSessionChangedSelection({
+    const changedSelection = await observeVerificationSessionChangedSelection({
       repositoryRoot,
       repository,
       prNumber,
@@ -4580,7 +4593,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     const manifestSource = github.readBlobText(repository, request.expectedHeadSha, request.manifestPath);
     if (CodexDevelopmentWorkPackageManifestDigest(manifestSource) !== request.manifestDigest) throw new Error('observe-hosted manifest digest drifted.');
     const manifest = CodexDevelopmentParseCurrentWorkPackageManifest(manifestSource);
-    const changedSelection = observeVerificationSessionChangedSelection({
+    const changedSelection = await observeVerificationSessionChangedSelection({
       repositoryRoot,
       repository,
       prNumber: request.prNumber,
