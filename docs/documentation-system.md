@@ -275,7 +275,20 @@ Markdown只是`DocumentBodyNode`的容器，不是自然语言语义推断器。
 Documentation compiler 对没有显式 clause 指令的标题只生成
 `untyped-observation`：它可出现在 full-human 观察视图，但会进入 typed
 blocker，不能进入 compact-agent、operation authority 或任何 requirement
-projection。显式指令是 source adoption，不是标题格式的隐含推断。
+projection。显式指令是 source adoption，不是标题格式的隐含推断。指令只允许
+以下闭集，且 `blocker` 必须与 kind 一致：
+
+| directive kind | 语义 | 可进入 normative/agent projection | blocker |
+| --- | --- | --- | --- |
+| `stable-decision` | owner 已接受的规范 clause | 是（仍受 admission/selection） | 必须为 `null` |
+| `temporary-safety-denial` | 暂时拒绝或未闭合的安全边界 | 否；保留为 frontier | 必须为非空 token |
+| `non-normative-explanation` | 仅解释、例示或导航语句 | 可作为注明非规范的上下文 | 必须为 `null` |
+| 未标注标题 | 尚未被 owner 采纳的观察 | 否 | 编译器生成 typed frontier |
+
+这四类不是四套事实源：每个标题仍只生成一个 clause；`non-normative-explanation`
+也不能借 blocker 伪装成安全裁决，`temporary-safety-denial` 不能被 renderer
+降级成普通说明。未知 directive、重复键、额外字段和不匹配的 blocker 直接拒绝
+编译，而不是按最接近的 kind 猜测。
 
 `docs/authority.json`在目标generation中退役authoring职责；目标machine projection为generated、content-addressed `DocumentationIndex`。它聚合全部source headers、scope/relations、physical addresses和digests，但不拥有任何事实，并发布到Runtime State/Artifact Store而不是提交进authored `docs/**`。当前`authority.json`在迁移完成前仍是唯一现行registry，两个generation不得同时被production consumer接受。
 

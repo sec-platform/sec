@@ -159,4 +159,50 @@ describe('documentation semantic compiler', () => {
     })).toThrow(/cannot include untyped clause/u);
     expect(projectDocumentationClauseSelection(graph, 'architecture').clauses).toHaveLength(1);
   });
+
+  test('explicit non-normative explanations stay visible without becoming authority', () => {
+    const graph = compileDocumentationSemanticGraph({
+      trustedTree: 'tree-d',
+      registry,
+      sources: [
+        {
+          documentId: 'architecture',
+          source: `<!-- sec-clause {"blocker":null,"kind":"stable-decision"} -->\n# Architecture\n
+<!-- sec-clause {"blocker":null,"kind":"stable-decision"} -->\n## Boundary\nOnly the owner may publish.\n
+<!-- sec-clause {"blocker":null,"kind":"non-normative-explanation"} -->\n## Context\nThis paragraph explains the decision for human readers.\n`
+        },
+        {
+          documentId: 'mutation',
+          source: `<!-- sec-clause {"blocker":null,"kind":"stable-decision"} -->\n# Mutation\n
+<!-- sec-clause {"blocker":null,"kind":"stable-decision"} -->\n## Boundary\nThe mutation owner settles the transition.\n`
+        }
+      ],
+      admission: unavailableDocumentationAdmissionProjection('tree-d')
+    });
+
+    expect(graph.blockers).toEqual(['documentation-admission-projection-unavailable']);
+    expect(graph.clauses.find(({ headingPath }) => headingPath.at(-1) === 'Context')?.kind)
+      .toBe('non-normative-explanation');
+    expect(projectDocumentationClauseSelection(graph, 'architecture').clauses).toHaveLength(3);
+  });
+
+  test('non-normative explanations cannot carry a safety blocker', () => {
+    expect(() => compileDocumentationSemanticGraph({
+      trustedTree: 'tree-e',
+      registry,
+      sources: [
+        {
+          documentId: 'architecture',
+          source: `<!-- sec-clause {"blocker":null,"kind":"stable-decision"} -->\n# Architecture\n
+<!-- sec-clause {"blocker":"forged-blocker","kind":"non-normative-explanation"} -->\n## Context\nExplanation.\n`
+        },
+        {
+          documentId: 'mutation',
+          source: `<!-- sec-clause {"blocker":null,"kind":"stable-decision"} -->\n# Mutation\n
+<!-- sec-clause {"blocker":null,"kind":"stable-decision"} -->\n## Boundary\nTransition.\n`
+        }
+      ],
+      admission: unavailableDocumentationAdmissionProjection('tree-e')
+    })).toThrow(/non-normative explanation cannot carry/u);
+  });
 });
