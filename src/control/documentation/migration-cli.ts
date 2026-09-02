@@ -1,9 +1,17 @@
 #!/usr/bin/env bun
 
-import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 
-import { isolatedGitReadEnvironment } from '../../external-capabilities/git-read/runtime/session.ts';
+import { withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
+import {
+  CodexDevelopmentListExactGitTreeEntriesFromSession,
+  CodexDevelopmentReadExactGitBlobBytesBatchFromSession,
+  type CodexDevelopmentExactGitTreeEntry
+} from '../../external-capabilities/git-read/exact-blob.ts';
+import {
+  GIT_READ_EXACT_TREE_OPERATION_BUDGET,
+  type GitReadSession
+} from '../../external-capabilities/git-read/runtime/session.ts';
 import {
   compareCodeUnits,
   rawSha256,
@@ -31,95 +39,52 @@ import {
 const MAX_TRACKED_LIST_BYTES = 16 * 1024 * 1024;
 const MAX_TRACKED_BLOB_BYTES = 32 * 1024 * 1024;
 const MAX_TRACKED_TOTAL_BLOB_BYTES = 256 * 1024 * 1024;
-const GIT_COMMAND_TIMEOUT_MS = 30_000;
 
 function fail(message: string): never {
   throw new Error(`documentation migration plan: ${message}`);
 }
 
-function canonicalTrackedPath(value: string): string {
-  if (value.length === 0 || value.includes('\0') || value.includes('\\') || value !== value.normalize('NFC')) {
-    fail(`Git returned a noncanonical path: ${JSON.stringify(value)}`);
-  }
-  return value;
-}
-
-function runGitBuffer(
-  repositoryRoot: string,
+async function runGitBuffer(
+  session: GitReadSession,
   args: readonly string[],
   label: string
-): Buffer {
-  const result = spawnSync(
-    'git',
-    args,
-    {
-      cwd: repositoryRoot,
-      env: isolatedGitReadEnvironment(),
-      encoding: 'buffer',
-      maxBuffer: MAX_TRACKED_LIST_BYTES,
-      timeout: GIT_COMMAND_TIMEOUT_MS,
-      windowsHide: true
-    }
-  );
-  if (result.error || result.status !== 0 || result.stdout === undefined) {
-    const detail = result.error?.message
-      ?? Buffer.from(result.stderr ?? '').toString('utf8').trim()
-      ?? `exit ${result.status ?? 1}`;
-    fail(`${label} failed: ${detail}`);
+): Promise<Buffer> {
+  const result = await session.run(args);
+  if (result.kind !== 'completed') {
+    fail(`${label} was blocked: ${result.reason}`);
   }
-  return Buffer.from(result.stdout);
+  if (result.result.code !== 0) {
+    fail(`${label} failed: ${result.result.stderr.trim() || `exit ${result.result.code}`}`);
+  }
+  return Buffer.from(result.result.stdout);
 }
 
-function currentRevision(repositoryRoot: string): string {
-  const source = runGitBuffer(
-    repositoryRoot,
+async function currentRevision(session: GitReadSession): Promise<string> {
+  const source = (await runGitBuffer(
+    session,
     ['rev-parse', '--verify', 'HEAD^{commit}'],
     'current revision resolution'
-  ).toString('utf8').trim();
+  )).toString('utf8').trim();
   if (!/^[0-9a-f]{40,64}$/u.test(source)) fail(`current revision is noncanonical: ${source}`);
   return source;
 }
 
-function listTrackedPaths(
-  repositoryRoot: string,
-  revision: string,
-  pathspecs: readonly string[],
-  label: string
+function listTrackedDocumentationPaths(
+  entries: readonly CodexDevelopmentExactGitTreeEntry[]
 ): readonly string[] {
-  const source = runGitBuffer(
-    repositoryRoot,
-    ['ls-tree', '-r', '-z', '--name-only', revision, '--', ...pathspecs],
-    label
-  );
-  if (source.length === 0 || source[source.length - 1] !== 0) {
-    fail(`${label} is not NUL terminated.`);
-  }
-  const paths = source.toString('utf8').slice(0, -1).split('\0').map(canonicalTrackedPath);
+  const paths = entries
+    .map(({ repositoryPath }) => repositoryPath)
+    .filter((repositoryPath) => (
+      repositoryPath === 'README.md'
+      || repositoryPath === 'AGENTS.md'
+      || repositoryPath.startsWith('docs/')
+    ));
   const sorted = [...paths].sort(compareCodeUnits);
-  if (new Set(paths).size !== paths.length || sorted.some((entry, index) => entry !== paths[index])) {
-    fail(`${label} must be unique and sorted.`);
+  if (new Set(paths).size !== paths.length
+      || sorted.some((entry, index) => entry !== paths[index])) {
+    fail('tracked documentation census must be unique and sorted.');
   }
   return Object.freeze(paths);
-}
-
-function listTrackedDocumentationPaths(
-  repositoryRoot: string,
-  revision: string
-): readonly string[] {
-  const paths = listTrackedPaths(
-    repositoryRoot,
-    revision,
-    ['README.md', 'AGENTS.md', 'docs'],
-    'tracked documentation census'
-  );
-  if (paths.some((repositoryPath) => (
-    repositoryPath !== 'README.md'
-    && repositoryPath !== 'AGENTS.md'
-    && !repositoryPath.startsWith('docs/')
-  ))) {
-    fail('tracked documentation census contains a path outside its corpus.');
-  }
-  return paths;
 }
 
 function registryByPath(registry: DocumentationAuthorityRegistry): ReadonlyMap<string, string> {
@@ -130,80 +95,87 @@ function registryByPath(registry: DocumentationAuthorityRegistry): ReadonlyMap<s
   return new Map(entries);
 }
 
-async function readTrackedFiles(
-  repositoryRoot: string,
+async function readTrackedTreeEntries(
+  session: GitReadSession,
   revision: string,
+): Promise<readonly CodexDevelopmentExactGitTreeEntry[]> {
+  return CodexDevelopmentListExactGitTreeEntriesFromSession(session, revision);
+}
+
+async function readTrackedFiles(
+  session: GitReadSession,
+  entries: readonly CodexDevelopmentExactGitTreeEntry[],
   paths: readonly string[]
 ): Promise<ReadonlyMap<string, Uint8Array>> {
+  if (paths.length === 0) return new Map();
+  const entriesByPath = new Map(entries.map((entry) => [entry.repositoryPath, entry] as const));
+  const selectedEntries = paths.map((repositoryPath) => {
+    const entry = entriesByPath.get(repositoryPath);
+    if (entry === undefined) fail(`tracked path disappeared during census: ${repositoryPath}`);
+    return entry;
+  });
+  const blobs = await CodexDevelopmentReadExactGitBlobBytesBatchFromSession(session, {
+    entries: selectedEntries,
+    maxTotalBytes: MAX_TRACKED_TOTAL_BLOB_BYTES
+  });
+  if (blobs.length !== selectedEntries.length) {
+    fail(`tracked blob census returned ${blobs.length} blobs for ${selectedEntries.length} requested paths.`);
+  }
+  const files = new Map<string, Uint8Array>();
   let totalBytes = 0;
-  const files = paths.map((repositoryPath) => {
-    const result = spawnSync(
-      'git',
-      ['show', '--format=', '--no-ext-diff', `${revision}:${repositoryPath}`],
-      {
-        cwd: repositoryRoot,
-        env: isolatedGitReadEnvironment(),
-        encoding: 'buffer',
-        maxBuffer: MAX_TRACKED_BLOB_BYTES,
-        timeout: GIT_COMMAND_TIMEOUT_MS,
-        windowsHide: true
-      }
-    );
-    if (result.error || result.status !== 0 || result.stdout === undefined) {
-      const detail = result.error?.message
-        ?? Buffer.from(result.stderr ?? '').toString('utf8').trim()
-        ?? `exit ${result.status ?? 1}`;
-      fail(`Git blob read failed for ${repositoryPath}: ${detail}`);
+  for (const blob of blobs) {
+    if (blob.byteLength > MAX_TRACKED_BLOB_BYTES) {
+      fail(`tracked blob ${blob.repositoryPath} exceeds ${MAX_TRACKED_BLOB_BYTES} bytes.`);
     }
-    const bytes = Buffer.from(result.stdout);
-    totalBytes += bytes.length;
+    totalBytes += blob.byteLength;
     if (totalBytes > MAX_TRACKED_TOTAL_BLOB_BYTES) {
       fail(`tracked blob census exceeds ${MAX_TRACKED_TOTAL_BLOB_BYTES} bytes.`);
     }
-    return [repositoryPath, bytes] as const;
-  });
-  return new Map(files);
+    if (files.has(blob.repositoryPath)) fail(`tracked blob census contains duplicate path: ${blob.repositoryPath}`);
+    files.set(blob.repositoryPath, blob.bytes);
+  }
+  return files;
 }
 
-async function readTrackedConsumerFiles(
-  repositoryRoot: string,
+async function readTrackedConsumerPaths(
+  session: GitReadSession,
   revision: string,
   documentationPaths: readonly string[]
-): Promise<ReadonlyMap<string, Uint8Array>> {
+): Promise<readonly string[]> {
   const patterns = documentationPaths.flatMap((repositoryPath) => ['-e', repositoryPath]);
-  const result = spawnSync(
-    'git',
-    ['grep', '-l', '-F', '-z', ...patterns, revision, '--', '.'],
-    {
-      cwd: repositoryRoot,
-      env: isolatedGitReadEnvironment(),
-      encoding: 'buffer',
-      maxBuffer: MAX_TRACKED_LIST_BYTES,
-      timeout: GIT_COMMAND_TIMEOUT_MS,
-      windowsHide: true
-    }
-  );
-  if (result.error || (result.status !== 0 && result.status !== 1) || result.stdout === undefined) {
-    const detail = result.error?.message
-      ?? Buffer.from(result.stderr ?? '').toString('utf8').trim()
-      ?? `exit ${result.status ?? 1}`;
-    fail(`tracked consumer census failed: ${detail}`);
+  const result = await session.run([
+    'grep', '-l', '-F', '-z', ...patterns, revision, '--', '.'
+  ]);
+  if (result.kind !== 'completed') {
+    fail(`tracked consumer census was blocked: ${result.reason}`);
   }
-  const source = Buffer.from(result.stdout);
-  if (source.length === 0) return new Map();
+  if (result.result.code === 1) return Object.freeze([]);
+  if (result.result.code !== 0) {
+    fail(`tracked consumer census failed: ${result.result.stderr.trim() || `exit ${result.result.code}`}`);
+  }
+  const source = Buffer.from(result.result.stdout);
+  if (source.length === 0) return Object.freeze([]);
+  if (source.length > MAX_TRACKED_LIST_BYTES) {
+    fail(`tracked consumer census exceeds ${MAX_TRACKED_LIST_BYTES} bytes.`);
+  }
   if (source[source.length - 1] !== 0) fail('tracked consumer census is not NUL terminated.');
   const revisionPrefix = `${revision}:`;
   const paths = source.toString('utf8').slice(0, -1).split('\0').map((entry) => {
     if (!entry.startsWith(revisionPrefix)) {
       fail(`tracked consumer census returned an unexpected revision prefix: ${entry}`);
     }
-    return canonicalTrackedPath(entry.slice(revisionPrefix.length));
+    const repositoryPath = entry.slice(revisionPrefix.length);
+    if (repositoryPath.length === 0 || repositoryPath.includes('\0') || repositoryPath.includes('\\')) {
+      fail(`tracked consumer census returned a noncanonical path: ${JSON.stringify(repositoryPath)}`);
+    }
+    return repositoryPath;
   });
   const sorted = [...paths].sort(compareCodeUnits);
-  if (new Set(paths).size !== paths.length || sorted.some((entry, index) => entry !== paths[index])) {
+  if (new Set(paths).size !== paths.length
+      || sorted.some((entry, index) => entry !== paths[index])) {
     fail('tracked consumer census must be unique and sorted.');
   }
-  return readTrackedFiles(repositoryRoot, revision, paths);
+  return Object.freeze(paths);
 }
 
 function localConsumerRefs(
@@ -223,15 +195,14 @@ interface DocumentationMigrationCorpusCensus {
   readonly trackedFiles: ReadonlyMap<string, Uint8Array>;
 }
 
-async function collectDocumentationMigrationCorpusWithFiles(input: Readonly<{
-  readonly repositoryRoot: string;
+function collectDocumentationMigrationCorpusWithFiles(input: Readonly<{
   readonly registry: DocumentationAuthorityRegistry;
-  readonly revision: string;
-}>): Promise<DocumentationMigrationCorpusCensus> {
-  const repositoryRoot = path.resolve(input.repositoryRoot);
-  const paths = listTrackedDocumentationPaths(repositoryRoot, input.revision);
-  const trackedFiles = await readTrackedFiles(repositoryRoot, input.revision, paths);
-  const consumerFiles = await readTrackedConsumerFiles(repositoryRoot, input.revision, paths);
+  readonly documentationPaths: readonly string[];
+  readonly trackedFiles: ReadonlyMap<string, Uint8Array>;
+  readonly consumerFiles: ReadonlyMap<string, Uint8Array>;
+}>): DocumentationMigrationCorpusCensus {
+  const paths = input.documentationPaths;
+  const trackedFiles = input.trackedFiles;
   const idsByPath = registryByPath(input.registry);
   const corpus = paths.map((repositoryPath): DocumentationMigrationCorpusEntry => {
     const registryId = idsByPath.get(repositoryPath);
@@ -245,7 +216,7 @@ async function collectDocumentationMigrationCorpusWithFiles(input: Readonly<{
       status,
       registryId: registryId ?? null,
       contentDigest: rawSha256(bytes),
-      consumerRefs: localConsumerRefs(repositoryPath, consumerFiles),
+      consumerRefs: localConsumerRefs(repositoryPath, input.consumerFiles),
       // This command observes literal references only.  It deliberately does
       // not claim that dynamic, generated, or external local consumers are
       // absent; a complete owner-issued census is required for cutover.
@@ -261,7 +232,27 @@ export async function collectDocumentationMigrationCorpus(input: Readonly<{
   readonly registry: DocumentationAuthorityRegistry;
   readonly revision: string;
 }>): Promise<readonly DocumentationMigrationCorpusEntry[]> {
-  return (await collectDocumentationMigrationCorpusWithFiles(input)).corpus;
+  const root = path.resolve(input.repositoryRoot);
+  return withAuthorityGitReadSession({
+    cwd: root,
+    budget: GIT_READ_EXACT_TREE_OPERATION_BUDGET
+  }, async (session) => {
+    const entries = await readTrackedTreeEntries(session, input.revision);
+    const documentationPaths = listTrackedDocumentationPaths(entries);
+    const trackedFiles = await readTrackedFiles(session, entries, documentationPaths);
+    const consumerPaths = await readTrackedConsumerPaths(
+      session,
+      input.revision,
+      documentationPaths
+    );
+    const consumerFiles = await readTrackedFiles(session, entries, consumerPaths);
+    return collectDocumentationMigrationCorpusWithFiles({
+      registry: input.registry,
+      documentationPaths,
+      trackedFiles,
+      consumerFiles
+    }).corpus;
+  });
 }
 
 export interface DocumentationMigrationPlanSnapshot {
@@ -273,54 +264,64 @@ export async function compileCurrentRevisionDocumentationMigrationPlan(
   repositoryRoot: string
 ): Promise<DocumentationMigrationPlanSnapshot> {
   const root = path.resolve(repositoryRoot);
-  const revision = currentRevision(root);
-  const registrySource = readTrackedFiles(root, revision, ['docs/authority.json']);
-  const registryBytes = (await registrySource).get('docs/authority.json');
-  if (registryBytes === undefined) fail('current revision does not contain docs/authority.json');
-  const registry = parseDocumentationAuthorityRegistry(Buffer.from(registryBytes).toString('utf8'));
-  const census = await collectDocumentationMigrationCorpusWithFiles({
-    repositoryRoot: root,
-    registry,
-    revision
+  return withAuthorityGitReadSession({
+    cwd: root,
+    budget: GIT_READ_EXACT_TREE_OPERATION_BUDGET
+  }, async (session) => {
+    const revision = await currentRevision(session);
+    const entries = await readTrackedTreeEntries(session, revision);
+    const documentationPaths = listTrackedDocumentationPaths(entries);
+    const trackedFiles = await readTrackedFiles(session, entries, documentationPaths);
+    const consumerPaths = await readTrackedConsumerPaths(session, revision, documentationPaths);
+    const consumerFiles = await readTrackedFiles(session, entries, consumerPaths);
+    const registryBytes = trackedFiles.get('docs/authority.json');
+    if (registryBytes === undefined) fail('current revision does not contain docs/authority.json');
+    const registry = parseDocumentationAuthorityRegistry(Buffer.from(registryBytes).toString('utf8'));
+    const census = collectDocumentationMigrationCorpusWithFiles({
+      registry,
+      documentationPaths,
+      trackedFiles,
+      consumerFiles
+    });
+    const sourceRecords = registry.documents
+      .filter((record) => (
+        (record.kind === 'authority' || record.kind === 'corpus-contract')
+        && record.lifecycle === 'stable'
+      ))
+      .sort((left, right) => compareCodeUnits(left.id, right.id));
+    const sources = sourceRecords.map((record) => {
+      const bytes = census.trackedFiles.get(record.path);
+      if (bytes === undefined) fail(`source graph blob is missing for ${record.path}`);
+      return { documentId: record.id, source: Buffer.from(bytes).toString('utf8') };
+    });
+    const sourceGraph = compileDocumentationSemanticGraph({
+      trustedTree: revision,
+      registry,
+      sources,
+      admission: unavailableDocumentationAdmissionProjection(revision)
+    });
+    const currentGenerationBinding = deriveDocumentationMigrationGenerationBinding({
+      generationRef: revision,
+      providerRef: DOCUMENTATION_MIGRATION_SOURCE_PROVIDER_REF,
+      revisionOrSnapshotRef: revision,
+      observationEpoch: revision,
+      registry,
+      corpus: census.corpus,
+      sourceGraph
+    });
+    const consumerCensus = issueDocumentationMigrationConsumerCensus({
+      generationBinding: currentGenerationBinding,
+      entries: census.corpus
+    });
+    const design = compileDocumentationMigrationDesign({
+      registry,
+      targetContractDigest: DOCUMENTATION_MIGRATION_TARGET_CONTRACT_DIGEST,
+      currentGenerationBinding,
+      consumerCensus,
+      sourceGraph
+    });
+    return Object.freeze({ sourceRevision: revision, design });
   });
-  const sourceRecords = registry.documents
-    .filter((record) => (
-      (record.kind === 'authority' || record.kind === 'corpus-contract')
-      && record.lifecycle === 'stable'
-    ))
-    .sort((left, right) => compareCodeUnits(left.id, right.id));
-  const sources = sourceRecords.map((record) => {
-    const bytes = census.trackedFiles.get(record.path);
-    if (bytes === undefined) fail(`source graph blob is missing for ${record.path}`);
-    return { documentId: record.id, source: Buffer.from(bytes).toString('utf8') };
-  });
-  const sourceGraph = compileDocumentationSemanticGraph({
-    trustedTree: revision,
-    registry,
-    sources,
-    admission: unavailableDocumentationAdmissionProjection(revision)
-  });
-  const currentGenerationBinding = deriveDocumentationMigrationGenerationBinding({
-    generationRef: revision,
-    providerRef: DOCUMENTATION_MIGRATION_SOURCE_PROVIDER_REF,
-    revisionOrSnapshotRef: revision,
-    observationEpoch: revision,
-    registry,
-    corpus: census.corpus,
-    sourceGraph
-  });
-  const consumerCensus = issueDocumentationMigrationConsumerCensus({
-    generationBinding: currentGenerationBinding,
-    entries: census.corpus
-  });
-  const design = compileDocumentationMigrationDesign({
-    registry,
-    targetContractDigest: DOCUMENTATION_MIGRATION_TARGET_CONTRACT_DIGEST,
-    currentGenerationBinding,
-    consumerCensus,
-    sourceGraph
-  });
-  return Object.freeze({ sourceRevision: revision, design });
 }
 
 function compactResult(snapshot: DocumentationMigrationPlanSnapshot): Record<string, unknown> {
