@@ -85,8 +85,7 @@ import {
 } from '../../system-architecture/repository-modules/contract.ts';
 import {
   compileSecRepositoryModulePlacementAdmission,
-  type SecRepositoryModulePlacementAdmission,
-  type SecRepositoryModulePlacementProposal
+  type SecRepositoryModulePlacementAdmission
 } from '../../system-architecture/repository-modules/placement.ts';
 import { isSecRepositoryTestModulePath } from '../../system-architecture/repository-modules/test-module-path.ts';
 import type {
@@ -513,11 +512,6 @@ export interface RepositoryAuditCliProjection {
       readonly criticalUnknown: number;
       readonly resolved: number;
     }>;
-    readonly prospectivePlacements: Readonly<{
-      readonly accepted: number;
-      readonly boundedUnknown: number;
-      readonly dominated: number;
-    }>;
   }>;
   readonly declarationTopology: Readonly<{
     readonly evidenceDigest: `sha256:${string}`;
@@ -557,7 +551,6 @@ function assertRepositoryAuditCliProjectionSource(
       || typeof architecture.responsibilityAdmission !== 'object'
       || !/^sha256:[0-9a-f]{64}$/u.test(architecture.responsibilityAdmission.admissionDigest)
       || !Array.isArray(architecture.responsibilityAdmission.responsibilityFrontier)
-      || !Array.isArray(architecture.responsibilityAdmission.proposals)
       || !Array.isArray(architecture.responsibilityAdmission.violations)
       || declarationTopology === null || typeof declarationTopology !== 'object'
       || !/^sha256:[0-9a-f]{64}$/u.test(declarationTopology.topologyDigest)
@@ -618,7 +611,6 @@ export function projectRepositoryModuleArchitectureCli(
   architecture: RepositoryModuleArchitectureWithPlacement
 ): RepositoryAuditCliProjection['architecture'] {
   const frontier = architecture.responsibilityAdmission.responsibilityFrontier;
-  const placements = architecture.responsibilityAdmission.proposals;
   return Object.freeze({
     evidenceDigest: sha256(Object.freeze({
       architecture: projectRepositoryModuleArchitectureAudit(architecture),
@@ -634,11 +626,6 @@ export function projectRepositoryModuleArchitectureCli(
         status === 'bounded-unknown' && criticality.length > 0
       )).length,
       resolved: frontier.filter(({ status }) => status === 'resolved').length
-    }),
-    prospectivePlacements: Object.freeze({
-      accepted: placements.filter(({ status }) => status === 'accepted').length,
-      boundedUnknown: placements.filter(({ status }) => status === 'bounded-unknown').length,
-      dominated: placements.filter(({ status }) => status === 'dominated').length
     })
   });
 }
@@ -1353,8 +1340,7 @@ function compileRepositoryModuleArchitectureAdmission(
   graph: SecRepositoryModuleGraph,
   membership: SecRepositoryModuleMembership,
   model: SourceProgramModel,
-  sourceFiles: readonly WorkspaceSourceFile[],
-  proposals: readonly SecRepositoryModulePlacementProposal[] = Object.freeze([])
+  sourceFiles: readonly WorkspaceSourceFile[]
 ): RepositoryModuleArchitectureWithPlacement {
   const sourceLinesByPath = new Map(sourceFiles.map(({ path: repositoryPath, source }) => (
     [repositoryPath, source.length === 0 ? 0 : source.split(/\r\n|\r|\n/u).length] as const
@@ -1374,8 +1360,7 @@ function compileRepositoryModuleArchitectureAdmission(
   const responsibilityAdmission = compileSecRepositoryModulePlacementAdmission({
     graph,
     membership,
-    facts,
-    proposals
+    facts
   });
   const violations = Object.freeze([...new Map([
     ...architecture.violations,
