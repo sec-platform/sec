@@ -11,12 +11,17 @@ import type {
 } from './authority.ts';
 import {
   assertIssuedDocumentationSemanticGraph,
+  DOCUMENTATION_SEMANTIC_GRAPH_SCHEMA,
   type DocumentationSemanticGraph
 } from './compiler.ts';
 
 export const DOCUMENTATION_MIGRATION_DESIGN_SCHEMA =
   'sec-documentation-migration-design' as const;
 export const DOCUMENTATION_MIGRATION_SOURCE_PROVIDER_REF = 'git' as const;
+export const DOCUMENTATION_MIGRATION_CONSUMER_CENSUS_SCHEMA =
+  'sec-documentation-consumer-census' as const;
+export const DOCUMENTATION_MIGRATION_CONSUMER_CENSUS_PROVIDER_REF =
+  'git-tracked-consumer-census' as const;
 
 type Digest = `sha256:${string}`;
 
@@ -87,6 +92,10 @@ export type DocumentationMigrationFrontierCode =
 /** Machine-readable target grammar; its digest binds every migration design. */
 export const DOCUMENTATION_MIGRATION_TARGET_CONTRACT = deepFreeze({
   schema: DOCUMENTATION_MIGRATION_DESIGN_SCHEMA,
+  sourceSemanticGraphSchema: DOCUMENTATION_SEMANTIC_GRAPH_SCHEMA,
+  sourceProviderRef: DOCUMENTATION_MIGRATION_SOURCE_PROVIDER_REF,
+  consumerCensusSchema: DOCUMENTATION_MIGRATION_CONSUMER_CENSUS_SCHEMA,
+  consumerCensusProviderRef: DOCUMENTATION_MIGRATION_CONSUMER_CENSUS_PROVIDER_REF,
   corpusStatuses: DOCUMENTATION_MIGRATION_CORPUS_STATUSES,
   externalConsumerStatuses: DOCUMENTATION_MIGRATION_EXTERNAL_CONSUMER_STATUSES,
   localConsumerCoverageStatuses: DOCUMENTATION_MIGRATION_LOCAL_CONSUMER_COVERAGE_STATUSES,
@@ -107,12 +116,10 @@ export interface DocumentationMigrationCorpusEntry {
   readonly externalConsumerStatus: DocumentationMigrationExternalConsumerStatus;
 }
 
-export const DOCUMENTATION_MIGRATION_CONSUMER_CENSUS_PROVIDER_REF =
-  'git-tracked-consumer-census' as const;
-
 declare const DOCUMENTATION_MIGRATION_CONSUMER_CENSUS_BRAND: unique symbol;
 
 export interface DocumentationMigrationConsumerCensus {
+  readonly schema: typeof DOCUMENTATION_MIGRATION_CONSUMER_CENSUS_SCHEMA;
   readonly providerRef: typeof DOCUMENTATION_MIGRATION_CONSUMER_CENSUS_PROVIDER_REF;
   readonly generationRef: string;
   readonly corpusDigest: Digest;
@@ -449,6 +456,7 @@ export function issueDocumentationMigrationConsumerCensus(input: Readonly<{
     fail('consumer census does not match the generation corpus.');
   }
   const withoutDigest = {
+    schema: DOCUMENTATION_MIGRATION_CONSUMER_CENSUS_SCHEMA,
     providerRef: DOCUMENTATION_MIGRATION_CONSUMER_CENSUS_PROVIDER_REF,
     generationRef: input.generationBinding.generationRef,
     corpusDigest: corpusDigestValue,
@@ -487,9 +495,11 @@ export function compileDocumentationMigrationDesign(input: Readonly<{
   if (!issuedDocumentationMigrationConsumerCensuses.has(consumerCensus)) {
     fail('consumer census was not issued by the migration owner.');
   }
-  if (consumerCensus.providerRef !== DOCUMENTATION_MIGRATION_CONSUMER_CENSUS_PROVIDER_REF
+  if (consumerCensus.schema !== DOCUMENTATION_MIGRATION_CONSUMER_CENSUS_SCHEMA
+      || consumerCensus.providerRef !== DOCUMENTATION_MIGRATION_CONSUMER_CENSUS_PROVIDER_REF
       || consumerCensus.generationRef !== input.currentGenerationBinding.generationRef
       || consumerCensus.censusDigest !== sha256({
+        schema: consumerCensus.schema,
         providerRef: consumerCensus.providerRef,
         generationRef: consumerCensus.generationRef,
         corpusDigest: consumerCensus.corpusDigest,
