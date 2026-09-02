@@ -14,16 +14,20 @@ import {
 import { devNull, tmpdir } from 'node:os';
 import path from 'node:path';
 
-
 import {
   preparationFilePath,
-  prepareBranchCloseout
+  prepareBranchCloseout,
+  rehydratePreparedBranchCloseoutRecoveryArtifact
 } from '../../src/control/branch-lifecycle/branch-closeout.ts';
 import {
   createBranchLifecycleGitChildEnvironment,
   createBranchLifecycleGitHubCredentialArgs
 } from '../../src/control/branch-lifecycle/branch-lifecycle-command.ts';
 import { collectBranchLifecycleInventory } from '../../src/control/branch-lifecycle/branch-lifecycle-inventory.ts';
+import {
+  issueActiveWorkPackageOwnerObservation,
+  type ActiveWorkPackageOwnerObservation
+} from '../../src/control/task/contract/active-work-observation.ts';
 
 test('canonical Git child environment removes ambient steering and preserves host integration', () => {
   const environment = createBranchLifecycleGitChildEnvironment({
@@ -105,14 +109,8 @@ function repositoryFixture(): Readonly<{
   git(repository, ['config', '--local', 'fetch.prune', 'true']);
   git(repository, ['config', '--local', 'remote.origin.prune', 'true']);
   git(repository, ['config', '--local', 'fetch.pruneTags', 'true']);
-  mkdirSync(path.join(repository, 'scripts/codex'), { recursive: true });
-  writeFileSync(
-    path.join(repository, 'src/control/documentation/document-control-plane.ts'),
-    `process.stdout.write(JSON.stringify({activeWorkPackage:{state:'active',manifest:'docs/work-packages/v6-test.md'},workspace:{branch:'feat/v6-closeout'}}));\n`,
-    'utf8'
-  );
   writeFileSync(path.join(repository, 'README.md'), '# main\n', 'utf8');
-  git(repository, ['add', 'README.md', 'src/control/documentation/document-control-plane.ts']);
+  git(repository, ['add', 'README.md']);
   git(repository, ['commit', '-m', 'initial main']);
   git(repository, ['branch', '-M', 'main']);
   git(repository, ['push', '-u', 'origin', 'main']);
@@ -125,6 +123,23 @@ function repositoryFixture(): Readonly<{
   const headSha = git(repository, ['rev-parse', 'HEAD']);
   git(repository, ['push', '-u', 'origin', branch]);
   return Object.freeze({ root, remote, repository, branch, headSha, mainSha });
+}
+
+function activeWorkObservation(
+  fixture: ReturnType<typeof repositoryFixture>
+): ActiveWorkPackageOwnerObservation {
+  // Exercise the lower admission contract directly; production module
+  // topology permits only the documentation owner to call this issuer.
+  return issueActiveWorkPackageOwnerObservation({
+    repository: 'sec-platform/sec',
+    defaultBranch: 'main',
+    defaultSha: fixture.mainSha,
+    observedAt: new Date().toISOString(),
+    state: 'active',
+    branch: fixture.branch,
+    manifest: 'docs/work-packages/v6-test.md',
+    reason: null
+  });
 }
 
 function installGitHubObservationShim(
@@ -179,6 +194,7 @@ test('V6 branch preparation is recovery-only and leaves exact local/remote refs 
       repositoryRoot: fixture.repository,
       repositoryFullName: 'sec-platform/sec',
       defaultBranch: 'main',
+      activeWorkPackageObservation: activeWorkObservation(fixture),
       recoveryRoot: path.join(fixture.root, 'recovery')
     };
     const prepared = prepareBranchCloseout(scope, {
@@ -216,6 +232,7 @@ test('remote-absent preparation recovers the exact local branch without mutating
       repositoryRoot: fixture.repository,
       repositoryFullName: 'sec-platform/sec',
       defaultBranch: 'main',
+      activeWorkPackageObservation: activeWorkObservation(fixture),
       recoveryRoot: path.join(fixture.root, 'recovery')
     }, {
       branch: fixture.branch,
@@ -309,7 +326,8 @@ test('typed inventory boundary ignores ambient repository and index steering wit
     const inventory = collectBranchLifecycleInventory({
       repositoryRoot: fixture.repository,
       repositoryFullName: 'sec-platform/sec',
-      defaultBranch: 'main'
+      defaultBranch: 'main',
+      activeWorkPackageObservation: activeWorkObservation(fixture)
     });
     expect(inventory.localBranches.find(({ branch }) => branch === fixture.branch)?.sha)
       .toBe(fixture.headSha);
@@ -333,3 +351,66 @@ test('typed inventory boundary ignores ambient repository and index steering wit
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });
+
+test('missing documentation-owner observation is typed unresolved and blocks before recovery effect', () => {
+  const fixture = repositoryFixture();
+  const restorePath = installGitHubObservationShim(fixture);
+  const recoveryRoot = path.join(fixture.root, 'recovery');
+  try {
+    const inventory = collectBranchLifecycleInventory({
+      repositoryRoot: fixture.repository,
+      repositoryFullName: 'sec-platform/sec',
+      defaultBranch: 'main'
+    });
+    expect(inventory.activeWorkPackage).toEqual({
+      state: 'unresolved',
+      branch: null,
+      manifest: null,
+      reason: 'active-work-owner-observation-unavailable'
+    });
+    expect(inventory.unknowns).toContain('active-work-owner-observation-unavailable');
+    const issued = activeWorkObservation(fixture);
+    expect(() => collectBranchLifecycleInventory({
+      repositoryRoot: fixture.repository,
+      repositoryFullName: 'sec-platform/sec',
+      defaultBranch: 'main',
+      activeWorkPackageObservation: { ...issued } as ActiveWorkPackageOwnerObservation
+    })).toThrow('active-work-owner-observation-not-issued');
+    expect(() => prepareBranchCloseout({
+      repositoryRoot: fixture.repository,
+      repositoryFullName: 'sec-platform/sec',
+      defaultBranch: 'main',
+      recoveryRoot
+    }, {
+      branch: fixture.branch,
+      expectedHeadSha: fixture.headSha
+    })).toThrow('active-work-owner-observation-unavailable');
+    expect(existsSync(recoveryRoot)).toBe(false);
+
+    const authorized = prepareBranchCloseout({
+      repositoryRoot: fixture.repository,
+      repositoryFullName: 'sec-platform/sec',
+      defaultBranch: 'main',
+      activeWorkPackageObservation: activeWorkObservation(fixture),
+      recoveryRoot: path.join(fixture.root, 'authorized-recovery')
+    }, {
+      branch: fixture.branch,
+      expectedHeadSha: fixture.headSha
+    });
+    const rehydrationRoot = path.join(fixture.root, 'blocked-rehydration');
+    expect(() => rehydratePreparedBranchCloseoutRecoveryArtifact({
+      scope: {
+        repositoryRoot: fixture.repository,
+        repositoryFullName: 'sec-platform/sec',
+        defaultBranch: 'main',
+        recoveryRoot: rehydrationRoot
+      },
+      remote: authorized,
+      recoveryBundleBytes: readFileSync(authorized.preparation.recovery.path)
+    })).toThrow('active-work-owner-observation-unavailable');
+    expect(existsSync(rehydrationRoot)).toBe(false);
+  } finally {
+    restorePath();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+}, 180_000);

@@ -2,7 +2,10 @@ import { spawnSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 
-import { DOCUMENT_CONTROL_PLANE_STATUS_ARGUMENTS } from '../documentation/document-control-plane-contract.ts';
+import {
+  requireActiveWorkPackageOwnerObservation,
+  type ActiveWorkPackageOwnerObservation
+} from '../task/contract/active-work-observation.ts';
 import {
   BRANCH_CLOSEOUT_ENFORCEMENT_MARKER_PATH,
   parsePublishedBranchCloseoutReceiptComments,
@@ -29,7 +32,6 @@ import {
 } from './branch-lifecycle-contract.ts';
 import {
   countPorcelainStatus,
-  parseControlPlane,
   parseLocalBranchRefs,
   parsePullRequestObservations,
   parseRemoteHeadRefs,
@@ -42,16 +44,19 @@ const COMMAND_TIMEOUT_MS = 60_000;
 const COMMAND_MAX_BUFFER = 32 * 1024 * 1024;
 type CollaboratorPermission = 'trusted' | 'untrusted' | 'unknown';
 
-interface InventoryRuntime {
+export interface BranchLifecycleInventoryScope {
   readonly repositoryRoot: string;
   readonly remote?: string;
   readonly repositoryFullName?: string;
   readonly defaultBranch?: string;
+  readonly activeWorkPackageObservation?: ActiveWorkPackageOwnerObservation;
 }
+
+type InventoryRuntime = BranchLifecycleInventoryScope;
 
 function runInventoryCommand(
   ctx: InventoryRuntime,
-  command: 'bun' | 'gh' | 'git',
+  command: 'gh' | 'git',
   args: readonly string[],
   cwd = ctx.repositoryRoot
 ) {
@@ -83,7 +88,7 @@ function runInventoryCommand(
 
 function requireInventoryCommandText(
   ctx: InventoryRuntime,
-  command: 'bun' | 'gh' | 'git',
+  command: 'gh' | 'git',
   args: readonly string[],
   label: string,
   cwd = ctx.repositoryRoot
@@ -97,7 +102,7 @@ function requireInventoryCommandText(
 
 function optionalInventoryCommandText(
   ctx: InventoryRuntime,
-  command: 'bun' | 'gh' | 'git',
+  command: 'gh' | 'git',
   args: readonly string[],
   cwd = ctx.repositoryRoot
 ): string | null {
@@ -558,38 +563,62 @@ function listPullRequests(
   }
 }
 
-function resolveActiveWorkPackage(
-  ctx: InventoryRuntime,
-  repositoryRoot: string,
+function bindActiveWorkPackageObservation(
+  observation: ActiveWorkPackageOwnerObservation | undefined,
+  repositoryFullName: string,
   defaultBranch: string,
+  remoteDefaultSha: string | null,
   unknowns: string[]
 ): BranchActiveWorkPackageObservation {
-  const result = runInventoryCommand(
-    ctx,
-    'bun',
-    DOCUMENT_CONTROL_PLANE_STATUS_ARGUMENTS,
-    repositoryRoot
-  );
-  if (result.stdout.length > 0) {
-    try {
-      const observation = parseControlPlane(decodeBranchLifecycleChildStdout(result), defaultBranch);
-      if (result.status !== 0) {
-        unknowns.push(`control-plane resolver exited non-zero: ${decodeBranchLifecycleChildError(result)}`);
-      }
-      return observation;
-    } catch (error) {
-      unknowns.push(
-        `control-plane parse failed: ${error instanceof Error ? error.message : String(error)}`
-      );
-    }
-  } else {
-    unknowns.push(`control-plane resolver failed: ${decodeBranchLifecycleChildError(result)}`);
-  }
-  return {
+  const unresolved = (reason: string): BranchActiveWorkPackageObservation => ({
     state: 'unresolved',
     branch: null,
     manifest: null,
-    reason: 'live control-plane resolver unavailable'
+    reason
+  });
+  if (observation === undefined) {
+    const reason = 'active-work-owner-observation-unavailable';
+    unknowns.push(reason);
+    return unresolved(reason);
+  }
+  if (observation.repository !== repositoryFullName) {
+    const reason = 'active-work-owner-observation-repository-mismatch';
+    unknowns.push(reason);
+    return unresolved(reason);
+  }
+  if (observation.defaultBranch !== defaultBranch) {
+    const reason = 'active-work-owner-observation-default-branch-mismatch';
+    unknowns.push(reason);
+    return unresolved(reason);
+  }
+  if (observation.defaultSha !== null && observation.defaultSha !== remoteDefaultSha) {
+    const reason = 'active-work-owner-observation-default-sha-mismatch';
+    unknowns.push(reason);
+    return unresolved(reason);
+  }
+  if (observation.state === 'active') {
+    if (observation.branch === null || observation.manifest === null || observation.reason !== null) {
+      const reason = 'active-work-owner-observation-invalid-active-shape';
+      unknowns.push(reason);
+      return unresolved(reason);
+    }
+    try {
+      assertGitBranchName(observation.branch, 'active Work Package branch');
+    } catch {
+      const reason = 'active-work-owner-observation-invalid-branch';
+      unknowns.push(reason);
+      return unresolved(reason);
+    }
+  } else if (observation.branch !== null || observation.manifest !== null || observation.reason === null) {
+    const reason = 'active-work-owner-observation-invalid-terminal-shape';
+    unknowns.push(reason);
+    return unresolved(reason);
+  }
+  return {
+    state: observation.state,
+    branch: observation.branch,
+    manifest: observation.manifest,
+    reason: observation.reason
   };
 }
 
@@ -654,14 +683,12 @@ function resolvePruneConfiguration(
 }
 
 export function collectBranchLifecycleInventory(
-  input: Readonly<{
-    repositoryRoot: string;
-    remote?: string;
-    repositoryFullName?: string;
-    defaultBranch?: string;
-  }>
+  input: Readonly<BranchLifecycleInventoryScope>
 ): BranchLifecycleInventory {
-  const ctx: InventoryRuntime = input;
+  const activeWorkPackageObservation = input.activeWorkPackageObservation === undefined
+    ? undefined
+    : requireActiveWorkPackageOwnerObservation(input.activeWorkPackageObservation);
+  const ctx: InventoryRuntime = { ...input, activeWorkPackageObservation };
   const unknowns: string[] = [];
   const repositoryRoot = resolveRepositoryRoot(ctx);
   const commonDir = resolveCommonDir(ctx, repositoryRoot);
@@ -695,10 +722,11 @@ export function collectBranchLifecycleInventory(
   const pullRequests = fullName.startsWith('<unknown>')
     ? []
     : listPullRequests(ctx, repositoryRoot, fullName, physicalBranchIdentities, unknowns);
-  const activeWorkPackage = resolveActiveWorkPackage(
-    ctx,
-    repositoryRoot,
+  const activeWorkPackage = bindActiveWorkPackageObservation(
+    ctx.activeWorkPackageObservation,
+    fullName,
     defaultBranch,
+    remoteBranches.find(({ branch }) => branch === defaultBranch)?.sha ?? null,
     unknowns
   );
   const repositorySetting: BranchRepositorySettingObservation = fullName.startsWith('<unknown>')

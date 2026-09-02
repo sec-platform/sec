@@ -35,6 +35,10 @@ import {
   type MainHealthRuntimeAuthority
 } from '../main-health/work-selection-main-health.ts';
 import {
+  issueActiveWorkPackageOwnerObservation,
+  type ActiveWorkPackageOwnerObservation
+} from '../task/contract/active-work-observation.ts';
+import {
   CodexDevelopmentParseCurrentWorkPackageManifest,
   CodexDevelopmentWorkPackageManifestDigest
 } from '../task/contract/work-package.ts';
@@ -7471,6 +7475,88 @@ export async function resolveLiveControlPlane(
     }
     throw error;
   }
+}
+
+function strictRecord(value: unknown, label: string): Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${label} must be one object.`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function strictNonEmptyString(value: unknown, label: string): string {
+  if (typeof value !== 'string' || value.length === 0 || value.trim() !== value || value.includes('\0')) {
+    throw new Error(`${label} must be one non-empty trimmed string.`);
+  }
+  return value;
+}
+
+function strictOptionalSha(value: unknown, label: string): string | null {
+  if (value === undefined || value === null) return null;
+  const result = strictNonEmptyString(value, label);
+  if (!/^[0-9a-f]{40}$/u.test(result)) throw new Error(`${label} must be one lowercase Git SHA.`);
+  return result;
+}
+
+function issueActiveWorkObservation(
+  resolved: Readonly<Record<string, unknown>>
+): ActiveWorkPackageOwnerObservation {
+  const repository = strictRecord(resolved.repository, 'Resolved repository');
+  const workspace = strictRecord(resolved.workspace, 'Resolved workspace');
+  const active = strictRecord(resolved.activeWorkPackage, 'Resolved active Work Package');
+  const repositoryName = strictNonEmptyString(repository.fullName, 'Resolved repository.fullName');
+  const defaultBranch = strictNonEmptyString(repository.defaultBranch, 'Resolved repository.defaultBranch');
+  const observedAt = strictNonEmptyString(resolved.observedAt, 'Resolved observedAt');
+  if (!Number.isFinite(Date.parse(observedAt))) {
+    throw new Error('Resolved observedAt must be one ISO timestamp.');
+  }
+  const localDefaultSha = strictOptionalSha(repository.localDefaultSha, 'Resolved repository.localDefaultSha');
+  const liveDefaultSha = strictOptionalSha(repository.liveDefaultSha, 'Resolved repository.liveDefaultSha');
+  const state = active.state;
+  if (state !== 'active' && state !== 'none' && state !== 'invalid' && state !== 'unresolved') {
+    throw new Error('Resolved active Work Package state is invalid.');
+  }
+  const defaultSha = localDefaultSha !== null && localDefaultSha === liveDefaultSha
+    ? localDefaultSha
+    : null;
+  let branch: string | null = null;
+  let manifest: string | null = null;
+  let reason: string | null = null;
+  if (state === 'active') {
+    if (repository.defaultRefState !== 'fresh' || defaultSha === null) {
+      throw new Error('Active Work Package observation requires one fresh exact default ref.');
+    }
+    branch = strictNonEmptyString(workspace.branch, 'Resolved active Work Package branch');
+    if (branch === '(detached)' || branch === defaultBranch) {
+      throw new Error('Active Work Package branch must be one non-default candidate branch.');
+    }
+    manifest = strictNonEmptyString(active.manifest, 'Resolved active Work Package manifest');
+  } else {
+    reason = strictNonEmptyString(active.reason, 'Resolved active Work Package reason');
+    if (state === 'none' && (repository.defaultRefState !== 'fresh' || defaultSha === null)) {
+      throw new Error('No-active-work observation requires one fresh exact default ref.');
+    }
+  }
+  return issueActiveWorkPackageOwnerObservation({
+    repository: repositoryName,
+    defaultBranch,
+    defaultSha,
+    observedAt,
+    state,
+    branch,
+    manifest,
+    reason
+  });
+}
+
+/**
+ * Runs the documentation owner's live resolver and emits the sole opaque
+ * active-work observation accepted by production branch-lifecycle composition.
+ */
+export async function observeActiveWorkPackage(
+  cwd: string
+): Promise<ActiveWorkPackageOwnerObservation> {
+  return issueActiveWorkObservation(await resolveLiveControlPlane(cwd, { observeGitHub: false }));
 }
 
 async function resolveLiveControlPlaneWithGitReadSession(

@@ -37,6 +37,7 @@ import {
   CodexDevelopmentDurabilityBarrierError,
   CodexDevelopmentUnsafeAnchoredPathError,
   freezeDocumentControlPlane,
+  observeActiveWorkPackage,
   resolveLiveControlPlane,
   withDocumentControlHostCliTestSessionV1,
   type CodexDevelopmentDurabilityEvent,
@@ -48,6 +49,10 @@ import {
   createMainHealthRepairWorkPackagePath
 } from '../../src/control/main-health/contract.ts';
 import { compileMainHealthRepairDecision } from '../../src/control/main-health/repair.ts';
+import {
+  requireActiveWorkPackageOwnerObservation,
+  type ActiveWorkPackageOwnerObservation
+} from '../../src/control/task/contract/active-work-observation.ts';
 import { CodexDevelopmentWorkPackageManifestDigest } from '../../src/control/task/contract/work-package.ts';
 import {
   SEC_ROADMAP_WORK_CATALOG_BEGIN,
@@ -1075,6 +1080,20 @@ test('status resolves a published rolling projection as history after its exact 
       state: 'none',
       reason: 'matching-default-blob'
     });
+    const branchObservation = await observeActiveWorkPackage(fixture.repositoryRoot);
+    expect(requireActiveWorkPackageOwnerObservation(branchObservation)).toBe(branchObservation);
+    expect(branchObservation).toMatchObject({
+      repository: 'sec-platform/sec',
+      defaultBranch: 'main',
+      defaultSha: publishedSha,
+      state: 'none',
+      branch: null,
+      manifest: null,
+      reason: 'matching-default-blob'
+    });
+    expect(() => requireActiveWorkPackageOwnerObservation(
+      { ...branchObservation } as ActiveWorkPackageOwnerObservation
+    )).toThrow('active-work-owner-observation-not-issued');
   } finally {
     await fixture.dispose();
   }

@@ -3,5 +3,85 @@
   "externalEntrypoints": [
     "src/control/documentation/document-control-plane.ts",
     "src/control/documentation/doctor/cli.ts"
+  ],
+  "capabilityProviders": [
+    {
+      "capability": "documentation.active-work-observation",
+      "operations": [
+        "observeActiveWorkPackage",
+        "resolveLiveControlPlane"
+      ],
+      "effectKinds": [
+        "process",
+        "provider"
+      ],
+      "ownerInternalOperations": [
+        "resolveLiveControlPlane"
+      ],
+      "operationRoles": [
+        {
+          "operation": "observeActiveWorkPackage",
+          "role": "domain-owner",
+          "semanticOperation": "control.documentation.observe-active-work",
+          "requirementId": null,
+          "recovery": null
+        }
+      ]
+    }
+  ],
+  "operationObligations": [
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "documentation.active-work-observation",
+        "operation": "observeActiveWorkPackage"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "verification.ci"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "process",
+          "provider"
+        ],
+        "failureKinds": [
+          "active-work-observation-unavailable"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 60000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 33554432
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 33554432
+          },
+          {
+            "resource": "processes",
+            "maximum": 64
+          },
+          {
+            "resource": "records",
+            "maximum": 1
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    }
   ]
 }
