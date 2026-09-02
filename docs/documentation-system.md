@@ -31,11 +31,14 @@ DocumentationSystem =
 | 片段完备 | 每个片段声明 owner、边界、输入、输出与不拥有内容 | fragment-unbounded |
 | 递归可缩放 | 每个semantic scope有唯一containment parent或root；任意节点可独立折叠/展开 | scope-orphan/cycle |
 | 关系不降维 | containment、dependency、projection、generation、evolution分别typed | relation-overloaded |
+| 约束可组合 | 同一事实与约束集合以任意分组/顺序编译得到相同normal form与verdict | order-dependent-semantics |
 | 分区隔离 | stable knowledge、current control、machine state、proposal、immutable record不共用writer/lifecycle | corpus-kind-conflated |
 | 引用不复制 | 跨文档语义只使用 stable ID/owner key/typed ref | mirrored-truth |
 | 视图只读 | 导航、摘要、AI context、public docs均不能反写 owner | projection-authority |
 | 未知保留 | query、迁移和摘要必须保留 coverage/frontier/blocker | hidden-frontier |
 | 局部变更 | 一个owner fragment变化只重编reverse-reachable scopes/views/consumers | corpus-global-rebuild |
+| 读取显式 | parser/compiler的每个content、filesystem或external read都注册为query dependency | hidden-side-read |
+| 可发现性 | 每个可披露active fragment由至少一个purpose/root可达；刻意不可导航者有typed lifecycle/disclosure理由 | navigation-orphan |
 | 单代切换 | 文档移动或拆分只有一个 active canonical path | dual-canonical-path |
 | 可恢复迁移 | registry、文件、引用、生成投影原子读回后才完成 | documentation-migration-residue |
 
@@ -252,6 +255,33 @@ compileDocumentationGeneration(snapshot):
   read back exact bytes, graph digest and no-unclassified-source frontier
 ```
 
+graph facts与graph constraints分别编译；constraint不是藏在validator分支里的第二事实源：
+
+```text
+DocumentationConstraintShape = {
+  shapeRef,
+  targetPredicate,
+  requiredRelations,
+  forbiddenRelations,
+  cardinalityAndOrdering,
+  lifecycleAndDisclosurePredicate,
+  sourceConstraintRefs,
+  shapeDigest
+}
+
+DocumentationValidationResult = {
+  generationDigest,
+  shapeDigest,
+  focusNodeRef,
+  relationPath,
+  outcome: conforms | violates(code) | unresolved(frontierRef),
+  observationRefs,
+  resultDigest
+}
+```
+
+constraint composition必须满足交换、结合、幂等；同一constraint重复出现不能改变结果，输入枚举或并行顺序不能改变normal form。互相冲突的constraints返回typed conflict及最小冲突核，不能靠“后写覆盖前写”。每个compiler query只能通过声明的input/query dependency读取bytes、configuration、filesystem或external inventory；未登记side-read使该query与全部依赖shard不可复用并阻断freeze。
+
 ### 5.2 DocumentationGeneration 与 generated index
 
 ```text
@@ -295,6 +325,32 @@ compileAddress(descriptor, containment, policy, physicalCapability):
 ```
 
 同一`descriptor + containment + policy digest + platform capability`必须产生byte-equivalent address。同一scope内的document-local semantic key必须唯一；冲突直接拒绝，不能通过给既有文件重命名或依赖枚举顺序消解。新增无关sibling不能改变既有地址；move/reparent只改变address revision，不改变DocumentRef。compiler必须在Windows与repository canonical path语义上证明collision-free和bounded；presentation renderer限制不能反向修改semantic identity。
+
+### 5.4 Reference federation 与可发现性
+
+内部引用先在当前exact generation与scope中解析；跨corpus/project引用必须显式限定namespace并绑定目标inventory，禁止无限定`latest`、任意fallback或多候选择一：
+
+```text
+ReferenceNamespaceBinding = {
+  namespaceRef,
+  targetCorpusRef,
+  targetGenerationOrContractRevision,
+  referenceInventoryDigest,
+  schemaAndResolverDigest,
+  freshnessAndRetention,
+  disclosureCapabilityRef,
+  bindingDigest
+}
+
+resolveDocRef(sourceScope, ref, generation):
+  local ref       -> exactly one target in sourceScope resolution law
+  qualified ref   -> exactly one target in bound namespace inventory
+  absent          -> unresolved-reference
+  multiple/stale  -> ambiguous-or-stale-reference
+  unqualified external fallback -> forbidden
+```
+
+reference inventory只发布identity、kind、allowed display metadata、address projection和target revision；它不能复制目标正文或把外部内容升级为SEC Definition。每个active authored fragment必须满足`reachableFrom(documentation roots, at least one admitted purpose)`，或以`non-navigation(disclosure|ledger|record|retired)`给出可验证理由；文件存在、能被parser读取或被另一个fragment相对链接均不等于可发现性。
 
 ## 6. Read compiler
 
@@ -463,6 +519,8 @@ IncrementalRecompile(delta):
 
 缓存按document descriptor、scope closure、relation reverse index和rendered view分shard；cache hit必须重验schema/producer/key/content，不能靠path、mtime或进程内对象。相同ActionKey的full/incremental结果必须byte-equivalent；不等价使incremental provider不可用，不能静默退化成长期全量重扫。authoring循环只编译受影响slice，正式freeze/cutover对exact target generation做一次clean equivalence与readback。
 
+每个query定义为immutable `Key -> Value | TypedFrontier`；value只能依赖显式请求的keys。任何直接读取ambient environment、current filesystem、network、clock或process state的query都是未声明dependency，即使结果碰巧正确也必须拒绝。Effectful observation先由对应provider签发immutable input value，再进入pure graph；compiler本身不得把观察与推导混在同一callback。
+
 ## 8. Development coverage compiler
 
 文档系统不能靠维护者记住“还可能出什么问题”。coverage由规范化graph、operation和consumer生成；穷举空间先按typed applicability约束裁剪，再形成必须有disposition的cells，而不是维护另一份手写检查表。
@@ -606,6 +664,8 @@ DocumentationMigrationDesignReady =
 
 其中`frozen`指exact logical、implementation、conformance或evolution package已经取得对应Design Freeze receipt；不是“文档写到了这个名词”。任一项为open/unknown时只继续纯设计或bounded observation，禁止先移动一批文件再补schema/compiler。
 
+当上述predicate对documentation migration的最小完整slice成立、live authority/capability/resource可用，且其余global frontier与该slice可证明不相交时，migration scheduler必须立即发布该slice；不得等待全工程、全部domain或开放世界完成设计。若frontier相交则返回具体relation/cell，不能用“设计还没全部结束”作为阻塞理由。
+
 ```text
 DocumentationMigration = {
   exactCurrentGenerationDigest,
@@ -698,6 +758,9 @@ DocumentationGenerationClosed =
   and generated index/views are source-digest-bound and non-authoritative
   and every projection identifies its source and cannot own facts
   and all DocRefs and external references resolve with declared freshness
+  and every active fragment is purpose-reachable or has a typed non-navigation reason
+  and every compiler observation is an explicit query dependency with no ambient side-read
+  and constraint composition is order-independent with typed conflict cores
   and purpose-bound reads preserve coverage/blocker/unknown/frontier
   and applicable coverage cells are proven or explicitly unresolved
   and change publication is exact-generation CAS with recoverable settlement

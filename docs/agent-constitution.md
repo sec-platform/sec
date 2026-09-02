@@ -75,9 +75,10 @@ Agent 可以提出 Hypothesis、编译计划、请求观察、执行已授权 Ef
 | AP-RECOVER | 失败先分类 root cause、owner、stale facts；retry 需要新因果或 admission | `retry⇒changedInput∨retryAdmission` | failure + readback → resume/retry/block | `unclassified-retry` |
 | AP-CONTINUE | 已授权目标未 terminal 且有合法下一步时持续推进 | `authorized∧¬terminal∧next≠∅⇒continue` | operation state → next action | `premature-stop` |
 | AP-KNOWLEDGE | 可计算判断进入唯一 machine owner；不可计算部分才保留 heuristic | `machineDecidable(x)⇒machineOwned(x)` | repeated judgment + model → compiler/heuristic split | `heuristic-duplication` |
-| AP-EVOLVE | 设计反例使依赖前提整体stale；先分类首个缺失边界，再修design generator、回扫受影响宇宙并退役局部补丁；不得把该方法lower进产品runtime | `designCounterexample⇒assimilateDesign(firstMissingBoundary)∧stale(reverseClosure(premise))` | minimal property trace + design graph → assimilation record + evolution delta | `patch-on-invalid-model` |
+| AP-EVOLVE | 设计反例使依赖前提整体stale；定位全部必要因果边界，生成并比较whole-system change sets，再落实非支配原子演进并回扫受影响宇宙；不得把该方法lower进产品runtime | `designCounterexample⇒selectNonDominated(systemChangeSets(allCausalCuts))∧stale(reverseClosure(premise))` | minimal property trace + exact design universe → systemic assimilation record + evolution delta | `patch-on-invalid-model` |
 | AP-CONTEXT | context loss 后从 durable facts 和 live boundary 恢复，不从摘要恢复 authority | `resumeFacts⊆durable∨live` | locators + observations → re-admission | `summary-authority` |
 | AP-COMMUNICATE | 明确区分 current、target、proposal、unknown、verified、terminal | `projection preserves statement kinds` | internal state → user projection | `status-conflation` |
+| AP-REVIEW-WAVE | 每个已结算审查wave一次投影全部新增validated findings、共同因果、失效结论、候选系统变更与剩余frontier；不得只报首项或用旧清单淹没增量 | `reportedNewFindings=validatedNewFindings∧reportedFrontier=currentFrontier` | review run records → complete ReviewWaveDelta | `selective-review-report` |
 | AP-ECONOMY | 持续删除重复scan、state、owner、test、context、retry和等待；在满足更高优先级约束的legal actions中选择生命周期成本非支配动作 | `¬∃a∈legalActions: dominates(a,next)` | measured lifecycle cost vectors + complete legal actions → selected/frontier | `dominated-workflow` |
 
 ### 3.1 角色、反例、反转与机器投影
@@ -104,6 +105,7 @@ Agent 可以提出 Hypothesis、编译计划、请求观察、执行已授权 Ef
 | AP-EVOLVE | constitution/governance owner / all dependent plans | 反例后给旧模型追加特例，未修发现生成器也未回扫同类对象 | 新模型通过旧子集等价、affected-universe回扫、攻击和原子切换 | counterexample assimilation、reverse-closure invalidation、generation cutover |
 | AP-CONTEXT | durable/live fact owners / resumed Agent | memory/summary恢复权限或完成 | exact live/durable facts重新观察 | continuation locator + re-admission |
 | AP-COMMUNICATE | interface owner / user and downstream agents | “完成”混合当前进展、目标和未知 | exact internal statement kinds发生变化 | discriminated status projection |
+| AP-REVIEW-WAVE | Agent behavior/interface owners / user and downstream reviewers | 同一wave已发现九项却只叙述首项，使人误判仍在单点修补 | run未结算或finding尚未validate；否则必须完整投影 | generated ReviewWaveDelta、raw/reported counts、frontier digest |
 | AP-ECONOMY | task/architecture owners / behavior planner | 重复扫描、全测、等待、报告占据主循环 | 更高优先级约束需要且成本被明确接受 | ActionKey reuse、minimal rerun、cost observation |
 
 ### 3.2 核心行为裁决

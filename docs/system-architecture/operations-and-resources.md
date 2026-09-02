@@ -522,3 +522,32 @@ ResourceClaimAllowed(requirement, dimension) =
 - primary failure、settlement failure、residue和unknown必须分别保留，不能相互覆盖。
 
 锁、lease、CAS、actor、queue、worker、session和durable log只是满足这些性质的候选实现，由`docs/implementation-architecture.md`比较并选择。
+
+### 8.6 多方组合与涌现故障
+
+两个端点合同分别成立不证明整体组合成立。Composition Compiler从共享Subject、State、Provision、Resource ledger、Failure domain、Authority、Effect与Claim自动生成interaction hyperedges；只有真实多方不变量才由相应Product/Workflow composition owner接受，不能由任一参与Domain独占：
+
+```text
+InteractionHyperedge = {
+  participantOperationRefs,
+  sharedSubjectAndStateRefs,
+  sharedProvisionAndFailureDomainRefs,
+  sharedResourceAndAuthorityRefs,
+  ordering/commutativity/interference relation,
+  backpressure/fairness/termination obligations,
+  correlatedFailureAndRecovery obligations,
+  compositionOwnerRef,
+  interactionDigest
+}
+
+CompositionClosed(workflow) =
+  every participant contract closed
+  and every generated interaction hyperedge has an owned invariant or not-applicable proof
+  and wait-for/resource/authority graphs contain no illegal cycle or escalation
+  and concurrent traces are serializable, commutative, or explicitly compensated
+  and overload propagates bounded backpressure rather than retry amplification
+  and common-cause provider/process/credential/storage failure reaches typed terminal or residue
+  and fairness/liveness hold under declared scheduler and environment assumptions
+```
+
+必须生成的攻击至少包括deadlock/livelock、priority inversion、starvation、thundering herd、retry storm、split-brain、duplicate/late delivery、feedback oscillation、partial settlement、shared-provider outage与cascading resource exhaustion；“至少”由关系代数扩展，不是手写封闭清单。若一个所谓Workflow只有读取参与者private state或共享隐藏事务才能闭合，应重新比较合并DomainOperation、显式composition state、saga/compensation或删除该流程，而不是继续加锁。

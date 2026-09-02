@@ -47,6 +47,8 @@ flowchart LR
 ```text
 AdmittedEngineeringChange =
   PurposeValid
+  ∧ AcceptedOutcomeTracesReachable
+  ∧ RequiredFailureTracesPreserved
   ∧ SemanticDefinitionConsistent
   ∧ KnowledgeCoverageSufficient
   ∧ HardConstraintsSatisfied
@@ -66,6 +68,7 @@ AdmittedEngineeringChange =
 
 | ID | 规范句 | 形式谓词 | 编译 I/O | 拒绝 |
 | --- | --- | --- | --- | --- |
+| EP-OUTCOME | 合法设计必须兑现accepted用户结果；全拒绝、空成功或只保留控制面不构成实现 | `∀t∈RequiredSuccessTraces, reachableValidTerminal(t)` | accepted outcomes + candidate transition systems → preserved/reachable traces | `vacuous-safe-system` |
 | EP-IDENTITY | 语义身份独立于路径、标签、尝试和展示 | `SubjectId ⟂ Address,Label,Attempt` | definitions + observations → stable refs | `identity-alias` |
 | EP-TRUTH | projection、transport 和实现不能创造 authoritative meaning | `Authority(out)⊆⋃Authority(inputs)` | facts + issuers → claims/unknown | `truth-amplification` |
 | EP-OWNER | 每个 identity、writer、parser、resolver、terminal 只有一个 owner | `cardinality(owner,key)=1` | relation graph → owner DAG | `duplicate-owner` |
@@ -85,19 +88,22 @@ AdmittedEngineeringChange =
 | EP-DETERMINISM | 纯阶段对相同 exact inputs 产生相同语义 bytes | `sameInputs⇒sameOutput` | semantic inputs → projection | `nondeterministic-pure-output` |
 | EP-ECONOMY | 在满足更高优先级约束的完整候选中选择生命周期成本非支配方案 | `¬∃a∈validAlternatives: dominates(a,chosen)` | competing complete graphs + cost vectors → selected/frontier | `dominated-design` |
 
-### 2.1 原则优先级
+### 2.1 合取约束与取舍顺序
 
 ```text
-identity/truth/authority/durable-integrity
-  ≻ user-visible semantic correctness
-  ≻ recovery/settlement/proof
-  ≻ security/privacy/isolation
-  ≻ bounded resource/concurrency
-  ≻ compatibility/extensibility
-  ≻ performance/convenience/presentation
+NonNegotiable =
+  accepted user-visible success/failure traces
+  ∧ identity/truth/authority/durable-integrity
+  ∧ required security/privacy/isolation
+  ∧ recovery/settlement/proof obligations
+
+Optimize only among NonNegotiable candidates:
+  bounded resource/concurrency
+  + compatibility/extensibility required by accepted outcomes
+  + performance/operability/maintainability/economy
 ```
 
-低层优化不能补偿高层违反。平级冲突由产品取舍决定，不由实现方便或多数测试决定。
+任何一项hard constraint失败都不能被其他PASS抵消；`fail closed`只是非法或未知路径的failure semantics，不能代替合法输入上的业务成功。多个NonNegotiable候选之间才比较资源、性能、便利与生命周期成本；真实产品取舍由产品owner决定，不由实现方便或多数测试决定。
 
 ### 2.2 角色、反例、反转与机器投影
 
@@ -105,6 +111,7 @@ identity/truth/authority/durable-integrity
 
 | ID | issuer / consumers | 最小反例 | 合法反转条件 | machine projection |
 | --- | --- | --- | --- | --- |
+| EP-OUTCOME | Product/Domain / design and conformance compilers | 候选对所有请求都返回typed blocked，却宣称满足安全目标 | accepted outcome被authorized Product/Domain decision显式退役或收窄 | required trace coverage、non-vacuity model check、success/failure terminal partition |
 | EP-IDENTITY | engineering constitution / all identity consumers | 同 path 的替换对象被当成同一 Subject | owner-issued identity migration + consumer readback | branded identity、revision parser、ABA/alias rejection |
 | EP-TRUTH | engineering constitution / projection and evidence owners | formatter 或 process exit 生成成功 Claim | 新 authoritative observation/issuer 被显式绑定 | provenance lattice、non-amplification checker |
 | EP-OWNER | engineering constitution / architecture compiler | 两个 writer/parser/resolver 都称 canonical | 证明是两个不同 identity，或完成单 owner cutover | owner graph cardinality/cycle lint |

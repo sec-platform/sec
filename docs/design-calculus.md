@@ -116,6 +116,42 @@ Unknown      -/-> PositiveClaim
 
 只有显式、由 owner 定义并满足前置条件的 transition 才允许改变种类。
 
+### 2.3 行为、变异与认识边界
+
+离散确定性transition不是所有领域的唯一模型。Domain按accepted outcome选择最小充分behavior semantics；未适用的模式不进入其实现或验证闭包：
+
+```text
+BehaviorSemantics =
+  exact-function
+  | discrete-transition-system
+  | partial-order/concurrent
+  | continuous-or-hybrid-dynamics
+  | stochastic-distribution
+  | adversarial-game/environment
+  | adaptive-feedback-system
+
+Variation = declared set/distribution/environment behavior within Definition
+MeasurementUncertainty = bounded error/sampling/calibration limits of an Observation
+EpistemicUnknown = missing or unresolved knowledge outside proven coverage
+```
+
+三者不能互换：合法随机结果不是`Unknown`；未知provider或未观察输入不能用概率分布伪装；测量误差不能被平均值消除后宣称exact。随机源、时钟、外部环境、sampling procedure、population、confidence/error bound、calibration和drift policy都是适用Claim/Observation的显式输入。
+
+```text
+ClaimSemantics =
+  exact(predicate)
+  | bounded(predicate, envelope)
+  | temporal(safety, liveness, fairness)
+  | quantitative(metric, unit, tolerance)
+  | statistical(population, estimator, confidence, errorModel)
+  | robustness(environmentSet, invariant)
+  | relational(traceArity, observationPartition, relationPredicate)
+```
+
+Evidence只能支持同种或更弱的Claim：有限样本不能证明全称性质，bounded model exploration不能证明无限状态，simulation不能签发physical Effect completion。adaptive system还必须绑定model/data/policy revision、feedback delay、guardrails、distribution-shift detection、rollback/retirement和human authority；其运行Observation只能触发owner定义的evolution decision，不能自动改写Definition。
+
+`relational`拥有的是多条执行之间的性质，而不是把每条轨迹分别判为安全：noninterference、observational equivalence、constant-behavior、declassification与cross-tenant isolation都必须声明比较的trace元数、哪些输入允许不同、哪些观察对哪个principal可见，以及允许泄露的精确关系。单轨迹PASS、日志脱敏样例或两个独立运行结果不能证明relational Claim；验证器必须消费同一relation contract生成self-composition、product program或等价的多轨迹oracle，并把未覆盖输入对保留为frontier。
+
 ## 3. 正交关系与相互约束
 
 正交表示“回答不同问题、不能相互替代”；约束表示“一个维度的合法性可引用另一个维度的 exact 事实”。两者不是冲突：维度保持独立，合法性通过 typed reference 组合。
@@ -153,14 +189,29 @@ flowchart LR
 ### 3.1 约束组合
 
 ```text
-ConstraintResult = satisfied | violated(code, evidence) | unresolved(frontier)
+ConstraintResult =
+  satisfied
+  | violated(code, evidence)
+  | conflicted(minimalConstraintCore, provenance)
+  | unresolved(frontier)
 
 admit(target) iff
   all hard constraints(target) = satisfied
   and every unresolved frontier is disjoint from target dependencies
 ```
 
-硬约束不可投票：一个 authority、identity、durable integrity 或 evidence honesty 失败不能被多个 PASS 抵消。软偏好只在所有硬约束均满足的候选之间做 dominance 比较。
+硬约束不可投票：一个 authority、identity、durable integrity 或 evidence honesty 失败不能被多个 PASS 抵消。`violated`表示候选不满足一个可成立的constraint；`conflicted`表示当前accepted constraints本身不可同时满足，必须返回最小冲突核和各自provenance并回到有权Decision owner，不能靠输入顺序、优先级或last-write-wins暗选一方。软偏好只在所有硬约束均满足且无冲突的候选之间做 dominance 比较。
+
+```text
+combineConstraints(A, B) = canonical(normalize(A union B))
+
+require
+  combine(A,B) = combine(B,A)
+  combine(combine(A,B),C) = combine(A,combine(B,C))
+  combine(A,A) = combine(A)
+```
+
+所有领域compiler、文档compiler、policy compiler与architecture search必须复用这一结果代数；局部实现不得把`conflicted`降级成普通`violated`、`unresolved`或默认选择。
 
 ### 3.2 引用而非继承
 
