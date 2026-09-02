@@ -35,7 +35,6 @@ import {
   isCompiledRepositorySourceProgramModel
 } from './repository.ts';
 import {
-  compileSourceProgramTestBaselineEvidence,
   type SourceProgramTestDisposition,
   type SourceProgramTestDispositionProjection,
   type SourceProgramTestRegistration,
@@ -1520,12 +1519,10 @@ export function compileSourceProgramTestRetirementReceipt(
     ...input.baselineFiles.map(({ path }) => path),
     ...input.currentFiles.map(({ path }) => path)
   ]);
-  const censusByPath = new Map(compileSourceProgramTestBaselineEvidence(
-    baselineTestPaths,
-    input.baselineFiles.filter(({ path }) => isSecRepositoryTestModulePath(path)),
-    input.baseline.identity.sourceRevision,
-    input.currentFiles
-  ).map((evidence) => [evidence.path, evidence] as const));
+  const censusByPath = new Map(input.currentTestCompilation.dispositions.map((disposition) => [
+    disposition.path,
+    disposition.evidence.census
+  ] as const));
   const baselineTestsByPath = new Map<string, SourceProgramSupersessionTestUnit[]>();
   for (const test of input.baseline.tests) {
     const tests = baselineTestsByPath.get(test.path) ?? [];
@@ -1547,7 +1544,11 @@ export function compileSourceProgramTestRetirementReceipt(
       .sort(compareCodeUnits))
     : Object.freeze([] as string[]);
   const proofs = baselineTestPaths.map((testPath) => {
-    const evidence = censusByPath.get(testPath)!;
+    const census = censusByPath.get(testPath) ?? Object.freeze({
+      producerCount: 0,
+      consumerCount: 0,
+      externalContractCount: 1
+    });
     const baselineTests = Object.freeze([...(baselineTestsByPath.get(testPath) ?? [])]
       .sort((left, right) => compareCodeUnits(left.testId, right.testId)));
     const currentTests = Object.freeze([...(currentTestsByPath.get(testPath) ?? [])]
@@ -1571,9 +1572,9 @@ export function compileSourceProgramTestRetirementReceipt(
       ...currentTests.flatMap(({ testId, unknowns }) =>
         unknowns.map((unknown) => `current-registration:${testId}:${unknown}`))
     ].sort(compareCodeUnits));
-    const censusIsZero = evidence.census.producerCount === 0
-      && evidence.census.consumerCount === 0
-      && evidence.census.externalContractCount === 0;
+    const censusIsZero = census.producerCount === 0
+      && census.consumerCount === 0
+      && census.externalContractCount === 0;
     const reason: SourceProgramTestRetirementBlockReason | null = currentTestPaths.has(testPath)
       ? 'candidate-test-module-still-present'
       : !censusIsZero || consumerEvidence.length > 0
@@ -1588,7 +1589,7 @@ export function compileSourceProgramTestRetirementReceipt(
       status: reason === null ? 'retired' as const : 'blocked' as const,
       reason,
       baselineTestIds: Object.freeze(baselineTests.map(({ testId }) => testId)),
-      census: evidence.census,
+      census,
       observationClasses,
       consumerEvidence,
       unknownEvidence

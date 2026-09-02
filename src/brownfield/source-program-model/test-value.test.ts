@@ -9,6 +9,7 @@ import {
   compileSourceProgramTestValue,
   reconcileSourceProgramTestValueWithSupersession
 } from './test-value.ts';
+import { compileTypeScriptSourceProgramModel } from './typescript.ts';
 
 const repositoryRoot = process.cwd();
 const moduleMembership = Object.freeze({
@@ -36,6 +37,18 @@ function sourceRevisionFor(files: Readonly<Record<string, string>>): string {
   })));
 }
 
+function compileExactTypeScriptModel(files: readonly Readonly<{
+  path: string;
+  source: string;
+  contentDigest: string;
+}>[]) {
+  return compileTypeScriptSourceProgramModel({
+    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
+    files,
+    moduleMembership
+  });
+}
+
 function compile(
   files: Readonly<Record<string, string>>,
   missing: readonly string[] = [],
@@ -47,10 +60,12 @@ function compile(
     contentDigest: rawSha256(source)
   }));
   const sourceRevision = sourceRevisionFor(files);
+  const typeScriptModel = compileExactTypeScriptModel(sourceFiles);
   const model = compileRepositorySourceProgramModel({
     sourceRevision,
     files: sourceFiles,
     moduleMembership,
+    typescriptModel: typeScriptModel,
     unknowns: missing.map((path) => Object.freeze({
       code: 'working-tree-path-unreadable',
       path,
@@ -308,16 +323,33 @@ test('baseline Git census stays UNKNOWN without Source Program retirement proof'
     path,
     contentDigest
   })));
-  const baselineEvidence = compileSourceProgramTestBaselineEvidence(
-    baselinePaths,
-    baselineSources,
-    baselineRevision,
-    Object.entries(candidateFiles).map(([path, source]) => Object.freeze({
+  const candidateSourceFiles = Object.entries(candidateFiles).map(([path, source]) => Object.freeze({
       path,
       source,
       contentDigest: rawSha256(source)
-    }))
-  );
+    }));
+  const baselineEvidence = compileSourceProgramTestBaselineEvidence({
+    baselineTestPaths: baselinePaths,
+    baselineModel: compileExactTypeScriptModel(baselineSources),
+    candidateModel: compileExactTypeScriptModel(candidateSourceFiles),
+    baselineRevision
+  });
+  expect(baselineEvidence.map(({ observationStatus, observationReason }) => ({
+    observationStatus,
+    observationReason
+  }))).toEqual([
+    { observationStatus: 'resolved', observationReason: null },
+    { observationStatus: 'resolved', observationReason: null },
+    { observationStatus: 'resolved', observationReason: null }
+  ]);
+  expect(() => compile(candidateFiles, [], {
+    baselineTestPaths: baselinePaths,
+    baselineEvidence: [{
+      ...baselineEvidence[0],
+      observationStatus: 'unresolved',
+      observationReason: 'caller-invented-reason'
+    }]
+  })).toThrow('unresolved evidence requires one canonical reason');
   const result = compile(candidateFiles, [], {
     baselineTestPaths: baselinePaths,
     baselineEvidence
@@ -365,12 +397,12 @@ test('strict supersession receipt derives MERGE with exact replacement test ids'
   }));
   const initial = compile(candidateFiles, [], {
     baselineTestPaths: [baselinePath],
-    baselineEvidence: compileSourceProgramTestBaselineEvidence(
-      [baselinePath],
-      baselineFiles,
-      baselineRevision,
-      candidateSourceFiles
-    )
+    baselineEvidence: compileSourceProgramTestBaselineEvidence({
+      baselineTestPaths: [baselinePath],
+      baselineModel: compileExactTypeScriptModel(baselineFiles),
+      candidateModel: compileExactTypeScriptModel(candidateSourceFiles),
+      baselineRevision
+    })
   });
   const replacement = initial.records[0];
   expect(replacement).toBeDefined();

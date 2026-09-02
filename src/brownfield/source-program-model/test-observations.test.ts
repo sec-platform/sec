@@ -3,7 +3,10 @@ import { expect, test } from 'bun:test';
 import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { compileSecRepositoryModuleMembershipSnapshot } from '../../system-architecture/repository-modules/contract.ts';
 import { createSourceProgramCompilationOperation } from './compilation-operation.ts';
-import { compileSourceProgramTestObservations } from './test-observations.ts';
+import {
+  compileSourceProgramTestObservations,
+  observeSourceProgramTestContractCensus
+} from './test-observations.ts';
 import { compileTypeScriptSourceProgramModel } from './typescript.ts';
 
 function compileFixture(
@@ -67,6 +70,65 @@ test('test observation indexing consumes the enclosing compilation cancellation'
       ''
     ].join('\n')
   }, operation)).toThrow('source-program-compilation-cancelled:test-observations');
+});
+
+test('baseline contract census requires two exact compiler generations', () => {
+  const baselineSource = [
+    "import { test } from 'bun:test';",
+    "import { value } from '../src/example.ts';",
+    "test('value', () => value);",
+    ''
+  ].join('\n');
+  const candidateSource = 'export const value = 1;\n';
+  const baselineFiles = [Object.freeze({
+    path: 'tests/example.test.ts',
+    source: baselineSource,
+    contentDigest: rawSha256(baselineSource)
+  })];
+  const candidateFiles = [Object.freeze({
+    path: 'src/example.ts',
+    source: candidateSource,
+    contentDigest: rawSha256(candidateSource)
+  })];
+  const membership = Object.freeze({
+    descriptors: Object.freeze([]),
+    graphRoots: Object.freeze([]),
+    moduleRoots: Object.freeze([]),
+    moduleForPath: () => null
+  });
+  const compile = (files: typeof baselineFiles | typeof candidateFiles) =>
+    compileTypeScriptSourceProgramModel({
+      sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
+      files,
+      moduleMembership: membership
+    });
+  const baselineModel = compile(baselineFiles);
+  const candidateModel = compile(candidateFiles);
+
+  expect(observeSourceProgramTestContractCensus(
+    baselineModel,
+    candidateModel,
+    'tests/example.test.ts'
+  )).toEqual(expect.objectContaining({
+    status: 'resolved',
+    census: { producerCount: 0, consumerCount: 1, externalContractCount: 0 }
+  }));
+  expect(observeSourceProgramTestContractCensus(
+    { ...baselineModel },
+    candidateModel,
+    'tests/example.test.ts'
+  )).toEqual(expect.objectContaining({
+    status: 'unresolved',
+    reason: 'baseline-exact-generation-unavailable'
+  }));
+  expect(observeSourceProgramTestContractCensus(
+    baselineModel,
+    { ...candidateModel },
+    'tests/example.test.ts'
+  )).toEqual(expect.objectContaining({
+    status: 'unresolved',
+    reason: 'candidate-exact-generation-unavailable'
+  }));
 });
 
 test('lightweight test observations bind aliased imports to signed production declarations', () => {
