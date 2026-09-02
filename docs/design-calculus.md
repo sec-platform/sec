@@ -307,6 +307,7 @@ DesignInput = {
   nonGoals,
   classifiedStatements,
   exactObservations,
+  declaredUniverseAndCoverage,
   engineeringPrinciples,
   projectDecisions,
   domainDefinitions,
@@ -314,12 +315,16 @@ DesignInput = {
   resourceFacts,
   existingGraph,
   futureObligations,
+  candidateGenerators,
+  costAndDominanceCriteria,
   unknownFrontier
 }
 
 DesignVerdict = {
   status: admitted | blocked | proposal | retired,
+  coverageTensor,
   minimalCausalGraph,
+  candidateModels,
   objectDispositions,
   ownerDag,
   requirementDag,
@@ -330,6 +335,7 @@ DesignVerdict = {
   attackResults,
   unknownFrontier,
   lifecycleCost,
+  dominanceProof,
   reversalConditions
 }
 
@@ -342,9 +348,11 @@ ObjectDisposition =
 ```mermaid
 flowchart LR
   I[Classified input] --> O[Outcome closure]
-  O --> W[Exact world model]
-  W --> G[Minimal causal graph]
-  G --> D[Deletion counterfactual]
+  O --> W[Exact world and coverage model]
+  W --> Q[Requirement-space expansion]
+  Q --> Y[Competing architecture synthesis]
+  Y --> G[Minimal causal models]
+  G --> D[Deletion and replacement counterfactuals]
   D --> U[Owner/consumer assignment]
   U --> R[Requirement DAG]
   R --> P[Provision eligibility]
@@ -365,7 +373,10 @@ classify(statement, provenance) -> Statement | Unknown
 compileOutcome(decisions, constraints) -> OutcomeGraph | Conflict
 observe(port, requirement, budget) -> Observation | TypedFailure
 buildCausalGraph(outcome, observations, definitions) -> Graph + Unknown
+expandRequirementSpace(capabilities, dimensions, reachability) -> CoverageTensor
+synthesizeCompetingModels(requirements, existingGraph, providerFacts) -> CandidateModels
 counterfactualDelete(node, graph) -> OutcomeDelta + CostDelta + ObligationsDelta
+counterfactualReplace(model, alternative) -> TraceDelta + CostDelta + RiskDelta
 classifyNode(node) -> ObjectDisposition
 assignUniqueOwners(graph) -> OwnerDAG | DuplicateOwner
 compileRequirements(graph) -> RequirementDAG
@@ -380,6 +391,48 @@ compileEvolution(oldGraph, targetGraph, obligations) -> CutoverPlan | Blocked
 ```
 
 没有默认成功分支。所有闭集必须显式枚举；开放世界输入必须保存 `Unknown`。
+
+### 5.4 全局架构合成与递归自攻
+
+Design Compiler 不能只验证提交给它的单一方案；它必须从相同需求空间生成结构不同的竞争模型。至少覆盖下列 realization 轴，随后由 constraint、trace equivalence、全生命周期成本和 reversal 做 Pareto reduction：
+
+| 设计轴 | 必须比较的候选族 |
+| --- | --- |
+| existence | delete/derive/project、active implementation、bounded FutureObligation |
+| ownership | single domain owner、shared lower-level primitive、独立 platform owner、external owner |
+| composition | direct pure call、typed port、compiled workflow、policy-free microkernel、external workflow Provider |
+| state | stateless、ephemeral attempt、durable journal、external authoritative state |
+| execution | in-process、retained child process、durable local worker、remote Provider |
+| topology | centralized mechanism/decentralized policy、partitioned cells、distributed service |
+| reuse | no sharing、contract/algorithm/fact/port/provider/workflow-pattern reuse |
+| production | governed-authored、deterministic-generated、mature external capability |
+| evolution | atomic replacement、bounded migration、retirement、typed unavailable |
+
+不存在“默认选最抽象、最集中、最少文件或最新工具”。候选只有在全部 hard constraints 成立、业务 trace 不弱化、unknown 未越界，并且在 owner/scan/state/test/context/resource/recovery/maintenance 成本上非支配时才可接受。开放世界不能证明绝对全局最优；可声称的最强结论是：
+
+```text
+DesignOptimalWithinCoverage =
+  exact declared universe
+  ∧ generated requirement/alternative coverage
+  ∧ no known hard-constraint violation
+  ∧ Pareto non-dominated among generated candidates
+  ∧ explicit bounded unknown and reversal frontier
+```
+
+架构系统自身也是被设计的 Subject，必须递归通过同一闭包：
+
+```text
+ReflexiveArchitectureClosure(A) =
+  BusinessCapabilityClosure(A)
+  ∧ counterfactualDelete(A components)
+  ∧ competingMetaModelSynthesis(A)
+  ∧ implementationRefinementTotal(A)
+  ∧ all runtime controls trace to A inputs
+  ∧ independent verification of A claims
+  ∧ bounded meta-model evolution
+```
+
+任何反例证明 active calculus、coverage dimensions、fault families、compiler stages、entity/relation grammar 或实现机制缺项时，依赖该假设的 DesignPackage、ImplementationPlan、tests 与 Evidence 全部 stale。修复顺序是扩展唯一 meta-model、验证旧可表达子集等价、重编所有受影响 projection，再迁移/退役旧 generation；禁止只在发生反例的 domain 追加字段、检查或 Skill。
 
 ## 6. Operation 与 Effect 参考模型
 
@@ -672,6 +725,8 @@ flowchart LR
 validateDesignPackage(package):
   assert exactSchema(package)
   assert everyAcceptedCapabilityHasGeneratedConcernAndFaultClosure(package)
+  assert candidateModelsCoverEveryApplicableRealizationAxis(package)
+  assert everySelectedModelHasDominanceProofAndReversal(package)
   assert acyclic(package.ownerDag, package.referenceGraph)
   assert uniqueOwners(package.identities, writers, parsers, resolvers, terminals)
   assert everyRuntimeControlTracesToAcceptedDefinitionOrExactObservation(package)
@@ -683,6 +738,7 @@ validateDesignPackage(package):
   assert everyAuthoredOrPublicNodeHasComplexityExistenceProof(package)
   assert counterfactualDeletionAndReuseAlternativesAreEvaluated(package)
   assert allApplicableFaultFamiliesHaveExpectedTerminalTrace(package)
+  assert reflexiveArchitectureClosure(package.metaModelAndCompiler)
   assert modelCheck(safety, liveness, determinism, recovery, evolution, economy)
   assert projectionsPreserveMeaning(package)
 ```
@@ -709,6 +765,8 @@ DesignClosed =
   ∧ minimal causal graph is complete within declared coverage
   ∧ every identity/parser/writer/resolver/terminal has one owner
   ∧ every accepted capability has generated concern/fault closure
+  ∧ every applicable realization axis has competing candidates
+  ∧ every selected model has dominance proof and reversal
   ∧ every runtime control traces to accepted Definition or exact Observation
   ∧ every Effect has grant, binding, allocation, settlement and recovery
   ∧ every Claim has proof semantics and independence requirements
@@ -716,6 +774,7 @@ DesignClosed =
   ∧ every future abstraction has accepted obligation or is removed
   ∧ every authored/public node has an existence proof and deletion counterfactual
   ∧ all fault families applicable to the graph have expected outcomes
+  ∧ active meta-model/compiler passes reflexive architecture closure
   ∧ safety/liveness/determinism/recovery/evolution/economy are checked
   ∧ project projections reference rather than copy this calculus
 ```

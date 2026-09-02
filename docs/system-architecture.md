@@ -149,7 +149,28 @@ BusinessCapabilityClosure =
   + unknown/reversal
 ```
 
-Architecture Coverage Compiler 对 `accepted capabilities × concern families × applicable fault families` 生成 obligation matrix：
+Architecture Coverage Compiler 不是只遍历 concern 清单，而是生成并按可达性裁剪需求张量：
+
+```text
+ArchitectureCoverageTensor = applicable(
+  ProductCapability
+  × Actor/Principal/Responsibility
+  × Subject/Data/State
+  × LifecyclePhase
+  × DomainOperation/Workflow/Effect
+  × Trust/Authority/ExternalBoundary
+  × Capability/Provider/ResourceDimension
+  × Environment/Platform/Scale/Topology
+  × ConcernFamily
+  × FaultFamily
+  × EvolutionState
+  × Interface/Claim/Consumer
+)
+```
+
+不是实际建立无穷笛卡尔积：relation reachability、Definition、not-applicable proof 和 closed discriminants先删除不可达组合；dynamic/opaque/external 项进入 explicit frontier。维度新增或某个值的可达性变化会使依赖旧 coverage digest 的 DesignPackage stale。
+
+Compiler 对每个 applicable cell 生成 obligation matrix：
 
 | Cell status | 含义 |
 | --- | --- |
@@ -267,7 +288,7 @@ flowchart LR
 | S3 | owner Definitions、S2 facts、adoption rules | semantic claims/conflicts/unknown frontier | provider choice、write plan |
 | S4 | semantics + actual consumer/effect/state/recovery facts | Responsibility Cells + Owner DAG + public demand | placement、attempt、terminal |
 | S5 | intent、Cell/DAG、invariants、Claim definitions | OperationKey + Requirement DAG + pure Plan + obligations | discovery、lease、Effect |
-| S6 | Plan、Grants、eligible Provisions、parent ledger | exact Bindings + child Allocations + attempt admission | business success、Evidence |
+| S6 | PurePlan、Grants、eligible Provisions、parent ledger | exact ExecutionPlan + root Allocation + AdmittedExecution | business success、Evidence |
 | S7 | admitted attempt、retained bindings、allocations | Effect observations + settlements + residue + readback | new Definition/Grant |
 | S8 | Claims、S7 facts、exact environment | typed Results + Evidence + invalidation | mutation、merge/publish authority |
 | S9 | accepted Result、materialization/evolution contract | artifact/projection/cutover/retirement receipt | upstream identity rewrite |
@@ -442,7 +463,7 @@ flowchart LR
 | Resource planner/ledger | parent allocation、remaining、return | admitted requirement/binding | 业务优先级、重新定义 timeout |
 | Operation coordinator | admitted Requirement DAG 的启动、join、settlement 收集 | immutable plan/bindings/allocations | 新增步骤、重算 policy、解释业务 terminal |
 | Scheduler | ready-set 内满足资源/并发约束的次序 | DAG readiness、ledger、scheduling policy | 改 DAG、跳过 blocker、生成 Authority |
-| Capability provider | 一个 bounded primitive/外部 capability attempt | EffectTicket、retained binding、allocation | domain intent/decision/success |
+| Capability provider | 一个 bounded observation/Effect primitive或外部 capability attempt | ObservationTicket/EffectTicket、retained binding、allocation | domain intent/decision/success |
 | State/journal owner | legal transition、CAS、attempt/terminal/residue record | domain transition + physical observation | 自造 grant、把记录存在当成功 |
 | Domain operation owner | settlement + independent readback 到 domain result/recovery | provider/state facts | 独立 Evidence verdict |
 | Verification owner | exact Claim 与 independent Evidence 的 verdict | result/readback/evidence | mutation、retry、merge Authority |
@@ -471,13 +492,15 @@ flowchart LR
 
 ```text
 WorkflowDefinition  = logical operations + dependencies + guards + compensation semantics
+PurePlan            = typed requirements/effects/readback/result DAG; no provider/grant/allocation
 ControlDecision     = current transition admissible | rejected | unresolved
-ExecutionPlan       = exact bindings + allocations + ready-set/scheduling constraints
+ExecutionPlan       = exact workflow/operation plan + bindings + resource demands + ready constraints
+AdmittedExecution   = exact plan + live grants + one root allocation + epoch
 AttemptJournal      = observed starts/progress/settlements/residue
 DomainResult        = operation semantics applied to settlement + independent readback
 ```
 
-五者具有不同 identity/revision/owner。WorkflowDefinition 可以跨 Provider 保持不变；ExecutionPlan 随 Binding/Resource facts 变化；AttemptJournal 只记录一个 execution epoch；DomainResult 不能由 Coordinator、Scheduler 或 journal formatter构造。
+七者具有不同 identity/revision/owner。WorkflowDefinition 与 PurePlan 可以跨 Provider 保持不变；ExecutionPlan 随 Binding/Resource facts 变化；AdmittedExecution 随 grant/allocation/epoch变化；AttemptJournal 只记录一个 execution epoch；DomainResult 不能由 Coordinator、Scheduler 或 journal formatter构造。
 
 #### 8.2.1 Workflow algebra
 
@@ -536,7 +559,7 @@ action kind 至少区分 `observe | decide | plan | execute-effect | verify | pu
 | issuer | 对 exact subject/epoch 签发、撤销、过期 grant | 执行 Effect、证明结果 |
 | delegation compiler | 证明 child scope/time/actions 是 parent 的子集 | 扩权、换 principal/subject |
 | admission owner | 将 live grant 与 Plan/Binding/Allocation/preimage 相交 | 修改 policy、补签 grant |
-| capability provider | 只消费不可伪造 EffectTicket 执行 bounded attempt | 从可执行能力反推权限 |
+| capability provider | 只消费不可伪造 ObservationTicket/EffectTicket执行bounded attempt | 从可执行能力反推权限 |
 | state/audit owner | 记录 issuance/use/revocation/settlement/retirement | 以记录存在代替授权或成功 |
 
 Skill、AI、测试、文件所有权、PATH、credential possession、Provider availability、缓存、DesignPackage、Workflow 或 caller DTO 均不能签发 Authority。授权响应丢失时只允许 issuer/state readback；不得因 caller “应该有权限”重新签发或执行。
