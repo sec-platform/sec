@@ -3,13 +3,16 @@ import { expect, test } from 'bun:test';
 import {
   executeGitHubApiOperation,
   inspectGitHubApiCapability,
+  type GitHubApiCapability,
+  type GitHubApiPrincipal
+} from '../../src/external-capabilities/github-api/operation-session.ts';
+import {
   issueGitHubApiTestCapability,
   withGitHubApiTestEnrollmentSession,
   withGitHubApiTestSession,
-  type GitHubApiCapability,
-  type GitHubApiPrincipal,
   type GitHubApiTransport
-} from '../../src/external-capabilities/github-api/operation-session.ts';
+} from '../../src/external-capabilities/github-api/test/operation-session.ts';
+import { compileSecRepositoryModuleGraph } from '../../src/system-architecture/repository-modules/contract.ts';
 
 const TOKEN = 'test-token-0123456789';
 const SHA = '1'.repeat(40);
@@ -33,6 +36,21 @@ function capability(input: Readonly<{
     transport: input.transport
   });
 }
+
+test('production surface excludes test issuers and the repository graph rejects their import', async () => {
+  const production = await import('../../src/external-capabilities/github-api/operation-session.ts');
+  expect(Object.keys(production).sort()).not.toContain('issueGitHubApiTestCapability');
+  expect(Object.keys(production).sort()).not.toContain('withGitHubApiTestSession');
+  expect(() => compileSecRepositoryModuleGraph({
+    files: [
+      'src/external-capabilities/github-api/production-consumer.ts',
+      'src/external-capabilities/github-api/test/operation-session.ts'
+    ],
+    readSource: (file) => file.endsWith('/production-consumer.ts')
+      ? "import { issueGitHubApiTestCapability } from './test/operation-session.ts';"
+      : 'export const issueGitHubApiTestCapability = true;'
+  })).toThrow('production repository module imports test-only module');
+});
 
 test('owner-issued operation compiles one fixed api.github.com request and keeps credential internal', async () => {
   const observations: Array<Readonly<{ url: string; init: RequestInit | undefined }>> = [];
