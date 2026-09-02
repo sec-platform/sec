@@ -18,6 +18,7 @@ export const DOCUMENTATION_VIEW_SCHEMA = 'sec-documentation-view' as const;
 export type DocumentationClauseKind =
   | 'stable-decision'
   | 'temporary-safety-denial'
+  | 'non-normative-explanation'
   | 'untyped-observation';
 export type DocumentationAdmission = 'eligible' | 'blocked' | 'unknown' | 'not-applicable';
 export type DocumentationViewKind = 'compact-agent' | 'full-human' | 'admission-obligation';
@@ -198,7 +199,9 @@ function parseDirective(source: string, label: string): ClauseDirective {
   if (keys.length !== 2 || keys[0] !== 'blocker' || keys[1] !== 'kind') {
     fail(`${label} keys must be exactly blocker and kind.`);
   }
-  if (record.kind !== 'stable-decision' && record.kind !== 'temporary-safety-denial') {
+  if (record.kind !== 'stable-decision'
+      && record.kind !== 'temporary-safety-denial'
+      && record.kind !== 'non-normative-explanation') {
     fail(`${label}.kind is unsupported.`);
   }
   const blocker = record.blocker === null ? null : token(record.blocker, `${label}.blocker`);
@@ -207,6 +210,9 @@ function parseDirective(source: string, label: string): ClauseDirective {
   }
   if (record.kind === 'stable-decision' && blocker !== null) {
     fail(`${label} stable decision cannot carry one runtime blocker.`);
+  }
+  if (record.kind === 'non-normative-explanation' && blocker !== null) {
+    fail(`${label} non-normative explanation cannot carry one runtime blocker.`);
   }
   return Object.freeze({ kind: record.kind, blocker });
 }
