@@ -9,7 +9,7 @@ last-reviewed: 2026-08-11
 
 本提案只记录历史 umbrella Run Kernel 如何被 canonical owners 吸收并最终退役，不拥有当前
 架构、运行状态或实现顺序。正式边界分别位于 `docs/system-architecture.md`、
-`docs/development-governance.md`、`docs/verification-governance.md` 与 `docs/roadmap.md`。
+`docs/development-governance.md`、`docs/verification-governance.md` 与 `docs/roadmap/capability-dag.md`。
 
 ## 适配裁决
 

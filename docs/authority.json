@@ -13,6 +13,7 @@
         "compiler-target-ir",
         "design-calculus",
         "docs-index",
+        "documentation-system",
         "engineering-constitution",
         "implementation-architecture",
         "product",
@@ -58,6 +59,25 @@
       "projects": []
     },
     {
+      "id": "documentation-system",
+      "path": "docs/documentation-system.md",
+      "kind": "authority",
+      "domain": "documentation",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "documentation.compilation",
+        "documentation.fragmentation",
+        "documentation.migration",
+        "documentation.projection",
+        "documentation.quality",
+        "documentation.structure"
+      ],
+      "projects": [
+        "documentation-registry"
+      ]
+    },
+    {
       "id": "design-calculus",
       "path": "docs/design-calculus.md",
       "kind": "authority",
@@ -65,12 +85,34 @@
       "lifecycle": "stable",
       "dynamicPolicy": "forbidden",
       "owns": [
-        "design.admission",
         "design.constraint",
-        "design.evolution",
         "design.principle-language",
-        "design.relation-algebra",
+        "design.relation-algebra"
+      ],
+      "projects": []
+    },
+    {
+      "id": "design-calculus-compilation",
+      "path": "docs/design-calculus/compilation.md",
+      "kind": "authority",
+      "domain": "design-calculus",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "design.admission",
         "design.simulation"
+      ],
+      "projects": []
+    },
+    {
+      "id": "design-calculus-freeze-evolution",
+      "path": "docs/design-calculus/freeze-and-evolution.md",
+      "kind": "authority",
+      "domain": "design-calculus",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "design.evolution"
       ],
       "projects": []
     },
@@ -83,17 +125,39 @@
       "dynamicPolicy": "forbidden",
       "owns": [
         "engineering.authority",
-        "engineering.capability",
-        "engineering.derivation",
-        "engineering.effect",
-        "engineering.evolution",
         "engineering.identity",
         "engineering.ownership",
-        "engineering.proof",
-        "engineering.recovery",
-        "engineering.resource",
         "engineering.structure",
         "engineering.truth"
+      ],
+      "projects": []
+    },
+    {
+      "id": "engineering-operation-runtime",
+      "path": "docs/engineering-constitution/operation-runtime.md",
+      "kind": "authority",
+      "domain": "engineering-constitution",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "engineering.capability",
+        "engineering.effect",
+        "engineering.recovery",
+        "engineering.resource"
+      ],
+      "projects": []
+    },
+    {
+      "id": "engineering-proof-evolution",
+      "path": "docs/engineering-constitution/proof-and-evolution.md",
+      "kind": "authority",
+      "domain": "engineering-constitution",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "engineering.derivation",
+        "engineering.evolution",
+        "engineering.proof"
       ],
       "projects": []
     },
@@ -106,12 +170,34 @@
       "dynamicPolicy": "forbidden",
       "owns": [
         "agent.action-admission",
-        "agent.adversarial-reasoning",
         "agent.continuation",
+        "agent.epistemics"
+      ],
+      "projects": []
+    },
+    {
+      "id": "agent-execution-recovery",
+      "path": "docs/agent-constitution/execution-and-recovery.md",
+      "kind": "authority",
+      "domain": "agent-constitution",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "agent.adversarial-reasoning",
         "agent.delegation",
-        "agent.epistemics",
         "agent.knowledge-crystallization",
-        "agent.recovery",
+        "agent.recovery"
+      ],
+      "projects": []
+    },
+    {
+      "id": "agent-self-correction",
+      "path": "docs/agent-constitution/self-correction.md",
+      "kind": "authority",
+      "domain": "agent-constitution",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
         "agent.self-correction"
       ],
       "projects": []
@@ -133,16 +219,30 @@
     },
     {
       "id": "roadmap",
-      "path": "docs/roadmap.md",
+      "path": "docs/roadmap/capability-dag.md",
       "kind": "authority",
       "domain": "roadmap",
-      "lifecycle": "active",
+      "lifecycle": "stable",
       "dynamicPolicy": "forbidden",
       "owns": [
         "delivery.exit-criteria",
         "delivery.stage-dag"
       ],
       "projects": []
+    },
+    {
+      "id": "work-selection-catalog",
+      "path": "docs/roadmap.md",
+      "kind": "control",
+      "domain": "current-control",
+      "lifecycle": "active",
+      "dynamicPolicy": "control",
+      "owns": [
+        "control.work-selection-catalog"
+      ],
+      "projects": [
+        "roadmap"
+      ]
     },
     {
       "id": "system-architecture",
@@ -152,11 +252,33 @@
       "lifecycle": "stable",
       "dynamicPolicy": "forbidden",
       "owns": [
-        "architecture.authority-flow",
         "architecture.cross-domain-reference",
-        "architecture.layering",
-        "architecture.maturity",
+        "architecture.layering"
+      ],
+      "projects": []
+    },
+    {
+      "id": "system-architecture-operations-resources",
+      "path": "docs/system-architecture/operations-and-resources.md",
+      "kind": "authority",
+      "domain": "system-architecture",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "architecture.authority-flow",
         "architecture.single-writer"
+      ],
+      "projects": []
+    },
+    {
+      "id": "system-architecture-lifecycle-proof-evolution",
+      "path": "docs/system-architecture/lifecycle-proof-and-evolution.md",
+      "kind": "authority",
+      "domain": "system-architecture",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "architecture.maturity"
       ],
       "projects": []
     },
@@ -168,14 +290,60 @@
       "lifecycle": "stable",
       "dynamicPolicy": "forbidden",
       "owns": [
+        "implementation.architecture"
+      ],
+      "projects": []
+    },
+    {
+      "id": "implementation-architecture-model-boundaries",
+      "path": "docs/implementation-architecture/model-and-boundaries.md",
+      "kind": "authority",
+      "domain": "implementation-architecture",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "implementation.entity-realization"
+      ],
+      "projects": []
+    },
+    {
+      "id": "implementation-architecture-source-generation",
+      "path": "docs/implementation-architecture/source-and-generation.md",
+      "kind": "authority",
+      "domain": "implementation-architecture",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
         "architecture.workspace-zones",
-        "implementation.architecture",
         "implementation.change-locality",
-        "implementation.entity-realization",
         "implementation.intent-compilation",
         "implementation.manual-provider",
         "implementation.placement",
-        "implementation.source-generation",
+        "implementation.source-generation"
+      ],
+      "projects": []
+    },
+    {
+      "id": "implementation-architecture-execution-materialization",
+      "path": "docs/implementation-architecture/execution-and-materialization.md",
+      "kind": "authority",
+      "domain": "implementation-architecture",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "implementation.execution-runtime"
+      ],
+      "projects": []
+    },
+    {
+      "id": "implementation-architecture-migration-conformance",
+      "path": "docs/implementation-architecture/migration-and-conformance.md",
+      "kind": "authority",
+      "domain": "implementation-architecture",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "implementation.conformance",
         "implementation.transition"
       ],
       "projects": []
@@ -305,13 +473,35 @@
       "lifecycle": "stable",
       "dynamicPolicy": "forbidden",
       "owns": [
-        "runtime.distribution",
         "runtime.environment",
         "runtime.host-profile",
-        "runtime.implementation-materialization",
         "runtime.layout",
-        "runtime.support",
         "runtime.toolchain"
+      ],
+      "projects": []
+    },
+    {
+      "id": "runtime-dependency-materialization",
+      "path": "docs/runtime-and-distribution/dependency-materialization.md",
+      "kind": "authority",
+      "domain": "runtime-distribution",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "runtime.implementation-materialization"
+      ],
+      "projects": []
+    },
+    {
+      "id": "runtime-distribution-support",
+      "path": "docs/runtime-and-distribution/distribution-and-support.md",
+      "kind": "authority",
+      "domain": "runtime-distribution",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "runtime.distribution",
+        "runtime.support"
       ],
       "projects": []
     },
@@ -342,16 +532,38 @@
       "dynamicPolicy": "forbidden",
       "owns": [
         "verification.aggregate",
-        "verification.applicability",
         "verification.claim",
-        "verification.environment",
-        "verification.evidence",
         "verification.gate",
-        "verification.implementation-conformance",
         "verification.layering",
-        "verification.merge-authority",
-        "verification.provenance",
         "verification.result"
+      ],
+      "projects": []
+    },
+    {
+      "id": "verification-execution-session",
+      "path": "docs/verification-governance/execution-and-session.md",
+      "kind": "authority",
+      "domain": "verification-governance",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "verification.applicability",
+        "verification.environment"
+      ],
+      "projects": []
+    },
+    {
+      "id": "verification-evidence-integration",
+      "path": "docs/verification-governance/evidence-and-integration.md",
+      "kind": "authority",
+      "domain": "verification-governance",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "verification.evidence",
+        "verification.implementation-conformance",
+        "verification.merge-authority",
+        "verification.provenance"
       ],
       "projects": []
     },
@@ -363,15 +575,37 @@
       "lifecycle": "stable",
       "dynamicPolicy": "forbidden",
       "owns": [
+        "development.fact-sources",
+        "development.plan-layering",
+        "development.roles"
+      ],
+      "projects": []
+    },
+    {
+      "id": "development-work-authoring",
+      "path": "docs/development-governance/work-and-authoring.md",
+      "kind": "authority",
+      "domain": "development-governance",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
         "development.agent-operation",
         "development.external-capability-governance",
-        "development.fact-sources",
         "development.operation-envelope",
-        "development.plan-layering",
-        "development.resume",
-        "development.roles",
         "development.skill",
         "development.work-package"
+      ],
+      "projects": []
+    },
+    {
+      "id": "development-recovery-closeout",
+      "path": "docs/development-governance/recovery-and-closeout.md",
+      "kind": "authority",
+      "domain": "development-governance",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "development.resume"
       ],
       "projects": []
     },

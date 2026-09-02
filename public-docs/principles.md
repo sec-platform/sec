@@ -691,7 +691,7 @@ caller capability
 
 **反例**：标准化公共协议有时需要先定义接口再等生态 consumer，但这也是明确产品战略和外部 contract，不是“可能以后有用”。
 
-**owner**：`docs/roadmap.md`、`docs/system-architecture.md`。
+**owner**：`docs/roadmap/capability-dag.md`、`docs/system-architecture.md`。
 
 ---
 
