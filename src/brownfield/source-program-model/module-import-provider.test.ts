@@ -60,10 +60,31 @@ test('compiler syntax preserves import kinds and every precompilation reference 
   ].join('\n'));
 
   expect(imports).toEqual([
-    { kind: 'dynamic', specifier: './dynamic.ts' },
-    { kind: 'require', specifier: './required.ts' },
-    { kind: 'static', specifier: './static.ts' },
-    { kind: 'static', specifier: 'es2022' },
-    { kind: 'static', specifier: 'node' }
+    { kind: 'dynamic', specifier: './dynamic.ts', typeOnly: false },
+    { kind: 'require', specifier: './required.ts', typeOnly: false },
+    { kind: 'static', specifier: './static.ts', typeOnly: false },
+    { kind: 'static', specifier: 'es2022', typeOnly: true },
+    { kind: 'static', specifier: 'node', typeOnly: true }
+  ]);
+});
+
+test('runtime closure excludes type-only edges while compile impact retains them', () => {
+  const graph = compileFixture({
+    'src/example/main.ts': [
+      "import type { CompileFact } from './types.ts';",
+      "import { run } from './runtime.ts';",
+      'export const value: CompileFact = run();',
+      ''
+    ].join('\n'),
+    'src/example/types.ts': 'export type CompileFact = string;\n',
+    'src/example/runtime.ts': "export function run(): string { return 'ready'; }\n"
+  });
+
+  expect(graph.directDependencies('src/example/main.ts')).toEqual([
+    'src/example/runtime.ts',
+    'src/example/types.ts'
+  ]);
+  expect(graph.directRuntimeDependencies('src/example/main.ts')).toEqual([
+    'src/example/runtime.ts'
   ]);
 });

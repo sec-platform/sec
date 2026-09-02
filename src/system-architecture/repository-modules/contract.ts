@@ -162,12 +162,14 @@ export type SecModuleImportKind =
 export type SecRepositoryModuleGraphImport = Readonly<{
   readonly kind: SecModuleImportKind;
   readonly specifier: string;
+  readonly typeOnly: boolean;
 }>;
 
 export type SecRepositoryModuleGraphReference = Readonly<{
   readonly from: string;
   readonly kind: SecModuleImportKind;
   readonly specifier: string;
+  readonly typeOnly: boolean;
   readonly candidateTargets: readonly string[];
   readonly resolvedTarget: string | null;
 }>;
@@ -178,6 +180,7 @@ export type SecRepositoryModuleGraph = Readonly<{
   readonly unresolvedFiles: readonly string[];
   readonly directConsumers: (modulePath: string) => readonly string[];
   readonly directDependencies: (modulePath: string) => readonly string[];
+  readonly directRuntimeDependencies: (modulePath: string) => readonly string[];
 }>;
 
 export type SecRepositoryModuleBoundaryViolationCode =
@@ -1121,23 +1124,38 @@ export function scanSecRepositoryModuleImports(
     ts.ScriptKind.TS
   );
   const imports: SecRepositoryModuleGraphImport[] = [];
-  const add = (kind: SecModuleImportKind, specifier: string): void => {
-    imports.push(Object.freeze({ kind, specifier }));
+  const add = (kind: SecModuleImportKind, specifier: string, typeOnly = false): void => {
+    imports.push(Object.freeze({ kind, specifier, typeOnly }));
   };
   for (const reference of [
     ...sourceFile.referencedFiles,
     ...sourceFile.typeReferenceDirectives,
     ...sourceFile.libReferenceDirectives
-  ]) add('static', reference.fileName);
+  ]) add('static', reference.fileName, true);
   const visit = (node: ts.Node): void => {
     if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
         && node.moduleSpecifier !== undefined && ts.isStringLiteralLike(node.moduleSpecifier)) {
-      add('static', node.moduleSpecifier.text);
+      const typeOnly = ts.isImportDeclaration(node)
+        ? node.importClause !== undefined && (
+            node.importClause.isTypeOnly
+            || (node.importClause.name === undefined
+              && node.importClause.namedBindings !== undefined
+              && ts.isNamedImports(node.importClause.namedBindings)
+              && node.importClause.namedBindings.elements.length > 0
+              && node.importClause.namedBindings.elements.every((element) => element.isTypeOnly))
+          )
+        : node.isTypeOnly || (
+            node.exportClause !== undefined
+            && ts.isNamedExports(node.exportClause)
+            && node.exportClause.elements.length > 0
+            && node.exportClause.elements.every((element) => element.isTypeOnly)
+          );
+      add('static', node.moduleSpecifier.text, typeOnly);
     } else if (ts.isImportEqualsDeclaration(node)
         && ts.isExternalModuleReference(node.moduleReference)
         && node.moduleReference.expression !== undefined
         && ts.isStringLiteralLike(node.moduleReference.expression)) {
-      add('require', node.moduleReference.expression.text);
+      add('require', node.moduleReference.expression.text, node.isTypeOnly);
     } else if (ts.isCallExpression(node) && node.arguments.length > 0
         && ts.isStringLiteralLike(node.arguments[0]!)) {
       if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
@@ -1149,10 +1167,15 @@ export function scanSecRepositoryModuleImports(
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
-  return Object.freeze([...new Map(imports.map((reference) => [
-    `${reference.kind}\0${reference.specifier}`,
-    reference
-  ])).values()].sort((left, right) => (
+  const unique = new Map<string, SecRepositoryModuleGraphImport>();
+  for (const reference of imports) {
+    const key = `${reference.kind}\0${reference.specifier}`;
+    const existing = unique.get(key);
+    if (existing === undefined || (existing.typeOnly && !reference.typeOnly)) {
+      unique.set(key, reference);
+    }
+  }
+  return Object.freeze([...unique.values()].sort((left, right) => (
     left.specifier < right.specifier ? -1
       : left.specifier > right.specifier ? 1
         : left.kind < right.kind ? -1 : left.kind > right.kind ? 1 : 0
@@ -1244,6 +1267,7 @@ export function compileSecRepositoryModuleGraph(
   const references: SecRepositoryModuleGraphReference[] = [];
   const reverseConsumers = new Map<string, string[]>();
   const forwardDependencies = new Map<string, Set<string>>();
+  const runtimeForwardDependencies = new Map<string, Set<string>>();
   for (const moduleFile of files) {
     const source = input.readSource(moduleFile);
     if (source === null) {
@@ -1296,6 +1320,7 @@ export function compileSecRepositoryModuleGraph(
         from: moduleFile,
         kind: reference.kind,
         specifier: reference.specifier,
+        typeOnly: reference.typeOnly,
         candidateTargets: Object.freeze([...new Set(candidates)].sort((left, right) => left.localeCompare(right, 'en-US'))),
         resolvedTarget
       });
@@ -1304,6 +1329,11 @@ export function compileSecRepositoryModuleGraph(
         const dependencies = forwardDependencies.get(moduleFile) ?? new Set<string>();
         dependencies.add(resolvedTarget);
         forwardDependencies.set(moduleFile, dependencies);
+        if (!reference.typeOnly) {
+          const runtimeDependencies = runtimeForwardDependencies.get(moduleFile) ?? new Set<string>();
+          runtimeDependencies.add(resolvedTarget);
+          runtimeForwardDependencies.set(moduleFile, runtimeDependencies);
+        }
       }
       for (const candidate of graphReference.candidateTargets) {
         const consumers = reverseConsumers.get(candidate) ?? [];
@@ -1328,6 +1358,9 @@ export function compileSecRepositoryModuleGraph(
     ]),
     directDependencies: (modulePath) => Object.freeze([
       ...(forwardDependencies.get(normalizeSecRepositoryPath(modulePath)) ?? [])
+    ].sort((left, right) => left.localeCompare(right, 'en-US'))),
+    directRuntimeDependencies: (modulePath) => Object.freeze([
+      ...(runtimeForwardDependencies.get(normalizeSecRepositoryPath(modulePath)) ?? [])
     ].sort((left, right) => left.localeCompare(right, 'en-US')))
   });
 }

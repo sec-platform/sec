@@ -130,7 +130,7 @@ export function compileSourceProgramOperationProducerClosure(
       );
     }
     reachable.add(repositoryPath);
-    for (const dependency of snapshot.moduleGraph.directDependencies(repositoryPath)) {
+    for (const dependency of snapshot.moduleGraph.directRuntimeDependencies(repositoryPath)) {
       if (!reachable.has(dependency)) frontier.push(dependency);
     }
   }

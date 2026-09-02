@@ -227,14 +227,19 @@ function buildReverseImportMap(provider: CodexDevelopmentTestImpactSourceProvide
   }
   const directConsumers = new Map<string, string[]>();
   const directDependencies = new Map<string, string[]>();
+  const directRuntimeDependencies = new Map<string, string[]>();
   for (const reference of projectionGraph.references) {
     for (const candidate of reference.candidateTargets) addConsumer(directConsumers, candidate, reference.from);
     if (reference.resolvedTarget !== null) {
       addConsumer(directDependencies, reference.from, reference.resolvedTarget);
+      if (!reference.typeOnly) {
+        addConsumer(directRuntimeDependencies, reference.from, reference.resolvedTarget);
+      }
     }
   }
   freezeAdjacency(directConsumers);
   freezeAdjacency(directDependencies);
+  freezeAdjacency(directRuntimeDependencies);
   const graph: RepositoryModuleGraph = Object.freeze({
     files: projectionGraph.files,
     references: projectionGraph.references,
@@ -244,6 +249,9 @@ function buildReverseImportMap(provider: CodexDevelopmentTestImpactSourceProvide
     ]),
     directDependencies: (modulePath: string) => Object.freeze([
       ...(directDependencies.get(normalizeRepoPath(modulePath)) ?? [])
+    ]),
+    directRuntimeDependencies: (modulePath: string) => Object.freeze([
+      ...(directRuntimeDependencies.get(normalizeRepoPath(modulePath)) ?? [])
     ])
   });
   const built: ReverseImportMap = Object.freeze({
