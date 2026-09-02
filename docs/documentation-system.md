@@ -272,6 +272,11 @@ SubscopeRequired(x, parent) =
 
 Markdown只是`DocumentBodyNode`的容器，不是自然语言语义推断器。只有显式`ClauseSource/DecisionSource/RelationSource`能提供canonical meaning；`ViewDeclaration`只能选择同一refs的图、表、公式、算法或人类句式renderer；自由prose一律是`NonNormativeExplanation`。现有brownfield prose、手写Mermaid、表格和代码块在迁移时只产生candidate/unknown，不能凭AI、embedding、标题或格式自动升级为normative clause。owner必须采用为typed source或接受删除/非规范保留。
 
+Documentation compiler 对没有显式 clause 指令的标题只生成
+`untyped-observation`：它可出现在 full-human 观察视图，但会进入 typed
+blocker，不能进入 compact-agent、operation authority 或任何 requirement
+projection。显式指令是 source adoption，不是标题格式的隐含推断。
+
 `docs/authority.json`在目标generation中退役authoring职责；目标machine projection为generated、content-addressed `DocumentationIndex`。它聚合全部source headers、scope/relations、physical addresses和digests，但不拥有任何事实，并发布到Runtime State/Artifact Store而不是提交进authored `docs/**`。当前`authority.json`在迁移完成前仍是唯一现行registry，两个generation不得同时被production consumer接受。
 
 ```text

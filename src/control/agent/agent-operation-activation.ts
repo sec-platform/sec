@@ -515,7 +515,9 @@ function observeOperationAuthorityOwners(
       owner: entry.domain,
       revision: blob.oid,
       contentDigest: rawSha256(blob.bytes),
-      projection: documentationGraph.clauses.some(({ documentId }) => documentId === entry.id)
+      projection: documentationGraph.clauses.some(({ documentId, kind }) => (
+        documentId === entry.id && kind !== 'untyped-observation'
+      ))
         ? projectDocumentationClauseSelection(documentationGraph, entry.id)
         : null
     });

@@ -5,6 +5,7 @@ import {
   compileDocumentationOperationAdmissionProjection,
   compileDocumentationSemanticGraph,
   compileDocumentationView,
+  projectDocumentationClauseSelection,
   unavailableDocumentationAdmissionProjection
 } from './compiler.ts';
 
@@ -44,6 +45,7 @@ domain: architecture
 
 # Architecture
 
+<!-- sec-clause {"blocker":null,"kind":"stable-decision"} -->
 ## Boundary
 
 Only the owner may publish.
@@ -129,5 +131,32 @@ describe('documentation semantic compiler', () => {
         }]
       } as never
     })).toThrow('admission projection was not issued');
+  });
+
+  test('untagged headings remain observations and cannot enter an agent projection', () => {
+    const graph = compileDocumentationSemanticGraph({
+      trustedTree: 'tree-c',
+      registry,
+      sources,
+      admission: unavailableDocumentationAdmissionProjection('tree-c')
+    });
+
+    expect(graph.clauses.some(({ documentId, kind }) => (
+      documentId === 'architecture' && kind === 'untyped-observation'
+    ))).toBe(true);
+    expect(graph.blockers).toContain('documentation-untyped-source:architecture');
+    const untypedHeading = graph.clauses.find(({ documentId, kind, headingPath }) => (
+      documentId === 'architecture'
+      && kind === 'untyped-observation'
+      && headingPath.at(-1) === 'Architecture'
+    ));
+    expect(untypedHeading).toBeDefined();
+    expect(() => compileDocumentationView(graph, {
+      kind: 'compact-agent',
+      clauseIds: [untypedHeading!.id],
+      ownerDocumentIds: ['architecture'],
+      decisionQuestionDigest: `sha256:${'2'.repeat(64)}`
+    })).toThrow(/cannot include untyped clause/u);
+    expect(projectDocumentationClauseSelection(graph, 'architecture').clauses).toHaveLength(1);
   });
 });
