@@ -39,6 +39,7 @@ import {
   type RetainedNoFollowProvenDirectoryGeneration
 } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
+  assertProcessResourceRunResult,
   openProcessResourceSession,
   type ProcessResourceRunResult,
   type ProcessResourceSession,
@@ -53,8 +54,15 @@ import {
 } from '../../runtime-state/physical/runtime/process.ts';
 import {
   PhysicalResourceCompositeSettlementError,
-  settlePhysicalResources
+  settlePhysicalResourcesAsync
 } from '../../runtime-state/physical/runtime/resource-settlement.ts';
+import type { RetainedCommandBoundary } from '../../runtime-state/physical/runtime/retained-command-boundary.ts';
+import {
+  assertSealedPhysicalExecutionTreeRetirementReceipt,
+  materializeRetainedSealedPhysicalExecutionTreeGeneration,
+  type RetainedSealedPhysicalExecutionTreeGeneration,
+  type SealedPhysicalExecutionTreeRetirementReceipt
+} from '../../runtime-state/physical/runtime/sealed-execution-tree-generation.ts';
 import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateEnvironment } from '../../runtime-state/workspace-state/layout.ts';
 import { compareCodeUnits, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { issueSecOperationRequirementBindingContext } from '../../system-architecture/operation/requirement-binding-context.ts';
@@ -76,6 +84,10 @@ import {
   type SecRepositoryModuleTopologyProjection
 } from '../../system-architecture/repository-modules/contract.ts';
 import { isSecRepositoryTestModulePath } from '../../system-architecture/repository-modules/test-module-path.ts';
+import type {
+  CompilerDependencyReadGenerationRetirementReceipt,
+  RetainedCompilerDependencyReadGeneration
+} from '../../toolchain/dependencies/runtime.ts';
 import { compilerRuntimeLayout } from '../../toolchain/runtime.ts';
 import {
   SEC_TCB_CLOSURE_RUNTIME_PATH,
@@ -86,12 +98,13 @@ import {
   createSourceProgramCompilationOperation,
   type SourceProgramCompilationOperation
 } from '../source-program-model/compilation-operation.ts';
-import { SOURCE_PROGRAM_BLOCKING_CANDIDATE_CODES, sourceProgramSurfaceForPath, type SourceProgramCandidate, type SourceProgramFileInput, type SourceProgramModel, type SourceProgramOwnerIntentEvidence, type SourceProgramSupersessionReceipt } from '../source-program-model/contract.ts';
+import { SOURCE_PROGRAM_BLOCKING_CANDIDATE_CODES, sourceProgramSurfaceForPath, type SourceProgramCandidate, type SourceProgramFileInput, type SourceProgramModel, type SourceProgramOperationProducerClosure, type SourceProgramOwnerIntentEvidence, type SourceProgramSupersessionReceipt } from '../source-program-model/contract.ts';
 import {
   compileSourceProgramDeclarationTopology,
   type SourceProgramDeclarationTopology
 } from '../source-program-model/declaration-topology.ts';
 import { compileSourceProgramImplementationDominance } from '../source-program-model/implementation-dominance.ts';
+import { compileSourceProgramOperationProducerClosure } from '../source-program-model/producer-closure.ts';
 import {
   compileSourceProgramArchitectureEvolutionReference,
   compileSourceProgramReconciliationProjection
@@ -107,18 +120,46 @@ import {
   compileWorkspaceTypeScriptProjectInput,
   type WorkspaceSourceFile
 } from '../source-program-model/workspace-source-snapshot.ts';
+import {
+  deriveRepositoryAuditImplementationDigest,
+  joinRepositoryAuditLoadedImplementationObservation,
+  type RepositoryAuditLoadedImplementationObservation
+} from './loaded-implementation.ts';
+import {
+  compileSourceProgramAuditOperationInput,
+  compileSourceProgramAuditSourceProgramProjection,
+  compileSourceProgramAuditTestValueProjection,
+  encodeSourceProgramAuditOperationInput,
+  parseSourceProgramAuditOperationResult,
+  type SourceProgramAuditOperationInput,
+  type SourceProgramAuditOperationResult,
+  type SourceProgramAuditReduction
+} from './source-program-audit-operation.ts';
+import {
+  compileRepositoryAuditWorkerRequest,
+  encodeRepositoryAuditWorkerRequest,
+  parseRepositoryAuditWorkerCandidateStream,
+  REPOSITORY_AUDIT_WORKER_PROTOCOL_LIMITS,
+  RepositoryAuditWorkerProtocolError,
+  type RepositoryAuditWorkerCandidateStream,
+  type RepositoryAuditWorkerProtocolErrorCode,
+  type RepositoryAuditWorkerRequest
+} from './worker-protocol.ts';
 
 const DEFAULT_REPOSITORY_ROOT = compilerRuntimeLayout.packageRoot;
 const MAX_TEXT_FILE_BYTES = 2_000_000;
 const GIT_BATCH_BYTE_BUDGET = 16 * 1024 * 1024;
 const GIT_BATCH_OUTPUT_OVERHEAD = 2 * 1024 * 1024;
 const SOURCE_PROGRAM_AUDIT_DEADLINE_MS = 180_000;
-const SOURCE_PROGRAM_AUDIT_INPUT_BUDGET_BYTES = 1024 * 1024;
-const SOURCE_PROGRAM_AUDIT_STREAM_BUDGET_BYTES = 64 * 1024 * 1024;
+const SOURCE_PROGRAM_AUDIT_INPUT_BUDGET_BYTES =
+  REPOSITORY_AUDIT_WORKER_PROTOCOL_LIMITS.maximumRequestBytes;
+const SOURCE_PROGRAM_AUDIT_STREAM_BUDGET_BYTES =
+  REPOSITORY_AUDIT_WORKER_PROTOCOL_LIMITS.maximumCandidateStreamBytes + 4 * 1024 * 1024;
 const SOURCE_PROGRAM_AUDIT_GIT_PROCESS_BUDGET = 128;
 const SOURCE_PROGRAM_AUDIT_STDERR_BUDGET_BYTES = 4 * 1024 * 1024;
+const SOURCE_PROGRAM_AUDIT_IMPLEMENTATION_BUDGET_BYTES = 8 * 1024 * 1024;
+const SOURCE_PROGRAM_AUDIT_IMPLEMENTATION_ENTRY_BUDGET = 256;
 const SOURCE_PROGRAM_AUDIT_MAX_SETTLEMENT_RESERVE_MS = 5_000;
-export const SOURCE_PROGRAM_AUDIT_DEADLINE_ENV = 'SEC_REPOSITORY_AUDIT_DEADLINE_AT_UNIX_MS';
 const SOURCE_PROGRAM_AUDIT_OPERATION = 'brownfield.repository-audit.source-program';
 const SOURCE_PROGRAM_AUDIT_REQUIREMENT = 'brownfield.repository-audit.worker-process';
 const HEURISTIC_MARKER = /(?:必须|不得|禁止|只允许|仅当|只有|需要|应当|优先|默认|触发|停止|回退|重算|fail[- ]?closed|DO NOT MERGE|reload_if|gate_owner|\bmust\b|\bshould\b|\bnever\b|\bdo\s+not\b)/iu;
@@ -1278,6 +1319,7 @@ async function compileWorkingTreeSourceProgram(
     moduleGraphDigest: `sha256:${string}`;
     receiptDigest: `sha256:${string}`;
   }>;
+  dependencyGenerationDigest: `sha256:${string}`;
   currentSourceProgramCompilation: ReturnType<typeof compileRepositorySourceProgramCompilation>;
   invalidatedTypeScriptPaths: readonly string[];
   declarationTopology: SourceProgramDeclarationTopology;
@@ -1290,6 +1332,7 @@ async function compileWorkingTreeSourceProgram(
   baselineSourceProgramCompilation: ReturnType<typeof compileRepositorySourceProgramCompilation>;
   baselineModuleMembership: SecRepositoryModuleMembership;
   baselineSupersessionEvidence: SourceProgramSupersessionEvidence;
+  baselineSupersessionEvidenceCacheCandidate: SourceProgramSupersessionEvidence | null;
   currentSupersessionIdentity: SourceProgramSupersessionEvidenceIdentity;
   currentIntentEvidence: readonly SourceProgramOwnerIntentEvidence[];
   moduleMembership: SecRepositoryModuleMembership;
@@ -1341,6 +1384,7 @@ async function compileWorkingTreeSourceProgramWithSession(
     moduleGraphDigest: `sha256:${string}`;
     receiptDigest: `sha256:${string}`;
   }>;
+  dependencyGenerationDigest: `sha256:${string}`;
   currentSourceProgramCompilation: ReturnType<typeof compileRepositorySourceProgramCompilation>;
   invalidatedTypeScriptPaths: readonly string[];
   declarationTopology: SourceProgramDeclarationTopology;
@@ -1353,6 +1397,7 @@ async function compileWorkingTreeSourceProgramWithSession(
   baselineSourceProgramCompilation: ReturnType<typeof compileRepositorySourceProgramCompilation>;
   baselineModuleMembership: SecRepositoryModuleMembership;
   baselineSupersessionEvidence: SourceProgramSupersessionEvidence;
+  baselineSupersessionEvidenceCacheCandidate: SourceProgramSupersessionEvidence | null;
   currentSupersessionIdentity: SourceProgramSupersessionEvidenceIdentity;
   currentIntentEvidence: readonly SourceProgramOwnerIntentEvidence[];
   moduleMembership: SecRepositoryModuleMembership;
@@ -1412,10 +1457,6 @@ async function compileWorkingTreeSourceProgramWithSession(
     cachedBaselineSupersessionEvidence
   );
   const baselineSupersessionEvidence = baselineReconciliation.evidence;
-  if (cachedBaselineSupersessionEvidence === null) {
-    await writeSupersessionEvidenceCache(repositoryRoot, baselineReconciliation.evidence)
-      .catch(() => undefined);
-  }
   const baselineTestPaths = Object.freeze(
     baselineEntries
       .filter(({ path: repositoryPath }) => isSecRepositoryTestModulePath(repositoryPath))
@@ -1522,6 +1563,7 @@ async function compileWorkingTreeSourceProgramWithSession(
       moduleGraphDigest: compilation.moduleGraphDigest,
       receiptDigest: compilation.receiptDigest
     }),
+    dependencyGenerationDigest,
     currentSourceProgramCompilation: compilation,
     invalidatedTypeScriptPaths: incrementalCompilation.invalidatedPaths,
     declarationTopology,
@@ -1534,11 +1576,237 @@ async function compileWorkingTreeSourceProgramWithSession(
     baselineSourceProgramCompilation: baselineReconciliation.compilation,
     baselineModuleMembership: baselineReconciliation.membership,
     baselineSupersessionEvidence,
+    baselineSupersessionEvidenceCacheCandidate: cachedBaselineSupersessionEvidence === null
+      ? baselineSupersessionEvidence
+      : null,
     currentSupersessionIdentity,
     currentIntentEvidence: compileSourceProgramOwnerIntentEvidence(model, moduleMembership),
     moduleMembership,
     reviewedProcessDispatchers,
     sourceFiles: Object.freeze(files)
+  });
+}
+
+type WorkingTreeSourceProgramAuditOptions = Readonly<{
+  enforce: boolean;
+  full: boolean;
+  includeCandidates: boolean;
+  outputPath: string | null;
+  query: string | null;
+  reductionMode: 'aggregate-import' | 'graph-cut' | 'none' | 'version';
+  supersessionBaseline: string;
+}>;
+
+type PreparedWorkingTreeSourceProgramAudit = Readonly<{
+  dependencyGenerationDigest: `sha256:${string}`;
+  supersessionEvidenceCacheCandidates: readonly SourceProgramSupersessionEvidence[];
+  operationInput: SourceProgramAuditOperationInput;
+  producerCompilation: ReturnType<typeof compileRepositorySourceProgramCompilation>;
+}>;
+
+function oneCliValue(args: readonly string[], name: string): string | null {
+  const indices = args.flatMap((value, index) => value === name ? [index] : []);
+  if (indices.length === 0) return null;
+  if (indices.length !== 1) throw new Error(`${name} may be supplied exactly once`);
+  const value = args[indices[0]! + 1];
+  if (value === undefined || value.startsWith('--')) {
+    throw new Error(`${name} requires one value`);
+  }
+  return value;
+}
+
+function workingTreeSourceProgramAuditOptions(
+  args: readonly string[]
+): WorkingTreeSourceProgramAuditOptions {
+  const modes = Object.freeze([
+    ['--aggregate-import-reductions', 'aggregate-import'],
+    ['--graph-cuts', 'graph-cut'],
+    ['--version-reductions', 'version']
+  ] as const).filter(([flag]) => args.includes(flag));
+  if (modes.length > 1) {
+    throw new Error('Choose exactly one reduction mode per exact source snapshot');
+  }
+  const baseline = oneCliValue(args, '--supersession-baseline') ?? 'HEAD';
+  if (baseline.startsWith('-')) {
+    throw new Error('--supersession-baseline requires one Git revision');
+  }
+  const query = oneCliValue(args, '--query');
+  const output = oneCliValue(args, '--output');
+  return Object.freeze({
+    enforce: args.includes('--enforce'),
+    full: args.includes('--full'),
+    includeCandidates: args.includes('--candidates'),
+    outputPath: output === null ? null : path.resolve(output),
+    query,
+    reductionMode: modes[0]?.[1] ?? 'none',
+    supersessionBaseline: baseline
+  });
+}
+
+async function prepareWorkingTreeSourceProgramAudit(
+  options: WorkingTreeSourceProgramAuditOptions,
+  deadlineAtUnixMs: number
+): Promise<PreparedWorkingTreeSourceProgramAudit> {
+  const worktreeAudit = await (async () => {
+    try {
+      return await compileWorkingTreeSourceProgram(
+        DEFAULT_REPOSITORY_ROOT,
+        options.supersessionBaseline,
+        deadlineAtUnixMs,
+        !options.enforce
+      );
+    } finally {
+      releaseTypeScriptSourceProgramWorkspace();
+    }
+  })();
+  const { model } = worktreeAudit;
+  const implementationDominance = compileSourceProgramImplementationDominance({
+    model,
+    ownerIntents: worktreeAudit.currentIntentEvidence
+  });
+  const reconciliation = compileSourceProgramReconciliationProjection({
+    before: worktreeAudit.baselineSourceProgramCompilation,
+    after: worktreeAudit.currentSourceProgramCompilation
+  });
+  const architectureEvolution = compileSourceProgramArchitectureEvolutionReference({
+    reconciliation
+  });
+  const testValue = compileSourceProgramTestValue({
+    repositoryRoot: DEFAULT_REPOSITORY_ROOT,
+    files: worktreeAudit.sourceFiles,
+    model,
+    baselineTestPaths: worktreeAudit.baselineTestPaths,
+    baselineEvidence: worktreeAudit.baselineTestEvidence
+  });
+  const currentSupersessionEvidence = compileSourceProgramSupersessionEvidence({
+    model,
+    tests: testValue,
+    intentEvidence: worktreeAudit.currentIntentEvidence,
+    identity: worktreeAudit.currentSupersessionIdentity
+  });
+  const supersession = compileSourceProgramSupersessionReceipt({
+    baseline: worktreeAudit.baselineSupersessionEvidence,
+    current: currentSupersessionEvidence
+  });
+  const observedDisposition = reconcileSourceProgramTestValueWithSupersession(
+    testValue,
+    supersession
+  );
+  const testRetirement = compileSourceProgramTestRetirementReceipt({
+    baseline: worktreeAudit.baselineSupersessionEvidence,
+    current: currentSupersessionEvidence,
+    supersession,
+    currentModel: model,
+    currentTestCompilation: testValue,
+    baselineFiles: worktreeAudit.baselineSourceFiles,
+    currentFiles: worktreeAudit.sourceFiles
+  });
+  const testDisposition = projectSourceProgramTestRetirementDispositions(
+    observedDisposition,
+    testRetirement
+  );
+  const blockingTestFindings = sourceProgramBlockingTestFindings(testDisposition.findings);
+  const blockingCandidates = sourceProgramBlockingCandidates(model);
+  const unknownDispositionClusters = summarizeSourceProgramTestUnknownDispositionClusters(
+    testDisposition.dispositions,
+    testDisposition.findings
+  );
+
+  let reduction: SourceProgramAuditReduction = Object.freeze({ mode: 'none' });
+  if (options.reductionMode === 'version') {
+    const plan = compileSourceProgramVersionSuffixReductionPlan(model, worktreeAudit.sourceFiles);
+    const patch = plan.reductions.every(({ status }) => status === 'blocked')
+      ? null
+      : renderSourceProgramVersionSuffixReductionPatch(plan, worktreeAudit.sourceFiles);
+    reduction = Object.freeze({ mode: 'version', plan, patch });
+  } else if (options.reductionMode === 'aggregate-import') {
+    const plan = compileSourceProgramAggregateImportReductionPlan(
+      model,
+      worktreeAudit.sourceFiles,
+      Object.freeze({
+        sourceRevision: model.sourceRevision,
+        architecture: worktreeAudit.moduleArchitecture
+      })
+    );
+    const patch = plan.reductions.every(({ status }) => status === 'blocked')
+      ? null
+      : buildSourceProgramAggregateImportReductionPatch(plan, worktreeAudit.sourceFiles);
+    reduction = Object.freeze({ mode: 'aggregate-import', plan, patch });
+  } else if (options.reductionMode === 'graph-cut') {
+    const provider = await compileKnipUnusedSymbolEvidence(
+      DEFAULT_REPOSITORY_ROOT,
+      model,
+      worktreeAudit.sourceFiles
+    );
+    const plan = compileSourceProgramGraphCutReductionPlan(
+      model,
+      worktreeAudit.sourceFiles,
+      provider,
+      Object.freeze({
+        moduleMembership: worktreeAudit.moduleMembership,
+        reviewedProcessDispatchers: worktreeAudit.reviewedProcessDispatchers
+      })
+    );
+    const patch = plan.reductions.every(({ status }) => status === 'blocked')
+      ? null
+      : renderSourceProgramGraphCutReductionPatch(plan, worktreeAudit.sourceFiles);
+    reduction = Object.freeze({
+      mode: 'graph-cut',
+      plan,
+      patch,
+      providerEvidence: Object.freeze({
+        provider: provider.provider,
+        receiptDigest: provider.receiptDigest,
+        sourceRevision: provider.sourceRevision
+      })
+    });
+  }
+
+  const sourceFileIdentities = Object.freeze(model.files.map(({ path: repositoryPath, contentDigest }) =>
+    Object.freeze({ path: repositoryPath, contentDigest })));
+
+  return Object.freeze({
+    dependencyGenerationDigest: worktreeAudit.dependencyGenerationDigest,
+    supersessionEvidenceCacheCandidates: Object.freeze([
+      ...(worktreeAudit.baselineSupersessionEvidenceCacheCandidate === null
+        ? []
+        : [worktreeAudit.baselineSupersessionEvidenceCacheCandidate]),
+      currentSupersessionEvidence
+    ]),
+    producerCompilation: worktreeAudit.currentSourceProgramCompilation,
+    operationInput: compileSourceProgramAuditOperationInput(Object.freeze({
+      architectureEvolution,
+      blockingCandidates,
+      blockingTestFindings,
+      cache: worktreeAudit.cache,
+      declarationTopology: worktreeAudit.declarationTopology,
+      implementationDominance,
+      invalidatedTypeScriptPaths: worktreeAudit.invalidatedTypeScriptPaths,
+      sourceProgram: compileSourceProgramAuditSourceProgramProjection(
+        model,
+        sourceFileIdentities,
+        options.includeCandidates
+      ),
+      moduleArchitecture: worktreeAudit.moduleArchitecture,
+      moduleBoundaryFailures: worktreeAudit.moduleBoundaryFailures,
+      options: Object.freeze({
+        enforce: options.enforce,
+        full: options.full,
+        includeCandidates: options.includeCandidates,
+        outputPath: options.outputPath,
+        queryProjection: options.query === null ? null : querySourceProgramModel(model, options.query)
+      }),
+      reconciliation,
+      reduction,
+      sourceFileIdentities,
+      sourceProgramCompilation: worktreeAudit.sourceProgramCompilation,
+      supersession,
+      testDisposition,
+      testRetirement,
+      testValue: compileSourceProgramAuditTestValueProjection(testValue, options.full),
+      topology: summarizeSourceProgramTopology(model),
+      unknownDispositionClusters
+    }))
   });
 }
 
@@ -2421,410 +2689,7 @@ export async function runRepositoryAuditCli(
     return;
   }
 
-  if (args.includes('--worktree-source-program')) {
-    if (!Number.isSafeInteger(execution.deadlineAtUnixMs)
-        || (execution.deadlineAtUnixMs as number) <= Date.now()) {
-      throw new Error('Working-tree Source Program audit requires one inherited absolute deadline.');
-    }
-    const deadlineAtUnixMs = execution.deadlineAtUnixMs as number;
-    const supersessionBaselineIndex = args.indexOf('--supersession-baseline');
-    const supersessionBaseline = supersessionBaselineIndex >= 0
-      ? args[supersessionBaselineIndex + 1]
-      : 'HEAD';
-    if (!supersessionBaseline || supersessionBaseline.startsWith('--')) {
-      throw new Error('--supersession-baseline requires one Git revision');
-    }
-    const worktreeAudit = await (async () => {
-      try {
-        return await compileWorkingTreeSourceProgram(
-          DEFAULT_REPOSITORY_ROOT,
-          supersessionBaseline,
-          deadlineAtUnixMs,
-          !args.includes('--enforce')
-        );
-      } finally {
-        // Every downstream audit consumes sealed fact shards, never the live
-        // Language Service. Release the compiler graph at this lifecycle seam
-        // even when projection compilation fails.
-        releaseTypeScriptSourceProgramWorkspace();
-      }
-    })();
-    const { model } = worktreeAudit;
-    const implementationDominance = compileSourceProgramImplementationDominance({
-      model,
-      ownerIntents: worktreeAudit.currentIntentEvidence
-    });
-    const reconciliationProjection = compileSourceProgramReconciliationProjection({
-      before: worktreeAudit.baselineSourceProgramCompilation,
-      after: worktreeAudit.currentSourceProgramCompilation
-    });
-    const architectureEvolution = compileSourceProgramArchitectureEvolutionReference({
-      reconciliation: reconciliationProjection
-    });
-    const blockingCandidates = sourceProgramBlockingCandidates(model);
-    const observedTestValue = compileSourceProgramTestValue({
-      repositoryRoot: DEFAULT_REPOSITORY_ROOT,
-      files: worktreeAudit.sourceFiles,
-      model,
-      baselineTestPaths: worktreeAudit.baselineTestPaths,
-      baselineEvidence: worktreeAudit.baselineTestEvidence
-    });
-    const currentSupersessionEvidence = compileSourceProgramSupersessionEvidence({
-      model,
-      tests: observedTestValue,
-      intentEvidence: worktreeAudit.currentIntentEvidence,
-      identity: worktreeAudit.currentSupersessionIdentity
-    });
-    await writeSupersessionEvidenceCache(DEFAULT_REPOSITORY_ROOT, currentSupersessionEvidence)
-      .catch(() => undefined);
-    const supersession = compileSourceProgramSupersessionReceipt({
-      baseline: worktreeAudit.baselineSupersessionEvidence,
-      current: currentSupersessionEvidence
-    });
-    const supersessionTestDisposition = reconcileSourceProgramTestValueWithSupersession(
-      observedTestValue,
-      supersession
-    );
-    const testRetirement = compileSourceProgramTestRetirementReceipt({
-      baseline: worktreeAudit.baselineSupersessionEvidence,
-      current: currentSupersessionEvidence,
-      supersession,
-      currentModel: model,
-      currentTestCompilation: observedTestValue,
-      baselineFiles: worktreeAudit.baselineSourceFiles,
-      currentFiles: worktreeAudit.sourceFiles
-    });
-    const testDisposition = projectSourceProgramTestRetirementDispositions(
-      supersessionTestDisposition,
-      testRetirement
-    );
-    const blockingTestFindings = sourceProgramBlockingTestFindings(testDisposition.findings);
-    const unknownDispositionClusters = summarizeSourceProgramTestUnknownDispositionClusters(
-      testDisposition.dispositions,
-      testDisposition.findings
-    );
-    const compactBlockingTestFindings = blockingTestFindings.filter(({ disposition }) =>
-      disposition?.disposition !== 'unknown');
-    const compactDispositions = testDisposition.dispositions.filter(({ disposition }) =>
-      disposition !== 'unknown');
-    const compactFindings = testDisposition.findings.filter(({ disposition }) =>
-      disposition?.disposition !== 'unknown');
-    const reductionModeCount = [
-      '--version-reductions',
-      '--graph-cuts',
-      '--aggregate-import-reductions'
-    ].filter((mode) => args.includes(mode)).length;
-    if (reductionModeCount > 1) {
-      throw new Error('Choose exactly one reduction mode per exact source snapshot');
-    }
-    const aggregateImportPlan = args.includes('--aggregate-import-reductions')
-      ? compileSourceProgramAggregateImportReductionPlan(
-          model,
-          worktreeAudit.sourceFiles,
-          Object.freeze({
-            sourceRevision: model.sourceRevision,
-            architecture: worktreeAudit.moduleArchitecture
-          })
-        )
-      : null;
-    const aggregateImportPatch = aggregateImportPlan === null
-      || aggregateImportPlan.reductions.every(({ status }) => status === 'blocked')
-      ? null
-      : buildSourceProgramAggregateImportReductionPatch(
-          aggregateImportPlan,
-          worktreeAudit.sourceFiles
-        );
-    const versionReductionPlan = args.includes('--version-reductions')
-      ? compileSourceProgramVersionSuffixReductionPlan(model, worktreeAudit.sourceFiles)
-      : null;
-    const versionReductionPatch = versionReductionPlan === null
-      || versionReductionPlan.reductions.every(({ status }) => status === 'blocked')
-      ? null
-      : renderSourceProgramVersionSuffixReductionPatch(
-          versionReductionPlan,
-          worktreeAudit.sourceFiles
-        );
-    const graphCutPlan = args.includes('--graph-cuts')
-      ? compileSourceProgramGraphCutReductionPlan(
-          model,
-          worktreeAudit.sourceFiles,
-          await compileKnipUnusedSymbolEvidence(
-            DEFAULT_REPOSITORY_ROOT,
-            model,
-            worktreeAudit.sourceFiles
-          ),
-          Object.freeze({
-            moduleMembership: worktreeAudit.moduleMembership,
-            reviewedProcessDispatchers: worktreeAudit.reviewedProcessDispatchers
-          })
-        )
-      : null;
-    const graphCutPatch = graphCutPlan === null
-      || graphCutPlan.reductions.every(({ status }) => status === 'blocked')
-      ? null
-      : renderSourceProgramGraphCutReductionPatch(graphCutPlan, worktreeAudit.sourceFiles);
-    if (outputPath !== undefined) {
-      const reductionPatch = versionReductionPatch ?? graphCutPatch ?? aggregateImportPatch;
-      if (reductionPatch === null) {
-        throw new Error('--output requires one reduction mode with at least one ready reduction');
-      }
-      const absoluteOutput = path.resolve(outputPath);
-      await mkdir(path.dirname(absoluteOutput), { recursive: true });
-      await writeFile(absoluteOutput, reductionPatch.patch, 'utf8');
-    }
-    process.stdout.write(`${JSON.stringify({
-      architecture: full
-        ? projectRepositoryModuleArchitectureAudit(worktreeAudit.moduleArchitecture)
-        : projectRepositoryModuleArchitectureCli(worktreeAudit.moduleArchitecture),
-      modelDigest: model.modelDigest,
-      sourceRevision: model.sourceRevision,
-      sourceProgramCompilation: worktreeAudit.sourceProgramCompilation,
-      declarationTopology: full ? worktreeAudit.declarationTopology : {
-        compilationReceiptDigest: worktreeAudit.declarationTopology.compilationReceiptDigest,
-        topologyDigest: worktreeAudit.declarationTopology.topologyDigest,
-        declarations: worktreeAudit.declarationTopology.declarations.length,
-        edges: worktreeAudit.declarationTopology.edges.length,
-        strongComponents: worktreeAudit.declarationTopology.strongComponents.length,
-        cyclicComponents: worktreeAudit.declarationTopology.strongComponents.filter(
-          ({ declarationObservationIds }) => declarationObservationIds.length > 1
-        ).length,
-        unknowns: worktreeAudit.declarationTopology.unknowns.length
-      },
-      cache: worktreeAudit.cache,
-      invalidatedTypeScriptPaths: full
-        ? worktreeAudit.invalidatedTypeScriptPaths
-        : compactRecordSet(worktreeAudit.invalidatedTypeScriptPaths),
-      implementationDominance: full ? implementationDominance : {
-        compilationDigest: implementationDominance.compilationDigest,
-        units: compactRecordSet(implementationDominance.units),
-        findings: compactRecordSet(implementationDominance.findings),
-        dispositions: Object.fromEntries(
-          [...new Set(implementationDominance.findings.map(({ disposition }) => disposition))]
-            .sort(compareCodeUnits)
-            .map((disposition) => [
-              disposition,
-              implementationDominance.findings.filter((finding) => (
-                finding.disposition === disposition
-              )).length
-            ])
-          )
-      },
-      reconciliation: full || args.includes('--architecture-evolution')
-        ? reconciliationProjection : {
-        status: reconciliationProjection.status,
-        projectionDigest: reconciliationProjection.projectionDigest,
-        before: reconciliationProjection.before,
-        after: reconciliationProjection.after,
-        changes: reconciliationProjection.changes.length,
-        frontiers: reconciliationProjection.frontiers.length,
-        providerEvidence: reconciliationProjection.providerEvidence,
-        unresolvedReasons: compactRecordSet(reconciliationProjection.unresolvedReasons)
-      },
-      architectureEvolution: full || args.includes('--architecture-evolution')
-        ? architectureEvolution : {
-        status: architectureEvolution.status,
-        direction: architectureEvolution.direction,
-        referenceDigest: architectureEvolution.referenceDigest,
-        before: architectureEvolution.before,
-        after: architectureEvolution.after,
-        changes: architectureEvolution.changes.length,
-        changedPaths: compactRecordSet(architectureEvolution.changedPaths),
-        consumerPaths: compactRecordSet(architectureEvolution.consumerPaths),
-        retirementPaths: compactRecordSet(architectureEvolution.retirementPaths),
-        graphDelta: Object.fromEntries(Object.entries(architectureEvolution.graphDelta).map(
-          ([name, values]) => [name, values.length]
-        )),
-        blockers: compactRecordSet(architectureEvolution.blockers)
-      },
-      blockingCandidates: full ? blockingCandidates : compactRecordSet(blockingCandidates),
-      blockingTestFindings: full
-        ? blockingTestFindings
-        : compactRecordSet(compactBlockingTestFindings),
-      unknownDispositionClusters: full
-        ? unknownDispositionClusters
-        : compactRecordSet(unknownDispositionClusters),
-      supersession: full ? supersession : {
-        status: supersession.status,
-        receiptDigest: supersession.receiptDigest,
-        baseline: supersession.baseline,
-        current: supersession.current,
-        lifecycleCost: supersession.lifecycleCost,
-        replacements: {
-          entrypoint: supersession.replacements.filter(({ kind }) => kind === 'entrypoint').length,
-          production: supersession.replacements.filter(({ kind }) => kind === 'production').length,
-          resource: supersession.replacements.filter(({ kind }) => kind === 'resource').length,
-          test: supersession.replacements.filter(({ kind }) => kind === 'test').length
-        },
-        findings: compactRecordSet(supersession.findings)
-      },
-      testRetirement: full ? testRetirement : {
-        receiptDigest: testRetirement.receiptDigest,
-        retired: testRetirement.proofs.filter(({ status }) => status === 'retired').length,
-        blocked: testRetirement.proofs.filter(({ status }) => status === 'blocked').length,
-        proofsDigest: sha256(testRetirement.proofs)
-      },
-      summary: {
-        blockingCandidates: blockingCandidates.length,
-        implementationDominanceFindings: implementationDominance.findings.length,
-        implementationDominanceUnits: implementationDominance.units.length,
-        reconciliationStatus: reconciliationProjection.status,
-        reconciliationChanges: reconciliationProjection.changes.length,
-        reconciliationFrontiers: reconciliationProjection.frontiers.length,
-        reconciliationUnresolvedReasons: reconciliationProjection.unresolvedReasons.length,
-        architectureEvolutionStatus: architectureEvolution.status,
-        architectureEvolutionDirection: architectureEvolution.direction,
-        architectureEvolutionBlockers: architectureEvolution.blockers.length,
-        blockingTestFindings: blockingTestFindings.length,
-        reportedBlockingTestFindings: (full ? blockingTestFindings : compactBlockingTestFindings).length,
-        unknownDispositionClusters: unknownDispositionClusters.length,
-        unknownDispositions: testDisposition.dispositions.filter(({ disposition }) =>
-          disposition === 'unknown').length,
-        architectureFeedbackProjections: worktreeAudit.moduleArchitecture.feedbackCuts.length,
-        architectureReciprocalPairs: worktreeAudit.moduleArchitecture.reciprocalPairs.length,
-        architectureStrongComponents: worktreeAudit.moduleArchitecture.strongComponents.length,
-        architectureViolations: worktreeAudit.moduleArchitecture.violations.length,
-        moduleBoundaryFailures: worktreeAudit.moduleBoundaryFailures.length,
-        capabilities: model.capabilities.length,
-        candidates: model.candidates.length,
-        declarations: model.declarations.length,
-        dependencies: model.dependencies.length,
-        entrypoints: model.entrypoints.length,
-        entrypointClosures: model.entrypointClosures.length,
-        files: model.files.length,
-        literals: model.literals.length,
-        packages: model.packages.length,
-        references: model.references.length,
-        supersessionFindings: supersession.findings.length,
-        supersessionStatus: supersession.status,
-        baselineTestModules: observedTestValue.baselineTestPaths.length,
-        testDispositionRecords: testDisposition.dispositions.length,
-        testRegistrations: observedTestValue.records.length,
-        unknowns: model.unknowns.length
-      },
-      topology: summarizeSourceProgramTopology(model),
-      testValue: {
-        baselineDigest: observedTestValue.baselineDigest,
-        baselineEvidenceDigest: observedTestValue.baselineEvidenceDigest,
-        baselineTestPaths: full
-          ? observedTestValue.baselineTestPaths
-          : compactRecordSet(observedTestValue.baselineTestPaths),
-        compilationDigest: observedTestValue.compilationDigest,
-        dispositionProjectionDigest: testDisposition.projectionDigest,
-        supersessionReceiptDigest: testDisposition.supersessionReceiptDigest,
-        dispositions: full
-          ? testDisposition.dispositions
-          : compactRecordSet(compactDispositions),
-        findings: full ? testDisposition.findings : compactRecordSet(compactFindings),
-        candidateRegistrationCensus: {
-          count: observedTestValue.records.length,
-          digest: sha256(observedTestValue.records.map(({ testId, path: repositoryPath, span }) => ({
-            testId,
-            path: repositoryPath,
-            span
-          }))),
-          ...(full ? {
-            paths: [...new Set(observedTestValue.records.map(({ path: repositoryPath }) => repositoryPath))]
-              .sort(compareCodeUnits)
-          } : {})
-        },
-        recordsWithUnknownSemantics: observedTestValue.records
-          .filter(({ unknowns }) => unknowns.length > 0).length,
-        semanticClasses: Object.fromEntries(
-          [...new Set(observedTestValue.records.flatMap(({ semanticClasses }) => semanticClasses))]
-            .sort(compareCodeUnits)
-            .map((semanticClass) => [
-              semanticClass,
-              observedTestValue.records
-                .filter(({ semanticClasses }) => semanticClasses.includes(semanticClass)).length
-            ])
-        )
-      },
-      ...(versionReductionPlan === null ? {} : {
-        versionReductionPlan: {
-          planDigest: versionReductionPlan.planDigest,
-          sourceRevision: versionReductionPlan.sourceRevision,
-          ready: versionReductionPlan.reductions.filter(({ status }) => status === 'ready').length,
-          blocked: versionReductionPlan.reductions.filter(({ status }) => status === 'blocked').length,
-          locations: versionReductionPlan.reductions.reduce(
-            (total, reduction) => total + reduction.locations.length,
-            0
-          ),
-          patchDigest: versionReductionPatch?.patchDigest ?? null,
-          changedFiles: versionReductionPatch?.files.length ?? 0,
-          outputPath: outputPath === undefined ? null : path.resolve(outputPath),
-          blockedReductions: versionReductionPlan.reductions
-            .filter(({ status }) => status === 'blocked')
-            .map(({ currentName, declarationPaths, reason }) => ({
-              currentName,
-              declarationPaths,
-              reason
-            }))
-        }
-      }),
-      ...(aggregateImportPlan === null ? {} : {
-        aggregateImportPlan: {
-          planDigest: aggregateImportPlan.planDigest,
-          sourceRevision: aggregateImportPlan.sourceRevision,
-          architectureDigest: aggregateImportPlan.architectureDigest,
-          snapshotStatus: aggregateImportPlan.snapshotStatus,
-          snapshotReason: aggregateImportPlan.snapshotReason,
-          ready: aggregateImportPlan.reductions.filter(({ status }) => status === 'ready').length,
-          blocked: aggregateImportPlan.reductions.filter(({ status }) => status === 'blocked').length,
-          patchDigest: aggregateImportPatch?.patchDigest ?? null,
-          changedFiles: aggregateImportPatch?.files.length ?? 0,
-          outputPath: outputPath === undefined ? null : path.resolve(outputPath),
-          blockedReductions: aggregateImportPlan.reductions
-            .filter(({ status }) => status === 'blocked')
-            .map(({ moduleSpecifier, path: sourcePath, reason }) => ({
-              moduleSpecifier,
-              path: sourcePath,
-              reason
-            }))
-        }
-      }),
-      ...(graphCutPlan === null ? {} : {
-        graphCutPlan: {
-          planDigest: graphCutPlan.planDigest,
-          evidenceDigest: graphCutPlan.evidenceDigest,
-          verificationDigest: graphCutPlan.verificationDigest,
-          sourceRevision: graphCutPlan.sourceRevision,
-          ready: graphCutPlan.reductions.filter(({ status }) => status === 'ready').length,
-          blocked: graphCutPlan.reductions.filter(({ status }) => status === 'blocked').length,
-          patchDigest: graphCutPatch?.patchDigest ?? null,
-          changedFiles: graphCutPatch?.files.length ?? 0,
-          outputPath: outputPath === undefined ? null : path.resolve(outputPath),
-          blockedReductions: graphCutPlan.reductions
-            .filter(({ status }) => status === 'blocked')
-            .map(({ name, path: declarationPath, reason }) => ({
-              name,
-              path: declarationPath,
-              reason
-            }))
-        }
-      }),
-      ...(worktreeAudit.moduleBoundaryFailures.length > 0
-        ? {
-            moduleBoundaryFailures: full
-              ? worktreeAudit.moduleBoundaryFailures
-              : compactRecordSet(worktreeAudit.moduleBoundaryFailures)
-          }
-        : {}),
-      ...(query ? { result: querySourceProgramModel(model, query) } : {}),
-      ...(args.includes('--candidates') ? { candidates: model.candidates } : {})
-    }, null, 2)}\n`);
-    if (args.includes('--enforce')
-      && (blockingCandidates.length > 0
-        || implementationDominance.findings.length > 0
-        || reconciliationProjection.status === 'unresolved'
-        || architectureEvolution.status === 'blocked'
-        || blockingTestFindings.length > 0
-        || repositoryAuditSupersessionShouldBlock(supersession)
-        || repositoryModuleArchitectureShouldBlock(worktreeAudit.moduleArchitecture)
-        || worktreeAudit.moduleBoundaryFailures.length > 0)) {
-      process.exitCode = 1;
-    }
-    return;
-  }
+  if (args.includes('--worktree-source-program')) { if (!Number.isSafeInteger(execution.deadlineAtUnixMs) || (execution.deadlineAtUnixMs as number) <= Date.now()) { throw new Error("Working-tree Source Program audit requires one inherited absolute deadline."); } await runSupervisedWorkingTreeSourceProgramAudit(args, (execution.deadlineAtUnixMs as number) - Date.now()); return; }
 
   const report = await auditRepository(undefined, { defaultRef });
   const encoded = `${JSON.stringify(report, null, 2)}\n`;
@@ -2857,13 +2722,51 @@ export type RepositoryAuditWorkerDiagnosticReason =
   | 'output-budget-exhausted'
   | 'physical-boundary-unavailable'
   | 'physical-boundary-unsettled'
+  | 'protocol-invalid'
   | 'process-settlement-unproven';
+
+export type RepositoryAuditWorkerFailureKind =
+  | 'process-input-admission'
+  | 'process-output-admission'
+  | 'process-count-admission'
+  | 'process-deadline-admission'
+  | 'protocol-admission'
+  | 'request-budget-admission'
+  | 'retained-boundary-admission'
+  | 'transport-settlement'
+  | 'unclassified-physical-admission';
+
+export type RepositoryAuditWorkerStage =
+  | 'dependency-admission'
+  | 'execution-generation'
+  | 'executable-admission'
+  | 'operation-compilation'
+  | 'request-compilation'
+  | 'request-encoding'
+  | 'request-budget-admission'
+  | 'boundary-admission'
+  | 'process-execution'
+  | 'protocol-readback'
+  | 'settlement';
+
+class RepositoryAuditWorkerStageError extends Error {
+  readonly stage: RepositoryAuditWorkerStage;
+
+  constructor(stage: RepositoryAuditWorkerStage, cause: unknown) {
+    super(`Repository Audit worker failed during ${stage}.`, { cause });
+    this.name = 'RepositoryAuditWorkerStageError';
+    this.stage = stage;
+  }
+}
 
 export type RepositoryAuditWorkerDiagnostic = Readonly<{
   kind: 'repository-audit-worker-diagnostic';
   authority: 'none-diagnostic-only';
   status: 'denied';
   reason: RepositoryAuditWorkerDiagnosticReason;
+  failureKind: RepositoryAuditWorkerFailureKind;
+  protocolErrorCode: RepositoryAuditWorkerProtocolErrorCode | null;
+  stage: RepositoryAuditWorkerStage;
   detailDigest: `sha256:${string}`;
   process: Readonly<{
     status: string;
@@ -2886,6 +2789,8 @@ export type RepositoryAuditWorkerExecution =
       code: number;
       stdout: Uint8Array;
       stderr: string;
+      loadedImplementation: RepositoryAuditLoadedImplementationObservation;
+      resultDigest: `sha256:${string}`;
       resources: ProcessResourceSessionReceipt;
     }>
   | Readonly<{
@@ -2893,34 +2798,25 @@ export type RepositoryAuditWorkerExecution =
       diagnostic: RepositoryAuditWorkerDiagnostic;
     }>;
 
-function sourceProgramAuditWorkerEnvironment(deadlineAtUnixMs: number): NodeJS.ProcessEnv {
+function sourceProgramAuditWorkerEnvironment(): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = {
     LANG: 'C',
     LC_ALL: 'C',
-    TZ: 'UTC',
-    [SOURCE_PROGRAM_AUDIT_DEADLINE_ENV]: String(deadlineAtUnixMs)
+    TZ: 'UTC'
   };
-  const pathKey = Object.keys(process.env).find((key) => key.toLowerCase() === 'path');
-  if (pathKey !== undefined && process.env[pathKey] !== undefined) {
-    environment[pathKey] = process.env[pathKey];
-  }
   for (const key of ['SYSTEMROOT', 'WINDIR'] as const) {
     if (process.env[key] !== undefined) environment[key] = process.env[key];
   }
-  for (const [key, value] of Object.entries(secRuntimeStateEnvironment())) {
-    if (value !== undefined) environment[key] = value;
-  }
-  const defaultRef = process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF;
-  if (defaultRef !== undefined) environment.SEC_REPOSITORY_AUDIT_DEFAULT_REF = defaultRef;
   return Object.freeze(environment);
 }
 
 function compileSourceProgramAuditWorkerOperation(input: Readonly<{
-  args: readonly string[];
   bunDigest: `sha256:${string}`;
-  workerDigest: `sha256:${string}`;
-  repositoryPhysical: PhysicalDirectoryIdentity;
+  dependencyGenerationDigest: `sha256:${string}`;
   environment: NodeJS.ProcessEnv;
+  implementationDigest: `sha256:${string}`;
+  payloadDigest: `sha256:${string}`;
+  sealedGenerationDigest: `sha256:${string}`;
   deadlineAtUnixMs: number;
 }>): SecBoundSemanticOperation {
   const durationMs = input.deadlineAtUnixMs - Date.now();
@@ -2930,19 +2826,20 @@ function compileSourceProgramAuditWorkerOperation(input: Readonly<{
   }
   const contractDigest = sha256({
     operation: SOURCE_PROGRAM_AUDIT_OPERATION,
-    process: 'one-retained-bun-worker',
-    cwd: 'one-retained-repository-root',
-    childGit: 'canonical-git-read-session-only',
-    output: 'bounded-diagnostic-or-domain-report'
+    process: 'one-retained-bun-worker-with-bounded-stdin',
+    cwd: 'one-sealed-source-program-generation',
+    childEffects: 'none-pure-operation',
+    output: 'one-candidate-stream'
   }) as SecOperationDigest;
   const plan = compileSecSemanticOperationPlan({
     operation: SOURCE_PROGRAM_AUDIT_OPERATION,
     intentDigest: sha256({
-      args: input.args,
       bunDigest: input.bunDigest,
-      workerDigest: input.workerDigest,
-      repositoryPhysical: input.repositoryPhysical,
-      environment: input.environment
+      dependencyGenerationDigest: input.dependencyGenerationDigest,
+      environment: input.environment,
+      implementationDigest: input.implementationDigest,
+      payloadDigest: input.payloadDigest,
+      sealedGenerationDigest: input.sealedGenerationDigest
     }) as SecOperationDigest,
     decisionDigest: contractDigest,
     deadlineAtUnixMs: input.deadlineAtUnixMs,
@@ -2953,7 +2850,7 @@ function compileSourceProgramAuditWorkerOperation(input: Readonly<{
       { resource: 'duration-ms', maximum: durationMs },
       { resource: 'input-bytes', maximum: SOURCE_PROGRAM_AUDIT_INPUT_BUDGET_BYTES },
       { resource: 'output-bytes', maximum: SOURCE_PROGRAM_AUDIT_STREAM_BUDGET_BYTES },
-      { resource: 'processes', maximum: 1 }
+      { resource: 'processes', maximum: 2 }
     ],
     requirements: [{
       id: SOURCE_PROGRAM_AUDIT_REQUIREMENT,
@@ -2975,8 +2872,8 @@ function compileSourceProgramAuditWorkerOperation(input: Readonly<{
     providerIdentityDigest: sha256({
       provider: 'runtime-state.physical.process-resource-session',
       bunDigest: input.bunDigest,
-      workerDigest: input.workerDigest,
-      repositoryPhysical: input.repositoryPhysical
+      implementationDigest: input.implementationDigest,
+      sealedGenerationDigest: input.sealedGenerationDigest
     }) as SecOperationDigest
   })]);
 }
@@ -2985,7 +2882,40 @@ export function compileRepositoryAuditWorkerDiagnostic(
   error: unknown,
   resources: ProcessResourceSessionReceipt | null
 ): RepositoryAuditWorkerDiagnostic {
-  const transport = error instanceof RetainedCommandTransportError ? error.outcome : null;
+  const stageError = error instanceof RepositoryAuditWorkerStageError
+    ? error
+    : error instanceof PhysicalResourceCompositeSettlementError
+      ? error.failures.map(({ error: failure }) => failure)
+          .find((failure): failure is RepositoryAuditWorkerStageError => (
+            failure instanceof RepositoryAuditWorkerStageError
+          )) ?? null
+      : null;
+  const stage = stageError?.stage ?? 'settlement';
+  const classifiedError = stageError?.cause ?? error;
+  const transport = classifiedError instanceof RetainedCommandTransportError
+    ? classifiedError.outcome
+    : null;
+  const detail = classifiedError instanceof Error ? classifiedError.message : String(classifiedError);
+  const protocolErrorCode = classifiedError instanceof RepositoryAuditWorkerProtocolError
+    ? classifiedError.code
+    : null;
+  const failureKind: RepositoryAuditWorkerFailureKind = transport !== null
+    ? 'transport-settlement'
+    : protocolErrorCode !== null
+      ? 'protocol-admission'
+    : detail.includes('request exceeds its process input budget')
+      ? 'request-budget-admission'
+      : detail.includes('input-byte budget') || detail.includes('stdin bound')
+        ? 'process-input-admission'
+        : detail.includes('output-byte admission')
+          ? 'process-output-admission'
+          : detail.includes('process budget')
+            ? 'process-count-admission'
+            : detail.includes('deadline')
+              ? 'process-deadline-admission'
+              : detail.includes('retained') || detail.includes('boundary')
+                ? 'retained-boundary-admission'
+                : 'unclassified-physical-admission';
   const settlementProven = transport === null || !transport.started || (
     transport.termination.childCloseObserved
     && transport.termination.streamsDrained
@@ -2993,6 +2923,8 @@ export function compileRepositoryAuditWorkerDiagnostic(
   );
   const reason: RepositoryAuditWorkerDiagnosticReason = !settlementProven
     ? 'process-settlement-unproven'
+    : protocolErrorCode !== null
+      ? 'protocol-invalid'
     : transport?.status === 'timed-out'
       ? 'deadline-exhausted'
       : transport?.status === 'aborted'
@@ -3003,7 +2935,7 @@ export function compileRepositoryAuditWorkerDiagnostic(
             || resources !== null && resources.processCount > 0
             ? 'physical-boundary-unsettled'
             : 'physical-boundary-unavailable';
-  const detail = error instanceof PhysicalResourceCompositeSettlementError
+  const diagnosticDetail = error instanceof PhysicalResourceCompositeSettlementError
     ? error.failures.map(({ label, error: failure }) => Object.freeze({
         label,
         detail: failure instanceof Error ? failure.message : String(failure)
@@ -3014,7 +2946,10 @@ export function compileRepositoryAuditWorkerDiagnostic(
     authority: 'none-diagnostic-only',
     status: 'denied',
     reason,
-    detailDigest: sha256({ detail }) as `sha256:${string}`,
+    failureKind,
+    protocolErrorCode,
+    stage,
+    detailDigest: sha256({ detail: diagnosticDetail }) as `sha256:${string}`,
     process: transport === null ? null : Object.freeze({
       status: transport.status,
       started: transport.started,
@@ -3046,20 +2981,88 @@ export async function executeSupervisedWorkingTreeSourceProgramAudit(
     Math.min(SOURCE_PROGRAM_AUDIT_MAX_SETTLEMENT_RESERVE_MS, Math.floor(maximumDurationMs / 20))
   );
   const workerDeadlineAtUnixMs = deadlineAtUnixMs - settlementReserveMs;
+  const options = workingTreeSourceProgramAuditOptions(args);
+  const prepared = await prepareWorkingTreeSourceProgramAudit(options, workerDeadlineAtUnixMs);
+  const producerClosure = compileSourceProgramOperationProducerClosure(
+    prepared.producerCompilation,
+    Object.freeze({
+      capability: 'repository-audit.source-program-operation',
+      operation: 'executeRepositoryAuditSourceProgramOperation'
+    })
+  );
+  const operationPayload = encodeSourceProgramAuditOperationInput(prepared.operationInput);
+  if (operationPayload.byteLength
+      > REPOSITORY_AUDIT_WORKER_PROTOCOL_LIMITS.maximumOperationInputBytes) {
+    throw new Error('Repository Audit normalized operation exceeds its canonical input budget.');
+  }
   const executablePath = path.resolve(process.execPath);
-  const workerPath = fileURLToPath(new URL('./worker.ts', import.meta.url));
   let executable: RetainedNoFollowOrdinaryFile | null = null;
-  let workingDirectory: RetainedNoFollowChildProcessDirectory | null = null;
-  let worker: RetainedNoFollowOrdinaryFile | null = null;
+  let dependency: RetainedCompilerDependencyReadGeneration | null = null;
+  let dependencyRetirement: CompilerDependencyReadGenerationRetirementReceipt | null = null;
+  let generation: RetainedSealedPhysicalExecutionTreeGeneration | null = null;
+  let generationRetirement: SealedPhysicalExecutionTreeRetirementReceipt | null = null;
   let session: ProcessResourceSession | null = null;
   let resources: ProcessResourceSessionReceipt | null = null;
   let run: ProcessResourceRunResult | null = null;
+  let operation: SecBoundSemanticOperation | null = null;
+  let boundary: RetainedCommandBoundary | null = null;
+  let request: RepositoryAuditWorkerRequest | null = null;
+  let requestBytes: Uint8Array | null = null;
+  let processArgs: readonly string[] | null = null;
+  let environment: NodeJS.ProcessEnv | null = null;
+  let candidateStream: RepositoryAuditWorkerCandidateStream | null = null;
+  let operationResult: SourceProgramAuditOperationResult | null = null;
+  let stage: RepositoryAuditWorkerStage = 'dependency-admission';
   let primaryError: unknown;
   try {
-    const repositoryChain = inspectNoFollowDirectoryChain(
-      DEFAULT_REPOSITORY_ROOT,
-      'Source Program repository audit root'
+    const runtime = await import('../../toolchain/dependencies/runtime.ts');
+    const dependencyAuthority = await runtime.observeCompilerDependencyExecutionGenerationAuthority(
+      { deadlineAtUnixMs: workerDeadlineAtUnixMs },
+      DEFAULT_REPOSITORY_ROOT
     );
+    if (dependencyAuthority === null) {
+      throw new Error('Repository Audit sealed execution requires one dependency generation.');
+    }
+    dependency = await runtime.retainCompilerDependencyReadGeneration(
+      dependencyAuthority,
+      { deadlineAtUnixMs: workerDeadlineAtUnixMs }
+    );
+    if (dependency.generationDigest !== prepared.dependencyGenerationDigest) {
+      throw new Error('Repository Audit dependency generation changed after Source Program compilation.');
+    }
+
+    stage = 'execution-generation';
+    const cacheRoot = resolveSecRuntimeCacheRoot({
+      platform: currentSecRuntimePlatform(),
+      environment: secRuntimeStateEnvironment(),
+      repositoryRoot: DEFAULT_REPOSITORY_ROOT
+    });
+    const generationParentPath = path.join(
+      cacheRoot,
+      'repository-audit',
+      'execution-generations'
+    );
+    await mkdir(generationParentPath, { recursive: true });
+    const generationFiles = Object.freeze(producerClosure.implementationFiles.map(
+      ({ path: repositoryPath, source }) => Object.freeze({
+        bytes: Buffer.from(source, 'utf8'),
+        path: repositoryPath
+      })
+    ));
+    generation = await materializeRetainedSealedPhysicalExecutionTreeGeneration({
+      deadlineAtUnixMs: workerDeadlineAtUnixMs,
+      directoryNamePrefix: 'repository-audit-',
+      files: generationFiles,
+      generationParent: inspectNoFollowDirectoryChain(
+        generationParentPath,
+        'Repository Audit execution generation parent'
+      ).target,
+      links: [{ path: 'node_modules', source: dependency.physicalGeneration }],
+      maximumBytes: SOURCE_PROGRAM_AUDIT_IMPLEMENTATION_BUDGET_BYTES,
+      maximumEntries: SOURCE_PROGRAM_AUDIT_IMPLEMENTATION_ENTRY_BUDGET
+    });
+
+    stage = 'executable-admission';
     executable = retainNoFollowOrdinaryFile(
       inspectNoFollowDirectoryChain(path.dirname(executablePath), 'Source Program Bun parent'),
       path.basename(executablePath),
@@ -3068,27 +3071,21 @@ export async function executeSupervisedWorkingTreeSourceProgramAudit(
       RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
       'executable'
     );
-    workingDirectory = retainNoFollowDirectoryForChildProcess(
-      repositoryChain,
-      RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
-      'Source Program repository audit cwd'
+    stage = 'operation-compilation';
+    const implementationDigest = deriveRepositoryAuditImplementationDigest(
+      producerClosure,
+      generation,
+      dependency.generationDigest
     );
-    [worker] = retainCommandAuxiliaryOrdinaryFiles([{
-      expectedParent: inspectNoFollowDirectoryChain(
-        path.dirname(workerPath),
-        'Source Program audit worker parent'
-      ),
-      name: path.basename(workerPath),
-      label: 'Source Program audit worker'
-    }]);
-    const environment = sourceProgramAuditWorkerEnvironment(workerDeadlineAtUnixMs);
-    const operation = compileSourceProgramAuditWorkerOperation({
-      args,
+    environment = sourceProgramAuditWorkerEnvironment();
+    operation = compileSourceProgramAuditWorkerOperation({
       bunDigest: executable.digest().byteDigest,
-      workerDigest: worker.digest().byteDigest,
-      repositoryPhysical: repositoryChain.target,
+      dependencyGenerationDigest: dependency.generationDigest,
       environment,
-      deadlineAtUnixMs
+      implementationDigest,
+      payloadDigest: rawSha256(operationPayload),
+      sealedGenerationDigest: generation.identity.generationDigest,
+      deadlineAtUnixMs: workerDeadlineAtUnixMs
     });
     const durationCeiling = operation.plan.execution.aggregateBudgets.find(
       ({ resource }) => resource === 'duration-ms'
@@ -3108,25 +3105,58 @@ export async function executeSupervisedWorkingTreeSourceProgramAudit(
           },
           { resource: 'input-bytes', maximum: SOURCE_PROGRAM_AUDIT_INPUT_BUDGET_BYTES },
           { resource: 'output-bytes', maximum: SOURCE_PROGRAM_AUDIT_STREAM_BUDGET_BYTES },
-          { resource: 'processes', maximum: 1 }
+          { resource: 'processes', maximum: 2 }
         ]
       })
     });
-    run = await session.run(issueRetainedCommandBoundary({
+    stage = 'request-compilation';
+    request = compileRepositoryAuditWorkerRequest({
+      operationIdentityDigest: operation.plan.identity.identityDigest,
+      boundAttemptDigest: operation.boundAttemptDigest,
+      generationDigest: generation.identity.generationDigest,
+      entrypointAddress: producerClosure.entrypoint.address,
+      implementationDigest,
+      dependencyGenerationDigest: dependency.generationDigest,
+      subjectDigest: prepared.operationInput.binding.subjectDigest,
+      payload: operationPayload
+    });
+    stage = 'request-encoding';
+    requestBytes = encodeRepositoryAuditWorkerRequest(request);
+    stage = 'request-budget-admission';
+    if (requestBytes.byteLength > SOURCE_PROGRAM_AUDIT_INPUT_BUDGET_BYTES) {
+      throw new Error('Repository Audit request exceeds its process input budget.');
+    }
+    stage = 'boundary-admission';
+    boundary = issueRetainedCommandBoundary({
       executable,
-      workingDirectory,
-      auxiliaryInputs: [{ capability: worker, kind: 'ordinary-file' }]
-    }), ['--no-env-file', worker.childPath, ...args], {
+      workingDirectory: generation.workingDirectory
+    });
+    processArgs = Object.freeze(['--no-env-file', producerClosure.entrypoint.path]);
+    stage = 'process-execution';
+    run = await session.run(boundary, processArgs, {
       env: environment,
       envMode: 'replace',
+      input: requestBytes,
+      maxStdinBytes: SOURCE_PROGRAM_AUDIT_INPUT_BUDGET_BYTES,
       maxStderrBytes: SOURCE_PROGRAM_AUDIT_STDERR_BUDGET_BYTES,
-      maxStdoutBytes: SOURCE_PROGRAM_AUDIT_STREAM_BUDGET_BYTES
-        - SOURCE_PROGRAM_AUDIT_STDERR_BUDGET_BYTES
+      maxStdoutBytes: REPOSITORY_AUDIT_WORKER_PROTOCOL_LIMITS.maximumCandidateStreamBytes
     });
+    stage = 'protocol-readback';
+    candidateStream = parseRepositoryAuditWorkerCandidateStream({
+      bytes: run.result.stdout,
+      eofObserved: true
+    }, request, {
+      maximumRequestBytes: SOURCE_PROGRAM_AUDIT_INPUT_BUDGET_BYTES,
+      maximumResultBytes: REPOSITORY_AUDIT_WORKER_PROTOCOL_LIMITS.maximumCandidateStreamBytes
+    });
+    operationResult = parseSourceProgramAuditOperationResult(
+      candidateStream.payload,
+      REPOSITORY_AUDIT_WORKER_PROTOCOL_LIMITS.maximumOperationResultBytes
+    );
   } catch (error) {
-    primaryError ??= error;
+    primaryError ??= new RepositoryAuditWorkerStageError(stage, error);
   } finally {
-    const cleanup: Array<Readonly<{ label: string; settle(): void }>> = [];
+    const cleanup: Array<Readonly<{ label: string; settle(): void | Promise<void> }>> = [];
     if (session !== null) {
       const retainedSession = session;
       cleanup.push(Object.freeze({
@@ -3134,18 +3164,18 @@ export async function executeSupervisedWorkingTreeSourceProgramAudit(
         settle: () => { resources = retainedSession.close(); }
       }));
     }
-    if (worker !== null) {
-      const retainedWorker = worker;
+    if (generation !== null) {
+      const retainedGeneration = generation;
       cleanup.push(Object.freeze({
-        label: 'repository audit retained worker',
-        settle: () => retainedWorker.dispose()
+        label: 'repository audit sealed generation',
+        settle: async () => { generationRetirement = await retainedGeneration.retire(); }
       }));
     }
-    if (workingDirectory !== null) {
-      const retainedWorkingDirectory = workingDirectory;
+    if (dependency !== null) {
+      const retainedDependency = dependency;
       cleanup.push(Object.freeze({
-        label: 'repository audit retained cwd',
-        settle: () => retainedWorkingDirectory.dispose()
+        label: 'repository audit dependency generation',
+        settle: async () => { dependencyRetirement = await retainedDependency.retire(); }
       }));
     }
     if (executable !== null) {
@@ -3156,7 +3186,7 @@ export async function executeSupervisedWorkingTreeSourceProgramAudit(
       }));
     }
     try {
-      settlePhysicalResources({
+      await settlePhysicalResourcesAsync({
         ...(primaryError === undefined ? {} : {
           primary: Object.freeze({
             label: 'repository audit worker execution',
@@ -3179,17 +3209,69 @@ export async function executeSupervisedWorkingTreeSourceProgramAudit(
   if (run === null || resources === null) {
     throw new Error('Repository audit worker settled without an execution result.');
   }
+  if (operation === null || boundary === null || request === null || requestBytes === null
+      || processArgs === null || environment === null || candidateStream === null
+      || operationResult === null || generation === null || generationRetirement === null
+      || dependencyRetirement === null) {
+    throw new Error('Repository Audit worker settled without its exact implementation closure.');
+  }
+  assertSealedPhysicalExecutionTreeRetirementReceipt(generationRetirement, generation);
+  const loadedImplementation = joinRepositoryAuditLoadedImplementationObservation({
+    operation,
+    producerClosure,
+    generation,
+    generationRetirement,
+    dependencyGenerationDigest: prepared.dependencyGenerationDigest,
+    dependencyRetirement,
+    processRunResult: run,
+    processReceipt: resources,
+    processBoundary: boundary,
+    processArgs,
+    processInput: requestBytes,
+    processEnvironment: environment,
+    processEnvironmentMode: 'replace',
+    request,
+    candidateStream
+  });
+
+  await withAuthorityGitReadSession(
+    { cwd: DEFAULT_REPOSITORY_ROOT, budget: repositoryAuditGitBudget(deadlineAtUnixMs) },
+    async (git) => {
+      const finalSnapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session: git });
+      prepared.producerCompilation.workspaceSnapshot.assertMatches({
+        sourceRevision: finalSnapshot.sourceRevision,
+        files: finalSnapshot.files,
+        moduleMembership: finalSnapshot.moduleMembership
+      });
+    }
+  );
+  for (const evidence of prepared.supersessionEvidenceCacheCandidates) {
+    await writeSupersessionEvidenceCache(DEFAULT_REPOSITORY_ROOT, evidence);
+  }
+  if (options.outputPath !== null) {
+    if (operationResult.reductionPatch === null) {
+      throw new Error('--output requires one reduction mode with at least one ready reduction');
+    }
+    await mkdir(path.dirname(options.outputPath), { recursive: true });
+    await writeFile(options.outputPath, operationResult.reductionPatch.patch, 'utf8');
+  }
+  const stdout = Buffer.from(`${JSON.stringify(operationResult.projection, null, 2)}\n`, 'utf8');
   return Object.freeze({
     status: 'completed',
-    code: run.result.code,
-    stdout: run.result.stdout,
-    stderr: run.result.stderr,
+    code: operationResult.exitCode,
+    stdout,
+    stderr: '',
+    loadedImplementation,
+    resultDigest: operationResult.resultDigest,
     resources
   });
 }
 
-async function runSupervisedWorkingTreeSourceProgramAudit(args: readonly string[]): Promise<void> {
-  const execution = await executeSupervisedWorkingTreeSourceProgramAudit(args);
+async function runSupervisedWorkingTreeSourceProgramAudit(
+  args: readonly string[],
+  maximumDurationMs = SOURCE_PROGRAM_AUDIT_DEADLINE_MS
+): Promise<void> {
+  const execution = await executeSupervisedWorkingTreeSourceProgramAudit(args, maximumDurationMs);
   if (execution.status === 'denied') {
     process.stderr.write(`${JSON.stringify(execution.diagnostic)}\n`);
     process.exitCode = 1;
