@@ -226,7 +226,8 @@
           "development.runner",
           "external-capabilities.docker",
           "external-capabilities.git-read",
-          "verification.action"
+          "verification.action",
+          "verification.ci"
         ]
       },
       "effect": {

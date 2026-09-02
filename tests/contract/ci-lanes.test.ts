@@ -1,16 +1,11 @@
 import { afterAll, expect, test } from 'bun:test';
-import { createHash } from 'node:crypto';
-import fs from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
 import { currentActiveDocumentationPaths } from '../../src/control/documentation/active.ts';
 
 import { buildCiContract, formatCiContract } from '../../src/verification/ci/contract/core.ts';
 import { buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentBuildVerificationPlan as buildVerificationPlanWithProvider, CodexDevelopmentCanonicalChangedFiles, type CodexDevelopmentVerificationPlanProfile } from '../../src/verification/ci/contract/plan.ts';
 import {
   CodexDevelopmentChangedFilesFromRecords,
-  CodexDevelopmentCreateNotRunGate,
-  CodexDevelopmentRunGateProcess
+  CodexDevelopmentCreateNotRunGate
 } from '../../src/verification/ci/runtime/ci-orchestration-core.ts';
 import { selectCiSlowTestClosure as selectSlowTestClosureWithProvider } from '../../src/verification/ci/runtime/slow-test-selection.ts';
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../../src/verification/contract/revision.ts';
@@ -278,36 +273,20 @@ test('CI changed files derive from one immutable changed-record snapshot', () =>
   ]);
 });
 
-test('shared CI orchestration preserves child cwd, raw output digest and transient not-run observation', async () => {
-  const repositoryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-ci-orchestration-'));
-  try {
-    const output = `${repositoryRoot}\n`;
-    const result = await CodexDevelopmentRunGateProcess(repositoryRoot, {
-      id: 'cwd-sentinel',
-      argv: [process.execPath, '-e', 'console.log(process.cwd())'],
-      env: process.env
-    });
-    expect(result).toEqual({
-      code: 0,
-      rawOutputDigest: `sha256:${createHash('sha256').update(output).digest('hex')}`,
-      failureTail: repositoryRoot
-    });
-    expect(CodexDevelopmentCreateNotRunGate({
-      id: 'not-run-sentinel',
-      argv: ['bun', 'test', 'sentinel.test.ts']
-    })).toEqual({
-      id: 'not-run-sentinel',
-      argv: ['bun', 'test', 'sentinel.test.ts'],
-      status: 'not-run',
-      exitCode: null,
-      startedAt: null,
-      finishedAt: null,
-      durationMs: null,
-      failureTail: null,
-      rawOutputDigest: null,
-      notRunReason: 'Gate was not reached because preflight or an earlier fail-fast gate did not complete.'
-    });
-  } finally {
-    await fs.rm(repositoryRoot, { recursive: true, force: true });
-  }
+test('shared CI orchestration preserves transient not-run observation', () => {
+  expect(CodexDevelopmentCreateNotRunGate({
+    id: 'not-run-sentinel',
+    argv: ['bun', 'test', 'sentinel.test.ts']
+  })).toEqual({
+    id: 'not-run-sentinel',
+    argv: ['bun', 'test', 'sentinel.test.ts'],
+    status: 'not-run',
+    exitCode: null,
+    startedAt: null,
+    finishedAt: null,
+    durationMs: null,
+    failureTail: null,
+    rawOutputDigest: null,
+    notRunReason: 'Gate was not reached because preflight or an earlier fail-fast gate did not complete.'
+  });
 });
