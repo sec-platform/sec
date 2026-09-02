@@ -364,6 +364,12 @@ frontiers until their owners provide the corresponding evidence. This prevents
 an incomplete observer from authorizing deletion merely because it returned an
 empty list.
 
+`ExternalConsumerStatus=none-observed` is likewise an owner-issued protocol or
+support census, not a caller boolean and not an inference from repository search.
+It must bind the exact source generation, consumer class, support/retention
+window and revalidation trigger. Without that evidence the migration remains
+blocked even when every local observer reports an empty set.
+
 graph facts与graph constraints分别编译；constraint不是藏在validator分支里的第二事实源：
 
 ```text
