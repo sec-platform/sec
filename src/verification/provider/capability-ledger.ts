@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 
-import { createVerificationProviderAvailabilityEpoch, type VerificationProviderAvailabilityEpoch, type VerificationProviderCapabilityInput } from '../../provider/contract/capability.ts';
+import { createVerificationProviderAvailabilityEpoch, type VerificationProviderAvailabilityEpoch, type VerificationProviderCapabilityInput } from './contract/capability.ts';
 
 export const VERIFICATION_PROVIDER_LEDGER_PATH =
   'docs/governance/external-capability-ledger.yaml' as const;

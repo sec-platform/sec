@@ -6,7 +6,7 @@ import { parse as parseYaml } from 'yaml';
 import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../../external-capabilities/linux-verification/contract.ts';
 import { SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY, SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_PATH, SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON, SEC_WINDOWS_CONTROL_CLI_SESSION_SURFACE, parseSecWindowsControlCliEnvironmentAuthority, type WindowsControlCliEnvironmentSpec } from '../../../external-capabilities/windows-control-cli/contract/environment.ts';
 import { inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, scanNoFollowDirectoryTreeMetadata } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { parseVerificationProviderCapabilityLedger, type VerificationProviderCapabilityLedgerProjection } from '../../../verification/ci/runtime/verification-provider-capability-ledger.ts';
+import { parseVerificationProviderCapabilityLedger, type VerificationProviderCapabilityLedgerProjection } from '../../../verification/provider/capability-ledger.ts';
 import {
   documentationRecordByPath,
   type DocumentationAuthorityRegistry
