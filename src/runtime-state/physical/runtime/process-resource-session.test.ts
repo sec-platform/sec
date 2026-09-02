@@ -209,12 +209,16 @@ test('process sessions require one process Effect and complete bound resource ce
     requirementBindingContext: requirementBindingContext(operation)
   });
   try {
-    const first = await session.run(retained.boundary, [
+    const firstArgs = [
       '--no-env-file',
       '--eval',
       "const chunks=[];process.stdin.on('data',c=>chunks.push(c));process.stdin.on('end',()=>process.stdout.write(Buffer.concat(chunks)))"
-    ], {
-      input: new Uint8Array([0, 1, 255]),
+    ] as const;
+    const firstInput = new Uint8Array([0, 1, 255]);
+    const firstEnvironment = { SEC_PROCESS_RESOURCE_RESULT_TEST: 'first' } as const;
+    const first = await session.run(retained.boundary, firstArgs, {
+      env: firstEnvironment,
+      input: firstInput,
       maxStdinBytes: 3,
       maxStderrBytes: 0,
       maxStdoutBytes: 5
@@ -235,11 +239,15 @@ test('process sessions require one process Effect and complete bound resource ce
       maxStdoutBytes: 4
     })).rejects.toThrow(/output-byte admission/u);
 
-    const second = await session.run(retained.boundary, [
+    const secondArgs = [
       '--no-env-file',
       '--eval',
       "process.stdout.write('ok')"
-    ], { maxStderrBytes: 0, maxStdoutBytes: 3 });
+    ] as const;
+    const second = await session.run(retained.boundary, secondArgs, {
+      maxStderrBytes: 0,
+      maxStdoutBytes: 3
+    });
     expect(second.ordinal).toBe(2);
     expect(Buffer.from(second.result.stdout).toString('utf8')).toBe('ok');
     expect(session.processCount).toBe(2);
@@ -277,22 +285,27 @@ test('process sessions require one process Effect and complete bound resource ce
     const expectedRunBinding = {
       operationIdentityDigest: operation.plan.identity.identityDigest,
       boundAttemptDigest: operation.boundAttemptDigest,
-      requirementId: operation.plan.execution.requirements[0]!.id
+      requirementId: operation.plan.execution.requirements[0]!.id,
+      boundary: retained.boundary
     } as const;
     expect(Object.isFrozen(first)).toBeTrue();
     expect(Object.isFrozen(first.result)).toBeTrue();
     expect(() => assertProcessResourceRunResult(first, receipt, {
       ...expectedRunBinding,
+      args: firstArgs,
+      env: firstEnvironment,
+      input: firstInput,
       ordinal: 1
     })).not.toThrow();
     expect(() => assertProcessResourceRunResult(second, receipt, {
       ...expectedRunBinding,
+      args: secondArgs,
       ordinal: 2
     })).not.toThrow();
     expect(() => assertProcessResourceRunResult(
       structuredClone(first) as ProcessResourceRunResult,
       receipt,
-      expectedRunBinding
+      { ...expectedRunBinding, args: firstArgs, env: firstEnvironment, input: firstInput }
     )).toThrow(/owner-issued exact result/u);
 
     const foreignOperation = boundOperation({ label: 'foreign-run-result-session' });
@@ -309,19 +322,49 @@ test('process sessions require one process Effect and complete bound resource ce
     expect(() => assertProcessResourceRunResult(
       first,
       foreignReceipt,
-      expectedRunBinding
+      { ...expectedRunBinding, args: firstArgs, env: firstEnvironment, input: firstInput }
     )).toThrow(/different sessions/u);
     expect(() => assertProcessResourceRunResult(
       foreignRun,
       receipt,
-      expectedRunBinding
+      { ...expectedRunBinding, args: secondArgs }
     )).toThrow(/different sessions/u);
+
+    expect(() => assertProcessResourceRunResult(first, receipt, {
+      ...expectedRunBinding,
+      args: secondArgs,
+      input: firstInput
+    })).toThrow(/invocation differs/u);
+    expect(() => assertProcessResourceRunResult(first, receipt, {
+      ...expectedRunBinding,
+      args: firstArgs,
+      env: firstEnvironment,
+      input: new Uint8Array([0, 1, 254])
+    })).toThrow(/invocation differs/u);
+    expect(() => assertProcessResourceRunResult(first, receipt, {
+      ...expectedRunBinding,
+      args: firstArgs,
+      env: { SEC_PROCESS_RESOURCE_RESULT_TEST: 'transplanted' },
+      input: firstInput
+    })).toThrow(/invocation differs/u);
+    const transplantedBoundary = retainTestBoundary();
+    try {
+      expect(() => assertProcessResourceRunResult(first, receipt, {
+        ...expectedRunBinding,
+        args: firstArgs,
+        boundary: transplantedBoundary.boundary,
+        env: firstEnvironment,
+        input: firstInput
+      })).toThrow(/invocation differs/u);
+    } finally {
+      transplantedBoundary.dispose();
+    }
 
     first.result.stdout[0] = 9;
     expect(() => assertProcessResourceRunResult(
       first,
       receipt,
-      expectedRunBinding
+      { ...expectedRunBinding, args: firstArgs, env: firstEnvironment, input: firstInput }
     )).toThrow(/output identity changed/u);
     expect(() => assertProcessResourceSessionReceipt(
       structuredClone(receipt) as ProcessResourceSessionReceipt

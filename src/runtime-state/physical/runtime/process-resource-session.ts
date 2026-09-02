@@ -118,10 +118,19 @@ const ISSUED_PROCESS_RESOURCE_SESSION_RECEIPTS = new WeakSet<object>();
 type ProcessResourceRunResultBinding = Readonly<{
   session: ProcessResourceSession;
   commandResult: ByteCommandResult;
+  boundary: RetainedCommandBoundary;
   operationIdentityDigest: SecOperationDigest;
   boundAttemptDigest: SecOperationDigest;
   requirementId: string;
   ordinal: number;
+  argvBytes: number;
+  argvDigest: SecOperationDigest;
+  hasStdin: boolean;
+  stdinBytes: number;
+  stdinDigest: SecOperationDigest | null;
+  environmentMode: 'inherit' | 'replace';
+  environmentEntryCount: number;
+  environmentDigest: SecOperationDigest;
   exitCode: number;
   stdoutBytes: number;
   stdoutDigest: SecOperationDigest;
@@ -189,6 +198,43 @@ function requirePositiveBudget(value: number | null, resource: string): number {
 
 function byteLength(value: Uint8Array | undefined): number {
   return value?.byteLength ?? 0;
+}
+
+function argvIdentity(args: readonly string[]): Readonly<{
+  bytes: number;
+  digest: SecOperationDigest;
+}> {
+  const bytes = Buffer.from(JSON.stringify([...args]), 'utf8');
+  return Object.freeze({
+    bytes: bytes.byteLength,
+    digest: rawSha256(bytes)
+  });
+}
+
+function environmentIdentity(input: Readonly<{
+  env?: NodeJS.ProcessEnv;
+  envMode?: 'inherit' | 'replace';
+}>): Readonly<{
+  mode: 'inherit' | 'replace';
+  entries: Readonly<NodeJS.ProcessEnv>;
+  entryCount: number;
+  digest: SecOperationDigest;
+}> {
+  const mode = input.envMode ?? 'inherit';
+  const entries = Object.freeze(Object.fromEntries(
+    Object.entries(input.env ?? {})
+      .filter((entry): entry is [string, string] => entry[1] !== undefined)
+  ));
+  return Object.freeze({
+    mode,
+    entries,
+    entryCount: Object.keys(entries).length,
+    digest: sha256({
+      domain: 'sec.process-resource-session.environment',
+      mode,
+      entries
+    }) as SecOperationDigest
+  });
 }
 
 export function openProcessResourceSession(input: Readonly<{
@@ -350,7 +396,12 @@ export function openProcessResourceSession(input: Readonly<{
           boundary
         });
       }
-      const commandInputBytes = byteLength(options.input);
+      const commandInput = options.input === undefined
+        ? undefined
+        : new Uint8Array(options.input);
+      const commandInputBytes = byteLength(commandInput);
+      const invocationArgv = argvIdentity(args);
+      const invocationEnvironment = environmentIdentity(options);
       if (options.maxStdinBytes !== undefined
           && (!Number.isSafeInteger(options.maxStdinBytes) || options.maxStdinBytes < 0)) {
         throw new Error('Process resource session stdin bound is invalid.');
@@ -400,6 +451,9 @@ export function openProcessResourceSession(input: Readonly<{
       try {
         const result = await runRetainedCommandBytes(boundary, [...args], {
           ...options,
+          env: invocationEnvironment.entries,
+          envMode: invocationEnvironment.mode,
+          input: commandInput,
           signal: sessionController.signal,
           terminationDeadlineMs,
           terminationGraceMs,
@@ -430,10 +484,19 @@ export function openProcessResourceSession(input: Readonly<{
         PROCESS_RESOURCE_RUN_RESULT_BINDINGS.set(runResult, Object.freeze({
           session,
           commandResult: immutableResult,
+          boundary,
           operationIdentityDigest: input.operation.plan.identity.identityDigest,
           boundAttemptDigest: input.operation.boundAttemptDigest,
           requirementId: requirement.id,
           ordinal,
+          argvBytes: invocationArgv.bytes,
+          argvDigest: invocationArgv.digest,
+          hasStdin: commandInput !== undefined,
+          stdinBytes: commandInputBytes,
+          stdinDigest: commandInput === undefined ? null : rawSha256(commandInput),
+          environmentMode: invocationEnvironment.mode,
+          environmentEntryCount: invocationEnvironment.entryCount,
+          environmentDigest: invocationEnvironment.digest,
           exitCode: immutableResult.code,
           stdoutBytes: immutableResult.stdout.byteLength,
           stdoutDigest: rawSha256(immutableResult.stdout),
@@ -608,6 +671,11 @@ export function assertProcessResourceRunResult(
     readonly operationIdentityDigest: SecOperationDigest;
     readonly boundAttemptDigest: SecOperationDigest;
     readonly requirementId: string;
+    readonly boundary: RetainedCommandBoundary;
+    readonly args: readonly string[];
+    readonly input?: Uint8Array;
+    readonly env?: NodeJS.ProcessEnv;
+    readonly envMode?: 'inherit' | 'replace';
     readonly ordinal?: number;
   }>
 ): void {
@@ -628,6 +696,20 @@ export function assertProcessResourceRunResult(
       || binding.requirementId !== expected.requirementId
       || (expected.ordinal !== undefined && binding.ordinal !== expected.ordinal)) {
     throw new Error('Process run result does not match the expected operation requirement.');
+  }
+  const expectedArgv = argvIdentity(expected.args);
+  const expectedEnvironment = environmentIdentity(expected);
+  const expectedInput = expected.input;
+  if (binding.boundary !== expected.boundary
+      || binding.argvBytes !== expectedArgv.bytes
+      || binding.argvDigest !== expectedArgv.digest
+      || binding.hasStdin !== (expectedInput !== undefined)
+      || binding.stdinBytes !== byteLength(expectedInput)
+      || binding.stdinDigest !== (expectedInput === undefined ? null : rawSha256(expectedInput))
+      || binding.environmentMode !== expectedEnvironment.mode
+      || binding.environmentEntryCount !== expectedEnvironment.entryCount
+      || binding.environmentDigest !== expectedEnvironment.digest) {
+    throw new Error('Process run result invocation differs from the expected retained execution.');
   }
   if (runResult.ordinal !== binding.ordinal
       || runResult.result !== binding.commandResult
