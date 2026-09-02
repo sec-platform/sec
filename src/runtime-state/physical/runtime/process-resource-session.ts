@@ -1,4 +1,8 @@
-import { deepFreeze, sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import {
+  deepFreeze,
+  rawSha256,
+  sha256
+} from '../../../system-architecture/foundation/runtime/canonical.ts';
 import {
   consumeSecOperationRequirementBindingContext,
   type SecOperationRequirementBindingContext,
@@ -111,6 +115,27 @@ type ProcessResourceSessionBindingState = {
 };
 const PROCESS_RESOURCE_SESSION_BINDINGS = new WeakMap<object, ProcessResourceSessionBindingState>();
 const ISSUED_PROCESS_RESOURCE_SESSION_RECEIPTS = new WeakSet<object>();
+type ProcessResourceRunResultBinding = Readonly<{
+  session: ProcessResourceSession;
+  commandResult: ByteCommandResult;
+  operationIdentityDigest: SecOperationDigest;
+  boundAttemptDigest: SecOperationDigest;
+  requirementId: string;
+  ordinal: number;
+  exitCode: number;
+  stdoutBytes: number;
+  stdoutDigest: SecOperationDigest;
+  stderrBytes: number;
+  stderrDigest: SecOperationDigest;
+}>;
+const PROCESS_RESOURCE_RUN_RESULT_BINDINGS = new WeakMap<
+  object,
+  ProcessResourceRunResultBinding
+>();
+const PROCESS_RESOURCE_SESSION_RECEIPT_BINDINGS = new WeakMap<
+  object,
+  ProcessResourceSession
+>();
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 const DEFAULT_TERMINATION_GRACE_MS = 5_000;
 
@@ -398,7 +423,24 @@ export function openProcessResourceSession(input: Readonly<{
         // is not trustworthy.
         outputBytes -= admittedOutputBytes - observedOutputBytes;
         successfulProcessRecordCount += 1;
-        return Object.freeze({ ordinal, result: immutableResult });
+        const runResult: ProcessResourceRunResult = Object.freeze({
+          ordinal,
+          result: immutableResult
+        });
+        PROCESS_RESOURCE_RUN_RESULT_BINDINGS.set(runResult, Object.freeze({
+          session,
+          commandResult: immutableResult,
+          operationIdentityDigest: input.operation.plan.identity.identityDigest,
+          boundAttemptDigest: input.operation.boundAttemptDigest,
+          requirementId: requirement.id,
+          ordinal,
+          exitCode: immutableResult.code,
+          stdoutBytes: immutableResult.stdout.byteLength,
+          stdoutDigest: rawSha256(immutableResult.stdout),
+          stderrBytes: Buffer.byteLength(immutableResult.stderr, 'utf8'),
+          stderrDigest: rawSha256(immutableResult.stderr)
+        }));
+        return runResult;
       } catch (error) {
         failedProcessCount += 1;
         throw error;
@@ -442,6 +484,7 @@ export function openProcessResourceSession(input: Readonly<{
         }) as SecOperationDigest
       });
       ISSUED_PROCESS_RESOURCE_SESSION_RECEIPTS.add(receipt);
+      PROCESS_RESOURCE_SESSION_RECEIPT_BINDINGS.set(receipt, session);
       clearTimeout(deadlineTimer);
       input.signal?.removeEventListener('abort', abortFromCaller);
       const bindingState = PROCESS_RESOURCE_SESSION_BINDINGS.get(session);
@@ -549,5 +592,57 @@ export function assertProcessResourceSessionReceipt(
         || receipt.boundAttemptDigest !== expected.boundAttemptDigest
         || receipt.requirementId !== expected.requirementId)) {
     throw new Error('Process resource terminal receipt does not match the expected operation requirement.');
+  }
+}
+
+/**
+ * Proves that one exact successful process result was issued by the same
+ * physical session that issued the supplied terminal receipt. The visible
+ * record and receipt remain evidence projections: origin lives only in these
+ * owner-held bindings, and exact output bytes are read back on every use.
+ */
+export function assertProcessResourceRunResult(
+  runResult: ProcessResourceRunResult,
+  receipt: ProcessResourceSessionReceipt,
+  expected: Readonly<{
+    readonly operationIdentityDigest: SecOperationDigest;
+    readonly boundAttemptDigest: SecOperationDigest;
+    readonly requirementId: string;
+    readonly ordinal?: number;
+  }>
+): void {
+  const binding = runResult !== null && typeof runResult === 'object'
+    ? PROCESS_RESOURCE_RUN_RESULT_BINDINGS.get(runResult)
+    : undefined;
+  if (binding === undefined) {
+    throw new Error('Process run result requires an owner-issued exact result.');
+  }
+  assertProcessResourceSessionReceipt(receipt);
+  const receiptSession = PROCESS_RESOURCE_SESSION_RECEIPT_BINDINGS.get(receipt);
+  if (receiptSession === undefined || receiptSession !== binding.session) {
+    throw new Error('Process run result and terminal receipt were issued by different sessions.');
+  }
+  assertProcessResourceSessionReceipt(receipt, expected);
+  if (binding.operationIdentityDigest !== expected.operationIdentityDigest
+      || binding.boundAttemptDigest !== expected.boundAttemptDigest
+      || binding.requirementId !== expected.requirementId
+      || (expected.ordinal !== undefined && binding.ordinal !== expected.ordinal)) {
+    throw new Error('Process run result does not match the expected operation requirement.');
+  }
+  if (runResult.ordinal !== binding.ordinal
+      || runResult.result !== binding.commandResult
+      || binding.ordinal < 1
+      || binding.ordinal > receipt.processCount
+      || receipt.successfulProcessRecordCount < 1) {
+    throw new Error('Process run result does not match its issued process record.');
+  }
+  if (!(runResult.result.stdout instanceof Uint8Array)
+      || runResult.result.code !== binding.exitCode
+      || runResult.result.stdout.byteLength !== binding.stdoutBytes
+      || rawSha256(runResult.result.stdout) !== binding.stdoutDigest
+      || typeof runResult.result.stderr !== 'string'
+      || Buffer.byteLength(runResult.result.stderr, 'utf8') !== binding.stderrBytes
+      || rawSha256(runResult.result.stderr) !== binding.stderrDigest) {
+    throw new Error('Process run result output identity changed after settlement.');
   }
 }
