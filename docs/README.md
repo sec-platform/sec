@@ -12,13 +12,16 @@ generated-from: docs/authority.json
 | 类型 | 领域 | 路径 | 拥有 | Proposal 处置 |
 | --- | --- | --- | --- | --- |
 | registry | documentation | `docs/authority.json` | documentation.identity、documentation.lifecycle、documentation.ownership | — |
+| authority | agent-constitution | [`docs/agent-constitution.md`](agent-constitution.md) | agent.action-admission、agent.adversarial-reasoning、agent.continuation、agent.delegation、agent.epistemics、agent.knowledge-crystallization、agent.recovery、agent.self-correction | — |
 | authority | agent-user-interface | [`docs/agent-and-user-machine-interface.md`](agent-and-user-machine-interface.md) | ai.bounded-proposal、ai.context-packet、interface.cli、interface.machine-json、interface.projection | — |
 | authority | brownfield | [`docs/brownfield-import.md`](brownfield-import.md) | brownfield.external-library-onboarding、brownfield.lifecycle、brownfield.source-program-model、brownfield.typed-invocation、brownfield.unknown-opaque | — |
 | authority | capability-block | [`docs/capability-and-block-model.md`](capability-and-block-model.md) | capability.block、capability.block-resolution、capability.contract、capability.generator、capability.port、capability.registry、capability.slot-retirement、capability.typed-extension | — |
 | authority | change-management | [`docs/change-management.md`](change-management.md) | change.compatibility、change.compensation、change.forward-recovery、change.implementation-binding-migration、change.migration、change.override、change.upgrade | — |
 | authority | compiler-target-ir | [`docs/compiler-target-ir.md`](compiler-target-ir.md) | compiler.application-ir、compiler.behavior-ir、compiler.implementation-resolution、compiler.lowering、compiler.pipeline、compiler.target-profile、compiler.target-program-ir、compiler.type-algebra | — |
 | authority | delta-and-impact | [`docs/delta-and-impact.md`](delta-and-impact.md) | implementation.binding-delta、implementation.impact、semantic.fact-delta、semantic.impact | — |
+| authority | design-calculus | [`docs/design-calculus.md`](design-calculus.md) | design.admission、design.constraint、design.evolution、design.principle-language、design.relation-algebra、design.simulation | — |
 | authority | development-governance | [`docs/development-governance.md`](development-governance.md) | development.agent-operation、development.external-capability-governance、development.fact-sources、development.operation-envelope、development.plan-layering、development.resume、development.roles、development.skill、development.work-package | — |
+| authority | engineering-constitution | [`docs/engineering-constitution.md`](engineering-constitution.md) | engineering.authority、engineering.capability、engineering.derivation、engineering.effect、engineering.evolution、engineering.identity、engineering.ownership、engineering.proof、engineering.recovery、engineering.resource、engineering.structure、engineering.truth | — |
 | authority | external-provider | [`docs/external-provider-policy.md`](external-provider-policy.md) | provider.adapter、provider.adoption、provider.authority、provider.conformance、provider.onboarding、provider.retirement、provider.security | — |
 | authority | product | [`docs/product.md`](product.md) | product.boundary、product.problem、product.success、product.value | — |
 | authority | roadmap | [`docs/roadmap.md`](roadmap.md) | delivery.exit-criteria、delivery.stage-dag | — |
