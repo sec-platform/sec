@@ -49,10 +49,12 @@
         "openRetainedWindowsRuntimeStateDirectory",
         "observeRetainedRuntimeEndpointResidue",
         "retainCommandAuxiliaryOrdinaryFiles",
-        "retainMutableSealedPhysicalExecutionProtectedRoot"
+        "retainMutableSealedPhysicalExecutionProtectedRoot",
+        "settlePhysicalResourcesAsync"
       ],
       "effectKinds": [
-        "filesystem"
+        "filesystem",
+        "process"
       ],
       "ownerInternalOperations": [
         "openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot"
@@ -86,6 +88,47 @@
           {
             "resource": "records",
             "maximum": 1
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "runtime-state.physical",
+        "operation": "settlePhysicalResourcesAsync"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "brownfield.repository-audit"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem",
+          "process"
+        ],
+        "failureKinds": [
+          "physical-resource-settlement-failed"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 180000
+          },
+          {
+            "resource": "records",
+            "maximum": 8
           }
         ]
       },
