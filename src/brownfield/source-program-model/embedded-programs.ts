@@ -46,6 +46,12 @@ export type SourceProgramEmbeddedProgramUnit = Readonly<{
   span: SourceProgramSpan;
 }>;
 
+export type SourceProgramEmbeddedTypeScriptLiteralObservation = Readonly<{
+  executable: boolean;
+  contentDigest: `sha256:${string}`;
+  observationDigest: `sha256:${string}`;
+}>;
+
 function compareCodeUnits(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
@@ -98,6 +104,43 @@ function packageName(specifier: string): string {
   return specifier.startsWith('@')
     ? specifier.split('/').slice(0, 2).join('/')
     : specifier.split('/')[0] ?? specifier;
+}
+
+/** One separately addressed embedded TypeScript value, never its host file. */
+export function observeSourceProgramEmbeddedTypeScriptLiteral(
+  source: string
+): SourceProgramEmbeddedTypeScriptLiteralObservation {
+  const contentDigest = rawSha256(source);
+  const sourceFile = ts.createSourceFile(
+    `embedded-${contentDigest.slice('sha256:'.length)}.ts`,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+  const diagnostics = (sourceFile as ts.SourceFile & {
+    readonly parseDiagnostics?: readonly ts.Diagnostic[];
+  }).parseDiagnostics ?? [];
+  const executable = diagnostics.length === 0 && sourceFile.statements.some((statement) => (
+    ts.isImportDeclaration(statement)
+    || ts.isExportDeclaration(statement)
+    || ts.isFunctionDeclaration(statement)
+    || ts.isClassDeclaration(statement)
+    || ts.isInterfaceDeclaration(statement)
+    || ts.isTypeAliasDeclaration(statement)
+    || ts.isEnumDeclaration(statement)
+    || ts.isVariableStatement(statement)
+  ));
+  const canonical = Object.freeze({
+    language: 'typescript' as const,
+    contentDigest,
+    executable
+  });
+  return Object.freeze({
+    executable,
+    contentDigest,
+    observationDigest: rawSha256(JSON.stringify(canonical))
+  });
 }
 
 function compileEmbeddedJavaScriptFacts(source: string): Readonly<{

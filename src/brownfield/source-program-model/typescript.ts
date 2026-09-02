@@ -1236,6 +1236,103 @@ export function sourceProgramTypeScriptSourceFile(
   return exactFactGenerationByModel.get(model)?.sourceFiles.get(repositoryPath) ?? null;
 }
 
+export type SourceProgramDurableWorkerInputObservation = Readonly<{
+  status: 'resolved';
+  risk: 'argv' | 'callback' | null;
+  observationDigest: `sha256:${string}`;
+}> | Readonly<{
+  status: 'unresolved';
+  reason: 'declaration-node-unresolved' | 'exact-generation-unavailable' | 'parameter-type-unresolved';
+  observationDigest: `sha256:${string}`;
+}>;
+
+/**
+ * Project one durable-worker input boundary from the exact live Program.
+ * Consumers receive a compact fact and never reparse source bytes or retain
+ * compiler nodes beyond this generation.
+ */
+export function observeSourceProgramDurableWorkerInput(
+  model: SourceProgramModel,
+  declaration: SourceProgramDeclaration
+): SourceProgramDurableWorkerInputObservation {
+  const generation = exactFactGenerationByModel.get(model);
+  const unresolved = (
+    reason: Extract<SourceProgramDurableWorkerInputObservation, { status: 'unresolved' }>['reason']
+  ): SourceProgramDurableWorkerInputObservation => {
+    const canonical = Object.freeze({
+      status: 'unresolved' as const,
+      reason,
+      sourceRevision: model.sourceRevision,
+      declarationObservationId: declaration.observationId,
+      semanticInputDigest: generation?.semanticInputDigest ?? null
+    });
+    return Object.freeze({
+      status: canonical.status,
+      reason,
+      observationDigest: sha256(canonical) as `sha256:${string}`
+    });
+  };
+  if (generation === undefined) return unresolved('exact-generation-unavailable');
+  const sourceFile = generation.sourceFiles.get(declaration.path);
+  if (sourceFile === undefined) return unresolved('declaration-node-unresolved');
+  const findFunctionLike = (node: ts.Node): ts.SignatureDeclaration | undefined => {
+    const named = node as ts.NamedDeclaration;
+    const name = named.name;
+    if (name !== undefined
+        && ts.isIdentifier(name)
+        && name.text === declaration.name
+        && node.getStart(sourceFile, false) === declaration.span.start
+        && node.getEnd() === declaration.span.end) {
+      if (ts.isFunctionLike(node)) return node;
+      if (ts.isVariableDeclaration(node)
+          && node.initializer !== undefined
+          && ts.isFunctionLike(node.initializer)) return node.initializer;
+    }
+    return ts.forEachChild(node, findFunctionLike);
+  };
+  const functionLike = findFunctionLike(sourceFile);
+  if (functionLike === undefined) return unresolved('declaration-node-unresolved');
+  let risk: 'argv' | 'callback' | null = null;
+  let unresolvedType = false;
+  for (const parameter of functionLike.parameters) {
+    const type = parameter.type;
+    if (type === undefined) {
+      unresolvedType = true;
+      continue;
+    }
+    let callback = false;
+    let argv = false;
+    const inspect = (node: ts.Node): void => {
+      if (ts.isFunctionTypeNode(node) || ts.isConstructorTypeNode(node)) callback = true;
+      if (ts.isArrayTypeNode(node)
+          && node.elementType.kind === ts.SyntaxKind.StringKeyword) argv = true;
+      if (ts.isTypeReferenceNode(node)
+          && ts.isIdentifier(node.typeName)
+          && (node.typeName.text === 'Array' || node.typeName.text === 'ReadonlyArray')
+          && node.typeArguments?.length === 1
+          && node.typeArguments[0]!.kind === ts.SyntaxKind.StringKeyword) argv = true;
+      ts.forEachChild(node, inspect);
+    };
+    inspect(type);
+    if (callback) risk = 'callback';
+    else if (argv && risk === null) risk = 'argv';
+    else if (!argv) unresolvedType = true;
+  }
+  if (risk === null && unresolvedType) return unresolved('parameter-type-unresolved');
+  const canonical = Object.freeze({
+    status: 'resolved' as const,
+    risk,
+    sourceRevision: model.sourceRevision,
+    declarationObservationId: declaration.observationId,
+    semanticInputDigest: generation.semanticInputDigest
+  });
+  return Object.freeze({
+    status: canonical.status,
+    risk,
+    observationDigest: sha256(canonical) as `sha256:${string}`
+  });
+}
+
 /** Resolve one export through the current exact TypeChecker, including aliases and star re-exports. */
 export function resolveSourceProgramTypeScriptModuleExport(
   model: SourceProgramModel,
