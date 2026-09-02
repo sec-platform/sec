@@ -60,6 +60,11 @@ universes; each must be bound to the exact source generation or remain a typed
 frontier. A migration compiler must reject cutover while local coverage is
 `unknown`, even when `ObservedConsumerRefs` is empty.
 
+Registry and target-contract digests are owner-derived from the actual inputs;
+caller-supplied digest strings are assertions to verify, not credentials. An
+unregistered address is likewise `unclassified` until lifecycle evidence is
+provided; directory names cannot classify ownership or retirement.
+
 ## 14. Machine admission 与自动化入口
 
 ### 14.1 Declaration admission

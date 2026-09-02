@@ -809,6 +809,7 @@ semantic equivalence不可仅靠文本embedding或AI相似度裁决；它们只�
 ```text
 liftCurrentDocumentation(currentRegistry, exactCorpus):
   join every registered entry with exact bytes and all source/external consumers
+  recompute registry/contract digests from supplied inputs; reject caller assertions that do not match
   classify by current kind without changing its current authority ceiling
   derive candidate sourceRole, scope and relations from owned semantics
   require owner adoption where AuthorityContract vs AuthorityTopic is not unique
@@ -862,7 +863,7 @@ DocumentationMigration = {
 迁移必须按一个architecture operation完成，不能以逐文件移动制造长期半成品：
 
 1. 冻结role-specific source header/body nodes、scope/relation、generated index和DocRef schema。
-2. 对当前`authority.json`、frontmatter、README、全部tracked docs与path consumers做exact census；任何未分类内容进入frontier。
+2. 对当前`authority.json`、frontmatter、README、全部tracked docs与path consumers做exact census；registry、corpus与target contract digest必须由实际输入重算并比对，任何未分类内容进入frontier。目录名（包括`docs/work-packages/`）不是生命周期或owner事实。
 3. shadow compile当前generation；把重载的`projects`等边拆成明确`DependsOn/ProjectsFrom/GeneratedFrom/ProposalTargets`，证明所有current owner keys、facts、lifecycle和consumer semantics有唯一target。
 4. 由address compiler在真实Windows/Git/renderer capability下生成target paths；验证case-fold、reserved、length、Unicode、same-name file/directory和relative-link rendering。
 5. stage全部target fragments、typed refs、machine index和recursive views；current generation仍是唯一authority。

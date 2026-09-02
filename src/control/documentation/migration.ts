@@ -302,6 +302,13 @@ export function compileDocumentationMigrationDesign(input: Readonly<{
 }>): DocumentationMigrationDesign {
   const registryDigest = digest(input.registryDigest, 'registryDigest');
   const targetContractDigest = digest(input.targetContractDigest, 'targetContractDigest');
+  const expectedRegistryDigest = sha256(input.registry) as Digest;
+  if (registryDigest !== expectedRegistryDigest) {
+    fail('registryDigest does not match the supplied registry content.');
+  }
+  if (targetContractDigest !== DOCUMENTATION_MIGRATION_TARGET_CONTRACT_DIGEST) {
+    fail('targetContractDigest does not match the canonical target contract.');
+  }
   const corpus = input.corpus.map(normalizeCorpusEntry);
   assertSortedEntries(corpus);
 
