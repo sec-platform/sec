@@ -687,6 +687,187 @@ Requirement
 
 性能优化只能替换观察或执行 Provider：retained session、native OS API、Language Service、content-addressed fact shard、authenticated in-flight。它们不得建立第二 Source Program、第二 ActionKey、第二 scheduler 或 daemon truth。
 
+### 10.1 Execution Runtime Microkernel
+
+逻辑架构规定“哪些 DomainOperation、依赖、权限、资源、状态和结果必须成立”；实现层必须有一个政策无关的执行微内核统一兑现这些合同。否则每个 domain 会分别手写 Provider 调用、timeout、锁、重试、journal、cleanup 和成功判断，重新形成多套 workflow 与 resource owner。
+
+```text
+ExecutionRuntimeMicrokernel =
+  typed workflow-plan and operation-plan interpreters
+  + admission verifier
+  + operation-scoped resource ledger
+  + ready-set scheduler
+  + bound-capability executor
+  + attempt journal coordinator
+  + settlement collector
+  + cancellation/descendant tree
+```
+
+它只解释已经冻结的 `ExecutionPlan`，不拥有 Product/Domain Definition、Policy、WorkflowDefinition、Authority issuance、Provider eligibility、DomainResult 或 Verification verdict。它不是全局 service locator、任意 callback runner、命令总线或第二状态机。
+
+该结构不是因“框架更整齐”而选择；它是以下竞争模型在 SEC 已接受 Requirement 下的裁决：
+
+| 候选 | Hard-constraint / lifecycle 结果 | 裁决 | 反转条件 |
+| --- | --- | --- | --- |
+| 每个 domain 直接调用 process/filesystem/network 并自管 timeout/journal | 重复 Authority/Resource/Settlement owner；跨域组合无法守恒 | rejected | domain 永远 pure、无 Effect/资源/恢复时直接调用本就合法 |
+| 一个 policyful 全局 orchestrator | 吞并 Domain Definition、Workflow、Authority 与 terminal owner | rejected | none；只能作为 generated read-only projection |
+| 任意 callback/DI/service-locator framework | callback 可藏 Effect/Provider选择/ambient state；Source Program 与 impact不完整 | rejected | none；exact typed factory不属于此候选 |
+| 外部 workflow/task engine 直接拥有业务 DAG | 外部状态/重试/成功语义取代 SEC owner；offline/replaceability受限 | rejected as semantic owner | 其作为满足明确 execution port 的 Provider，并通过等价/settlement验证 |
+| 仅静态生成直连代码，无统一 runtime mechanism | pure 路径成本最低，但 Effect/资源/取消/lost-handle机制会重复 | accepted only for pure intra-cell path | requirement closure证明无受控 runtime boundary |
+| typed policy-free execution microkernel | 集中不可重复的执行机制，同时让 policy/state/result留在各 owner；可替换 Provider | selected | 共享机制不再存在或其成本经 measurement 支配；需新 DesignDecision |
+
+选择依据只引用已接受的跨域不变量：Authority 不放大、一个 parent resource ledger、at-most-once Effect、exact settlement、cancellation descendants、lost-handle recovery、Provider可替换和 DomainResult独立 readback。微内核不因本表自证完成；实现仍须由 Source Program 证明这些机制只有一个 active owner，并通过 fault/trace/refinement Evidence。
+
+### 10.2 具体实现实体
+
+| 类别 | 实体 | 由谁实现/签发 | 只拥有 | 绝不能拥有 |
+| --- | --- | --- | --- | --- |
+| logical input | `DomainOperationContract` | domain owner | intent/result/state/failure/effect semantics | Provider、path、handle |
+| logical input | `WorkflowDefinition` | workflow owner | operation refs、result edges、guards、join/compensation | callback、resource allocation、child state |
+| per-workflow realization | `WorkflowPlanCompiler` | workflow implementation cell | workflow intent + operation contracts → `PureWorkflowPlan` | Provider、child state、Effect callback |
+| per-domain realization | `OperationPlanCompiler` | domain implementation cell | intent + exact facts → `PureOperationPlan` | I/O、lease、grant、binding、attempt |
+| per-domain realization | `DomainReadbackInterpreter` | domain implementation cell | exact post-observation → typed domain state | retry、Authority、Evidence verdict |
+| per-domain realization | `DomainResultReducer` | domain implementation cell | plan + settlements + readback → DomainResult/residue | Provider exit→success shortcut |
+| pure boundary | `PureWorkflowPlan` / `PureOperationPlan` | corresponding plan compiler | typed DAG、requirements、guards、obligations、unknown | Provider binding、grant、allocation、runtime handle |
+| compiled boundary | `WorkflowExecutionPlan` | control/binding compiler | public operation DAG、result mapping、guards/compensation、resource demands | Provider/effect node、child internal state |
+| compiled boundary | `OperationExecutionPlan` | control/binding compiler | capability/readback DAG、exact bindings、resource demands、grant predicates、settlement obligations | live allocation/ticket、executable functions、ambient lookup |
+| invocation | `WorkflowInvocation` / `OperationInvocation` | corresponding public facade | intentRef、subject/snapshot、stable key、parent context | grant、success、Provider choice |
+| admitted boundary | `AdmittedExecution<Plan>` | admission owner | exact plan、live grant refs、resource-owner root Allocation ref、epoch | child Effect、business success |
+| opaque admission | `ExecutionCapability<Plan>` | admission owner after intersection | exact admitted workflow/operation 可启动匹配 runtime session 的不可伪造权能 | broader grant、wrong plan kind、arbitrary operation |
+| runtime session | `WorkflowRuntimeSession` | microkernel composition root | one workflow、child DomainOperation join/cancel/result collection | child Provider/state、cross-domain policy rewrite |
+| runtime session | `OperationRuntimeSession` | microkernel composition root | one DomainOperation、capability/readback nodes、deadline、cancel tree、settlement | global mutable truth、cross-operation budget reset |
+| resource | `ResourceLedgerSession` | resource owner | reserve/consume/release/readback parent allocations | business priority、hidden unlimited dimensions |
+| scheduling | `ReadySetScheduler` | microkernel | 在 frozen ready-set 内选择合法次序 | 修改 DAG、生成步骤、跳过 blocker |
+| capability | `BoundCapabilitySession` | admitted Provider binding | one exact port/provider/epoch/physical closure | service discovery、domain result、grant issuance |
+| effect | `EffectTicket` | admission owner | one exact Effect node、preimage、binding、allocation、settlement obligations | reusable general permission |
+| observation | `ObservationTicket` | admission owner | one exact readback/query node、observe scope、binding、allocation、coverage | mutation、Evidence verdict |
+| attempt | `AttemptHandle` | BoundCapabilitySession/Provider | retained physical attempt control/observation handle | durable truth、DomainResult、Evidence |
+| attempt | `ProviderSettlement` | Provider settlement compiler | physical attempt outcome、termination、provider obligations | domain success、journal mutation |
+| state | `AttemptRecord` | OperationJournal/state owner | durable invocation/attempt/settlement refs与CAS sequence | Provider outcome重解释、DomainResult |
+| state | `OperationJournal` | state owner | invocation/attempt/settlement/residue CAS records | workflow definition、blind replay |
+| settlement | `SettlementSet` | operation settlement compiler | exact planned outcomes、resource returns、cleanup/residue refs | semantic success |
+| readback | `ReadbackObservationSet` | domain readback observation owner | exact post-state observations、coverage、unknown、settlement | DomainResult、independent Evidence verdict |
+| recovery | `PureRecoveryDecision` | domain recovery compiler | join/readback/compensate/retry/blocked语义候选 | grant、allocation、Effect |
+| recovery | `AdmittedRecovery` | admission owner | exact recovery decision + grant/binding/allocation/preimage refs | implicit replay、delete unknown |
+| proof | `VerificationRequest` | Claim/workflow owner | exact Claim、required Evidence/independence/freshness | Verdict、Effect |
+| proof | `Verdict` | independent verification owner | exact request/Evidence judgment | mutation/publish/retry Authority |
+
+这些不是都变成 class 或文件；Implementation Compiler 按 Responsibility Cell、lifecycle 和 co-change graph 选择 `type | value | pure function | internal object | durable record | retained session`。实体身份和边界是强制的，物理对象数量与放置仍由 Placement/Complexity compiler 决定。
+
+### 10.3 调用与资源执行链
+
+```mermaid
+sequenceDiagram
+  participant I as Interface
+  participant F as Workflow facade/compiler
+  participant W as Workflow runtime
+  participant D as Domain operation realization
+  participant A as Admission
+  participant K as Runtime microkernel
+  participant R as Resource ledger
+  participant P as Bound capability sessions
+  participant S as State journal
+  participant B as Domain readback/reducer
+  participant V as Independent verifier
+  I->>F: WorkflowInvocation
+  F->>F: compile pure workflow plan
+  F->>A: PureWorkflowPlan + grant/resource facts
+  A->>A: compile exact WorkflowExecutionPlan
+  A->>R: reserve workflow root from parent
+  R-->>A: workflow root Allocation
+  A-->>F: AdmittedExecution + ExecutionCapability
+  F->>W: execute admitted workflow
+  W->>D: public OperationInvocation(intent + exact refs)
+  D->>D: compile pure operation plan
+  D->>A: PureOperationPlan + grant/provider/resource facts
+  A->>A: compile exact OperationExecutionPlan
+  A->>R: reserve one root allocation from parent
+  R-->>A: root Allocation
+  A-->>D: AdmittedExecution + opaque ExecutionCapability
+  D->>K: execute admitted operation
+  K->>R: reserve node allocation from operation root
+  K->>A: request pre-effect observation ticket
+  A-->>K: one-use ObservationTicket
+  K->>P: ObservationTicket + retained/preimage binding
+  P-->>K: current preimage + physical identity observation
+  K->>A: ready node + observed preimage + node allocation
+  A-->>K: one-use EffectTicket
+  K->>S: claim invocation/attempt
+  K->>P: EffectTicket + node Allocation + retained binding
+  P-->>K: attempt settlement
+  K->>S: CAS settlement/residue
+  K->>R: reserve readback child allocation
+  K->>A: readback node + observe scope + current subject
+  A-->>K: one-use ObservationTicket
+  K->>P: ObservationTicket + independent readback binding
+  P-->>K: readback observation + coverage
+  K->>R: consume/release/readback
+  K-->>B: exact SettlementSet + ReadbackObservationSet
+  B-->>W: DomainResult or typed residue + Claim refs
+  W->>V: VerificationRequest when required by workflow
+  V-->>W: independent Verdict
+  W-->>I: workflow result / typed blocker
+```
+
+调用纪律：
+
+| 调用种类 | 合法机制 |
+| --- | --- |
+| 同一 cell 内 pure value/algorithm | 普通直接调用；不经过 runtime kernel |
+| 跨 cell pure query | 对方公开 typed query port；只读已提供的 immutable value/projection，不触达 filesystem/network/runtime或隐藏资源 |
+| 需要新观察的 query | 作为 read-only DomainOperation进入plan/admission，使用`ObservationTicket`、Allocation、coverage与settlement |
+| public Workflow | `WorkflowInvocation` → `WorkflowExecutionPlan`；child节点只调用 public DomainOperation |
+| public DomainOperation | `OperationInvocation` → `OperationExecutionPlan`/admission → operation runtime session |
+| Workflow 调子业务 | 只引用 public DomainOperation/result；不调用 child Provider或读取child journal |
+| filesystem/process/network/container/compiler/Git Effect | 只由 `BoundCapabilitySession` 消费 `EffectTicket` 执行 |
+| state transition | state owner消费 exact transition ticket/CAS preimage |
+| domain readback | 独立 `ObservationTicket` + readback binding按 obligation观察 exact subject；不复用 Effect Provider自报成功 |
+| verification | independent verifier消费 Claim/Evidence；不能被 operation callback内联 |
+
+并非“所有函数调用都框架化”。只有跨 owner、Effect、Authority、Resource、durable state、recovery 或 independent proof 边界进入微内核；纯函数和 cell 内局部协作保持直接、静态、可内联，避免动态 dispatch 与治理税。
+
+资源不会由业务代码直接 `acquire` 一个全局对象。`WorkflowPlanCompiler`与`OperationPlanCompiler`只声明`ResourceDemand`；每层 admission从其 parent allocation保留一次 child root，scheduler只能继续向 ready node切分，不能重新读取 ceiling或创建新预算。Effect与readback Provider只能消费其 child Allocation，cleanup/readback/recovery继续消费同一 top-level remaining。新增 ResourceDimension通过resource contract扩展ledger，不修改每个DomainOperation。
+
+admission 与 reservation 是一个可结算组合：root Allocation 成功但 grant/binding/preimage/admission随后失败时，admission owner必须在同一 settlement内返还 allocation并readback；`AdmittedExecution`未签发不得留下隐式 reservation。运行中任何 node allocation同理进入 attempt/residue，不能靠异常栈自动释放。
+
+### 10.4 组合根、依赖方向与替换
+
+唯一 composition root 只组装本次 AdmittedExecution 已引用的实现：
+
+```mermaid
+flowchart LR
+  F[Foundation values and identity] --> DC[Domain contracts]
+  F --> CP[Capability resource state ports]
+  F --> KC[Runtime kernel contracts]
+  DC --> DR[Domain plan readback result realization]
+  CP --> DR
+  KC --> DR
+  CP --> PI[Provider implementations]
+  KC --> KI[Runtime kernel implementation]
+  CP --> KI
+  DC --> WF[Workflow realization]
+  KC --> WF
+  DR --> CR[Operation-scoped composition root]
+  PI --> CR
+  KI --> CR
+  WF --> CR
+  CR --> IF[Public workflow operation facades]
+  IF --> UI[Interface projections]
+```
+
+依赖要求：
+
+- runtime kernel只依赖通用 plan/capability/resource/state contracts，不导入具体 domain；
+- Provider只实现 CapabilityPort，不导入 Workflow 或 DomainResult；
+- Domain realization引用 port identity与微内核 public operation API，不导入具体 Provider；
+- Workflow只依赖各 DomainOperation public contract/result；
+- composition root消费AdmittedExecution引用的exact Bindings，并由ImplementationPlan定位对应已接受实现；它不运行第二 resolver；
+- interface只调用 operation facade，不持有 ledger、journal、Provider 或 EffectTicket；
+- replacement只改变 ProviderBinding/ExecutionPlan；逻辑 Operation/Workflow identity保持不变；
+- kernel机制变化若不改变 observable trace，只需 refinement/conformance验证；若改变 failure/resource/settlement语义，必须回到 CapabilityDesignSlice。
+
+因此逻辑与实现不是靠“放在不同目录”分离，而是靠不同 owner、类型和不可达能力分离；实现可替换，但不能越过 relation重新解释逻辑。微内核的存在证明是跨 Domain 统一 Authority admission、资源守恒、attempt settlement、cancellation 与 lost-handle recovery；任何 domain-specific policy一旦进入内核即为边界违规。
+
 ## 11. Schema、Version、硬编码与测试
 
 ### 11.1 Schema/Version
@@ -945,7 +1126,7 @@ Design Freeze 前必须执行逻辑 model checks：
 | F01 identity spoof | semantic identity/Address 分型 + retained physical Binding + same-path ABA check |
 | F02 stale snapshot | ImplementationGraph/ChangePlan exact input revisions + pre-effect recompile |
 | F03 unknown crossing | exact coverage frontier + discriminated readiness + affected promotion block |
-| F04 authority amplification | DomainOperation/EffectTicket opaque capability；AI/test/provider只提交 observation/proposal |
+| F04 authority amplification | ExecutionCapability/ObservationTicket/EffectTicket opaque capability；AI/test/provider只提交 observation/proposal |
 | F05 provider substitution | Requirement→eligible Provision→Binding；ambient fallback不可达 |
 | F06 resource reset | one parent operation ledger贯穿 child/retry/readback/cleanup/recovery |
 | F07 non-reentrant concurrency | capability contract驱动 sequence/join/bounded parallel plan |
@@ -971,6 +1152,10 @@ Design Freeze 前必须执行逻辑 model checks：
 
 | 输入变化 | 唯一 authored change point | 自动派生 | 必要验证/迁移 |
 | --- | --- | --- | --- |
+| pure query已有immutable input | query contract/consumer | 直接typed调用；不创建runtime session或allocation | result/unknown property；zero hidden observation/effect |
+| query需要filesystem/network/runtime新观察 | DomainOperation requirement/readback owner | PureOperationPlan→ObservationTicket→coverage/settlement→typed result | observe authority、budget、provider/subject identity、unknown |
+| 多Domain workflow | WorkflowDefinition | PureWorkflowPlan→workflow root allocation→public child OperationInvocations→result join | child state/provider不可达、parent resource conservation、cancel/compensation |
+| 单Domain mutation | DomainOperation | PureOperationPlan→exact Binding→AdmittedExecution→preimage→EffectTicket→settlement/readback | authority、at-most-once、partial/lost-handle、independent result |
 | 增加领域 invariant | domain contract/decision owner | operation guards、diagnostics、claims、docs projection | behavior + failure/property impact |
 | durable schema 演进 | state contract owner | writer/parser schema refs、migration plan、readback claims | old exact grammar→new generation→consumer-zero |
 | Git/Docker/TypeScript Provider 替换 | provider Binding/adoption owner | affected operations、ActionKeys、resource plan | conformance、identity、Effect、settlement；不改领域 Definition |
