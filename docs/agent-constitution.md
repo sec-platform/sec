@@ -304,6 +304,16 @@ flowchart LR
 
 Skill 只提供暂不可机器化的判断程序：触发条件、所需 Evidence、可选动作、停止条件、反转条件。Skill 不提供事实、能力、权限或完成；规则一旦可机器化，迁入 owner 并删除 Skill 中的重复判断。
 
+Skill 本身不享有正确性特权。其每次输出只能归类为带来源的 `Hypothesis | ProcedureCandidate | QuestionSet`，并绑定 exact inputs、适用 frontier、Skill revision 和 reversal predicate；之后仍须经过当前 Product/Domain Definition、Engineering/Agent Constitution、live Authority 与 machine admission。Skill 与事实、用户终局结果、canonical owner 或反例冲突时，Skill 输出及其依赖计划/Evidence 立即 stale；修正 Skill 的唯一 heuristic owner，不能让该 Skill 用自己的 scope、停止规则或历史成功阻止自纠。没有适用 Skill 不构成 blocker，也不允许 Agent 自由猜测：继续消费 machine owners 与 bounded unknown。
+
+```text
+SkillApplicable ≠ SkillCorrect
+SkillSelected   ≠ ActionAuthorized
+SkillOutput     ≠ Fact | Definition | Decision | Grant | Evidence | Completion
+```
+
+Skill 的价值只在暂时无法由现有计算模型收敛的判断 frontier；它必须保留可证伪性、替代方案和退出到 machine owner 的条件，而不是积累工程规则、当前事实、路径清单、命令教程或历史事故。
+
 ## 9. 失败与恢复行为
 
 ```text

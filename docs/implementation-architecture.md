@@ -166,7 +166,7 @@ Implementation(x) iff
 | Purpose | ProductCapability、Outcome、NonGoal、FutureObligation | Product/Domain | accepted definition digest | proposed→accepted→retired |
 | Semantics | Subject、Definition、Invariant、FailureKind、ClaimDefinition | Domain contract | semantic owner + canonical content | draft→active→superseded |
 | Responsibility | ResponsibilityCell、PublicDemand、OwnerEdge | Architecture + Domain adoption | owned Subject set + obligation refs | candidate→accepted→retired |
-| Operation | DomainOperation、RequirementDAG、StateMachine | Domain operation owner | operation definition digest | planned→admitted→terminal/residue |
+| Operation | DomainOperation、WorkflowDefinition、RequirementDAG、StateMachine、AdmissionDecision | Domain/workflow/control owners | operation/workflow definition digest + current admission inputs | planned→admitted→terminal/residue |
 | Capability | CapabilityPort、Provision、ProviderBinding | Capability/provider owner | contract + provider epoch | discovered→eligible→bound→settled |
 | Resource | ResourceLedger、Allocation、RetainedCapability | Resource owner | parent ledger + allocation key | reserved→consumed/released→terminal |
 | Knowledge | ContentSnapshot、SourceProgram、Declaration、Reference、Unknown | Observation/interpreter owner | exact content + interpreter closure | observed→validated→stale |
@@ -727,6 +727,52 @@ Requirement
 | AST/search tool | candidate discovery/codemod evidence | observation/transformation Provider |
 
 成熟轮子优先，但先比较能力、正确性、协议、许可证、安全、资源、可替换性和退役成本。采用轮子不等于让它拥有 SEC Definition；自研 wrapper 不得只复制参数、输出或生命周期。
+
+### 12.1 Reuse Compiler
+
+最大化的是**合法复用后的全生命周期净收益**，不是共享函数数量。Reuse Compiler 从 ImplementationGraph 聚类 Requirement/contract/behavior/effect/failure/resource/lifecycle 等价候选：
+
+| 可复用层 | 复用单位 | 不得共享 |
+| --- | --- | --- |
+| value/contract | immutable value、identity、strict parser、failure algebra | 不同 semantic identity 的可变 DTO |
+| pure algorithm | 相同输入语义、deterministic result、unknown policy | 偷读 ambient state 的 helper |
+| fact/derivation | exact content-addressed shard + interpreter closure | path/mtime/process-local truth |
+| DomainOperation | public operation contract/result | 私有 state writer、caller-composed Effect |
+| CapabilityPort | Requirement contract | 具体 Provider/credential/path |
+| Provider | 同 Requirement、platform/security/resource/settlement conformance | domain success、跨 owner mutable state |
+| Workflow pattern | 相同 dependency/compensation algebra 的 parameterized compiler | 用 generic callback 隐藏不同业务状态机 |
+| Artifact/cache | 相同 ActionKey、producer、environment、validator | Evidence/Authority/canonical state |
+
+```text
+ReuseAllowed(A, B) iff
+  semanticRequirementEquivalent
+  ∧ failureAndUnknownEquivalent
+  ∧ authorityDoesNotExpand
+  ∧ resourceAndSettlementComposable
+  ∧ lifecycleAndVersionCompatible
+  ∧ oneCanonicalOwner
+  ∧ lifecycleCost(shared) < lifecycleCost(separate)
+```
+
+不满足完整等价时只复用更低层纯算法或 CapabilityPort，不能用 `shared/common/utils/core` 目录名强迫合并。每个复用决定产生 consumer refs、差异 frontier、owner、Binding 和反转条件；Provider/版本/需求变化自动使相关复用 Binding stale。
+
+### 12.2 Complexity Existence Proof
+
+每个 authored entity、public surface、state、adapter、cache、daemon、package、schema、test、workflow 和 abstraction 都必须有可生成的存在证明：
+
+```text
+ExistenceProof(node) =
+  independent responsibility or invariant
+  ∨ real consumer requirement
+  ∨ authority/security/protocol boundary
+  ∨ state/lifecycle/recovery boundary
+  ∨ measured resource/performance dominance
+  ∨ accepted FutureObligation with bounded carrying cost
+```
+
+证明从 owner graph、consumer/effect/state facts、benchmark、external contract 和 FutureObligation refs 派生，不逐文件手写理由。DesignPackage 保存候选方案、删除反事实、成本向量、支配关系和反转条件；ImplementationGraph 只保存 accepted node 与其 proof refs。
+
+若 `counterfactualDelete(node)` 不降低 accepted outcome、约束、恢复、Evidence、未来义务或全生命周期成本，该 node 为 `derivable | duplicate-owner | dominated | orphan`，不能因已有代码、测试、名字、历史提交或“架构感”继续存在。
 
 ## 13. Architecture Migration Transaction
 

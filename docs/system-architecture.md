@@ -122,6 +122,94 @@ flowchart LR
 
 Provision 不等于 Grant；Binding 不等于 Observation；exit 不等于 Settlement；Evidence record 不等于 Claim 为真。
 
+### 2.2 Business Capability Closure
+
+每个 accepted ProductCapability 必须编译为完整业务闭包，不能只定义 happy-path 功能或等实现暴露缺口后再补控制：
+
+```text
+BusinessCapabilityClosure =
+  outcome/non-goal
+  + Subjects/Definitions/Invariants
+  + Responsibility/owner/public demand
+  + inputs/outputs/data/configuration/secrets/privacy
+  + StateMachine/FailureAlgebra
+  + Policies/Decisions
+  + Authority/permissions/delegation
+  + DomainOperations/Workflow
+  + Requirements/CapabilityPorts/Bindings
+  + Resource/Concurrency/Time/Consistency/Isolation
+  + Effects/Settlement/Readback/Recovery
+  + external/provider/security/supply-chain/compliance
+  + Claims/Evidence/Verification
+  + audit/provenance/retention
+  + performance/economy
+  + compatibility/migration/retirement
+  + distribution/deployment/availability/operations/support
+  + Interface/accessibility/localization
+  + unknown/reversal
+```
+
+Architecture Coverage Compiler 对 `accepted capabilities × concern families × applicable fault families` 生成 obligation matrix：
+
+| Cell status | 含义 |
+| --- | --- |
+| `satisfied` | 有唯一 owner 和可验证合同 |
+| `not-applicable(reason)` | 由 relation graph 证明该 concern 不可达；不能留空 |
+| `required-unmaterialized` | 逻辑要求已接受，实现尚不存在 |
+| `bounded-unknown(frontier)` | 缺观察/决策，只阻断受影响路径 |
+| `violated(code)` | 违反 hard constraint，拒绝 promotion/Effect |
+
+矩阵不是人工逐格维护。owner Definitions、Source Program、operation/state/effect graph、Provider/Resource facts 和 fault families 是输入；reachability、dependency closure、constraint applicability、test/proof obligations 和 `not-applicable` 由编译器生成。新增 capability、provider、state、Effect、schema 或 external contract 自动扩展相关行列并使旧 DesignPackage stale。
+
+```mermaid
+flowchart LR
+  PC[Accepted Product Capabilities] --> CC[Closure Compiler]
+  SG[Semantic and operation graph] --> CC
+  FG[Fault families] --> CC
+  PF[Provider/resource facts] --> CC
+  CC --> M[Obligation matrix]
+  M --> D[Design frontier]
+  M --> I[Implementation requirements]
+  M --> V[Claim and Evidence requirements]
+```
+
+Coverage 只对声明的 exact universe 完备；开放世界通过 explicit unknown 扩展，不以“当前没搜到”证明不存在。上面的 concern family 不是不可扩展的枚举：新增一种能改变 admission、state、Effect、settlement、Evidence、成本或用户结果的独立 concern 时，先由其 canonical owner 定义关系与故障语义，再作为 Coverage Compiler 的新输入；不得把它塞进 `misc`、自由文本或既有 family 的可选字段。
+
+### 2.3 可推导边界
+
+通用构件不会凭空生成业务。所有信息分为四类，且只能沿显式 transition 变化：
+
+| 类别 | 必须从哪里来 | 可由机器做什么 | 禁止 |
+| --- | --- | --- | --- |
+| accepted authored truth | authorized Product/Domain decision、Definition、Invariant、Policy | validate、normalize、引用、传播、比较 | 从当前代码或测试猜业务终局 |
+| observed truth | exact repository/runtime/external provider observation | parse、classify、build fact graph、收窄 unknown | observation 自升为 Definition/Authority |
+| derived truth | 上述 exact inputs + canonical algorithm | owner/impact/requirements/placement/test/resource/proof/evolution 编译 | 漏输入、用名称/路径/时间猜测 |
+| runtime decision/authority | live issuer、current facts、policy、scope | bind/admit/allocate/schedule/settle | stable doc、cache、AI 或 Provider 自签 |
+
+```text
+MachineDerivable = deterministic(inputs, algorithm, coverage, unknown)
+IrreducibleInput = authorized preference/definition/grant OR external observation
+```
+
+一旦 Product/Domain 给出足够精确的 outcome、invariant、state、failure 和 tradeoff，owner、Requirement、合法 Provider、资源、流程义务、Effect 边界、tests、Evidence、迁移与大部分实现结构都应机器推导。若输入不足，只能输出 exact decision/observation frontier；不得由 AI 补齐偏好，也不得把“实现能跑”反推成业务定义。
+
+细节控制不是逐条手写到流程中，而是从关系图编译：
+
+| 权威输入 | 必然派生的控制义务 | 控制落点 |
+| --- | --- | --- |
+| Definition + Invariant | 合法/非法状态、failure partition、public operation | Domain owner 的纯合同与 validator |
+| Operation + Effect semantics | preimage、linearization、readback、idempotency/recovery | Domain operation + capability port |
+| Requirement + Authority | eligible Provision、narrow Grant、Binding freshness | admission/binding owner |
+| Resource demand + concurrency relation | allocation、lock order、deadline、fairness、release/leak | resource ledger + scheduler |
+| StateMachine + lifecycle | transition CAS、journal、terminal/residue、retirement | state/lifecycle owner |
+| Workflow dependency + result mapping | ready-set、join、choice、compensation、bounded fixpoint | workflow compiler + coordinator |
+| Claim + independence rule | required observations、negative cases、staleness、Evidence issuer | verification owner |
+| External contract + security/privacy rule | endpoint/principal/credential/env/supply-chain closure | provider/capability owner |
+| Schema/state evolution | activation、migration、readback、consumer-zero、retirement | evolution owner |
+| Outcome + cost vector + FutureObligation | alternatives、dominance、reuse/complexity existence proof | Design/Implementation compiler |
+
+若某项 runtime 控制无法回溯到这张表中的 authority input 和 typed relation，它不是“实现细节”，而是隐藏的 Definition、Policy、Authority、Resource 或 Workflow，应上收唯一 owner 后重新编译。
+
 ## 3. 硬约束系统
 
 | 约束族 | 必须证明 | 确定性拒绝 |
@@ -204,6 +292,33 @@ DesignAdmission = admit(
 ```
 
 它只返回 `admissible | rejected | bounded-unknown`，不创建 plan、state、authority 或 PASS。缺少 machine producer/consumer 时，它是 `required-unmaterialized`，稳定文档不得宣称已具备。
+
+每个 accepted ProductCapability 在实现前必须从同一 DesignPackage 生成一个 `CapabilityDesignSlice`；它不是新的 owner 或手写规格：
+
+```text
+CapabilityDesignSlice = project(
+  outcome/non-goal + domain Definitions,
+  Subjects/Invariants/StateMachine/FailureAlgebra,
+  public DomainOperations + WorkflowDefinition,
+  actors/Authority actions/delegation,
+  inputs/outputs/data/privacy/security,
+  Requirements/eligible Provision classes/resource demands,
+  Effects/settlement/readback/recovery,
+  Claims/Evidence/test properties,
+  performance/cost/SLO/operability,
+  compatibility/migration/retirement/FutureObligations,
+  alternatives/accepted decisions/reversal,
+  coverage/unknown/implementation obligations
+)
+```
+
+| Admission | 条件 | 允许的下一步 |
+| --- | --- | --- |
+| `design-unresolved` | 任一适用 concern/fault cell 无 owner、decision、typed unknown frontier 或 reasoned N/A | 只补观察/产品或领域决策；不得编码猜测 |
+| `design-admitted` | 语义、流程、Authority、Effect、failure、resource、proof、evolution 已闭合；未实现项显式为 implementation obligation | Implementation Compiler 比较 realization |
+| `implementation-admitted` | realization 保持 slice，placement/dependency/migration/verification plan 完整 | 受控实现/生成 |
+
+代码只能实现 `implementation-admitted` obligation。编码中发现新的 actor、state、failure、Effect、resource、external dependency、compatibility 或用户可观察结果时，当前 plan 立即 stale，回到 CapabilityDesignSlice；禁止把新判断埋进 `if`、环境变量、callback、test fixture 或异常处理后再追认设计。
 
 ## 6. Knowledge：snapshot、Source Program 与语义
 
@@ -311,7 +426,122 @@ flowchart LR
 
 “原子”表示一个业务不变量完整成立或进入可恢复 typed state，不表示每个函数、文件或 I/O 都公开。对外只公开 query 和 domain operation；primitive/provider 细节保持内部。
 
-### 8.2 单次 Effect 序列
+### 8.2 Flow、Control、Orchestration 与 Scheduling
+
+这些词回答不同问题，必须由不同 owner 通过 typed refs 组合：
+
+| 角色 | 组织/控制什么 | 只消费 | 绝不能决定 |
+| --- | --- | --- | --- |
+| Product/Domain decider | outcome、non-goal、不可推导取舍 | intent、事实、alternatives | 实现、Provider、运行结果 |
+| Domain definition owner | Subject、Invariant、State、Failure、Operation semantics | accepted decisions | Authority、Provider availability |
+| Workflow composer | 多个 public DomainOperations 的依赖、join、compensation | operation contracts/results | 子 operation 内部 state/Effect、primitive |
+| Policy/decision compiler | eligible candidates 间的 deterministic decision | definitions、facts、policy | 签发 Authority、执行 Effect |
+| Control/admission owner | 某 transition/attempt 当前是否允许 | plan、facts、constraints、refs | 改写 workflow、执行或证明成功 |
+| Authority issuer | principal 对 exact Subject 的 Effect 上限 | authorized decision、scope、epoch | capability 可用性、业务成功 |
+| Requirement binder | Requirement 与 eligible Provision 的 exact 绑定 | grants、profiles、provider facts | 修改 Requirement、ambient fallback |
+| Resource planner/ledger | parent allocation、remaining、return | admitted requirement/binding | 业务优先级、重新定义 timeout |
+| Operation coordinator | admitted Requirement DAG 的启动、join、settlement 收集 | immutable plan/bindings/allocations | 新增步骤、重算 policy、解释业务 terminal |
+| Scheduler | ready-set 内满足资源/并发约束的次序 | DAG readiness、ledger、scheduling policy | 改 DAG、跳过 blocker、生成 Authority |
+| Capability provider | 一个 bounded primitive/外部 capability attempt | EffectTicket、retained binding、allocation | domain intent/decision/success |
+| State/journal owner | legal transition、CAS、attempt/terminal/residue record | domain transition + physical observation | 自造 grant、把记录存在当成功 |
+| Domain operation owner | settlement + independent readback 到 domain result/recovery | provider/state facts | 独立 Evidence verdict |
+| Verification owner | exact Claim 与 independent Evidence 的 verdict | result/readback/evidence | mutation、retry、merge Authority |
+| Interface owner | intent/query 输入和 typed projection 输出 | public operations/results | 重算 decision、绕过 admission |
+
+```mermaid
+flowchart LR
+  D[Domain definitions] --> W[Workflow DAG]
+  W --> P[Pure operation plans]
+  P --> C[Control admission]
+  A[Authority issuer] --> C
+  B[Binding compiler] --> C
+  R[Resource ledger] --> C
+  C --> O[Operation coordinator]
+  O --> S[Ready-set scheduler]
+  S --> X[Capability providers]
+  X --> J[State and settlement]
+  J --> DR[Domain readback/result]
+  DR --> W
+  DR --> V[Independent verification]
+```
+
+逻辑流程由 Workflow/DomainOperation owner 控制；运行编排只执行已经冻结的 DAG；Scheduler 只在 ready-set 内选择次序；Provider 只执行 capability；State owner 只记录合法状态；Verification 只判断 Claim。任何角色跨过这些边界都会形成第二 workflow、self-authorized Effect 或 self-proof。
+
+控制不是一个万能 control plane。每个 admission owner 只控制其状态转换；跨域组合由 Workflow 引用各 DomainOperation 的 public result。公共 Control Plane 只能聚合 typed admission/readback projections，不能取得所有领域的 Definition、journal 或 terminal ownership。
+
+```text
+WorkflowDefinition  = logical operations + dependencies + guards + compensation semantics
+ControlDecision     = current transition admissible | rejected | unresolved
+ExecutionPlan       = exact bindings + allocations + ready-set/scheduling constraints
+AttemptJournal      = observed starts/progress/settlements/residue
+DomainResult        = operation semantics applied to settlement + independent readback
+```
+
+五者具有不同 identity/revision/owner。WorkflowDefinition 可以跨 Provider 保持不变；ExecutionPlan 随 Binding/Resource facts 变化；AttemptJournal 只记录一个 execution epoch；DomainResult 不能由 Coordinator、Scheduler 或 journal formatter构造。
+
+#### 8.2.1 Workflow algebra
+
+Workflow 只用以下受控组合子表达时序；每个节点引用 public DomainOperation，不接受任意 Effect callback：
+
+| 组合子 | 语义 | 必要条件 |
+| --- | --- | --- |
+| `sequence(A,B)` | A 的指定 terminal/result 是 B 的前置 | result mapping、staleness、B 独立 admission |
+| `parallelAll(nodes)` | 无依赖节点可并行，全部按 join policy 结算 | 独立 Effect/lock set、共享 parent allocations |
+| `exclusiveChoice(decision,cases)` | pure Decision 选择恰好一个 branch | closed cases、unknown→blocked |
+| `join(operationKey)` | 消费已存在 in-flight/terminal | identity、freshness、consumer authorization |
+| `compensate(failure,operation)` | 新的有权 DomainOperation 恢复可定义 preimage | compensation grant、资源、readback |
+| `retry(previous)` | 重新执行同一业务 intent | conclusive not-applied 或 owner-issued retry admission |
+| `boundedFixpoint(step,variant)` | 状态按可证明 variant 收敛 | max bound、monotonic progress、terminal/residue |
+| `cancel/timeout` | 停止新增工作并进入 settlement | propagation、descendant termination、readback |
+
+```text
+Ready(node) =
+  predecessorResultsMatch
+  ∧ currentInputRevisionsMatch
+  ∧ controlAdmissionValid
+  ∧ grantBindingAllocationLive
+  ∧ noAffectedUnknown
+```
+
+Workflow DAG 本身无 runtime cycle；业务循环通过 bounded fixpoint/state transition 显式表达。重试、补偿、恢复是新的受控 transition，不是 catch/while/sleep 控制流。
+
+#### 8.2.2 Authority algebra
+
+Authority 是独立控制平面，不是 Capability、角色名、代码可达性或一个布尔值：
+
+```text
+AuthorityGrant {
+  issuer + principal
+  exact Subjects + action kinds + Effect scopes
+  purpose + operation/workflow bounds
+  preconditions + parentGrantRef + delegationDepth
+  activationEpoch + expiry + revocation
+  use: single | bounded-multi
+  audit/settlement/retirement obligations
+}
+
+EffectiveAuthority =
+  issuerGrant
+  ∩ accepted domain policy
+  ∩ parent delegation
+  ∩ current operation scope
+  ∩ live subject/epoch
+```
+
+action kind 至少区分 `observe | decide | plan | execute-effect | verify | publish | recover | retire | delegate`；某一项存在不推出另一项。敏感读取同样要求 observe authority；公开只读信息可由 policy 显式声明为无需 grant，而不是默认“read 不算权限”。
+
+| Owner | 唯一职责 | 禁止 |
+| --- | --- | --- |
+| authority policy owner | 定义哪些 principal 在何种条件下可请求哪些 action | 声称当前 grant 已签发 |
+| issuer | 对 exact subject/epoch 签发、撤销、过期 grant | 执行 Effect、证明结果 |
+| delegation compiler | 证明 child scope/time/actions 是 parent 的子集 | 扩权、换 principal/subject |
+| admission owner | 将 live grant 与 Plan/Binding/Allocation/preimage 相交 | 修改 policy、补签 grant |
+| capability provider | 只消费不可伪造 EffectTicket 执行 bounded attempt | 从可执行能力反推权限 |
+| state/audit owner | 记录 issuance/use/revocation/settlement/retirement | 以记录存在代替授权或成功 |
+
+Skill、AI、测试、文件所有权、PATH、credential possession、Provider availability、缓存、DesignPackage、Workflow 或 caller DTO 均不能签发 Authority。授权响应丢失时只允许 issuer/state readback；不得因 caller “应该有权限”重新签发或执行。
+
+### 8.3 单次 Effect 序列
 
 ```mermaid
 sequenceDiagram
@@ -342,7 +572,7 @@ TerminalOutcome    = compile(exact planned settlements, independent readback, re
 
 deadline、provider route、PID、resume session 和 retry 不得生成新 OperationKey。
 
-### 8.3 资源守恒
+### 8.4 资源守恒
 
 Parent ledger 至少计量：
 
@@ -365,7 +595,29 @@ cleanup and readback consume the same remaining ledger
 
 短预算 waiter 可以放弃等待 shared in-flight computation，但不能放宽 producer deadline。capability admission 的一次性 retained proof 与每次 invocation 的计量分开，禁止重复收费。
 
-### 8.4 Process 与 Durable Local Effect Worker
+#### 8.4.1 Resource algebra
+
+资源维度不是固定表；任意新资源先声明下列合同，再进入同一 parent ledger：
+
+```text
+ResourceDimension {
+  identity + unit
+  capacitySource + freshness
+  kind: exclusive | countable | consumable | rate | retained | elastic-bounded
+  reservability + overcommitPolicy
+  shareability + isolation
+  acquire/consume/release semantics
+  cancellation/expiry
+  leak/residue readback
+  accounting precision + unknown policy
+}
+```
+
+process slots、threads、handles、locks、ports、memory、CPU、GPU、disk bytes/inodes、filesystem entries、network sockets/bytes、API requests/rate/quota、database connections/transactions、container/image/cache capacity、context/tokens 和时间均按该代数实例化。credential/permission 属于 Authority/Capability，不因稀缺而变成 Resource；它可以引用 rate/quota allocation，但语义保持分离。
+
+组合资源请求必须原子 reserve 或按固定全局顺序取得并可回滚；任何未计量维度进入 `resource-frontier`，不能假定无限。共享复用只有在 isolation、fairness、cancellation、settlement 和 leak readback 均成立时允许。
+
+### 8.5 Process 与 Durable Local Effect Worker
 
 Process session 必须绑定 retained executable、cwd、argv bytes、minimal environment、stdin/stdout/stderr bounds、deadline、termination tree 和 pre/post physical identity。裸 shell、ambient PATH/env、callback runner 或 caller-supplied function 不能进入 production Effect。
 
@@ -390,7 +642,7 @@ join-live
 
 有 start 无 terminal/retry admission 时禁止 replay。durable journal 证明“观察过某引用”，不能自行签发 domain truth。
 
-### 8.5 并发与锁序
+### 8.6 并发与锁序
 
 固定逻辑顺序：
 
