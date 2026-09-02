@@ -29,6 +29,78 @@
           "recovery": null
         }
       ]
+    },
+    {
+      "capability": "source-program-model.repository-compilation-cache",
+      "operations": [
+        "compileRepositorySourceProgramCompilationWithCache"
+      ],
+      "effectKinds": [
+        "filesystem"
+      ],
+      "operationRoles": [
+        {
+          "operation": "compileRepositorySourceProgramCompilationWithCache",
+          "role": "domain-owner",
+          "semanticOperation": "brownfield.source-program-model.repository-compilation-cache",
+          "requirementId": null,
+          "recovery": null
+        }
+      ]
+    }
+  ],
+  "operationObligations": [
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "source-program-model.repository-compilation-cache",
+        "operation": "compileRepositorySourceProgramCompilationWithCache"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "development.runner"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem"
+        ],
+        "failureKinds": [
+          "cache.cancelled",
+          "cache.deadline-exhausted",
+          "cache.physical-replacement",
+          "cache.resource-budget-exhausted",
+          "cache.settlement-unproven"
+        ],
+        "recovery": "idempotent-retry"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 300000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 268435456
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 268435456
+          },
+          {
+            "resource": "records",
+            "maximum": 500000
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
     }
   ],
   "causalRelations": [

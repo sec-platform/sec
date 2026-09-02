@@ -20,6 +20,7 @@ import {
 
 const REPOSITORY_COMPILATION_CACHE_REQUIREMENT =
   'brownfield.source-program-model.repository-compilation-cache';
+const REPOSITORY_COMPILATION_CACHE_MAX_DURATION_MS = 300_000;
 const REPOSITORY_COMPILATION_CACHE_MIN_BYTES = 64 * 1024 * 1024;
 const REPOSITORY_COMPILATION_CACHE_MAX_BYTES = 256 * 1024 * 1024;
 const REPOSITORY_COMPILATION_CACHE_MAX_ENCODING_AMPLIFICATION = 8;
@@ -35,7 +36,11 @@ export function openRepositoryCompilationCacheSession(input: Readonly<{
   workspaceSnapshot: PhysicalWorkspaceSourceSnapshot;
 }>): ContentAddressedWorkspaceCacheSession {
   assertPhysicalWorkspaceSourceSnapshot(input.workspaceSnapshot);
-  const durationMs = input.deadlineAtUnixMs - Date.now();
+  const deadlineAtUnixMs = Math.min(
+    input.deadlineAtUnixMs,
+    Date.now() + REPOSITORY_COMPILATION_CACHE_MAX_DURATION_MS
+  );
+  const durationMs = deadlineAtUnixMs - Date.now();
   const sourceByteLength = input.workspaceSnapshot.sourceByteLength;
   const sourceFileCount = input.workspaceSnapshot.files.length;
   if (!Number.isSafeInteger(durationMs) || durationMs < 1
@@ -69,7 +74,7 @@ export function openRepositoryCompilationCacheSession(input: Readonly<{
       sourceFileCount
     }) as SecOperationDigest,
     decisionDigest: contractDigest,
-    deadlineAtUnixMs: input.deadlineAtUnixMs,
+    deadlineAtUnixMs,
     attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: durationMs },

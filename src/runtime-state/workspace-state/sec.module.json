@@ -47,7 +47,7 @@
       },
       "consumerSupport": {
         "consumers": [
-          "brownfield.repository-audit"
+          "brownfield.source-program-model"
         ]
       },
       "effect": {
