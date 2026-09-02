@@ -42,7 +42,8 @@ import {
 import {
   issueRetainedCommandBoundary,
   RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-  RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR
+  RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+  RetainedCommandTransportError
 } from './process.ts';
 import type { RetainedCommandBoundary } from './retained-command-boundary.ts';
 
@@ -500,6 +501,66 @@ test('process session deadline is one fixed wall and monotonic cancellation boun
     maxStdoutBytes: 0
   })).rejects.toThrow(/cancelled|deadline/u);
   session.close();
+});
+
+test('child timeout settles its physical process tree inside the parent operation deadline', async () => {
+  const retained = retainTestBoundary();
+  const operation = boundOperation({
+    budgets: [
+      { resource: 'duration-ms', maximum: 1_000 },
+      { resource: 'input-bytes', maximum: 0 },
+      { resource: 'output-bytes', maximum: 2 },
+      { resource: 'processes', maximum: 2 }
+    ],
+    deadlineAtUnixMs: Date.now() + 5_000,
+    label: 'child-timeout-settlement'
+  });
+  const session = openProcessResourceSession({
+    operation,
+    requirementBindingContext: requirementBindingContext(operation)
+  });
+  try {
+    let failure: unknown;
+    let settledAtMonotonicMs = Number.POSITIVE_INFINITY;
+    try {
+      await session.run(retained.boundary, [
+        '--no-env-file',
+        '--eval',
+        'setInterval(() => {}, 1_000)'
+      ], {
+        maxStderrBytes: 1,
+        maxStdoutBytes: 1,
+        terminationGraceMs: 50
+      });
+    } catch (error) {
+      failure = error;
+      settledAtMonotonicMs = performance.now();
+    }
+    expect(failure).toBeInstanceOf(RetainedCommandTransportError);
+    const transportFailure = failure as RetainedCommandTransportError;
+    expect(transportFailure.outcome).toMatchObject({
+      status: 'timed-out',
+      trigger: 'timed-out',
+      started: true,
+      termination: {
+        requested: true,
+        childCloseObserved: true,
+        streamsDrained: true,
+        treeClosed: true
+      }
+    });
+    expect(settledAtMonotonicMs).toBeLessThan(session.deadlineAtMonotonicMs);
+    const receipt = session.close();
+    expect(receipt).toMatchObject({
+      processCount: 1,
+      settledProcessCount: 1,
+      successfulProcessRecordCount: 0,
+      failedProcessCount: 1,
+      settledNativeResourceCount: receipt.admittedNativeResourceCount
+    });
+  } finally {
+    retained.dispose();
+  }
 });
 
 test('native process resource ledger irreversibly accounts roots workers helpers and failed admission', () => {
