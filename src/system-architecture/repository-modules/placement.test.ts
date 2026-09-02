@@ -8,8 +8,7 @@ import {
   type SecRepositoryModuleSourceProgramFacts
 } from './contract.ts';
 import {
-  compileSecRepositoryModulePlacementAdmission,
-  type SecRepositoryModulePlacementProposal
+  compileSecRepositoryModulePlacementAdmission
 } from './placement.ts';
 
 const operationObligation: SecModuleOperationObligation = Object.freeze({
@@ -140,18 +139,6 @@ function fixture(input: Readonly<{
   return { alpha, beta, facts, graph, membership };
 }
 
-function proposal(targetOwnerId: string): SecRepositoryModulePlacementProposal {
-  return Object.freeze({
-    proposalId: 'move-run',
-    sourceNodeIds: Object.freeze(['node-run']),
-    targetOwnerId,
-    targetObligation: Object.freeze({
-      ownerId: targetOwnerId,
-      operation: operationObligation.operation
-    })
-  });
-}
-
 test('responsibility admission resolves compiler and descriptor facts while blocking only critical unknowns', () => {
   const input = fixture({ includeUnclassified: true, reverseContractImport: true });
   const result = compileSecRepositoryModulePlacementAdmission({
@@ -175,73 +162,4 @@ test('responsibility admission resolves compiler and descriptor facts while bloc
   expect(result.violations.map(({ code }) => code)).toContain(
     'repository-node-responsibility-reverse-dependency'
   );
-});
-
-test('prospective placement emits a symbol-bound atom only for a strict improving closure-preserving move', () => {
-  const input = fixture({ runImportsContract: true });
-  const result = compileSecRepositoryModulePlacementAdmission({
-    graph: input.graph,
-    membership: input.membership,
-    facts: input.facts,
-    proposals: Object.freeze([proposal(input.beta.moduleId)])
-  });
-
-  expect(result.proposals).toEqual([
-    expect.objectContaining({
-      proposalId: 'move-run',
-      status: 'accepted',
-      reasons: [],
-      relocationAtoms: [expect.objectContaining({
-        sourceNodeIds: ['node-run'],
-        target: expect.objectContaining({ ownerId: input.beta.moduleId })
-      })]
-    })
-  ]);
-  expect(result.proposals[0]!.relocationAtoms[0]).not.toHaveProperty('targetPath');
-});
-
-test('prospective placement rejects Pareto-worse ownership and incomplete symbol sets', () => {
-  const unchangedCostsInput = fixture({});
-  const unchangedCosts = compileSecRepositoryModulePlacementAdmission({
-    graph: unchangedCostsInput.graph,
-    membership: unchangedCostsInput.membership,
-    facts: unchangedCostsInput.facts,
-    proposals: Object.freeze([proposal(unchangedCostsInput.beta.moduleId)])
-  });
-  expect(unchangedCosts.proposals[0]).toEqual(expect.objectContaining({
-    status: 'bounded-unknown',
-    reasons: ['lifecycle-cost-not-strictly-improving'],
-    relocationAtoms: []
-  }));
-
-  const dominatedInput = fixture({ runImportsHelper: true });
-  const dominated = compileSecRepositoryModulePlacementAdmission({
-    graph: dominatedInput.graph,
-    membership: dominatedInput.membership,
-    facts: dominatedInput.facts,
-    proposals: Object.freeze([proposal(dominatedInput.beta.moduleId)])
-  });
-  expect(dominated.proposals[0]).toEqual(expect.objectContaining({
-    status: 'dominated',
-    reasons: ['lifecycle-cost-dominated'],
-    relocationAtoms: []
-  }));
-  expect(dominated.violations).toContainEqual(expect.objectContaining({
-    code: 'repository-placement-proposal-dominated'
-  }));
-
-  const partial = compileSecRepositoryModulePlacementAdmission({
-    graph: dominatedInput.graph,
-    membership: dominatedInput.membership,
-    facts: dominatedInput.facts,
-    proposals: Object.freeze([{
-      ...proposal(dominatedInput.beta.moduleId),
-      sourceNodeIds: Object.freeze(['node-run', 'foreign-node'])
-    }])
-  });
-  expect(partial.proposals[0]).toEqual(expect.objectContaining({
-    status: 'bounded-unknown',
-    relocationAtoms: []
-  }));
-  expect(partial.proposals[0]!.reasons).toContain('source-node-unresolved:foreign-node');
 });

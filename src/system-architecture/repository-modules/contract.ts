@@ -198,8 +198,6 @@ export type SecRepositoryModuleBoundaryViolationCode =
   | 'repository-node-responsibility-reverse-dependency'
   | 'repository-module-surface-unresolved'
   | 'repository-effectful-declaration-responsibility-unresolved'
-  | 'repository-placement-proposal-dominated'
-  | 'repository-placement-proposal-unresolved'
   | 'repository-public-declaration-responsibility-unresolved'
   | 'repository-module-role-reverse-dependency'
   | 'repository-module-role-unresolved'
@@ -385,27 +383,6 @@ export type SecRepositoryModuleArchitectureProjection = Readonly<{
   /** The only responsibility authority: one decision per production node. */
   readonly nodeResponsibilities: readonly SecRepositoryNodeResponsibilityProjection[];
   readonly violations: readonly SecRepositoryModuleBoundaryViolation[];
-}>;
-
-/**
- * A relocation is a semantic graph operation, rather than a path rename.
- * Keeping the graph evidence on the entry prevents the physical transaction
- * owner from silently moving a source whose import closure was not resolved.
- * The transaction owner supplies the byte/identity preimage separately.
- */
-export type SecRepositoryModuleRelocationUnresolvedReference = Readonly<{
-  readonly from: string;
-  readonly specifier: string;
-  readonly kind: SecModuleImportKind;
-  readonly reason: 'unresolved-target' | 'non-typescript-reference' | 'unresolved-source';
-}>;
-
-export type SecRepositoryModuleRelocationPlanEntry = Readonly<{
-  readonly sourcePath: string;
-  readonly targetPath: string;
-  readonly sourceKind: 'typescript' | 'unsupported';
-  readonly references: readonly SecRepositoryModuleGraphReference[];
-  readonly unresolvedReferences: readonly SecRepositoryModuleRelocationUnresolvedReference[];
 }>;
 
 export type SecRepositoryModuleGraphCompileInput = Readonly<{
@@ -1387,79 +1364,6 @@ export function compileSecRepositoryModuleGraph(
     directRuntimeDependencies: (modulePath) => Object.freeze([
       ...(runtimeForwardDependencies.get(normalizeSecRepositoryPath(modulePath)) ?? [])
     ].sort((left, right) => left.localeCompare(right, 'en-US')))
-  });
-}
-
-function isTypeScriptRepositoryModulePath(value: string): boolean {
-  return /\.(?:[cm]?tsx?)$/u.test(value);
-}
-
-/**
- * Derive one relocation entry from the already compiled repository graph.
- * This is intentionally a pure projection: it never reads the worktree and
- * never turns an unresolved/non-TypeScript edge into a best-effort move.
- * Physical preimages and the effect transaction belong to the transaction
- * owner, which consumes this entry.
- */
-export function compileSecRepositoryModuleRelocationPlanEntry(
-  graph: SecRepositoryModuleGraph,
-  sourcePath: string,
-  targetPath: string
-): SecRepositoryModuleRelocationPlanEntry {
-  const source = normalizeSecRepositoryPath(sourcePath);
-  const target = normalizeSecRepositoryPath(targetPath);
-  if (isRetiredRepositoryRootPath(source) || isRetiredRepositoryRootPath(target)) {
-    throw new Error('repository relocation path uses a retired repository root');
-  }
-  if (!isCanonicalSecRepositoryModulePath(source)
-      || !isCanonicalSecRepositoryModulePath(target)
-      || source !== sourcePath
-      || target !== targetPath
-      || source === target) {
-    throw new Error('repository relocation paths must be distinct canonical repository paths');
-  }
-  const references = Object.freeze(graph.references.filter((reference) => reference.from === source));
-  const unresolved: SecRepositoryModuleRelocationUnresolvedReference[] = [];
-  const addUnresolved = (
-    reference: Readonly<{
-      readonly from: string;
-      readonly specifier: string;
-      readonly kind: SecModuleImportKind;
-    }>,
-    reason: SecRepositoryModuleRelocationUnresolvedReference['reason']
-  ): void => {
-    unresolved.push(Object.freeze({ ...reference, reason }));
-  };
-  const sourceIsTypeScript = isTypeScriptRepositoryModulePath(source);
-  if (!sourceIsTypeScript || !isTypeScriptRepositoryModulePath(target)) {
-    addUnresolved({ from: source, specifier: target, kind: 'static' }, 'non-typescript-reference');
-  }
-  if (!graph.files.includes(source) || graph.unresolvedFiles.includes(source)) {
-    addUnresolved({ from: source, specifier: '<source-file>', kind: 'static' }, 'unresolved-source');
-  }
-  for (const reference of references) {
-    if (reference.resolvedTarget === null) {
-      addUnresolved(reference, 'unresolved-target');
-      continue;
-    }
-    if (!isTypeScriptRepositoryModulePath(reference.resolvedTarget)) {
-      addUnresolved(reference, 'non-typescript-reference');
-    }
-  }
-  const uniqueUnresolved = new Map<string, SecRepositoryModuleRelocationUnresolvedReference>();
-  for (const reference of unresolved) {
-    uniqueUnresolved.set(
-      `${reference.from}\0${reference.kind}\0${reference.specifier}\0${reference.reason}`,
-      reference
-    );
-  }
-  return Object.freeze({
-    sourcePath: source,
-    targetPath: target,
-    sourceKind: sourceIsTypeScript && isTypeScriptRepositoryModulePath(target)
-      ? 'typescript' : 'unsupported',
-    references,
-    unresolvedReferences: Object.freeze([...uniqueUnresolved.values()])
   });
 }
 

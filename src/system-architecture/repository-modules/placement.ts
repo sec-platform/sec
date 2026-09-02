@@ -4,7 +4,6 @@ import {
   compileSecRepositoryModuleTopologyProjection,
   isSecRepositoryNodeDependencyAllowed,
   normalizeSecRepositoryPath,
-  type SecModuleOperationIdentity,
   type SecRepositoryModuleBoundaryViolation,
   type SecRepositoryModuleGraph,
   type SecRepositoryModuleMembership,
@@ -40,17 +39,6 @@ export type SecRepositoryDeclarationResponsibilityProjection = Readonly<{
   readonly evidenceDigest: Sha256;
 }>;
 
-export type SecRepositoryModulePlacementProposal = Readonly<{
-  readonly proposalId: string;
-  /** Exact compiler-issued declaration observation ids; paths are not proposal authority. */
-  readonly sourceNodeIds: readonly string[];
-  readonly targetOwnerId: string;
-  readonly targetObligation: Readonly<{
-    readonly ownerId: string;
-    readonly operation: SecModuleOperationIdentity;
-  }>;
-}>;
-
 export type SecRepositoryModulePlacementMetrics = Readonly<{
   readonly ownerEdges: number;
   readonly cyclicOwners: number;
@@ -63,32 +51,9 @@ export type SecRepositoryModulePlacementMetrics = Readonly<{
   readonly publicOperations: number;
 }>;
 
-export type SecRepositoryModuleRelocationAtom = Readonly<{
-  readonly atomId: Sha256;
-  readonly sourceOwnerId: string;
-  readonly sourceNodeIds: readonly string[];
-  readonly sourcePaths: readonly string[];
-  readonly target: Readonly<{
-    readonly ownerId: string;
-    readonly obligationDigest: Sha256;
-    readonly operation: SecModuleOperationIdentity;
-  }>;
-}>;
-
-export type SecRepositoryModulePlacementDecision = Readonly<{
-  readonly proposalId: string;
-  readonly status: 'accepted' | 'bounded-unknown' | 'dominated';
-  readonly reasons: readonly string[];
-  readonly before: SecRepositoryModulePlacementMetrics;
-  readonly after: SecRepositoryModulePlacementMetrics | null;
-  readonly relocationAtoms: readonly SecRepositoryModuleRelocationAtom[];
-  readonly decisionDigest: Sha256;
-}>;
-
 export type SecRepositoryModulePlacementAdmission = Readonly<{
   readonly responsibilityFrontier: readonly SecRepositoryDeclarationResponsibilityProjection[];
   readonly current: SecRepositoryModulePlacementMetrics;
-  readonly proposals: readonly SecRepositoryModulePlacementDecision[];
   readonly violations: readonly SecRepositoryModuleBoundaryViolation[];
   readonly admissionDigest: Sha256;
 }>;
@@ -111,12 +76,6 @@ function digest(value: unknown): Sha256 {
 
 function textOrder(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
-}
-
-function operationIdentityKey(operation: SecModuleOperationIdentity): string {
-  return operation.kind === 'capability'
-    ? `capability\0${operation.capability}\0${operation.operation}`
-    : `entrypoint\0${operation.path}`;
 }
 
 function relationResponsibility(
@@ -443,166 +402,16 @@ function placementMetrics(
   });
 }
 
-function isDominated(
-  before: SecRepositoryModulePlacementMetrics,
-  after: SecRepositoryModulePlacementMetrics
-): boolean {
-  if (before.publicOperationClosureDigest !== after.publicOperationClosureDigest
-      || before.publicOperations !== after.publicOperations
-      || before.crossOwnerSourceLines === null || after.crossOwnerSourceLines === null) return false;
-  const beforeCosts = [before.ownerEdges, before.cyclicOwners, before.reciprocalPairs,
-    before.aggregateFacades, before.boundedUnknownDeclarations, before.crossOwnerSourceLines];
-  const afterCosts = [after.ownerEdges, after.cyclicOwners, after.reciprocalPairs,
-    after.aggregateFacades, after.boundedUnknownDeclarations, after.crossOwnerSourceLines];
-  return afterCosts.every((value, index) => value >= beforeCosts[index]!)
-    && afterCosts.some((value, index) => value > beforeCosts[index]!);
-}
-
-function isStrictImprovement(
-  before: SecRepositoryModulePlacementMetrics,
-  after: SecRepositoryModulePlacementMetrics
-): boolean {
-  if (before.publicOperationClosureDigest !== after.publicOperationClosureDigest
-      || before.publicOperations !== after.publicOperations
-      || before.crossOwnerSourceLines === null || after.crossOwnerSourceLines === null) return false;
-  const beforeCosts = [before.ownerEdges, before.cyclicOwners, before.reciprocalPairs,
-    before.aggregateFacades, before.boundedUnknownDeclarations, before.crossOwnerSourceLines];
-  const afterCosts = [after.ownerEdges, after.cyclicOwners, after.reciprocalPairs,
-    after.aggregateFacades, after.boundedUnknownDeclarations, after.crossOwnerSourceLines];
-  return afterCosts.every((value, index) => value <= beforeCosts[index]!)
-    && afterCosts.some((value, index) => value < beforeCosts[index]!);
-}
-
-function exactObligation(
-  membership: SecRepositoryModuleMembership,
-  proposal: SecRepositoryModulePlacementProposal
-) {
-  const descriptor = membership.descriptors.find(({ moduleId }) => (
-    moduleId === proposal.targetObligation.ownerId
-  ));
-  const key = operationIdentityKey(proposal.targetObligation.operation);
-  const matches = descriptor?.operationObligations.filter(({ operation }) => (
-    operationIdentityKey(operation) === key
-  )) ?? [];
-  return matches.length === 1 ? matches[0]! : null;
-}
-
-function compilePlacementDecision(
-  graph: SecRepositoryModuleGraph,
-  membership: SecRepositoryModuleMembership,
-  facts: PlacementFacts,
-  frontier: readonly SecRepositoryDeclarationResponsibilityProjection[],
-  before: Readonly<{ metrics: SecRepositoryModulePlacementMetrics; unresolved: readonly string[] }>,
-  proposal: SecRepositoryModulePlacementProposal,
-  duplicateProposalId: boolean
-): SecRepositoryModulePlacementDecision {
-  const reasons = new Set<string>();
-  if (!/^[a-z][a-z0-9.-]{1,127}$/u.test(proposal.proposalId)) reasons.add('proposal-id-invalid');
-  if (duplicateProposalId) reasons.add('proposal-id-duplicate');
-  for (const unresolved of before.unresolved) reasons.add(`current-${unresolved}`);
-  if (proposal.sourceNodeIds.length === 0
-      || new Set(proposal.sourceNodeIds).size !== proposal.sourceNodeIds.length) {
-    reasons.add('source-node-set-invalid');
-  }
-  if (proposal.targetOwnerId !== proposal.targetObligation.ownerId) {
-    reasons.add('target-obligation-owner-mismatch');
-  }
-  const targetOwner = membership.descriptors.find(({ moduleId }) => moduleId === proposal.targetOwnerId);
-  if (targetOwner === undefined) reasons.add('target-owner-unresolved');
-  const obligation = exactObligation(membership, proposal);
-  if (obligation === null) reasons.add('target-obligation-unresolved');
-  const frontierById = new Map(frontier.map((node) => [node.nodeId, node] as const));
-  const selected = proposal.sourceNodeIds.flatMap((nodeId) => {
-    const node = frontierById.get(nodeId);
-    if (node === undefined) {
-      reasons.add(`source-node-unresolved:${nodeId}`);
-      return [];
-    }
-    if (node.status !== 'resolved') reasons.add(`source-node-responsibility-unresolved:${nodeId}`);
-    return [node];
-  });
-  const sourceOwners = [...new Set(selected.map(({ moduleId }) => moduleId))];
-  if (sourceOwners.length !== 1) reasons.add('source-owner-not-unique');
-  if (sourceOwners[0] === proposal.targetOwnerId) reasons.add('target-owner-unchanged');
-  const selectedIds = new Set(selected.map(({ nodeId }) => nodeId));
-  const selectedPaths = [...new Set(selected.map(({ path }) => path))].sort(textOrder);
-  for (const sourcePath of selectedPaths) {
-    const allPathNodes = frontier.filter(({ path }) => path === sourcePath);
-    if (allPathNodes.length === 0 || allPathNodes.some(({ nodeId }) => !selectedIds.has(nodeId))) {
-      reasons.add(`partial-file-relocation:${sourcePath}`);
-    }
-  }
-  if (obligation !== null) {
-    const binds = selected.some((node) => obligation.operation.kind === 'capability'
-      ? obligation.operation.operation === node.name
-      : obligation.operation.path === node.path);
-    if (!binds) reasons.add('target-obligation-does-not-bind-source');
-  }
-  const reassignedOwners = new Map(selectedPaths.map((sourcePath) => (
-    [sourcePath, proposal.targetOwnerId] as const
-  )));
-  const after = reasons.size === 0
-    ? placementMetrics(graph, membership, facts, frontier, reassignedOwners)
-    : null;
-  if (after !== null) {
-    for (const unresolved of after.unresolved) reasons.add(unresolved);
-    if (after.metrics.publicOperationClosureDigest !== before.metrics.publicOperationClosureDigest
-        || after.metrics.publicOperations !== before.metrics.publicOperations) {
-      reasons.add('public-operation-closure-changed');
-    }
-  }
-  const dominated = reasons.size === 0 && after !== null && isDominated(before.metrics, after.metrics);
-  if (dominated) reasons.add('lifecycle-cost-dominated');
-  const strictImprovement = reasons.size === 0 && after !== null
-    && isStrictImprovement(before.metrics, after.metrics);
-  if (!dominated && reasons.size === 0 && !strictImprovement) {
-    reasons.add('lifecycle-cost-not-strictly-improving');
-  }
-  const status = reasons.size === 0
-    ? 'accepted' as const
-    : dominated
-      ? 'dominated' as const
-      : 'bounded-unknown' as const;
-  const relocationAtoms = status === 'accepted' && obligation !== null
-    ? [Object.freeze({
-        atomId: digest({
-          proposalId: proposal.proposalId,
-          sourceNodeIds: [...proposal.sourceNodeIds].sort(textOrder),
-          targetOwnerId: proposal.targetOwnerId,
-          obligation: digest(obligation)
-        }),
-        sourceOwnerId: sourceOwners[0]!,
-        sourceNodeIds: Object.freeze([...proposal.sourceNodeIds].sort(textOrder)),
-        sourcePaths: Object.freeze(selectedPaths),
-        target: Object.freeze({
-          ownerId: proposal.targetOwnerId,
-          obligationDigest: digest(obligation),
-          operation: obligation.operation
-        })
-      })]
-    : [];
-  const canonicalReasons = Object.freeze([...reasons].sort(textOrder));
-  const decision = {
-    proposalId: proposal.proposalId,
-    status,
-    reasons: canonicalReasons,
-    before: before.metrics,
-    after: after?.metrics ?? null,
-    relocationAtoms: Object.freeze(relocationAtoms)
-  };
-  return Object.freeze({ ...decision, decisionDigest: digest(decision) });
-}
-
 /**
- * Evaluate placement proposals against the same compiled graph. This function
- * never reads source, invents a target path, or treats a proposal as Effect
- * authority. Accepted atoms are inputs for a separate generation transaction.
+ * Join exact Source Program facts with descriptor intent and report the current
+ * responsibility frontier. Prospective relocation is deliberately absent:
+ * target placement must be recompiled from a compiler-issued post-placement
+ * subject before any migration transaction may be admitted.
  */
 export function compileSecRepositoryModulePlacementAdmission(input: Readonly<{
   readonly graph: SecRepositoryModuleGraph;
   readonly membership: SecRepositoryModuleMembership;
   readonly facts: PlacementFacts;
-  readonly proposals?: readonly SecRepositoryModulePlacementProposal[];
 }>): SecRepositoryModulePlacementAdmission {
   const frontier = compileSecRepositoryDeclarationResponsibilityFrontier(
     input.membership,
@@ -615,21 +424,6 @@ export function compileSecRepositoryModulePlacementAdmission(input: Readonly<{
     frontier,
     new Map()
   );
-  const proposalIds = new Map<string, number>();
-  for (const proposal of input.proposals ?? []) {
-    proposalIds.set(proposal.proposalId, (proposalIds.get(proposal.proposalId) ?? 0) + 1);
-  }
-  const proposals = Object.freeze([...(input.proposals ?? [])]
-    .sort((left, right) => textOrder(left.proposalId, right.proposalId))
-    .map((proposal) => compilePlacementDecision(
-      input.graph,
-      input.membership,
-      input.facts,
-      frontier,
-      current,
-      proposal,
-      proposalIds.get(proposal.proposalId) !== 1
-    )));
   const violations: SecRepositoryModuleBoundaryViolation[] = [];
   for (const node of frontier) {
     if (node.status !== 'bounded-unknown') continue;
@@ -660,17 +454,6 @@ export function compileSecRepositoryModulePlacementAdmission(input: Readonly<{
       detail: `${from} declaration depends on reverse responsibility ${to}`
     }));
   }
-  for (const proposal of proposals) {
-    if (proposal.status === 'accepted') continue;
-    violations.push(Object.freeze({
-      code: proposal.status === 'dominated'
-        ? 'repository-placement-proposal-dominated'
-        : 'repository-placement-proposal-unresolved',
-      from: proposal.proposalId,
-      to: '<prospective-placement>',
-      detail: proposal.reasons.join(', ')
-    }));
-  }
   const uniqueViolations = [...new Map(violations.map((violation) => [
     `${violation.code}\0${violation.from}\0${violation.to}\0${violation.detail}`,
     violation
@@ -681,7 +464,6 @@ export function compileSecRepositoryModulePlacementAdmission(input: Readonly<{
   const canonical = {
     responsibilityFrontier: frontier,
     current: current.metrics,
-    proposals,
     violations: Object.freeze(uniqueViolations)
   };
   return Object.freeze({ ...canonical, admissionDigest: digest(canonical) });
