@@ -32,8 +32,8 @@ import { GITHUB_HOST } from './contract.ts';
 const MAX_CREDENTIAL_LIFETIME_MS = 30_000;
 const MAX_TOKEN_BYTES = 4_096;
 const MAX_ERROR_BYTES = 8_192;
-const GITHUB_CREDENTIAL_OPERATION = 'external-capabilities.github-read.credential';
-const GITHUB_CREDENTIAL_REQUIREMENT = 'github-read.credential-process';
+const GITHUB_CREDENTIAL_OPERATION = 'external-capabilities.github-api.credential';
+const GITHUB_CREDENTIAL_REQUIREMENT = 'github-api.credential-process';
 const GITHUB_CREDENTIAL_CONTRACT_DIGEST = sha256({
   operation: GITHUB_CREDENTIAL_OPERATION,
   provider: 'github-cli',

@@ -1,9 +1,18 @@
-import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
 
-import type { GitHubCheckObservation } from '../../external-capabilities/github-read/contract.ts';
-import { GITHUB_API_BASE_URL } from '../../external-capabilities/github-read/contract.ts';
-import { readGitHubToken } from '../../external-capabilities/github-read/credential.ts';
+import type { GitHubCheckObservation } from '../../external-capabilities/github-api/contract.ts';
+import {
+  assertGitHubApiCapability,
+  assertGitHubApiReadOperationBudgetCurrent,
+  currentGitHubApiCapability,
+  executeGitHubApiOperation,
+  inspectGitHubApiCapability,
+  GitHubApiProviderError as MainHealthGitHubProviderError,
+  withGitHubApiReadOperationBudget,
+  withGitHubApiReadSession,
+  withGitHubApiStatusWriteSession,
+  type GitHubApiCapability
+} from '../../external-capabilities/github-api/operation-session.ts';
 import { acquirePhysicalMutationLease, type PhysicalMutationLeaseHandle } from '../../runtime-state/physical/runtime/mutation-lease.ts';
 import { createNoFollowDirectoryChain, inspectExactNoFollowDirectoryPresence, inspectNoFollowOrdinaryFileEntry, PhysicalNoFollowError, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, scanNoFollowDirectoryTree, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { resolveSecRuntimeStateForRepository } from '../../runtime-state/workspace-state/paths.ts';
@@ -11,7 +20,6 @@ import { acquireSecRuntimeStatePhysicalAuthority, type SecRuntimeStatePhysicalAu
 import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { encodeVerificationActionData } from '../../verification/action/contract/action.ts';
 import { createTrustedRuntimeMainHealthSupersessionAuthorization, createTrustedRuntimeMainHealthSupersessionIntent, createTrustedRuntimeMainHealthSupersessionPermit, createTrustedRuntimeMainHealthSupersessionReceipt, parseTrustedRuntimeMainHealthReceipt, parseTrustedRuntimeMainHealthSupersessionIntent, parseTrustedRuntimeMainHealthSupersessionPermit, parseTrustedRuntimeMainHealthSupersessionReceipt, readTrustedRuntimeMainHealthSupersessionPayload, trustedRuntimeMainHealthSupersessionPermitBytes, trustedRuntimeMainHealthSupersessionReceiptBytes, trustedRuntimeMainHealthSupersessionRequestDigest, trustedRuntimeMainHealthSupersessionStatusRequest, type TrustedRuntimeMainHealthSupersessionAuthorization, type TrustedRuntimeMainHealthSupersessionIntent, type TrustedRuntimeMainHealthSupersessionPermit, type TrustedRuntimeMainHealthSupersessionReceipt, type TrustedRuntimeOpaqueDomainPayload } from '../../verification/trusted-runtime/trusted-runtime-container.ts';
-import { dispatchGitHubApiRequest } from '../integration/integration-authorization-status-github.ts';
 import {
   createMainHealthLedger,
   createMainHealthRevision,
@@ -44,462 +52,6 @@ export type WorkSelectionMainHealthProviderObservation =
   | Readonly<{ kind: 'unavailable'; ref: MainHealthDigest }>
   | Readonly<{ kind: 'invalid'; ref: MainHealthDigest }>;
 
-export type MainHealthGitHubFetch = (
-  input: string | URL,
-  init?: RequestInit
-) => Promise<Response>;
-
-export type MainHealthGitHubCapabilityIssuer = Readonly<{
-  transport: 'github-rest-token';
-  login: string;
-  nodeId: string;
-  permission: 'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none';
-}>;
-
-declare const mainHealthGitHubCapabilityBrand: unique symbol;
-
-/**
- * An in-process attenuated capability.  Deliberately do not put the token,
- * fetch function, repository or effect on this value: a caller must not be
- * able to recover the bearer credential and issue an unconstrained request.
- * The private WeakMap below is the only transport owner.
- */
-export type MainHealthGitHubCapability = Readonly<{
-  readonly [mainHealthGitHubCapabilityBrand]: true;
-}>;
-
-type MainHealthGitHubCapabilityBinding = Readonly<{
-  repository: string;
-  token: string;
-  issuer: MainHealthGitHubCapabilityIssuer;
-  effect: 'read' | 'status-write';
-  fetchImpl: MainHealthGitHubFetch;
-  origin: 'production' | 'test';
-}>;
-
-const mainHealthGitHubCapabilityBindings =
-  new WeakMap<object, MainHealthGitHubCapabilityBinding>();
-
-type MainHealthGitHubRequestSession = {
-  capability: MainHealthGitHubCapability | undefined;
-  readonly repository: string;
-  readonly effect: 'read' | 'status-write';
-  readonly origin: 'production' | 'test';
-  readonly operationBudget: MainHealthGitHubOperationBudget | undefined;
-  readonly now: () => number;
-  readonly deadlineAt: number;
-  readonly abortController: AbortController;
-  readonly deadlineTimer: ReturnType<typeof setTimeout>;
-  requestCount: number;
-  responseBytes: number;
-};
-
-/**
- * A parent budget is deliberately not a capability.  It carries no token,
- * fetch function, issuer or provider authority; it only prevents a logical
- * operation from silently resetting its transport budget by opening an
- * unbounded sequence of independent sessions.
- */
-type MainHealthGitHubOperationBudget = {
-  readonly repositoryRoot: string;
-  readonly repository: string;
-  readonly effect: 'read' | 'status-write';
-  readonly origin: 'production' | 'test';
-  readonly now: () => number;
-  readonly deadlineAt: number;
-  readonly maxSessions: number;
-  sessionCount: number;
-  requestCount: number;
-  responseBytes: number;
-};
-
-const mainHealthGitHubRequestSession =
-  new AsyncLocalStorage<MainHealthGitHubRequestSession>();
-const mainHealthGitHubOperationBudget =
-  new AsyncLocalStorage<MainHealthGitHubOperationBudget>();
-
-const MAIN_HEALTH_GITHUB_MAX_REQUESTS = 2_048;
-const MAIN_HEALTH_GITHUB_MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
-const MAIN_HEALTH_GITHUB_MAX_READ_SESSIONS = 2;
-export const MAIN_HEALTH_GITHUB_READ_OPERATION_TIMEOUT_MS = 10 * 60_000;
-const MAIN_HEALTH_GITHUB_CREDENTIAL_MAX_TOKEN_BYTES = 1024 as const;
-
-function createMainHealthGitHubRequestSession(input: Readonly<{
-  capability?: MainHealthGitHubCapability;
-  repository: string;
-  effect: 'read' | 'status-write';
-  origin: 'production' | 'test';
-  operationBudget?: MainHealthGitHubOperationBudget;
-  now?: () => number;
-  timeoutMs?: number;
-}>): MainHealthGitHubRequestSession {
-  const now = input.now ?? Date.now;
-  const timeoutMs = input.timeoutMs ?? MAIN_HEALTH_GITHUB_REQUEST_TIMEOUT_MS;
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) {
-    throw new MainHealthGitHubProviderError(
-      'MainHealth GitHub operation timeout must be a positive safe integer'
-    );
-  }
-  const startedAt = now();
-  if (!Number.isFinite(startedAt)) {
-    throw new MainHealthGitHubProviderError('MainHealth GitHub operation clock is invalid');
-  }
-  const deadlineAt = Math.min(
-    startedAt + timeoutMs,
-    input.operationBudget?.deadlineAt ?? Number.POSITIVE_INFINITY
-  );
-  if (!Number.isFinite(deadlineAt) || deadlineAt <= startedAt) {
-    throw new MainHealthGitHubProviderError(
-      'MainHealth GitHub operation parent deadline exceeded'
-    );
-  }
-  const abortController = new AbortController();
-  const deadlineTimer = setTimeout(
-    () => abortController.abort(),
-    Math.max(1, Math.ceil(deadlineAt - startedAt))
-  );
-  return {
-    capability: input.capability,
-    repository: input.repository,
-    effect: input.effect,
-    origin: input.origin,
-    operationBudget: input.operationBudget,
-    now,
-    deadlineAt,
-    abortController,
-    deadlineTimer,
-    requestCount: 0,
-    responseBytes: 0
-  };
-}
-
-function disposeMainHealthGitHubRequestSession(
-  session: MainHealthGitHubRequestSession
-): void {
-  clearTimeout(session.deadlineTimer);
-  if (!session.abortController.signal.aborted) session.abortController.abort();
-}
-
-function assertMainHealthGitHubOperationBudgetBoundary(
-  budget: MainHealthGitHubOperationBudget,
-  input: Readonly<{
-    repositoryRoot: string;
-    repository: string;
-    effect: 'read' | 'status-write';
-    origin: 'production' | 'test';
-  }>
-): void {
-  const remainingMs = budget.deadlineAt - budget.now();
-  if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
-    throw new MainHealthGitHubProviderError(
-      'MainHealth GitHub parent operation deadline exceeded'
-    );
-  }
-  if (budget.origin !== input.origin
-      || budget.repositoryRoot !== path.resolve(input.repositoryRoot)
-      || budget.repository !== input.repository
-      || budget.effect !== input.effect) {
-    throw new MainHealthGitHubProviderError(
-      'MainHealth GitHub parent operation is not bound to this repository/effect/origin'
-    );
-  }
-}
-
-function remainingMainHealthGitHubOperationBudgetMs(
-  budget: MainHealthGitHubOperationBudget
-): number {
-  const remainingMs = budget.deadlineAt - budget.now();
-  if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
-    throw new MainHealthGitHubProviderError(
-      'MainHealth GitHub parent operation deadline exceeded'
-    );
-  }
-  return Math.max(1, Math.ceil(remainingMs));
-}
-
-function remainingMainHealthGitHubSessionMs(
-  session: MainHealthGitHubRequestSession
-): number {
-  const parentRemainingMs = session.operationBudget === undefined
-    ? Number.POSITIVE_INFINITY
-    : remainingMainHealthGitHubOperationBudgetMs(session.operationBudget);
-  const remainingMs = Math.min(session.deadlineAt - session.now(), parentRemainingMs);
-  if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
-    if (!session.abortController.signal.aborted) session.abortController.abort();
-    throw new MainHealthGitHubProviderError(
-      'MainHealth GitHub operation deadline exceeded'
-    );
-  }
-  return Math.max(1, Math.ceil(remainingMs));
-}
-
-function assertMainHealthGitHubSessionBoundary(
-  session: MainHealthGitHubRequestSession,
-  repository: string,
-  effect: 'read' | 'status-write',
-  origin: 'production' | 'test'
-): void {
-  remainingMainHealthGitHubSessionMs(session);
-  if (session.origin !== origin
-      || session.repository !== repository || session.effect !== effect) {
-    throw new MainHealthGitHubProviderError(
-      'MainHealth GitHub operation session is not bound to this repository/effect/origin'
-    );
-  }
-  if (session.capability !== undefined) {
-    const binding = mainHealthGitHubCapabilityBinding(session.capability);
-    if (binding.origin !== origin
-        || binding.repository !== repository || binding.effect !== effect) {
-      throw new MainHealthGitHubProviderError(
-        'MainHealth GitHub capability is not bound to this repository/effect/origin'
-      );
-    }
-  }
-}
-
-function reserveMainHealthGitHubRequest(
-  session: MainHealthGitHubRequestSession
-): void {
-  const budget = session.operationBudget;
-  if (session.requestCount >= MAIN_HEALTH_GITHUB_MAX_REQUESTS
-      || (budget !== undefined && budget.requestCount >= MAIN_HEALTH_GITHUB_MAX_REQUESTS)) {
-    throw new MainHealthGitHubProviderError(
-      'MainHealth GitHub operation request-count budget exceeded'
-    );
-  }
-  session.requestCount += 1;
-  if (budget !== undefined) budget.requestCount += 1;
-}
-
-function recordMainHealthGitHubResponseBytes(
-  session: MainHealthGitHubRequestSession,
-  bytes: number
-): void {
-  session.responseBytes += bytes;
-  if (session.operationBudget !== undefined) {
-    session.operationBudget.responseBytes += bytes;
-  }
-  if (session.responseBytes > MAIN_HEALTH_GITHUB_MAX_RESPONSE_BYTES
-      || (session.operationBudget !== undefined
-        && session.operationBudget.responseBytes > MAIN_HEALTH_GITHUB_MAX_RESPONSE_BYTES)) {
-    throw new MainHealthGitHubProviderError(
-      'MainHealth GitHub operation response-byte budget exceeded'
-    );
-  }
-}
-
-async function withMainHealthGitHubRequestSession<T>(
-  capability: MainHealthGitHubCapability,
-  operation: () => Promise<T>,
-  options: Readonly<{
-    now?: () => number;
-    timeoutMs?: number;
-  }> = {}
-): Promise<T> {
-  const binding = mainHealthGitHubCapabilityBinding(capability);
-  const current = mainHealthGitHubRequestSession.getStore();
-  if (current !== undefined) {
-    const parentBudget = mainHealthGitHubOperationBudget.getStore();
-    if (parentBudget !== undefined && current.operationBudget !== parentBudget) {
-      throw new MainHealthGitHubProviderError(
-        'MainHealth GitHub request session is not bound to the active parent operation budget'
-      );
-    }
-    if (current.capability !== capability) {
-      throw new MainHealthGitHubProviderError(
-        'MainHealth GitHub nested session must reuse the exact bound capability'
-      );
-    }
-    remainingMainHealthGitHubSessionMs(current);
-    const result = await operation();
-    remainingMainHealthGitHubSessionMs(current);
-    return result;
-  }
-  const session = createMainHealthGitHubRequestSession({
-    capability,
-    repository: binding.repository,
-    effect: binding.effect,
-    origin: binding.origin,
-    now: options.now,
-    timeoutMs: options.timeoutMs
-  });
-  try {
-    return await mainHealthGitHubRequestSession.run(session, async () => {
-      const result = await operation();
-      remainingMainHealthGitHubSessionMs(session);
-      return result;
-    });
-  } finally {
-    disposeMainHealthGitHubRequestSession(session);
-  }
-}
-
-async function withMainHealthGitHubProductionSessionUsingBudget<T>(input: Readonly<{
-  repositoryRoot: string;
-  repository: string;
-  effect: 'read' | 'status-write';
-  operation: () => Promise<T>;
-  budget: MainHealthGitHubOperationBudget;
-}>): Promise<T> {
-  assertMainHealthGitHubOperationBudgetBoundary(input.budget, {
-    repositoryRoot: input.repositoryRoot,
-    repository: input.repository,
-    effect: input.effect,
-    origin: 'production'
-  });
-  if (input.budget.sessionCount >= input.budget.maxSessions) {
-    throw new MainHealthGitHubProviderError(
-      'MainHealth GitHub parent operation session-count budget exceeded'
-    );
-  }
-  const timeoutMs = Math.min(
-    MAIN_HEALTH_GITHUB_REQUEST_TIMEOUT_MS,
-    remainingMainHealthGitHubOperationBudgetMs(input.budget)
-  );
-  input.budget.sessionCount += 1;
-  const session = createMainHealthGitHubRequestSession({
-    repository: input.repository,
-    effect: input.effect,
-    origin: 'production',
-    operationBudget: input.budget,
-    now: input.budget.now,
-    timeoutMs
-  });
-  try {
-    return await mainHealthGitHubRequestSession.run(session, async () => {
-      await resolveMainHealthGitHubCapability({
-        repositoryRoot: input.repositoryRoot,
-        repository: input.repository,
-        effect: input.effect
-      });
-      remainingMainHealthGitHubSessionMs(session);
-      const result = await input.operation();
-      remainingMainHealthGitHubSessionMs(session);
-      return result;
-    });
-  } finally {
-    disposeMainHealthGitHubRequestSession(session);
-  }
-}
-
-async function withMainHealthGitHubOperationBudget<T>(input: Readonly<{
-  repositoryRoot: string;
-  repository: string;
-  effect: 'read' | 'status-write';
-  origin: 'production' | 'test';
-  timeoutMs: number;
-  maxSessions: number;
-  now?: () => number;
-  operation: () => Promise<T>;
-}>): Promise<T> {
-  const current = mainHealthGitHubOperationBudget.getStore();
-  if (current !== undefined) {
-    assertMainHealthGitHubOperationBudgetBoundary(current, {
-      repositoryRoot: input.repositoryRoot,
-      repository: input.repository,
-      effect: input.effect,
-      origin: input.origin
-    });
-    const result = await input.operation();
-    remainingMainHealthGitHubOperationBudgetMs(current);
-    return result;
-  }
-  if (!Number.isSafeInteger(input.timeoutMs) || input.timeoutMs < 1
-      || !Number.isSafeInteger(input.maxSessions) || input.maxSessions < 1) {
-    throw new MainHealthGitHubProviderError(
-      'MainHealth GitHub parent operation budget is invalid'
-    );
-  }
-  const now = input.now ?? Date.now;
-  const startedAt = now();
-  if (!Number.isFinite(startedAt)) {
-    throw new MainHealthGitHubProviderError('MainHealth GitHub operation clock is invalid');
-  }
-  const budget: MainHealthGitHubOperationBudget = {
-    repositoryRoot: path.resolve(input.repositoryRoot),
-    repository: input.repository,
-    effect: input.effect,
-    origin: input.origin,
-    now,
-    deadlineAt: startedAt + input.timeoutMs,
-    maxSessions: input.maxSessions,
-    sessionCount: 0,
-    requestCount: 0,
-    responseBytes: 0
-  };
-  return await mainHealthGitHubOperationBudget.run(budget, async () => {
-    const result = await input.operation();
-    remainingMainHealthGitHubOperationBudgetMs(budget);
-    return result;
-  });
-}
-
-function currentMainHealthGitHubCapability(
-  repository: string,
-  effect: 'read' | 'status-write'
-): MainHealthGitHubCapability {
-  const current = mainHealthGitHubRequestSession.getStore();
-  if (current === undefined || current.origin !== 'production') {
-    throw new MainHealthGitHubProviderError(
-      'MainHealth GitHub operation requires a live owner-issued session'
-    );
-  }
-  assertMainHealthGitHubSessionBoundary(current, repository, effect, 'production');
-  if (current.capability === undefined) {
-    throw new MainHealthGitHubProviderError(
-      'MainHealth GitHub operation requires an enrolled production capability'
-    );
-  }
-  return current.capability;
-}
-
-async function withMainHealthGitHubProductionSession<T>(input: Readonly<{
-  repositoryRoot: string;
-  repository: string;
-  effect: 'read' | 'status-write';
-  operation: () => Promise<T>;
-}>): Promise<T> {
-  const current = mainHealthGitHubRequestSession.getStore();
-  if (current !== undefined) {
-    assertMainHealthGitHubSessionBoundary(
-      current,
-      input.repository,
-      input.effect,
-      'production'
-    );
-    const result = await input.operation();
-    remainingMainHealthGitHubSessionMs(current);
-      return result;
-  }
-  const parentBudget = mainHealthGitHubOperationBudget.getStore();
-  if (parentBudget !== undefined) {
-    return await withMainHealthGitHubProductionSessionUsingBudget({
-      ...input,
-      budget: parentBudget
-    });
-  }
-  const session = createMainHealthGitHubRequestSession({
-    repository: input.repository,
-    effect: input.effect,
-    origin: 'production'
-  });
-  try {
-    return await mainHealthGitHubRequestSession.run(session, async () => {
-      await resolveMainHealthGitHubCapability({
-        repositoryRoot: input.repositoryRoot,
-        repository: input.repository,
-        effect: input.effect
-      });
-      remainingMainHealthGitHubSessionMs(session);
-      const result = await input.operation();
-      remainingMainHealthGitHubSessionMs(session);
-      return result;
-    });
-  } finally {
-    disposeMainHealthGitHubRequestSession(session);
-  }
-}
-
 /**
  * Opens the sole production read session. The callback receives no bearer
  * token or transport object; all provider requests stay inside this owner.
@@ -512,11 +64,10 @@ export async function withMainHealthGitHubReadSession<T>(input: Readonly<{
   repository: string;
   operation: () => Promise<T>;
 }>): Promise<T> {
-  return await withMainHealthGitHubProductionSession({
+  return await withGitHubApiReadSession({
     repositoryRoot: input.repositoryRoot,
     repository: input.repository,
-    effect: 'read',
-    operation: input.operation
+    operation: async () => await input.operation()
   });
 }
 
@@ -533,13 +84,9 @@ export async function withMainHealthGitHubReadOperationBudget<T>(input: Readonly
   repository: string;
   operation: () => Promise<T>;
 }>): Promise<T> {
-  return await withMainHealthGitHubOperationBudget({
+  return await withGitHubApiReadOperationBudget({
     repositoryRoot: input.repositoryRoot,
     repository: input.repository,
-    effect: 'read',
-    origin: 'production',
-    timeoutMs: MAIN_HEALTH_GITHUB_READ_OPERATION_TIMEOUT_MS,
-    maxSessions: MAIN_HEALTH_GITHUB_MAX_READ_SESSIONS,
     operation: input.operation
   });
 }
@@ -554,19 +101,10 @@ export function assertMainHealthGitHubReadOperationBudgetCurrent(input: Readonly
   repositoryRoot: string;
   repository: string;
 }>): void {
-  const budget = mainHealthGitHubOperationBudget.getStore();
-  if (budget === undefined) {
-    throw new MainHealthGitHubProviderError(
-      'MainHealth GitHub parent operation budget is not active'
-    );
-  }
-  assertMainHealthGitHubOperationBudgetBoundary(budget, {
+  assertGitHubApiReadOperationBudgetCurrent({
     repositoryRoot: input.repositoryRoot,
-    repository: input.repository,
-    effect: 'read',
-    origin: 'production'
+    repository: input.repository
   });
-  remainingMainHealthGitHubOperationBudgetMs(budget);
 }
 
 /** Opens the separate production status-write session used only by reconcile. */
@@ -575,95 +113,11 @@ export async function withMainHealthGitHubStatusWriteSession<T>(input: Readonly<
   repository: string;
   operation: () => Promise<T>;
 }>): Promise<T> {
-  return await withMainHealthGitHubProductionSession({
+  return await withGitHubApiStatusWriteSession({
     repositoryRoot: input.repositoryRoot,
     repository: input.repository,
-    effect: 'status-write',
-    operation: input.operation
+    operation: async () => await input.operation()
   });
-}
-
-/**
- * Lower test-only transport seam. Production callers must use the
- * caller-free read/status-write session helpers above; this function exists
- * only so provider unit tests can supply an isolated fake transport without
- * making a fake capability a production authority.
- */
-export async function withMainHealthGitHubTestSessionV2<T>(input: Readonly<{
-  capability: MainHealthGitHubCapability;
-  operation: () => Promise<T>;
-  now?: () => number;
-  timeoutMs?: number;
-}>): Promise<T> {
-  if (mainHealthGitHubCapabilityBinding(input.capability).origin !== 'test') {
-    throw new MainHealthGitHubProviderError(
-      'MainHealth test session cannot consume a production capability'
-    );
-  }
-  return await withMainHealthGitHubRequestSession(input.capability, input.operation, {
-    now: input.now,
-    timeoutMs: input.timeoutMs
-  });
-}
-
-/**
- * Internal capability constructor. Production capabilities are minted only
- * by resolveMainHealthGitHubCapabilityV2 after the canonical github.com
- * token/principal/permission readback. The separately named test seam below
- * is intentionally not used by production entrypoints.
- */
-function issueMainHealthGitHubCapability(input: Readonly<{
-  repository: string;
-  token: string;
-  issuer: MainHealthGitHubCapabilityIssuer;
-  effect: 'read' | 'status-write';
-  fetchImpl: MainHealthGitHubFetch;
-  origin: 'production' | 'test';
-}>): MainHealthGitHubCapability {
-  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(input.repository)
-      || input.token.length === 0
-      || typeof input.fetchImpl !== 'function'
-      || input.issuer.transport !== 'github-rest-token'
-      || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/u.test(input.issuer.login)
-      || input.issuer.nodeId.length === 0
-      || !['admin', 'maintain', 'write', 'triage', 'read', 'none'].includes(input.issuer.permission)
-      || (input.effect === 'status-write' && input.fetchImpl !== dispatchGitHubApiRequest)
-      || !['production', 'test'].includes(input.origin)) {
-    throw new Error('MainHealth GitHub capability issue request is invalid or not canonical');
-  }
-  const capability = Object.freeze({}) as MainHealthGitHubCapability;
-  mainHealthGitHubCapabilityBindings.set(capability, Object.freeze({
-    repository: input.repository,
-    token: input.token,
-    issuer: Object.freeze({ ...input.issuer }),
-    effect: input.effect,
-    fetchImpl: input.fetchImpl,
-    origin: input.origin
-  }));
-  return capability;
-}
-
-/** @internal Test-only isolated transport seam; never a production issuer. */
-export function issueMainHealthGitHubTestCapabilityV2(input: Readonly<{
-  repository: string;
-  token: string;
-  issuer: MainHealthGitHubCapabilityIssuer;
-  effect: 'read' | 'status-write';
-  fetchImpl: MainHealthGitHubFetch;
-}>): MainHealthGitHubCapability {
-  return issueMainHealthGitHubCapability({ ...input, origin: 'test' });
-}
-
-function mainHealthGitHubCapabilityBinding(
-  capability: MainHealthGitHubCapability
-): MainHealthGitHubCapabilityBinding {
-  const binding = mainHealthGitHubCapabilityBindings.get(capability);
-  if (binding === undefined) {
-    throw new MainHealthGitHubProviderError(
-      'MainHealth GitHub capability is forged or not issued in this process'
-    );
-  }
-  return binding;
 }
 
 declare const mainHealthRuntimeAuthorityBrand: unique symbol;
@@ -1280,23 +734,21 @@ async function assertCurrentMainHealthSupersessionIssuer(input: Readonly<{
     repository: string;
     issuer: TrustedRuntimeMainHealthSupersessionAuthorization['issuer'];
   }>;
-  capability: MainHealthGitHubCapability;
+  capability: GitHubApiCapability;
 }>): Promise<void> {
-  assertMainHealthGitHubCapability(input.capability, input.authorization.repository, 'read');
-  const capabilityBinding = mainHealthGitHubCapabilityBinding(input.capability);
-  if (capabilityBinding.issuer.login !== input.authorization.issuer.login
-      || capabilityBinding.issuer.nodeId !== input.authorization.issuer.nodeId
-      || capabilityBinding.issuer.permission !== input.authorization.issuer.permission) {
+  assertGitHubApiCapability(input.capability, input.authorization.repository, 'read');
+  const capabilityPrincipal = inspectGitHubApiCapability(input.capability).principal;
+  if (capabilityPrincipal.login !== input.authorization.issuer.login
+      || capabilityPrincipal.nodeId !== input.authorization.issuer.nodeId
+      || capabilityPrincipal.permission !== input.authorization.issuer.permission) {
     throw new MainHealthGitHubProviderError(
       'MainHealth supersession issuer capability differs from its authorization'
     );
   }
-  const viewer = await requestMainHealthGitHubJson<unknown>({
-    capability: input.capability,
-    repository: input.authorization.repository,
-    method: 'GET',
-    endpoint: '/user'
-  });
+  const viewer = await executeGitHubApiOperation(
+    input.capability,
+    { kind: 'current-user' }
+  );
   if (viewer === null || typeof viewer !== 'object' || Array.isArray(viewer)) {
     throw new MainHealthGitHubProviderError('MainHealth supersession viewer response is invalid');
   }
@@ -1305,12 +757,9 @@ async function assertCurrentMainHealthSupersessionIssuer(input: Readonly<{
       || viewerRecord.node_id !== input.authorization.issuer.nodeId) {
     throw new MainHealthGitHubProviderError('MainHealth supersession issuer identity changed');
   }
-  const permission = await requestMainHealthGitHubJson<unknown>({
-    capability: input.capability,
-    repository: input.authorization.repository,
-    method: 'GET',
-    endpoint: `/repos/${input.authorization.repository}/collaborators/`
-      + `${encodeURIComponent(input.authorization.issuer.login)}/permission`
+  const permission = await executeGitHubApiOperation(input.capability, {
+    kind: 'collaborator-permission',
+    login: input.authorization.issuer.login
   });
   if (permission === null || typeof permission !== 'object' || Array.isArray(permission)
       || (permission as Record<string, unknown>).permission
@@ -1323,37 +772,6 @@ async function assertCurrentMainHealthSupersessionIssuer(input: Readonly<{
 
 type MainHealthSupersessionProviderAuthorization =
   TrustedRuntimeMainHealthSupersessionReceipt['providerAuthorization'];
-
-class MainHealthGitHubProviderError extends Error {
-  constructor(message: string, readonly statusCode: number | null = null) {
-    super(message);
-    this.name = 'MainHealthGitHubProviderError';
-  }
-}
-
-export type MainHealthGitHubCredentialUnavailableReason =
-  'credential-provider-unavailable';
-
-/**
- * Typed provider-unavailable result for the credential admission boundary.
- * Its fixed redacted digest carries no host path, executable, configuration,
- * or other credential-adjacent material into semantic observations.
- */
-export class MainHealthGitHubCredentialUnavailableError extends MainHealthGitHubProviderError {
-  readonly code = 'credential-provider-unavailable' as const;
-  readonly detailDigest: `sha256:${string}`;
-
-  constructor(readonly reason: MainHealthGitHubCredentialUnavailableReason) {
-    const detailDigest = sha256(Object.freeze({
-      schema: 'sec-main-health-github-credential-unavailable-v1',
-      reason,
-      detailDigest: rawSha256('canonical physical credential provider has not issued')
-    })) as `sha256:${string}`;
-    super(`MainHealth GitHub credential provider is unavailable (${detailDigest})`);
-    this.name = 'MainHealthGitHubCredentialUnavailableErrorV1';
-    this.detailDigest = detailDigest;
-  }
-}
 
 /**
  * The status effect is authorized for one exact default/main subject only.
@@ -1372,174 +790,8 @@ export class MainHealthExternalMainDriftError extends MainHealthGitHubProviderEr
   }
 }
 
-/** One bounded transport deadline owned by the MainHealth provider boundary. */
-export const MAIN_HEALTH_GITHUB_REQUEST_TIMEOUT_MS = 30_000 as const;
-
-function assertMainHealthGitHubCapability(
-  capability: MainHealthGitHubCapability,
-  repository: string,
-  requiredEffect: 'read' | 'status-write'
-): void {
-  const binding = mainHealthGitHubCapabilityBindings.get(capability);
-  if (binding === undefined
-      || binding.repository !== repository
-      || binding.token.length < 1
-      || binding.issuer.transport !== 'github-rest-token'
-      || (requiredEffect === 'status-write' && binding.effect !== 'status-write')
-      || (requiredEffect === 'status-write'
-        && binding.issuer.permission !== 'admin'
-        && binding.issuer.permission !== 'maintain')) {
-    throw new MainHealthGitHubProviderError(
-      'MainHealth GitHub capability is absent, repository-bound incorrectly, or not write-authorized'
-    );
-  }
-}
-
-async function requestMainHealthGitHubJsonWithToken<T>(input: Readonly<{
-  repository: string;
-  token: string;
-  fetchImpl: MainHealthGitHubFetch;
-  session: MainHealthGitHubRequestSession;
-  method: 'GET' | 'POST';
-  endpoint: string;
-  body?: unknown;
-}>): Promise<T> {
-  if (input.token.length < 1
-      || (input.endpoint !== '/user'
-        && input.endpoint !== '/graphql'
-        && !input.endpoint.startsWith(`/repos/${input.repository}/`))) {
-    throw new MainHealthGitHubProviderError(
-      'MainHealth GitHub token request is not explicitly repository-bound'
-    );
-  }
-  reserveMainHealthGitHubRequest(input.session);
-  const remainingMs = remainingMainHealthGitHubSessionMs(input.session);
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<never>((_, reject) => {
-    timeout = setTimeout(() => {
-      if (!input.session.abortController.signal.aborted) {
-        input.session.abortController.abort();
-      }
-      reject(new MainHealthGitHubProviderError('MainHealth GitHub operation deadline exceeded'));
-    }, remainingMs);
-  });
-  const raceDeadline = async <T>(operation: PromiseLike<T>): Promise<T> =>
-    await Promise.race([operation, deadline]);
-  try {
-    const response = await raceDeadline(Promise.resolve().then(() => input.fetchImpl(
-      `${GITHUB_API_BASE_URL}${input.endpoint}`,
-      {
-        method: input.method,
-        headers: {
-          Accept: 'application/vnd.github+json',
-          Authorization: `Bearer ${input.token}`,
-          'X-GitHub-Api-Version': '2022-11-28',
-          'User-Agent': 'sec-main-health-v2',
-          ...(input.body === undefined ? {} : { 'Content-Type': 'application/json' })
-        },
-        signal: input.session.abortController.signal,
-        ...(input.body === undefined ? {} : { body: JSON.stringify(input.body) })
-      }
-    )));
-    let responseText: string;
-    try {
-      if (response.body === null || typeof response.body.getReader !== 'function') {
-        throw new MainHealthGitHubProviderError(
-          'MainHealth GitHub response does not expose a bounded streaming body',
-          response.status
-        );
-      }
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder('utf-8', { fatal: true });
-      const chunks: string[] = [];
-      while (true) {
-        const chunk = await raceDeadline(reader.read());
-        if (chunk.done) break;
-        try {
-          recordMainHealthGitHubResponseBytes(input.session, chunk.value.byteLength);
-        } catch (error) {
-          void reader.cancel();
-          if (error instanceof MainHealthGitHubProviderError) throw error;
-          throw new MainHealthGitHubProviderError(
-            'MainHealth GitHub operation response-byte budget exceeded',
-            response.status
-          );
-        }
-        chunks.push(decoder.decode(chunk.value, { stream: true }));
-      }
-      chunks.push(decoder.decode());
-      responseText = chunks.join('');
-    } catch (error) {
-      if (error instanceof MainHealthGitHubProviderError) throw error;
-      throw new MainHealthGitHubProviderError(
-        `MainHealth GitHub ${input.method} ${input.endpoint} response body unavailable: ${error instanceof Error ? error.message : String(error)}`,
-        response.status
-      );
-    }
-    if (!response.ok) {
-      throw new MainHealthGitHubProviderError(
-        `MainHealth GitHub ${input.method} ${input.endpoint} failed with HTTP ${response.status}: ${responseText.slice(-2048)}`,
-        response.status
-      );
-    }
-    try {
-      return JSON.parse(responseText) as T;
-    } catch (error) {
-      throw new MainHealthGitHubProviderError(
-        `MainHealth GitHub ${input.method} ${input.endpoint} returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
-        response.status
-      );
-    }
-  } catch (error) {
-    if (error instanceof MainHealthGitHubProviderError) throw error;
-    const detail = input.session.abortController.signal.aborted
-      ? 'operation deadline exceeded'
-      : error instanceof Error ? error.message : String(error);
-    throw new MainHealthGitHubProviderError(
-      `MainHealth GitHub ${input.method} transport unavailable: ${detail}`
-    );
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-async function requestMainHealthGitHubJson<T>(input: Readonly<{
-  capability: MainHealthGitHubCapability;
-  repository: string;
-  method: 'GET' | 'POST';
-  endpoint: string;
-  body?: unknown;
-}>): Promise<T> {
-  assertMainHealthGitHubCapability(input.capability, input.repository, input.method === 'POST'
-    ? 'status-write'
-    : 'read');
-  const binding = mainHealthGitHubCapabilityBinding(input.capability);
-  const current = mainHealthGitHubRequestSession.getStore();
-  if (current === undefined || current.capability !== input.capability) {
-    throw new MainHealthGitHubProviderError(
-      'MainHealth GitHub request requires the active exact operation session'
-    );
-  }
-  return requestMainHealthGitHubJsonWithToken<T>({
-    repository: input.repository,
-    token: binding.token,
-    fetchImpl: binding.fetchImpl,
-    session: current,
-    method: input.method,
-    endpoint: input.endpoint,
-    body: input.body
-  });
-}
-
-function currentMainHealthGitHubReadCapability(repository: string): MainHealthGitHubCapability {
-  const current = mainHealthGitHubRequestSession.getStore();
-  if (current?.capability === undefined) {
-    throw new MainHealthGitHubProviderError(
-      'MainAuthority ruleset observation requires the active MainHealth GitHub read session'
-    );
-  }
-  assertMainHealthGitHubSessionBoundary(current, repository, 'read', current.origin);
-  return current.capability;
+function currentMainHealthGitHubReadCapability(repository: string): GitHubApiCapability {
+  return currentGitHubApiCapability(repository, 'read');
 }
 
 /**
@@ -1558,12 +810,10 @@ export async function observeMainAuthorityRulesetGitHubFacts(input: Readonly<{
   const effectiveRules: unknown[] = [];
   const pageSize = 100;
   for (let page = 1; page <= 100; page += 1) {
-    const records = await requestMainHealthGitHubJson<unknown>({
-      capability,
-      repository: input.repository,
-      method: 'GET',
-      endpoint: `/repos/${input.repository}/rules/branches/${encodeURIComponent(input.defaultBranch)}`
-        + `?per_page=${pageSize}&page=${page}`
+    const records = await executeGitHubApiOperation(capability, {
+      kind: 'effective-branch-rules',
+      branch: input.defaultBranch,
+      page
     });
     if (!Array.isArray(records)) {
       throw new MainHealthGitHubProviderError(
@@ -1595,11 +845,9 @@ export async function observeMainAuthorityRulesetGitHubFacts(input: Readonly<{
   }))].sort((left, right) => left - right);
   const detailedRulesets: unknown[] = [];
   for (const rulesetId of rulesetIds) {
-    detailedRulesets.push(await requestMainHealthGitHubJson<unknown>({
-      capability,
-      repository: input.repository,
-      method: 'GET',
-      endpoint: `/repos/${input.repository}/rulesets/${rulesetId}?includes_parents=true`
+    detailedRulesets.push(await executeGitHubApiOperation(capability, {
+      kind: 'ruleset',
+      rulesetId
     }));
   }
   return Object.freeze({
@@ -1638,15 +886,6 @@ function workSelectionGitHubSha(value: unknown, label: string): string {
   return value;
 }
 
-async function workSelectionGitHubGet<T>(repository: string, endpoint: string): Promise<T> {
-  return await requestMainHealthGitHubJson<T>({
-    capability: currentMainHealthGitHubCapability(repository, 'read'),
-    repository,
-    method: 'GET',
-    endpoint
-  });
-}
-
 type MainHealthGitHubNumberedInventoryEntry = Readonly<{
   number: number;
   title: string;
@@ -1667,26 +906,6 @@ export type MainHealthGitHubControlInventory = Readonly<{
   }>[];
 }>;
 
-const MAIN_HEALTH_GITHUB_OPEN_COUNTS_QUERY =
-  'query($owner:String!,$name:String!){repository(owner:$owner,name:$name){pullRequests(states:OPEN){totalCount}issues(states:OPEN){totalCount}}}';
-
-const MAIN_HEALTH_GITHUB_REVIEW_THREADS_QUERY =
-  'query($owner:String!,$name:String!,$number:Int!,$endCursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){number reviewThreads(first:100,after:$endCursor){totalCount nodes{isResolved}pageInfo{hasNextPage endCursor}}}}}';
-
-function mainHealthGitHubRepositoryParts(repository: string): Readonly<{
-  owner: string;
-  name: string;
-}> {
-  const parts = repository.split('/');
-  if (parts.length !== 2
-      || parts.some((part) => !/^[A-Za-z0-9_.-]+$/u.test(part))) {
-    throw new MainHealthGitHubProviderError(
-      'MainHealth GitHub repository must be an exact owner/name pair'
-    );
-  }
-  return Object.freeze({ owner: parts[0]!, name: parts[1]! });
-}
-
 function mainHealthGitHubNonNegativeCount(value: unknown, label: string): number {
   if (!Number.isSafeInteger(value) || (value as number) < 0) {
     throw new MainHealthGitHubProviderError(`${label} must be a non-negative safe integer`);
@@ -1699,30 +918,6 @@ function mainHealthGitHubPositiveNumber(value: unknown, label: string): number {
     throw new MainHealthGitHubProviderError(`${label} must be a positive safe integer`);
   }
   return value as number;
-}
-
-async function requestMainHealthGitHubReadGraphQL<T>(input: Readonly<{
-  repository: string;
-  query: string;
-  variables: Readonly<Record<string, string | number | null>>;
-}>): Promise<T> {
-  const capability = currentMainHealthGitHubReadCapability(input.repository);
-  const binding = mainHealthGitHubCapabilityBinding(capability);
-  const session = mainHealthGitHubRequestSession.getStore();
-  if (session === undefined || session.capability !== capability) {
-    throw new MainHealthGitHubProviderError(
-      'MainHealth GitHub GraphQL read requires the active exact operation session'
-    );
-  }
-  return await requestMainHealthGitHubJsonWithToken<T>({
-    repository: input.repository,
-    token: binding.token,
-    fetchImpl: binding.fetchImpl,
-    session,
-    method: 'POST',
-    endpoint: '/graphql',
-    body: Object.freeze({ query: input.query, variables: input.variables })
-  });
 }
 
 function mainHealthGitHubGraphQLRepository(
@@ -1742,13 +937,11 @@ async function observeMainHealthGitHubOpenCounts(repository: string): Promise<Re
   pullRequests: number;
   issues: number;
 }>> {
-  const parts = mainHealthGitHubRepositoryParts(repository);
   const repositoryValue = mainHealthGitHubGraphQLRepository(
-    await requestMainHealthGitHubReadGraphQL<unknown>({
-      repository,
-      query: MAIN_HEALTH_GITHUB_OPEN_COUNTS_QUERY,
-      variables: parts
-    }),
+    await executeGitHubApiOperation(
+      currentMainHealthGitHubReadCapability(repository),
+      { kind: 'control-inventory-open-counts' }
+    ),
     'MainHealth GitHub open inventory count'
   );
   const pullRequests = workSelectionGitHubRecord(
@@ -1776,9 +969,9 @@ async function observeMainHealthGitHubOpenNumberedInventory(repository: string):
   const issues: MainHealthGitHubNumberedInventoryEntry[] = [];
   const observedNumbers = new Set<number>();
   for (let page = 1; page <= 1_000; page += 1) {
-    const value = await workSelectionGitHubGet<unknown>(
-      repository,
-      `/repos/${repository}/issues?state=open&per_page=100&page=${page}`
+    const value = await executeGitHubApiOperation(
+      currentMainHealthGitHubReadCapability(repository),
+      { kind: 'open-issues', page }
     );
     if (!Array.isArray(value)) {
       throw new MainHealthGitHubProviderError(
@@ -1821,7 +1014,6 @@ async function observeMainHealthGitHubReviewThreads(
   repository: string,
   pullRequestNumbers: readonly number[]
 ): Promise<MainHealthGitHubControlInventory['reviewThreads']> {
-  const parts = mainHealthGitHubRepositoryParts(repository);
   const result: Array<MainHealthGitHubControlInventory['reviewThreads'][number]> = [];
   for (const number of pullRequestNumbers) {
     mainHealthGitHubPositiveNumber(number, 'MainHealth GitHub review-thread pull request');
@@ -1830,11 +1022,14 @@ async function observeMainHealthGitHubReviewThreads(
     const nodes: Readonly<{ isResolved: boolean }>[] = [];
     for (let page = 1; page <= 1_000; page += 1) {
       const repositoryValue = mainHealthGitHubGraphQLRepository(
-        await requestMainHealthGitHubReadGraphQL<unknown>({
-          repository,
-          query: MAIN_HEALTH_GITHUB_REVIEW_THREADS_QUERY,
-          variables: Object.freeze({ ...parts, number, endCursor: cursor })
-        }),
+        await executeGitHubApiOperation(
+          currentMainHealthGitHubReadCapability(repository),
+          {
+            kind: 'control-inventory-review-threads',
+            pullRequestNumber: number,
+            endCursor: cursor
+          }
+        ),
         `MainHealth GitHub pull request ${number} review threads page ${page}`
       );
       const pullRequest = workSelectionGitHubRecord(
@@ -1954,10 +1149,9 @@ export async function observeWorkSelectionGitHubDefaultRef(input: Readonly<{
   repository: string;
   defaultBranch: string;
 }>): Promise<string> {
-  const value = workSelectionGitHubRecord(await workSelectionGitHubGet<unknown>(
-    input.repository,
-    `/repos/${input.repository}/git/ref/heads/`
-      + input.defaultBranch.split('/').map(encodeURIComponent).join('/')
+  const value = workSelectionGitHubRecord(await executeGitHubApiOperation(
+    currentMainHealthGitHubReadCapability(input.repository),
+    { kind: 'git-ref', branch: input.defaultBranch }
   ), 'default ref');
   const object = workSelectionGitHubRecord(value.object, 'default ref object');
   return workSelectionGitHubSha(object.sha, 'default ref object');
@@ -1972,9 +1166,9 @@ export async function observeWorkSelectionGitHubIssues(input: Readonly<{
     if (!Number.isSafeInteger(issueNumber) || issueNumber < 1) {
       throw new MainHealthGitHubProviderError('WorkSelection GitHub issue number is invalid');
     }
-    const value = workSelectionGitHubRecord(await workSelectionGitHubGet<unknown>(
-      input.repository,
-      `/repos/${input.repository}/issues/${issueNumber}`
+    const value = workSelectionGitHubRecord(await executeGitHubApiOperation(
+      currentMainHealthGitHubReadCapability(input.repository),
+      { kind: 'issue', issueNumber }
     ), `issue ${issueNumber}`);
     if (value.number !== issueNumber
         || typeof value.node_id !== 'string' || value.node_id.length === 0
@@ -1996,10 +1190,9 @@ export async function observeWorkSelectionGitHubOpenPullRequests(input: Readonly
   repository: string;
   defaultBranch: string;
 }>): Promise<readonly WorkSelectionGitHubPullRequest[]> {
-  const value = await workSelectionGitHubGet<unknown>(
-    input.repository,
-    `/repos/${input.repository}/pulls?state=open&base=${encodeURIComponent(input.defaultBranch)}`
-      + '&per_page=2&page=1'
+  const value = await executeGitHubApiOperation(
+    currentMainHealthGitHubReadCapability(input.repository),
+    { kind: 'open-pulls', baseBranch: input.defaultBranch }
   );
   if (!Array.isArray(value)) {
     throw new MainHealthGitHubProviderError('WorkSelection GitHub pull request census is invalid');
@@ -2030,9 +1223,9 @@ export async function observeWorkSelectionGitHubBranchRefs(input: Readonly<{
 }>): Promise<readonly Readonly<{ branch: string; sha: string }>[]> {
   const observations: Array<Readonly<{ branch: string; sha: string }>> = [];
   for (let page = 1; page <= 1_000; page += 1) {
-    const value = await workSelectionGitHubGet<unknown>(
-      input.repository,
-      `/repos/${input.repository}/git/matching-refs/heads/?per_page=100&page=${page}`
+    const value = await executeGitHubApiOperation(
+      currentMainHealthGitHubReadCapability(input.repository),
+      { kind: 'matching-head-refs', page }
     );
     if (!Array.isArray(value)) {
       throw new MainHealthGitHubProviderError('WorkSelection GitHub branch census is invalid');
@@ -2055,378 +1248,22 @@ export async function observeWorkSelectionGitHubBranchRefs(input: Readonly<{
   throw new MainHealthGitHubProviderError('WorkSelection GitHub branch census exceeded 100,000 refs');
 }
 
-async function readMainHealthGitHubToken(
-  repositoryRoot: string,
-  session: MainHealthGitHubRequestSession
-): Promise<string> {
-  const remainingMs = remainingMainHealthGitHubSessionMs(session);
-  reserveMainHealthGitHubRequest(session);
-  let tokenBytes: Uint8Array | null = null;
-  try {
-    tokenBytes = await readGitHubToken({
-      cwd: path.resolve(repositoryRoot),
-      hostname: 'github.com',
-      deadlineAtUnixMs: Math.min(session.deadlineAt, Date.now() + remainingMs)
-    });
-    remainingMainHealthGitHubSessionMs(session);
-    recordMainHealthGitHubResponseBytes(session, tokenBytes.byteLength);
-    return new TextDecoder('utf-8', { fatal: true }).decode(tokenBytes);
-  } catch {
-    throw new MainHealthGitHubCredentialUnavailableError(
-      'credential-provider-unavailable'
-    );
-  } finally {
-    tokenBytes?.fill(0);
-  }
-}
-
-type MainHealthGitHubTokenReader = (
-  repositoryRoot: string,
-  session: MainHealthGitHubRequestSession
-) => Promise<string>;
-
-async function enrollMainHealthGitHubCapability(input: Readonly<{
-  repositoryRoot: string;
-  repository: string;
-  effect: 'read' | 'status-write';
-  origin: 'production' | 'test';
-  fetchImpl: MainHealthGitHubFetch;
-  readToken: MainHealthGitHubTokenReader;
-}>): Promise<MainHealthGitHubCapability> {
-  const session = mainHealthGitHubRequestSession.getStore();
-  if (session === undefined || session.origin !== input.origin) {
-    throw new MainHealthGitHubProviderError(
-      'MainHealth GitHub capability enrollment requires the active matching session'
-    );
-  }
-  assertMainHealthGitHubSessionBoundary(
-    session,
-    input.repository,
-    input.effect,
-    input.origin
-  );
-  if (session.capability !== undefined) return session.capability;
-  const token = await input.readToken(input.repositoryRoot, session);
-  const capability = issueMainHealthGitHubCapability({
-    repository: input.repository,
-    token,
-    issuer: Object.freeze({
-      transport: 'github-rest-token' as const,
-      login: 'pending',
-      nodeId: 'pending',
-      permission: 'none' as const
-    }),
-    effect: input.effect,
-    fetchImpl: input.fetchImpl,
-    origin: input.origin
-  });
-  session.capability = capability;
-  // The temporary principal is never exposed or returned. It exists only in
-  // the same session that acquired the credential, so enrollment cannot reset
-  // the operation deadline or request/response budgets.
-  const principal = await withMainHealthGitHubRequestSession(capability, async () => {
-    const viewer = await requestMainHealthGitHubJson<unknown>({
-      capability,
-      repository: input.repository,
-      method: 'GET',
-      endpoint: '/user'
-    });
-    if (viewer === null || typeof viewer !== 'object' || Array.isArray(viewer)) {
-      throw new MainHealthGitHubProviderError('MainHealth GitHub token viewer response is invalid');
-    }
-    const viewerRecord = viewer as Record<string, unknown>;
-    const login = viewerRecord.login;
-    const nodeId = viewerRecord.node_id;
-    if (typeof login !== 'string' || typeof nodeId !== 'string'
-        || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/u.test(login)
-        || nodeId.length === 0) {
-      throw new MainHealthGitHubProviderError('MainHealth GitHub token principal is invalid');
-    }
-    const permissionValue = await requestMainHealthGitHubJson<unknown>({
-      capability,
-      repository: input.repository,
-      method: 'GET',
-      endpoint: `/repos/${input.repository}/collaborators/${encodeURIComponent(login)}/permission`
-    });
-    const permission = permissionValue !== null
-        && typeof permissionValue === 'object'
-        && !Array.isArray(permissionValue)
-      ? (permissionValue as Record<string, unknown>).permission
-      : null;
-    if (typeof permission !== 'string'
-        || !['admin', 'maintain', 'write', 'triage', 'read', 'none'].includes(permission)) {
-      throw new MainHealthGitHubProviderError(
-        'MainHealth GitHub token repository permission is invalid'
-      );
-    }
-    if (input.origin === 'production'
-        && permission !== 'admin' && permission !== 'maintain') {
-      throw new MainHealthGitHubProviderError(
-        'MainHealth GitHub production credential requires maintain/admin permission'
-      );
-    }
-    if (input.effect === 'status-write'
-        && permission !== 'admin' && permission !== 'maintain') {
-      throw new MainHealthGitHubProviderError(
-        'MainHealth GitHub token principal lacks maintain/admin permission'
-      );
-    }
-    return Object.freeze({
-      transport: 'github-rest-token' as const,
-      login,
-      nodeId,
-      permission: permission as MainHealthGitHubCapabilityIssuer['permission']
-    });
-  });
-  remainingMainHealthGitHubSessionMs(session);
-  // Replace the pending handle in the same ALS session. The final handle is
-  // the only one visible to the caller and is still tied to the same budget.
-  const finalCapability = issueMainHealthGitHubCapability({
-    repository: input.repository,
-    token,
-    issuer: principal,
-    effect: input.effect,
-    fetchImpl: input.fetchImpl,
-    origin: input.origin
-  });
-  session.capability = finalCapability;
-  return finalCapability;
-}
-
-/**
- * The only production MainHealth GitHub capability issuer. The credential
- * source remains unavailable until the canonical physical provider issues it;
- * once issued, principal and repository permission must be read back through
- * the same fixed GitHub REST dispatcher used by later provider observations.
- */
-async function resolveMainHealthGitHubCapability(input: Readonly<{
-  repositoryRoot: string;
-  repository: string;
-  effect: 'read' | 'status-write';
-}>): Promise<MainHealthGitHubCapability> {
-  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(input.repository)) {
-    throw new MainHealthGitHubProviderError('MainHealth GitHub repository is invalid');
-  }
-  return await enrollMainHealthGitHubCapability({
-    repositoryRoot: input.repositoryRoot,
-    repository: input.repository,
-    effect: input.effect,
-    origin: 'production',
-    fetchImpl: dispatchGitHubApiRequest,
-    readToken: readMainHealthGitHubToken
-  });
-}
-
-async function readMainHealthGitHubTestToken(
-  readToken: (input: Readonly<{
-    signal: AbortSignal;
-    timeoutMs: number;
-  }>) => Promise<string>,
-  session: MainHealthGitHubRequestSession
-): Promise<string> {
-  const timeoutMs = remainingMainHealthGitHubSessionMs(session);
-  reserveMainHealthGitHubRequest(session);
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<never>((_, reject) => {
-    timeout = setTimeout(() => {
-      if (!session.abortController.signal.aborted) session.abortController.abort();
-      reject(new MainHealthGitHubProviderError(
-        'MainHealth GitHub test token acquisition deadline exceeded'
-      ));
-    }, timeoutMs);
-  });
-  try {
-    const token = await Promise.race([
-      Promise.resolve().then(() => readToken({
-        signal: session.abortController.signal,
-        timeoutMs
-      })),
-      deadline
-    ]);
-    remainingMainHealthGitHubSessionMs(session);
-    if (typeof token !== 'string') {
-      throw new MainHealthGitHubProviderError('MainHealth test token grammar is invalid');
-    }
-    recordMainHealthGitHubResponseBytes(
-      session,
-      Buffer.byteLength(token, 'utf8')
-    );
-    const normalizedToken = token.trim();
-    if (Buffer.byteLength(token, 'utf8') > MAIN_HEALTH_GITHUB_CREDENTIAL_MAX_TOKEN_BYTES
-        || !/^[^\s\u0000-\u001f\u007f-\u009f]{20,1024}$/u.test(normalizedToken)) {
-      throw new MainHealthGitHubProviderError('MainHealth test token grammar is invalid');
-    }
-    return normalizedToken;
-  } catch (error) {
-    if (error instanceof MainHealthGitHubProviderError) throw error;
-    throw new MainHealthGitHubProviderError(
-      `MainHealth GitHub test token acquisition unavailable: ${error instanceof Error ? error.message : String(error)}`
-    );
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-/** @internal Test-only budget seam; it can never mint a production authority. */
-export async function withMainHealthGitHubTestEnrollmentSessionV2<T>(input: Readonly<{
-  repository: string;
-  effect: 'read' | 'status-write';
-  fetchImpl: MainHealthGitHubFetch;
-  readToken: (input: Readonly<{
-    signal: AbortSignal;
-    timeoutMs: number;
-  }>) => Promise<string>;
-  operation: (capability: MainHealthGitHubCapability) => Promise<T>;
-  now?: () => number;
-  timeoutMs?: number;
-}>): Promise<T> {
-  const session = createMainHealthGitHubRequestSession({
-    repository: input.repository,
-    effect: input.effect,
-    origin: 'test',
-    now: input.now,
-    timeoutMs: input.timeoutMs
-  });
-  try {
-    return await mainHealthGitHubRequestSession.run(session, async () => {
-      const capability = await enrollMainHealthGitHubCapability({
-        repositoryRoot: '',
-        repository: input.repository,
-        effect: input.effect,
-        origin: 'test',
-        fetchImpl: input.fetchImpl,
-        readToken: async (_repositoryRoot, activeSession) =>
-          await readMainHealthGitHubTestToken(input.readToken, activeSession)
-      });
-      const result = await input.operation(capability);
-      remainingMainHealthGitHubSessionMs(session);
-      return result;
-    });
-  } finally {
-    disposeMainHealthGitHubRequestSession(session);
-  }
-}
-
-type MainHealthGitHubTestReadOperationOpen = <T>(
-  operation: (capability: MainHealthGitHubCapability) => Promise<T>
-) => Promise<T>;
-
-async function withMainHealthGitHubTestSessionUsingBudget<T>(input: Readonly<{
-  repository: string;
-  fetchImpl: MainHealthGitHubFetch;
-  readToken: MainHealthGitHubTokenReader;
-  operation: (capability: MainHealthGitHubCapability) => Promise<T>;
-  budget: MainHealthGitHubOperationBudget;
-}>): Promise<T> {
-  assertMainHealthGitHubOperationBudgetBoundary(input.budget, {
-    repositoryRoot: '',
-    repository: input.repository,
-    effect: 'read',
-    origin: 'test'
-  });
-  if (input.budget.sessionCount >= input.budget.maxSessions) {
-    throw new MainHealthGitHubProviderError(
-      'MainHealth GitHub parent operation session-count budget exceeded'
-    );
-  }
-  const timeoutMs = Math.min(
-    MAIN_HEALTH_GITHUB_REQUEST_TIMEOUT_MS,
-    remainingMainHealthGitHubOperationBudgetMs(input.budget)
-  );
-  input.budget.sessionCount += 1;
-  const session = createMainHealthGitHubRequestSession({
-    repository: input.repository,
-    effect: 'read',
-    origin: 'test',
-    operationBudget: input.budget,
-    now: input.budget.now,
-    timeoutMs
-  });
-  try {
-    return await mainHealthGitHubRequestSession.run(session, async () => {
-      const capability = await enrollMainHealthGitHubCapability({
-        repositoryRoot: '',
-        repository: input.repository,
-        effect: 'read',
-        origin: 'test',
-        fetchImpl: input.fetchImpl,
-        readToken: input.readToken
-      });
-      const result = await input.operation(capability);
-      remainingMainHealthGitHubSessionMs(session);
-      return result;
-    });
-  } finally {
-    disposeMainHealthGitHubRequestSession(session);
-  }
-}
-
-/**
- * @internal Test-only composition seam for the parent-budget contract. It
- * exposes only test-origin capabilities and cannot be used by production
- * observers or effect owners.
- */
-export async function withMainHealthGitHubTestReadOperationBudgetV2<T>(input: Readonly<{
-  repository: string;
-  fetchImpl: MainHealthGitHubFetch;
-  readToken: (input: Readonly<{
-    signal: AbortSignal;
-    timeoutMs: number;
-  }>) => Promise<string>;
-  operation: (open: MainHealthGitHubTestReadOperationOpen) => Promise<T>;
-  now?: () => number;
-  timeoutMs: number;
-  maxSessions?: number;
-}>): Promise<T> {
-  return await withMainHealthGitHubOperationBudget({
-    repositoryRoot: '',
-    repository: input.repository,
-    effect: 'read',
-    origin: 'test',
-    now: input.now,
-    timeoutMs: input.timeoutMs,
-    maxSessions: input.maxSessions ?? MAIN_HEALTH_GITHUB_MAX_READ_SESSIONS,
-    operation: async () => {
-      const budget = mainHealthGitHubOperationBudget.getStore();
-      if (budget === undefined) {
-        throw new MainHealthGitHubProviderError(
-          'MainHealth test parent operation budget is not active'
-        );
-      }
-      const open: MainHealthGitHubTestReadOperationOpen = async <R,>(
-        operation: (capability: MainHealthGitHubCapability) => Promise<R>
-      ) =>
-        await withMainHealthGitHubTestSessionUsingBudget({
-          repository: input.repository,
-          fetchImpl: input.fetchImpl,
-          readToken: async (_repositoryRoot, session) =>
-            await readMainHealthGitHubTestToken(input.readToken, session),
-          operation,
-          budget
-        });
-      return await input.operation(open);
-    }
-  });
-}
-
 /** Reads the live default-branch ref through the already-issued MainHealth
  * GitHub capability. This is intentionally part of the same bound resolver so
  * GH_HOST or an ambient gh CLI host cannot alter the exact-main fence. */
 async function observeMainHealthGitHubDefaultBranchShaBound(input: Readonly<{
   repository: string;
   defaultBranch: string;
-  capability: MainHealthGitHubCapability;
+  capability: GitHubApiCapability;
 }>): Promise<string> {
   if (input.defaultBranch !== 'main') {
     throw new MainHealthGitHubProviderError(
       'MainHealth default branch is not the canonical main branch'
     );
   }
-  const value = await requestMainHealthGitHubJson<unknown>({
-    capability: input.capability,
-    repository: input.repository,
-    method: 'GET',
-    endpoint: `/repos/${input.repository}/git/ref/heads/${encodeURIComponent(input.defaultBranch)}`
+  const value = await executeGitHubApiOperation(input.capability, {
+    kind: 'git-ref',
+    branch: input.defaultBranch
   });
   if (value === null || typeof value !== 'object' || Array.isArray(value)
       || typeof (value as Record<string, unknown>).object !== 'object'
@@ -2456,7 +1293,7 @@ export async function observeMainHealthGitHubDefaultBranchSha(input: Readonly<{
     operation: async () => await observeMainHealthGitHubDefaultBranchShaBound({
       repository: input.repository,
       defaultBranch: input.defaultBranch,
-      capability: currentMainHealthGitHubCapability(input.repository, 'read')
+      capability: currentGitHubApiCapability(input.repository, 'read')
     })
   });
 }
@@ -2512,17 +1349,15 @@ function normalizeMainHealthGitHubStatus(
 
 async function readMainHealthSupersessionStatusContext(input: Readonly<{
   authorization: TrustedRuntimeMainHealthSupersessionAuthorization;
-  capability: MainHealthGitHubCapability;
+  capability: GitHubApiCapability;
 }>): Promise<readonly MainHealthSupersessionProviderAuthorization[]> {
   const request = trustedRuntimeMainHealthSupersessionStatusRequest(input.authorization);
   const readPage = async (page: number): Promise<readonly unknown[]> => {
     const pageValue = parseMainHealthGitHubStatusJson(
-      await requestMainHealthGitHubJson<unknown>({
-        capability: input.capability,
-        repository: input.authorization.repository,
-        method: 'GET',
-        endpoint: `/repos/${input.authorization.repository}/commits/${input.authorization.mainSha}`
-          + `/statuses?per_page=100&page=${page}`
+      await executeGitHubApiOperation(input.capability, {
+        kind: 'commit-statuses',
+        sha: input.authorization.mainSha,
+        page
       }),
       'GitHub status inventory'
     );
@@ -2598,7 +1433,7 @@ async function readMainHealthSupersessionStatusContext(input: Readonly<{
 
 async function observeMainHealthSupersessionProviderAuthorization(input: Readonly<{
   authorization: TrustedRuntimeMainHealthSupersessionAuthorization;
-  capability: MainHealthGitHubCapability;
+  capability: GitHubApiCapability;
   expected?: MainHealthSupersessionProviderAuthorization;
 }>): Promise<MainHealthSupersessionProviderAuthorization> {
   const statuses = await readMainHealthSupersessionStatusContext(input);
@@ -2623,7 +1458,7 @@ async function observeMainHealthSupersessionProviderAuthorization(input: Readonl
  */
 async function assertMainHealthStatusEffectFence(input: Readonly<{
   authorization: TrustedRuntimeMainHealthSupersessionAuthorization;
-  capability: MainHealthGitHubCapability;
+  capability: GitHubApiCapability;
   preimage: ReturnType<typeof observeTrustedLocalSupersessionPreimage>;
   runtimeAuthority: MainHealthRuntimeAuthority;
   defaultBranch: string;
@@ -2664,7 +1499,7 @@ async function assertMainHealthStatusEffectFence(input: Readonly<{
 
 async function ensureMainHealthSupersessionProviderAuthorization(input: Readonly<{
   authorization: TrustedRuntimeMainHealthSupersessionAuthorization;
-  capability: MainHealthGitHubCapability;
+  capability: GitHubApiCapability;
   allowPublish: boolean;
   defaultBranch: string;
   preimage: ReturnType<typeof observeTrustedLocalSupersessionPreimage>;
@@ -2716,16 +1551,14 @@ async function ensureMainHealthSupersessionProviderAuthorization(input: Readonly
   // the consumed permit and refuse to retry blindly.
   await assertMainHealthStatusEffectFence(input);
   const request = trustedRuntimeMainHealthSupersessionStatusRequest(input.authorization);
-  const publication = await requestMainHealthGitHubJson<unknown>({
-    capability: input.capability,
-    repository: input.authorization.repository,
-    method: 'POST',
-    endpoint: `/repos/${input.authorization.repository}/statuses/${input.authorization.mainSha}`,
-    body: Object.freeze({
+  const publication = await executeGitHubApiOperation(input.capability, {
+    kind: 'create-commit-status',
+    sha: input.authorization.mainSha,
+    status: Object.freeze({
       state: request.state,
       context: request.context,
       description: request.description,
-      target_url: request.targetUrl
+      targetUrl: request.targetUrl
     })
   });
   let published: MainHealthSupersessionProviderAuthorization;
@@ -2764,7 +1597,7 @@ async function publishPreparedHistoricalTerminal(input: Readonly<{
   repositoryRoot: string;
   preimage: ReturnType<typeof observeTrustedLocalSupersessionPreimage>;
   prepared: MainHealthSupersessionPreparedCandidate;
-  githubCapability: MainHealthGitHubCapability;
+  githubCapability: GitHubApiCapability;
   runtimeAuthority: MainHealthRuntimeAuthority;
   operationLease?: PhysicalMutationLeaseHandle;
   environment?: NodeJS.ProcessEnv;
@@ -3187,7 +2020,7 @@ function admitMainHealthSupersessionChain(
 async function observeMainHealthPreparedSupersession(input: Readonly<{
   candidate: MainHealthSupersessionPreparedCandidate;
   hostedProvider: WorkSelectionMainHealthProviderObservation;
-  capability?: MainHealthGitHubCapability;
+  capability?: GitHubApiCapability;
   runtimeAuthority?: MainHealthRuntimeAuthority;
 }>): Promise<MainHealthSupersessionObservation> {
   const preparedCandidate = input.candidate;
@@ -3264,7 +2097,7 @@ async function observeMainHealthSupersession(input: Readonly<{
   mainSha: string;
   mainTreeSha: string;
   hostedProvider: WorkSelectionMainHealthProviderObservation;
-  capability?: MainHealthGitHubCapability;
+  capability?: GitHubApiCapability;
   runtimeAuthority?: MainHealthRuntimeAuthority;
   environment?: NodeJS.ProcessEnv;
 }>): Promise<MainHealthSupersessionObservation> {
@@ -3539,7 +2372,7 @@ async function observeMainHealthProvidersBase(input: Readonly<{
   defaultBranch: string;
   mainSha: string;
   mainTreeSha: string;
-  capability: MainHealthGitHubCapability;
+  capability: GitHubApiCapability;
   environment?: NodeJS.ProcessEnv;
 }>): Promise<Readonly<{
   observedAt: string;
@@ -3547,8 +2380,7 @@ async function observeMainHealthProvidersBase(input: Readonly<{
   hostedProvider: WorkSelectionMainHealthProviderObservation;
   resolution: CanonicalMainHealthProviderResolution;
 }>> {
-  return await withMainHealthGitHubRequestSession(input.capability, async () => {
-    const observedAt = new Date().toISOString();
+  const observedAt = new Date().toISOString();
     const hostedExpiresAt = new Date(
       Date.parse(observedAt) + TRUSTED_LOCAL_MAIN_HEALTH_FRESHNESS_MS
     ).toISOString();
@@ -3583,8 +2415,7 @@ async function observeMainHealthProvidersBase(input: Readonly<{
       local: localProvider,
       hosted: hostedProvider
     });
-    return Object.freeze({ observedAt, localProvider, hostedProvider, resolution });
-  });
+  return Object.freeze({ observedAt, localProvider, hostedProvider, resolution });
 }
 
 async function assertMainHealthProviderConflict(input: Readonly<{
@@ -3594,7 +2425,7 @@ async function assertMainHealthProviderConflict(input: Readonly<{
   mainSha: string;
   mainTreeSha: string;
   authorization: TrustedRuntimeMainHealthSupersessionAuthorization;
-  capability: MainHealthGitHubCapability;
+  capability: GitHubApiCapability;
   environment?: NodeJS.ProcessEnv;
 }>): Promise<Readonly<{ observedAt: string; hosted: MainHealthLedger }>> {
   const providerFence = await observeMainHealthProvidersBase({
@@ -3776,7 +2607,7 @@ async function executeMainHealthSupersessionEffect(input: Readonly<{
   defaultBranch: string;
   preimage: ReturnType<typeof observeTrustedLocalSupersessionPreimage>;
   capability: MainHealthSupersessionEffectCapability;
-  githubCapability: MainHealthGitHubCapability;
+  githubCapability: GitHubApiCapability;
   runtimeAuthority: MainHealthRuntimeAuthority;
   operationLease?: PhysicalMutationLeaseHandle;
   preparedIntent?: MainHealthSupersessionPreparedCandidate;
@@ -4246,7 +3077,7 @@ async function observeHostedMainHealthChecks(input: Readonly<{
   repositoryRoot: string;
   repository: string;
   mainSha: string;
-  capability: MainHealthGitHubCapability;
+  capability: GitHubApiCapability;
 }>): Promise<HostedMainHealthObservation> {
   try {
     const checks: GitHubCheckObservation[] = [];
@@ -4258,11 +3089,9 @@ async function observeHostedMainHealthChecks(input: Readonly<{
     let matchingProviderCheckCount = 0;
     let expectedTotalCount: number | null = null;
     const readWorkflow = async (runId: string): Promise<MainHealthWorkflowProvenance> => {
-      const workflowValue = await requestMainHealthGitHubJson<unknown>({
-        capability: input.capability,
-        repository: input.repository,
-        method: 'GET',
-        endpoint: `/repos/${input.repository}/actions/runs/${runId}`
+      const workflowValue = await executeGitHubApiOperation(input.capability, {
+        kind: 'workflow-run',
+        runId
       });
       if (workflowValue === null || typeof workflowValue !== 'object'
           || Array.isArray(workflowValue)) {
@@ -4289,12 +3118,10 @@ async function observeHostedMainHealthChecks(input: Readonly<{
       });
     };
     for (let page = 1; page <= 10; page += 1) {
-      const value = await requestMainHealthGitHubJson<unknown>({
-        capability: input.capability,
-        repository: input.repository,
-        method: 'GET',
-        endpoint: `/repos/${input.repository}/commits/${input.mainSha}`
-          + `/check-runs?per_page=100&page=${page}`
+      const value = await executeGitHubApiOperation(input.capability, {
+        kind: 'check-runs',
+        sha: input.mainSha,
+        page
       });
       if (value === null || typeof value !== 'object' || Array.isArray(value)) {
         throw new Error('MainHealth hosted check response is not an object');
@@ -4412,12 +3239,10 @@ async function observeHostedMainHealthChecks(input: Readonly<{
       firstWorkflowByRunId.set(runId, await readWorkflow(runId));
     }
     for (let page = 1; page <= pageSnapshots.length; page += 1) {
-      const value = await requestMainHealthGitHubJson<unknown>({
-        capability: input.capability,
-        repository: input.repository,
-        method: 'GET',
-        endpoint: `/repos/${input.repository}/commits/${input.mainSha}`
-          + `/check-runs?per_page=100&page=${page}`
+      const value = await executeGitHubApiOperation(input.capability, {
+        kind: 'check-runs',
+        sha: input.mainSha,
+        page
       });
       if (value === null || typeof value !== 'object' || Array.isArray(value)) {
         throw new Error('MainHealth hosted check stable response is not an object');
@@ -4503,12 +3328,11 @@ async function observeCanonicalMainHealthProvidersBound(input: Readonly<{
   defaultBranch: string;
   mainSha: string;
   mainTreeSha: string;
-  capability: MainHealthGitHubCapability;
+  capability: GitHubApiCapability;
   runtimeAuthority?: MainHealthRuntimeAuthority;
   environment?: NodeJS.ProcessEnv;
 }>): Promise<CanonicalMainHealthProvidersObservation> {
-  return await withMainHealthGitHubRequestSession(input.capability, async () => {
-    const base = await observeMainHealthProvidersBase(input);
+  const base = await observeMainHealthProvidersBase(input);
     const supersession = await observeMainHealthSupersession({
       repositoryRoot: input.repositoryRoot,
       repository: input.repository,
@@ -4704,18 +3528,17 @@ async function observeCanonicalMainHealthProvidersBound(input: Readonly<{
       local: effectiveLocalProvider,
       hosted: finalHostedProvider
     });
-    return Object.freeze({
-      repositoryRoot: input.repositoryRoot,
-      repository: input.repository,
-      mainSha: input.mainSha,
-      mainTreeSha: input.mainTreeSha,
-      observedAt: base.observedAt,
-      physicalLocalProvider: finalLocalProvider,
-      localProvider: effectiveLocalProvider,
-      hostedProvider: finalHostedProvider,
-      supersession: finalSupersession,
-      resolution
-    });
+  return Object.freeze({
+    repositoryRoot: input.repositoryRoot,
+    repository: input.repository,
+    mainSha: input.mainSha,
+    mainTreeSha: input.mainTreeSha,
+    observedAt: base.observedAt,
+    physicalLocalProvider: finalLocalProvider,
+    localProvider: effectiveLocalProvider,
+    hostedProvider: finalHostedProvider,
+    supersession: finalSupersession,
+    resolution
   });
 }
 
@@ -4731,7 +3554,7 @@ async function reconcileCanonicalMainHealthProviderConflictBound(input: Readonly
   defaultBranch: string;
   mainSha: string;
   mainTreeSha: string;
-  githubCapability: MainHealthGitHubCapability;
+  githubCapability: GitHubApiCapability;
   runtimeAuthority: MainHealthRuntimeAuthority;
   environment?: NodeJS.ProcessEnv;
 }>): Promise<Readonly<{
@@ -4744,7 +3567,7 @@ async function reconcileCanonicalMainHealthProviderConflictBound(input: Readonly
   }>;
   resolution: CanonicalMainHealthProviderResolution;
 }>> {
-  assertMainHealthGitHubCapability(input.githubCapability, input.repository, 'status-write');
+  assertGitHubApiCapability(input.githubCapability, input.repository, 'status-write');
     await assertCurrentMainHealthRuntimeAuthority(input.runtimeAuthority);
     const providerInput = Object.freeze({
     repositoryRoot: input.repositoryRoot,
@@ -4826,7 +3649,7 @@ async function reconcileCanonicalMainHealthProviderConflictBound(input: Readonly
       input.runtimeAuthority,
       preimage.directory
     );
-    const issuer = mainHealthGitHubCapabilityBinding(input.githubCapability).issuer;
+    const issuer = inspectGitHubApiCapability(input.githubCapability).principal;
     if (issuer.permission !== 'admin' && issuer.permission !== 'maintain') {
       throw new Error('MainHealth supersession requires a live maintain/admin issuer');
     }
@@ -4972,7 +3795,7 @@ export async function reconcileCanonicalMainHealthProviderConflict(input: Readon
     repository: input.repository,
     operation: async () => await reconcileCanonicalMainHealthProviderConflictBound({
       ...input,
-      githubCapability: currentMainHealthGitHubCapability(
+      githubCapability: currentGitHubApiCapability(
         input.repository,
         'status-write'
       )
@@ -5232,7 +4055,7 @@ export async function observeCanonicalMainHealthForPublication(input: Readonly<{
     operation: async () => {
       const observation = await observeCanonicalMainHealthProvidersBound({
         ...input,
-        capability: currentMainHealthGitHubCapability(input.repository, 'read')
+        capability: currentGitHubApiCapability(input.repository, 'read')
       });
       const repairDecision = compileMainHealthRepairDecisionFromCanonicalObservation(
         input,
@@ -5287,7 +4110,7 @@ export async function observeCanonicalMainHealthForRepairV1(input: Readonly<{
     operation: async () => {
       const observation = await observeCanonicalMainHealthProvidersBound({
         ...input,
-        capability: currentMainHealthGitHubCapability(input.repository, 'read')
+        capability: currentGitHubApiCapability(input.repository, 'read')
       });
       return compileMainHealthRepairDecisionFromCanonicalObservation(input, observation);
     }
@@ -5305,7 +4128,7 @@ export async function observeCanonicalMainHealthForWorkSelectionTestingV2(input:
   defaultBranch: string;
   mainSha: string;
   mainTreeSha: string;
-  capability: MainHealthGitHubCapability;
+  capability: GitHubApiCapability;
   runtimeAuthority?: MainHealthRuntimeAuthority;
   environment?: NodeJS.ProcessEnv;
 }>): Promise<MainHealthTestingResult<WorkSelectionMainHealthProjection>> {
@@ -5323,7 +4146,7 @@ export async function observeCanonicalMainHealthForRepairTestingV2(input: Readon
   defaultBranch: string;
   mainSha: string;
   mainTreeSha: string;
-  capability: MainHealthGitHubCapability;
+  capability: GitHubApiCapability;
   runtimeAuthority?: MainHealthRuntimeAuthority;
   environment?: NodeJS.ProcessEnv;
 }>): Promise<MainHealthTestingResult<MainHealthRepairDecision>> {
@@ -5341,13 +4164,13 @@ export async function reconcileCanonicalMainHealthProviderConflictTestingV2(inpu
   defaultBranch: string;
   mainSha: string;
   mainTreeSha: string;
-  githubCapability: MainHealthGitHubCapability;
+  githubCapability: GitHubApiCapability;
   runtimeAuthority: MainHealthRuntimeAuthority;
   environment?: NodeJS.ProcessEnv;
 }>): Promise<MainHealthTestingResult<Awaited<ReturnType<
   typeof reconcileCanonicalMainHealthProviderConflictBound
 >>>> {
-  if (mainHealthGitHubCapabilityBinding(input.githubCapability).origin !== 'test') {
+  if (inspectGitHubApiCapability(input.githubCapability).origin !== 'test') {
     throw new MainHealthGitHubProviderError(
       'MainHealth testing reconciliation requires an isolated test capability'
     );

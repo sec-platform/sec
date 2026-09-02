@@ -2,7 +2,7 @@
 
 import { createHash } from 'node:crypto';
 
-import type { GitHubCheckObservation } from '../../external-capabilities/github-read/contract.ts';
+import type { GitHubCheckObservation } from '../../external-capabilities/github-api/contract.ts';
 import { encodeVerificationActionData } from '../../verification/action/contract/action.ts';
 import {
   createMainHealthRepairWorkPackagePath,

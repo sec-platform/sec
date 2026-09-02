@@ -1,6 +1,14 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 
+import {
+  assertGitHubApiCapability,
+  executeGitHubApiOperation,
+  inspectGitHubApiCapability,
+  withGitHubApiStatusWriteSession,
+  type GitHubApiCapability,
+  type GitHubApiOperation
+} from '../../external-capabilities/github-api/operation-session.ts';
 import { encodeVerificationActionData } from '../../verification/action/contract/action.ts';
 import {
   CodexDevelopmentMergeGateResultSchema,
@@ -94,6 +102,78 @@ function digest(value: unknown, label: string): `sha256:${string}` {
 function positiveInteger(value: unknown, label: string): number {
   if (!Number.isSafeInteger(value) || (value as number) < 1) fail(`${label} must be a positive safe integer.`);
   return value as number;
+}
+
+function githubRecord(value: unknown, label: string): Readonly<Record<string, unknown>> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    fail(`GitHub ${label} response must be an object.`);
+  }
+  return value as Readonly<Record<string, unknown>>;
+}
+
+function nullableBounded(value: unknown, label: string): string | null {
+  return value === null ? null : bounded(value, label);
+}
+
+function parseGitHubRepository(value: unknown): GitHubRepository {
+  const record = githubRecord(value, 'repository');
+  return Object.freeze({
+    full_name: repository(record.full_name),
+    default_branch: bounded(record.default_branch, 'repository default branch')
+  });
+}
+
+function parseGitHubPull(value: unknown): GitHubPull {
+  const record = githubRecord(value, 'pull request');
+  const base = githubRecord(record.base, 'pull request base');
+  const head = githubRecord(record.head, 'pull request head');
+  if (typeof record.draft !== 'boolean') fail('GitHub pull request draft must be boolean.');
+  return Object.freeze({
+    state: bounded(record.state, 'pull request state'),
+    draft: record.draft,
+    base: Object.freeze({
+      ref: bounded(base.ref, 'pull request base ref'),
+      sha: sha(base.sha, 'pull request base SHA')
+    }),
+    head: Object.freeze({ sha: sha(head.sha, 'pull request head SHA') })
+  });
+}
+
+function parseGitHubBranch(value: unknown): GitHubBranch {
+  const record = githubRecord(value, 'branch');
+  const commit = githubRecord(record.commit, 'branch commit');
+  return Object.freeze({
+    commit: Object.freeze({ sha: sha(commit.sha, 'branch commit SHA') })
+  });
+}
+
+function parseGitHubStatus(value: unknown): GitHubStatus {
+  const record = githubRecord(value, 'commit status');
+  let creator: GitHubStatus['creator'];
+  if (record.creator === null) {
+    creator = null;
+  } else {
+    const creatorRecord = githubRecord(record.creator, 'commit status creator');
+    creator = Object.freeze({
+      login: bounded(creatorRecord.login, 'commit status creator login'),
+      id: positiveInteger(creatorRecord.id, 'commit status creator id')
+    });
+  }
+  return Object.freeze({
+    id: positiveInteger(record.id, 'commit status id'),
+    state: bounded(record.state, 'commit status state'),
+    context: bounded(record.context, 'commit status context'),
+    description: nullableBounded(record.description, 'commit status description'),
+    target_url: nullableBounded(record.target_url, 'commit status target URL'),
+    creator
+  });
+}
+
+function parseGitHubStatuses(value: unknown): readonly GitHubStatus[] {
+  if (!Array.isArray(value) || value.length > 100) {
+    fail('GitHub commit status page must be an array of at most 100 records.');
+  }
+  return Object.freeze(value.map(parseGitHubStatus));
 }
 
 function repository(value: unknown): string {
@@ -293,93 +373,48 @@ function exactStatus(
   }
 }
 
-type GitHubFetch = (
-  input: string | URL,
-  init?: RequestInit
-) => Promise<Response>;
-
-export function canonicalGitHubApiTarget(input: string | URL): URL {
-  const target = new URL(input);
-  if (
-    target.protocol !== 'https:'
-    || target.hostname !== 'api.github.com'
-    || target.port !== ''
-    || target.username !== ''
-    || target.password !== ''
-    || target.hash !== ''
-  ) fail('GitHub network dispatcher only permits credential-free https://api.github.com targets.');
-  return target;
-}
-
-export function dispatchGitHubApiRequest(
-  input: string | URL,
-  init?: RequestInit
-): Promise<Response> {
-  const target = canonicalGitHubApiTarget(input);
-  return globalThis.fetch(target, { ...init, redirect: 'error' });
-}
-
-async function githubJson<T>(
-  fetchImpl: GitHubFetch,
-  token: string,
-  method: string,
-  path: string,
-  body?: unknown
-): Promise<T> {
-  const response = await fetchImpl(`https://api.github.com${path}`, {
-    method,
-    headers: {
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${token}`,
-      'X-GitHub-Api-Version': '2022-11-28',
-      'User-Agent': 'sec-integration-authorization-status-v1',
-      ...(body === undefined ? {} : { 'Content-Type': 'application/json' })
-    },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) })
-  });
-  if (!response.ok) fail(`GitHub ${method} ${path} failed with HTTP ${response.status}.`);
-  return await response.json() as T;
+async function githubJson(
+  capability: GitHubApiCapability,
+  operation: GitHubApiOperation
+): Promise<unknown> {
+  return await executeGitHubApiOperation(capability, operation);
 }
 
 async function readDefaultBranchSubject(
-  fetchImpl: GitHubFetch,
-  token: string,
+  capability: GitHubApiCapability,
   repositoryName: string,
   pullRequestNumber: number
 ): Promise<GitHubDefaultBranchSubject> {
-  const [repositoryReadback, pull] = await Promise.all([
-    githubJson<GitHubRepository>(fetchImpl, token, 'GET', `/repos/${repositoryName}`),
-    githubJson<GitHubPull>(fetchImpl, token, 'GET', `/repos/${repositoryName}/pulls/${pullRequestNumber}`)
+  const [repositoryReadbackValue, pullValue] = await Promise.all([
+    githubJson(capability, { kind: 'repository' }),
+    githubJson(capability, { kind: 'pull', pullRequestNumber })
   ]);
+  const repositoryReadback = parseGitHubRepository(repositoryReadbackValue);
+  const pull = parseGitHubPull(pullValue);
   const defaultBranch = bounded(repositoryReadback.default_branch, 'repository default branch');
   const pullBaseRef = bounded(pull.base.ref, 'pull request base ref');
   if (repository(repositoryReadback.full_name).toLocaleLowerCase('en-US')
       !== repositoryName.toLocaleLowerCase('en-US') || pullBaseRef !== defaultBranch) {
     fail('authorization subject drifted at terminal status boundary.');
   }
-  const branch = await githubJson<GitHubBranch>(
-    fetchImpl,
-    token,
-    'GET',
-    `/repos/${repositoryName}/branches/${encodeURIComponent(defaultBranch)}`
-  );
+  const branch = parseGitHubBranch(await githubJson(
+    capability,
+    { kind: 'branch', branch: defaultBranch }
+  ));
   return Object.freeze({ repository: repositoryReadback, pull, branch });
 }
 
 async function listStatuses(
-  fetchImpl: GitHubFetch,
-  token: string,
+  capability: GitHubApiCapability,
   repositoryName: string,
   headSha: string
 ): Promise<readonly GitHubStatus[]> {
   const output: GitHubStatus[] = [];
   for (let page = 1; page <= 10; page += 1) {
-    const current = await githubJson<GitHubStatus[]>(
-      fetchImpl,
-      token,
-      'GET',
-      `/repos/${repositoryName}/commits/${headSha}/statuses?per_page=100&page=${page}`
-    );
+    const current = parseGitHubStatuses(await githubJson(
+      capability,
+      { kind: 'commit-statuses', sha: headSha, page }
+    ));
     output.push(...current);
     if (current.length < 100) return Object.freeze(output);
   }
@@ -388,46 +423,47 @@ async function listStatuses(
 
 export async function publishIntegrationAuthorizationStatus(input: Readonly<{
   result: IntegrationAuthorizationGateResult;
-  token: string;
   targetUrl: string;
-  principal: IntegrationAuthorizationStatusPublisherPrincipal;
-  fetchImpl: GitHubFetch;
+  capability: GitHubApiCapability;
 }>): Promise<IntegrationAuthorizationStatusPublication> {
   const result = input.result;
   const repositoryName = repository(result.authorization.repository);
-  const token = bounded(input.token, 'token');
   const targetUrl = bounded(input.targetUrl, 'targetUrl');
+  assertGitHubApiCapability(input.capability, repositoryName, 'status-write');
+  const capabilityPrincipal = inspectGitHubApiCapability(input.capability).principal;
+  if (capabilityPrincipal.userId === null) {
+    fail('owner-issued GitHub status capability has no numeric principal id.');
+  }
   const principal = Object.freeze({
-    creatorLogin: bounded(input.principal.creatorLogin, 'creatorLogin'),
-    creatorId: positiveInteger(input.principal.creatorId, 'creatorId')
+    creatorLogin: bounded(capabilityPrincipal.login, 'creatorLogin'),
+    creatorId: positiveInteger(capabilityPrincipal.userId, 'creatorId')
   });
-  const fetchImpl = input.fetchImpl;
   const subjectBefore = await readDefaultBranchSubject(
-    fetchImpl,
-    token,
+    input.capability,
     repositoryName,
     result.authorization.prNumber
   );
   const defaultBranch = exactPullSubject(subjectBefore, result);
 
-  const created = await githubJson<GitHubStatus>(
-    fetchImpl,
-    token,
-    'POST',
-    `/repos/${repositoryName}/statuses/${result.authorization.headSha}`,
+  const created = parseGitHubStatus(await githubJson(
+    input.capability,
     {
-      state: 'success',
-      context: CodexDevelopmentMergeGateTerminalStatusContext,
-      description: createIntegrationAuthorizationStatusDescription(result),
-      target_url: targetUrl
+      kind: 'create-commit-status',
+      sha: result.authorization.headSha,
+      status: Object.freeze({
+        state: 'success',
+        context: CodexDevelopmentMergeGateTerminalStatusContext,
+        description: createIntegrationAuthorizationStatusDescription(result),
+        targetUrl
+      })
     }
-  );
+  ));
   exactStatus(created, result, targetUrl, principal);
   positiveInteger(created.id, 'created status id');
 
   const [subjectAfter, statuses] = await Promise.all([
-    readDefaultBranchSubject(fetchImpl, token, repositoryName, result.authorization.prNumber),
-    listStatuses(fetchImpl, token, repositoryName, result.authorization.headSha)
+    readDefaultBranchSubject(input.capability, repositoryName, result.authorization.prNumber),
+    listStatuses(input.capability, repositoryName, result.authorization.headSha)
   ]);
   exactPullSubject(subjectAfter, result, defaultBranch);
   const exact = statuses.filter((status) => status.id === created.id);
@@ -481,15 +517,21 @@ function parseArgs(argv: readonly string[]): Readonly<{
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-  const token = process.env.SEC_GITHUB_STATUS_TOKEN;
-  if (typeof token !== 'string' || token.length < 20) fail('SEC_GITHUB_STATUS_TOKEN is required.');
   const result = parseIntegrationAuthorizationGateResult(readFileSync(args.input, 'utf8'));
-  const receipt = await publishIntegrationAuthorizationStatus({
-    result,
-    token,
-    targetUrl: args.targetUrl,
-    principal: { creatorLogin: args.creatorLogin, creatorId: args.creatorId },
-    fetchImpl: dispatchGitHubApiRequest
+  const receipt = await withGitHubApiStatusWriteSession({
+    repositoryRoot: process.cwd(),
+    repository: result.authorization.repository,
+    operation: async (capability) => {
+      const principal = inspectGitHubApiCapability(capability).principal;
+      if (principal.login !== args.creatorLogin || principal.userId !== args.creatorId) {
+        fail('owner-issued GitHub status capability principal differs from CLI admission.');
+      }
+      return await publishIntegrationAuthorizationStatus({
+        result,
+        targetUrl: args.targetUrl,
+        capability
+      });
+    }
   });
   writeFileSync(args.output, `${encodeVerificationActionData(receipt)}\n`, 'utf8');
 }

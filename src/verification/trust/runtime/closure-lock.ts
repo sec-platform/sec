@@ -136,7 +136,7 @@ export const TCB_REVIEWED_PROCESS_DISPATCHERS = new Set([
 ]);
 
 export const TCB_REVIEWED_NETWORK_DISPATCHERS = new Set([
-  'src/control/integration/integration-authorization-status-github.ts::function-declaration:dispatchGitHubApiRequest::globalThis.fetch#1'
+  'src/external-capabilities/github-api/operation-session.ts::function-declaration:withProductionSession::globalThis.fetch#1'
 ]);
 
 const TCB_CHILD_PROCESS_LOADERS = new Set([

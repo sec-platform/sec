@@ -52,7 +52,7 @@ import {
   type ScopeAuthorization,
   type ScopeAuthorizationInput
 } from '../../../control/scope/authorization.ts';
-import type { GitHubCheckObservation } from '../../../external-capabilities/github-read/contract.ts';
+import type { GitHubCheckObservation } from '../../../external-capabilities/github-api/contract.ts';
 import { encodeVerificationActionData, type VerificationActionInputRef } from '../../action/contract/action.ts';
 import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationGateStep, parseCiVerificationActionPlanClosure, type CiVerificationActionPlanClosure, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../action/contract/environment.ts';

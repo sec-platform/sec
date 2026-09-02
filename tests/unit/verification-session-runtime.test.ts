@@ -78,7 +78,7 @@ import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../
 import type {
   GitHubCheckObservation, GitHubWorkflowJobObservation,
   GitHubWorkflowRunObservation
-} from '../../src/external-capabilities/github-read/contract.ts';
+} from '../../src/external-capabilities/github-api/contract.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../src/verification/action/contract/environment.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../src/verification/action/contract/provider.ts';
 import {

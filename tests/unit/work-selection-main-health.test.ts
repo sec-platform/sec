@@ -11,12 +11,10 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { dispatchGitHubApiRequest } from '../../src/control/integration/integration-authorization-status-github.ts';
 import { createMainHealthLedger } from '../../src/control/main-health/contract.ts';
 import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../src/control/main-health/provider-policy.ts';
 import {
   classifyTrustedLocalMainHealthObservationFailure,
-  issueMainHealthGitHubTestCapabilityV2,
   issueTrustedRuntimeMainHealthAuthorityV2,
   observeCanonicalMainHealthForRepairTestingV2,
   observeCanonicalMainHealthForRepairV1,
@@ -25,11 +23,14 @@ import {
   reconcileCanonicalMainHealthProviderConflict,
   reconcileCanonicalMainHealthProviderConflictTestingV2,
   resolveWorkSelectionMainHealthProviders,
-  withMainHealthGitHubTestEnrollmentSessionV2,
-  withMainHealthGitHubTestReadOperationBudgetV2,
-  withMainHealthGitHubTestSessionV2,
-  type MainHealthGitHubFetch
 } from '../../src/control/main-health/work-selection-main-health.ts';
+import {
+  issueGitHubApiTestCapability,
+  withGitHubApiTestEnrollmentSession,
+  withGitHubApiTestReadOperationBudget,
+  withGitHubApiTestSession,
+  type GitHubApiTransport
+} from '../../src/external-capabilities/github-api/operation-session.ts';
 import { PhysicalNoFollowError } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 import { resolveSecRuntimeStateForRepository } from '../../src/runtime-state/workspace-state/paths.ts';
 import { encodeVerificationActionData } from '../../src/verification/action/contract/action.ts';
@@ -110,7 +111,7 @@ test('production MainHealth entrypoints consume exact local evidence when hosted
       display_title: `SEC main health ${MAIN} operation ${operationId}`,
       head_sha: MAIN
     };
-    const fakeFetch: MainHealthGitHubFetch = async (inputUrl, init) => {
+    const fakeFetch: GitHubApiTransport = async (inputUrl, init) => {
       const url = String(inputUrl);
       requestLog.push(`${init?.method ?? 'GET'} ${url}`);
       if (url.includes(`/commits/${MAIN}/check-runs?`)) {
@@ -194,29 +195,31 @@ test('production MainHealth entrypoints consume exact local evidence when hosted
       }
       return new Response('unexpected fake REST request', { status: 404 });
     };
-    const readCapability = issueMainHealthGitHubTestCapabilityV2({
+    const readCapability = issueGitHubApiTestCapability({
       repository: 'sec-platform/sec',
       token: TEST_TOKEN,
-      issuer: {
+      principal: {
         transport: 'github-rest-token',
         login: 'maintainer',
         nodeId: 'MDQ6VXNlcjE=',
+        userId: 900001,
         permission: 'maintain'
       },
       effect: 'read',
-      fetchImpl: fakeFetch
+      transport: fakeFetch
     });
-    const unavailableCapability = issueMainHealthGitHubTestCapabilityV2({
+    const unavailableCapability = issueGitHubApiTestCapability({
       repository: 'sec-platform/sec',
       token: TEST_TOKEN,
-      issuer: {
+      principal: {
         transport: 'github-rest-token',
         login: 'maintainer',
         nodeId: 'MDQ6VXNlcjE=',
+        userId: 900001,
         permission: 'read'
       },
       effect: 'read',
-      fetchImpl: async () => {
+      transport: async () => {
         throw new Error('offline');
       }
     });
@@ -236,11 +239,11 @@ test('production MainHealth entrypoints consume exact local evidence when hosted
     });
     const unavailableInput = Object.freeze({ ...input, capability: unavailableCapability });
     const requestCountBeforeProductionGuard = requestLog.length;
-    await expect(withMainHealthGitHubTestSessionV2({
+    await expect(withGitHubApiTestSession({
       capability: readCapability,
       operation: () => observeCanonicalMainHealthForRepairV1(input)
     })).rejects.toThrow('not bound to this repository/effect');
-    await expect(withMainHealthGitHubTestSessionV2({
+    await expect(withGitHubApiTestSession({
       capability: readCapability,
       operation: () => observeMainHealthGitHubDefaultBranchSha({
         repositoryRoot,
@@ -252,7 +255,7 @@ test('production MainHealth entrypoints consume exact local evidence when hosted
     const observeWith = async <T>(
       value: typeof input,
       operation: () => Promise<T>
-    ): Promise<T> => await withMainHealthGitHubTestSessionV2({
+    ): Promise<T> => await withGitHubApiTestSession({
       capability: value.capability,
       operation
     });
@@ -282,17 +285,18 @@ test('production MainHealth entrypoints consume exact local evidence when hosted
 
     const reconcileInput = Object.freeze({
       ...input,
-      githubCapability: issueMainHealthGitHubTestCapabilityV2({
+      githubCapability: issueGitHubApiTestCapability({
         repository: 'sec-platform/sec',
         token: TEST_TOKEN,
-        issuer: {
+        principal: {
           transport: 'github-rest-token',
           login: 'maintainer',
           nodeId: 'MDQ6VXNlcjE=',
+          userId: 900001,
           permission: 'maintain'
         },
         effect: 'status-write',
-        fetchImpl: dispatchGitHubApiRequest
+        transport: fakeFetch
       }),
       runtimeAuthority
     });
@@ -300,7 +304,7 @@ test('production MainHealth entrypoints consume exact local evidence when hosted
     const reconcile = async <T>(operation: () => Promise<T>): Promise<T> => {
       globalThis.fetch = fakeFetch as typeof fetch;
       try {
-        return await withMainHealthGitHubTestSessionV2({
+        return await withGitHubApiTestSession({
           capability: reconcileInput.githubCapability,
           operation
         });
@@ -516,7 +520,7 @@ test('MainHealth GitHub enrollment starts its one budget before credential acqui
   let fetchCalls = 0;
   let operationCalls = 0;
   let tokenTimeoutMs: number | undefined;
-  await expect(withMainHealthGitHubTestEnrollmentSessionV2({
+  await expect(withGitHubApiTestEnrollmentSession({
     repository: 'sec-platform/sec',
     effect: 'read',
     timeoutMs: 10,
@@ -528,7 +532,7 @@ test('MainHealth GitHub enrollment starts its one budget before credential acqui
       now = 10;
       return TEST_TOKEN;
     },
-    fetchImpl: async () => {
+    transport: async () => {
       fetchCalls += 1;
       return Response.json({ login: 'maintainer', node_id: 'MDQ6VXNlcjE=' });
     },
@@ -545,13 +549,13 @@ test('MainHealth GitHub enrollment carries credential budget through principal r
   let now = 0;
   let fetchCalls = 0;
   let operationCalls = 0;
-  await expect(withMainHealthGitHubTestEnrollmentSessionV2({
+  await expect(withGitHubApiTestEnrollmentSession({
     repository: 'sec-platform/sec',
     effect: 'read',
     timeoutMs: 10,
     now: () => now,
     readToken: async () => TEST_TOKEN,
-    fetchImpl: async (inputUrl) => {
+    transport: async (inputUrl) => {
       fetchCalls += 1;
       if (String(inputUrl).endsWith('/user')) {
         now = 4;
@@ -570,24 +574,24 @@ test('MainHealth GitHub enrollment carries credential budget through principal r
 
 test('nested MainHealth GitHub test sessions reuse the outer absolute budget', async () => {
   let now = 0;
-  const result = await withMainHealthGitHubTestEnrollmentSessionV2({
+  const result = await withGitHubApiTestEnrollmentSession({
     repository: 'sec-platform/sec',
     effect: 'read',
     timeoutMs: 10,
     now: () => now,
     readToken: async () => TEST_TOKEN,
-    fetchImpl: async (inputUrl) => String(inputUrl).endsWith('/user')
+    transport: async (inputUrl) => String(inputUrl).endsWith('/user')
       ? Response.json({ login: 'maintainer', node_id: 'MDQ6VXNlcjE=' })
       : Response.json({ permission: 'read' }),
     operation: async (capability) => {
       now = 5;
-      await expect(withMainHealthGitHubTestSessionV2({
+      await expect(withGitHubApiTestSession({
         capability,
         timeoutMs: 1_000,
         now: () => now,
         operation: async () => {
           now = 10;
-          await withMainHealthGitHubTestSessionV2({
+          await withGitHubApiTestSession({
             capability,
             timeoutMs: 1_000,
             operation: async () => undefined
@@ -603,11 +607,11 @@ test('nested MainHealth GitHub test sessions reuse the outer absolute budget', a
 
 test('MainHealth parent read budget admits T1 and fresh T2 but no third session', async () => {
   let fetchCalls = 0;
-  const result = await withMainHealthGitHubTestReadOperationBudgetV2({
+  const result = await withGitHubApiTestReadOperationBudget({
     repository: 'sec-platform/sec',
     timeoutMs: 100,
     readToken: async () => TEST_TOKEN,
-    fetchImpl: async (inputUrl) => {
+    transport: async (inputUrl) => {
       fetchCalls += 1;
       return String(inputUrl).endsWith('/user')
         ? Response.json({ login: 'maintainer', node_id: 'MDQ6VXNlcjE=' })
@@ -615,7 +619,7 @@ test('MainHealth parent read budget admits T1 and fresh T2 but no third session'
     },
     operation: async (open) => {
       await open(async (capability) => {
-        await expect(withMainHealthGitHubTestSessionV2({
+        await expect(withGitHubApiTestSession({
           capability,
           operation: async () => undefined
         })).resolves.toBeUndefined();
@@ -636,7 +640,7 @@ test('MainHealth parent read budget carries its absolute deadline into T2', asyn
   let now = 0;
   let tokenTimeouts: number[] = [];
   let fetchCalls = 0;
-  await expect(withMainHealthGitHubTestReadOperationBudgetV2({
+  await expect(withGitHubApiTestReadOperationBudget({
     repository: 'sec-platform/sec',
     timeoutMs: 20,
     now: () => now,
@@ -646,7 +650,7 @@ test('MainHealth parent read budget carries its absolute deadline into T2', asyn
       if (tokenTimeouts.length === 2) now = 20;
       return TEST_TOKEN;
     },
-    fetchImpl: async (inputUrl) => {
+    transport: async (inputUrl) => {
       fetchCalls += 1;
       if (String(inputUrl).endsWith('/user') && fetchCalls === 1) {
         now = 14;
