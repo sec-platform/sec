@@ -12,6 +12,7 @@ import {
   compileSecRepositoryModuleMembership,
   compileSecRepositoryModuleTopologyProjection,
   parseSecModuleDescriptor,
+  parseSecModuleDescriptorJson,
   type SecModuleOperationRoleBinding
 } from './contract.ts';
 
@@ -64,6 +65,10 @@ test('repository module descriptor parser rejects unknown fields and invalid pat
     .toThrow('entries must be unique');
   expect(() => parseSecModuleDescriptor(descriptor, '../sec.module.json'))
     .toThrow('descriptorPath');
+  expect(() => parseSecModuleDescriptorJson(
+    '{"importGraph":"runtime","importGraph":"content","externalEntrypoints":[]}',
+    descriptorPath
+  )).toThrow('duplicate key');
 });
 
 test('repository module operation obligations are strict and bind declared public identities', () => {
