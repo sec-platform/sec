@@ -11,6 +11,7 @@ import { issueRuntimeDependencyTestMaterialization } from '../runtime/materializ
 import {
   runtimeDependencyOperationContext,
   runtimeDependencyOperationOptions,
+  type RuntimeDependencyInstallOptions,
   type RuntimeDependencyOperationOptions
 } from '../runtime/operation-context.ts';
 import type {
@@ -212,7 +213,7 @@ async function ensureFixture(
 function fixtureOperationOptions(
   state: IssuedCompilerDependencyFixtureOperation
 ): RuntimeDependencyOperationOptions {
-  const options = runtimeDependencyOperationOptions({});
+  const options = runtimeDependencyOperationOptions<RuntimeDependencyInstallOptions>({});
   const context = runtimeDependencyOperationContext(options);
   const generatedStateLifecycle = generatedStateProducerHooks(
     { repositoryRoot: state.descriptor.dependencyRootPath },
@@ -226,10 +227,10 @@ function fixtureOperationOptions(
       worktreeRetirementProviders: [compilerDependencyLocatorWorktreeRetirementProvider]
     }
   );
-  return Object.freeze({
+  return runtimeDependencyOperationOptions({
     ...options,
     generatedStateLifecycle
-  }) as RuntimeDependencyOperationOptions;
+  });
 }
 
 async function rematerializeFixture(

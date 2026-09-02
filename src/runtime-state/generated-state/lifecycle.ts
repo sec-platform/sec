@@ -4058,7 +4058,7 @@ export function generatedStateProducerHooks(
     }
     return registrationDigest;
   };
-  const hooks: Readonly<GeneratedStateProducerHookSet> = Object.freeze({
+  const hooks = Object.freeze<GeneratedStateProducerHookSet>({
     born: async (relativePath, operationId) => {
       const registration = await registerGeneratedStateBirth(
         { ...input, relativePath, operationId },
@@ -4125,8 +4125,7 @@ export function generatedStateProducerHooks(
     }
   });
   if (options.cleanupOperation === undefined) return hooks;
-  return Object.freeze({
-    ...hooks,
+  const quarantineHook: GeneratedStateProducerQuarantineHook = {
     quarantine: async (relativePath, request) => {
       const normalized = normalizeGeneratedStateRelativePath(relativePath);
       const receipt = await quarantineGeneratedStateRegistration({
@@ -4139,5 +4138,9 @@ export function generatedStateProducerHooks(
       if (receipt.terminal === 'completed') producerSession.delete(normalized);
       return receipt;
     }
+  };
+  return Object.freeze({
+    ...hooks,
+    ...quarantineHook
   });
 }
