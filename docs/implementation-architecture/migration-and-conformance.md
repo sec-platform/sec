@@ -46,6 +46,20 @@ ArchitectureMigration {
 
 迁移工具消费 symbol/reference graph，不依赖字符串替换。路径缩短不是成功；所有 imports、package exports、CLI entrypoints、runtime locators、generated registries、tests、docs 和 artifacts 必须重编/readback，旧地址 consumer-zero 后才退休，不留 alias/compat barrel。
 
+Consumer evidence is split into the observed reference set and coverage proof:
+
+```text
+ObservedConsumerRefs   = references found by one bounded observer
+LocalConsumerCoverage  = complete | unknown
+ExternalConsumerStatus = none-observed | present | unknown
+```
+
+An empty observed set is not consumer-zero. Literal search, package metadata,
+generated entrypoints, dynamic readers and external protocols cover different
+universes; each must be bound to the exact source generation or remain a typed
+frontier. A migration compiler must reject cutover while local coverage is
+`unknown`, even when `ObservedConsumerRefs` is empty.
+
 ## 14. Machine admission 与自动化入口
 
 ### 14.1 Declaration admission

@@ -346,6 +346,24 @@ compileDocumentationGeneration(snapshot):
   read back exact bytes, graph digest and no-unclassified-source frontier
 ```
 
+Consumer evidence has two independent outputs and they must not be collapsed:
+
+```text
+ObservedConsumerRefs       = references found by the selected bounded observer
+LocalConsumerCoverage      = complete | unknown
+ExternalConsumerStatus     = none-observed | present | unknown
+```
+
+`ObservedConsumerRefs=[]` only means that this observer found no literal hit. It
+does not prove consumer-zero. A migration design may clear the local-consumer
+frontier only when the domain owner supplies a complete, exact-generation-bound
+consumer census; the migration CLI's literal `git grep` result is therefore
+always `LocalConsumerCoverage=unknown`. Dynamic/generated references, package
+entrypoints, workflow/config readers and external consumers remain explicit
+frontiers until their owners provide the corresponding evidence. This prevents
+an incomplete observer from authorizing deletion merely because it returned an
+empty list.
+
 graph facts与graph constraints分别编译；constraint不是藏在validator分支里的第二事实源：
 
 ```text
