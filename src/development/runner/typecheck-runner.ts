@@ -11,10 +11,18 @@ import {
   type WorkspaceTypeScriptProjectInput
 } from '../../brownfield/source-program-model/workspace-source-snapshot.ts';
 import { withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
+import {
+  assertProcessResourceSessionReceipt,
+  openProcessResourceSession,
+  type ProcessResourceSessionReceipt
+} from '../../runtime-state/physical/runtime/process-resource-session.ts';
 import { WINDOWS_READ_ONLY_TREE_ADMISSION_POLICY } from '../../runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
 import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateEnvironment } from '../../runtime-state/workspace-state/layout.ts';
 import { acquireSecRuntimeCachePhysicalAuthority } from '../../runtime-state/workspace-state/physical-authority.ts';
 import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import {
+  issueSecOperationRequirementBindingContext
+} from '../../system-architecture/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
@@ -27,10 +35,9 @@ import {
   projectSecCapabilityDiagnostic,
   type SecBoundSemanticOperation,
   type SecDomainReadbackDisposition,
-  type SecOperationDigest,
-  type SecProviderPhysicalDisposition
+  type SecOperationDigest
 } from '../../system-architecture/operation/semantic.ts';
-import { TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY, assertTypeScriptNativeChecker, canonicalTypeScriptDiagnosticArguments, executeTypeScriptNativeChecker, requireSelectedTypeScriptNativeChecker, selectInstalledTypeScriptNativeChecker, type InstalledTypeScriptNativeChecker, type TypeScriptNativeCheckerProvider } from '../../toolchain/typescript/checker.ts';
+import { TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY, assertTypeScriptNativeChecker, canonicalTypeScriptDiagnosticArguments, executeTypeScriptNativeChecker, issueTypeScriptCheckerProcessExecutionAdmission, requireSelectedTypeScriptNativeChecker, selectInstalledTypeScriptNativeChecker, type InstalledTypeScriptNativeChecker, type TypeScriptNativeCheckerProvider } from '../../toolchain/typescript/checker.ts';
 import {
   assertTypeScriptExecutionGeneration,
   materializeTypeScriptExecutionGeneration,
@@ -74,13 +81,14 @@ const TYPECHECK_ACTION_KIND = 'typescript-project-typecheck' as const;
 const TYPECHECK_ACTION_CONTRACT = sha256(Object.freeze({
   action: TYPECHECK_ACTION_KIND,
   admission: 'owner-issued-dependency-and-source-program-facts',
-  execution: 'retained-native-checker-and-private-incremental-state',
-  terminal: 'provider-settlement-readback-and-physical-cleanup'
+  execution: 'owner-issued-bounded-process-session-and-private-incremental-state',
+  terminal: 'process-session-receipt-provider-settlement-readback-and-physical-cleanup'
 })) as VerificationActionKeyDigest;
 const TYPECHECK_ACTION_RESULT = sha256(Object.freeze({
   action: TYPECHECK_ACTION_KIND,
   result: 'verification-action-owner-terminal',
   passRequires: Object.freeze([
+    'owner-issued-process-resource-session-receipt',
     'settled-checker-process',
     'current-execution-generation',
     'physically-clean-subordinate-settlement'
@@ -97,6 +105,116 @@ const TYPECHECK_OPERATION_DURATION_MS = TYPECHECK_MATERIALIZATION_DURATION_MS
   + WINDOWS_READ_ONLY_TREE_ADMISSION_POLICY.maximumDurationMs
   + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs;
 const typecheckActionRunner = new VerificationActionRunner();
+
+function assertTypecheckProcessResourceReceipt(
+  receipt: ProcessResourceSessionReceipt,
+  operation: SecBoundSemanticOperation,
+  execution: Awaited<ReturnType<typeof executeTypeScriptNativeChecker>> | undefined
+): void {
+  assertProcessResourceSessionReceipt(receipt, {
+    operationIdentityDigest: operation.plan.identity.identityDigest,
+    boundAttemptDigest: operation.boundAttemptDigest,
+    requirementId: TYPECHECK_REQUIREMENT.projectCheck
+  });
+  if (receipt.processCount > 1
+      || receipt.inputBytes !== 0
+      || receipt.outputBytes
+        > TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.maximumStdoutBytes
+          + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.maximumStderrBytes
+      || (execution?.status === 'exited' && (
+        receipt.processCount !== 1
+        || receipt.successfulProcessRecordCount !== 1
+        || receipt.failedProcessCount !== 0
+      ))) {
+    throw new Error('Typecheck process receipt does not settle the exact checker execution.');
+  }
+}
+
+type TypecheckProcessOutput = Readonly<{ stdout: string; stderr: string }>;
+
+type TypecheckTerminalProcessEvidence =
+  | Readonly<{
+    processState: 'not-started';
+    checkerDisposition: 'not-started';
+    processOutput: null;
+  }>
+  | Readonly<{
+    processState: 'settled';
+    checkerDisposition: 'settled';
+    processOutput: TypecheckProcessOutput;
+  }>
+  | Readonly<{
+    processState: 'unknown';
+    checkerDisposition: 'unknown';
+    processOutput: TypecheckProcessOutput;
+  }>;
+
+type PendingTypecheckTerminalCore = Readonly<{
+  readbackDisposition: SecDomainReadbackDisposition;
+  status: VerificationResultStatus;
+  reasonCode: VerificationReasonCode;
+  executionObservation: unknown;
+  readback: unknown;
+}>;
+
+type PendingTypecheckTerminal =
+  | PendingTypecheckTerminalCore & Extract<
+    TypecheckTerminalProcessEvidence,
+    Readonly<{ processState: 'not-started' }>
+  >
+  | PendingTypecheckTerminalCore & Extract<
+    TypecheckTerminalProcessEvidence,
+    Readonly<{ processState: 'settled' }>
+  >;
+
+function notStartedTypecheckProcessEvidence(): TypecheckTerminalProcessEvidence {
+  return Object.freeze({
+    processState: 'not-started' as const,
+    checkerDisposition: 'not-started' as const,
+    processOutput: null
+  });
+}
+
+function settledTypecheckProcessEvidence(
+  processOutput: TypecheckProcessOutput
+): TypecheckTerminalProcessEvidence {
+  return Object.freeze({
+    processState: 'settled' as const,
+    checkerDisposition: 'settled' as const,
+    processOutput
+  });
+}
+
+function unknownTypecheckProcessEvidence(
+  processOutput: TypecheckProcessOutput
+): TypecheckTerminalProcessEvidence {
+  return Object.freeze({
+    processState: 'unknown' as const,
+    checkerDisposition: 'unknown' as const,
+    processOutput
+  });
+}
+
+function pendingNotStartedTypecheckTerminal(
+  input: PendingTypecheckTerminalCore
+): PendingTypecheckTerminal {
+  return Object.freeze({
+    ...input,
+    processState: 'not-started' as const,
+    checkerDisposition: 'not-started' as const,
+    processOutput: null
+  });
+}
+
+function pendingSettledTypecheckTerminal(
+  input: PendingTypecheckTerminalCore & Readonly<{ processOutput: TypecheckProcessOutput }>
+): PendingTypecheckTerminal {
+  return Object.freeze({
+    ...input,
+    processState: 'settled' as const,
+    checkerDisposition: 'settled' as const
+  });
+}
 
 export type TypecheckOperationOptions = Readonly<{
   deadlineAtUnixMs?: number;
@@ -428,14 +546,12 @@ async function issueTypecheckOperationSettlement(
   input: Readonly<{
     action: VerificationActionKey;
     actionKey: VerificationActionKeyDigest;
-    checkerDisposition: SecProviderPhysicalDisposition;
     executionObservation: unknown;
     readback: unknown;
     readbackDisposition: SecDomainReadbackDisposition;
     status: VerificationResultStatus;
     reasonCode: VerificationReasonCode;
-    processOutput: Readonly<{ stdout: string; stderr: string }> | null;
-  }>
+  }> & TypecheckTerminalProcessEvidence
 ): Promise<VerificationActionTerminalSettlement> {
   const checker = issueSecProviderSettlementReceipt(operation, {
     requirementId: TYPECHECK_REQUIREMENT.projectCheck,
@@ -509,17 +625,12 @@ async function issueTypecheckOperationSettlement(
     readback,
     ownerTerminalProjection: ownerTerminalJoin
   });
-  if (input.processOutput !== null) {
+  if (input.processState !== 'not-started') {
     return issueProcessVerificationActionTerminalSettlement(actionTerminalReceipt, {
       status: input.status,
       reasonCode: input.reasonCode,
       diagnosticObjects
     });
-  }
-  if (input.checkerDisposition !== 'not-started') {
-    throw new Error(
-      'Typecheck process outcome cannot issue a terminal without bound diagnostic evidence.'
-    );
   }
   return issueNonProcessVerificationActionTerminalSettlement(actionTerminalReceipt, {
     status: input.status,
@@ -737,6 +848,8 @@ function compileTypecheckSemanticOperationWithProviderIdentity(input: Readonly<{
     incremental: true,
     immutableGeneration: true,
     actionPrivateAuxiliary: true,
+    ownerIssuedProcessResourceSession: true,
+    processResourceSessionReceipt: 'required-before-action-terminal-readback',
     physicalCleanTerminal: true,
     generationSetupPolicy: TYPECHECK_MATERIALIZATION_POLICY,
     checkerExecutionPolicy: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY,
@@ -1019,40 +1132,42 @@ async function executeObservedTypecheckWithProvider(
         message: error instanceof Error ? error.message : String(error),
         name: error instanceof Error ? error.name : typeof error
       });
+      let processResourceReceipt: ProcessResourceSessionReceipt | null = null;
+      const currentProcessResourceReceipt = (): ProcessResourceSessionReceipt | null => (
+        processResourceReceipt
+      );
       const settlement = async (
-        checkerDisposition: SecProviderPhysicalDisposition,
+        processEvidence: TypecheckTerminalProcessEvidence,
         readbackDisposition: SecDomainReadbackDisposition,
         status: VerificationResultStatus,
         reasonCode: VerificationReasonCode,
         executionObservation: unknown,
-        readback: unknown,
-        processOutput: Readonly<{ stdout: string; stderr: string }> | null = null
+        readback: unknown
       ) => await issueTypecheckOperationSettlement(semanticOperation, {
         action,
         actionKey: action.actionKey,
-        checkerDisposition,
+        ...processEvidence,
         executionObservation: Object.freeze({
           ...domainBinding,
+          processResourceReceipt,
           observation: executionObservation
         }),
         readback,
         readbackDisposition,
         status,
-        reasonCode,
-        processOutput
+        reasonCode
       });
       let setupStage: TypecheckSubordinateStage = Object.freeze({ status: 'pending' });
       let executionStage: TypecheckSubordinateStage = Object.freeze({ status: 'not-started' });
       let cleanupStage: TypecheckSubordinateStage = Object.freeze({ status: 'pending' });
       let readbackStage: TypecheckSubordinateStage = Object.freeze({ status: 'not-applied' });
       const finalSettlement = async (
-        checkerDisposition: SecProviderPhysicalDisposition,
+        processEvidence: TypecheckTerminalProcessEvidence,
         readbackDisposition: SecDomainReadbackDisposition,
         status: VerificationResultStatus,
         reasonCode: VerificationReasonCode,
         executionObservation: unknown,
-        readback: unknown,
-        processOutput: Readonly<{ stdout: string; stderr: string }> | null = null
+        readback: unknown
       ): Promise<VerificationActionTerminalSettlement> => {
         const withDuration = (
           stage: TypecheckSubordinateStage,
@@ -1068,13 +1183,12 @@ async function executeObservedTypecheckWithProvider(
           readback: readbackStage
         })));
         return await settlement(
-          checkerDisposition,
+          processEvidence,
           readbackDisposition,
           status,
           reasonCode,
           executionObservation,
-          readback,
-          processOutput
+          readback
         );
       };
       let cacheAuthority: ReturnType<typeof acquireSecRuntimeCachePhysicalAuthority> | null = null;
@@ -1180,7 +1294,7 @@ async function executeObservedTypecheckWithProvider(
             reason: 'generation-cleanup-failed'
           });
           return finalSettlement(
-            'not-started',
+            notStartedTypecheckProcessEvidence(),
             'unknown',
             'failed',
             'cleanup-failed',
@@ -1198,7 +1312,7 @@ async function executeObservedTypecheckWithProvider(
         });
         cleanupStage = Object.freeze({ status: 'physically-clean' });
         return finalSettlement(
-          'not-started',
+          notStartedTypecheckProcessEvidence(),
           'not-applied',
           'failed',
           'process-settlement-failed',
@@ -1216,11 +1330,46 @@ async function executeObservedTypecheckWithProvider(
       setupDurationMs = elapsedMs(setupStartedAtMonotonicMs);
       setupStage = Object.freeze({ status: 'complete' });
       let settledProcessOutput: Readonly<{ stdout: string; stderr: string }> | null = null;
-      let settledCheckerDisposition: SecProviderPhysicalDisposition = 'not-started';
-      let settledReadbackDisposition: SecDomainReadbackDisposition = 'not-applied';
 
-      const executeAndSettle = async (): Promise<VerificationActionTerminalSettlement> => {
-        let execution: Awaited<ReturnType<typeof executeTypeScriptNativeChecker>>;
+      const executeAndObserve = async (): Promise<PendingTypecheckTerminal> => {
+        const processSession = openProcessResourceSession({
+          operation: semanticOperation,
+          requirementBindingContext: issueSecOperationRequirementBindingContext({
+            operation: semanticOperation,
+            requirementId: TYPECHECK_REQUIREMENT.projectCheck,
+            resourceCeilings: [
+              {
+                resource: 'duration-ms',
+                maximum: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs
+              },
+              { resource: 'input-bytes', maximum: 0 },
+              {
+                resource: 'output-bytes',
+                maximum: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.maximumStdoutBytes
+                  + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.maximumStderrBytes
+              },
+              { resource: 'processes', maximum: 1 }
+            ]
+          }),
+          signal: operation.signal
+        });
+        let processExecutionAdmission: ReturnType<
+          typeof issueTypeScriptCheckerProcessExecutionAdmission
+        >;
+        try {
+          processExecutionAdmission = issueTypeScriptCheckerProcessExecutionAdmission({
+            checker: selectedChecker,
+            operation: semanticOperation,
+            processSession
+          });
+        } catch (error) {
+          processSession.close();
+          throw error;
+        }
+        let execution: Awaited<ReturnType<typeof executeTypeScriptNativeChecker>> | undefined;
+        let executionError: unknown;
+        let hasExecutionError = false;
+        let processSettlementError: unknown;
         const executionStartedAtMonotonicMs = performance.now();
         try {
           execution = await executeTypeScriptNativeChecker(selectedChecker, {
@@ -1230,10 +1379,34 @@ async function executeObservedTypecheckWithProvider(
             deadlineAtUnixMs: semanticOperation.plan.attempt.deadlineAtUnixMs,
             dependencyDirectory: executionGeneration.dependencyDirectory,
             forwardOutput: true,
+            processExecutionAdmission,
             signal: operation.signal,
             workingDirectory: executionGeneration.workingDirectory
           });
         } catch (error) {
+          executionError = error;
+          hasExecutionError = true;
+        } finally {
+          try {
+            const receipt = processSession.close();
+            assertTypecheckProcessResourceReceipt(receipt, semanticOperation, execution);
+            processResourceReceipt = receipt;
+          } catch (error) {
+            processSettlementError = error;
+          }
+          executionDurationMs = elapsedMs(executionStartedAtMonotonicMs);
+        }
+        if (processSettlementError !== undefined) {
+          if (hasExecutionError) {
+            throw new AggregateError(
+              [executionError, processSettlementError],
+              'TypeScript checker execution and process-resource settlement both failed.'
+            );
+          }
+          throw processSettlementError;
+        }
+        if (hasExecutionError) {
+          const error = executionError;
           const executionFailure = subordinateError(error);
           executionStage = Object.freeze({
             ...executionFailure,
@@ -1243,20 +1416,26 @@ async function executeObservedTypecheckWithProvider(
             stdout: '',
             stderr: `${executionFailure.errorName ?? 'Error'}: ${executionFailure.message ?? 'TypeScript checker execution failed'}\n`
           });
-          settledCheckerDisposition = 'unknown';
-          settledReadbackDisposition = 'unknown';
           const readback = await postReadback();
-          return settlement(
-            settledCheckerDisposition,
-            settledReadbackDisposition,
-            'failed',
-            'process-settlement-failed',
-            Object.freeze({ status: 'execution-unsettled', errorDigest: errorDigest(error) }),
-            readback,
-            settledProcessOutput
-          );
-        } finally {
-          executionDurationMs = elapsedMs(executionStartedAtMonotonicMs);
+          const terminalCore = Object.freeze({
+            readbackDisposition: 'not-applied' as const,
+            status: 'failed' as const,
+            reasonCode: 'process-settlement-failed' as const,
+            executionObservation: Object.freeze({
+              status: 'execution-unsettled',
+              errorDigest: errorDigest(error)
+            }),
+            readback
+          });
+          return processResourceReceipt!.processCount === 0
+            ? pendingNotStartedTypecheckTerminal(terminalCore)
+            : pendingSettledTypecheckTerminal({
+                ...terminalCore,
+                processOutput: settledProcessOutput
+              });
+        }
+        if (execution === undefined) {
+          throw new Error('TypeScript checker execution returned without a terminal result.');
         }
         if (execution.status === 'unverified') {
           executionStage = Object.freeze({
@@ -1277,8 +1456,6 @@ async function executeObservedTypecheckWithProvider(
             rawEvidence: execution.detail
           });
           const readback = await postReadback();
-          settledCheckerDisposition = 'not-started';
-          settledReadbackDisposition = 'not-applied';
           const terminal = readback.status === 'invalidated'
             ? { status: 'invalidated', reasonCode: 'input-invalidated' } as const
             : execution.reason === 'deadline-exhausted'
@@ -1288,26 +1465,36 @@ async function executeObservedTypecheckWithProvider(
                 : execution.reason === 'process-boundary-unavailable'
                   ? { status: 'unsupported', reasonCode: 'capability-unsupported' } as const
                   : { status: 'invalidated', reasonCode: 'input-invalidated' } as const;
-          return settlement(
-            settledCheckerDisposition,
-            settledReadbackDisposition,
-            terminal.status,
-            terminal.reasonCode,
-            Object.freeze({
+          const terminalCore = Object.freeze({
+            readbackDisposition: 'not-applied' as const,
+            status: terminal.status,
+            reasonCode: terminal.reasonCode,
+            executionObservation: Object.freeze({
               status: 'unverified',
               reason: execution.reason,
               detailDigest: actionDigest(execution.detail),
               diagnostic
             }),
             readback
-          );
+          });
+          if (processResourceReceipt!.processCount === 0) {
+            settledProcessOutput = null;
+            return pendingNotStartedTypecheckTerminal(terminalCore);
+          }
+          const processOutput = Object.freeze({
+            stdout: '',
+            stderr: `${execution.detail}\n`
+          });
+          settledProcessOutput = processOutput;
+          return pendingSettledTypecheckTerminal({
+            ...terminalCore,
+            processOutput
+          });
         }
         settledProcessOutput = Object.freeze({
           stdout: execution.stdout,
           stderr: execution.stderr
         });
-        settledCheckerDisposition = 'settled';
-        settledReadbackDisposition = 'applied';
         const incrementalPublication = await incrementalState.publish().catch(() => (
           Object.freeze({ status: 'cache-unavailable' as const })
         ));
@@ -1319,12 +1506,11 @@ async function executeObservedTypecheckWithProvider(
         });
         const readback = await postReadback();
         if (readback.status === 'invalidated') {
-          return settlement(
-            'settled',
-            'applied',
-            'invalidated',
-            'input-invalidated',
-            Object.freeze({
+          return pendingSettledTypecheckTerminal({
+            readbackDisposition: 'applied',
+            status: 'invalidated',
+            reasonCode: 'input-invalidated',
+            executionObservation: Object.freeze({
               status: 'exited',
               exitCode: execution.code,
               incrementalPublication,
@@ -1332,15 +1518,14 @@ async function executeObservedTypecheckWithProvider(
               stderrDigest: actionDigest(execution.stderr)
             }),
             readback,
-            settledProcessOutput
-          );
+            processOutput: settledProcessOutput
+          });
         }
-        return settlement(
-          'settled',
-          'applied',
-          execution.code === 0 ? 'passed' : 'failed',
-          execution.code === 0 ? 'executed-success' : 'executed-failure',
-          Object.freeze({
+        return pendingSettledTypecheckTerminal({
+          readbackDisposition: 'applied',
+          status: execution.code === 0 ? 'passed' : 'failed',
+          reasonCode: execution.code === 0 ? 'executed-success' : 'executed-failure',
+          executionObservation: Object.freeze({
             status: 'exited',
             exitCode: execution.code,
             incrementalPublication,
@@ -1348,19 +1533,26 @@ async function executeObservedTypecheckWithProvider(
             stderrDigest: actionDigest(execution.stderr)
           }),
           readback,
-          settledProcessOutput
-        );
+          processOutput: settledProcessOutput
+        });
       };
 
-      let issued: VerificationActionTerminalSettlement;
+      let pending: PendingTypecheckTerminal | null = null;
+      let executionOrSettlementFailure: unknown;
       try {
-        issued = await executeAndSettle();
+        pending = await executeAndObserve();
       } catch (error) {
+        executionOrSettlementFailure = error;
         executionStage = Object.freeze({
           ...subordinateError(error),
           reason: 'unexpected-settlement-failure'
         });
-        throw error;
+        settledProcessOutput ??= Object.freeze({
+          stdout: '',
+          stderr: `${error instanceof Error ? error.name : typeof error}: ${
+            error instanceof Error ? error.message : String(error)
+          }\n`
+        });
       }
       let auxiliaryCleanup: unknown = null;
       let generationCleanup: unknown = null;
@@ -1377,6 +1569,24 @@ async function executeObservedTypecheckWithProvider(
         cleanupFailure ??= error;
       }
       cleanupDurationMs = elapsedMs(cleanupStartedAtMonotonicMs);
+      const terminalProcessResourceReceipt = currentProcessResourceReceipt();
+      const terminalProcessEvidence = (failure: unknown): TypecheckTerminalProcessEvidence => {
+        const observedOutput = pending === null
+          ? settledProcessOutput
+          : pending.processOutput;
+        if (terminalProcessResourceReceipt?.processCount === 0) {
+          return notStartedTypecheckProcessEvidence();
+        }
+        const processOutput = observedOutput ?? Object.freeze({
+          stdout: '',
+          stderr: `${failure instanceof Error ? failure.name : typeof failure}: ${
+            failure instanceof Error ? failure.message : String(failure)
+          }\n`
+        });
+        return terminalProcessResourceReceipt === null
+          ? unknownTypecheckProcessEvidence(processOutput)
+          : settledTypecheckProcessEvidence(processOutput);
+      };
       if (cleanupFailure !== undefined) {
         cleanupStage = Object.freeze({
           ...subordinateError(cleanupFailure),
@@ -1384,39 +1594,62 @@ async function executeObservedTypecheckWithProvider(
           reason: 'physical-cleanup-failed'
         });
         return finalSettlement(
-          'settled',
+          terminalProcessEvidence(cleanupFailure),
           'unknown',
           'failed',
           'cleanup-failed',
           Object.freeze({
             status: 'physical-cleanup-failed',
             errorDigest: errorDigest(cleanupFailure),
-            priorSettlement: issued.ownerTerminalReceipt.terminalReceiptDigest
+            execution: pending?.executionObservation ?? null,
+            executionFailureDigest: executionOrSettlementFailure === undefined
+              ? null
+              : errorDigest(executionOrSettlementFailure)
           }),
           Object.freeze({
             status: 'physical-residue',
+            operationReadback: pending?.readback ?? null,
             auxiliaryCleanup,
             generationCleanup
-          }),
-          settledProcessOutput
+          })
         );
       }
       cleanupStage = Object.freeze({ status: 'physically-clean' });
+      if (executionOrSettlementFailure !== undefined || pending === null) {
+        const failure = executionOrSettlementFailure ?? new Error(
+          'TypeScript execution completed without a pending terminal observation.'
+        );
+        return finalSettlement(
+          terminalProcessEvidence(failure),
+          'unknown',
+          'failed',
+          'process-settlement-failed',
+          Object.freeze({
+            status: 'execution-or-settlement-failed',
+            errorDigest: errorDigest(failure)
+          }),
+          Object.freeze({
+            status: 'physically-clean',
+            auxiliaryCleanup,
+            generationCleanup
+          })
+        );
+      }
       return finalSettlement(
-        settledCheckerDisposition,
-        settledReadbackDisposition,
-        issued.terminal.status,
-        issued.terminal.reasonCode,
+        pending,
+        pending.readbackDisposition,
+        pending.status,
+        pending.reasonCode,
         Object.freeze({
           status: 'physically-clean-terminal',
-          priorSettlement: issued.ownerTerminalReceipt.terminalReceiptDigest
+          execution: pending.executionObservation
         }),
         Object.freeze({
           status: 'physically-clean',
+          operationReadback: pending.readback,
           auxiliaryCleanup,
           generationCleanup
-        }),
-        settledProcessOutput
+        })
       );
       }
     });

@@ -28,10 +28,15 @@ import {
   type RetainedNoFollowProvenDirectoryGeneration,
   type RetainedNoFollowSealedDirectoryGeneration
 } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import {
+  assertProcessResourceSessionReceipt,
+  openProcessResourceSession
+} from '../../src/runtime-state/physical/runtime/process-resource-session.ts';
 import { sealExistingWindowsReadOnlyTreeAuthority } from '../../src/runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
 import { createBoundedProcessDiagnosticObjectReceipt } from '../../src/runtime-state/workspace-state/bounded-process-diagnostic-contract.ts';
 import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateEnvironment } from '../../src/runtime-state/workspace-state/layout.ts';
 import { rawSha256, sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { issueSecOperationRequirementBindingContext } from '../../src/system-architecture/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
@@ -43,7 +48,7 @@ import {
   issueSecSemanticOperationAttemptContext
 } from '../../src/system-architecture/operation/semantic.ts';
 import { compileSecRepositoryModuleMembershipSnapshot } from '../../src/system-architecture/repository-modules/contract.ts';
-import { TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY, assertTypeScriptNativeChecker, canonicalTypeScriptDiagnosticArguments, executeTypeScriptNativeChecker, requireSelectedTypeScriptNativeChecker, selectInstalledTypeScriptNativeChecker, typeScriptCheckerArguments } from '../../src/toolchain/typescript/checker.ts';
+import { TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY, assertTypeScriptNativeChecker, canonicalTypeScriptDiagnosticArguments, executeTypeScriptNativeChecker, issueTypeScriptCheckerProcessExecutionAdmission, requireSelectedTypeScriptNativeChecker, selectInstalledTypeScriptNativeChecker, typeScriptCheckerArguments, type InstalledTypeScriptNativeChecker, type TypeScriptCheckerProcessExecutionAdmission } from '../../src/toolchain/typescript/checker.ts';
 import {
   createVerificationActionKey,
   issueProcessVerificationActionTerminalSettlement,
@@ -185,10 +190,13 @@ function projectExecutedTypecheckOutcomeFixture(
 async function withCheckerExecutionBoundary<T>(
   workingRoot: string,
   dependencyRoot: string,
+  checker: InstalledTypeScriptNativeChecker,
+  expectedProcessCount: 0 | 1,
   callback: (boundary: Readonly<{
     auxiliaryDirectory: RetainedNoFollowChildProcessDirectory;
     buildInfoFileName: 'tsconfig.tsbuildinfo';
     dependencyDirectory: RetainedNoFollowProvenDirectoryGeneration;
+    processExecutionAdmission: TypeScriptCheckerProcessExecutionAdmission;
     workingDirectory: RetainedNoFollowSealedDirectoryGeneration;
   }>) => Promise<T>
 ): Promise<T> {
@@ -239,14 +247,58 @@ async function withCheckerExecutionBoundary<T>(
     4,
     'test checker action-private auxiliary root'
   );
+  const operation = compileTypecheckSemanticOperation({
+    checker,
+    deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs,
+    diagnosticArguments: [],
+    projectConfigPath: checker.provider.projectConfig
+  });
+  const processSession = openProcessResourceSession({
+    operation,
+    requirementBindingContext: issueSecOperationRequirementBindingContext({
+      operation,
+      requirementId: 'typescript.project-check',
+      resourceCeilings: [
+        {
+          resource: 'duration-ms',
+          maximum: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs
+        },
+        { resource: 'input-bytes', maximum: 0 },
+        {
+          resource: 'output-bytes',
+          maximum: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.maximumStdoutBytes
+            + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.maximumStderrBytes
+        },
+        { resource: 'processes', maximum: 1 }
+      ]
+    })
+  });
+  const processExecutionAdmission = issueTypeScriptCheckerProcessExecutionAdmission({
+    checker,
+    operation,
+    processSession
+  });
   try {
     return await callback(Object.freeze({
       auxiliaryDirectory,
       buildInfoFileName: 'tsconfig.tsbuildinfo',
       dependencyDirectory,
+      processExecutionAdmission,
       workingDirectory
     }));
   } finally {
+    const receipt = processSession.close();
+    assertProcessResourceSessionReceipt(receipt, {
+      operationIdentityDigest: operation.plan.identity.identityDigest,
+      boundAttemptDigest: operation.boundAttemptDigest,
+      requirementId: 'typescript.project-check'
+    });
+    expect(receipt).toMatchObject({
+      failedProcessCount: 0,
+      processCount: expectedProcessCount,
+      settledProcessCount: expectedProcessCount,
+      successfulProcessRecordCount: expectedProcessCount
+    });
     auxiliaryDirectory.dispose();
     await dependencyDirectory.retire();
     await workingDirectory.retire();
@@ -824,6 +876,38 @@ test('native checker capability rejects structural substitutions at the effect b
   }
 });
 
+test.skipIf(process.platform !== 'win32')('native checker admission rejects structural clones and checker transplants before process effects', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-session-origin-'));
+  try {
+    const nodeModulesPath = await copyInstalledNativeCheckerFixture(root);
+    const projectRoot = path.join(root, 'project');
+    await fs.mkdir(projectRoot);
+    await fs.writeFile(path.join(projectRoot, 'tsconfig.json'), JSON.stringify({ files: [] }));
+    const checker = await selectNativeChecker(nodeModulesPath);
+    const reselectedChecker = await selectNativeChecker(nodeModulesPath);
+    await withCheckerExecutionBoundary(
+      projectRoot,
+      nodeModulesPath,
+      checker,
+      0,
+      async (boundary) => {
+        await expect(executeTypeScriptNativeChecker(reselectedChecker, {
+          ...boundary,
+          deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs
+        })).rejects.toThrow('different checker capability');
+        const forged = Object.freeze({ ...boundary.processExecutionAdmission });
+        await expect(executeTypeScriptNativeChecker(checker, {
+          ...boundary,
+          deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs,
+          processExecutionAdmission: forged as never
+        })).rejects.toThrow('owner-issued process admission');
+      }
+    );
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test.skipIf(process.platform !== 'win32')('native checker cannot cross into a different retained dependency generation', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-root-binding-'));
   try {
@@ -833,7 +917,7 @@ test.skipIf(process.platform !== 'win32')('native checker cannot cross into a di
     const otherNodeModules = await writeNativeCheckerFixture(dependencyRoot);
     const projectRoot = path.join(root, 'project');
     await fs.mkdir(projectRoot);
-    await withCheckerExecutionBoundary(projectRoot, otherNodeModules, async (boundary) => {
+    await withCheckerExecutionBoundary(projectRoot, otherNodeModules, checker, 0, async (boundary) => {
       expect(await executeTypeScriptNativeChecker(checker, {
         ...boundary,
         deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs
@@ -856,7 +940,7 @@ test.skipIf(process.platform !== 'win32')('issued checker rejects package or exe
     await fs.appendFile(path.join(packageModules, '@typescript', 'native', 'package.json'), ' ');
     const packageProject = path.join(packageFixture, 'project');
     await fs.mkdir(packageProject);
-    await withCheckerExecutionBoundary(packageProject, packageModules, async (boundary) => {
+    await withCheckerExecutionBoundary(packageProject, packageModules, packageBoundChecker, 0, async (boundary) => {
       expect(await executeTypeScriptNativeChecker(packageBoundChecker, {
         ...boundary,
         deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs
@@ -879,7 +963,7 @@ test.skipIf(process.platform !== 'win32')('issued checker rejects package or exe
     ), 'changed-native-executable');
     const executableProject = path.join(executableFixture, 'project');
     await fs.mkdir(executableProject);
-    await withCheckerExecutionBoundary(executableProject, executableModules, async (boundary) => {
+    await withCheckerExecutionBoundary(executableProject, executableModules, executableBoundChecker, 0, async (boundary) => {
       expect(await executeTypeScriptNativeChecker(executableBoundChecker, {
         ...boundary,
         deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs
@@ -964,6 +1048,8 @@ test.skipIf(process.platform !== 'win32')('provider-issued native checker writes
     const result = await withCheckerExecutionBoundary(
       projectRoot,
       nodeModulesPath,
+      checker,
+      1,
       (boundary) => executeTypeScriptNativeChecker(checker, {
         ...boundary,
         deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs
@@ -991,6 +1077,8 @@ test.skipIf(process.platform !== 'win32')('expired or cancelled native checker o
     await withCheckerExecutionBoundary(
       projectRoot,
       nodeModulesPath,
+      checker,
+      0,
       async (boundary) => {
         expect(await executeTypeScriptNativeChecker(checker, {
           ...boundary,

@@ -10,6 +10,7 @@
         "assertTypeScriptNativeChecker",
         "canonicalTypeScriptDiagnosticArguments",
         "executeTypeScriptNativeChecker",
+        "issueTypeScriptCheckerProcessExecutionAdmission",
         "materializeTypeScriptExecutionGeneration",
         "prepareTypeScriptIncrementalState",
         "requireSelectedTypeScriptNativeChecker",
@@ -20,6 +21,38 @@
     }
   ],
   "operationObligations": [
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "typescript-project-typecheck",
+        "operation": "issueTypeScriptCheckerProcessExecutionAdmission"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "development.runner"
+        ]
+      },
+      "effect": {
+        "kinds": [],
+        "failureKinds": [],
+        "recovery": "not-applicable"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "records",
+            "maximum": 1
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
     {
       "operation": {
         "kind": "capability",

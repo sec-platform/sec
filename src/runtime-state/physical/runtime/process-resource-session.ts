@@ -94,6 +94,22 @@ export interface ProcessResourceSession {
 }
 
 const ISSUED_PROCESS_RESOURCE_SESSIONS = new WeakSet<object>();
+type ProcessResourceSessionBindingState = {
+  semanticOperation: string;
+  operationIdentityDigest: SecOperationDigest;
+  boundAttemptDigest: SecOperationDigest;
+  requirementId: string;
+  providerIdentityDigest: SecOperationDigest;
+  maximumDurationMs: number;
+  maximumInputBytes: number;
+  maximumOutputBytes: number;
+  maximumProcesses: number;
+  deadlineAtUnixMs: number;
+  deadlineAtMonotonicMs: number;
+  signal: AbortSignal;
+  closed: boolean;
+};
+const PROCESS_RESOURCE_SESSION_BINDINGS = new WeakMap<object, ProcessResourceSessionBindingState>();
 const ISSUED_PROCESS_RESOURCE_SESSION_RECEIPTS = new WeakSet<object>();
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 const DEFAULT_TERMINATION_GRACE_MS = 5_000;
@@ -428,12 +444,76 @@ export function openProcessResourceSession(input: Readonly<{
       ISSUED_PROCESS_RESOURCE_SESSION_RECEIPTS.add(receipt);
       clearTimeout(deadlineTimer);
       input.signal?.removeEventListener('abort', abortFromCaller);
+      const bindingState = PROCESS_RESOURCE_SESSION_BINDINGS.get(session);
+      if (bindingState !== undefined) bindingState.closed = true;
       sessionController.abort(new Error('Process resource session is closed.'));
       return receipt;
     }
   };
   ISSUED_PROCESS_RESOURCE_SESSIONS.add(session);
+  PROCESS_RESOURCE_SESSION_BINDINGS.set(session, {
+    semanticOperation: input.operation.plan.identity.operation,
+    operationIdentityDigest: input.operation.plan.identity.identityDigest,
+    boundAttemptDigest: input.operation.boundAttemptDigest,
+    requirementId: requirement.id,
+    providerIdentityDigest: providerBinding.providerIdentityDigest,
+    maximumDurationMs,
+    maximumInputBytes,
+    maximumOutputBytes,
+    maximumProcesses,
+    deadlineAtUnixMs,
+    deadlineAtMonotonicMs,
+    signal: sessionController.signal,
+    closed: false
+  });
   return Object.freeze(session);
+}
+
+/**
+ * Mechanical origin and exact live-binding gate for a physical process
+ * capability. Structural objects, spread clones and sessions issued for a
+ * different semantic operation, provider or resource envelope are rejected
+ * before a consumer performs any provider/filesystem admission.
+ */
+export function assertProcessResourceSession(
+  session: ProcessResourceSession,
+  expected: Readonly<{
+    semanticOperation: string;
+    requirementId: string;
+    operationIdentityDigest?: SecOperationDigest;
+    boundAttemptDigest?: SecOperationDigest;
+    providerIdentityDigest?: SecOperationDigest;
+    maximumDurationMs: number;
+    maximumInputBytes: number;
+    maximumOutputBytes: number;
+    maximumProcesses: number;
+  }>
+): void {
+  const binding = session !== null && typeof session === 'object'
+    ? PROCESS_RESOURCE_SESSION_BINDINGS.get(session)
+    : undefined;
+  if (binding === undefined || !ISSUED_PROCESS_RESOURCE_SESSIONS.has(session)) {
+    throw new Error('Process resource execution requires an owner-issued live session.');
+  }
+  if (binding.closed || binding.signal.aborted
+      || Date.now() >= binding.deadlineAtUnixMs
+      || performance.now() >= binding.deadlineAtMonotonicMs) {
+    throw new Error('Process resource execution requires a current live session.');
+  }
+  if (binding.semanticOperation !== expected.semanticOperation
+      || binding.requirementId !== expected.requirementId
+      || (expected.operationIdentityDigest !== undefined
+        && binding.operationIdentityDigest !== expected.operationIdentityDigest)
+      || (expected.boundAttemptDigest !== undefined
+        && binding.boundAttemptDigest !== expected.boundAttemptDigest)
+      || (expected.providerIdentityDigest !== undefined
+        && binding.providerIdentityDigest !== expected.providerIdentityDigest)
+      || binding.maximumDurationMs !== expected.maximumDurationMs
+      || binding.maximumInputBytes !== expected.maximumInputBytes
+      || binding.maximumOutputBytes !== expected.maximumOutputBytes
+      || binding.maximumProcesses !== expected.maximumProcesses) {
+    throw new Error('Process resource session binding differs from the consumer contract.');
+  }
 }
 
 /**
