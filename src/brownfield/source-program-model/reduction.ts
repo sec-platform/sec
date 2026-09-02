@@ -41,7 +41,12 @@ import {
   type SourceProgramTestSemanticClass,
   type SourceProgramTestValueCompilation
 } from './test-value.ts';
-import { compileSourceProgramTypeScriptDiagnosticSnapshot } from './typescript.ts';
+import {
+  compileSourceProgramTypeScriptDiagnosticSnapshot,
+  observeSourceProgramTypeScriptRename,
+  sourceProgramTypeScriptExactFactGenerationReceipt,
+  sourceProgramTypeScriptSourceFile
+} from './typescript.ts';
 import {
   compileWorkspaceSourceRevision,
   type WorkspaceSourceFile
@@ -136,6 +141,7 @@ export interface SourceProgramGraphCutReductionPlan {
 }
 
 export interface SourceProgramReductionCompilerContext {
+  readonly typeScriptModel: SourceProgramModel;
   readonly moduleMembership: SecRepositoryModuleMembership;
   readonly reviewedProcessDispatchers: readonly string[];
 }
@@ -177,6 +183,27 @@ export class SourceProgramReductionAdmissionError extends Error {
     this.name = 'SourceProgramReductionAdmissionError';
     this.code = code;
   }
+}
+
+function exactReductionTypeScriptModel(
+  repositoryModel: SourceProgramModel,
+  context: SourceProgramReductionCompilerContext
+): SourceProgramModel {
+  const typeScriptModel = context.typeScriptModel;
+  const repositoryFiles = new Map(repositoryModel.files.map(({ path, contentDigest }) => [
+    path,
+    contentDigest
+  ] as const));
+  if (typeScriptModel.sourceRevision !== repositoryModel.sourceRevision
+      || sourceProgramTypeScriptExactFactGenerationReceipt(typeScriptModel) === null
+      || typeScriptModel.files.some(({ path, contentDigest }) =>
+        repositoryFiles.get(path) !== contentDigest)) {
+    throw new SourceProgramReductionAdmissionError(
+      'compiler-issued-plan-required',
+      'Reduction requires the exact TypeScript generation bound to the repository projection'
+    );
+  }
+  return typeScriptModel;
 }
 
 export interface SourceProgramAggregateImportReductionPatch {
@@ -1830,19 +1857,10 @@ function relativeModuleSpecifier(fromPath: string, targetPath: string): string {
   return relative.startsWith('.') ? relative : `./${relative}`;
 }
 
-function pureAggregateModulePaths(files: readonly SourceProgramFileInput[]): ReadonlySet<string> {
-  const aggregatePaths = new Set<string>();
-  for (const file of files) {
-    if (!/\.[cm]?[jt]sx?$/iu.test(file.path)) continue;
-    const sourceFile = ts.createSourceFile(file.path, file.source, ts.ScriptTarget.ESNext, true);
-    if (sourceFile.statements.length > 0 && sourceFile.statements.every((statement) =>
-      ts.isExportDeclaration(statement)
-      && statement.moduleSpecifier !== undefined
-      && ts.isStringLiteralLike(statement.moduleSpecifier))) {
-      aggregatePaths.add(file.path);
-    }
-  }
-  return aggregatePaths;
+function pureAggregateModulePaths(model: SourceProgramModel): ReadonlySet<string> {
+  return new Set(model.files
+    .filter(({ semanticKind }) => semanticKind === 'pure-reexport')
+    .map(({ path }) => path));
 }
 
 function resolveRelativeModulePath(
@@ -1983,7 +2001,8 @@ function assertReductionSourceSnapshot(
 export function compileSourceProgramAggregateImportReductionPlan(
   model: SourceProgramModel,
   files: readonly SourceProgramFileInput[],
-  architectureSnapshot: SourceProgramArchitectureSnapshot
+  architectureSnapshot: SourceProgramArchitectureSnapshot,
+  context: SourceProgramReductionCompilerContext
 ): SourceProgramAggregateImportReductionPlan {
   if (architectureSnapshot.sourceRevision !== model.sourceRevision) {
     throw new SourceProgramReductionAdmissionError(
@@ -1992,6 +2011,7 @@ export function compileSourceProgramAggregateImportReductionPlan(
     );
   }
   const sourceSnapshotDigest = sourceFileSnapshotDigest(files);
+  const typeScriptModel = exactReductionTypeScriptModel(model, context);
   const architectureDigest = sha256(architectureSnapshot.architecture);
   const snapshotReason = model.unknowns.some(({ code }) =>
     code === 'working-tree-changed-during-source-program-census')
@@ -1999,7 +2019,7 @@ export function compileSourceProgramAggregateImportReductionPlan(
     : null;
   const sourceByPath = new Map(files.map(({ path, source }) => [path, source] as const));
   const knownPaths = new Set(sourceByPath.keys());
-  const aggregatePaths = pureAggregateModulePaths(files);
+  const aggregatePaths = pureAggregateModulePaths(model);
   const declarationById = new Map(model.declarations.map((declaration) =>
     [declaration.observationId, declaration] as const));
   const moduleByPath = new Map(model.files.map((file) => [file.path, file.moduleId] as const));
@@ -2010,9 +2030,15 @@ export function compileSourceProgramAggregateImportReductionPlan(
     referencesByPath.set(reference.path, current);
   }
   const reductions: SourceProgramAggregateImportReduction[] = [];
-  for (const [path, source] of sourceByPath) {
+  for (const path of sourceByPath.keys()) {
     if (!/\.[cm]?[jt]sx?$/iu.test(path)) continue;
-    const sourceFile = ts.createSourceFile(path, source, ts.ScriptTarget.ESNext, true);
+    const sourceFile = sourceProgramTypeScriptSourceFile(typeScriptModel, path);
+    if (sourceFile === null) {
+      throw new SourceProgramReductionAdmissionError(
+        'compiler-issued-plan-required',
+        `Aggregate import reduction lacks exact compiler syntax: ${path}`
+      );
+    }
     for (const statement of sourceFile.statements) {
       if ((!ts.isImportDeclaration(statement) && !ts.isExportDeclaration(statement))
           || statement.moduleSpecifier === undefined
@@ -2261,6 +2287,7 @@ export function compileSourceProgramGraphCutReductionPlan(
   context: SourceProgramReductionCompilerContext
 ): SourceProgramGraphCutReductionPlan {
   const sourceSnapshotDigest = sourceFileSnapshotDigest(files);
+  const typeScriptModel = exactReductionTypeScriptModel(model, context);
   if (!compiledUnusedSymbolProviderReceipts.has(unusedSymbols)
       || unusedSymbols.sourceRevision !== model.sourceRevision
       || unusedSymbols.sourceSnapshotDigest !== sourceSnapshotDigest
@@ -2270,12 +2297,18 @@ export function compileSourceProgramGraphCutReductionPlan(
       'Graph-cut reduction requires one compiler-issued exact provider candidate receipt'
     );
   }
-  const sourceFileByPath = new Map(files
-    .filter(({ path }) => /\.[cm]?[jt]sx?$/iu.test(path))
-    .map(({ path, source }) => [
-      path,
-      ts.createSourceFile(path, source, ts.ScriptTarget.ESNext, true)
-    ] as const));
+  const sourceFileByPath = new Map<string, ts.SourceFile>();
+  for (const { path } of files) {
+    if (!/\.[cm]?[jt]sx?$/iu.test(path)) continue;
+    const sourceFile = sourceProgramTypeScriptSourceFile(typeScriptModel, path);
+    if (sourceFile === null) {
+      throw new SourceProgramReductionAdmissionError(
+        'compiler-issued-plan-required',
+        `Graph-cut reduction lacks exact compiler syntax: ${path}`
+      );
+    }
+    sourceFileByPath.set(path, sourceFile);
+  }
   const candidateCodes = new Set([
     'production-declaration-without-consumer',
     'identity-token-without-consumer'
@@ -2459,36 +2492,24 @@ export function compileSourceProgramGraphCutReductionPlan(
 
 export function compileSourceProgramVersionSuffixReductionPlan(
   model: SourceProgramModel,
-  files: readonly SourceProgramFileInput[]
+  files: readonly SourceProgramFileInput[],
+  context: SourceProgramReductionCompilerContext
 ): SourceProgramVersionSuffixReductionPlan {
+  const typeScriptModel = exactReductionTypeScriptModel(model, context);
   const sourceByPath = new Map(files
     .filter(({ path }) => /\.[cm]?[jt]sx?$/iu.test(path))
     .map((file) => [file.path, file.source] as const));
-  const sourceFileByPath = new Map([...sourceByPath].map(([path, source]) => [
-    path,
-    ts.createSourceFile(path, source, ts.ScriptTarget.ESNext, true)
-  ] as const));
-  const service = ts.createLanguageService({
-    getCompilationSettings: () => ({
-      allowJs: true,
-      checkJs: false,
-      jsx: ts.JsxEmit.Preserve,
-      module: ts.ModuleKind.ESNext,
-      moduleResolution: ts.ModuleResolutionKind.Bundler,
-      target: ts.ScriptTarget.ESNext
-    }),
-    getCurrentDirectory: () => '.',
-    getDefaultLibFileName: (options) => ts.getDefaultLibFilePath(options),
-    getScriptFileNames: () => [...sourceByPath.keys()],
-    getScriptSnapshot: (fileName) => {
-      const source = sourceByPath.get(fileName) ?? ts.sys.readFile(fileName);
-      return source === undefined ? undefined : ts.ScriptSnapshot.fromString(source);
-    },
-    getScriptVersion: () => '1',
-    fileExists: (fileName) => sourceByPath.has(fileName) || ts.sys.fileExists(fileName),
-    readFile: (fileName) => sourceByPath.get(fileName) ?? ts.sys.readFile(fileName),
-    readDirectory: ts.sys.readDirectory
-  });
+  const sourceFileByPath = new Map<string, ts.SourceFile>();
+  for (const path of sourceByPath.keys()) {
+    const sourceFile = sourceProgramTypeScriptSourceFile(typeScriptModel, path);
+    if (sourceFile === null) {
+      throw new SourceProgramReductionAdmissionError(
+        'compiler-issued-plan-required',
+        `Version reduction lacks exact compiler syntax: ${path}`
+      );
+    }
+    sourceFileByPath.set(path, sourceFile);
+  }
   const renameCandidates = model.candidates.filter(({ code }) =>
     code === 'versioned-declaration-without-coexisting-version');
   const candidateKeys = new Set(renameCandidates.flatMap((candidate) =>
@@ -2514,29 +2535,16 @@ export function compileSourceProgramVersionSuffixReductionPlan(
           if (!processedSymbols.has(candidateKey)) {
             const conflict = sourceFileHasTopLevelBinding(sourceFile, proposedName, node);
             const position = node.name.getStart(sourceFile, false);
-            const renameInfo = conflict
+            const renameObservation = conflict
               ? null
-              : service.getRenameInfo(filePath, position, { allowRenameOfImportPath: false });
-            const rawLocations = renameInfo?.canRename
-              ? service.findRenameLocations(filePath, position, false, false, true) ?? []
-              : [];
-            const locations = rawLocations.map((location) => {
-              const locationSource = sourceFileByPath.get(location.fileName);
-              if (locationSource === undefined) return null;
-              return Object.freeze({
-                path: location.fileName,
-                span: spanFor(
-                  locationSource,
-                  location.textSpan.start,
-                  location.textSpan.start + location.textSpan.length
-                ),
-                prefixText: location.prefixText ?? '',
-                suffixText: location.suffixText ?? ''
-              });
-            }).filter((location): location is SourceProgramRenameLocation => location !== null)
-              .sort((left, right) => compareCodeUnits(left.path, right.path)
-                || left.span.start - right.span.start);
-            const ready = !conflict && renameInfo?.canRename === true && locations.length > 0;
+              : observeSourceProgramTypeScriptRename(typeScriptModel, filePath, position);
+            const locations = Object.freeze(renameObservation?.status === 'resolved'
+              ? [...renameObservation.locations]
+              : []);
+            const ready = !conflict
+              && renameObservation?.status === 'resolved'
+              && renameObservation.canRename
+              && locations.length > 0;
             reductions.push(Object.freeze({
               status: ready ? 'ready' : 'blocked',
               currentName: node.name.text,
@@ -2547,9 +2555,11 @@ export function compileSourceProgramVersionSuffixReductionPlan(
                 ? null
                 : conflict
                   ? 'canonical import binding already exists in the same module'
-                  : renameInfo !== null && !renameInfo.canRename
-                    ? renameInfo.localizedErrorMessage
-                    : 'import alias rename locations are unresolved'
+                  : renameObservation?.status === 'unresolved'
+                    ? `import alias rename generation is unresolved: ${renameObservation.reason}`
+                    : renameObservation !== null && !renameObservation.canRename
+                      ? renameObservation.rejectionReason
+                      : 'import alias rename locations are unresolved'
             }));
             processedSymbols.add(candidateKey);
           }
@@ -2580,28 +2590,14 @@ export function compileSourceProgramVersionSuffixReductionPlan(
       processedSymbols.add(candidateKey);
       continue;
     }
-    const renameInfo = service.getRenameInfo(declaration.path, position, {
-      allowRenameOfImportPath: false
-    });
-    const rawLocations = renameInfo.canRename
-      ? service.findRenameLocations(declaration.path, position, false, false, true) ?? []
-      : [];
-    const locations = rawLocations.map((location) => {
-      const locationSource = sourceFileByPath.get(location.fileName);
-      if (locationSource === undefined) return null;
-      return Object.freeze({
-        path: location.fileName,
-        span: spanFor(
-          locationSource,
-          location.textSpan.start,
-          location.textSpan.start + location.textSpan.length
-        ),
-        prefixText: location.prefixText ?? '',
-        suffixText: location.suffixText ?? ''
-      });
-    }).filter((location): location is SourceProgramRenameLocation => location !== null)
-      .sort((left, right) => compareCodeUnits(left.path, right.path)
-        || left.span.start - right.span.start);
+    const renameObservation = observeSourceProgramTypeScriptRename(
+      typeScriptModel,
+      declaration.path,
+      position
+    );
+    const locations = Object.freeze(renameObservation.status === 'resolved'
+      ? [...renameObservation.locations]
+      : []);
     const declarationPaths = [...new Set(locations
       .filter(({ path, span }) => model.declarations.some((candidate) =>
         candidate.path === path
@@ -2609,7 +2605,10 @@ export function compileSourceProgramVersionSuffixReductionPlan(
         && span.start >= candidate.span.start
         && span.end <= candidate.span.end))
       .map(({ path }) => path))].sort(compareCodeUnits);
-    const ready = renameInfo.canRename && locations.length > 0 && declarationPaths.length > 0;
+    const ready = renameObservation.status === 'resolved'
+      && renameObservation.canRename
+      && locations.length > 0
+      && declarationPaths.length > 0;
     reductions.push(Object.freeze({
       status: ready ? 'ready' : 'blocked',
       currentName: declaration.name,
@@ -2618,7 +2617,13 @@ export function compileSourceProgramVersionSuffixReductionPlan(
         ? declarationPaths
         : [declaration.path]),
       locations: Object.freeze(locations),
-      reason: ready ? null : renameInfo.canRename ? 'rename locations are incomplete' : renameInfo.localizedErrorMessage
+      reason: ready
+        ? null
+        : renameObservation.status === 'unresolved'
+          ? `rename generation is unresolved: ${renameObservation.reason}`
+          : renameObservation.canRename
+            ? 'rename locations are incomplete'
+            : renameObservation.rejectionReason
     }));
     for (const declarationPath of declarationPaths.length > 0 ? declarationPaths : [declaration.path]) {
       processedSymbols.add(`${declarationPath}\u0000${declaration.name}`);
