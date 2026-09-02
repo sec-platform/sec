@@ -103,6 +103,8 @@ Host / Toolchain / Provider / Adapter / Distribution
 - Target/Host、transaction rollback/migration recovery、Responsibility、Implementation Resolution/Block Resolution、Binding Delta/Compatibility、Verification/Support、Role/Operation/Skill 边界唯一；
 - Proposal、Evidence、archive、rolling plan 和 Work Package 不竞争长期 authority；
 - 当前能力与目标设计显式区分。
+- Engineering Principle与Agent Constitution分属System/Domain和Development Governance owner；Principle/Behavior views由同一canonical facts编译，root `AGENTS.md`只作`owns: []` bootstrap projection；
+- L1 relation、L2 constraint、L3 execution/proof与L4 materialization meta-model可在单一active compiler下演进，并有旧/新模型等价、cutover与retirement。
 
 ### 退出 Evidence
 
@@ -111,6 +113,8 @@ Host / Toolchain / Provider / Adapter / Distribution
 - current-control 不定义长期架构；
 - 旧 proposal、阶段计划和 Draft PR 有明确 adopt/adapt/reject/defer/retire disposition；
 - docs doctor、repository audit 和独立 Review闭合。
+- human/formal/role/boundary/enforcement/AI views语义等价；任一view不能改变owner、unknown或拒绝结论；
+- Agent在goal、write、Effect、terminal与counterexample边界消费BehaviorAdmission，candidate instruction不能给自身扩权。
 
 ### 反转条件
 
@@ -206,6 +210,9 @@ Execution Ledger、Evidence DAG、Run Journal、CI Evidence 新版本、flake平
 - source、control、cache、runtime materialization 和 recovery state 生命周期可机器分类；
 - package/source bytes可作为R4与Provider onboarding的唯一读取输入；
 - 至少三个无关 TypeScript fixture 和 SEC 自身通过。
+- transport-neutral Merkle Content Manifest复用Git/object或retained filesystem observation，只读取dirty frontier且不为预算额外预扫全部bytes；
+- typecheck、Source Program、test-impact、repository audit、unused/duplicate/hardcode与AI Read Plan不再各自发现同一content universe。
+- SEC手写production executable source只在`src/**`；owner-local proof共置、跨owner proof进入`tests/**`，历史`platform/tooling`与业务型`scripts`达到consumer-zero。
 
 ### 禁止提前建设
 
@@ -237,6 +244,8 @@ Execution Ledger、Evidence DAG、Run Journal、CI Evidence 新版本、flake平
 - package/source/version/integrity与export/type identity；
 - Provider identity、scope、coverage、freshness、diagnostic、resource/network boundary；
 - L1 TypedInvocation明确标记Effect、idempotency、retry、timeout、cancellation、安全和runtime behavior为unknown，除非有独立声明/证据。
+- facts按`content digest + interpreter contract + resolution/config closure`分片；Language Service/worker/watch只提供等价增量性能，不成为第二source truth或fallback；
+- cold、warm、delta与cache-disabled clean compile bytes/diagnostics等价，provider unavailable只改变成本或typed availability。
 
 ### 退出 Evidence
 
@@ -263,10 +272,12 @@ Execution Ledger、Evidence DAG、Run Journal、CI Evidence 新版本、flake平
 - candidate、accepted、rejected、ambiguous、opaque 的明确状态；
 - explicit Adopt policy；
 - Responsibility identity continuity / split / merge / replace / unknown。
+- Responsibility Partition从declaration SCC、single writer/issuer/parser与Effect-settlement-readback-recovery闭包生成minimal Cells；
+- Owner DAG、public surface、Placement/Materialization certificate与Reduction disposition由同一Source Program编译，path/descriptor/facade不能自报owner。
 
 ### 退出 Evidence
 
-- 对 SEC 自身至少三个不相关子系统输出候选并与人工基准比较；
+- 对 SEC 自身至少三个不相关子系统输出候选，并与domain owner签发的accepted Responsibility decisions及独立Effect/readback事实比较；
 - inferred/observed candidate保持 non-authoritative；
 - 同名/邻近路径/高confidence不能自动Adopt；
 - 至少一个真实 source region完成Reconcile→Adopt并建立owner、Contract、Acceptance和writable boundary。
@@ -329,6 +340,8 @@ Execution Ledger、Evidence DAG、Run Journal、CI Evidence 新版本、flake平
 - preview canonical rebuild、Implementation re-resolution、Fact/Binding Delta、Impact、Compatibility requirements和Verification union；
 - immutable plan identity、expiry 和 equivalence；
 - unknown/ambiguous/stale/conflicted时拒绝或blocked。
+- provider-neutral Requirement DAG、Claim obligations与OperationKey由domain owner签发；AuthorityGrant、Provision/Binding和Allocation分别由独立owner收窄；
+- 一个absolute deadline与不可逆aggregate ledger覆盖child、retry、readback、cleanup和recovery；physical process/container/git/compiler session只签发transport Settlement，domain terminal必须独立readback。
 
 ### 退出 Evidence
 
@@ -600,6 +613,8 @@ typed refs。Evidence、freshness、health、maturity与next-transition projecti
 - Context compression/restart从authority重算同一next transition；
 - candidate Agent/Skill不能自证trust migration；
 - deterministic behavior 显式路由到 machine owner，Skill corpus 只保留 bounded judgement；替代owner canary后立即 consumer-zero retirement，不留 alias。
+- canonical Agent Constitution由Development Governance拥有，Documentation compiler生成root `AGENTS.md` projection；BehaviorAdmission在task/resume/compaction/delegation/Effect边界重编译且不依赖AI memory；
+- Architecture/Agent Attack Closure从changed subjects、proposed claims与constraint/failure/resource/evolution edges增量生成，未反驳更优方案或high-priority unknown阻止相应Effect/complete claim而不无限阻塞无关工作。
 
 ### 收敛切片与顺序
 
