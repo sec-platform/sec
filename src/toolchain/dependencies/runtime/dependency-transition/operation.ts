@@ -71,6 +71,33 @@ import {
   writeDurableTransitionFile
 } from './store.ts';
 
+/**
+ * Process-local admission for records that may drive a journal write.
+ *
+ * A valid digest and operation key prove only that bytes are internally
+ * consistent; they do not prove that the dependency owner observed those
+ * bytes in its immutable ledger or created them itself.  Effectful successors
+ * therefore consume the exact object issued by this module after either a
+ * complete retained ledger census or an exclusive publication.  Recovery
+ * re-acquires that admission from the durable ledger after every process
+ * restart instead of accepting a caller-constructed structural clone.
+ */
+const admittedDependencyTransitionRecords = new WeakSet<object>();
+
+function admitDependencyTransitionRecord<T extends DependencyTransitionJournal>(record: T): T {
+  admittedDependencyTransitionRecords.add(record);
+  return record;
+}
+
+function assertDependencyTransitionRecordAdmitted(record: DependencyTransitionJournal): void {
+  if (!admittedDependencyTransitionRecords.has(record)) {
+    throw new SecError(
+      'RUNTIME-DEPS-004',
+      'Dependency transition write requires an owner-admitted immutable record'
+    );
+  }
+}
+
 export async function readDependencyTransitionLedger(
   ownerRoot: string,
   options: RuntimeDependencyOperationOptions
@@ -149,6 +176,7 @@ export async function readDependencyTransitionLedger(
       throw new SecError('RUNTIME-DEPS-004', 'Published dependency transition records root does not contain the latest complete rollover checkpoint');
     }
   }
+  for (const record of records.values()) admitDependencyTransitionRecord(record);
   runtimeDependencyOperationRemainingMs(options, 'Dependency transition ledger readback');
   return Object.freeze({ namespace, records, ledgerDigest: observed.ledgerDigest, tip });
 }
@@ -238,7 +266,9 @@ async function writeDependencyTransition(
     }
   }
   const recordDigest = dependencyTransitionDigestWithoutRecord(unsigned);
-  const record = Object.freeze({ ...unsigned, recordDigest }) as DependencyTransitionJournal;
+  const record = admitDependencyTransitionRecord(
+    Object.freeze({ ...unsigned, recordDigest }) as DependencyTransitionJournal
+  );
   const recordBytes = dependencyTransitionRecordBytes(record);
   await runtimeDependencyOperationEffectFence(options, 'Dependency transition immutable record publication');
   writeDurableTransitionFile(
@@ -473,6 +503,7 @@ export async function advanceDependencyTransition(
   patch: Readonly<Partial<Pick<DependencyTransitionJournal, 'destination' | 'stage' | 'stageRoot' | 'backup' | 'sourceGeneration' | 'phase' | 'durability' | 'failure'>>>,
   options: RuntimeDependencyOperationOptions
 ): Promise<DependencyTransitionJournal> {
+  assertDependencyTransitionRecordAdmitted(previous);
   // A malformed or foreign predecessor must never be allowed to publish a
   // successor and thereby postpone the topology failure until recovery.
   assertTransitionOperationKey(previous);
