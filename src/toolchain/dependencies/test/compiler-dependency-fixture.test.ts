@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
+import { settlePhysicalResourcesAsync } from '../../../runtime-state/physical/runtime/resource-settlement.ts';
 import { digest } from '../../../system-architecture/foundation/runtime/canonical.ts';
 
 import {
@@ -18,7 +19,8 @@ import {
   issueCompilerDependencyFixtureOperation,
   rematerializeCompilerDependencyFixtureOperation,
   retireCompilerDependencyFixtureOperation,
-  settleCompilerDependencyFixtureOperation
+  settleCompilerDependencyFixtureOperation,
+  withCompilerDependencyFixtureOperation
 } from './compiler-dependency-fixture.ts';
 
 function fixtureDescriptor(dependencyRootPath: string) {
@@ -60,8 +62,12 @@ function fixtureDescriptor(dependencyRootPath: string) {
 test('dependency fixture operation owns lifecycle-backed publication and retirement', async () => {
   const ownerRoot = await mkdtemp(path.join(tmpdir(), 'sec-dependency-fixture-owner-'));
   let retainedGeneration: RetainedCompilerDependencyExecutionGeneration | null = null;
+  let operation: Awaited<ReturnType<typeof issueCompilerDependencyFixtureOperation>> | null = null;
+  let operationRetirementAttempted = false;
+  let operationRetired = false;
+  let primary: Readonly<{ label: string; error: unknown }> | undefined;
   try {
-    const operation = await issueCompilerDependencyFixtureOperation(
+    operation = await issueCompilerDependencyFixtureOperation(
       fixtureDescriptor(path.join(ownerRoot, 'dependencies'))
     );
     await expect(settleCompilerDependencyFixtureOperation({ ...operation }))
@@ -151,13 +157,63 @@ test('dependency fixture operation owns lifecycle-backed publication and retirem
     expect(repeated.nodeModulesPath).toBe(second.nodeModulesPath);
     await expect(lstat(firstGenerationPath)).rejects.toMatchObject({ code: 'ENOENT' });
 
+    operationRetirementAttempted = true;
     await retireCompilerDependencyFixtureOperation(operation);
+    operationRetired = true;
     await expect(settleCompilerDependencyFixtureOperation(operation))
       .rejects.toThrow('operation is retired');
+  } catch (error) {
+    primary = Object.freeze({
+      label: 'compiler-dependency-fixture-test',
+      error
+    });
   } finally {
-    if (retainedGeneration !== null) await retainedGeneration.retire();
-    await rm(ownerRoot, { recursive: true, force: true });
+    await settlePhysicalResourcesAsync({
+      ...(primary === undefined ? {} : { primary }),
+      cleanup: [{
+        label: 'compiler-dependency-fixture-retained-generation',
+        settle: async () => {
+          if (retainedGeneration !== null) await retainedGeneration.retire();
+        }
+      }, {
+        label: 'compiler-dependency-fixture-operation',
+        settle: async () => {
+          if (operation === null || operationRetirementAttempted) return;
+          operationRetirementAttempted = true;
+          await retireCompilerDependencyFixtureOperation(operation);
+          operationRetired = true;
+        }
+      }, {
+        label: 'compiler-dependency-fixture-owner-root',
+        settle: async () => {
+          if (operation !== null && !operationRetired) return;
+          await rm(ownerRoot, { recursive: true, force: true });
+        }
+      }]
+    });
   }
+}, 90_000);
+
+test('dependency fixture finally retires generated state without replacing its primary failure', async () => {
+  const ownerRoot = await mkdtemp(path.join(tmpdir(), 'sec-dependency-fixture-primary-'));
+  const dependencyRoot = path.join(ownerRoot, 'dependencies');
+  const primary = new Error('fixture primary failure');
+  let observed: unknown;
+  try {
+    await withCompilerDependencyFixtureOperation(
+      fixtureDescriptor(dependencyRoot),
+      async (operation) => {
+        await settleCompilerDependencyFixtureOperation(operation);
+        throw primary;
+      }
+    );
+  } catch (error) {
+    observed = error;
+  }
+  expect(observed).toBe(primary);
+  await expect(lstat(path.join(dependencyRoot, 'node_modules')))
+    .rejects.toMatchObject({ code: 'ENOENT' });
+  await rm(ownerRoot, { recursive: true, force: true });
 }, 90_000);
 
 test('dependency fixture rejects noncanonical package materialization before publication', async () => {
