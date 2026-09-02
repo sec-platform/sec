@@ -2,13 +2,23 @@ import { lstat, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { generatedStateProducerHooks } from '../../../runtime-state/generated-state/lifecycle.ts';
+import {
+  createGeneratedStateCleanupOperationSession,
+  generatedStateProducerHooks
+} from '../../../runtime-state/generated-state/lifecycle.ts';
+import { settlePhysicalResourcesAsync } from '../../../runtime-state/physical/runtime/resource-settlement.ts';
 import { issueRuntimeDependencyTestMaterialization } from '../runtime/materialization-fixture-capability.ts';
+import {
+  runtimeDependencyOperationContext,
+  runtimeDependencyOperationOptions,
+  type RuntimeDependencyOperationOptions
+} from '../runtime/operation-context.ts';
 import type {
   CompilerDependencyExecutionGenerationAuthority,
   CompilerDepsReadyState
 } from '../runtime/project-runtime.ts';
 import {
+  assertCompilerDependencyEnvironmentRetirementReceipt,
   compilerDependencyLocatorWorktreeRetirementProvider,
   disposeCompilerDependencyEnvironment,
   ensureCompilerDepsReady
@@ -41,12 +51,11 @@ export interface CompilerDependencyFixtureReadyState {
 
 interface IssuedCompilerDependencyFixtureOperation {
   readonly descriptor: CompilerDependencyFixtureDescriptor;
-  readonly lifecycle: NonNullable<
-    NonNullable<Parameters<typeof ensureCompilerDepsReady>[0]>['generatedStateLifecycle']
-  >;
+  readonly lifecycleEnvironment: NodeJS.ProcessEnv;
   readonly runtimeRoot: Readonly<{ dev: bigint; ino: bigint; path: string }>;
   lockRevision: number;
   ready: CompilerDepsReadyState | null;
+  retirement: Promise<void> | null;
   retired: boolean;
 }
 
@@ -185,18 +194,107 @@ function readyProjection(ready: CompilerDepsReadyState): CompilerDependencyFixtu
 
 async function ensureFixture(
   state: IssuedCompilerDependencyFixtureOperation,
-  rematerialize: boolean
+  rematerialize: boolean,
+  options: RuntimeDependencyOperationOptions
 ): Promise<CompilerDependencyFixtureReadyState> {
   const ready = await ensureCompilerDepsReady({
+    ...options,
     testMaterialization: issueRuntimeDependencyTestMaterialization(async (request) => {
       await materializePackages(request.cwd, state.descriptor.packages);
       return { code: 0, stdout: 'ok', stderr: '' };
     }),
-    generatedStateLifecycle: state.lifecycle,
     rematerialize
   }, state.descriptor.dependencyRootPath);
   state.ready = ready;
   return readyProjection(ready);
+}
+
+function fixtureOperationOptions(
+  state: IssuedCompilerDependencyFixtureOperation
+): RuntimeDependencyOperationOptions {
+  const options = runtimeDependencyOperationOptions({});
+  const context = runtimeDependencyOperationContext(options);
+  const generatedStateLifecycle = generatedStateProducerHooks(
+    { repositoryRoot: state.descriptor.dependencyRootPath },
+    {
+      cleanupOperation: createGeneratedStateCleanupOperationSession({
+        deadlineAtMonotonicMs: context.deadlineAtMonotonicMs,
+        monotonicNowMs: context.monotonicNowMs,
+        signal: context.signal
+      }),
+      environment: state.lifecycleEnvironment,
+      worktreeRetirementProviders: [compilerDependencyLocatorWorktreeRetirementProvider]
+    }
+  );
+  return Object.freeze({
+    ...options,
+    generatedStateLifecycle
+  }) as RuntimeDependencyOperationOptions;
+}
+
+async function rematerializeFixture(
+  state: IssuedCompilerDependencyFixtureOperation,
+  lockfileBytes: string,
+  options: RuntimeDependencyOperationOptions
+): Promise<CompilerDependencyFixtureReadyState> {
+  if (lockfileBytes.length === 0) {
+    throw new Error('Compiler dependency fixture replacement lockfile must not be empty.');
+  }
+  await writeFixtureInputs(state.descriptor, lockfileBytes);
+  state.lockRevision += 1;
+  return ensureFixture(state, true, options);
+}
+
+async function removeFixtureRuntimeRoot(
+  state: IssuedCompilerDependencyFixtureOperation
+): Promise<void> {
+  const runtimeRootNow = await lstat(state.runtimeRoot.path, { bigint: true });
+  if (!runtimeRootNow.isDirectory() || runtimeRootNow.isSymbolicLink() ||
+      runtimeRootNow.dev !== state.runtimeRoot.dev || runtimeRootNow.ino !== state.runtimeRoot.ino) {
+    throw new Error('Compiler dependency fixture runtime root physical identity changed; residue is preserved.');
+  }
+  await rm(state.runtimeRoot.path, { recursive: true });
+}
+
+async function retireFixtureState(
+  state: IssuedCompilerDependencyFixtureOperation
+): Promise<void> {
+  const options = fixtureOperationOptions(state);
+  const retiredLockfile = `${state.descriptor.lockfileBytes.trimEnd()}\nfixture-retirement:${state.lockRevision + 1}\n`;
+  let primary: Readonly<{ label: string; error: unknown }> | undefined;
+  try {
+    await rematerializeFixture(state, retiredLockfile, options);
+  } catch (error) {
+    primary = Object.freeze({
+      label: 'compiler-dependency-fixture-rematerialization',
+      error
+    });
+  }
+  let environmentRetired = false;
+  await settlePhysicalResourcesAsync({
+    ...(primary === undefined ? {} : { primary }),
+    cleanup: [{
+      label: 'compiler-dependency-fixture-environment-retirement',
+      settle: async () => {
+        const receipt = await disposeCompilerDependencyEnvironment(
+          state.descriptor.dependencyRootPath,
+          options,
+          'compiler-dependency-fixture-retired'
+        );
+        assertCompilerDependencyEnvironmentRetirementReceipt(
+          receipt,
+          state.descriptor.dependencyRootPath
+        );
+        environmentRetired = true;
+      }
+    }, {
+      label: 'compiler-dependency-fixture-runtime-root-retirement',
+      settle: async () => {
+        if (!environmentRetired) return;
+        await removeFixtureRuntimeRoot(state);
+      }
+    }]
+  });
 }
 
 export async function issueCompilerDependencyFixtureOperation(
@@ -214,19 +312,14 @@ export async function issueCompilerDependencyFixtureOperation(
   });
   issuedCompilerDependencyFixtureOperations.set(operation, {
     descriptor,
-    lifecycle: generatedStateProducerHooks(
-      { repositoryRoot: descriptor.dependencyRootPath },
-      {
-        environment: {
-          ...process.env,
-          SEC_CACHE_HOME: path.join(runtimeRootPath, 'cache'),
-          SEC_STATE_HOME: path.join(runtimeRootPath, 'state')
-        },
-        worktreeRetirementProviders: [compilerDependencyLocatorWorktreeRetirementProvider]
-      }
-    ),
+    lifecycleEnvironment: Object.freeze({
+      ...process.env,
+      SEC_CACHE_HOME: path.join(runtimeRootPath, 'cache'),
+      SEC_STATE_HOME: path.join(runtimeRootPath, 'state')
+    }),
     lockRevision: 0,
     ready: null,
+    retirement: null,
     runtimeRoot: Object.freeze({
       dev: runtimeRootStat.dev,
       ino: runtimeRootStat.ino,
@@ -241,7 +334,7 @@ export async function settleCompilerDependencyFixtureOperation(
   operation: CompilerDependencyFixtureOperation
 ): Promise<CompilerDependencyFixtureReadyState> {
   const state = operationState(operation);
-  return state.ready === null ? ensureFixture(state, false) : readyProjection(state.ready);
+  return ensureFixture(state, false, fixtureOperationOptions(state));
 }
 
 export async function rematerializeCompilerDependencyFixtureOperation(
@@ -249,30 +342,53 @@ export async function rematerializeCompilerDependencyFixtureOperation(
   lockfileBytes: string
 ): Promise<CompilerDependencyFixtureReadyState> {
   const state = operationState(operation);
-  if (lockfileBytes.length === 0) {
-    throw new Error('Compiler dependency fixture replacement lockfile must not be empty.');
-  }
-  await writeFixtureInputs(state.descriptor, lockfileBytes);
-  state.lockRevision += 1;
-  return ensureFixture(state, true);
+  return rematerializeFixture(state, lockfileBytes, fixtureOperationOptions(state));
 }
 
 export async function retireCompilerDependencyFixtureOperation(
   operation: CompilerDependencyFixtureOperation
 ): Promise<void> {
-  const state = operationState(operation);
-  const retiredLockfile = `${state.descriptor.lockfileBytes.trimEnd()}\nfixture-retirement:${state.lockRevision + 1}\n`;
-  await rematerializeCompilerDependencyFixtureOperation(operation, retiredLockfile);
-  const runtimeRootNow = await lstat(state.runtimeRoot.path, { bigint: true });
-  if (!runtimeRootNow.isDirectory() || runtimeRootNow.isSymbolicLink() ||
-      runtimeRootNow.dev !== state.runtimeRoot.dev || runtimeRootNow.ino !== state.runtimeRoot.ino) {
-    throw new Error('Compiler dependency fixture runtime root physical identity changed; residue is preserved.');
+  const state = issuedCompilerDependencyFixtureOperations.get(operation);
+  if (state === undefined) {
+    throw new Error('Compiler dependency fixture operation was not issued by the dependency test owner.');
   }
-  await disposeCompilerDependencyEnvironment(
-    state.descriptor.dependencyRootPath,
-    { generatedStateLifecycle: state.lifecycle },
-    'compiler-dependency-fixture-retired'
-  );
-  await rm(state.runtimeRoot.path, { recursive: true });
+  if (state.retirement !== null) return state.retirement;
   state.retired = true;
+  state.retirement = retireFixtureState(state);
+  return state.retirement;
+}
+
+export async function withCompilerDependencyFixtureOperation<TResult>(
+  input: CompilerDependencyFixtureDescriptor,
+  run: (operation: CompilerDependencyFixtureOperation) => Promise<TResult>
+): Promise<TResult> {
+  let operation: CompilerDependencyFixtureOperation | undefined;
+  let outcome: Readonly<{ value: TResult }> | undefined;
+  let primary: Readonly<{ label: string; error: unknown }> | undefined;
+  try {
+    operation = await issueCompilerDependencyFixtureOperation(input);
+    outcome = Object.freeze({ value: await run(operation) });
+  } catch (error) {
+    primary = Object.freeze({
+      label: 'compiler-dependency-fixture-operation',
+      error
+    });
+  }
+  if (operation === undefined) {
+    if (primary === undefined) {
+      throw new Error('Compiler dependency fixture issue lost both its outcome and failure.');
+    }
+    throw primary.error;
+  }
+  await settlePhysicalResourcesAsync({
+    ...(primary === undefined ? {} : { primary }),
+    cleanup: [{
+      label: 'compiler-dependency-fixture-operation-retirement',
+      settle: () => retireCompilerDependencyFixtureOperation(operation!)
+    }]
+  });
+  if (outcome === undefined) {
+    throw new Error('Compiler dependency fixture operation lost its primary outcome.');
+  }
+  return outcome.value;
 }
