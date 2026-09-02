@@ -77,7 +77,7 @@ test('strict projection codec rejects ambiguity and parsed data cannot acquire p
   expect(parsed).toEqual(projection);
   expect(() => assertIssuedTestImpactProjection(parsed)).toThrow('owner-issued');
   expect(() => parseTestImpactProjectionReceipt(
-    encoded.replace('{', '{"schema":"sec-source-program-test-impact-projection-v1",')
+    encoded.replace('"schema":', '"schema":"duplicate","schema":')
   )).toThrow('duplicate key');
 
   const forged = JSON.parse(encoded) as Record<string, unknown>;

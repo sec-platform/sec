@@ -31,7 +31,7 @@ import {
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 const COMMIT_SHA = /^[0-9a-f]{40,64}$/u;
 const PURPOSE = 'test-impact-selection' as const;
-const SCHEMA = 'sec-source-program-test-impact-projection-v1' as const;
+const SCHEMA = 'sec-source-program-test-impact-projection-v2' as const;
 
 const digestSchema = z.string().regex(DIGEST);
 const repositoryPathSchema = z.string().min(1).refine(
@@ -71,6 +71,7 @@ const fileSchema = z.object({
 const moduleReferenceSchema = z.object({
   from: repositoryPathSchema,
   kind: z.enum(['static', 'dynamic', 'require']),
+  typeOnly: z.boolean(),
   specifier: z.string(),
   candidateTargets: z.array(repositoryPathSchema),
   resolvedTarget: repositoryPathSchema.nullable()
@@ -139,7 +140,7 @@ function compactReference(reference: SourceProgramReference): z.infer<typeof sem
 }
 
 function moduleReferenceKey(reference: z.infer<typeof moduleReferenceSchema>): string {
-  return `${reference.from}\0${reference.kind}\0${reference.specifier}\0${reference.resolvedTarget ?? ''}`;
+  return `${reference.from}\0${reference.kind}\0${reference.typeOnly}\0${reference.specifier}\0${reference.resolvedTarget ?? ''}`;
 }
 
 function semanticReferenceKey(reference: z.infer<typeof semanticReferenceSchema>): string {
@@ -239,6 +240,7 @@ function compileTestImpactProjection(input: Readonly<{
       references: moduleGraph.references.map((reference) => ({
         from: normalizeSecRepositoryPath(reference.from),
         kind: reference.kind,
+        typeOnly: reference.typeOnly,
         specifier: reference.specifier,
         candidateTargets: uniqueSorted(reference.candidateTargets.map(normalizeSecRepositoryPath)),
         resolvedTarget: reference.resolvedTarget === null
