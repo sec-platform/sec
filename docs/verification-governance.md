@@ -161,6 +161,9 @@ Claim：
 ```text
 claim identity/revision + owner
 + subject/requirement/input digest
++ claimSemanticsRef
++ for relational claims: trace arity + admitted input differences
+  + principal observation partition + declassification relation
 + required/optional Gates
 + owning environments
 + applicability proof
@@ -181,6 +184,8 @@ Claim/Requirement refs
 ```
 
 Gate 不以 command/runId/journal path 作为 identity。
+
+单轨迹Gate只能贡献单轨迹Claim。noninterference、observational equivalence、cross-tenant isolation或declassification等relational Claim必须由同一Claim contract生成关联trace tuple与独立relational oracle；分别运行两次再比较presentation output、或把两个PASS聚合，不能提升为relational Evidence。未覆盖的输入对、scheduler、fault或principal view进入exact frontier。
 
 
 ## 规范片段

@@ -161,6 +161,7 @@ ConformanceModel {
   targetImplementationDesignPackageRef
   structuralProperties
   semanticRefinementProperties
+  relationalRefinementProperties
   authorityEffectResourceProperties
   stateFailureRecoveryProperties
   evolutionAndExtensionProperties
@@ -174,7 +175,7 @@ ConformanceModel {
 }
 ```
 
-property和oracle先于代码与测试存在；model checker、type/schema checker、property runner、scenario executor、benchmark和independent verifier只是它们的可替换realization。一个实现可以没有某种测试框架，但不能没有对应的observable与oracle；一个测试即使绿色，也不能扩充`ConformanceModel`中的Claim。
+property和oracle先于代码与测试存在；model checker、type/schema checker、property runner、scenario executor、benchmark和independent verifier只是它们的可替换realization。一个实现可以没有某种测试框架，但不能没有对应的observable与oracle；一个测试即使绿色，也不能扩充`ConformanceModel`中的Claim。relational property必须显式lower为self-composition、product program或等价的trace-tuple oracle，并绑定principal observation partition；若实现只暴露单轨迹observable，相关noninterference/observational-equivalence Claim为`unverifiable-claim`而不是默认满足。
 
 Target Implementation Freeze 前必须成立：
 
@@ -182,6 +183,7 @@ Target Implementation Freeze 前必须成立：
 | --- | --- |
 | Unity | 每个 semantic fact/identity/writer/parser/resolver/terminal owner 唯一 |
 | Orthogonality | Definition/Authority/Capability/Resource/Execution/Proof 不互相冒充 |
+| Constraint confluence | constraint composition满足交换、结合、幂等；constraint conflict与candidate violation分型并返回最小冲突核 |
 | View structure fidelity | renderer使用containment时parent唯一；跨boundary只走public ports；collapse/expand不改变meaning |
 | Context completeness | 最小view闭合适用义务与boundary/unknown；最大coverage可从同一typed refs求传递闭包恢复 |
 | Locality | 每个 authored change point有 owner；derived fanout不需手写 |
@@ -190,6 +192,7 @@ Target Implementation Freeze 前必须成立：
 | No authority amplification | AI/tool/provider/test/projection不能扩大 Grant/Effect |
 | Round-trip | brownfield→IR→implementation 保持声明的 behavior/effect/failure/state |
 | Incremental equivalence | clean、warm、delta、cache-disabled结果等价 |
+| Relational refinement | logical relational Claim在目标实现的trace tuple、可见Observation与declassification边界上被保留 |
 | Recovery | 每个 Effect crash/lost-handle/timeout有 terminal或typed residue |
 | Evolution | normal path 单 generation；migration bounded 且可退休 |
 | Economy | 无 orphan、mirror、dominated facade、second graph/cache/session |
@@ -217,35 +220,36 @@ Target Implementation Freeze 前必须成立：
 
 ### 17.1 通用故障族的实现投影
 
-下表只引用 `docs/design-calculus.md` 的 F01–F25，不重新定义故障；它确保每个通用攻击在实现层都有确定拒绝点。
+下表只引用 `docs/design-calculus/compilation.md` 的semantic fault identities，不重新定义故障；它确保每个通用攻击在实现层都有确定拒绝点。fault identity是稳定语义名称，不使用会因插入、重排或扩展而漂移的数字ordinal。
 
 | Fault | 实现层拒绝点 |
 | --- | --- |
-| F01 identity spoof | semantic identity/Address 分型 + retained physical Binding + same-path ABA check |
-| F02 stale snapshot | ImplementationGraph/ChangePlan exact input revisions + pre-effect recompile |
-| F03 unknown crossing | exact coverage frontier + discriminated readiness + affected promotion block |
-| F04 authority amplification | ExecutionCapability/ObservationTicket/EffectTicket opaque capability；AI/test/provider只提交 observation/proposal |
-| F05 provider substitution | Requirement→eligible Provision→Binding；ambient fallback不可达 |
-| F06 resource reset | one parent operation ledger贯穿 child/retry/readback/cleanup/recovery |
-| F07 non-reentrant concurrency | capability contract驱动 sequence/join/bounded parallel plan |
-| F08 lost handle | durable OperationKey/journal + provider/domain readback + join/recovery |
-| F09 cleanup failure | settlement保存 primary + cleanup error + typed residue |
-| F10 crash intermediate state | intent-before-effect + immutable journal + state owner recovery |
-| F11 schema drift | one owner parser/writer/schema + bounded migration reader + new generation cutover |
-| F12 owner/facade cycle | owner/layer DAG + SCC witness + dependency inversion + facade existence proof |
-| F13 projection mirror | generated projections from ImplementationGraph + Change Locality rejection |
-| F14 self-proof | Claim/Evidence issuer separation + exact independent readback |
-| F15 duplicate Effect | OperationKey claim + single-flight/join + settlement/readback before retry |
-| F16 future abstraction | FutureObligation/reference evidence；active code只在 activation predicate 后生成 |
-| F17 context loss | content-addressed design package refs/ChangePlan/operation journal；summary无Authority |
-| F18 external consumer unknown | protocol/support evidence + bounded unknown；内部 consumer-zero不足以删除 |
-| F19 cache poisoning | content/config/provider/environment ActionKey + strict cache readback |
-| F20 migration coexistence | normal path single generation + migration-only old reader + consumer-zero retirement |
-| F21 hidden source | exact content classification + embedded-program interpreter/typed opaque |
-| F22 unbounded input | streaming shared entries/bytes/depth/time/signal allocation；不预扫两次 |
-| F23 presentation protocol | structured machine interface + strict parser；shell/presentation只作显示/transport |
-| F24 architecture change | ArchitectureMigration old/new graph、symbol-aware move、cutover/readback/retirement |
-| F25 representation/view confusion | canonical fact/relation refs + purpose-bound query + coverage/frontier digest + renderer fidelity check |
+| `identity-spoof` | semantic identity/Address 分型 + retained physical Binding + same-path ABA check |
+| `stale-snapshot` | ImplementationGraph/ChangePlan exact input revisions + pre-effect recompile |
+| `unknown-crossing` | exact coverage frontier + discriminated readiness + affected promotion block |
+| `authority-amplification` | ExecutionCapability/ObservationTicket/EffectTicket opaque capability；AI/test/provider只提交 observation/proposal |
+| `provider-substitution` | Requirement→eligible Provision→Binding；ambient fallback不可达 |
+| `resource-reset` | one parent operation ledger贯穿 child/retry/readback/cleanup/recovery |
+| `non-reentrant-concurrency` | capability contract驱动 sequence/join/bounded parallel plan |
+| `lost-handle` | durable OperationKey/journal + provider/domain readback + join/recovery |
+| `cleanup-failure` | settlement保存 primary + cleanup error + typed residue |
+| `crash-intermediate-state` | intent-before-effect + immutable journal + state owner recovery |
+| `schema-drift` | one owner parser/writer/schema + bounded migration reader + new generation cutover |
+| `owner-facade-cycle` | owner/layer DAG + SCC witness + dependency inversion + facade existence proof |
+| `projection-mirror` | generated projections from ImplementationGraph + Change Locality rejection |
+| `self-proof` | Claim/Evidence issuer separation + exact independent readback |
+| `duplicate-effect-delivery` | OperationKey claim + single-flight/join + settlement/readback before retry |
+| `future-abstraction-shell` | FutureObligation/reference evidence；active code只在 activation predicate 后生成 |
+| `context-loss` | content-addressed design package refs/ChangePlan/operation journal；summary无Authority |
+| `external-consumer-unknown` | protocol/support evidence + bounded unknown；内部 consumer-zero不足以删除 |
+| `cache-poisoning` | content/config/provider/environment ActionKey + strict cache readback |
+| `migration-coexistence` | normal path single generation + migration-only old reader + consumer-zero retirement |
+| `hidden-source-graph` | exact content classification + embedded-program interpreter/typed opaque |
+| `unbounded-input` | streaming shared entries/bytes/depth/time/signal allocation；不预扫两次 |
+| `presentation-as-protocol` | structured machine interface + strict parser；shell/presentation只作显示/transport |
+| `architecture-change-without-migration` | ArchitectureMigration old/new graph、symbol-aware move、cutover/readback/retirement |
+| `representation-view-confusion` | canonical fact/relation refs + purpose-bound query + coverage/frontier digest + renderer fidelity check |
+| `relational-observation-leakage` | Conformance Compiler生成trace-tuple observable与relational oracle；目标实现不得隐藏secret-dependent control/resource/output差异 |
 
 ### 17.2 代表性系统 trace
 

@@ -218,23 +218,26 @@ invalidate(premise, observation):
 
 本节只约束Design Calculus的authoring/evolution与设计者/Agent行为；它不是产品capability、DomainOperation、runtime workflow、Effect admission或业务完成条件，也不得被lower进目标系统。目标系统的完整性仍由已冻结的semantic origin、contract lowering、conformance与admission保证，不能依赖未来设计者发现反例。
 
-反例传播只使旧结论失效；反例吸收必须修正“为什么设计方法先前没有生成该义务”。每个新反例先最小化为一个可重放的property trace，再且仅归入下列首个真实缺口：
+反例传播只使旧结论失效；反例吸收必须回答“为什么设计方法先前没有生成该义务”，但因果诊断不能预先决定修复位置。每个新反例先最小化为一个可重放的property trace，并标出全部必要因果边界；gap class只决定必须扩展的观察或推理空间，不授予某个owner局部打补丁的优先权：
 
-| Gap class | 失败事实 | 必须修正的唯一owner | 全域回扫输入 |
+| Gap class | 失败事实 | 必须进入候选变更集的边界 | 全域回扫输入 |
 | --- | --- | --- | --- |
-| `expression-gap` | meta-model无法表达关键区别、关系或终态 | Design Calculus meta-model | 全部owner fragments与既有Design Packages |
-| `universe-gap` | 应观察对象未进入exact census/coverage/frontier | 对应observation/frontend/Source Program owner | exact content/provider/runtime universe |
-| `applicability-gap` | 对象已知，但Coverage Compiler未生成适用cell/故障 | constraint/fault/applicability compiler | 全部可达entities×relations×boundaries×lifecycle |
-| `refinement-gap` | 逻辑义务存在，但实现没有origin/lowering/conformance trace | Implementation Compiler | 全部public/durable/state/effect/proof declarations |
-| `enforcement-gap` | 违规已可表达且可观察，但类型/parser/admission未拒绝 | 对应contract/admission owner | 全部同类入口、writer、reader与Effect sink |
-| `proof-gap` | 实现违规，但Claim/test/Evidence未观察到 | Verification owner | 受影响claims、fault traces与independence rules |
-| `evolution-gap` | 新设计已闭合，但旧writer/reader/route/state仍active | Change Management + state owner | generations、consumers、durable residue与rollback paths |
+| `expression-gap` | meta-model无法表达关键区别、关系或终态 | meta-model、被压平的domain distinctions、所有依赖projection | 全部owner fragments与既有Design Packages |
+| `universe-gap` | 应观察对象未进入exact census/coverage/frontier | observation frontend、source kinds、root/closure law | exact content/provider/runtime universe |
+| `applicability-gap` | 对象已知，但Coverage Compiler未生成适用cell/故障 | relation laws、constraint/fault generators、profile | 全部可达entities×relations×boundaries×lifecycle |
+| `refinement-gap` | 逻辑义务存在，但实现没有origin/lowering/conformance trace | logical package、implementation topology、lowering与placement | 全部public/durable/state/effect/proof declarations |
+| `enforcement-gap` | 违规已可表达且可观察，但类型/parser/admission未拒绝 | contract、operation boundary、capability、effect route | 全部同类入口、writer、reader与Effect sink |
+| `proof-gap` | 实现违规，但Claim/test/Evidence未观察到 | property、observer、issuer independence、verification topology | 受影响claims、fault traces与independence rules |
+| `evolution-gap` | 新设计已闭合，但旧writer/reader/route/state仍active | preservation map、migration state、cutover/retirement topology | generations、consumers、durable residue与rollback paths |
 
 ```text
 assimilateDesignCounterexample(counterexample):
   witness := minimizeToPropertyTrace(counterexample)
-  gap := classifyFirstMissingBoundary(witness)
-  repairCanonicalGenerator(gap.owner, witness)
+  gaps := classifyAllNecessaryCausalBoundaries(witness)
+  candidates := synthesizeWholeSystemChangeSets(gaps, exactUniverse, acceptedOutcomes)
+  selected := selectNondominatedChangeSet(candidates, hardConstraints, lifecycleCost)
+  if selected is not uniquely decidable: preserve exact decision frontier
+  apply selected to definitions, boundaries, owners, algorithms and evolution model
   provePreviouslyExpressibleSubsetPreserved()
   affected := reverseClosure(changedMetaFactsOrAlgorithms)
   results := recompileAndScan(affected exact universe)
@@ -246,16 +249,98 @@ assimilateDesignCounterexample(counterexample):
 ```mermaid
 flowchart LR
   C[Counterexample] --> W[Minimal property trace]
-  W --> G[First missing boundary]
-  G --> O[Canonical owner/generator repair]
-  O --> E[Old-subset equivalence]
+  W --> G[All necessary causal boundaries]
+  G --> M[Competing whole-system change sets]
+  M --> O[Non-dominated atomic selection]
+  O --> E[Old-subset and outcome equivalence]
   E --> A[Reverse affected closure]
   A --> S[Whole declared-universe scan]
   S --> R[Results + exact frontier]
   R --> T[Retire local patches and old generation]
 ```
 
-禁止把每个反例追加成提示词、Skill条款、手写测试清单或单点`if`；它们只能是吸收前的witness。若反例可由现有模型表达却未被设计编译过程看到，必须修`universe/applicability`而不是扩充ontology。若新区别确实独立改变admission、authority、lifecycle、invalidation、consumer visibility或用户结果，才允许`expression-gap`演进meta-model。开放世界仍保留exact unknown frontier；设计方法可证明的是声明宇宙内生成与回扫完备，不得把有限coverage夸成已穷尽现实的一切。
+禁止把每个反例追加成提示词、Skill条款、手写测试清单或单点`if`；它们只能是吸收前的witness。若反例可由现有模型表达却未被设计编译过程看到，候选集必须包含修`universe/applicability`而不扩充ontology的方案；若新区别确实独立改变admission、authority、lifecycle、invalidation、consumer visibility或用户结果，候选集才允许`expression-gap`演进meta-model。开放世界仍保留exact unknown frontier；设计方法可证明的是exact compiled universe内生成与回扫完备，不得把有限coverage夸成已穷尽现实的一切。
+
+### 11.6 独立对抗固定点
+
+重复同一审查器、输入、顺序或提示不增加置信度。审查策略本身是受审Subject；其覆盖由目标graph生成，而不是维护固定问题清单：
+
+```text
+ReviewStrategyUniverse = leastFixedPoint(
+  exact DesignClosureManifest
+  × applicable concern/fault/realization/evolution cells
+  × epistemic methods {
+      normative-top-down, observed-bottom-up, relation-and-refinement,
+      state-and-interleaving, relational-hyperproperty,
+      authority-threat-and-privacy,
+      resource-scale-and-economy, quantitative-stochastic-and-feedback,
+      migration-and-retirement,
+      external-mechanism-comparison, human-operations-and-maintenance,
+      meta-review-and-mutation
+    }
+  × every generated cross-family interaction that shares a subject, relation,
+    state, resource, authority, consumer, effect or claim
+)
+```
+
+上列methods是彼此不同的观察方式，不是封闭故障枚举；任何能产生新可区分结果的方法都扩展该universe并使旧review closure stale。外部机制比较必须从相同Requirement/constraint/cost vector评估直接复用、薄port、吸收算法、保持现状和删除能力，不能按知名度或新旧选择工具。
+
+```text
+AdversarialReviewRun = {
+  exactDesignGenerationDigest,
+  exactUniverseAndStrategyDigest,
+  methodAndImplementationRef,
+  independenceBasis,
+  perturbation: order + seed + scale + faultSchedule,
+  examinedCellsAndInteractionsDigest,
+  injectedNonEquivalentMutants,
+  findings,
+  unknownFrontier,
+  result: clean | finding | blocked
+}
+
+ReviewWaveDelta = generated {
+  exactDesignGenerationDigest,
+  completedRunRefs,
+  allNewValidatedFindings,
+  repeatedOrDominatedWitnessRefs,
+  sharedCausalCuts,
+  competingSystemChangeSetRefs,
+  invalidatedConclusionRefs,
+  remainingUnverifiedStrategies,
+  fixedPointResetReason | none,
+  waveDigest
+}
+
+Independent(a, b) =
+  distinct failure hypothesis
+  and distinct observation or derivation path
+  and no shared unverified verdict/projection/cache
+```
+
+一个review wave完成任意一批独立runs后必须发布一次完整delta；不能只挑“最先发现”或“最严重”的finding叙述，也不能把尚未验证的候选写成缺陷。`ReviewWaveDelta`是由run records生成的无增权投影，完整finding records仍由review artifact owner持有；下一wave只报告新增、失效与剩余frontier，不重复倾倒旧清单。
+
+一个`finding`触发whole-system change-set synthesis；任何DesignInput、universe、strategy、model、implementation或migration变化都会使此前clean runs stale并把稳定计数归零。clean只在审查器能拒绝其适用的非等价mutation、保留等价mutation且没有隐藏unknown时成立。
+
+```text
+AdversarialFixedPointClosed =
+  DesignClosed(exact target slice)
+  and every applicable ReviewStrategyUniverse cell has a fresh clean run
+  and every reachable cross-family interaction has a fresh clean run
+  and all injected non-equivalent mutants are rejected at the expected boundary
+  and meta-review yields no missing method, dimension, root or interaction
+  and target-intersecting unknownFrontier is empty
+  and every cell in RequiredStabilityBasis has a causally independent
+      post-change epoch converging on the same universe, closure and frontier digests
+
+RequiredStabilityBasis = minimal generated hitting set for common-mode failures in
+  semantic model/coverage,
+  implementation/verifier,
+  order/seed/scale/fault schedule,
+  observation/provider/source stratum
+```
+
+`RequiredStabilityBasis`不是固定次数：它从本轮review graph的共享依赖与可能common-mode failure生成；每个basis cell至少需要一个不共享该失败源的epoch。同一次PASS重跑、同一实现换提示词或同一projection换展示均不独立。发现任何有效新反例后重新生成strategy universe与basis并从零开始。达到此固定点只允许停止该exact target slice的主动设计审查；后来出现的新事实、方法、外部机制或reversal predicate仍按reverse closure使相关结论stale。
 
 ## 12. 设计完成
 
@@ -368,6 +453,8 @@ compileSystemDesignClosure(acceptedRoots, exactWorld):
 OwnScopeDesignClosed(scope) =
   scope belongs to exact compiled SystemDesignUniverse
   ∧ accepted outcomes and non-goals are explicit
+  ∧ every required success trace reaches a valid terminal in at least one admissible realization
+  ∧ required failure traces remain distinguishable; universal block is not a realization
   ∧ all statements are typed
   ∧ every design subject resolves all applicable rationale queries or preserves exact unknown
   ∧ minimal causal graph is complete within declared coverage
@@ -392,6 +479,7 @@ DesignClosed(root, exactUniverse, targetProfile) =
   ∧ every applicable closure dimension is closed or proven not-applicable
   ∧ all recursively contained child roots are DesignClosed
   ∧ every cross-boundary relation has compatible contracts at both endpoints
+  ∧ every generated multi-party interaction hyperedge satisfies CompositionClosed
   ∧ every normative-only item is materialized, an accepted FutureObligation, or blocking
   ∧ every observed-only item is explained, retired by a closed evolution plan, or blocking
   ∧ every unresolved frontier is provably disjoint from the target outcomes/Effects/Claims
@@ -403,9 +491,10 @@ DesignClosed(root, exactUniverse, targetProfile) =
 ### 12.5 迁移设计完成与执行准入
 
 ```text
-MigrationDesignReady(current, target) =
-  DesignClosed(target root, exact universe, target profile)
-  ∧ exact current implementation/state/consumer universe observed
+MigrationDesignReady(current, targetSlice) =
+  DesignClosed(targetSlice root, exact relevant universe slice, target profile)
+  ∧ AdversarialFixedPointClosed(targetSlice)
+  ∧ exact current implementation/state/consumer universe intersecting targetSlice observed
   ∧ target implementation/conformance/evolution packages frozen
   ∧ total current→target subject/state/capability/data/consumer preservation map
   ∧ every removed behavior has accepted retirement or stronger replacement
@@ -423,6 +512,16 @@ MigrationExecutionAdmitted =
 ```
 
 `MigrationDesignReady`只证明可以开始实现/迁移，不证明任何文件已移动、代码已写、状态已转换或业务能力已闭合。正式执行后仍分别需要implementation readback、Conformance verdict、activation、new-generation observation和old-generation retirement。
+
+```text
+ReadyMigrationConservation =
+  MigrationDesignReady(targetSlice)
+  ∧ live authority/capability/resource availability
+  ∧ every global open frontier is causally disjoint from targetSlice
+  => schedule targetSlice migration now
+```
+
+无关的全系统设计、其他domain frontier或未来能力不得阻塞已经闭合的最小迁移slice；相交frontier必须由typed relation证明，不能用“全工程尚未完成”笼统阻塞。执行中的迁移也不冻结全系统设计：新反例若与该slice相交则使准入stale并进入其recovery/rollback规则，不相交则继续并行演进。
 
 不存在“整个开放世界永久设计完成”。可证明的最强结论是某个exact generation/profile/universe上的root closure；新产品意图、外部合同、Target、Source Program节点、Effect、fault dimension或reversal observation出现时，compiler扩展universe并只使reverse-reachableclosure stale。这既不允许以未知世界阻止所有工作，也不允许把未观察范围藏在“已经完成”里。
 
@@ -446,8 +545,9 @@ compileNextDesignWave(manifest):
   reject items whose owner or closure predicate is unbound
   ready := open where every predecessor is closed
   order causally: universe -> definition -> logical -> implementation -> conformance -> evolution
-  coalesce ready items only when same owner/input revision/atomic decision boundary
-  return minimal ready antichain + exact blocked remainder
+  coalesce ready items only when same input revision/atomic system change boundary
+  emit every MigrationDesignReady slice as immediately schedulable work
+  return minimal ready antichain + ready migrations + exact blocked remainder
 ```
 
-文件位置、最近失败、Issue编号、Agent兴趣、测试数量或聊天顺序不能决定设计顺序。一个上游frontier影响多个scope时只修其唯一generator并重编reverse closure；互不相交的ready items可以作为独立design packages并行，但同一owner、schema、state machine或migration generation保持单一写者。完成一个item必须满足其closure predicate并使manifest重编，而不是把文字标成done。
+文件位置、最近失败、Issue编号、Agent兴趣、测试数量或聊天顺序不能决定设计顺序。一个frontier影响多个scope时必须生成whole-system change sets再选择非支配解并重编reverse closure；互不相交的ready items可以作为独立design packages并行，但同一schema、state machine或migration generation保持单一写者。完成一个item必须满足其closure predicate并使manifest重编，而不是把文字标成done。已经`MigrationDesignReady`且资源/authority可用的slice必须立即迁移，不能为了继续扩大不相交设计而无限等待。
