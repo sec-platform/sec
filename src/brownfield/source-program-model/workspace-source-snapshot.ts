@@ -59,6 +59,15 @@ export type WorkspaceSourceSnapshotSubject =
             identityDigest: `sha256:${string}`;
             providerIdentityDigest: `sha256:${string}`;
             repositoryRootIdentityDigest: `sha256:${string}`;
+          }>
+        | Readonly<{
+            kind: 'staged-index-observation';
+            identityDigest: `sha256:${string}`;
+            indexDigest: `sha256:${string}`;
+            indexTreeDigest: `sha256:${string}`;
+            indexPhysicalIdentityDigest: `sha256:${string}`;
+            providerIdentityDigest: `sha256:${string}`;
+            repositoryRootIdentityDigest: `sha256:${string}`;
           }>;
     }>
   | Readonly<{
@@ -106,13 +115,25 @@ type IssuePhysicalWorkspaceSourceSnapshotInput = Omit<
   'subject'
 > & Readonly<{
   session: GitReadSession;
-  provenance: Readonly<{
-    kind: 'working-tree-observation';
-    identityDigest: `sha256:${string}`;
-  }>;
+  provenance:
+    | Readonly<{
+        kind: 'working-tree-observation';
+        identityDigest: `sha256:${string}`;
+      }>
+    | Readonly<{
+        kind: 'staged-index-observation';
+        identityDigest: `sha256:${string}`;
+        indexDigest: `sha256:${string}`;
+        indexTreeDigest: `sha256:${string}`;
+        indexPhysicalIdentityDigest: `sha256:${string}`;
+      }>;
 }>;
 
 export type AcquireWorkingTreeWorkspaceSourceSnapshotInput = Readonly<{
+  session: GitReadSession;
+}>;
+
+export type AcquireStagedIndexWorkspaceSourceSnapshotInput = Readonly<{
   session: GitReadSession;
 }>;
 
@@ -1087,7 +1108,8 @@ function canonicalSubject(
 ): WorkspaceSourceSnapshotSubject {
   if (subject.kind === 'physical-repository') {
     if (subject.provenance.kind !== 'git-tree'
-        && subject.provenance.kind !== 'working-tree-observation') {
+        && subject.provenance.kind !== 'working-tree-observation'
+        && subject.provenance.kind !== 'staged-index-observation') {
       throw new Error('Workspace source snapshot physical provenance is invalid');
     }
     exactDigest(subject.provenance.identityDigest, 'Workspace source snapshot physical provenance');
@@ -1099,6 +1121,14 @@ function canonicalSubject(
     } else {
       exactDigest(subject.provenance.providerIdentityDigest, 'Workspace source snapshot provider');
       exactDigest(subject.provenance.repositoryRootIdentityDigest, 'Workspace source snapshot root');
+      if (subject.provenance.kind === 'staged-index-observation') {
+        exactDigest(subject.provenance.indexDigest, 'Workspace source snapshot staged index');
+        exactDigest(subject.provenance.indexTreeDigest, 'Workspace source snapshot staged tree');
+        exactDigest(
+          subject.provenance.indexPhysicalIdentityDigest,
+          'Workspace source snapshot staged index physical identity'
+        );
+      }
     }
     return Object.freeze({ kind: subject.kind, provenance: Object.freeze({ ...subject.provenance }) });
   }
@@ -1363,6 +1393,177 @@ type WorkingTreeMembershipEntry = Readonly<{
   mode: WorkspaceSourceFileMode | null;
 }>;
 
+type StagedIndexEntry = Readonly<{
+  path: string;
+  mode: string;
+  objectId: string;
+}>;
+
+type StagedIndexObservation = Readonly<{
+  entries: readonly StagedIndexEntry[];
+  indexDigest: `sha256:${string}`;
+  indexTreeDigest: `sha256:${string}`;
+  indexPhysicalIdentityDigest: `sha256:${string}`;
+  identityDigest: `sha256:${string}`;
+}>;
+
+function exactSingleLine(bytes: Uint8Array, label: string): string {
+  const source = exactUtf8(bytes, label);
+  const value = source.endsWith('\r\n')
+    ? source.slice(0, -2)
+    : source.endsWith('\n')
+      ? source.slice(0, -1)
+      : source;
+  if (value.length === 0 || /[\r\n\0]/u.test(value)) {
+    throw new Error(`${label} is not one exact line`);
+  }
+  return value;
+}
+
+async function observeStagedIndex(
+  session: GitReadSession
+): Promise<StagedIndexObservation> {
+  const repositoryRootCommand = await session.run([
+    'rev-parse', '--path-format=absolute', '--show-toplevel'
+  ]);
+  const indexPathCommand = await session.run([
+    'rev-parse', '--path-format=absolute', '--git-path', 'index'
+  ]);
+  const repositoryRoot = path.resolve(exactSingleLine(
+    exactCompletedGitOutput(repositoryRootCommand, 'resolve the staged repository root'),
+    'Staged repository root'
+  ));
+  const indexPath = path.resolve(exactSingleLine(
+    exactCompletedGitOutput(indexPathCommand, 'resolve the staged index path'),
+    'Staged index path'
+  ));
+  if (repositoryRoot !== path.resolve(session.cwd)) {
+    throw new Error('Staged index repository root differs from the retained Git working directory');
+  }
+  const before = await lstat(indexPath);
+  if (!before.isFile() || before.isSymbolicLink()) {
+    throw new Error('Staged index is not one ordinary file');
+  }
+  const indexBytes = await readFile(indexPath);
+  const membershipCommand = await session.run([
+    '--no-pager', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false',
+    'ls-files', '--stage', '-z'
+  ]);
+  const records = nulSeparatedRepositoryPathsWithIndexMetadata(
+    exactCompletedGitOutput(membershipCommand, 'observe staged index membership')
+  );
+  const after = await lstat(indexPath);
+  const readbackBytes = await readFile(indexPath);
+  if (!after.isFile() || after.isSymbolicLink()
+      || after.dev !== before.dev || after.ino !== before.ino
+      || after.size !== before.size || after.mtimeMs !== before.mtimeMs
+      || !Buffer.from(indexBytes).equals(Buffer.from(readbackBytes))) {
+    throw new Error('Staged index changed while its membership was observed');
+  }
+  if (session.consumeRecords(records.length) !== null) {
+    throw new Error('Staged index membership exceeded the Git session record budget');
+  }
+  const indexDigest = rawSha256(indexBytes);
+  const indexPhysicalIdentityDigest = sha256({
+    path: indexPath,
+    device: String(before.dev),
+    inode: String(before.ino),
+    size: before.size,
+    mtimeMs: before.mtimeMs
+  }) as `sha256:${string}`;
+  const indexTreeDigest = sha256(records.map(({ path: repositoryPath, mode, objectId }) => ({
+    repositoryPath,
+    mode,
+    objectId
+  }))) as `sha256:${string}`;
+  return Object.freeze({
+    entries: records,
+    indexDigest,
+    indexTreeDigest,
+    indexPhysicalIdentityDigest,
+    identityDigest: sha256({
+      indexDigest,
+      indexTreeDigest,
+      indexPhysicalIdentityDigest
+    }) as `sha256:${string}`
+  });
+}
+
+function nulSeparatedRepositoryPathsWithIndexMetadata(
+  bytes: Uint8Array
+): readonly StagedIndexEntry[] {
+  const source = exactUtf8(bytes, 'Staged index membership');
+  if (source.length > 0 && !source.endsWith('\0')) {
+    throw new Error('Staged index membership is not NUL terminated');
+  }
+  const entries = (source.length === 0 ? [] : source.slice(0, -1).split('\0')).map((record) => {
+    const match = /^([0-7]{6}) ([0-9a-f]{40}(?:[0-9a-f]{24})?) ([0-3])\t([\s\S]+)$/u.exec(record);
+    if (match === null || match[3] !== '0') {
+      throw new Error('Staged index membership contains a noncanonical or unmerged entry');
+    }
+    const repositoryPath = normalizeSecRepositoryPath(match[4]!);
+    if (repositoryPath.length === 0 || repositoryPath !== match[4]) {
+      throw new Error(`Staged index path is not canonical: ${match[4]}`);
+    }
+    return Object.freeze({ path: repositoryPath, mode: match[1]!, objectId: match[2]! });
+  }).sort((left, right) => compareCodeUnits(left.path, right.path));
+  for (let index = 1; index < entries.length; index += 1) {
+    if (entries[index - 1]!.path === entries[index]!.path) {
+      throw new Error(`Staged index contains a duplicate path: ${entries[index]!.path}`);
+    }
+  }
+  return Object.freeze(entries);
+}
+
+async function readStagedSourceBlobs(
+  session: GitReadSession,
+  entries: readonly StagedIndexEntry[]
+): Promise<ReadonlyMap<string, Uint8Array>> {
+  const objectIds = [...new Set(entries.map(({ objectId }) => objectId))];
+  if (objectIds.length === 0) return new Map();
+  const command = await session.run(['cat-file', '--batch'], {
+    input: Buffer.from(`${objectIds.join('\n')}\n`, 'ascii')
+  });
+  const output = exactCompletedGitOutput(command, 'read staged source blobs');
+  const blobs = new Map<string, Uint8Array>();
+  let offset = 0;
+  let totalBytes = 0;
+  for (const objectId of objectIds) {
+    const headerEnd = output.indexOf(0x0a, offset);
+    if (headerEnd < 0) throw new Error(`Staged blob ${objectId} has no complete header`);
+    const header = new TextDecoder('utf-8', { fatal: true }).decode(
+      output.subarray(offset, headerEnd)
+    );
+    const match = /^([0-9a-f]{40}(?:[0-9a-f]{24})?) blob ([0-9]+)$/u.exec(header);
+    if (match === null || match[1] !== objectId) {
+      throw new Error(`Staged blob ${objectId} has a noncanonical batch header`);
+    }
+    const byteLength = Number(match[2]);
+    if (!Number.isSafeInteger(byteLength) || byteLength < 0
+        || byteLength > SOURCE_SNAPSHOT_MAX_FILE_BYTES) {
+      throw new Error(`Staged blob ${objectId} exceeds its byte ceiling`);
+    }
+    totalBytes += byteLength;
+    if (!Number.isSafeInteger(totalBytes) || totalBytes > SOURCE_SNAPSHOT_MAX_TOTAL_BYTES) {
+      throw new Error('Staged workspace source snapshot exceeds its aggregate byte ceiling');
+    }
+    const contentStart = headerEnd + 1;
+    const contentEnd = contentStart + byteLength;
+    if (contentEnd >= output.byteLength || output[contentEnd] !== 0x0a) {
+      throw new Error(`Staged blob ${objectId} has incomplete bytes`);
+    }
+    blobs.set(objectId, output.slice(contentStart, contentEnd));
+    offset = contentEnd + 1;
+  }
+  if (offset !== output.byteLength) {
+    throw new Error('Staged blob batch contains trailing bytes');
+  }
+  if (session.consumeRecords(objectIds.length) !== null) {
+    throw new Error('Staged blob batch exceeded the Git session record budget');
+  }
+  return blobs;
+}
+
 async function observeWorkingTreeMembership(
   session: GitReadSession
 ): Promise<readonly WorkingTreeMembershipEntry[]> {
@@ -1516,6 +1717,108 @@ export async function acquireWorkingTreeWorkspaceSourceSnapshot(
     moduleMembership,
     sourceByteLength: totalBytes
   });
+}
+
+/**
+ * Compiles the exact staged index into one physical Source Program snapshot.
+ * The same production GitRead session owns repository/index discovery,
+ * membership, immutable blob reads, resource accounting and terminal readback.
+ */
+export async function acquireStagedIndexWorkspaceSourceSnapshot(
+  input: AcquireStagedIndexWorkspaceSourceSnapshotInput
+): Promise<PhysicalWorkspaceSourceSnapshot> {
+  assertProductionGitReadSession(input.session);
+  const session = input.session;
+  if (session.failure !== null || session.providerIdentity === null
+      || session.workingDirectoryIdentity == null
+      || !session.verifyExecutable() || session.verifyWorkingDirectory?.() !== true) {
+    throw new Error('Staged workspace snapshot requires a current production Git session');
+  }
+  const before = await observeStagedIndex(session);
+  const unsafeSource = before.entries.find(({ path: repositoryPath, mode }) => (
+    isSourceProgramInputPath(repositoryPath)
+      && mode !== '100644' && mode !== '100755'
+  ));
+  if (unsafeSource !== undefined) {
+    throw new Error(`Staged workspace source is not one ordinary blob: ${unsafeSource.path}`);
+  }
+  const sourceEntries = before.entries.filter(({ path: repositoryPath, mode }) => (
+    isSourceProgramInputPath(repositoryPath)
+      && (mode === '100644' || mode === '100755')
+  ));
+  const blobs = await readStagedSourceBlobs(session, sourceEntries);
+  let totalBytes = 0;
+  const files = sourceEntries.map(({ path: repositoryPath, mode, objectId }) => {
+    const bytes = blobs.get(objectId);
+    if (bytes === undefined) {
+      throw new Error(`Staged workspace source blob is absent: ${repositoryPath}`);
+    }
+    totalBytes += bytes.byteLength;
+    return Object.freeze({
+      path: repositoryPath,
+      mode: mode as WorkspaceSourceFileMode,
+      source: exactUtf8(bytes, `Staged workspace source file ${repositoryPath}`),
+      contentDigest: rawSha256(bytes)
+    });
+  });
+  if (!Number.isSafeInteger(totalBytes) || totalBytes > SOURCE_SNAPSHOT_MAX_TOTAL_BYTES) {
+    throw new Error('Staged workspace source snapshot exceeds its aggregate byte ceiling');
+  }
+  const descriptorSources = files
+    .filter(({ path: repositoryPath }) => repositoryPath.endsWith('/sec.module.json'))
+    .map(({ path: descriptorPath, source }) => ({ descriptorPath, source }));
+  const moduleMembership = descriptorSources.length === 0
+    ? emptyModuleMembership()
+    : compileSecRepositoryModuleMembershipSnapshot({
+        repositoryFiles: before.entries.map(({ path: repositoryPath }) => repositoryPath),
+        descriptorSources
+      });
+  const after = await observeStagedIndex(session);
+  if (after.identityDigest !== before.identityDigest
+      || JSON.stringify(after.entries) !== JSON.stringify(before.entries)) {
+    throw new Error('Staged index changed during workspace snapshot acquisition');
+  }
+  return issuePhysicalWorkspaceSourceSnapshot({
+    session,
+    provenance: Object.freeze({
+      kind: 'staged-index-observation',
+      identityDigest: before.identityDigest,
+      indexDigest: before.indexDigest,
+      indexTreeDigest: before.indexTreeDigest,
+      indexPhysicalIdentityDigest: before.indexPhysicalIdentityDigest
+    }),
+    files,
+    moduleMembership,
+    sourceByteLength: totalBytes
+  });
+}
+
+/** Exact post-observation fence for a still-live staged snapshot/session pair. */
+export async function readBackStagedIndexWorkspaceSourceSnapshot(
+  snapshot: PhysicalWorkspaceSourceSnapshot,
+  session: GitReadSession
+): Promise<`sha256:${string}`> {
+  assertPhysicalWorkspaceSourceSnapshot(snapshot);
+  assertProductionGitReadSession(session);
+  const provenance = snapshot.subject.provenance;
+  if (provenance.kind !== 'staged-index-observation') {
+    throw new Error('Staged workspace snapshot readback requires staged-index provenance');
+  }
+  if (session.failure !== null || session.providerIdentity === null
+      || session.workingDirectoryIdentity == null
+      || sha256(session.providerIdentity) !== provenance.providerIdentityDigest
+      || sha256(session.workingDirectoryIdentity) !== provenance.repositoryRootIdentityDigest
+      || !session.verifyExecutable() || session.verifyWorkingDirectory?.() !== true) {
+    throw new Error('Staged workspace snapshot provider changed before readback');
+  }
+  const current = await observeStagedIndex(session);
+  if (current.identityDigest !== provenance.identityDigest
+      || current.indexDigest !== provenance.indexDigest
+      || current.indexTreeDigest !== provenance.indexTreeDigest
+      || current.indexPhysicalIdentityDigest !== provenance.indexPhysicalIdentityDigest) {
+    throw new Error('Staged workspace snapshot index changed before readback');
+  }
+  return snapshot.subjectDigest;
 }
 
 /**

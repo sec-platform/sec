@@ -11,7 +11,7 @@ import {
 } from '../../verification/action/contract/action.ts';
 
 export const CANDIDATE_NORMALIZATION_SUBJECT_SCHEMA =
-  'sec-candidate-normalization-subject' as const;
+  'sec-candidate-normalization-snapshot-subject' as const;
 
 export const IMPORT_NORMALIZATION_OPERATION = Object.freeze({
   capability: 'development.import-normalization',
@@ -30,7 +30,18 @@ export type CandidateNormalizationBlob = Readonly<{
 
 export type CandidateNormalizationSubject = Readonly<{
   schema: typeof CANDIDATE_NORMALIZATION_SUBJECT_SCHEMA;
-  candidateCommitSha: string;
+  candidateIdentity:
+    | Readonly<{
+        kind: 'git-tree';
+        commitSha: string;
+        snapshotIdentityDigest: CandidateNormalizationDigest;
+      }>
+    | Readonly<{
+        kind: 'staged-index';
+        indexDigest: CandidateNormalizationDigest;
+        indexTreeDigest: CandidateNormalizationDigest;
+        snapshotIdentityDigest: CandidateNormalizationDigest;
+      }>;
   selectedBlobs: readonly CandidateNormalizationBlob[];
   observationBlobs: readonly CandidateNormalizationBlob[];
   producerClosureDigest: CandidateNormalizationDigest;
@@ -53,7 +64,7 @@ const NORMALIZATION_CONTRACT_DIGEST = sha256({
   operationIdentity: OPERATION_IDENTITY,
   subjectSchema: CANDIDATE_NORMALIZATION_SUBJECT_SCHEMA,
   transform: 'typescript-organize-imports-sort-and-combine',
-  subjectSelection: 'exact-base-to-candidate-typescript-diff',
+  subjectSelection: 'exact-base-diff-or-staged-index-typescript-census',
   executionInput: 'owner-issued-immutable-workspace-snapshot',
   readback: 'exact-snapshot-subject-digest'
 }) as CandidateNormalizationDigest;
@@ -73,7 +84,7 @@ function isCandidateNormalizationPath(value: string): boolean {
  */
 export function compileCandidateNormalizationSubject(input: Readonly<{
   snapshot: PhysicalWorkspaceSourceSnapshot;
-  baseSnapshot: PhysicalWorkspaceSourceSnapshot;
+  baseSnapshot?: PhysicalWorkspaceSourceSnapshot;
   producerClosure: SourceProgramOperationProducerClosure;
   compilerIdentity: Readonly<{
     compilerRevision: CandidateNormalizationDigest;
@@ -81,15 +92,23 @@ export function compileCandidateNormalizationSubject(input: Readonly<{
   }>;
 }>): CandidateNormalizationSubject {
   assertPhysicalWorkspaceSourceSnapshot(input.snapshot);
-  assertPhysicalWorkspaceSourceSnapshot(input.baseSnapshot);
+  if (input.baseSnapshot !== undefined) {
+    assertPhysicalWorkspaceSourceSnapshot(input.baseSnapshot);
+  }
   const producerClosure = input.producerClosure;
   if (producerClosure.operation.capability !== IMPORT_NORMALIZATION_OPERATION.capability
       || producerClosure.operation.operation !== IMPORT_NORMALIZATION_OPERATION.operation) {
     throw new Error('Candidate normalization producer closure does not bind the exact snapshot operation');
   }
   const provenance = input.snapshot.subject.provenance;
-  if (provenance.kind !== 'git-tree') {
-    throw new Error('Candidate normalization requires one exact Git tree snapshot');
+  if (provenance.kind !== 'git-tree' && provenance.kind !== 'staged-index-observation') {
+    throw new Error('Candidate normalization requires one exact Git tree or staged-index snapshot');
+  }
+  if (provenance.kind === 'git-tree' && input.baseSnapshot === undefined) {
+    throw new Error('Exact Git tree normalization requires one owner-issued base snapshot');
+  }
+  if (provenance.kind === 'staged-index-observation' && input.baseSnapshot !== undefined) {
+    throw new Error('Staged-index normalization selects its exact TypeScript census without a second source reader');
   }
   const projectConfig = input.snapshot.file('tsconfig.json');
   if (projectConfig === null) {
@@ -100,10 +119,11 @@ export function compileCandidateNormalizationSubject(input: Readonly<{
       || path.endsWith('.json') || path.endsWith('.jsonc'))
     .map(({ path, contentDigest }) => Object.freeze({ path, contentDigest }))
     .sort((left, right) => left.path.localeCompare(right.path)));
-  const baseFiles = new Map(input.baseSnapshot.files.map((file) => [file.path, file.contentDigest]));
+  const baseFiles = new Map(input.baseSnapshot?.files.map((file) => [file.path, file.contentDigest]) ?? []);
   const selectedBlobs = Object.freeze(input.snapshot.files
     .filter(({ path, contentDigest }) => isCandidateNormalizationPath(path)
-      && baseFiles.get(path) !== contentDigest)
+      && (provenance.kind === 'staged-index-observation'
+        || baseFiles.get(path) !== contentDigest))
     .map(({ path, contentDigest }) => Object.freeze({
       path,
       digest: contentDigest as CandidateNormalizationDigest
@@ -117,7 +137,18 @@ export function compileCandidateNormalizationSubject(input: Readonly<{
     .sort((left, right) => left.path.localeCompare(right.path)));
   const unsigned = deepFreeze({
     schema: CANDIDATE_NORMALIZATION_SUBJECT_SCHEMA,
-    candidateCommitSha: provenance.commitSha,
+    candidateIdentity: provenance.kind === 'git-tree'
+      ? Object.freeze({
+          kind: 'git-tree' as const,
+          commitSha: provenance.commitSha,
+          snapshotIdentityDigest: input.snapshot.identityDigest as CandidateNormalizationDigest
+        })
+      : Object.freeze({
+          kind: 'staged-index' as const,
+          indexDigest: provenance.indexDigest,
+          indexTreeDigest: provenance.indexTreeDigest,
+          snapshotIdentityDigest: input.snapshot.identityDigest as CandidateNormalizationDigest
+        }),
     selectedBlobs,
     observationBlobs,
     producerClosureDigest: producerClosure.closureDigest as CandidateNormalizationDigest,
@@ -163,8 +194,14 @@ export function requireCandidateNormalizationSnapshot(
   }
   const { snapshot } = execution;
   assertPhysicalWorkspaceSourceSnapshot(snapshot);
-  if (snapshot.subject.provenance.kind !== 'git-tree'
-      || snapshot.subject.provenance.commitSha !== subject.candidateCommitSha) {
+  const provenance = snapshot.subject.provenance;
+  const identityMatches = subject.candidateIdentity.kind === 'git-tree'
+    ? provenance.kind === 'git-tree'
+      && provenance.commitSha === subject.candidateIdentity.commitSha
+    : provenance.kind === 'staged-index-observation'
+      && provenance.indexDigest === subject.candidateIdentity.indexDigest
+      && provenance.indexTreeDigest === subject.candidateIdentity.indexTreeDigest;
+  if (!identityMatches || snapshot.identityDigest !== subject.candidateIdentity.snapshotIdentityDigest) {
     throw new Error('Candidate normalization immutable snapshot provenance is invalid');
   }
   const targetPaths = new Set(execution.targetPaths);

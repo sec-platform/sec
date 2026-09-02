@@ -52,6 +52,15 @@ const physicalSubjectSchema = z.object({
       identityDigest: digestSchema,
       providerIdentityDigest: digestSchema,
       repositoryRootIdentityDigest: digestSchema
+    }).strict(),
+    z.object({
+      kind: z.literal('staged-index-observation'),
+      identityDigest: digestSchema,
+      indexDigest: digestSchema,
+      indexTreeDigest: digestSchema,
+      indexPhysicalIdentityDigest: digestSchema,
+      providerIdentityDigest: digestSchema,
+      repositoryRootIdentityDigest: digestSchema
     }).strict()
   ])
 }).strict();
