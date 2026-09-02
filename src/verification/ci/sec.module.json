@@ -12,8 +12,7 @@
         "CodexDevelopmentParseVerificationSessionArtifact",
         "buildCiContract",
         "buildCiFullGatePlan",
-        "buildCiQuickGatePlan",
-        "selectCiSlowTestClosure"
+        "buildCiQuickGatePlan"
       ]
     }
   ],

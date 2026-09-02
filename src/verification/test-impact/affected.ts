@@ -134,7 +134,7 @@ export type AffectedSelectionTrustBoundary =
 
 /**
  * Input to the classification. All fields are produced by the existing
- * affected-test plan pipeline (test-runner.ts + slow-test-selection.ts +
+ * affected-test plan pipeline (test-runner.ts + slow-risk-selection.ts +
  * affected-test-inventory.ts); this contract only consumes them.
  */
 export interface AffectedSelectionClassificationInput {
