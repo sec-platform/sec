@@ -9,6 +9,10 @@ import type {
   DocumentationAuthorityRecord,
   DocumentationAuthorityRegistry
 } from './authority.ts';
+import {
+  assertIssuedDocumentationSemanticGraph,
+  type DocumentationSemanticGraph
+} from './compiler.ts';
 
 export const DOCUMENTATION_MIGRATION_DESIGN_SCHEMA =
   'sec-documentation-migration-design' as const;
@@ -73,7 +77,8 @@ export const DOCUMENTATION_MIGRATION_FRONTIER_CODES = [
   'local-consumer-coverage-unknown',
   'external-consumer-unknown',
   'missing-current-source',
-  'unclassified-current-source'
+  'unclassified-current-source',
+  'source-semantic-frontier'
 ] as const;
 export type DocumentationMigrationFrontierCode =
   typeof DOCUMENTATION_MIGRATION_FRONTIER_CODES[number];
@@ -109,6 +114,24 @@ export interface DocumentationMigrationFrontier {
   readonly detail: string;
 }
 
+declare const DOCUMENTATION_MIGRATION_GENERATION_BINDING_BRAND: unique symbol;
+
+export interface DocumentationMigrationGenerationBinding {
+  readonly generationRef: string;
+  readonly providerRef: string;
+  readonly revisionOrSnapshotRef: string;
+  readonly treeOrContentDigest: Digest;
+  readonly registryDigest: Digest;
+  readonly corpusDigest: Digest;
+  readonly semanticGraphDigest: Digest;
+  readonly clauseDispositionDigest: Digest;
+  readonly sourceFrontierDigest: Digest;
+  readonly observationEpoch: string;
+  readonly [DOCUMENTATION_MIGRATION_GENERATION_BINDING_BRAND]: true;
+}
+
+const issuedDocumentationMigrationGenerationBindings = new WeakSet<object>();
+
 export interface DocumentationMigrationPreservationEntry {
   readonly currentId: string | null;
   readonly currentPath: string;
@@ -123,8 +146,12 @@ export interface DocumentationMigrationPreservationEntry {
 
 export interface DocumentationMigrationDesign {
   readonly schema: typeof DOCUMENTATION_MIGRATION_DESIGN_SCHEMA;
+  readonly currentGenerationBinding: DocumentationMigrationGenerationBinding;
   readonly currentRegistryDigest: Digest;
   readonly currentCorpusDigest: Digest;
+  readonly sourceSemanticGraphDigest: Digest;
+  readonly sourceClauseDispositionDigest: Digest;
+  readonly sourceFrontierDigest: Digest;
   readonly targetContractDigest: Digest;
   readonly preservation: readonly DocumentationMigrationPreservationEntry[];
   readonly frontier: readonly DocumentationMigrationFrontier[];
@@ -286,6 +313,104 @@ function corpusDigest(entries: readonly DocumentationMigrationCorpusEntry[]): Di
   }))) as Digest;
 }
 
+function clauseDispositionDigest(graph: DocumentationSemanticGraph): Digest {
+  return sha256(graph.clauses.map((clause) => ({
+    id: clause.id,
+    documentId: clause.documentId,
+    kind: clause.kind,
+    blocker: clause.blocker,
+    sourceDigest: clause.sourceDigest,
+    contentDigest: clause.contentDigest
+  }))) as Digest;
+}
+
+interface DocumentationMigrationSourceSemanticFrontier {
+  readonly documentRef: string;
+  readonly clauseRef: string;
+  readonly code: string;
+  readonly sourceDigest: Digest;
+  readonly graphDigest: Digest;
+  readonly resolution: 'unresolved';
+}
+
+function sourceSemanticFrontier(
+  graph: DocumentationSemanticGraph
+): readonly DocumentationMigrationSourceSemanticFrontier[] {
+  return Object.freeze(graph.clauses
+    .filter((clause) => clause.kind === 'untyped-observation' || clause.blocker !== null)
+    .map((clause) => Object.freeze({
+      documentRef: clause.documentId,
+      clauseRef: clause.id,
+      code: clause.kind === 'untyped-observation'
+        ? 'untyped-observation'
+        : 'temporary-safety-denial',
+      sourceDigest: clause.sourceDigest,
+      graphDigest: graph.semanticGraphDigest,
+      resolution: 'unresolved' as const
+    })));
+}
+
+function sourceFrontierDigest(
+  frontier: readonly DocumentationMigrationSourceSemanticFrontier[]
+): Digest {
+  return sha256(frontier) as Digest;
+}
+
+export function deriveDocumentationMigrationGenerationBinding(input: Readonly<{
+  readonly generationRef: string;
+  readonly providerRef: string;
+  readonly revisionOrSnapshotRef: string;
+  readonly observationEpoch: string;
+  readonly registry: DocumentationAuthorityRegistry;
+  readonly corpus: readonly DocumentationMigrationCorpusEntry[];
+  readonly sourceGraph: DocumentationSemanticGraph;
+}>): DocumentationMigrationGenerationBinding {
+  assertIssuedDocumentationSemanticGraph(input.sourceGraph);
+  const generationRef = token(input.generationRef, 'generationBinding.generationRef');
+  const providerRef = token(input.providerRef, 'generationBinding.providerRef');
+  const revisionOrSnapshotRef = token(
+    input.revisionOrSnapshotRef,
+    'generationBinding.revisionOrSnapshotRef'
+  );
+  const observationEpoch = token(input.observationEpoch, 'generationBinding.observationEpoch');
+  if (input.sourceGraph.trustedTree !== generationRef) {
+    fail('source graph is bound to a different generation reference.');
+  }
+  const registryDigest = sha256(input.registry) as Digest;
+  const normalizedCorpus = input.corpus.map(normalizeCorpusEntry);
+  assertSortedEntries(normalizedCorpus);
+  const corpusDigestValue = corpusDigest(normalizedCorpus);
+  const semanticGraphDigest = digest(
+    input.sourceGraph.semanticGraphDigest,
+    'generationBinding.semanticGraphDigest'
+  );
+  const clauseDispositionDigestValue = clauseDispositionDigest(input.sourceGraph);
+  const sourceFrontierDigestValue = sourceFrontierDigest(
+    sourceSemanticFrontier(input.sourceGraph)
+  );
+  const treeOrContentDigest = sha256({
+    registryDigest,
+    corpusDigest: corpusDigestValue,
+    semanticGraphDigest,
+    clauseDispositionDigest: clauseDispositionDigestValue,
+    sourceFrontierDigest: sourceFrontierDigestValue
+  }) as Digest;
+  const binding = deepFreeze({
+    generationRef,
+    providerRef,
+    revisionOrSnapshotRef,
+    treeOrContentDigest,
+    registryDigest,
+    corpusDigest: corpusDigestValue,
+    semanticGraphDigest,
+    clauseDispositionDigest: clauseDispositionDigestValue,
+    sourceFrontierDigest: sourceFrontierDigestValue,
+    observationEpoch
+  }) as DocumentationMigrationGenerationBinding;
+  issuedDocumentationMigrationGenerationBindings.add(binding);
+  return binding;
+}
+
 function frontierDigest(frontier: readonly DocumentationMigrationFrontier[]): Digest {
   return sha256(frontier) as Digest;
 }
@@ -296,21 +421,56 @@ function preservationDigest(preservation: readonly DocumentationMigrationPreserv
 
 export function compileDocumentationMigrationDesign(input: Readonly<{
   readonly registry: DocumentationAuthorityRegistry;
-  readonly registryDigest: Digest;
   readonly targetContractDigest: Digest;
   readonly corpus: readonly DocumentationMigrationCorpusEntry[];
+  readonly currentGenerationBinding: DocumentationMigrationGenerationBinding;
+  readonly sourceGraph: DocumentationSemanticGraph;
 }>): DocumentationMigrationDesign {
-  const registryDigest = digest(input.registryDigest, 'registryDigest');
+  assertIssuedDocumentationSemanticGraph(input.sourceGraph);
   const targetContractDigest = digest(input.targetContractDigest, 'targetContractDigest');
   const expectedRegistryDigest = sha256(input.registry) as Digest;
-  if (registryDigest !== expectedRegistryDigest) {
-    fail('registryDigest does not match the supplied registry content.');
-  }
   if (targetContractDigest !== DOCUMENTATION_MIGRATION_TARGET_CONTRACT_DIGEST) {
     fail('targetContractDigest does not match the canonical target contract.');
   }
   const corpus = input.corpus.map(normalizeCorpusEntry);
   assertSortedEntries(corpus);
+  const currentCorpusDigest = corpusDigest(corpus);
+  const currentGenerationBinding = input.currentGenerationBinding;
+  if (!issuedDocumentationMigrationGenerationBindings.has(currentGenerationBinding)) {
+    fail('current generation binding was not issued by the migration owner.');
+  }
+  if (currentGenerationBinding.generationRef !== input.sourceGraph.trustedTree) {
+    fail('current generation binding and source graph reference differ.');
+  }
+  if (currentGenerationBinding.registryDigest !== expectedRegistryDigest) {
+    fail('current generation binding does not match the supplied registry.');
+  }
+  if (currentGenerationBinding.corpusDigest !== currentCorpusDigest) {
+    fail('current generation binding does not match the supplied corpus.');
+  }
+  if (input.sourceGraph.registryDigest !== expectedRegistryDigest) {
+    fail('source graph does not match the supplied registry.');
+  }
+  const expectedClauseDispositionDigest = clauseDispositionDigest(input.sourceGraph);
+  const expectedSourceFrontierDigest = sourceFrontierDigest(
+    sourceSemanticFrontier(input.sourceGraph)
+  );
+  if (currentGenerationBinding.semanticGraphDigest !== input.sourceGraph.semanticGraphDigest
+      || currentGenerationBinding.clauseDispositionDigest !== expectedClauseDispositionDigest
+      || currentGenerationBinding.sourceFrontierDigest !== expectedSourceFrontierDigest) {
+    fail('current generation binding does not match the source semantic graph.');
+  }
+  const expectedTreeOrContentDigest = sha256({
+    registryDigest: expectedRegistryDigest,
+    corpusDigest: currentCorpusDigest,
+    semanticGraphDigest: input.sourceGraph.semanticGraphDigest,
+    clauseDispositionDigest: expectedClauseDispositionDigest,
+    sourceFrontierDigest: expectedSourceFrontierDigest
+  }) as Digest;
+  if (currentGenerationBinding.treeOrContentDigest !== expectedTreeOrContentDigest) {
+    fail('current generation binding content digest is stale.');
+  }
+  const registryDigest = expectedRegistryDigest;
 
   const registryById = new Map<string, DocumentationAuthorityRecord>();
   const registryPaths = new Set<string>();
@@ -323,6 +483,16 @@ export function compileDocumentationMigrationDesign(input: Readonly<{
   const corpusByPath = new Map(corpus.map((entry) => [entry.path, entry] as const));
   const frontier: DocumentationMigrationFrontier[] = [];
   const preservation: DocumentationMigrationPreservationEntry[] = [];
+  const sourceFrontierEntries = sourceSemanticFrontier(input.sourceGraph);
+  for (const blocker of sourceFrontierEntries) {
+    frontier.push({
+      code: 'source-semantic-frontier',
+      subjectRef: `${blocker.documentRef}:${blocker.clauseRef}`,
+      ownerRef: null,
+      consumerRefsDigest: null,
+      detail: 'source semantic graph contains an unresolved or non-adopted clause frontier.'
+    });
+  }
 
   for (const record of input.registry.documents) {
     const entry = corpusByPath.get(record.path);
@@ -346,6 +516,9 @@ export function compileDocumentationMigrationDesign(input: Readonly<{
 
     const target = targetForRecord(record);
     const codes: DocumentationMigrationFrontierCode[] = [];
+    if (sourceFrontierEntries.some(({ documentRef }) => documentRef === record.id)) {
+      codes.push('source-semantic-frontier');
+    }
     if (current.status === 'missing') {
       codes.push('missing-current-source');
       frontier.push({
@@ -543,12 +716,15 @@ export function compileDocumentationMigrationDesign(input: Readonly<{
       `${right.subjectRef}:${right.code}`
     ))
   );
-  const currentCorpusDigest = corpusDigest(corpus);
   const status = normalizedFrontier.length === 0 ? 'ready' : 'blocked';
   const designDigest = sha256({
     schema: DOCUMENTATION_MIGRATION_DESIGN_SCHEMA,
+    currentGenerationBinding,
     currentRegistryDigest: registryDigest,
     currentCorpusDigest,
+    sourceSemanticGraphDigest: input.sourceGraph.semanticGraphDigest,
+    sourceClauseDispositionDigest: expectedClauseDispositionDigest,
+    sourceFrontierDigest: expectedSourceFrontierDigest,
     targetContractDigest,
     preservationDigest: preservationDigest(normalizedPreservation),
     frontierDigest: frontierDigest(normalizedFrontier),
@@ -556,8 +732,12 @@ export function compileDocumentationMigrationDesign(input: Readonly<{
   }) as Digest;
   return deepFreeze({
     schema: DOCUMENTATION_MIGRATION_DESIGN_SCHEMA,
+    currentGenerationBinding,
     currentRegistryDigest: registryDigest,
     currentCorpusDigest,
+    sourceSemanticGraphDigest: input.sourceGraph.semanticGraphDigest,
+    sourceClauseDispositionDigest: expectedClauseDispositionDigest,
+    sourceFrontierDigest: expectedSourceFrontierDigest,
     targetContractDigest,
     preservation: normalizedPreservation,
     frontier: normalizedFrontier,

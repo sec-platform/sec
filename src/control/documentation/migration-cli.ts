@@ -14,7 +14,12 @@ import {
   type DocumentationAuthorityRegistry
 } from './authority.ts';
 import {
+  compileDocumentationSemanticGraph,
+  unavailableDocumentationAdmissionProjection
+} from './compiler.ts';
+import {
   compileDocumentationMigrationDesign,
+  deriveDocumentationMigrationGenerationBinding,
   DOCUMENTATION_MIGRATION_TARGET_CONTRACT_DIGEST,
   encodeDocumentationMigrationDesign,
   type DocumentationMigrationCorpusEntry,
@@ -211,11 +216,16 @@ function localConsumerRefs(
     .sort(compareCodeUnits));
 }
 
-export async function collectDocumentationMigrationCorpus(input: Readonly<{
+interface DocumentationMigrationCorpusCensus {
+  readonly corpus: readonly DocumentationMigrationCorpusEntry[];
+  readonly trackedFiles: ReadonlyMap<string, Uint8Array>;
+}
+
+async function collectDocumentationMigrationCorpusWithFiles(input: Readonly<{
   readonly repositoryRoot: string;
   readonly registry: DocumentationAuthorityRegistry;
   readonly revision: string;
-}>): Promise<readonly DocumentationMigrationCorpusEntry[]> {
+}>): Promise<DocumentationMigrationCorpusCensus> {
   const repositoryRoot = path.resolve(input.repositoryRoot);
   const paths = listTrackedDocumentationPaths(repositoryRoot, input.revision);
   const trackedFiles = await readTrackedFiles(repositoryRoot, input.revision, paths);
@@ -241,7 +251,15 @@ export async function collectDocumentationMigrationCorpus(input: Readonly<{
       externalConsumerStatus: 'unknown'
     });
   });
-  return Object.freeze(corpus);
+  return Object.freeze({ corpus: Object.freeze(corpus), trackedFiles });
+}
+
+export async function collectDocumentationMigrationCorpus(input: Readonly<{
+  readonly repositoryRoot: string;
+  readonly registry: DocumentationAuthorityRegistry;
+  readonly revision: string;
+}>): Promise<readonly DocumentationMigrationCorpusEntry[]> {
+  return (await collectDocumentationMigrationCorpusWithFiles(input)).corpus;
 }
 
 export interface DocumentationMigrationPlanSnapshot {
@@ -258,12 +276,43 @@ export async function compileCurrentRevisionDocumentationMigrationPlan(
   const registryBytes = (await registrySource).get('docs/authority.json');
   if (registryBytes === undefined) fail('current revision does not contain docs/authority.json');
   const registry = parseDocumentationAuthorityRegistry(Buffer.from(registryBytes).toString('utf8'));
-  const corpus = await collectDocumentationMigrationCorpus({ repositoryRoot: root, registry, revision });
+  const census = await collectDocumentationMigrationCorpusWithFiles({
+    repositoryRoot: root,
+    registry,
+    revision
+  });
+  const sourceRecords = registry.documents
+    .filter((record) => (
+      (record.kind === 'authority' || record.kind === 'corpus-contract')
+      && record.lifecycle === 'stable'
+    ))
+    .sort((left, right) => compareCodeUnits(left.id, right.id));
+  const sources = sourceRecords.map((record) => {
+    const bytes = census.trackedFiles.get(record.path);
+    if (bytes === undefined) fail(`source graph blob is missing for ${record.path}`);
+    return { documentId: record.id, source: Buffer.from(bytes).toString('utf8') };
+  });
+  const sourceGraph = compileDocumentationSemanticGraph({
+    trustedTree: revision,
+    registry,
+    sources,
+    admission: unavailableDocumentationAdmissionProjection(revision)
+  });
+  const currentGenerationBinding = deriveDocumentationMigrationGenerationBinding({
+    generationRef: revision,
+    providerRef: 'git',
+    revisionOrSnapshotRef: revision,
+    observationEpoch: revision,
+    registry,
+    corpus: census.corpus,
+    sourceGraph
+  });
   const design = compileDocumentationMigrationDesign({
     registry,
-    registryDigest: sha256(registry) as `sha256:${string}`,
     targetContractDigest: DOCUMENTATION_MIGRATION_TARGET_CONTRACT_DIGEST,
-    corpus
+    corpus: census.corpus,
+    currentGenerationBinding,
+    sourceGraph
   });
   return Object.freeze({ sourceRevision: revision, design });
 }
@@ -281,6 +330,10 @@ function compactResult(snapshot: DocumentationMigrationPlanSnapshot): Record<str
     status: design.status,
     currentRegistryDigest: design.currentRegistryDigest,
     currentCorpusDigest: design.currentCorpusDigest,
+    sourceSemanticGraphDigest: design.sourceSemanticGraphDigest,
+    sourceClauseDispositionDigest: design.sourceClauseDispositionDigest,
+    sourceFrontierDigest: design.sourceFrontierDigest,
+    currentGenerationBinding: design.currentGenerationBinding,
     targetContractDigest: design.targetContractDigest,
     designDigest: design.designDigest,
     preservationCount: design.preservation.length,

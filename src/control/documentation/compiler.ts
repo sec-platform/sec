@@ -38,6 +38,7 @@ export interface DocumentationAdmissionFactInput {
 }
 
 declare const DOCUMENTATION_ADMISSION_PROJECTION_BRAND: unique symbol;
+declare const DOCUMENTATION_SEMANTIC_GRAPH_BRAND: unique symbol;
 
 export type DocumentationAdmissionProjection = Readonly<{
   readonly status: 'complete' | 'unavailable';
@@ -86,6 +87,25 @@ export interface DocumentationSemanticGraph {
   readonly admissionStatus: DocumentationAdmissionProjection['status'];
   readonly admissionFacts: readonly DocumentationAdmissionFact[];
   readonly blockers: readonly string[];
+  readonly [DOCUMENTATION_SEMANTIC_GRAPH_BRAND]: true;
+}
+
+const issuedDocumentationSemanticGraphs = new WeakSet<object>();
+
+function issueDocumentationSemanticGraph(
+  graph: Omit<DocumentationSemanticGraph, typeof DOCUMENTATION_SEMANTIC_GRAPH_BRAND>
+): DocumentationSemanticGraph {
+  const issued = deepFreeze(graph) as DocumentationSemanticGraph;
+  issuedDocumentationSemanticGraphs.add(issued);
+  return issued;
+}
+
+export function assertIssuedDocumentationSemanticGraph(
+  graph: DocumentationSemanticGraph
+): void {
+  if (!issuedDocumentationSemanticGraphs.has(graph)) {
+    fail('semantic graph was not issued by the documentation compiler.');
+  }
 }
 
 export interface DocumentationViewSelection {
@@ -453,7 +473,7 @@ export function compileDocumentationSemanticGraph(
     admissionFacts,
     blockers
   };
-  return deepFreeze({
+  return issueDocumentationSemanticGraph({
     ...graphWithoutDigest,
     semanticGraphDigest: sha256(graphWithoutDigest) as `sha256:${string}`
   });
