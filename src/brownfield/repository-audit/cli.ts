@@ -553,6 +553,12 @@ function assertRepositoryAuditCliProjectionSource(
       || !Array.isArray(architecture.reciprocalPairs)
       || !Array.isArray(architecture.strongComponents)
       || !Array.isArray(architecture.violations)
+      || architecture.responsibilityAdmission === null
+      || typeof architecture.responsibilityAdmission !== 'object'
+      || !/^sha256:[0-9a-f]{64}$/u.test(architecture.responsibilityAdmission.admissionDigest)
+      || !Array.isArray(architecture.responsibilityAdmission.responsibilityFrontier)
+      || !Array.isArray(architecture.responsibilityAdmission.proposals)
+      || !Array.isArray(architecture.responsibilityAdmission.violations)
       || declarationTopology === null || typeof declarationTopology !== 'object'
       || !/^sha256:[0-9a-f]{64}$/u.test(declarationTopology.topologyDigest)
       || !Array.isArray(declarationTopology.declarations)

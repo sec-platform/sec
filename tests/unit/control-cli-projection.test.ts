@@ -26,6 +26,7 @@ import {
   type SecRepositoryModuleArchitectureProjection,
   type SecRepositoryModuleMembership
 } from '../../src/system-architecture/repository-modules/contract.ts';
+import { compileSecRepositoryModulePlacementAdmission } from '../../src/system-architecture/repository-modules/placement.ts';
 
 function declarationTopologyFixture() {
   const descriptorPath = 'src/projection-owner/sec.module.json';
@@ -63,9 +64,7 @@ function declarationTopologyFixture() {
   );
 }
 
-function architectureProjectionFixture(
-  topology: 'acyclic' | 'cyclic'
-): SecRepositoryModuleArchitectureProjection {
+function architectureProjectionFixture(topology: 'acyclic' | 'cyclic') {
   const contract = parseSecModuleDescriptor(
     { importGraph: 'runtime', externalEntrypoints: [] },
     'src/contract-owner/sec.module.json'
@@ -97,18 +96,31 @@ function architectureProjectionFixture(
         : 'export const runtime = true;'
     ]
   ]);
-  const structural = compileSecRepositoryModuleTopologyProjection(
-    compileSecRepositoryModuleGraph({
-      files: [...sources.keys()],
-      readSource: (sourcePath) => sources.get(sourcePath) ?? null
-    }),
-    membership
-  );
+  const graph = compileSecRepositoryModuleGraph({
+    files: [...sources.keys()],
+    readSource: (sourcePath) => sources.get(sourcePath) ?? null
+  });
+  const structural = compileSecRepositoryModuleTopologyProjection(graph, membership);
+  const responsibilityAdmission = compileSecRepositoryModulePlacementAdmission({
+    graph,
+    membership,
+    facts: Object.freeze({
+      sourceRevision: rawSha256('repository-module-source'),
+      semanticRevision: rawSha256('repository-module-semantics'),
+      files: Object.freeze([]),
+      declarations: Object.freeze([]),
+      references: Object.freeze([]),
+      capabilities: Object.freeze([]),
+      entrypoints: Object.freeze([]),
+      entrypointClosures: Object.freeze([])
+    })
+  });
   return Object.freeze({
     ...structural,
     aggregateFacadePaths: Object.freeze([]),
     unresolvedAggregateSurfacePaths: Object.freeze([]),
-    nodeResponsibilities: Object.freeze([])
+    nodeResponsibilities: Object.freeze([]),
+    responsibilityAdmission
   });
 }
 
@@ -135,10 +147,7 @@ describe('bounded control-plane CLI projections', () => {
 
   test('repository audit projects decision facts without path-scale report bodies', () => {
     const report = {
-      architecture: {
-        ownerEdges: [], strongComponents: [], reciprocalPairs: [], feedbackCuts: [],
-        aggregateFacadePaths: [], unresolvedAggregateSurfacePaths: [], nodeResponsibilities: [], violations: []
-      },
+      architecture: architectureProjectionFixture('acyclic'),
       declarationTopology: declarationTopologyFixture(),
       revision: {
         defaultHead: 'a'.repeat(40), defaultRef: 'main', defaultRefInput: 'main',
@@ -169,6 +178,12 @@ describe('bounded control-plane CLI projections', () => {
     expect(() => projectRepositoryAuditCli(
       staleReport as unknown as RepositoryAuditReport
     )).toThrow(RepositoryAuditCliProjectionContractError);
+
+    const { responsibilityAdmission: _responsibilityAdmission, ...incompleteArchitecture } = report.architecture;
+    expect(() => projectRepositoryAuditCli({
+      ...report,
+      architecture: incompleteArchitecture
+    } as unknown as RepositoryAuditReport)).toThrow(RepositoryAuditCliProjectionContractError);
   });
 
   test('work selection keeps authority identity and the actionable decision only', () => {
