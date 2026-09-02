@@ -4131,6 +4131,25 @@ export function retainNoFollowOrdinaryFile(
         retainedParent.assertCurrent();
       };
       assertCurrent();
+      // This handle was opened with read sharing only. Windows therefore
+      // rejects every concurrent writer and delete-capable handle for the
+      // complete retained lifetime. Prove executable content once through
+      // that exact handle; later process fences still revalidate the handle,
+      // metadata, lexical edge and retained ancestors, but do not repeatedly
+      // stream the same immutable executable bytes on the event-loop thread.
+      const retainedExecutableDigest = role === 'executable'
+        ? (() => {
+            windowsRewindRetainedFile(handle!, label);
+            const observed = digestWindowsRetainedFile(
+              handle!,
+              absolutePath,
+              physical,
+              label
+            );
+            assertCurrent();
+            return observed;
+          })()
+        : null;
       const capability = Object.freeze({
         [RETAINED_NO_FOLLOW_CAPABILITY_BRAND]: role,
         path: absolutePath,
@@ -4156,6 +4175,7 @@ export function retainNoFollowOrdinaryFile(
         },
         digest: () => {
           assertCurrent();
+          if (retainedExecutableDigest !== null) return retainedExecutableDigest;
           windowsRewindRetainedFile(handle!, label);
           const result = digestWindowsRetainedFile(handle!, absolutePath, physical, label);
           assertCurrent();
