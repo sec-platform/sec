@@ -30,6 +30,10 @@ const ensureStartedAuthority = Object.freeze({
   censusRuntimeGenerations: () => issueRuntimeGenerationCensusReceiptForTests({
     providerIdentityDigest: residueProviderIdentityDigest,
     states: ['active', 'absent']
+  }),
+  launch: async () => Object.freeze({
+    ...available,
+    physicalDisposition: 'settled' as const
   })
 });
 
@@ -97,6 +101,7 @@ describe('Docker daemon lifecycle algorithm', () => {
 
   test('ensure-started issues at most one official start and no destructive command', async () => {
     const lifecycles: string[] = [];
+    let launches = 0;
     const commands: string[][] = [];
     let observations = 0;
     let lockEntries = 0;
@@ -107,6 +112,10 @@ describe('Docker daemon lifecycle algorithm', () => {
       deadlineAtUnixMs: Date.now() + 10_000,
       endpointHost,
       platform: 'win32',
+      launch: async () => {
+        launches += 1;
+        return { ...available, physicalDisposition: 'settled' };
+      },
       withLauncherLock: async (operation) => {
         lockEntries += 1;
         return await operation();
@@ -123,10 +132,10 @@ describe('Docker daemon lifecycle algorithm', () => {
     });
     expect(result).toBe(available);
     expect(lockEntries).toBe(1);
-    expect(lifecycles).toEqual(['observe', 'observe', 'start', 'observe']);
-    expect(lifecycles.filter((value) => value === 'start')).toHaveLength(1);
+    expect(lifecycles).toEqual(['observe', 'observe', 'observe']);
+    expect(launches).toBe(1);
     expect(lifecycles.some((value) => value.includes('stop'))).toBe(false);
-    expect(commands[2]!.slice(0, 3)).toEqual(['desktop', 'start', '--timeout']);
+    expect(commands).toHaveLength(3);
   });
 
   test('ensure-started returns an initial ready observation without lock or start', async () => {
@@ -206,19 +215,23 @@ describe('Docker daemon lifecycle algorithm', () => {
         deadlineAtUnixMs: Date.now() + 10_000,
         endpointHost,
         platform: 'win32',
+        launch: async () => ({
+          code: 1,
+          stdout: '',
+          stderr: 'failed',
+          physicalDisposition: 'settled'
+        }),
         withLauncherLock: async (operation) => await operation(),
         run: async ({ lifecycle }): Promise<DockerDaemonCommandResult> => {
           lifecycles.push(lifecycle);
-          return lifecycle === 'start'
-            ? { code: 1, stdout: '', stderr: 'failed' }
-            : unavailable;
+          return unavailable;
         }
       });
       throw new Error('expected start blocker');
     } catch (error) {
       expectReason(error, 'desktop-start-failed');
     }
-    expect(lifecycles).toEqual(['observe', 'observe', 'start']);
+    expect(lifecycles).toEqual(['observe', 'observe']);
   });
 
   test('pre-start generation census blocks typed residue and unknown states before launcher spawn', async () => {
@@ -254,7 +267,7 @@ describe('Docker daemon lifecycle algorithm', () => {
     }
   });
 
-  test('provider launcher text alone cannot mint a launcher-path terminal', async () => {
+  test('direct launcher output is presentation-only and final daemon readback is authoritative', async () => {
     const lifecycles: string[] = [];
     let observations = 0;
     const result = await ensureDockerDaemonStartedWithCommand({
@@ -264,20 +277,56 @@ describe('Docker daemon lifecycle algorithm', () => {
       deadlineAtUnixMs: Date.now() + 10_000,
       endpointHost,
       platform: 'win32',
+      launch: async () => ({
+        code: 0,
+        stdout: '',
+        stderr: 'Error: acquiring launcher lock: open : The system cannot find the file specified.',
+        physicalDisposition: 'settled'
+      }),
       withLauncherLock: async (operation) => await operation(),
       run: async ({ lifecycle }) => {
         lifecycles.push(lifecycle);
-        if (lifecycle === 'start') return {
-          code: 0,
-          stdout: '',
-          stderr: 'Error: acquiring launcher lock: open : The system cannot find the file specified.'
-        };
         observations += 1;
         return observations < 3 ? unavailable : available;
       }
     });
     expect(result).toBe(available);
-    expect(lifecycles).toEqual(['observe', 'observe', 'start', 'observe']);
+    expect(lifecycles).toEqual(['observe', 'observe', 'observe']);
+  });
+
+  test('lost launcher handle is typed only after one handle-independent final readback', async () => {
+    let observations = 0;
+    let launches = 0;
+    try {
+      await ensureDockerDaemonStartedWithCommand({
+        ...ensureStartedAuthority,
+        commandDeadlineAtUnixMs,
+        cwd: process.cwd(),
+        deadlineAtUnixMs: Date.now() + 10_000,
+        endpointHost,
+        platform: 'win32',
+        launch: async () => {
+          launches += 1;
+          return {
+            code: 1,
+            stdout: '',
+            stderr: 'launcher root handle was lost',
+            physicalDisposition: 'unknown'
+          };
+        },
+        withLauncherLock: async (operation) => await operation(),
+        run: async () => {
+          observations += 1;
+          return unavailable;
+        }
+      });
+      throw new Error('expected lost-handle blocker');
+    } catch (error) {
+      expectReason(error, 'desktop-launcher-settlement-unknown');
+      expect((error as DockerDaemonAvailabilityFailure).phase).toBe('final-readback');
+    }
+    expect(launches).toBe(1);
+    expect(observations).toBe(3);
   });
 
   test('consumes a physical-owner runtime endpoint residue receipt', async () => {
@@ -291,14 +340,14 @@ describe('Docker daemon lifecycle algorithm', () => {
           endpointHost,
           observeRuntimeEndpointResidue: observe,
           platform: 'win32',
+          launch: async () => ({
+            code: 1,
+            stdout: '',
+            stderr: `remove ${endpointPath}: provider presentation`,
+            physicalDisposition: 'settled'
+          }),
           withLauncherLock: async (operation) => await operation(),
-          run: async ({ lifecycle }) => lifecycle === 'start'
-            ? {
-              code: 1,
-              stdout: '',
-              stderr: `remove ${endpointPath}: provider presentation`
-            }
-            : unavailable
+          run: async () => unavailable
         });
         throw new Error('expected runtime endpoint residue blocker');
       } catch (error) {
@@ -318,13 +367,14 @@ describe('Docker daemon lifecycle algorithm', () => {
       endpointHost,
       observeRuntimeEndpointResidue: () => null,
       platform: 'win32',
+      launch: async () => ({
+        code: 0,
+        stdout: '',
+        stderr: 'arbitrary.endpoint Win32 1920; restart Windows is required',
+        physicalDisposition: 'settled'
+      }),
       withLauncherLock: async (operation) => await operation(),
       run: async ({ lifecycle }) => {
-        if (lifecycle === 'start') return {
-          code: 0,
-          stdout: '',
-          stderr: 'arbitrary.endpoint Win32 1920; restart Windows is required'
-        };
         observations += 1;
         return observations < 3 ? unavailable : available;
       }

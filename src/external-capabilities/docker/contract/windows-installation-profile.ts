@@ -25,6 +25,13 @@ const profileSchema = z.object({
     directorySegments: z.array(segment).min(1).max(16),
     executableName: z.literal('docker.exe'),
     directoryChildDescriptor: childDescriptor,
+    desktopLauncher: z.object({
+      directorySegments: z.array(segment).min(1).max(16),
+      executableName: z.literal('Docker Desktop.exe'),
+      directoryChildDescriptor: childDescriptor,
+      executableChildDescriptor: childDescriptor,
+      workingDirectoryChildDescriptor: childDescriptor
+    }).strict(),
     cliPluginDirectorySegments: z.array(segment).min(1).max(16),
     cliPluginDirectoryChildDescriptor: childDescriptor,
     cliPlugins: z.array(z.object({
@@ -47,6 +54,9 @@ const profileSchema = z.object({
 }).strict().superRefine((value, context) => {
   const descriptors = [
     value.installation.directoryChildDescriptor,
+    value.installation.desktopLauncher.directoryChildDescriptor,
+    value.installation.desktopLauncher.executableChildDescriptor,
+    value.installation.desktopLauncher.workingDirectoryChildDescriptor,
     value.installation.cliPluginDirectoryChildDescriptor,
     ...value.installation.cliPlugins.map(({ childDescriptor: descriptor }) => descriptor),
     value.environment.profile.childDescriptor,

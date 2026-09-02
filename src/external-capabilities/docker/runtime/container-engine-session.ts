@@ -411,7 +411,15 @@ function assertPositiveBound(value: number, label: string): number {
 }
 
 export async function openContainerEngineSession(
-  input: OpenContainerEngineSessionInput
+  input: OpenContainerEngineSessionInput & Readonly<{
+    beforeDesktopLaunch?: () => Promise<void> | void;
+    observeDesktopLaunchSettlement?: (input: Readonly<{
+      code: number;
+      stdout: string;
+      stderr: string;
+      physicalDisposition: 'settled' | 'unknown';
+    }>) => Promise<void> | void;
+  }>
 ): Promise<ContainerEngineSession> {
   const cwd = path.resolve(input.cwd);
   if (!path.isAbsolute(input.cwd) || cwd !== input.cwd) fail('cwd must be canonical and absolute');
@@ -441,7 +449,17 @@ export async function openContainerEngineSession(
         {
           label: 'executable-dispose',
           settle: () => retained.boundary.executable.dispose()
-        }
+        },
+        ...(retained.launcherBoundary === undefined ? [] : [
+          {
+            label: 'launcher-working-directory-dispose',
+            settle: () => retained.launcherBoundary!.workingDirectory.dispose()
+          },
+          {
+            label: 'launcher-executable-dispose',
+            settle: () => retained.launcherBoundary!.executable.dispose()
+          }
+        ])
       ]
     });
   }
@@ -663,9 +681,11 @@ export async function openContainerEngineSession(
 
   try {
     if (process.platform === 'win32') {
+      const launcherBoundary = retained.launcherBoundary
+        ?? fail('retained Docker Desktop launcher is unavailable');
       runtimeState = await dockerDesktopLifecycleEnvironment();
       independentProvider = issueIndependentProviderProcessCapability({
-        boundary: retained.boundary,
+        boundary: launcherBoundary,
         operation: input.operation
       });
       const providerPhysicalIdentityDigest = independentProvider.providerPhysicalIdentityDigest;
@@ -745,11 +765,59 @@ export async function openContainerEngineSession(
       const available = input.availability === 'ensure-started'
         ? await ensureDockerDaemonStartedWithCommand({
           ...daemonInput,
+          ...(input.beforeDesktopLaunch === undefined ? {} : {
+            beforeLaunch: input.beforeDesktopLaunch
+          }),
           censusRuntimeGenerations: () => runtimeState!.censusRuntimeGenerations(
             independentProvider!.providerPhysicalIdentityDigest
           ),
           providerAuthorityIdentityDigest: independentProvider!.providerPhysicalIdentityDigest,
           providerIdentityDigest: admissionProviderIdentityDigest,
+          launch: async ({ deadlineAtUnixMs }) => {
+            const boundary = retained.launcherBoundary
+              ?? fail('retained Docker Desktop launcher is unavailable');
+            const timeoutMs = Math.min(
+              deadlineAtUnixMs,
+              processSession.deadlineAtUnixMs - 1
+            ) - Date.now();
+            if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) {
+              fail('Docker Desktop launcher deadline is exhausted');
+            }
+            active += 1;
+            try {
+              const { result } = await processSession.run(boundary, [], {
+                env: environment,
+                envMode: 'replace',
+                independentProvider: independentProvider!,
+                maxStdoutBytes: 1024 * 1024,
+                maxStderrBytes: 1024 * 1024
+              });
+              return Object.freeze({
+                code: result.code,
+                stdout: Buffer.from(result.stdout).toString('utf8'),
+                stderr: Buffer.from(result.stderr).toString('utf8'),
+                physicalDisposition: 'settled' as const
+              });
+            } catch (error) {
+              if (error instanceof RetainedCommandTransportError
+                  && error.outcome.started
+                  && (error.outcome.status === 'timed-out'
+                    || error.outcome.status === 'termination-unproven')) {
+                return Object.freeze({
+                  code: error.outcome.exitCode ?? 1,
+                  stdout: '',
+                  stderr: error.message,
+                  physicalDisposition: 'unknown' as const
+                });
+              }
+              throw error;
+            } finally {
+              active -= 1;
+            }
+          },
+          ...(input.observeDesktopLaunchSettlement === undefined ? {} : {
+            observeLaunchSettlement: input.observeDesktopLaunchSettlement
+          }),
           withLauncherLock: async (operation) => await withDockerDesktopLauncherLock(
             {
               endpointHost,
@@ -897,6 +965,16 @@ export async function openContainerEngineSession(
                 label: 'working-directory-readback',
                 settle: () => retained.boundary.workingDirectory.assertCurrent()
               },
+              ...(retained.launcherBoundary === undefined ? [] : [
+                {
+                  label: 'launcher-executable-readback',
+                  settle: () => retained.launcherBoundary!.executable.assertCurrent()
+                },
+                {
+                  label: 'launcher-working-directory-readback',
+                  settle: () => retained.launcherBoundary!.workingDirectory.assertCurrent()
+                }
+              ]),
               ...retained.retainedOwners.map((owner, index) => ({
                 label: `provider-owner-readback-${index}`,
                 settle: () => owner.assertCurrent()
@@ -919,7 +997,17 @@ export async function openContainerEngineSession(
               {
                 label: 'executable-dispose',
                 settle: () => retained.boundary.executable.dispose()
-              }
+              },
+              ...(retained.launcherBoundary === undefined ? [] : [
+                {
+                  label: 'launcher-working-directory-dispose',
+                  settle: () => retained.launcherBoundary!.workingDirectory.dispose()
+                },
+                {
+                  label: 'launcher-executable-dispose',
+                  settle: () => retained.launcherBoundary!.executable.dispose()
+                }
+              ])
             ]
           });
         } catch (error) {

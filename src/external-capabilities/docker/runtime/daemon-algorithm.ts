@@ -27,6 +27,12 @@ export type DockerDaemonCommand = (input: Readonly<{
   lifecycle: 'observe' | 'start';
 }>) => Promise<DockerDaemonCommandResult>;
 
+export type DockerDaemonLauncher = (input: Readonly<{
+  readonly deadlineAtUnixMs: number;
+}>) => Promise<DockerDaemonCommandResult & Readonly<{
+  readonly physicalDisposition: 'settled' | 'unknown';
+}>>;
+
 export interface DockerDaemonObservationInput {
   readonly commandDeadlineAtUnixMs: () => number;
   readonly cwd: string;
@@ -46,10 +52,15 @@ export interface DockerDaemonObservationInput {
 export type DockerDaemonLauncherLock = <T>(operation: () => Promise<T>) => Promise<T | null>;
 
 export interface DockerDaemonEnsureStartedInput extends DockerDaemonObservationInput {
+  readonly beforeLaunch?: () => Promise<void> | void;
   readonly censusRuntimeGenerations: () => RuntimeGenerationCensusReceipt;
   readonly platform?: NodeJS.Platform;
   readonly providerAuthorityIdentityDigest: `sha256:${string}`;
   readonly providerIdentityDigest: `sha256:${string}`;
+  readonly launch: DockerDaemonLauncher;
+  readonly observeLaunchSettlement?: (
+    result: Awaited<ReturnType<DockerDaemonLauncher>>
+  ) => Promise<void> | void;
   readonly withLauncherLock: DockerDaemonLauncherLock;
 }
 
@@ -194,9 +205,21 @@ export async function ensureDockerDaemonStartedWithCommand(
     if (!Number.isSafeInteger(commandRemainingMs) || commandRemainingMs < 1) {
       fail(input.endpointHost, 'deadline-exhausted', 'desktop-start');
     }
-    const start = await run(input, Object.freeze([
-      'desktop', 'start', '--timeout', String(Math.max(1, Math.floor(commandRemainingMs / 1_000)))
-    ]), 'start', 'desktop-start-failed', 'desktop-start');
+    let start: Awaited<ReturnType<DockerDaemonLauncher>>;
+    try {
+      await input.beforeLaunch?.();
+      start = await input.launch({
+        deadlineAtUnixMs: Date.now() + commandRemainingMs
+      });
+      await input.observeLaunchSettlement?.(start);
+    } catch (error) {
+      if (error instanceof DockerDaemonAvailabilityFailure) throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (Date.now() >= input.deadlineAtUnixMs) {
+        fail(input.endpointHost, 'deadline-exhausted', 'desktop-start', message);
+      }
+      fail(input.endpointHost, 'desktop-start-failed', 'desktop-start', message);
+    }
     const providerEvidence = `${start.stdout}\n${start.stderr}`;
     let residue: RuntimeEndpointResidueReceipt | null;
     try {
@@ -221,7 +244,7 @@ export async function ensureDockerDaemonStartedWithCommand(
         providerEvidence
       );
     }
-    if (start.code !== 0) {
+    if (start.code !== 0 && start.physicalDisposition === 'settled') {
       fail(input.endpointHost, 'desktop-start-failed', 'desktop-start', providerEvidence);
     }
     const finalReadback = await run(
@@ -234,7 +257,9 @@ export async function ensureDockerDaemonStartedWithCommand(
     if (finalReadback.code !== 0) {
       fail(
         input.endpointHost,
-        'endpoint-unavailable',
+        start.physicalDisposition === 'unknown'
+          ? 'desktop-launcher-settlement-unknown'
+          : 'endpoint-unavailable',
         'final-readback',
         finalReadback.stderr
       );

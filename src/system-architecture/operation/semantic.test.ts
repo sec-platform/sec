@@ -95,6 +95,27 @@ function multiPlan(
   });
 }
 
+function recoveryOperation(authority = 'repository-recovery-authority', epoch = 'resume-epoch') {
+  return bindMultiPlan(multiPlan(issueSecSemanticOperationAttemptContext({
+    authorityGrantDigest: digest(authority),
+    runIdDigest: digest('recovery-run'),
+    resumeEpochDigest: digest(epoch)
+  })));
+}
+
+function predecessorReference(operation: SecBoundSemanticOperation) {
+  return Object.freeze({
+    operationIdentityDigest: operation.plan.identity.identityDigest,
+    executionPlanDigest: operation.plan.execution.executionPlanDigest,
+    bindingSetIdentityDigest: operation.bindingSetIdentityDigest,
+    boundAttemptDigest: operation.boundAttemptDigest,
+    attemptNonceDigest: operation.plan.attempt.attemptNonceDigest,
+    authorityGrantDigest: operation.plan.attempt.authorityGrantDigest,
+    resumeEpochDigest: operation.plan.attempt.resumeEpochDigest,
+    deadlineAtUnixMs: operation.plan.attempt.deadlineAtUnixMs
+  });
+}
+
 function bindMultiPlan(
   operationPlan = multiPlan(),
   providerSuffix = 'canonical'
@@ -402,8 +423,10 @@ test('provider settlement set rejects missing duplicate extra foreign attempts a
 });
 
 test('recovered readback joins owner terminal without manufacturing provider settlement', () => {
-  const operation = bindMultiPlan();
+  const predecessor = bindMultiPlan();
+  const operation = recoveryOperation();
   const recovered = issueSecRecoveredDomainReadbackReceipt(operation, {
+    predecessor: predecessorReference(predecessor),
     durableObservationDigest: digest('durable-attempt-observation'),
     readbackContractDigest: digest('repository-ref-readback-contract'),
     readbackReferenceDigest: digest('recovered-exact-ref-readback'),
@@ -446,46 +469,83 @@ test('retry correlation is recovered-only and cannot authorize a foreign operati
     currentPhysicalEpochDigest: digest('physical-epoch'),
     disposition: 'not-applied'
   });
-  expect(() => issueSecRecoveredRetryAdmission(normal as never)).toThrow(
+  expect(() => issueSecRecoveredRetryAdmission(operation, normal as never)).toThrow(
     'conclusive recovered not-applied'
   );
 
   for (const disposition of ['applied', 'unknown'] as const) {
-    const inconclusive = issueSecRecoveredDomainReadbackReceipt(operation, {
+    const recovery = recoveryOperation(`recovery-${disposition}`, `epoch-${disposition}`);
+    const inconclusive = issueSecRecoveredDomainReadbackReceipt(recovery, {
+      predecessor: predecessorReference(operation),
       durableObservationDigest: digest(`durable-${disposition}`),
       readbackContractDigest: digest('readback-contract'),
       readbackReferenceDigest: digest(`readback-${disposition}`),
       currentPhysicalEpochDigest: digest('physical-epoch'),
       disposition
     });
-    expect(() => issueSecRecoveredRetryAdmission(inconclusive)).toThrow(
+    expect(() => issueSecRecoveredRetryAdmission(recovery, inconclusive)).toThrow(
       'conclusive recovered not-applied'
     );
   }
 
-  const notApplied = issueSecRecoveredDomainReadbackReceipt(operation, {
+  const recovery = recoveryOperation();
+  const notApplied = issueSecRecoveredDomainReadbackReceipt(recovery, {
+    predecessor: predecessorReference(operation),
     durableObservationDigest: digest('durable-not-applied'),
     readbackContractDigest: digest('readback-contract'),
     readbackReferenceDigest: digest('readback-not-applied'),
     currentPhysicalEpochDigest: digest('physical-epoch'),
     disposition: 'not-applied'
   });
-  const admission = issueSecRecoveredRetryAdmission(notApplied);
-  expect(issueSecRecoveredRetryAdmission(notApplied).retryAdmissionDigest)
-    .toBe(admission.retryAdmissionDigest);
-  expect(() => assertSecRecoveredRetryAdmission({ ...admission })).not.toThrow();
+  const admission = issueSecRecoveredRetryAdmission(recovery, notApplied);
+  expect(() => issueSecRecoveredRetryAdmission(recovery, notApplied)).toThrow('already consumed');
+  expect(() => assertSecRecoveredRetryAdmission({ ...admission })).toThrow('projection is invalid');
   const foreignSuccessor = bindMultiPlan(multiPlan(
     issueSecSemanticOperationAttemptContext({
       authorityGrantDigest: digest('repository-repair-authority')
     }),
     'repository.repair'
   ));
-  expect(() => consumeSecRecoveredRetryAdmission(admission, foreignSuccessor)).toThrow(
+  expect(() => consumeSecRecoveredRetryAdmission(
+    admission, foreignSuccessor, notApplied.currentPhysicalEpochDigest
+  )).toThrow(
     'does not authorize this successor attempt'
   );
 
-  const successor = bindMultiPlan(multiPlan());
-  expect(() => consumeSecRecoveredRetryAdmission(admission, successor)).not.toThrow();
-  expect(() => consumeSecRecoveredRetryAdmission(admission, bindMultiPlan(multiPlan())))
-    .not.toThrow();
+  const successor = bindMultiPlan(multiPlan(issueSecSemanticOperationAttemptContext({
+    authorityGrantDigest: recovery.plan.attempt.authorityGrantDigest,
+    runIdDigest: digest('successor-run'),
+    resumeEpochDigest: recovery.plan.attempt.resumeEpochDigest
+  })));
+  const authorityDriftSuccessor = bindMultiPlan(multiPlan(issueSecSemanticOperationAttemptContext({
+    authorityGrantDigest: digest('foreign-recovery-authority'),
+    runIdDigest: digest('authority-drift-run'),
+    resumeEpochDigest: recovery.plan.attempt.resumeEpochDigest
+  })));
+  expect(() => consumeSecRecoveredRetryAdmission(
+    admission, authorityDriftSuccessor, notApplied.currentPhysicalEpochDigest
+  )).toThrow('does not authorize');
+  const epochDriftSuccessor = bindMultiPlan(multiPlan(issueSecSemanticOperationAttemptContext({
+    authorityGrantDigest: recovery.plan.attempt.authorityGrantDigest,
+    runIdDigest: digest('epoch-drift-run'),
+    resumeEpochDigest: digest('foreign-resume-epoch')
+  })));
+  expect(() => consumeSecRecoveredRetryAdmission(
+    admission, epochDriftSuccessor, notApplied.currentPhysicalEpochDigest
+  )).toThrow('does not authorize');
+  expect(() => consumeSecRecoveredRetryAdmission(
+    admission, successor, digest('foreign-physical-epoch')
+  )).toThrow('does not authorize');
+  expect(() => consumeSecRecoveredRetryAdmission(
+    admission, successor, notApplied.currentPhysicalEpochDigest
+  )).not.toThrow();
+  expect(() => consumeSecRecoveredRetryAdmission(
+    admission, bindMultiPlan(multiPlan()), notApplied.currentPhysicalEpochDigest
+  ))
+    .toThrow();
+  expect(() => consumeSecRecoveredRetryAdmission(
+    admission, successor, notApplied.currentPhysicalEpochDigest
+  )).toThrow('already consumed');
+  expect(() => issueSecRecoveredRetryAdmission(recovery, { ...notApplied }))
+    .toThrow('conclusive recovered not-applied');
 });
