@@ -5,7 +5,8 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 import {
-  compileSourceProgramOperationProducerClosure
+  compileSourceProgramOperationProducerClosure,
+  compileSourceProgramOperationProducerClosureFromWorkspaceSnapshot
 } from '../../brownfield/source-program-model/producer-closure.ts';
 import { compileRepositorySourceProgramCompilation } from '../../brownfield/source-program-model/repository-compilation.ts';
 import {
@@ -110,6 +111,19 @@ test('subject compiler owns producer, exact-tree, config and toolchain identity'
       'export function normalize(): void {}\n',
       'first'
     );
+    const firstSnapshot = acquireExactGitTreeWorkspaceSourceSnapshot({
+      repositoryRoot: root,
+      commitSha: firstCommit
+    });
+    const fullProducer = compileSourceProgramOperationProducerClosure(
+      compileRepositorySourceProgramCompilation({ workspaceSnapshot: firstSnapshot }),
+      IMPORT_NORMALIZATION_OPERATION
+    );
+    const narrowProducer = compileSourceProgramOperationProducerClosureFromWorkspaceSnapshot(
+      firstSnapshot,
+      IMPORT_NORMALIZATION_OPERATION
+    );
+    expect(narrowProducer).toEqual(fullProducer);
     const first = subject(root, firstCommit);
     const firstAction = compileCandidateNormalizationActionKey(first);
     expect(firstAction.inputClosure).toEqual(first.observationBlobs);
@@ -179,6 +193,21 @@ test('immutable observer rejects an input closure other than the Action closure'
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('empty owner selection settles before project parsing', () => {
+  const source = '{not-json';
+  const digest = rawSha256(source);
+  expect(checkImmutableImportSnapshot({
+    projectRoot: path.resolve(import.meta.dir, 'empty-selection-fixture'),
+    files: [{ relativePath: 'tsconfig.json', source, contentDigest: digest }],
+    targetPaths: [],
+    expectedInputClosure: [{ path: 'tsconfig.json', digest }]
+  })).toEqual({
+    schema: 'sec-import-check-outcome-v1',
+    status: 'canonical',
+    files: []
+  });
 });
 
 test('noncanonical candidate fails with a clean index', async () => {
@@ -313,7 +342,7 @@ test('staged candidate terminal issues an opaque normalization-only admission', 
     git(root, ['init', '--quiet']);
     git(root, ['config', 'user.email', 'tests@example.com']);
     git(root, ['config', 'user.name', 'SEC Tests']);
-    await commitFixture(root, 'export function normalize(): void {}\n', 'staged-base');
+    const baseCommit = await commitFixture(root, 'export function normalize(): void {}\n', 'staged-base');
     await writeFile(path.join(root, 'note.txt'), 'staged candidate\n');
     git(root, ['add', 'note.txt']);
     await withAuthorityGitReadSession({
@@ -324,7 +353,10 @@ test('staged candidate terminal issues an opaque normalization-only admission', 
         requireCandidateNormalizationAdmissionReceipt,
         verifyStagedCandidateImportNormalization
       } = await import('./runtime.ts');
-      const result = await verifyStagedCandidateImportNormalization({ session });
+      const result = await verifyStagedCandidateImportNormalization({
+        session,
+        candidateBase: baseCommit
+      });
       if (result.outcome.terminal === null) {
         throw new Error(`Staged normalization did not settle: ${JSON.stringify(result.outcome)}`);
       }

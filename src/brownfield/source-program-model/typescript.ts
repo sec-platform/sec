@@ -109,6 +109,11 @@ export interface SourceProgramTypeScriptDiagnosticSnapshot {
 
 const SOURCE_EXTENSION = /\.(?:[cm]?[jt]sx?)$/iu;
 const RUNTIME_BUILTIN_MODULE = /^(?:node:|bun(?::|$))/u;
+
+/** Canonical compiler classification for host runtime built-ins. */
+export function isSourceProgramRuntimeBuiltinModuleSpecifier(specifier: string): boolean {
+  return RUNTIME_BUILTIN_MODULE.test(specifier);
+}
 const VERSIONED_IDENTIFIER = /(?:_?V[1-9][0-9]*)$/u;
 const compiledTypeScriptModels = new WeakSet<object>();
 const factShardsByModel = new WeakMap<object, readonly TypeScriptSourceProgramFactShard[]>();
@@ -2639,7 +2644,7 @@ function compileTypeScriptSourceProgramModelInternal(
             )) ?? null;
         const repositoryProcessProvider = repositoryProvider?.capability === 'process.native';
         const runtimeBuiltinApi = (moduleSpecifier !== null
-          && RUNTIME_BUILTIN_MODULE.test(moduleSpecifier)
+          && isSourceProgramRuntimeBuiltinModuleSpecifier(moduleSpecifier)
           && !nativeProcess)
           || (moduleSpecifier === null
             && (operation === 'fetch' || operation === 'eval' || operation === 'Function'));

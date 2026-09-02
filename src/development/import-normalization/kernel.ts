@@ -109,11 +109,14 @@ function isTypeScriptPath(value: string): boolean {
 
 export function importServiceRootFileNames(
   config: Pick<ts.ParsedCommandLine, 'fileNames'>,
-  targetFileNames: readonly string[]
+  targetFileNames: readonly string[],
+  intent: ImportTransformIntent = 'sort-and-combine'
 ): readonly string[] {
   const roots = new Set(targetFileNames.map((fileName) => path.resolve(fileName)));
-  for (const fileName of config.fileNames) {
-    if (isTypeScriptDeclarationPath(fileName)) roots.add(path.resolve(fileName));
+  if (intent === 'remove-unused') {
+    for (const fileName of config.fileNames) {
+      if (isTypeScriptDeclarationPath(fileName)) roots.add(path.resolve(fileName));
+    }
   }
   return Object.freeze([...roots].sort());
 }
@@ -189,7 +192,7 @@ export function normalizeImportSnapshots(
   const service = createImportService(
     config,
     projectRoot,
-    importServiceRootFileNames(config, ordered.map((source) => source.absolutePath)),
+    importServiceRootFileNames(config, ordered.map((source) => source.absolutePath), intent),
     serviceFiles,
     immutableRepositoryFiles
   );
@@ -258,6 +261,21 @@ export function checkImmutableImportSnapshot(input: Readonly<{
   if (!canonicalEquals(observedInputClosure, input.expectedInputClosure)) {
     throw new Error('Immutable import observation closure differs from its Action input closure');
   }
+  const targetPaths = [...input.targetPaths].sort((left, right) => left.localeCompare(right));
+  if (new Set(targetPaths).size !== targetPaths.length) {
+    throw new Error('Immutable import snapshot contains duplicate targets');
+  }
+  const invalidTarget = targetPaths.find((relativePath) => !isTypeScriptPath(relativePath));
+  if (invalidTarget !== undefined) {
+    throw new Error(`Immutable import target is not TypeScript: ${invalidTarget}`);
+  }
+  if (targetPaths.length === 0) {
+    return Object.freeze({
+      schema: 'sec-import-check-outcome-v1',
+      status: 'canonical',
+      files: Object.freeze([])
+    });
+  }
   const configPath = path.join(projectRoot, 'tsconfig.json');
   const configSource = immutableFiles.get(configPath);
   if (configSource === undefined) {
@@ -287,12 +305,8 @@ export function checkImmutableImportSnapshot(input: Readonly<{
     throw new Error(config.errors.map((diagnostic) => formatDiagnostic(diagnostic, projectRoot)).join('\n'));
   }
   const sourceByPath = new Map(ordered.map((file) => [file.relativePath, file]));
-  const sources = [...input.targetPaths]
-    .sort((left, right) => left.localeCompare(right))
+  const sources = targetPaths
     .map((relativePath): ImportSourceSnapshot => {
-      if (!isTypeScriptPath(relativePath)) {
-        throw new Error(`Immutable import target is not TypeScript: ${relativePath}`);
-      }
       const file = sourceByPath.get(relativePath);
       if (file === undefined) {
         throw new Error(`Immutable import target is absent from the exact snapshot: ${relativePath}`);

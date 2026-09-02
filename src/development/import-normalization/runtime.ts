@@ -1,8 +1,7 @@
 import {
-  compileSourceProgramOperationProducerClosure,
+  compileSourceProgramOperationProducerClosureFromWorkspaceSnapshot,
   requireSourceProgramOperationProducerClosure
 } from '../../brownfield/source-program-model/producer-closure.ts';
-import { compileRepositorySourceProgramCompilation } from '../../brownfield/source-program-model/repository-compilation.ts';
 import {
   assertSourceProgramTypeScriptCompilerIdentity,
   sourceProgramTypeScriptCompilerIdentity
@@ -11,6 +10,7 @@ import {
   acquireExactGitTreeWorkspaceSourceSnapshot,
   acquireStagedIndexWorkspaceSourceSnapshot,
   readBackStagedIndexWorkspaceSourceSnapshot,
+  selectStagedWorkspaceSourceSnapshot,
   type PhysicalWorkspaceSourceSnapshot
 } from '../../brownfield/source-program-model/workspace-source-snapshot.ts';
 import { CodexDevelopmentListExactGitTreeEntries } from '../../external-capabilities/git-read/exact-blob.ts';
@@ -40,10 +40,12 @@ import {
   compileCandidateNormalizationActionKey,
   compileCandidateNormalizationSubject,
   IMPORT_NORMALIZATION_OPERATION,
+  isCandidateNormalizationPath,
   requireCandidateNormalizationSnapshot,
   type CandidateNormalizationDigest,
   type CandidateNormalizationSubject
 } from './contract.ts';
+import type { ImportCheckOutcome } from './kernel.ts';
 import { checkImmutableImportSnapshot } from './kernel.ts';
 
 const candidateNormalizationActionRunner = createVerificationActionRunner();
@@ -223,11 +225,8 @@ export async function verifyCandidateImportNormalization(input: Readonly<{
     repositoryRoot: input.repositoryRoot,
     commitSha: input.candidateBase
   });
-  const sourceProgramCompilation = compileRepositorySourceProgramCompilation({
-    workspaceSnapshot: snapshot
-  });
-  const producerClosure = compileSourceProgramOperationProducerClosure(
-    sourceProgramCompilation,
+  const producerClosure = compileSourceProgramOperationProducerClosureFromWorkspaceSnapshot(
+    snapshot,
     IMPORT_NORMALIZATION_OPERATION
   );
   requireSourceProgramOperationProducerClosure(producerClosure);
@@ -297,16 +296,19 @@ async function executeCandidateNormalization(input: Readonly<{
  */
 export async function verifyStagedCandidateImportNormalization(input: Readonly<{
   session: GitReadSession;
+  candidateBase?: string;
 }>): Promise<Readonly<{
   outcome: VerificationActionRunOutcome;
   admission: CandidateNormalizationAdmissionReceipt | null;
 }>> {
   const snapshot = await acquireStagedIndexWorkspaceSourceSnapshot({ session: input.session });
-  const sourceProgramCompilation = compileRepositorySourceProgramCompilation({
-    workspaceSnapshot: snapshot
+  const stagedSelection = await selectStagedWorkspaceSourceSnapshot({
+    snapshot,
+    session: input.session,
+    ...(input.candidateBase === undefined ? {} : { candidateBase: input.candidateBase })
   });
-  const producerClosure = compileSourceProgramOperationProducerClosure(
-    sourceProgramCompilation,
+  const producerClosure = compileSourceProgramOperationProducerClosureFromWorkspaceSnapshot(
+    snapshot,
     IMPORT_NORMALIZATION_OPERATION
   );
   requireSourceProgramOperationProducerClosure(producerClosure);
@@ -314,6 +316,7 @@ export async function verifyStagedCandidateImportNormalization(input: Readonly<{
   assertSourceProgramTypeScriptCompilerIdentity(compilerIdentity);
   const subject = compileCandidateNormalizationSubject({
     snapshot,
+    stagedSelection,
     producerClosure,
     compilerIdentity
   });
@@ -332,4 +335,38 @@ export async function verifyStagedCandidateImportNormalization(input: Readonly<{
       ? issueCandidateNormalizationAdmissionReceipt({ subject, action, outcome })
       : null
   });
+}
+
+/**
+ * Pure staged-index authoring check. It consumes the same Source Program
+ * snapshot and Git-owned selection as commit admission, but intentionally
+ * issues no Verification Action or commit authority. This keeps hooks cheap
+ * without creating a second source reader or normalization implementation.
+ */
+export async function checkStagedCandidateImportNormalization(input: Readonly<{
+  session: GitReadSession;
+  candidateBase?: string;
+}>): Promise<ImportCheckOutcome> {
+  const snapshot = await acquireStagedIndexWorkspaceSourceSnapshot({ session: input.session });
+  const selection = await selectStagedWorkspaceSourceSnapshot({
+    snapshot,
+    session: input.session,
+    ...(input.candidateBase === undefined ? {} : { candidateBase: input.candidateBase })
+  });
+  const files = snapshot.files.map(({ path, source, contentDigest }) => Object.freeze({
+    relativePath: path,
+    source,
+    contentDigest: contentDigest as CandidateNormalizationDigest
+  }));
+  const outcome = checkImmutableImportSnapshot({
+    projectRoot: input.session.cwd,
+    files,
+    targetPaths: selection.selectedPaths.filter(isCandidateNormalizationPath),
+    expectedInputClosure: files.map(({ relativePath, contentDigest }) => Object.freeze({
+      path: relativePath,
+      digest: contentDigest
+    }))
+  });
+  await readBackStagedIndexWorkspaceSourceSnapshot(snapshot, input.session);
+  return outcome;
 }

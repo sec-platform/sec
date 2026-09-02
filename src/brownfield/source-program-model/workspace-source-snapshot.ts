@@ -5,7 +5,11 @@ import ts from 'typescript';
 
 import {
   CodexDevelopmentListExactGitTreeEntries,
-  CodexDevelopmentReadExactGitTextBlobsBatch
+  CodexDevelopmentListExactGitTreeEntriesFromSession,
+  CodexDevelopmentReadExactGitTextBlobsBatch,
+  CodexDevelopmentReadExactGitTextBlobsBatchFromSession,
+  type CodexDevelopmentExactGitTextBlob,
+  type CodexDevelopmentExactGitTreeEntry
 } from '../../external-capabilities/git-read/exact-blob.ts';
 import {
   assertProductionGitReadSession,
@@ -37,6 +41,10 @@ const SOURCE_SNAPSHOT_MAX_FILE_BYTES = 2 * 1024 * 1024;
 const SOURCE_SNAPSHOT_MAX_TOTAL_BYTES = 128 * 1024 * 1024;
 const workspaceSourceSnapshotBrand: unique symbol = Symbol('workspace-source-snapshot');
 const issuedWorkspaceSourceSnapshots = new WeakSet<object>();
+const stagedWorkspaceSourceSelectionBrand: unique symbol = Symbol(
+  'staged-workspace-source-selection'
+);
+const issuedStagedWorkspaceSourceSelections = new WeakSet<object>();
 const workspaceTypeScriptProjectInputBrand: unique symbol = Symbol('workspace-typescript-project-input');
 const issuedWorkspaceTypeScriptProjectInputs = new WeakSet<object>();
 const workspaceTypeScriptProjectGenerationEvidenceBrand: unique symbol = Symbol(
@@ -137,9 +145,22 @@ export type AcquireStagedIndexWorkspaceSourceSnapshotInput = Readonly<{
   session: GitReadSession;
 }>;
 
+export interface StagedWorkspaceSourceSelection {
+  readonly [stagedWorkspaceSourceSelectionBrand]: true;
+  readonly candidateBase: string;
+  readonly snapshotSubjectDigest: `sha256:${string}`;
+  readonly selectedPaths: readonly string[];
+  readonly selectionDigest: `sha256:${string}`;
+}
+
 export type AcquireExactGitTreeWorkspaceSourceSnapshotInput = Readonly<{
   commitSha: string;
   repositoryRoot: string;
+}>;
+
+export type AcquireExactGitTreeWorkspaceSourceSnapshotFromSessionInput = Readonly<{
+  commitSha: string;
+  session: GitReadSession;
 }>;
 
 /**
@@ -1822,17 +1843,93 @@ export async function readBackStagedIndexWorkspaceSourceSnapshot(
 }
 
 /**
+ * Derive the exact candidate import surface from the same retained Git session
+ * and staged snapshot. Callers may provide an exact base identity, but never a
+ * path list; the Git index diff remains the sole selection authority.
+ */
+export async function selectStagedWorkspaceSourceSnapshot(input: Readonly<{
+  snapshot: PhysicalWorkspaceSourceSnapshot;
+  session: GitReadSession;
+  candidateBase?: string;
+}>): Promise<StagedWorkspaceSourceSelection> {
+  assertPhysicalWorkspaceSourceSnapshot(input.snapshot);
+  assertProductionGitReadSession(input.session);
+  const provenance = input.snapshot.subject.provenance;
+  if (provenance.kind !== 'staged-index-observation') {
+    throw new Error('Staged workspace source selection requires staged-index provenance');
+  }
+  const suppliedBase = input.candidateBase;
+  if (suppliedBase !== undefined && !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(suppliedBase)) {
+    throw new Error('Candidate import base must be one full Git object ID');
+  }
+  const baseCommand = suppliedBase === undefined
+    ? await input.session.run(['merge-base', 'HEAD', 'refs/remotes/origin/main'])
+    : await input.session.run(['rev-parse', '--verify', '--end-of-options', `${suppliedBase}^{commit}`]);
+  const candidateBase = exactSingleLine(
+    exactCompletedGitOutput(baseCommand, 'resolve the candidate import base'),
+    'Candidate import base'
+  );
+  if (!/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(candidateBase)
+      || (suppliedBase !== undefined && candidateBase !== suppliedBase)) {
+    throw new Error('Candidate import base did not resolve exactly');
+  }
+  const diff = await input.session.run([
+    'diff', '--cached', '--name-only', '-z', '--diff-filter=ACMR', '--find-renames',
+    candidateBase, '--'
+  ]);
+  const selectedPaths = nulSeparatedRepositoryPaths(
+    exactCompletedGitOutput(diff, 'observe the staged candidate import surface'),
+    'Staged candidate import surface'
+  );
+  if (input.session.consumeRecords(selectedPaths.length) !== null) {
+    throw new Error('Staged candidate import surface exceeded the Git session record budget');
+  }
+  await readBackStagedIndexWorkspaceSourceSnapshot(input.snapshot, input.session);
+  const unsigned = Object.freeze({
+    candidateBase,
+    snapshotSubjectDigest: input.snapshot.subjectDigest,
+    selectedPaths
+  });
+  const selection = Object.freeze({
+    [stagedWorkspaceSourceSelectionBrand]: true as const,
+    ...unsigned,
+    selectionDigest: sha256(unsigned) as `sha256:${string}`
+  });
+  issuedStagedWorkspaceSourceSelections.add(selection);
+  return selection;
+}
+
+export function requireStagedWorkspaceSourceSelection(
+  selection: StagedWorkspaceSourceSelection,
+  snapshot: PhysicalWorkspaceSourceSnapshot
+): StagedWorkspaceSourceSelection {
+  if (!issuedStagedWorkspaceSourceSelections.has(selection)) {
+    throw new Error('Staged workspace source selection is not owner-issued');
+  }
+  assertPhysicalWorkspaceSourceSnapshot(snapshot);
+  const unsigned = Object.freeze({
+    candidateBase: selection.candidateBase,
+    snapshotSubjectDigest: selection.snapshotSubjectDigest,
+    selectedPaths: selection.selectedPaths
+  });
+  if (selection.snapshotSubjectDigest !== snapshot.subjectDigest
+      || selection.selectionDigest !== sha256(unsigned)) {
+    throw new Error('Staged workspace source selection differs from its exact snapshot');
+  }
+  return selection;
+}
+
+/**
  * The only exact-tree acquisition path. The Source Program owner invokes the
  * existing exact Git object reader itself, so callers supply only a repository
  * locator and immutable commit identity, never structural source facts.
  */
-export function acquireExactGitTreeWorkspaceSourceSnapshot(
-  input: AcquireExactGitTreeWorkspaceSourceSnapshotInput
-): PhysicalWorkspaceSourceSnapshot {
-  const treeEntries = CodexDevelopmentListExactGitTreeEntries({
-    repositoryRoot: input.repositoryRoot,
-    commitSha: input.commitSha
-  });
+function issueExactGitTreeWorkspaceSourceSnapshot(input: Readonly<{
+  commitSha: string;
+  treeEntries: readonly CodexDevelopmentExactGitTreeEntry[];
+  sourceBlobs: readonly CodexDevelopmentExactGitTextBlob[];
+}>): PhysicalWorkspaceSourceSnapshot {
+  const { treeEntries, sourceBlobs } = input;
   const ordinaryEntries = treeEntries.filter(({ mode, type }) => (
     (mode === '100644' || mode === '100755') && type === 'blob'
   ));
@@ -1847,10 +1944,6 @@ export function acquireExactGitTreeWorkspaceSourceSnapshot(
   const sourceEntries = ordinaryEntries.filter(({ repositoryPath }) => (
     isSourceProgramInputPath(repositoryPath)
   ));
-  const sourceBlobs = CodexDevelopmentReadExactGitTextBlobsBatch({
-    repositoryRoot: input.repositoryRoot,
-    entries: sourceEntries
-  });
   let totalBytes = 0;
   for (const { repositoryPath, byteLength } of sourceBlobs) {
     if (byteLength > SOURCE_SNAPSHOT_MAX_FILE_BYTES) {
@@ -1903,4 +1996,49 @@ export function acquireExactGitTreeWorkspaceSourceSnapshot(
     moduleMembership,
     sourceByteLength: totalBytes
   }) as PhysicalWorkspaceSourceSnapshot;
+}
+
+export function acquireExactGitTreeWorkspaceSourceSnapshot(
+  input: AcquireExactGitTreeWorkspaceSourceSnapshotInput
+): PhysicalWorkspaceSourceSnapshot {
+  const treeEntries = CodexDevelopmentListExactGitTreeEntries({
+    repositoryRoot: input.repositoryRoot,
+    commitSha: input.commitSha
+  });
+  const sourceEntries = treeEntries.filter(({ repositoryPath, mode, type }) => (
+    isSourceProgramInputPath(repositoryPath)
+      && (mode === '100644' || mode === '100755')
+      && type === 'blob'
+  ));
+  return issueExactGitTreeWorkspaceSourceSnapshot({
+    commitSha: input.commitSha,
+    treeEntries,
+    sourceBlobs: CodexDevelopmentReadExactGitTextBlobsBatch({
+      repositoryRoot: input.repositoryRoot,
+      entries: sourceEntries
+    })
+  });
+}
+
+export async function acquireExactGitTreeWorkspaceSourceSnapshotFromSession(
+  input: AcquireExactGitTreeWorkspaceSourceSnapshotFromSessionInput
+): Promise<PhysicalWorkspaceSourceSnapshot> {
+  assertProductionGitReadSession(input.session);
+  const treeEntries = await CodexDevelopmentListExactGitTreeEntriesFromSession(
+    input.session,
+    input.commitSha
+  );
+  const sourceEntries = treeEntries.filter(({ repositoryPath, mode, type }) => (
+    isSourceProgramInputPath(repositoryPath)
+      && (mode === '100644' || mode === '100755')
+      && type === 'blob'
+  ));
+  return issueExactGitTreeWorkspaceSourceSnapshot({
+    commitSha: input.commitSha,
+    treeEntries,
+    sourceBlobs: await CodexDevelopmentReadExactGitTextBlobsBatchFromSession(
+      input.session,
+      { entries: sourceEntries, maxTotalBytes: SOURCE_SNAPSHOT_MAX_TOTAL_BYTES }
+    )
+  });
 }
