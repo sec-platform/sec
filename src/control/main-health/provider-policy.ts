@@ -1,55 +1,7 @@
 import { createHash } from 'node:crypto';
 
-import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../verification/action/contract/provider.ts';
+import { CI_COMPILER_WORKFLOW_RUN_IDENTITY, CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../verification/action/contract/provider.ts';
 import { DEFAULT_BRANCH_REVISION_HEALTH_PRODUCER_IDENTITY } from './contract.ts';
-
-/**
- * GitHub REST exposes an evaluated workflow `run-name` through both `name` and
- * `display_title`. The presentation `name` is deliberately absent here: only
- * the immutable workflow path plus the exact dispatch subject identify a
- * compiler workflow run across Session, Action, MainHealth, and merge consumers.
- */
-export const CI_COMPILER_WORKFLOW_RUN_IDENTITY = Object.freeze({
-  workflowPath: '.github/workflows/compiler-pr-validation.yml' as const,
-  eventName: 'repository_dispatch' as const
-});
-
-export function matchesCiWorkflowRunIdentity(input: Readonly<{
-  workflowPath: unknown;
-  eventName: unknown;
-  displayTitle: unknown;
-  headSha: unknown;
-  expectedWorkflowPath: string;
-  expectedEventName: string;
-  expectedDisplayTitle: string;
-  expectedHeadSha: string;
-}>): boolean {
-  return /^[0-9a-f]{40}$/u.test(input.expectedHeadSha)
-    && input.expectedWorkflowPath.startsWith('.github/workflows/')
-    && input.expectedWorkflowPath.endsWith('.yml')
-    && input.expectedEventName.length > 0
-    && input.expectedDisplayTitle.length > 0
-    && input.expectedDisplayTitle.length <= 256
-    && input.workflowPath === input.expectedWorkflowPath
-    && input.eventName === input.expectedEventName
-    && input.displayTitle === input.expectedDisplayTitle
-    && input.headSha === input.expectedHeadSha;
-}
-
-export function matchesCiCompilerWorkflowRunIdentity(input: Readonly<{
-  workflowPath: unknown;
-  eventName: unknown;
-  displayTitle: unknown;
-  headSha: unknown;
-  expectedDisplayTitle: string;
-  expectedHeadSha: string;
-}>): boolean {
-  return matchesCiWorkflowRunIdentity({
-    ...input,
-    expectedWorkflowPath: CI_COMPILER_WORKFLOW_RUN_IDENTITY.workflowPath,
-    expectedEventName: CI_COMPILER_WORKFLOW_RUN_IDENTITY.eventName
-  });
-}
 
 export const CI_MAIN_HEALTH_REQUEST_SCHEMA = 'sec-produce-main-health-request-v1' as const;
 

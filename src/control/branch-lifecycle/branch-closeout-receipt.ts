@@ -2,7 +2,6 @@ import { spawnSync } from 'node:child_process';
 
 import { encodeVerificationActionData } from '../../verification/action/contract/action.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../verification/action/contract/provider.ts';
-import { CI_MAIN_HEALTH_POLICY } from '../main-health/provider-policy.ts';
 import {
   assertBranchCloseoutOperationBinding,
   parseBranchCloseoutOperationReceipt,
@@ -294,9 +293,9 @@ export function createHostedWorkflowCommentProvenance(input: Omit<
   if (input.actorPermission !== 'maintain' && input.actorPermission !== 'admin') {
     throw new Error('Hosted comment actor lacks maintain/admin permission.');
   }
-  if (input.app.id !== CI_MAIN_HEALTH_POLICY.app.id
-    || input.app.nodeId !== CI_MAIN_HEALTH_POLICY.app.nodeId
-    || input.app.slug !== CI_MAIN_HEALTH_POLICY.app.slug) {
+  if (input.app.id !== CI_GITHUB_ACTIONS_IDENTITY_POLICY.app.id
+    || input.app.nodeId !== CI_GITHUB_ACTIONS_IDENTITY_POLICY.app.nodeId
+    || input.app.slug !== CI_GITHUB_ACTIONS_IDENTITY_POLICY.app.slug) {
     throw new Error('Hosted comment app is not the canonical GitHub Actions app.');
   }
   const payload = hostedWorkflowCommentProvenancePayload(input);
