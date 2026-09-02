@@ -5,7 +5,7 @@ import { encodeCanonicalBlockPhysicalKey } from '../../semantic/identity/contrac
 import {
   COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS,
   compilerRuntimeLayout
-} from '../../toolchain/layout.ts';
+} from '../../toolchain/runtime/layout.ts';
 import {
   CI_ARTIFACT_FILES,
   CI_ARTIFACT_ROOT_RELATIVE_PATH,

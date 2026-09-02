@@ -7,7 +7,7 @@ import { inspectExactNoFollowDirectoryPresence, scanNoFollowDirectoryTreeMetadat
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import { isCanonicalBlockId } from '../../semantic/identity/contract/block.ts';
 import { canonicalEquals, compareCodeUnits, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { compilerRuntimeResources } from '../../toolchain/layout.ts';
+import { compilerRuntimeResources } from '../../toolchain/runtime/layout.ts';
 import { getWorkspacePaths, officialPoliciesRelativePath, policiesRelativePath, posixPath, relativePosixPath } from '../../workspace/runtime/paths.ts';
 import { isCanonicalPolicyId } from '../policies/contract/identity.ts';
 import { POLICY_RULE_IDS } from '../policies/contract/rules.ts';
