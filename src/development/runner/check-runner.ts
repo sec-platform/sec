@@ -32,6 +32,10 @@ async function executeLocalAffectedGate(
     );
     return 1;
   }
+  if (step.id === 'audit:static') {
+    const { runDevCommand } = await import('./command-runner.ts');
+    return runDevCommand('bun', ['run', step.id], {});
+  }
   if (step.id === 'typecheck') {
     if (compilerDependencies === undefined) {
       console.error('Local affected typecheck requires completed compiler dependency admission.');

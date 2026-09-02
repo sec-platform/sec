@@ -1,3 +1,4 @@
+import { isSourceProgramInputPath } from '../../brownfield/source-program-model/contract.ts';
 import { isActiveDocumentationPath } from '../../control/documentation/active.ts';
 import type { GitReadProviderRoute } from '../../external-capabilities/git-read/runtime/session.ts';
 import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
@@ -82,6 +83,7 @@ export interface AffectedTestPlan {
 
 export type LocalAffectedGateId =
   | 'imports:check'
+  | 'audit:static'
   | 'typecheck'
   | 'docs:doctor'
   | 'test:affected';
@@ -117,8 +119,10 @@ export function buildLocalAffectedCheckPlan(
 ): LocalAffectedCheckPlan {
   const changedPaths = [...affectedPlan.changedPaths];
   const activeDocsChanged = changedPaths.some(isActiveDocumentationPath);
+  const sourceProgramInvalidated = changedPaths.some(isSourceProgramInputPath);
   const activeDocsOnly = changedPaths.length > 0
-    && changedPaths.every(isActiveDocumentationPath);
+    && changedPaths.every(isActiveDocumentationPath)
+    && !sourceProgramInvalidated;
   const typescriptChanged = changedPaths.some((file) => /\.[cm]?tsx?$/u.test(file));
   const typecheckRequired = typescriptChanged || changedPaths.some((file) => (
     TYPECHECK_AUTHORITY_PATHS.has(file)
@@ -131,6 +135,7 @@ export function buildLocalAffectedCheckPlan(
     ? [gate('docs:doctor')]
     : [
       ...(typescriptChanged ? [gate('imports:check')] : []),
+      ...(sourceProgramInvalidated ? [gate('audit:static')] : []),
       ...(typecheckRequired ? [gate('typecheck')] : []),
       ...(activeDocsChanged ? [gate('docs:doctor')] : []),
       ...(testAffectedRequired ? [gate('test:affected')] : [])

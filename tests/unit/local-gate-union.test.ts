@@ -85,12 +85,14 @@ test('local affected plan forms one ordered union for mixed TypeScript and docs 
 
   expect(gateIds(plan)).toEqual([
     'imports:check',
+    'audit:static',
     'typecheck',
     'docs:doctor',
     'test:affected'
   ]);
   expect(plan.subsumedStandaloneCommands).toEqual([
     'bun run imports:check',
+    'bun run audit:static',
     'bun run typecheck',
     'bun run docs:doctor',
     'bun run test:affected'
@@ -103,12 +105,26 @@ test('local affected plan keeps non-TypeScript contracts narrow', () => {
   expect(gateIds(buildLocalAffectedCheckPlan(affectedPlan(
     ['package.json'],
     ['tests/contract/repository-runtime.test.ts']
-  )))).toEqual(['typecheck', 'test:affected']);
+  )))).toEqual(['audit:static', 'typecheck', 'test:affected']);
 
   expect(gateIds(buildLocalAffectedCheckPlan(affectedPlan(
     ['.github/workflows/compiler-pr-validation.yml'],
     ['tests/contract/ci-lanes.test.ts']
-  )))).toEqual(['test:affected']);
+  )))).toEqual(['audit:static', 'test:affected']);
+});
+
+test('local affected plan derives static audit selection from the canonical Source Program boundary', () => {
+  expect(gateIds(buildLocalAffectedCheckPlan(affectedPlan(
+    ['src/development/runner/check-runner.ts']
+  )))).toEqual(['imports:check', 'audit:static', 'typecheck', 'test:affected']);
+
+  expect(gateIds(buildLocalAffectedCheckPlan(affectedPlan(
+    ['docs/verification-governance.md']
+  )))).toEqual(['docs:doctor']);
+
+  expect(gateIds(buildLocalAffectedCheckPlan(affectedPlan(
+    ['docs/authority.json']
+  )))).toEqual(['audit:static', 'docs:doctor', 'test:affected']);
 });
 
 test('local affected plan preserves unresolved authority and selects no invented broad fallback', () => {
