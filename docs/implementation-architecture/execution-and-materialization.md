@@ -75,7 +75,30 @@ WorkloadOperation:
 
 profile由Provider contract owner声明并由Requirement选择；facet集合是strict exact set，缺失、多余或以`null`占位都拒绝。`ObserveOnly`不能start，`AdoptExisting`不能materialize，`StartOrJoin`必须有coordination/journal与lost-handle readback，`RemoteSession`必须有endpoint与remote settlement；只有authenticated remote contract才要求credential/principal facet。新增Provider通过新增受验证的profile实例或必要facet扩展，不在微内核加入品牌分支。
 
+bootstrap自身也必须有一个有限根，不能暗中借用待启动Provider或另开裸命令路径：
+
+```text
+BootstrapDependencyGraph = {
+  nodes: provider generations + adopted host primitive capabilities,
+  edges: provider bootstrap requires exact lower provision,
+  roots: HostProfile-adopted filesystem/process/coordination/credential primitives,
+  acyclic proof,
+  exact resource and authority projection,
+  graph digest
+}
+
+BootstrapAdmissible(provider) =
+  dependency graph acyclic
+  and provider is not reverse-reachable from any dependency used to bootstrap itself
+  and every root primitive is retained, conformance-checked and bound before first Effect
+  and bootstrap journal/store does not depend on the provider generation it records
+```
+
+Host primitive root只提供建立journal、claim、process/container/session与readback所需的最小physical mechanism；它不能执行Domain workload、选择Provider或签发业务成功。若某个coordination store、credential broker或durable worker也需要bootstrap，它是图中的独立provider node；出现cycle时必须改变composition、引入更低层已采用primitive或返回`bootstrap-dependency-cycle`，不得靠启动顺序、重试或fallback碰运气。
+
 `ProviderBootstrapOperation`成功只签发匹配binding的live capability，不签发任何workload成功、Gate或Evidence。Workload若允许自动启动Provider，plan必须显式依赖该bootstrap operation；否则provider unavailable直接返回typed blocker。launcher lock/root/state路径缺失属于`bootstrap-address-unresolved`，在解析canonical Address并确认claim/journal前不得等待、创建随机目录、换endpoint或重复启动。lost launcher handle先以journal、provider状态和exact binding readback决定`join | terminal | residue | conclusively-not-started`，不能用PID消失、lock缺失或timeout推断未执行。
+
+Provider升级、重启和替换是generation transition，不是原地改变live session：新attempt只能绑定当前active generation；旧generation先停止接收新allocation，再让已开始attempt按其原Binding settlement或进入lost-handle recovery，全部terminal/residue并释放资源后才能retire。新generation通过独立bootstrap/readiness后原子切为active；任何短暂old-draining/new-active并存只属于有界migration state，并由attempt journal保存generation ref。PID、endpoint或同一路径复用不能把旧attempt重新解释为新generation；无法判定时返回`provider-generation-bleed`并阻断新workload。
 
 本地与远程Provider可以满足同一Requirement，但必须形成不同`ProviderRootBinding`、Allocation、Attempt与Evidence；remote unavailable只触发重新Resolution，本地Docker存在也不会自动继承远程身份或证明。反向同理：GitHub Actions、Docker exit code、daemon ready和本地进程结束均只是各自Observation。
 
@@ -125,13 +148,14 @@ ExecutionRuntimeMicrokernel =
 | pure boundary | `PureWorkflowPlan` / `PureOperationPlan` | corresponding plan compiler | typed DAG、requirements、guards、obligations、unknown | Provider binding、grant、allocation、runtime handle |
 | compiled boundary | `WorkflowExecutionPlan` | control/binding compiler | public operation DAG、exact contract/implementation refs、result mapping、guards/compensation、resource demands | capability Provider/effect node、child internal state |
 | compiled boundary | `OperationExecutionPlan` | control/binding compiler | capability/readback DAG、exact bindings、resource demands、grant predicates、settlement obligations | live allocation/ticket、executable functions、ambient lookup |
+| scheduling input | `SchedulingRequirement` | Workflow/Operation/Resource policy owners | ready-set ordering relation、priority class、fairness/backpressure/preemption constraints、determinism要求 | executable callback、Provider选择、DAG mutation |
 | invocation | `WorkflowInvocation` / `OperationInvocation` | corresponding public facade | intentRef、subject/snapshot、stable key、parent context | grant、success、Provider choice |
 | admitted boundary | `AdmittedExecution<Plan>` | admission owner | exact plan、live grant refs、resource-owner root Allocation ref、epoch | child Effect、business success |
 | opaque admission | `ExecutionCapability<Plan>` | admission owner after intersection | exact admitted workflow/operation 可启动匹配 runtime session 的不可伪造权能 | broader grant、wrong plan kind、arbitrary operation |
 | runtime session | `WorkflowRuntimeSession` | microkernel composition root | one workflow、public DomainOperation invoke/await/cancel/result collection | child Provider/state、cross-domain policy rewrite |
 | runtime session | `OperationRuntimeSession` | microkernel composition root | one DomainOperation、capability/readback nodes、deadline、cancel tree、settlement | global mutable truth、cross-operation budget reset |
 | resource | `ResourceLedgerSession` | resource owner | reserve/consume/release/readback parent allocations | business priority、hidden unlimited dimensions |
-| scheduling | `ReadySetScheduler` | microkernel | 在 frozen ready-set 内选择合法次序 | 修改 DAG、生成步骤、跳过 blocker |
+| scheduling | `ReadySetScheduler` | microkernel | 按execution plan中的`SchedulingRequirement`在frozen ready-set内确定或记录合法次序 | 自造priority/fairness policy、修改 DAG、生成步骤、跳过 blocker |
 | capability | `BoundCapabilitySession` | admitted Provider binding | one exact port/provider/epoch/physical closure | service discovery、domain result、grant issuance |
 | effect | `EffectTicket` | admission owner | one exact Effect node、preimage、binding、allocation、settlement obligations | reusable general permission |
 | observation | `ObservationTicket` | admission owner | one exact readback/query node、observe scope、binding、allocation、coverage | mutation、Evidence verdict |
@@ -147,6 +171,8 @@ ExecutionRuntimeMicrokernel =
 | proof | `Verdict` | independent verification owner | exact request/Evidence judgment | mutation/publish/retry Authority |
 
 这些不是都变成 class 或文件；Implementation Compiler 按 Responsibility Cell、lifecycle 和 co-change graph 选择 `type | value | pure function | internal object | durable record | retained session`。实体身份和边界是强制的，物理对象数量与放置仍由 Placement/Complexity compiler 决定。
+
+同一个ready-set若允许多个合法顺序，scheduler必须把被选顺序、policy revision与可重放seed作为Attempt observation；若Domain要求确定性，则plan compiler必须给出total order或可证明交换类。priority、fairness、preemption和backpressure来自明确policy/Requirement并受parent resource envelope约束；未绑定时返回`implicit-scheduling-policy`，不能使用queue insertion order、文件枚举顺序、wall clock或实现默认值。
 
 ### 10.3 调用与资源执行链
 

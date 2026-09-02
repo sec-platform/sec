@@ -170,7 +170,7 @@ flowchart LR
 | Component | Required input | Authoritative output | 不得拥有 |
 | --- | --- | --- | --- |
 | Design Compiler | accepted product/domain definitions + meta-model | validated `LogicalDesignPackage` / exact frontier | source placement、Provider、Effect |
-| Observation Host | retained content universe + frontend bindings + budgets | `ContentSnapshot`、`SourceProgramSnapshot`、coverage/unknown | Domain adoption、write authority |
+| Observation Host | retained WorkspaceContentView + frontend bindings + budgets | one `SourceObservationGeneration` containing `ContentSnapshot`、`SourceProgramSnapshot`、coverage/unknown and shard refs | Domain adoption、write authority |
 | Implementation Compiler | logical package + source facts + Target/Profile/catalog/policy | `TargetImplementationDesignPackage`、ImplementationGraph、Resolution/Binding/Placement/Change plans、observable/Claim refs | live discovery、Effect、business success |
 | Conformance Compiler | logical package + target implementation package + fault/property calculus | `ConformanceModel`、coverage/frontier | tests、Evidence、Verdict、mutation |
 | Target Backend | validated Target/source/config/test/doc IR | canonical bytes and materialization obligations | filesystem publication、Provider selection |
@@ -194,7 +194,7 @@ flowchart LR
 | --- | --- | --- | --- | --- |
 | accepted definitions/decisions | Product/Domain/Policy owner | immutable revision + issuer/acceptance chain | no | semantic refs only |
 | exact content snapshots/blobs | Observation/content owner | immutable content address + coverage | source可重读时可重建 | content refs, never path identity |
-| Source Program/fact shards | Observation/interpreter owner | immutable derivation artifacts | yes | snapshot + interpreter closure |
+| Source Program/fact shards | Observation/interpreter owner | immutable `SourceObservationGeneration` derivation artifacts | yes | exact WorkspaceContentView + interpreter/config/provider closure |
 | LogicalDesignPackage/ImplementationGraph/plans | corresponding compiler owner | immutable compiled artifacts | yes from exact inputs | upstream refs + compiler identity |
 | Domain state | each Domain state owner | strict transition, CAS/append, readback, recovery | no | domain state refs |
 | workflow/operation attempts | operation runtime state owner | intent-before-Effect, append/CAS, settlement/residue | no while active/retained | OperationKey + plan/grant/binding refs |

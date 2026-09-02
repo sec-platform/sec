@@ -422,6 +422,10 @@ bounded exploration只证明给定envelope；unbounded cardinality、real-time�
 | `architecture-change-without-migration` | architecture change | old/new consumer graph | transactional cutover | 移文件后手修路径 |
 | `representation-view-confusion` | 把一种展示结构误作事实本体 | canonical fact refs、typed relation、query purpose、coverage/frontier、view digest | 关系事实唯一；按用途选择lossless renderer | 目录树冒充owner、手写全图、独立view漂移、摘要隐藏blocker |
 | `relational-observation-leakage` | 单轨迹均合法但跨轨迹差异泄露secret/tenant/policy事实 | trace tuple、allowed input delta、principal observation partition、declassification | relational Claim satisfied或最短差异反例 | 用各自PASS、平均值或日志样例宣称noninterference |
+| `split-content-snapshot` | 同一逻辑操作的consumer分别观察disk/index/worktree/editor overlay或重复扫描 | exact WorkspaceContentView、generation、overlay precedence、consumer refs | 一个generation或typed stale/rebind | 各自扫描后仍称同一ActionKey |
+| `bootstrap-dependency-cycle` | Provider bootstrap直接或间接依赖自身workload/capability | bootstrap dependency graph、host primitive roots、journal/store dependency | acyclic rooted bootstrap或typed cycle | 裸启动、顺序碰运气、fallback |
+| `implicit-scheduling-policy` | scheduler以queue/枚举/时钟默认值偷偷决定priority/fairness | SchedulingRequirement、ready set、policy revision、chosen order | governed order/commutative class或typed unbound | scheduler implementation拥有业务政策 |
+| `provider-generation-bleed` | old/new Provider generation、attempt、endpoint或PID被混用 | provider generation、attempt journal、drain/cutover/readback | bounded drain→activate→retire或typed residue | path/PID相同即把旧attempt认作新generation |
 
 ## 10. 场景规格模板
 
