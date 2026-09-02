@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
+import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import type {
   DocumentationAuthorityRecord,
   DocumentationAuthorityRegistry
@@ -7,6 +8,7 @@ import type {
 import {
   compileDocumentationMigrationDesign,
   DOCUMENTATION_MIGRATION_DESIGN_SCHEMA,
+  DOCUMENTATION_MIGRATION_TARGET_CONTRACT_DIGEST,
   encodeDocumentationMigrationDesign,
   type DocumentationMigrationCorpusEntry
 } from './migration.ts';
@@ -53,15 +55,24 @@ function registry(...documents: readonly DocumentationAuthorityRecord[]): Docume
   return { documents };
 }
 
+function compileDesign(input: Readonly<{
+  readonly registry: DocumentationAuthorityRegistry;
+  readonly corpus: readonly DocumentationMigrationCorpusEntry[];
+}>): ReturnType<typeof compileDocumentationMigrationDesign> {
+  return compileDocumentationMigrationDesign({
+    ...input,
+    registryDigest: sha256(input.registry) as `sha256:${string}`,
+    targetContractDigest: DOCUMENTATION_MIGRATION_TARGET_CONTRACT_DIGEST
+  });
+}
+
 describe('documentation migration design compiler', () => {
   test('keeps derivable projections and blocks unresolved source ownership', () => {
-    const design = compileDocumentationMigrationDesign({
+    const design = compileDesign({
       registry: registry(
         record('a-authority', 'docs/a.md', 'authority'),
         record('a-index', 'docs/README.md', 'navigation')
       ),
-      registryDigest: DIGEST,
-      targetContractDigest: DIGEST,
       corpus: [
         corpus('docs/README.md', 'tracked-registered', 'a-index', 'none-observed', ['consumer:docs']),
         corpus('docs/a.md', 'tracked-registered', 'a-authority', 'none-observed')
@@ -82,10 +93,8 @@ describe('documentation migration design compiler', () => {
   });
 
   test('permits a fully classified proposal with no consumers', () => {
-    const design = compileDocumentationMigrationDesign({
+    const design = compileDesign({
       registry: registry(record('proposal', 'docs/proposals/p.md', 'proposal')),
-      registryDigest: DIGEST,
-      targetContractDigest: DIGEST,
       corpus: [corpus('docs/proposals/p.md', 'tracked-registered', 'proposal')]
     });
 
@@ -95,10 +104,8 @@ describe('documentation migration design compiler', () => {
   });
 
   test('does not treat an empty literal hit list as complete consumer-zero evidence', () => {
-    const design = compileDocumentationMigrationDesign({
+    const design = compileDesign({
       registry: registry(record('proposal', 'docs/proposals/p.md', 'proposal')),
-      registryDigest: DIGEST,
-      targetContractDigest: DIGEST,
       corpus: [corpus('docs/proposals/p.md', 'tracked-registered', 'proposal', 'none-observed', [], 'unknown')]
     });
 
@@ -108,10 +115,8 @@ describe('documentation migration design compiler', () => {
   });
 
   test('retains explicit missing registered sources as a typed migration frontier', () => {
-    const design = compileDocumentationMigrationDesign({
+    const design = compileDesign({
       registry: registry(record('authority', 'docs/a.md', 'authority')),
-      registryDigest: DIGEST,
-      targetContractDigest: DIGEST,
       corpus: [corpus('docs/a.md', 'missing', 'authority', 'unknown')]
     });
 
@@ -124,10 +129,8 @@ describe('documentation migration design compiler', () => {
   });
 
   test('classifies corpus contracts as source fragments rather than a blocked unknown kind', () => {
-    const design = compileDocumentationMigrationDesign({
+    const design = compileDesign({
       registry: registry(record('contract', 'docs/contract.md', 'corpus-contract')),
-      registryDigest: DIGEST,
-      targetContractDigest: DIGEST,
       corpus: [corpus('docs/contract.md', 'tracked-registered', 'contract')]
     });
 
@@ -137,10 +140,8 @@ describe('documentation migration design compiler', () => {
   });
 
   test('does not silently absorb an unregistered or externally unknown artifact', () => {
-    const design = compileDocumentationMigrationDesign({
+    const design = compileDesign({
       registry: registry(record('proposal', 'docs/proposals/p.md', 'proposal')),
-      registryDigest: DIGEST,
-      targetContractDigest: DIGEST,
       corpus: [
         corpus('docs/proposals/p.md', 'tracked-registered', 'proposal'),
         corpus('docs/work/unknown.md', 'tracked-unclassified', null, 'unknown')
@@ -157,10 +158,8 @@ describe('documentation migration design compiler', () => {
   });
 
   test('keeps known consumers on non-active artifacts in the migration frontier', () => {
-    const design = compileDocumentationMigrationDesign({
+    const design = compileDesign({
       registry: registry(record('proposal', 'docs/proposals/p.md', 'proposal')),
-      registryDigest: DIGEST,
-      targetContractDigest: DIGEST,
       corpus: [
         corpus('docs/proposals/p.md', 'tracked-registered', 'proposal'),
         corpus('docs/work/retired.md', 'tracked-non-active', null, 'none-observed', ['consumer:runtime'])
@@ -176,28 +175,41 @@ describe('documentation migration design compiler', () => {
   });
 
   test('rejects an unsorted corpus or a registry/path mismatch before producing a design', () => {
-    expect(() => compileDocumentationMigrationDesign({
+    expect(() => compileDesign({
       registry: registry(record('a', 'docs/a.md', 'proposal')),
-      registryDigest: DIGEST,
-      targetContractDigest: DIGEST,
       corpus: [
         corpus('docs/z.md', 'tracked-unclassified', null),
         corpus('docs/a.md', 'tracked-registered', 'a')
       ]
     })).toThrow(/canonical path order/u);
 
-    expect(() => compileDocumentationMigrationDesign({
+    expect(() => compileDesign({
       registry: registry(record('a', 'docs/a.md', 'proposal')),
-      registryDigest: DIGEST,
-      targetContractDigest: DIGEST,
       corpus: [corpus('docs/a.md', 'tracked-registered', 'a')]
     })).not.toThrow();
 
-    expect(() => compileDocumentationMigrationDesign({
+    expect(() => compileDesign({
       registry: registry(record('a', 'docs/a.md', 'proposal')),
-      registryDigest: DIGEST,
-      targetContractDigest: DIGEST,
       corpus: [corpus('docs/a.md', 'tracked-registered', 'other')]
     })).toThrow(/unknown registry id|does not match registry record/u);
+  });
+
+  test('rejects caller-supplied digests that do not bind the actual inputs', () => {
+    const currentRegistry = registry(record('a', 'docs/a.md', 'proposal'));
+    const currentCorpus = [corpus('docs/a.md', 'tracked-registered', 'a')];
+
+    expect(() => compileDocumentationMigrationDesign({
+      registry: currentRegistry,
+      registryDigest: DIGEST,
+      targetContractDigest: DOCUMENTATION_MIGRATION_TARGET_CONTRACT_DIGEST,
+      corpus: currentCorpus
+    })).toThrow(/registryDigest does not match/u);
+
+    expect(() => compileDocumentationMigrationDesign({
+      registry: currentRegistry,
+      registryDigest: sha256(currentRegistry) as `sha256:${string}`,
+      targetContractDigest: DIGEST,
+      corpus: currentCorpus
+    })).toThrow(/targetContractDigest does not match/u);
   });
 });

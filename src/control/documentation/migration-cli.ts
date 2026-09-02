@@ -225,9 +225,7 @@ export async function collectDocumentationMigrationCorpus(input: Readonly<{
     const registryId = idsByPath.get(repositoryPath);
     const status = registryId !== undefined
       ? 'tracked-registered'
-      : repositoryPath.startsWith('docs/work-packages/')
-        ? 'tracked-non-active'
-        : 'tracked-unclassified';
+      : 'tracked-unclassified';
     const bytes = trackedFiles.get(repositoryPath);
     if (bytes === undefined) fail(`tracked path disappeared during census: ${repositoryPath}`);
     return Object.freeze({
