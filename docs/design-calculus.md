@@ -241,7 +241,7 @@ SystemModel =
 | provenance/Evidence DAG | observation 可支持哪些 Claim | independence、coverage、freshness |
 | evolution graph | old/new generation 如何迁移和退役 | conservation、cutover、consumer-zero |
 
-每个 node/edge 都引用 `layer + plane + owner + revision`；跨层只能使用声明过的 `refines | materializes | observes | binds | settles | proves | projects | migrates` 等 relation。不同层级信息可以在同一 DesignPackage 中组合验证，但不能共用 identity、payload 或 writer；任意 view 只保留所需 refs 和 typed frontier，不能把多个层压成一份自由 JSON。
+每个 node/edge 都引用 `layer + plane + owner + revision`；跨层只能使用声明过的 `refines | materializes | observes | binds | settles | proves | projects | migrates` 等 relation。不同层级信息只能在`DesignKnowledgeGraph`中通过typed refs组合验证，不能共用identity、payload或writer；任意view只保留所需refs和typed frontier，不能把多个层压成一份自由JSON。
 
 ## 4. 原则记录与多视图精确表达
 
@@ -432,7 +432,7 @@ ReflexiveArchitectureClosure(A) =
   ∧ bounded meta-model evolution
 ```
 
-任何反例证明 active calculus、coverage dimensions、fault families、compiler stages、entity/relation grammar 或实现机制缺项时，依赖该假设的 DesignPackage、ImplementationPlan、tests 与 Evidence 全部 stale。修复顺序是扩展唯一 meta-model、验证旧可表达子集等价、重编所有受影响 projection，再迁移/退役旧 generation；禁止只在发生反例的 domain 追加字段、检查或 Skill。
+任何反例证明active calculus、coverage dimensions、fault families、compiler stages、entity/relation grammar或实现机制缺项时，依赖该假设的design packages、plans、conformance models与Evidence全部stale。修复顺序是扩展唯一meta-model、验证既有可表达子集等价、重编所有受影响projection，再迁移/退役被替代generation；禁止只在发生反例的domain追加字段、检查或Skill。
 
 ## 6. Operation 与 Effect 参考模型
 
@@ -607,7 +607,7 @@ sequenceDiagram
   V-->>D: proven / disproven / unresolved
 ```
 
-## 11. Design Freeze 与伪实现包
+## 11. Design Freeze 与知识产物
 
 ```mermaid
 stateDiagram-v2
@@ -625,30 +625,41 @@ stateDiagram-v2
   Invalidated --> Draft: reverse closure stale and recompiled
 ```
 
-除 bounded experiment 外，生产实现只消费 `ContractFrozen` 的 Design Package；experiment 只能消解指定 unknown，不能进入 active product graph 或签发完成。
+除bounded experiment外，生产实现只消费`ContractFrozen`的`LogicalDesignPackage`与`TargetImplementationDesignPackage` refs；experiment只能消解指定unknown，不能进入active product graph或签发完成。
 
 ```text
-DesignPackage = {
-  identity + revision,
-  acceptedOutcomes + nonGoals,
-  statementClassification,
-  semanticTypes + relationGraph,
-  ownerDag + publicContracts,
-  pureFunctions + stateMachines,
-  requirements + provisionPorts,
-  authority + resourceModel,
-  effect + settlement + recovery,
-  durableSchemas + migrations,
-  proofClaims + evidenceIndependence,
-  performanceModel + actionKeys,
-  placement + packaging + retirement,
-  scenarios + injectedFaults + expectedTraces,
-  alternatives + dominanceReasons,
-  unknownFrontier + experiments,
-  reversalConditions + invalidationGraph,
-  implementationSlices + verificationObligations
+DesignKnowledgeGraph = {
+  authoredDecisionRefs,
+  principleAndConstraintRefs,
+  exactPremiseAndObservationRefs,
+  logicalDesignPackageRef,
+  targetImplementationDesignPackageRef?,
+  conformanceModelRef?,
+  alternativesAndDominanceRef,
+  unknownFrontierRef,
+  invalidationGraphRef
+}
+
+DesignPackageEnvelope = {
+  stage: logical | implementation | conformance,
+  exactInputRefs,
+  exactOutputRef,
+  unresolvedFrontierRef,
+  modelRevision,
+  contentDigest
 }
 ```
+
+`DesignKnowledgeGraph`只连接不同 owner 的 typed refs，不复制它们的 payload；`DesignPackageEnvelope`只封装某一设计阶段的可重算产物。逻辑、实现与符合性信息绝不压进一个自由对象，也不共用 revision 或 writer：
+
+| Knowledge product | 唯一内容 | 不得包含 | Authority |
+| --- | --- | --- | --- |
+| `DesignDecision` | 不可推导取舍、前提、备选、选择理由、反转条件 | 可重算 graph、实现清单、运行结果 | 仅对应 Product/Domain/Policy 决策 |
+| `LogicalDesignPackage` | Domain、Operation、Workflow、State/Failure、Authority/Resource/Proof/Evolution 语义 | file/package/provider/store/process/deployment | 无新增 Authority；引用 accepted decisions |
+| `TargetImplementationDesignPackage` | components、ports、data topology、placement、runtime、toolchain、performance realization | 新产品语义、当前仓盘点、迁移批次 | 无新增 Authority；证明对逻辑设计的 refinement |
+| `ConformanceModel` | 跨逻辑与实现的性质、生成场景、fault traces、expected observations、Claim obligations | producer 自报 PASS、当前执行结果 | 定义验证问题，不签发 verdict |
+| `ArchitectureMigration` | 某个 exact observed graph 到已冻结 target 的一次性演进 | target design 修改、永久兼容、通用原则 | 仅在独立 change operation 授权内 |
+| `DesignFreezeReceipt` | exact package/model checks 已结算的事实 | 被验证设计的内容副本、实现或发布权限 | 只证明相应 freeze Claim |
 
 不可推导的设计取舍用同一 owner 内的结构化决策记录保存，不另建平行日志：
 
@@ -681,24 +692,46 @@ Design Calculus 是纯演算规则，不是记录库、全局 registry 或工作
 | Principle/Constraint | Design Calculus 或 Engineering/Agent Constitution | versioned canonical authority source | 定义演算/拒绝语义 |
 | exact premise/Observation | observation/provider owner | immutable receipt 或 runtime state | 只证明观察范围内事实 |
 | DesignDecision | 提出问题的同一 canonical owner | owner source 内的 structured decision；不建第二 decision log | 保存不可推导取舍 |
-| DesignPackage | Design Compiler | content-addressed generated artifact/cache，可随 inputs 重建 | 无独立 Authority；引用 owner inputs |
+| DesignKnowledgeGraph | Design Compiler | typed refs + content-addressed generated index，可随 inputs 重建 | 无独立 Authority；不复制 payload |
+| LogicalDesignPackage | Logical Design Compiler | content-addressed generated artifact，可随 decisions/definitions 重建 | 无独立 Authority；引用 Product/Domain inputs |
+| TargetImplementationDesignPackage | Implementation Compiler | content-addressed generated artifact，可随 logical/target/catalog facts 重建 | 无独立 Authority；只签发 realization decision |
+| ConformanceModel | Conformance Compiler | content-addressed properties/scenarios/obligations | 不签发运行 Verdict |
 | DesignFreezeReceipt | architecture/change operation state owner | durable runtime state | 只证明某 package/revision 已通过指定 model checks |
 | human/Agent/machine view | projection compiler | generated documentation/context/artifact | 无增权投影 |
 
-```mermaid
-flowchart LR
-  A[Authored Decisions and Constraints] --> C[Design Compiler]
-  O[Exact Observations] --> C
-  C --> P[Content-addressed DesignPackage]
-  P --> M[Model checks]
-  M --> F[DesignFreezeReceipt]
-  P --> V[Human Agent Machine views]
-  F --> I[Implementation admission input]
+```text
+DesignKnowledgeComplete =
+  every accepted outcome/invariant/choice has one authored owner ref
+  ∧ every derived conclusion has exact inputs + compiler/model ref
+  ∧ every realization has a LogicalDesignPackage refinement ref
+  ∧ every proof obligation has a ConformanceModel ref
+  ∧ every unresolved question has an owned frontier + closure condition
+  ∧ every projection contains no unique information
 ```
 
-物理 path 由对应 Placement/lifecycle owner 选择，不进入 DesignPackage identity。当前尚无 machine-native Decision IR 的领域，canonical authority document 是临时 authored carrier；一旦结构化 owner 上线，文档只保留由该 IR 生成的阅读投影，不能双写。
+删除任何载体前先证明其中每项信息在上述关系中仍可达；“别处提过”“Git能找回”“AI记得”或“可以重新分析”都不构成知识保存。反之，同一meaning在两个authored载体中出现不是保险，而是必须删除的competing owner。
 
-只有 `DesignDecision` 中的 accepted choice 是不可重算的 authority input。alternatives、constraint evaluation、cost vector、dominance、fault traces、impact 与 projections 都由 exact inputs 编译进 DesignPackage；同 digest 直接复用，premise/reversal/model revision 变化则 package 与 freeze receipt 一并 stale。
+```mermaid
+flowchart LR
+  A[Authored Decisions and Constraints] --> L[Logical Design Compiler]
+  L --> LP[LogicalDesignPackage]
+  O[Target and exact Observation refs] --> I[Implementation Compiler]
+  LP --> I
+  I --> IP[TargetImplementationDesignPackage]
+  LP --> C[Conformance Compiler]
+  IP --> C
+  C --> CM[ConformanceModel]
+  LP --> K[Typed DesignKnowledgeGraph]
+  IP --> K
+  CM --> K
+  K --> M[Stage-specific model checks]
+  M --> F[DesignFreezeReceipt]
+  K --> V[Human Agent Machine projections]
+```
+
+物理path由对应Placement/lifecycle owner选择，不进入任何设计产物的semantic identity。领域尚未采用machine-native Decision IR时，canonical authority document可作为authored carrier；结构化owner启用后，文档只保留由该IR生成的阅读投影，不能双写。
+
+只有 `DesignDecision` 中的 accepted choice 是不可重算的 authority input。constraint evaluation、cost vector、dominance、fault traces、impact 与 projections 都从 exact refs 编译；同 digest 直接复用，premise/reversal/model revision 变化只使反向依赖的 package、conformance model 与 freeze receipt stale。设计理由因此由原决策 owner 保留，计算过程由派生产物保留，任何阅读文档都不需要复制整套知识。
 
 ### 11.2 伪实现完整性
 
