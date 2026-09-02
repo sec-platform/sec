@@ -7,6 +7,7 @@ import { expect, test } from 'bun:test';
 import {
   compileSourceProgramOperationProducerClosure
 } from '../../brownfield/source-program-model/producer-closure.ts';
+import { compileRepositorySourceProgramCompilation } from '../../brownfield/source-program-model/repository-compilation.ts';
 import {
   sourceProgramTypeScriptCompilerIdentity
 } from '../../brownfield/source-program-model/typescript.ts';
@@ -81,8 +82,11 @@ function subject(root: string, commitSha: string, baseCommitSha = commitSha) {
       repositoryRoot: root,
       commitSha: baseCommitSha
     });
+  const sourceProgramCompilation = compileRepositorySourceProgramCompilation({
+    workspaceSnapshot: snapshot
+  });
   const producerClosure = compileSourceProgramOperationProducerClosure(
-    snapshot,
+    sourceProgramCompilation,
     IMPORT_NORMALIZATION_OPERATION
   );
   return compileCandidateNormalizationSubject({

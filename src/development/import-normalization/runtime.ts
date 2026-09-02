@@ -2,6 +2,7 @@ import {
   compileSourceProgramOperationProducerClosure,
   requireSourceProgramOperationProducerClosure
 } from '../../brownfield/source-program-model/producer-closure.ts';
+import { compileRepositorySourceProgramCompilation } from '../../brownfield/source-program-model/repository-compilation.ts';
 import {
   assertSourceProgramTypeScriptCompilerIdentity,
   sourceProgramTypeScriptCompilerIdentity
@@ -160,8 +161,11 @@ export async function verifyCandidateImportNormalization(input: Readonly<{
     repositoryRoot: input.repositoryRoot,
     commitSha: input.candidateBase
   });
+  const sourceProgramCompilation = compileRepositorySourceProgramCompilation({
+    workspaceSnapshot: snapshot
+  });
   const producerClosure = compileSourceProgramOperationProducerClosure(
-    snapshot,
+    sourceProgramCompilation,
     IMPORT_NORMALIZATION_OPERATION
   );
   requireSourceProgramOperationProducerClosure(producerClosure);
