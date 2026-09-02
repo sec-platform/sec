@@ -23,6 +23,7 @@ import {
   DOCUMENTATION_MIGRATION_SOURCE_PROVIDER_REF,
   DOCUMENTATION_MIGRATION_TARGET_CONTRACT_DIGEST,
   encodeDocumentationMigrationDesign,
+  issueDocumentationMigrationConsumerCensus,
   type DocumentationMigrationCorpusEntry,
   type DocumentationMigrationDesign
 } from './migration.ts';
@@ -308,11 +309,15 @@ export async function compileCurrentRevisionDocumentationMigrationPlan(
     corpus: census.corpus,
     sourceGraph
   });
+  const consumerCensus = issueDocumentationMigrationConsumerCensus({
+    generationBinding: currentGenerationBinding,
+    entries: census.corpus
+  });
   const design = compileDocumentationMigrationDesign({
     registry,
     targetContractDigest: DOCUMENTATION_MIGRATION_TARGET_CONTRACT_DIGEST,
-    corpus: census.corpus,
     currentGenerationBinding,
+    consumerCensus,
     sourceGraph
   });
   return Object.freeze({ sourceRevision: revision, design });

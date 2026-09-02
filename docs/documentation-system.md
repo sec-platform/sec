@@ -388,6 +388,32 @@ It must bind the exact source generation, consumer class, support/retention
 window and revalidation trigger. Without that evidence the migration remains
 blocked even when every local observer reports an empty set.
 
+迁移编译器的输入也必须体现这条边界，而不是让 `CorpusEntry` 中的状态字段
+直接充当权限：
+
+```text
+DocumentationConsumerCensus = opaque owner-issued {
+  providerRef,
+  generationRef,
+  corpusDigest,
+  entries: exact observed refs + local coverage + external status,
+  censusDigest
+}
+
+compileMigration(..., consumerCensus):
+  require issuer brand and canonical provider route
+  require generationRef/corpusDigest == currentGenerationBinding
+  require censusDigest == digest(providerRef, generationRef, corpusDigest, entries)
+  use entries only after these checks
+```
+
+`DocumentationMigrationCorpusEntry` 是 observation payload，不是 authority。
+caller 不能用 object spread、手写 `none-observed` 或空数组替换
+`DocumentationConsumerCensus`；未知或未签发的 census 保持
+`external-consumer-unknown`/`local-consumer-coverage-unknown` frontier。未来若有
+完整外部协议 census，必须由其 provider owner 增加独立 issuer、覆盖范围、保留
+窗口和重验证触发器，不能放宽当前类型或添加兼容别名。
+
 graph facts与graph constraints分别编译；constraint不是藏在validator分支里的第二事实源：
 
 ```text

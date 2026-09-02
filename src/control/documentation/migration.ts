@@ -107,6 +107,22 @@ export interface DocumentationMigrationCorpusEntry {
   readonly externalConsumerStatus: DocumentationMigrationExternalConsumerStatus;
 }
 
+export const DOCUMENTATION_MIGRATION_CONSUMER_CENSUS_PROVIDER_REF =
+  'git-tracked-consumer-census' as const;
+
+declare const DOCUMENTATION_MIGRATION_CONSUMER_CENSUS_BRAND: unique symbol;
+
+export interface DocumentationMigrationConsumerCensus {
+  readonly providerRef: typeof DOCUMENTATION_MIGRATION_CONSUMER_CENSUS_PROVIDER_REF;
+  readonly generationRef: string;
+  readonly corpusDigest: Digest;
+  readonly censusDigest: Digest;
+  readonly entries: readonly DocumentationMigrationCorpusEntry[];
+  readonly [DOCUMENTATION_MIGRATION_CONSUMER_CENSUS_BRAND]: true;
+}
+
+const issuedDocumentationMigrationConsumerCensuses = new WeakSet<object>();
+
 export interface DocumentationMigrationFrontier {
   readonly code: DocumentationMigrationFrontierCode;
   readonly subjectRef: string;
@@ -148,6 +164,7 @@ export interface DocumentationMigrationPreservationEntry {
 export interface DocumentationMigrationDesign {
   readonly schema: typeof DOCUMENTATION_MIGRATION_DESIGN_SCHEMA;
   readonly currentGenerationBinding: DocumentationMigrationGenerationBinding;
+  readonly consumerCensusDigest: Digest;
   readonly currentRegistryDigest: Digest;
   readonly currentCorpusDigest: Digest;
   readonly sourceSemanticGraphDigest: Digest;
@@ -418,6 +435,33 @@ export function deriveDocumentationMigrationGenerationBinding(input: Readonly<{
   return binding;
 }
 
+export function issueDocumentationMigrationConsumerCensus(input: Readonly<{
+  readonly generationBinding: DocumentationMigrationGenerationBinding;
+  readonly entries: readonly DocumentationMigrationCorpusEntry[];
+}>): DocumentationMigrationConsumerCensus {
+  if (!issuedDocumentationMigrationGenerationBindings.has(input.generationBinding)) {
+    fail('consumer census generation binding was not issued by the migration owner.');
+  }
+  const entries = Object.freeze(input.entries.map(normalizeCorpusEntry));
+  assertSortedEntries(entries);
+  const corpusDigestValue = corpusDigest(entries);
+  if (corpusDigestValue !== input.generationBinding.corpusDigest) {
+    fail('consumer census does not match the generation corpus.');
+  }
+  const withoutDigest = {
+    providerRef: DOCUMENTATION_MIGRATION_CONSUMER_CENSUS_PROVIDER_REF,
+    generationRef: input.generationBinding.generationRef,
+    corpusDigest: corpusDigestValue,
+    entries
+  };
+  const census = deepFreeze({
+    ...withoutDigest,
+    censusDigest: sha256(withoutDigest) as Digest
+  }) as DocumentationMigrationConsumerCensus;
+  issuedDocumentationMigrationConsumerCensuses.add(census);
+  return census;
+}
+
 function frontierDigest(frontier: readonly DocumentationMigrationFrontier[]): Digest {
   return sha256(frontier) as Digest;
 }
@@ -429,8 +473,8 @@ function preservationDigest(preservation: readonly DocumentationMigrationPreserv
 export function compileDocumentationMigrationDesign(input: Readonly<{
   readonly registry: DocumentationAuthorityRegistry;
   readonly targetContractDigest: Digest;
-  readonly corpus: readonly DocumentationMigrationCorpusEntry[];
   readonly currentGenerationBinding: DocumentationMigrationGenerationBinding;
+  readonly consumerCensus: DocumentationMigrationConsumerCensus;
   readonly sourceGraph: DocumentationSemanticGraph;
 }>): DocumentationMigrationDesign {
   assertIssuedDocumentationSemanticGraph(input.sourceGraph);
@@ -439,9 +483,27 @@ export function compileDocumentationMigrationDesign(input: Readonly<{
   if (targetContractDigest !== DOCUMENTATION_MIGRATION_TARGET_CONTRACT_DIGEST) {
     fail('targetContractDigest does not match the canonical target contract.');
   }
-  const corpus = input.corpus.map(normalizeCorpusEntry);
+  const consumerCensus = input.consumerCensus;
+  if (!issuedDocumentationMigrationConsumerCensuses.has(consumerCensus)) {
+    fail('consumer census was not issued by the migration owner.');
+  }
+  if (consumerCensus.providerRef !== DOCUMENTATION_MIGRATION_CONSUMER_CENSUS_PROVIDER_REF
+      || consumerCensus.generationRef !== input.currentGenerationBinding.generationRef
+      || consumerCensus.censusDigest !== sha256({
+        providerRef: consumerCensus.providerRef,
+        generationRef: consumerCensus.generationRef,
+        corpusDigest: consumerCensus.corpusDigest,
+        entries: consumerCensus.entries
+      })) {
+    fail('consumer census provenance or digest is invalid.');
+  }
+  const corpus = consumerCensus.entries.map(normalizeCorpusEntry);
   assertSortedEntries(corpus);
   const currentCorpusDigest = corpusDigest(corpus);
+  if (currentCorpusDigest !== consumerCensus.corpusDigest
+      || currentCorpusDigest !== input.currentGenerationBinding.corpusDigest) {
+    fail('consumer census entries do not match the generation corpus.');
+  }
   const currentGenerationBinding = input.currentGenerationBinding;
   if (!issuedDocumentationMigrationGenerationBindings.has(currentGenerationBinding)) {
     fail('current generation binding was not issued by the migration owner.');
@@ -727,6 +789,7 @@ export function compileDocumentationMigrationDesign(input: Readonly<{
   const designDigest = sha256({
     schema: DOCUMENTATION_MIGRATION_DESIGN_SCHEMA,
     currentGenerationBinding,
+    consumerCensusDigest: consumerCensus.censusDigest,
     currentRegistryDigest: registryDigest,
     currentCorpusDigest,
     sourceSemanticGraphDigest: input.sourceGraph.semanticGraphDigest,
@@ -740,6 +803,7 @@ export function compileDocumentationMigrationDesign(input: Readonly<{
   return deepFreeze({
     schema: DOCUMENTATION_MIGRATION_DESIGN_SCHEMA,
     currentGenerationBinding,
+    consumerCensusDigest: consumerCensus.censusDigest,
     currentRegistryDigest: registryDigest,
     currentCorpusDigest,
     sourceSemanticGraphDigest: input.sourceGraph.semanticGraphDigest,
