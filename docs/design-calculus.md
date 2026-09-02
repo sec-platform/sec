@@ -17,8 +17,9 @@ flowchart TB
   L1A["L1 Agent Constitution<br/>Agent 如何认识与行动"]
   L2["L2 Project Constitution<br/>目标、风险、取舍、适用原则"]
   L3["L3 Domain Specifications<br/>领域身份、状态、操作、合同"]
-  L4["L4 Execution Profiles<br/>Provider、资源、平台、工具"]
-  L5["L5 Runtime Facts and Evidence<br/>exact observation、settlement、proof"]
+  L4["L4 Implementation Architecture<br/>realization、placement、generation、migration"]
+  L5["L5 Execution Profiles<br/>Provider、资源、平台、工具"]
+  L6["L6 Runtime Facts and Evidence<br/>exact observation、settlement、proof"]
   L0 --> L1E
   L0 --> L1A
   L1E --> L2
@@ -26,7 +27,8 @@ flowchart TB
   L2 --> L3
   L3 --> L4
   L4 --> L5
-  L5 -. "新事实；不得反向改写原则" .-> L2
+  L5 --> L6
+  L6 -. "新事实；不得反向改写原则" .-> L2
 ```
 
 | 层 | 只拥有 | 不得拥有 |
@@ -36,8 +38,9 @@ flowchart TB
 | L1 Agent | 普适认识与行动不变量 | 产品需求、工程事实、任务授权 |
 | L2 Project | 项目目的、风险、全局取舍、原则实例化 | 领域字段和运行结果 |
 | L3 Domain | 领域语义、状态机、操作、失败代数 | 外部能力可用性、独立证明 |
-| L4 Execution | capability、binding、allocation、平台约束 | 产品目的、业务成功 |
-| L5 Runtime | observation、settlement、evidence、unknown | 稳定定义、未来义务 |
+| L4 Implementation | logical→CodeUnit/package/file/generated realization、局部变更、迁移 | 产品目的、领域语义、运行成功 |
+| L5 Execution | capability、binding、allocation、平台约束 | 产品目的、业务成功 |
+| L6 Runtime | observation、settlement、evidence、unknown | 稳定定义、未来义务 |
 
 依赖只能向下消费语言、向上产出受限事实。下层不能以“已经实现”“测试绿色”或“工具不支持”改写上层定义；上层不能以 prose 宣称下层 Effect、状态或 Evidence 已存在。
 
@@ -165,6 +168,80 @@ Evidence.claimRef        -> Claim.identity
 ```
 
 引用方保存 identity/digest，不复制被引用对象的 fields。被引用 revision 变化时，依赖图使引用方 stale；禁止靠字段继承、字符串拼接或路径镜像保持“同步”。
+
+### 3.3 信息坐标：这些概念不是同义层级
+
+`construct / statement / relation / profile / plane / constraint family / stage / entity family / view` 是同一设计事实的正交坐标，不是九套并列 ontology，也不是从抽象到具体的单链继承。
+
+| 维度 | 回答 | 典型值 | 不回答 |
+| --- | --- | --- | --- |
+| Construct | 这个事实由哪种最小逻辑构件表达 | Subject、Claim、Relation、Constraint、Transition、Proof、Unknown | 来源是否可靠、属于哪个业务 |
+| StatementKind | 当前陈述凭什么成立 | Fact、Hypothesis、Decision、Authorization、Requirement、Observation、Evidence、Unknown | 它和谁连接、何时执行 |
+| RelationKind | 两个 exact Subjects 怎样连接 | Definition、Requires、Provides、Binds、Allocates、Settles、EvidenceSupports | payload 内容、执行顺序 |
+| Profile | 哪组已接受规则适用于当前 Project/Target/Environment | Project Constitution、Target Profile、Execution Profile | 新事实、实现成功 |
+| Plane | 从哪个独立责任维度观察系统 | Semantic、Knowledge、Responsibility、Authority、Capability/Resource、Execution、Lifecycle/Proof、Evolution、Interface | 时间阶段、文件位置 |
+| ConstraintFamily | 哪类合法性必须合取验证 | identity、uniqueness、authority、resource、recovery、coverage 等 | 软偏好、实现候选排名 |
+| Stage | 哪些输入必须先存在才能纯编译下一产物 | outcome→observation→semantics→responsibility→operation→execution→proof→evolution | owner 身份、物理并发线程 |
+| EntityFamily | domain payload 属于哪种可独立拥有和演进的业务族 | Operation、Grant、Binding、State、Evidence、Migration 等 | 通用 relation 的语义 |
+| View | 哪个 consumer 需要哪种无增权投影 | human、machine admission、Agent context、runtime query | 第二真相、裁剪掉的 blocker |
+
+任一可消费事实都有一个概念坐标，但不实现为“所有字段可选”的万能 DTO：
+
+```text
+InformationCoordinate =
+  domainTypedPayload
+  + Envelope reference
+  + StatementKind
+  + applicable Plane/Profile/Constraint refs
+  + typed Relations
+  + lifecycle/coverage/unknown
+```
+
+```mermaid
+flowchart LR
+  C[Construct + domain payload] --> E[Envelope]
+  S[Statement kind] --> E
+  R[Typed relations] --> G[Relation graph]
+  E --> G
+  P[Profiles and planes] --> A[Applicable constraints]
+  G --> A
+  A --> T[Stage compiler]
+  T --> V[Consumer views]
+```
+
+组织规则：Construct 定义表达能力；StatementKind 保存认识论来源；Relation 组成因果图；Profile 选择适用规则；Plane 保持责任正交；Constraint 做合法性合取；Stage 规定因果偏序；EntityFamily 承载领域 payload；View 只做无增权投影。新增概念前必须证明无法由这九个坐标之一表达，否则属于重复 meta-model。
+
+### 3.4 系统不等于一张无类型的图
+
+关系图只是共同底座；完整系统模型还包含领域 payload、合法性、数量、时间、状态和覆盖：
+
+```text
+SystemModel =
+  typed attributed hypergraph(Subjects, Relations, Envelopes)
+  + constraint algebra
+  + transition/state machines
+  + resource quantities and ledgers
+  + temporal/freshness rules
+  + Profiles and layer grammar
+  + coverage and Unknown frontier
+```
+
+一条多方约束可表达为有 identity 的 relation node/hyperedge，而不是复制成若干二元布尔字段。State transition、allocation consumption、deadline 和 settlement 不能只靠静态 edge 表达；它们分别由 transition、resource 与 temporal semantics 验证。
+
+系统共享一个 canonical identity/reference space，但不构造一个所有字段可选的 monolithic graph：
+
+| Generated projection | 只回答 | 必须保持 |
+| --- | --- | --- |
+| semantic/causal graph | 什么成立、为何成立 | Definition、provenance、unknown |
+| owner/dependency DAG | 谁拥有、谁可依赖谁 | unique owner、acyclic layers |
+| workflow DAG | 哪些 DomainOperations 以何种结果依赖组合 | operation boundary、guards、compensation |
+| capability/binding graph | 哪项 Requirement 由哪个 Provision 满足 | grant、profile、freshness |
+| resource graph/ledger | 哪个 parent 向哪些 attempt 分配多少 | conservation、release、leak |
+| state/transition system | 哪些状态变化合法 | pre-state、CAS、terminal/residue |
+| provenance/Evidence DAG | observation 可支持哪些 Claim | independence、coverage、freshness |
+| evolution graph | old/new generation 如何迁移和退役 | conservation、cutover、consumer-zero |
+
+每个 node/edge 都引用 `layer + plane + owner + revision`；跨层只能使用声明过的 `refines | materializes | observes | binds | settles | proves | projects | migrates` 等 relation。不同层级信息可以在同一 DesignPackage 中组合验证，但不能共用 identity、payload 或 writer；任意 view 只保留所需 refs 和 typed frontier，不能把多个层压成一份自由 JSON。
 
 ## 4. 原则记录与多视图精确表达
 
@@ -541,7 +618,36 @@ DesignDecision = {
 
 后来者在 premises 和 reversal 未变化时直接复用裁决；出现新事实时从 `reversalPredicate` 进入演进，而不是重新做无边界讨论或在旧结论上叠补丁。
 
-### 11.1 伪实现完整性
+### 11.1 权威输入、编译产物与持久载体
+
+Design Calculus 是纯演算规则，不是记录库、全局 registry 或工作流 owner。设计信息按权威和生命周期分层：
+
+| 信息 | 唯一 owner / carrier | 可持久化位置类别 | Authority |
+| --- | --- | --- | --- |
+| Product/Domain Decision | 对应 Product/Domain canonical owner | versioned authored source，由 documentation/semantic registry 定位 | 定义 accepted outcome/取舍 |
+| Principle/Constraint | Design Calculus 或 Engineering/Agent Constitution | versioned canonical authority source | 定义演算/拒绝语义 |
+| exact premise/Observation | observation/provider owner | immutable receipt 或 runtime state | 只证明观察范围内事实 |
+| DesignDecision | 提出问题的同一 canonical owner | owner source 内的 structured decision；不建第二 decision log | 保存不可推导取舍 |
+| DesignPackage | Design Compiler | content-addressed generated artifact/cache，可随 inputs 重建 | 无独立 Authority；引用 owner inputs |
+| DesignFreezeReceipt | architecture/change operation state owner | durable runtime state | 只证明某 package/revision 已通过指定 model checks |
+| human/Agent/machine view | projection compiler | generated documentation/context/artifact | 无增权投影 |
+
+```mermaid
+flowchart LR
+  A[Authored Decisions and Constraints] --> C[Design Compiler]
+  O[Exact Observations] --> C
+  C --> P[Content-addressed DesignPackage]
+  P --> M[Model checks]
+  M --> F[DesignFreezeReceipt]
+  P --> V[Human Agent Machine views]
+  F --> I[Implementation admission input]
+```
+
+物理 path 由对应 Placement/lifecycle owner 选择，不进入 DesignPackage identity。当前尚无 machine-native Decision IR 的领域，canonical authority document 是临时 authored carrier；一旦结构化 owner 上线，文档只保留由该 IR 生成的阅读投影，不能双写。
+
+只有 `DesignDecision` 中的 accepted choice 是不可重算的 authority input。alternatives、constraint evaluation、cost vector、dominance、fault traces、impact 与 projections 都由 exact inputs 编译进 DesignPackage；同 digest 直接复用，premise/reversal/model revision 变化则 package 与 freeze receipt 一并 stale。
+
+### 11.2 伪实现完整性
 
 | 维度 | 伪实现必须给出 | 不能拖到编码期 |
 | --- | --- | --- |
@@ -560,24 +666,28 @@ DesignDecision = {
 | placement | cell/layer/visibility/lifecycle derived path | 边写边改目录 |
 | test | property/effect/failure/protocol scenarios | 镜像实现细节 |
 
-### 11.2 设计逻辑验证
+### 11.3 设计逻辑验证
 
 ```text
 validateDesignPackage(package):
   assert exactSchema(package)
+  assert everyAcceptedCapabilityHasGeneratedConcernAndFaultClosure(package)
   assert acyclic(package.ownerDag, package.referenceGraph)
   assert uniqueOwners(package.identities, writers, parsers, resolvers, terminals)
+  assert everyRuntimeControlTracesToAcceptedDefinitionOrExactObservation(package)
   assert everyOperationHasRequirementsAndPureDecision(package)
   assert everyEffectHasGrantBindingAllocationSettlementRecovery(package)
   assert everyDurableStateHasStrictReadbackAndEvolution(package)
   assert everyClaimHasIndependentEvidenceSemantics(package)
   assert everyFutureObjectHasConsumerOrFutureObligation(package)
+  assert everyAuthoredOrPublicNodeHasComplexityExistenceProof(package)
+  assert counterfactualDeletionAndReuseAlternativesAreEvaluated(package)
   assert allApplicableFaultFamiliesHaveExpectedTerminalTrace(package)
   assert modelCheck(safety, liveness, determinism, recovery, evolution, economy)
   assert projectionsPreserveMeaning(package)
 ```
 
-### 11.3 反例传播
+### 11.4 反例传播
 
 ```text
 invalidate(premise, observation):
@@ -598,10 +708,13 @@ DesignClosed =
   ∧ all statements are typed
   ∧ minimal causal graph is complete within declared coverage
   ∧ every identity/parser/writer/resolver/terminal has one owner
+  ∧ every accepted capability has generated concern/fault closure
+  ∧ every runtime control traces to accepted Definition or exact Observation
   ∧ every Effect has grant, binding, allocation, settlement and recovery
   ∧ every Claim has proof semantics and independence requirements
   ∧ every unknown has an exact affected frontier
   ∧ every future abstraction has accepted obligation or is removed
+  ∧ every authored/public node has an existence proof and deletion counterfactual
   ∧ all fault families applicable to the graph have expected outcomes
   ∧ safety/liveness/determinism/recovery/evolution/economy are checked
   ∧ project projections reference rather than copy this calculus
