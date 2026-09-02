@@ -55,9 +55,7 @@
         "filesystem"
       ],
       "ownerInternalOperations": [
-        "materializeRetainedSealedPhysicalExecutionTreeGeneration",
-        "openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot",
-        "retainMutableSealedPhysicalExecutionProtectedRoot"
+        "openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot"
       ],
       "operationRoles": []
     }
@@ -136,6 +134,51 @@
       "operation": {
         "kind": "capability",
         "capability": "runtime-state.physical",
+        "operation": "materializeRetainedSealedPhysicalExecutionTreeGeneration"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "brownfield.repository-audit"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem"
+        ],
+        "failureKinds": [
+          "runtime-physical-execution-tree-invalid",
+          "runtime-physical-execution-tree-residue"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 300000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 536870912
+          },
+          {
+            "resource": "records",
+            "maximum": 500000
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "runtime-state.physical",
         "operation": "materializeRetainedTypeScriptExecutionGeneration"
       },
       "consumerSupport": {
@@ -170,6 +213,43 @@
           {
             "resource": "records",
             "maximum": 500000
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "runtime-state.physical",
+        "operation": "retainMutableSealedPhysicalExecutionProtectedRoot"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "brownfield.repository-audit"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem"
+        ],
+        "failureKinds": [
+          "runtime-physical-protected-root-release-failed",
+          "runtime-physical-protected-root-unavailable"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "records",
+            "maximum": 1
           }
         ]
       },
