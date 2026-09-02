@@ -5,6 +5,7 @@ import {
 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import type {
   SourceProgramEntrypointAddress,
+  SourceProgramModel,
   SourceProgramOperationIdentity,
   SourceProgramOperationProducerClosure,
   SourceProgramOperationSourceEvidence
@@ -14,8 +15,14 @@ import {
   type RepositorySourceProgramCompilationReceipt
 } from './repository-compilation.ts';
 import {
+  compileTypeScriptSourceProgramModel,
+  isSourceProgramRuntimeBuiltinModuleSpecifier,
   resolveSourceProgramTypeScriptModuleExport
 } from './typescript.ts';
+import {
+  assertWorkspaceSourceSnapshot,
+  type WorkspaceSourceSnapshot
+} from './workspace-source-snapshot.ts';
 
 const issuedProducerClosures = new WeakSet<object>();
 
@@ -55,13 +62,11 @@ function sourceEvidence(
   });
 }
 
-/** Compile the exact descriptor entrypoint and its reachable file graph for one operation. */
-export function compileSourceProgramOperationProducerClosure(
-  compilation: RepositorySourceProgramCompilationReceipt,
+function compileOperationProducerClosure(
+  snapshot: WorkspaceSourceSnapshot,
+  typeScriptModel: SourceProgramModel,
   operation: SourceProgramOperationIdentity
 ): SourceProgramOperationProducerClosure {
-  assertRepositorySourceProgramCompilationReceipt(compilation);
-  const snapshot = compilation.workspaceSnapshot;
   const owners = snapshot.moduleMembership.descriptors.filter((descriptor) => (
     descriptor.capabilityProviders.some((provider) => (
       provider.capability === operation.capability
@@ -79,7 +84,7 @@ export function compileSourceProgramOperationProducerClosure(
   const fileByPath = new Map(snapshot.files.map((file) => [file.path, file]));
   const descriptorPath = `${owner.root}/sec.module.json`;
   const moduleExports = resolveSourceProgramTypeScriptModuleExport(
-    compilation.typeScriptCompilation.model,
+    typeScriptModel,
     owner.externalEntrypoints,
     operation.operation
   );
@@ -136,7 +141,7 @@ export function compileSourceProgramOperationProducerClosure(
   }
 
   const unresolvedLoaders = [
-    ...compilation.typeScriptCompilation.model.unknowns
+    ...typeScriptModel.unknowns
       .filter(({ code, path }) => reachable.has(path)
         && (code === 'dynamic-module-unresolved' || code === 'dynamic-runtime-opaque'))
       .map(({ code, detail, path }) => `${path}:${code}:${detail}`),
@@ -144,6 +149,7 @@ export function compileSourceProgramOperationProducerClosure(
       .filter(({ from, kind, resolvedTarget }) => reachable.has(from)
         && kind !== 'static'
         && resolvedTarget === null)
+      .filter(({ specifier }) => !isSourceProgramRuntimeBuiltinModuleSpecifier(specifier))
       .map(({ from, kind, specifier }) => `${from}:${kind}:${specifier}`)
   ].sort(compareCodeUnits);
   if (unresolvedLoaders.length > 0) {
@@ -199,6 +205,71 @@ export function compileSourceProgramOperationProducerClosure(
   }) as SourceProgramOperationProducerClosure;
   issuedProducerClosures.add(closure);
   return closure;
+}
+
+/** Compile the exact descriptor entrypoint and its reachable file graph for one operation. */
+export function compileSourceProgramOperationProducerClosure(
+  compilation: RepositorySourceProgramCompilationReceipt,
+  operation: SourceProgramOperationIdentity
+): SourceProgramOperationProducerClosure {
+  assertRepositorySourceProgramCompilationReceipt(compilation);
+  return compileOperationProducerClosure(
+    compilation.workspaceSnapshot,
+    compilation.typeScriptCompilation.model,
+    operation
+  );
+}
+
+/**
+ * Compile only the owner-declared entrypoint surface needed to identify one
+ * operation producer. The workspace snapshot remains the single module graph
+ * and source-byte authority; this projection reuses the canonical TypeScript
+ * compiler solely for export/re-export semantics and deliberately does not
+ * assemble repository, test, or placement projections.
+ */
+export function compileSourceProgramOperationProducerClosureFromWorkspaceSnapshot(
+  snapshot: WorkspaceSourceSnapshot,
+  operation: SourceProgramOperationIdentity
+): SourceProgramOperationProducerClosure {
+  assertWorkspaceSourceSnapshot(snapshot);
+  const owners = snapshot.moduleMembership.descriptors.filter((descriptor) => (
+    descriptor.capabilityProviders.some((provider) => (
+      provider.capability === operation.capability
+      && provider.operations.includes(operation.operation)
+    ))
+  ));
+  if (owners.length !== 1) {
+    throw new SourceProgramOperationProducerClosureError(
+      'operation-owner-not-unique',
+      `${operation.capability}:${operation.operation}`
+    );
+  }
+  const owner = owners[0]!;
+  const reachable = new Set<string>();
+  const frontier = [...owner.externalEntrypoints];
+  while (frontier.length > 0) {
+    const repositoryPath = frontier.pop()!;
+    if (reachable.has(repositoryPath)) continue;
+    reachable.add(repositoryPath);
+    for (const dependency of snapshot.moduleGraph.directRuntimeDependencies(repositoryPath)) {
+      if (!reachable.has(dependency)) frontier.push(dependency);
+    }
+  }
+  const files = snapshot.files.filter(({ path }) => reachable.has(path));
+  if (files.length !== reachable.size) {
+    const available = new Set(files.map(({ path }) => path));
+    const absent = [...reachable].filter((path) => !available.has(path)).sort(compareCodeUnits);
+    throw new SourceProgramOperationProducerClosureError(
+      'reachable-file-absent',
+      absent.join(',')
+    );
+  }
+  const typeScriptModel = compileTypeScriptSourceProgramModel({
+    sourceRevision: snapshot.sourceRevision,
+    files,
+    moduleMembership: snapshot.moduleMembership
+  });
+  return compileOperationProducerClosure(snapshot, typeScriptModel, operation);
 }
 
 export function requireSourceProgramOperationProducerClosure(

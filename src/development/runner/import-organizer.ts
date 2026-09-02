@@ -943,24 +943,25 @@ export async function runStagedImportCheck(
   testHooks: StagedImportOrganizerTestHooks = {},
   selection: StagedImportSelection = {}
 ): Promise<ImportCheckOutcome> {
-  const computed = await computeStagedImportUpdates(projectRoot, testHooks, selection);
-  if (computed === null) {
-    return Object.freeze({ schema: 'sec-import-check-outcome-v1' as const,
-      status: 'canonical' as const, files: Object.freeze([]) });
+  if (Object.keys(testHooks).length > 0) {
+    throw new Error('Staged import checks do not accept effect test hooks');
   }
-  try {
-    if (computed.updates.length === 0) {
-      return Object.freeze({ schema: 'sec-import-check-outcome-v1' as const,
-        status: 'canonical' as const, files: Object.freeze([]) });
-    }
-    return Object.freeze({
-      schema: 'sec-import-check-outcome-v1' as const,
-      status: 'needs-import-transform' as const,
-      files: Object.freeze(computed.updates.map((update) => update.entry.path))
-    });
-  } finally {
-    await disposeStagedComputation(computed);
-  }
+  const [{ withAuthorityGitReadSession }, { GIT_READ_OPERATION_BUDGET }, {
+    checkStagedCandidateImportNormalization
+  }] = await Promise.all([
+    import('../../external-capabilities/git-read/authority.ts'),
+    import('../tooling/git/git-read.ts'),
+    import('../import-normalization/runtime.ts')
+  ]);
+  return withAuthorityGitReadSession({
+    cwd: projectRoot,
+    budget: GIT_READ_OPERATION_BUDGET
+  }, (session) => checkStagedCandidateImportNormalization({
+    session,
+    ...(selection.candidateBase === undefined ? {} : {
+      candidateBase: selection.candidateBase
+    })
+  }));
 }
 
 export async function runStagedIndexOnlyImportOrganizer(

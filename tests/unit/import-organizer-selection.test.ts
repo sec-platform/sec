@@ -59,11 +59,14 @@ describe('import organizer selection', () => {
 
     expect(importServiceRootFileNames({
       fileNames: [unrelated, declaration, moduleDeclaration, target]
-    }, [target])).toEqual([
+    }, [target], 'remove-unused')).toEqual([
       declaration,
       moduleDeclaration,
       target
     ].sort());
+    expect(importServiceRootFileNames({
+      fileNames: [unrelated, declaration, moduleDeclaration, target]
+    }, [target])).toEqual([target]);
 
   });
 

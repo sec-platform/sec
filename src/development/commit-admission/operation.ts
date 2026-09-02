@@ -165,7 +165,8 @@ async function issueWithSession(input: Readonly<{
 }>): Promise<DevelopmentCommitAdmission> {
   const candidate = await freezeDevelopmentCommitCandidate(input);
   const normalizationResult = await verifyStagedCandidateImportNormalization({
-    session: input.session
+    session: input.session,
+    candidateBase: candidate.preimage
   });
   const normalization = requireCandidateNormalizationAdmissionReceipt(
     normalizationResult.admission

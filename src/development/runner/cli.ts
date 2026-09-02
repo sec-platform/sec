@@ -340,22 +340,53 @@ async function main(): Promise<void> {
       process.exitCode = handoffExitCode;
       return;
     }
+    const checkStagedImports = async (candidateBase?: string) => {
+      const [{ withAuthorityGitReadSession }, { GIT_READ_OPERATION_BUDGET }, {
+        checkStagedCandidateImportNormalization
+      }] = await Promise.all([
+        import('../../external-capabilities/git-read/authority.ts'),
+        import('../tooling/git/git-read.ts'),
+        import('../import-normalization/runtime.ts')
+      ]);
+      return withAuthorityGitReadSession({
+        cwd: process.cwd(),
+        budget: GIT_READ_OPERATION_BUDGET
+      }, (session) => checkStagedCandidateImportNormalization({
+        session,
+        ...(candidateBase === undefined ? {} : { candidateBase })
+      }));
+    };
+    if (target === 'imports:freeze') {
+      if (args.length !== 0) usage();
+      const outcome = await checkStagedImports(process.env.SEC_CHANGED_BASE);
+      if (outcome.status === 'canonical') {
+        if (shouldReportDevRunnerSuccess()) {
+          console.log('Candidate imports identity sealed (canonical).');
+        }
+        process.exitCode = 0;
+      } else {
+        console.error(
+          `Candidate imports are non-canonical (needs-import-transform) in ${outcome.files.length} file(s):\n`
+          + `${outcome.files.map((file) => `- ${file}`).join('\n')}\n`
+          + 'Run bun run imports:apply, stage the exact files, rebuild the exact candidate, then rerun bun run imports:freeze.'
+        );
+        process.exitCode = 1;
+      }
+      return;
+    }
     const {
-      runCandidateImportCheck,
       runImportCheck,
       runImportApply,
-      runStagedImportCheck,
-      runSynchronizedStagedImportOrganizer,
-      resolveCandidateImportBase
+      runSynchronizedStagedImportOrganizer
     } = await import('./import-organizer.ts');
     if (target === 'imports:check' || target === 'imports:apply') {
       const operation = parseImportOperationArgs(args, { allowStaged: true });
       if (operation.staged) {
         const selection = operation.candidateBase === undefined
           ? {}
-          : { candidateBase: resolveCandidateImportBase(undefined, operation.candidateBase) };
+          : { candidateBase: operation.candidateBase };
         if (target === 'imports:check') {
-          const outcome = await runStagedImportCheck(undefined, undefined, selection);
+          const outcome = await checkStagedImports(operation.candidateBase);
           if (outcome.status === 'canonical') {
             process.exitCode = 0;
           } else {
@@ -403,24 +434,6 @@ async function main(): Promise<void> {
           );
           process.exitCode = 1;
         }
-      }
-      return;
-    }
-    if (target === 'imports:freeze') {
-      if (args.length !== 0) usage();
-      const outcome = await runCandidateImportCheck();
-      if (outcome.status === 'canonical') {
-        if (shouldReportDevRunnerSuccess()) {
-          console.log('Candidate imports identity sealed (canonical).');
-        }
-        process.exitCode = 0;
-      } else {
-        console.error(
-          `Candidate imports are non-canonical (needs-import-transform) in ${outcome.files.length} file(s):\n`
-          + `${outcome.files.map((file) => `- ${file}`).join('\n')}\n`
-          + 'Run bun run imports:apply, stage the exact files, rebuild the exact candidate, then rerun bun run imports:freeze.'
-        );
-        process.exitCode = 1;
       }
       return;
     }
