@@ -1,0 +1,82 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [],
+  "capabilityProviders": [
+    {
+      "capability": "development.commit-admission",
+      "operations": [
+        "issueDevelopmentCommitAdmission"
+      ],
+      "effectKinds": [
+        "filesystem",
+        "process"
+      ],
+      "operationRoles": [
+        {
+          "operation": "issueDevelopmentCommitAdmission",
+          "role": "grant-issuer",
+          "semanticOperation": "development.commit",
+          "requirementId": null,
+          "recovery": null
+        }
+      ]
+    }
+  ],
+  "operationObligations": [
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "development.commit-admission",
+        "operation": "issueDevelopmentCommitAdmission"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "development.runner"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem",
+          "process"
+        ],
+        "failureKinds": [
+          "development.commit-admission.candidate-drift",
+          "development.commit-admission.normalization-rejected",
+          "development.commit-admission.provider-failed"
+        ],
+        "recovery": "idempotent-retry"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 30000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 16777216
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 67108864
+          },
+          {
+            "resource": "processes",
+            "maximum": 64
+          },
+          {
+            "resource": "records",
+            "maximum": 250000
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    }
+  ]
+}

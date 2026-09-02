@@ -35,7 +35,7 @@ export type DevelopmentCommitCandidate = Readonly<{
   readonly candidateDigest: SecOperationDigest;
 }>;
 
-type DevelopmentCommitCandidateDetails = Readonly<{
+export type DevelopmentCommitCandidateDetails = Readonly<{
   readonly candidate: DevelopmentCommitCandidate;
   readonly commonDirectory: string;
   readonly indexPath: string;
