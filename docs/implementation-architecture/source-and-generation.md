@@ -355,6 +355,14 @@ BoundaryImplementation =
 LexicalValue = private implementation detail of one ResponsibilityCell
 ```
 
+```text
+LexicalOnly(v) iff
+  no independent semantic identity, consumer, authority, lifecycle or invalidation
+  ∧ every observable change caused by v remains inside an accepted contract equivalence class
+```
+
+若常量、分支、默认值或算法参数独立改变public behavior、state、Authority、Effect、resource、failure、compatibility或Claim，它不是`LexicalValue`，而是未声明的semantic/policy fact；必须先进入Domain/Contract source再lower。Source Program的literal/data/control-flow facts与property counterexamples负责发现该surplus，名称和scope不能豁免。
+
 只有前三类可穿越边界；普通局部变量不是系统实体、没有独立owner记录。所谓“字段归谁”在系统中被消除为以下可计算查询，而不是新增一份per-variable registry：
 
 | 查询 | 唯一答案来源 |
