@@ -182,7 +182,7 @@ validateDesignPackage(package):
   assert everyAuthoredOrPublicNodeHasComplexityExistenceProof(package)
   assert counterfactualDeletionAndReuseAlternativesAreEvaluated(package)
   assert allApplicableFaultFamiliesHaveExpectedTerminalTrace(package)
-  assert reflexiveArchitectureClosure(package.metaModelAndCompiler)
+  assert ArchitectureMetaValidationClosure(package.metaModelAndCompiler)
   assert modelCheck(safety, liveness, determinism, recovery, evolution, economy)
   assert projectionsPreserveMeaning(package)
 ```
@@ -214,6 +214,47 @@ invalidate(premise, observation):
 
 不得在被推翻的 Design Package 上继续加字段、测试、兼容 alias 或 Skill 说明。
 
+### 11.5 反例吸收与全域回扫
+
+反例传播只使旧结论失效；反例吸收必须修正“为什么系统先前没有生成该义务”。每个新反例先最小化为一个可重放的property trace，再且仅归入下列首个真实缺口：
+
+| Gap class | 失败事实 | 必须修正的唯一owner | 全域回扫输入 |
+| --- | --- | --- | --- |
+| `expression-gap` | meta-model无法表达关键区别、关系或终态 | Design Calculus meta-model | 全部owner fragments与既有Design Packages |
+| `universe-gap` | 应观察对象未进入exact census/coverage/frontier | 对应observation/frontend/Source Program owner | exact content/provider/runtime universe |
+| `applicability-gap` | 对象已知，但Coverage Compiler未生成适用cell/故障 | constraint/fault/applicability compiler | 全部可达entities×relations×boundaries×lifecycle |
+| `refinement-gap` | 逻辑义务存在，但实现没有origin/lowering/conformance trace | Implementation Compiler | 全部public/durable/state/effect/proof declarations |
+| `enforcement-gap` | 违规已可表达且可观察，但类型/parser/admission未拒绝 | 对应contract/admission owner | 全部同类入口、writer、reader与Effect sink |
+| `proof-gap` | 实现违规，但Claim/test/Evidence未观察到 | Verification owner | 受影响claims、fault traces与independence rules |
+| `evolution-gap` | 新设计已闭合，但旧writer/reader/route/state仍active | Change Management + state owner | generations、consumers、durable residue与rollback paths |
+
+```text
+assimilate(counterexample):
+  witness := minimizeToPropertyTrace(counterexample)
+  gap := classifyFirstMissingBoundary(witness)
+  repairCanonicalGenerator(gap.owner, witness)
+  provePreviouslyExpressibleSubsetPreserved()
+  affected := reverseClosure(changedMetaFactsOrAlgorithms)
+  results := recompileAndScan(affected exact universe)
+  require every result in satisfied | violated(code) | bounded-unknown(frontier)
+  retire local checks, mirrors and superseded generations
+  publish CounterexampleAssimilationReceipt(witness, gap, affected, results)
+```
+
+```mermaid
+flowchart LR
+  C[Counterexample] --> W[Minimal property trace]
+  W --> G[First missing boundary]
+  G --> O[Canonical owner/generator repair]
+  O --> E[Old-subset equivalence]
+  E --> A[Reverse affected closure]
+  A --> S[Whole declared-universe scan]
+  S --> R[Results + exact frontier]
+  R --> T[Retire local patches and old generation]
+```
+
+禁止把每个反例追加成提示词、Skill条款、手写测试清单或单点`if`；它们只能是吸收前的witness。若反例可由现有模型表达却未被当前operation看到，必须修`universe/applicability`而不是扩充ontology。若新区别确实独立改变admission、authority、lifecycle、invalidation、consumer visibility或用户结果，才允许`expression-gap`演进meta-model。开放世界仍保留exact unknown frontier；系统可证明的是声明宇宙内生成与回扫完备，不得把有限coverage夸成已穷尽现实的一切。
+
 ## 12. 设计完成
 
 ```text
@@ -233,7 +274,8 @@ DesignClosed =
   ∧ every future abstraction has accepted obligation or is removed
   ∧ every authored/public node has an existence proof and deletion counterfactual
   ∧ all fault families applicable to the graph have expected outcomes
-  ∧ active meta-model/compiler passes reflexive architecture closure
+  ∧ every accepted counterexample has a classified assimilation receipt and affected-universe rescan
+  ∧ active meta-model/compiler satisfies ArchitectureMetaValidationClosure
   ∧ safety/liveness/determinism/recovery/evolution/economy are checked
   ∧ project projections reference rather than copy this calculus
 ```

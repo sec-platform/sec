@@ -30,6 +30,55 @@ Requirement
 
 性能优化只能替换观察或执行 Provider：retained session、native OS API、Language Service、content-addressed fact shard、authenticated in-flight。它们不得建立第二 Source Program、第二 ActionKey、第二 scheduler 或 daemon truth。
 
+### 10.0.1 Provider bootstrap 与 workload 分离
+
+长驻或外部Provider的“能力可用”本身可能需要discover、adopt、start、join、health/readback与settlement；这是一项独立`ProviderBootstrapOperation`，不能藏在第一次业务调用、import、副作用构造器或重试循环中。Docker daemon、远程executor、credential broker、compiler service与本地durable worker均遵守同一结构：
+
+```text
+ProviderRootBinding {
+  providerSubject + providerGeneration
+  hostSubject + hostGeneration
+  bootstrapProfileRef
+  facetBindings: exactBindings(requiredFacets(bootstrapProfileRef))
+  conformanceAndSupportRefs
+}
+
+ProviderBootstrapProfile =
+  | ObserveOnly(requiredFacets)
+  | AdoptExisting(requiredFacets)
+  | StartOrJoin(requiredFacets)
+  | RemoteSession(requiredFacets)
+
+BootstrapFacet =
+  endpoint-or-control-channel
+  | installation-or-materialization-closure
+  | launcher-and-effective-runtime-physical-binding
+  | state-store-and-coordination-namespace
+  | credential-and-principal-binding
+  | provider-specific-readiness-observation
+  | remote-session-settlement
+
+ProviderBootstrapOperation:
+  exact root binding
+  → observe existing terminal/live state
+  → claim or join one bootstrap attempt
+  → start/adopt under one allocation and journal
+  → readiness readback against the same binding
+  → terminal live capability or typed residue
+
+WorkloadOperation:
+  ready live capability
+  + domain plan/grant/allocation
+  → workload attempt
+  → workload settlement/readback
+```
+
+profile由Provider contract owner声明并由Requirement选择；facet集合是strict exact set，缺失、多余或以`null`占位都拒绝。`ObserveOnly`不能start，`AdoptExisting`不能materialize，`StartOrJoin`必须有coordination/journal与lost-handle readback，`RemoteSession`必须有endpoint与remote settlement；只有authenticated remote contract才要求credential/principal facet。新增Provider通过新增受验证的profile实例或必要facet扩展，不在微内核加入品牌分支。
+
+`ProviderBootstrapOperation`成功只签发匹配binding的live capability，不签发任何workload成功、Gate或Evidence。Workload若允许自动启动Provider，plan必须显式依赖该bootstrap operation；否则provider unavailable直接返回typed blocker。launcher lock/root/state路径缺失属于`bootstrap-address-unresolved`，在解析canonical Address并确认claim/journal前不得等待、创建随机目录、换endpoint或重复启动。lost launcher handle先以journal、provider状态和exact binding readback决定`join | terminal | residue | conclusively-not-started`，不能用PID消失、lock缺失或timeout推断未执行。
+
+本地与远程Provider可以满足同一Requirement，但必须形成不同`ProviderRootBinding`、Allocation、Attempt与Evidence；remote unavailable只触发重新Resolution，本地Docker存在也不会自动继承远程身份或证明。反向同理：GitHub Actions、Docker exit code、daemon ready和本地进程结束均只是各自Observation。
+
 ### 10.1 Execution Runtime Microkernel
 
 逻辑架构规定“哪些 DomainOperation、依赖、权限、资源、状态和结果必须成立”；实现层必须有一个政策无关的执行微内核统一兑现这些合同。否则每个 domain 会分别手写 Provider 调用、timeout、锁、重试、journal、cleanup 和成功判断，重新形成多套 workflow 与 resource owner。

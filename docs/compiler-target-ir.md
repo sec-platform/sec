@@ -162,7 +162,7 @@ flowchart LR
 
 Block Resolver 只拥有 Registry trust、version、manifest/resource closure 与 BlockProviderBinding；不理解业务语义或最终候选比较。Implementation Resolver 不读 live Registry 或重新选择 Block。没有 block-delivered requirement 时 Block Resolver 调用与 manifest/resource/trust observation 均为零。
 
-无 Adapter 时，Source Program 可提供 typed export/call-shape/source-binding；用户连接参数/返回值后可生成 type-correct invocation。L1 typed invocation 不证明 Effect、idempotency、retry、timeout、cancellation、security 或 runtime behavior；这些经 declaration、conformance 与 physical Evidence 才能升级。
+无Adapter时，Source Program可提供typed export/call-shape/source-binding；用户连接参数/返回值后可生成type-correct invocation。`provider-maturity.typed-invocation`不证明Effect、idempotency、retry、timeout、cancellation、security或runtime behavior；这些经declaration、conformance与physical Evidence才可提升Provider maturity。
 
 ## 8. Invalidation 与 cache
 

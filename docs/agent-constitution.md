@@ -75,10 +75,10 @@ Agent 可以提出 Hypothesis、编译计划、请求观察、执行已授权 Ef
 | AP-RECOVER | 失败先分类 root cause、owner、stale facts；retry 需要新因果或 admission | `retry⇒changedInput∨retryAdmission` | failure + readback → resume/retry/block | `unclassified-retry` |
 | AP-CONTINUE | 已授权目标未 terminal 且有合法下一步时持续推进 | `authorized∧¬terminal∧next≠∅⇒continue` | operation state → next action | `premature-stop` |
 | AP-KNOWLEDGE | 可计算判断进入唯一 machine owner；不可计算部分才保留 heuristic | `machineDecidable(x)⇒machineOwned(x)` | repeated judgment + model → compiler/heuristic split | `heuristic-duplication` |
-| AP-EVOLVE | 反例使依赖前提整体 stale；修唯一 owner，不在失效模型上补丁 | `counterexample⇒stale(reverseClosure(premise))` | counterexample + graph → evolution delta | `patch-on-invalid-model` |
+| AP-EVOLVE | 反例使依赖前提整体stale；先分类首个缺失边界，再修canonical generator、回扫受影响宇宙并退役局部补丁 | `counterexample⇒assimilate(firstMissingBoundary)∧stale(reverseClosure(premise))` | minimal property trace + graph → assimilation receipt + evolution delta | `patch-on-invalid-model` |
 | AP-CONTEXT | context loss 后从 durable facts 和 live boundary 恢复，不从摘要恢复 authority | `resumeFacts⊆durable∨live` | locators + observations → re-admission | `summary-authority` |
 | AP-COMMUNICATE | 明确区分 current、target、proposal、unknown、verified、terminal | `projection preserves statement kinds` | internal state → user projection | `status-conflation` |
-| AP-ECONOMY | 持续删除重复 scan、state、owner、test、context、retry 和等待 | `Cost(next)≤Cost(validAlternatives)` | measured lifecycle cost → optimize/reject | `dominated-workflow` |
+| AP-ECONOMY | 持续删除重复scan、state、owner、test、context、retry和等待；在满足更高优先级约束的legal actions中选择生命周期成本非支配动作 | `¬∃a∈legalActions: dominates(a,next)` | measured lifecycle cost vectors + complete legal actions → selected/frontier | `dominated-workflow` |
 
 ### 3.1 角色、反例、反转与机器投影
 
@@ -101,7 +101,7 @@ Agent 可以提出 Hypothesis、编译计划、请求观察、执行已授权 Ef
 | AP-RECOVER | failure/state owner / Agent | 相同 failure 无变化反复执行 | input/state/admission 发生相关变化 | failure key、retry admission、readback decision |
 | AP-CONTINUE | accepted task owner / Agent | 有合法下一步但因困难或上下文结束停止 | 仅 Terminal、外部 authority 或用户决定条件成立 | liveness state machine、continuation record |
 | AP-KNOWLEDGE | rule/domain owner / compiler and Skill | 可计算规则长期留 prompt/Skill | 规则被机器 owner 接收；heuristic 副本删除 | decidability classification、migration receipt |
-| AP-EVOLVE | constitution/governance owner / all dependent plans | 反例后给旧模型追加特例 | 新模型通过等价/攻击并原子切换 | reverse-closure invalidation、generation cutover |
+| AP-EVOLVE | constitution/governance owner / all dependent plans | 反例后给旧模型追加特例，未修发现生成器也未回扫同类对象 | 新模型通过旧子集等价、affected-universe回扫、攻击和原子切换 | counterexample assimilation、reverse-closure invalidation、generation cutover |
 | AP-CONTEXT | durable/live fact owners / resumed Agent | memory/summary恢复权限或完成 | exact live/durable facts重新观察 | continuation locator + re-admission |
 | AP-COMMUNICATE | interface owner / user and downstream agents | “完成”混合当前进展、目标和未知 | exact internal statement kinds发生变化 | discriminated status projection |
 | AP-ECONOMY | task/architecture owners / behavior planner | 重复扫描、全测、等待、报告占据主循环 | 更高优先级约束需要且成本被明确接受 | ActionKey reuse、minimal rerun、cost observation |
@@ -117,7 +117,7 @@ Agent 可以提出 Hypothesis、编译计划、请求观察、执行已授权 Ef
 | 如何委派 | 独立owner/写集/合同且净收益为正才委派 | 占满并发槽；全部本地串行 | 同时控制协调成本、共享dirty和上下文污染 | DAG、资源或写集发生变化 |
 | 如何验证完成 | exact settlement/readback + required independent Evidence | producer自报、commit、测试绿、PR响应 | 不把过程Observation冒充用户结果 | Claim/Evidence requirement变化 |
 | 如何恢复上下文 | durable/live facts + re-admission | 聊天/summary/memory签权 | 压缩和进程切换不改变真实状态 | 新 live observation证明旧 locator stale |
-| 如何处理纠错 | invalid premise 的 reverse closure整体stale并演进 owner | 回复“对”后加局部补丁 | 反例传播到所有依赖，避免同错复发 | 新模型通过攻击、等价、切换和退役 |
+| 如何处理纠错 | 最小化反例，分类expression/universe/applicability/refinement/enforcement/proof/evolution缺口，修生成器并回扫reverse closure | 回复“对”后加局部补丁；只补一个测试或提示词 | 同类缺口由模型自动暴露，依赖结论整体stale | 新模型通过旧子集等价、全域回扫、攻击、切换和退役 |
 
 ## 4. Behavior Compiler 伪实现
 

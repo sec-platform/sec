@@ -6,7 +6,7 @@ domain: system-architecture
 
 # SEC Operation、Owner 与资源架构
 
-本片段拥有 operation 视图、S0–S9 编译、Knowledge、Owner DAG、capability、资源和并发。
+本片段拥有operation视图、semantic compilation stages、Knowledge、Owner DAG、capability、资源和并发。
 
 本片段与 [owner root](../system-architecture.md) 共享同一 domain，但只拥有 registry 分配给本片段的 ownership keys；跨片段语义使用引用，不复制定义。
 
@@ -21,33 +21,33 @@ domain: system-architecture
 
 四个 view 从同一 semantic graph 编译，共享 Subject/operation/revision，拥有各自 view kind 与 bytes digest。view 可以裁剪表达，不能增删 owner、Claim、unknown 或 blocker。
 
-## 5. S0–S9 端到端编译
+## 5. 端到端语义编译
 
 ```mermaid
 flowchart LR
-  S0[S0 Outcome] --> S1[S1 Observation universe]
-  S1 --> S2[S2 Observation]
-  S2 --> S3[S3 Semantics]
-  S3 --> S4[S4 Responsibility]
-  S4 --> S5[S5 Pure operation]
-  S5 --> S6[S6 Admissibility]
-  S6 --> S7[S7 Effect + settlement]
-  S7 --> S8[S8 Claim verdict]
-  S8 --> S9[S9 Publish / migrate / retire]
+  OUTCOME[compile-stage.outcome] --> UNIVERSE[compile-stage.observation-universe]
+  UNIVERSE --> OBSERVE[compile-stage.observation]
+  OBSERVE --> SEMANTICS[compile-stage.semantics]
+  SEMANTICS --> RESPONSIBILITY[compile-stage.responsibility]
+  RESPONSIBILITY --> OPERATION[compile-stage.pure-operation]
+  OPERATION --> ADMIT[compile-stage.admissibility]
+  ADMIT --> EFFECT[compile-stage.effect-settlement]
+  EFFECT --> VERDICT[compile-stage.claim-verdict]
+  VERDICT --> EVOLVE[compile-stage.publish-evolve]
 ```
 
-| Stage | 必需输入 | 唯一输出 | 禁止承担 |
+| `compile-stage` | 必需输入 | 唯一输出 | 禁止承担 |
 | --- | --- | --- | --- |
-| S0 | authorized outcome/non-goal/obligation | accepted purpose refs + unknown | scope、path、implementation |
-| S1 | requested Subjects、observation purpose、coverage/resource bounds | exact universe + observation obligations + unreadable frontier | semantic adoption、physical mechanism |
-| S2 | exact universe、observation contracts | typed observations + coverage + unknown/opaque | Definition、permission |
-| S3 | owner Definitions、S2 facts、adoption rules | semantic claims/conflicts/unknown frontier | provider choice、write plan |
-| S4 | semantics + consumer/effect/state/recovery relations | Responsibility Cells + Owner DAG + public demand | placement、attempt、terminal |
-| S5 | intent、Cell/DAG、invariants、Claim definitions | OperationKey + Requirement DAG + pure Plan + obligations | discovery、lease、Effect |
-| S6 | PurePlan、Grants、eligible Provisions、resource envelope、current state | admissible / rejected / bounded-unknown relation | business success、Evidence |
-| S7 | admissible Plan与exact current facts | Effect observations + settlements + residue + readback + DomainResult | new Definition/Grant、Evidence verdict |
-| S8 | Claims、DomainResult、S7 observations、exact environment | Verdict + Evidence validity/invalidation | DomainResult、mutation、publish authority |
-| S9 | accepted DomainResult、required Verdict、materialization/evolution contract | artifact/projection/cutover/retirement receipt | upstream identity rewrite |
+| `outcome` | authorized outcome/non-goal/obligation | accepted purpose refs + unknown | scope、path、implementation |
+| `observation-universe` | requested Subjects、observation purpose、coverage/resource bounds | exact universe + observation obligations + unreadable frontier | semantic adoption、physical mechanism |
+| `observation` | exact universe、observation contracts | typed observations + coverage + unknown/opaque | Definition、permission |
+| `semantics` | owner Definitions、observation facts、adoption rules | semantic claims/conflicts/unknown frontier | provider choice、write plan |
+| `responsibility` | semantics + consumer/effect/state/recovery relations | Responsibility Cells + Owner DAG + public demand | placement、attempt、terminal |
+| `pure-operation` | intent、Cell/DAG、invariants、Claim definitions | OperationKey + Requirement DAG + pure Plan + obligations | discovery、lease、Effect |
+| `admissibility` | PurePlan、Grants、eligible Provisions、resource envelope、current state | admissible / rejected / bounded-unknown relation | business success、Evidence |
+| `effect-settlement` | admissible Plan与exact current facts | Effect observations + settlements + residue + readback + DomainResult | new Definition/Grant、Evidence verdict |
+| `claim-verdict` | Claims、DomainResult、effect observations、exact environment | Verdict + Evidence validity/invalidation | DomainResult、mutation、publish authority |
+| `publish-evolve` | accepted DomainResult、required Verdict、materialization/evolution contract | artifact/projection/cutover/retirement receipt | upstream identity rewrite |
 
 阶段是因果偏序，不是必须串行的同步程序。独立纯关系可并行求值；Effect必须满足Requirement DAG、concurrency与resource semantics。反馈只能是upstream owner接受的新request/result或new revision，不能通过隐藏状态或实现回调反向改写上游。
 
@@ -458,8 +458,10 @@ TerminalOutcome =
 | context/tokens | selected facts/clauses、unknown expansion、output |
 
 ```text
-Σ(child demands) ≤ parent envelope
-Σ(actual consumption) ≤ admitted allocation
+Σ(child hard reservations) ≤ parent reservable capacity
+Σ(child quota/rate ceilings) is accepted only by the parent provider's enforceable policy
+all measured consumption is attributed to the parent attempt with coverage/unknown
+estimated demand cannot satisfy a requirement that needs enforcement or reservation
 all terminal branches account for consumed, returned, leaked or unknown resources
 cleanup, readback and recovery cannot create a new envelope
 ```
@@ -475,7 +477,8 @@ ResourceDimension {
   identity + unit
   capacitySource + freshness
   kind: exclusive | countable | consumable | rate | retained | elastic-bounded
-  reservability + overcommitPolicy
+  controlMode: hard-reserved | quota-enforced | rate-enforced | measured | estimated
+  ceiling + overcommitPolicy
   shareability + isolation
   acquire/consume/release semantics
   cancellation/expiry
@@ -485,6 +488,26 @@ ResourceDimension {
 ```
 
 进程槽、线程、句柄、锁、端口、内存、CPU、GPU、存储、文件条目、网络、API额度、数据库连接、容器容量、上下文和时间都可按该代数实例化。credential/permission属于Authority/Capability，不因稀缺而变成Resource；它可以引用rate/quota allocation，但语义保持分离。
+
+`controlMode`决定可声明的最强事实，不能靠同一`number`或“预算”一词混淆：
+
+| Mode | 可声明 | Admission / terminal rule | 不可声明 |
+| --- | --- | --- | --- |
+| `hard-reserved` | exact capacity已从parent扣留 | reserve先于Effect；release/residue必须read back | observed peak等于reservation |
+| `quota-enforced` | provider/OS拒绝超出累计ceiling | 每次consume原子扣账；拒绝或typed partial | quota以内资源已独占 |
+| `rate-enforced` | 指定window内速率受provider强制 | window、burst、clock authority均绑定 | lifetime total已受限 |
+| `measured` | 已观察到的实际值与coverage | terminal记录value/unknown；不能用于需要reservation的admission | 未观察部分为零、future use有界 |
+| `estimated` | 由声明模型得到的demand区间 | 只用于规划；Effect前必须由可接受control mode兑现或拒绝 | allocation、enforcement、Evidence |
+
+```text
+ResourceClaimAllowed(requirement, dimension) =
+  dimension.controlMode in requirement.allowedControlModes
+  ∧ unitAndScopeMatch
+  ∧ capacityFreshAtAdmission
+  ∧ terminalAccountingCoversAttempt
+```
+
+例如全树bytes只有在业务Requirement要求限制读取成本时才进入dimension；能够从metadata、content-addressed shard或producer receipt派生时不得为“计数”额外全读一遍。scanner实际读取的bytes属于`quota-enforced`或`measured`消费；仅事后统计不能冒充Effect前预算。CPU/内存若宿主只提供peak observation，就必须标为`measured`，不能写成已reserve。
 
 组合资源请求必须原子 reserve 或按固定全局顺序取得并可回滚；任何未计量维度进入 `resource-frontier`，不能假定无限。共享复用只有在 isolation、fairness、cancellation、settlement 和 leak readback 均成立时允许。
 

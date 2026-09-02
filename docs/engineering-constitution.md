@@ -12,20 +12,37 @@ domain: engineering-constitution
 
 ```mermaid
 flowchart LR
-  P[Purpose] --> S[Semantic Definition]
-  S --> K[Knowledge / Observation]
-  K --> C[Constraints]
-  C --> R[Responsibility / Owner DAG]
-  R --> A[Authority]
-  A --> Q[Requirement DAG]
-  Q --> B[Capability Binding]
-  B --> L[Resource Allocation]
-  L --> X[Effect / Execution]
-  X --> T[Settlement / Lifecycle]
-  T --> V[Evidence / Proof]
-  V --> E[Evolution / Retirement]
-  E -. "new accepted revision" .-> S
+  P[Accepted purpose / non-goal] --> PD[Product decision]
+  PD -->|constrains; domain owner accepts revision| D[Domain definitions / invariants]
+  O[Exact observations] --> K[Knowledge / unknown frontier]
+  PD --> R[Applicable responsibilities / requirements]
+  D --> R
+  K -->|selects applicability; cannot rewrite definition| R
+  R --> OD[Owner DAG / issuer policies]
+  R --> PL[Pure operation plans]
+  PR[Eligible provisions] --> B[Exact capability bindings]
+  R --> B
+  OD --> G[Authority grants]
+  RL[Parent resource ledger] --> AL[Allocations]
+  PL --> A[Effect admission]
+  B --> A
+  G --> A
+  AL --> A
+  A --> X[Effect attempts]
+  X --> O2[Effect observations]
+  X --> ST[Settlement / readback]
+  O2 --> DR[Domain result]
+  ST --> DR
+  D --> DR
+  D --> C[Declared claims]
+  DR --> EV[Independent evidence evaluation]
+  C --> EV
+  EV --> E[Evolution / retirement decision]
+  E -. "authorized owner accepts a new revision" .-> PD
+  E -. "authorized owner accepts a new revision" .-> D
 ```
+
+这是一张typed relation view，不是时间上必须串行的流水线：Purpose只约束Product Decision，Product Decision不能自行改写Domain Definition；Observation只决定事实覆盖和Definition的适用性，不能生成Definition。Owner不自动产生Grant，Provision不自动获得Authority，Effect不自动产生Evidence，Evolution也只有被相应authorized owner接受后才形成新revision。
 
 ```text
 AdmittedEngineeringChange =
@@ -36,7 +53,7 @@ AdmittedEngineeringChange =
   ∧ ResponsibilityUnique
   ∧ AuthorityNonAmplifying
   ∧ CapabilityExactlyBound
-  ∧ ResourcesReserved
+  ∧ ResourceControlsSatisfyRequirements
   ∧ EffectRecoverable
   ∧ ProofObligationsDeclared
   ∧ EvolutionAndRetirementClosed
@@ -55,7 +72,7 @@ AdmittedEngineeringChange =
 | EP-UNKNOWN | 不完整知识显式存在，不能穿越受影响 Effect 或 Claim | `unknown∩deps(target)=∅` | coverage + target → admit/block | `unknown-crosses-boundary` |
 | EP-AUTHORITY | Effect 权限只收窄，不由结构、路径或 caller 自报伪造 | `effect⊆grant∩envelope` | principal + grants + plan → frontier | `authority-amplification` |
 | EP-CAPABILITY | Requirement 与 Provision 分离并 exact binding | `satisfies(provision,requirement)` | eligible provisions → binding/unavailable | `capability-mismatch` |
-| EP-RESOURCE | 所有子步骤消费同一不可逆 parent ledger | `Σallocations≤parentBudget` | demand + ledger → allocation/blocked | `resource-budget-escape` |
+| EP-RESOURCE | 每项资源需求声明可接受control mode；所有reservation、enforced consumption与measurement都归属同一parent ledger | `resourceClaims⊆parentLedger∧modeCompatible` | demand + dimension contracts + ledger → allocation/measurement/blocked | `resource-budget-escape` |
 | EP-EFFECT | attempt/exit 不等于 terminal；Effect 必须 settlement + readback | `terminal⇐settled∧readback` | attempt + obligations → terminal/residue | `effect-unsettled` |
 | EP-RECOVERY | partial/lost-handle 状态不 blind replay | `retry⇒notAppliedProven∧retryGrant` | intent + readback → join/recover/retry/block | `unsafe-replay` |
 | EP-PROOF | producer 不能充分证明自己；Evidence 只支持 exact Claim | `proofIssuer independentOf claimProducer` | claim + evidence → verdict | `self-proof` |
@@ -66,7 +83,7 @@ AdmittedEngineeringChange =
 | EP-REVERSIBILITY | 不可逆边界前必须具备 preimage、授权和恢复策略 | `irreversible⇒preimage∧grant∧recovery` | plan + state → effect ticket/block | `irreversible-unprepared` |
 | EP-LOCALITY | 改动影响由语义依赖决定，不由目录距离或名字猜测 | `impact=closure(changedRelations)` | exact delta + graph → affected set | `impact-by-name` |
 | EP-DETERMINISM | 纯阶段对相同 exact inputs 产生相同语义 bytes | `sameInputs⇒sameOutput` | semantic inputs → projection | `nondeterministic-pure-output` |
-| EP-ECONOMY | 设计最小化正确变更全生命周期成本 | `Cost(chosen)≤Cost(validAlternatives)` | competing complete graphs → verdict | `dominated-design` |
+| EP-ECONOMY | 在满足更高优先级约束的完整候选中选择生命周期成本非支配方案 | `¬∃a∈validAlternatives: dominates(a,chosen)` | competing complete graphs + cost vectors → selected/frontier | `dominated-design` |
 
 ### 2.1 原则优先级
 
@@ -94,7 +111,7 @@ identity/truth/authority/durable-integrity
 | EP-UNKNOWN | engineering constitution / every effect/claim admission | unreadable 被转成 absent 后触发写入 | 新 observation 关闭 affected frontier | discriminated result、unknown-flow analysis |
 | EP-AUTHORITY | authorized domain issuer / effect admission | caller object/test hook 自报权限 | issuer 发布新的 exact grant | opaque grant、scope intersection、expiry check |
 | EP-CAPABILITY | requirement/provision owners / binder | ambient executable 代替 retained provider | 新 provision 通过 conformance 并 exact rebind | capability branding、eligibility compiler |
-| EP-RESOURCE | resource owner / orchestrators/providers | lock 和 child 各自重置同一 timeout | parent owner 扩大 allocation 或 plan 缩小 | monotonic ledger、aggregate counters、abort propagation |
+| EP-RESOURCE | resource owner / orchestrators/providers | lock 和 child 各自重置同一 timeout，或把measured peak写成reserved capacity | parent owner改变ceiling/control mode，或plan缩小requirement | typed control mode、monotonic ledger、aggregate counters、abort propagation |
 | EP-EFFECT | domain operation owner / runtime/integration | exit 0 被投影为业务 terminal | settlement obligations + domain readback 完成 | attempt/settlement state machine、terminal parser |
 | EP-RECOVERY | state owner / workers/orchestrators | lost handle 后重复提交 | readback 证明 not-applied 且 issuer 发 retry grant | OperationKey claim、journal、recovery compiler |
 | EP-PROOF | claim owner / verifier/integration | producer 的测试报告自证完成 | 独立 Evidence 或 Claim 明确降级 | issuer separation、claim-evidence validator |

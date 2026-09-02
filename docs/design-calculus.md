@@ -8,41 +8,45 @@ domain: design-calculus
 
 本文是 design-calculus 的公共 root，拥有事实种类、正交关系、约束组合与原则记录。设计编译/模拟和冻结/演进由本文件列出的规范片段拥有。整个 domain 不拥有任何产品目标、工程取舍、Agent 行为、实现技术或当前状态。
 
-## 1. 权威栈
+## 1. 来源与实现偏序
 
 ```mermaid
 flowchart TB
-  L0["L0 Design Calculus<br/>事实、关系、约束、演算"]
-  L1E["L1 Engineering Constitution<br/>工程系统应满足什么"]
-  L1A["L1 Agent Constitution<br/>Agent 如何认识与行动"]
-  L2["L2 Project Constitution<br/>目标、风险、取舍、适用原则"]
-  L3["L3 Domain Specifications<br/>领域身份、状态、操作、合同"]
-  L4["L4 Implementation Architecture<br/>realization、placement、generation、migration"]
-  L5["L5 Execution Profiles<br/>Provider、资源、平台、工具"]
-  L6["L6 Runtime Facts and Evidence<br/>exact observation、settlement、proof"]
-  L0 --> L1E
-  L0 --> L1A
-  L1E --> L2
-  L1A --> L2
-  L2 --> L3
-  L3 --> L4
-  L4 --> L5
-  L5 --> L6
-  L6 -. "新事实；不得反向改写原则" .-> L2
+  CALC["source-stratum.calculus<br/>事实、关系、约束、演算"]
+  ENG["source-stratum.engineering-constitution<br/>工程系统应满足什么"]
+  AGENT["source-stratum.agent-constitution<br/>Agent如何认识与行动"]
+  PROJECT["source-stratum.project-constitution<br/>目标、风险、取舍、适用原则"]
+  DOMAIN["source-stratum.domain-definition<br/>领域身份、状态、操作、合同"]
+  IMPL["source-stratum.implementation-design<br/>realization、placement、generation、migration"]
+  EXEC["source-stratum.execution-profile<br/>Provider、资源、平台、工具"]
+  RUNTIME["source-stratum.runtime-observation<br/>exact observation、settlement、proof"]
+  CALC --> ENG
+  CALC --> AGENT
+  ENG --> PROJECT
+  AGENT --> PROJECT
+  PROJECT --> DOMAIN
+  DOMAIN --> IMPL
+  IMPL --> EXEC
+  EXEC --> RUNTIME
+  RUNTIME --> REVISE[Corresponding owner evolution decision]
+  REVISE -. "accepted project revision" .-> PROJECT
+  REVISE -. "accepted domain revision" .-> DOMAIN
+  REVISE -. "accepted implementation revision" .-> IMPL
+  REVISE -. "accepted execution-profile revision" .-> EXEC
 ```
 
-| 层 | 只拥有 | 不得拥有 |
+| Source stratum | 只拥有 | 不得拥有 |
 | --- | --- | --- |
-| L0 | 表达和演算规则 | 工程原则、Agent 原则、产品答案 |
-| L1 Engineering | 普适工程不变量 | 某项目路径、工具、当前实现 |
-| L1 Agent | 普适认识与行动不变量 | 产品需求、工程事实、任务授权 |
-| L2 Project | 项目目的、风险、全局取舍、原则实例化 | 领域字段和运行结果 |
-| L3 Domain | 领域语义、状态机、操作、失败代数 | 外部能力可用性、独立证明 |
-| L4 Implementation | logical→CodeUnit/package/file/generated realization、局部变更、迁移 | 产品目的、领域语义、运行成功 |
-| L5 Execution | capability、binding、allocation、平台约束 | 产品目的、业务成功 |
-| L6 Runtime | observation、settlement、evidence、unknown | 稳定定义、未来义务 |
+| `calculus` | 表达和演算规则 | 工程原则、Agent原则、产品答案 |
+| `engineering-constitution` | 普适工程不变量 | 某项目路径、工具、当前实现 |
+| `agent-constitution` | 普适认识与行动不变量 | 产品需求、工程事实、任务授权 |
+| `project-constitution` | 项目目的、风险、全局取舍、原则实例化 | 领域字段和运行结果 |
+| `domain-definition` | 领域语义、状态机、操作、失败代数 | 外部能力可用性、独立证明 |
+| `implementation-design` | logical→CodeUnit/package/file/generated realization、局部变更、迁移 | 产品目的、领域语义、运行成功 |
+| `execution-profile` | capability、binding、allocation、平台约束 | 产品目的、业务成功 |
+| `runtime-observation` | observation、settlement、evidence、unknown | 稳定定义、未来义务 |
 
-依赖只能向下消费语言、向上产出受限事实。下层不能以“已经实现”“测试绿色”或“工具不支持”改写上层定义；上层不能以 prose 宣称下层 Effect、状态或 Evidence 已存在。
+source strata形成typed偏序而不是数字等级。实现方向只消费上游定义，runtime方向只返回受限Observation/Result；后者只有经相应authorized owner接受后才能形成新Definition revision。实现或观察不能以“已经实现”“测试绿色”或“工具不支持”改写上游定义；上游也不能以prose宣称下游Effect、状态或Evidence已存在。
 
 ### 1.1 Constitution partition decision
 
@@ -185,6 +189,20 @@ Evidence.claimRef        -> Claim.identity
 | EntityFamily | domain payload 属于哪种可独立拥有和演进的业务族 | Operation、Grant、Binding、State、Evidence、Migration 等 | 通用 relation 的语义 |
 | View | 哪个 consumer 需要哪种无增权投影 | human、machine admission、Agent context、runtime query | 第二真相、裁剪掉的 blocker |
 
+坐标使用有语义的discriminant；偏序由typed relations表达，不把显示序号写进identity：
+
+| Coordinate family | 回答 | Canonical discriminants | 不能解释 |
+| --- | --- | --- | --- |
+| Source stratum | 哪类source可定义或观察什么 | `calculus`、`engineering-constitution`、`agent-constitution`、`project-constitution`、`domain-definition`、`implementation-design`、`execution-profile`、`runtime-observation` | realization顺序、runtime Authority |
+| Implementation refinement | accepted meaning如何逐层兑现到interface | `meta`、`product`、`domain`、`composition`、`realization`、`control`、`execution`、`settlement`、`interface` | 时间先后、Evidence成熟度 |
+| Compilation stage | 哪些输入在因果偏序中先于哪个产物 | `outcome`、`observation-universe`、`observation`、`semantics`、`responsibility`、`pure-operation`、`admissibility`、`effect-settlement`、`claim-verdict`、`publish-evolve` | owner hierarchy、源码目录 |
+| Provider maturity | 外部Provision的证据与采用状态 | `physical`、`typed-invocation`、`governed-declaration`、`observed-candidate`、`verified-provider`、`normalized-projection` | 产品版本、实现层级 |
+| Product capability node | SEC产品能力脊柱中的语义能力及其依赖/退出合同 | `capability.<semantic-id>` | implementation refinement、运行时执行顺序 |
+| Target track state | 一个Target/Provider支持轨道的当前合同状态 | `target-track.<semantic-id>` | 通用Provider maturity、产品版本 |
+| Plane | 从哪个正交责任维度投影同一事实 | named plane，无数字顺序 | 生命周期阶段、优先级 |
+
+任何schema、API或文档引用坐标时必须携带coordinate family与semantic discriminant；数字ordinal只允许由当前偏序生成用于展示，不能进入identity、引用、测试或兼容判断。裸`L1`、`R14`、整数或仅凭上下文猜轴属于`coordinate-family-unbound`。
+
 任一可消费事实都有一个概念坐标，但不实现为“所有字段可选”的万能 DTO：
 
 ```text
@@ -209,7 +227,7 @@ flowchart LR
   T --> V[Consumer views]
 ```
 
-组织规则：Construct 定义表达能力；StatementKind 保存认识论来源；Relation 组成因果图；Profile 选择适用规则；Plane 保持责任正交；Constraint 做合法性合取；Stage 规定因果偏序；EntityFamily 承载领域 payload；View 只做无增权投影。新增概念前必须证明无法由这九个坐标之一表达，否则属于重复 meta-model。
+组织规则：Construct定义表达能力；StatementKind保存认识论来源；Relation组成因果图；Profile选择适用规则；Plane保持责任正交；Constraint做合法性合取；Stage规定因果偏序；EntityFamily承载领域payload；View只做无增权投影。新增概念先尝试由现行坐标族与typed relations表达；可等价表达则拒绝重复meta-model，确有独立admission/lifecycle/invalidation/consumer语义则按`expression-gap`演进meta-model并重编coverage，不冻结坐标族数量。
 
 ### 3.4 系统不等于一张无类型的图
 
@@ -222,7 +240,7 @@ SystemModel =
   + transition/state machines
   + resource quantities and ledgers
   + temporal/freshness rules
-  + Profiles and layer grammar
+  + Profiles and coordinate-family grammar
   + coverage and Unknown frontier
 ```
 
@@ -233,7 +251,7 @@ SystemModel =
 | Generated projection | 只回答 | 必须保持 |
 | --- | --- | --- |
 | semantic/causal graph | 什么成立、为何成立 | Definition、provenance、unknown |
-| owner/dependency DAG | 谁拥有、谁可依赖谁 | unique owner、acyclic layers |
+| owner/dependency DAG | 谁拥有、谁可依赖谁 | unique owner、acyclic authority/implementation strata |
 | workflow DAG | 哪些 DomainOperations 以何种结果依赖组合 | operation boundary、guards、compensation |
 | capability/binding graph | 哪项 Requirement 由哪个 Provision 满足 | grant、profile、freshness |
 | resource graph/ledger | 哪个 parent 向哪些 attempt 分配多少 | conservation、release、leak |
@@ -241,7 +259,7 @@ SystemModel =
 | provenance/Evidence DAG | observation 可支持哪些 Claim | independence、coverage、freshness |
 | evolution graph | old/new generation 如何迁移和退役 | conservation、cutover、consumer-zero |
 
-每个 node/edge 都引用 `layer + plane + owner + revision`；跨层只能使用声明过的 `refines | materializes | observes | binds | settles | proves | projects | migrates` 等 relation。不同层级信息只能在`DesignKnowledgeGraph`中通过typed refs组合验证，不能共用identity、payload或writer；任意view只保留所需refs和typed frontier，不能把多个层压成一份自由JSON。
+每个node/edge都引用适用的强类型坐标：至少`sourceStratum + plane + owner + revision`；进入实现refinement或stage时再增加对应coordinate family，未适用的轴保持absent而不是伪默认值。跨坐标只能使用声明过的`refines | materializes | observes | binds | settles | proves | projects | migrates`等relation。不同层级信息只能在`DesignKnowledgeGraph`中通过typed refs组合验证，不能共用identity、payload或writer；任意view只保留所需refs和typed frontier，不能把多个层压成一份自由JSON。
 
 系统知识的 canonical form 不是一棵树、一个嵌套对象或一个全局 mutable graph，而是由各 owner 发布、经 strict contract 验证的规范化事实与 typed relations：
 

@@ -33,7 +33,7 @@ domain: implementation-architecture
 | Evolution | Generation、Migration、Cutover、Retirement | Change Management + state owner | old/new graph + transition identity | prepared→shadow→active→retired |
 | Interface | IntentProjection、QueryProjection、Command/API Contract | interface owner | referenced domain operation/result | draft→published→retired |
 
-当前 schema 的表面计数是 16 个 entity families；这只是可生成的 meta-model projection，不是“SEC 永远只能有 16 个实体”。通用 Design Calculus 当前有 7 个基本构件、8 个 Statement variants 和 12 个 typed relation kinds；SEC logical profile 当前有 9 个 planes、16 个 hard-constraint families 和 S0–S9 十个 stages。领域实体实例数量由 Product/Domain definitions 与 exact graph 决定，不手写固定总数。
+实体族、Statement variants、typed relation kinds、planes、hard-constraint families 与 compilation stages 的集合及基数都从 exact meta-model、logical profile 和 registry 编译；prose 不冻结它们的数量。consumer 绑定 model/profile revision 与 canonical digest；集合变化使旧 projection、coverage 和 count 全部 stale。领域实例数量只由 Product/Domain definitions 与 exact graph 决定，任何手写总数、路径清单或测试镜像都不能成为模型约束。
 
 ### 2.1 不可混淆关系
 
