@@ -86,6 +86,20 @@ flowchart LR
 
 投影只能引用各 owner 的 identity/revision/clauses，不能保存原则或领域字段副本；它的失效由任一输入 revision 变化自动传播。
 
+### 1.2 五个正交坐标
+
+全系统不能用一棵“分层目录树”同时解释所有问题。任何设计项都必须标注五个互不替代的坐标；缺一项就进入 frontier：
+
+| 坐标 | 回答 | 例子 | Canonical owner |
+| --- | --- | --- | --- |
+| `kind` | 这是什么构件 | entity、relation、constraint、algebra constructor、compiled artifact、live capability、durable observation、projection | `docs/design-calculus.md` |
+| `layer` | 谁能定义它、依赖能朝哪里走 | Product、Domain、Composition、Realization、Control、Execution、Settlement、Interface | `docs/implementation-architecture.md` |
+| `stage` | 它由什么输入按何因果顺序产生 | S0 outcome → S9 publish/retire | 本文件 §5 |
+| `lifecycle` | 同一 identity 随时间处于什么合法状态 | draft→accepted；planned→admitted→terminal/residue→retired | 对应 Domain/state owner |
+| `view` | 哪个角色只需看同一事实的哪一投影 | Semantic、Authority、Resource、Lifecycle/Proof | 本文件 §4 |
+
+`Domain` 是 L2 的 semantic entity；`sequence` 是 L3 的 algebra constructor；`PureWorkflowPlan` 是由编译阶段产生的 immutable artifact；`WorkflowRuntimeSession` 是 L5/L6 的 live entity；journal 是 L7 durable observation；CLI JSON 是 L8 projection。它们即使出现在同一业务链中也不能合并为一个可变对象。
+
 ## 2. SEC 关系实例化
 
 关系的通用定义只在 `docs/design-calculus.md`。SEC 对象必须投影到这些关系，不得按“代码/资源/进程”建立互斥大类：
@@ -122,7 +136,43 @@ flowchart LR
 
 Provision 不等于 Grant；Binding 不等于 Observation；exit 不等于 Settlement；Evidence record 不等于 Claim 为真。
 
-### 2.2 Business Capability Closure
+### 2.2 Domain、ProductCapability 与 Workflow
+
+`Domain` 是语义一致性边界：一组 Subject、Definition、Invariant、StateMachine、FailureAlgebra 与 public DomainOperation 必须由一个 owner 共同裁决并原子演进。它不是目录、package、团队、技术栈、Provider、部署单元或一个功能名称；这些只能是 Domain 的实现投影、Provision 或 Address。
+
+```text
+Domain =
+  one semantic owner
+  + cohesive Subjects/Definitions/Invariants
+  + one internally consistent state/failure/evolution boundary
+  + public DomainOperations/results
+  + explicit relations to other Domains
+```
+
+边界由可观察语义决定，不由代码位置决定：
+
+| 判定 | 结论 |
+| --- | --- |
+| 两组事实必须在同一 transition 中共同满足一个不可拆 invariant，否则任一中间态都无合法含义 | 属于同一 Domain；对外暴露一个 composite DomainOperation |
+| 两组事实可通过稳定 public contract/result 协作，各自 state、failure、lifecycle、policy 或 evolution 能独立变化 | 分为不同 Domain；用 Workflow 或 typed relation 组合 |
+| 只是共享 Git、process、filesystem、Docker、compiler 或 credential Provider | 不合并 Domain；共享的是 Capability Provision |
+| 只是同一用户功能、目录、package 或团队维护 | 不能证明同一 Domain |
+| 所谓 Workflow 必须读取子模块私有 state、改写其 journal 或直接调用其 Provider 才能成立 | 边界错误：要么应合并为一个 DomainOperation，要么缺少 public result/operation |
+
+```mermaid
+flowchart LR
+  PC[ProductCapability] -->|requires| D1[Domain A public operations]
+  PC -->|requires| D2[Domain B public operations]
+  D1 -->|typed result| W[Workflow]
+  D2 -->|typed result| W
+  W --> OUT[Product outcome]
+  CP[Capability Provisions] -->|bound inside operation| D1
+  CP -->|bound inside operation| D2
+```
+
+一个 ProductCapability 可以落在一个或多个 Domain；一个 Domain 也可以服务多个 ProductCapability。Workflow 是 public DomainOperation 的组合，因此既可以是单 Domain 内多个独立 operation 的编排，也可以跨 Domain；“跨领域”不是 Workflow 的定义。若若干步骤必须共享一个不可分状态机或原子 invariant，它们不是跨域 Workflow，而是一个 composite DomainOperation 的内部 Requirement DAG。
+
+### 2.3 Business Capability Closure
 
 每个 accepted ProductCapability 必须编译为完整业务闭包，不能只定义 happy-path 功能或等实现暴露缺口后再补控制：
 
@@ -196,7 +246,7 @@ flowchart LR
 
 Coverage 只对声明的 exact universe 完备；开放世界通过 explicit unknown 扩展，不以“当前没搜到”证明不存在。上面的 concern family 不是不可扩展的枚举：新增一种能改变 admission、state、Effect、settlement、Evidence、成本或用户结果的独立 concern 时，先由其 canonical owner 定义关系与故障语义，再作为 Coverage Compiler 的新输入；不得把它塞进 `misc`、自由文本或既有 family 的可选字段。
 
-### 2.3 可推导边界
+### 2.4 可推导边界
 
 通用构件不会凭空生成业务。所有信息分为四类，且只能沿显式 transition 变化：
 
@@ -455,7 +505,7 @@ flowchart LR
 | --- | --- | --- | --- |
 | Product/Domain decider | outcome、non-goal、不可推导取舍 | intent、事实、alternatives | 实现、Provider、运行结果 |
 | Domain definition owner | Subject、Invariant、State、Failure、Operation semantics | accepted decisions | Authority、Provider availability |
-| Workflow composer | 多个 public DomainOperations 的依赖、join、compensation | operation contracts/results | 子 operation 内部 state/Effect、primitive |
+| Workflow composer | 一个或多个 public DomainOperations 的依赖、join、compensation | operation contracts/results | 子 operation 内部 state/Effect、primitive |
 | Policy/decision compiler | eligible candidates 间的 deterministic decision | definitions、facts、policy | 签发 Authority、执行 Effect |
 | Control/admission owner | 某 transition/attempt 当前是否允许 | plan、facts、constraints、refs | 改写 workflow、执行或证明成功 |
 | Authority issuer | principal 对 exact Subject 的 Effect 上限 | authorized decision、scope、epoch | capability 可用性、业务成功 |
@@ -490,9 +540,28 @@ flowchart LR
 
 控制不是一个万能 control plane。每个 admission owner 只控制其状态转换；跨域组合由 Workflow 引用各 DomainOperation 的 public result。公共 Control Plane 只能聚合 typed admission/readback projections，不能取得所有领域的 Definition、journal 或 terminal ownership。
 
+Workflow 的 public operation 引用与 operation 内部的 Provider binding 是两级不同关系，不能压成 service locator：
+
+```mermaid
+flowchart LR
+  W[PureWorkflowPlan] --> OR[Public DomainOperation ref + contract revision]
+  OR --> BO[Compiled public operation facade]
+  BO --> P[PureOperationPlan]
+  P --> CR[CapabilityRequirement]
+  CP[CapabilityProvision] --> CB[CapabilityBinding]
+  CR --> CB
+  CB --> BC[BoundCapabilitySession]
+```
+
+- Workflow 节点只固定 public DomainOperation identity、contract revision、input/result mapping 和 binding constraints。通常由 Implementation Compiler 生成静态 facade；只有 Target/Profile 真有多个合格 realization 时才生成 L4 的 `PublicOperationBinding` 关系，不能在 runtime 做 ambient service discovery。
+- `CapabilityProvision` 是 Git/process/filesystem/network/container/compiler 等底层能力；只由 DomainOperation 的 execution plan 绑定和消费。
+- Workflow 可以声明语义约束，例如 local-only、offline-capable、principal、latency class 或 required result semantics；只有当某个具体 Provider identity 本身是已接受的产品不变量时，它才进入 Requirement。不得用 callback、路径、环境变量或实现名字暗中选择 Provider。
+- “自由控制流程”表示用 typed、可组合、可验证的 WorkflowDefinition 控制 operation、数据边、分支、并发、等待、终止和恢复；不表示任意代码可直接调用功能提供者。
+
 ```text
 WorkflowDefinition  = logical operations + dependencies + guards + compensation semantics
 PurePlan            = typed requirements/effects/readback/result DAG; no provider/grant/allocation
+PublicOperationRef  = exact public DomainOperation identity + contract revision for one workflow node
 ControlDecision     = current transition admissible | rejected | unresolved
 ExecutionPlan       = exact workflow/operation plan + bindings + resource demands + ready constraints
 AdmittedExecution   = exact plan + live grants + one root allocation + epoch
@@ -500,22 +569,37 @@ AttemptJournal      = observed starts/progress/settlements/residue
 DomainResult        = operation semantics applied to settlement + independent readback
 ```
 
-七者具有不同 identity/revision/owner。WorkflowDefinition 与 PurePlan 可以跨 Provider 保持不变；ExecutionPlan 随 Binding/Resource facts 变化；AdmittedExecution 随 grant/allocation/epoch变化；AttemptJournal 只记录一个 execution epoch；DomainResult 不能由 Coordinator、Scheduler 或 journal formatter构造。
+这些对象具有不同 identity/revision/owner。WorkflowDefinition 与 PurePlan 可以跨 Provider 保持不变；ExecutionPlan 随 Binding/Resource facts 变化；AdmittedExecution 随 grant/allocation/epoch变化；AttemptJournal 只记录一个 execution epoch；DomainResult 不能由 Coordinator、Scheduler 或 journal formatter构造。
+
+Definition、Plan 与运行状态都不可原地改写：
+
+```text
+accepted Definition change -> new definition revision
+same Definition + changed exact request/facts -> new PurePlan identity
+same PurePlan + changed eligible provisions/resources -> new ExecutionPlan identity
+same ExecutionPlan + changed grant/allocation/epoch -> new AdmittedExecution identity
+running attempt progress -> append/CAS AttemptJournal records; never mutate any plan
+```
+
+事实、Provider、资源或权限变化只会使未启动的 admission stale，并触发重新编译一个新 identity；它们不能热修改已运行 plan。运行中发现 plan 错误或前提失效时，先停止新增 Effect并结算原 attempt，再由原 plan/readback生成 `PureRecoveryDecision`；需要继续时以新 Definition/Plan/Admission启动新 epoch。partial/unknown Effect 绝不能靠替换 plan 隐去。
 
 #### 8.2.1 Workflow algebra
 
-Workflow 只用以下受控组合子表达时序；每个节点引用 public DomainOperation，不接受任意 Effect callback：
+Workflow 不是预定义业务流程清单。系统只有一个 closed、typed 的 Workflow meta-model；实际流程数量由 accepted ProductCapabilities 编译得到，可以是零个或任意多个。当前核心代数按正交职责分为 node、composition 与 transition policy；新增组合子必须证明现有代数无法等价表达，并走 meta-model evolution，不能添加任意 callback。
 
-| 组合子 | 语义 | 必要条件 |
+| 构件 | 语义 | 必要条件 |
 | --- | --- | --- |
-| `sequence(A,B)` | A 的指定 terminal/result 是 B 的前置 | result mapping、staleness、B 独立 admission |
-| `parallelAll(nodes)` | 无依赖节点可并行，全部按 join policy 结算 | 独立 Effect/lock set、共享 parent allocations |
-| `exclusiveChoice(decision,cases)` | pure Decision 选择恰好一个 branch | closed cases、unknown→blocked |
-| `join(operationKey)` | 消费已存在 in-flight/terminal | identity、freshness、consumer authorization |
-| `compensate(failure,operation)` | 新的有权 DomainOperation 恢复可定义 preimage | compensation grant、资源、readback |
-| `retry(previous)` | 重新执行同一业务 intent | conclusive not-applied 或 owner-issued retry admission |
-| `boundedFixpoint(step,variant)` | 状态按可证明 variant 收敛 | max bound、monotonic progress、terminal/residue |
-| `cancel/timeout` | 停止新增工作并进入 settlement | propagation、descendant termination、readback |
+| `invoke(operationRequirement)` | 调用一个 exact-revision public DomainOperation | public contract/ref、compiled facade、独立 admission/result |
+| `sequence(A,B)` / result edge | A 的指定 terminal/result 是 B 的前置并映射输入 | result mapping、freshness、B 独立 admission |
+| `choose(decision,cases)` | pure Decision 选择恰好一个 closed branch | exhaustive cases、unknown→blocked |
+| `parallel(nodes, completion)` | 对 bounded exact node set fan-out；按 `all | any | quorum(n)` 汇合 | 独立 Effect/lock set、共享 parent allocation、loser settlement |
+| `await(requirement)` | 等待 durable signal、deadline 或既有 operation settlement | exact subject/epoch、subscription settlement、timeout/cancel |
+| `boundedFixpoint(step,variant)` | 状态按可证明 variant 进行有限迭代 | bound、monotonic progress、每轮新 admission、terminal/residue |
+| `compensate(failure,operation)` | 以新的有权 DomainOperation 恢复可定义 preimage | compensation grant、资源、readback；不能伪装 rollback |
+| `retry(previous)` | 重新执行同一业务 intent | conclusive not-applied 或 owner-issued retry admission；unknown Effect禁止盲重试 |
+| `terminate(result)` / `cancel(reason)` | 结束结果或停止新增工作并进入 descendant settlement | terminal schema、propagation、termination/readback |
+
+`join existing operation` 是 `await(operation settlement)`；fan-in 是 `parallel(..., completion)` 的结果边；Saga 是 sequence + compensation；bounded map 是由 exact input set 编译出的 parallel。它们不需要第二套流程类型。动态节点只有在输入集合、上限、identity 和 resource demand 已进入 plan 时才合法，运行时 callback 不能扩展 DAG。
 
 ```text
 Ready(node) =
