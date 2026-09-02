@@ -633,6 +633,68 @@ test('cleanup quarantines, bounded-deletes and reads back one retired physical g
   expect(await absent(path.join(repositoryRoot, '.tmp', 'foreign-sibling', 'keep.txt'))).toBe(false);
 });
 
+test('producer hooks omit quarantine without an owner-issued cleanup operation', async () => {
+  const { options, repositoryRoot } = await fixture();
+  const lifecycle = generatedStateProducerHooks({ repositoryRoot }, options);
+  expect(Reflect.has(lifecycle, 'quarantine')).toBe(false);
+  expect(Reflect.get(lifecycle, 'quarantine')).toBeUndefined();
+});
+
+test('producer hooks expose quarantine only for the exact live cleanup operation', async () => {
+  const { options, repositoryRoot } = await fixture();
+  const generatedRoot = fixtureRoot(repositoryRoot);
+  await mkdir(path.join(generatedRoot, 'nested'), { recursive: true });
+  await writeFile(path.join(generatedRoot, 'nested', 'cache.bin'), 'cache');
+  const signal = new AbortController().signal;
+  const cleanupOperation = createGeneratedStateCleanupOperationSession({
+    deadlineAtMonotonicMs: performance.now() + 30_000,
+    signal
+  });
+  const lifecycle = generatedStateProducerHooks({ repositoryRoot }, {
+    ...options,
+    cleanupOperation
+  });
+  expect(typeof lifecycle.quarantine).toBe('function');
+  await lifecycle.born(LIFECYCLE_FIXTURE_PATH, 'compiler-staging-operation-capability');
+  await lifecycle.retired(LIFECYCLE_FIXTURE_PATH, 'compiler-staging-owner-completed');
+  const receipt = await lifecycle.quarantine(LIFECYCLE_FIXTURE_PATH, {
+    outcome: 'compiler-staging-capability-cleanup',
+    profile: 'automatic'
+  });
+  expect(receipt.terminal).toBe('completed');
+  expect(await absent(generatedRoot)).toBe(true);
+});
+
+test('producer quarantine rejects cloned, foreign and expired cleanup operations before effect', async () => {
+  for (const cleanupOperation of [
+    Object.freeze({ ...createGeneratedStateCleanupOperationSession({
+      deadlineAtMonotonicMs: performance.now() + 30_000
+    }) }),
+    Object.freeze({ deadlineAtMonotonicMs: performance.now() + 30_000 }),
+    createGeneratedStateCleanupOperationSession({
+      deadlineAtMonotonicMs: 1,
+      monotonicNowMs: () => 2
+    })
+  ]) {
+    const { options, repositoryRoot } = await fixture();
+    const generatedRoot = fixtureRoot(repositoryRoot);
+    await mkdir(generatedRoot, { recursive: true });
+    await writeFile(path.join(generatedRoot, 'cache.bin'), 'cache');
+    const owner = generatedStateProducerHooks({ repositoryRoot }, options);
+    await owner.born(LIFECYCLE_FIXTURE_PATH, 'compiler-staging-operation-invalid-capability');
+    await owner.retired(LIFECYCLE_FIXTURE_PATH, 'compiler-staging-owner-completed');
+    const lifecycle = generatedStateProducerHooks({ repositoryRoot }, {
+      ...options,
+      cleanupOperation
+    });
+    await expect(lifecycle.quarantine(LIFECYCLE_FIXTURE_PATH, {
+      outcome: 'compiler-staging-invalid-capability',
+      profile: 'automatic'
+    })).rejects.toThrow(/not owner-issued|exceeded the cleanup operation budget/u);
+    expect(await absent(generatedRoot)).toBe(false);
+  }
+});
+
 test('unregistered reparse roots are protected without following their targets', async () => {
   const { options, repositoryRoot } = await fixture();
   const outside = path.join(path.dirname(repositoryRoot), 'outside');

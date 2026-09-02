@@ -3972,6 +3972,10 @@ async function quarantineGeneratedStateRegistration(input: Readonly<{
       'Generated-state quarantine requires one owner-issued cleanup operation session.'
     );
   }
+  assertGeneratedStateCleanupOperation(
+    generatedStateCleanupOperationState(options.cleanupOperation),
+    'Generated-state quarantine admission'
+  );
   await prepareGeneratedStateDisposal({ ...input, acceptExistingRetirement: true }, options);
   return continueGeneratedStateCleanup({
     lifecycleOptions: options,
@@ -3983,10 +3987,7 @@ async function quarantineGeneratedStateRegistration(input: Readonly<{
   });
 }
 
-export function generatedStateProducerHooks(input: Readonly<{
-  repositoryRoot: string;
-  workspaceRoot?: string;
-}>, options: GeneratedStateLifecycleOptions = {}): Readonly<{
+export interface GeneratedStateProducerHookSet {
   born(relativePath: string, operationId: string): Promise<void>;
   bind(
     relativePath: string,
@@ -4016,11 +4017,38 @@ export function generatedStateProducerHooks(input: Readonly<{
     relativePath: string,
     request: Readonly<{ outcome: string; profile: GeneratedStateCleanupProfile }>
   ): Promise<GeneratedStateDisposalReceipt>;
+}
+
+export interface GeneratedStateProducerQuarantineHook {
   quarantine(
     relativePath: string,
     request: Readonly<{ outcome: string; profile: GeneratedStateCleanupProfile }>
   ): Promise<GeneratedStateCleanupContinuationReceipt>;
-}> {
+}
+
+type GeneratedStateProducerInput = Readonly<{
+  repositoryRoot: string;
+  workspaceRoot?: string;
+}>;
+
+export function generatedStateProducerHooks(
+  input: GeneratedStateProducerInput,
+  options: GeneratedStateLifecycleOptions & Readonly<{
+    cleanupOperation: GeneratedStateCleanupOperationSession;
+  }>
+): Readonly<GeneratedStateProducerHookSet & GeneratedStateProducerQuarantineHook>;
+export function generatedStateProducerHooks(
+  input: GeneratedStateProducerInput,
+  options?: GeneratedStateLifecycleOptions & Readonly<{ cleanupOperation?: undefined }>
+): Readonly<GeneratedStateProducerHookSet>;
+export function generatedStateProducerHooks(
+  input: GeneratedStateProducerInput,
+  options: GeneratedStateLifecycleOptions
+): Readonly<GeneratedStateProducerHookSet & Partial<GeneratedStateProducerQuarantineHook>>;
+export function generatedStateProducerHooks(
+  input: GeneratedStateProducerInput,
+  options: GeneratedStateLifecycleOptions = {}
+): Readonly<GeneratedStateProducerHookSet & Partial<GeneratedStateProducerQuarantineHook>> {
   const producerSession = new Map<string, `sha256:${string}`>();
   const requireProducerBinding = (relativePath: string): `sha256:${string}` => {
     const normalized = normalizeGeneratedStateRelativePath(relativePath);
@@ -4030,7 +4058,7 @@ export function generatedStateProducerHooks(input: Readonly<{
     }
     return registrationDigest;
   };
-  return Object.freeze({
+  const hooks: Readonly<GeneratedStateProducerHookSet> = Object.freeze({
     born: async (relativePath, operationId) => {
       const registration = await registerGeneratedStateBirth(
         { ...input, relativePath, operationId },
@@ -4094,7 +4122,11 @@ export function generatedStateProducerHooks(input: Readonly<{
       }, options);
       producerSession.delete(normalized);
       return receipt;
-    },
+    }
+  });
+  if (options.cleanupOperation === undefined) return hooks;
+  return Object.freeze({
+    ...hooks,
     quarantine: async (relativePath, request) => {
       const normalized = normalizeGeneratedStateRelativePath(relativePath);
       const receipt = await quarantineGeneratedStateRegistration({
