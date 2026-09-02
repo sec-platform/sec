@@ -109,6 +109,9 @@ import {
   type WorktreePhysicalCloseoutConsumptionToken
 } from '../../../control/branch-lifecycle/worktree-physical-closeout.ts';
 import {
+  observeActiveWorkPackage
+} from '../../../control/documentation/document-control-plane.ts';
+import {
   assertHostedIntegrationPhaseOwnership,
   createIntegrationAuthorizationOperationPublication,
   observeIntegrationAuthorizationOperationPublications,
@@ -134,6 +137,9 @@ import { createObservedMainHealthInput } from '../../../control/main-health/main
 import {
   createCiMainHealthRequestOperationId
 } from '../../../control/main-health/provider-policy.ts';
+import type {
+  ActiveWorkPackageOwnerObservation
+} from '../../../control/task/contract/active-work-observation.ts';
 import {
   CodexDevelopmentAssertWorkPackageOwnership,
   CodexDevelopmentParseCurrentWorkPackageManifest,
@@ -221,10 +227,20 @@ interface VerificationSessionScope {
   readonly repositoryFullName?: string;
   readonly defaultBranch?: string;
   readonly recoveryRoot?: string;
+  readonly activeWorkPackageObservation?: ActiveWorkPackageOwnerObservation;
 }
 
 function createVerificationSessionScope(input: VerificationSessionScope): VerificationSessionScope {
   return Object.freeze({ ...input });
+}
+
+async function createBranchLifecycleVerificationScope(
+  repositoryRoot: string
+): Promise<VerificationSessionScope> {
+  return createVerificationSessionScope({
+    repositoryRoot,
+    activeWorkPackageObservation: await observeActiveWorkPackage(repositoryRoot)
+  });
 }
 
 export function observeVerificationSessionChangedSelection(input: {
@@ -4167,7 +4183,15 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
   const repositoryRoot = process.cwd();
   const environment = process.env;
   const now = () => new Date().toISOString();
-  const ctx = createVerificationSessionScope({ repositoryRoot });
+  let ctx = createVerificationSessionScope({ repositoryRoot });
+  if (new Set([
+    'prepare-integration-hosted',
+    'integrate-hosted',
+    'closeout-mutate-hosted',
+    'closeout-publish-hosted'
+  ]).has(command)) {
+    ctx = await createBranchLifecycleVerificationScope(repositoryRoot);
+  }
   let runtimeJournalFs: VerificationSessionJournalFileSystem | null = null;
   if (new Set(['prepare', 'resume', 'status', 'status-offline', 'integrate-hosted']).has(command)) {
     const authority = await acquireSecRuntimeJournalAuthority({ repositoryRoot, environment });
@@ -5145,6 +5169,10 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
         liveMainSha: synchronized.defaultSha, environment });
       await joinExactPostMergeMainHealth({ ctx, github, repository,
         mainSha: boundPostMergeMainSha, environment });
+      // The physical merge changed the default SHA and retired the active
+      // package. Re-observe at the new stable phase instead of allowing the
+      // pre-merge capability to authorize post-merge branch effects.
+      ctx = await createBranchLifecycleVerificationScope(repositoryRoot);
       const worktreeCleanupTokens = await routePreparedWorktreeCleanupAttempt({
         foreignWorktreeObservationDigests: originalHostPrepared.foreignWorktreeObservations
           .map(({ observationDigest }) => observationDigest),

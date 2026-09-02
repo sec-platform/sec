@@ -23,7 +23,10 @@ import {
   type BranchLifecycleInventory,
   type BranchRecoveryAuthority
 } from './branch-lifecycle-contract.ts';
-import { collectBranchLifecycleInventory } from './branch-lifecycle-inventory.ts';
+import {
+  collectBranchLifecycleInventory,
+  type BranchLifecycleInventoryScope
+} from './branch-lifecycle-inventory.ts';
 import {
   createRecoveryBundle,
   ensureRecoveryRoot,
@@ -34,12 +37,20 @@ import {
 const COMMAND_TIMEOUT_MS = 60_000;
 const COMMAND_MAX_BUFFER = 32 * 1024 * 1024;
 
-export interface BranchCloseoutScope {
-  repositoryRoot: string;
-  remote?: string;
-  repositoryFullName?: string;
-  defaultBranch?: string;
+export interface BranchCloseoutScope extends BranchLifecycleInventoryScope {
   recoveryRoot?: string;
+}
+
+function assertBranchCloseoutInventoryResolved(inventory: BranchLifecycleInventory): void {
+  const report = auditBranchLifecycle(inventory);
+  if (report.status === 'blocked') {
+    throw new Error(
+      `Branch lifecycle is not closeout-ready (unknown facts block): ${report.findings
+        .filter(({ severity }) => severity === 'error')
+        .map(({ code, branch, message }) => `${code}${branch ? `(${branch})` : ''}: ${message}`)
+        .join(' | ')}`
+    );
+  }
 }
 
 function runCloseoutGit(repositoryRoot: string, args: readonly string[]) {
@@ -254,6 +265,7 @@ export function rehydratePreparedBranchCloseoutRecoveryArtifact(input: {
     throw new Error('Provider recovery bundle digest differs from the authorized preparation.');
   }
   const inventory = collectBranchLifecycleInventory(input.scope);
+  assertBranchCloseoutInventoryResolved(inventory);
   const recoveryRoot = ensureRecoveryRoot(inventory, input.scope.recoveryRoot);
   const bundlePath = path.join(recoveryRoot, `sec-branch-closeout-restored-${digest}.bundle`);
   if (existsSync(bundlePath)) {
@@ -376,15 +388,7 @@ function prepareBranchCloseoutInternal(
   }
 
   const before = collectBranchLifecycleInventory(scope);
-  const beforeAudit = auditBranchLifecycle(before);
-  if (beforeAudit.status === 'blocked') {
-    throw new Error(
-      `Branch lifecycle is not closeout-ready (unknown facts block): ${beforeAudit.findings
-        .filter(({ severity }) => severity === 'error')
-        .map(({ code, branch, message }) => `${code}${branch ? `(${branch})` : ''}: ${message}`)
-        .join(' | ')}`
-    );
-  }
+  assertBranchCloseoutInventoryResolved(before);
   if (input.branch === before.repository.defaultBranch) {
     throw new Error('Default branch cannot be prepared for closeout.');
   }

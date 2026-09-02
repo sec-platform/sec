@@ -5,7 +5,6 @@ import {
 import {
   assertGitBranchName,
   assertGitSha,
-  type BranchActiveWorkPackageObservation,
   type BranchCloseoutReceiptCommentCandidate,
   type BranchPullRequestObservation,
   type BranchRefObservation
@@ -214,47 +213,4 @@ export function parsePullRequestObservations(source: string): BranchPullRequestO
       invalidCloseoutReceiptComments: []
     };
   }));
-}
-
-export function parseControlPlane(
-  source: string,
-  defaultBranch: string
-): BranchActiveWorkPackageObservation {
-  const parsed: unknown = JSON.parse(source);
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('control-plane output must be an object');
-  }
-  const record = parsed as Record<string, unknown>;
-  const active = record.activeWorkPackage;
-  const workspace = record.workspace;
-  if (!active || typeof active !== 'object' || Array.isArray(active)) {
-    throw new Error('control-plane activeWorkPackage is missing');
-  }
-  const activeRecord = active as Record<string, unknown>;
-  const state = activeRecord.state;
-  if (state !== 'active' && state !== 'none' && state !== 'invalid' && state !== 'unresolved') {
-    throw new Error('control-plane active state is invalid');
-  }
-  let branch: string | null = null;
-  if (state === 'active') {
-    if (!workspace || typeof workspace !== 'object' || Array.isArray(workspace)) {
-      throw new Error('control-plane workspace is missing');
-    }
-    const workspaceBranch = (workspace as Record<string, unknown>).branch;
-    if (
-      typeof workspaceBranch !== 'string'
-      || workspaceBranch === '(detached)'
-      || workspaceBranch === defaultBranch
-    ) {
-      throw new Error('active Work Package candidate branch is unresolved');
-    }
-    assertGitBranchName(workspaceBranch, 'active Work Package branch');
-    branch = workspaceBranch;
-  }
-  return {
-    state,
-    branch,
-    manifest: typeof activeRecord.manifest === 'string' ? activeRecord.manifest : null,
-    reason: typeof activeRecord.reason === 'string' ? activeRecord.reason : null
-  };
 }

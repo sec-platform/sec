@@ -1,4 +1,97 @@
 {
   "importGraph": "runtime",
-  "externalEntrypoints": []
+  "externalEntrypoints": [],
+  "capabilityProviders": [
+    {
+      "capability": "task.active-work-observation",
+      "operations": [
+        "issueActiveWorkPackageOwnerObservation",
+        "requireActiveWorkPackageOwnerObservation"
+      ],
+      "effectKinds": [],
+      "ownerInternalOperations": [],
+      "operationRoles": [
+        {
+          "operation": "issueActiveWorkPackageOwnerObservation",
+          "role": "binding-issuer",
+          "semanticOperation": "control.task.issue-active-work-observation",
+          "requirementId": "task.active-work-observation",
+          "recovery": null
+        },
+        {
+          "operation": "requireActiveWorkPackageOwnerObservation",
+          "role": "domain-owner",
+          "semanticOperation": "control.task.require-active-work-observation",
+          "requirementId": null,
+          "recovery": null
+        }
+      ]
+    }
+  ],
+  "operationObligations": [
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "task.active-work-observation",
+        "operation": "issueActiveWorkPackageOwnerObservation"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "control.documentation"
+        ]
+      },
+      "effect": {
+        "kinds": [],
+        "failureKinds": [],
+        "recovery": "not-applicable"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "records",
+            "maximum": 1
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "task.active-work-observation",
+        "operation": "requireActiveWorkPackageOwnerObservation"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "control.branch-lifecycle"
+        ]
+      },
+      "effect": {
+        "kinds": [],
+        "failureKinds": [],
+        "recovery": "not-applicable"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "records",
+            "maximum": 1
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    }
+  ]
 }
