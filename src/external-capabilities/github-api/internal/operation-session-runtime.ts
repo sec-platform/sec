@@ -1,8 +1,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
 
-import { GITHUB_API_BASE_URL, GITHUB_HOST } from './contract.ts';
-import { GitHubCredentialUnavailableError, readGitHubToken } from './credential.ts';
+import { GITHUB_API_BASE_URL, GITHUB_HOST } from '../contract.ts';
+import { GitHubCredentialUnavailableError, readGitHubToken } from '../credential.ts';
 
 export type GitHubApiEffect = 'read' | 'status-write' | 'merge-write';
 
@@ -353,7 +353,7 @@ function issueCapability(input: Readonly<{
 }
 
 /** Test-only issuance. A structural clone is not present in the owner WeakMap. */
-export function issueGitHubApiTestCapability(input: Readonly<{
+export function issueGitHubApiCapabilityForTestSupport(input: Readonly<{
   repository: string;
   token: string;
   principal: GitHubApiPrincipal;
@@ -811,7 +811,7 @@ export function assertGitHubApiReadOperationBudgetCurrent(input: Readonly<{
   }
 }
 
-export async function withGitHubApiTestSession<T>(input: Readonly<{
+export async function withGitHubApiSessionForTestSupport<T>(input: Readonly<{
   capability: GitHubApiCapability;
   operation: () => Promise<T>;
   now?: () => number;
@@ -856,7 +856,7 @@ async function readTestToken(
   return token.trim();
 }
 
-export async function withGitHubApiTestEnrollmentSession<T>(input: Readonly<{
+export async function withGitHubApiEnrollmentSessionForTestSupport<T>(input: Readonly<{
   repository: string;
   effect: GitHubApiEffect;
   transport: GitHubApiTransport;
@@ -882,7 +882,7 @@ type TestReadOperationOpen = <T>(
   operation: (capability: GitHubApiCapability) => Promise<T>
 ) => Promise<T>;
 
-export async function withGitHubApiTestReadOperationBudget<T>(input: Readonly<{
+export async function withGitHubApiReadOperationBudgetForTestSupport<T>(input: Readonly<{
   repository: string;
   transport: GitHubApiTransport;
   readToken: (input: Readonly<{ signal: AbortSignal; timeoutMs: number }>) => Promise<string>;

@@ -18,12 +18,22 @@
       "capability": "github-api.operation-session",
       "operations": [
         "executeGitHubApiOperation",
+        "issueGitHubApiCapabilityForTestSupport",
+        "withGitHubApiEnrollmentSessionForTestSupport",
+        "withGitHubApiReadOperationBudgetForTestSupport",
+        "withGitHubApiSessionForTestSupport",
         "withGitHubApiReadSession",
         "withGitHubApiStatusWriteSession",
         "withGitHubApiMergeWriteSession"
       ],
       "effectKinds": ["process", "provider"],
-      "ownerInternalOperations": ["executeGitHubApiOperation"],
+      "ownerInternalOperations": [
+        "executeGitHubApiOperation",
+        "issueGitHubApiCapabilityForTestSupport",
+        "withGitHubApiEnrollmentSessionForTestSupport",
+        "withGitHubApiReadOperationBudgetForTestSupport",
+        "withGitHubApiSessionForTestSupport"
+      ],
       "operationRoles": [
         {
           "operation": "withGitHubApiReadSession",

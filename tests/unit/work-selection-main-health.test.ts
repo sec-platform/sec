@@ -30,7 +30,7 @@ import {
   withGitHubApiTestReadOperationBudget,
   withGitHubApiTestSession,
   type GitHubApiTransport
-} from '../../src/external-capabilities/github-api/operation-session.ts';
+} from '../../src/external-capabilities/github-api/test/operation-session.ts';
 import { PhysicalNoFollowError } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 import { resolveSecRuntimeStateForRepository } from '../../src/runtime-state/workspace-state/paths.ts';
 import { encodeVerificationActionData } from '../../src/verification/action/contract/action.ts';

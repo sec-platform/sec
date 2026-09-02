@@ -13,7 +13,7 @@ import {
   issueGitHubApiTestCapability,
   withGitHubApiTestSession,
   type GitHubApiTransport
-} from '../../src/external-capabilities/github-api/operation-session.ts';
+} from '../../src/external-capabilities/github-api/test/operation-session.ts';
 import { encodeVerificationActionData } from '../../src/verification/action/contract/action.ts';
 
 const D = (char: string): `sha256:${string}` => `sha256:${char.repeat(64).slice(0, 64)}`;
