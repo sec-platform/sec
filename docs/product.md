@@ -6,7 +6,7 @@ domain: product
 
 # 产品目标与系统边界
 
-本文只拥有 SEC 的产品目的、用户可观察能力、业务边界与成功判据。通用事实/关系/约束语言由 `docs/design-calculus.md` 拥有，通用工程原则由 `docs/engineering-constitution.md` 拥有，SEC 对象、authority、Effect、Evidence 和演进机制的项目实例化由 `docs/system-architecture.md` 及对应领域 owner 拥有；交付顺序由 `docs/roadmap.md` 拥有。本文不复制实现清单、路径、版本、Provider inventory 或当前完成状态。
+本文只拥有 SEC 的产品目的、用户可观察能力、业务边界与成功判据。通用事实/关系/约束语言由 `docs/design-calculus.md` 拥有，通用工程原则由 `docs/engineering-constitution.md` 拥有，SEC 对象、authority、Effect、Evidence 和演进机制的逻辑实例化由 `docs/system-architecture.md` 及对应领域 owner 拥有，逻辑到源码/包/生成物的实现映射由 `docs/implementation-architecture.md` 拥有；交付顺序由 `docs/roadmap.md` 拥有。本文不复制实现清单、路径、版本、Provider inventory 或当前完成状态。
 
 ## 产品定义
 

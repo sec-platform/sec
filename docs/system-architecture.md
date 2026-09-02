@@ -6,7 +6,7 @@ domain: system-architecture
 
 # 系统架构与权威流
 
-本文拥有通用设计演算与工程宪法在 SEC 中的实例化：跨域约束、编译阶段、责任与依赖方向、operation/resource/lifecycle/proof 闭包、物理物化和架构演进。关系与原则语言由 `docs/design-calculus.md` 拥有，普适工程原则由 `docs/engineering-constitution.md` 拥有，产品结果由 `docs/product.md` 拥有，SEC Agent 流程由 `docs/development-governance.md` 拥有；领域字段与算法由各领域 machine contract 拥有，当前能力只能由最新 `main` 与 Evidence 计算。
+本文拥有通用设计演算与工程宪法在 SEC 中的逻辑实例化：跨域约束、编译阶段、责任与依赖方向、operation/resource/lifecycle/proof 闭包和架构演进。关系与原则语言由 `docs/design-calculus.md` 拥有，普适工程原则由 `docs/engineering-constitution.md` 拥有，逻辑架构到 declaration/package/file/generated artifact 的实现映射由 `docs/implementation-architecture.md` 拥有，产品结果由 `docs/product.md` 拥有，SEC Agent 流程由 `docs/development-governance.md` 拥有；领域字段与算法由各领域 machine contract 拥有，当前能力只能由最新 `main` 与 Evidence 计算。
 
 ## 1. 架构核
 
@@ -253,7 +253,7 @@ declaration/reference/type/entrypoint/resource/unknown/diagnostic shards独立�
 
 资源计量随真实读取流式消费；不能为了“预算”先全量读取一次再执行第二次。metadata 足够时不读 bytes；语义需要 bytes 时在触达上限前停止。typecheck、audit、test-impact、unused、duplicate、hardcode analysis 共享 snapshot/facts，不得各扫一遍。
 
-## 7. Responsibility、Owner DAG 与物理布局
+## 7. Responsibility 与 Owner DAG
 
 ### 7.1 Responsibility Cell
 
@@ -293,48 +293,11 @@ flowchart LR
 - foundation/architecture contract 反向导入 Source Program、filesystem、language provider 或 placement；
 - feedback 形成 runtime import SCC；反馈必须是 typed request/result，由 orchestrator 组合。
 
-### 7.3 Facade 的存在证明
+### 7.3 Implementation projection
 
-Facade 只有增加下列至少一个真实边界才可存在：
+本层只输出 accepted Responsibility Cells、Owner DAG、logical dependency constraints 和 public demand。Facade 是否有真实边界、CodeUnit 角色、package/file placement、单一 `src/` authored root、module admission、局部变更、意图生成与架构迁移统一由 `docs/implementation-architecture.md` 编译。
 
-```text
-authority intersection
-∨ external protocol normalization
-∨ independent lifecycle / compatibility
-∨ one semantic operation over several capabilities
-```
-
-聚合 export、缩短路径、隐藏 move、future placeholder、旧 import 续命、统一 index、service locator 都不是边界。public consumer 直接依赖最窄 declaration/operation owner；root barrel 和 re-export chain 不得形成第二 API 图。
-
-### 7.4 物理布局
-
-路径是 Address，不是 responsibility。Placement Compiler 从 Cell/DAG、co-change、failure/recovery、test/effect closure 推导 carrier：
-
-| Zone | 允许内容 | 禁止内容 |
-| --- | --- | --- |
-| `src/**` | SEC 手写 production executable source；owner-local contracts/operations/providers及相邻 owner-local tests | generated state、cache、第二 source root、业务脚本镜像 |
-| `tests/**` | 跨 owner/system/e2e/fault/property proofs 与其 fixtures | 镜像 `src` 目录、私有实现 oracle |
-| `docs/**` | stable decisions/specs 与 generated documentation projections | current runtime state、源码清单 |
-| `config/**` / ecosystem-native roots | tool-owned canonical configuration | 业务语义副本、第二 registry |
-| Runtime State roots | durable operation/recovery state | authoring source、cache truth |
-| cache roots | 可重算、有限额加速数据 | Evidence、authority、唯一状态 |
-| artifacts | exact published results/Evidence | mutable current truth |
-
-可执行 TypeScript/JavaScript 隐藏在字符串、fixture、document、generated resource 或别的 root 中仍属于 executable source candidate，必须进入 Content/Source Program classification；不能通过地址逃逸 architecture graph。
-
-大文件不因行数自动拆分。只有 Cell/DAG 证明可分离 responsibility、单向依赖、独立 consumer 或 lifecycle，且迁移不缩小 Effect/failure/recovery 义务时，才拆成同 owner 下的 bounded modules。
-
-### 7.5 Module admission
-
-从 exact Source Program 生成 owner-pair edges、SCC、reciprocal pair、witness 和 feedback-cut candidate。拒绝：
-
-- duplicate identity/writer/parser/resolver/Effect owner；
-- production→test/private import；
-- source root 外的 production executable；
-- aggregate/index/alias 绕过 declaration owner；
-- dynamic string import、隐藏 source 或 unknown edge 跨 Effect/terminal；
-- old/new routes 同时 active；
-- descriptor、目录或文档自报 owner 与 actual graph 不符。
+路径、目录、`index`、package、测试、当前 import 和 facade 均是 implementation observation/projection，不能反向定义 responsibility。实现编译器必须证明实际 Source Program 满足本层 DAG；不能用文档路径清单、命名约定或生成 registry 替代 actual declaration/reference/effect graph。
 
 ## 8. Operation、capability 与资源
 

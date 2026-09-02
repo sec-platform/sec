@@ -8,7 +8,7 @@ domain: delta-and-impact
 
 ## 1. 所有权
 
-本文拥有 canonical change、Impact propagation、certainty、unknown frontier 与 Verification recommendation reference。它不拥有 Semantic Contract、Implementation Resolution、Compatibility/Migration、测试命令、Verification Result、Release 或 Support。
+本文拥有 canonical change、Impact propagation、certainty、unknown frontier 与 Verification recommendation reference。它不拥有 Semantic Contract、Implementation Resolution、Compatibility/Migration、测试命令、Verification Result、Release 或 Support。`docs/implementation-architecture.md` 的 Change Locality Compiler 决定 authored/derived implementation delta 的来源与唯一 change point；本文只对其 independently validated endpoints 传播 Impact，不反向决定文件放置或生成策略。
 
 Pure in-process output 与 durable/public receipt 是不同 capability；只有真实跨进程/持久/外部 consumer 才增加 schema、parser、provenance、readback 与 migration。
 

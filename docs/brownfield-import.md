@@ -8,7 +8,7 @@ domain: brownfield
 
 ## 1. 所有权
 
-本文拥有既有工程与外部类库进入 SEC 的 Attach→Lift→Reconcile→Adopt→Normalize 生命周期、typed invocation、owner migration、unknown/opaque 与安全导入条件。TypeScript 是首个 frontend；identity、Evidence 与阶段语义保持语言无关。
+本文拥有既有工程与外部类库进入 SEC 的 Attach→Lift→Reconcile→Adopt→Normalize 生命周期、typed invocation、owner migration、unknown/opaque 与安全导入条件。TypeScript 是首个 frontend；identity、Evidence 与阶段语义保持语言无关。Adopt 后的 entity realization、Placement、Change Locality、round-trip implementation 和旧地址退役由 `docs/implementation-architecture.md` 拥有；本文不能从路径/名字直接签发实现 owner。
 
 ~~~mermaid
 flowchart LR

@@ -19,6 +19,7 @@ last-reviewed: 2026-09-02
 | 事实种类、关系、约束、原则语言和设计演算 | design calculus |
 | 通用工程原则 | engineering constitution |
 | SEC owner、operation、resource 与架构实例化 | system architecture |
+| logical model 到 declaration/package/file/generated artifact 的实现、局部变更和意图编译 | implementation architecture |
 | 兼容、迁移、退役 | change management |
 | Provider 成熟度 | external provider policy |
 | PASS、Evidence、Gate | verification governance |
@@ -59,7 +60,7 @@ stateDiagram-v2
 
 | Change kind | 实现前必须冻结 | 可省略 |
 |---|---|---|
-| 新产品能力/跨 owner 架构/公共合同/持久状态/Effect/resource/provider/layout/evolution | `docs/design-calculus.md` 定义的完整 Design Package + SEC scenario traces | production code |
+| 新产品能力/跨 owner 架构/公共合同/持久状态/Effect/resource/provider/layout/evolution | `docs/design-calculus.md` 定义的完整 Design Package + SEC scenario traces；涉及实现结构时同时冻结 `docs/implementation-architecture.md` 的 entity/placement/locality/generation/migration 投影 | production code |
 | 已冻结 operation 内的局部实现纵切片 | Design Package ref、exact owned closure、acceptance/settlement/proof obligations | 重做全局哲学 |
 | 用于消解一个 design unknown 的 experiment | hypothesis、isolated inputs/effects、expiry、expected observation、retirement | production integration/authority |
 | incident recovery | 当前状态 readback、最小安全 transition、residue/rollback | 新功能与无关重构 |
@@ -88,7 +89,7 @@ flowchart TD
   R1 --> R2[R2 Verification Truth Kernel]
   R2 --> R3[R3 Physical Workspace Observation]
   R3 --> R4[R4 TypeScript Source Program Model]
-  R4 --> R5[R5 Responsibility Reconstruction]
+  R4 --> R5[R5 Responsibility and Implementation Architecture]
   R5 --> R6[R6 Semantic Delta and Impact]
   R6 --> R7[R7 Operation Authorization and Planning]
   R7 --> R8[R8 Transactional Controlled Mutation]
@@ -118,7 +119,7 @@ flowchart TD
 | R2 | R1 | Requirement/Gate/Result/Claim/Aggregate | zero-test、unknown、stale、self-proof 不能 PASS | consumer 对同一真值不一致 |
 | R3 | R2 | exact Physical Observation / Content Manifest | tracked/declared inventory 无未解释遗漏；unknown 不等于 absent | 读取路径被当 identity |
 | R4 | R3 | TypeScript Source Program Model | clean/incremental bytes 等价；dynamic/opaque 显式 | 正则/名字图改变 TS 语义 |
-| R5 | R4 | Responsibility decisions、Owner DAG、Placement | owner 由关系闭包导出；至少一项真实 Adopt | 只能靠路径/品牌/人工清单 |
+| R5 | R4 | Responsibility decisions、Owner DAG、Implementation/Placement decisions | owner 由关系闭包导出；实际 Source Program 满足 layer/visibility/locality；至少一项真实 Adopt | 只能靠路径/品牌/人工清单 |
 | R6 | R5 | Fact Delta、Binding Delta、Impact | independently validated endpoints；unknown 保守传播 | comparator 重新 resolve 或判 compatibility |
 | R7 | R6 | immutable Engineering Operation plan | dry-run 零 Effect；caller 不能提交 derived authority | intent、plan、authorization 混合 |
 | R8 | R7 | journaled canonical transition | crash/CAS/rollback/recovery/readback；replay 不重复 Effect | mutation 绕过 journal/lease/fence |
@@ -146,6 +147,7 @@ flowchart TD
 | Engineering Constitution | 工程 identity/truth/owner/capability/resource/effect/proof/evolution 原则唯一 |
 | Agent Constitution | Agent epistemics/reasoning/authorization/action/recovery/self-correction 原则唯一 |
 | SEC Architecture | owner、operation、resource 与通用原则的项目实例化唯一 |
+| SEC Implementation Architecture | entity realization、placement、change locality、intent compilation 与 migration 唯一 |
 | Meta-model evolution | relation、constraint、execution/proof、materialization 可迁移 |
 | Current state | 只由 live resolver；不得写进稳定路线 |
 
@@ -218,7 +220,7 @@ R4 性能出口同时要求：
 - final frozen tree 只产生一次 ActionKey-bound full type evidence；
 - Windows/Provider 物理证明使用 retained session，不为每个进程重复昂贵 shell discovery。
 
-### R5 — Responsibility
+### R5 — Responsibility / Implementation Architecture
 
 Responsibility Cell 由 declaration SCC、single writer/issuer/parser 和 Effect→settlement→readback→recovery 闭包共同生成。
 
@@ -230,7 +232,9 @@ Responsibility Cell 由 declaration SCC、single writer/issuer/parser 和 Effect
 | ambiguous | 多个解释不能消解 |
 | opaque | 当前 frontend 无法观察 |
 
-Owner DAG、public surface、Placement certificate、Materialization plan 和 Reduction disposition 从同一 Source Program 编译。path、目录、index、facade、descriptor 或测试不能自报 owner。
+Owner DAG 与 public demand 由系统架构编译；CodeUnit role、visibility、PlacementDecision、Change Locality、generated/authored/opaque classification 和 ArchitectureMigration 由 `docs/implementation-architecture.md` 从同一 Source Program 与 accepted Responsibility graph 编译。path、目录、index、facade、descriptor、package 或测试不能自报 owner。
+
+R5 不是一次性的目录整理。每个 semantic delta 都先定位唯一 authored change point，再生成所有可推导投影；常规单责任变化只修改一个 owner，真实跨 owner 变化进入一个带 precondition、readback、recovery 和 retirement 的 ChangeTransaction。Intent-to-Code 未覆盖的部分由受相同合同约束的 ManualImplementationProvider 提议，不能成为第二设计 owner。
 
 ### R6 — Delta / Impact
 
@@ -609,7 +613,7 @@ owner contract
 | identity/owner 不唯一 | R0/R1 | alias、facade、第二 registry |
 | PASS 语义分裂 | R2 | 新 boolean、测试自证 |
 | 同一源码被重复发现 | R3/R4 | 第三份 regex/AST graph |
-| 文件组织只能靠路径清单 | R5 | 固定目录镜像测试 |
+| 文件组织只能靠路径清单或多文件同步改一行 | R5 | 固定目录镜像测试、手写投影 |
 | delta 与 compatibility 混合 | R6/change | 万能 upgrade resolver |
 | plan 有 Effect | R7 | 给 dry-run 加 cleanup |
 | crash 后无法判定 | R8 | 删除 residue 或重做 |
