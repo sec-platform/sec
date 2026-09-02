@@ -883,6 +883,24 @@ migration journal 都引用同一 binding。只有 registry/corpus bytes 相同�
 证明是同一次可迁移 generation；binding 缺失、过期或与任一输入 digest 不
 一致时，设计必须返回 stale/unknown frontier，禁止复用或执行旧计划。
 
+```text
+CurrentGenerationBinding = exact {
+  generationRef, providerRef, revisionOrSnapshotRef, treeOrContentDigest,
+  registryDigest, corpusDigest, semanticGraphDigest,
+  clauseDispositionDigest, sourceFrontierDigest, observationEpoch
+}
+
+SourceSemanticFrontier = exact {
+  documentRef, clauseRef, code, sourceDigest, graphDigest,
+  resolution: unresolved | adopted | explicitly-nonnormative
+}
+```
+
+`revisionOrSnapshotRef` 与 `treeOrContentDigest` 必须同时存在：前者绑定
+provider 的观察世代，后者绑定实际内容；只保留其中一个不能防止同内容异世代
+重放或同世代内容替换。`sourceFrontierDigest` 覆盖完整 frontier（包括零项），
+因此“没有发现 blocker”与“没有执行语义 census”不可混同。
+
 `sourceSemanticGraphDigest` 与 `sourceClauseDispositionDigest` 是迁移准入的
 必需输入，而不是迁移编译器可自行重算的旁路。它们引用同一 exact current
 generation 的语义编译结果：每个 heading/body node 必须已经被标为 typed
