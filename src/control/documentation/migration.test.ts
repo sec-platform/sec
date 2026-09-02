@@ -1,12 +1,19 @@
 import { describe, expect, test } from 'bun:test';
 
-import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import {
+  compareCodeUnits
+} from '../../system-architecture/foundation/runtime/canonical.ts';
 import type {
   DocumentationAuthorityRecord,
   DocumentationAuthorityRegistry
 } from './authority.ts';
 import {
+  compileDocumentationSemanticGraph,
+  unavailableDocumentationAdmissionProjection
+} from './compiler.ts';
+import {
   compileDocumentationMigrationDesign,
+  deriveDocumentationMigrationGenerationBinding,
   DOCUMENTATION_MIGRATION_DESIGN_SCHEMA,
   DOCUMENTATION_MIGRATION_TARGET_CONTRACT_DIGEST,
   encodeDocumentationMigrationDesign,
@@ -25,7 +32,7 @@ function record(
     path,
     kind,
     domain: 'fixture',
-    lifecycle: kind === 'proposal' ? 'draft' : 'active',
+    lifecycle: kind === 'proposal' ? 'draft' : 'stable',
     dynamicPolicy: 'forbidden',
     owns: [],
     projects: []
@@ -55,14 +62,46 @@ function registry(...documents: readonly DocumentationAuthorityRecord[]): Docume
   return { documents };
 }
 
+function sourceGraphFor(
+  input: DocumentationAuthorityRegistry,
+  trustedTree = 'tree-a',
+  untyped = false
+) {
+  const sourceRecords = input.documents
+    .filter((document) => (
+      (document.kind === 'authority' || document.kind === 'corpus-contract')
+      && document.lifecycle === 'stable'
+    ))
+    .sort((left, right) => compareCodeUnits(left.id, right.id));
+  return compileDocumentationSemanticGraph({
+    trustedTree,
+    registry: input,
+    sources: sourceRecords.map(({ id }) => ({
+      documentId: id,
+      source: `${untyped ? '' : '<!-- sec-clause {"blocker":null,"kind":"stable-decision"} -->\n'}# ${id}\n`
+    })),
+    admission: unavailableDocumentationAdmissionProjection(trustedTree)
+  });
+}
+
 function compileDesign(input: Readonly<{
   readonly registry: DocumentationAuthorityRegistry;
   readonly corpus: readonly DocumentationMigrationCorpusEntry[];
 }>): ReturnType<typeof compileDocumentationMigrationDesign> {
+  const sourceGraph = sourceGraphFor(input.registry);
   return compileDocumentationMigrationDesign({
     ...input,
-    registryDigest: sha256(input.registry) as `sha256:${string}`,
-    targetContractDigest: DOCUMENTATION_MIGRATION_TARGET_CONTRACT_DIGEST
+    targetContractDigest: DOCUMENTATION_MIGRATION_TARGET_CONTRACT_DIGEST,
+    currentGenerationBinding: deriveDocumentationMigrationGenerationBinding({
+      generationRef: sourceGraph.trustedTree,
+      providerRef: 'git',
+      revisionOrSnapshotRef: sourceGraph.trustedTree,
+      observationEpoch: sourceGraph.trustedTree,
+      registry: input.registry,
+      corpus: input.corpus,
+      sourceGraph
+    }),
+    sourceGraph
   });
 }
 
@@ -197,19 +236,56 @@ describe('documentation migration design compiler', () => {
   test('rejects caller-supplied digests that do not bind the actual inputs', () => {
     const currentRegistry = registry(record('a', 'docs/a.md', 'proposal'));
     const currentCorpus = [corpus('docs/a.md', 'tracked-registered', 'a')];
+    const sourceGraph = sourceGraphFor(currentRegistry);
+    const binding = deriveDocumentationMigrationGenerationBinding({
+      generationRef: sourceGraph.trustedTree,
+      providerRef: 'git',
+      revisionOrSnapshotRef: sourceGraph.trustedTree,
+      observationEpoch: sourceGraph.trustedTree,
+      registry: currentRegistry,
+      corpus: currentCorpus,
+      sourceGraph
+    });
 
     expect(() => compileDocumentationMigrationDesign({
       registry: currentRegistry,
-      registryDigest: DIGEST,
       targetContractDigest: DOCUMENTATION_MIGRATION_TARGET_CONTRACT_DIGEST,
-      corpus: currentCorpus
-    })).toThrow(/registryDigest does not match/u);
+      corpus: currentCorpus,
+      currentGenerationBinding: { ...binding, registryDigest: DIGEST } as never,
+      sourceGraph
+    })).toThrow(/not issued by the migration owner/u);
 
     expect(() => compileDocumentationMigrationDesign({
       registry: currentRegistry,
-      registryDigest: sha256(currentRegistry) as `sha256:${string}`,
       targetContractDigest: DIGEST,
-      corpus: currentCorpus
+      corpus: currentCorpus,
+      currentGenerationBinding: binding,
+      sourceGraph
     })).toThrow(/targetContractDigest does not match/u);
+  });
+
+  test('keeps untyped source clauses in the migration frontier', () => {
+    const currentRegistry = registry(record('a-authority', 'docs/a.md', 'authority'));
+    const currentCorpus = [corpus('docs/a.md', 'tracked-registered', 'a-authority')];
+    const sourceGraph = sourceGraphFor(currentRegistry, 'tree-a', true);
+    const design = compileDocumentationMigrationDesign({
+      registry: currentRegistry,
+      targetContractDigest: DOCUMENTATION_MIGRATION_TARGET_CONTRACT_DIGEST,
+      corpus: currentCorpus,
+      currentGenerationBinding: deriveDocumentationMigrationGenerationBinding({
+        generationRef: sourceGraph.trustedTree,
+        providerRef: 'git',
+        revisionOrSnapshotRef: sourceGraph.trustedTree,
+        observationEpoch: sourceGraph.trustedTree,
+        registry: currentRegistry,
+        corpus: currentCorpus,
+        sourceGraph
+      }),
+      sourceGraph
+    });
+
+    expect(design.status).toBe('blocked');
+    expect(design.frontier.some(({ code }) => code === 'source-semantic-frontier')).toBe(true);
+    expect(design.preservation[0]?.frontierCodes).toContain('source-semantic-frontier');
   });
 });
