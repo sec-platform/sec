@@ -6,6 +6,7 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 
 import { buildCiVerificationActionPlanClosure, ciVerificationNormalizedOperationArgv, type CiVerificationActionCandidate, type CiVerificationProducerGate } from '../../src/verification/action/contract/ci.ts';
+import { CodexDevelopmentRunGateProcess, type CodexDevelopmentGateProcessSettlement } from '../../src/verification/ci/runtime/ci-orchestration-core.ts';
 import { CodexDevelopmentExecuteCiActionClosure } from '../../src/verification/ci/verification.ts';
 
 const digest = (value: string): `sha256:${string}` => (
@@ -48,6 +49,27 @@ function clock(): () => Date {
   return () => new Date(time += 10);
 }
 
+function executeSentinelGate(repositoryRoot: string, code: number, output = '') {
+  return executeScriptGate(
+    repositoryRoot,
+    `${output.length > 0 ? `console.error(${JSON.stringify(output)});` : ''}process.exit(${code});`
+  );
+}
+
+function executeScriptGate(repositoryRoot: string, script: string) {
+  return async (
+    gate: Readonly<{ id: string; argv: string[]; env: NodeJS.ProcessEnv }>,
+    execution: Parameters<typeof CodexDevelopmentRunGateProcess>[2]
+  ): Promise<CodexDevelopmentGateProcessSettlement> => CodexDevelopmentRunGateProcess(
+    repositoryRoot,
+    {
+      ...gate,
+      argv: [process.execPath, '-e', script]
+    },
+    execution
+  );
+}
+
 test('composition gates execute through the same Action runner and preserve producer env/scope identity', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-composition-'));
   try {
@@ -59,9 +81,11 @@ test('composition gates execute through the same Action runner and preserve prod
       gates: gates.map((gate) => ({ gate, env: { SEC_CHANGED_BASE: candidate.baseSha } })),
       headSha: candidate.headSha,
       now: clock(),
-      runGate: async (gate) => {
+      runGate: async (gate, execution) => {
         calls.push({ id: gate.id, argv: gate.argv });
-        return { code: 0, rawOutputDigest: digest('f'), failureTail: '' };
+        return (calls.length === 1
+          ? executeScriptGate(root, 'console.log(process.cwd());')
+          : executeSentinelGate(root, 0))(gate, execution);
       }
     });
     expect(result.failed).toBe(false);
@@ -74,6 +98,10 @@ test('composition gates execute through the same Action runner and preserve prod
     )?.digest))
       .toEqual([digest('d'), digest('e')]);
     expect(result.gates.every((gate) => gate.result.inputDigest === gate.action.actionKey)).toBe(true);
+    expect(result.gates.map((gate) => gate.result.execution?.outputDigest)).toEqual([
+      digest(`${root}\n`),
+      digest('')
+    ]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -90,7 +118,7 @@ test('composition failure remains failed and later Action is canonical not-run',
       gates: gates.map((gate) => ({ gate, env: {} })),
       headSha: failureCandidate.headSha,
       now: clock(),
-      runGate: async () => ({ code: 7, rawOutputDigest: digest('9'), failureTail: 'sentinel' })
+      runGate: executeSentinelGate(root, 7, 'sentinel')
     });
     expect(result.failed).toBe(true);
     expect(result.gates.map((gate) => gate.result.status)).toEqual(['failed', 'not-run']);
@@ -115,13 +143,38 @@ test('composition rejects same-id descriptor argv or runtime substitution before
         gates: [{ gate, env: {} }],
         headSha: candidate.headSha,
         now: clock(),
-        runGate: async () => {
+        runGate: async (step, execution) => {
           physicalExecutions += 1;
-          return { code: 0, rawOutputDigest: digest('7'), failureTail: '' };
+          return executeSentinelGate(root, 0)(step, execution);
         }
       })).rejects.toThrow(/differs from its authorized operation/);
       expect(physicalExecutions).toBe(0);
     }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('composition rejects a plain structural process result without an owner-issued resource receipt', async () => {
+  const plainResultCandidate = candidateFor('plain-structural-process-result');
+  const plan = buildCiVerificationActionPlanClosure({
+    candidate: plainResultCandidate,
+    gates: [gates[0]!]
+  });
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-composition-plain-result-'));
+  try {
+    await expect(CodexDevelopmentExecuteCiActionClosure({
+      repositoryRoot: root,
+      actionPlan: plan,
+      gates: [{ gate: gates[0]!, env: {} }],
+      headSha: plainResultCandidate.headSha,
+      now: clock(),
+      runGate: async () => ({
+        code: 0,
+        rawOutputDigest: digest('plain-result'),
+        failureTail: ''
+      } as unknown as CodexDevelopmentGateProcessSettlement)
+    })).rejects.toThrow(/did not receive an owner-issued process terminal/u);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

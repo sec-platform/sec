@@ -38,6 +38,7 @@ import {
 } from '../../external-capabilities/git-read/exact-blob.ts';
 import { type GitBlobBytes } from '../../external-capabilities/git-read/runtime/session.ts';
 import { assertSameNoFollowDirectoryIdentity, inspectNoFollowDirectoryChain, scanNoFollowDirectoryTreeInventory, type NoFollowDirectoryTreeInventoryEntry, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { assertProcessResourceSessionReceipt } from '../../runtime-state/physical/runtime/process-resource-session.ts';
 import { encodeVerificationActionData, issueProcessVerificationActionTerminalSettlement, issueVerificationActionOwnerTerminalReceipt, isVerificationActionRunnable, parseVerificationActionPlan, type VerificationActionDependencyResolution, type VerificationActionKeyDigest, type VerificationActionPlan } from '../action/contract/action.ts';
 import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationActionParentDispatchPlanArtifactName, ciVerificationActionParentDispatchPlanPayloadDigest, ciVerificationGateStep, ciVerificationNormalizedOperationArgv, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment, parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionPlanClosure, parseCiVerificationActionProposal, parseCiVerificationActionProviderEnvelope, resolveCiVerificationDevRunnerTarget, type CiVerificationActionCandidate, type CiVerificationActionParentActor, type CiVerificationActionParentDispatchPlan, type CiVerificationActionPlanClosure, type CiVerificationActionProposal, type CiVerificationActionProviderEnvelope, type CiVerificationExecutionEnvironment, type CiVerificationGateStep, type CiVerificationProducerGate } from '../action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS, CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../action/contract/environment.ts';
@@ -103,6 +104,8 @@ import {
 } from './contract/revision.ts';
 import type { VerificationSessionHostedRequest } from './contract/session-request.ts';
 import {
+  CODEX_DEVELOPMENT_GATE_STDERR_BYTE_LIMIT,
+  CODEX_DEVELOPMENT_GATE_STDOUT_BYTE_LIMIT,
   CodexDevelopmentChangedFilesFromRecords,
   CodexDevelopmentCreateNotRunGate,
   CodexDevelopmentDefaultChangedPaths,
@@ -112,7 +115,8 @@ import {
   CodexDevelopmentFailureTail,
   CodexDevelopmentRunGateProcess,
   type CodexDevelopmentGateExecutionObservation,
-  type CodexDevelopmentGateProcessResult
+  type CodexDevelopmentGateProcessResult,
+  type CodexDevelopmentGateProcessSettlement
 } from './runtime/ci-orchestration-core.ts';
 import {
   ensureVerificationActionGitHubProviderTransaction,
@@ -3655,8 +3659,12 @@ export type CodexDevelopmentCiVerificationMainOptions = {
   transitionObservation?: CodexDevelopmentTestImpactTransitionObservation;
   readGitBlob?: (ref: string, file: string) => GitBlobBytes | null;
   runGate?: (
-    step: { id: string; argv: string[]; env: NodeJS.ProcessEnv }
-  ) => Promise<CodexDevelopmentGateProcessResult>;
+    step: { id: string; argv: string[]; env: NodeJS.ProcessEnv },
+    execution: Readonly<{
+      operation: SecBoundSemanticOperation;
+      requirementId: string;
+    }>
+  ) => Promise<CodexDevelopmentGateProcessSettlement>;
   writeEvidence?: (filePath: string, evidence: CodexDevelopmentVerificationEvidenceV4) => void;
   actionRunner?: VerificationActionRunner;
   readDurableActionResult?: (actionKey: VerificationActionKeyDigest) => Readonly<{
@@ -3673,6 +3681,15 @@ export interface CodexDevelopmentCiActionExecution {
 }
 
 const CI_ACTION_EFFECT_LEASE_MS = 300_000;
+const CI_ACTION_PROCESS_REQUIREMENT_ID = 'verification.hosted-process';
+const CI_ACTION_DIAGNOSTIC_REQUIREMENT_ID = 'verification.action-diagnostics';
+const CI_ACTION_EFFECT_RESOURCE_BUDGET = Object.freeze({
+  maximumDurationMs: CI_ACTION_EFFECT_LEASE_MS,
+  maximumInputBytes: 16 * 1024 * 1024,
+  maximumOutputBytes:
+    CODEX_DEVELOPMENT_GATE_STDOUT_BYTE_LIMIT + CODEX_DEVELOPMENT_GATE_STDERR_BYTE_LIMIT,
+  maximumProcesses: 1
+});
 
 function bindCiActionEffect(
   plan: VerificationActionPlan,
@@ -3698,18 +3715,18 @@ function bindCiActionEffect(
     decisionDigest: operation.semanticDigest as SecOperationDigest,
     deadlineAtUnixMs,
     aggregateBudgets: [
-      { resource: 'duration-ms', maximum: CI_ACTION_EFFECT_LEASE_MS },
-      { resource: 'input-bytes', maximum: 16 * 1024 * 1024 },
-      { resource: 'output-bytes', maximum: 16 * 1024 * 1024 },
-      { resource: 'processes', maximum: 1 }
+      { resource: 'duration-ms', maximum: CI_ACTION_EFFECT_RESOURCE_BUDGET.maximumDurationMs },
+      { resource: 'input-bytes', maximum: CI_ACTION_EFFECT_RESOURCE_BUDGET.maximumInputBytes },
+      { resource: 'output-bytes', maximum: CI_ACTION_EFFECT_RESOURCE_BUDGET.maximumOutputBytes },
+      { resource: 'processes', maximum: CI_ACTION_EFFECT_RESOURCE_BUDGET.maximumProcesses }
     ],
     requirements: [{
-      id: 'verification.hosted-process',
+      id: CI_ACTION_PROCESS_REQUIREMENT_ID,
       contractDigest: processContractDigest,
       effectKinds: ['process'],
       failureKinds: ['process.failed', 'process.settlement-failed']
     }, {
-      id: 'verification.action-diagnostics',
+      id: CI_ACTION_DIAGNOSTIC_REQUIREMENT_ID,
       contractDigest: diagnosticContractDigest,
       effectKinds: ['filesystem'],
       failureKinds: ['diagnostic.incomplete-object', 'diagnostic.resource-exhausted']
@@ -3718,7 +3735,7 @@ function bindCiActionEffect(
   });
   return bindSecSemanticOperation(semanticPlan, [
     compileSecCapabilityBinding({
-      requirementId: 'verification.hosted-process',
+      requirementId: CI_ACTION_PROCESS_REQUIREMENT_ID,
       contractDigest: processContractDigest,
       providerIdentityDigest: CodexDevelopmentVerificationDigest({
         schema: 'sec-ci-action-provider-binding-v1',
@@ -3727,7 +3744,7 @@ function bindCiActionEffect(
       }) as SecOperationDigest
     }),
     compileSecCapabilityBinding({
-      requirementId: 'verification.action-diagnostics',
+      requirementId: CI_ACTION_DIAGNOSTIC_REQUIREMENT_ID,
       contractDigest: diagnosticContractDigest,
       providerIdentityDigest: CodexDevelopmentVerificationDigest(
         'runtime-state.process-diagnostics'
@@ -3742,22 +3759,33 @@ async function issueCiActionEffectSettlement(input: Readonly<{
   operation: SecBoundSemanticOperation;
   plan: VerificationActionPlan;
   gateId: string;
-  result: CodexDevelopmentGateProcessResult;
+  settlement: CodexDevelopmentGateProcessSettlement;
 }>) {
-  const { operation, plan, gateId, result } = input;
+  const { operation, plan, gateId, settlement } = input;
+  const { result, processResourceReceipt } = settlement;
+  assertProcessResourceSessionReceipt(processResourceReceipt, {
+    operationIdentityDigest: operation.plan.identity.identityDigest,
+    boundAttemptDigest: operation.boundAttemptDigest,
+    requirementId: CI_ACTION_PROCESS_REQUIREMENT_ID
+  });
+  if (processResourceReceipt.processCount !== CI_ACTION_EFFECT_RESOURCE_BUDGET.maximumProcesses
+      || processResourceReceipt.settledProcessCount !== processResourceReceipt.processCount) {
+    throw new Error('CI Action process settlement requires one completely settled physical process.');
+  }
   if (!Number.isSafeInteger(result.code) || result.code < 0
       || !/^sha256:[0-9a-f]{64}$/u.test(result.rawOutputDigest)) {
     throw new Error('CI Action process settlement is not canonical.');
   }
   const processSettlement = issueSecProviderSettlementReceipt(operation, {
-    requirementId: 'verification.hosted-process',
+    requirementId: CI_ACTION_PROCESS_REQUIREMENT_ID,
     physicalDisposition: 'settled',
     providerSettlementReferenceDigest: CodexDevelopmentVerificationDigest({
       schema: 'sec-ci-action-provider-settlement-reference-v1',
       actionKey: plan.action.actionKey,
       gateId,
       exitCode: result.code,
-      rawOutputDigest: result.rawOutputDigest
+      rawOutputDigest: result.rawOutputDigest,
+      processResourceReceiptDigest: processResourceReceipt.receiptDigest
     }) as SecOperationDigest
   });
   const diagnosticObjects = await input.runner.publishBoundProcessDiagnostics({
@@ -3771,7 +3799,7 @@ async function issueCiActionEffectSettlement(input: Readonly<{
     }]
   });
   const diagnosticSettlement = issueSecProviderSettlementReceipt(operation, {
-    requirementId: 'verification.action-diagnostics',
+    requirementId: CI_ACTION_DIAGNOSTIC_REQUIREMENT_ID,
     physicalDisposition: 'settled',
     providerSettlementReferenceDigest: CodexDevelopmentVerificationDigest(
       diagnosticObjects.map(({ receipt, readback }) => ({
@@ -3848,11 +3876,13 @@ export async function CodexDevelopmentExecuteCiActionClosure(options: {
   }>[];
   readonly headSha: string;
   readonly now: () => Date;
-  readonly runGate: (step: {
-    id: string;
-    argv: string[];
-    env: NodeJS.ProcessEnv;
-  }) => Promise<CodexDevelopmentGateProcessResult>;
+  readonly runGate: (
+    step: { id: string; argv: string[]; env: NodeJS.ProcessEnv },
+    execution: Readonly<{
+      operation: SecBoundSemanticOperation;
+      requirementId: string;
+    }>
+  ) => Promise<CodexDevelopmentGateProcessSettlement>;
   readonly actionRunner?: VerificationActionRunner;
   readonly readDurableActionResult?: CodexDevelopmentCiVerificationMainOptions['readDurableActionResult'];
 }): Promise<CodexDevelopmentCiActionExecution> {
@@ -3915,7 +3945,7 @@ export async function CodexDevelopmentExecuteCiActionClosure(options: {
       });
       continue;
     }
-    let physical: CodexDevelopmentGateProcessResult | null = null;
+    let physical: CodexDevelopmentGateProcessSettlement | null = null;
     let gateStarted: Date | null = null;
     let gateFinished: Date | null = null;
     const outcome: VerificationActionRunOutcome = await runner.execute({
@@ -3935,6 +3965,9 @@ export async function CodexDevelopmentExecuteCiActionClosure(options: {
           id: operation.gateId,
           argv: [...authorizedArgv],
           env: descriptor.env
+        }, {
+          operation: boundEffect,
+          requirementId: CI_ACTION_PROCESS_REQUIREMENT_ID
         });
         gateFinished = options.now();
         return await issueCiActionEffectSettlement({
@@ -3943,7 +3976,7 @@ export async function CodexDevelopmentExecuteCiActionClosure(options: {
           operation: boundEffect,
           plan,
           gateId: operation.gateId,
-          result: physical
+          settlement: physical
         });
       }
     });
@@ -3956,7 +3989,7 @@ export async function CodexDevelopmentExecuteCiActionClosure(options: {
           }`
         );
       }
-      const processResult = physical as CodexDevelopmentGateProcessResult;
+      const processResult = (physical as CodexDevelopmentGateProcessSettlement).result;
       const started = gateStarted as Date;
       const finished = gateFinished as Date;
       result = CodexDevelopmentBuildVerificationGateResult({
@@ -4216,7 +4249,7 @@ export async function CodexDevelopmentCiVerificationMain(
     ?? ((ref: string, file: string) =>
       defaultReadGitBlob(repositoryRoot, readExactGitBlob, ref, file));
   const runGate = options.runGate
-    ?? ((step) => CodexDevelopmentRunGateProcess(repositoryRoot, step));
+    ?? ((step, execution) => CodexDevelopmentRunGateProcess(repositoryRoot, step, execution));
   const writeEvidence = options.writeEvidence;
   const evidencePath = path.resolve(env.SEC_CI_VERIFICATION_EVIDENCE_PATH ?? VERIFICATION_EVIDENCE_PATH);
   let started = new Date();
@@ -4414,10 +4447,10 @@ export async function CodexDevelopmentCiVerificationMain(
       gates: descriptors,
       headSha,
       now,
-      runGate: async (descriptor) => {
+      runGate: async (descriptor, execution) => {
         console.log(`::group::SEC verification: ${descriptor.id}`);
         try {
-          return await runGate(descriptor);
+          return await runGate(descriptor, execution);
         } finally {
           console.log('::endgroup::');
         }

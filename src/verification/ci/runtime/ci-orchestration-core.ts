@@ -1,5 +1,6 @@
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import path from 'node:path';
 
 import { compileRepositorySourceProgramCompilation } from '../../../brownfield/source-program-model/repository-compilation.ts';
 import { issueTestImpactProjection } from '../../../brownfield/source-program-model/test-impact-projection.ts';
@@ -12,10 +13,30 @@ import {
   CodexDevelopmentReadExactGitBlobEntry
 } from '../../../external-capabilities/git-read/exact-blob.ts';
 import { isolatedGitReadEnvironment } from '../../../external-capabilities/git-read/runtime/session.ts';
+import {
+  inspectNoFollowDirectoryChain,
+  retainNoFollowDirectoryForChildProcess,
+  retainNoFollowOrdinaryFile,
+  type RetainedNoFollowChildProcessDirectory,
+  type RetainedNoFollowOrdinaryFile
+} from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import {
+  openProcessResourceSession,
+  type ProcessResourceSessionReceipt
+} from '../../../runtime-state/physical/runtime/process-resource-session.ts';
+import {
+  issueRetainedCommandBoundary,
+  RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+  RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR
+} from '../../../runtime-state/physical/runtime/process.ts';
 import { rawSha256, uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { issueSecOperationRequirementBindingContext } from '../../../system-architecture/operation/requirement-binding-context.ts';
+import type { SecBoundSemanticOperation } from '../../../system-architecture/operation/semantic.ts';
 import { createRepositoryTestImpactSourceProvider, type CodexDevelopmentTestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
 import { CodexDevelopmentCreateTestImpactTransitionObservation, gitChangedFileDiffArgs, parseGitChangedRecordsOutput, type CodexDevelopmentGitChangedRecord, type CodexDevelopmentTestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
 export const CODEX_DEVELOPMENT_FAILURE_TAIL_CHARACTER_LIMIT = 24_000;
+export const CODEX_DEVELOPMENT_GATE_STDOUT_BYTE_LIMIT = 8 * 1024 * 1024;
+export const CODEX_DEVELOPMENT_GATE_STDERR_BYTE_LIMIT = 8 * 1024 * 1024;
 
 export type CodexDevelopmentGateExecutionObservation = {
   id: string;
@@ -35,6 +56,11 @@ export type CodexDevelopmentGateProcessResult = {
   rawOutputDigest: string;
   failureTail: string;
 };
+
+export type CodexDevelopmentGateProcessSettlement = Readonly<{
+  result: CodexDevelopmentGateProcessResult;
+  processResourceReceipt: ProcessResourceSessionReceipt;
+}>;
 
 export type CodexDevelopmentGateProcessStep = {
   id: string;
@@ -164,51 +190,87 @@ export function CodexDevelopmentExactGitTestImpactSourceProvider(
   });
 }
 
-export function CodexDevelopmentRunGateProcess(
+export async function CodexDevelopmentRunGateProcess(
   repositoryRoot: string,
-  step: CodexDevelopmentGateProcessStep
-): Promise<CodexDevelopmentGateProcessResult> {
-  return new Promise((resolve) => {
-    const child = spawn(step.argv[0]!, step.argv.slice(1), {
-      cwd: repositoryRoot,
-      env: step.env,
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
+  step: CodexDevelopmentGateProcessStep,
+  execution: Readonly<{
+    operation: SecBoundSemanticOperation;
+    requirementId: string;
+  }>
+): Promise<CodexDevelopmentGateProcessSettlement> {
+  if (step.argv.length < 1) throw new Error('CI gate process requires one executable identity.');
+  const executablePath = path.resolve(process.execPath);
+  if (step.argv[0] !== 'bun' && path.resolve(step.argv[0]!) !== executablePath) {
+    throw new Error('CI gate process only accepts the retained canonical Bun executable.');
+  }
+  const processBudgets = execution.operation.plan.execution.aggregateBudgets.filter(
+    ({ resource }) => resource === 'duration-ms'
+      || resource === 'input-bytes'
+      || resource === 'output-bytes'
+      || resource === 'processes'
+  );
+  const session = openProcessResourceSession({
+    operation: execution.operation,
+    requirementBindingContext: issueSecOperationRequirementBindingContext({
+      operation: execution.operation,
+      requirementId: execution.requirementId,
+      resourceCeilings: processBudgets
+    })
+  });
+  let executable: RetainedNoFollowOrdinaryFile | null = null;
+  let workingDirectory: RetainedNoFollowChildProcessDirectory | null = null;
+  let result: CodexDevelopmentGateProcessResult | null = null;
+  const failures: unknown[] = [];
+  try {
+    executable = retainNoFollowOrdinaryFile(
+      inspectNoFollowDirectoryChain(path.dirname(executablePath), 'CI gate Bun executable parent'),
+      path.basename(executablePath),
+      undefined,
+      'CI gate Bun executable',
+      RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+      'executable'
+    );
+    workingDirectory = retainNoFollowDirectoryForChildProcess(
+      inspectNoFollowDirectoryChain(path.resolve(repositoryRoot), 'CI gate repository root'),
+      RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+      'CI gate repository root'
+    );
     const hash = createHash('sha256');
     let boundedTail = '';
-    let settled = false;
-    const observe = (chunk: Buffer): void => {
+    const observe = (chunk: Buffer, stream: 'stdout' | 'stderr'): boolean => {
       hash.update(chunk);
       boundedTail = `${boundedTail}${chunk.toString('utf8')}`;
       if (boundedTail.length > CODEX_DEVELOPMENT_FAILURE_TAIL_CHARACTER_LIMIT) {
         boundedTail = boundedTail.slice(-CODEX_DEVELOPMENT_FAILURE_TAIL_CHARACTER_LIMIT);
       }
+      (stream === 'stdout' ? process.stdout : process.stderr).write(chunk);
+      return true;
     };
-    child.stdout?.on('data', (chunk: Buffer) => {
-      observe(chunk);
-      process.stdout.write(chunk);
-    });
-    child.stderr?.on('data', (chunk: Buffer) => {
-      observe(chunk);
-      process.stderr.write(chunk);
-    });
-    const finish = (code: number): void => {
-      if (settled) return;
-      settled = true;
-      resolve({
-        code,
-        rawOutputDigest: `sha256:${hash.digest('hex')}`,
-        failureTail: boundedTail.trim()
+    const run = await session.run(issueRetainedCommandBoundary({ executable, workingDirectory }),
+      step.argv.slice(1), {
+        admitProgress: observe,
+        env: step.env,
+        envMode: 'replace',
+        maxStderrBytes: CODEX_DEVELOPMENT_GATE_STDERR_BYTE_LIMIT,
+        maxStdoutBytes: CODEX_DEVELOPMENT_GATE_STDOUT_BYTE_LIMIT
       });
-    };
-    child.on('error', (error) => {
-      const message = `${error instanceof Error ? error.stack ?? error.message : String(error)}\n`;
-      observe(Buffer.from(message));
-      process.stderr.write(message);
-      finish(1);
+    result = Object.freeze({
+      code: run.result.code,
+      rawOutputDigest: `sha256:${hash.digest('hex')}`,
+      failureTail: boundedTail.trim()
     });
-    child.on('close', (code) => finish(code ?? 1));
-  });
+  } catch (error) {
+    failures.push(error);
+  } finally {
+    try { workingDirectory?.dispose(); } catch (error) { failures.push(error); }
+    try { executable?.dispose(); } catch (error) { failures.push(error); }
+  }
+  let processResourceReceipt: ProcessResourceSessionReceipt | null = null;
+  try { processResourceReceipt = session.close(); } catch (error) { failures.push(error); }
+  if (failures.length > 0 || result === null || processResourceReceipt === null) {
+    throw new AggregateError(failures, 'CI gate process execution did not settle cleanly.');
+  }
+  return Object.freeze({ result, processResourceReceipt });
 }
 
 export function CodexDevelopmentFailureTail(output: string, fallback: string): string {

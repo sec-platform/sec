@@ -28,6 +28,7 @@ import { CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopment
 import { buildCiQuickGatePlan } from '../../src/verification/ci/contract/plan.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../src/verification/ci/contract/revision.ts';
 import type { VerificationSessionHostedRequest } from '../../src/verification/ci/contract/session-request.ts';
+import { CodexDevelopmentRunGateProcess, type CodexDevelopmentGateProcessSettlement } from '../../src/verification/ci/runtime/ci-orchestration-core.ts';
 import {
   VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA
 } from '../../src/verification/ci/runtime/verification-session-runtime.ts';
@@ -265,8 +266,22 @@ function baseOptions(root: string) {
     // only through the exact Git provider route.
     changedFiles: () => ['docs/product.md'],
     readExactGitBlob: () => exactManifest(),
-    runGate: async () => ({ code: 0, rawOutputDigest: RAW, failureTail: '' })
+    runGate: executeSentinelGate(root, 0)
   };
+}
+
+function executeSentinelGate(repositoryRoot: string, code: number, output = '') {
+  return async (
+    gate: Readonly<{ id: string; argv: string[]; env: NodeJS.ProcessEnv }>,
+    execution: Parameters<typeof CodexDevelopmentRunGateProcess>[2]
+  ): Promise<CodexDevelopmentGateProcessSettlement> => CodexDevelopmentRunGateProcess(
+    repositoryRoot,
+    {
+      ...gate,
+      argv: [process.execPath, '-e', `${output.length > 0 ? `console.error(${JSON.stringify(output)});` : ''}process.exit(${code});`]
+    },
+    execution
+  );
 }
 
 function hostedGates(): readonly CiVerificationProducerGate[] {
@@ -701,9 +716,9 @@ test('CI runner executes every ordinary gate through Action and publishes only V
     const calls: string[] = [];
     const code = await CodexDevelopmentCiVerificationMain({
       ...baseOptions(root),
-      runGate: async (gate) => {
+      runGate: async (gate, execution) => {
         calls.push(gate.id);
-        return { code: 0, rawOutputDigest: RAW, failureTail: '' };
+        return executeSentinelGate(root, 0)(gate, execution);
       },
       writeEvidence: (_file, value) => { evidence = value; }
     });
@@ -775,9 +790,9 @@ test('formal hosted mode fails closed before physical execution without complete
     const code = await CodexDevelopmentCiVerificationMain({
       ...baseOptions(root),
       env: { ...baseOptions(root).env, SEC_FORMAL_HOSTED_MODE: '1' },
-      runGate: async () => {
+      runGate: async (gate, execution) => {
         spawns += 1;
-        return { code: 0, rawOutputDigest: RAW, failureTail: '' };
+        return executeSentinelGate(root, 0)(gate, execution);
       },
       writeEvidence: () => { writes += 1; }
     });
@@ -800,9 +815,9 @@ test('Action journal reuse is not Evidence without an independent durable result
     let writes = 0;
     expect(await CodexDevelopmentCiVerificationMain({
       ...baseOptions(root),
-      runGate: async () => {
+      runGate: async (gate, execution) => {
         physical += 1;
-        return { code: 0, rawOutputDigest: RAW, failureTail: '' };
+        return executeSentinelGate(root, 0)(gate, execution);
       },
       writeEvidence: () => { writes += 1; }
     })).toBe(1);
@@ -819,7 +834,7 @@ test('durable known failure reuse remains failed and never executes or promotes 
     let first: CodexDevelopmentVerificationEvidenceV4 | null = null;
     expect(await CodexDevelopmentCiVerificationMain({
       ...baseOptions(root),
-      runGate: async () => ({ code: 1, rawOutputDigest: RAW, failureTail: 'known failure' }),
+      runGate: executeSentinelGate(root, 1, 'known failure'),
       writeEvidence: (_file, value) => { first = value; }
     })).toBe(1);
     const terminal = first as unknown as CodexDevelopmentVerificationEvidenceV4;
@@ -829,9 +844,9 @@ test('durable known failure reuse remains failed and never executes or promotes 
     let reused: CodexDevelopmentVerificationEvidenceV4 | null = null;
     expect(await CodexDevelopmentCiVerificationMain({
       ...baseOptions(root),
-      runGate: async () => {
+      runGate: async (gate, execution) => {
         physical += 1;
-        return { code: 0, rawOutputDigest: RAW, failureTail: '' };
+        return executeSentinelGate(root, 0)(gate, execution);
       },
       readDurableActionResult: (actionKey) => {
         const result = byActionKey.get(actionKey);
