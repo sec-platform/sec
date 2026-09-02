@@ -36,6 +36,15 @@
       "effectKinds": [
         "filesystem"
       ]
+    },
+    {
+      "capability": "runtime-state.durable-local-effect",
+      "operations": [
+        "createDurableExecutionWriter"
+      ],
+      "effectKinds": [
+        "filesystem"
+      ]
     }
   ],
   "operationObligations": [
@@ -84,6 +93,54 @@
           {
             "resource": "records",
             "maximum": 500000
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "runtime-state.durable-local-effect",
+        "operation": "createDurableExecutionWriter"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "external-capabilities.docker"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem"
+        ],
+        "failureKinds": [
+          "durable-effect.conflict",
+          "durable-effect.deadline-exhausted",
+          "durable-effect.identity-mismatch",
+          "durable-effect.resource-exhausted",
+          "durable-effect.unknown-physical-outcome"
+        ],
+        "recovery": "resume"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "consumer-zero"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 300000
+          },
+          {
+            "resource": "records",
+            "maximum": 4096
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 8388608
           }
         ]
       },

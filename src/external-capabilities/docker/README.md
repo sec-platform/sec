@@ -3,8 +3,9 @@
 `environment container-engine` is the canonical local read model for the two
 independent lifecycle facts SEC needs:
 
-- current-session engine availability, owned by the retained Docker command
-  provider and the single bounded launcher lease;
+- current-session engine availability, owned by the retained Docker CLI
+  readback boundary, the retained `Docker Desktop.exe` launcher boundary and
+  the single bounded launcher lease;
 - next-login startup intent, owned by Docker Desktop's **General > Start Docker
   Desktop when you sign in** setting.
 
@@ -21,13 +22,16 @@ the parsed `AutoStart` value, observation-provider revision and physical file
 receipt. Unrelated settings bytes do not enter command-provider identity or the
 semantic value digest. SEC never edits that file or the Windows registry.
 
-The admitted Docker Desktop CLI supports `start`, `stop`, `restart`, and
-`status`, but exposes no settings mutation command. Docker's administrator
-settings reference also does not expose login-start as an enforceable setting.
-Consequently, neither observed boolean value is promoted to product
-`satisfied`. Docker Desktop Settings UI remains the only mutation owner;
-current-session `--start` remains a separate bounded Effect and never claims to
-repair future-login behavior.
+SEC bypasses the affected CLI `desktop start` lock path: it retains the GUI
+launcher/cwd, journals the attempt before spawn, and uses `docker info` for the
+handle-independent final readback. Lost-handle recovery never reopens the
+original deadline.
+
+Docker's administrator settings reference does not expose login-start as an
+enforceable setting. Consequently, neither observed boolean value is promoted
+to product `satisfied`. Docker Desktop Settings UI remains the only mutation
+owner; current-session start remains a separate bounded Effect and never claims
+to repair future-login behavior.
 
 Primary interface references:
 

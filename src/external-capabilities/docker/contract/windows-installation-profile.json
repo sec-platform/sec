@@ -6,6 +6,13 @@
     "directorySegments": ["Docker", "Docker", "resources", "bin"],
     "executableName": "docker.exe",
     "directoryChildDescriptor": 41,
+    "desktopLauncher": {
+      "directorySegments": ["Docker", "Docker"],
+      "executableName": "Docker Desktop.exe",
+      "directoryChildDescriptor": 50,
+      "executableChildDescriptor": 51,
+      "workingDirectoryChildDescriptor": 52
+    },
     "cliPluginDirectorySegments": ["Docker", "Docker", "resources", "cli-plugins"],
     "cliPluginDirectoryChildDescriptor": 47,
     "cliPlugins": [

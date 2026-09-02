@@ -171,6 +171,30 @@ export type SecRecoveredDomainReadbackReceipt = SecDomainReadbackReceiptBase & R
   readonly recoveryMode: 'recovered';
   readonly providerSettlementSetDigest: null;
   readonly durableObservationDigest: SecOperationDigest;
+  readonly predecessorExecutionPlanDigest: SecOperationDigest;
+  readonly predecessorBindingSetIdentityDigest: SecOperationDigest;
+  readonly predecessorBoundAttemptDigest: SecOperationDigest;
+  readonly predecessorAttemptNonceDigest: SecOperationDigest;
+  readonly predecessorAuthorityGrantDigest: SecOperationDigest;
+  readonly predecessorResumeEpochDigest: SecOperationDigest | null;
+  readonly predecessorDeadlineAtUnixMs: number;
+}>;
+
+/**
+ * Observation-only predecessor coordinates retained by Runtime State.  They
+ * deliberately exclude every live operation object: a restarted process must
+ * obtain a new recovery operation from current authority before a domain owner
+ * can turn these coordinates into a readback receipt.
+ */
+export type SecRecoveredPredecessorAttemptReference = Readonly<{
+  readonly operationIdentityDigest: SecOperationDigest;
+  readonly executionPlanDigest: SecOperationDigest;
+  readonly bindingSetIdentityDigest: SecOperationDigest;
+  readonly boundAttemptDigest: SecOperationDigest;
+  readonly attemptNonceDigest: SecOperationDigest;
+  readonly authorityGrantDigest: SecOperationDigest;
+  readonly resumeEpochDigest: SecOperationDigest | null;
+  readonly deadlineAtUnixMs: number;
 }>;
 
 export type SecDomainReadbackReceipt =
@@ -195,6 +219,11 @@ export type SecRecoveredRetryAdmission = Readonly<{
   readonly previousExecutionPlanDigest: SecOperationDigest;
   readonly previousBindingSetIdentityDigest: SecOperationDigest;
   readonly previousBoundAttemptDigest: SecOperationDigest;
+  readonly previousAttemptNonceDigest: SecOperationDigest;
+  readonly previousDeadlineAtUnixMs: number;
+  readonly recoveryBoundAttemptDigest: SecOperationDigest;
+  readonly recoveryAuthorityGrantDigest: SecOperationDigest;
+  readonly recoveryResumeEpochDigest: SecOperationDigest;
   readonly recoveredReadbackReceiptDigest: SecOperationDigest;
   readonly currentPhysicalEpochDigest: SecOperationDigest;
   readonly retryAdmissionDigest: SecOperationDigest;
@@ -211,6 +240,10 @@ export type SecCapabilityDiagnostic = Readonly<{
 const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const COMPILED_OPERATION_PLANS = new WeakSet<object>();
 const COMPILED_ATTEMPT_CONTEXTS = new WeakSet<object>();
+const ISSUED_RECOVERED_READBACK_RECEIPTS = new WeakSet<object>();
+const ISSUED_RECOVERED_RETRY_ADMISSIONS = new WeakSet<object>();
+const CONSUMED_RECOVERED_READBACK_RECEIPTS = new WeakSet<object>();
+const CONSUMED_RECOVERED_RETRY_ADMISSIONS = new WeakSet<object>();
 
 function requireDigest(value: string, label: string): SecOperationDigest {
   if (!DIGEST_PATTERN.test(value)) {
@@ -682,8 +715,9 @@ export function issueSecNormalDomainReadbackReceipt(
 }
 
 export function issueSecRecoveredDomainReadbackReceipt(
-  operation: SecBoundSemanticOperation,
+  recoveryOperation: SecBoundSemanticOperation,
   input: Readonly<{
+    readonly predecessor: SecRecoveredPredecessorAttemptReference;
     readonly durableObservationDigest: SecOperationDigest;
     readonly readbackContractDigest: SecOperationDigest;
     readonly readbackReferenceDigest: SecOperationDigest;
@@ -691,20 +725,56 @@ export function issueSecRecoveredDomainReadbackReceipt(
     readonly disposition: SecDomainReadbackDisposition;
   }>
 ): SecRecoveredDomainReadbackReceipt {
-  requireBoundReadbackOperation(operation);
-  return issueDomainReadbackReceipt({
-    operation,
-    recoveryMode: 'recovered',
+  requireBoundReadbackOperation(recoveryOperation);
+  const predecessor = input.predecessor;
+  if (predecessor.operationIdentityDigest !== recoveryOperation.plan.identity.identityDigest
+      || predecessor.executionPlanDigest !== recoveryOperation.plan.execution.executionPlanDigest
+      || predecessor.bindingSetIdentityDigest !== recoveryOperation.bindingSetIdentityDigest
+      || predecessor.boundAttemptDigest === recoveryOperation.boundAttemptDigest
+      || recoveryOperation.plan.attempt.resumeEpochDigest === null) {
+    throw new Error('Recovered domain readback does not bind one predecessor and current recovery authority.');
+  }
+  if (!Number.isSafeInteger(predecessor.deadlineAtUnixMs) || predecessor.deadlineAtUnixMs < 1) {
+    throw new Error('Recovered domain predecessor deadline is invalid.');
+  }
+  const withoutDigest = deepFreeze({
+    recoveryMode: 'recovered' as const,
+    operationIdentityDigest: recoveryOperation.plan.identity.identityDigest,
+    executionPlanDigest: recoveryOperation.plan.execution.executionPlanDigest,
+    bindingSetIdentityDigest: recoveryOperation.bindingSetIdentityDigest,
+    boundAttemptDigest: recoveryOperation.boundAttemptDigest,
     providerSettlementSetDigest: null,
     durableObservationDigest: requireDigest(
-      input.durableObservationDigest,
-      'Recovered domain durable observation digest'
-    ),
-    readbackContractDigest: input.readbackContractDigest,
-    readbackReferenceDigest: input.readbackReferenceDigest,
-    currentPhysicalEpochDigest: input.currentPhysicalEpochDigest,
-    disposition: input.disposition
-  }) as SecRecoveredDomainReadbackReceipt;
+      input.durableObservationDigest, 'Recovered domain durable observation digest'),
+    predecessorExecutionPlanDigest: requireDigest(
+      predecessor.executionPlanDigest, 'Recovered predecessor execution plan digest'),
+    predecessorBindingSetIdentityDigest: requireDigest(
+      predecessor.bindingSetIdentityDigest, 'Recovered predecessor binding set digest'),
+    predecessorBoundAttemptDigest: requireDigest(
+      predecessor.boundAttemptDigest, 'Recovered predecessor bound attempt digest'),
+    predecessorAttemptNonceDigest: requireDigest(
+      predecessor.attemptNonceDigest, 'Recovered predecessor attempt nonce digest'),
+    predecessorAuthorityGrantDigest: requireDigest(
+      predecessor.authorityGrantDigest, 'Recovered predecessor authority grant digest'),
+    predecessorResumeEpochDigest: predecessor.resumeEpochDigest === null
+      ? null
+      : requireDigest(predecessor.resumeEpochDigest, 'Recovered predecessor resume epoch digest'),
+    predecessorDeadlineAtUnixMs: predecessor.deadlineAtUnixMs,
+    readbackContractDigest: requireDigest(input.readbackContractDigest, 'Domain readback contract digest'),
+    readbackReferenceDigest: requireDigest(input.readbackReferenceDigest, 'Domain readback reference digest'),
+    currentPhysicalEpochDigest: requireDigest(
+      input.currentPhysicalEpochDigest, 'Domain readback physical epoch digest'),
+    disposition: canonicalReadbackDisposition(input.disposition)
+  });
+  const receipt = deepFreeze({
+    ...withoutDigest,
+    readbackReceiptDigest: sha256({
+      domain: 'sec.operation.domain-readback-receipt',
+      readback: withoutDigest
+    }) as SecOperationDigest
+  });
+  ISSUED_RECOVERED_READBACK_RECEIPTS.add(receipt);
+  return receipt;
 }
 
 export function assertSecDomainReadbackReceipt(
@@ -798,9 +868,14 @@ export function issueSecRecoveredOwnerTerminalJoinReceipt(
 ): SecOwnerTerminalJoinReceipt {
   requireBoundReadbackOperation(operation);
   assertReadbackBindsOperation(operation, readback);
-  if (readback.recoveryMode !== 'recovered') {
+  if (readback.recoveryMode !== 'recovered'
+      || !ISSUED_RECOVERED_READBACK_RECEIPTS.has(readback)) {
     throw new Error('Recovered owner terminal join requires a recovered readback.');
   }
+  if (CONSUMED_RECOVERED_READBACK_RECEIPTS.has(readback)) {
+    throw new Error('Recovered domain readback was already consumed by a terminal or retry policy.');
+  }
+  CONSUMED_RECOVERED_READBACK_RECEIPTS.add(readback);
   return issueOwnerTerminalJoinReceipt({ operation, readback, ...input });
 }
 
@@ -820,18 +895,34 @@ export function assertSecOwnerTerminalJoinReceipt(
 }
 
 export function issueSecRecoveredRetryAdmission(
+  recoveryOperation: SecBoundSemanticOperation,
   readback: SecRecoveredDomainReadbackReceipt
 ): SecRecoveredRetryAdmission {
+  assertSecSemanticOperationProjection(recoveryOperation);
   assertSecDomainReadbackReceipt(readback);
   if (readback.recoveryMode !== 'recovered'
-      || readback.disposition !== 'not-applied') {
+      || !ISSUED_RECOVERED_READBACK_RECEIPTS.has(readback)
+      || readback.disposition !== 'not-applied'
+      || readback.operationIdentityDigest !== recoveryOperation.plan.identity.identityDigest
+      || readback.executionPlanDigest !== recoveryOperation.plan.execution.executionPlanDigest
+      || readback.bindingSetIdentityDigest !== recoveryOperation.bindingSetIdentityDigest
+      || readback.boundAttemptDigest !== recoveryOperation.boundAttemptDigest
+      || recoveryOperation.plan.attempt.resumeEpochDigest === null) {
     throw new Error('Retry admission requires a conclusive recovered not-applied readback.');
+  }
+  if (CONSUMED_RECOVERED_READBACK_RECEIPTS.has(readback)) {
+    throw new Error('Recovered domain readback was already consumed by a terminal or retry policy.');
   }
   const withoutDigest = deepFreeze({
     operationIdentityDigest: readback.operationIdentityDigest,
-    previousExecutionPlanDigest: readback.executionPlanDigest,
-    previousBindingSetIdentityDigest: readback.bindingSetIdentityDigest,
-    previousBoundAttemptDigest: readback.boundAttemptDigest,
+    previousExecutionPlanDigest: readback.predecessorExecutionPlanDigest,
+    previousBindingSetIdentityDigest: readback.predecessorBindingSetIdentityDigest,
+    previousBoundAttemptDigest: readback.predecessorBoundAttemptDigest,
+    previousAttemptNonceDigest: readback.predecessorAttemptNonceDigest,
+    previousDeadlineAtUnixMs: readback.predecessorDeadlineAtUnixMs,
+    recoveryBoundAttemptDigest: readback.boundAttemptDigest,
+    recoveryAuthorityGrantDigest: recoveryOperation.plan.attempt.authorityGrantDigest,
+    recoveryResumeEpochDigest: recoveryOperation.plan.attempt.resumeEpochDigest,
     recoveredReadbackReceiptDigest: readback.readbackReceiptDigest,
     currentPhysicalEpochDigest: readback.currentPhysicalEpochDigest
   });
@@ -842,25 +933,58 @@ export function issueSecRecoveredRetryAdmission(
       admission: withoutDigest
     }) as SecOperationDigest
   });
+  CONSUMED_RECOVERED_READBACK_RECEIPTS.add(readback);
+  ISSUED_RECOVERED_RETRY_ADMISSIONS.add(admission);
   return admission;
 }
 
 export function consumeSecRecoveredRetryAdmission(
   admission: SecRecoveredRetryAdmission,
-  successor: SecBoundSemanticOperation
+  successor: SecBoundSemanticOperation,
+  currentPhysicalEpochDigest: SecOperationDigest
+): void {
+  assertSecRecoveredRetryAdmissionForSuccessor(
+    admission,
+    successor,
+    currentPhysicalEpochDigest
+  );
+  if (CONSUMED_RECOVERED_RETRY_ADMISSIONS.has(admission)) {
+    throw new Error('Recovered retry admission was already consumed.');
+  }
+  CONSUMED_RECOVERED_RETRY_ADMISSIONS.add(admission);
+}
+
+/** Validates a successor before its durable start claim without consuming it. */
+export function assertSecRecoveredRetryAdmissionForSuccessor(
+  admission: SecRecoveredRetryAdmission,
+  successor: SecBoundSemanticOperation,
+  currentPhysicalEpochDigest: SecOperationDigest
 ): void {
   assertSecRecoveredRetryAdmission(admission);
   assertSecSemanticOperationProjection(successor);
   if (successor.plan.identity.identityDigest !== admission.operationIdentityDigest
-      || successor.boundAttemptDigest === admission.previousBoundAttemptDigest) {
+      || successor.plan.execution.executionPlanDigest !== admission.previousExecutionPlanDigest
+      || successor.bindingSetIdentityDigest !== admission.previousBindingSetIdentityDigest
+      || successor.boundAttemptDigest === admission.previousBoundAttemptDigest
+      || successor.boundAttemptDigest === admission.recoveryBoundAttemptDigest
+      || successor.plan.attempt.authorityGrantDigest !== admission.recoveryAuthorityGrantDigest
+      || successor.plan.attempt.resumeEpochDigest !== admission.recoveryResumeEpochDigest
+      || requireDigest(currentPhysicalEpochDigest, 'Recovered retry current physical epoch digest')
+        !== admission.currentPhysicalEpochDigest
+      || successor.plan.attempt.deadlineAtUnixMs > admission.previousDeadlineAtUnixMs
+      || successor.plan.attempt.deadlineAtUnixMs <= Date.now()) {
     throw new Error('Recovered retry admission does not authorize this successor attempt.');
+  }
+  if (CONSUMED_RECOVERED_RETRY_ADMISSIONS.has(admission)) {
+    throw new Error('Recovered retry admission was already consumed.');
   }
 }
 
 export function assertSecRecoveredRetryAdmission(
   value: unknown
 ): asserts value is SecRecoveredRetryAdmission {
-  if (value === null || typeof value !== 'object') {
+  if (value === null || typeof value !== 'object'
+      || !ISSUED_RECOVERED_RETRY_ADMISSIONS.has(value)) {
     throw new Error('Recovered retry projection is invalid.');
   }
   const admission = value as SecRecoveredRetryAdmission;
