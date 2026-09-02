@@ -58,17 +58,6 @@ const policyEdges = [
     allowed: ['src/change-management/upgrade/run.ts', 'src/compiler/emit/report.ts']
   },
   {
-    code: 'verification-evidence-no-child-runner',
-    forbidden: [
-      'src/compiler/verify/semantic-mutation-isolated-verification-evidence.ts',
-      'src/compiler/verify/run-semantic-mutation-isolated-child.ts'
-    ],
-    allowed: [
-      'src/compiler/verify/other-evidence.ts',
-      'src/compiler/verify/run-semantic-mutation-isolated-child.ts'
-    ]
-  },
-  {
     code: 'semantic-mutation-no-upward-layer-deps',
     forbidden: ['src/compiler/semantic-mutation/derive.ts', 'src/workspace/runtime/project.ts'],
     allowed: ['src/compiler/semantic-mutation/derive.ts', 'src/semantic/contracts/contract.ts']

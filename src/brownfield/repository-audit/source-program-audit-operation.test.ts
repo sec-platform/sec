@@ -84,7 +84,6 @@ function input(): CompileSourceProgramAuditOperationInput {
       nodeResponsibilities: Object.freeze([]),
       violations: Object.freeze([])
     }),
-    moduleBoundaryFailures: Object.freeze([]),
     sourceProgramCompilation: Object.freeze({
       subjectDigest: digest('subject'),
       snapshotDigest: digest('snapshot'),

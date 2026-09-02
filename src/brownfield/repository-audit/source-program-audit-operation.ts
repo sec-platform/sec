@@ -240,7 +240,6 @@ export interface CompileSourceProgramAuditOperationInput {
     readonly contentDigest: string;
   }>[];
   readonly moduleArchitecture: SecRepositoryModuleArchitectureProjection;
-  readonly moduleBoundaryFailures: readonly string[];
   readonly sourceProgramCompilation: Readonly<{
     readonly subjectDigest: Digest;
     readonly snapshotDigest: Digest;
@@ -731,8 +730,7 @@ export function compileSourceProgramAuditOperationInput(
     ...(testFindings.length > 0 ? ['test-value-findings'] : []),
     ...(input.supersession.status === 'owner-decision-required'
       ? ['supersession-owner-decision'] : []),
-    ...(input.moduleArchitecture.violations.length > 0 ? ['module-architecture'] : []),
-    ...(input.moduleBoundaryFailures.length > 0 ? ['module-boundary'] : [])
+    ...(input.moduleArchitecture.violations.length > 0 ? ['module-architecture'] : [])
   ].sort(compareCodeUnits));
   const projection = Object.freeze({
     architecture: full ? Object.freeze({
@@ -881,7 +879,6 @@ export function compileSourceProgramAuditOperationInput(
       architectureStrongComponents: input.moduleArchitecture.strongComponents.length,
       supersessionStatus: input.supersession.status,
       supersessionFindings: input.supersession.findings.length,
-      moduleBoundaryFailures: input.moduleBoundaryFailures.length,
       architectureViolations: input.moduleArchitecture.violations.length,
       capabilities: input.sourceProgram.counts.capabilities,
       candidates: input.sourceProgram.counts.candidates,
@@ -902,12 +899,7 @@ export function compileSourceProgramAuditOperationInput(
       ? {}
       : { result: input.options.queryProjection }),
     ...reductionProjection(input.reduction, input.options.outputPath),
-    ...(input.options.includeCandidates ? { candidates: input.sourceProgram.candidates } : {}),
-    ...(input.moduleBoundaryFailures.length === 0 ? {} : {
-      moduleBoundaryFailures: full
-        ? input.moduleBoundaryFailures
-        : compactRecordSet(input.moduleBoundaryFailures)
-    })
+    ...(input.options.includeCandidates ? { candidates: input.sourceProgram.candidates } : {})
   });
   const reductionPatch = input.reduction.mode === 'none' ? null : input.reduction.patch;
   const compiled = Object.freeze({

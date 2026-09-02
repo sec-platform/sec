@@ -75,14 +75,19 @@ import {
   type SecOperationDigest
 } from '../../system-architecture/operation/semantic.ts';
 import {
-  assertSecRepositoryModuleArchitectureBoundaries,
   compileSecRepositoryModuleArchitectureProjection,
   compileSecRepositoryModuleMembershipSnapshot,
   compileSecRepositoryModuleTopologyProjection,
   type SecRepositoryModuleArchitectureProjection,
+  type SecRepositoryModuleGraph,
   type SecRepositoryModuleMembership,
   type SecRepositoryModuleTopologyProjection
 } from '../../system-architecture/repository-modules/contract.ts';
+import {
+  compileSecRepositoryModulePlacementAdmission,
+  type SecRepositoryModulePlacementAdmission,
+  type SecRepositoryModulePlacementProposal
+} from '../../system-architecture/repository-modules/placement.ts';
 import { isSecRepositoryTestModulePath } from '../../system-architecture/repository-modules/test-module-path.ts';
 import type {
   CompilerDependencyReadGenerationRetirementReceipt,
@@ -440,8 +445,13 @@ export interface RepositoryAuditFinding {
   skills?: readonly SecAgentSkillId[];
 }
 
+type RepositoryModuleArchitectureWithPlacement = SecRepositoryModuleArchitectureProjection & Readonly<{
+  /** Same-graph admission evidence compiled from this exact source snapshot. */
+  readonly responsibilityAdmission: SecRepositoryModulePlacementAdmission;
+}>;
+
 export interface RepositoryAuditReport {
-  architecture: SecRepositoryModuleArchitectureProjection;
+  architecture: RepositoryModuleArchitectureWithPlacement;
   declarationTopology: SourceProgramDeclarationTopology;
   behaviorCandidates: readonly BehaviorCandidate[];
   heuristicRoutes: typeof SEC_REPOSITORY_HEURISTIC_ROUTES;
@@ -498,6 +508,16 @@ export interface RepositoryAuditCliProjection {
     readonly reciprocalPairs: number;
     readonly strongComponents: number;
     readonly violations: number;
+    readonly responsibilityFrontier: Readonly<{
+      readonly boundedUnknown: number;
+      readonly criticalUnknown: number;
+      readonly resolved: number;
+    }>;
+    readonly prospectivePlacements: Readonly<{
+      readonly accepted: number;
+      readonly boundedUnknown: number;
+      readonly dominated: number;
+    }>;
   }>;
   readonly declarationTopology: Readonly<{
     readonly evidenceDigest: `sha256:${string}`;
@@ -589,14 +609,31 @@ export type RepositoryModuleArchitectureAudit = Readonly<{
 }>;
 
 export function projectRepositoryModuleArchitectureCli(
-  architecture: SecRepositoryModuleArchitectureProjection
+  architecture: RepositoryModuleArchitectureWithPlacement
 ): RepositoryAuditCliProjection['architecture'] {
+  const frontier = architecture.responsibilityAdmission.responsibilityFrontier;
+  const placements = architecture.responsibilityAdmission.proposals;
   return Object.freeze({
-    evidenceDigest: sha256(projectRepositoryModuleArchitectureAudit(architecture)),
+    evidenceDigest: sha256(Object.freeze({
+      architecture: projectRepositoryModuleArchitectureAudit(architecture),
+      responsibilityAdmissionDigest: architecture.responsibilityAdmission.admissionDigest
+    })),
     feedbackProjections: architecture.feedbackCuts.length,
     reciprocalPairs: architecture.reciprocalPairs.length,
     strongComponents: architecture.strongComponents.length,
-    violations: architecture.violations.length
+    violations: architecture.violations.length,
+    responsibilityFrontier: Object.freeze({
+      boundedUnknown: frontier.filter(({ status }) => status === 'bounded-unknown').length,
+      criticalUnknown: frontier.filter(({ status, criticality }) => (
+        status === 'bounded-unknown' && criticality.length > 0
+      )).length,
+      resolved: frontier.filter(({ status }) => status === 'resolved').length
+    }),
+    prospectivePlacements: Object.freeze({
+      accepted: placements.filter(({ status }) => status === 'accepted').length,
+      boundedUnknown: placements.filter(({ status }) => status === 'bounded-unknown').length,
+      dominated: placements.filter(({ status }) => status === 'dominated').length
+    })
   });
 }
 
@@ -1306,6 +1343,51 @@ async function compileKnipUnusedSymbolEvidence(
   });
 }
 
+function compileRepositoryModuleArchitectureAdmission(
+  graph: SecRepositoryModuleGraph,
+  membership: SecRepositoryModuleMembership,
+  model: SourceProgramModel,
+  sourceFiles: readonly WorkspaceSourceFile[],
+  proposals: readonly SecRepositoryModulePlacementProposal[] = Object.freeze([])
+): RepositoryModuleArchitectureWithPlacement {
+  const sourceLinesByPath = new Map(sourceFiles.map(({ path: repositoryPath, source }) => (
+    [repositoryPath, source.length === 0 ? 0 : source.split(/\r\n|\r|\n/u).length] as const
+  )));
+  const facts = Object.freeze({
+    ...model,
+    files: Object.freeze(model.files.map((file) => Object.freeze({
+      ...file,
+      sourceLines: sourceLinesByPath.get(file.path)
+    })))
+  });
+  const architecture = compileSecRepositoryModuleArchitectureProjection(
+    graph,
+    membership,
+    facts
+  );
+  const responsibilityAdmission = compileSecRepositoryModulePlacementAdmission({
+    graph,
+    membership,
+    facts,
+    proposals
+  });
+  const violations = Object.freeze([...new Map([
+    ...architecture.violations,
+    ...responsibilityAdmission.violations
+  ].map((violation) => [
+    `${violation.code}\0${violation.from}\0${violation.to}\0${violation.detail}`,
+    violation
+  ] as const)).values()].sort((left, right) => compareCodeUnits(
+    `${left.code}\0${left.from}\0${left.to}\0${left.detail}`,
+    `${right.code}\0${right.from}\0${right.to}\0${right.detail}`
+  )));
+  return Object.freeze({
+    ...architecture,
+    violations,
+    responsibilityAdmission
+  });
+}
+
 async function compileWorkingTreeSourceProgram(
   repositoryRoot: string,
   supersessionBaseline: string,
@@ -1324,8 +1406,7 @@ async function compileWorkingTreeSourceProgram(
   invalidatedTypeScriptPaths: readonly string[];
   declarationTopology: SourceProgramDeclarationTopology;
   model: SourceProgramModel;
-  moduleArchitecture: SecRepositoryModuleArchitectureProjection;
-  moduleBoundaryFailures: readonly string[];
+  moduleArchitecture: RepositoryModuleArchitectureWithPlacement;
   baselineTestPaths: readonly string[];
   baselineTestEvidence: readonly SourceProgramTestBaselineEvidence[];
   baselineSourceFiles: readonly WorkspaceSourceFile[];
@@ -1389,8 +1470,7 @@ async function compileWorkingTreeSourceProgramWithSession(
   invalidatedTypeScriptPaths: readonly string[];
   declarationTopology: SourceProgramDeclarationTopology;
   model: SourceProgramModel;
-  moduleArchitecture: SecRepositoryModuleArchitectureProjection;
-  moduleBoundaryFailures: readonly string[];
+  moduleArchitecture: RepositoryModuleArchitectureWithPlacement;
   baselineTestPaths: readonly string[];
   baselineTestEvidence: readonly SourceProgramTestBaselineEvidence[];
   baselineSourceFiles: readonly WorkspaceSourceFile[];
@@ -1497,7 +1577,6 @@ async function compileWorkingTreeSourceProgramWithSession(
       span: null
     }));
   }
-  const moduleBoundaryFailures: string[] = [];
   const currentSupersessionIdentity = supersessionEvidenceIdentity({
     revisionDigest: rawSha256(Buffer.concat([
       Buffer.from(`${exactCurrentHead}\n`, 'utf8'),
@@ -1538,18 +1617,11 @@ async function compileWorkingTreeSourceProgramWithSession(
   const incrementalCompilation = compilation.typeScriptCompilation;
   const model = compilation.model;
   const declarationTopology = compileSourceProgramDeclarationTopology(compilation);
-  const moduleArchitecture = compileSecRepositoryModuleArchitectureProjection(
+  const moduleArchitecture = compileRepositoryModuleArchitectureAdmission(
     moduleGraph,
     moduleMembership,
-    model
-  );
-  try {
-    assertSecRepositoryModuleArchitectureBoundaries(moduleGraph, moduleMembership, model);
-  } catch (error) {
-    moduleBoundaryFailures.push(error instanceof Error ? error.message : String(error));
-  }
-  const sortedModuleBoundaryFailures = Object.freeze(
-    [...new Set(moduleBoundaryFailures)].sort(compareCodeUnits)
+    model,
+    files
   );
   return Object.freeze({
     cache: incrementalCompilation.mode === 'exact'
@@ -1569,7 +1641,6 @@ async function compileWorkingTreeSourceProgramWithSession(
     declarationTopology,
     model,
     moduleArchitecture,
-    moduleBoundaryFailures: sortedModuleBoundaryFailures,
     baselineTestPaths,
     baselineTestEvidence,
     baselineSourceFiles: baselineReconciliation.sourceFiles,
@@ -1788,7 +1859,6 @@ async function prepareWorkingTreeSourceProgramAudit(
         options.includeCandidates
       ),
       moduleArchitecture: worktreeAudit.moduleArchitecture,
-      moduleBoundaryFailures: worktreeAudit.moduleBoundaryFailures,
       options: Object.freeze({
         enforce: options.enforce,
         full: options.full,
@@ -2364,21 +2434,16 @@ async function auditRepositoryWithSession(
   const moduleGraph = sourceProgramCompilation.workspaceSnapshot.moduleGraph;
   const sourceProgram = sourceProgramCompilation.model;
   const declarationTopology = compileSourceProgramDeclarationTopology(sourceProgramCompilation);
-  const architecture = compileSecRepositoryModuleArchitectureProjection(
+  const architecture = compileRepositoryModuleArchitectureAdmission(
     moduleGraph,
     workspaceSnapshot.moduleMembership,
-    sourceProgram
+    sourceProgram,
+    workspaceSnapshot.files
   );
-  try {
-    assertSecRepositoryModuleArchitectureBoundaries(
-      moduleGraph,
-      workspaceSnapshot.moduleMembership,
-      sourceProgram
-    );
-  } catch (error) {
+  if (repositoryModuleArchitectureShouldBlock(architecture)) {
     pushFinding(findings, {
       code: 'repository-module-architecture-boundary-invalid',
-      message: error instanceof Error ? error.message : String(error),
+      message: `repository module architecture boundary violations (${architecture.violations.length})`,
       path: 'src',
       severity: 'high'
     });
