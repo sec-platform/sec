@@ -16,11 +16,13 @@ domain: design-calculus
 
 ```text
 DesignInput = {
+  exactSystemDesignUniverseRef,
+  rootSubjectRefs,
+  targetAndProfileRefs,
   acceptedOutcomes,
   nonGoals,
   classifiedStatements,
   exactObservations,
-  declaredUniverseAndCoverage,
   engineeringPrinciples,
   projectDecisions,
   domainDefinitions,
@@ -49,7 +51,8 @@ DesignVerdict = {
   unknownFrontier,
   lifecycleCost,
   dominanceProof,
-  reversalConditions
+  reversalConditions,
+  designClosureManifest
 }
 
 ObjectDisposition =
@@ -61,8 +64,9 @@ ObjectDisposition =
 ```mermaid
 flowchart LR
   I[Classified input] --> O[Outcome closure]
-  O --> W[Exact world and coverage model]
-  W --> Q[Requirement-space expansion]
+  O --> W[Bidirectional universe fixed point]
+  W --> X[Normative / observed reconciliation]
+  X --> Q[Requirement-space expansion]
   Q --> Y[Competing architecture synthesis]
   Y --> G[Minimal causal models]
   G --> D[Deletion and replacement counterfactuals]
@@ -85,6 +89,8 @@ flowchart LR
 classify(statement, provenance) -> Statement | Unknown
 compileOutcome(decisions, constraints) -> OutcomeGraph | Conflict
 observe(port, requirement, budget) -> Observation | TypedFailure
+compileUniverse(normativeRoots, observedRoots, typedRelations) -> ExactUniverse + Frontier
+reconcileUniverse(normative, observed) -> Materialization/Surplus/Obligation/Unknown dispositions
 buildCausalGraph(outcome, observations, definitions) -> Graph + Unknown
 expandRequirementSpace(capabilities, dimensions, reachability) -> CoverageTensor
 synthesizeCompetingModels(requirements, existingGraph, providerFacts) -> CandidateModels
@@ -101,9 +107,10 @@ admitEffect(plan, grant, binding, allocation, currentReadback) -> EffectTicket |
 settle(attempt, obligations, readback) -> Terminal | Residue | Unknown
 verify(claim, independentEvidence) -> Proven | Disproven | Unresolved
 compileEvolution(oldGraph, targetGraph, obligations) -> CutoverPlan | Blocked
+compileRecursiveDesignClosure(rootRefs, exactUniverse, packages) -> DesignClosureManifest
 ```
 
-没有默认成功分支。所有闭集必须显式枚举；开放世界输入必须保存 `Unknown`。
+没有默认成功分支。`exactSystemDesignUniverseRef`必须由目标工程profile的canonical universe compiler从accepted roots与exact world双向生成；调用者不能提交一个更窄的“declared universe”来减少义务。所有闭集必须显式枚举；开放世界输入必须保存 `Unknown`。
 
 ### 5.4 全局架构合成与固定点对抗验证
 

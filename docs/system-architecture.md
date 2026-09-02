@@ -256,9 +256,11 @@ VisibleSlice(consumer, operation, purpose) =
 ```text
 BusinessCapabilityClosure =
   outcome/non-goal
+  + actors/journeys/usability
   + Subjects/Definitions/Invariants
   + Responsibility/owner/public demand
-  + inputs/outputs/data/configuration/secrets/privacy
+  + inputs/outputs/data classification/ownership/residency/retention/deletion
+  + configuration/secrets/privacy
   + StateMachine/FailureAlgebra
   + Policies/Decisions
   + Authority/permissions/delegation
@@ -266,15 +268,55 @@ BusinessCapabilityClosure =
   + Requirements/CapabilityPorts/Bindings
   + Resource/Concurrency/Time/Consistency/Isolation
   + Effects/Settlement/Readback/Recovery
-  + external/provider/security/supply-chain/compliance
+  + external/provider/security/threat/abuse/supply-chain/compliance
   + Claims/Evidence/Verification
-  + audit/provenance/retention
-  + performance/economy
+  + audit/provenance
+  + latency/throughput/capacity/performance/economy
+  + modularity/change-locality/reuse/extensibility/testability
+  + build/toolchain/developer-feedback
   + compatibility/migration/retirement
-  + distribution/deployment/availability/operations/support
+  + distribution/deployment/reliability/availability/observability/incident recovery
+  + portability/interoperability
+  + operations/diagnostics/support
   + Interface/accessibility/localization
   + unknown/reversal
 ```
+
+上述closure不是作者可以任意缩小的手写范围。Design Universe由normative roots和observed roots双向编译：前者防止实现反推业务，后者防止设计忽略仓库、runtime或外部边界中已经存在的事实与Effect。
+
+```text
+NormativeUniverseRoots =
+  accepted ProductCapabilities/non-goals
+  + Domain Definitions/Invariants/Operations
+  + public/external contracts
+  + accepted Policies/FutureObligations
+
+ObservedUniverseRoots = exact snapshot of
+  production entrypoints/declarations/imports/generated sources
+  + packages/configuration/schemas/templates/assets
+  + tests/workflows/build/release/deployment/support surfaces
+  + durable state/writers/readers/migrations
+  + process/container/network/filesystem/credential/provider Effects
+  + public interfaces/artifacts/projections
+
+SystemDesignUniverse = leastFixedPoint(
+  NormativeUniverseRoots ∪ ObservedUniverseRoots,
+  typed defines/requires/consumes/produces/calls/reads/writes/allocates/
+        projects/proves/migrates/settles relations
+)
+```
+
+所有观察frontend必须由对应Source Program、protocol、provider或runtime owner登记输入kind、coverage、parser、unknown和budget；不能为本次设计另写crawler、regex清单或路径allowlist。有限exact snapshot达到fixed point；dynamic import、runtime discovery、外部系统、opaque/binary内容或budget frontier必须保留typed unknown，不能以未观察到证明不存在。
+
+```text
+reconcileUniverse(normative, observed):
+  normative only -> required-unmaterialized | accepted-future-obligation
+  observed only  -> unexplained-implementation-surplus | retirement-candidate
+  both           -> require exact refinement/provenance relation
+  opaque edge    -> bounded-unknown(frontier, affected subjects)
+```
+
+因此“全工程”不是一份手写文件清单，而是从目标与现实两端闭合的relation universe。新增source kind、Effect sink、durable writer、public interface或external boundary会扩展ObservedUniverse并使旧coverage digest stale；新增ProductCapability、Domain operation或FutureObligation会扩展NormativeUniverse。任一方向的新增都必须重编反向受影响scope。
 
 Architecture Coverage Compiler 不是只遍历 concern 清单，而是生成并按可达性裁剪需求张量：
 
@@ -322,6 +364,8 @@ flowchart LR
 ```
 
 Coverage 只对声明的 exact universe 完备；开放世界通过 explicit unknown 扩展，不以“当前没搜到”证明不存在。上面的 concern family 不是不可扩展的枚举：新增一种能改变 admission、state、Effect、settlement、Evidence、成本或用户结果的独立 concern 时，先由其 canonical owner 定义关系与故障语义，再作为 Coverage Compiler 的新输入；不得把它塞进 `misc`、自由文本或既有 family 的可选字段。
+
+这里的`declared universe`必须等于`SystemDesignUniverse`的exact compiled revision，而不是调用者选择的子集。局部设计只以root refs和purpose请求其中一个closed slice；compiler仍返回该slice与全局frontier的交集证明。缺失frontend、未分类tracked/runtime对象或无法解释的observed surplus都会阻断受影响scope的`DesignClosed`。
 
 ### 2.4 可推导边界
 

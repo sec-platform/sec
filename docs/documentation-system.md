@@ -134,6 +134,19 @@ DocumentationRelation =
 
 `ScopeNode`是递归语义边界，不是目录。`OwningScope`必须有真实contract fragment；`DerivedNamespace`只能由source-stratum/partition/accepted containment relation确定生成，不能拥有事实或由作者创建空分类页。每个scope只有一个containment parent；多归属、依赖、因果、投影和演进通过其他typed relations表达，不伪装成多父目录。
 
+semantic refs使用与path无关的canonical segment grammar；identity保持稳定，meaning变化由content revision表达：
+
+```text
+SemanticSegment := [a-z][a-z0-9]*(?:-[a-z0-9]+)*
+DocumentRef     := SemanticSegment(?:'.'SemanticSegment)*
+ScopeRef        := SemanticSegment(?:'.'SemanticSegment)*
+ClauseRef       := DocumentRef'#'SemanticSegment(?:'.'SemanticSegment)*
+DocRef          := 'doc:'DocumentRef(?:'#'SemanticSegment(?:'.'SemanticSegment)*)?
+ContentRevision := sha256(canonical semantic IR)
+```
+
+大小写、Unicode lookalike、空segment、`.`/`..`、path separator、URL escaping和Windows reserved name不能进入semantic refs。schema、compiler、relation laws和address policy各有独立semantic ref与content digest；不以`V1/V2`类型名、文件名或所有对象碰巧写同一个数字区分generation。
+
 ### 4.1 Recursive scope view
 
 ```text
@@ -206,18 +219,82 @@ canonical cross-document reference使用`DocRef(documentRef, optionalClauseRef)`
 
 ### 5.1 Source discovery 与单一metadata owner
 
-Documentation Compiler从exact tracked corpus读取所有允许partition下的Markdown/YAML/JSON source；未解析文件必须进入typed frontier，不能因未登记而跳过。source header是每个fragment metadata的唯一authoring point；`documentation-index.json`、README、frontmatter presentation、AI/public views全部生成。这样消除中央大清单写热点与header/registry镜像，同时仍由aggregate compiler全局验证duplicate owner、ID/path collision、cycle、unresolved ref和lifecycle。
+Documentation Compiler从exact content snapshot读取所有允许partition下的source。snapshot包含baseline tree、candidate additions/deletions/renames和显式untracked frontier；不能只看tracked baseline或工作树中仍存在的文件。未解析、未分类、opaque或被删除但仍有consumer的内容必须进入typed frontier，不能因未登记或不存在而跳过。
+
+metadata不是强迫所有格式共用一个frontmatter DTO。各source kind由唯一owner frontend归一化成同一`DocumentSourceDescriptor`：
+
+```text
+DocumentationSource =
+  | AuthoredMarkdown(sourceHeader, markdownAst)
+  | DomainMachineDocument(domainParserRef, canonicalPayload, emittedDescriptor)
+  | GeneratedProjection(generatorRef, exactSourceRefs, emittedDescriptor)
+
+DocumentSourceDescriptor = {
+  documentRef, sourceKind, partition, scopeRef, sourceStratumRef,
+  role, lifecycle, ownershipKeys, typedRelations,
+  disclosureClass, payloadDigest, metadataDigest
+}
+```
+
+authored Markdown header是该fragment metadata的唯一authoring point，按role使用closed exact variants；machine/control/ledger payload继续由其domain strict parser拥有，文档frontend只消费parser签发的descriptor；generated view的descriptor由generator产生。三者都不能由中央手写registry补字段。source grammar/schema revision绑定整个`DocumentationGeneration`，不在每篇文件重复`formatVersion: 1`。
+
+`documentation-index.json`、README、presentation frontmatter、AI/public views全部生成。这样消除中央大清单写热点与header/registry镜像，同时仍由aggregate compiler全局验证duplicate owner、ID/path collision、cycle、unresolved ref和lifecycle。
 
 ```text
 compileDocumentationGeneration(snapshot):
-  census every tracked document-source byte
-  strict-parse role-specific source headers and machine state
+  census every baseline and candidate document-source byte/status
+  strict-parse each source through its uniquely registered frontend
+  normalize emitted DocumentSourceDescriptors
   build normalized partition/scope/document/relation graph
   validate ownership, containment, dependency, lifecycle and disclosure
   compile physical placement under path capability
   emit aggregate index + recursive views + consumer impact
   read back exact bytes, graph digest and no-unclassified-source frontier
 ```
+
+### 5.2 DocumentationGeneration 与 generated index
+
+```text
+DocumentationGeneration = immutable {
+  generationRef,
+  exactContentSnapshotDigest,
+  sourceGrammarDigest,
+  relationLawDigest,
+  addressPolicyDigest,
+  documentationCompilerDigest,
+  normalizedGraphDigest,
+  sourceDescriptorDigest,
+  frontierDigest
+}
+
+DocumentationIndex = generated {
+  indexSchemaRef + indexSchemaDigest,
+  generationRef + generationDigest,
+  sorted scope/document/relation descriptors,
+  physical addresses + payload/metadata digests,
+  generated view descriptors,
+  explicit frontier,
+  indexDigest
+}
+```
+
+index exact parser拒绝unknown/duplicate/missing keys、非canonical顺序、foreign generation、digest mismatch和不支持的schema digest。source grammar演进只能生成新DocumentationGeneration并走一次迁移；normal reader只接受active generation，旧grammar parser仅在受控migration input中存在。
+
+### 5.3 Address compiler
+
+```text
+compileAddress(descriptor, containment, policy, physicalCapability):
+  partitionRoot := exact mapping from descriptor.partition
+  scopeSegments := canonical local keys from containment chain
+  remove only proven DerivedNamespace segments
+  if physical byte/depth limit exceeded:
+    replace deterministic derived namespace run with digest-bound short segment
+  append contract.md for scope contract, otherwise the document-local semantic key
+  reject case-fold/Unicode/reserved/collision/escape/reparse ambiguity
+  return logical address + retained parent/leaf publication requirements
+```
+
+同一`descriptor + containment + policy digest + platform capability`必须产生byte-equivalent address。同一scope内的document-local semantic key必须唯一；冲突直接拒绝，不能通过给既有文件重命名或依赖枚举顺序消解。新增无关sibling不能改变既有地址；move/reparent只改变address revision，不改变DocumentRef。compiler必须在Windows与repository canonical path语义上证明collision-free和bounded；presentation renderer限制不能反向修改semantic identity。
 
 ## 6. Read compiler
 
@@ -268,6 +345,21 @@ flowchart TD
 | verifier | 独立重编graph/digest/coverage | 用作者自报PASS替代readback |
 
 权限绑定到operation、exact generation、subject/relation set、disclosure和budget；文件可写权限本身不构成semantic owner或publication authority。
+
+### 6.2 Read result 与 disclosure
+
+```text
+DocumentationReadResult =
+  | ready {
+      generationDigest, purpose, selectedNodeRefs,
+      renderedBytes, selectionDigest, coverage,
+      collapsedFrontier
+    }
+  | unresolved { generationDigest, frontier, affectedPurpose }
+  | rejected { code, exactInputDigest }
+```
+
+`ready`只表示请求purpose在授权disclosure和budget内完整；它不能证明未请求的全corpus完整。若某个collapsed/opaque/private节点可能改变请求结论，结果必须是`unresolved`而不是删除节点或输出部分摘要。public/AI/human renderer只消费相同selected semantic graph；renderer bytes不同，但selection、meaning、blocker/unknown与source refs必须一致。
 
 ## 7. Write compiler
 
@@ -345,6 +437,31 @@ DecisionProof = {
 ```
 
 compiler验证`selectedCandidate`在声明的候选集/约束下成立并把reversal predicate加入未来impact query；它不把设计者判断伪装成产品运行时事实。
+
+### 7.3 Incremental compilation 与 ActionKey
+
+```text
+DocumentationActionKey = sha256(
+  exactContentSnapshotDigest
+  + sourceGrammarDigest
+  + relationLawDigest
+  + addressPolicyDigest
+  + compilerDigest
+  + frontend/parser digests
+  + target physical capability digest
+  + disclosure policy digest
+  + operation/purpose input digest
+)
+
+IncrementalRecompile(delta):
+  reparse changed source descriptors
+  invalidate containing scopes + typed reverse-reachable relations/consumers/views
+  reuse only exact-key immutable shards
+  rebuild affected graph/index/view shards
+  compare final root digest with clean full compile
+```
+
+缓存按document descriptor、scope closure、relation reverse index和rendered view分shard；cache hit必须重验schema/producer/key/content，不能靠path、mtime或进程内对象。相同ActionKey的full/incremental结果必须byte-equivalent；不等价使incremental provider不可用，不能静默退化成长期全量重扫。authoring循环只编译受影响slice，正式freeze/cutover对exact target generation做一次clean equivalence与readback。
 
 ## 8. Development coverage compiler
 
@@ -468,6 +585,27 @@ PrincipleViewSet = {
 
 ## 10. 当前平铺generation到目标generation的迁移
 
+正式搬迁不等待“全工程所有未来设计完成”；它等待documentation scope在Design Calculus定义的exact universe上递归`DesignClosed`，并满足本领域更强的迁移设计准入：
+
+```text
+DocumentationMigrationDesignReady =
+  MigrationDesignReady(current documentation generation, target generation)
+  and exact source-header frontend grammar + duplicate/unknown rejection frozen
+  and ScopeNode/DocumentFragment/DocumentationRelation laws and schemas frozen
+  and stable DocRef/clause identity grammar + renderer semantics frozen
+  and tracked-corpus discovery + opaque/binary/untracked frontier semantics frozen
+  and address compiler inputs, normalization and PhysicalPathCapability frozen
+  and generated index/view schemas + no-writeback/disclosure contracts frozen
+  and read/write/impact compiler public contracts + deterministic ActionKey frozen
+  and incremental/reverse-reachability complexity and cache invalidation model frozen
+  and migration journal/state/CAS/crash/recovery/rollback/residue model frozen
+  and current-to-target fact/relation/lifecycle/consumer preservation map total
+  and conformance properties/fault scenarios/expected readbacks frozen
+  and no applicable design frontier intersects cutover
+```
+
+其中`frozen`指exact logical、implementation、conformance或evolution package已经取得对应Design Freeze receipt；不是“文档写到了这个名词”。任一项为open/unknown时只继续纯设计或bounded observation，禁止先移动一批文件再补schema/compiler。
+
 ```text
 DocumentationMigration = {
   exactCurrentGenerationDigest,
@@ -496,6 +634,36 @@ DocumentationMigration = {
 7. 对新generation做独立readback；旧`authority.json`、flat paths和旧generated views只有在consumer-zero后一次退役。
 8. 任一步失败时保留current authority，target保持non-authoritative staged/residue；恢复只消费durable migration record，不猜目录状态。
 
+```mermaid
+stateDiagram-v2
+  [*] --> Planned
+  Planned --> Staged: target bytes/index/views written
+  Staged --> Verified: graph/coverage/consumer equivalence
+  Verified --> Activated: exact-current CAS
+  Activated --> Retiring: new reader readback complete
+  Retiring --> Complete: old consumers zero + old addresses retired
+  Planned --> Residue: write/observation failure
+  Staged --> Residue: partial target or drift
+  Verified --> Residue: CAS stale
+  Activated --> Residue: new readback/consumer cutover failure
+  Retiring --> Residue: old consumer or cleanup remains
+  Residue --> Planned: owner-issued recovery before activation
+  Residue --> Retiring: owner-issued forward recovery after activation
+```
+
+```text
+DocumentationPreservationMap = total mapping of
+  current document/owner/fact/clause/lifecycle
+  + current typed or overloaded relation
+  + every source/code/test/workflow/config/external consumer
+  + every generated/public/AI projection
+  -> target ref/address/relation, accepted retirement, or blocking frontier
+```
+
+迁移journal由Change Management/state owner持久化，绑定current/target generation、source/target physical identities、preservation digest、phase、CAS preimage和settlement；它不能由目录存在、Git commit或迁移脚本退出码重建。activation前失败可丢弃隔离target但不动current；activation后只允许forward recovery或显式授权rollback，绝不同时开放两个normal reader。
+
+Conformance Model从relation/operation/fault coverage生成性质而不是手写路径用例：source census totality、strict frontend、identity/path independence、scope/relation laws、projection/disclosure fidelity、incremental/full byte equivalence、unrelated-change stability、address portability、current→target preservation、all crash points recoverable、single active generation、old consumer zero和bounded cold/warm/delta cost。Verifier从target bytes独立重编，不消费迁移执行者的PASS。
+
 禁止：默认兼容双读、永久redirect、dual canonical paths、空root、复制段落、按标题/行数机械切割、靠Git历史作为唯一迁移图、只修Markdown links不验证代码/测试/工作流/external consumers。本文只冻结target contract；完成上述cutover前，现有flat layout仍是current reality而不是target已实现的证明。
 
 ## 11. 设计对抗与反转条件
@@ -518,10 +686,10 @@ DocumentationMigration = {
 
 整个方案的反转不是“有人喜欢另一种目录”，而是可测事实证明：recursive scopes不能降低purpose-bound读取/冲突/变更成本，typed graph无法保持human authoring，或compiler自身成本在目标规模上支配收益。反转也必须以同一Design Calculus重新编译scope、relations、consumers与migration，禁止局部回退。
 
-## 12. 完成条件
+## 12. Generation 完成条件
 
 ```text
-DocumentationClosed =
+DocumentationGenerationClosed =
   every tracked documentation source classified in exactly one partition
   and source headers strict, role-discriminated and duplicate-free
   and containment is a rooted forest with relation-specific graph laws
@@ -537,4 +705,4 @@ DocumentationClosed =
   and migration/readback conformance passes on the exact target generation
 ```
 
-`DocumentationClosed`只证明文档系统及本generation一致，不证明文档描述的产品能力已经实现。每个规范能力仍由其domain consumer、Effect、state、Evidence和completion predicate独立证明。
+目标设计是否完成由Design Calculus的recursive `DesignClosed`与本文`DocumentationMigrationDesignReady`判定；物理generation是否完成才由`DocumentationGenerationClosed`判定。后者只证明文档系统及本generation一致，不证明文档描述的产品能力已经实现。每个规范能力仍由其domain consumer、Effect、state、Evidence和completion predicate独立证明。

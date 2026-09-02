@@ -259,9 +259,115 @@ flowchart LR
 
 ## 12. 设计完成
 
+设计完成不是一个项目级boolean，也不能由文档数量、评审通过、测试绿色或“暂时想不到问题”产生。它是针对`exact universe + root subjects + target/profile + compiler revisions`的递归闭包；任何一项变化只使reverse-reachable闭包stale。
+
+### 12.1 Recursive Design Closure
+
+`DesignClosureNode`不是新的Domain、owner或目录identity；它是Design Compiler以现有ProductCapability、Domain、Operation、Workflow、Infrastructure Cell、Interface或Evolution root为键生成的递归视图。parent/child只能来自这些对象自身已经成立的semantic containment；`requires/uses/binds/projects/proves/migrates`永远是cross-boundary relation，不能为了得到一棵树伪装成containment。
+
 ```text
-DesignClosed =
-  accepted outcomes and non-goals are explicit
+ClosureDimensionStatus =
+  closed(exactPackageRef)
+  | not-applicable(derivationRef)
+  | blocked(frontierRef)
+
+DesignClosureNode = {
+  rootSubjectRef,
+  parentRootRef | root,
+  childRootRefs,
+  crossBoundaryRelationRefs,
+  exactUniverseSliceDigest,
+  dimensions: {
+    definition,
+    logical,
+    implementation,
+    conformance,
+    evolution
+  },
+  reverseConsumerRefs,
+  unresolvedFrontierRef,
+  closureDigest
+}
+```
+
+containment只表达语义分解；共享Provider、资源、Evidence、外部合同和跨Domain workflow通过typed cross-boundary relations引用，不能为了让closure成为树而复制到多个child。每个child可以独立冻结，但parent只有在自身合同、全部适用children和全部cross-boundary obligations都闭合后才闭合。
+
+```mermaid
+flowchart TD
+  S[System root] --> P[Product capability scopes]
+  S --> D[Domain scopes]
+  S --> X[Shared capability/resource/evidence scopes]
+  P --> P1[Capability A / subcapabilities]
+  P --> P2[Capability B / subcapabilities]
+  D --> D1[Domain A / operations]
+  D --> D2[Domain B / operations]
+  P1 -. requires public operation .-> D1
+  P2 -. requires public operation .-> D1
+  D1 -. typed binding .-> X
+  D2 -. typed binding .-> X
+  P1 -. cross-capability workflow .-> P2
+```
+
+### 12.2 Completion vector
+
+| Dimension | 完成必须证明 | 不能冒充 |
+| --- | --- | --- |
+| definition | accepted outcome/non-goal、Subjects、Definitions、invariants、不可推导取舍与unknown owner | 当前实现、测试、用户一句模糊偏好 |
+| logical | operation/workflow、state/failure、authority/resource/proof/evolution obligations与coverage cells闭合 | file/package/provider选择 |
+| implementation | 每个logical obligation有唯一realization/refinement、placement、API/data/runtime topology、algorithm/complexity/failure计划 | 代码已存在、路径清单、空facade |
+| conformance | 双向trace、property/scenario/fault/evidence模型可独立判定，unknown不穿越目标Claim | producer自测、样例PASS |
+| evolution | current→target preservation、migration/recovery/cutover/consumer-zero/retirement完整 | 默认兼容、手工搬迁、Git可找回 |
+
+纯原则或无物理实现的scope可以由compiler证明某个dimension为`not-applicable`；不得用null、缺字段或作者声明跳过。ProductCapability、Effect、durable state、public protocol和active migration相关scope通常不能把implementation、conformance或evolution默认为不适用。
+
+`DesignClosed`与交付状态严格分离：
+
+```text
+DesignStatus      = draft | modeled | attacked | closed | stale | blocked
+RealizationStatus = unimplemented | implementing | implemented-unverified
+                  | verified | activated | terminal | retired
+```
+
+设计可以closed而尚未实现；实现、测试或发布完成也不能反推设计closed。每个状态引用不同owner的exact receipt，禁止一个`status: complete`压平。
+
+### 12.3 Whole-system closure manifest
+
+```text
+DesignClosureManifest = generated {
+  exactUniverseDigest,
+  rootSubjectRefs,
+  targetAndProfileRefs,
+  designCompilerAndModelRefs,
+  recursivelySortedClosureNodes,
+  crossBoundaryObligationRefs,
+  observedSurplusDispositions,
+  unresolvedFrontierRef,
+  closureDigest
+}
+```
+
+manifest只聚合refs/status/digests，不复制package内容或签发authority。roots不能由当前任务手工挑选：它们来自accepted ProductCapability roots，以及System Architecture对exact Source Program、configuration/workflow、durable state、Effect/provider、public/external surface的双向universe reconciliation。observed-only对象必须映射到logical owner、明确retirement或受影响unknown；normative-only对象必须映射到implementation、accepted FutureObligation或`required-unmaterialized`。
+
+```text
+compileSystemDesignClosure(acceptedRoots, exactWorld):
+  universe := compileBidirectionalSystemDesignUniverse(acceptedRoots, exactWorld)
+  scopes := recursivelyDecomposeBySemanticContainment(universe)
+  for each scope:
+    compile applicable concern/fault/realization coverage
+    compile definition/logical/implementation/conformance/evolution dimensions
+    close child scopes and cross-boundary relations
+  reconcile every observed node and every normative obligation
+  emit manifest with exact frontier; never omit an unclosed node
+```
+
+局部任务消费同一manifest的最小recursive slice；全系统审计完全展开同一manifest。二者不能拥有不同roots、frontier或completion semantics。任何collapsed subtree必须保留identity、closure status、blocker/unknown digest和expansion handle。
+
+### 12.4 Own-scope 与 recursive completion
+
+```text
+OwnScopeDesignClosed(scope) =
+  scope belongs to exact compiled SystemDesignUniverse
+  ∧ accepted outcomes and non-goals are explicit
   ∧ all statements are typed
   ∧ every design subject resolves all applicable rationale queries or preserves exact unknown
   ∧ minimal causal graph is complete within declared coverage
@@ -280,6 +386,68 @@ DesignClosed =
   ∧ active meta-model/compiler satisfies ArchitectureMetaValidationClosure
   ∧ safety/liveness/determinism/recovery/evolution/economy are checked
   ∧ project projections reference rather than copy this calculus
+
+DesignClosed(root, exactUniverse, targetProfile) =
+  OwnScopeDesignClosed(root)
+  ∧ every applicable closure dimension is closed or proven not-applicable
+  ∧ all recursively contained child roots are DesignClosed
+  ∧ every cross-boundary relation has compatible contracts at both endpoints
+  ∧ every normative-only item is materialized, an accepted FutureObligation, or blocking
+  ∧ every observed-only item is explained, retired by a closed evolution plan, or blocking
+  ∧ every unresolved frontier is provably disjoint from the target outcomes/Effects/Claims
+  ∧ one generated DesignClosureManifest preserves the complete recursive status
 ```
 
-未满足时输出 exact frontier、owner、反例与下一项纯设计动作；不得以“文档已写”“以后测试”“实现时再看”结束设计。
+“declared coverage”必须是System Architecture从accepted roots与exact world双向编译的universe slice，不能由scope owner自行缩小。未满足时输出exact frontier、owner、受影响scope/cells和下一项纯设计动作；不得以“文档已写”“以后测试”“实现时再看”结束设计。
+
+### 12.5 迁移设计完成与执行准入
+
+```text
+MigrationDesignReady(current, target) =
+  DesignClosed(target root, exact universe, target profile)
+  ∧ exact current implementation/state/consumer universe observed
+  ∧ target implementation/conformance/evolution packages frozen
+  ∧ total current→target subject/state/capability/data/consumer preservation map
+  ∧ every removed behavior has accepted retirement or stronger replacement
+  ∧ every writer/reader/resolver/Effect route assigned one cutover state
+  ∧ migration state machine covers concurrency, crash, retry, rollback and typed residue
+  ∧ resource/time/authority/disclosure budgets compiled
+  ∧ pre/post/CAS/readback/consumer-zero obligations compiled
+  ∧ executable Work Package DAG references only frozen package revisions
+
+MigrationExecutionAdmitted =
+  MigrationDesignReady
+  ∩ live AuthorityGrant
+  ∩ exact current preimage
+  ∩ bound capabilities/resources
+```
+
+`MigrationDesignReady`只证明可以开始实现/迁移，不证明任何文件已移动、代码已写、状态已转换或业务能力已闭合。正式执行后仍分别需要implementation readback、Conformance verdict、activation、new-generation observation和old-generation retirement。
+
+不存在“整个开放世界永久设计完成”。可证明的最强结论是某个exact generation/profile/universe上的root closure；新产品意图、外部合同、Target、Source Program节点、Effect、fault dimension或reversal observation出现时，compiler扩展universe并只使reverse-reachableclosure stale。这既不允许以未知世界阻止所有工作，也不允许把未观察范围藏在“已经完成”里。
+
+### 12.6 Design frontier 与下一义务编译
+
+```text
+DesignFrontierItem = {
+  frontierRef,
+  gapKind: universe | definition | logical | implementation | conformance | evolution,
+  affectedRootRefs,
+  missingInputOrDecisionRefs,
+  predecessorFrontierRefs,
+  canonicalOwnerRef,
+  affectedCoverageCells,
+  closurePredicate,
+  invalidationDigest
+}
+
+compileNextDesignWave(manifest):
+  open := all frontier items intersecting requested target roots
+  reject items whose owner or closure predicate is unbound
+  ready := open where every predecessor is closed
+  order causally: universe -> definition -> logical -> implementation -> conformance -> evolution
+  coalesce ready items only when same owner/input revision/atomic decision boundary
+  return minimal ready antichain + exact blocked remainder
+```
+
+文件位置、最近失败、Issue编号、Agent兴趣、测试数量或聊天顺序不能决定设计顺序。一个上游frontier影响多个scope时只修其唯一generator并重编reverse closure；互不相交的ready items可以作为独立design packages并行，但同一owner、schema、state machine或migration generation保持单一写者。完成一个item必须满足其closure predicate并使manifest重编，而不是把文字标成done。
