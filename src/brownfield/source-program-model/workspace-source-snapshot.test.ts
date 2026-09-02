@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { lstat, mkdir, mkdtemp, readFile, readdir, rm, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, unlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -236,6 +236,38 @@ test('working generation includes dirty and untracked source while excluding del
   expect(working.file('src/example/value.ts')?.source).toContain('value = 2');
   expect(working.file('src/example/untracked.ts')).not.toBeNull();
   expect(working.file('src/example/removed.ts')).toBeNull();
+
+  await rename(
+    path.join(repositoryRoot, 'src', 'example', 'untracked.ts'),
+    path.join(repositoryRoot, 'src', 'example', 'renamed.ts')
+  );
+  const renamed = await workingSnapshot(repositoryRoot);
+  expect(renamed.file('src/example/untracked.ts')).toBeNull();
+  expect(renamed.file('src/example/renamed.ts')?.source).toContain('untracked = true');
+});
+
+test('working generation observes same-mtime byte changes and index optimization flags fail closed', async () => {
+  const { repositoryRoot } = await createRepository();
+  const valuePath = path.join(repositoryRoot, 'src', 'example', 'value.ts');
+  const before = await lstat(valuePath);
+  await writeFile(valuePath, 'export const value = 9;\n');
+  await utimes(valuePath, before.atime, before.mtime);
+  const changed = await workingSnapshot(repositoryRoot);
+  expect(changed.file('src/example/value.ts')?.source).toContain('value = 9');
+
+  git(repositoryRoot, ['checkout', '--', 'src/example/value.ts']);
+  git(repositoryRoot, ['update-index', '--assume-unchanged', 'src/example/value.ts']);
+  await writeFile(valuePath, 'export const value = 7;\n');
+  const assumeUnchanged = await workingSnapshot(repositoryRoot);
+  expect(assumeUnchanged.file('src/example/value.ts')?.source).toContain('value = 7');
+  git(repositoryRoot, ['update-index', '--no-assume-unchanged', 'src/example/value.ts']);
+
+  git(repositoryRoot, ['checkout', '--', 'src/example/value.ts']);
+  git(repositoryRoot, ['update-index', '--skip-worktree', 'src/example/value.ts']);
+  await writeFile(valuePath, 'export const value = 5;\n');
+  const skipWorktree = await workingSnapshot(repositoryRoot);
+  expect(skipWorktree.file('src/example/value.ts')?.source).toContain('value = 5');
+  git(repositoryRoot, ['update-index', '--no-skip-worktree', 'src/example/value.ts']);
 });
 
 test('working-tree project generation evidence is owner-issued and opaque', async () => {
