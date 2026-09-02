@@ -49,6 +49,7 @@
     "environment:settle": "\"$npm_execpath\" run sec -- environment settle",
     "environment:settle:fix": "\"$npm_execpath\" run sec -- environment settle --fix",
     "docs:doctor": "\"$npm_execpath\" src/control/documentation/doctor/cli.ts",
+    "docs:migration:plan": "\"$npm_execpath\" src/control/documentation/migration-cli.ts",
     "check": "\"$npm_execpath\" run check:fast",
     "check:affected": "\"$npm_execpath\" ./src/development/runner/cli.ts check:affected",
     "check:fast": "\"$npm_execpath\" ./src/development/runner/cli.ts check:fast",
