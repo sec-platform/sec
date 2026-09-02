@@ -117,11 +117,16 @@ import { buildSourceProgramAggregateImportReductionPatch, compileSourceProgramAg
 import { compileRepositorySourceProgramCompilation } from '../source-program-model/repository-compilation.ts';
 import { compileSourceProgramOwnerIntentEvidence, summarizeSourceProgramTopology } from '../source-program-model/repository.ts';
 import { compileSourceProgramTestBaselineEvidence, compileSourceProgramTestValue, reconcileSourceProgramTestValueWithSupersession, SOURCE_PROGRAM_BLOCKING_TEST_FINDING_CODES, summarizeSourceProgramTestUnknownDispositionClusters, type SourceProgramTestBaselineEvidence, type SourceProgramTestFinding } from '../source-program-model/test-value.ts';
-import { querySourceProgramModel, releaseTypeScriptSourceProgramWorkspace } from '../source-program-model/typescript.ts';
 import {
-  acquireExactGitTreeWorkspaceSourceSnapshot,
+  observeSourceProgramTypeScriptSyntax,
+  querySourceProgramModel,
+  releaseTypeScriptSourceProgramWorkspace
+} from '../source-program-model/typescript.ts';
+import {
+  acquireExactGitTreeWorkspaceSourceSnapshotFromSession,
   acquireWorkingTreeWorkspaceSourceSnapshot,
   compileWorkspaceTypeScriptProjectInput,
+  type PhysicalWorkspaceSourceSnapshot,
   type WorkspaceSourceFile
 } from '../source-program-model/workspace-source-snapshot.ts';
 import {
@@ -930,31 +935,6 @@ function knownBinaryReason(bytes: Buffer): string | null {
   return null;
 }
 
-function scriptKind(repositoryPath: string): ts.ScriptKind {
-  const extension = path.posix.extname(repositoryPath).toLowerCase();
-  if (extension === '.tsx') return ts.ScriptKind.TSX;
-  if (extension === '.jsx') return ts.ScriptKind.JSX;
-  if (extension === '.js' || extension === '.mjs' || extension === '.cjs') {
-    return ts.ScriptKind.JS;
-  }
-  return ts.ScriptKind.TS;
-}
-
-function typeScriptSyntaxError(repositoryPath: string, source: string): string | null {
-  const sourceFile = ts.createSourceFile(
-    repositoryPath,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    scriptKind(repositoryPath)
-  );
-  const diagnostics = (
-    sourceFile as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }
-  ).parseDiagnostics ?? [];
-  if (diagnostics.length === 0) return null;
-  return ts.flattenDiagnosticMessageText(diagnostics[0]!.messageText, ' ');
-}
-
 function isKnownTestFixturePath(repositoryPath: string): boolean {
   return REPOSITORY_TEST_PATH.test(repositoryPath)
     && !isJavaScriptOrTypeScriptTestPath(repositoryPath)
@@ -991,17 +971,22 @@ function coverageResult(
 
 async function revisionTextCandidates(
   session: GitReadSession,
-  entries: readonly GitTreeEntry[]
+  entries: readonly GitTreeEntry[],
+  sourceFiles: readonly WorkspaceSourceFile[]
 ): Promise<Readonly<{
   bytesByPath: ReadonlyMap<string, Buffer>;
   contentCoverage: readonly RepositoryContentCoverage[];
   textByPath: ReadonlyMap<string, string | null>;
 }>> {
+  const sourceBytesByPath = new Map(sourceFiles.map(({ path: repositoryPath, source }) => (
+    [repositoryPath, Buffer.from(source, 'utf8')] as const
+  )));
   const readableEntries = entries.filter((entry) =>
     entry.type === 'blob'
     && (entry.mode === '100644' || entry.mode === '100755')
     && entry.size !== null
-    && entry.size <= MAX_TEXT_FILE_BYTES);
+    && entry.size <= MAX_TEXT_FILE_BYTES
+    && !sourceBytesByPath.has(entry.path));
   const blobs = await readBatchGitBlobs(session, readableEntries);
   const bytesByPath = new Map<string, Buffer>();
   const textByPath = new Map<string, string | null>();
@@ -1032,39 +1017,41 @@ async function revisionTextCandidates(
       textByPath.set(entry.path, null);
       continue;
     }
-    const read = blobs.get(entry.object);
-    if (!read || read.bytes === null) {
+    const sourceBytes = sourceBytesByPath.get(entry.path);
+    const read = sourceBytes === undefined ? blobs.get(entry.object) : undefined;
+    const bytes = sourceBytes ?? read?.bytes ?? null;
+    if (bytes === null) {
       contentCoverage.push(
         coverageResult(entry, 'unknown', read?.reason ?? 'blob-unavailable')
       );
       textByPath.set(entry.path, null);
       continue;
     }
-    if (read.bytes.length !== entry.size) {
+    if (bytes.length !== entry.size) {
       contentCoverage.push(coverageResult(entry, 'unknown', 'blob-size-mismatch'));
       textByPath.set(entry.path, null);
       continue;
     }
-    bytesByPath.set(entry.path, read.bytes);
+    bytesByPath.set(entry.path, bytes);
     if (MINIFIED_GENERATED_PATH.test(entry.path)) {
       contentCoverage.push(coverageResult(entry, 'excluded', 'minified-generated'));
       textByPath.set(entry.path, null);
       continue;
     }
-    const binaryReason = knownBinaryReason(read.bytes);
+    const binaryReason = knownBinaryReason(bytes);
     if (binaryReason !== null) {
       contentCoverage.push(coverageResult(entry, 'excluded', binaryReason));
       textByPath.set(entry.path, null);
       continue;
     }
-    if (read.bytes.includes(0)) {
+    if (bytes.includes(0)) {
       contentCoverage.push(coverageResult(entry, 'unknown', 'nul-content'));
       textByPath.set(entry.path, null);
       continue;
     }
     let source: string;
     try {
-      source = new TextDecoder('utf-8', { fatal: true }).decode(read.bytes);
+      source = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
     } catch {
       contentCoverage.push(coverageResult(entry, 'unknown', 'invalid-utf8'));
       textByPath.set(entry.path, null);
@@ -1085,16 +1072,6 @@ async function revisionTextCandidates(
       textByPath.set(entry.path, null);
       continue;
     }
-    if (isJavaScriptOrTypeScriptTestPath(entry.path)) {
-      const syntaxError = typeScriptSyntaxError(entry.path, source);
-      if (syntaxError !== null) {
-        contentCoverage.push(
-          coverageResult(entry, 'unknown', `test-syntax-unresolved:${syntaxError}`)
-        );
-        textByPath.set(entry.path, null);
-        continue;
-      }
-    }
     const behaviorIrrelevant = NON_AUTHORITY_BEHAVIOR_PATH.test(entry.path);
     contentCoverage.push(coverageResult(
       entry,
@@ -1110,74 +1087,9 @@ async function revisionTextCandidates(
   };
 }
 
-async function revisionSourceProgramFiles(
-  session: GitReadSession,
-  entries: readonly GitTreeEntry[]
-): Promise<Readonly<{
-  files: readonly WorkspaceSourceFile[];
-  unknowns: readonly import('../source-program-model/contract.ts').SourceProgramUnknown[];
-}>> {
-  const readableEntries = entries.filter(({ type, mode, size }) =>
-    type === 'blob'
-    && (mode === '100644' || mode === '100755')
-    && size !== null
-    && size <= MAX_TEXT_FILE_BYTES);
-  const blobs = await readBatchGitBlobs(session, readableEntries);
-  const files: WorkspaceSourceFile[] = [];
-  const unknowns: import('../source-program-model/contract.ts').SourceProgramUnknown[] = [];
-  for (const entry of entries) {
-    if (entry.type !== 'blob' || (entry.mode !== '100644' && entry.mode !== '100755')) continue;
-    if (entry.size === null || entry.size > MAX_TEXT_FILE_BYTES) {
-      unknowns.push(Object.freeze({
-        code: 'baseline-path-oversized',
-        path: entry.path,
-        detail: `${entry.size ?? '<unknown>'}>${MAX_TEXT_FILE_BYTES}`,
-        span: null
-      }));
-      continue;
-    }
-    const read = blobs.get(entry.object);
-    if (read?.bytes === null || read === undefined) {
-      unknowns.push(Object.freeze({
-        code: 'baseline-path-unreadable',
-        path: entry.path,
-        detail: `Git object ${entry.object} was not returned by the retained batch reader`,
-        span: null
-      }));
-      continue;
-    }
-    if (knownBinaryReason(read.bytes) !== null || read.bytes.includes(0)) continue;
-    let source: string;
-    try {
-      source = new TextDecoder('utf-8', { fatal: true }).decode(read.bytes);
-    } catch {
-      unknowns.push(Object.freeze({
-        code: 'baseline-path-invalid-utf8',
-        path: entry.path,
-        detail: 'strict UTF-8 decode failed',
-        span: null
-      }));
-      continue;
-    }
-    files.push(Object.freeze({
-      path: entry.path,
-      mode: entry.mode,
-      source,
-      contentDigest: rawSha256(read.bytes)
-    }));
-  }
-  return Object.freeze({
-    files: Object.freeze(files.sort((left, right) => compareCodeUnits(left.path, right.path))),
-    unknowns: Object.freeze(unknowns.sort((left, right) => compareCodeUnits(left.path, right.path)
-      || compareCodeUnits(left.code, right.code)))
-  });
-}
-
 async function compileRevisionSupersessionEvidence(
   repositoryRoot: string,
-  commitSha: string,
-  files: readonly SourceProgramFileInput[],
-  unknowns: readonly import('../source-program-model/contract.ts').SourceProgramUnknown[],
+  workspaceSnapshot: PhysicalWorkspaceSourceSnapshot,
   identity: SourceProgramSupersessionEvidenceIdentity,
   dependencyGeneration: RetainedNoFollowProvenDirectoryGeneration,
   dependencyGenerationDigest: `sha256:${string}`,
@@ -1189,14 +1101,9 @@ async function compileRevisionSupersessionEvidence(
   membership: SecRepositoryModuleMembership;
   sourceFiles: readonly WorkspaceSourceFile[];
 }>> {
-  const descriptorSources = files
-    .filter(({ path: repositoryPath }) => path.posix.basename(repositoryPath) === 'sec.module.json')
-    .map(({ path: descriptorPath, source }) => ({ descriptorPath, source }));
-  const membership = compileSecRepositoryModuleMembershipSnapshot({
-    repositoryFiles: files.map(({ path: repositoryPath }) => repositoryPath),
-    descriptorSources
-  });
-  const revisionUnknowns = [...unknowns];
+  const files = workspaceSnapshot.files;
+  const membership = workspaceSnapshot.moduleMembership;
+  const revisionUnknowns: import('../source-program-model/contract.ts').SourceProgramUnknown[] = [];
   let reviewedProcessDispatchers: readonly string[] = Object.freeze([]);
   try {
     reviewedProcessDispatchers = await resolveImmutableRevisionProcessDispatchers(
@@ -1211,10 +1118,6 @@ async function compileRevisionSupersessionEvidence(
       span: null
     }));
   }
-  const workspaceSnapshot = acquireExactGitTreeWorkspaceSourceSnapshot({
-    repositoryRoot,
-    commitSha
-  });
   const projectInput = compileWorkspaceTypeScriptProjectInput(
     workspaceSnapshot,
     tsconfigRelativePath,
@@ -1512,15 +1415,16 @@ async function compileWorkingTreeSourceProgramWithSession(
     revisionDigest: rawSha256(Buffer.from(exactSupersessionBaseline, 'utf8')),
     treeDigest: baselineTreeDigest
   });
-  const baselineSource = await revisionSourceProgramFiles(session, baselineEntries);
+  const baselineSnapshot = await acquireExactGitTreeWorkspaceSourceSnapshotFromSession({
+    session,
+    commitSha: exactSupersessionBaseline
+  });
   const cachedBaselineSupersessionEvidence = allowSupersessionEvidenceCache
     ? await readSupersessionEvidenceCache(repositoryRoot, baselineIdentity)
     : null;
   const baselineReconciliation = await compileRevisionSupersessionEvidence(
     repositoryRoot,
-    exactSupersessionBaseline,
-    baselineSource.files,
-    baselineSource.unknowns,
+    baselineSnapshot,
     baselineIdentity,
     dependencyGeneration,
     dependencyGenerationDigest,
@@ -2383,38 +2287,20 @@ async function auditRepositoryWithSession(
   }
   const entries = await revisionTreeEntries(session, head);
   const tracked = entries.map(({ path: repositoryPath }) => repositoryPath);
-  const {
-    bytesByPath,
-    contentCoverage,
-    textByPath
-  } = await revisionTextCandidates(session, entries);
-  const descriptorSources = tracked
-    .filter((repositoryPath) => path.posix.basename(repositoryPath) === 'sec.module.json')
-    .map((descriptorPath) => {
-      const source = textByPath.get(descriptorPath);
-      if (source === null || source === undefined) {
-        throw new Error(`Repository module descriptor is unreadable at ${head}: ${descriptorPath}`);
-      }
-      return { descriptorPath, source };
-    });
-  const moduleMembership = descriptorSources.length === 0
-    ? Object.freeze({
-        descriptors: Object.freeze([]),
-        graphRoots: Object.freeze([]),
-        moduleRoots: Object.freeze([]),
-        moduleForPath: () => null
-      })
-    : compileSecRepositoryModuleMembershipSnapshot({
-        repositoryFiles: tracked,
-        descriptorSources
-      });
-  if (descriptorSources.length === 0) {
-    unknowns.push('source program module ownership is unavailable: exact snapshot has no sec.module.json descriptors');
-  }
-  const workspaceSnapshot = acquireExactGitTreeWorkspaceSourceSnapshot({
-    repositoryRoot,
+  const workspaceSnapshot = await acquireExactGitTreeWorkspaceSourceSnapshotFromSession({
+    session,
     commitSha: head
   });
+  const {
+    bytesByPath,
+    contentCoverage: initialContentCoverage,
+    textByPath: initialTextByPath
+  } = await revisionTextCandidates(session, entries, workspaceSnapshot.files);
+  const textByPath = new Map(initialTextByPath);
+  const moduleMembership = workspaceSnapshot.moduleMembership;
+  if (moduleMembership.descriptors.length === 0) {
+    unknowns.push('source program module ownership is unavailable: exact snapshot has no sec.module.json descriptors');
+  }
   const projectInput = compileWorkspaceTypeScriptProjectInput(
     workspaceSnapshot,
     tsconfigRelativePath
@@ -2426,6 +2312,25 @@ async function auditRepositoryWithSession(
   });
   const moduleGraph = sourceProgramCompilation.workspaceSnapshot.moduleGraph;
   const sourceProgram = sourceProgramCompilation.model;
+  const contentCoverage = Object.freeze(initialContentCoverage.map((coverage) => {
+    if (coverage.status !== 'scanned' || !isJavaScriptOrTypeScriptTestPath(coverage.path)) {
+      return coverage;
+    }
+    const syntax = observeSourceProgramTypeScriptSyntax(
+      sourceProgramCompilation.typeScriptCompilation.model,
+      coverage.path
+    );
+    if (syntax.status === 'resolved' && syntax.syntax === 'valid') return coverage;
+    textByPath.set(coverage.path, null);
+    const reason = syntax.status === 'unresolved'
+      ? `test-syntax-unresolved:${syntax.reason}`
+      : `test-syntax-unresolved:${syntax.firstDiagnostic ?? 'invalid'}`;
+    return coverageResult(
+      entries.find(({ path: repositoryPath }) => repositoryPath === coverage.path)!,
+      'unknown',
+      reason
+    );
+  }));
   const declarationTopology = compileSourceProgramDeclarationTopology(sourceProgramCompilation);
   const architecture = compileRepositoryModuleArchitectureAdmission(
     moduleGraph,
