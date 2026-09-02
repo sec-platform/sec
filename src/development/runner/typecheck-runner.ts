@@ -1,12 +1,5 @@
 import path from 'node:path';
 import {
-  compileRepositorySourceProgramCompilationWithCache
-} from '../../brownfield/source-program-model/repository-compilation-cache-composition.ts';
-import {
-  assertRepositorySourceProgramCompilationReceipt,
-  type RepositorySourceProgramCompilationReceipt
-} from '../../brownfield/source-program-model/repository-compilation.ts';
-import {
   acquireWorkingTreeWorkspaceSourceSnapshot,
   assertWorkspaceTypeScriptProjectGenerationEvidence,
   assertWorkspaceTypeScriptProjectInput,
@@ -658,8 +651,6 @@ type TypecheckProjectActionIdentity = Readonly<{
 
 type TypecheckMaterializedProjectGeneration = Readonly<{
   evidence: WorkspaceTypeScriptProjectGenerationEvidence;
-  repositoryCompilation: RepositorySourceProgramCompilationReceipt | null;
-  repositoryCompilationCacheSessionDigest: `sha256:${string}` | null;
 }>;
 
 type TypecheckProjectGenerationSource = Readonly<{
@@ -1074,6 +1065,7 @@ async function executeObservedTypecheckWithProvider(
     deadlineAtUnixMs: operation.deadlineAtUnixMs,
     ...(operation.signal === undefined ? {} : { signal: operation.signal }),
     executor: async ({ action, recordSubordinateSettlement }) => {
+      const setupStartedAtMonotonicMs = performance.now();
       if (dependencyGeneration === null) {
         dependencyGeneration = await retainTypeScriptDependencyGeneration(
           dependencies.executionGenerationAuthority,
@@ -1104,24 +1096,7 @@ async function executeObservedTypecheckWithProvider(
       const materializedProjectGeneration = projectGeneration.materialize(dependencyGeneration);
       const projectGenerationEvidence = materializedProjectGeneration.evidence;
       assertWorkspaceTypeScriptProjectGenerationEvidence(projectGenerationEvidence);
-      const repositoryCompilation = materializedProjectGeneration.repositoryCompilation;
-      if (repositoryCompilation !== null) {
-        assertRepositorySourceProgramCompilationReceipt(repositoryCompilation);
-      }
       const projectInput = projectGenerationEvidence.projectInput;
-      if (repositoryCompilation !== null
-          && (repositoryCompilation.projectGeneration.projectInputDigest
-            !== projectInput.projectInputDigest
-            || repositoryCompilation.projectGeneration.projectConfigDigest
-              !== projectInput.projectConfigDigest
-            || repositoryCompilation.projectGeneration.workspaceSnapshotIdentityDigest
-              !== projectInput.workspaceSnapshotIdentityDigest)) {
-        throw new Error('Typecheck received a foreign Source Program project generation.');
-      }
-      if ((repositoryCompilation === null)
-          !== (materializedProjectGeneration.repositoryCompilationCacheSessionDigest === null)) {
-        throw new Error('Typecheck Source Program cache settlement is incomplete.');
-      }
       const materializedProjectIdentity = projectActionIdentityFromInput(projectInput);
       if (materializedProjectIdentity.projectInputDigest !== projectGeneration.identity.projectInputDigest
           || materializedProjectIdentity.projectConfigDigest !== projectGeneration.identity.projectConfigDigest) {
@@ -1144,7 +1119,6 @@ async function executeObservedTypecheckWithProvider(
       }
       const executionGenerationDigest = typeScriptExecutionGenerationDigest(projectGenerationEvidence);
       operation.assertActive('Source Program ProjectInput materialization settlement');
-      const setupStartedAtMonotonicMs = performance.now();
       const elapsedMs = (startedAtMonotonicMs: number): number => Math.max(
         0,
         Math.round(performance.now() - startedAtMonotonicMs)
@@ -1157,10 +1131,6 @@ async function executeObservedTypecheckWithProvider(
         diagnosticArguments,
         projectConfig: projectInput.projectConfigDigest,
         projectInput: projectInput.projectInputDigest,
-        sourceProgramProjectGeneration:
-          repositoryCompilation?.projectGeneration.generationDigest ?? null,
-        sourceProgramCacheSession:
-          materializedProjectGeneration.repositoryCompilationCacheSessionDigest,
         workspaceSnapshotIdentity: projectInput.workspaceSnapshotIdentityDigest,
         providerBinding: provider.toolchainBindingDigest,
         semanticCapabilityBinding: semanticOperation.bindingSetIdentityDigest,
@@ -1742,9 +1712,7 @@ async function executeTypecheckWithProjectGeneration(
     Object.freeze({
       identity: projectActionIdentityFromInput(projectGenerationEvidence.projectInput),
       materialize: () => Object.freeze({
-        evidence: projectGenerationEvidence,
-        repositoryCompilation: null,
-        repositoryCompilationCacheSessionDigest: null
+        evidence: projectGenerationEvidence
       })
     })
   );
@@ -1825,21 +1793,8 @@ async function executeTypecheckWithRetainedProvider(
             }
           );
           operation.assertActive('Source Program ProjectInput compilation settlement');
-          const cacheConsumption = compileRepositorySourceProgramCompilationWithCache({
-            repositoryRoot: compilerRoot,
-            deadlineAtUnixMs: operation.deadlineAtUnixMs,
-            workspaceSnapshot: snapshot,
-            projectInput
-          });
-          operation.assertActive('Source Program repository compilation settlement');
           return Object.freeze({
-            evidence: issueWorkspaceTypeScriptProjectGenerationEvidence(
-              snapshot,
-              projectInput
-            ),
-            repositoryCompilation: cacheConsumption.compilation,
-            repositoryCompilationCacheSessionDigest:
-              cacheConsumption.cacheSession.receiptDigest
+            evidence: issueWorkspaceTypeScriptProjectGenerationEvidence(snapshot, projectInput)
           });
         }
       });
