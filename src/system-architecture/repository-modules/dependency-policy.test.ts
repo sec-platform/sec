@@ -1,9 +1,9 @@
 import { expect, test } from 'bun:test';
 import nodePath from 'node:path';
 
+import { compileSecRepositoryModuleGraph } from '../../brownfield/source-program-model/typescript.ts';
 import {
   collectSecRepositoryModuleBoundaryViolations,
-  compileSecRepositoryModuleGraph,
   parseSecModuleDescriptor,
   type SecRepositoryModuleBoundaryViolationCode,
   type SecRepositoryModuleMembership

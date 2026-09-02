@@ -3,7 +3,6 @@ import path from 'node:path';
 import ts from 'typescript';
 
 import { compareCodeUnits, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { resolveSecRepositoryModuleImportCandidates } from '../../system-architecture/repository-modules/contract.ts';
 import { isSecRepositoryTestModulePath } from '../../system-architecture/repository-modules/test-module-path.ts';
 import type {
   SourceProgramFileInput,
@@ -11,6 +10,7 @@ import type {
   SourceProgramSpan,
   SourceProgramSupersessionReceipt
 } from './contract.ts';
+import { resolveSecRepositoryModuleImportCandidates } from './module-graph.ts';
 import {
   sourceProgramTestObservationsForFiles,
   type SourceProgramTestSemanticClass

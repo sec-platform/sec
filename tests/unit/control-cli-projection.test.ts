@@ -9,6 +9,7 @@ import {
 } from '../../src/brownfield/repository-audit/cli.ts';
 import { compileSourceProgramDeclarationTopology } from '../../src/brownfield/source-program-model/declaration-topology.ts';
 import { compileVirtualRepositorySourceProgramCompilation } from '../../src/brownfield/source-program-model/repository-compilation.ts';
+import { compileSecRepositoryModuleGraph } from '../../src/brownfield/source-program-model/typescript.ts';
 import { compileVirtualWorkspaceSourceSnapshot } from '../../src/brownfield/source-program-model/workspace-source-snapshot.ts';
 import {
   projectDocumentControlPlaneStatusCli
@@ -19,7 +20,6 @@ import { projectSecWorkSelectionCli } from '../../src/control/work-selection/run
 import { shouldReportDevRunnerSuccess } from '../../src/development/runner/cli.ts';
 import { rawSha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
 import {
-  compileSecRepositoryModuleGraph,
   compileSecRepositoryModuleMembershipSnapshot,
   compileSecRepositoryModuleTopologyProjection,
   parseSecModuleDescriptor,

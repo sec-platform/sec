@@ -6,7 +6,6 @@
       "capability": "repository-module-graph",
       "operations": [
         "assertSecRepositoryModuleImportBoundaries",
-        "compileSecRepositoryModuleGraph",
         "compileSecRepositoryModuleMembershipSnapshot"
       ]
     }

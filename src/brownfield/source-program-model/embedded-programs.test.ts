@@ -1,12 +1,12 @@
 import { expect, test } from 'bun:test';
 
 import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { compileSecRepositoryModuleGraph } from '../../system-architecture/repository-modules/contract.ts';
 import {
   compileSourceProgramEmbeddedWorkflowPrograms,
   sourceProgramModuleImports
 } from './embedded-programs.ts';
 import { compileRepositorySourceProgramModel } from './repository.ts';
+import { compileSecRepositoryModuleGraph } from './typescript.ts';
 
 const workflowPath = '.github/workflows/embedded-program.test.yml';
 const workflowSource = `name: embedded-program
@@ -130,9 +130,9 @@ test('repository model projects embedded programs through existing entrypoint, c
   ]));
 });
 
-test('ordinary TypeScript keeps the canonical module scanner', () => {
+test('embedded frontend never becomes a second ordinary TypeScript scanner', () => {
   expect(sourceProgramModuleImports(
     'src/example.ts',
     "import { value } from './value.ts';\nexport { value };\n"
-  )).toEqual([{ kind: 'static', specifier: './value.ts', typeOnly: false }]);
+  )).toEqual([]);
 });

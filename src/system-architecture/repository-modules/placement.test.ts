@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
+import { compileSecRepositoryModuleGraph } from '../../brownfield/source-program-model/typescript.ts';
 import {
-  compileSecRepositoryModuleGraph,
   type SecModuleDescriptor,
   type SecModuleOperationObligation,
   type SecRepositoryModuleMembership,

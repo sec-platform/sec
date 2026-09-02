@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import nodePath from 'node:path';
-import ts from 'typescript';
 
 import { compileClosedDirectedGraphStrongComponents } from '../foundation/runtime/directed-graph.ts';
 import { parseExactJson } from '../foundation/runtime/exact-json.ts';
@@ -155,16 +154,21 @@ export type SecModuleOperationObligation = Readonly<{
   }>;
 }>;
 
-export type SecModuleImportKind =
-  | 'static'
-  | 'dynamic'
-  | 'require';
+/**
+ * Consumer-side projection required by repository architecture.  The Source
+ * Program owns observation and assembly; this package owns only the shape it
+ * can evaluate, so architecture never imports the Brownfield compiler.
+ */
+export type SecModuleImportKind = 'static' | 'dynamic' | 'require';
 
 export type SecRepositoryModuleGraphImport = Readonly<{
   readonly kind: SecModuleImportKind;
   readonly specifier: string;
   readonly typeOnly: boolean;
 }>;
+
+export type SecRepositoryModuleGraphImportObservation =
+  SecRepositoryModuleGraphImport & Readonly<{ readonly from: string }>;
 
 export type SecRepositoryModuleGraphReference = Readonly<{
   readonly from: string;
@@ -383,21 +387,6 @@ export type SecRepositoryModuleArchitectureProjection = Readonly<{
   /** The only responsibility authority: one decision per production node. */
   readonly nodeResponsibilities: readonly SecRepositoryNodeResponsibilityProjection[];
   readonly violations: readonly SecRepositoryModuleBoundaryViolation[];
-}>;
-
-export type SecRepositoryModuleGraphCompileInput = Readonly<{
-  readonly files: readonly string[];
-  /** Return null for an unavailable source. Empty source is a valid source. */
-  readonly readSource: (moduleFile: string) => string | null;
-  /**
-   * Optional cache seam. The parser remains owned by this module; callers may
-   * cache its returned records without implementing another parser.
-   */
-  readonly readImports?: (
-    moduleFile: string,
-    source: string
-  ) => readonly SecRepositoryModuleGraphImport[];
-  readonly unresolvedFiles?: readonly string[];
 }>;
 
 export type SecRepositoryModuleMembership = Readonly<{
@@ -1094,7 +1083,7 @@ function normalizeRepositoryPath(value: string): string {
   return normalizeSecRepositoryPath(value);
 }
 
-function isTestOnlyRepositoryModulePath(value: string): boolean {
+export function isTestOnlyRepositoryModulePath(value: string): boolean {
   const normalized = normalizeSecRepositoryPath(value);
   return isSecRepositoryTestModulePath(normalized)
     || normalized.startsWith('tests/')
@@ -1110,127 +1099,6 @@ function absolutePathWithinRepository(repositoryRoot: string, relativePath: stri
   return absolute;
 }
 
-/**
- * The only import scanner exposed to downstream graph consumers.  It keeps
- * the cache seam typed while preventing test-impact or another projection from
- * growing a second source parser.
- */
-export function scanSecRepositoryModuleImports(
-  source: string
-): readonly SecRepositoryModuleGraphImport[] {
-  const sourceFile = ts.createSourceFile(
-    'repository-module.ts',
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS
-  );
-  const imports: SecRepositoryModuleGraphImport[] = [];
-  const add = (kind: SecModuleImportKind, specifier: string, typeOnly = false): void => {
-    imports.push(Object.freeze({ kind, specifier, typeOnly }));
-  };
-  for (const reference of [
-    ...sourceFile.referencedFiles,
-    ...sourceFile.typeReferenceDirectives,
-    ...sourceFile.libReferenceDirectives
-  ]) add('static', reference.fileName, true);
-  const visit = (node: ts.Node): void => {
-    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
-        && node.moduleSpecifier !== undefined && ts.isStringLiteralLike(node.moduleSpecifier)) {
-      const typeOnly = ts.isImportDeclaration(node)
-        ? node.importClause !== undefined && (
-            node.importClause.isTypeOnly
-            || (node.importClause.name === undefined
-              && node.importClause.namedBindings !== undefined
-              && ts.isNamedImports(node.importClause.namedBindings)
-              && node.importClause.namedBindings.elements.length > 0
-              && node.importClause.namedBindings.elements.every((element) => element.isTypeOnly))
-          )
-        : node.isTypeOnly || (
-            node.exportClause !== undefined
-            && ts.isNamedExports(node.exportClause)
-            && node.exportClause.elements.length > 0
-            && node.exportClause.elements.every((element) => element.isTypeOnly)
-          );
-      add('static', node.moduleSpecifier.text, typeOnly);
-    } else if (ts.isImportEqualsDeclaration(node)
-        && ts.isExternalModuleReference(node.moduleReference)
-        && node.moduleReference.expression !== undefined
-        && ts.isStringLiteralLike(node.moduleReference.expression)) {
-      add('require', node.moduleReference.expression.text, node.isTypeOnly);
-    } else if (ts.isCallExpression(node) && node.arguments.length > 0
-        && ts.isStringLiteralLike(node.arguments[0]!)) {
-      if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
-        add('dynamic', node.arguments[0]!.text);
-      } else if (ts.isIdentifier(node.expression) && node.expression.text === 'require') {
-        add('require', node.arguments[0]!.text);
-      }
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-  const unique = new Map<string, SecRepositoryModuleGraphImport>();
-  for (const reference of imports) {
-    const key = `${reference.kind}\0${reference.specifier}`;
-    const existing = unique.get(key);
-    if (existing === undefined || (existing.typeOnly && !reference.typeOnly)) {
-      unique.set(key, reference);
-    }
-  }
-  return Object.freeze([...unique.values()].sort((left, right) => (
-    left.specifier < right.specifier ? -1
-      : left.specifier > right.specifier ? 1
-        : left.kind < right.kind ? -1 : left.kind > right.kind ? 1 : 0
-  )));
-}
-
-/**
- * Resolve import candidates without touching the filesystem.  Existing-file
- * selection belongs to the graph compiler's supplied `files` snapshot; all
- * candidate paths are retained so a removed target still affects consumers.
- */
-export function resolveSecRepositoryModuleImportCandidates(
-  sourcePath: string,
-  specifier: string
-): readonly string[] {
-  if (!specifier.startsWith('.')) return Object.freeze([]);
-  const base = normalizeSecRepositoryPath(nodePath.posix.join(
-    nodePath.posix.dirname(normalizeSecRepositoryPath(sourcePath)),
-    specifier
-  ));
-  const extension = nodePath.posix.extname(base);
-  if (/^\.(?:[cm]?tsx?)$/u.test(extension)) return Object.freeze([base]);
-  if (/^\.(?:[cm]?jsx?)$/u.test(extension)) {
-    const stem = base.slice(0, -extension.length);
-    return Object.freeze([...new Set([
-      base,
-      `${stem}.ts`,
-      `${stem}.tsx`,
-      `${stem}.mts`,
-      `${stem}.cts`
-    ])].sort((left, right) => left.localeCompare(right, 'en-US')));
-  }
-  if (extension) return Object.freeze([base]);
-  return Object.freeze([
-    `${base}.ts`,
-    `${base}.tsx`,
-    `${base}.mts`,
-    `${base}.cts`,
-    `${base}.js`,
-    `${base}.jsx`,
-    `${base}.mjs`,
-    `${base}.cjs`,
-    `${base}/index.ts`,
-    `${base}/index.tsx`,
-    `${base}/index.mts`,
-    `${base}/index.cts`
-  ]);
-}
-
-function requiresLocalModuleResolution(specifier: string): boolean {
-  return specifier.startsWith('.');
-}
-
 function isCanonicalSecRepositoryModulePath(value: string): boolean {
   return value.length > 0
     && !value.includes('\0')
@@ -1243,128 +1111,16 @@ function isCanonicalSecRepositoryModulePath(value: string): boolean {
     && normalizeSecRepositoryPath(value) === value;
 }
 
-/**
- * Compile one deterministic import graph from an already observed source
- * snapshot.  This is the graph owner consumed by test-impact and any future
- * reverse projection.  The optional import reader is cache-only: it must
- * return records produced by `scanSecRepositoryModuleImports`.
- */
-export function compileSecRepositoryModuleGraph(
-  input: SecRepositoryModuleGraphCompileInput
-): SecRepositoryModuleGraph {
-  const files = Object.freeze([...new Set(input.files.map((file) => {
-    const normalized = normalizeSecRepositoryPath(file);
-    if (isRetiredRepositoryRootPath(normalized)) {
-      throw new Error(`repository module graph path uses a retired repository root: ${file}`);
-    }
-    if (!isCanonicalSecRepositoryModulePath(normalized)) {
-      throw new Error(`repository module graph path is not canonical: ${file}`);
-    }
-    return normalized;
-  }))].sort((left, right) => left.localeCompare(right, 'en-US')));
-  const fileSet = new Set(files);
-  const unresolvedFiles = new Set<string>(
-    (input.unresolvedFiles ?? []).map(normalizeSecRepositoryPath)
-  );
-  const references: SecRepositoryModuleGraphReference[] = [];
-  const reverseConsumers = new Map<string, string[]>();
-  const forwardDependencies = new Map<string, Set<string>>();
-  const runtimeForwardDependencies = new Map<string, Set<string>>();
-  for (const moduleFile of files) {
-    const source = input.readSource(moduleFile);
-    if (source === null) {
-      unresolvedFiles.add(moduleFile);
-      continue;
-    }
-    let imports: readonly SecRepositoryModuleGraphImport[];
-    try {
-      imports = input.readImports === undefined
-        ? scanSecRepositoryModuleImports(source)
-        : input.readImports(moduleFile, source);
-    } catch {
-      unresolvedFiles.add(moduleFile);
-      continue;
-    }
-    const uniqueImports = new Map<string, SecRepositoryModuleGraphImport>();
-    for (const reference of imports) {
-      uniqueImports.set(`${reference.kind}\0${reference.specifier}`, reference);
-    }
-    for (const reference of uniqueImports.values()) {
-      const candidates = resolveSecRepositoryModuleImportCandidates(
-        moduleFile,
-        reference.specifier
-      );
-      const retiredCandidate = candidates.find(isRetiredRepositoryRootPath);
-      if (retiredCandidate !== undefined) {
-        throw new Error(
-          `repository module import targets a retired repository root: `
-          + `${moduleFile} -> ${retiredCandidate}`
-        );
-      }
-      const local = reference.specifier.startsWith('.');
-      if (local && candidates.some((candidate) => !isCanonicalSecRepositoryModulePath(candidate))) {
-        unresolvedFiles.add(moduleFile);
-      }
-      const resolvedTarget = candidates.find((candidate) => fileSet.has(candidate)) ?? null;
-      if (resolvedTarget !== null
-          && isTestOnlyRepositoryModulePath(resolvedTarget)
-          && !isTestOnlyRepositoryModulePath(moduleFile)) {
-        throw new Error(
-          `production repository module imports test-only module: ${moduleFile} -> ${resolvedTarget}`
-        );
-      }
-      if (local
-          && resolvedTarget === null
-          && requiresLocalModuleResolution(reference.specifier)) {
-        unresolvedFiles.add(moduleFile);
-      }
-      const graphReference = Object.freeze({
-        from: moduleFile,
-        kind: reference.kind,
-        specifier: reference.specifier,
-        typeOnly: reference.typeOnly,
-        candidateTargets: Object.freeze([...new Set(candidates)].sort((left, right) => left.localeCompare(right, 'en-US'))),
-        resolvedTarget
-      });
-      references.push(graphReference);
-      if (resolvedTarget !== null) {
-        const dependencies = forwardDependencies.get(moduleFile) ?? new Set<string>();
-        dependencies.add(resolvedTarget);
-        forwardDependencies.set(moduleFile, dependencies);
-        if (!reference.typeOnly) {
-          const runtimeDependencies = runtimeForwardDependencies.get(moduleFile) ?? new Set<string>();
-          runtimeDependencies.add(resolvedTarget);
-          runtimeForwardDependencies.set(moduleFile, runtimeDependencies);
-        }
-      }
-      for (const candidate of graphReference.candidateTargets) {
-        const consumers = reverseConsumers.get(candidate) ?? [];
-        if (!consumers.includes(moduleFile)) consumers.push(moduleFile);
-        reverseConsumers.set(candidate, consumers);
-      }
-    }
+/** Canonical consumer-side address policy shared by graph producers. */
+export function assertSecRepositoryModuleGraphPath(value: string): string {
+  const normalized = normalizeSecRepositoryPath(value);
+  if (isRetiredRepositoryRootPath(normalized)) {
+    throw new Error(`repository module graph path uses a retired repository root: ${value}`);
   }
-  for (const consumers of reverseConsumers.values()) consumers.sort((left, right) => left.localeCompare(right, 'en-US'));
-  references.sort((left, right) => (
-    left.from.localeCompare(right.from, 'en-US')
-    || left.specifier.localeCompare(right.specifier, 'en-US')
-    || left.kind.localeCompare(right.kind, 'en-US')
-  ));
-  const frozenReferences = Object.freeze(references);
-  return Object.freeze({
-    files,
-    references: frozenReferences,
-    unresolvedFiles: Object.freeze([...unresolvedFiles].sort((left, right) => left.localeCompare(right, 'en-US'))),
-    directConsumers: (modulePath) => Object.freeze([
-      ...(reverseConsumers.get(normalizeSecRepositoryPath(modulePath)) ?? [])
-    ]),
-    directDependencies: (modulePath) => Object.freeze([
-      ...(forwardDependencies.get(normalizeSecRepositoryPath(modulePath)) ?? [])
-    ].sort((left, right) => left.localeCompare(right, 'en-US'))),
-    directRuntimeDependencies: (modulePath) => Object.freeze([
-      ...(runtimeForwardDependencies.get(normalizeSecRepositoryPath(modulePath)) ?? [])
-    ].sort((left, right) => left.localeCompare(right, 'en-US')))
-  });
+  if (!isCanonicalSecRepositoryModulePath(normalized)) {
+    throw new Error(`repository module graph path is not canonical: ${value}`);
+  }
+  return normalized;
 }
 
 function repositoryModuleTextOrder(left: string, right: string): number {

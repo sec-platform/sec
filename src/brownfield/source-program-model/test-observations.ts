@@ -4,7 +4,6 @@ import ts from 'typescript';
 
 import { compareCodeUnits, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import {
-  compileSecRepositoryModuleGraph,
   type SecRepositoryModuleGraph,
   type SecRepositoryModuleMembership
 } from '../../system-architecture/repository-modules/contract.ts';
@@ -27,6 +26,7 @@ import {
   type SourceProgramUnknown
 } from './contract.ts';
 import {
+  compileSecRepositoryModuleGraph,
   isCompiledTypeScriptSourceProgramModel,
   sourceProgramTypeScriptSourceFile,
   workspaceSourceSnapshotIdentityForTypeScriptModel
