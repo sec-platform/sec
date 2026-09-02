@@ -11,7 +11,7 @@ import {
   isRuntimeDependencyMaterializationBinding,
   RUNTIME_DEPENDENCY_PACKAGE_NAMES,
   type RootPackageJson
-} from '../../src/toolchain/dependencies/spec.ts';
+} from '../../src/toolchain/dependencies/contract/runtime-dependency-spec.ts';
 
 function rootPackage(): RootPackageJson {
   return {

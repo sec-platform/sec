@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 
 import {
   assertDependencyCapabilityClosure
-} from '../../src/toolchain/dependencies/spec.ts';
+} from '../../src/toolchain/dependencies/contract/dependency-capability-contract.ts';
 import { readCompilerPackageJson } from '../helpers/compiler-fixtures.ts';
 
 test('the runtime dependency projection exactly covers the root package manifest', async () => {

@@ -7,7 +7,7 @@ import {
   loadRuntimeDependencySpec,
   RUNTIME_DEPENDENCY_PACKAGE_NAMES,
   RUNTIME_DEPS_PREBOUND_BINDING_FILE
-} from '../../src/toolchain/dependencies/spec.ts';
+} from '../../src/toolchain/dependencies/contract/runtime-dependency-spec.ts';
 import {
   ensureProjectDependencies,
   ensureSharedDepsReady,
