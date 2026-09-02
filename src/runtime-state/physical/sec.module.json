@@ -53,8 +53,7 @@
         "settlePhysicalResourcesAsync"
       ],
       "effectKinds": [
-        "filesystem",
-        "process"
+        "filesystem"
       ],
       "ownerInternalOperations": [
         "openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot"
@@ -125,6 +124,18 @@
           {
             "resource": "duration-ms",
             "maximum": 180000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 0
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 1
+          },
+          {
+            "resource": "processes",
+            "maximum": 8
           },
           {
             "resource": "records",
