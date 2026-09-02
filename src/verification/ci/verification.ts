@@ -14,6 +14,7 @@ import {
   rmSync, writeFileSync
 } from 'node:fs';
 import path from 'node:path';
+import { uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
@@ -27,16 +28,23 @@ import {
   type SecOperationDigest
 } from '../../system-architecture/operation/semantic.ts';
 
+import type { PhysicalWorkspaceSourceSnapshot } from '../../brownfield/source-program-model/workspace-source-snapshot.ts';
 import {
   CodexDevelopmentParseCurrentWorkPackageManifest,
   CodexDevelopmentWorkPackageManifestDigest, type CodexDevelopmentWorkPackageManifest
 } from '../../control/task/contract/work-package.ts';
 import { DEV_RUNNER_ENTRYPOINT_PATH } from '../../development/runner/contract.ts';
 import {
-  CodexDevelopmentReadExactGitBlob,
+  withAuthorityGitReadOperation,
+  type AuthorityGitReadOperation
+} from '../../external-capabilities/git-read/authority.ts';
+import {
   type CodexDevelopmentExactGitBlobReadOptions
 } from '../../external-capabilities/git-read/exact-blob.ts';
-import { type GitBlobBytes } from '../../external-capabilities/git-read/runtime/session.ts';
+import {
+  GIT_READ_EXACT_TREE_OPERATION_BUDGET,
+  type GitBlobBytes
+} from '../../external-capabilities/git-read/runtime/session.ts';
 import { assertSameNoFollowDirectoryIdentity, inspectNoFollowDirectoryChain, scanNoFollowDirectoryTreeInventory, type NoFollowDirectoryTreeInventoryEntry, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { assertProcessResourceSessionReceipt } from '../../runtime-state/physical/runtime/process-resource-session.ts';
 import { encodeVerificationActionData, issueProcessVerificationActionTerminalSettlement, issueVerificationActionOwnerTerminalReceipt, isVerificationActionRunnable, parseVerificationActionPlan, type VerificationActionDependencyResolution, type VerificationActionKeyDigest, type VerificationActionPlan } from '../action/contract/action.ts';
@@ -54,6 +62,7 @@ import {
 } from '../action/runner.ts';
 import { CI_VERIFICATION_CONTRACT_REVISION, CI_VERIFICATION_WORKFLOW_PATH } from '../contract/revision.ts';
 import { CodexDevelopmentBuildVerificationGateResult, type VerificationGateResult } from '../result/contract/result.ts';
+import type { CodexDevelopmentTestImpactSourceProvider } from '../test-impact/runtime/impact.ts';
 import type { CodexDevelopmentGitChangedRecord, CodexDevelopmentTestImpactTransitionObservation } from '../test-impact/runtime/transition.ts';
 import { CodexDevelopmentAssertTestImpactTransitionSelection } from '../test-impact/runtime/transition.ts';
 import {
@@ -94,6 +103,7 @@ import {
 import {
   assertCiExpectedHead,
   CodexDevelopmentBuildVerificationPlan,
+  type CodexDevelopmentVerificationPlan,
   type CodexDevelopmentVerificationPlanProfile
 } from './contract/plan.ts';
 import {
@@ -111,9 +121,12 @@ import {
   CodexDevelopmentDefaultChangedPaths,
   CodexDevelopmentDefaultGitRevision,
   CodexDevelopmentDefaultTrackedTreeIsClean,
-  CodexDevelopmentExactGitTestImpactSourceProvider,
+  CodexDevelopmentExactGitWorkspaceSourceSnapshot,
   CodexDevelopmentFailureTail,
+  CodexDevelopmentReadExactGitBlobs,
   CodexDevelopmentRunGateProcess,
+  CodexDevelopmentTestImpactSourceProviderFromSnapshot,
+  type CodexDevelopmentChangedPathSnapshot,
   type CodexDevelopmentGateExecutionObservation,
   type CodexDevelopmentGateProcessResult,
   type CodexDevelopmentGateProcessSettlement
@@ -3647,7 +3660,7 @@ export function CodexDevelopmentComposeHostedEvidence(input: Readonly<{
   return Object.freeze({ coordination, evidence });
 }
 
-export type CodexDevelopmentCiVerificationMainOptions = {
+export type CodexDevelopmentCiVerificationTestOptions = {
   argv?: string[];
   env?: NodeJS.ProcessEnv;
   now?: () => Date;
@@ -3671,7 +3684,11 @@ export type CodexDevelopmentCiVerificationMainOptions = {
     result: VerificationGateResult;
     evidenceRefs: readonly string[];
   }> | null;
-  readExactGitBlob?: typeof CodexDevelopmentReadExactGitBlob;
+  readExactGitBlob?: (options: CodexDevelopmentExactGitBlobReadOptions) => GitBlobBytes;
+  /** Owner-issued test seam; production CLI always acquires the exact candidate projection. */
+  testImpactSourceProvider?: CodexDevelopmentTestImpactSourceProvider;
+  /** Test-only pure plan seam; never exposed by the production CLI entry. */
+  testVerificationPlan?: CodexDevelopmentVerificationPlan;
 };
 
 export interface CodexDevelopmentCiActionExecution {
@@ -3884,7 +3901,7 @@ export async function CodexDevelopmentExecuteCiActionClosure(options: {
     }>
   ) => Promise<CodexDevelopmentGateProcessSettlement>;
   readonly actionRunner?: VerificationActionRunner;
-  readonly readDurableActionResult?: CodexDevelopmentCiVerificationMainOptions['readDurableActionResult'];
+  readonly readDurableActionResult?: CodexDevelopmentCiVerificationTestOptions['readDurableActionResult'];
 }): Promise<CodexDevelopmentCiActionExecution> {
   const actionPlan = parseCiVerificationActionPlanClosure(
     encodeVerificationActionData(options.actionPlan)
@@ -4165,25 +4182,6 @@ function parseProfile(argv: string[]): { profile: CodexDevelopmentVerificationPl
   return { profile, expectedHead };
 }
 
-function defaultReadGitBlob(
-  repositoryRoot: string,
-  readExactGitBlob: (
-    options: CodexDevelopmentExactGitBlobReadOptions
-  ) => ReturnType<typeof CodexDevelopmentReadExactGitBlob>,
-  ref: string,
-  file: string
-): GitBlobBytes | null {
-  try {
-    return readExactGitBlob({
-      repositoryRoot,
-      commitSha: ref,
-      repositoryPath: file
-    });
-  } catch {
-    return null;
-  }
-}
-
 function notRunGate(step: CiVerificationGateStep): CodexDevelopmentGateExecutionObservation {
   return CodexDevelopmentCreateNotRunGate({
     id: step.id,
@@ -4199,23 +4197,20 @@ type ManifestBinding = {
 
 function manifestBinding(
   env: NodeJS.ProcessEnv,
-  repositoryRoot: string,
-  headSha: string,
-  readExactGitBlob: (
-    options: CodexDevelopmentExactGitBlobReadOptions
-  ) => ReturnType<typeof CodexDevelopmentReadExactGitBlob>
+  sourceBlob: GitBlobBytes | null
 ): ManifestBinding {
   const manifestPath = env.SEC_WORK_PACKAGE_MANIFEST_PATH;
   if (!manifestPath) return { manifestPath: null, manifestDigest: null, manifest: null };
   if (!/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(manifestPath)) {
     throw new Error('SEC_WORK_PACKAGE_MANIFEST_PATH must be a canonical repository-relative Work Package path.');
   }
-  const source = readExactGitBlob({
-    repositoryRoot,
-    commitSha: headSha,
-    maxBytes: 1024 * 1024,
-    repositoryPath: manifestPath
-  }).bytes;
+  if (sourceBlob === null) {
+    throw new Error(`Work Package manifest is unavailable at the exact candidate: ${manifestPath}.`);
+  }
+  const source = sourceBlob.bytes;
+  if (source.byteLength > 1024 * 1024) {
+    throw new Error('Work Package manifest exceeds its canonical byte limit.');
+  }
   const text = new TextDecoder('utf-8', { fatal: true }).decode(source);
   const manifest = CodexDevelopmentParseCurrentWorkPackageManifest(text, manifestPath);
   return {
@@ -4231,23 +4226,19 @@ function afterRetention(date: Date): string {
   ).toISOString();
 }
 
-export async function CodexDevelopmentCiVerificationMain(
-  options: CodexDevelopmentCiVerificationMainOptions = {}
+async function runCodexDevelopmentCiVerification(
+  options: CodexDevelopmentCiVerificationTestOptions,
+  gitOperation: AuthorityGitReadOperation
 ): Promise<number> {
   const argv = options.argv ?? process.argv.slice(2);
   const env = options.env ?? process.env;
   const now = options.now ?? (() => new Date());
   const repositoryRoot = path.resolve(options.repositoryRoot ?? process.cwd());
-  const readExactGitBlob = options.readExactGitBlob ?? CodexDevelopmentReadExactGitBlob;
-  const gitRevision = options.gitRevision
-    ?? ((ref: string) => CodexDevelopmentDefaultGitRevision(repositoryRoot, ref));
-  const trackedTreeIsClean = options.trackedTreeIsClean
-    ?? (() => CodexDevelopmentDefaultTrackedTreeIsClean(repositoryRoot));
+  const gitRevision = options.gitRevision;
+  const trackedTreeIsClean = options.trackedTreeIsClean;
   const changedFileResolver = options.changedFiles;
   const changedRecordResolver = options.changedRecords;
-  const readGitBlob = options.readGitBlob
-    ?? ((ref: string, file: string) =>
-      defaultReadGitBlob(repositoryRoot, readExactGitBlob, ref, file));
+  const readGitBlob = options.readGitBlob;
   const runGate = options.runGate
     ?? ((step, execution) => CodexDevelopmentRunGateProcess(repositoryRoot, step, execution));
   const writeEvidence = options.writeEvidence;
@@ -4276,6 +4267,10 @@ export async function CodexDevelopmentCiVerificationMain(
   let stage = 'argv';
   let binding: ManifestBinding = { manifestPath: null, manifestDigest: null, manifest: null };
   let initializationFailure: string | null = null;
+  let defaultChangedSnapshot: CodexDevelopmentChangedPathSnapshot | null = null;
+  let defaultBaseTreeSha: string | null = null;
+  let exactCandidateBlobs: ReadonlyMap<string, GitBlobBytes> = new Map();
+  let exactWorkspaceSnapshot: PhysicalWorkspaceSourceSnapshot | null = null;
 
   try {
     CodexDevelopmentPrepareVerificationEvidenceTarget(evidencePath);
@@ -4286,11 +4281,102 @@ export async function CodexDevelopmentCiVerificationMain(
     try {
       started = now();
       startedAt = started.toISOString();
-      headSha = gitRevision('HEAD');
-      treeSha = gitRevision('HEAD^{tree}');
-      prBaseSha = gitRevision(prBaseRef);
-      affectedBaseSha = gitRevision(affectedBaseRef);
-      cleanBefore = trackedTreeIsClean();
+      if (gitRevision !== undefined) {
+        headSha = gitRevision('HEAD');
+        treeSha = gitRevision('HEAD^{tree}');
+        prBaseSha = gitRevision(prBaseRef);
+        affectedBaseSha = gitRevision(affectedBaseRef);
+      }
+      if (trackedTreeIsClean !== undefined) cleanBefore = trackedTreeIsClean();
+      const requiresDefaultChangedObservation = changedRecordResolver === undefined
+        && changedFileResolver === undefined
+        && options.transitionObservation === undefined;
+      const manifestPath = env.SEC_WORK_PACKAGE_MANIFEST_PATH;
+      const exactBlobPaths = uniqueSorted([
+        ...(options.readGitBlob === undefined ? ['docs/work/active-work-package.md'] : []),
+        ...(options.readExactGitBlob === undefined
+          ? [
+              ...CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS,
+              ...(manifestPath === undefined ? [] : [manifestPath])
+            ]
+          : [])
+      ]);
+      const requiresGitPhase = gitRevision === undefined
+        || trackedTreeIsClean === undefined
+        || requiresDefaultChangedObservation
+        || (options.testVerificationPlan === undefined
+          && options.testImpactSourceProvider === undefined)
+        || exactBlobPaths.length > 0;
+      if (requiresGitPhase) {
+        const observed = await gitOperation.runPhase('preflight', async (session) => {
+            let observedHeadSha = headSha;
+            let observedTreeSha = treeSha;
+            let observedPrBaseSha = prBaseSha;
+            let observedAffectedBaseSha = affectedBaseSha;
+            let observedCleanBefore = cleanBefore;
+            let observedBaseTreeSha: string | null = null;
+            let observedChangedSnapshot: CodexDevelopmentChangedPathSnapshot | null = null;
+            if (gitRevision === undefined) {
+              observedHeadSha = await CodexDevelopmentDefaultGitRevision(session, 'HEAD');
+              observedTreeSha = await CodexDevelopmentDefaultGitRevision(session, 'HEAD^{tree}');
+              observedPrBaseSha = await CodexDevelopmentDefaultGitRevision(session, prBaseRef);
+              observedAffectedBaseSha = await CodexDevelopmentDefaultGitRevision(
+                session,
+                affectedBaseRef
+              );
+              observedBaseTreeSha = await CodexDevelopmentDefaultGitRevision(
+                session,
+                `${observedPrBaseSha}^{tree}`
+              );
+            }
+            if (trackedTreeIsClean === undefined) {
+              observedCleanBefore = await CodexDevelopmentDefaultTrackedTreeIsClean(session);
+            }
+            if (requiresDefaultChangedObservation
+                && observedPrBaseSha !== null
+                && observedHeadSha !== null) {
+              observedChangedSnapshot = await CodexDevelopmentDefaultChangedPaths(
+                session,
+                observedPrBaseSha,
+                observedHeadSha
+              );
+            }
+            if (observedHeadSha === null) {
+              throw new Error('CI Git preflight cannot acquire candidate inputs without an exact head.');
+            }
+            const observedExactBlobs = exactBlobPaths.length === 0
+              ? new Map<string, GitBlobBytes>()
+              : await CodexDevelopmentReadExactGitBlobs(
+                  session,
+                  observedHeadSha,
+                  exactBlobPaths
+                );
+            const observedWorkspaceSnapshot = options.testVerificationPlan === undefined
+                && options.testImpactSourceProvider === undefined
+              ? await CodexDevelopmentExactGitWorkspaceSourceSnapshot(session, observedHeadSha)
+              : null;
+            return Object.freeze({
+              headSha: observedHeadSha,
+              treeSha: observedTreeSha,
+              prBaseSha: observedPrBaseSha,
+              affectedBaseSha: observedAffectedBaseSha,
+              cleanBefore: observedCleanBefore,
+              baseTreeSha: observedBaseTreeSha,
+              changedSnapshot: observedChangedSnapshot,
+              exactBlobs: observedExactBlobs,
+              workspaceSnapshot: observedWorkspaceSnapshot
+            });
+          });
+        headSha = observed.headSha;
+        treeSha = observed.treeSha;
+        prBaseSha = observed.prBaseSha;
+        affectedBaseSha = observed.affectedBaseSha;
+        cleanBefore = observed.cleanBefore;
+        defaultBaseTreeSha = observed.baseTreeSha;
+        defaultChangedSnapshot = observed.changedSnapshot;
+        exactCandidateBlobs = observed.exactBlobs;
+        exactWorkspaceSnapshot = observed.workspaceSnapshot;
+      }
     } catch (error) {
       initializationFailure = error instanceof Error ? error.stack ?? error.message : String(error);
     }
@@ -4304,10 +4390,22 @@ export async function CodexDevelopmentCiVerificationMain(
     if (!headSha || !treeSha || !prBaseSha || !affectedBaseSha) {
       throw new Error('CI verification cannot resolve exact head/tree/two bases.');
     }
+    const exactHeadSha = headSha;
     assertCiExpectedHead(headSha, parsed.expectedHead ?? env.SEC_EXPECTED_HEAD_SHA);
     if (!cleanBefore) throw new Error('CI verification requires a clean complete worktree before execution.');
     stage = 'manifest';
-    binding = manifestBinding(env, repositoryRoot, headSha, readExactGitBlob);
+    const configuredManifestPath = env.SEC_WORK_PACKAGE_MANIFEST_PATH;
+    const manifestBlob = configuredManifestPath === undefined
+      ? null
+      : options.readExactGitBlob !== undefined
+        ? options.readExactGitBlob({
+            repositoryRoot,
+            commitSha: headSha,
+            maxBytes: 1024 * 1024,
+            repositoryPath: configuredManifestPath
+          })
+        : exactCandidateBlobs.get(configuredManifestPath) ?? null;
+    binding = manifestBinding(env, manifestBlob);
     stage = 'preflight';
     if (binding.manifest !== null && binding.manifest.base !== prBaseSha) {
       throw new Error('Work Package manifest base does not match the exact PR base.');
@@ -4335,9 +4433,11 @@ export async function CodexDevelopmentCiVerificationMain(
       if (options.transitionObservation !== undefined) {
         throw new Error('CI verification transition injection requires an explicit changed-input test seam.');
       }
-      const snapshot = CodexDevelopmentDefaultChangedPaths(repositoryRoot, prBaseSha, headSha);
-      rawChangedFiles = snapshot?.files ?? null;
-      transitionObservation = snapshot?.transitionObservation;
+      if (defaultChangedSnapshot === null) {
+        throw new Error('CI verification did not receive its default changed-path observation.');
+      }
+      rawChangedFiles = defaultChangedSnapshot.files;
+      transitionObservation = defaultChangedSnapshot.transitionObservation;
     }
     if (rawChangedFiles !== null && transitionObservation !== undefined) {
       CodexDevelopmentAssertTestImpactTransitionSelection({
@@ -4354,16 +4454,24 @@ export async function CodexDevelopmentCiVerificationMain(
     // of how the changed-path observation was obtained. Injected paths can
     // vary the transition input in tests, but cannot inject or suppress the
     // Source Program authority used to interpret those paths.
-    const testImpactProvider = CodexDevelopmentExactGitTestImpactSourceProvider(
-      repositoryRoot,
-      headSha
-    );
-    const plan = CodexDevelopmentBuildVerificationPlan(
-      profile,
-      rawChangedFiles,
-      testImpactProvider,
-      transitionObservation
-    );
+    const plan = options.testVerificationPlan ?? (() => {
+      const testImpactProvider = options.testImpactSourceProvider
+        ?? (exactWorkspaceSnapshot === null
+          ? null
+          : CodexDevelopmentTestImpactSourceProviderFromSnapshot(
+              exactWorkspaceSnapshot,
+              repositoryRoot
+            ));
+      if (testImpactProvider === null) {
+        throw new Error('CI verification did not receive an owner-issued exact test-impact source provider.');
+      }
+      return CodexDevelopmentBuildVerificationPlan(
+        profile,
+        rawChangedFiles,
+        testImpactProvider,
+        transitionObservation
+      );
+    })();
     files = plan.changedFiles;
     selectionResolved = plan.selectionResolved;
     steps = plan.gates;
@@ -4384,11 +4492,16 @@ export async function CodexDevelopmentCiVerificationMain(
 
     stage = 'gates';
     const fallbackManifestPath = 'docs/work/active-work-package.md';
-    const fallbackManifest = readGitBlob(headSha, fallbackManifestPath);
+    const fallbackManifest = readGitBlob === undefined
+      ? exactCandidateBlobs.get(fallbackManifestPath) ?? null
+      : readGitBlob(headSha, fallbackManifestPath);
     if (binding.manifestPath === null && fallbackManifest === null) {
       throw new Error('CI Action producer cannot bind a manifest/control-plane blob.');
     }
-    const baseTreeSha = formalBinding?.baseTreeSha ?? gitRevision(`${prBaseSha}^{tree}`);
+    const baseTreeSha = formalBinding?.baseTreeSha
+      ?? (gitRevision === undefined
+        ? defaultBaseTreeSha
+        : gitRevision(`${prBaseSha}^{tree}`));
     if (baseTreeSha === null) throw new Error('CI Action producer cannot resolve the exact base tree.');
     const localDigest = (value: unknown): `sha256:${string}` => (
       CodexDevelopmentVerificationDigest(value) as `sha256:${string}`
@@ -4402,7 +4515,13 @@ export async function CodexDevelopmentCiVerificationMain(
         });
     const localDependencyBlobs = formalBinding === null
       ? CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS.map((dependencyPath) => {
-          const blob = defaultReadGitBlob(repositoryRoot, readExactGitBlob, headSha, dependencyPath);
+          const blob = options.readExactGitBlob === undefined
+            ? exactCandidateBlobs.get(dependencyPath) ?? null
+            : options.readExactGitBlob({
+                repositoryRoot,
+                commitSha: exactHeadSha,
+                repositoryPath: dependencyPath
+              });
           if (blob === null || blob.type !== 'blob') {
             throw new Error(`Local VerificationAction dependency input is unavailable: ${dependencyPath}.`);
           }
@@ -4473,35 +4592,47 @@ export async function CodexDevelopmentCiVerificationMain(
     failure ??= { stage, tail: CodexDevelopmentFailureTail(message, 'CI verification failed.') };
     console.error(message);
   } finally {
-    if (headSha !== null && treeSha !== null) {
-      try {
-        const finalHead = gitRevision('HEAD');
-        const finalTree = gitRevision('HEAD^{tree}');
+    let finalObservationStage = 'exact-identity';
+    try {
+      let finalHead: string | null = null;
+      let finalTree: string | null = null;
+      if (headSha !== null && treeSha !== null && gitRevision !== undefined) {
+        finalHead = gitRevision('HEAD');
+        finalTree = gitRevision('HEAD^{tree}');
+      }
+      if (trackedTreeIsClean !== undefined) {
+        finalObservationStage = 'clean-state';
+        cleanAfter = trackedTreeIsClean();
+      }
+      if (gitRevision === undefined || trackedTreeIsClean === undefined) {
+        await gitOperation.runPhase('readback', async (session) => {
+          if (headSha !== null && treeSha !== null && gitRevision === undefined) {
+            finalObservationStage = 'exact-identity';
+            finalHead = await CodexDevelopmentDefaultGitRevision(session, 'HEAD');
+            finalTree = await CodexDevelopmentDefaultGitRevision(session, 'HEAD^{tree}');
+          }
+          if (trackedTreeIsClean === undefined) {
+            finalObservationStage = 'clean-state';
+            cleanAfter = await CodexDevelopmentDefaultTrackedTreeIsClean(session);
+          }
+        });
+      }
+      if (headSha !== null && treeSha !== null) {
         if (finalHead !== headSha || finalTree !== treeSha) {
           exitCode = 1;
           failure ??= { stage: 'exact-identity', tail: 'CI verification exact head or tree changed during execution.' };
         }
-      } catch (error) {
-        exitCode = 1;
-        failure ??= {
-          stage: 'exact-identity',
-          tail: CodexDevelopmentFailureTail(
-            error instanceof Error ? error.stack ?? error.message : String(error),
-            'Exact identity recheck failed.'
-          )
-        };
       }
-    }
-    try {
-      cleanAfter = trackedTreeIsClean();
     } catch (error) {
       cleanAfter = null;
       exitCode = 1;
-      failure = {
-        stage: 'clean-state',
+      failure ??= {
+        stage: finalObservationStage,
         tail: CodexDevelopmentFailureTail(
           error instanceof Error ? error.stack ?? error.message : String(error),
-          'Clean-state probe failed.'
+          finalObservationStage === 'exact-identity'
+            ? 'Exact identity recheck failed.'
+            : 'Clean-state probe failed.'
         )
       };
     }
@@ -4615,6 +4746,31 @@ export async function CodexDevelopmentCiVerificationMain(
     }
   }
   return exitCode;
+}
+
+async function executeCodexDevelopmentCiVerification(
+  options: CodexDevelopmentCiVerificationTestOptions
+): Promise<number> {
+  const repositoryRoot = path.resolve(options.repositoryRoot ?? process.cwd());
+  const deadlineAtUnixMs = Date.now()
+    + CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.wallSeconds * 1_000;
+  return withAuthorityGitReadOperation({
+    cwd: repositoryRoot,
+    budget: GIT_READ_EXACT_TREE_OPERATION_BUDGET,
+    deadlineAtUnixMs
+  }, (gitOperation) => runCodexDevelopmentCiVerification(options, gitOperation));
+}
+
+/** Production CLI entry. Provider and repository observations are never caller-injected. */
+export async function CodexDevelopmentCiVerificationMain(): Promise<number> {
+  return executeCodexDevelopmentCiVerification({});
+}
+
+/** Test-only execution harness; production modules must not import this entry. */
+export async function CodexDevelopmentCiVerificationMainForTests(
+  options: CodexDevelopmentCiVerificationTestOptions
+): Promise<number> {
+  return executeCodexDevelopmentCiVerification(options);
 }
 
 const HOSTED_ACTION_COMMANDS = new Set([

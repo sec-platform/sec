@@ -1094,7 +1094,7 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
   const manifestSource = github.readBlobText(input.repository, candidate.headSha, manifestPath);
   const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(manifestSource) as Digest;
   const manifest = CodexDevelopmentParseCurrentWorkPackageManifest(manifestSource, manifestPath);
-  const changed = observeVerificationSessionChangedSelection({ repositoryRoot,
+  const changed = await observeVerificationSessionChangedSelection({ repositoryRoot,
     repository: input.repository, prNumber: input.prNumber, candidate, github });
   CodexDevelopmentAssertWorkPackageOwnership(manifest, [...changed.changedPaths]);
   const dependencyBlobs = observeVerificationSessionActionDependencyBlobs({ github,

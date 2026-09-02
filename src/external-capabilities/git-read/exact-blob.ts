@@ -3,9 +3,10 @@ import path from 'node:path';
 
 import type {
   GitBlobBytes,
-  GitBlobIdentity
+  GitBlobIdentity,
+  GitReadSession
 } from './runtime/session.ts';
-import { isolatedGitReadEnvironment } from './runtime/session.ts';
+import { assertProductionGitReadSession, isolatedGitReadEnvironment } from './runtime/session.ts';
 
 export const CodexDevelopmentExactGitBlobMaxBytes = 16 * 1024 * 1024;
 
@@ -46,6 +47,13 @@ export type CodexDevelopmentExactGitTextBlob = Readonly<{
   repositoryPath: string;
   byteLength: number;
   source: string;
+}>;
+
+export type CodexDevelopmentExactGitBlobBytes = Readonly<{
+  blobSha: string;
+  repositoryPath: string;
+  byteLength: number;
+  bytes: Uint8Array;
 }>;
 
 export type CodexDevelopmentExactGitBatchCommand = CodexDevelopmentExactGitBlobCommand;
@@ -132,6 +140,27 @@ function executeGit(
     );
   }
   return result.stdout;
+}
+
+async function executeSessionGit(
+  session: GitReadSession,
+  args: readonly string[],
+  options: Readonly<{ input?: Buffer }> = {}
+): Promise<Buffer> {
+  assertProductionGitReadSession(session);
+  const command = await session.run(args, options.input === undefined
+    ? undefined
+    : { input: options.input });
+  if (command.kind !== 'completed') {
+    throw new Error(`Exact Git object observation did not complete: ${command.reason}.`);
+  }
+  if (command.result.code !== 0) {
+    throw new Error(
+      `Exact Git object observation failed: git ${args.join(' ')}`
+      + `${command.result.stderr.trim() ? `: ${command.result.stderr.trim()}` : '.'}`
+    );
+  }
+  return Buffer.from(command.result.stdout);
 }
 
 function decodeUtf8(bytes: Uint8Array, label: string): string {
@@ -234,20 +263,7 @@ export function CodexDevelopmentReadExactGitBlob(
   });
 }
 
-export function CodexDevelopmentListExactGitTreeEntries(options: Readonly<{
-  commitSha: string;
-  repositoryRoot: string;
-  runGit?: CodexDevelopmentExactGitBlobCommand;
-}>): readonly CodexDevelopmentExactGitTreeEntry[] {
-  assertRepositoryRoot(options.repositoryRoot);
-  assertCommitSha(options.commitSha);
-  const bytes = executeGit(options, [
-    'ls-tree',
-    '-r',
-    '-z',
-    '--full-tree',
-    options.commitSha
-  ], MAX_REPOSITORY_TREE_OUTPUT_BYTES);
+function parseExactGitTreeEntries(bytes: Buffer): readonly CodexDevelopmentExactGitTreeEntry[] {
   if (bytes.length === 0) return Object.freeze([]);
   if (bytes[bytes.length - 1] !== 0) {
     throw new Error('Exact Git tree output is not NUL terminated.');
@@ -280,6 +296,78 @@ export function CodexDevelopmentListExactGitTreeEntries(options: Readonly<{
     });
   });
   return Object.freeze(entries);
+}
+
+export function CodexDevelopmentListExactGitTreeEntries(options: Readonly<{
+  commitSha: string;
+  repositoryRoot: string;
+  runGit?: CodexDevelopmentExactGitBlobCommand;
+}>): readonly CodexDevelopmentExactGitTreeEntry[] {
+  assertRepositoryRoot(options.repositoryRoot);
+  assertCommitSha(options.commitSha);
+  return parseExactGitTreeEntries(executeGit(options, [
+    'ls-tree',
+    '-r',
+    '-z',
+    '--full-tree',
+    options.commitSha
+  ], MAX_REPOSITORY_TREE_OUTPUT_BYTES));
+}
+
+export async function CodexDevelopmentListExactGitTreeEntriesFromSession(
+  session: GitReadSession,
+  commitSha: string
+): Promise<readonly CodexDevelopmentExactGitTreeEntry[]> {
+  assertCommitSha(commitSha);
+  const bytes = await executeSessionGit(session, [
+    'ls-tree', '-r', '-z', '--full-tree', commitSha
+  ]);
+  const entries = parseExactGitTreeEntries(bytes);
+  const failure = session.consumeRecords(entries.length);
+  if (failure !== null) {
+    throw new Error(`Exact Git tree record budget is exhausted: ${failure.reason}.`);
+  }
+  return entries;
+}
+
+function parseExactGitBlobsBatch(
+  entries: readonly CodexDevelopmentExactGitTreeEntry[],
+  output: Buffer,
+  maxTotalBytes: number
+): readonly CodexDevelopmentExactGitBlobBytes[] {
+  let offset = 0;
+  let totalBytes = 0;
+  const decoded = entries.map((entry) => {
+    const newline = output.indexOf(0x0a, offset);
+    if (newline < 0) throw new Error('Exact Git text batch header is incomplete.');
+    const header = decodeUtf8(output.subarray(offset, newline), 'batch header');
+    const match = /^([0-9a-f]{40}|[0-9a-f]{64}) blob (0|[1-9]\d*)$/u.exec(header);
+    if (!match || match[1] !== entry.blobSha) {
+      throw new Error(`Exact Git text batch header does not match ${entry.repositoryPath}.`);
+    }
+    const size = Number.parseInt(match[2]!, 10);
+    if (!Number.isSafeInteger(size)) throw new Error('Exact Git text batch size exceeds safe integer range.');
+    totalBytes += size;
+    if (totalBytes > maxTotalBytes) {
+      throw new Error(`Exact Git text batch exceeds maxTotalBytes ${maxTotalBytes}.`);
+    }
+    const start = newline + 1;
+    const end = start + size;
+    if (end >= output.length || output[end] !== 0x0a) {
+      throw new Error(`Exact Git text batch byte count is malformed for ${entry.repositoryPath}.`);
+    }
+    offset = end + 1;
+    return Object.freeze({
+      blobSha: entry.blobSha,
+      repositoryPath: entry.repositoryPath,
+      byteLength: size,
+      bytes: new Uint8Array(output.subarray(start, end))
+    });
+  });
+  if (offset !== output.length) {
+    throw new Error('Exact Git text batch contains trailing output.');
+  }
+  return Object.freeze(decoded);
 }
 
 export function CodexDevelopmentReadExactGitTextBlobsBatch(options: Readonly<{
@@ -321,37 +409,61 @@ export function CodexDevelopmentReadExactGitTextBlobsBatch(options: Readonly<{
     throw new Error(`Exact Git text batch command failed${result.stderr.length > 0
       ? `: ${result.stderr.toString('utf8').trim()}` : '.'}`);
   }
-  let offset = 0;
-  let totalBytes = 0;
-  const decoded = entries.map((entry) => {
-    const newline = result.stdout.indexOf(0x0a, offset);
-    if (newline < 0) throw new Error('Exact Git text batch header is incomplete.');
-    const header = decodeUtf8(result.stdout.subarray(offset, newline), 'batch header');
-    const match = /^([0-9a-f]{40}|[0-9a-f]{64}) blob (0|[1-9]\d*)$/u.exec(header);
-    if (!match || match[1] !== entry.blobSha) {
-      throw new Error(`Exact Git text batch header does not match ${entry.repositoryPath}.`);
-    }
-    const size = Number.parseInt(match[2]!, 10);
-    if (!Number.isSafeInteger(size)) throw new Error('Exact Git text batch size exceeds safe integer range.');
-    totalBytes += size;
-    if (totalBytes > maxTotalBytes) {
-      throw new Error(`Exact Git text batch exceeds maxTotalBytes ${maxTotalBytes}.`);
-    }
-    const start = newline + 1;
-    const end = start + size;
-    if (end >= result.stdout.length || result.stdout[end] !== 0x0a) {
-      throw new Error(`Exact Git text batch byte count is malformed for ${entry.repositoryPath}.`);
-    }
-    offset = end + 1;
-    return Object.freeze({
-      blobSha: entry.blobSha,
-      repositoryPath: entry.repositoryPath,
-      byteLength: size,
-      source: decodeUtf8(result.stdout.subarray(start, end), `source ${entry.repositoryPath}`)
-    });
-  });
-  if (offset !== result.stdout.length) {
-    throw new Error('Exact Git text batch contains trailing output.');
+  return Object.freeze(parseExactGitBlobsBatch(entries, result.stdout, maxTotalBytes).map((blob) =>
+    Object.freeze({
+      blobSha: blob.blobSha,
+      repositoryPath: blob.repositoryPath,
+      byteLength: blob.byteLength,
+      source: decodeUtf8(blob.bytes, `source ${blob.repositoryPath}`)
+    })));
+}
+
+export async function CodexDevelopmentReadExactGitBlobBytesBatchFromSession(
+  session: GitReadSession,
+  input: Readonly<{
+    entries: readonly CodexDevelopmentExactGitTreeEntry[];
+    maxTotalBytes?: number;
+  }>
+): Promise<readonly CodexDevelopmentExactGitBlobBytes[]> {
+  const maxTotalBytes = input.maxTotalBytes ?? MAX_BATCH_TEXT_BYTES;
+  if (!Number.isSafeInteger(maxTotalBytes) || maxTotalBytes < 0) {
+    throw new Error('Exact Git text batch maxTotalBytes must be one non-negative safe integer.');
   }
-  return Object.freeze(decoded);
+  if (input.entries.length > MAX_TREE_ENTRIES) {
+    throw new Error(`Exact Git text batch exceeds entry limit ${MAX_TREE_ENTRIES}.`);
+  }
+  const entries = input.entries.map((entry) => {
+    assertCanonicalRepositoryPath(entry.repositoryPath);
+    if ((entry.mode !== '100644' && entry.mode !== '100755')
+        || entry.type !== 'blob'
+        || !GIT_OBJECT_SHA.test(entry.blobSha)) {
+      throw new Error(`Exact Git text batch entry is not one ordinary blob: ${entry.repositoryPath}.`);
+    }
+    return entry;
+  });
+  if (entries.length === 0) return Object.freeze([]);
+  const request = Buffer.from(`${entries.map(({ blobSha }) => blobSha).join('\n')}\n`, 'ascii');
+  const output = await executeSessionGit(session, ['cat-file', '--batch'], { input: request });
+  const blobs = parseExactGitBlobsBatch(entries, output, maxTotalBytes);
+  const failure = session.consumeRecords(blobs.length);
+  if (failure !== null) {
+    throw new Error(`Exact Git blob batch record budget is exhausted: ${failure.reason}.`);
+  }
+  return blobs;
+}
+
+export async function CodexDevelopmentReadExactGitTextBlobsBatchFromSession(
+  session: GitReadSession,
+  input: Readonly<{
+    entries: readonly CodexDevelopmentExactGitTreeEntry[];
+    maxTotalBytes?: number;
+  }>
+): Promise<readonly CodexDevelopmentExactGitTextBlob[]> {
+  const blobs = await CodexDevelopmentReadExactGitBlobBytesBatchFromSession(session, input);
+  return Object.freeze(blobs.map((blob) => Object.freeze({
+    blobSha: blob.blobSha,
+    repositoryPath: blob.repositoryPath,
+    byteLength: blob.byteLength,
+    source: decodeUtf8(blob.bytes, `source ${blob.repositoryPath}`)
+  })));
 }
