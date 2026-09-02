@@ -426,6 +426,34 @@ flowchart LR
 - streaming observation在一次遍历中同时计算content digest、entry/byte/depth/resource accounting与fact inputs；不得为了预算或计数先全扫再读第二遍；
 - cache-disabled clean、cold、warm、incremental和distributed execution对同一exact inputs产生byte/semantic-equivalent结果；性能Provider异常只退回同一clean algorithm。
 
+“共享一个snapshot”必须物化为可消费的generation，而不是要求所有caller碰巧同时读到相同filesystem：
+
+```text
+WorkspaceContentView =
+  retained base snapshot
+  + exact authored worktree overlay
+  + exact editor/IDE unsaved overlay
+  + generated/opaque content bindings
+  + frontend/config/provider generations
+
+SourceObservationGeneration = {
+  workspaceAndViewSubject,
+  tenant/repository/access scope + security epoch,
+  canonical content manifest + coverage,
+  immutable content/fact shard refs,
+  SourceProgram generation ref,
+  reverse dependency index ref,
+  producer/interpreter/config/environment closure,
+  generation lifecycle + retention,
+  unknown frontier,
+  generation digest
+}
+```
+
+Observation Host对一个exact `WorkspaceContentView`只签发一个`SourceObservationGeneration`。磁盘、Git index、worktree和未保存editor buffer是不同overlay source，必须以明确precedence和各自revision合成为view；任何consumer不得自行重读其中一个层并称为同一snapshot。watcher/editor event只使相关content key stale，不进入generation identity或canonical bytes；producer按bytes/readback建立新generation。跨进程consumer通过immutable generation descriptor与content-addressed shards attach；descriptor/shard access必须绑定tenant、repository、workspace与security epoch，不能用相同digest跨未授权边界推断或读取内容。长期Language Service可保留live handles和warm state，但丢失后只能从同一descriptor clean rebuild，不能从daemon memory补事实。
+
+generation发布采用single-flight keyed by `workspace/tenant/security scope + exact view contents + frontend/config/provider closure`；joiner受自己的deadline约束且不能延长producer。相同key的并发producer必须产生byte-equivalent descriptor，否则返回`source-observation-nondeterministic`并隔离两者。最后一个consumer release后generation按retention policy回收；active Action、Evidence或migration引用仍在时不得清理。这样跨进程复用只避免重复观察，不把cache、pointer或服务存活变成source authority。
+
 性能决定使用`PerformanceScenario + Environment + Distribution + ResourceBudget + CorrectnessClaims + CriticalPath`，比较cold/warm/delta、P50/P95/尾延迟、CPU/IO/memory/process/network与全生命周期维护成本。单次计时、静态timeout、代码行数或“用了daemon/Nx/native”不构成优化证明。
 
 ### 7.9 目标工具与运行时 Binding 原则
@@ -440,6 +468,9 @@ flowchart LR
 | semantic rename/import move | Compiler API/Language Service rename + AST codemod | ArchitectureMigration/readback/consumer-zero | string replacement、manual path lists |
 | structural candidate queries | ast-grep | bounded candidates linked back to SourceProgram | candidate=authority |
 | cross-language security/data-flow candidates | Semgrep / language-native analyzers | normalized findings+coverage/unknown | scanner verdict=self-proof |
+| independent dependency/cycle conformance | adopted graph verifier；dependency-cruiser是待adoption候选 | compare independently observed edges/cycles with canonical SourceProgram closure | 未入ledger工具成为默认、authoring第二imports graph、tool config定义owner |
+| unused/export/package candidates | Knip on a frozen exact snapshot | independent surplus candidates joined to real public/external consumers | zero matches自动删除、Knip cache成为truth |
+| textual duplication candidates | jscpd | clone candidates joined to semantic/effect/failure/reuse analysis | token clone等于duplicate-owner或自动合并 |
 | unsupported-language structure | tree-sitter frontend | typed partial facts and frontier | pretending full type semantics |
 | navigation only | LSP/ctags/fd/rg | human/Agent discovery hints | changing semantic decisions |
 | runtime/tool execution | Bun-only SEC host runtime + retained process capability | operation/resource/settlement semantics | Node as SEC runtime、raw shell/PATH |

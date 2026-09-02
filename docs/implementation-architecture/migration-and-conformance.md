@@ -186,6 +186,7 @@ Target Implementation Freeze 前必须成立：
 | Constraint confluence | constraint composition满足交换、结合、幂等；constraint conflict与candidate violation分型并返回最小冲突核 |
 | View structure fidelity | renderer使用containment时parent唯一；跨boundary只走public ports；collapse/expand不改变meaning |
 | Context completeness | 最小view闭合适用义务与boundary/unknown；最大coverage可从同一typed refs求传递闭包恢复 |
+| Source observation unity | disk/index/worktree/editor/generated overlays按一个exact view合成一个generation；所有consumer引用同一manifest/fact identity |
 | Locality | 每个 authored change point有 owner；derived fanout不需手写 |
 | Acyclicity | cell/layer DAG 无跨 owner runtime SCC |
 | Capability conservation | every accepted ProductCapability/FutureObligation has a mapped realization claim or explicit Product decision |
@@ -250,6 +251,10 @@ Target Implementation Freeze 前必须成立：
 | `architecture-change-without-migration` | ArchitectureMigration old/new graph、symbol-aware move、cutover/readback/retirement |
 | `representation-view-confusion` | canonical fact/relation refs + purpose-bound query + coverage/frontier digest + renderer fidelity check |
 | `relational-observation-leakage` | Conformance Compiler生成trace-tuple observable与relational oracle；目标实现不得隐藏secret-dependent control/resource/output差异 |
+| `split-content-snapshot` | Observation Host签发exact WorkspaceContentView generation；typecheck/audit/test-impact不得分别扫描或重建同名snapshot |
+| `bootstrap-dependency-cycle` | bootstrap dependency DAG只根植于已采用host primitives；待启动Provider及其workload route不可反向可达 |
+| `implicit-scheduling-policy` | execution plan携带SchedulingRequirement；scheduler记录policy revision与chosen order且没有ambient default |
+| `provider-generation-bleed` | every attempt/journal/session pins provider generation；draining generation zero-new-allocation后才retire |
 
 ### 17.2 代表性系统 trace
 
