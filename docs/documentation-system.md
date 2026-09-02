@@ -835,6 +835,7 @@ liftCurrentDocumentation(currentRegistry, exactCorpus):
 DocumentationMigrationDesignReady =
   MigrationDesignReady(current documentation generation, target generation)
   and exact source-header/body-node frontend grammar + duplicate/unknown rejection frozen
+  and current source semantic-graph/disposition digests plus typed clause frontier are migration inputs
   and ScopeNode/DocumentFragment/DocumentationRelation laws and schemas frozen
   and stable DocRef/clause identity grammar + renderer semantics frozen
   and tracked-corpus discovery + opaque/binary/untracked frontier semantics frozen
@@ -858,6 +859,8 @@ DocumentationMigrationDesignReady =
 DocumentationMigration = {
   exactCurrentGenerationDigest,
   currentRegistryAndFrontmatterCensus,
+  sourceSemanticGraphDigest,
+  sourceClauseDispositionDigest,
   targetSourceHeaderBodyAndRelationSchemas,
   currentToTargetScopeAndFactBijection,
   typedRelationDecomposition,
@@ -871,16 +874,27 @@ DocumentationMigration = {
 }
 ```
 
+`sourceSemanticGraphDigest` 与 `sourceClauseDispositionDigest` 是迁移准入的
+必需输入，而不是迁移编译器可自行重算的旁路。它们引用同一 exact current
+generation 的语义编译结果：每个 heading/body node 必须已经被标为 typed
+source、non-normative observation、temporary denial 或 unresolved。任何
+`untyped-observation`、未知 directive、解析错误或未闭合 source frontier 都
+必须按其 document/clause ref 进入 migration frontier；不能因为 registry、
+consumer 或 path census 已闭合就把它当作可迁移 source。迁移 compiler 只验证
+该图的 generation/digest 与 frontier 绑定，不再第二次解析 Markdown、按标题
+猜语义或复制 clause payload。
+
 迁移必须按一个architecture operation完成，不能以逐文件移动制造长期半成品：
 
 1. 冻结role-specific source header/body nodes、scope/relation、generated index和DocRef schema。
 2. 对当前`authority.json`、frontmatter、README、全部tracked docs与path consumers做exact census；registry、corpus与target contract digest必须由实际输入重算并比对，任何未分类内容进入frontier。目录名（包括`docs/work-packages/`）不是生命周期或owner事实。
-3. shadow compile当前generation；把重载的`projects`等边拆成明确`DependsOn/ProjectsFrom/GeneratedFrom/ProposalTargets`，证明所有current owner keys、facts、lifecycle和consumer semantics有唯一target。
-4. 由address compiler在真实Windows/Git/renderer capability下生成target paths；验证case-fold、reserved、length、Unicode、same-name file/directory和relative-link rendering。
-5. stage全部target fragments、typed refs、machine index和recursive views；current generation仍是唯一authority。
-6. 对target运行graph/coverage/disclosure/consumer等价验证；在exact preimage上一次CAS切换所有production readers。
-7. 对新generation做独立readback；旧`authority.json`、flat paths和旧generated views只有在consumer-zero后一次退役。
-8. 任一步失败时保留current authority，target保持non-authoritative staged/residue；恢复只消费durable migration record，不猜目录状态。
+3. 复用同一 current-generation semantic graph，核对 `sourceSemanticGraphDigest`、clause disposition 与 source bytes；把未类型化、未知或解析失败的 clause 保留为精确 frontier，不允许迁移编译器降级为普通正文。
+4. shadow compile当前generation；把重载的`projects`等边拆成明确`DependsOn/ProjectsFrom/GeneratedFrom/ProposalTargets`，证明所有current owner keys、facts、lifecycle和consumer semantics有唯一target。
+5. 由address compiler在真实Windows/Git/renderer capability下生成target paths；验证case-fold、reserved、length、Unicode、same-name file/directory和relative-link rendering。
+6. stage全部target fragments、typed refs、machine index和recursive views；current generation仍是唯一authority。
+7. 对target运行graph/coverage/disclosure/consumer等价验证；在exact preimage上一次CAS切换所有production readers。
+8. 对新generation做独立readback；旧`authority.json`、flat paths和旧generated views只有在consumer-zero后一次退役。
+9. 任一步失败时保留current authority，target保持non-authoritative staged/residue；恢复只消费durable migration record，不猜目录状态。
 
 ```mermaid
 stateDiagram-v2
