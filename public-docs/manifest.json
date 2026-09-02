@@ -35,7 +35,7 @@
       "path": "public-docs/decisions-and-evidence.md",
       "kind": "rationale-guide",
       "audiences": ["architect", "developer", "researcher"],
-      "canonicalRefs": ["docs/roadmap.md", "docs/system-architecture.md", "docs/verification-governance.md"]
+      "canonicalRefs": ["docs/roadmap/capability-dag.md", "docs/system-architecture.md", "docs/verification-governance.md"]
     },
     {
       "id": "glossary",
@@ -63,7 +63,7 @@
       "path": "public-docs/principles.md",
       "kind": "principle-projection",
       "audiences": ["architect", "developer", "researcher", "user"],
-      "canonicalRefs": ["docs/agent-and-user-machine-interface.md", "docs/change-management.md", "docs/compiler-target-ir.md", "docs/development-governance.md", "docs/external-provider-policy.md", "docs/roadmap.md", "docs/semantic-model.md", "docs/semantic-mutation.md", "docs/system-architecture.md", "docs/verification-governance.md"]
+      "canonicalRefs": ["docs/agent-and-user-machine-interface.md", "docs/change-management.md", "docs/compiler-target-ir.md", "docs/development-governance.md", "docs/external-provider-policy.md", "docs/roadmap/capability-dag.md", "docs/semantic-model.md", "docs/semantic-mutation.md", "docs/system-architecture.md", "docs/verification-governance.md"]
     },
     {
       "id": "quickstart",

@@ -50,7 +50,7 @@ public-docs/**
 - `docs/agent-and-user-machine-interface.md`
 - `docs/development-governance.md`
 - `docs/external-provider-policy.md`
-- `docs/roadmap.md`
+- `docs/roadmap/capability-dag.md`
 
 `docs/authority.json` 继续拥有 documentation identity/lifecycle/ownership；本目录不替代它。
 
