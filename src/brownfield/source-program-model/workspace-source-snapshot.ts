@@ -1382,8 +1382,19 @@ function exactCompletedGitOutput(
   command: Awaited<ReturnType<GitReadSession['run']>>,
   label: string
 ): Uint8Array {
-  if (command.kind !== 'completed' || command.result.code !== 0) {
-    throw new Error(`Workspace source snapshot could not ${label}`);
+  if (command.kind !== 'completed') {
+    throw new Error(
+      `Workspace source snapshot could not ${label}: ${command.reason}: ${command.detail}`,
+      { cause: command }
+    );
+  }
+  if (command.result.code !== 0) {
+    const stderr = command.result.stderr.trim();
+    throw new Error(
+      `Workspace source snapshot could not ${label} (git exit ${command.result.code})`
+      + `${stderr.length === 0 ? '' : `: ${stderr}`}`,
+      { cause: command }
+    );
   }
   return command.result.stdout;
 }
