@@ -262,20 +262,29 @@ export type SourceProgramOperationIdentity = Readonly<{
 
 declare const sourceProgramOperationProducerClosureBrand: unique symbol;
 
+export type SourceProgramOperationSourceEvidence = Readonly<{
+  readonly path: string;
+  readonly source: string;
+  readonly contentDigest: `sha256:${string}`;
+}>;
+
 /**
  * Process-local Source Program proof of the complete implementation reachable
- * from every descriptor-owned entrypoint of one semantic operation. Consumers
- * select only the operation identity; paths and revisions remain compiler-owned.
+ * from the one descriptor-owned entrypoint of a semantic operation. This is
+ * source evidence only: it cannot prove a retained file, a sealed execution
+ * generation, loaded implementation bytes, or process authority. Consumers
+ * select only the operation identity; all paths and bytes remain compiler-owned.
  */
 export interface SourceProgramOperationProducerClosure {
   readonly [sourceProgramOperationProducerClosureBrand]: true;
+  readonly authority: 'source-evidence-only';
   readonly operation: SourceProgramOperationIdentity;
   readonly moduleId: string;
-  readonly entrypointAddresses: readonly SourceProgramEntrypointAddress[];
-  readonly files: readonly Readonly<{
-    readonly path: string;
-    readonly contentDigest: string;
-  }>[];
+  readonly descriptor: SourceProgramOperationSourceEvidence;
+  readonly entrypoint: SourceProgramOperationSourceEvidence & Readonly<{
+    readonly address: SourceProgramEntrypointAddress;
+  }>;
+  readonly implementationFiles: readonly SourceProgramOperationSourceEvidence[];
   readonly closureDigest: `sha256:${string}`;
 }
 

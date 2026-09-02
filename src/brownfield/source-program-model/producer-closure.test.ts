@@ -65,14 +65,19 @@ test('operation producer closure is the one descriptor-owned operation entrypoin
     fixture('export function normalize(): void {}\n'),
     OPERATION
   );
-  expect(closure.entrypointAddresses).toEqual([
+  expect(closure.authority).toBe('source-evidence-only');
+  expect(closure.entrypoint.address).toBe(
     'module-entrypoint:src/normalize/sec.module.json#normalize:src/normalize/runtime.ts'
-  ]);
-  expect(closure.files.map(({ path }) => path)).toEqual([
+  );
+  expect(closure.entrypoint.source).toContain('export const verify = normalize');
+  expect(closure.descriptor.path).toBe('src/normalize/sec.module.json');
+  expect(closure.implementationFiles.map(({ path }) => path)).toEqual([
     'src/normalize/kernel.ts',
-    'src/normalize/runtime.ts',
-    'src/normalize/sec.module.json'
+    'src/normalize/runtime.ts'
   ]);
+  expect(closure.implementationFiles.every(({ contentDigest, source }) => (
+    rawSha256(source) === contentDigest
+  ))).toBe(true);
   expect(requireSourceProgramOperationProducerClosure(closure)).toBe(closure);
   expect(() => requireSourceProgramOperationProducerClosure({ ...closure })).toThrow(
     'not Source Program compiler-issued'
@@ -118,10 +123,11 @@ test('operation producer entrypoint follows TypeChecker aliases and re-exports',
   );
 
   for (const closure of [aliased, star, localList]) {
-    expect(closure.entrypointAddresses).toEqual([
+    expect(closure.entrypoint.address).toBe(
       'module-entrypoint:src/normalize/sec.module.json#normalize:src/normalize/runtime.ts'
-    ]);
-    expect(closure.files.map(({ path }) => path)).toContain('src/normalize/kernel.ts');
+    );
+    expect(closure.implementationFiles.map(({ path }) => path)
+      .includes('src/normalize/kernel.ts')).toBe(true);
   }
 });
 
@@ -158,4 +164,37 @@ test('operation producer blocks unresolved and non-unique TypeChecker export pro
       code: 'entrypoint-not-unique'
     })
   );
+});
+
+test('operation producer rejects unresolved dynamic and runtime loader resources', () => {
+  const computedLoader = fixture(
+    'export function normalize(): void {}\n',
+    undefined,
+    "import { normalize } from './kernel.ts';\n"
+      + 'export async function verify(specifier: string) {\n'
+      + '  normalize();\n'
+      + '  return import(specifier);\n'
+      + '}\n'
+  );
+  expect(() => compileSourceProgramOperationProducerClosure(computedLoader, OPERATION)).toThrow(
+    expect.objectContaining({ code: 'reachable-loader-resource-unresolved' })
+  );
+
+  const opaqueRuntime = fixture(
+    'export function normalize(): void {}\n',
+    undefined,
+    "import { normalize } from './kernel.ts';\n"
+      + 'export function verify() { normalize(); return eval("1"); }\n'
+  );
+  expect(() => compileSourceProgramOperationProducerClosure(opaqueRuntime, OPERATION)).toThrow(
+    expect.objectContaining({ code: 'reachable-loader-resource-unresolved' })
+  );
+});
+
+test('operation producer rejects caller-cloned compilation receipts', () => {
+  const compilation = fixture('export function normalize(): void {}\n');
+  expect(() => compileSourceProgramOperationProducerClosure(
+    { ...compilation },
+    OPERATION
+  )).toThrow('compiler-issued compilation receipt');
 });
