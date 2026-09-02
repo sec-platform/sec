@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import path from 'node:path';
 
 import {
@@ -30,6 +30,9 @@ const SEALED_EXECUTION_TREE_RECOVERY_POLICY = Object.freeze({ maximumDurationMs:
 const retainedSealedPhysicalExecutionTreeGenerationBrand: unique symbol = Symbol(
   'retained-sealed-physical-execution-tree-generation'
 );
+const sealedPhysicalExecutionTreeGenerationIdentityBrand: unique symbol = Symbol(
+  'sealed-physical-execution-tree-generation-identity'
+);
 const sealedPhysicalExecutionTreeRetirementReceiptBrand: unique symbol = Symbol(
   'sealed-physical-execution-tree-retirement-receipt'
 );
@@ -37,7 +40,21 @@ const retainedSealedPhysicalExecutionProtectedRootBrand: unique symbol = Symbol(
   'retained-sealed-physical-execution-protected-root'
 );
 const issuedRetainedSealedPhysicalExecutionTreeGenerations = new WeakSet<object>();
+const issuedSealedPhysicalExecutionTreeGenerationIdentities = new WeakSet<object>();
 const issuedSealedPhysicalExecutionTreeRetirementReceipts = new WeakSet<object>();
+const borrowedGenerationIdentityDigests = new WeakMap<object, `sha256:${string}`>();
+const generationIdentityRecords = new WeakMap<object, Readonly<{
+  generation: RetainedSealedPhysicalExecutionTreeGeneration;
+  linkedGenerations: readonly RetainedNoFollowProvenDirectoryGeneration[];
+  protectedRoots: readonly BorrowedProtectedRoot[];
+  workingDirectory:
+    | RetainedNoFollowSealedDirectoryGeneration
+    | RetainedNoFollowProvenDirectoryGeneration;
+}>>();
+const retirementReceiptRecords = new WeakMap<object, Readonly<{
+  generation: RetainedSealedPhysicalExecutionTreeGeneration;
+  identity: SealedPhysicalExecutionTreeGenerationIdentity;
+}>>();
 const protectedRootRecords = new WeakMap<object, {
   readonly boundary: RetainedNoFollowChildProcessDirectory;
   readonly root: PhysicalDirectoryIdentity;
@@ -68,9 +85,30 @@ export type SealedPhysicalExecutionTreeLinkedSettlement = Readonly<{
   status: 'borrowed-current' | 'borrowed-unavailable';
 }>;
 
+export type SealedPhysicalExecutionTreeGenerationIdentity = Readonly<{
+  readonly [sealedPhysicalExecutionTreeGenerationIdentityBrand]: true;
+  borrowedGenerationDigest: `sha256:${string}`;
+  exactFileSetDigest: `sha256:${string}`;
+  generationDigest: `sha256:${string}`;
+  materializationOperationDigest: `sha256:${string}`;
+  protectedSubjectRootsDigest: `sha256:${string}`;
+  sealedRoot: PhysicalDirectoryIdentity;
+  treeDigest: `sha256:${string}`;
+  workingDirectoryGenerationDigest: `sha256:${string}`;
+}>;
+
 export type SealedPhysicalExecutionTreeRetirementReceipt = Readonly<{
   readonly [sealedPhysicalExecutionTreeRetirementReceiptBrand]: true;
-  linkedSettlements: readonly SealedPhysicalExecutionTreeLinkedSettlement[];
+  generationIdentity: SealedPhysicalExecutionTreeGenerationIdentity;
+  linkedSettlements: readonly Readonly<{
+    path: string;
+    sourceRoot: PhysicalDirectoryIdentity;
+    status: 'borrowed-current';
+  }>[];
+  protectedRootSettlements: readonly Readonly<{
+    root: PhysicalDirectoryIdentity;
+    status: 'current';
+  }>[];
   treeAuthority: 'released';
   tree: NoFollowDirectoryTreeRetirementReceipt;
 }>;
@@ -120,6 +158,7 @@ export class SealedPhysicalExecutionTreeResidueError extends Error {
 
 export interface RetainedSealedPhysicalExecutionTreeGeneration {
   readonly [retainedSealedPhysicalExecutionTreeGenerationBrand]: true;
+  readonly identity: SealedPhysicalExecutionTreeGenerationIdentity;
   readonly workingDirectory:
     | RetainedNoFollowSealedDirectoryGeneration
     | RetainedNoFollowProvenDirectoryGeneration;
@@ -243,6 +282,23 @@ function canonicalContentDigest(bytes: Uint8Array): `sha256:${string}` {
 
 function physicalDigest(value: unknown): `sha256:${string}` {
   return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
+}
+
+function issueOperationDigest(domain: string): `sha256:${string}` {
+  return physicalDigest(Object.freeze({
+    domain,
+    nonce: randomBytes(32).toString('hex')
+  }));
+}
+
+function borrowedGenerationIdentityDigest(
+  generation: RetainedNoFollowProvenDirectoryGeneration
+): `sha256:${string}` {
+  const existing = borrowedGenerationIdentityDigests.get(generation);
+  if (existing !== undefined) return existing;
+  const issued = issueOperationDigest('runtime-physical-borrowed-generation');
+  borrowedGenerationIdentityDigests.set(generation, issued);
+  return issued;
 }
 
 function inventoryEntryMatches(
@@ -389,13 +445,27 @@ export function assertRetainedSealedPhysicalExecutionTreeGeneration(
   if (!issuedRetainedSealedPhysicalExecutionTreeGenerations.has(generation)) {
     throw new Error('Sealed physical execution tree generation was not issued by Runtime Physical');
   }
+  const identityRecord = generationIdentityRecords.get(generation.identity);
+  if (!issuedSealedPhysicalExecutionTreeGenerationIdentities.has(generation.identity)
+      || identityRecord?.generation !== generation
+      || identityRecord.workingDirectory !== generation.workingDirectory) {
+    throw new Error('Sealed physical execution tree generation identity is not issuer-bound');
+  }
 }
 
 export function assertSealedPhysicalExecutionTreeRetirementReceipt(
-  receipt: SealedPhysicalExecutionTreeRetirementReceipt
+  receipt: SealedPhysicalExecutionTreeRetirementReceipt,
+  generation: RetainedSealedPhysicalExecutionTreeGeneration
 ): void {
+  assertRetainedSealedPhysicalExecutionTreeGeneration(generation);
+  const record = retirementReceiptRecords.get(receipt);
   if (!issuedSealedPhysicalExecutionTreeRetirementReceipts.has(receipt)) {
     throw new Error('Sealed physical execution tree retirement receipt was not issued by Runtime Physical');
+  }
+  if (record?.generation !== generation
+      || record.identity !== generation.identity
+      || receipt.generationIdentity !== generation.identity) {
+    throw new Error('Sealed physical execution tree retirement receipt does not settle this generation');
   }
 }
 
@@ -488,6 +558,9 @@ async function createResidue(input: Readonly<{
 export async function materializeRetainedSealedPhysicalExecutionTreeGeneration(
   input: MaterializeRetainedSealedPhysicalExecutionTreeGenerationInput
 ): Promise<RetainedSealedPhysicalExecutionTreeGeneration> {
+  const materializationOperationDigest = issueOperationDigest(
+    'runtime-physical-sealed-execution-tree-materialization'
+  );
   const deadlineAtMonotonicMs = performance.now() + Math.max(
     0,
     input.deadlineAtUnixMs - Date.now()
@@ -537,12 +610,26 @@ export async function materializeRetainedSealedPhysicalExecutionTreeGeneration(
     }
     files.push(Object.freeze({ bytes: Buffer.from(file.bytes), path: file.path }));
   }
+  const exactFileSetDigest = physicalDigest(files
+    .map((file) => Object.freeze({
+      contentDigest: canonicalContentDigest(file.bytes),
+      path: file.path,
+      size: file.bytes.byteLength
+    }))
+    .sort((left, right) => compareCodeUnits(left.path, right.path)));
   const links = input.links.map((link) => {
     assertExecutionCurrent();
     insertCanonicalPath(trie, link.path, 'Runtime Physical execution tree link');
     assertRetainedNoFollowProvenDirectoryGeneration(link.source, 'borrowed execution link source');
     return Object.freeze({ path: link.path, source: link.source });
   });
+  const borrowedGenerationDigest = physicalDigest(links
+    .map((link) => Object.freeze({
+      generationIdentityDigest: borrowedGenerationIdentityDigest(link.source),
+      path: link.path,
+      sourceRoot: frozenIdentity(link.source.root)
+    }))
+    .sort((left, right) => compareCodeUnits(left.path, right.path)));
   const parentPaths = [...new Set([...files, ...links].flatMap((entry) => {
     const parts = entry.path.split('/');
     parts.pop();
@@ -618,6 +705,12 @@ export async function materializeRetainedSealedPhysicalExecutionTreeGeneration(
     });
     await addProtectedRoot(borrowedLinkRoot);
   }
+  const protectedSubjectRootsDigest = physicalDigest(protectedRoots
+    .map((root) => frozenIdentity(root.root))
+    .sort((left, right) => compareCodeUnits(
+      canonicalPhysicalPathKey(left.path),
+      canonicalPhysicalPathKey(right.path)
+    )));
   if (process.platform === 'win32' && protectedRoots.length === 0) {
     throw new SealedPhysicalExecutionTreeAdmissionError(
       'Windows sealed execution tree requires one issued disjoint protected root'
@@ -690,6 +783,7 @@ export async function materializeRetainedSealedPhysicalExecutionTreeGeneration(
         'Runtime Physical execution tree inventory differs from exact publication'
       );
     }
+    const treeDigest = physicalDigest(inventory);
     if (process.platform === 'win32') {
       for (const link of links) {
         const parts = link.path.split('/');
@@ -724,7 +818,6 @@ export async function materializeRetainedSealedPhysicalExecutionTreeGeneration(
       );
       pendingWindowsAuthority = null;
     } else if (process.platform === 'linux') {
-      const treeDigest = physicalDigest(inventory);
       const projectGeneration = await materializeRetainedNoFollowProvenDirectoryGeneration({
         binding: {
           generationDigest: physicalDigest({ root: frozenIdentity(generationRoot), treeDigest }),
@@ -746,6 +839,27 @@ export async function materializeRetainedSealedPhysicalExecutionTreeGeneration(
       );
     }
 
+    const sealedRoot = frozenIdentity(generationRoot);
+    const workingDirectoryGenerationDigest = physicalDigest(Object.freeze({
+      materializationOperationDigest,
+      sealedRoot,
+      treeDigest
+    }));
+    const generationIdentityUnsigned = Object.freeze({
+      borrowedGenerationDigest,
+      exactFileSetDigest,
+      materializationOperationDigest,
+      protectedSubjectRootsDigest,
+      sealedRoot,
+      treeDigest,
+      workingDirectoryGenerationDigest
+    });
+    const identity: SealedPhysicalExecutionTreeGenerationIdentity = Object.freeze({
+      [sealedPhysicalExecutionTreeGenerationIdentityBrand]: true as const,
+      ...generationIdentityUnsigned,
+      generationDigest: physicalDigest(generationIdentityUnsigned)
+    });
+
     let retired = false;
     let inFlightRetirement: Promise<SealedPhysicalExecutionTreeRetirementReceipt> | null = null;
     let terminalReceipt: SealedPhysicalExecutionTreeRetirementReceipt | null = null;
@@ -755,6 +869,7 @@ export async function materializeRetainedSealedPhysicalExecutionTreeGeneration(
     let treeAuthorityReleased = false;
     const generation: RetainedSealedPhysicalExecutionTreeGeneration = Object.freeze({
       [retainedSealedPhysicalExecutionTreeGenerationBrand]: true as const,
+      identity,
       workingDirectory,
       assertCurrent: async () => {
         if (retired) throw new Error('Physical execution tree is retired');
@@ -826,13 +941,49 @@ export async function materializeRetainedSealedPhysicalExecutionTreeGeneration(
               failure
             );
           }
+          const currentLinkedSettlements = await linkedSettlements(links);
+          const currentProtectedRootSettlements = await protectedRootSettlements(protectedRoots);
+          if (currentLinkedSettlements.some(({ status }) => status !== 'borrowed-current')
+              || currentProtectedRootSettlements.some(({ status }) => status !== 'current')) {
+            const residue = await createResidue({
+              generationParent,
+              inventory: retirementInventory,
+              links,
+              maximumBytes: totalBytes,
+              maximumEntries: maximumMaterializedEntries,
+              protectedRoots,
+              retryable: false,
+              root: generationRoot,
+              treeAuthority: treeAuthorityState,
+              treeRetirement: 'physically-absent'
+            });
+            throw new SealedPhysicalExecutionTreeResidueError(
+              'Runtime Physical execution tree retirement lost a borrowed generation identity',
+              residue,
+              new Error('Borrowed generation settlement is unavailable')
+            );
+          }
           const receipt: SealedPhysicalExecutionTreeRetirementReceipt = Object.freeze({
             [sealedPhysicalExecutionTreeRetirementReceiptBrand]: true as const,
-            linkedSettlements: await linkedSettlements(links),
+            generationIdentity: identity,
+            linkedSettlements: Object.freeze(currentLinkedSettlements.map((settlement) => (
+              Object.freeze({
+                path: settlement.path,
+                sourceRoot: settlement.sourceRoot,
+                status: 'borrowed-current' as const
+              })
+            ))),
+            protectedRootSettlements: Object.freeze(currentProtectedRootSettlements.map(
+              (settlement) => Object.freeze({
+                root: settlement.root,
+                status: 'current' as const
+              })
+            )),
             treeAuthority: 'released' as const,
             tree: treeReceipt
           });
           issuedSealedPhysicalExecutionTreeRetirementReceipts.add(receipt);
+          retirementReceiptRecords.set(receipt, Object.freeze({ generation, identity }));
           terminalReceipt = receipt;
           return receipt;
         })().finally(() => {
@@ -842,6 +993,13 @@ export async function materializeRetainedSealedPhysicalExecutionTreeGeneration(
       }
     });
     issuedRetainedSealedPhysicalExecutionTreeGenerations.add(generation);
+    issuedSealedPhysicalExecutionTreeGenerationIdentities.add(identity);
+    generationIdentityRecords.set(identity, Object.freeze({
+      generation,
+      linkedGenerations: Object.freeze(links.map(({ source }) => source)),
+      protectedRoots: Object.freeze([...protectedRoots]),
+      workingDirectory
+    }));
     await generation.assertCurrent();
     return generation;
   } catch (error) {
