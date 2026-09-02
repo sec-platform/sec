@@ -25,7 +25,6 @@ import {
   sealExistingWindowsReadOnlyTreeAuthority,
   type WindowsReadOnlyTreeAuthority
 } from './windows-host-filesystem-authority.ts';
-
 const SEALED_EXECUTION_TREE_RECOVERY_POLICY = Object.freeze({ maximumDurationMs: 30_000 });
 const retainedSealedPhysicalExecutionTreeGenerationBrand: unique symbol = Symbol(
   'retained-sealed-physical-execution-tree-generation'
@@ -802,9 +801,10 @@ export async function materializeRetainedSealedPhysicalExecutionTreeGeneration(
           );
         }
       }
+      assertExecutionCurrent();
       pendingWindowsAuthority = await sealExistingWindowsReadOnlyTreeAuthority(
         generationRoot.path,
-        inventory.filter(({ kind }) => kind !== 'link').map(({ relativePath }) => (
+        inventory.filter(({ kind }) => kind === 'directory').map(({ relativePath }) => (
           path.join(generationRoot.path, ...relativePath.split('/'))
         )),
         {

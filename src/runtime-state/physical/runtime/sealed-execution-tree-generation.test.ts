@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -8,6 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import {
   inspectNoFollowDirectoryChain,
   materializeRetainedNoFollowProvenDirectoryGeneration,
+  retainNoFollowSealedDirectoryGeneration,
   scanNoFollowDirectoryTreeInventory,
   type PhysicalDirectoryIdentity,
   type RetainedNoFollowProvenDirectoryGeneration
@@ -26,6 +27,7 @@ import {
   materializeRetainedTypeScriptExecutionGeneration,
   RetainedTypeScriptExecutionGenerationResidueError
 } from './typescript-execution-generation.ts';
+import { sealExistingWindowsReadOnlyTreeAuthority } from './windows-host-filesystem-authority.ts';
 
 function digest(value: string): `sha256:${string}` {
   return `sha256:${createHash('sha256').update(value).digest('hex')}`;
@@ -494,6 +496,68 @@ test.skipIf(process.platform !== 'win32')(
       protectedRoot.release();
       await fixture.dependency.retire();
       await rm(fixture.rootPath, { recursive: true, force: true });
+    }
+  },
+  60_000
+);
+
+test.skipIf(process.platform !== 'win32')(
+  'sealed execution handles exclude byte and membership mutation until terminal retirement',
+  async () => {
+    const fixture = await createFixture('sealed-execution-tree-writer-exclusion');
+    try {
+      const generation = await materializeRetainedSealedPhysicalExecutionTreeGeneration({
+        deadlineAtUnixMs: Date.now() + 30_000,
+        directoryNamePrefix: 'execution-',
+        files: [{ bytes: Buffer.from('exact\n'), path: 'src/value.ts' }],
+        generationParent: fixture.generationParent,
+        links: [{ path: 'node_modules', source: fixture.dependency }]
+      });
+      const generationPath = generation.workingDirectory.root.path;
+      const sourcePath = path.join(generationPath, 'src', 'value.ts');
+      await expect(open(sourcePath, 'r+')).rejects.toBeInstanceOf(Error);
+      await expect(open(path.join(generationPath, 'src', 'foreign.ts'), 'wx'))
+        .rejects.toBeInstanceOf(Error);
+      expect(await readFile(sourcePath, 'utf8')).toBe('exact\n');
+      await generation.assertCurrent();
+      await generation.retire();
+    } finally {
+      await fixture.dependency.retire();
+      await rm(fixture.rootPath, { recursive: true, force: true });
+    }
+  },
+  60_000
+);
+
+test.skipIf(process.platform !== 'win32')(
+  'sealed generation admission rejects a pre-existing writer handle',
+  async () => {
+    const rootPath = await mkdtemp(path.join(tmpdir(), 'sec-sealed-existing-writer-'));
+    const sourcePath = path.join(rootPath, 'value.ts');
+    await writeFile(sourcePath, 'exact\n');
+    const root = inspectNoFollowDirectoryChain(rootPath, 'existing writer root').target;
+    const inventory = scanNoFollowDirectoryTreeInventory(root, {
+      deadlineAtMs: performance.now() + 30_000,
+      maximumBytes: 1_024,
+      maximumEntries: 2
+    });
+    const writer = await open(sourcePath, 'r+');
+    try {
+      const membershipAuthority = await sealExistingWindowsReadOnlyTreeAuthority(root.path, [], {
+        deadlineAtMs: Date.now() + 30_000,
+        ownerRootPath: path.dirname(rootPath),
+        repositoryRootPath: process.cwd()
+      });
+      await expect(retainNoFollowSealedDirectoryGeneration(
+        root,
+        inventory,
+        membershipAuthority,
+        'existing writer generation'
+      )).rejects.toThrow();
+      expect(await readFile(sourcePath, 'utf8')).toBe('exact\n');
+    } finally {
+      await writer.close();
+      await rm(rootPath, { recursive: true, force: true });
     }
   },
   60_000
