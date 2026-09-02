@@ -16,11 +16,14 @@ last-reviewed: 2026-09-02
 | 当前 main/SHA/tree/PR/CI/Review | live provider 与 exact readback |
 | 当前 Work Package、blocker、candidate | control plane 与 docs/work |
 | 产品价值与非目标 | product |
-| 对象、关系、owner、operation、resource | system architecture |
+| 事实种类、关系、约束、原则语言和设计演算 | design calculus |
+| 通用工程原则 | engineering constitution |
+| SEC owner、operation、resource 与架构实例化 | system architecture |
 | 兼容、迁移、退役 | change management |
 | Provider 成熟度 | external provider policy |
 | PASS、Evidence、Gate | verification governance |
-| Agent 行为 | development governance |
+| 通用 Agent 行为原则 | agent constitution |
+| SEC Task/Operation/Skill/Work Package 行为 profile | development governance |
 
 路线是能力偏序，不是日期表、Issue 镜像或“代码存在即完成”的清单。
 
@@ -51,6 +54,31 @@ stateDiagram-v2
 | product-supported | 支持策略、运营、撤销与恢复闭合 | 永久有效 |
 
 任何类型、文档、测试、提交、PR 或示例都只能提供其实际层级的 Evidence。
+
+### 2.1 Design-to-implementation gate
+
+| Change kind | 实现前必须冻结 | 可省略 |
+|---|---|---|
+| 新产品能力/跨 owner 架构/公共合同/持久状态/Effect/resource/provider/layout/evolution | `docs/design-calculus.md` 定义的完整 Design Package + SEC scenario traces | production code |
+| 已冻结 operation 内的局部实现纵切片 | Design Package ref、exact owned closure、acceptance/settlement/proof obligations | 重做全局哲学 |
+| 用于消解一个 design unknown 的 experiment | hypothesis、isolated inputs/effects、expiry、expected observation、retirement | production integration/authority |
+| incident recovery | 当前状态 readback、最小安全 transition、residue/rollback | 新功能与无关重构 |
+
+```mermaid
+flowchart LR
+  Q[Question / counterexample] --> D[Design Package]
+  D --> M[Model + fault validation]
+  M --> F{Contract frozen?}
+  F -->|no| D
+  F -->|yes| I[Implementation slices]
+  I --> V[Conformance Evidence]
+  V --> R{Model defect?}
+  R -->|yes| S[Stale reverse closure]
+  S --> D
+  R -->|no| N[Next maturity state]
+```
+
+该 gate 防止边写边发现结构，但不要求每个叶节点重复全套设计；叶节点必须引用现有 frozen package，找不到则返回 design-unbound。
 
 ## 3. 唯一能力 DAG
 
@@ -114,9 +142,11 @@ flowchart TD
 | 对象 | 唯一性要求 |
 |---|---|
 | Product | 问题、终局、边界、成功判据唯一 |
-| Architecture | Subject/Claim/Relation、owner、operation、resource 唯一 |
-| Principles | Engineering 与 Agent principles 分属各自 owner |
-| Meta-model | relation、constraint、execution/proof、materialization 可迁移 |
+| Design Calculus | Subject/Claim/Relation/Constraint、原则语言与模型演算唯一 |
+| Engineering Constitution | 工程 identity/truth/owner/capability/resource/effect/proof/evolution 原则唯一 |
+| Agent Constitution | Agent epistemics/reasoning/authorization/action/recovery/self-correction 原则唯一 |
+| SEC Architecture | owner、operation、resource 与通用原则的项目实例化唯一 |
+| Meta-model evolution | relation、constraint、execution/proof、materialization 可迁移 |
 | Current state | 只由 live resolver；不得写进稳定路线 |
 
 human/formal/role/boundary/enforcement/AI views 必须由同一 principles 编译；任一视图不能改变 owner、unknown 或拒绝结论。

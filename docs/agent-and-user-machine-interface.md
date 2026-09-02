@@ -10,6 +10,8 @@ domain: agent-user-interface
 
 SEC 是本地优先的工程语义与受控操作系统。CLI、Agent、IDE、未来可选 UI 都是同一领域结果的投影者，不是新的事实、决策或权限 owner。
 
+通用 Agent 认识与行动由 `docs/agent-constitution.md` 拥有，SEC Task/Operation 行为 profile 由 `docs/development-governance.md` 拥有；本文件只拥有人/机器接口与 projection，不重写任何 Agent 原则。
+
 | 本域拥有 | 本域不拥有 |
 |---|---|
 | 命令寻址、输入解码、输出通道、退出语义 | 产品目标、领域状态、WorkDecision |

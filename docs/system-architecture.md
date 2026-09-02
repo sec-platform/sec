@@ -6,7 +6,7 @@ domain: system-architecture
 
 # 系统架构与权威流
 
-本文拥有 SEC 的关系元模型、跨域约束、编译阶段、责任与依赖方向、operation/resource/lifecycle/proof 闭包、物理物化和架构演进。产品结果由 `docs/product.md` 拥有，Agent 行为由 `docs/development-governance.md` 拥有，领域字段与算法由各领域 machine contract 拥有，当前能力只能由最新 `main` 与 Evidence 计算。
+本文拥有通用设计演算与工程宪法在 SEC 中的实例化：跨域约束、编译阶段、责任与依赖方向、operation/resource/lifecycle/proof 闭包、物理物化和架构演进。关系与原则语言由 `docs/design-calculus.md` 拥有，普适工程原则由 `docs/engineering-constitution.md` 拥有，产品结果由 `docs/product.md` 拥有，SEC Agent 流程由 `docs/development-governance.md` 拥有；领域字段与算法由各领域 machine contract 拥有，当前能力只能由最新 `main` 与 Evidence 计算。
 
 ## 1. 架构核
 
@@ -57,92 +57,52 @@ AdmittedChange =
 
 任何 `unknown` 只阻断它可能影响的 Effect 或 Claim；任何 hard failure 都不能被多数 PASS、信心、测试绿色或人工评分抵消。
 
-### 1.1 Engineering Principle 合同
+### 1.1 Constitution binding
 
-一条原则不是散文段落，而是一个可编译记录：
+本文件不重写通用原则；它只声明 SEC 如何消费三项上游权威：
 
-```text
-Principle = {
-  identity, normativeRule, formalPredicate,
-  inputs, outputs, owner, consumers,
-  rejection, counterexample, reversal
-}
-```
-
-同一原则的自然语言、谓词、角色、I/O、反例和机器拒绝是**等价视图**，不是六个事实源；缺少任一可执行视图时为 `principle-unmaterialized`。
-
-| ID | 规范句 | 形式谓词 | 编译 I/O | 拒绝 |
-| --- | --- | --- | --- | --- |
-| EP-IDENTITY | 语义身份独立于位置、尝试和展示名 | `SubjectId ⟂ Address, Attempt, Label` | definitions + exact observations → stable refs | `identity-alias` |
-| EP-TRUTH | observation/projection不能创造authoritative meaning | `Authority(out) ⊆ ⋃ Authority(inputs)` | facts + issuer → typed claims/unknown | `truth-amplification` |
-| EP-OWNER | 每个identity/writer/parser/resolver/terminal只有一个owner | `cardinality(owner, key)=1` | relation graph → owner DAG | `duplicate-owner` |
-| EP-UNKNOWN | 不完整知识保持显式且不能穿越受影响Effect/Claim | `unknown∩dependencies(target)=∅` | coverage + frontier → admitted/blocked targets | `unknown-crosses-boundary` |
-| EP-AUTHORITY | Effect权限只收窄、不结构伪造 | `requested ⊆ grant ∩ envelope` | grants + plan + principal → exact Effect frontier | `authority-amplification` |
-| EP-CAPABILITY | Requirement与Provision分离并exact绑定 | `satisfies(provision, requirement)` | eligible provisions + constraints → Binding | `capability-mismatch` |
-| EP-RESOURCE | 所有子步骤消费同一不可逆parent ledger | `Σchild ≤ parentRemaining` | plan + ledger → allocations/remaining | `resource-budget-escape` |
-| EP-EFFECT | start/exit不等于业务terminal | `terminal ⇐ settlementSet ∧ readback` | attempt + settlements + readback → result/residue | `effect-unsettled` |
-| EP-PROOF | producer不能充分证明自己，Evidence只支持声明Claim | `issuer(evidence) independentOf producer(claim)` | claim + observations → verdict | `self-proof` |
-| EP-RECOVERY | partial/lost-handle状态不可blind replay | `retry ⇒ conclusiveNotApplied ∧ ownerGrant` | intent + current readback → join/recover/retry/block | `unsafe-replay` |
-| EP-EVOLUTION | 一个语义时刻只有一个active generation | `activeWriters(key)=1 ∧ retired(old)` | old/new graph + migration → cutover/retirement | `dual-generation` |
-| EP-DERIVATION | 可计算事实生成，不手写镜像 | `stored(x) ⇒ ¬derivable(x) ∨ durableConsumer(x)` | canonical graph → projections | `derived-fact-duplicated` |
-| EP-EXTENSION | 新语言/Provider/Target扩展边界，不给core加品牌分支 | `coreDelta independentOf instanceBrand` | provider/domain facts → same pipeline | `instance-special-case` |
-| EP-ECONOMY | 新机制必须降低或保持正确变更全生命周期成本 | `Cost(new graph) ≤ Cost(valid alternatives)` | competing graphs + obligations → dominance result | `dominated-design` |
-
-`counterexample`由Architecture Attack Compiler生成，`reversal`由原则owner声明；二者不复制到本表的事件清单中。
-
-## 2. 正交事实模型
-
-### 2.1 最小语义封套
-
-底层只有三类逻辑构件：
-
-- **Subject**：稳定语义身份；
-- **Claim**：关于 Subject、可判定真假的命题；
-- **Relation**：某 owner 签发的 typed edge。
-
-每个 Claim/Relation 都绑定：
-
-```text
-issuer + issuer authority
-+ subject revision
-+ exact input / algorithm / provider identity
-+ snapshot or operation epoch
-+ coverage / unknown frontier
-+ validity / invalidation / retirement
-```
-
-该封套只提供引用完整性，不是万能 DTO 或第二业务对象。具体 payload 由领域 strict contract 拥有；禁止建立“所有字段可选”的 global schema。
-
-### 2.2 关系词汇
-
-| Relation | 精确定义 | 不能替代 |
+| Upstream owner | SEC projection | 本文件拥有的实例化 |
 | --- | --- | --- |
-| Address | Subject 在 exact logical/physical snapshot 中的位置 | identity、owner、长期事实 |
-| Definition | owner 接受的意图、不变量、结果与 future obligation | current implementation、test |
-| Requirement | operation/consumer 所需语义、能力、资源、失败和结算合同 | provider、argv、path |
-| Provision | capability/provider 能提供的合同与边界 | domain intent、authority、success |
-| AuthorityGrant | principal 对 exact Subject 可执行的 Effect 与条件 | scope string、caller DTO |
-| Binding | Requirement 与 exact Provision 在有效 Grant 下的一次绑定 | lookup、default provider |
-| Allocation | 从 parent ledger 不可逆保留给 Binding 的额度 | static ceiling、local timeout |
-| Observation | 对 exact Subject/Binding 实际读取、加载、执行或计量到的事实 | plan、expected result |
-| Settlement | 使用、终止、释放、readback、residue 和资源归还 | exit code、callback return |
-| LifecycleTransition | create → active → terminal/residue → retired 的合法变化 | boolean、file exists |
-| Derivation | output 由 exact inputs、algorithm 和 unknown 确定性产生 | 相似名称、时间相邻 |
-| EvidenceSupports | 独立 observations/settlements 支持 exact Claim | 无 Claim 的 PASS、report |
+| `docs/design-calculus.md` | Subject/Claim/Relation/Constraint/Transition/Proof 与原则多视图合同 | SEC relation refs、compiler stages、typed frontier |
+| `docs/engineering-constitution.md` | EP-IDENTITY 至 EP-ECONOMY | SEC DesignAdmission、owner DAG、Effect/resource/recovery/proof/evolution obligations |
+| `docs/agent-constitution.md` | Agent 认识与行动原则 | 只由 `docs/development-governance.md` 实例化；本文件不授权 Agent |
 
-对象种类不是关系种类：
+通用原则变化先在其唯一 owner 完成语义、反例与反转审查，再重编 SEC profile；SEC 场景不能在此定义同名原则或改变其 rejection semantics。
 
-| 对象例子 | 在模型中的表达 |
-| --- | --- |
-| source file | content Subject + snapshot Address + parser Observation + declaration/reference Derivation |
-| manifest/template | content Subject + protocol parser Observation + provenance relations |
-| process | process Provision + operation Requirement + Binding + Allocation + run Observation + Settlement |
-| Docker daemon | container Provision + live availability Observation；不拥有业务 Definition |
-| Git/GitHub | repository/hosted semantic Provision；transport 不拥有业务成功 |
-| cache | 可丢弃 Derivation projection；不拥有 canonical Claim |
-| document | stable Definition 或 generated projection；二者不可混写 |
+`SEC Project Constitution` 不是第四份手写文档，而是一个无所有权的生成视图：
 
-### 2.3 正交与相互约束
+```mermaid
+flowchart LR
+  D[Design Calculus] --> P[SEC Project Constitution projection]
+  E[Engineering Constitution] --> P
+  A[Agent Constitution] --> P
+  U[Product outcomes/non-goals] --> P
+  S[SEC System Architecture] --> P
+  O[Domain authority documents] --> P
+  P --> H[Human architecture view]
+  P --> M[Machine admission obligations]
+  P --> C[Compact Agent context]
+```
+
+投影只能引用各 owner 的 identity/revision/clauses，不能保存原则或领域字段副本；它的失效由任一输入 revision 变化自动传播。
+
+## 2. SEC 关系实例化
+
+关系的通用定义只在 `docs/design-calculus.md`。SEC 对象必须投影到这些关系，不得按“代码/资源/进程”建立互斥大类：
+
+| SEC object | Subject / Address | Requirement / Provision | Observation / Settlement / Evidence |
+| --- | --- | --- | --- |
+| authored source | content Subject + exact tree Address | parser/type/service Requirement + compiler Provision | parsed declarations/references + fact derivation |
+| manifest/template | protocol Subject + snapshot Address | strict parser/schema Provision | canonical bytes/invariants/provenance readback |
+| process | attempt Subject + OS Address | process Requirement + retained execution Provision + Allocation | start/output/exit/descendants + terminal settlement |
+| container daemon | external capability Subject + host Address | container operation Requirement + daemon Provision | live availability/operation/readback；不拥有业务 Definition |
+| repository/hosted service | semantic remote Subject + exact revision/ref Address | repository/API Requirement + credential/endpoint Provision | records/remote readback；transport 不拥有成功 |
+| cache/fact shard | derived Subject + content Address | exact ActionKey Requirement + cache Provision | validated hit/miss；不拥有 canonical Claim |
+| document | accepted Definition 或 generated projection Subject | reader/audience Requirement | registry/projection/read receipt；不得混写 runtime result |
+| test | Claim/Evidence scenario Subject + source Address | runner/environment Provision | behavior/effect/failure observation；名称和计数不产生价值 |
+| Work Package | bounded operation-definition Subject | scope/role/obligation Requirement | activation/settlement refs；不产生全局原则 |
+
+### 2.1 正交与相互约束
 
 正交表示一种关系不能使另一种关系自动成立；相互约束表示 architecture compiler 对这些关系做合取验证。
 
@@ -663,12 +623,13 @@ flowchart LR
 | Generated projection | applicability、roles、closures、obligation、unknown、人/AI view | compiler | manual edits、Effect/PASS |
 | Runtime/Evidence | attempt/journal/receipt/failure/external observations | runtime/verification owner | stable design truth |
 
-### 12.2 Engineering 与 Agent principles
+### 12.2 Constitution projection
 
-| Principle kind | 约束 | canonical owner | runtime consumer |
+| Constitution | canonical owner | SEC projection owner | runtime consumer |
 | --- | --- | --- | --- |
-| Engineering Principle | product、code、state、Effect、Evidence、evolution | Product/Domain/System Architecture | DesignAdmission |
-| Agent Principle | Agent 取事实、推理、质疑、授权、行动、验证、收口 | Development Governance Agent Constitution | BehaviorAdmission |
+| Design Calculus | `docs/design-calculus.md` | 本文件的 relation/compiler profile | DesignAdmission 与 architecture attack compiler |
+| Engineering Constitution | `docs/engineering-constitution.md` | 本文件的 SEC owner/effect/resource/evolution profile | DesignAdmission |
+| Agent Constitution | `docs/agent-constitution.md` | `docs/development-governance.md` | BehaviorAdmission |
 
 ```text
 EffectiveAction =
@@ -678,14 +639,14 @@ EffectiveAction =
   ∩ available Provision / Allocation
 ```
 
-Agent principle 不能创造 engineering truth；engineering principle 不能授权 Agent。聊天、summary、memory、Skill 不补缺项。
+Agent principle 不能创造 engineering truth；engineering principle 不能授权 Agent。SEC profile 只能收窄和实例化上游原则，不能复制或改写；聊天、summary、memory、Skill 不补缺项。
 
 ### 12.3 单一语义、多种精确表达
 
 ```mermaid
 flowchart TB
-  D[Accepted decisions + stable domain facts] --> G[Canonical principle graph]
-  M[Machine contracts + exact observations] --> G
+  D[Canonical constitution records] --> G[Meaning-bound projections]
+  M[Accepted project decisions + machine contracts] --> G
   G --> F[Formal predicates]
   G --> R[Role / authority map]
   G --> B[Boundary / counterexample matrix]
@@ -705,9 +666,9 @@ flowchart TB
 | enforcement | type/schema/parser/lint/admission/CI | reachable machine rejection |
 | AI compact | 当前 question 的最小 closure | 同一 blockers/unknown |
 
-所有 views 引用同一 semantic graph digest；任何 view 增删 Claim、owner、unknown 或 blocker 都拒绝发布。完整解释可以严谨且较长，但不得复制 current facts；信息密度由按需 projection 提升，不靠删条件。
+所有 views 引用同一 principle meaning；任何 view 增删 Claim、owner、unknown 或 blocker 都拒绝发布。完整解释可以严谨且较长，但不得复制 current facts；信息密度由按需 projection 提升，不靠删条件。
 
-root `AGENTS.md` 是 Agent Constitution 的 generated bootstrap projection，`owns: []`。其生成、load receipt、BehaviorAdmission、self-evolution 和 instruction/data separation 由 `docs/development-governance.md` 拥有。
+root `AGENTS.md` 是通用 Agent Constitution 经 SEC Development Governance 收窄后的 generated bootstrap projection，`owns: []`。其生成、load receipt、BehaviorAdmission、self-evolution 和 instruction/data separation由 `docs/development-governance.md` 拥有；它不成为第四份原则 owner。
 
 ### 12.4 文档实时同步
 
@@ -911,7 +872,103 @@ canonical Agent Constitution projection
 
 Conversation summary and memory can locate facts but cannot recreate authority.
 
-### 15.3 Design exit
+### 15.3 SEC adversarial reference suite
+
+以下场景是通用故障族在 SEC 的实例化，不保存 current completion。每个场景的实现状态由 exact Source Program、runtime facts 和 Evidence 计算。
+
+#### Source、owner 与结构
+
+| Scenario | Generic faults | Target model trace | 实现前必须证明 | 必须阻断 |
+| --- | --- | --- | --- | --- |
+| authored source 物理收敛到 `src/` | F13/F24 | responsibility graph → placement compiler → transactional move → consumer readback → old path retirement | imports/config/package/tests/generation/unknown closure；semantic identity 不含 path | 手工批量移动后保留 alias、第二 source root 或路径镜像 |
+| `project` 与 workspace 语义 | F01/F13 | Product/Domain Subject → workspace/project Address projection | workspace=被 SEC 操作的 IDE 工作区；project 名称只在真实 domain identity 必要时保留 | 用目录名创造身份或在多处复制语义 |
+| 大文件拆分 | F12/F24 | declaration/reference/effect graph → responsibility cells → acyclic internal owners | public exports 等价、反向边零、变化协同提升 | 按行数搬运、空 index、循环 facade |
+| contract/index/facade | F12/F16 | real external consumers → minimal public contract → one-way facade | consumer>0、surface 收窄、无状态、无反向 import | 为“整洁”造 barrel；为解环隐藏依赖 |
+| package 与顶层目录 | F12/F24 | owner DAG + lifecycle + deployment unit → package boundaries/paths | 每个 package 有独立 release/runtime/consumer 边界；否则是 cell 内目录 | 按历史 `platform/tooling/scripts` 或工具品牌分散所有权 |
+| import 顺序与依赖方向 | F12/F24 | compiler symbol graph → cycle/forbidden edge → codemod plan | value/type/dynamic/re-export/callback/string-code edges 全纳入 | 仅格式化 import 文本、允许 type-only 反向环 |
+| 可执行源码藏在字符串 | F13/F21 | exact bytes → embedded-program parser → second-source finding | code-bearing string 的 language/owner/consumer/unknown | 字符串逃逸 Source Program 和 impact |
+| duplicate implementation/provider | F05/F12/F13 | identity clustering → consumer/effect comparison → unique owner cutover | semantic/effect/failure closure 等价或有明确差异 owner | 仅因名字不同保留两套 resolver/scanner/wrapper |
+| 无当前 consumer 的未来设计 | F16/F18 | accepted future obligation → proposal-only spec → activation compiler | outcome、activation、owner、cost、proof、retirement | 以 `rg` 零盲删未来业务；active 空壳占用生产图 |
+
+#### Capability、资源与外部 Effect
+
+| Scenario | Generic faults | Target model trace | 实现前必须证明 | 必须阻断 |
+| --- | --- | --- | --- | --- |
+| repository exact snapshot | F02/F05/F07/F19 | one semantic session → ordered reads → membership/tree/ref readback → receipt | exact revision/tree、single-flight、aggregate records/output/deadline、session terminal | 多 wrapper 裸调用、每层新 session、同 session 并发非重入 |
+| hosted API/credential | F04/F05/F18 | endpoint/principal/credential provision → repository binding → bounded semantic operation | immutable host/repository/principal/credential epoch；ambient variables 不可改路由 | 继承 ambient credential/config、transport 自报语义 |
+| Windows external CLI | F01/F05/F08 | authenticated materialization → retained executable/cwd → child image boundary → settlement | archive/tree/loader/dependency/readback、same-handle identity、typed unavailable | PATH fallback、测试 capability 冒充 production |
+| Docker daemon 启动 | F06/F08/F10/F15 | root discovery → OperationKey claim → launcher binding → durable attempt → daemon/domain readback | launcher lock address 可导出且存在；并发 join；lost-handle readback；local terminal | 空 lock path、固定 sleep、重复启动、只看 launcher exit |
+| local/remote execution | F05/F18 | Requirement 保持 → eligible local or remote Provision → exact Binding | offline 时本地 provision 满足同一语义/资源/证明；不满足则 typed unavailable | “远程耗尽”直接降低验证或绕 provider |
+| process 统一资源原子 | F06/F07/F08/F22 | operation context → retained process provision → child allocation → descendant settlement | wall/process/input/output/records/descendants/cwd/executable 全计量 | raw spawn、unretained 与 retained 同时公开、静态预算不计实际 child |
+| long Effect/lost handle | F08/F10/F15 | durable intent → worker claim → progress → readback/join/recover → terminal/residue | at-most-once、crash points、unknown 不重试、journal retirement | caller 断开后重发、PID/lock absence=not applied |
+| absolute deadline/cancel | F06/F09/F22 | top operation derives deadline once → every read/lock/effect/cleanup consumes remaining | monotonic remaining、ceiling、signal at every wait/effect、primary+cleanup errors | `NaN/Infinity`、每层重置、cleanup 越界覆盖主错误 |
+| directory/content scan | F06/F19/F22 | shared exact snapshot/fact shard → streaming observations → aggregate ledger | entry/bytes/depth/time/signal；不额外预扫；incremental=clean | 只限 entries、不限 bytes；为计数全遍历两次 |
+| mature tool/library adoption | F05/F13/F23 | requirement gap → stable machine interface → direct use or justified thin adapter | provenance/security/license/settlement/cost；old custom graph retirement | 自写低质 parser/scanner/wrapper；presentation 当协议 |
+| developer machine tool capability | F04/F05/F18 | capability census → standing provision ledger → task binding or typed unavailable | version/source/integrity/platform/scope；安装升级是独立授权 Effect | 每任务 `Get-Command` 后临时安装；全局工具存在即获得业务 authority |
+| dependency freshness/update | F05/F11/F20 | semantic requirement → eligible versions → exact lock/integrity → upgrade/migration plan | “latest”只作候选；兼容/安全/平台/行为/迁移/回滚共同裁决 | 仅因版本旧就升级；依赖锁、runtime profile 与测试不同步 |
+| Bun-only runtime | F05/F20/F24 | accepted runtime profile → package/toolchain/provider closure → one generation | Node-specific public runtime consumer-zero；dependency/scripts/CI/distribution 一次切换 | 声称 Bun-only但保留 Node runtime owner或兼容双路 |
+
+#### Compiler、facts 与性能
+
+| Scenario | Generic faults | Target model trace | 实现前必须证明 | 必须阻断 |
+| --- | --- | --- | --- | --- |
+| Source Program 唯一 snapshot | F02/F12/F13/F19 | exact tree/worktree observation → declaration/reference/capability facts → shared consumers | typecheck/audit/test-impact 使用同一 revision/fact identities；unknown 显式 | 各自重扫、第二 AST graph、正则改变语义 |
+| TypeScript authoring/typecheck | F05/F06/F19 | canonical checker provision → ActionKey → affected facts → incremental terminal → frozen final Evidence | provider identity/no fallback、args/environment/project/deps/tree、cold/warm/delta 等价 | generic/native 双 owner、每次 full `tsc`、daemon 复制 truth |
+| Windows ACL/Runtime State proof | F06/F19/F22 | retained native OS observation → content-addressed fact → cross-process validation | 与旧强度等价、subject/ACL/host epoch/expiry、mutation invalidation | 每进程启动重型 shell、缓存 path-only PASS |
+| Typecheck terminal reuse | F02/F19 | exact ActionKey → authenticated in-flight/terminal/failure → join/reuse | source/toolchain/config/dependency/environment/claims 全绑定 | 其他源码状态旧 PASS、same mtime hit、失败不变仍重跑 |
+| Test Impact | F02/F12/F13/F19 | Source Program delta → canonical test predicate/consumer graph → zero-effect plan | test identity 不仅 `tests/**` 正则；cache on/off byte-equivalent；plan 无写入 | 复制测试识别器、计划写 cache、路径名字决定影响 |
+| import rewrite automation | F12/F24 | semantic move plan → compiler rename/reference edits → format → graph readback | alias/re-export/config/generation/tests 全闭合；old paths zero | 手工改路径、每次再跑独立 import repair |
+
+#### Durable contract、migration 与 lifecycle
+
+| Scenario | Generic faults | Target model trace | 实现前必须证明 | 必须阻断 |
+| --- | --- | --- | --- | --- |
+| dependency transition journal | F03/F10/F11/F20 | strict current reader → typed legacy detection → one-shot migration intent → new immutable root → old evidence retirement policy | writer/parser/schema/provenance/owner physical/topology/digest/lease/CAS/readback | 同 `v1` 静默加字段、默认 null、正常路径双读、parse failure=cache miss |
+| compiler-issued provenance | F01/F03/F10 | producer capability receipt → binding/stage/publish lifecycle → recovery readback | stage/active/locator 由同 owner lease 签发；foreign same-content tree 不可冒充 | stamp 自带 path 成为 authority、born/bind 在 lease 外 |
+| readiness/read error | F03/F22 | strict observation → ready/absent/mismatch/unresolved discriminant | permission/reparse/deadline/IO/unsafe path 保留 typed cause，unresolved zero Effect | catch-all `false/null` 后 install/publish |
+| schema/parser library | F11/F13 | domain schema owner → mature strict parser implementation → retained bytes/readback | duplicate/unknown/trailing/version/provenance/invariant；writer/reader 同 owner | 为未来“可能用”保留无 consumer library facade；手写 cast 假解析 |
+| version/revision | F11/F13/F18/F20 | durable/external states census → consumer branch → current schema + migration/retirement | 至少两真实状态、reader/migration、support window；测试语义转换 | `Vn` 名字、纯数字断言、无 reader 的 format 字段、永久兼容 |
+| cache/fact state | F02/F03/F19 | exact derivation inputs → content address → validator → hit/miss/retire | producer/environment/algorithm/source digest、corruption/unknown typed rejection | mtime/path/process memory 成为 authority |
+
+#### Product graph、测试与治理
+
+| Scenario | Generic faults | Target model trace | 实现前必须证明 | 必须阻断 |
+| --- | --- | --- | --- | --- |
+| Block/Slot 历史模型 | F13/F16/F20 | accepted product capability → semantic domain operations + typed ports → legacy consumer migration | 老系统真实当前价值、未来设计目的、新需求都映射且目标模型更强；consumer-zero 后退休 | 先删再设计、把品牌名保留为 core identity、换一套空抽象 |
+| browser/Playwright/Workbench 退役 | F03/F16/F20 | product non-goal → full producer/consumer/artifact/provider/test census → capability graph cut | 目标工作区浏览器能力与 SEC 自身 UI/runtime 区分；仍有 consumer 则先迁移/裁决 | 只删测试、只删前端、生产 Node/browser 路径残留 |
+| test value/reduction | F13/F14/F18 | test AST+symbol/effect graph → behavior/durable/effect/failure/property/protocol classes → disposition | replacement IDs、producer/consumer/external/future obligation、unknown；不按数量 | 路径/版本/arity/实现清单镜像；把所有数字或所有旧测试当垃圾 |
+| business 尚未实现 | F16/F18 | accepted Definition/future obligation → target behavior scenarios → implementation frontier | 用户业务价值与 future intent 持久存在；current 能力明确未完成 | 用 current consumer-zero 删除 accepted target；测试假装闭环 |
+| Semantic Mutation plan | F04/F08/F10/F14 | read-only plan 与 effectful preparation 分型 → grant/lease/staging journal → verification | public `plan` zero Effect；effectful path 有授权/settlement/recovery；caller projection 不自授权 | 把建目录/复制/写 staging 称纯 plan；journal 复用伪 authorization |
+| docs/原则同步 | F13/F17/F24 | canonical constitution/domain decisions → generated human/Agent/machine projections → drift compiler | 每项只有一个 owner；current facts 不写 stable spec；views meaning-equivalent | AGENTS/Skill/说明文各复制原则；文档先替代码签能力 |
+| Skill | F04/F13/F17 | non-machine-decidable judgment → bounded heuristic → machine migration when decidable | trigger/evidence/actions/stop/reversal；不提供事实/能力/权限 | 把可预见工程规则长期塞 Skill；Skill 阻止修其错误前提 |
+| subagent | F04/F07/F17 | independent DAG cell → narrowed envelope → reconciliation → parent integration | 非重叠写集、exact I/O、净收益、父级验证 | 为占槽并发、子 agent 自签完成、共享文件竞写 |
+| dirty worktree/integration | F02/F10/F24 | ownership/preimage census → preserve set → isolated task delta → exact integration/readback | 用户/外部/本任务状态分离；冲突语义取舍；丢失内容可追溯 | 无脑搬全部、reset/clean、靠 Git dangling object 当正常状态 |
+| junction/reparse/local cleanup | F01/F08/F24 | registry ownership + retained physical root → no-follow census → exact delete plan → post-readback | target在授权root内、无live child/handle、junction本身与target分离、residue可保留 | 普通递归删除跟随junction；超时后把残留当成功 |
+| commit/push/merge | F02/F08/F15 | closed logical slice → exact staged delta → commit → push/merge Effect → remote/new-main readback | 业务闭包和 reconciliation 在提交前；响应丢失只 readback；旧 refs/branches按授权退役 | 改一个文件就提交；无限等待；重复 push/merge；未授权清理 |
+| hosted CI 与本地容器 | F05/F14/F18 | Claim Requirement → eligible local/hosted executor binding → Evidence normalization | 两者证明同一 Claim 时合同等价；GitHub Action 不是 Gate authority；本地环境可独立结算 | 只因 provider 绿色即 merge；远程不可用时降低 Claim |
+| Git/branch 历史工作吸收 | F02/F13/F18/F24 | all refs/worktrees/commits census → semantic delta classification → smallest superset → old refs retirement | merge/superseded/evidence/experiment 分类、exact content preservation、unknown | 按 branch 名或 ahead/behind 盲合；把聊天当唯一找回索引 |
+
+#### 场景统一伪接口
+
+```text
+compileSecScenario(scenarioId, exactFacts):
+  generic := DesignCalculus.faultFamilies(scenarioId)
+  principles := EngineeringConstitution.applicable(generic)
+  profile := SecArchitecture.requirements(scenarioId)
+  model := DesignCalculus.compile({ generic, principles, profile, exactFacts })
+  return {
+    purePlan: model.purePlan,
+    requiredObservations: model.observationPorts,
+    forbiddenEffects: model.rejections,
+    proofObligations: model.proofs,
+    migrationAndRetirement: model.evolution,
+    unknownFrontier: model.unknown
+  }
+```
+
+该接口是设计规格，不是 runtime 万能 dispatcher。领域实现仍由各 owner 拥有；architecture compiler只生成关系、obligation、rejection 和 frontier。
+
+### 15.4 Design exit
 
 ```text
 ArchitectureDesignClosed =

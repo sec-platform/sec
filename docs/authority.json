@@ -9,8 +9,11 @@
       "dynamicPolicy": "forbidden",
       "owns": [],
       "projects": [
+        "agent-constitution",
         "compiler-target-ir",
+        "design-calculus",
         "docs-index",
+        "engineering-constitution",
         "product",
         "semantic-model",
         "system-architecture"
@@ -50,6 +53,65 @@
         "documentation.identity",
         "documentation.lifecycle",
         "documentation.ownership"
+      ],
+      "projects": []
+    },
+    {
+      "id": "design-calculus",
+      "path": "docs/design-calculus.md",
+      "kind": "authority",
+      "domain": "design-calculus",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "design.admission",
+        "design.constraint",
+        "design.evolution",
+        "design.principle-language",
+        "design.relation-algebra",
+        "design.simulation"
+      ],
+      "projects": []
+    },
+    {
+      "id": "engineering-constitution",
+      "path": "docs/engineering-constitution.md",
+      "kind": "authority",
+      "domain": "engineering-constitution",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "engineering.authority",
+        "engineering.capability",
+        "engineering.derivation",
+        "engineering.effect",
+        "engineering.evolution",
+        "engineering.identity",
+        "engineering.ownership",
+        "engineering.proof",
+        "engineering.recovery",
+        "engineering.resource",
+        "engineering.structure",
+        "engineering.truth"
+      ],
+      "projects": []
+    },
+    {
+      "id": "agent-constitution",
+      "path": "docs/agent-constitution.md",
+      "kind": "authority",
+      "domain": "agent-constitution",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "agent.action-admission",
+        "agent.adversarial-reasoning",
+        "agent.continuation",
+        "agent.delegation",
+        "agent.epistemics",
+        "agent.knowledge-crystallization",
+        "agent.recovery",
+        "agent.self-correction"
       ],
       "projects": []
     },
