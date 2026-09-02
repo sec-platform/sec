@@ -11,6 +11,7 @@
         "createRepositoryTestImpactSourceProvider",
         "projectAffectedSelectionToVerificationGateResult",
         "resolveTestImpactForFiles",
+        "selectSlowTestRiskClosure",
         "selectTestsForSources",
         "CodexDevelopmentTestImpactTransitionDigest"
       ]

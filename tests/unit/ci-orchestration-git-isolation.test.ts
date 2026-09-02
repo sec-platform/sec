@@ -11,8 +11,8 @@ import {
   CodexDevelopmentDefaultTrackedTreeIsClean,
   CodexDevelopmentExactGitTestImpactSourceProvider
 } from '../../src/verification/ci/runtime/ci-orchestration-core.ts';
-import { selectCiSlowTestClosure } from '../../src/verification/ci/runtime/slow-test-selection.ts';
 import { selectTestsForSources } from '../../src/verification/test-impact/runtime/impact.ts';
+import { selectSlowTestRiskClosure } from '../../src/verification/test-impact/slow-risk-selection.ts';
 
 function git(repositoryRoot: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], {
@@ -124,7 +124,7 @@ test('trusted-base TestImpact reads a new candidate module graph from exact Git 
       slow: [],
       owners: ['candidate']
     });
-    expect(selectCiSlowTestClosure(['docs/candidate.md'], warmProvider).resolved).toBe(true);
+    expect(selectSlowTestRiskClosure(['docs/candidate.md'], warmProvider).resolved).toBe(true);
   } finally {
     rmSync(repositoryRoot, { recursive: true, force: true });
   }

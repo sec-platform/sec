@@ -1,5 +1,5 @@
-import { uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
-import { CodexDevelopmentBuildAffectedTestInventory } from '../../test-impact/affected.ts';
+import { uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { CodexDevelopmentBuildAffectedTestInventory } from './affected.ts';
 import {
   compileTestBudgetProjection,
   getSlowTestSuitesSync,
@@ -8,11 +8,11 @@ import {
   slowTestPrRiskBaselineSuiteIds,
   slowTestSuiteIdsForFile,
   type TestBudgetProjection
-} from '../../test-impact/contract/budget.ts';
-import { resolveTestImpactForFiles, resolveTestImpactRiskPolicies, type CodexDevelopmentTestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
-import type { CodexDevelopmentTestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
+} from './contract/budget.ts';
+import { resolveTestImpactForFiles, resolveTestImpactRiskPolicies, type CodexDevelopmentTestImpactSourceProvider } from './runtime/impact.ts';
+import type { CodexDevelopmentTestImpactTransitionObservation } from './runtime/transition.ts';
 
-export type CiSlowTestClosureSelection = {
+export type SlowTestRiskClosureSelection = {
   suites: string[];
   slowTests: string[];
   affectedSlowTests: string[];
@@ -63,11 +63,14 @@ function suitesForSlowTests(
   );
 }
 
-export function selectCiSlowTestClosure(
+export function selectSlowTestRiskClosure(
   files: string[] | null,
   provider: CodexDevelopmentTestImpactSourceProvider,
   transition?: CodexDevelopmentTestImpactTransitionObservation
-): CiSlowTestClosureSelection {
+): SlowTestRiskClosureSelection {
+  if (provider === undefined) {
+    throw new Error('Slow-test risk selection requires an owner-issued snapshot projection.');
+  }
   const budgetProjection = compileTestBudgetProjection(provider.projection);
   if (!files) {
     return {

@@ -23,7 +23,6 @@ import { uniqueSortedLines } from '../../system-architecture/foundation/runtime/
 import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
 import { isSecRepositoryTestModulePath } from '../../system-architecture/repository-modules/test-module-path.ts';
 import type { RetainedCompilerDependencyReadGeneration } from '../../toolchain/dependencies/runtime.ts';
-import { selectCiSlowTestClosure } from '../../verification/ci/runtime/slow-test-selection.ts';
 import { buildContractFreezeRunnerInvocations, type ContractFreezeTarget } from '../../verification/freeze.ts';
 import {
   classifyAffectedSelectionTrustBoundary,
@@ -36,6 +35,7 @@ import {
 import { compileTestBudgetProjection, FAST_TEST_PROCESS_POLICY_TEST_FILE, getFastTestFilesSync, getSlowTestFilesSync, isFastTestFile, isKnownSlowTestSuiteId, isSlowTestFile, slowTestSuiteFiles, slowTestSuiteIds, TEST_ARCHITECTURE_POLICY_TEST_FILE, type TestBudgetProjection } from '../../verification/test-impact/contract/budget.ts';
 import { createRepositoryTestImpactSourceProvider, formatSlowImpactNotice, type CodexDevelopmentTestImpactSourceProvider } from '../../verification/test-impact/runtime/impact.ts';
 import { CodexDevelopmentCreateTestImpactTransitionObservation, gitChangedFileDiffArgs, gitIndexChangedFileDiffArgs, gitPathBlobBatchArgs, gitUntrackedFileArgs, gitWorkingTreeStatusArgs, gitWorktreeChangedFileDiffArgs, parseGitChangedRecordsOutput, parseGitPathBlobBatchOutput, parseGitUntrackedFileOutput, type CodexDevelopmentTestImpactTransitionObservation } from '../../verification/test-impact/runtime/transition.ts';
+import { selectSlowTestRiskClosure } from '../../verification/test-impact/slow-risk-selection.ts';
 import { compilerRoot, posixPath } from '../../workspace/runtime/paths.ts';
 import { GIT_READ_OPERATION_BUDGET } from '../tooling/git/git-read.ts';
 import {
@@ -1255,9 +1255,9 @@ function unionTestFiles(...groups: string[][]): string[] {
 
 function unresolvedRiskPaths(
   files: readonly string[],
-  closure: ReturnType<typeof selectCiSlowTestClosure>
+  closure: ReturnType<typeof selectSlowTestRiskClosure>
 ): string[] {
-  // `selectCiSlowTestClosure` already performs one batch inventory. Re-running
+  // `selectSlowTestRiskClosure` already performs one batch inventory. Re-running
   // it once per changed path rebuilt the same graph and source observation for
   // large deltas. When the aggregate resolution is false, retain the complete
   // changed-path frontier; callers get a conservative typed diagnostic and no
@@ -1292,7 +1292,7 @@ function affectedTestPlan(
   observationFailure: 'git' | 'source' | null = null
 ): AffectedTestPlan {
   const budgetProjection = compileTestBudgetProjection(provider.projection);
-  const risk = selectCiSlowTestClosure(files, provider, transition);
+  const risk = selectSlowTestRiskClosure(files, provider, transition);
   const selection = affectedTestSelection(files, budgetProjection, provider, transition);
   const unresolvedPaths = unresolvedRiskPaths(files, risk);
   const sourceObservationUnresolved = provider.projection.moduleGraph.unresolvedFiles;

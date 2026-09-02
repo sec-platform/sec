@@ -7,7 +7,7 @@ import { CI_VERIFICATION_CONTRACT_REVISION } from '../../contract/revision.ts';
 import { isKnownSlowTestSuiteId, isSlowTestFile, slowTestSuiteIds, slowTestSuiteIdsForFile } from '../../test-impact/contract/budget.ts';
 import type { CodexDevelopmentTestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
 import type { CodexDevelopmentTestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
-import { selectCiSlowTestClosure } from '../runtime/slow-test-selection.ts';
+import { selectSlowTestRiskClosure } from '../../test-impact/slow-risk-selection.ts';
 
 export const CI_VERIFICATION_EXECUTION_MODEL = 'verification-session-v2-action-closure' as const;
 
@@ -146,7 +146,7 @@ export function CodexDevelopmentBuildVerificationPlan(
   transition?: CodexDevelopmentTestImpactTransitionObservation
 ): CodexDevelopmentVerificationPlan {
   const changedFiles = rawChangedFiles === null ? null : CodexDevelopmentCanonicalChangedFiles(rawChangedFiles);
-  const selection = selectCiSlowTestClosure(changedFiles, testImpactSourceProvider, transition);
+  const selection = selectSlowTestRiskClosure(changedFiles, testImpactSourceProvider, transition);
   const hasDocsLifecycleChange = changedFiles === null || hasDocumentationLifecycleChange(selection.owners);
   const gates = profile === 'full'
     ? buildCiFullGatePlan({ hasDocumentationLifecycleChange: hasDocsLifecycleChange })

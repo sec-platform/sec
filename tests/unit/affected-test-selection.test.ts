@@ -1,22 +1,22 @@
 import { afterAll, describe, expect, test } from 'bun:test';
-import { selectCiSlowTestClosure } from '../../src/verification/ci/runtime/slow-test-selection.ts';
 import { hasTestImpactForFile } from '../../src/verification/test-impact/runtime/impact.ts';
 import { CodexDevelopmentCreateTestImpactTransitionObservation } from '../../src/verification/test-impact/runtime/transition.ts';
+import { selectSlowTestRiskClosure } from '../../src/verification/test-impact/slow-risk-selection.ts';
 import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
 
 const testImpactFixture = await acquireExactRepositoryTestImpactProviderFixture();
 const provider = testImpactFixture.provider;
 afterAll(() => testImpactFixture.dispose());
-const resolvedSource = 'src/verification/ci/runtime/slow-test-selection.ts';
+const resolvedSource = 'src/compiler/verify/run-runtime-verification.ts';
 
 describe('affected test selection batch optimization', () => {
-  test('selectCiSlowTestClosure resolves files with known test impact', () => {
-    const result = selectCiSlowTestClosure([resolvedSource], provider);
+  test('slow-test risk closure resolves files with known test impact', () => {
+    const result = selectSlowTestRiskClosure([resolvedSource], provider);
     expect(result.resolved).toBe(true);
   });
 
   test('owner-issued projection maps a source change to the canonical slow suite', () => {
-    const result = selectCiSlowTestClosure([
+    const result = selectSlowTestRiskClosure([
       'src/compiler/verify/run-runtime-verification.ts'
     ], provider);
     expect(result.resolved).toBe(true);
@@ -24,26 +24,25 @@ describe('affected test selection batch optimization', () => {
     expect(result.suites).toContain('e2e-dry-run-plan');
   });
 
-  test('selectCiSlowTestClosure marks unresolved files without test impact', () => {
+  test('slow-test risk closure marks unresolved files without test impact', () => {
     // A fixtures path is not a test impact source (classifyTestImpactSource
     // returns null for fixtures/) and matches no declaration/fallback → unresolved.
-    const result = selectCiSlowTestClosure(['fixtures/nonexistent-affected-test.txt'], provider);
+    const result = selectSlowTestRiskClosure(['fixtures/nonexistent-affected-test.txt'], provider);
     expect(result.resolved).toBe(false);
   });
 
-  test('selectCiSlowTestClosure handles multiple files in batch', () => {
+  test('slow-test risk closure handles multiple files in batch', () => {
     // Multiple files with known impact should all resolve.
-    const result = selectCiSlowTestClosure([
+    const result = selectSlowTestRiskClosure([
       resolvedSource,
       'src/compiler/verify/run-runtime-verification.ts'
     ], provider);
     expect(result.resolved).toBe(true);
   });
 
-  test('hasTestImpactForFile is consistent with selectCiSlowTestClosure resolution', () => {
-    // The batch optimization in slow-test-selection uses hasTestImpactForFile
-    // instead of per-file CodexDevelopmentBuildAffectedTestInventoryV1. Verify
-    // the two are consistent for resolved and unresolved files.
+  test('test-impact resolution is consistent with slow-risk closure resolution', () => {
+    // The batch selection and the single-source query must consume the same
+    // owner-issued projection instead of compiling independent source graphs.
     const resolvedFile = resolvedSource;
     expect(hasTestImpactForFile(resolvedFile, provider)).toBe(true);
 
@@ -57,10 +56,10 @@ describe('affected test selection batch optimization', () => {
     expect(hasTestImpactForFile('scripts/codex/new-control-sink.ts', provider)).toBe(false);
   });
 
-  test('selectCiSlowTestClosure resolves when all files have known impact', () => {
+  test('slow-test risk closure resolves when all files have known impact', () => {
     // Mix a semantic source kind with a module-graph-derived file.
-    const result = selectCiSlowTestClosure([
-      'src/compiler/verify/run-runtime-verification.ts',
+    const result = selectSlowTestRiskClosure([
+      'package.json',
       resolvedSource
     ], provider);
     expect(result.resolved).toBe(true);
@@ -73,7 +72,7 @@ describe('affected test selection batch optimization', () => {
     // The e2e naming convention alone does not identify a canonical slow
     // suite. A path that is absent from the immutable suite registry must not
     // become a free-running slow child after a delete/rename transition.
-    const result = selectCiSlowTestClosure(['tests/e2e/deleted-unknown.test.ts'], provider);
+    const result = selectSlowTestRiskClosure(['tests/e2e/deleted-unknown.test.ts'], provider);
     expect(result.resolved).toBe(false);
     expect(result.owners).toContain('bounded-slow-risk');
     expect(result.reasons).toContain('changed-files-unresolved');
@@ -91,7 +90,7 @@ describe('affected test selection batch optimization', () => {
       }],
       readPathBlob: () => null
     });
-    const result = selectCiSlowTestClosure([
+    const result = selectSlowTestRiskClosure([
       'tests/e2e/old-graph-name.test.ts',
       'tests/e2e/graph.test.ts'
     ], provider, transition);

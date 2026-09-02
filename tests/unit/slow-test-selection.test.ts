@@ -1,7 +1,7 @@
 import { afterAll, expect, test } from 'bun:test';
 
-import { selectCiSlowTestClosure as selectSlowTestClosureWithProvider } from '../../src/verification/ci/runtime/slow-test-selection.ts';
 import { compileTestBudgetProjection, slowTestPrRiskBaselineSuiteIds, TestBudgetProjectionCache, type TestBudgetProjection } from '../../src/verification/test-impact/contract/budget.ts';
+import { selectSlowTestRiskClosure as selectSlowTestClosureWithProvider } from '../../src/verification/test-impact/slow-risk-selection.ts';
 import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
 
 const testImpactFixture = await acquireExactRepositoryTestImpactProviderFixture();
@@ -9,7 +9,7 @@ const provider = testImpactFixture.provider;
 afterAll(() => testImpactFixture.dispose());
 const budgetProjection = compileTestBudgetProjection(provider.projection);
 const baselineSuites = slowTestPrRiskBaselineSuiteIds(budgetProjection);
-const selectCiSlowTestClosure = (files: string[] | null) => (
+const selectSlowTestRiskClosure = (files: string[] | null) => (
   selectSlowTestClosureWithProvider(files, provider)
 );
 
@@ -38,7 +38,7 @@ test('snapshot budget cache binds generation and rebuilds corrupted entries', ()
 });
 
 test('unresolved changed-file observation fails closed to the bounded baseline', () => {
-  expect(selectCiSlowTestClosure(null)).toEqual({
+  expect(selectSlowTestRiskClosure(null)).toEqual({
     suites: [...baselineSuites],
     slowTests: [],
     affectedSlowTests: [],
@@ -49,7 +49,7 @@ test('unresolved changed-file observation fails closed to the bounded baseline',
 });
 
 test('unknown paths cannot be converted into a false exact selection', () => {
-  const selection = selectCiSlowTestClosure(['assets/new.bin']);
+  const selection = selectSlowTestRiskClosure(['assets/new.bin']);
 
   expect(selection.resolved).toBe(false);
   expect(selection.reasons).toContain('changed-files-unresolved');
@@ -57,7 +57,7 @@ test('unknown paths cannot be converted into a false exact selection', () => {
 });
 
 test('a directly changed slow test retains its executable suite identity', () => {
-  const selection = selectCiSlowTestClosure(['tests/e2e/dry-run-plan.test.ts']);
+  const selection = selectSlowTestRiskClosure(['tests/e2e/dry-run-plan.test.ts']);
 
   expect(selection.resolved).toBe(true);
   expect(selection.reasons).toContain('direct-slow-test');
@@ -74,7 +74,7 @@ test('source changes fail closed without an owner-issued test-impact projection'
 });
 
 test('global test setup changes request the bounded slow baseline', () => {
-  const selection = selectCiSlowTestClosure(['tests/setup/test-runtime.setup.ts']);
+  const selection = selectSlowTestRiskClosure(['tests/setup/test-runtime.setup.ts']);
 
   expect(selection.resolved).toBe(true);
   expect(selection.reasons).toContain('bounded-baseline');
@@ -83,7 +83,7 @@ test('global test setup changes request the bounded slow baseline', () => {
 
 test('repository configuration resolves only through the snapshot-bound owner projection', () => {
   for (const source of ['package.json', 'bun.lock']) {
-    const selection = selectCiSlowTestClosure([source]);
+    const selection = selectSlowTestRiskClosure([source]);
     expect(selection.resolved).toBe(true);
     expect(selection.reasons).not.toContain('changed-files-unresolved');
     expect(selection.reasons).toContain('ownership-impact');
