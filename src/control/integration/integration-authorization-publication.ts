@@ -7,6 +7,7 @@
  */
 
 import { encodeVerificationActionData } from '../../verification/action/contract/action.ts';
+import { matchesCiWorkflowRunIdentity } from '../../verification/action/contract/provider.ts';
 import type { GitHubWorkflowJobObservation, GitHubWorkflowJobStepObservation, GitHubWorkflowRunObservation } from '../../verification/ci/contract/github-observation.ts';
 import {
   BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME,
@@ -21,7 +22,6 @@ import {
   type PreparedBranchCloseoutEnvelope
 } from '../branch-lifecycle/branch-closeout.ts';
 import { branchLifecycleDigest } from '../branch-lifecycle/branch-lifecycle-audit.ts';
-import { matchesCiWorkflowRunIdentity } from '../main-health/provider-policy.ts';
 import {
   CodexDevelopmentParseMergeGateResult,
   type CodexDevelopmentMergeGateResult

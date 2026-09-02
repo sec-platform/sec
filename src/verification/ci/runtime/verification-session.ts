@@ -132,8 +132,7 @@ import {
 import { createMainHealthLedger } from '../../../control/main-health/contract.ts';
 import { createObservedMainHealthInput } from '../../../control/main-health/main-health-observation.ts';
 import {
-  createCiMainHealthRequestOperationId,
-  matchesCiCompilerWorkflowRunIdentity
+  createCiMainHealthRequestOperationId
 } from '../../../control/main-health/provider-policy.ts';
 import {
   CodexDevelopmentAssertWorkPackageOwnership,
@@ -149,7 +148,7 @@ import { acquireSecRuntimeJournalAuthority } from '../../../runtime-state/worksp
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
 import { CI_VERIFICATION_ACTION_DISPATCH_TYPE, assertCiVerificationActionProviderEnvelopeMember, ciVerificationActionParentDispatchPlanFile, ciVerificationActionParentDispatchPlanPayloadDigest, createCiVerificationLocalExecutionEnvironment, parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionProviderEnvelope, type CiVerificationActionParentDispatchPlan, type CiVerificationActionPlanClosure, type CiVerificationActionProviderEnvelope, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../action/contract/environment.ts';
-import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../action/contract/provider.ts';
+import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, matchesCiCompilerWorkflowRunIdentity } from '../../action/contract/provider.ts';
 import {
   executeLocalVerificationActionDag,
   type LocalVerificationActionDagResult

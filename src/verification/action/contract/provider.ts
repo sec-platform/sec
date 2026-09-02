@@ -23,6 +23,53 @@ export const CI_GITHUB_ACTIONS_IDENTITY_POLICY = Object.freeze({
   })
 });
 
+/**
+ * Stable hosted workflow identity shared by Verification Action producers and
+ * their downstream evidence consumers. MainHealth projects this identity but
+ * does not own or redefine it.
+ */
+export const CI_COMPILER_WORKFLOW_RUN_IDENTITY = Object.freeze({
+  workflowPath: '.github/workflows/compiler-pr-validation.yml' as const,
+  eventName: 'repository_dispatch' as const
+});
+
+export function matchesCiWorkflowRunIdentity(input: Readonly<{
+  workflowPath: unknown;
+  eventName: unknown;
+  displayTitle: unknown;
+  headSha: unknown;
+  expectedWorkflowPath: string;
+  expectedEventName: string;
+  expectedDisplayTitle: string;
+  expectedHeadSha: string;
+}>): boolean {
+  return /^[0-9a-f]{40}$/u.test(input.expectedHeadSha)
+    && input.expectedWorkflowPath.startsWith('.github/workflows/')
+    && input.expectedWorkflowPath.endsWith('.yml')
+    && input.expectedEventName.length > 0
+    && input.expectedDisplayTitle.length > 0
+    && input.expectedDisplayTitle.length <= 256
+    && input.workflowPath === input.expectedWorkflowPath
+    && input.eventName === input.expectedEventName
+    && input.displayTitle === input.expectedDisplayTitle
+    && input.headSha === input.expectedHeadSha;
+}
+
+export function matchesCiCompilerWorkflowRunIdentity(input: Readonly<{
+  workflowPath: unknown;
+  eventName: unknown;
+  displayTitle: unknown;
+  headSha: unknown;
+  expectedDisplayTitle: string;
+  expectedHeadSha: string;
+}>): boolean {
+  return matchesCiWorkflowRunIdentity({
+    ...input,
+    expectedWorkflowPath: CI_COMPILER_WORKFLOW_RUN_IDENTITY.workflowPath,
+    expectedEventName: CI_COMPILER_WORKFLOW_RUN_IDENTITY.eventName
+  });
+}
+
 export const VERIFICATION_ACTION_PROVIDER_POLICY_SCHEMA =
   'sec-verification-action-provider-policy-v2' as const;
 export const VERIFICATION_ACTION_PROVIDER_STATUS_READBACK_SCHEMA =
