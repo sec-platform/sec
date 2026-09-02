@@ -6,7 +6,7 @@ import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/
 import {
   parseOpenPullRequestList,
   projectWorkPackageRegistry
-} from '../../verification/ci/registry-projection.ts';
+} from '../../verification/ci/runtime/verification-session.ts';
 import { parseVerificationRegistryProjection } from '../../verification/session/contract/session.ts';
 import { projectBranchLifecycleForWorkSelection } from '../branch-lifecycle/branch-lifecycle-audit.ts';
 import {
