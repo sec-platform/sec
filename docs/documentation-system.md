@@ -8,13 +8,17 @@ domain: documentation
 
 本文拥有 SEC 文档的结构、规范片段、编译投影、读取闭包、质量与迁移规则。文档 identity、lifecycle 与 ownership registry 由 `docs/authority.json` 拥有；产品、架构、领域和运行事实仍由其各自 owner 拥有。本文不能借整理、摘要或生成改变这些事实。
 
+本文冻结下一代文档知识结构，不宣称它已物理迁移。现行generation在cutover前仍由`docs/authority.json`及其当前parser拥有；目标generation完成shadow compile、语义等价、全部consumer切换与旧地址consumer-zero后才取得authority，禁止正文先把target写成current。
+
 ## 1. 目标与不变量
 
 ```text
 DocumentationSystem =
-  CanonicalOwnerFragments
-  + StrictAuthorityRegistry
-  + TypedReferences
+  CanonicalOwnerFragmentsWithSourceMetadata
+  + RecursiveSemanticScopeGraph
+  + TypedRelationGraph
+  + CorpusKindPartitions
+  + CompiledDocumentationIndex
   + PurposeBoundCompiler
   + GeneratedViews
   + MigrationAndRetirement
@@ -25,9 +29,13 @@ DocumentationSystem =
 | 单一事实 | 每个 ownership key 只有一个 active owner fragment | duplicate-owner |
 | 身份独立 | document ID 与 owner key 不由 path、标题或目录推断 | identity-unbound |
 | 片段完备 | 每个片段声明 owner、边界、输入、输出与不拥有内容 | fragment-unbounded |
+| 递归可缩放 | 每个semantic scope有唯一containment parent或root；任意节点可独立折叠/展开 | scope-orphan/cycle |
+| 关系不降维 | containment、dependency、projection、generation、evolution分别typed | relation-overloaded |
+| 分区隔离 | stable knowledge、current control、machine state、proposal、immutable record不共用writer/lifecycle | corpus-kind-conflated |
 | 引用不复制 | 跨文档语义只使用 stable ID/owner key/typed ref | mirrored-truth |
 | 视图只读 | 导航、摘要、AI context、public docs均不能反写 owner | projection-authority |
 | 未知保留 | query、迁移和摘要必须保留 coverage/frontier/blocker | hidden-frontier |
+| 局部变更 | 一个owner fragment变化只重编reverse-reachable scopes/views/consumers | corpus-global-rebuild |
 | 单代切换 | 文档移动或拆分只有一个 active canonical path | dual-canonical-path |
 | 可恢复迁移 | registry、文件、引用、生成投影原子读回后才完成 | documentation-migration-residue |
 
@@ -35,20 +43,22 @@ DocumentationSystem =
 
 ```mermaid
 flowchart LR
-  R[Authority registry] --> F[Canonical owner fragments]
-  F --> K[Typed fact and relation model]
+  F[Owner fragments + canonical source metadata] --> C[Documentation compiler]
+  C --> K[Normalized scope + fact + relation graph]
+  K --> R[Generated documentation index]
   K --> Q[Purpose-bound query]
-  Q --> H[Human document view]
-  Q --> A[AI context packet]
+  Q --> H[Recursive human view]
+  Q --> A[Lazy AI context graph]
   Q --> P[Public projection]
   Q --> V[Architecture / coverage view]
+  R -. no writeback .-> F
   H -. no writeback .-> F
   A -. no authority .-> F
   P -. no ownership .-> F
   V -. no new fact .-> F
 ```
 
-canonical form 是 owner 分片中的事实、约束、状态/转换、决策与 typed relations，不是一棵目录树或一份总图。renderer按关系选择最合适的表达：
+canonical form是owner fragments中的事实、约束、状态/转换、决策、source metadata与typed relations。它是normalized graph，不是目录树；其中`contains`关系形成可递归展开的scope forest，其他关系保持DAG/hypergraph/state-machine语义。物理目录与README只是在指定partition和address budget下生成的placement/navigation views，不能反向决定scope或owner。renderer按关系选择最合适的表达：
 
 | 语义 | 首选表达 |
 | --- | --- |
@@ -67,140 +77,349 @@ canonical form 是 owner 分片中的事实、约束、状态/转换、决策与
 
 | Kind | Authored / generated | 能拥有 | 不能拥有 |
 | --- | --- | --- | --- |
-| registry | authored strict data | document identity/lifecycle/ownership | domain semantics、current result |
-| authority | authored normative fragment | 一个或多个不重叠 owner keys | runtime observation、第二 owner |
+| source-header | authored strict metadata | 本fragment的document identity/scope/lifecycle/ownership/relations | 正文语义、聚合事实、current result |
+| authority-contract | authored normative fragment | 一个或多个不重叠 owner keys | runtime observation、第二 owner |
 | corpus-contract | authored normative corpus rule | 其注册的 corpus contract | domain fact之外的扩权 |
 | control | machine/owner updated active state | exact current control key | stable principle、历史解释 |
 | machine-ledger | append/CAS machine state | provider/runtime state key | stable architecture |
 | proposal | authored hypothesis/decision candidate | 无 canonical facts | active authority、兼容壳 |
+| documentation-index | generated | 无；只聚合source identity/relations/digests/addresses | 任何事实、owner授权、writeback |
 | navigation | generated | 无 | 事实、裁决、状态 |
 | agent-projection | generated/bounded | 无 | scope、Effect、Truth |
 | public projection | generated | 无 | canonical owner、私有状态 |
 
-Evidence、测试输出、临时审计报告和聊天不是稳定文档种类；它们进入各自 artifact/runtime owner，或在结算后退役。
+Evidence、测试输出、临时审计报告和聊天不是稳定文档种类；它们进入各自 artifact/runtime owner，或在结算后退役。上表描述目标generation；现行`registry`仍按本文开头的current/target边界由`authority.json`拥有，cutover后才由`source-header + generated documentation-index`取代。
 
-## 4. Owner package 与规范片段
+## 4. Canonical model：partition、scope、fragment、relation
 
-一个 domain 可以有多个 authority fragment，但每个 ownership key 只有一个 fragment。package 是 registry query，不是额外 manifest、barrel 或空 index：
-
-```text
-OwnerPackage(domain) =
-  sortByDocumentId(
-    registry.documents where kind=authority and domain=domain
-  )
-
-OwnerClosure(keys) =
-  exact fragments owning keys
-  + referenced upstream fragments required by typed clauses
-```
-
-### 4.1 Root fragment
-
-`docs/<owner>.md` 是该 owner 的稳定公共合同面，必须实际拥有并完整定义：
-
-- purpose、边界与不拥有内容；
-- 最小公共词汇/不变量；
-- 片段关系和读取入口；
-- domain completion predicate。
-
-root fragment 不是目录清单、兼容跳转或 re-export。若删掉 root 内容仍不影响任何语义，则 root 不应存在。
-
-### 4.2 Topic fragment
-
-只有同时满足以下条件才创建 `docs/<owner>/<topic>.md`：
+文档知识不以文件列表为模型。canonical source由分区内的owner fragments组成；compiler把分布式metadata规范化为递归scope graph与独立typed relations，再生成machine index和各种view。
 
 ```text
-FragmentRequired(topic) =
-  distinctOwnershipKey(topic)
-  and independentlyReadable(topic)
-  and independentlyChangeableOrInvalidatable(topic)
-  and cohesiveWithinItsBoundary(topic)
-  and lowerLifecycleCostThanRootCoLocation(topic)
+CorpusPartition =
+  knowledge        // stable/active normative source
+  | control        // current mutable control projection
+  | machine-state  // append/CAS ledger; prose不得写入
+  | proposal       // non-authoritative candidate
+  | immutable-record
+
+ScopeNode =
+  | OwningScope {
+      scopeRef, sourceStratum, parentScopeRef | root,
+      contractFragmentRef, childScopeRefs
+    }
+  | DerivedNamespace {
+      scopeRef, parentScopeRef | root, derivationRef, childScopeRefs
+    }
+
+DocumentFragment = {
+  documentRef,
+  partition,
+  scopeRef,
+  role: contract | topic | control | ledger | proposal | record,
+  lifecycle,
+  ownershipKeys,
+  contentDigest,
+  sourceMetadataDigest
+}
+
+DocumentationRelation =
+  | ContainsScope(parentScopeRef, childScopeRef)
+  | DependsOn(sourceDocumentRef, targetDocumentRef, purpose)
+  | ProjectsFrom(projectionRef, sourceRefs)
+  | GeneratedFrom(generatedRef, sourceRefs, compilerRef)
+  | Supersedes(newRef, oldRef, cutoverRef)
+  | ProposalTargets(proposalRef, targetRefs)
+  | Records(recordRef, subjectRefs)
 ```
 
-片段必须拥有独立 key；不得仅因行数、标题数、作者或目录美观拆分。若两个片段总是同 owner、同读者、同变更、同 lifecycle 且没有独立 consumer，则合并。
+`ScopeNode`是递归语义边界，不是目录。`OwningScope`必须有真实contract fragment；`DerivedNamespace`只能由source-stratum/partition/accepted containment relation确定生成，不能拥有事实或由作者创建空分类页。每个scope只有一个containment parent；多归属、依赖、因果、投影和演进通过其他typed relations表达，不伪装成多父目录。
 
-## 5. 物理布局
+### 4.1 Recursive scope view
+
+```text
+compileScopeView(rootScopeRef, purpose, depthBudget, disclosureBudget):
+  load exact root contract and purpose-required relations
+  recursively expand applicable child scopes within budgets
+  for each collapsed child emit:
+    child scope identity + revision + public contract refs
+    blocker/unknown/boundary digest + expansion handle
+  preserve all cross-scope frontier edges
+  reject hidden applicable obligation, cycle or stale child digest
+```
+
+同一graph可生成最小operation context、owner package、递归human导航、AI lazy context、public projection和全量授权审计。折叠只减少detail bytes，不删除blocker、unknown、boundary或cross-edge；最大视图是同一递归查询完全展开，不是第二份平铺清单。
+
+### 4.2 Fragment 与 subscope 判定
+
+```text
+FragmentRequired(x) =
+  hasDistinctOwnershipKeyOrPublicContract(x)
+  and independentlyReadable(x)
+  and independentlyChangeableOrInvalidatable(x)
+  and cohesiveWithinBoundary(x)
+  and lifecycleCost(fragmented) < lifecycleCost(coLocated)
+
+SubscopeRequired(x, parent) =
+  semanticUniverse(x) isProperSubsetOf semanticUniverse(parent)
+  and invariantOrLifecycleBoundary(x) is independently queryable
+  and uniqueContainmentParent(x) = parent
+  and crossScopeRelationsRemainTypedRefs
+```
+
+一个scope的`contract` fragment拥有purpose、边界、公共词汇/不变量、child scopes与completion predicate；它不能只是目录索引。topic只在`FragmentRequired`成立时存在；subscope只在`SubscopeRequired`成立时递归创建。按行数、作者、读者习惯或目录美观拆分均被拒绝。
+
+### 4.3 竞争结构裁决
+
+| 候选 | 优点 | 决定性缺陷 | 裁决/反转条件 |
+| --- | --- | --- | --- |
+| 单文件/平铺owner清单 | 初始简单 | root规模、局部读取、并发编辑和递归导航随domain增长恶化 | rejected |
+| 固定`foundation/domain/runtime/...`分类树 | 人眼整齐 | 一个事实常跨多个观察维度；目录会伪造owner/layer并随新维度重排 | rejected；只有作为generated view可用 |
+| 全部拆成最小fact/opaque graph store | 查询精细 | authoring、diff、review、cohesion和human reasoning成本过高 | rejected；高频compiled index可用 |
+| recursive semantic scopes + typed cross-relations + compiled views | containment可缩放；其他关系不降维；局部变更与最小读取兼得 | 需要严格compiler、metadata migration和path consumer cutover | selected |
+
+若真实corpus证明scope containment长期没有独立读取/变化收益，或compiler/query成本支配平铺结构的全生命周期成本，则按Design Calculus重新比较；不得直接在目录中回退。
+
+## 5. Source metadata、aggregate index 与物理布局
+
+每个canonical fragment在自己的strict source header中一次写入document identity、partition、scope、role、lifecycle、ownership keys和typed relations；header按role使用exact discriminated schema，不是所有字段可选的DTO。正文不重复这些字段。路径、domain label、导航顺序和aggregate records由compiler派生。
+
+`docs/authority.json`在目标generation中退役authoring职责；目标machine projection为generated、content-addressed `DocumentationIndex`（下方布局中的`documentation-index.json`）。它聚合全部source headers、scope/relations、physical addresses和digests，但不拥有任何事实。当前`authority.json`在迁移完成前仍是唯一现行registry，两个generation不得同时被production consumer接受。
 
 ```text
 docs/
-  authority.json                 # 唯一 registry
-  README.md                      # 生成导航
-  <owner>.md                     # 有语义的 root fragment
-  <owner>/<topic>.md             # 仅在 FragmentRequired 成立时
-  governance/<machine-ledger>    # active durable machine state
-  work/<control>                 # current control state/projection
-  work-packages/<frozen-package> # exact historical/active package
-  proposals/<candidate>          # 非 canonical proposal
-  archive/<retired-record>       # 明确 retention 的退役记录
+  README.md                         # generated recursive root view
+  documentation-index.json         # generated machine projection
+  knowledge/
+    <compiled source-stratum>/<recursive semantic scope>/
+      contract.md                   # owning scope contract
+      <cohesive-fragment>.md
+      <child-scope>/contract.md
+  control/<scope>/...               # current control only
+  state/<scope>/...                 # machine ledger only
+  proposals/<scope>/...             # candidate only
+  records/<scope>/...               # immutable retained records only
 ```
 
-目录不编码 layer、priority、truth、maturity 或 dependency；这些维度由 registry/typed relations表达。禁止新增 `foundations/`、`domains/`、`misc/`、`shared/` 等需要猜测归属的分类层，也禁止每个目录创建空 `README`/`index`。
+`knowledge/control/state/proposals/records`由`CorpusPartition`确定，不是任意业务分类。其下目录由`sourceStratum + scope containment + PlacementDecision + PhysicalPathCapability`编译；address compiler可压缩纯namespace节点并选择短、可读、无case-fold/reserved-name冲突的segments，但不能改变scope identity或relation。禁止同名`<owner>.md`与`<owner>/`、空README/index、`misc/shared/common`、重复owner词段和手工长路径。
 
-path 只承担 address 与 human discoverability。源码、测试和控制面引用 stable document ID/owner key；Markdown link renderer再从 registry解析path。当前仍直接引用path的consumer属于迁移债务，不能阻止 owner fragment 的语义设计，也不能成为第二 path registry。
+canonical cross-document reference使用`DocRef(documentRef, optionalClauseRef)`；authoring syntax由Markdown AST frontend映射为typed node，不能以相对path字符串作为identity。human/public renderer把`DocRef`解析为当前relative link；move/reparent只更新generated addresses/views，不改semantic source refs。外部URL是ExternalReference observation，若参与normative claim必须声明freshness/retention/unknown policy。
 
-### 5.1 Metadata single writer
+### 5.1 Source discovery 与单一metadata owner
 
-文档 identity/path/kind/domain/lifecycle/ownership/dependency 只由`docs/authority.json`写入；Markdown frontmatter中的status/domain和`docs/README.md`是生成投影，不是第二authoring surface。最终authoring入口必须是一个transactional documentation operation：
+Documentation Compiler从exact tracked corpus读取所有允许partition下的Markdown/YAML/JSON source；未解析文件必须进入typed frontier，不能因未登记而跳过。source header是每个fragment metadata的唯一authoring point；`documentation-index.json`、README、frontmatter presentation、AI/public views全部生成。这样消除中央大清单写热点与header/registry镜像，同时仍由aggregate compiler全局验证duplicate owner、ID/path collision、cycle、unresolved ref和lifecycle。
 
 ```text
-planDocumentChange(documentId, contentDelta, optionalAddressDelta)
-  -> validate owner/fragment decision
-  -> update registry once
-  -> generate/verify frontmatter and navigation
-  -> rewrite typed links from registry relation graph
-  -> compile clauses/consumer impact
-  -> atomic publish + exact readback
+compileDocumentationGeneration(snapshot):
+  census every tracked document-source byte
+  strict-parse role-specific source headers and machine state
+  build normalized partition/scope/document/relation graph
+  validate ownership, containment, dependency, lifecycle and disclosure
+  compile physical placement under path capability
+  emit aggregate index + recursive views + consumer impact
+  read back exact bytes, graph digest and no-unclassified-source frontier
 ```
-
-在该operation完全接管前，doctor必须拒绝registry/frontmatter/index/link漂移；不得再增加手工同步脚本、路径常量列表或第二registry。长registry是machine data，不靠拆成多份手写manifest解决；若实测单写热点成本高于原子一致性收益，候选是content-addressed owner fragments + deterministic aggregate compiler，反转前提必须包括完整tracked-corpus discovery与等价duplicate-owner/cycle/readback证明。
 
 ## 6. Read compiler
 
 ```text
 DocumentationReadRequest = {
   purpose,
-  subjectRefs,
-  authorityRefsOrOwnerKeys,
-  exactRegistryRevision,
-  exactDocumentRevisions,
-  disclosureAndByteBudget
+  rootScopeRefs | subjectRefs | ownershipKeys,
+  exactGenerationDigest,
+  relationKinds,
+  consumerClass,
+  disclosureCapability,
+  budget: { maximumDepth, maximumNodes, maximumBytes }
 }
 
 compileRead(request):
-  resolve owner keys through the registry
-  close only typed upstream references required by purpose
-  reject unknown, cycle, duplicate owner, stale revision, unregistered path
-  select exact clauses rather than whole files when possible
-  preserve blockers, unknown frontier and omitted-applicable proof
-  render the selected model for human, AI or machine consumer
-  emit source refs, selection digest and coverage
+  resolve roots against one exact compiled generation
+  traverse containment recursively and other relations by purpose policy
+  select exact clauses/fragments rather than unrelated sibling files
+  enforce disclosure before content materialization
+  stop expansion at depth/node/byte limits
+  preserve every collapsed frontier identity, revision, blocker and cross-edge
+  reject unknown source, invalid relation, duplicate owner or stale generation
+  emit selected graph, frontier, coverage and deterministic selection digest
 ```
 
-最小读取与全量审计共享同一事实和query semantics。全量模式只是扩大授权subject/purpose/coverage，不切换到第二 crawler、第二 regex graph 或第二事实源。
+最小operation context、owner review、public docs与全仓审计共享同一compiler和graph semantics。全量模式只扩大roots、relation policy和budgets，不切换到第二crawler、第二regex graph或第二事实源。budget exhausted不等于完整：输出必须保留可继续展开的frontier；不能把截断投影签成coverage complete。
+
+```mermaid
+flowchart TD
+  R[Requested root scope] --> C[Contract clauses]
+  R --> A[Applicable child A]
+  R --> B[Collapsed child B]
+  A --> D[Typed dependency]
+  B --> F[Identity + revision + blocker/unknown digest + expansion handle]
+  D --> X[Cross-scope frontier]
+```
+
+### 6.1 角色与权限
+
+| Role | 可提供 | 不可提供 |
+| --- | --- | --- |
+| semantic owner | fragment事实、ownership key、relation、completion predicate | aggregate index、其他owner事实、runtime状态 |
+| documentation compiler | parse、normalize、validate、impact、placement、generated views | 新业务事实、owner授权、隐藏unknown |
+| address compiler | 在physical capability内分配地址 | 用path生成identity/owner |
+| renderer | human/AI/public/machine投影 | 回写source或扩大disclosure |
+| change executor | 按已编译plan发布一个generation | 临场改owner、跳过CAS/readback |
+| consumer | 按purpose读取已授权slice | 把projection/cache当source authority |
+| verifier | 独立重编graph/digest/coverage | 用作者自报PASS替代readback |
+
+权限绑定到operation、exact generation、subject/relation set、disclosure和budget；文件可写权限本身不构成semantic owner或publication authority。
 
 ## 7. Write compiler
 
 ```mermaid
 flowchart LR
-  I[Accepted intent / counterexample] --> O[Resolve unique owner key]
-  O --> D[Delete counterfactual + competing designs]
-  D --> E[Edit canonical fragment]
-  E --> C[Compile clauses / refs / views]
-  C --> R[Readback registry and generated projections]
-  R --> T[Consumer and conformance validation]
-  T --> S[Single-generation settlement]
+  I[Accepted semantic intent] --> O[Resolve scope / owner / partition]
+  O --> P[Compile relation + fragment delta]
+  P --> A[Reverse-reachable impact]
+  A --> G[Stage complete target generation]
+  G --> V[Independent graph / consumer / coverage validation]
+  V --> C[CAS activate one generation]
+  C --> R[Exact readback + old-generation retirement]
 ```
 
-任何规范修改必须：
+```text
+DocumentationChangeIntent = {
+  semanticSubjects,
+  intendedObservableChange,
+  preservedInvariants,
+  explicitRetirements,
+  acceptedFutureObligations,
+  authorityAndDisclosureBounds
+}
+
+DocumentationChangePlan = compileChange(currentGeneration, intent)
+  -> source fragment edits
+  -> relation changes
+  -> recursive scope changes
+  -> placement changes
+  -> reverse-reachable consumers/views
+  -> validation/retirement/readback obligations
+```
+
+intent不携带目标path、README行、手写registry row或重复owner metadata。compiler先决定是否为正文局部编辑、fragment split/merge、scope create/reparent、partition transition或retirement，再派生物理与consumer delta。任何规范修改必须：
 
 1. 先定位 owner key；无 key 时证明新 identity，不把新章节塞进最近的大文档。
 2. 删除被新事实支配的旧句、旧图和旧路径；禁止只追加“另一个说明”。
-3. 更新所有 typed references 与受影响 generated views。
-4. 对 changed owner 重新编译 clause/consumer/impact closure。
-5. 以 exact diff/readback 证明没有双 owner、悬空引用、隐藏 blocker 或未登记文档。
+3. 从relation graph重算reverse-reachable consumers、projections、examples、tests与public views；不得逐路径猜影响。
+4. 生成完整target generation并以old-generation digest作CAS preimage；并发变化使plan stale，不得覆盖或局部续写。
+5. 以exact source/index/view/consumer readback证明没有双owner、悬空引用、隐藏blocker、未分类文件或旧地址consumer。
 
-## 8. 信息密度与表达选择
+### 7.1 变更原语与必须保持的语义
+
+| Operation | Semantic delta | 必须派生/拒绝 |
+| --- | --- | --- |
+| edit | clause/fact/relation revision | reverse consumers、views、examples、coverage |
+| create fragment | new identity + owner key or independent contract | orphan、duplicate owner、无独立边界 |
+| split/merge | fact-preservation bijection + ownership redistribution | 丢事实、双owner、只按长度拆分 |
+| move | address delta only | identity/content revision漂移、手写link残留 |
+| reparent scope | containment delta | containment cycle、语义全集不包含、跨边被吞入目录 |
+| change owner | explicit ownership transfer | 双active owner、无consumer cutover |
+| change partition | lifecycle/authority transition | proposal/state变stable knowledge、历史记录被改写 |
+| retire/delete | consumer-zero or accepted replacement/obligation disposition | 无consumer即自动删、隐藏future obligation、projection残留 |
+| generate/publish | projection delta | projection反写source、stale source digest、披露扩大 |
+
+`consumer-zero`不是自动删除结论。一个当前无consumer的设计只能被分类为`derivable | duplicate-owner | dominated | orphan | accepted-future-obligation | unknown`；只有前三/孤儿在其保留价值被更强source覆盖后可删。`accepted-future-obligation`必须拥有trigger、预期consumer class、不可丢invariants、依赖前提、维护成本和reconsideration event，并留在proposal/control partition；它不能冒充active runtime contract，也不能因“以后可能用”无限保留。
+
+### 7.2 决策知识而非历史散文
+
+会迫使后来者重新权衡的关键选择，以同一clause引用的`DecisionProof`保存；聊天过程、失败尝试流水和被支配的散文不进入active knowledge。
+
+```text
+DecisionProof = {
+  decisionRef,
+  subjectAndUniverse,
+  hardConstraints,
+  comparedCandidates,
+  objectiveAndDominanceRelation,
+  selectedCandidate,
+  preservedInvariants,
+  rejectedFailureModes,
+  reversalPredicate,
+  evidenceRefs
+}
+```
+
+compiler验证`selectedCandidate`在声明的候选集/约束下成立并把reversal predicate加入未来impact query；它不把设计者判断伪装成产品运行时事实。
+
+## 8. Development coverage compiler
+
+文档系统不能靠维护者记住“还可能出什么问题”。coverage由规范化graph、operation和consumer生成；穷举空间先按typed applicability约束裁剪，再形成必须有disposition的cells，而不是维护另一份手写检查表。
+
+```text
+DocumentationCoverageSpace =
+  CorpusPartition
+  x ScopeRoleAndDepth
+  x FragmentRole
+  x RelationKind
+  x ChangeOperation
+  x ConsumerClass
+  x LifecycleTransition
+  x AuthorityAndDisclosureClass
+  x ConcurrencyAndRecoveryPhase
+  x PlatformAndPhysicalCapability
+  x ScaleClass
+  x FaultFamily
+
+CoverageCell = proven(rejectionOrObservationRef)
+  | not-applicable(derivationRef)
+  | unresolved(blockerRef)
+
+compileCoverage(graph, changePlan):
+  derive applicable cells from changed subjects and reverse relations
+  reuse fresh proof keyed by exact source/compiler/environment digest
+  reject every applicable cell lacking a disposition
+  never convert unresolved or budget exhaustion to not-applicable/pass
+```
+
+### 8.1 Fault families
+
+| Family | 代表性实际问题 | System response |
+| --- | --- | --- |
+| identity/provenance | duplicate ID/key、伪造source metadata、path当identity、case-only alias | exact identity binding；duplicate/alias拒绝 |
+| ownership | 双owner、空facade、跨scope事实复制、projection反向拥有 | one owner；facade必须有独立consumer/boundary，否则消解 |
+| relation | containment/dependency/projection/supersession混用、cycle、orphan、隐藏cross-edge | relation-specific laws；typed frontier |
+| physical placement | Windows reserved/case-fold/path-length、Unicode normalization、同名file+dir、symlink/reparse、跨盘move | PhysicalPathCapability + retained pre/post identity；不能字符串拼path |
+| parsing/content | invalid UTF-8、duplicate YAML/JSON keys、unknown fields、broken anchors、opaque/binary asset | role-specific strict frontend；unknown保留 |
+| lifecycle/evolution | proposal变authority、state写入stable docs、删source留projection、旧generation双读 | partition transition machine；single-generation cutover |
+| concurrency/atomicity | 两作者同改、compile期间tree漂移、move后crash、index先发布、CAS丢失 | immutable staged generation + CAS + resumable settlement |
+| consumer/projection | README/index/cache stale、public/localization漂移、代码/测试仍引用旧path、AI摘要漏blocker | source digest binding + reverse-consumer closure + no hidden frontier |
+| authority/disclosure | 私有事实进入public view、renderer提权、外部文本注入normative claim | disclosure before materialization；external content never grants authority |
+| external reference | URL内容漂移/消失、版本文档变化、引用license/retention未知 | typed external observation with freshness, digest or unresolved status |
+| example/executable text | 示例代码过时、字符串藏第二源码图、复制常量/命令 | generated/tested example ref or explicitly non-normative snippet |
+| performance/scale | 深树、巨大scope、高fan-out、全库重编、AI context爆炸、cache雪崩 | incremental reverse reachability + depth/node/byte budgets + frontier |
+| tooling/platform | Markdown parser差异、GitHub renderer限制、line ending、tool version drift | locked frontend/compiler capability + byte-canonical readback |
+| recovery/settlement | partial migration、lost process handle、orphan staging、cleanup失败、旧root残留 | durable operation state + typed residue + owner-scoped recovery |
+| collaboration/release | merge conflict静默覆盖、未跟踪文档、分支投影冒充main、发布视图与source不一致 | exact tree census + generation digest + independent readback |
+| future obligation | 无当前consumer的真实future design被误删，或空壳无限保留 | explicit obligation proof and trigger; otherwise typed unknown/dominated |
+
+此表是coverage dimensions的human projection；唯一机器source是fault-family schema、relation laws与operation compiler。新增真实故障必须先判断是否已由某个family/predicate覆盖；已覆盖则增强该predicate/生成器，不追加一次性路径规则。出现新维度才扩展coverage algebra，并重算全corpus适用cells。
+
+### 8.2 全生命周期泳道
+
+```mermaid
+sequenceDiagram
+  participant O as Semantic owner
+  participant C as Documentation compiler
+  participant V as Independent verifier
+  participant P as Generation publisher
+  participant U as Consumer
+  O->>C: semantic intent + exact current generation
+  C->>C: graph delta + impact + placement + coverage
+  C->>V: immutable staged target generation
+  V-->>C: graph/consumer/coverage result
+  C->>P: CAS(currentDigest, targetDigest)
+  P-->>C: activated or stale
+  C->>U: exact target index/views
+  U-->>C: readback against target digest
+  C->>P: retire old address/projection after consumer-zero
+```
+
+## 9. 信息密度与表达选择
 
 规范语句必须可还原为以下合同；缺少任一必要项时只能作为非规范解释，不能产生Requirement、Authority、Claim或拒绝结论：
 
@@ -247,53 +466,75 @@ PrincipleViewSet = {
 
 图只在关系、时序、状态、层级或多方交互比文本更清楚时使用；字段合同用表/ADT，算法用伪代码，取舍用决策矩阵，边界用 owner matrix。图、表、伪代码和 prose不能分别拥有不同事实。
 
-## 9. 拆分、合并与迁移事务
+## 10. 当前平铺generation到目标generation的迁移
 
 ```text
 DocumentationMigration = {
-  exactSourceIdsAndRevisions,
-  targetFragmentsAndOwnershipKeys,
-  factPreservationMap,
-  linkAndConsumerRewritePlan,
-  generatedViewPlan,
-  removalSet,
-  conformanceAndReadback,
-  rollbackOrTypedResidue
+  exactCurrentGenerationDigest,
+  currentRegistryAndFrontmatterCensus,
+  targetSourceHeaderAndRelationSchemas,
+  currentToTargetScopeAndFactBijection,
+  typedRelationDecomposition,
+  targetPlacementPlan,
+  sourceAndExternalConsumerRewritePlan,
+  generatedIndexAndViewPlan,
+  coverageAndDisclosurePlan,
+  activationCAS,
+  retirementAndReadback,
+  typedResidue
 }
 ```
 
-迁移顺序：验证source → 写target fragments → 更新registry → 重写typed refs/links → 编译generated views → 验证owner/consumer/links/clauses → 删除source中已迁事实 → exact readback。任一步失败都不能留下两个active canonical facts；无法原子完成时保留旧generation并把新generation隔离为proposal/residue。
+迁移必须按一个architecture operation完成，不能以逐文件移动制造长期半成品：
 
-禁止：空root、永久redirect、dual canonical paths、复制段落、按标题机械切割、靠Git历史作为唯一迁移图、只修链接不验证consumer。
+1. 冻结role-specific source header、scope/relation、generated index和DocRef schema。
+2. 对当前`authority.json`、frontmatter、README、全部tracked docs与path consumers做exact census；任何未分类内容进入frontier。
+3. shadow compile当前generation；把重载的`projects`等边拆成明确`DependsOn/ProjectsFrom/GeneratedFrom/ProposalTargets`，证明所有current owner keys、facts、lifecycle和consumer semantics有唯一target。
+4. 由address compiler在真实Windows/Git/renderer capability下生成target paths；验证case-fold、reserved、length、Unicode、same-name file/directory和relative-link rendering。
+5. stage全部target fragments、typed refs、machine index和recursive views；current generation仍是唯一authority。
+6. 对target运行graph/coverage/disclosure/consumer等价验证；在exact preimage上一次CAS切换所有production readers。
+7. 对新generation做独立readback；旧`authority.json`、flat paths和旧generated views只有在consumer-zero后一次退役。
+8. 任一步失败时保留current authority，target保持non-authoritative staged/residue；恢复只消费durable migration record，不猜目录状态。
 
-## 10. 对抗矩阵
+禁止：默认兼容双读、永久redirect、dual canonical paths、空root、复制段落、按标题/行数机械切割、靠Git历史作为唯一迁移图、只修Markdown links不验证代码/测试/工作流/external consumers。本文只冻结target contract；完成上述cutover前，现有flat layout仍是current reality而不是target已实现的证明。
 
-| Attack | 必须被拒绝 |
-| --- | --- |
-| 用户提出一种新结构后立即全局采用 | representation decision缺少竞争候选/适用边界/反转条件 |
-| 大文档按固定行数拆分 | 片段无独立 owner key/reader/change/lifecycle |
-| 一个事实为多个读者复制 | duplicate owner 或 mirrored-truth |
-| root只列子文件 | root无独立语义与consumer |
-| 文档移动后保留旧alias | dual canonical path/consumer未清零 |
-| AI摘要隐藏unknown/blocker | view fidelity失败 |
-| 全仓任务预读全部文档 | purpose-bound least closure失败 |
-| 只靠路径决定owner | identity-unbound |
-| 生成文档反向修改source | projection-authority |
-| 稳定文档写当前PASS/PR/SHA | lifecycle/kind mismatch |
-| proposal以未来价值进入active contract | activation evidence不足 |
-| 删除无当前consumer但有已接受future obligation | obligation disposition缺失 |
+## 11. 设计对抗与反转条件
 
-## 11. 完成条件
+| Attack | 决定性检查 | 必须被拒绝/重新编译 |
+| --- | --- | --- |
+| recursive tree成为新的固定taxonomy | scope是否由proper semantic subset和independent boundary证明 | 删除/压缩namespace或改成generated view |
+| distributed headers造成第二registry | aggregate是否纯生成、header是否唯一metadata source | 任一手写aggregate或重复字段即拒绝 |
+| graph过细导致authoring碎片化 | FragmentRequired/SubscopeRequired与lifecycle cost | 合并cohesive fragments，不牺牲typed refs |
+| graph过大导致每次全量加载 | delta是否只触达reverse-reachable slice | 无增量/预算/frontier即不可cutover |
+| 文件夹又决定owner/layer | identity/owner能否脱离path保持不变 | address-derived semantics拒绝 |
+| AI最小上下文漏边界 | collapsed frontier是否保留blocker/unknown/cross-edge digest | fidelity失败 |
+| 无consumer就删未来设计 | 是否存在accepted FutureObligation | 未disposition不得删 |
+| “未来有用”保留所有空壳 | obligation是否有trigger/invariant/dependency/reconsideration | speculative claim拒绝 |
+| 为外部读者复制一份事实 | 能否由source clauses生成所需projection | duplicate owner拒绝 |
+| renderer/Markdown限制反推canonical model | limitation是否只属于address/presentation capability | 生成适配视图，不改semantic identity |
+| schema升级保留旧reader | 是否存在真实并行旧consumer/rolling state | 无真实consumer则one-shot migration而非compat shell |
+| 文档compiler变成产品authority | 输出是否只拥有documentation conformance | 跨越产品owner即拒绝 |
+| 设计理由退化成历史日志 | DecisionProof是否能减少未来决策且有reversal predicate | 无可判定增量则删除 |
+
+整个方案的反转不是“有人喜欢另一种目录”，而是可测事实证明：recursive scopes不能降低purpose-bound读取/冲突/变更成本，typed graph无法保持human authoring，或compiler自身成本在目标规模上支配收益。反转也必须以同一Design Calculus重新编译scope、relations、consumers与migration，禁止局部回退。
+
+## 12. 完成条件
 
 ```text
 DocumentationClosed =
-  registry strict and acyclic
+  every tracked documentation source classified in exactly one partition
+  and source headers strict, role-discriminated and duplicate-free
+  and containment is a rooted forest with relation-specific graph laws
   and every canonical fact has exactly one owner key
-  and every stable fragment is registered and independently bounded
+  and every fragment/subscope passes its existence predicate
+  and generated index/views are source-digest-bound and non-authoritative
   and every projection identifies its source and cannot own facts
-  and all references resolve by stable identity
-  and generated navigation is byte-current
-  and no superseded path or duplicated prose remains active
-  and read queries preserve coverage/blocker/unknown
-  and migration/readback tests pass on the exact document generation
+  and all DocRefs and external references resolve with declared freshness
+  and purpose-bound reads preserve coverage/blocker/unknown/frontier
+  and applicable coverage cells are proven or explicitly unresolved
+  and change publication is exact-generation CAS with recoverable settlement
+  and no superseded address, duplicated prose or old consumer remains active
+  and migration/readback conformance passes on the exact target generation
 ```
+
+`DocumentationClosed`只证明文档系统及本generation一致，不证明文档描述的产品能力已经实现。每个规范能力仍由其domain consumer、Effect、state、Evidence和completion predicate独立证明。
