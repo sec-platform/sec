@@ -1039,9 +1039,26 @@ export interface SourceProgramTypeScriptExactFactGenerationReceipt {
   observationInputDigest: `sha256:${string}`;
   provenanceDigest: `sha256:${string}`;
 }
+
+export type SourceProgramTypeScriptModuleExportResolution =
+  | Readonly<{ readonly status: 'absent'; readonly entrypointPath: string }>
+  | Readonly<{
+      readonly status: 'resolved';
+      readonly entrypointPath: string;
+    }>
+  | Readonly<{
+      readonly status: 'unresolved';
+      readonly entrypointPath: string;
+      readonly reason:
+        | 'entrypoint-module-symbol-unresolved'
+        | 'entrypoint-source-unresolved'
+        | 'entrypoint-syntax-unresolved'
+        | 'export-target-unresolved';
+    }>;
 type TypeScriptExactFactGenerationReceipt = Readonly<
   SourceProgramTypeScriptExactFactGenerationReceipt & {
   apiClosure: SourceProgramTypeScriptRequiredApiClosure;
+  checker: ts.TypeChecker;
   returnProvenances: readonly SourceProgramReturnProvenance[];
   sourceFiles: ReadonlyMap<string, ts.SourceFile>;
 }>;
@@ -1062,6 +1079,83 @@ export function sourceProgramTypeScriptSourceFile(
   return exactFactGenerationByModel.get(model)?.sourceFiles.get(repositoryPath) ?? null;
 }
 
+/** Resolve one export through the current exact TypeChecker, including aliases and star re-exports. */
+export function resolveSourceProgramTypeScriptModuleExport(
+  model: SourceProgramModel,
+  entrypointPaths: readonly string[],
+  exportName: string
+): readonly SourceProgramTypeScriptModuleExportResolution[] | null {
+  const generation = exactFactGenerationByModel.get(model);
+  if (generation === undefined) return null;
+  const pathBySourceFile = new Map<ts.SourceFile, string>([...generation.sourceFiles].map(
+    ([repositoryPath, sourceFile]) => [sourceFile, repositoryPath] as const
+  ));
+  const declarationIdsByPathAndStart = new Map<string, string[]>();
+  for (const declaration of model.declarations) {
+    const key = `${declaration.path}\0${declaration.span.start}`;
+    const ids = declarationIdsByPathAndStart.get(key);
+    if (ids === undefined) declarationIdsByPathAndStart.set(key, [declaration.observationId]);
+    else ids.push(declaration.observationId);
+  }
+  return Object.freeze([...new Set(entrypointPaths)].sort(compareCodeUnits).map((entrypointPath) => {
+    const sourceFile = generation.sourceFiles.get(entrypointPath);
+    if (sourceFile === undefined) return Object.freeze({
+      status: 'unresolved' as const,
+      entrypointPath,
+      reason: 'entrypoint-source-unresolved' as const
+    });
+    if (((sourceFile as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] })
+      .parseDiagnostics?.length ?? 0) > 0) return Object.freeze({
+      status: 'unresolved' as const,
+      entrypointPath,
+      reason: 'entrypoint-syntax-unresolved' as const
+    });
+    const moduleSymbol = generation.checker.getSymbolAtLocation(sourceFile);
+    if (moduleSymbol === undefined) return Object.freeze({
+      status: 'unresolved' as const,
+      entrypointPath,
+      reason: 'entrypoint-module-symbol-unresolved' as const
+    });
+    const exportedSymbol = generation.checker.getExportsOfModule(moduleSymbol)
+      .find((candidate) => candidate.getName() === exportName);
+    if (exportedSymbol === undefined) {
+      return Object.freeze({ status: 'absent' as const, entrypointPath });
+    }
+    let targetSymbol = exportedSymbol;
+    const visitedAliases = new Set<ts.Symbol>();
+    while ((targetSymbol.flags & ts.SymbolFlags.Alias) !== 0
+        && !visitedAliases.has(targetSymbol)) {
+      visitedAliases.add(targetSymbol);
+      const resolved = generation.checker.getAliasedSymbol(targetSymbol);
+      if (resolved === targetSymbol) break;
+      targetSymbol = resolved;
+    }
+    const targetDeclarationObservationIds = new Set<string>();
+    const targetPaths = new Set<string>();
+    for (const node of targetSymbol.declarations ?? []) {
+      const repositoryPath = pathBySourceFile.get(node.getSourceFile());
+      if (repositoryPath === undefined) continue;
+      targetPaths.add(repositoryPath);
+      for (const observationId of declarationIdsByPathAndStart.get(
+        `${repositoryPath}\0${node.getStart(node.getSourceFile(), false)}`
+      ) ?? []) targetDeclarationObservationIds.add(observationId);
+    }
+    if ((targetSymbol.flags & ts.SymbolFlags.Value) === 0
+        || targetDeclarationObservationIds.size === 0
+        || targetPaths.size === 0) {
+      return Object.freeze({
+        status: 'unresolved' as const,
+        entrypointPath,
+        reason: 'export-target-unresolved' as const
+      });
+    }
+    return Object.freeze({
+      status: 'resolved' as const,
+      entrypointPath
+    });
+  }));
+}
+
 /** One exact semantic generation owns both reusable facts and causal provenance. */
 export function sourceProgramTypeScriptExactFactGenerationReceipt(
   model: SourceProgramModel
@@ -1070,6 +1164,7 @@ export function sourceProgramTypeScriptExactFactGenerationReceipt(
   if (receipt === undefined) return null;
   const {
     apiClosure: _apiClosure,
+    checker: _checker,
     returnProvenances: _returnProvenances,
     sourceFiles: _sourceFiles,
     ...projection
@@ -1115,7 +1210,8 @@ function issueTypeScriptExactFactGeneration(
   input: PreparedTypeScriptSourceProgramModelInput,
   apiClosure: SourceProgramTypeScriptRequiredApiClosure,
   returnProvenances: readonly SourceProgramReturnProvenance[],
-  sourceFiles: ReadonlyMap<string, ts.SourceFile>
+  sourceFiles: ReadonlyMap<string, ts.SourceFile>,
+  checker: ts.TypeChecker
 ): SourceProgramModel {
   assertSourceProgramTypeScriptRequiredApiClosure(apiClosure);
   const identity = typeScriptExactFactGenerationIdentity(input);
@@ -1124,6 +1220,7 @@ function issueTypeScriptExactFactGeneration(
     ...identity,
     apiClosure,
     apiClosureDigest: apiClosure.closureDigest,
+    checker,
     provenanceDigest: sha256(canonicalProvenances) as `sha256:${string}`,
     returnProvenances: canonicalProvenances,
     sourceFiles
@@ -1590,7 +1687,14 @@ function compileExactFactGenerationForCachedModel(
     exact.repositoryPath(sourceFile),
     sourceFile
   ] as const));
-  issueTypeScriptExactFactGeneration(model, input, apiClosure, returnProvenances, sourceFiles);
+  issueTypeScriptExactFactGeneration(
+    model,
+    input,
+    apiClosure,
+    returnProvenances,
+    sourceFiles,
+    exact.checker
+  );
   return exactFactGenerationByModel.get(model)!;
 }
 
@@ -1608,7 +1712,8 @@ function bindCurrentExactReturnProvenances(
       input,
       sourceGeneration.apiClosure,
       sourceGeneration.returnProvenances,
-      sourceGeneration.sourceFiles
+      sourceGeneration.sourceFiles,
+      sourceGeneration.checker
     );
   }
   compileExactFactGenerationForCachedModel(model, input);
@@ -2671,7 +2776,8 @@ function compileTypeScriptSourceProgramModelInternal(
     new Map(sourceFiles.map((sourceFile) => [
       semanticProgram.repositoryPath(sourceFile),
       sourceFile
-    ] as const))
+    ] as const)),
+    semanticProgram.checker
   );
 }
 

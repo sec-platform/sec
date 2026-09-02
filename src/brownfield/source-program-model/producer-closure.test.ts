@@ -4,13 +4,20 @@ import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/
 import { compileSecRepositoryModuleMembershipSnapshot } from '../../system-architecture/repository-modules/contract.ts';
 import {
   compileSourceProgramOperationProducerClosure,
-  requireSourceProgramOperationProducerClosure
+  requireSourceProgramOperationProducerClosure,
+  SourceProgramOperationProducerClosureError
 } from './producer-closure.ts';
+import { compileVirtualRepositorySourceProgramCompilation } from './repository-compilation.ts';
 import { compileVirtualWorkspaceSourceSnapshot } from './workspace-source-snapshot.ts';
 
 const OPERATION = Object.freeze({ capability: 'fixture.normalize', operation: 'verify' });
 
-function fixture(implementation: string, unrelated = 'export const unrelated = true;\n') {
+function fixture(
+  implementation: string,
+  unrelated = 'export const unrelated = true;\n',
+  runtime = "import { normalize } from './kernel.ts';\nexport const verify = normalize;\n",
+  other = 'export const inspect = true;\n'
+) {
   const descriptor = JSON.stringify({
     importGraph: 'runtime',
     externalEntrypoints: ['src/normalize/runtime.ts', 'src/normalize/other.ts'],
@@ -18,8 +25,8 @@ function fixture(implementation: string, unrelated = 'export const unrelated = t
   });
   const sources = new Map([
     ['src/normalize/sec.module.json', descriptor],
-    ['src/normalize/runtime.ts', "import { normalize } from './kernel.ts';\nexport const verify = normalize;\n"],
-    ['src/normalize/other.ts', "export const inspect = true;\n"],
+    ['src/normalize/runtime.ts', runtime],
+    ['src/normalize/other.ts', other],
     ['src/normalize/kernel.ts', implementation],
     ['src/unrelated.ts', unrelated]
   ]);
@@ -36,7 +43,7 @@ function fixture(implementation: string, unrelated = 'export const unrelated = t
       source: descriptor
     }]
   });
-  return compileVirtualWorkspaceSourceSnapshot({
+  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
     subject: Object.freeze({
       kind: 'virtual-mutation',
       provenance: Object.freeze({
@@ -50,6 +57,7 @@ function fixture(implementation: string, unrelated = 'export const unrelated = t
     files,
     moduleMembership: membership
   });
+  return compileVirtualRepositorySourceProgramCompilation({ workspaceSnapshot });
 }
 
 test('operation producer closure is the one descriptor-owned operation entrypoint and reachable graph', () => {
@@ -81,4 +89,73 @@ test('operation producer closure is the one descriptor-owned operation entrypoin
     OPERATION
   );
   expect(unrelatedChanged.closureDigest).toBe(closure.closureDigest);
+});
+
+test('operation producer entrypoint follows TypeChecker aliases and re-exports', () => {
+  const aliased = compileSourceProgramOperationProducerClosure(
+    fixture(
+      'export function normalize(): void {}\n',
+      undefined,
+      "export { normalize as verify } from './kernel.ts';\n"
+    ),
+    OPERATION
+  );
+  const star = compileSourceProgramOperationProducerClosure(
+    fixture(
+      'export function verify(): void {}\n',
+      undefined,
+      "export * from './kernel.ts';\n"
+    ),
+    OPERATION
+  );
+  const localList = compileSourceProgramOperationProducerClosure(
+    fixture(
+      'export function normalize(): void {}\n',
+      undefined,
+      "import { normalize } from './kernel.ts';\nconst verify = normalize;\nexport { verify };\n"
+    ),
+    OPERATION
+  );
+
+  for (const closure of [aliased, star, localList]) {
+    expect(closure.entrypointAddresses).toEqual([
+      'module-entrypoint:src/normalize/sec.module.json#normalize:src/normalize/runtime.ts'
+    ]);
+    expect(closure.files.map(({ path }) => path)).toContain('src/normalize/kernel.ts');
+  }
+});
+
+test('operation producer blocks unresolved and non-unique TypeChecker export projections', () => {
+  const typeOnly = fixture(
+    'export function normalize(): void {}\n',
+    undefined,
+    'export type verify = string;\n'
+  );
+  expect(() => compileSourceProgramOperationProducerClosure(typeOnly, OPERATION)).toThrow(
+    expect.objectContaining({
+      code: 'entrypoint-export-unresolved'
+    })
+  );
+  const syntaxInvalid = fixture(
+    'export function normalize(): void {}\n',
+    undefined,
+    'export const verify = ;\n'
+  );
+  expect(() => compileSourceProgramOperationProducerClosure(syntaxInvalid, OPERATION)).toThrow(
+    expect.objectContaining({
+      code: 'entrypoint-export-unresolved'
+    })
+  );
+
+  const duplicate = fixture(
+    'export function normalize(): void {}\n',
+    undefined,
+    "import { normalize } from './kernel.ts';\nexport const verify = normalize;\n",
+    'export function verify(): void {}\n'
+  );
+  expect(() => compileSourceProgramOperationProducerClosure(duplicate, OPERATION)).toThrow(
+    expect.objectContaining({
+      code: 'entrypoint-not-unique'
+    })
+  );
 });
