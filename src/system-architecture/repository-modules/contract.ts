@@ -4,6 +4,7 @@ import nodePath from 'node:path';
 import ts from 'typescript';
 
 import { compileClosedDirectedGraphStrongComponents } from '../foundation/runtime/directed-graph.ts';
+import { parseExactJson } from '../foundation/runtime/exact-json.ts';
 import { SEC_SEMANTIC_OPERATION_ID_PATTERN } from '../operation/identity.ts';
 import {
   isCanonicalSecOperationBudgetMaximum,
@@ -1067,6 +1068,16 @@ export function parseSecModuleDescriptor(
     causalRelations,
     preDependencyBootstrap
   });
+}
+
+export function parseSecModuleDescriptorJson(
+  source: string,
+  descriptorPath: string
+): SecModuleDescriptor {
+  return parseSecModuleDescriptor(
+    parseExactJson(source, `Repository module descriptor ${descriptorPath}`),
+    descriptorPath
+  );
 }
 
 /**
@@ -2427,10 +2438,7 @@ export function discoverSecModuleDescriptors(
   const descriptorPaths = discoverDescriptorPathsSync(absoluteRepositoryRoot);
   return Object.freeze(descriptorPaths.map((descriptorPath) => {
     const descriptorFile = nodePath.join(absoluteRepositoryRoot, ...descriptorPath.split('/'));
-    return parseSecModuleDescriptor(
-      JSON.parse(readFileSync(descriptorFile, 'utf8')),
-      descriptorPath
-    );
+    return parseSecModuleDescriptorJson(readFileSync(descriptorFile, 'utf8'), descriptorPath);
   }).sort((left, right) => left.root.localeCompare(right.root, 'en-US')));
 }
 
@@ -2591,7 +2599,7 @@ export function compileSecRepositoryModuleMembershipSnapshot(
   const descriptors = Object.freeze(expectedDescriptorPaths.map((descriptorPath) => {
     const source = descriptorSourceByPath.get(descriptorPath)!;
     try {
-      return parseSecModuleDescriptor(JSON.parse(source), descriptorPath);
+      return parseSecModuleDescriptorJson(source, descriptorPath);
     } catch (error) {
       throw new Error(`repository snapshot descriptor is invalid: ${descriptorPath}`, { cause: error });
     }
