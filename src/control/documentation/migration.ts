@@ -15,39 +15,66 @@ export const DOCUMENTATION_MIGRATION_DESIGN_SCHEMA =
 
 type Digest = `sha256:${string}`;
 
+export const DOCUMENTATION_MIGRATION_CORPUS_STATUSES = [
+  'tracked-registered',
+  'tracked-non-active',
+  'tracked-unclassified',
+  'missing'
+] as const;
 export type DocumentationMigrationCorpusStatus =
-  | 'tracked-registered'
-  | 'tracked-non-active'
-  | 'tracked-unclassified'
-  | 'missing';
+  typeof DOCUMENTATION_MIGRATION_CORPUS_STATUSES[number];
 
+export const DOCUMENTATION_MIGRATION_EXTERNAL_CONSUMER_STATUSES = [
+  'none-observed',
+  'present',
+  'unknown'
+] as const;
 export type DocumentationMigrationExternalConsumerStatus =
-  | 'none-observed'
-  | 'present'
-  | 'unknown';
+  typeof DOCUMENTATION_MIGRATION_EXTERNAL_CONSUMER_STATUSES[number];
 
+export const DOCUMENTATION_MIGRATION_TARGET_CLASSES = [
+  'source-fragment',
+  'external-bound-input',
+  'generated-projection',
+  'runtime-artifact'
+] as const;
 export type DocumentationMigrationTargetClass =
-  | 'source-fragment'
-  | 'external-bound-input'
-  | 'generated-projection'
-  | 'runtime-artifact';
+  typeof DOCUMENTATION_MIGRATION_TARGET_CLASSES[number];
 
+export const DOCUMENTATION_MIGRATION_DISPOSITIONS = [
+  'preserve-as-source',
+  'derive-projection',
+  'bind-external-input',
+  'relocate-runtime-artifact',
+  'split-control',
+  'blocked'
+] as const;
 export type DocumentationMigrationDisposition =
-  | 'preserve-as-source'
-  | 'derive-projection'
-  | 'bind-external-input'
-  | 'relocate-runtime-artifact'
-  | 'split-control'
-  | 'blocked';
+  typeof DOCUMENTATION_MIGRATION_DISPOSITIONS[number];
 
+export const DOCUMENTATION_MIGRATION_FRONTIER_CODES = [
+  'authority-role-adoption-required',
+  'control-state-separation-required',
+  'current-registry-cutover-required',
+  'consumer-rewrite-required',
+  'external-consumer-unknown',
+  'missing-current-source',
+  'unclassified-current-source'
+] as const;
 export type DocumentationMigrationFrontierCode =
-  | 'authority-role-adoption-required'
-  | 'control-state-separation-required'
-  | 'current-registry-cutover-required'
-  | 'consumer-rewrite-required'
-  | 'external-consumer-unknown'
-  | 'missing-current-source'
-  | 'unclassified-current-source';
+  typeof DOCUMENTATION_MIGRATION_FRONTIER_CODES[number];
+
+/** Machine-readable target grammar; its digest binds every migration design. */
+export const DOCUMENTATION_MIGRATION_TARGET_CONTRACT = deepFreeze({
+  schema: DOCUMENTATION_MIGRATION_DESIGN_SCHEMA,
+  corpusStatuses: DOCUMENTATION_MIGRATION_CORPUS_STATUSES,
+  externalConsumerStatuses: DOCUMENTATION_MIGRATION_EXTERNAL_CONSUMER_STATUSES,
+  targetClasses: DOCUMENTATION_MIGRATION_TARGET_CLASSES,
+  dispositions: DOCUMENTATION_MIGRATION_DISPOSITIONS,
+  frontierCodes: DOCUMENTATION_MIGRATION_FRONTIER_CODES
+});
+export const DOCUMENTATION_MIGRATION_TARGET_CONTRACT_DIGEST =
+  sha256(DOCUMENTATION_MIGRATION_TARGET_CONTRACT) as Digest;
 
 export interface DocumentationMigrationCorpusEntry {
   readonly path: string;
