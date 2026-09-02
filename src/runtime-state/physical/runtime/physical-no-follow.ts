@@ -3615,13 +3615,14 @@ async function retainNoFollowProvenDirectoryGeneration(
 }
 
 /**
- * Retains one exact directory generation for an external reader. Windows
- * excludes writers and delete-capable handles from the root, every descendant
- * directory, ordinary file and link. The matching ACL authority closes
- * descendant membership creation before those handles are acquired; its
- * owner either hardens a repository-external tree or restores a repository
- * dependency generation's exact predecessor descriptor. Platforms without
- * complete membership exclusion fail closed.
+ * Retains one exact, already-published directory generation for an external
+ * reader. Windows opens the root and every inventoried descendant without
+ * write/delete sharing. Any pre-existing writer therefore blocks admission;
+ * after admission those retained handles exclude byte, rename and delete
+ * mutation until disposal. The companion authority seals only the root and
+ * inventoried directories, because Windows sharing does not exclude child
+ * creation. The final inventory readback happens after the complete handle set
+ * is retained, so ordinary files and links need no per-entry ACL mutation.
  */
 export async function retainNoFollowSealedDirectoryGeneration(
   expectedRoot: PhysicalDirectoryIdentity,
@@ -3635,17 +3636,6 @@ export async function retainNoFollowSealedDirectoryGeneration(
   }
   await readOnlyAuthority.assertCurrent();
   const canonicalInventory = Object.freeze([...expectedInventory].map((entry) => Object.freeze({ ...entry })));
-  const currentInventory = scanNoFollowDirectoryTreeInventory(root, {
-    deadlineAtMs: performance.now() + 30_000,
-    maximumEntries: Math.max(1, canonicalInventory.length + 1),
-    maximumBytes: canonicalInventory.reduce((total, entry) => total + (entry.kind === 'file' ? entry.size : 0), 0)
-  });
-  if (JSON.stringify(currentInventory) !== JSON.stringify(canonicalInventory)) {
-    throw physicalError(
-      'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
-      `${label} inventory changed before retention.`
-    );
-  }
   if (process.platform !== 'win32') {
     throw physicalError(
       'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
@@ -3797,18 +3787,7 @@ export async function retainNoFollowSealedDirectoryGeneration(
         if (identity.device !== retained.entry.device || identity.inode !== retained.entry.inode) {
           throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} retained entry identity changed.`);
         }
-        if (retained.entry.kind === 'file') {
-          windowsRewindRetainedFile(retained.handle, `${label} ${retained.entry.relativePath}`);
-          const digest = digestWindowsRetainedFile(
-            retained.handle,
-            retained.absolutePath,
-            identity,
-            `${label} ${retained.entry.relativePath}`
-          );
-          if (digest.size !== retained.entry.size || digest.contentDigest !== retained.entry.contentDigest) {
-            throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} retained file bytes changed.`);
-          }
-        } else if (retained.entry.kind === 'link') {
+        if (retained.entry.kind === 'link') {
           const observed = windowsRetainedReparseObservation(
             retained.handle,
             `${label} ${retained.entry.relativePath}`
@@ -3827,7 +3806,10 @@ export async function retainNoFollowSealedDirectoryGeneration(
       root,
       inventory: canonicalInventory,
       assertCurrent,
-      assertAuthorityCurrent: () => readOnlyAuthority.assertCurrent(),
+      assertAuthorityCurrent: async () => {
+        await readOnlyAuthority.assertCurrent();
+        assertCurrent();
+      },
       dispose: () => {
         if (disposed) return;
         disposed = true;
