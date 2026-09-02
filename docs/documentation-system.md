@@ -914,6 +914,13 @@ provider 的观察世代，后者绑定实际内容；只保留其中一个不�
 重放或同世代内容替换。`sourceFrontierDigest` 覆盖完整 frontier（包括零项），
 因此“没有发现 blocker”与“没有执行语义 census”不可混同。
 
+`providerRef` 不是 caller 可自由填写的标签：每个迁移入口只能使用当前
+source-generation provider 的 canonical issuer；本地 Git 入口的 provider、
+revision/snapshot 与 observation epoch 必须绑定同一 generation reference。未来
+引入另一种 snapshot provider 必须先新增独立 provider contract、issuer 与
+revalidation/migration path，再扩展该闭集；不能把任意字符串或自报 epoch 当作
+来源证明。
+
 `sourceSemanticGraphDigest` 与 `sourceClauseDispositionDigest` 是迁移准入的
 必需输入，而不是迁移编译器可自行重算的旁路。它们引用同一 exact current
 generation 的语义编译结果：每个 heading/body node 必须已经被标为 typed

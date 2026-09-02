@@ -15,6 +15,7 @@ import {
   compileDocumentationMigrationDesign,
   deriveDocumentationMigrationGenerationBinding,
   DOCUMENTATION_MIGRATION_DESIGN_SCHEMA,
+  DOCUMENTATION_MIGRATION_SOURCE_PROVIDER_REF,
   DOCUMENTATION_MIGRATION_TARGET_CONTRACT_DIGEST,
   encodeDocumentationMigrationDesign,
   type DocumentationMigrationCorpusEntry
@@ -94,7 +95,7 @@ function compileDesign(input: Readonly<{
     targetContractDigest: DOCUMENTATION_MIGRATION_TARGET_CONTRACT_DIGEST,
     currentGenerationBinding: deriveDocumentationMigrationGenerationBinding({
       generationRef: sourceGraph.trustedTree,
-      providerRef: 'git',
+      providerRef: DOCUMENTATION_MIGRATION_SOURCE_PROVIDER_REF,
       revisionOrSnapshotRef: sourceGraph.trustedTree,
       observationEpoch: sourceGraph.trustedTree,
       registry: input.registry,
@@ -239,7 +240,7 @@ describe('documentation migration design compiler', () => {
     const sourceGraph = sourceGraphFor(currentRegistry);
     const binding = deriveDocumentationMigrationGenerationBinding({
       generationRef: sourceGraph.trustedTree,
-      providerRef: 'git',
+      providerRef: DOCUMENTATION_MIGRATION_SOURCE_PROVIDER_REF,
       revisionOrSnapshotRef: sourceGraph.trustedTree,
       observationEpoch: sourceGraph.trustedTree,
       registry: currentRegistry,
@@ -262,6 +263,26 @@ describe('documentation migration design compiler', () => {
       currentGenerationBinding: binding,
       sourceGraph
     })).toThrow(/targetContractDigest does not match/u);
+
+    expect(() => deriveDocumentationMigrationGenerationBinding({
+      generationRef: sourceGraph.trustedTree,
+      providerRef: 'caller-supplied-provider',
+      revisionOrSnapshotRef: sourceGraph.trustedTree,
+      observationEpoch: sourceGraph.trustedTree,
+      registry: currentRegistry,
+      corpus: currentCorpus,
+      sourceGraph
+    })).toThrow(/canonical documentation source provider/u);
+
+    expect(() => deriveDocumentationMigrationGenerationBinding({
+      generationRef: sourceGraph.trustedTree,
+      providerRef: DOCUMENTATION_MIGRATION_SOURCE_PROVIDER_REF,
+      revisionOrSnapshotRef: sourceGraph.trustedTree,
+      observationEpoch: 'different-observation-epoch',
+      registry: currentRegistry,
+      corpus: currentCorpus,
+      sourceGraph
+    })).toThrow(/snapshot and observation epoch must match/u);
   });
 
   test('keeps untyped source clauses in the migration frontier', () => {
@@ -274,7 +295,7 @@ describe('documentation migration design compiler', () => {
       corpus: currentCorpus,
       currentGenerationBinding: deriveDocumentationMigrationGenerationBinding({
         generationRef: sourceGraph.trustedTree,
-        providerRef: 'git',
+        providerRef: DOCUMENTATION_MIGRATION_SOURCE_PROVIDER_REF,
         revisionOrSnapshotRef: sourceGraph.trustedTree,
         observationEpoch: sourceGraph.trustedTree,
         registry: currentRegistry,

@@ -20,6 +20,7 @@ import {
 import {
   compileDocumentationMigrationDesign,
   deriveDocumentationMigrationGenerationBinding,
+  DOCUMENTATION_MIGRATION_SOURCE_PROVIDER_REF,
   DOCUMENTATION_MIGRATION_TARGET_CONTRACT_DIGEST,
   encodeDocumentationMigrationDesign,
   type DocumentationMigrationCorpusEntry,
@@ -300,7 +301,7 @@ export async function compileCurrentRevisionDocumentationMigrationPlan(
   });
   const currentGenerationBinding = deriveDocumentationMigrationGenerationBinding({
     generationRef: revision,
-    providerRef: 'git',
+    providerRef: DOCUMENTATION_MIGRATION_SOURCE_PROVIDER_REF,
     revisionOrSnapshotRef: revision,
     observationEpoch: revision,
     registry,
