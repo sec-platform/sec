@@ -8,7 +8,7 @@ domain: compiler-target-ir
 
 ## 1. 所有权
 
-本文拥有从 validated Engineering semantics 到 Target Program 与 deterministic artifact plans 的 pure compilation chain：Target Profile、Type Algebra、Application/Behavior IR、Implementation Resolution、Target Program IR、Backend。
+本文拥有从 validated Engineering semantics 到**用户目标工程** Target Program 与 deterministic artifact plans 的 pure compilation chain：Target Profile、Type Algebra、Application/Behavior IR、Implementation Resolution、Target Program IR、Backend。SEC 自身 logical responsibility 到 declaration/package/file/generated artifact 的实现架构、Change Locality 和 Intent-to-Code admission 由 `docs/implementation-architecture.md` 拥有；两者共享 semantic identity 与 Binding contract，但不能互相成为 facade 或第二 lowering owner。
 
 ~~~mermaid
 flowchart LR

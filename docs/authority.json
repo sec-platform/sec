@@ -14,6 +14,7 @@
         "design-calculus",
         "docs-index",
         "engineering-constitution",
+        "implementation-architecture",
         "product",
         "semantic-model",
         "system-architecture"
@@ -155,8 +156,27 @@
         "architecture.cross-domain-reference",
         "architecture.layering",
         "architecture.maturity",
-        "architecture.single-writer",
-        "architecture.workspace-zones"
+        "architecture.single-writer"
+      ],
+      "projects": []
+    },
+    {
+      "id": "implementation-architecture",
+      "path": "docs/implementation-architecture.md",
+      "kind": "authority",
+      "domain": "implementation-architecture",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "architecture.workspace-zones",
+        "implementation.architecture",
+        "implementation.change-locality",
+        "implementation.entity-realization",
+        "implementation.intent-compilation",
+        "implementation.manual-provider",
+        "implementation.placement",
+        "implementation.source-generation",
+        "implementation.transition"
       ],
       "projects": []
     },

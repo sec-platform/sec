@@ -6,7 +6,7 @@ domain: development-governance
 
 # 自主开发治理
 
-本文是通用 Agent Constitution 在 SEC 开发中的唯一项目 profile，并拥有 SEC 仓库开发的事实顺序、Task/Operation/Role/Skill、Work Package、authoring/promotion、failure/recovery、integration/closeout 与持续自纠。通用 Agent 认识与行动原则由 `docs/agent-constitution.md` 拥有，工程原则由 `docs/engineering-constitution.md` 拥有，设计演算由 `docs/design-calculus.md` 拥有；产品事实仍由 Product/Domain owner 拥有，具体 current state 由 live providers、machine contracts 和 Evidence 拥有。
+本文是通用 Agent Constitution 在 SEC 开发中的唯一项目 profile，并拥有 SEC 仓库开发的事实顺序、Task/Operation/Role/Skill、Work Package、authoring/promotion、failure/recovery、integration/closeout 与持续自纠。通用 Agent 认识与行动原则由 `docs/agent-constitution.md` 拥有，工程原则由 `docs/engineering-constitution.md` 拥有，设计演算由 `docs/design-calculus.md` 拥有；产品事实仍由 Product/Domain owner 拥有，具体 current state 由 live providers、machine contracts 和 Evidence 拥有。声明归属、源码放置、局部变更、生成/手写边界和架构迁移由 `docs/implementation-architecture.md` 计算；Agent 只能消费其 admitted plan，不能因 Work Package 或 Skill 自行决定目录与 facade。
 
 root `AGENTS.md` 只是一份 generated bootstrap projection，`owns: []`。
 
