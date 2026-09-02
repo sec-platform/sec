@@ -379,6 +379,7 @@ CapabilityDesignSlice = project(
   performance/cost/SLO/operability,
   compatibility/migration/retirement/FutureObligations,
   alternatives/accepted decisions/reversal,
+  source/purpose/rationale trace refs,
   coverage/unknown/implementation obligations
 )
 ```
@@ -1088,6 +1089,7 @@ flowchart LR
 ```text
 LogicalDesignPackage {
   acceptedProductCapabilityRefs
+  designRationaleIndexRefs
   domainDefinitionsAndPublicOperations
   workflowDefinitions
   subjectInvariantStateFailureGraph
@@ -1100,6 +1102,8 @@ LogicalDesignPackage {
   sourceDefinitionRefs
 }
 ```
+
+`designRationaleIndexRefs`只引用`docs/design-calculus.md`定义的typed explanation traces与其生成索引；本package不得重述来源、目的、候选、避免故障、后果、证明或反转理由。由此每项逻辑语义既可回答“为什么存在/来自哪里”，又不会让逻辑文档成为Product decision的第二owner。
 
 它不包含declaration、file、package、path、framework、library、provider instance、session、store、process、container、test list、deployment topology或migration command。实现编译器可以返回多个non-dominated realization或`implementation-unresolved`，不能回写LogicalDesignPackage以迁就当前代码。
 

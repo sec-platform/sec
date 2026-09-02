@@ -243,6 +243,36 @@ SystemModel =
 
 每个 node/edge 都引用 `layer + plane + owner + revision`；跨层只能使用声明过的 `refines | materializes | observes | binds | settles | proves | projects | migrates` 等 relation。不同层级信息只能在`DesignKnowledgeGraph`中通过typed refs组合验证，不能共用identity、payload或writer；任意view只保留所需refs和typed frontier，不能把多个层压成一份自由JSON。
 
+### 3.5 正交分解不等于物理碎片化
+
+语义分解与实现聚合是两次不同演算：
+
+```text
+SemanticSplitRequired(a, b) iff
+  owner(a) != owner(b)
+  ∨ authority(a) != authority(b)
+  ∨ lifecycle(a) != lifecycle(b)
+  ∨ revisionOrInvalidation(a) != revisionOrInvalidation(b)
+  ∨ consumerCanLegitimatelyObserveOneWithoutTheOther(a, b)
+
+PhysicalCoLocationPreferred(a, b) iff
+  sameOwnerAndTrustBoundary(a, b)
+  ∧ sameAtomicConsistencyAndLifecycle(a, b)
+  ∧ highCoChangeOrReadTogether(a, b)
+  ∧ noIndependentPublicConsumer(a, b)
+  ∧ lifecycleCost(coLocated) < lifecycleCost(separate)
+```
+
+| 语义结果 | 实现结果 |
+| --- | --- |
+| 不满足`SemanticSplitRequired`且强共变 | 同一typed aggregate/CodeUnit，不造relation、port或文件 |
+| 语义独立但同owner、同事务、总是一起消费 | payload保持typed字段，物理共置并一次parse/commit |
+| owner/Authority/lifecycle/version独立 | 分离identity与contract，通过typed ref组合 |
+| 跨cell高频稳定组合 | compiler物化content-addressed package/index/view，consumer一次读取 |
+| 开放式低频查询 | 按需求编译最小closure，不预聚合全世界 |
+
+`Orthogonality`禁止概念冒充，不要求“一项关系一个对象、文件、包、服务或网络调用”。`Composition`也不是每次业务执行时临时join所有原子；authoring graph经compiler形成按consumer裁剪且可缓存的immutable aggregate。任何拆分必须给出独立变化/权限/生命周期/consumer收益和全生命周期成本；否则判为`over-factored`并合并。任何合并必须证明不会吞掉独立owner、invalidations或unknown；否则判为`boundary-collapse`并拆分。
+
 ## 4. 原则记录与多视图精确表达
 
 一条原则只有一个 identity。权威语义是可计算的 `PrincipleIR`；自然语言、图和 compact context 都是投影：
@@ -265,12 +295,18 @@ PrincipleIR = {
 
 PrincipleRecord = {
   semanticCore: PrincipleIR,
-  rationale,
-  alternatives,
-  selectedBecause,
-  carryingCost,
-  supersedes,
-  acceptedBy
+  purposeRefs,
+  sourceStatementRefs,
+  premiseRefs,
+  alternativeSetRef,
+  selectedBecauseRef,
+  avoidedFaultFamilyRefs,
+  acceptedConsequenceRefs,
+  proofObligationRefs,
+  carryingCostRef,
+  reversalPredicateRef,
+  supersedesRefs,
+  acceptedBy + authority
 }
 ```
 
@@ -295,7 +331,84 @@ blockers(view)       = rejectionCodes(PrincipleIR)
 unknown(view)        = unknownSemantics(PrincipleIR)
 ```
 
-`rationale` 解释为何选择，但不能改变 IR；若自然语言无法由 IR 支持，投影拒绝发布。多种表达只适用于原则等需要消歧的高阶约束；普通事实选择一项最合适的载体。不得为了“多视图”复制状态、路径、实现清单或当前结果。
+`PrincipleRecord`只保存不可推导选择及typed refs；候选生成、约束结果、成本、fault traces与投影由compiler产生。自然语言只能解释这些refs，不能改变IR；若文字无法由IR和refs支持，投影拒绝发布。多种表达只适用于原则等需要消歧的高阶约束；普通事实选择一项最合适的载体。不得为了“多视图”复制状态、路径、实现清单或当前结果。
+
+### 4.1 来源、目的与理由闭包
+
+“为什么”不是一个自由文本字段，而是对不同事实种类的typed query。每个可接受的设计node/edge必须能沿唯一知识图回答其适用问题：
+
+| Query | 必须返回 | 不得用作答案 |
+| --- | --- | --- |
+| `sourceOf(x)` | statement kind、issuer、authority、coverage、freshness、contradiction frontier | 聊天摘要、作者名、同名常量 |
+| `purposeOf(x)` | accepted outcome/non-goal/future obligation refs | “可能有用”、实现已存在 |
+| `whyExists(x)` | requirement reachability或accepted FutureObligation + deletion counterfactual | 文件被引用、测试存在 |
+| `whyThisShape(x)` | exact premises、适用constraints、candidate coverage、dominance trace | 首个可行方案、个人偏好 |
+| `whyNot(a)` | hard violation或被另一候选支配的exact trace | 没实现过、名字不好 |
+| `avoids(x)` | fault/counterexample → rejected outcome/constraint → selected property | 手写风险清单、空泛“更安全” |
+| `costOf(x)` | 全生命周期cost vector与承担者 | 仅代码行数或单次命令时间 |
+| `proves(x)` | conformance obligation、independent evidence class、unknown | producer自报PASS |
+| `whenReverse(x)` | reversal predicate、invalidation reverse closure、retirement obligation | “未来再评估” |
+
+```text
+DesignSourceStatement = {
+  identity,
+  statementRef,
+  statementKind: Fact | Hypothesis | Decision | Authorization | Requirement |
+                 Observation | Evidence | Unknown,
+  semanticRole: outcome | non-goal | obligation | principle | domain-definition |
+                external-contract | measurement | constraint-input,
+  issuerRef + issuerAuthority,
+  subjectRevisionRefs,
+  coverage + freshness,
+  contradictionRefs + unknownFrontierRef
+}
+
+DesignExplanationTrace =
+  | ProvenanceTrace(sourceStatementRefs, issuerChain, coverage, contradictionFrontier)
+  | PurposeTrace(outcomeRefs, nonGoalRefs, obligationRefs)
+  | DerivationTrace(exactInputRefs, algorithmRef, outputRef, unknownFrontier)
+  | ExistenceTrace(requirementReachability, deletionCounterfactual, carryingCost)
+  | SelectionTrace(candidateCoverage, hardConstraintResults, dominance, rejectedCandidates)
+  | FaultAvoidanceTrace(faultRef, rejectedOutcomeRef, preservedPropertyRef)
+  | ConsequenceTrace(benefitRefs, acceptedCostRefs, costBearers, lostOptionRefs)
+  | ProofObligationTrace(claimRefs, conformanceRefs, independence, unresolved)
+  | ReversalTrace(predicateRef, invalidationReverseClosure, retirementObligations)
+
+DesignRationaleIndex = {
+  subjectRef,
+  applicableQuerySet,
+  explanationTraceRefs,
+  unresolvedQueryRefs,
+  meaningDigest
+}
+```
+
+`applicableQuerySet`由subject kind、plane和relations编译，不要求无关对象填写空字段。`DesignRationaleIndex`与各trace从owner records、exact observations和compiler traces生成，不是第二份decision log。事实使用provenance，派生结论使用derivation，授权使用issuer chain，选择使用selection，未知使用frontier；禁止把所有对象强塞进`DesignDecision`，也禁止用一个万能trace或自由“rationale”掩盖不同认识论来源。
+
+| Source statement kind | 可参与设计的方式 | 不能产生 |
+| --- | --- | --- |
+| Decision | 定义accepted outcome、non-goal、tradeoff或FutureObligation | Observation、Effect、PASS |
+| Fact / external contract | 作为有coverage与freshness的premise/constraint | 无界全局真理 |
+| Requirement | 进入requirement closure并由consumer reachability验证 | Provision、Authority |
+| Observation | 更新exact world model、cost或counterexample | 永久Definition、授权 |
+| Evidence | 支持exact Claim并携带independence/freshness | Product choice、Effect |
+| Authorization | 只收窄当前设计/实现operation可做的Effect | 设计正确性、长期owner |
+| Hypothesis | 生成候选、实验或可证伪解释 | accepted设计 |
+| Unknown | 扩大frontier、阻断受影响正向Claim | absent、mismatch、success |
+
+用户欲望或maintainer取舍只有在对应Product/Domain decision authority接受后才成为`Decision`；用户提出的技术形状、Agent建议、Skill规则和既有代码默认是`Hypothesis`。这既不把用户终局结果降格，也不把任一技术措辞自动提升为永久架构真理。
+
+```text
+RationaleComplete(x) =
+  sourceOf(x) is typed
+  ∧ purposeOf(x) reaches accepted outcome/non-goal/obligation
+  ∧ (derived(x) -> exact Derivation trace)
+  ∧ (chosen(x) -> bounded candidate coverage + dominance + consequences)
+  ∧ (effectRelevant(x) -> avoided fault + settlement/proof obligations)
+  ∧ reversal and unknown frontier are explicit
+```
+
+理由必须在实现admission前绑定到输入revision。实现成功、测试PASS、已有调用者或迁移成本只能成为后续Observation/cost input，不能反向改写原选择理由；否则是post-hoc rationale laundering。方案空间不可能宣称无限完备，只能证明已声明设计轴的generated coverage，并把未覆盖轴保留为bounded unknown。
 
 ## 5. 设计编译器
 
@@ -632,6 +745,7 @@ DesignKnowledgeGraph = {
   authoredDecisionRefs,
   principleAndConstraintRefs,
   exactPremiseAndObservationRefs,
+  rationaleIndexRefs,
   logicalDesignPackageRef,
   targetImplementationDesignPackageRef?,
   conformanceModelRef?,
@@ -666,21 +780,23 @@ DesignPackageEnvelope = {
 ```text
 DesignDecision = {
   identity,
-  question,
-  acceptedOutcomeRefs,
-  exactPremises,
-  alternatives,
-  selectedAlternative,
-  hardConstraintResults,
-  dominanceAndCostResults,
-  rejectedReasons,
+  questionRef,
+  purposeAndNonGoalRefs,
+  sourceStatementRefs,
+  exactPremiseRefs,
+  requirementAndConstraintRefs,
+  candidateCoverageRef,
+  selectedAlternativeRef,
+  acceptedConsequenceRefs,
+  implementationAndConformanceObligationRefs,
+  unknownFrontierRef,
   acceptedBy + authority,
-  reversalPredicate,
+  reversalPredicateRef,
   supersededDecisionRefs
 }
 ```
 
-后来者在 premises 和 reversal 未变化时直接复用裁决；出现新事实时从 `reversalPredicate` 进入演进，而不是重新做无边界讨论或在旧结论上叠补丁。
+`hardConstraintResults`、`dominanceAndCostResults`、`rejectedReasons`、`avoidedFaultTraces`和`invalidationImpact`不由人重复填写；它们由上述refs编译成typed `DesignExplanationTrace`并挂入`DesignRationaleIndex`。后来者在inputs、premises、candidate coverage和reversal未变化时直接复用裁决；出现新事实时沿reverse closure进入演进，而不是重新做无边界讨论或在旧结论上叠补丁。
 
 ### 11.1 权威输入、编译产物与持久载体
 
@@ -702,6 +818,8 @@ Design Calculus 是纯演算规则，不是记录库、全局 registry 或工作
 ```text
 DesignKnowledgeComplete =
   every accepted outcome/invariant/choice has one authored owner ref
+  ∧ every source is typed by statement-kind/role/issuer/authority/coverage/freshness
+  ∧ every design subject has a generated DesignRationaleIndex
   ∧ every derived conclusion has exact inputs + compiler/model ref
   ∧ every realization has a LogicalDesignPackage refinement ref
   ∧ every proof obligation has a ConformanceModel ref
@@ -757,6 +875,9 @@ flowchart LR
 ```text
 validateDesignPackage(package):
   assert exactSchema(package)
+  assert everyDesignSubjectHasTypedSourcePurposeAndRationaleIndex(package)
+  assert noRationaleDependsOnItsOwnImplementationOrVerdict(package)
+  assert everyChosenAlternativeRecordsConsequencesAndObligations(package)
   assert everyAcceptedCapabilityHasGeneratedConcernAndFaultClosure(package)
   assert candidateModelsCoverEveryApplicableRealizationAxis(package)
   assert everySelectedModelHasDominanceProofAndReversal(package)
@@ -775,6 +896,20 @@ validateDesignPackage(package):
   assert modelCheck(safety, liveness, determinism, recovery, evolution, economy)
   assert projectionsPreserveMeaning(package)
 ```
+
+| Adversarial attack | 检测 | 必须拒绝 |
+| --- | --- | --- |
+| source laundering | 沿issuer/authority/coverage回溯每项premise | suggestion、summary、path或self-digest冒充Fact/Decision |
+| post-hoc rationale | 检查decision input revision先于implementation/verdict，并禁止反向依赖 | “因为已经写了/测过/迁移贵所以正确” |
+| reason mirror | 比较authored payload与generated trace meaning | 文档、测试、代码各写一份理由 |
+| candidate theater | 对适用realization axes重算coverage | 只列一个方案后宣称最优 |
+| fault-list theater | 从graph concern families生成fault closure | 手工挑选容易通过的反例 |
+| consequence hiding | 检查selected candidate的cost承担者、失去能力和future obligations | 只写收益、不写代价或非目标 |
+| conformance loop | 检查实现包不引用ConformanceModel/Verdict/Evidence producer | 实现按自己的验证器定义正确 |
+| future-abstraction purge | 检查accepted FutureObligation与closure condition | 仅因当前consumer为零删除已接受未来能力 |
+| speculative shell retention | 检查obligation reachability与existence proof | 用“以后可能有用”保留空owner/alias |
+| knowledge loss | 删除前重算typed reachability和projection uniqueness | 依赖Git历史、AI记忆或重新分析恢复理由 |
+| unbounded optimality | 核对declared axes与unknown frontier | 把有限候选比较称为全局绝对最优 |
 
 ### 11.4 反例传播
 
@@ -795,6 +930,7 @@ invalidate(premise, observation):
 DesignClosed =
   accepted outcomes and non-goals are explicit
   ∧ all statements are typed
+  ∧ every design subject resolves all applicable rationale queries or preserves exact unknown
   ∧ minimal causal graph is complete within declared coverage
   ∧ every identity/parser/writer/resolver/terminal has one owner
   ∧ every accepted capability has generated concern/fault closure
