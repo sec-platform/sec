@@ -1768,10 +1768,19 @@ async function prepareWorkingTreeSourceProgramAudit(
     testDisposition.dispositions,
     testDisposition.findings
   );
+  const reductionCompilerContext = Object.freeze({
+    typeScriptModel: worktreeAudit.currentSourceProgramCompilation.typeScriptCompilation.model,
+    moduleMembership: worktreeAudit.moduleMembership,
+    reviewedProcessDispatchers: worktreeAudit.reviewedProcessDispatchers
+  });
 
   let reduction: SourceProgramAuditReduction = Object.freeze({ mode: 'none' });
   if (options.reductionMode === 'version') {
-    const plan = compileSourceProgramVersionSuffixReductionPlan(model, worktreeAudit.sourceFiles);
+    const plan = compileSourceProgramVersionSuffixReductionPlan(
+      model,
+      worktreeAudit.sourceFiles,
+      reductionCompilerContext
+    );
     const patch = plan.reductions.every(({ status }) => status === 'blocked')
       ? null
       : renderSourceProgramVersionSuffixReductionPatch(plan, worktreeAudit.sourceFiles);
@@ -1783,7 +1792,8 @@ async function prepareWorkingTreeSourceProgramAudit(
       Object.freeze({
         sourceRevision: model.sourceRevision,
         architecture: worktreeAudit.moduleArchitecture
-      })
+      }),
+      reductionCompilerContext
     );
     const patch = plan.reductions.every(({ status }) => status === 'blocked')
       ? null
@@ -1799,10 +1809,7 @@ async function prepareWorkingTreeSourceProgramAudit(
       model,
       worktreeAudit.sourceFiles,
       provider,
-      Object.freeze({
-        moduleMembership: worktreeAudit.moduleMembership,
-        reviewedProcessDispatchers: worktreeAudit.reviewedProcessDispatchers
-      })
+      reductionCompilerContext
     );
     const patch = plan.reductions.every(({ status }) => status === 'blocked')
       ? null

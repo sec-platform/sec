@@ -41,6 +41,7 @@ import {
   compileTypeScriptSourceProgramModel,
   compileTypeScriptSourceProgramModelIncremental,
   observeSourceProgramDurableWorkerInput,
+  observeSourceProgramTypeScriptRename,
   querySourceProgramModel
 } from './typescript.ts';
 import { compileWorkspaceSourceRevision } from './workspace-source-snapshot.ts';
@@ -100,6 +101,53 @@ test('TypeScript semantic compilation keeps production and test surfaces distinc
     { name: 'productionValue', path: 'src/example.ts' },
     { name: 'mirroredTestValue', path: 'tests/example.test.ts' }
   ]);
+});
+
+test('TypeScript rename observations expire with their exact compiler generation', () => {
+  const moduleMembership = Object.freeze({
+    descriptors: Object.freeze([]),
+    graphRoots: Object.freeze([]),
+    moduleRoots: Object.freeze([]),
+    moduleForPath: () => null
+  });
+  const source = 'export const renamableSymbol = 1;\n';
+  const files = [Object.freeze({
+    path: 'src/example.ts',
+    source,
+    contentDigest: rawSha256(source)
+  })];
+  const model = compileTypeScriptSourceProgramModel({
+    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
+    files,
+    moduleMembership
+  });
+  const position = source.indexOf('renamableSymbol');
+  expect(observeSourceProgramTypeScriptRename(model, 'src/example.ts', position)).toEqual(
+    expect.objectContaining({ status: 'resolved', canRename: true })
+  );
+
+  const changedSource = 'export const renamableSymbol = 2;\n';
+  const changedFiles = [Object.freeze({
+    path: 'src/example.ts',
+    source: changedSource,
+    contentDigest: rawSha256(changedSource)
+  })];
+  compileTypeScriptSourceProgramModel({
+    sourceRevision: sha256(changedFiles.map(({ path, contentDigest }) => ({ path, contentDigest }))),
+    files: changedFiles,
+    moduleMembership
+  });
+  expect(observeSourceProgramTypeScriptRename(model, 'src/example.ts', position)).toEqual(
+    expect.objectContaining({ status: 'unresolved', reason: 'generation-stale' })
+  );
+  expect(observeSourceProgramTypeScriptRename(
+    { ...model },
+    'src/example.ts',
+    position
+  )).toEqual(expect.objectContaining({
+    status: 'unresolved',
+    reason: 'exact-generation-unavailable'
+  }));
 });
 
 test('unbound Source Program facts remain unknown responsibility evidence', () => {
@@ -487,10 +535,16 @@ test('source program model finds capability producers, consumers, literals, and 
     contentDigest: rawSha256(source)
   }));
   const sourceRevision = compileWorkspaceSourceRevision(files);
+  const typeScriptModel = compileTypeScriptSourceProgramModel({
+    sourceRevision,
+    files,
+    moduleMembership
+  });
   const compile = (orderedFiles: typeof files) => compileRepositorySourceProgramModel({
     sourceRevision,
     files: orderedFiles,
-    moduleMembership
+    moduleMembership,
+    typescriptModel: typeScriptModel
   });
 
   const model = compile(files);
@@ -498,6 +552,7 @@ test('source program model finds capability producers, consumers, literals, and 
     sourceRevision,
     files,
     moduleMembership,
+    typescriptModel: typeScriptModel,
     reviewedProcessDispatchers: ['src/example/cli.ts::spawnSync:git']
   });
   expect(tcbReviewedModel.candidates).toContainEqual(expect.objectContaining({
@@ -506,7 +561,11 @@ test('source program model finds capability producers, consumers, literals, and 
   }));
   expect(new Set(model.candidates.map((candidate) => sha256(candidate))).size)
     .toBe(model.candidates.length);
-  const versionReductionPlan = compileSourceProgramVersionSuffixReductionPlan(model, files);
+  const versionReductionPlan = compileSourceProgramVersionSuffixReductionPlan(model, files, {
+    typeScriptModel,
+    moduleMembership,
+    reviewedProcessDispatchers: []
+  });
   const versionReductionPatch = renderSourceProgramVersionSuffixReductionPatch(
     versionReductionPlan,
     files
@@ -1048,7 +1107,17 @@ test('reduction compiler resolves pure aggregate modules to declaration owners',
     contentDigest: rawSha256(source)
   }));
   const sourceRevision = compileWorkspaceSourceRevision(files);
-  const model = compileRepositorySourceProgramModel({ sourceRevision, files, moduleMembership });
+  const typeScriptModel = compileTypeScriptSourceProgramModel({
+    sourceRevision,
+    files,
+    moduleMembership
+  });
+  const model = compileRepositorySourceProgramModel({
+    sourceRevision,
+    files,
+    moduleMembership,
+    typescriptModel: typeScriptModel
+  });
   const moduleGraph = compileSecRepositoryModuleGraph({
     files: [...sources.keys()],
     readSource: (repositoryPath) => sources.get(repositoryPath) ?? null
@@ -1061,6 +1130,10 @@ test('reduction compiler resolves pure aggregate modules to declaration owners',
   const plan = compileSourceProgramAggregateImportReductionPlan(model, files, {
     sourceRevision,
     architecture
+  }, {
+    typeScriptModel,
+    moduleMembership,
+    reviewedProcessDispatchers: []
   });
   const patch = buildSourceProgramAggregateImportReductionPatch(plan, files);
 
@@ -1093,6 +1166,7 @@ test('reduction compiler resolves pure aggregate modules to declaration owners',
     sourceRevision,
     files,
     moduleMembership,
+    typescriptModel: typeScriptModel,
     unknowns: [{
       code: 'working-tree-changed-during-source-program-census',
       path: '.',
@@ -1108,12 +1182,20 @@ test('reduction compiler resolves pure aggregate modules to declaration owners',
   const driftedPlan = compileSourceProgramAggregateImportReductionPlan(driftedModel, files, {
     sourceRevision,
     architecture: driftedArchitecture
+  }, {
+    typeScriptModel,
+    moduleMembership,
+    reviewedProcessDispatchers: []
   });
   expect(driftedPlan.snapshotStatus).toBe('blocked');
   expect(driftedPlan.reductions.every(({ status }) => status === 'blocked')).toBe(true);
   expect(() => compileSourceProgramAggregateImportReductionPlan(model, files, {
     sourceRevision: sha256('foreign-source-revision'),
     architecture
+  }, {
+    typeScriptModel,
+    moduleMembership,
+    reviewedProcessDispatchers: []
   })).toThrow('does not bind the Source Program revision');
 });
 
@@ -1144,8 +1226,26 @@ function compileGraphCutFixture(
     descriptorSources: [{ descriptorPath, source: descriptorSource }]
   });
   const sourceRevision = sha256(files.map(({ contentDigest, path }) => ({ contentDigest, path })));
-  const model = compileRepositorySourceProgramModel({ sourceRevision, files, moduleMembership });
-  return Object.freeze({ files, model, moduleMembership, sourceRevision });
+  const typeScriptModel = compileTypeScriptSourceProgramModel({
+    sourceRevision,
+    files,
+    moduleMembership
+  });
+  const model = compileRepositorySourceProgramModel({
+    sourceRevision,
+    files,
+    moduleMembership,
+    typescriptModel: typeScriptModel
+  });
+  return Object.freeze({ files, model, typeScriptModel, moduleMembership, sourceRevision });
+}
+
+function graphCutContext(fixture: ReturnType<typeof compileGraphCutFixture>) {
+  return Object.freeze({
+    typeScriptModel: fixture.typeScriptModel,
+    moduleMembership: fixture.moduleMembership,
+    reviewedProcessDispatchers: Object.freeze([] as string[])
+  });
 }
 
 function compileGraphCutProviderReceipt(
@@ -1190,7 +1290,7 @@ test('unused-symbol provider evidence requires a sealed exact provider receipt',
     fixture.model,
     fixture.files,
     { ...receipt },
-    { moduleMembership: fixture.moduleMembership, reviewedProcessDispatchers: [] }
+    graphCutContext(fixture)
   )).toThrow('compiler-issued exact provider candidate receipt');
 });
 
@@ -1209,7 +1309,7 @@ test('graph cut blocks a declaration with same-file type consumers from the cano
       path: 'src/example/contract.ts',
       name: 'SourceProgramObservationClass'
     }]),
-    { moduleMembership: fixture.moduleMembership, reviewedProcessDispatchers: [] }
+    graphCutContext(fixture)
   );
 
   expect(plan.reductions).toContainEqual(expect.objectContaining({
@@ -1231,7 +1331,7 @@ test('graph cut keeps Source Program unknown consumer frontiers blocked', () => 
       path: 'src/example/contract.ts',
       name: 'UNUSED'
     }]),
-    { moduleMembership: fixture.moduleMembership, reviewedProcessDispatchers: [] }
+    graphCutContext(fixture)
   );
 
   expect(plan.reductions).toContainEqual(expect.objectContaining({
@@ -1291,7 +1391,7 @@ test('graph cut blocks typed required-unmaterialized owner obligations before de
       path: 'src/example/contract.ts',
       name: 'deliver'
     }]),
-    { moduleMembership: fixture.moduleMembership, reviewedProcessDispatchers: [] }
+    graphCutContext(fixture)
   );
 
   expect(plan.reductions).toContainEqual(expect.objectContaining({
@@ -1330,7 +1430,7 @@ test('graph cut rejects unknown consumer-zero before virtual semantic comparison
       path: 'src/example/contract.ts',
       name: 'UNUSED'
     }]),
-    { moduleMembership: fixture.moduleMembership, reviewedProcessDispatchers: [] }
+    graphCutContext(fixture)
   );
 
   expect(plan.reductions).toContainEqual(expect.objectContaining({
@@ -1354,7 +1454,7 @@ test('graph cut blocks compiler-resolved cross-file aliases and re-exports', () 
       path: 'src/example/provider.ts',
       name: 'SharedContract'
     }]),
-    { moduleMembership: fixture.moduleMembership, reviewedProcessDispatchers: [] }
+    graphCutContext(fixture)
   );
 
   expect(plan.reductions).toContainEqual(expect.objectContaining({

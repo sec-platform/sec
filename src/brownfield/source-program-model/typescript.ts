@@ -337,9 +337,33 @@ export function assertSourceProgramTypeScriptCompilerIdentity(
   }
 }
 
+export interface SourceProgramTypeScriptRenameLocation {
+  readonly path: string;
+  readonly span: SourceProgramSpan;
+  readonly prefixText: string;
+  readonly suffixText: string;
+}
+
+export type SourceProgramTypeScriptRenameObservation = Readonly<{
+  readonly status: 'resolved';
+  readonly canRename: boolean;
+  readonly rejectionReason: string | null;
+  readonly locations: readonly SourceProgramTypeScriptRenameLocation[];
+  readonly observationDigest: `sha256:${string}`;
+}> | Readonly<{
+  readonly status: 'unresolved';
+  readonly reason:
+    | 'exact-generation-unavailable'
+    | 'generation-stale'
+    | 'position-unresolved'
+    | 'rename-location-outside-generation';
+  readonly observationDigest: `sha256:${string}`;
+}>;
+
 type ExactTypeScriptProgram = Readonly<{
   checker: ts.TypeChecker;
   program: ts.Program;
+  renameAt(repositoryPath: string, position: number): SourceProgramTypeScriptRenameObservation;
   repositoryPath(sourceFile: ts.SourceFile): string;
   sourceFiles: readonly ts.SourceFile[];
 }>;
@@ -479,10 +503,94 @@ class TypeScriptSourceProgramWorkspace {
         `TypeScript Program omitted exact repository roots: expected ${rootNames.length}, got ${sourceFiles.length}`
       );
     }
+    const generationProjectVersion = this.#projectVersion;
+    const sourceFileByRepositoryPath = new Map(sourceFiles.map((sourceFile) => [
+      this.#repositoryPath(sourceFile.fileName)!,
+      sourceFile
+    ] as const));
+    const renameAt = (
+      repositoryPathValue: string,
+      position: number
+    ): SourceProgramTypeScriptRenameObservation => {
+      const unresolved = (
+        reason: Extract<SourceProgramTypeScriptRenameObservation, { status: 'unresolved' }>['reason']
+      ): SourceProgramTypeScriptRenameObservation => Object.freeze({
+        status: 'unresolved' as const,
+        reason,
+        observationDigest: sha256({
+          status: 'unresolved',
+          reason,
+          generationProjectVersion,
+          repositoryPath: repositoryPathValue,
+          position
+        }) as `sha256:${string}`
+      });
+      if (this.#projectVersion !== generationProjectVersion) return unresolved('generation-stale');
+      const sourceFile = sourceFileByRepositoryPath.get(repositoryPathValue);
+      if (sourceFile === undefined || position < 0 || position >= sourceFile.text.length) {
+        return unresolved('position-unresolved');
+      }
+      const absolutePath = path.resolve(this.#repositoryRoot, repositoryPathValue);
+      const renameInfo = this.#service.getRenameInfo(absolutePath, position, {
+        allowRenameOfImportPath: false
+      });
+      const rawLocations = renameInfo.canRename
+        ? this.#service.findRenameLocations(absolutePath, position, false, false, true) ?? []
+        : [];
+      const locations: SourceProgramTypeScriptRenameLocation[] = [];
+      for (const location of rawLocations) {
+        const locationPath = this.#repositoryPath(location.fileName);
+        const locationSource = locationPath === null
+          ? undefined
+          : sourceFileByRepositoryPath.get(locationPath);
+        if (locationPath === null || locationSource === undefined) {
+          return unresolved('rename-location-outside-generation');
+        }
+        const start = location.textSpan.start;
+        const end = start + location.textSpan.length;
+        if (start < 0 || end < start || end > locationSource.text.length) {
+          return unresolved('position-unresolved');
+        }
+        const startLocation = locationSource.getLineAndCharacterOfPosition(start);
+        const endLocation = locationSource.getLineAndCharacterOfPosition(end);
+        locations.push(Object.freeze({
+          path: locationPath,
+          span: Object.freeze({
+            start,
+            end,
+            startLine: startLocation.line + 1,
+            startColumn: startLocation.character + 1,
+            endLine: endLocation.line + 1,
+            endColumn: endLocation.character + 1
+          }),
+          prefixText: location.prefixText ?? '',
+          suffixText: location.suffixText ?? ''
+        }));
+      }
+      locations.sort((left, right) => compareCodeUnits(left.path, right.path)
+        || left.span.start - right.span.start);
+      const canonical = Object.freeze({
+        status: 'resolved' as const,
+        canRename: renameInfo.canRename,
+        rejectionReason: renameInfo.canRename ? null : renameInfo.localizedErrorMessage,
+        locations: Object.freeze(locations),
+        generationProjectVersion,
+        repositoryPath: repositoryPathValue,
+        position
+      });
+      return Object.freeze({
+        status: canonical.status,
+        canRename: canonical.canRename,
+        rejectionReason: canonical.rejectionReason,
+        locations: canonical.locations,
+        observationDigest: sha256(canonical) as `sha256:${string}`
+      });
+    };
     sourceProgramCompilationCheckpoint(operation, 'program-materialization', 'complete');
     return Object.freeze({
       checker: program.getTypeChecker(),
       program,
+      renameAt,
       repositoryPath: (sourceFile) => {
         const repositoryPathValue = this.#repositoryPath(sourceFile.fileName);
         if (repositoryPathValue === null) {
@@ -1216,6 +1324,7 @@ type TypeScriptExactFactGenerationReceipt = Readonly<
   SourceProgramTypeScriptExactFactGenerationReceipt & {
   apiClosure: SourceProgramTypeScriptRequiredApiClosure;
   checker: ts.TypeChecker;
+  renameAt: ExactTypeScriptProgram['renameAt'];
   returnProvenances: readonly SourceProgramReturnProvenance[];
   sourceFiles: ReadonlyMap<string, ts.SourceFile>;
 }>;
@@ -1234,6 +1343,27 @@ export function sourceProgramTypeScriptSourceFile(
   repositoryPath: string
 ): ts.SourceFile | null {
   return exactFactGenerationByModel.get(model)?.sourceFiles.get(repositoryPath) ?? null;
+}
+
+/** Rename facts are available only while this exact Program generation is current. */
+export function observeSourceProgramTypeScriptRename(
+  model: SourceProgramModel,
+  repositoryPath: string,
+  position: number
+): SourceProgramTypeScriptRenameObservation {
+  const generation = exactFactGenerationByModel.get(model);
+  if (generation !== undefined) return generation.renameAt(repositoryPath, position);
+  return Object.freeze({
+    status: 'unresolved' as const,
+    reason: 'exact-generation-unavailable' as const,
+    observationDigest: sha256({
+      status: 'unresolved',
+      reason: 'exact-generation-unavailable',
+      sourceRevision: model.sourceRevision,
+      repositoryPath,
+      position
+    }) as `sha256:${string}`
+  });
 }
 
 export type SourceProgramDurableWorkerInputObservation = Readonly<{
@@ -1419,6 +1549,7 @@ export function sourceProgramTypeScriptExactFactGenerationReceipt(
   const {
     apiClosure: _apiClosure,
     checker: _checker,
+    renameAt: _renameAt,
     returnProvenances: _returnProvenances,
     sourceFiles: _sourceFiles,
     ...projection
@@ -1465,7 +1596,8 @@ function issueTypeScriptExactFactGeneration(
   apiClosure: SourceProgramTypeScriptRequiredApiClosure,
   returnProvenances: readonly SourceProgramReturnProvenance[],
   sourceFiles: ReadonlyMap<string, ts.SourceFile>,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  renameAt: ExactTypeScriptProgram['renameAt']
 ): SourceProgramModel {
   assertSourceProgramTypeScriptRequiredApiClosure(apiClosure);
   const identity = typeScriptExactFactGenerationIdentity(input);
@@ -1475,6 +1607,7 @@ function issueTypeScriptExactFactGeneration(
     apiClosure,
     apiClosureDigest: apiClosure.closureDigest,
     checker,
+    renameAt,
     provenanceDigest: sha256(canonicalProvenances) as `sha256:${string}`,
     returnProvenances: canonicalProvenances,
     sourceFiles
@@ -1947,7 +2080,8 @@ function compileExactFactGenerationForCachedModel(
     apiClosure,
     returnProvenances,
     sourceFiles,
-    exact.checker
+    exact.checker,
+    exact.renameAt
   );
   return exactFactGenerationByModel.get(model)!;
 }
@@ -1967,7 +2101,8 @@ function bindCurrentExactReturnProvenances(
       sourceGeneration.apiClosure,
       sourceGeneration.returnProvenances,
       sourceGeneration.sourceFiles,
-      sourceGeneration.checker
+      sourceGeneration.checker,
+      sourceGeneration.renameAt
     );
   }
   compileExactFactGenerationForCachedModel(model, input);
@@ -3031,7 +3166,8 @@ function compileTypeScriptSourceProgramModelInternal(
       semanticProgram.repositoryPath(sourceFile),
       sourceFile
     ] as const)),
-    semanticProgram.checker
+    semanticProgram.checker,
+    semanticProgram.renameAt
   );
 }
 
