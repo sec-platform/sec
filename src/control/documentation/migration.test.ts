@@ -35,7 +35,8 @@ function corpus(
   status: DocumentationMigrationCorpusEntry['status'],
   registryId: string | null,
   externalConsumerStatus: DocumentationMigrationCorpusEntry['externalConsumerStatus'] = 'none-observed',
-  consumerRefs: readonly string[] = []
+  consumerRefs: readonly string[] = [],
+  localConsumerCoverageStatus: DocumentationMigrationCorpusEntry['localConsumerCoverageStatus'] = 'complete'
 ): DocumentationMigrationCorpusEntry {
   return {
     path,
@@ -43,6 +44,7 @@ function corpus(
     registryId,
     contentDigest: status === 'missing' ? null : DIGEST,
     consumerRefs,
+    localConsumerCoverageStatus,
     externalConsumerStatus
   };
 }
@@ -90,6 +92,19 @@ describe('documentation migration design compiler', () => {
     expect(design.status).toBe('ready');
     expect(design.frontier).toEqual([]);
     expect(design.preservation[0]?.disposition).toBe('preserve-as-source');
+  });
+
+  test('does not treat an empty literal hit list as complete consumer-zero evidence', () => {
+    const design = compileDocumentationMigrationDesign({
+      registry: registry(record('proposal', 'docs/proposals/p.md', 'proposal')),
+      registryDigest: DIGEST,
+      targetContractDigest: DIGEST,
+      corpus: [corpus('docs/proposals/p.md', 'tracked-registered', 'proposal', 'none-observed', [], 'unknown')]
+    });
+
+    expect(design.status).toBe('blocked');
+    expect(design.frontier.map(({ code }) => code)).toEqual(['local-consumer-coverage-unknown']);
+    expect(design.preservation[0]?.frontierCodes).toEqual(['local-consumer-coverage-unknown']);
   });
 
   test('retains explicit missing registered sources as a typed migration frontier', () => {

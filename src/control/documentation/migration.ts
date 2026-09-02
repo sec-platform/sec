@@ -32,6 +32,19 @@ export const DOCUMENTATION_MIGRATION_EXTERNAL_CONSUMER_STATUSES = [
 export type DocumentationMigrationExternalConsumerStatus =
   typeof DOCUMENTATION_MIGRATION_EXTERNAL_CONSUMER_STATUSES[number];
 
+/**
+ * Observed consumer references and proof that the local consumer universe was
+ * actually covered are separate facts.  A literal hit list is useful evidence,
+ * but an empty hit list is not consumer-zero unless the owner also proves the
+ * local census is complete.
+ */
+export const DOCUMENTATION_MIGRATION_LOCAL_CONSUMER_COVERAGE_STATUSES = [
+  'complete',
+  'unknown'
+] as const;
+export type DocumentationMigrationLocalConsumerCoverageStatus =
+  typeof DOCUMENTATION_MIGRATION_LOCAL_CONSUMER_COVERAGE_STATUSES[number];
+
 export const DOCUMENTATION_MIGRATION_TARGET_CLASSES = [
   'source-fragment',
   'external-bound-input',
@@ -57,6 +70,7 @@ export const DOCUMENTATION_MIGRATION_FRONTIER_CODES = [
   'control-state-separation-required',
   'current-registry-cutover-required',
   'consumer-rewrite-required',
+  'local-consumer-coverage-unknown',
   'external-consumer-unknown',
   'missing-current-source',
   'unclassified-current-source'
@@ -69,6 +83,7 @@ export const DOCUMENTATION_MIGRATION_TARGET_CONTRACT = deepFreeze({
   schema: DOCUMENTATION_MIGRATION_DESIGN_SCHEMA,
   corpusStatuses: DOCUMENTATION_MIGRATION_CORPUS_STATUSES,
   externalConsumerStatuses: DOCUMENTATION_MIGRATION_EXTERNAL_CONSUMER_STATUSES,
+  localConsumerCoverageStatuses: DOCUMENTATION_MIGRATION_LOCAL_CONSUMER_COVERAGE_STATUSES,
   targetClasses: DOCUMENTATION_MIGRATION_TARGET_CLASSES,
   dispositions: DOCUMENTATION_MIGRATION_DISPOSITIONS,
   frontierCodes: DOCUMENTATION_MIGRATION_FRONTIER_CODES
@@ -82,6 +97,7 @@ export interface DocumentationMigrationCorpusEntry {
   readonly registryId: string | null;
   readonly contentDigest: Digest | null;
   readonly consumerRefs: readonly string[];
+  readonly localConsumerCoverageStatus: DocumentationMigrationLocalConsumerCoverageStatus;
   readonly externalConsumerStatus: DocumentationMigrationExternalConsumerStatus;
 }
 
@@ -187,6 +203,12 @@ function normalizeCorpusEntry(
   if (!allowedExternal.has(entry.externalConsumerStatus)) {
     fail(`${label}.externalConsumerStatus is unsupported.`);
   }
+  const allowedLocalCoverage = new Set<DocumentationMigrationLocalConsumerCoverageStatus>([
+    'complete', 'unknown'
+  ]);
+  if (!allowedLocalCoverage.has(entry.localConsumerCoverageStatus)) {
+    fail(`${label}.localConsumerCoverageStatus is unsupported.`);
+  }
 
   if (entry.status === 'missing' && contentDigest !== null) {
     fail(`${label}.missing cannot carry contentDigest.`);
@@ -210,6 +232,7 @@ function normalizeCorpusEntry(
     registryId,
     contentDigest,
     consumerRefs,
+    localConsumerCoverageStatus: entry.localConsumerCoverageStatus,
     externalConsumerStatus: entry.externalConsumerStatus
   });
 }
@@ -258,6 +281,7 @@ function corpusDigest(entries: readonly DocumentationMigrationCorpusEntry[]): Di
     registryId: entry.registryId,
     contentDigest: entry.contentDigest,
     consumerRefs: entry.consumerRefs,
+    localConsumerCoverageStatus: entry.localConsumerCoverageStatus,
     externalConsumerStatus: entry.externalConsumerStatus
   }))) as Digest;
 }
@@ -302,6 +326,7 @@ export function compileDocumentationMigrationDesign(input: Readonly<{
         registryId: record.id,
         contentDigest: null,
         consumerRefs: Object.freeze([]) as readonly string[],
+        localConsumerCoverageStatus: 'unknown' as const,
         externalConsumerStatus: 'unknown' as const
       })
       : entry;
@@ -366,6 +391,16 @@ export function compileDocumentationMigrationDesign(input: Readonly<{
         detail: 'repository-local consumer-zero cannot prove that no external contract exists.'
       });
     }
+    if (current.localConsumerCoverageStatus === 'unknown') {
+      codes.push('local-consumer-coverage-unknown');
+      frontier.push({
+        code: 'local-consumer-coverage-unknown',
+        subjectRef: record.id,
+        ownerRef: record.id,
+        consumerRefsDigest: sha256(current.consumerRefs) as Digest,
+        detail: 'observed literal references do not prove that the local consumer universe is complete.'
+      });
+    }
     if (current.consumerRefs.length > 0) {
       codes.push('consumer-rewrite-required');
       frontier.push({
@@ -413,6 +448,9 @@ export function compileDocumentationMigrationDesign(input: Readonly<{
           ...(entry.consumerRefs.length > 0 ? ['consumer-rewrite-required' as const] : []),
           ...(entry.externalConsumerStatus === 'unknown'
             ? ['external-consumer-unknown' as const]
+            : []),
+          ...(entry.localConsumerCoverageStatus === 'unknown'
+            ? ['local-consumer-coverage-unknown' as const]
             : [])
         ])
       });
@@ -434,6 +472,15 @@ export function compileDocumentationMigrationDesign(input: Readonly<{
           detail: 'non-active artifact still needs external consumer classification before relocation.'
         });
       }
+      if (entry.localConsumerCoverageStatus === 'unknown') {
+        frontier.push({
+          code: 'local-consumer-coverage-unknown',
+          subjectRef: entry.path,
+          ownerRef: null,
+          consumerRefsDigest: sha256(entry.consumerRefs) as Digest,
+          detail: 'observed literal references do not prove that the local consumer universe is complete.'
+        });
+      }
       continue;
     }
     const code: DocumentationMigrationFrontierCode = 'unclassified-current-source';
@@ -446,7 +493,12 @@ export function compileDocumentationMigrationDesign(input: Readonly<{
       disposition: 'blocked',
       consumerRefs: entry.consumerRefs,
       consumerRefsDigest: sha256(entry.consumerRefs) as Digest,
-      frontierCodes: Object.freeze([code])
+      frontierCodes: Object.freeze([
+        code,
+        ...(entry.localConsumerCoverageStatus === 'unknown'
+          ? ['local-consumer-coverage-unknown' as const]
+          : [])
+      ].sort(compareCodeUnits) as DocumentationMigrationFrontierCode[])
     });
     frontier.push({
       code,
@@ -462,6 +514,15 @@ export function compileDocumentationMigrationDesign(input: Readonly<{
         ownerRef: null,
         consumerRefsDigest: sha256(entry.consumerRefs) as Digest,
         detail: 'unclassified artifact still has an unresolved external consumer boundary.'
+      });
+    }
+    if (entry.localConsumerCoverageStatus === 'unknown') {
+      frontier.push({
+        code: 'local-consumer-coverage-unknown',
+        subjectRef: entry.path,
+        ownerRef: null,
+        consumerRefsDigest: sha256(entry.consumerRefs) as Digest,
+        detail: 'unclassified artifact has no complete local consumer census.'
       });
     }
   }

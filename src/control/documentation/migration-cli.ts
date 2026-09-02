@@ -236,6 +236,10 @@ export async function collectDocumentationMigrationCorpus(input: Readonly<{
       registryId: registryId ?? null,
       contentDigest: rawSha256(bytes),
       consumerRefs: localConsumerRefs(repositoryPath, consumerFiles),
+      // This command observes literal references only.  It deliberately does
+      // not claim that dynamic, generated, or external local consumers are
+      // absent; a complete owner-issued census is required for cutover.
+      localConsumerCoverageStatus: 'unknown',
       externalConsumerStatus: 'unknown'
     });
   });
