@@ -30,6 +30,7 @@ import type {
 import { sourceProgramSurfaceForPath } from './contract.ts';
 import {
   compileSourceProgramEmbeddedWorkflowPrograms,
+  observeSourceProgramEmbeddedTypeScriptLiteral,
   sourceProgramModuleImports
 } from './embedded-programs.ts';
 import {
@@ -43,6 +44,7 @@ import {
   compileTypeScriptSourceProgramModel,
   compileTypeScriptSourceProgramModelFromWorkspaceSnapshot,
   isCompiledTypeScriptSourceProgramModel,
+  observeSourceProgramDurableWorkerInput,
   sourceProgramCurrentExactReturnProvenances,
   workspaceSourceSnapshotIdentityForTypeScriptModel
 } from './typescript.ts';
@@ -409,113 +411,20 @@ function packageNameFromLockedResolution(value: string): string | null {
 }
 
 function executableSourceLiteralPaths(
-  files: readonly SourceProgramFileInput[]
+  model: SourceProgramModel
 ): readonly Readonly<{ ownerPath: string; digest: string }>[] {
-  const observations: Readonly<{ ownerPath: string; digest: string }>[] = [];
-  for (const file of files) {
-    if (sourceProgramSurfaceForPath(file.path) !== 'production' || !/\.[cm]?[jt]sx?$/iu.test(file.path)) continue;
-    const sourceFile = ts.createSourceFile(file.path, file.source, ts.ScriptTarget.Latest, true);
-    const visit = (node: ts.Node): void => {
-      if (ts.isStringLiteralLike(node) && node.text.includes('\n') && node.text.length >= 32) {
-        const embedded = ts.createSourceFile(
-          'embedded.ts',
-          node.text,
-          ts.ScriptTarget.Latest,
-          true,
-          ts.ScriptKind.TS
-        );
-        const diagnostics = (embedded as ts.SourceFile & {
-          readonly parseDiagnostics?: readonly ts.Diagnostic[];
-        }).parseDiagnostics ?? [];
-        const executable = diagnostics.length === 0 && embedded.statements.some((statement) => (
-          ts.isImportDeclaration(statement)
-          || ts.isExportDeclaration(statement)
-          || ts.isFunctionDeclaration(statement)
-          || ts.isClassDeclaration(statement)
-          || ts.isInterfaceDeclaration(statement)
-          || ts.isTypeAliasDeclaration(statement)
-          || ts.isEnumDeclaration(statement)
-          || ts.isVariableStatement(statement)
-        ));
-        if (executable) {
-          observations.push(Object.freeze({
-            ownerPath: file.path,
-            digest: rawSha256(Buffer.from(node.text, 'utf8'))
-          }));
-        }
-      }
-      ts.forEachChild(node, visit);
-    };
-    visit(sourceFile);
-  }
-  return Object.freeze(observations);
-}
-
-type DurableWorkerInputRisk = 'argv' | 'callback' | 'unresolved';
-
-function scriptKindForPath(repositoryPath: string): ts.ScriptKind {
-  if (/\.tsx$/iu.test(repositoryPath)) return ts.ScriptKind.TSX;
-  if (/\.jsx$/iu.test(repositoryPath)) return ts.ScriptKind.JSX;
-  if (/\.[cm]?js$/iu.test(repositoryPath)) return ts.ScriptKind.JS;
-  return ts.ScriptKind.TS;
-}
-
-function durableWorkerInputRisk(
-  file: SourceProgramFileInput,
-  declaration: SourceProgramDeclaration
-): DurableWorkerInputRisk | null {
-  const sourceFile = ts.createSourceFile(
-    file.path,
-    file.source,
-    ts.ScriptTarget.Latest,
-    true,
-    scriptKindForPath(file.path)
-  );
-  const findFunctionLike = (node: ts.Node): ts.SignatureDeclaration | undefined => {
-    const named = node as ts.NamedDeclaration;
-    const name = named.name;
-    if (name !== undefined
-        && ts.isIdentifier(name)
-        && name.text === declaration.name
-        && node.getStart(sourceFile) === declaration.span.start
-        && node.getEnd() === declaration.span.end) {
-      if (ts.isFunctionLike(node)) return node;
-      if (ts.isVariableDeclaration(node)
-          && node.initializer !== undefined
-          && ts.isFunctionLike(node.initializer)) return node.initializer;
-    }
-    return ts.forEachChild(node, findFunctionLike);
-  };
-  const functionLike = findFunctionLike(sourceFile);
-  if (functionLike === undefined) return 'unresolved';
-  const parameters = functionLike.parameters;
-  if (parameters.length === 0) return null;
-  let unresolved = false;
-  for (const parameter of parameters) {
-    const type = parameter.type;
-    if (type === undefined) {
-      unresolved = true;
-      continue;
-    }
-    let callback = false;
-    let argv = false;
-    const inspect = (node: ts.Node): void => {
-      if (ts.isFunctionTypeNode(node) || ts.isConstructorTypeNode(node)) callback = true;
-      if (ts.isArrayTypeNode(node)
-          && node.elementType.kind === ts.SyntaxKind.StringKeyword) argv = true;
-      if (ts.isTypeReferenceNode(node)
-          && ts.isIdentifier(node.typeName)
-          && (node.typeName.text === 'Array' || node.typeName.text === 'ReadonlyArray')
-          && node.typeArguments?.length === 1
-          && node.typeArguments[0]!.kind === ts.SyntaxKind.StringKeyword) argv = true;
-      ts.forEachChild(node, inspect);
-    };
-    inspect(type);
-    if (callback) return 'callback';
-    if (argv) return 'argv';
-    unresolved = true;
-  }
-  return unresolved ? 'unresolved' : null;
+  return Object.freeze(model.literals
+    .filter(({ path, value }) => (
+      sourceProgramSurfaceForPath(path) === 'production'
+      && value.includes('\n')
+      && value.length >= 32
+    ))
+    .flatMap(({ path, value }) => {
+      const observation = observeSourceProgramEmbeddedTypeScriptLiteral(value);
+      return observation.executable
+        ? [Object.freeze({ ownerPath: path, digest: observation.contentDigest })]
+        : [];
+    }));
 }
 
 export function compileSourceProgramCausalRelationEvidence(
@@ -1346,7 +1255,7 @@ function compileRepositorySourceProgramModelInternal(
       }));
     }
   }
-  for (const embedded of executableSourceLiteralPaths(input.files)) {
+  for (const embedded of executableSourceLiteralPaths(semanticModel)) {
     candidates.push(Object.freeze({
       code: 'production-embeds-executable-source-text',
       subject: embedded.digest,
@@ -1512,10 +1421,10 @@ function compileRepositorySourceProgramModelInternal(
     ));
     if (declarations.length !== 1) continue;
     const declaration = declarations[0]!;
-    const file = input.files.find(({ path: filePath }) => filePath === declaration.path);
-    const inputRisk = file === undefined
-      ? 'unresolved' as const
-      : durableWorkerInputRisk(file, declaration);
+    const inputObservation = observeSourceProgramDurableWorkerInput(typescriptModel, declaration);
+    const inputRisk = inputObservation.status === 'resolved'
+      ? inputObservation.risk
+      : 'unresolved' as const;
     if (inputRisk !== null) {
       candidates.push(Object.freeze({
         code: 'durable-worker-generic-input-exposed',

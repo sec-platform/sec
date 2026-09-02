@@ -40,6 +40,7 @@ import {
   compileSecRepositoryModuleGraph,
   compileTypeScriptSourceProgramModel,
   compileTypeScriptSourceProgramModelIncremental,
+  observeSourceProgramDurableWorkerInput,
   querySourceProgramModel
 } from './typescript.ts';
 import { compileWorkspaceSourceRevision } from './workspace-source-snapshot.ts';
@@ -2009,6 +2010,36 @@ test('source program rejects cross-owner issuers, generic worker inputs, domain 
   expect(codes).toContain('durable-worker-generic-input-exposed');
   expect(codes).toContain('durable-worker-domain-import');
   expect(codes).toContain('operation-recovery-binding-unresolved');
+  const compilerFiles = [{
+    path: 'src/store/worker.ts',
+    source: 'export function append(argv: string[], callback: () => void): number { callback(); return argv.length; }\n',
+    contentDigest: rawSha256(
+      'export function append(argv: string[], callback: () => void): number { callback(); return argv.length; }\n'
+    )
+  }];
+  const compilerModel = compileTypeScriptSourceProgramModel({
+    sourceRevision: sha256(compilerFiles.map(({ path, contentDigest }) => ({ path, contentDigest }))),
+    files: compilerFiles,
+    moduleMembership: Object.freeze({
+      descriptors: Object.freeze([]),
+      graphRoots: Object.freeze([]),
+      moduleRoots: Object.freeze([]),
+      moduleForPath: () => null
+    })
+  });
+  const appendDeclaration = compilerModel.declarations.find(({ name, path }) =>
+    name === 'append' && path === 'src/store/worker.ts');
+  expect(appendDeclaration).toBeDefined();
+  expect(observeSourceProgramDurableWorkerInput(compilerModel, appendDeclaration!)).toEqual(
+    expect.objectContaining({ status: 'resolved', risk: 'callback' })
+  );
+  expect(observeSourceProgramDurableWorkerInput(
+    { ...compilerModel },
+    appendDeclaration!
+  )).toEqual(expect.objectContaining({
+    status: 'unresolved',
+    reason: 'exact-generation-unavailable'
+  }));
 });
 
 test('source program keeps an effectful public operation without an exact domain owner typed unknown', () => {
