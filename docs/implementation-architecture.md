@@ -373,6 +373,36 @@ flowchart LR
 | credentials/secrets | credential provider owner | non-exportable/lease-scoped, never content-addressed payload | provider-defined | opaque credential capability only |
 | caches/indexes/projections | derivation/projection owner | disposable, bounded, validated | yes | exact producer/input key |
 
+文件扩展名、目录名、Git ignore状态和“可以重新下载”都不能决定保留或删除。每个被发现的物理对象由inventory与上述owner facts编译一个临时`PhysicalRetentionDecision`；它是清理计划输入，不是新的truth store：
+
+```text
+PhysicalRetentionDecision = {
+  physicalSubjectRef + exactAddressAndBindingRef,
+  authoredGeneratedOpaqueClass,
+  ownerAndProducerRefs,
+  activeConsumerRefs,
+  authorityStateRecoveryEvidenceRefs,
+  externalContractAndUserOwnershipRefs,
+  derivationInputsAndRebuildCapabilityRef,
+  retentionExpiryAndCleanupCapabilityRef,
+  rationaleIndexRef,
+  disposition: required | rebuildable-active | retained-evidence |
+               recovery-authority | user-owned-unknown | orphan | dominated,
+  unknownFrontierRef
+}
+
+CleanupAdmitted(x) =
+  x.disposition in {orphan, dominated}
+  ∧ x.activeConsumerRefs = empty
+  ∧ x.authorityStateRecoveryEvidenceRefs = empty
+  ∧ x.externalContractAndUserOwnershipRefs = empty
+  ∧ x.unknownFrontierRef = empty
+  ∧ cleanup capability binds an exact contained physical subject
+  ∧ no live attempt/process/lease retains that subject
+```
+
+`rebuildable-active`不是垃圾：删除它会把当前开发/运行成本转嫁给下一次operation。`retained-evidence`和`recovery-authority`即使没有代码import也不能删除。`user-owned-unknown`保持不动并明确frontier。只有`CleanupAdmitted`成立才可执行；cleanup必须记录preimage、处理reparse/mount边界、受同一operation budget约束并readback目标已不存在。generated-state registry、dependency manager、runtime-state owner和artifact retention owner分别提供自己的facts；不得另建一个按路径硬编码的全仓清理脚本。
+
 物理存储只需四种最小能力，不建立“万能仓库数据库”：
 
 ```text
@@ -629,6 +659,8 @@ src/<domain>/<responsibility-cell>/
 ```
 
 目录层级由cohesion与可读性成本触发，不按`contract/domain/application/infrastructure`机械复制。小cell直接平铺subject-named units；只有独立public surface、state/effect lifecycle或显著co-change子图存在时才增加一层。禁止空目录、root barrel、逐目录`index.ts`、`common/shared/utils`以及以工具品牌建owner。
+
+一个Responsibility Cell可以物理容纳多个正交typed relations，只要它们共享owner、trust、atomic consistency、lifecycle并强共变；不得把逻辑模型中的每个node/edge机械变成文件、class、service或database table。相反，任何独立Authority、state machine、version/evolution或外部consumer都不能为了“少文件”埋进同一实现对象。Placement Compiler同时计算boundary-collapse cost与over-factoring/join/context cost，选择满足语义边界的最小物理单元。
 
 跨cell引用使用由PlacementDecision生成的short semantic import address；Language Service和symbol-aware move compiler维护definition/reference/export/config/test关系。开发者不手写相对路径链、path alias清单或exports镜像。public surface由真实consumer demand生成最小named entry；没有external/package boundary时直接引用该public declaration，不为“统一入口”制造facade。
 
@@ -1690,6 +1722,7 @@ Target Implementation Freeze 前必须成立：
 TargetImplementationDesignPackage {
   logicalDesignPackageRef
   acceptedImplementationDecisionRefs
+  designRationaleIndexRefs
   implementationGraphSchema
   componentAndTrustZoneTopology
   dataOwnershipPersistenceAndConsistencyTopology
@@ -1708,7 +1741,7 @@ TargetImplementationDesignPackage {
 }
 ```
 
-实现理由不写成本文中的第二份散文结论：不可推导选择引用其Responsibility owner内的`DesignDecision`；候选、成本、支配、fault traces与反转影响由Design Compiler生成；本package只保存exact refs。这样后来者既不重复判断，也不能让实现文档成为隐藏的产品或逻辑owner。
+实现理由不写成本文中的第二份散文结论：不可推导选择引用其Responsibility owner内的`DesignDecision`；来源、目的、候选、成本、支配、避免故障、后果、proof obligations与反转影响由Design Compiler生成typed explanation traces与`DesignRationaleIndex`；本package只保存exact refs。这样后来者既不重复判断，也不能让实现文档成为隐藏的产品或逻辑owner。
 
 `ConformanceModel`不是本package的输入或字段：Conformance Compiler在实现包冻结后独立消费`LogicalDesignPackage + TargetImplementationDesignPackage`，并把结果并列挂入`DesignKnowledgeGraph`。实现包只发布observable/Claim refs，不能反向导入测试、verifier、Evidence或ConformanceModel；否则会形成“实现按自己的验证器定义正确”的依赖环。
 
