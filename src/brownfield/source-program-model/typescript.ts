@@ -3,7 +3,14 @@ import path from 'node:path';
 import ts from 'typescript';
 
 import { compareCodeUnits, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { compileSecRepositoryModuleGraph, normalizeSecRepositoryPath, resolveSecRepositoryModuleImportCandidates, type SecRepositoryModuleMembership } from '../../system-architecture/repository-modules/contract.ts';
+import {
+  normalizeSecRepositoryPath,
+  type SecModuleImportKind,
+  type SecRepositoryModuleGraph,
+  type SecRepositoryModuleGraphImport,
+  type SecRepositoryModuleGraphImportObservation,
+  type SecRepositoryModuleMembership
+} from '../../system-architecture/repository-modules/contract.ts';
 import {
   resolveSourceProgramCompilationOperation,
   sourceProgramCompilationCheckpoint,
@@ -29,6 +36,10 @@ import type {
   SourceProgramUnknown
 } from './contract.ts';
 import { sourceProgramSurfaceForPath } from './contract.ts';
+import {
+  assembleSecRepositoryModuleGraph,
+  resolveSecRepositoryModuleImportCandidates
+} from './module-graph.ts';
 import {
   assembleTypeScriptSourceProgramModel,
   compileTypeScriptSourceProgramFactShard,
@@ -603,6 +614,147 @@ function compileExactTypeScriptProgram(
     activeTypeScriptWorkspaceRoot = repositoryRoot;
   }
   return activeTypeScriptWorkspace.compile(filesByPath, sourceFileIdentities, operation);
+}
+
+export type CompileTypeScriptRepositoryModuleGraphInput = Readonly<{
+  readonly files: readonly string[];
+  /** Return null when the exact snapshot has no bytes for the address. */
+  readonly readSource: (moduleFile: string) => string | null;
+  /** Non-TypeScript embedded-language facts issued by their own frontend. */
+  readonly readImports?: (
+    moduleFile: string,
+    source: string
+  ) => readonly SecRepositoryModuleGraphImport[];
+  readonly unresolvedFiles?: readonly string[];
+  readonly operation?: SourceProgramCompilationOperation;
+}>;
+
+function typeScriptModuleImportFacts(
+  exact: ExactTypeScriptProgram
+): readonly SecRepositoryModuleGraphImportObservation[] {
+  const observations: SecRepositoryModuleGraphImportObservation[] = [];
+  const add = (
+    from: string,
+    kind: SecModuleImportKind,
+    specifier: string,
+    typeOnly = false
+  ): void => {
+    observations.push(Object.freeze({ from, kind, specifier, typeOnly }));
+  };
+  for (const sourceFile of exact.sourceFiles) {
+    const from = exact.repositoryPath(sourceFile);
+    for (const reference of [
+      ...sourceFile.referencedFiles,
+      ...sourceFile.typeReferenceDirectives,
+      ...sourceFile.libReferenceDirectives
+    ]) add(from, 'static', reference.fileName, true);
+    const visit = (node: ts.Node): void => {
+      if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
+          && node.moduleSpecifier !== undefined
+          && ts.isStringLiteralLike(node.moduleSpecifier)) {
+        const typeOnly = ts.isImportDeclaration(node)
+          ? node.importClause !== undefined && (
+              node.importClause.isTypeOnly
+              || (node.importClause.name === undefined
+                && node.importClause.namedBindings !== undefined
+                && ts.isNamedImports(node.importClause.namedBindings)
+                && node.importClause.namedBindings.elements.length > 0
+                && node.importClause.namedBindings.elements.every((element) => element.isTypeOnly))
+            )
+          : node.isTypeOnly || (
+              node.exportClause !== undefined
+              && ts.isNamedExports(node.exportClause)
+              && node.exportClause.elements.length > 0
+              && node.exportClause.elements.every((element) => element.isTypeOnly)
+            );
+        add(from, 'static', node.moduleSpecifier.text, typeOnly);
+      } else if (ts.isImportEqualsDeclaration(node)
+          && ts.isExternalModuleReference(node.moduleReference)
+          && node.moduleReference.expression !== undefined
+          && ts.isStringLiteralLike(node.moduleReference.expression)) {
+        add(from, 'require', node.moduleReference.expression.text, node.isTypeOnly);
+      } else if (ts.isCallExpression(node)
+          && node.arguments.length > 0
+          && ts.isStringLiteralLike(node.arguments[0]!)) {
+        if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+          add(from, 'dynamic', node.arguments[0]!.text);
+        } else if (ts.isIdentifier(node.expression) && node.expression.text === 'require') {
+          add(from, 'require', node.arguments[0]!.text);
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+  }
+  const unique = new Map<string, SecRepositoryModuleGraphImportObservation>();
+  for (const observation of observations) {
+    const key = `${observation.from}\0${observation.kind}\0${observation.specifier}`;
+    const existing = unique.get(key);
+    if (existing === undefined || (existing.typeOnly && !observation.typeOnly)) {
+      unique.set(key, observation);
+    }
+  }
+  return Object.freeze([...unique.values()].sort((left, right) => (
+    compareCodeUnits(left.from, right.from)
+    || compareCodeUnits(left.specifier, right.specifier)
+    || compareCodeUnits(left.kind, right.kind)
+  )));
+}
+
+/**
+ * The only ordinary TypeScript/JavaScript module-graph frontend.  It reuses
+ * the process Language Service and feeds typed observations to the pure graph
+ * assembler; downstream consumers never parse source bytes themselves.
+ */
+export function compileSecRepositoryModuleGraph(
+  input: CompileTypeScriptRepositoryModuleGraphInput
+): SecRepositoryModuleGraph {
+  const operation = resolveSourceProgramCompilationOperation(input.operation);
+  const files = Object.freeze([...new Set(input.files.map(normalizeSecRepositoryPath))]
+    .sort(compareCodeUnits));
+  const sourceByPath = new Map<string, string>();
+  const unresolvedFiles = new Set((input.unresolvedFiles ?? []).map(normalizeSecRepositoryPath));
+  for (const repositoryPathValue of files) {
+    const source = input.readSource(repositoryPathValue);
+    if (source === null) unresolvedFiles.add(repositoryPathValue);
+    else sourceByPath.set(repositoryPathValue, source);
+  }
+  const typeScriptFiles = new Map<string, SourceProgramFileInput>();
+  const identities = new Map<string, TypeScriptSourceProgramFileIdentity>();
+  for (const [repositoryPathValue, source] of sourceByPath) {
+    if (!SOURCE_EXTENSION.test(repositoryPathValue)) continue;
+    const contentDigest = rawSha256(source) as `sha256:${string}`;
+    const file = Object.freeze({ path: repositoryPathValue, source, contentDigest });
+    typeScriptFiles.set(repositoryPathValue, file);
+    identities.set(repositoryPathValue, Object.freeze({
+      file,
+      moduleDigest: sha256(null) as `sha256:${string}`,
+      rawFileDigest: sourceProgramFileSnapshotDigest(file, contentDigest)
+    }));
+  }
+  const imports: SecRepositoryModuleGraphImportObservation[] = [];
+  if (typeScriptFiles.size > 0) {
+    imports.push(...typeScriptModuleImportFacts(
+      compileExactTypeScriptProgram(typeScriptFiles, identities, operation)
+    ));
+  }
+  if (input.readImports !== undefined) {
+    for (const [repositoryPathValue, source] of sourceByPath) {
+      if (SOURCE_EXTENSION.test(repositoryPathValue)) continue;
+      try {
+        imports.push(...input.readImports(repositoryPathValue, source).map((observation) => (
+          Object.freeze({ ...observation, from: repositoryPathValue })
+        )));
+      } catch {
+        unresolvedFiles.add(repositoryPathValue);
+      }
+    }
+  }
+  return assembleSecRepositoryModuleGraph({
+    files,
+    imports: Object.freeze(imports),
+    unresolvedFiles: Object.freeze([...unresolvedFiles])
+  });
 }
 
 type TypeScriptImportBinding = Readonly<{

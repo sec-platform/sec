@@ -3,10 +3,7 @@ import { isMap, isScalar, isSeq } from 'yaml';
 
 import { rawSha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { parseYamlDocument } from '../../system-architecture/foundation/runtime/yaml.ts';
-import {
-  scanSecRepositoryModuleImports,
-  type SecRepositoryModuleGraphImport
-} from '../../system-architecture/repository-modules/contract.ts';
+import type { SecRepositoryModuleGraphImport } from '../../system-architecture/repository-modules/contract.ts';
 import {
   isSourceProgramInputPath,
   sourceProgramSurfaceForPath,
@@ -103,7 +100,10 @@ function packageName(specifier: string): string {
     : specifier.split('/')[0] ?? specifier;
 }
 
-function javascriptUnknowns(source: string): readonly SourceProgramEmbeddedProgramUnknown[] {
+function compileEmbeddedJavaScriptFacts(source: string): Readonly<{
+  imports: readonly SecRepositoryModuleGraphImport[];
+  unknowns: readonly SourceProgramEmbeddedProgramUnknown[];
+}> {
   const sourceFile = ts.createSourceFile(
     'workflow-embedded-program.js',
     source,
@@ -111,13 +111,30 @@ function javascriptUnknowns(source: string): readonly SourceProgramEmbeddedProgr
     true,
     ts.ScriptKind.JS
   );
+  const imports: SecRepositoryModuleGraphImport[] = [];
   let dynamic = false;
+  const add = (
+    kind: SecRepositoryModuleGraphImport['kind'],
+    specifier: string,
+    typeOnly = false
+  ): void => {
+    imports.push(Object.freeze({ kind, specifier, typeOnly }));
+  };
   const visit = (node: ts.Node): void => {
-    if (ts.isCallExpression(node)
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
+        && node.moduleSpecifier !== undefined
+        && ts.isStringLiteralLike(node.moduleSpecifier)) {
+      add('static', node.moduleSpecifier.text);
+    } else if (ts.isCallExpression(node)
         && (node.expression.kind === ts.SyntaxKind.ImportKeyword
-          || (ts.isIdentifier(node.expression) && node.expression.text === 'require'))
-        && (node.arguments.length !== 1 || !ts.isStringLiteralLike(node.arguments[0]!))) {
-      dynamic = true;
+          || (ts.isIdentifier(node.expression) && node.expression.text === 'require'))) {
+      if (node.arguments.length !== 1 || !ts.isStringLiteralLike(node.arguments[0]!)) {
+        dynamic = true;
+      } else if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+        add('dynamic', node.arguments[0]!.text);
+      } else {
+        add('require', node.arguments[0]!.text);
+      }
     }
     ts.forEachChild(node, visit);
   };
@@ -125,7 +142,7 @@ function javascriptUnknowns(source: string): readonly SourceProgramEmbeddedProgr
   const diagnostics = (sourceFile as ts.SourceFile & {
     readonly parseDiagnostics?: readonly ts.Diagnostic[];
   }).parseDiagnostics ?? [];
-  return dynamic || diagnostics.length > 0
+  const unknowns = dynamic || diagnostics.length > 0
     ? Object.freeze([Object.freeze({
       code: 'embedded-javascript-dynamic-source' as const,
       detail: diagnostics.length > 0
@@ -133,6 +150,14 @@ function javascriptUnknowns(source: string): readonly SourceProgramEmbeddedProgr
         : 'dynamic import or require does not identify one static module'
     })])
     : Object.freeze([]);
+  const uniqueImports = [...new Map(imports.map((observation) => [
+    `${observation.kind}\0${observation.specifier}`,
+    observation
+  ] as const)).values()].sort((left, right) => (
+    compareCodeUnits(left.specifier, right.specifier)
+    || compareCodeUnits(left.kind, right.kind)
+  ));
+  return Object.freeze({ imports: Object.freeze(uniqueImports), unknowns });
 }
 
 function compileUnit(input: Readonly<{
@@ -148,8 +173,11 @@ function compileUnit(input: Readonly<{
   const source = scalarString(input.sourceNode);
   if (source === null) throw new Error('Workflow embedded program source is not one scalar string');
   const language = input.kind === 'github-script' ? 'javascript' as const : 'shell' as const;
+  const javascriptFacts = language === 'javascript'
+    ? compileEmbeddedJavaScriptFacts(source)
+    : null;
   const imports = language === 'javascript'
-    ? scanSecRepositoryModuleImports(source)
+    ? javascriptFacts!.imports
     : Object.freeze([]);
   const graphImports = Object.freeze(imports.filter(({ specifier }) => !specifier.startsWith('.')));
   const targetPackages = Object.freeze([...new Set(imports
@@ -157,7 +185,7 @@ function compileUnit(input: Readonly<{
     .map(({ specifier }) => packageName(specifier)))].sort(compareCodeUnits));
   const unknowns = language === 'javascript'
     ? Object.freeze([
-      ...javascriptUnknowns(source),
+      ...javascriptFacts!.unknowns,
       .../^actions\/github-script@[0-9a-f]{40}$/u.test(input.provider)
         ? []
         : [Object.freeze({
@@ -268,14 +296,12 @@ export function compileSourceProgramEmbeddedWorkflowPrograms(
   return Object.freeze(units.sort((left, right) => compareCodeUnits(left.address, right.address)));
 }
 
-/** The repository graph consumes the same compiler; YAML is never parsed as TypeScript. */
+/** Embedded-language facts only; ordinary TypeScript always uses the Language Service frontend. */
 export function sourceProgramModuleImports(
   repositoryPath: string,
   source: string
 ): readonly SecRepositoryModuleGraphImport[] {
-  if (!isWorkflowSourceProgramInput(repositoryPath)) {
-    return scanSecRepositoryModuleImports(source);
-  }
+  if (!isWorkflowSourceProgramInput(repositoryPath)) return Object.freeze([]);
   const units = compileSourceProgramEmbeddedWorkflowPrograms(Object.freeze({
     path: repositoryPath,
     source,

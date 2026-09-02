@@ -22,11 +22,10 @@ import {
   sha256
 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { createConcurrencyLimit } from '../../system-architecture/foundation/runtime/concurrency.ts';
+import type { SecRepositoryModuleGraph } from '../../system-architecture/repository-modules/contract.ts';
 import {
-  compileSecRepositoryModuleGraph,
   compileSecRepositoryModuleMembershipSnapshot,
   normalizeSecRepositoryPath,
-  type SecRepositoryModuleGraph,
   type SecRepositoryModuleMembership
 } from '../../system-architecture/repository-modules/contract.ts';
 import {
@@ -35,6 +34,7 @@ import {
   type SourceProgramModel
 } from './contract.ts';
 import { sourceProgramModuleImports } from './embedded-programs.ts';
+import { compileSecRepositoryModuleGraph } from './typescript.ts';
 
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 const SOURCE_SNAPSHOT_MAX_FILE_BYTES = 2 * 1024 * 1024;

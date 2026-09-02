@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 
+import { compileSecRepositoryModuleGraph } from '../../src/brownfield/source-program-model/typescript.ts';
 import {
   executeGitHubApiOperation,
   inspectGitHubApiCapability,
@@ -12,7 +13,6 @@ import {
   withGitHubApiTestSession,
   type GitHubApiTransport
 } from '../../src/external-capabilities/github-api/test/operation-session.ts';
-import { compileSecRepositoryModuleGraph } from '../../src/system-architecture/repository-modules/contract.ts';
 
 const TOKEN = 'test-token-0123456789';
 const SHA = '1'.repeat(40);

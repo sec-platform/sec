@@ -5,7 +5,7 @@ import { SEMANTIC_RESPONSIBILITY_TARGET_KINDS, type SemanticResponsibilityTarget
 import type { SemanticEntity } from '../../semantic/engineering-ir/contract/entity-types.ts';
 import type { ValidatedEngineeringIRSnapshot } from '../../semantic/engineering-ir/contract/validated-types.ts';
 import { compareCodeUnits, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { compileSecRepositoryModuleGraph, type SecRepositoryModuleMembership } from '../../system-architecture/repository-modules/contract.ts';
+import type { SecRepositoryModuleMembership } from '../../system-architecture/repository-modules/contract.ts';
 import type {
   SourceProgramCandidate,
   SourceProgramCapabilityAuthorityClass,
@@ -39,6 +39,7 @@ import {
   type SourceProgramTestObservations
 } from './test-observations.ts';
 import {
+  compileSecRepositoryModuleGraph,
   compileTypeScriptSourceProgramModel,
   compileTypeScriptSourceProgramModelFromWorkspaceSnapshot,
   isCompiledTypeScriptSourceProgramModel,

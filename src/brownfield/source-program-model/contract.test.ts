@@ -6,7 +6,6 @@ import { buildValidatedEngineeringIR } from '../../compiler/ir/validate-engineer
 import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import {
   compileSecRepositoryModuleArchitectureProjection,
-  compileSecRepositoryModuleGraph,
   compileSecRepositoryModuleMembershipSnapshot
 } from '../../system-architecture/repository-modules/contract.ts';
 import { isSourceProgramInputPath, sourceProgramSurfaceForPath } from './contract.ts';
@@ -38,6 +37,7 @@ import {
   reconcileSourceProgramTestValueWithSupersession
 } from './test-value.ts';
 import {
+  compileSecRepositoryModuleGraph,
   compileTypeScriptSourceProgramModel,
   compileTypeScriptSourceProgramModelIncremental,
   querySourceProgramModel

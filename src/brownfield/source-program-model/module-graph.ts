@@ -1,0 +1,157 @@
+import nodePath from 'node:path';
+
+import { assertCanonicalPortableLogicalPath } from '../../system-architecture/foundation/contract/logical-path.ts';
+import type {
+  SecRepositoryModuleGraph,
+  SecRepositoryModuleGraphImport,
+  SecRepositoryModuleGraphImportObservation,
+  SecRepositoryModuleGraphReference
+} from '../../system-architecture/repository-modules/contract.ts';
+import {
+  assertSecRepositoryModuleGraphPath,
+  isTestOnlyRepositoryModulePath
+} from '../../system-architecture/repository-modules/contract.ts';
+
+export type {
+  SecModuleImportKind,
+  SecRepositoryModuleGraph,
+  SecRepositoryModuleGraphImport,
+  SecRepositoryModuleGraphImportObservation,
+  SecRepositoryModuleGraphReference
+} from '../../system-architecture/repository-modules/contract.ts';
+
+export type SecRepositoryModuleGraphCompileInput = Readonly<{
+  /** Exact snapshot addresses. Semantic subject, owner and role are separate compiler facts. */
+  readonly files: readonly string[];
+  /** Compiler-issued facts from the same Source Program generation. */
+  readonly imports: readonly SecRepositoryModuleGraphImportObservation[];
+  readonly unresolvedFiles?: readonly string[];
+}>;
+
+function textOrder(left: string, right: string): number {
+  return left.localeCompare(right, 'en-US');
+}
+
+function canonicalRepositoryPath(value: string): string {
+  return assertSecRepositoryModuleGraphPath(
+    assertCanonicalPortableLogicalPath(value, 'Repository program path')
+  );
+}
+
+/**
+ * Resolve lexical candidates without filesystem discovery. The exact Source
+ * Program file set chooses the target; retained candidates make deletion and
+ * rename impact observable even when the target no longer exists.
+ */
+export function resolveSecRepositoryModuleImportCandidates(
+  sourcePath: string,
+  specifier: string
+): readonly string[] {
+  if (!specifier.startsWith('.')) return Object.freeze([]);
+  const base = nodePath.posix.join(nodePath.posix.dirname(sourcePath), specifier);
+  if (!base || base === '.' || base === '..' || base.startsWith('../')) return Object.freeze([]);
+  const extension = nodePath.posix.extname(base);
+  const candidates = (() => {
+    if (/^\.(?:[cm]?tsx?)$/u.test(extension)) return [base];
+    if (/^\.(?:[cm]?jsx?)$/u.test(extension)) {
+      const stem = base.slice(0, -extension.length);
+      return [base, `${stem}.ts`, `${stem}.tsx`, `${stem}.mts`, `${stem}.cts`];
+    }
+    if (extension) return [base];
+    return [
+      `${base}.ts`, `${base}.tsx`, `${base}.mts`, `${base}.cts`,
+      `${base}.js`, `${base}.jsx`, `${base}.mjs`, `${base}.cjs`,
+      `${base}/index.ts`, `${base}/index.tsx`, `${base}/index.mts`, `${base}/index.cts`
+    ];
+  })();
+  return Object.freeze([...new Set(candidates.map(canonicalRepositoryPath))].sort(textOrder));
+}
+
+/** Pure assembly of one module graph from compiler-issued observations. */
+export function assembleSecRepositoryModuleGraph(
+  input: SecRepositoryModuleGraphCompileInput
+): SecRepositoryModuleGraph {
+  const files = Object.freeze([...new Set(input.files.map(canonicalRepositoryPath))].sort(textOrder));
+  const fileSet = new Set(files);
+  const unresolvedFiles = new Set<string>(
+    (input.unresolvedFiles ?? []).map(canonicalRepositoryPath)
+  );
+  const references: SecRepositoryModuleGraphReference[] = [];
+  const reverseConsumers = new Map<string, string[]>();
+  const forwardDependencies = new Map<string, Set<string>>();
+  const runtimeForwardDependencies = new Map<string, Set<string>>();
+
+  const importsByFile = new Map<string, SecRepositoryModuleGraphImportObservation[]>();
+  for (const reference of input.imports) {
+    const from = canonicalRepositoryPath(reference.from);
+    if (!fileSet.has(from)) throw new Error(`module import is outside its exact file census: ${from}`);
+    const imports = importsByFile.get(from) ?? [];
+    imports.push(Object.freeze({ ...reference, from }));
+    importsByFile.set(from, imports);
+  }
+  for (const moduleFile of files) {
+    const imports = importsByFile.get(moduleFile) ?? Object.freeze([]);
+    const uniqueImports = new Map<string, SecRepositoryModuleGraphImportObservation>();
+    for (const reference of imports) {
+      uniqueImports.set(`${reference.kind}\0${reference.specifier}`, reference);
+    }
+    for (const reference of uniqueImports.values()) {
+      const candidates = resolveSecRepositoryModuleImportCandidates(moduleFile, reference.specifier);
+      const resolvedTarget = candidates.find((candidate) => fileSet.has(candidate)) ?? null;
+      if (resolvedTarget !== null
+          && isTestOnlyRepositoryModulePath(resolvedTarget)
+          && !isTestOnlyRepositoryModulePath(moduleFile)) {
+        throw new Error(
+          `production repository module imports test-only module: ${moduleFile} -> ${resolvedTarget}`
+        );
+      }
+      if (reference.specifier.startsWith('.') && resolvedTarget === null) {
+        unresolvedFiles.add(moduleFile);
+      }
+      const graphReference = Object.freeze({
+        from: reference.from,
+        kind: reference.kind,
+        specifier: reference.specifier,
+        typeOnly: reference.typeOnly,
+        candidateTargets: candidates,
+        resolvedTarget
+      });
+      references.push(graphReference);
+      if (resolvedTarget !== null) {
+        const dependencies = forwardDependencies.get(moduleFile) ?? new Set<string>();
+        dependencies.add(resolvedTarget);
+        forwardDependencies.set(moduleFile, dependencies);
+        if (!reference.typeOnly) {
+          const runtimeDependencies = runtimeForwardDependencies.get(moduleFile) ?? new Set<string>();
+          runtimeDependencies.add(resolvedTarget);
+          runtimeForwardDependencies.set(moduleFile, runtimeDependencies);
+        }
+      }
+      for (const candidate of candidates) {
+        const consumers = reverseConsumers.get(candidate) ?? [];
+        if (!consumers.includes(moduleFile)) consumers.push(moduleFile);
+        reverseConsumers.set(candidate, consumers);
+      }
+    }
+  }
+  for (const consumers of reverseConsumers.values()) consumers.sort(textOrder);
+  references.sort((left, right) => (
+    textOrder(left.from, right.from)
+    || textOrder(left.specifier, right.specifier)
+    || textOrder(left.kind, right.kind)
+  ));
+  return Object.freeze({
+    files,
+    references: Object.freeze(references),
+    unresolvedFiles: Object.freeze([...unresolvedFiles].sort(textOrder)),
+    directConsumers: (modulePath) => Object.freeze([
+      ...(reverseConsumers.get(canonicalRepositoryPath(modulePath)) ?? [])
+    ]),
+    directDependencies: (modulePath) => Object.freeze([
+      ...(forwardDependencies.get(canonicalRepositoryPath(modulePath)) ?? [])
+    ].sort(textOrder)),
+    directRuntimeDependencies: (modulePath) => Object.freeze([
+      ...(runtimeForwardDependencies.get(canonicalRepositoryPath(modulePath)) ?? [])
+    ].sort(textOrder))
+  });
+}
