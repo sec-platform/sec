@@ -142,6 +142,7 @@ import {
   CodexDevelopmentWorkPackageManifestDigest
 } from '../../../control/task/contract/work-package.ts';
 import { executeVerifiedCiActionPlan } from '../../../development/runner/verification-action-executor.ts';
+import type { GitHubWorkflowJobObservation, GitHubWorkflowRunObservation } from '../../../external-capabilities/github-read/contract.ts';
 import { createRuntimeStateJournalFileSystem } from '../../../runtime-state/workspace-state/journal-filesystem.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeJournalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
@@ -163,10 +164,6 @@ import {
   CodexDevelopmentCreateVerificationEvidenceProducer,
   CodexDevelopmentParseVerificationSessionArtifact
 } from '../contract/evidence.ts';
-import type {
-  GitHubWorkflowJobObservation,
-  GitHubWorkflowRunObservation
-} from '../contract/github-observation.ts';
 import {
   CI_VERIFICATION_SESSION_DISPATCH_TYPE
 } from '../contract/revision.ts';

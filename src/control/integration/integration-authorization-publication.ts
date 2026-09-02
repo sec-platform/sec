@@ -6,9 +6,9 @@
  * it is deliberately not represented as a compare-and-swap primitive.
  */
 
+import type { GitHubWorkflowJobObservation, GitHubWorkflowJobStepObservation, GitHubWorkflowRunObservation } from '../../external-capabilities/github-read/contract.ts';
 import { encodeVerificationActionData } from '../../verification/action/contract/action.ts';
 import { matchesCiWorkflowRunIdentity } from '../../verification/action/contract/provider.ts';
-import type { GitHubWorkflowJobObservation, GitHubWorkflowJobStepObservation, GitHubWorkflowRunObservation } from '../../verification/ci/contract/github-observation.ts';
 import {
   BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME,
   assertHostedCommentProvenanceLive,

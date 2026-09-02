@@ -11,7 +11,7 @@ import type {
   GitHubWorkflowJobObservation,
   GitHubWorkflowJobStepObservation,
   GitHubWorkflowRunObservation
-} from '../../src/verification/ci/contract/github-observation.ts';
+} from '../../src/external-capabilities/github-read/contract.ts';
 import { parseGitHubWorkflowJobsForAttempt } from '../../src/verification/ci/runtime/verification-session-github.ts';
 
 const WORKFLOW_SHA = '1111111111111111111111111111111111111111';
