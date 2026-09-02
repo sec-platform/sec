@@ -18,13 +18,15 @@ import {
 import { materializeTypeScriptExecutionGeneration } from '../../toolchain/typescript/execution-generation.ts';
 import {
   acquireExactGitTreeWorkspaceSourceSnapshot,
+  acquireStagedIndexWorkspaceSourceSnapshot,
   acquireWorkingTreeWorkspaceSourceSnapshot,
   assertWorkspaceTypeScriptProjectGenerationEvidence,
   compileVirtualWorkspaceSourceSnapshot,
   compileWorkspaceTypeScriptProjectFactIdentity,
   compileWorkspaceTypeScriptProjectInput,
   issueWorkspaceTypeScriptProjectGenerationEvidence,
-  projectWorkspaceTypeScriptProjectFactIdentity
+  projectWorkspaceTypeScriptProjectFactIdentity,
+  readBackStagedIndexWorkspaceSourceSnapshot
 } from './workspace-source-snapshot.ts';
 
 const temporaryRepositories: string[] = [];
@@ -148,6 +150,24 @@ test('working tree and exact Git tree issue one transport-neutral source generat
   expect(working.subjectDigest).not.toBe(exact.subjectDigest);
   expect(working.physicalObservationReceipt?.kind).toBe('working-tree-observation');
   expect(exact.physicalObservationReceipt).toMatchObject({ kind: 'git-tree', commitSha });
+});
+
+test('staged index snapshot binds exact index bytes and blocks later index drift', async () => {
+  const { repositoryRoot } = await createRepository();
+  await withAuthorityGitReadSession({
+    cwd: repositoryRoot,
+    budget: GIT_READ_OPERATION_BUDGET
+  }, async (session) => {
+    const snapshot = await acquireStagedIndexWorkspaceSourceSnapshot({ session });
+    expect(snapshot.physicalObservationReceipt?.kind).toBe('staged-index-observation');
+    await writeFile(
+      path.join(repositoryRoot, 'src', 'example', 'value.ts'),
+      'export const value = 2;\n'
+    );
+    git(repositoryRoot, ['add', 'src/example/value.ts']);
+    await expect(readBackStagedIndexWorkspaceSourceSnapshot(snapshot, session))
+      .rejects.toThrow('index changed before readback');
+  });
 });
 
 test('Project fact identity is stable across observation sessions and consumes opaque generation identity', async () => {

@@ -14,7 +14,9 @@ import {
 import {
   acquireExactGitTreeWorkspaceSourceSnapshot
 } from '../../brownfield/source-program-model/workspace-source-snapshot.ts';
+import { withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
 import { rawSha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { GIT_READ_OPERATION_BUDGET } from '../tooling/git/git-read.ts';
 import {
   compileCandidateNormalizationActionKey,
   compileCandidateNormalizationSubject,
@@ -119,7 +121,7 @@ test('subject compiler owns producer, exact-tree, config and toolchain identity'
       'note-only'
     );
     const noteOnly = subject(root, noteOnlyCommit);
-    expect(noteOnly.candidateCommitSha).not.toBe(first.candidateCommitSha);
+    expect(noteOnly.candidateIdentity).not.toEqual(first.candidateIdentity);
     expect(compileCandidateNormalizationActionKey(noteOnly).actionKey).toBe(firstAction.actionKey);
 
     const configCommit = await commitFixture(
@@ -300,6 +302,38 @@ test('candidate configuration is immutable when the working tree config drifts',
       candidateCommit
     });
     expect(outcome.terminal?.status).toBe('failed');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('staged candidate terminal issues an opaque normalization-only admission', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'sec-import-normalization-staged-'));
+  try {
+    git(root, ['init', '--quiet']);
+    git(root, ['config', 'user.email', 'tests@example.com']);
+    git(root, ['config', 'user.name', 'SEC Tests']);
+    await commitFixture(root, 'export function normalize(): void {}\n', 'staged-base');
+    await writeFile(path.join(root, 'note.txt'), 'staged candidate\n');
+    git(root, ['add', 'note.txt']);
+    await withAuthorityGitReadSession({
+      cwd: root,
+      budget: GIT_READ_OPERATION_BUDGET
+    }, async (session) => {
+      const {
+        requireCandidateNormalizationAdmissionReceipt,
+        verifyStagedCandidateImportNormalization
+      } = await import('./runtime.ts');
+      const result = await verifyStagedCandidateImportNormalization({ session });
+      if (result.outcome.terminal === null) {
+        throw new Error(`Staged normalization did not settle: ${JSON.stringify(result.outcome)}`);
+      }
+      expect(result.outcome.terminal?.status).toBe('passed');
+      expect(result.admission).not.toBeNull();
+      expect(requireCandidateNormalizationAdmissionReceipt(result.admission)).toBe(result.admission!);
+      expect(() => requireCandidateNormalizationAdmissionReceipt({ ...result.admission! }))
+        .toThrow('not owner-issued');
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
