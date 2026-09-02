@@ -298,11 +298,11 @@ SEC 最终用同一双向 Semantic Compiler治理自身，但 self-hosting 不�
 flowchart LR
   S[Exact SEC source + accepted model] --> T[Trusted previous compiler/toolchain binding]
   T --> C1[Candidate source/materialization]
-  C1 --> R1[Reverse compile + semantic/refinement diff]
+  C1 --> REVERSE[Reverse compile + semantic/refinement diff]
   C1 --> C2[Candidate compiler recompiles same exact model]
-  C2 --> R2[Deterministic regions byte compare + governed regions semantic compare]
-  R1 --> V[Independent verification/review]
-  R2 --> V
+  C2 --> PARITY[Deterministic regions byte compare + governed regions semantic compare]
+  REVERSE --> V[Independent verification/review]
+  PARITY --> V
   V --> X[Atomic compiler generation cutover]
   X --> Z[Old generation consumer-zero/retire]
 ```
@@ -318,6 +318,66 @@ flowchart LR
 ### 7.7 Pass graph：从定义到完整工程成品
 
 每个pass只有一个输入grammar、一个输出grammar和一个validation boundary；不能传递可选字段大包，也不能在后续pass补造上游语义：
+
+#### 7.7.1 语义原点闭包：变量不参与架构裁决
+
+跨public、durable、process、configuration、state、Effect或Proof边界的实现内容必须由accepted semantic source正向lower，或由Source Program反向证明与该source一致；不得先写变量、字段、常量、schema、index或路径，再靠名字/目录/人工表格猜归属。
+
+```mermaid
+flowchart LR
+  D[Accepted Domain Definitions] --> IR[Normalized semantic IR]
+  IR --> RC[Responsibility Cells + public contracts]
+  RC --> CG[Contract generation]
+  CG --> TY[Types / schemas / parsers / writers]
+  CG --> OP[State and operation interfaces]
+  CG --> PJ[Projections / indexes / test obligations]
+  TY --> TL[Target lowering]
+  OP --> TL
+  PJ --> TL
+  TL --> A[Declarations / files / config / package graph]
+  A --> SP[Exact Source Program]
+  IR --> CF[Origin and refinement conformance]
+  SP --> CF[Origin and refinement conformance]
+  CF --> EQ[Conformance verdict / typed drift]
+  CF -->|governed-authored observations| AD[Owner adoption or typed frontier]
+  AD -. accepted revision .-> D
+```
+
+```text
+BoundaryImplementation =
+  | DeterministicLowering { semanticOriginRef, compilerRef, outputRef }
+  | GovernedAuthoredRealization {
+      kind: algorithm | content | configuration | template,
+      contractRef, responsibilityCellRef, conformanceRef
+    }
+  | ExternalProvisionBinding { requirementRef, provisionRef, bindingRef }
+
+LexicalValue = private implementation detail of one ResponsibilityCell
+```
+
+只有前三类可穿越边界；普通局部变量不是系统实体、没有独立owner记录。所谓“字段归谁”在系统中被消除为以下可计算查询，而不是新增一份per-variable registry：
+
+| 查询 | 唯一答案来源 |
+| --- | --- |
+| 这个值表示什么 | `semanticOriginRef`指向的Domain Definition/State/Claim |
+| 谁能改变它 | 对应StateMachine/DomainOperation与当前AuthorityGrant |
+| 谁拥有编码与兼容 | 由public/durable contract生成的schema/parser/writer与Evolution合同 |
+| 为什么出现在此文件/接口 | PlacementDecision + lowering trace |
+| 谁消费、变化会失效什么 | Source Program references + compiled reverse dependency closure |
+| 是手写还是生成 | `BoundaryImplementation` discriminant；不能由注释或路径推断 |
+
+正向编译按semantic identity产生稳定refs；字段名、symbol名、文件名和序号只是Target backend可替换的Address/representation。一个语义fact可生成多个语言/协议投影，但它们只引用同一origin，不复制Definition。一个artifact可承载多个facts，但每项fact都有独立origin/refinement trace；不得用“文件owner”吞掉内部不同生命周期或权限。
+
+确定性规则：
+
+- contract可推导部分必须一次生成type、strict schema/parser、canonical writer、public export、consumer projection与test obligations；禁止分别手写再同步；
+- 不可推导的算法、业务内容、配置或模板允许`GovernedAuthoredRealization`，但其输入输出、允许Effect、failure/recovery、resource与proof obligations仍由contract生成并由reverse compile验证；
+- index/barrel/package exports从accepted public demand生成，不手写空facade或路径镜像；
+- FutureObligation只保存在Product/Domain source，触发consumer出现后才lower实现，不用空代码预占未来；
+- Brownfield lift只产生Observation/Candidate/Unknown；只有Domain owner adoption能建立新的semantic origin，现有名字、测试和调用量都不能自动升格；
+- 任一boundary declaration缺少origin/refinement trace时返回`implementation-origin-unbound`；同一origin出现不等价active writers/parsers/resolvers时返回`implementation-origin-duplicated`；实现中出现semantic source未声明的state/Authority/Effect/failure时返回`implementation-semantic-surplus`。
+
+字段概念变化必须先改semantic/contract source，再由影响闭包原子重生成writer、parser、consumer、projection与tests，最后退役旧generation。只改一个字符串、保留alias/双读或让测试冻结旧名字，都违反origin closure。
 
 | Pass | Input | Output | 可并行/增量单位 | 禁止 |
 | --- | --- | --- | --- | --- |

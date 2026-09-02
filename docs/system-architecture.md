@@ -14,18 +14,24 @@ SEC 把 accepted purpose、exact world observation 和可替换 capability 编�
 
 ```mermaid
 flowchart LR
-  P[Purpose] --> K[Knowledge]
-  K --> C[Constraint]
-  C --> R[Responsibility]
-  R --> A[Authority]
-  A --> X[Execution]
-  X --> V[Proof]
-  V --> E[Evolution]
-  E --> K
-  I[Interface / Agent] -. intent in; projection out .-> P
-  M[Physical world] -. observation / retained binding .-> K
-  M -. Effect target .-> X
+  DC[Design Calculus refs] --> PC[SEC profile compiler]
+  EC[Engineering Constitution refs] --> PC
+  AC[Agent Constitution refs] --> PC
+  PD[Product decisions / non-goals] --> PC
+  DD[Domain definitions / operations] --> PC
+  OB[Exact source/provider/runtime observations] --> PC
+  PC --> SM[SECSystemModelSnapshot<br/>obligations + relations + frontier]
+  SM --> OP[Pure plans / implementation requirements]
+  SM --> CL[Claim and conformance obligations]
+  OP --> EX[Admitted execution / settlement / readback]
+  CL --> VE[Independent evidence evaluation]
+  EX --> VE
+  VE --> EV[Authorized evolution / retirement decision]
+  EV --> NR[Corresponding canonical owner revision]
+  NR -. new exact input .-> PC
 ```
+
+该图是SEC profile的generated relation view，不另行定义上游原则。Product Decision、Domain Definition和Observation是不同输入；snapshot、plan、execution、Evidence与evolution也不共享owner或authority。新运行事实只能在authorized owner接受后成为下一revision输入，不能沿回边自动改写Definition。
 
 | 平面 | 唯一事实 | 签发者 | 不得产生 |
 | --- | --- | --- | --- |
@@ -49,7 +55,7 @@ AdmittedChange =
   ∧ ResponsibilityUnique
   ∧ AuthorityValid
   ∧ CapabilityBound
-  ∧ ResourcesAllocated
+  ∧ ResourceControlsBound
   ∧ LifecycleRecoverable
   ∧ ProofObligationsDeclared
   ∧ EvolutionObligationsClosed
@@ -94,7 +100,7 @@ flowchart LR
 | --- | --- | --- |
 | `domain` | 哪些语义必须由同一owner和不变量共同演进 | Engineering Semantics、Verification |
 | `plane` | 从哪个独立责任维度判断同一事实 | Semantic、Authority、Resource、Lifecycle/Proof |
-| `stage` | 哪些逻辑输入必须先存在才能产生下一结果 | S0 outcome → S9 publish/retire |
+| `stage` | 哪些逻辑输入必须先存在才能产生下一结果 | `compile-stage.outcome` → `compile-stage.publish-evolve` |
 | `lifecycle` | 同一identity随时间处于什么合法状态 | requested→planned→terminal/residue→retired |
 | `view` | 哪个角色只需看同一事实的哪一无增权投影 | semantic、authority、resource、proof view |
 
@@ -210,7 +216,7 @@ flowchart LR
   A --> X[Coverage / contradiction / frontier]
 ```
 
-`SECSystemModelSnapshot`是content-addressed生成投影：它引用所有适用层的canonical owner facts、typed relations、Source Program/Provider observations、runtime settlements、Evidence与Evolution状态，并保留`layer + plane + domain + owner + revision`坐标。它不是新的owner、运行时数据库或固定可视化形状；tree、nested compound、DAG、hypergraph、state machine与table都是按问题生成的renderer。
+`SECSystemModelSnapshot`是content-addressed生成投影：它引用所有适用坐标族的canonical owner facts、typed relations、Source Program/Provider observations、runtime settlements、Evidence与Evolution状态，并保留`sourceStratum + implementationRefinement + compilationStage + plane + domain + owner + revision`坐标；只适用于外部Provider、产品能力或Target支持轨道的fact再分别携带`providerMaturity`、`productCapabilityRef`或`targetTrackState`，不填伪默认值。它不是新的owner、运行时数据库或固定可视化形状；tree、nested compound、DAG、hypergraph、state machine与table都是按问题生成的renderer。
 
 一个Domain owner拥有自己的Subjects、Definitions、Invariants、State/Failure与public operation contracts；private implementation仍不可见。Workflow只引用public operation identity、guards、join与compensation，不复制被调用Domain payload。AI或编译器用purpose-bound query取得最小完整闭包；全系统审计以相同canonical refs取得最大授权coverage。两者的差异是selection与表达，不是两套图。
 
@@ -382,5 +388,5 @@ IrreducibleInput = authorized preference/definition/grant OR external observatio
 
 | 片段 | 独立职责 |
 | --- | --- |
-| [SEC Operation、Owner 与资源架构](system-architecture/operations-and-resources.md) | 本片段拥有 operation 视图、S0–S9 编译、Knowledge、Owner DAG、capability、资源和并发。 |
+| [SEC Operation、Owner 与资源架构](system-architecture/operations-and-resources.md) | 本片段拥有operation视图、semantic compilation stages、Knowledge、Owner DAG、capability、资源和并发。 |
 | [SEC 生命周期、证明与演进架构](system-architecture/lifecycle-proof-and-evolution.md) | 本片段拥有状态恢复、identity/provenance/Evidence、reduction/evolution、逻辑投影、模型验证与实现交接。 |

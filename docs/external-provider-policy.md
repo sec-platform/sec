@@ -81,27 +81,27 @@ production runtime 只采用已存在 capability。discovery/session open/health
 
 ```mermaid
 stateDiagram-v2
-  [*] --> L0_Physical
-  L0_Physical --> L1_TypedInvocation
-  L1_TypedInvocation --> L2_GovernedDeclaration
-  L2_GovernedDeclaration --> L3_ObservedCandidate
-  L3_ObservedCandidate --> L4_VerifiedProvider
-  L4_VerifiedProvider --> L5_NormalizedProjection
-  L0_Physical --> Rejected
-  L1_TypedInvocation --> Rejected
-  L3_ObservedCandidate --> Rejected
-  L4_VerifiedProvider --> Deprecated
+  [*] --> Physical
+  Physical --> TypedInvocation
+  TypedInvocation --> GovernedDeclaration
+  GovernedDeclaration --> ObservedCandidate
+  ObservedCandidate --> VerifiedProvider
+  VerifiedProvider --> NormalizedProjection
+  Physical --> Rejected
+  TypedInvocation --> Rejected
+  ObservedCandidate --> Rejected
+  VerifiedProvider --> Deprecated
   Deprecated --> Retired
 ```
 
-| Level | Positive claim | Still unknown |
+| `provider-maturity` | Positive claim | Still unknown |
 | --- | --- | --- |
-| L0 Physical | package/source/version/integrity/license/install closure known | call shape、behavior、Effect |
-| L1 Typed invocation | exports/signature/generic/overload/module resolution type-safe | runtime behavior、error、resource、security |
-| L2 Governed declaration | user/organization declares contract/effect/permission/target | declaration truth until verified |
-| L3 Observed candidate | analysis/trace suggests provider/adapter mapping with coverage/conflict | adoption/eligibility |
-| L4 Verified Provider | security/license/data + Target conformance + behavior/failure/retirement closed | selection、deployment、Support |
-| L5 Normalized projection | complete round-trip/validation/migration; old writer removed | only bounded owned subset |
+| `physical` | package/source/version/integrity/license/install closure known | call shape、behavior、Effect |
+| `typed-invocation` | exports/signature/generic/overload/module resolution type-safe | runtime behavior、error、resource、security |
+| `governed-declaration` | user/organization declares contract/effect/permission/target | declaration truth until verified |
+| `observed-candidate` | analysis/trace suggests provider/adapter mapping with coverage/conflict | adoption/eligibility |
+| `verified-provider` | security/license/data + Target conformance + behavior/failure/retirement closed | selection、deployment、Support |
+| `normalized-projection` | complete round-trip/validation/migration; old writer removed | only bounded owned subset |
 
 `verified ≠ selected ≠ deployed ≠ product-supported`。复杂 remote/native/dynamic capability 通常长期保持 Provider/Governed Extension，而不是强制反编译为 SEC-owned。
 
@@ -254,6 +254,8 @@ old-only | both | new-only | unknown
 
 dispatch、repository/check transport 与 compute 是独立 capabilities。Adapter 只有新增 credential isolation、immutable execution identity、sandbox、remote/local CAS、destructive-resource ownership、settlement/readback 时才成立。
 
+需要启动或采用Provider时，consumer只能请求实现架构定义的`ProviderBootstrapOperation`并消费其opaque live capability；不得在workload adapter内顺手启动daemon、修lock、改context、下载runtime或切换endpoint。provider bootstrap与workload使用不同OperationKey、journal、allocation和terminal；二者只通过exact `ProviderRootBinding`连接。local与remote是重新binding的候选，不是silent fallback，也不共享Evidence身份。
+
 Lifecycle：
 
 ```mermaid
@@ -335,7 +337,7 @@ flowchart LR
 | cloud provider outage，本地Provider同contract | new Resolution then execute | proof downgrade |
 | close during in-flight | coordinate/typed retry + eventual settlement | mark closed then leak |
 | new external analyzer misses old-only finding | retirement blocked | delete old config first |
-| external library only supplies typed signature | L1 typed use + opaque behavior | product-supported |
+| external library only supplies typed signature | `provider-maturity.typed-invocation` + opaque behavior | product-supported |
 | adopted tool增加wrapper/graph/cache且旧owner仍live | dominated integration | “standard tool”豁免 |
 | test issuer session reaches production consumer | origin rejection + zero Effect | structural shape acceptance |
 | cleanup of one root fails | settle all held resources + residue set | abort remaining cleanup |

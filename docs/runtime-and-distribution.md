@@ -214,6 +214,33 @@ stateDiagram-v2
 
 Logical identity 使用 repository-relative canonical Address；physical semantics 使用声明平台 Provider。WSL/POSIX Evidence 不替代 Windows，反之亦然。watcher event 是 invalidation hint；bytes/object/readback 才是事实。direct child exit 不证明 descendants/ports/streams/temp/locks 收口。
 
+### 12.1 Physical path capability
+
+路径长度不是repository常量，也不是单一OS属性。任何会让filesystem、process、Git、archive、compiler或container消费physical path的operation必须绑定由实际Provider签发的能力：
+
+```text
+PhysicalPathCapability {
+  hostAndProviderGeneration
+  pathNamespaceAndEncoding
+  rootPhysicalBinding
+  consumerApiOrExecutablePhysicalBinding
+  processManifestAndProviderConfiguration
+  componentRules + topologyRules
+  admittedLengthSemantics | typed-unknown
+  conformanceObservationRefs
+}
+
+PathAdmission(operation, root, capability) =
+  candidatePaths := expandWorstCasePhysicalPaths(operation, root)
+  every candidate satisfies capability namespace/component/topology/length rules
+  ∧ provider configuration is effective before the first Effect
+  ∧ root and consumer binding remain exact through settlement
+```
+
+`259`、`MAX_PATH`、prefix长度、固定padding或当前temp root长度不能作为跨Provider真值。若某个legacy child确实只能消费特定上限，该限制属于它的Provider conformance fact，并绑定其exact executable/manifest/API route；切换native API、long-path namespace、Git配置或root都会产生新Binding。配置必须在首次相关Effect前生效；“先在深path执行，再在该path内开启longpaths”不构成admission。
+
+测试必须从`PhysicalPathCapability`与operation expansion函数生成`accepted / boundary / rejected`样例，不能用`repeat(n)`猜宿主阈值。pure parser/framing测试只使用in-memory bytes；physical path conformance单独观察真实Provider并在unsupported/unknown时返回typed结果，二者只有共享同一Claim时才允许组合。
+
 Windows protected Runtime State 的 owner/DACL proof 只由 native retained physical session 签发；每次消费重验 root identity、owner、protection、descriptor digest。PowerShell/icacls/shell text 不能成为 production authority 或每进程 admission。
 
 
