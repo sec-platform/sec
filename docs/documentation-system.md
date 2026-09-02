@@ -858,6 +858,7 @@ DocumentationMigrationDesignReady =
 ```text
 DocumentationMigration = {
   exactCurrentGenerationDigest,
+  currentGenerationBinding,
   currentRegistryAndFrontmatterCensus,
   sourceSemanticGraphDigest,
   sourceClauseDispositionDigest,
@@ -873,6 +874,14 @@ DocumentationMigration = {
   typedResidue
 }
 ```
+
+`currentGenerationBinding` 是迁移设计的不可省略身份，而不只是 CLI 输出的
+附带字段。它至少绑定 source provider、exact revision/tree（或等价的
+content-snapshot identity）、registry/corpus/semantic-graph digests 与
+observation epoch；所有 preservation、consumer census、target preimage 和
+migration journal 都引用同一 binding。只有 registry/corpus bytes 相同不能
+证明是同一次可迁移 generation；binding 缺失、过期或与任一输入 digest 不
+一致时，设计必须返回 stale/unknown frontier，禁止复用或执行旧计划。
 
 `sourceSemanticGraphDigest` 与 `sourceClauseDispositionDigest` 是迁移准入的
 必需输入，而不是迁移编译器可自行重算的旁路。它们引用同一 exact current
