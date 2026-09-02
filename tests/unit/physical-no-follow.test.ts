@@ -749,6 +749,7 @@ test('selected forest retains one root, emits selector prefixes, and shares hard
     mkdirSync(selected, { recursive: true });
     mkdirSync(ignored, { recursive: true });
     mkdirSync(other, { recursive: true });
+    writeFileSync(path.join(root, 'a'.repeat(64), 'direct.ts'), 'direct selected leaf\n');
     writeFileSync(path.join(selected, 'record.json'), 'selected\n');
     writeFileSync(path.join(ignored, 'large.bin'), Buffer.alloc(4096));
     writeFileSync(path.join(other, 'top-level.txt'), 'not selected\n');
@@ -757,11 +758,12 @@ test('selected forest retains one root, emits selector prefixes, and shares hard
       deadlineAtMs: performance.now() + 10_000,
       maximumEntries: 32,
       maximumBytes: 64,
-      includeRelativePaths: ['*/verification-actions']
+      includeRelativePaths: ['*/direct.ts', '*/verification-actions']
     } as const;
     const forest = scanNoFollowDirectoryTreeSelectedForest(identity, options);
     expect(forest.map(({ relativePath }) => relativePath)).toEqual([
       'a'.repeat(64),
+      `${'a'.repeat(64)}/direct.ts`,
       `${'a'.repeat(64)}/verification-actions`,
       `${'a'.repeat(64)}/verification-actions/record.json`,
       'b'.repeat(64)
@@ -771,6 +773,7 @@ test('selected forest retains one root, emits selector prefixes, and shares hard
       omitNavigationPrefixes: true
     });
     expect(sourceOnlyForest.map(({ relativePath }) => relativePath)).toEqual([
+      `${'a'.repeat(64)}/direct.ts`,
       `${'a'.repeat(64)}/verification-actions`,
       `${'a'.repeat(64)}/verification-actions/record.json`
     ]);

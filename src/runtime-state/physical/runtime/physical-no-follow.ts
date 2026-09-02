@@ -4401,22 +4401,37 @@ function scanNoFollowDirectoryTreeInternal(
           const literalChildren = selectedForestLiteralChildren(relativePath, selectedPatterns);
           if (literalChildren !== null) {
             for (const child of literalChildren) {
-              const childAbsolute = path.join(absolute, child);
-              const presence = inspectExactNoFollowDirectoryPresence(
-                childAbsolute,
-                'No-follow selected forest root'
-              );
-              if (presence.state === 'absent') continue;
-              const childRelativePath = `${relativePath}/${child}`;
-              const scanned = Object.freeze({
-                ...windowsScanRetainedEntry(childAbsolute, 'No-follow selected forest root', reserveFileBytes),
-                contentDigest: null
-              });
-              if (scanned.kind !== 'directory') {
-                throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow selected forest root is not a directory.');
+              boundedMetadata.signal?.throwIfAborted();
+              if (performance.now() > boundedMetadata.deadlineAtMs) {
+                throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'No-follow inventory deadline exceeded.');
               }
-              entries.push(Object.freeze({ ...scanned, relativePath: childRelativePath }));
-              visit(childAbsolute, childRelativePath);
+              if (entries.length >= boundedMetadata.maximumEntries) {
+                throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'No-follow inventory entry bound exceeded.');
+              }
+              const childAbsolute = path.join(absolute, child);
+              const childRelativePath = `${relativePath}/${child}`;
+              const childRole = selectedForestPathRole(childRelativePath, selectedPatterns);
+              if (childRole === 'excluded') continue;
+              let scanned: InternalNoFollowDirectoryTreeEntry;
+              try {
+                scanned = Object.freeze({
+                  ...windowsScanRetainedEntry(childAbsolute, 'No-follow selected forest root', reserveFileBytes),
+                  relativePath: childRelativePath,
+                  contentDigest: null
+                });
+              } catch (error) {
+                if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') continue;
+                throw error;
+              }
+              if (childRole === 'navigation') {
+                if (scanned.kind !== 'directory') {
+                  throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow selected forest navigation path is not a directory.');
+                }
+                visit(childAbsolute, childRelativePath);
+                continue;
+              }
+              entries.push(scanned);
+              if (scanned.kind === 'directory') visit(childAbsolute, childRelativePath);
             }
             continue;
           }
