@@ -1,66 +1,54 @@
-import { randomBytes } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
 import {
-  bindGitDevelopmentCommitOperation,
   compareAndSwapAuthorityDevelopmentCommitRef,
   compileGitDevelopmentCommitContractDigest,
   createAuthorityGitReadSession,
-  createAuthorityGitScratchIndexTreeSession,
   materializeAuthorityDevelopmentCommitObject,
   settleGitDevelopmentCommitOperation,
-  type GitCommitIdentity,
-  type GitDevelopmentCommitContract,
   type GitReadSession
 } from '../../external-capabilities/git-read/runtime/session.ts';
-import { inspectNoFollowDirectoryChain, readNoFollowOrdinaryFile } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { inspectNoFollowDirectoryChain } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { createRuntimeStateJournalFileSystem } from '../../runtime-state/workspace-state/journal-filesystem.ts';
-import { canonicalJson, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalJson, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import {
   compileSecProviderSettlementSet,
-  compileSecSemanticOperationIntent,
   issueSecNormalDomainReadbackReceipt,
-  issueSecSemanticOperationAttemptContext,
   type SecBoundSemanticOperation,
   type SecOperationDigest,
-  type SecProviderSettlementSet,
-  type SecSemanticOperationIntent
+  type SecProviderSettlementSet
 } from '../../system-architecture/operation/semantic.ts';
-import { verifyCandidateImportNormalization } from '../import-normalization/runtime.ts';
-import { GIT_READ_OPERATION_BUDGET } from '../tooling/git/git-read.ts';
+import { assertDevelopmentCommitCandidateCurrent } from '../commit-admission/candidate.ts';
 import {
-  requireUpstreamDevelopmentCommitEffectGrant
-} from './effect-grant.ts';
+  consumeDevelopmentCommitAdmission,
+  type DevelopmentCommitAdmission,
+  type DevelopmentCommitRequest
+} from '../commit-admission/operation.ts';
+import { GIT_READ_OPERATION_BUDGET } from '../tooling/git/git-read.ts';
 
-const OPERATION = 'development.commit';
-const REQUIREMENT = 'repository.commit';
 const JOURNAL_SCHEMA = 'sec-development-commit-journal-v1';
 const JOURNAL_DIRECTORY = 'sec-development-commit';
 const MAXIMUM_JOURNAL_BYTES = 4096;
-const DEVELOPMENT_COMMIT_READBACK_PROCESS_COUNT = 4;
+const DEVELOPMENT_COMMIT_PROVIDER_ADMISSION_PROCESS_COUNT = 1;
+const DEVELOPMENT_COMMIT_READBACK_PROCESS_COUNT = 5;
 const DEVELOPMENT_COMMIT_MATERIALIZATION_PROCESS_COUNT = 2;
 const DEVELOPMENT_COMMIT_REF_EFFECT_PROCESS_COUNT = 1;
 const DEVELOPMENT_COMMIT_EXECUTION_PROCESS_COUNT =
-  DEVELOPMENT_COMMIT_MATERIALIZATION_PROCESS_COUNT
+  DEVELOPMENT_COMMIT_PROVIDER_ADMISSION_PROCESS_COUNT + 2
+  + DEVELOPMENT_COMMIT_MATERIALIZATION_PROCESS_COUNT
   + DEVELOPMENT_COMMIT_REF_EFFECT_PROCESS_COUNT
   + DEVELOPMENT_COMMIT_READBACK_PROCESS_COUNT;
 const DEVELOPMENT_COMMIT_RETRY_PROCESS_COUNT =
-  DEVELOPMENT_COMMIT_REF_EFFECT_PROCESS_COUNT
+  DEVELOPMENT_COMMIT_PROVIDER_ADMISSION_PROCESS_COUNT + 2
+  + DEVELOPMENT_COMMIT_REF_EFFECT_PROCESS_COUNT
   + DEVELOPMENT_COMMIT_READBACK_PROCESS_COUNT;
 const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const REF = /^refs\/heads\/[A-Za-z0-9][A-Za-z0-9._\/-]*$/u;
 
 export type DevelopmentCommitDisposition = 'applied' | 'not-applied' | 'unknown';
 
-export type DevelopmentCommitRequest = Readonly<{
-  readonly repositoryRoot: string;
-  readonly message: string;
-  readonly author: GitCommitIdentity;
-  readonly committer: GitCommitIdentity;
-}>;
+export type { DevelopmentCommitRequest } from '../commit-admission/operation.ts';
 
 export type DevelopmentCommitResult = Readonly<{
   readonly schema: 'sec-development-commit-result-v1';
@@ -132,45 +120,6 @@ function commandText(session: GitReadSession, args: readonly string[], label: st
   });
 }
 
-function compileCommitIntent(contract: GitDevelopmentCommitContract): SecSemanticOperationIntent {
-  const contractDigest = compileGitDevelopmentCommitContractDigest(contract);
-  return compileSecSemanticOperationIntent({
-    operation: OPERATION,
-    intentDigest: sha256({
-      repositoryRoot: contract.repositoryRoot,
-      ref: contract.ref,
-      preimage: contract.expectedOld,
-      target: contract.target,
-      tree: contract.tree
-    }) as SecOperationDigest,
-    decisionDigest: sha256({
-      message: contract.message,
-      author: contract.author,
-      committer: contract.committer,
-      signing: contract.signing,
-      hooks: contract.hooks
-    }) as SecOperationDigest,
-    aggregateBudgets: [
-      { resource: 'duration-ms', maximum: 30_000 },
-      { resource: 'input-bytes', maximum: 64 * 1024 },
-      { resource: 'output-bytes', maximum: 256 * 1024 },
-      { resource: 'processes', maximum: DEVELOPMENT_COMMIT_EXECUTION_PROCESS_COUNT },
-      { resource: 'records', maximum: 32 }
-    ],
-    requirements: [{
-      id: REQUIREMENT,
-      contractDigest,
-      effectKinds: ['filesystem', 'process'],
-      failureKinds: [
-        'development.commit.cas-conflict',
-        'development.commit.index-drift',
-        'development.commit.lost-handle',
-        'development.commit.provider-failed'
-      ]
-    }]
-  });
-}
-
 function encodeJournal(journal: Journal): string {
   const source = `${JSON.stringify(canonicalJson(journal))}\n`;
   if (Buffer.byteLength(source, 'utf8') > MAXIMUM_JOURNAL_BYTES) {
@@ -237,103 +186,6 @@ function readJournal(commonDirectory: string, journalPath: string): Journal {
   return parseJournal(source);
 }
 
-async function preflight(request: DevelopmentCommitRequest): Promise<Readonly<{
-  readonly repositoryRoot: string;
-  readonly commonDirectory: string;
-  readonly ref: string;
-  readonly preimage: string;
-  readonly tree: string;
-  readonly target: string;
-  readonly indexPath: string;
-  readonly indexDigest: `sha256:${string}`;
-  readonly preflightReceiptDigest: SecOperationDigest;
-  readonly providerIdentityDigest: SecOperationDigest;
-}>> {
-  const repositoryRoot = path.resolve(request.repositoryRoot);
-  if (!path.isAbsolute(request.repositoryRoot) || repositoryRoot !== request.repositoryRoot) {
-    throw new Error('Development commit requires one canonical absolute repository root.');
-  }
-  return withAuthorityGitReadSession({ cwd: repositoryRoot, budget: GIT_READ_OPERATION_BUDGET }, async (session) => {
-    if (session.providerIdentity === null) throw new Error('Development commit Git provider identity is absent.');
-    const worktreeRoot = path.resolve(await commandText(session, ['rev-parse', '--show-toplevel'], 'resolve worktree'));
-    const commonDirectory = path.resolve(await commandText(
-      session,
-      ['rev-parse', '--path-format=absolute', '--git-common-dir'],
-      'resolve common directory'
-    ));
-    const indexPath = path.resolve(await commandText(
-      session,
-      ['rev-parse', '--path-format=absolute', '--git-path', 'index'],
-      'resolve index'
-    ));
-    const ref = await commandText(session, ['symbolic-ref', '--quiet', 'HEAD'], 'resolve HEAD ref');
-    const preimage = await commandText(
-      session,
-      ['rev-parse', '--verify', '--end-of-options', ref],
-      'resolve HEAD parent'
-    );
-    if (worktreeRoot !== repositoryRoot || !REF.test(ref) || !OBJECT_ID.test(preimage)) {
-      throw new Error('Development commit repository/ref preflight is not canonical.');
-    }
-    const beforeIndex = await readFile(indexPath);
-    const scratchRoot = await mkdtemp(path.join(tmpdir(), 'sec-development-commit-'));
-    try {
-      await mkdir(path.join(scratchRoot, 'objects'));
-      await writeFile(path.join(scratchRoot, 'index'), beforeIndex, { flag: 'wx' });
-      const resolution = await createAuthorityGitScratchIndexTreeSession({ gitReadSession: session, scratchRoot });
-      if (resolution.status !== 'ready') throw new Error(`Development commit tree freeze unavailable: ${resolution.reason}`);
-      try {
-        const treeResult = await resolution.session.writeTree();
-        if (treeResult.status !== 'ready') throw new Error(`Development commit write-tree failed: ${treeResult.reason}`);
-        const commitResult = await resolution.session.commitTree({
-          tree: treeResult.value,
-          parents: Object.freeze([preimage]),
-          message: request.message,
-          author: request.author,
-          committer: request.committer
-        });
-        if (commitResult.status !== 'ready') {
-          throw new Error(
-            `Development commit target freeze failed: ${commitResult.reason}`
-            + (commitResult.detail === undefined ? '' : `; ${commitResult.detail}`)
-          );
-        }
-        const afterFreezeIndex = await readFile(indexPath);
-        if (!beforeIndex.equals(afterFreezeIndex)) {
-          throw new Error('Development commit index drifted after exact tree freeze.');
-        }
-        const receipt = {
-          schema: 'sec-development-commit-preflight-v1',
-          repositoryRoot,
-          worktreeRoot,
-          commonDirectory,
-          ref,
-          preimage,
-          tree: treeResult.value,
-          target: commitResult.value,
-          indexDigest: rawSha256(beforeIndex)
-        };
-        return Object.freeze({
-          repositoryRoot,
-          commonDirectory,
-          ref,
-          preimage,
-          tree: treeResult.value,
-          target: commitResult.value,
-          indexPath,
-          indexDigest: rawSha256(beforeIndex),
-          preflightReceiptDigest: sha256(receipt) as SecOperationDigest,
-          providerIdentityDigest: sha256(session.providerIdentity) as SecOperationDigest
-        });
-      } finally {
-        await resolution.session.close();
-      }
-    } finally {
-      await rm(scratchRoot, { recursive: true, force: true });
-    }
-  });
-}
-
 export async function readDevelopmentCommitOutcome(input: Readonly<{
   session: GitReadSession;
   commonDirectory: string;
@@ -361,22 +213,16 @@ export async function readDevelopmentCommitOutcome(input: Readonly<{
     const indexMatches = index.kind === 'completed' && index.result.code === 0;
     const objectMatches = objectType === 'commit'
       && objectBytes.startsWith(`tree ${journal.tree}\nparent ${journal.preimage}\n`);
-    const reflogPath = path.join(input.commonDirectory, 'logs', ...journal.ref.split('/'));
-    let reflogContainsTarget = false;
-    try {
-      const parent = inspectNoFollowDirectoryChain(
-        path.dirname(reflogPath),
-        'Development commit reflog parent'
-      );
-      const bytes = readNoFollowOrdinaryFile(parent.target, path.basename(reflogPath));
-      if (bytes === null || bytes.byteLength > 1024 * 1024) throw new Error('invalid reflog');
-      const source = Buffer.from(bytes).toString('utf8');
-      reflogContainsTarget = source.split(/\r?\n/u).some((line) =>
-        line.startsWith(`${journal.preimage} ${journal.target} `));
-    } catch {
-      return 'unknown';
-    }
-    if (ref === journal.target && objectMatches && indexMatches && reflogContainsTarget) return 'applied';
+    const reflog = await commandText(
+      session,
+      ['rev-list', '--walk-reflogs', journal.ref],
+      'read back commit reflog'
+    ).catch(() => '');
+    const reflogTargets = reflog.length === 0 ? [] : reflog.split(/\r?\n/u);
+    const reflogContainsTarget = reflogTargets.includes(journal.target);
+    const exactRefTransition = reflogTargets[0] === journal.target
+      && reflogTargets[1] === journal.preimage;
+    if (ref === journal.target && objectMatches && indexMatches && exactRefTransition) return 'applied';
     const objectAbsent = objectType === '' && objectBytes === '';
     if (ref === journal.preimage && (objectMatches || objectAbsent)
         && indexMatches && !reflogContainsTarget) return 'not-applied';
@@ -415,35 +261,16 @@ export function assertDevelopmentCommitReadbackReceipt(value: DevelopmentCommitR
 
 async function execute(
   request: DevelopmentCommitRequest,
-  effectGrantReceipt: unknown,
+  admission: DevelopmentCommitAdmission,
   hooks: CommitTestHooks
 ): Promise<DevelopmentCommitResult> {
-  const authorityGrantDigest: SecOperationDigest = requireUpstreamDevelopmentCommitEffectGrant(effectGrantReceipt);
-  const frozen = await preflight(request);
-  const contract: GitDevelopmentCommitContract = Object.freeze({
-    repositoryRoot: frozen.repositoryRoot,
-    worktreeRoot: frozen.repositoryRoot,
-    ref: frozen.ref,
-    expectedOld: frozen.preimage,
-    target: frozen.target,
-    tree: frozen.tree,
-    parents: Object.freeze([frozen.preimage]),
-    message: request.message,
-    author: request.author,
-    committer: request.committer,
-    signing: 'disabled',
-    hooks: 'disabled',
-    preflightReceiptDigest: frozen.preflightReceiptDigest
+  const admitted = consumeDevelopmentCommitAdmission({
+    admission,
+    request
   });
-  const intent = compileCommitIntent(contract);
-  const operation = bindGitDevelopmentCommitOperation({
-    intent,
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest }),
-    providerIdentityDigest: frozen.providerIdentityDigest,
-    deadlineAtUnixMs: Date.now() + 30_000
-  });
+  const { candidate: frozen, candidateDetails, contract, operation } = admitted;
   const journalPath = path.join(
-    frozen.commonDirectory,
+    candidateDetails.commonDirectory,
     JOURNAL_DIRECTORY,
     `${operation.plan.attempt.attemptNonceDigest.slice('sha256:'.length)}.json`
   );
@@ -458,7 +285,6 @@ async function execute(
     tree: frozen.tree,
     terminal: null
   });
-  writeJournal(frozen.commonDirectory, journalPath, journal, true);
   const resolution = createAuthorityGitReadSession({
     cwd: frozen.repositoryRoot,
     operation,
@@ -476,6 +302,12 @@ async function execute(
   let providerSettlementSet: SecProviderSettlementSet | null = null;
   let readback: DevelopmentCommitReadbackReceipt | null = null;
   try {
+    await assertDevelopmentCommitCandidateCurrent({
+      candidate: frozen,
+      request,
+      session: resolution.session
+    });
+    writeJournal(candidateDetails.commonDirectory, journalPath, journal, true);
     const object = await materializeAuthorityDevelopmentCommitObject({
       gitReadSession: resolution.session,
       contract
@@ -491,22 +323,8 @@ async function execute(
         + (object.detail === undefined ? '' : `; ${object.detail}`)
       );
     }
-    const normalization = await verifyCandidateImportNormalization({
-      repositoryRoot: frozen.repositoryRoot,
-      candidateBase: frozen.preimage,
-      candidateCommit: frozen.target
-    });
-    if (normalization.terminal?.status !== 'passed') {
-      throw new Error(
-        `Development commit precommit admission failed: `
-        + `${normalization.reason ?? normalization.terminal?.reasonCode ?? 'noncanonical'}`
-      );
-    }
-    if (rawSha256(await readFile(frozen.indexPath)) !== frozen.indexDigest) {
-      throw new Error('Development commit index drifted during exact candidate normalization admission.');
-    }
     journal = Object.freeze({ ...journal, object: object.object });
-    writeJournal(frozen.commonDirectory, journalPath, journal, false);
+    writeJournal(candidateDetails.commonDirectory, journalPath, journal, false);
     await hooks.afterObjectJournaled?.(journalPath);
     const refSettlement = await compareAndSwapAuthorityDevelopmentCommitRef({ gitReadSession: resolution.session, contract });
     providerSettlementSet = compileSecProviderSettlementSet(operation, [
@@ -520,7 +338,7 @@ async function execute(
     if (providerSettlementSet === null) throw new Error('Development commit provider settlement is absent.');
     readback = await readDevelopmentCommitOutcome({
       session: resolution.session,
-      commonDirectory: frozen.commonDirectory,
+      commonDirectory: candidateDetails.commonDirectory,
       journal,
       normal: { operation, settlement: providerSettlementSet, contractDigest: compileGitDevelopmentCommitContractDigest(contract) }
     });
@@ -530,7 +348,7 @@ async function execute(
   if (readback === null) throw new Error('Development commit readback receipt is absent.');
   const { disposition } = readback;
   journal = Object.freeze({ ...journal, terminal: disposition });
-  writeJournal(frozen.commonDirectory, journalPath, journal, false);
+  writeJournal(candidateDetails.commonDirectory, journalPath, journal, false);
   return Object.freeze({
     schema: 'sec-development-commit-result-v1',
     disposition,
@@ -545,9 +363,9 @@ async function execute(
 /** Canonical development.commit producer and public domain entrypoint. */
 export function runDevelopmentCommit(
   request: DevelopmentCommitRequest,
-  effectGrantReceipt: unknown
+  admission: DevelopmentCommitAdmission
 ): Promise<DevelopmentCommitResult> {
-  return execute(request, effectGrantReceipt, Object.freeze({}));
+  return execute(request, admission, Object.freeze({}));
 }
 
 async function recoverDevelopmentCommitWithReadback(input: Readonly<{
@@ -626,10 +444,13 @@ export async function runDevelopmentCommitRecoveryCommand(args: readonly string[
 /** A successor attempt exists only after independent not-applied readback. */
 export async function retryDevelopmentCommit(input: Readonly<{
   readonly request: DevelopmentCommitRequest;
-  readonly effectGrantReceipt: unknown;
+  readonly admission: DevelopmentCommitAdmission;
   readonly recovery: DevelopmentCommitRecovery;
 }>): Promise<DevelopmentCommitResult> {
-  const authorityGrantDigest: SecOperationDigest = requireUpstreamDevelopmentCommitEffectGrant(input.effectGrantReceipt);
+  const admitted = consumeDevelopmentCommitAdmission({
+    admission: input.admission,
+    request: input.request
+  });
   const recoveredProjection = ISSUED_DEVELOPMENT_COMMIT_RECOVERIES.get(input.recovery);
   if (recoveredProjection === undefined) {
     throw new Error('Development commit retry requires an owner-issued recovery capability.');
@@ -639,48 +460,25 @@ export async function retryDevelopmentCommit(input: Readonly<{
   if (recovered.disposition !== 'not-applied') {
     throw new Error(`Development commit retry requires not-applied readback, got ${recovered.disposition}.`);
   }
-  ISSUED_DEVELOPMENT_COMMIT_RECOVERIES.delete(input.recovery);
-  const repositoryRoot = path.resolve(input.request.repositoryRoot);
+  const { candidate, candidateDetails, contract, operation } = admitted;
+  const repositoryRoot = candidate.repositoryRoot;
   const commonDirectory = Object.freeze({
     path: recoveredProjection.commonDirectory,
     providerIdentityDigest: recoveredProjection.providerIdentityDigest
   });
   const previous = readJournal(commonDirectory.path, recovered.journalPath);
-  const retryAdmissionDigest = sha256({
-    schema: 'sec-development-commit-retry-admission-v1',
-    previousOperation: previous.operation,
-    previousAttempt: previous.attempt,
-    disposition: recovered.disposition,
-    ref: previous.ref,
-    preimage: previous.preimage,
-    target: previous.target,
-    tree: previous.tree
-  }) as SecOperationDigest;
-  const contract: GitDevelopmentCommitContract = Object.freeze({
-    repositoryRoot,
-    worktreeRoot: repositoryRoot,
-    ref: previous.ref,
-    expectedOld: previous.preimage,
-    target: previous.target,
-    tree: previous.tree,
-    parents: Object.freeze([previous.preimage]),
-    message: input.request.message,
-    author: input.request.author,
-    committer: input.request.committer,
-    signing: 'disabled',
-    hooks: 'disabled',
-    preflightReceiptDigest: retryAdmissionDigest
-  });
-  const operation = bindGitDevelopmentCommitOperation({
-    intent: compileCommitIntent(contract),
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest }),
-    providerIdentityDigest: commonDirectory.providerIdentityDigest,
-    deadlineAtUnixMs: Date.now() + 30_000
-  });
+  if (commonDirectory.path !== candidateDetails.commonDirectory
+      || commonDirectory.providerIdentityDigest !== candidateDetails.providerIdentityDigest
+      || previous.ref !== candidate.ref
+      || previous.preimage !== candidate.preimage
+      || previous.target !== candidate.target
+      || previous.tree !== candidate.tree) {
+    throw new Error('Development commit retry admission does not bind the recovered attempt.');
+  }
   const journalPath = path.join(
     commonDirectory.path,
     JOURNAL_DIRECTORY,
-    `${previous.attempt.slice('sha256:'.length)}.retry.json`
+    `${operation.plan.attempt.attemptNonceDigest.slice('sha256:'.length)}.retry.json`
   );
   let journal: Journal = Object.freeze({
     schema: JOURNAL_SCHEMA,
@@ -693,7 +491,6 @@ export async function retryDevelopmentCommit(input: Readonly<{
     tree: previous.tree,
     terminal: null
   });
-  writeJournal(commonDirectory.path, journalPath, journal, true);
   const resolution = createAuthorityGitReadSession({
     cwd: repositoryRoot,
     operation,
@@ -711,6 +508,13 @@ export async function retryDevelopmentCommit(input: Readonly<{
   let retrySettlement: SecProviderSettlementSet | null = null;
   let retryReadback: DevelopmentCommitReadbackReceipt | null = null;
   try {
+    await assertDevelopmentCommitCandidateCurrent({
+      candidate,
+      request: input.request,
+      session: resolution.session
+    });
+    ISSUED_DEVELOPMENT_COMMIT_RECOVERIES.delete(input.recovery);
+    writeJournal(commonDirectory.path, journalPath, journal, true);
     const refSettlement = await compareAndSwapAuthorityDevelopmentCommitRef({ gitReadSession: resolution.session, contract });
     retrySettlement = compileSecProviderSettlementSet(operation, [
       settleGitDevelopmentCommitOperation(operation, refSettlement)
@@ -742,8 +546,8 @@ export async function retryDevelopmentCommit(input: Readonly<{
 /** Test-only timing seam; it cannot bypass admission, authorization or readback. */
 export function runDevelopmentCommitForTests(
   request: DevelopmentCommitRequest,
-  effectGrantReceipt: unknown,
+  admission: DevelopmentCommitAdmission,
   hooks: CommitTestHooks
 ): Promise<DevelopmentCommitResult> {
-  return execute(request, effectGrantReceipt, hooks);
+  return execute(request, admission, hooks);
 }

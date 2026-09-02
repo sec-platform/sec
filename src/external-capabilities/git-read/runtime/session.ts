@@ -571,6 +571,7 @@ const GIT_READ_ONLY_COMMANDS = new Set([
   'show',
   'status',
   'symbolic-ref',
+  'var',
   'worktree'
 ]);
 
@@ -696,6 +697,10 @@ function gitReadCommandIsObservation(args: readonly string[]): boolean {
       || !argument.startsWith('-')
     ));
   }
+  if (command === 'var') {
+    return commandArgs.length === 1
+      && (commandArgs[0] === 'GIT_AUTHOR_IDENT' || commandArgs[0] === 'GIT_COMMITTER_IDENT');
+  }
   if (command === 'show') {
     return commandArgs.length === 1 && !commandArgs[0]!.startsWith('-');
   }
@@ -748,7 +753,7 @@ function gitReadCommandIsObservation(args: readonly string[]): boolean {
     return commandArgs.every((argument) => allowed.has(argument) || !argument.startsWith('-'));
   }
   if (command === 'rev-list') {
-    const allowed = new Set(['--parents', '-n', '1', '--count', '--not']);
+    const allowed = new Set(['--parents', '--walk-reflogs', '-n', '1', '--count', '--not']);
     return commandArgs.every((argument) => allowed.has(argument) || !argument.startsWith('-'));
   }
   return false;

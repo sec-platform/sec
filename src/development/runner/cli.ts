@@ -185,7 +185,7 @@ async function main(): Promise<void> {
   assertCanonicalBunPackageRunner(runtimeProjection.version);
 
   if (target === 'commit') {
-    const { runDevelopmentCommitCommand } = await import('../commit/effect-grant.ts');
+    const { runDevelopmentCommitCommand } = await import('./commit-command.ts');
     process.exitCode = await runDevelopmentCommitCommand(args);
     return;
   }
