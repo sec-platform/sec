@@ -567,6 +567,7 @@ const GIT_READ_ONLY_COMMANDS = new Set([
   'diff-files',
   'diff-index',
   'for-each-ref',
+  'grep',
   'ls-files',
   'ls-remote',
   'ls-tree',
@@ -650,6 +651,39 @@ function gitReadCommandIsObservation(args: readonly string[]): boolean {
     return (commandArgs.length === 1 && commandArgs[0] === '--batch')
       || (commandArgs.length === 2
         && ['-e', '-s', '-t', 'blob', 'commit'].includes(commandArgs[0]!));
+  }
+  if (command === 'grep') {
+    let patternCount = 0;
+    let revisionCount = 0;
+    let separatorIndex = -1;
+    for (let index = 0; index < commandArgs.length; index += 1) {
+      const argument = commandArgs[index]!;
+      if (argument === '--') {
+        if (separatorIndex !== -1) return false;
+        separatorIndex = index;
+        continue;
+      }
+      if (separatorIndex !== -1) {
+        if (argument !== '.') return false;
+        continue;
+      }
+      if (argument === '-e') {
+        const pattern = commandArgs[index + 1];
+        if (pattern === undefined || pattern.length === 0 || pattern.includes('\0')) return false;
+        patternCount += 1;
+        index += 1;
+        continue;
+      }
+      if (argument === '-l' || argument === '-F' || argument === '-z') continue;
+      if (argument.startsWith('-')) return false;
+      if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(argument)) return false;
+      revisionCount += 1;
+    }
+    return patternCount > 0
+      && revisionCount === 1
+      && separatorIndex >= 0
+      && separatorIndex === commandArgs.length - 2
+      && commandArgs.at(-1) === '.';
   }
   if (command === 'check-attr') {
     return commandArgs.length === 6
