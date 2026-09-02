@@ -53,6 +53,7 @@ test('CI orchestration Git observations ignore ambient repository redirection', 
     process.env.GIT_DIR = path.join(repositoryRoot, 'nonexistent-ambient.git');
 
     await withAuthorityGitReadSession({ cwd: repositoryRoot, budget: {} }, async (session) => {
+      const admittedExecutableBytes = session.executableBytes;
       expect(await CodexDevelopmentDefaultGitRevision(session, 'HEAD')).toBe(headSha);
       expect(await CodexDevelopmentDefaultTrackedTreeIsClean(session)).toBe(true);
       const changed = await CodexDevelopmentDefaultChangedPaths(session, baseSha, headSha);
@@ -63,6 +64,7 @@ test('CI orchestration Git observations ignore ambient repository redirection', 
         headMode: null,
         headBlobSha: null
       })]);
+      expect(session.executableBytes).toBe(admittedExecutableBytes);
     });
   } finally {
     if (previousGitDir === undefined) delete process.env.GIT_DIR;

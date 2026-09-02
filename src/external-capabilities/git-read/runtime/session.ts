@@ -1355,33 +1355,21 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
     }
     try {
       if (gitPhysicalProvider === null) throw new Error('Git physical provider is unavailable.');
+      // Executable bytes are a capability-admission resource, not a
+      // per-command transport resource. The provider retains the exact leaf
+      // for this whole session (writer/delete exclusion on Windows; sealed
+      // executable image plus lexical witness on Linux), so its one content
+      // proof remains current while this handle/metadata/lexical fence holds.
       assertGitPhysicalProviderCurrentInternal(gitPhysicalProvider);
     } catch (error) {
       fail('command-error', `The retained Git executable changed. ${error instanceof Error ? error.message : String(error)}`);
       return false;
     }
-    const current = gitExecutable === null ? null : inspectGitExecutable(gitExecutable, {
-      deadlineAtMs: deadlineMonotonicAt,
-      maxBytes: budget.maxExecutableBytes - executableBytes
-    });
-    if (current !== null && 'bytes' in current) executableBytes += current.bytes;
     if (Date.now() >= deadlineAt || performance.now() > deadlineMonotonicAt) {
       fail('deadline-exhausted', 'Git read session deadline elapsed after executable verification.');
       return false;
     }
-    const stable = current !== null
-      && 'identity' in current
-      && sameGitExecutableIdentity(gitExecutableIdentity, current.identity);
-    if (!stable) {
-      if (current !== null && 'reason' in current && current.reason === 'budget') {
-        fail('executable-budget-exhausted', 'Git executable verification exceeded the executable-byte budget.');
-      } else if (current !== null && 'reason' in current && current.reason === 'deadline') {
-        fail('deadline-exhausted', 'Git executable verification exceeded the read-session deadline.');
-      } else {
-        fail('command-error', 'The trusted Git executable physical identity or digest changed.');
-      }
-    }
-    return stable;
+    return true;
   };
 
   let authorizedScratchInvocation: Readonly<{
