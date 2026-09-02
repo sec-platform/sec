@@ -16,6 +16,7 @@ import {
 
 export const DOCUMENTATION_MIGRATION_DESIGN_SCHEMA =
   'sec-documentation-migration-design' as const;
+export const DOCUMENTATION_MIGRATION_SOURCE_PROVIDER_REF = 'git' as const;
 
 type Digest = `sha256:${string}`;
 
@@ -373,6 +374,12 @@ export function deriveDocumentationMigrationGenerationBinding(input: Readonly<{
     'generationBinding.revisionOrSnapshotRef'
   );
   const observationEpoch = token(input.observationEpoch, 'generationBinding.observationEpoch');
+  if (providerRef !== DOCUMENTATION_MIGRATION_SOURCE_PROVIDER_REF) {
+    fail('generation binding provider is not the canonical documentation source provider.');
+  }
+  if (revisionOrSnapshotRef !== generationRef || observationEpoch !== generationRef) {
+    fail('generation binding snapshot and observation epoch must match the generation reference.');
+  }
   if (input.sourceGraph.trustedTree !== generationRef) {
     fail('source graph is bound to a different generation reference.');
   }
