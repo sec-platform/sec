@@ -75,7 +75,7 @@ Agent 可以提出 Hypothesis、编译计划、请求观察、执行已授权 Ef
 | AP-RECOVER | 失败先分类 root cause、owner、stale facts；retry 需要新因果或 admission | `retry⇒changedInput∨retryAdmission` | failure + readback → resume/retry/block | `unclassified-retry` |
 | AP-CONTINUE | 已授权目标未 terminal 且有合法下一步时持续推进 | `authorized∧¬terminal∧next≠∅⇒continue` | operation state → next action | `premature-stop` |
 | AP-KNOWLEDGE | 可计算判断进入唯一 machine owner；不可计算部分才保留 heuristic | `machineDecidable(x)⇒machineOwned(x)` | repeated judgment + model → compiler/heuristic split | `heuristic-duplication` |
-| AP-EVOLVE | 反例使依赖前提整体stale；先分类首个缺失边界，再修canonical generator、回扫受影响宇宙并退役局部补丁 | `counterexample⇒assimilate(firstMissingBoundary)∧stale(reverseClosure(premise))` | minimal property trace + graph → assimilation receipt + evolution delta | `patch-on-invalid-model` |
+| AP-EVOLVE | 设计反例使依赖前提整体stale；先分类首个缺失边界，再修design generator、回扫受影响宇宙并退役局部补丁；不得把该方法lower进产品runtime | `designCounterexample⇒assimilateDesign(firstMissingBoundary)∧stale(reverseClosure(premise))` | minimal property trace + design graph → assimilation record + evolution delta | `patch-on-invalid-model` |
 | AP-CONTEXT | context loss 后从 durable facts 和 live boundary 恢复，不从摘要恢复 authority | `resumeFacts⊆durable∨live` | locators + observations → re-admission | `summary-authority` |
 | AP-COMMUNICATE | 明确区分 current、target、proposal、unknown、verified、terminal | `projection preserves statement kinds` | internal state → user projection | `status-conflation` |
 | AP-ECONOMY | 持续删除重复scan、state、owner、test、context、retry和等待；在满足更高优先级约束的legal actions中选择生命周期成本非支配动作 | `¬∃a∈legalActions: dominates(a,next)` | measured lifecycle cost vectors + complete legal actions → selected/frontier | `dominated-workflow` |

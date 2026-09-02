@@ -216,7 +216,9 @@ invalidate(premise, observation):
 
 ### 11.5 反例吸收与全域回扫
 
-反例传播只使旧结论失效；反例吸收必须修正“为什么系统先前没有生成该义务”。每个新反例先最小化为一个可重放的property trace，再且仅归入下列首个真实缺口：
+本节只约束Design Calculus的authoring/evolution与设计者/Agent行为；它不是产品capability、DomainOperation、runtime workflow、Effect admission或业务完成条件，也不得被lower进目标系统。目标系统的完整性仍由已冻结的semantic origin、contract lowering、conformance与admission保证，不能依赖未来设计者发现反例。
+
+反例传播只使旧结论失效；反例吸收必须修正“为什么设计方法先前没有生成该义务”。每个新反例先最小化为一个可重放的property trace，再且仅归入下列首个真实缺口：
 
 | Gap class | 失败事实 | 必须修正的唯一owner | 全域回扫输入 |
 | --- | --- | --- | --- |
@@ -229,7 +231,7 @@ invalidate(premise, observation):
 | `evolution-gap` | 新设计已闭合，但旧writer/reader/route/state仍active | Change Management + state owner | generations、consumers、durable residue与rollback paths |
 
 ```text
-assimilate(counterexample):
+assimilateDesignCounterexample(counterexample):
   witness := minimizeToPropertyTrace(counterexample)
   gap := classifyFirstMissingBoundary(witness)
   repairCanonicalGenerator(gap.owner, witness)
@@ -238,7 +240,7 @@ assimilate(counterexample):
   results := recompileAndScan(affected exact universe)
   require every result in satisfied | violated(code) | bounded-unknown(frontier)
   retire local checks, mirrors and superseded generations
-  publish CounterexampleAssimilationReceipt(witness, gap, affected, results)
+  publish DesignCounterexampleAssimilationRecord(witness, gap, affected, results)
 ```
 
 ```mermaid
@@ -253,7 +255,7 @@ flowchart LR
   R --> T[Retire local patches and old generation]
 ```
 
-禁止把每个反例追加成提示词、Skill条款、手写测试清单或单点`if`；它们只能是吸收前的witness。若反例可由现有模型表达却未被当前operation看到，必须修`universe/applicability`而不是扩充ontology。若新区别确实独立改变admission、authority、lifecycle、invalidation、consumer visibility或用户结果，才允许`expression-gap`演进meta-model。开放世界仍保留exact unknown frontier；系统可证明的是声明宇宙内生成与回扫完备，不得把有限coverage夸成已穷尽现实的一切。
+禁止把每个反例追加成提示词、Skill条款、手写测试清单或单点`if`；它们只能是吸收前的witness。若反例可由现有模型表达却未被设计编译过程看到，必须修`universe/applicability`而不是扩充ontology。若新区别确实独立改变admission、authority、lifecycle、invalidation、consumer visibility或用户结果，才允许`expression-gap`演进meta-model。开放世界仍保留exact unknown frontier；设计方法可证明的是声明宇宙内生成与回扫完备，不得把有限coverage夸成已穷尽现实的一切。
 
 ## 12. 设计完成
 
@@ -274,7 +276,7 @@ DesignClosed =
   ∧ every future abstraction has accepted obligation or is removed
   ∧ every authored/public node has an existence proof and deletion counterfactual
   ∧ all fault families applicable to the graph have expected outcomes
-  ∧ every accepted counterexample has a classified assimilation receipt and affected-universe rescan
+  ∧ every accepted design counterexample has a classified assimilation record and affected-universe rescan
   ∧ active meta-model/compiler satisfies ArchitectureMetaValidationClosure
   ∧ safety/liveness/determinism/recovery/evolution/economy are checked
   ∧ project projections reference rather than copy this calculus
