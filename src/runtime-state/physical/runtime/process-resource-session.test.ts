@@ -32,9 +32,11 @@ import {
   retainNoFollowOrdinaryFile
 } from './physical-no-follow.ts';
 import {
+  assertProcessResourceRunResult,
   assertProcessResourceSession,
   assertProcessResourceSessionReceipt,
   openProcessResourceSession,
+  type ProcessResourceRunResult,
   type ProcessResourceSessionReceipt
 } from './process-resource-session.ts';
 import {
@@ -272,6 +274,55 @@ test('process sessions require one process Effect and complete bound resource ce
       boundAttemptDigest: operation.boundAttemptDigest,
       requirementId: operation.plan.execution.requirements[0]!.id
     });
+    const expectedRunBinding = {
+      operationIdentityDigest: operation.plan.identity.identityDigest,
+      boundAttemptDigest: operation.boundAttemptDigest,
+      requirementId: operation.plan.execution.requirements[0]!.id
+    } as const;
+    expect(Object.isFrozen(first)).toBeTrue();
+    expect(Object.isFrozen(first.result)).toBeTrue();
+    expect(() => assertProcessResourceRunResult(first, receipt, {
+      ...expectedRunBinding,
+      ordinal: 1
+    })).not.toThrow();
+    expect(() => assertProcessResourceRunResult(second, receipt, {
+      ...expectedRunBinding,
+      ordinal: 2
+    })).not.toThrow();
+    expect(() => assertProcessResourceRunResult(
+      structuredClone(first) as ProcessResourceRunResult,
+      receipt,
+      expectedRunBinding
+    )).toThrow(/owner-issued exact result/u);
+
+    const foreignOperation = boundOperation({ label: 'foreign-run-result-session' });
+    const foreignSession = openProcessResourceSession({
+      operation: foreignOperation,
+      requirementBindingContext: requirementBindingContext(foreignOperation)
+    });
+    const foreignRun = await foreignSession.run(retained.boundary, [
+      '--no-env-file',
+      '--eval',
+      "process.stdout.write('x')"
+    ], { maxStderrBytes: 0, maxStdoutBytes: 1 });
+    const foreignReceipt = foreignSession.close();
+    expect(() => assertProcessResourceRunResult(
+      first,
+      foreignReceipt,
+      expectedRunBinding
+    )).toThrow(/different sessions/u);
+    expect(() => assertProcessResourceRunResult(
+      foreignRun,
+      receipt,
+      expectedRunBinding
+    )).toThrow(/different sessions/u);
+
+    first.result.stdout[0] = 9;
+    expect(() => assertProcessResourceRunResult(
+      first,
+      receipt,
+      expectedRunBinding
+    )).toThrow(/output identity changed/u);
     expect(() => assertProcessResourceSessionReceipt(
       structuredClone(receipt) as ProcessResourceSessionReceipt
     )).toThrow(/owner-issued terminal receipt/u);
