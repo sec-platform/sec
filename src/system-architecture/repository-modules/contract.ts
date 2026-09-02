@@ -195,8 +195,11 @@ export type SecRepositoryModuleBoundaryViolationCode =
   | 'product-no-codex-control-plane'
   | 'repository-module-internal-cycle'
   | 'repository-node-responsibility-reverse-dependency'
-  | 'repository-node-responsibility-unresolved'
   | 'repository-module-surface-unresolved'
+  | 'repository-effectful-declaration-responsibility-unresolved'
+  | 'repository-placement-proposal-dominated'
+  | 'repository-placement-proposal-unresolved'
+  | 'repository-public-declaration-responsibility-unresolved'
   | 'repository-module-role-reverse-dependency'
   | 'repository-module-role-unresolved'
   | 'pre-dependency-bootstrap-unavailable-package'
@@ -205,7 +208,6 @@ export type SecRepositoryModuleBoundaryViolationCode =
   | 'repository-entrypoint-not-declared'
   | 'semantic-foundations-no-reverse-mutation-deps'
   | 'semantic-mutation-no-upward-layer-deps'
-  | 'verification-evidence-no-child-runner'
   | 'unowned-production-source';
 
 export type SecRepositoryModuleBoundaryViolation = Readonly<{
@@ -250,11 +252,15 @@ export type SecRepositoryModuleSourceProgramFacts = Readonly<{
     readonly observationClass: 'observed' | 'derived' | 'unknown';
   }>[];
   readonly capabilities?: readonly Readonly<{
+    readonly observationId?: string;
     readonly path?: string;
     readonly moduleId: string | null;
     readonly surface: 'production' | 'test' | 'fixture' | 'workflow' | 'resource';
     readonly capability?: string;
     readonly operation?: string;
+    readonly owningDeclarationObservationId?: string | null;
+    readonly providerCapability?: string | null;
+    readonly providerModuleId?: string | null;
     readonly transport: string;
     readonly observationClass: 'observed' | 'derived' | 'unknown';
   }>[];
@@ -264,7 +270,15 @@ export type SecRepositoryModuleSourceProgramFacts = Readonly<{
     readonly path: string;
     readonly moduleId: string | null;
     readonly name: string;
+    readonly kind?: string;
     readonly exported: boolean;
+  }>[];
+  readonly references?: readonly Readonly<{
+    readonly path: string;
+    readonly sourceObservationId: string | null;
+    readonly targetObservationId: string | null;
+    readonly targetPath: string | null;
+    readonly observationClass: 'observed' | 'derived' | 'unknown';
   }>[];
   readonly responsibilityEvidence?: readonly Readonly<{
     readonly bindingId: string;
@@ -1753,10 +1767,6 @@ function collectRepositoryImportPolicyViolations(
       && COMPILER_INTERNAL_FACADE_AREAS.has(target.area)) {
     add('platform-compiler-facade-boundary');
   }
-  if (source.path === 'src/compiler/verify/semantic-mutation-isolated-verification-evidence.ts'
-      && target.path === 'src/compiler/verify/run-semantic-mutation-isolated-child.ts') {
-    add('verification-evidence-no-child-runner');
-  }
   if (source.domain === 'compiler'
       && source.area === 'semantic-mutation'
       && (target.domain === 'workspace'
@@ -2021,7 +2031,7 @@ function compileRepositoryNodeResponsibilities(
   }));
 }
 
-function repositoryNodeDependencyAllowed(
+export function isSecRepositoryNodeDependencyAllowed(
   from: SecRepositoryNodeResponsibility,
   to: SecRepositoryNodeResponsibility
 ): boolean {
@@ -2170,7 +2180,7 @@ export function compileSecRepositoryModuleArchitectureProjection(
     if (from === undefined || to === undefined
         || from.responsibility === 'unknown'
         || to.responsibility === 'unknown') continue;
-    if (!repositoryNodeDependencyAllowed(from.responsibility, to.responsibility)) {
+    if (!isSecRepositoryNodeDependencyAllowed(from.responsibility, to.responsibility)) {
       violations.push(Object.freeze({
         code: 'repository-node-responsibility-reverse-dependency',
         from: from.path,
@@ -2178,15 +2188,6 @@ export function compileSecRepositoryModuleArchitectureProjection(
         detail: `${from.moduleId}:${from.responsibility} depends on ${to.moduleId}:${to.responsibility}`
       }));
     }
-  }
-  for (const node of nodeResponsibilities) {
-    if (node.responsibility !== 'unknown') continue;
-    violations.push(Object.freeze({
-      code: 'repository-node-responsibility-unresolved',
-      from: node.path,
-      to: node.moduleId,
-      detail: `${node.path} has no unique responsibility; reason=${node.reason}; evidence=${node.evidenceDigest}`
-    }));
   }
   const uniqueViolations = new Map<string, SecRepositoryModuleBoundaryViolation>();
   for (const violation of violations) {

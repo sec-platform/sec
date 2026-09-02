@@ -767,12 +767,7 @@ test('cross-owner aggregate facades are TypeScript facts rather than index filen
     sourceProgramFacts
   );
   expect(implementationProjection.aggregateFacadePaths).toEqual([]);
-  expect(implementationProjection.violations.filter(({ code }) => (
-    code !== 'repository-node-responsibility-unresolved'
-  ))).toEqual([]);
-  expect(implementationProjection.violations.filter(({ code }) => (
-    code === 'repository-node-responsibility-unresolved'
-  ))).toHaveLength(4);
+  expect(implementationProjection.violations).toEqual([]);
 });
 
 test('pre-dependency entrypoints cannot import an unavailable package', () => {
@@ -1061,8 +1056,7 @@ test('repository architecture derives one node responsibility and rejects revers
       ['src/operation/execute.ts', 'operation'],
       ['src/workflow/run.ts', 'workflow']
     ]);
-  expect(valid.violations.filter(({ code }) => code === 'repository-node-responsibility-unresolved'))
-    .toHaveLength(2);
+  expect(valid.violations).toEqual([]);
 
   const reversed = compile("export { readClock } from '../capability/clock.ts';");
   expect(reversed.violations).toContainEqual(expect.objectContaining({
@@ -1112,10 +1106,7 @@ test('package role claims cannot change node responsibility authority', () => {
       reason: 'responsibility-evidence-unresolved'
     })
   ]);
-  expect(projection.violations).toContainEqual(expect.objectContaining({
-    code: 'repository-node-responsibility-unresolved',
-    from: 'src/example/value.ts'
-  }));
+  expect(projection.violations).toEqual([]);
 });
 
 test('source-program ownership excludes colocated tests and binds public entrypoints to descriptors', () => {
