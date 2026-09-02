@@ -3,6 +3,13 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
+import {
+  executeGitHubApiOperation,
+  inspectGitHubApiCapability,
+  withGitHubApiMergeWriteSession,
+  withGitHubApiStatusWriteSession,
+  type GitHubApiCapability
+} from '../../external-capabilities/github-api/operation-session.ts';
 import { publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { runCommand } from '../../runtime-state/physical/runtime/process.ts';
 import { resolveSecRuntimeStateForRepository } from '../../runtime-state/workspace-state/paths.ts';
@@ -36,7 +43,6 @@ import {
 import { renderIndependentReviewTrailer } from '../../verification/review/contract/stability.ts';
 import { createTrustedRuntimeHostCommandEnvironment, createTrustedRuntimeMainHealthBaselineObservation, createTrustedRuntimeMainHealthReceipt, executeTrustedRuntimeContainerVerification, executeTrustedRuntimeMainHealth, executeTrustedRuntimeWorkspaceCanary, parseTrustedRuntimeContainerReceipt, parseTrustedRuntimeMainHealthReceipt, TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT, TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST, trustedRuntimeMainHealthCarryForwardBaselineMatches, type TrustedRuntimeContainerReceipt, type TrustedRuntimeMainHealthReceipt } from '../../verification/trusted-runtime/trusted-runtime-container.ts';
 import {
-  dispatchGitHubApiRequest,
   integrationAuthorizationStatusMergeMarkers,
   parseIntegrationAuthorizationStatusPublication,
   publishIntegrationAuthorizationStatus
@@ -92,7 +98,7 @@ type TrustedRuntimeCloseoutPreMerge = Readonly<{
   mainHealthAuthority: SecRuntimeStatePhysicalAuthority;
   mainHealthDirectory: PhysicalDirectoryIdentity;
   actionEvidenceReused: boolean;
-  token: string;
+  integrationPrincipal: Readonly<{ login: string; nodeId: string }>;
   title: string;
   message: string;
   manifestPath: string;
@@ -742,29 +748,16 @@ async function mergeExactHead(input: Readonly<{
   headSha: string;
   title: string;
   message: string;
-  token: string;
+  capability: GitHubApiCapability;
 }>): Promise<ReturnType<typeof parseHostedSynchronousSquashMergeResponse>> {
-  const response = await dispatchGitHubApiRequest(
-    `https://api.github.com/repos/${input.repository}/pulls/${input.prNumber}/merge`, {
-    method: 'PUT',
-    headers: {
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${input.token}`,
-      'Content-Type': 'application/json',
-      'User-Agent': 'sec-trusted-runtime-closeout-v1',
-      'X-GitHub-Api-Version': '2022-11-28'
-    },
-    body: JSON.stringify({
-      sha: input.headSha,
-      merge_method: 'squash',
-      commit_title: input.title,
-      commit_message: input.message
-    })
-    }
-  );
-  const source = await response.text();
-  if (!response.ok) fail(`exact-head merge failed with HTTP ${response.status}: ${source.slice(-2048)}`);
-  return parseHostedSynchronousSquashMergeResponse(source);
+  const response = await executeGitHubApiOperation(input.capability, {
+    kind: 'merge-pull',
+    pullRequestNumber: input.prNumber,
+    headSha: input.headSha,
+    title: input.title,
+    message: input.message
+  });
+  return parseHostedSynchronousSquashMergeResponse(JSON.stringify(response));
 }
 
 async function finalizeMergedTrustedRuntime(input: Readonly<{
@@ -1361,17 +1354,22 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
       Buffer.from(bytes).toString('utf8')
     )
   });
-  const token = await tool('gh', ['auth', 'token'], repositoryRoot, true);
-  const viewer = JSON.parse(await tool('gh', ['api', 'user'], repositoryRoot)) as Record<string, unknown>;
-  if (viewer.login !== principal.login || !Number.isSafeInteger(viewer.id) || Number(viewer.id) < 1) {
-    fail('GitHub token principal differs from the observed maintainer');
-  }
-  const publication = await publishIntegrationAuthorizationStatus({
-    result: gateReadback,
-    token,
-    targetUrl: `https://github.com/${input.repository}/pull/${input.prNumber}`,
-    principal: { creatorLogin: principal.login, creatorId: Number(viewer.id) },
-    fetchImpl: dispatchGitHubApiRequest
+  const publication = await withGitHubApiStatusWriteSession({
+    repositoryRoot,
+    repository: input.repository,
+    operation: async (capability) => {
+      const capabilityPrincipal = inspectGitHubApiCapability(capability).principal;
+      if (capabilityPrincipal.login !== principal.login
+          || capabilityPrincipal.nodeId !== principal.nodeId
+          || capabilityPrincipal.userId === null) {
+        fail('GitHub status capability principal differs from the observed maintainer');
+      }
+      return await publishIntegrationAuthorizationStatus({
+        result: gateReadback,
+        targetUrl: `https://github.com/${input.repository}/pull/${input.prNumber}`,
+        capability
+      });
+    }
   });
   const statusReadback = publishCanonical({
     parent: stateDirectory,
@@ -1448,7 +1446,7 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
     mainHealthAuthority,
     mainHealthDirectory,
     actionEvidenceReused: existingAction !== null,
-    token,
+    integrationPrincipal: Object.freeze({ login: principal.login, nodeId: principal.nodeId }),
     title,
     message,
     manifestPath,
@@ -1463,13 +1461,24 @@ async function executeTrustedRuntimeCloseoutMergeEffect(
   let providerMergeCommitSha: string | null = null;
   let mergeFailure: unknown = null;
   try {
-    providerMergeCommitSha = (await mergeExactHead({
+    providerMergeCommitSha = (await withGitHubApiMergeWriteSession({
+      repositoryRoot: preMerge.repositoryRoot,
       repository: preMerge.repository,
-      prNumber: preMerge.prNumber,
-      headSha: preMerge.candidate.headSha,
-      title: preMerge.title,
-      message: preMerge.message,
-      token: preMerge.token
+      operation: async (capability) => {
+        const principal = inspectGitHubApiCapability(capability).principal;
+        if (principal.login !== preMerge.integrationPrincipal.login
+            || principal.nodeId !== preMerge.integrationPrincipal.nodeId) {
+          fail('GitHub merge capability principal differs from status publication principal');
+        }
+        return await mergeExactHead({
+          repository: preMerge.repository,
+          prNumber: preMerge.prNumber,
+          headSha: preMerge.candidate.headSha,
+          title: preMerge.title,
+          message: preMerge.message,
+          capability
+        });
+      }
     })).sha;
   } catch (error) {
     mergeFailure = error;

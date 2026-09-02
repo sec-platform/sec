@@ -6,7 +6,7 @@
  * it is deliberately not represented as a compare-and-swap primitive.
  */
 
-import type { GitHubWorkflowJobObservation, GitHubWorkflowJobStepObservation, GitHubWorkflowRunObservation } from '../../external-capabilities/github-read/contract.ts';
+import type { GitHubWorkflowJobObservation, GitHubWorkflowJobStepObservation, GitHubWorkflowRunObservation } from '../../external-capabilities/github-api/contract.ts';
 import { encodeVerificationActionData } from '../../verification/action/contract/action.ts';
 import { matchesCiWorkflowRunIdentity } from '../../verification/action/contract/provider.ts';
 import {

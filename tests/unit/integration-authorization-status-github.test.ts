@@ -2,7 +2,6 @@ import { expect, test } from 'bun:test';
 
 import { createIntegrationAuthorization } from '../../src/control/integration/authorization.ts';
 import {
-  canonicalGitHubApiTarget,
   createIntegrationAuthorizationStatusDescription,
   createIntegrationAuthorizationStatusPublication,
   parseIntegrationAuthorizationGateResult,
@@ -10,26 +9,16 @@ import {
   publishIntegrationAuthorizationStatus,
   type IntegrationAuthorizationGateResult
 } from '../../src/control/integration/integration-authorization-status-github.ts';
+import {
+  issueGitHubApiTestCapability,
+  withGitHubApiTestSession,
+  type GitHubApiTransport
+} from '../../src/external-capabilities/github-api/operation-session.ts';
 import { encodeVerificationActionData } from '../../src/verification/action/contract/action.ts';
 
 const D = (char: string): `sha256:${string}` => `sha256:${char.repeat(64).slice(0, 64)}`;
 const BASE = '1'.repeat(40);
 const HEAD = '2'.repeat(40);
-
-test('canonical GitHub network target is origin-confined before any effect', () => {
-  expect(canonicalGitHubApiTarget('https://api.github.com/repos/sec-platform/sec').href)
-    .toBe('https://api.github.com/repos/sec-platform/sec');
-  for (const target of [
-    'http://api.github.com/repos/sec-platform/sec',
-    'https://api.github.com.evil.example/repos/sec-platform/sec',
-    'https://user:secret@api.github.com/repos/sec-platform/sec',
-    'https://api.github.com/repos/sec-platform/sec#credential-fragment'
-  ]) {
-    expect(() => canonicalGitHubApiTarget(target)).toThrow(
-      'only permits credential-free https://api.github.com targets'
-    );
-  }
-});
 
 function result(): IntegrationAuthorizationGateResult {
   return {
@@ -127,7 +116,7 @@ test('gate-result parser fails closed on unknown transport schema', () => {
 
 function githubProviderFetch(defaultBranches: readonly string[]): Readonly<{
   calls: string[];
-  fetchImpl: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+  fetchImpl: GitHubApiTransport;
 }> {
   const calls: string[] = [];
   let repositoryReads = 0;
@@ -180,15 +169,35 @@ function githubProviderFetch(defaultBranches: readonly string[]): Readonly<{
   return Object.freeze({ calls, fetchImpl });
 }
 
+async function publishWithProvider(
+  provider: ReturnType<typeof githubProviderFetch>
+): Promise<Awaited<ReturnType<typeof publishIntegrationAuthorizationStatus>>> {
+  const capability = issueGitHubApiTestCapability({
+    repository: 'sec-platform/sec',
+    token: 'token-with-at-least-twenty-characters',
+    principal: {
+      transport: 'github-rest-token',
+      login: 'sec-integrator[bot]',
+      nodeId: 'MDQ6VXNlcjkwMDAwMQ==',
+      userId: 900001,
+      permission: 'maintain'
+    },
+    effect: 'status-write',
+    transport: provider.fetchImpl
+  });
+  return await withGitHubApiTestSession({
+    capability,
+    operation: async () => await publishIntegrationAuthorizationStatus({
+      result: result(),
+      targetUrl: 'https://github.com/sec-platform/sec/pull/496',
+      capability
+    })
+  });
+}
+
 test('terminal publisher binds both readbacks to the observed repository default branch', async () => {
   const provider = githubProviderFetch(['release/next', 'release/next']);
-  const publication = await publishIntegrationAuthorizationStatus({
-    result: result(),
-    token: 'token-with-at-least-twenty-characters',
-    targetUrl: 'https://github.com/sec-platform/sec/pull/496',
-    principal: { creatorLogin: 'sec-integrator[bot]', creatorId: 900001 },
-    fetchImpl: provider.fetchImpl
-  });
+  const publication = await publishWithProvider(provider);
   expect(publication.statusId).toBe(123);
   expect(provider.calls.filter((call) => call.includes('/branches/release%2Fnext'))).toHaveLength(2);
   expect(provider.calls.some((call) => call.includes('/branches/main'))).toBe(false);
@@ -196,11 +205,12 @@ test('terminal publisher binds both readbacks to the observed repository default
 
 test('terminal publisher rejects a default-branch change across the publication effect', async () => {
   const provider = githubProviderFetch(['release/next', 'other-default']);
-  await expect(publishIntegrationAuthorizationStatus({
-    result: result(),
-    token: 'token-with-at-least-twenty-characters',
-    targetUrl: 'https://github.com/sec-platform/sec/pull/496',
-    principal: { creatorLogin: 'sec-integrator[bot]', creatorId: 900001 },
-    fetchImpl: provider.fetchImpl
-  })).rejects.toThrow('authorization subject drifted at terminal status boundary');
+  await expect(publishWithProvider(provider))
+    .rejects.toThrow('authorization subject drifted at terminal status boundary');
+});
+
+test('terminal publisher domain parser rejects malformed external repository output', async () => {
+  const provider = githubProviderFetch(['']);
+  await expect(publishWithProvider(provider))
+    .rejects.toThrow('repository default branch must be bounded canonical text');
 });

@@ -1,0 +1,927 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
+import path from 'node:path';
+
+import { GITHUB_API_BASE_URL, GITHUB_HOST } from './contract.ts';
+import { GitHubCredentialUnavailableError, readGitHubToken } from './credential.ts';
+
+export type GitHubApiEffect = 'read' | 'status-write' | 'merge-write';
+
+export type GitHubApiTransport = (
+  input: string | URL,
+  init?: RequestInit
+) => Promise<Response>;
+
+export type GitHubApiPrincipal = Readonly<{
+  transport: 'github-rest-token';
+  login: string;
+  nodeId: string;
+  userId: number | null;
+  permission: 'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none';
+}>;
+
+declare const githubApiCapabilityBrand: unique symbol;
+
+/** Opaque, in-process authority. Credential and transport stay in this owner. */
+export type GitHubApiCapability = Readonly<{
+  readonly [githubApiCapabilityBrand]: true;
+}>;
+
+type GitHubApiCapabilityBinding = Readonly<{
+  repository: string;
+  token: string;
+  principal: GitHubApiPrincipal;
+  effect: GitHubApiEffect;
+  transport: GitHubApiTransport;
+  origin: 'production' | 'test';
+}>;
+
+type GitHubApiOperationBudget = {
+  readonly repositoryRoot: string;
+  readonly repository: string;
+  readonly effect: GitHubApiEffect;
+  readonly origin: 'production' | 'test';
+  readonly now: () => number;
+  readonly deadlineAt: number;
+  readonly maxSessions: number;
+  sessionCount: number;
+  requestCount: number;
+  requestBytes: number;
+  responseBytes: number;
+};
+
+type GitHubApiRequestSession = {
+  capability: GitHubApiCapability | undefined;
+  readonly repository: string;
+  readonly effect: GitHubApiEffect;
+  readonly origin: 'production' | 'test';
+  readonly operationBudget: GitHubApiOperationBudget | undefined;
+  readonly now: () => number;
+  readonly deadlineAt: number;
+  readonly abortController: AbortController;
+  readonly deadlineTimer: ReturnType<typeof setTimeout>;
+  phase: 'open' | 'settled';
+  inFlight: number;
+  requestCount: number;
+  requestBytes: number;
+  responseBytes: number;
+};
+
+export type GitHubApiOperation =
+  | Readonly<{ kind: 'current-user' }>
+  | Readonly<{ kind: 'repository' }>
+  | Readonly<{ kind: 'pull'; pullRequestNumber: number }>
+  | Readonly<{ kind: 'branch'; branch: string }>
+  | Readonly<{ kind: 'collaborator-permission'; login: string }>
+  | Readonly<{ kind: 'commit-statuses'; sha: string; page: number }>
+  | Readonly<{
+      kind: 'create-commit-status';
+      sha: string;
+      status: Readonly<{
+        state: 'success';
+        context: string;
+        description: string;
+        targetUrl: string;
+      }>;
+    }>
+  | Readonly<{ kind: 'effective-branch-rules'; branch: string; page: number }>
+  | Readonly<{ kind: 'ruleset'; rulesetId: number }>
+  | Readonly<{ kind: 'open-issues'; page: number }>
+  | Readonly<{ kind: 'issue'; issueNumber: number }>
+  | Readonly<{ kind: 'open-pulls'; baseBranch: string }>
+  | Readonly<{ kind: 'matching-head-refs'; page: number }>
+  | Readonly<{ kind: 'git-ref'; branch: string }>
+  | Readonly<{ kind: 'workflow-run'; runId: string }>
+  | Readonly<{ kind: 'check-runs'; sha: string; page: number }>
+  | Readonly<{ kind: 'control-inventory-open-counts' }>
+  | Readonly<{
+      kind: 'control-inventory-review-threads';
+      pullRequestNumber: number;
+      endCursor: string | null;
+    }>
+  | Readonly<{
+      kind: 'merge-pull';
+      pullRequestNumber: number;
+      headSha: string;
+      title: string;
+      message: string;
+    }>;
+
+type CompiledGitHubApiRequest = Readonly<{
+  method: 'GET' | 'POST' | 'PUT';
+  path: string;
+  body?: unknown;
+}>;
+
+const capabilityBindings = new WeakMap<object, GitHubApiCapabilityBinding>();
+const requestSession = new AsyncLocalStorage<GitHubApiRequestSession>();
+const operationBudget = new AsyncLocalStorage<GitHubApiOperationBudget>();
+
+const MAX_REQUESTS = 2_048;
+const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
+const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
+const MAX_READ_SESSIONS = 2;
+const MAX_TOKEN_BYTES = 1_024;
+export const GITHUB_API_REQUEST_TIMEOUT_MS = 30_000 as const;
+export const GITHUB_API_READ_OPERATION_TIMEOUT_MS = 600_000 as const;
+
+const OPEN_COUNTS_QUERY =
+  'query($owner:String!,$name:String!){repository(owner:$owner,name:$name){pullRequests(states:OPEN){totalCount}issues(states:OPEN){totalCount}}}';
+const REVIEW_THREADS_QUERY =
+  'query($owner:String!,$name:String!,$number:Int!,$endCursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){number reviewThreads(first:100,after:$endCursor){totalCount nodes{isResolved}pageInfo{hasNextPage endCursor}}}}}';
+
+export class GitHubApiProviderError extends Error {
+  readonly code: string = 'github-api-provider-unavailable';
+
+  constructor(message: string, readonly statusCode: number | null = null) {
+    super(message);
+    this.name = 'GitHubApiProviderError';
+  }
+}
+
+function repository(value: string): string {
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(value)) {
+    throw new GitHubApiProviderError('GitHub API repository must be an exact owner/name pair');
+  }
+  return value;
+}
+
+function positiveInteger(value: number, label: string): number {
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new GitHubApiProviderError(`GitHub API ${label} must be a positive safe integer`);
+  }
+  return value;
+}
+
+function page(value: number): number {
+  return positiveInteger(value, 'page');
+}
+
+function sha(value: string): string {
+  if (!/^[0-9a-f]{40}$/u.test(value)) {
+    throw new GitHubApiProviderError('GitHub API SHA must be a lowercase 40-character Git SHA');
+  }
+  return value;
+}
+
+function boundedText(value: string, label: string, maximum = 4096): string {
+  if (value.length === 0 || value.length > maximum || value.trim() !== value
+      || /[\u0000-\u001f\u007f]/u.test(value)) {
+    throw new GitHubApiProviderError(`GitHub API ${label} is not bounded canonical text`);
+  }
+  return value;
+}
+
+function boundedMultilineText(value: string, label: string, maximum: number): string {
+  if (value.length === 0 || value.length > maximum || value.trim() !== value
+      || /[\u0000-\u0009\u000b-\u001f\u007f]/u.test(value)) {
+    throw new GitHubApiProviderError(`GitHub API ${label} is not bounded canonical multiline text`);
+  }
+  return value;
+}
+
+function repositoryParts(value: string): Readonly<{ owner: string; name: string }> {
+  const [owner, name] = repository(value).split('/');
+  return Object.freeze({ owner: owner!, name: name! });
+}
+
+function canonicalTarget(pathname: string): URL {
+  const target = new URL(pathname, `${GITHUB_API_BASE_URL}/`);
+  if (target.protocol !== 'https:' || target.hostname !== 'api.github.com'
+      || target.port !== '' || target.username !== '' || target.password !== ''
+      || target.hash !== '') {
+    throw new GitHubApiProviderError(
+      'GitHub API operation only permits credential-free https://api.github.com targets'
+    );
+  }
+  return target;
+}
+
+function compileOperation(
+  repositoryName: string,
+  effect: GitHubApiEffect,
+  operation: GitHubApiOperation
+): CompiledGitHubApiRequest {
+  const repo = repository(repositoryName);
+  const read = (path: string, body?: unknown): CompiledGitHubApiRequest =>
+    Object.freeze({ method: body === undefined ? 'GET' as const : 'POST' as const, path, body });
+  switch (operation.kind) {
+    case 'current-user': return read('/user');
+    case 'repository': return read(`/repos/${repo}`);
+    case 'pull': return read(`/repos/${repo}/pulls/${positiveInteger(operation.pullRequestNumber, 'pull request number')}`);
+    case 'branch': return read(`/repos/${repo}/branches/${encodeURIComponent(boundedText(operation.branch, 'branch', 255))}`);
+    case 'collaborator-permission':
+      return read(`/repos/${repo}/collaborators/${encodeURIComponent(boundedText(operation.login, 'login', 64))}/permission`);
+    case 'commit-statuses':
+      return read(`/repos/${repo}/commits/${sha(operation.sha)}/statuses?per_page=100&page=${page(operation.page)}`);
+    case 'create-commit-status':
+      if (effect !== 'status-write') {
+        throw new GitHubApiProviderError('GitHub API status publication requires status-write authority');
+      }
+      return read(`/repos/${repo}/statuses/${sha(operation.sha)}`, Object.freeze({
+        state: operation.status.state,
+        context: boundedText(operation.status.context, 'status context', 100),
+        description: boundedText(operation.status.description, 'status description', 140),
+        target_url: boundedText(operation.status.targetUrl, 'status target URL', 512)
+      }));
+    case 'effective-branch-rules':
+      return read(`/repos/${repo}/rules/branches/${encodeURIComponent(boundedText(operation.branch, 'branch', 255))}?per_page=100&page=${page(operation.page)}`);
+    case 'ruleset':
+      return read(`/repos/${repo}/rulesets/${positiveInteger(operation.rulesetId, 'ruleset id')}?includes_parents=true`);
+    case 'open-issues': return read(`/repos/${repo}/issues?state=open&per_page=100&page=${page(operation.page)}`);
+    case 'issue': return read(`/repos/${repo}/issues/${positiveInteger(operation.issueNumber, 'issue number')}`);
+    case 'open-pulls': return read(`/repos/${repo}/pulls?state=open&base=${encodeURIComponent(boundedText(operation.baseBranch, 'base branch', 255))}&per_page=2&page=1`);
+    case 'matching-head-refs': return read(`/repos/${repo}/git/matching-refs/heads/?per_page=100&page=${page(operation.page)}`);
+    case 'git-ref': return read(`/repos/${repo}/git/ref/heads/${encodeURIComponent(boundedText(operation.branch, 'branch', 255))}`);
+    case 'workflow-run':
+      if (!/^[1-9][0-9]*$/u.test(operation.runId)) {
+        throw new GitHubApiProviderError('GitHub API workflow run id is invalid');
+      }
+      return read(`/repos/${repo}/actions/runs/${operation.runId}`);
+    case 'check-runs': return read(`/repos/${repo}/commits/${sha(operation.sha)}/check-runs?per_page=100&page=${page(operation.page)}`);
+    case 'control-inventory-open-counts': {
+      const parts = repositoryParts(repo);
+      return read('/graphql', Object.freeze({
+        query: OPEN_COUNTS_QUERY,
+        variables: Object.freeze(parts)
+      }));
+    }
+    case 'control-inventory-review-threads': {
+      const parts = repositoryParts(repo);
+      return read('/graphql', Object.freeze({
+        query: REVIEW_THREADS_QUERY,
+        variables: Object.freeze({
+          ...parts,
+          number: positiveInteger(operation.pullRequestNumber, 'pull request number'),
+          endCursor: operation.endCursor === null
+            ? null
+            : boundedText(operation.endCursor, 'GraphQL cursor', 1024)
+        })
+      }));
+    }
+    case 'merge-pull':
+      if (effect !== 'merge-write') {
+        throw new GitHubApiProviderError('GitHub API pull merge requires merge-write authority');
+      }
+      return Object.freeze({
+        method: 'PUT',
+        path: `/repos/${repo}/pulls/${positiveInteger(operation.pullRequestNumber, 'pull request number')}/merge`,
+        body: Object.freeze({
+          sha: sha(operation.headSha),
+          merge_method: 'squash',
+          commit_title: boundedText(operation.title, 'merge title', 256),
+          commit_message: boundedMultilineText(operation.message, 'merge message', 65_536)
+        })
+      });
+  }
+}
+
+function binding(capability: GitHubApiCapability): GitHubApiCapabilityBinding {
+  const value = capabilityBindings.get(capability);
+  if (value === undefined) {
+    throw new GitHubApiProviderError('GitHub API capability is forged or was not issued by this owner');
+  }
+  return value;
+}
+
+export function inspectGitHubApiCapability(capability: GitHubApiCapability): Readonly<{
+  repository: string;
+  effect: GitHubApiEffect;
+  principal: GitHubApiPrincipal;
+  origin: 'production' | 'test';
+}> {
+  const value = binding(capability);
+  return Object.freeze({
+    repository: value.repository,
+    effect: value.effect,
+    principal: value.principal,
+    origin: value.origin
+  });
+}
+
+export function assertGitHubApiCapability(
+  capability: GitHubApiCapability,
+  repositoryName: string,
+  requiredEffect: GitHubApiEffect
+): void {
+  const value = binding(capability);
+  const effectSatisfied = requiredEffect === 'read'
+    ? true
+    : value.effect === requiredEffect;
+  if (value.repository !== repositoryName || !effectSatisfied
+      || ((requiredEffect === 'status-write' || requiredEffect === 'merge-write')
+        && value.principal.permission !== 'admin'
+        && value.principal.permission !== 'maintain')) {
+    throw new GitHubApiProviderError(
+      'GitHub API capability is absent, repository-bound incorrectly, or not effect-authorized'
+    );
+  }
+}
+
+function issueCapability(input: Readonly<{
+  repository: string;
+  token: string;
+  principal: GitHubApiPrincipal;
+  effect: GitHubApiEffect;
+  transport: GitHubApiTransport;
+  origin: 'production' | 'test';
+}>): GitHubApiCapability {
+  repository(input.repository);
+  if (!/^[^\s\u0000-\u001f\u007f-\u009f]{20,1024}$/u.test(input.token)
+      || input.principal.transport !== 'github-rest-token'
+      || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\[bot\])?$/u.test(input.principal.login)
+      || input.principal.nodeId.length === 0
+      || (input.principal.userId !== null
+        && (!Number.isSafeInteger(input.principal.userId) || input.principal.userId < 1))
+      || !['admin', 'maintain', 'write', 'triage', 'read', 'none'].includes(input.principal.permission)
+      || typeof input.transport !== 'function') {
+    throw new GitHubApiProviderError('GitHub API capability issuance input is invalid');
+  }
+  if ((input.effect === 'status-write' || input.effect === 'merge-write')
+      && input.principal.permission !== 'admin' && input.principal.permission !== 'maintain') {
+    throw new GitHubApiProviderError('GitHub API write capability requires maintain/admin permission');
+  }
+  const capability = Object.freeze({}) as GitHubApiCapability;
+  capabilityBindings.set(capability, Object.freeze({
+    repository: input.repository,
+    token: input.token,
+    principal: Object.freeze({ ...input.principal }),
+    effect: input.effect,
+    transport: input.transport,
+    origin: input.origin
+  }));
+  return capability;
+}
+
+/** Test-only issuance. A structural clone is not present in the owner WeakMap. */
+export function issueGitHubApiTestCapability(input: Readonly<{
+  repository: string;
+  token: string;
+  principal: GitHubApiPrincipal;
+  effect: GitHubApiEffect;
+  transport: GitHubApiTransport;
+}>): GitHubApiCapability {
+  return issueCapability({ ...input, origin: 'test' });
+}
+
+function createSession(input: Readonly<{
+  capability?: GitHubApiCapability;
+  repository: string;
+  effect: GitHubApiEffect;
+  origin: 'production' | 'test';
+  budget?: GitHubApiOperationBudget;
+  now?: () => number;
+  timeoutMs?: number;
+}>): GitHubApiRequestSession {
+  repository(input.repository);
+  const now = input.now ?? Date.now;
+  const timeoutMs = input.timeoutMs ?? GITHUB_API_REQUEST_TIMEOUT_MS;
+  const startedAt = now();
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || !Number.isFinite(startedAt)) {
+    throw new GitHubApiProviderError('GitHub API operation clock or timeout is invalid');
+  }
+  const deadlineAt = Math.min(startedAt + timeoutMs, input.budget?.deadlineAt ?? Number.POSITIVE_INFINITY);
+  if (!Number.isFinite(deadlineAt) || deadlineAt <= startedAt) {
+    throw new GitHubApiProviderError('GitHub API operation parent deadline exceeded');
+  }
+  const abortController = new AbortController();
+  return {
+    capability: input.capability,
+    repository: input.repository,
+    effect: input.effect,
+    origin: input.origin,
+    operationBudget: input.budget,
+    now,
+    deadlineAt,
+    abortController,
+    deadlineTimer: setTimeout(() => abortController.abort(), Math.max(1, Math.ceil(deadlineAt - startedAt))),
+    phase: 'open',
+    inFlight: 0,
+    requestCount: 0,
+    requestBytes: 0,
+    responseBytes: 0
+  };
+}
+
+function remaining(session: GitHubApiRequestSession): number {
+  const parentRemaining = session.operationBudget === undefined
+    ? Number.POSITIVE_INFINITY
+    : session.operationBudget.deadlineAt - session.operationBudget.now();
+  const value = Math.min(session.deadlineAt - session.now(), parentRemaining);
+  if (session.phase !== 'open' || !Number.isFinite(value) || value <= 0) {
+    if (!session.abortController.signal.aborted) session.abortController.abort();
+    throw new GitHubApiProviderError('GitHub API operation deadline exceeded or is already settled');
+  }
+  return Math.max(1, Math.ceil(value));
+}
+
+function reserve(session: GitHubApiRequestSession, requestBytes: number): void {
+  remaining(session);
+  const budget = session.operationBudget;
+  if (session.requestCount >= MAX_REQUESTS || (budget !== undefined && budget.requestCount >= MAX_REQUESTS)) {
+    throw new GitHubApiProviderError('GitHub API operation request-count budget exceeded');
+  }
+  if (!Number.isSafeInteger(requestBytes) || requestBytes < 0
+      || session.requestBytes + requestBytes > MAX_REQUEST_BYTES
+      || (budget !== undefined && budget.requestBytes + requestBytes > MAX_REQUEST_BYTES)) {
+    throw new GitHubApiProviderError('GitHub API operation request-byte budget exceeded');
+  }
+  session.requestCount += 1;
+  session.requestBytes += requestBytes;
+  if (budget !== undefined) {
+    budget.requestCount += 1;
+    budget.requestBytes += requestBytes;
+  }
+}
+
+function recordResponseBytes(session: GitHubApiRequestSession, bytes: number): void {
+  session.responseBytes += bytes;
+  if (session.operationBudget !== undefined) session.operationBudget.responseBytes += bytes;
+  if (session.responseBytes > MAX_RESPONSE_BYTES
+      || (session.operationBudget !== undefined && session.operationBudget.responseBytes > MAX_RESPONSE_BYTES)) {
+    throw new GitHubApiProviderError('GitHub API operation response-byte budget exceeded');
+  }
+}
+
+async function executeWithToken<T>(
+  session: GitHubApiRequestSession,
+  token: string,
+  transport: GitHubApiTransport,
+  operation: GitHubApiOperation
+): Promise<T> {
+  const compiled = compileOperation(session.repository, session.effect, operation);
+  const body = compiled.body === undefined ? undefined : JSON.stringify(compiled.body);
+  reserve(session, body === undefined ? 0 : Buffer.byteLength(body, 'utf8'));
+  session.inFlight += 1;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const deadline = new Promise<never>((_, reject) => {
+      timeout = setTimeout(() => {
+        if (!session.abortController.signal.aborted) session.abortController.abort();
+        reject(new GitHubApiProviderError('GitHub API operation deadline exceeded'));
+      }, remaining(session));
+    });
+    const response = await Promise.race([
+      Promise.resolve().then(() => transport(canonicalTarget(compiled.path), {
+        method: compiled.method,
+        redirect: 'error',
+        headers: {
+          Accept: 'application/vnd.github+json',
+          Authorization: `Bearer ${token}`,
+          'X-GitHub-Api-Version': '2022-11-28',
+          'User-Agent': 'sec-github-api-operation-session-v1',
+          ...(body === undefined ? {} : { 'Content-Type': 'application/json' })
+        },
+        signal: session.abortController.signal,
+        ...(body === undefined ? {} : { body })
+      })),
+      deadline
+    ]);
+    if (response.body === null || typeof response.body.getReader !== 'function') {
+      throw new GitHubApiProviderError('GitHub API response does not expose a bounded streaming body', response.status);
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8', { fatal: true });
+    const chunks: string[] = [];
+    while (true) {
+      const chunk = await Promise.race([reader.read(), deadline]);
+      if (chunk.done) break;
+      try {
+        recordResponseBytes(session, chunk.value.byteLength);
+      } catch (error) {
+        void reader.cancel();
+        throw error;
+      }
+      chunks.push(decoder.decode(chunk.value, { stream: true }));
+    }
+    chunks.push(decoder.decode());
+    const source = chunks.join('');
+    if (!response.ok) {
+      throw new GitHubApiProviderError(
+        `GitHub API ${operation.kind} failed with HTTP ${response.status}: ${source.slice(-2048)}`,
+        response.status
+      );
+    }
+    try {
+      return JSON.parse(source) as T;
+    } catch (error) {
+      throw new GitHubApiProviderError(
+        `GitHub API ${operation.kind} returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
+        response.status
+      );
+    }
+  } catch (error) {
+    if (error instanceof GitHubApiProviderError) throw error;
+    throw new GitHubApiProviderError(
+      `GitHub API ${operation.kind} transport unavailable: ${session.abortController.signal.aborted ? 'operation deadline exceeded' : error instanceof Error ? error.message : String(error)}`
+    );
+  } finally {
+    clearTimeout(timeout);
+    session.inFlight -= 1;
+  }
+}
+
+export async function executeGitHubApiOperation(
+  capability: GitHubApiCapability,
+  operation: GitHubApiOperation
+): Promise<unknown> {
+  const value = binding(capability);
+  const session = requestSession.getStore();
+  if (session === undefined || session.capability !== capability
+      || session.repository !== value.repository || session.effect !== value.effect
+      || session.origin !== value.origin) {
+    throw new GitHubApiProviderError('GitHub API request requires the active exact operation session');
+  }
+  return await executeWithToken<unknown>(session, value.token, value.transport, operation);
+}
+
+export function currentGitHubApiCapability(
+  repositoryName: string,
+  effect: GitHubApiEffect
+): GitHubApiCapability {
+  const session = requestSession.getStore();
+  if (session?.capability === undefined || session.repository !== repositoryName
+      || session.effect !== effect) {
+    throw new GitHubApiProviderError('GitHub API operation requires a live owner-issued capability');
+  }
+  remaining(session);
+  return session.capability;
+}
+
+async function settleSession<T>(
+  session: GitHubApiRequestSession,
+  operation: () => Promise<T>
+): Promise<T> {
+  let result: T | undefined;
+  let primaryError: unknown;
+  try {
+    result = await operation();
+    remaining(session);
+  } catch (error) {
+    primaryError = error;
+  }
+  const inFlight = session.inFlight;
+  session.phase = 'settled';
+  clearTimeout(session.deadlineTimer);
+  if (!session.abortController.signal.aborted) session.abortController.abort();
+  if (inFlight !== 0) {
+    primaryError ??= new GitHubApiProviderError(
+      'GitHub API operation settlement failed because requests remain in flight'
+    );
+  }
+  if (primaryError !== undefined) throw primaryError;
+  return result as T;
+}
+
+async function readProductionToken(repositoryRoot: string, session: GitHubApiRequestSession): Promise<string> {
+  reserve(session, 0);
+  let bytes: Uint8Array | null = null;
+  try {
+    bytes = await readGitHubToken({
+      cwd: path.resolve(repositoryRoot),
+      hostname: GITHUB_HOST,
+      deadlineAtUnixMs: Math.min(session.deadlineAt, Date.now() + remaining(session))
+    });
+    remaining(session);
+    recordResponseBytes(session, bytes.byteLength);
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch (error) {
+    if (error instanceof GitHubCredentialUnavailableError) {
+      throw new GitHubApiProviderError('GitHub API credential provider is unavailable');
+    }
+    throw error;
+  } finally {
+    bytes?.fill(0);
+  }
+}
+
+type TokenReader = (
+  repositoryRoot: string,
+  session: GitHubApiRequestSession
+) => Promise<string>;
+
+async function enroll(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  effect: GitHubApiEffect;
+  origin: 'production' | 'test';
+  transport: GitHubApiTransport;
+  readToken: TokenReader;
+}>): Promise<GitHubApiCapability> {
+  const session = requestSession.getStore();
+  if (session === undefined || session.origin !== input.origin
+      || session.repository !== input.repository || session.effect !== input.effect) {
+    throw new GitHubApiProviderError('GitHub API capability enrollment requires the active matching session');
+  }
+  if (session.capability !== undefined) return session.capability;
+  const token = await input.readToken(input.repositoryRoot, session);
+  const viewer = await executeWithToken<unknown>(session, token, input.transport, { kind: 'current-user' });
+  if (viewer === null || typeof viewer !== 'object' || Array.isArray(viewer)) {
+    throw new GitHubApiProviderError('GitHub API token principal response is invalid');
+  }
+  const viewerRecord = viewer as Record<string, unknown>;
+  const login = viewerRecord.login;
+  const nodeId = viewerRecord.node_id;
+  const userId = viewerRecord.id === undefined ? null : viewerRecord.id;
+  if (typeof login !== 'string' || typeof nodeId !== 'string'
+      || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\[bot\])?$/u.test(login) || nodeId.length === 0
+      || (userId !== null && (!Number.isSafeInteger(userId) || (userId as number) < 1))) {
+    throw new GitHubApiProviderError('GitHub API token principal identity is invalid');
+  }
+  const permissionValue = await executeWithToken<unknown>(session, token, input.transport, {
+    kind: 'collaborator-permission',
+    login
+  });
+  const permission = permissionValue !== null && typeof permissionValue === 'object'
+      && !Array.isArray(permissionValue)
+    ? (permissionValue as Record<string, unknown>).permission
+    : null;
+  if (typeof permission !== 'string'
+      || !['admin', 'maintain', 'write', 'triage', 'read', 'none'].includes(permission)) {
+    throw new GitHubApiProviderError('GitHub API token repository permission is invalid');
+  }
+  if (input.origin === 'production' && permission !== 'admin' && permission !== 'maintain') {
+    throw new GitHubApiProviderError('GitHub API production credential requires maintain/admin permission');
+  }
+  const capability = issueCapability({
+    repository: input.repository,
+    token,
+    principal: Object.freeze({
+      transport: 'github-rest-token',
+      login,
+      nodeId,
+      userId: userId as number | null,
+      permission: permission as GitHubApiPrincipal['permission']
+    }),
+    effect: input.effect,
+    transport: input.transport,
+    origin: input.origin
+  });
+  session.capability = capability;
+  remaining(session);
+  return capability;
+}
+
+async function runSession<T>(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  effect: GitHubApiEffect;
+  origin: 'production' | 'test';
+  transport: GitHubApiTransport;
+  readToken: TokenReader;
+  operation: (capability: GitHubApiCapability) => Promise<T>;
+  budget?: GitHubApiOperationBudget;
+  now?: () => number;
+  timeoutMs?: number;
+}>): Promise<T> {
+  const current = requestSession.getStore();
+  if (current !== undefined) {
+    if (current.repository !== input.repository || current.effect !== input.effect
+        || current.origin !== input.origin || current.capability === undefined) {
+      throw new GitHubApiProviderError(
+        'GitHub API session is not bound to this repository/effect/origin or exact capability'
+      );
+    }
+    remaining(current);
+    return await input.operation(current.capability);
+  }
+  if (input.budget !== undefined) {
+    const remainingBudget = input.budget.deadlineAt - input.budget.now();
+    if (input.budget.repositoryRoot !== path.resolve(input.repositoryRoot)
+        || input.budget.repository !== input.repository || input.budget.effect !== input.effect
+        || input.budget.origin !== input.origin || remainingBudget <= 0) {
+      throw new GitHubApiProviderError('GitHub API parent operation budget boundary is invalid');
+    }
+    if (input.budget.sessionCount >= input.budget.maxSessions) {
+      throw new GitHubApiProviderError('GitHub API parent operation session-count budget exceeded');
+    }
+    input.budget.sessionCount += 1;
+  }
+  const session = createSession({
+    repository: input.repository,
+    effect: input.effect,
+    origin: input.origin,
+    budget: input.budget,
+    now: input.now ?? input.budget?.now,
+    timeoutMs: Math.min(
+      input.timeoutMs ?? GITHUB_API_REQUEST_TIMEOUT_MS,
+      input.budget === undefined
+        ? Number.POSITIVE_INFINITY
+        : Math.max(1, Math.ceil(input.budget.deadlineAt - input.budget.now()))
+    )
+  });
+  return await requestSession.run(session, async () => await settleSession(session, async () => {
+    const capability = await enroll({
+      repositoryRoot: input.repositoryRoot,
+      repository: input.repository,
+      effect: input.effect,
+      origin: input.origin,
+      transport: input.transport,
+      readToken: input.readToken
+    });
+    return await input.operation(capability);
+  }));
+}
+
+async function withProductionSession<T>(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  effect: GitHubApiEffect;
+  operation: (capability: GitHubApiCapability) => Promise<T>;
+}>): Promise<T> {
+  return await runSession({
+    ...input,
+    origin: 'production',
+    transport: async (target, init) => await globalThis.fetch(target, init),
+    readToken: readProductionToken,
+    budget: operationBudget.getStore()
+  });
+}
+
+export async function withGitHubApiReadSession<T>(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  operation: (capability: GitHubApiCapability) => Promise<T>;
+}>): Promise<T> {
+  return await withProductionSession({ ...input, effect: 'read' });
+}
+
+export async function withGitHubApiStatusWriteSession<T>(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  operation: (capability: GitHubApiCapability) => Promise<T>;
+}>): Promise<T> {
+  return await withProductionSession({ ...input, effect: 'status-write' });
+}
+
+export async function withGitHubApiMergeWriteSession<T>(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  operation: (capability: GitHubApiCapability) => Promise<T>;
+}>): Promise<T> {
+  return await withProductionSession({ ...input, effect: 'merge-write' });
+}
+
+export async function withGitHubApiReadOperationBudget<T>(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  operation: () => Promise<T>;
+}>): Promise<T> {
+  const current = operationBudget.getStore();
+  if (current !== undefined) {
+    if (current.repositoryRoot !== path.resolve(input.repositoryRoot)
+        || current.repository !== input.repository || current.effect !== 'read'
+        || current.origin !== 'production' || current.deadlineAt - current.now() <= 0) {
+      throw new GitHubApiProviderError(
+        'GitHub API nested read operation budget is not bound to this repository'
+      );
+    }
+    const result = await input.operation();
+    if (current.deadlineAt - current.now() <= 0) {
+      throw new GitHubApiProviderError('GitHub API parent operation deadline exceeded');
+    }
+    return result;
+  }
+  const now = Date.now;
+  const startedAt = now();
+  const budget: GitHubApiOperationBudget = {
+    repositoryRoot: path.resolve(input.repositoryRoot),
+    repository: repository(input.repository),
+    effect: 'read',
+    origin: 'production',
+    now,
+    deadlineAt: startedAt + GITHUB_API_READ_OPERATION_TIMEOUT_MS,
+    maxSessions: MAX_READ_SESSIONS,
+    sessionCount: 0,
+    requestCount: 0,
+    requestBytes: 0,
+    responseBytes: 0
+  };
+  return await operationBudget.run(budget, input.operation);
+}
+
+export function assertGitHubApiReadOperationBudgetCurrent(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+}>): void {
+  const budget = operationBudget.getStore();
+  if (budget === undefined || budget.repositoryRoot !== path.resolve(input.repositoryRoot)
+      || budget.repository !== input.repository || budget.effect !== 'read'
+      || budget.origin !== 'production' || budget.deadlineAt - budget.now() <= 0) {
+    throw new GitHubApiProviderError('GitHub API read operation budget is not current for this repository');
+  }
+}
+
+export async function withGitHubApiTestSession<T>(input: Readonly<{
+  capability: GitHubApiCapability;
+  operation: () => Promise<T>;
+  now?: () => number;
+  timeoutMs?: number;
+}>): Promise<T> {
+  const value = binding(input.capability);
+  if (value.origin !== 'test') {
+    throw new GitHubApiProviderError('GitHub API test session cannot consume a production capability');
+  }
+  const current = requestSession.getStore();
+  if (current !== undefined) {
+    if (current.capability !== input.capability) {
+      throw new GitHubApiProviderError('Nested GitHub API test session must reuse the exact capability');
+    }
+    remaining(current);
+    return await input.operation();
+  }
+  const session = createSession({
+    capability: input.capability,
+    repository: value.repository,
+    effect: value.effect,
+    origin: 'test',
+    now: input.now,
+    timeoutMs: input.timeoutMs
+  });
+  return await requestSession.run(session, async () => await settleSession(session, input.operation));
+}
+
+async function readTestToken(
+  reader: (input: Readonly<{ signal: AbortSignal; timeoutMs: number }>) => Promise<string>,
+  session: GitHubApiRequestSession
+): Promise<string> {
+  reserve(session, 0);
+  const timeoutMs = remaining(session);
+  const token = await reader({ signal: session.abortController.signal, timeoutMs });
+  remaining(session);
+  if (typeof token !== 'string' || Buffer.byteLength(token, 'utf8') > MAX_TOKEN_BYTES
+      || !/^[^\s\u0000-\u001f\u007f-\u009f]{20,1024}$/u.test(token.trim())) {
+    throw new GitHubApiProviderError('GitHub API test token grammar is invalid');
+  }
+  recordResponseBytes(session, Buffer.byteLength(token, 'utf8'));
+  return token.trim();
+}
+
+export async function withGitHubApiTestEnrollmentSession<T>(input: Readonly<{
+  repository: string;
+  effect: GitHubApiEffect;
+  transport: GitHubApiTransport;
+  readToken: (input: Readonly<{ signal: AbortSignal; timeoutMs: number }>) => Promise<string>;
+  operation: (capability: GitHubApiCapability) => Promise<T>;
+  now?: () => number;
+  timeoutMs?: number;
+}>): Promise<T> {
+  return await runSession({
+    repositoryRoot: '',
+    repository: input.repository,
+    effect: input.effect,
+    origin: 'test',
+    transport: input.transport,
+    readToken: async (_root, session) => await readTestToken(input.readToken, session),
+    operation: input.operation,
+    now: input.now,
+    timeoutMs: input.timeoutMs
+  });
+}
+
+type TestReadOperationOpen = <T>(
+  operation: (capability: GitHubApiCapability) => Promise<T>
+) => Promise<T>;
+
+export async function withGitHubApiTestReadOperationBudget<T>(input: Readonly<{
+  repository: string;
+  transport: GitHubApiTransport;
+  readToken: (input: Readonly<{ signal: AbortSignal; timeoutMs: number }>) => Promise<string>;
+  operation: (open: TestReadOperationOpen) => Promise<T>;
+  now?: () => number;
+  timeoutMs: number;
+  maxSessions?: number;
+}>): Promise<T> {
+  const now = input.now ?? Date.now;
+  const startedAt = now();
+  const budget: GitHubApiOperationBudget = {
+    repositoryRoot: path.resolve(''),
+    repository: repository(input.repository),
+    effect: 'read',
+    origin: 'test',
+    now,
+    deadlineAt: startedAt + input.timeoutMs,
+    maxSessions: input.maxSessions ?? MAX_READ_SESSIONS,
+    sessionCount: 0,
+    requestCount: 0,
+    requestBytes: 0,
+    responseBytes: 0
+  };
+  return await operationBudget.run(budget, async () => {
+    const result = await input.operation(async (operation) => await runSession({
+      repositoryRoot: '',
+      repository: input.repository,
+      effect: 'read',
+      origin: 'test',
+      transport: input.transport,
+      readToken: async (_root, session) => await readTestToken(input.readToken, session),
+      operation,
+      budget,
+      now,
+      timeoutMs: GITHUB_API_REQUEST_TIMEOUT_MS
+    }));
+    if (budget.deadlineAt - budget.now() <= 0) {
+      throw new GitHubApiProviderError('GitHub API parent operation deadline exceeded');
+    }
+    return result;
+  });
+}

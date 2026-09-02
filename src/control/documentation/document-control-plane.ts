@@ -157,7 +157,7 @@ type CommandOptions = {
 export type CodexDevelopmentDocumentControlCliOperation =
   | 'git-read'
   | 'git-object-index-effect'
-  | 'github-read'
+  | 'github-api-read'
   | 'github-effect';
 
 export type CodexDevelopmentDocumentControlCliAdmissionStatus =
@@ -238,7 +238,7 @@ function commandOperation(
       || (arg === '--method' && args[index + 1] === 'POST')
     ))
       ? 'github-effect'
-      : 'github-read';
+      : 'github-api-read';
   }
   const verb = args[0] ?? '';
   const objectOrIndexEffect = verb === 'write-tree'
