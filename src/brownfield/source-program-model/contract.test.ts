@@ -1415,10 +1415,16 @@ function compileSupersessionFixture(
     descriptorSources: [{ descriptorPath, source: descriptorSource }]
   });
   const sourceRevision = compileWorkspaceSourceRevision(files);
-  const model = compileRepositorySourceProgramModel({
+  const typeScriptModel = compileTypeScriptSourceProgramModel({
     sourceRevision,
     files,
     moduleMembership: membership
+  });
+  const model = compileRepositorySourceProgramModel({
+    sourceRevision,
+    files,
+    moduleMembership: membership,
+    typescriptModel: typeScriptModel
   });
   const tests = compileSourceProgramTestValue({
     repositoryRoot: 'C:/synthetic/repository',
@@ -1427,6 +1433,7 @@ function compileSupersessionFixture(
   });
   const full = Object.freeze({
     model,
+    typeScriptModel,
     tests,
     intentEvidence: compileSourceProgramOwnerIntentEvidence(model, membership)
   });
@@ -1517,12 +1524,12 @@ function compileTestRetirementFixture(
     'src/example/operation.ts': productionSource
   });
   const baselineTestPaths = ['tests/obsolete.test.ts'];
-  const baselineEvidence = compileSourceProgramTestBaselineEvidence(
+  const baselineEvidence = compileSourceProgramTestBaselineEvidence({
     baselineTestPaths,
-    baseline.files,
-    baseline.evidence.identity.sourceRevision,
-    current.files
-  );
+    baselineModel: baseline.full.typeScriptModel,
+    candidateModel: current.full.typeScriptModel,
+    baselineRevision: baseline.evidence.identity.sourceRevision
+  });
   const currentTests = compileSourceProgramTestValue({
     repositoryRoot: 'C:/synthetic/repository',
     files: current.files,

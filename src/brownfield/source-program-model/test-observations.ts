@@ -25,6 +25,7 @@ import {
   type SourceProgramSpan,
   type SourceProgramUnknown
 } from './contract.ts';
+import { resolveSecRepositoryModuleImportCandidates } from './module-graph.ts';
 import {
   compileSecRepositoryModuleGraph,
   isCompiledTypeScriptSourceProgramModel,
@@ -105,6 +106,30 @@ export interface SourceProgramTestObservations {
   readonly unknowns: readonly SourceProgramUnknown[];
   readonly observationDigest: string;
 }
+
+export const SOURCE_PROGRAM_TEST_CONTRACT_CENSUS_UNRESOLVED_REASONS = Object.freeze([
+  'baseline-exact-generation-unavailable',
+  'baseline-test-source-unavailable',
+  'baseline-test-source-unresolved',
+  'candidate-exact-generation-unavailable'
+] as const);
+
+export type SourceProgramTestContractCensusUnresolvedReason =
+  typeof SOURCE_PROGRAM_TEST_CONTRACT_CENSUS_UNRESOLVED_REASONS[number];
+
+export type SourceProgramTestContractCensusObservation = Readonly<{
+  status: 'resolved';
+  census: Readonly<{
+    producerCount: number;
+    consumerCount: number;
+    externalContractCount: number;
+  }>;
+  observationDigest: `sha256:${string}`;
+}> | Readonly<{
+  status: 'unresolved';
+  reason: SourceProgramTestContractCensusUnresolvedReason;
+  observationDigest: `sha256:${string}`;
+}>;
 
 const observationsByFiles = new WeakMap<
   readonly SourceProgramFileInput[],
@@ -756,6 +781,145 @@ function expressionIdentityName(expression: ts.Expression): string | null {
     return ts.isStringLiteralLike(current.argumentExpression) ? current.argumentExpression.text : null;
   }
   return null;
+}
+
+/**
+ * Observe one baseline test contract from the exact baseline Program against
+ * one exact candidate Program.  The two generations remain distinct; this
+ * projection never reparses either snapshot and never turns an unresolved
+ * compiler origin into consumer-zero evidence.
+ */
+export function observeSourceProgramTestContractCensus(
+  baselineModel: SourceProgramModel,
+  candidateModel: SourceProgramModel,
+  repositoryPath: string
+): SourceProgramTestContractCensusObservation {
+  const unresolved = (
+    reason: SourceProgramTestContractCensusUnresolvedReason
+  ): SourceProgramTestContractCensusObservation => Object.freeze({
+    status: 'unresolved' as const,
+    reason,
+    observationDigest: sha256({
+      status: 'unresolved',
+      reason,
+      repositoryPath,
+      baselineSourceRevision: baselineModel.sourceRevision,
+      candidateSourceRevision: candidateModel.sourceRevision
+    }) as `sha256:${string}`
+  });
+  if (!isCompiledTypeScriptSourceProgramModel(baselineModel)) {
+    return unresolved('baseline-exact-generation-unavailable');
+  }
+  if (!isCompiledTypeScriptSourceProgramModel(candidateModel)) {
+    return unresolved('candidate-exact-generation-unavailable');
+  }
+  const sourceFile = sourceProgramTypeScriptSourceFile(baselineModel, repositoryPath);
+  if (sourceFile === null) return unresolved('baseline-test-source-unavailable');
+  const diagnostics = (sourceFile as ts.SourceFile & {
+    readonly parseDiagnostics?: readonly ts.Diagnostic[];
+  }).parseDiagnostics ?? [];
+  if (diagnostics.length > 0) return unresolved('baseline-test-source-unresolved');
+
+  const candidatePaths = new Set(candidateModel.files.map(({ path: filePath }) => filePath));
+  const candidateExports = new Set(candidateModel.declarations
+    .filter(({ exported }) => exported)
+    .map(({ name }) => name));
+  const relativeSpecifier = (value: string): boolean =>
+    value.startsWith('./') || value.startsWith('../');
+  const liveRelativeConsumer = (specifier: string): boolean => (
+    resolveSecRepositoryModuleImportCandidates(repositoryPath, specifier)
+      .some((candidate) => candidatePaths.has(candidate))
+  );
+  const importedNames = (statement: ts.ImportDeclaration): readonly string[] => {
+    const clause = statement.importClause;
+    if (clause === undefined) return Object.freeze([]);
+    const names: string[] = [];
+    if (clause.name !== undefined) names.push('default');
+    if (clause.namedBindings !== undefined) {
+      if (ts.isNamespaceImport(clause.namedBindings)) names.push('*');
+      else for (const element of clause.namedBindings.elements) {
+        names.push((element.propertyName ?? element.name).text);
+      }
+    }
+    return Object.freeze(names);
+  };
+  const relocatedImportConsumer = (statement: ts.ImportDeclaration): boolean => {
+    const names = importedNames(statement);
+    return names.includes('*') || names.some((name) => candidateExports.has(name));
+  };
+
+  let producerCount = 0;
+  let consumerCount = 0;
+  let externalContractCount = 0;
+  for (const statement of sourceFile.statements) {
+    if (ts.isImportDeclaration(statement) && ts.isStringLiteralLike(statement.moduleSpecifier)) {
+      const specifier = statement.moduleSpecifier.text;
+      if (TEST_SUPPORT_MODULE.test(specifier)) continue;
+      if (relativeSpecifier(specifier)) {
+        if (liveRelativeConsumer(specifier) || relocatedImportConsumer(statement)) consumerCount += 1;
+      } else externalContractCount += 1;
+      continue;
+    }
+    if (ts.isImportEqualsDeclaration(statement)) {
+      externalContractCount += 1;
+      continue;
+    }
+    if (ts.isExportDeclaration(statement)) {
+      producerCount += 1;
+      if (statement.moduleSpecifier !== undefined
+          && ts.isStringLiteralLike(statement.moduleSpecifier)
+          && relativeSpecifier(statement.moduleSpecifier.text)
+          && liveRelativeConsumer(statement.moduleSpecifier.text)) consumerCount += 1;
+      continue;
+    }
+    if (ts.isExportAssignment(statement)) producerCount += 1;
+    if (ts.canHaveModifiers(statement)
+        && ts.getModifiers(statement)?.some(({ kind }) => kind === ts.SyntaxKind.ExportKeyword)) {
+      producerCount += 1;
+    }
+  }
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) {
+      const identity = callIdentity(node.expression);
+      if (identity === 'require') {
+        const argument = node.arguments[0];
+        if (argument !== undefined && ts.isStringLiteralLike(argument)) {
+          if (relativeSpecifier(argument.text)) {
+            if (liveRelativeConsumer(argument.text)) consumerCount += 1;
+          } else if (!TEST_SUPPORT_MODULE.test(argument.text)) externalContractCount += 1;
+        } else externalContractCount += 1;
+      }
+      if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+        const argument = node.arguments[0];
+        if (argument !== undefined && ts.isStringLiteralLike(argument)) {
+          if (relativeSpecifier(argument.text)) {
+            if (liveRelativeConsumer(argument.text)) consumerCount += 1;
+          } else if (!TEST_SUPPORT_MODULE.test(argument.text)) externalContractCount += 1;
+        } else externalContractCount += 1;
+      }
+    }
+    if (ts.isPropertyAccessExpression(node)) {
+      const identity = expressionIdentityName(node.expression);
+      if ((identity === 'process' && node.name.text === 'env')
+          || (identity === 'Bun' && /^(?:file|spawn|spawnSync)$/u.test(node.name.text))) {
+        externalContractCount += 1;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  const census = Object.freeze({ producerCount, consumerCount, externalContractCount });
+  return Object.freeze({
+    status: 'resolved' as const,
+    census,
+    observationDigest: sha256({
+      status: 'resolved',
+      repositoryPath,
+      baselineSourceRevision: baselineModel.sourceRevision,
+      candidateSourceRevision: candidateModel.sourceRevision,
+      census
+    }) as `sha256:${string}`
+  });
 }
 
 const IDENTITY_NAME = /^(?:format)?(?:schema|version)$|(?:Schema|Version)$/u;

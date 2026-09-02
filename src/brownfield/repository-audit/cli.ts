@@ -1548,17 +1548,6 @@ async function compileWorkingTreeSourceProgramWithSession(
   const files = workspaceSnapshot.files;
   const presentRepositoryPaths = repositoryPaths;
   const unknowns: import('../source-program-model/contract.ts').SourceProgramUnknown[] = [];
-  const candidateTestPaths = new Set(
-    presentRepositoryPaths.filter((repositoryPath) => isSecRepositoryTestModulePath(repositoryPath))
-  );
-  const baselineTestEvidence = compileSourceProgramTestBaselineEvidence(
-    baselineTestPaths,
-    baselineReconciliation.sourceFiles.filter(({ path: repositoryPath }) =>
-      isSecRepositoryTestModulePath(repositoryPath)
-      && !candidateTestPaths.has(repositoryPath)),
-    baselineTestRevision,
-    files
-  );
   const moduleMembership = workspaceSnapshot.moduleMembership;
   if (moduleMembership.descriptors.length === 0) {
     unknowns.push(Object.freeze({
@@ -1607,6 +1596,12 @@ async function compileWorkingTreeSourceProgramWithSession(
   const moduleGraph = compilation.workspaceSnapshot.moduleGraph;
   const incrementalCompilation = compilation.typeScriptCompilation;
   const model = compilation.model;
+  const baselineTestEvidence = compileSourceProgramTestBaselineEvidence({
+    baselineTestPaths,
+    baselineModel: baselineReconciliation.compilation.typeScriptCompilation.model,
+    candidateModel: incrementalCompilation.model,
+    baselineRevision: baselineTestRevision
+  });
   const declarationTopology = compileSourceProgramDeclarationTopology(compilation);
   const moduleArchitecture = compileRepositoryModuleArchitectureAdmission(
     moduleGraph,
