@@ -284,6 +284,18 @@ function physicalDigest(value: unknown): `sha256:${string}` {
   return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
 }
 
+export function compileSealedPhysicalExecutionTreeExactFileSetDigest(
+  files: readonly SealedPhysicalExecutionTreeFile[]
+): `sha256:${string}` {
+  return physicalDigest(files
+    .map((file) => Object.freeze({
+      contentDigest: canonicalContentDigest(file.bytes),
+      path: file.path,
+      size: file.bytes.byteLength
+    }))
+    .sort((left, right) => compareCodeUnits(left.path, right.path)));
+}
+
 function issueOperationDigest(domain: string): `sha256:${string}` {
   return physicalDigest(Object.freeze({
     domain,
@@ -610,13 +622,7 @@ export async function materializeRetainedSealedPhysicalExecutionTreeGeneration(
     }
     files.push(Object.freeze({ bytes: Buffer.from(file.bytes), path: file.path }));
   }
-  const exactFileSetDigest = physicalDigest(files
-    .map((file) => Object.freeze({
-      contentDigest: canonicalContentDigest(file.bytes),
-      path: file.path,
-      size: file.bytes.byteLength
-    }))
-    .sort((left, right) => compareCodeUnits(left.path, right.path)));
+  const exactFileSetDigest = compileSealedPhysicalExecutionTreeExactFileSetDigest(files);
   const links = input.links.map((link) => {
     assertExecutionCurrent();
     insertCanonicalPath(trie, link.path, 'Runtime Physical execution tree link');
