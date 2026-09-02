@@ -8,8 +8,10 @@ import { digest } from '../../../system-architecture/foundation/runtime/canonica
 
 import {
   assertCompilerDependencyExecutionRetirementReceipt,
+  assertCompilerDependencyReadGenerationRetirementReceipt,
   observeCompilerDependencyExecutionGenerationAuthority,
   retainCompilerDependencyExecutionGeneration,
+  retainCompilerDependencyReadGeneration,
   type RetainedCompilerDependencyExecutionGeneration
 } from '../runtime/project-runtime.ts';
 import {
@@ -90,6 +92,21 @@ test('dependency fixture operation owns lifecycle-backed publication and retirem
       { deadlineAtUnixMs: Date.now() + 30_000 }
     );
     retainedGeneration = firstGeneration;
+    const readGeneration = await retainCompilerDependencyReadGeneration(
+      observedAuthority!,
+      { deadlineAtUnixMs: Date.now() + 30_000 }
+    );
+    expect(readGeneration.generationDigest).toBe(observedAuthority!.generationDigest);
+    const readRetirement = await readGeneration.retire();
+    expect(await readGeneration.retire()).toBe(readRetirement);
+    assertCompilerDependencyReadGenerationRetirementReceipt(
+      readRetirement,
+      observedAuthority!.generationDigest
+    );
+    expect(() => assertCompilerDependencyReadGenerationRetirementReceipt(
+      { ...readRetirement },
+      observedAuthority!.generationDigest
+    )).toThrow('was not issued for the expected generation');
     expect(firstGeneration.directRootResolution).toEqual({
       entries: [{
         declaredName: '@types/bun',

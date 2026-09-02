@@ -9,8 +9,7 @@ import * as runtime from './runtime/project-runtime.ts';
 export type {
   CompilerDependencyExecutionGenerationAuthority,
   CompilerDependencyMaterializationDigest,
-  CompilerDependencyMaterializationInputProjection,
-  CompilerDepsReadyState,
+  CompilerDependencyMaterializationInputProjection, CompilerDependencyReadGenerationRetirementReceipt, CompilerDepsReadyState,
   DependencyAuthorityPaths, RetainedCompilerDependencyExecutionGeneration, RetainedCompilerDependencyReadGeneration, RuntimeDependencySourceGeneration,
   RuntimeDependencyTargetIdentity,
   RuntimeDepsStamp,
@@ -19,8 +18,7 @@ export type {
 
 export {
   assertCompilerDependencyExecutionGenerationAuthority,
-  assertCompilerDependencyExecutionRetirementReceipt,
-  COMPILER_DEPENDENCY_EXECUTION_RETENTION_POLICY,
+  assertCompilerDependencyExecutionRetirementReceipt, assertCompilerDependencyReadGenerationRetirementReceipt, COMPILER_DEPENDENCY_EXECUTION_RETENTION_POLICY,
   projectCompilerDepsReadyState, retainCompilerDependencyExecutionGeneration, retainCompilerDependencyReadGeneration
 } from './runtime/project-runtime.ts';
 

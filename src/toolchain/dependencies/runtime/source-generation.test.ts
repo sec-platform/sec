@@ -24,21 +24,33 @@ import {
   sameRuntimeDependencySourceGenerationContent
 } from './source-generation.ts';
 
-test('dependency retirement terminal and readback roles remain one domain operation', async () => {
+test('dependency generation and environment terminals remain bound to their domain operations', async () => {
   const descriptorPath = 'src/toolchain/dependencies/sec.module.json';
   const descriptorSource = await fs.readFile(descriptorPath, 'utf8');
   const descriptor = parseSecModuleDescriptor(JSON.parse(descriptorSource), descriptorPath);
   const roles = descriptor.capabilityProviders.flatMap(({ capability, operationRoles }) => (
     operationRoles.map((binding) => Object.freeze({ capability, ...binding }))
   ));
-  const terminal = roles.filter(({ role }) => role === 'terminal-issuer');
-  const readback = roles.filter(({ role }) => role === 'readback-issuer');
-  expect(terminal).toHaveLength(1);
-  expect(readback).toHaveLength(1);
-  expect(readback[0]?.semanticOperation).toBe(terminal[0]?.semanticOperation);
-  expect(readback[0]?.requirementId).toBe(terminal[0]?.capability);
-  expect(descriptor.operationObligations.flatMap(({ consumerSupport }) => consumerSupport.consumers))
-    .not.toContain(terminal[0]?.semanticOperation);
+  const environmentTerminal = roles.find(({ operation }) => (
+    operation === 'disposeCompilerDependencyEnvironment'
+  ));
+  const environmentReadback = roles.find(({ operation }) => (
+    operation === 'assertCompilerDependencyEnvironmentRetirementReceipt'
+  ));
+  const readGenerationOwner = roles.find(({ operation }) => (
+    operation === 'retainCompilerDependencyReadGeneration'
+  ));
+  const readGenerationReadback = roles.find(({ operation }) => (
+    operation === 'assertCompilerDependencyReadGenerationRetirementReceipt'
+  ));
+  expect(environmentTerminal?.role).toBe('terminal-issuer');
+  expect(environmentReadback?.role).toBe('readback-issuer');
+  expect(environmentReadback?.semanticOperation).toBe(environmentTerminal?.semanticOperation);
+  expect(environmentReadback?.requirementId).toBe(environmentTerminal?.capability);
+  expect(readGenerationOwner?.role).toBe('domain-owner');
+  expect(readGenerationReadback?.role).toBe('readback-issuer');
+  expect(readGenerationReadback?.semanticOperation).toBe(readGenerationOwner?.semanticOperation);
+  expect(readGenerationReadback?.requirementId).toBe(readGenerationOwner?.capability);
 
   const sourcePath = 'src/toolchain/dependencies/runtime/project-runtime.ts';
   const operations = descriptor.capabilityProviders.flatMap(({ operations }) => operations);

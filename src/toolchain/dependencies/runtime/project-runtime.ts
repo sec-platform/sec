@@ -209,7 +209,18 @@ export interface CompilerDependencyExecutionRetirementReceipt {
 export interface RetainedCompilerDependencyReadGeneration {
   readonly generationDigest: `sha256:${string}`;
   readonly physicalGeneration: RetainedNoFollowProvenDirectoryGeneration;
-  readonly retire: () => Promise<void>;
+  readonly retire: () => Promise<CompilerDependencyReadGenerationRetirementReceipt>;
+}
+
+/**
+ * Process-local terminal for a read-generation lease.  This is deliberately
+ * not a serialized schema: only the dependency owner can issue the object and
+ * consumers must retain the exact object identity through settlement.
+ */
+export interface CompilerDependencyReadGenerationRetirementReceipt {
+  readonly generationDigest: `sha256:${string}`;
+  readonly physicalRoot: PhysicalGenerationRetirementReceipt['root'];
+  readonly terminal: 'released';
 }
 
 export interface CompilerDependencyEnvironmentRetirementReceipt {
@@ -248,6 +259,7 @@ export interface RetainedCompilerDependencyExecutionGeneration {
 }
 
 const issuedCompilerDependencyExecutionRetirementReceipts = new WeakSet<object>();
+const issuedCompilerDependencyReadGenerationRetirementReceipts = new WeakSet<object>();
 const issuedCompilerDependencyEnvironmentRetirementReceipts = new WeakSet<object>();
 
 function issueCompilerDependencyEnvironmentRetirementReceipt(
@@ -268,6 +280,20 @@ export function assertCompilerDependencyExecutionRetirementReceipt(
     throw new SecError(
       'RUNTIME-DEPS-004',
       'Compiler dependency execution retirement receipt was not issued by its owner'
+    );
+  }
+}
+
+export function assertCompilerDependencyReadGenerationRetirementReceipt(
+  receipt: CompilerDependencyReadGenerationRetirementReceipt,
+  expectedGenerationDigest: `sha256:${string}`
+): void {
+  if (!issuedCompilerDependencyReadGenerationRetirementReceipts.has(receipt)
+      || receipt.generationDigest !== expectedGenerationDigest
+      || receipt.terminal !== 'released') {
+    throw new SecError(
+      'RUNTIME-DEPS-004',
+      'Compiler dependency read generation retirement was not issued for the expected generation'
     );
   }
 }
@@ -9845,15 +9871,22 @@ export async function retainCompilerDependencyReadGeneration(
     assertPhysicalGenerationRetirementReceipt(retirement);
     throw error;
   }
-  let retirement: Promise<void> | null = null;
+  let retirement: Promise<CompilerDependencyReadGenerationRetirementReceipt> | null = null;
   return Object.freeze({
     generationDigest: expected.sourceGeneration.epoch,
     physicalGeneration: reopened.generation,
     retire: () => {
       if (retirement !== null) return retirement;
       retirement = (async () => {
-        const receipt = await reopened.generation.retire();
-        assertPhysicalGenerationRetirementReceipt(receipt);
+        const physicalReceipt = await reopened.generation.retire();
+        assertPhysicalGenerationRetirementReceipt(physicalReceipt);
+        const receipt: CompilerDependencyReadGenerationRetirementReceipt = Object.freeze({
+          generationDigest: expected.sourceGeneration.epoch,
+          physicalRoot: physicalReceipt.root,
+          terminal: 'released' as const
+        });
+        issuedCompilerDependencyReadGenerationRetirementReceipts.add(receipt);
+        return receipt;
       })();
       return retirement;
     }
