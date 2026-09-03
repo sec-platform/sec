@@ -1156,6 +1156,7 @@ DocumentationMigrationDesignReady =
 ```text
 DocumentationTargetGraph = generated {
   graphRef,
+  graphIssueReceiptRef,
   sourceGenerationBindingRef,
   sourceGenerationBindingDigest,
   targetDesignBindingRef,
@@ -1178,6 +1179,25 @@ deriveDocumentationTargetGraph(targetDesign, placementProfile, sourceBinding):
   require placement/projection descriptors carry refs only and cannot add facts/authority
   reject current-registry fields, caller path lists, runtime state or generated views as inputs
   emit graphDigest from canonical target bytes and all typed edge descriptors
+  issue graphIssueReceiptRef bound to graphRef, graphDigest, source/target bindings,
+    preservationMapDigest, targetContractDigest and compilerRevision
+
+TargetGraphIssueReceipt = exact {
+  graphRef,
+  graphDigest,
+  issuerRef,
+  compilerRevision,
+  sourceGenerationBindingRef,
+  sourceGenerationBindingDigest,
+  targetDesignBindingRef,
+  preservationMapDigest,
+  targetContractDigest
+}
+
+`graphIssueReceiptRef` proves compiler provenance and exact inputs; it is not an
+Effect grant or a substitute for the migration owner’s admission. Its issuer
+must be the registered target-graph compiler, and a caller-supplied graph,
+digest or issuer label cannot satisfy `verifyTargetGraphIssueReceipt`.
 
 DocumentationMigrationSlice = generated {
   sliceRef,
@@ -1198,7 +1218,7 @@ DocumentationMigrationSlice = generated {
 }
 
 deriveMigrationSlices(design, targetGraph, requestedRoots):
-  require targetGraph is issued by the target documentation compiler
+  require verifyTargetGraphIssueReceipt(targetGraph.graphIssueReceiptRef, targetGraph)
   require targetGraph.sourceGenerationBindingRef == design.currentGenerationBinding.generationRef
   require targetGraph.sourceGenerationBindingDigest == design.currentGenerationBinding.bindingDigest
   require targetGraph.targetDesignBindingRef == design.targetDesignBindingRef
