@@ -4,13 +4,7 @@ import { realpathSync } from 'node:fs';
 import path from 'node:path';
 
 import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
-import type { GitHubCandidateObservation } from '../../verification/ci/runtime/verification-session-github.ts';
-import { integrationAuthorizationMergeMarkers } from '../../verification/ci/runtime/verification-session-runtime.ts';
 import { assertWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../workspace/lease.ts';
-import {
-  parseIntegrationAuthorizationOperationPublication,
-  type IntegrationAuthorizationOperationPublication
-} from '../integration/integration-authorization-publication.ts';
 
 export const LOCAL_MAIN_CLOSEOUT_BINDING_SCHEMA = 'sec-local-main-closeout-binding-v3' as const;
 
@@ -74,6 +68,43 @@ export interface LocalMainGitResult {
   readonly status: number;
   readonly stdout: string;
   readonly stderr: string;
+}
+
+/**
+ * Narrow facts consumed by the local-main mutation owner.
+ *
+ * Integration publication parsing, hosted marker construction, and GitHub
+ * transport remain in their owners.  This boundary accepts only the facts
+ * already validated by those owners, so the closeout operation does not form
+ * a reverse dependency on verification or integration implementations.
+ */
+export interface LocalMainCloseoutCandidateObservation {
+  readonly repository: string;
+  readonly number: number;
+  readonly state: 'OPEN' | 'MERGED' | 'CLOSED';
+  readonly headSha: string;
+  readonly headTreeSha: string;
+  readonly mergeCommitSha: string | null;
+  readonly mergeCommitTreeSha: string | null;
+  readonly mergeCommitMessage: string | null;
+}
+
+export interface LocalMainHostedAuthorityFacts {
+  readonly repository: string;
+  readonly pullRequestNumber: number;
+  readonly sessionRevision: string;
+  readonly authorizationId: string;
+  readonly authorizationReceiptDigest: string;
+  readonly consumptionOperationId: string;
+  readonly authorizationPublicationId: string;
+  readonly authorizationPublicationDigest: string;
+  readonly authorizationHeadSha: string;
+  readonly authorizationHeadTreeSha: string;
+  readonly reviewReceiptDigest: string;
+  readonly reviewRevision: string;
+  readonly integrationWorkflowSha: string;
+  readonly integrationRunId: string;
+  readonly integrationRunAttempt: number;
 }
 
 export type LocalMainGitRunner = (
@@ -354,55 +385,53 @@ export function createLocalMainCloseoutBindingFromHostedAuthority(input: {
   readonly protectedRoot: string;
   readonly expectedLocalPreimageSha: string;
   readonly expectedLocalPreimageTreeSha: string;
-  readonly livePublication: IntegrationAuthorizationOperationPublication;
+  readonly hostedAuthority: LocalMainHostedAuthorityFacts;
+  readonly authorizationMarkers: readonly string[];
   readonly liveCommentId: number;
-  readonly liveCandidate: GitHubCandidateObservation;
+  readonly liveCandidate: LocalMainCloseoutCandidateObservation;
 }): LocalMainCloseoutBinding {
-  const livePublication = parseIntegrationAuthorizationOperationPublication(input.livePublication);
-  const authorization = livePublication.result.authorization;
+  const authority = input.hostedAuthority;
   const candidate = input.liveCandidate;
-  if (candidate.repository !== livePublication.repository
-    || candidate.number !== livePublication.pullRequestNumber
+  if (candidate.repository !== authority.repository
+    || candidate.number !== authority.pullRequestNumber
     || candidate.state !== 'MERGED' || candidate.mergeCommitSha === null
     || candidate.mergeCommitTreeSha === null || candidate.mergeCommitMessage === null
-    || candidate.headSha !== authorization.headSha || candidate.headTreeSha !== authorization.headTreeSha
+    || candidate.headSha !== authority.authorizationHeadSha
+    || candidate.headTreeSha !== authority.authorizationHeadTreeSha
     || candidate.mergeCommitTreeSha !== candidate.headTreeSha) {
     throw new Error('live hosted authorization differs from the exact merged candidate closure.');
   }
-  const authorizationId = exactDigest(livePublication.authorizationId, 'livePublication.authorizationId');
-  const markers = integrationAuthorizationMergeMarkers({
-    sessionRevision: livePublication.sessionRevision,
-    authorizationId,
-    authorizationReceiptDigest: livePublication.authorizationReceiptDigest,
-    consumptionOperationId: livePublication.consumptionOperationId,
-    authorizationPublicationId: livePublication.authorizationPublicationId,
-    authorizationPublicationDigest: livePublication.publicationDigest,
-    commentId: input.liveCommentId
-  });
-  if (!markers.every((marker) => candidate.mergeCommitMessage!.split(/\r?\n/u).includes(marker))) {
+  if (input.authorizationMarkers.length === 0
+    || input.authorizationMarkers.some((marker) => typeof marker !== 'string' || marker.length === 0)
+    || new Set(input.authorizationMarkers).size !== input.authorizationMarkers.length
+    || !input.authorizationMarkers.every((marker) => candidate.mergeCommitMessage!.split(/\r?\n/u).includes(marker))) {
     throw new Error('live merged commit lacks the exact hosted authorization consumption closure.');
   }
   return createLocalMainCloseoutBinding({
-    repository: livePublication.repository,
-    pullRequestNumber: livePublication.pullRequestNumber,
+    repository: authority.repository,
+    pullRequestNumber: authority.pullRequestNumber,
     protectedRootRealPath: input.protectedRoot,
     expectedLocalPreimageSha: input.expectedLocalPreimageSha,
     expectedLocalPreimageTreeSha: input.expectedLocalPreimageTreeSha,
-    expectedCandidateHeadSha: authorization.headSha,
+    expectedCandidateHeadSha: authority.authorizationHeadSha,
     expectedRemoteMainSha: exactSha(candidate.mergeCommitSha, 'liveCandidate.mergeCommitSha'),
     expectedRemoteMainTreeSha: exactSha(candidate.mergeCommitTreeSha, 'liveCandidate.mergeCommitTreeSha'),
     expectedCandidateTreeSha: exactSha(candidate.headTreeSha, 'liveCandidate.headTreeSha'),
-    sessionRevision: livePublication.sessionRevision,
-    authorizationId,
-    authorizationReceiptDigest: livePublication.authorizationReceiptDigest,
-    consumptionOperationId: livePublication.consumptionOperationId,
-    authorizationPublicationId: livePublication.authorizationPublicationId,
-    authorizationPublicationDigest: livePublication.publicationDigest,
+    sessionRevision: exactDigest(authority.sessionRevision, 'hostedAuthority.sessionRevision'),
+    authorizationId: exactDigest(authority.authorizationId, 'hostedAuthority.authorizationId'),
+    authorizationReceiptDigest: exactDigest(authority.authorizationReceiptDigest,
+      'hostedAuthority.authorizationReceiptDigest'),
+    consumptionOperationId: exactDigest(authority.consumptionOperationId,
+      'hostedAuthority.consumptionOperationId'),
+    authorizationPublicationId: exactDigest(authority.authorizationPublicationId,
+      'hostedAuthority.authorizationPublicationId'),
+    authorizationPublicationDigest: exactDigest(authority.authorizationPublicationDigest,
+      'hostedAuthority.authorizationPublicationDigest'),
     authorizationCommentId: input.liveCommentId,
-    reviewReceiptDigest: livePublication.result.reviewReceipt.receiptDigest,
-    reviewRevision: livePublication.result.reviewReceipt.reviewRevision,
-    integrationWorkflowSha: livePublication.provenance.workflowSha,
-    integrationRunId: livePublication.provenance.runId,
-    integrationRunAttempt: livePublication.provenance.runAttempt
+    reviewReceiptDigest: exactDigest(authority.reviewReceiptDigest, 'hostedAuthority.reviewReceiptDigest'),
+    reviewRevision: exactDigest(authority.reviewRevision, 'hostedAuthority.reviewRevision'),
+    integrationWorkflowSha: authority.integrationWorkflowSha,
+    integrationRunId: authority.integrationRunId,
+    integrationRunAttempt: authority.integrationRunAttempt
   });
 }
