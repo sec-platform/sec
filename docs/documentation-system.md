@@ -913,7 +913,7 @@ liftCurrentDocumentation(currentRegistry, exactCorpus):
 DocumentationMigrationDesignReady =
   MigrationDesignReady(current documentation generation, target generation)
   and exact source-header/body-node frontend grammar + duplicate/unknown rejection frozen
-  and header clause-adoption policy, local override, inheritance boundary and provenance digest frozen
+  and header clause-adoption policy, independent issuer, local override, inheritance boundary and provenance digest frozen
   and current source semantic-graph/disposition digests plus typed clause frontier are migration inputs
   and ScopeNode/DocumentFragment/DocumentationRelation laws and schemas frozen
   and stable DocRef/clause identity grammar + renderer semantics frozen
@@ -1067,7 +1067,9 @@ Conformance Model从relation/operation/fault coverage生成性质而不是手写
 DocumentationGenerationClosed =
   every tracked documentation source classified in exactly one partition
   and source headers strict, role-discriminated and duplicate-free
-  and every normative body node is explicitly adopted typed source (header policy or local directive with provenance) while arbitrary prose is non-authoritative
+  and every normative body node is explicitly adopted typed source (header policy or local directive with provenance)
+  and every adoption policy is independently owner-issued and scope-bounded
+  while arbitrary prose is non-authoritative
   and containment is a rooted forest with relation-specific graph laws
   and every canonical fact has exactly one owner key
   and every fragment/subscope passes its existence predicate
