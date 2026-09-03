@@ -28,58 +28,25 @@ last-reviewed: 2026-09-02
 
 路线是能力偏序，不是日期表、Issue 镜像或“代码存在即完成”的清单。
 
-## 2. 成熟度
+## 2. 成熟度与设计准入（引用唯一 owner）
 
-~~~mermaid
-stateDiagram-v2
-  [*] --> Proposed
-  Proposed --> ContractFrozen
-  ContractFrozen --> ImplementedInMain
-  ImplementedInMain --> PhysicallyVerified
-  PhysicallyVerified --> PackagedOrDeployed
-  PackagedOrDeployed --> ProductSupported
+本文件只拥有 capability DAG、节点依赖、节点级退出证据和反转条件；不再复制产品成熟度或通用设计准入状态机：
 
-  ContractFrozen --> Proposed: design invalidated
-  ImplementedInMain --> ContractFrozen: implementation disproves contract
-  PhysicallyVerified --> ImplementedInMain: environment or evidence invalidated
-  ProductSupported --> PhysicallyVerified: incident EOL or provider withdrawal
-~~~
-
-| 层级 | 可证明 | 不能证明 |
+| 路线问题 | 唯一 owner | 本文使用方式 |
 |---|---|---|
-| proposed | 目标与候选关系已记录 | 合同正确、可实现 |
-| contract-frozen | 对象、owner、输入输出、拒绝边界已冻结 | 代码存在 |
-| implemented-in-main | canonical main 含实现 | 物理环境可用 |
-| physically-verified | exact subject/environment 上成立 | 可分发、受支持 |
-| packaged/deployed | 可重复安装或部署 | 长期支持 |
-| product-supported | 支持策略、运营、撤销与恢复闭合 | 永久有效 |
+| 产品成熟度、降级、弃用、支持边界 | [产品目标与系统边界](../product.md#支持成熟度) | 节点 Evidence 只能推动对应产品状态，不能跨级声称完成 |
+| 设计冻结、反例攻击、实现准入、反向失效 | [设计冻结与演进](../design-calculus/freeze-and-evolution.md) | 节点实现前引用 `ImplementationWorkAdmitted`；缺失则 `design-unbound` |
+| 实体落位、变更局部性、生成与迁移 | [实现架构](../implementation-architecture.md) | 只引用 target implementation package，不在路线图定义路径或层次 |
+| 验收、独立 Evidence、Gate 与发布读回 | [验证治理](../verification-governance.md) | 节点退出表只声明 obligation，不签发 PASS |
 
-任何类型、文档、测试、提交、PR 或示例都只能提供其实际层级的 Evidence。
-
-### 2.1 Design-to-implementation gate
-
-| Change kind | 实现前必须冻结 | 可省略 |
-|---|---|---|
-| 新产品能力/跨 owner 架构/公共合同/持久状态/Effect/resource/provider/layout/evolution | `docs/design-calculus.md` 定义的完整 Design Package + SEC scenario traces；涉及实现结构时同时冻结 `docs/implementation-architecture.md` 的 entity/placement/locality/generation/migration 投影 | production code |
-| 已冻结 operation 内的局部实现纵切片 | Design Package ref、exact owned closure、acceptance/settlement/proof obligations | 重做全局哲学 |
-| 用于消解一个 design unknown 的 experiment | hypothesis、isolated inputs/effects、expiry、expected observation、retirement | production integration/authority |
-| incident recovery | 当前状态 readback、最小安全 transition、residue/rollback | 新功能与无关重构 |
-
-```mermaid
-flowchart LR
-  Q[Question / counterexample] --> D[Design Package]
-  D --> M[Model + fault validation]
-  M --> F{Contract frozen?}
-  F -->|no| D
-  F -->|yes| I[Implementation slices]
-  I --> V[Conformance Evidence]
-  V --> R{Model defect?}
-  R -->|yes| S[Stale reverse closure]
-  S --> D
-  R -->|no| N[Next maturity state]
+```text
+NodeExit(node) = capability-specific evidence
+                 ∧ product maturity admission
+                 ∧ design package admitted
+                 ∧ implementation/readback closure
 ```
 
-该 gate 防止边写边发现结构，但不要求每个叶节点重复全套设计；叶节点必须引用现有 frozen package，找不到则返回 design-unbound。
+任何类型、文档、测试、提交、PR 或示例都只能提供其实际层级的 Evidence；路线顺序不能反向授予成熟度、设计或实现权限。
 
 ## 3. 唯一能力 DAG
 
