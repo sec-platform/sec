@@ -515,6 +515,13 @@ ConsumerExposureEvidence = exact owner-issued {
 只关闭对应 subject 的 consumer frontier，不能改变 owner、权限、生命周期或
 retirement decision；consumerRefs 为空也不能单独证明 consumer-zero。
 
+在`DocumentationConsumerCensus`中，`externalStatus=none-observed`必须引用至少一条
+仍在支持窗口内的`private-internal` evidence；`present`必须引用相应的
+`published-interface`或`external-protocol` evidence，并保留所有需迁移/重验证的
+consumer refs；`unknown`不得附带可执行的 retirement disposition。`exposureEvidenceRefs`
+缺失、重复、跨 generation 或与 subject 不匹配时，整条 census 保持 unresolved，不能
+只把状态降级成 `none-observed`。
+
 迁移编译器的输入也必须体现这条边界，而不是让 `CorpusEntry` 中的状态字段
 直接充当权限：
 
@@ -526,7 +533,13 @@ DocumentationConsumerCensus = opaque owner-issued {
   providerRef,
   generationRef,
   corpusDigest,
-  entries: exact observed refs + local coverage + external status,
+  entries: exact {
+    subjectRef,
+    observedConsumerRefs,
+    localCoverageRef,
+    externalStatus,
+    exposureEvidenceRefs
+  }[],
   censusDigest
 }
 
@@ -535,6 +548,8 @@ compileMigration(..., consumerCensus):
   plus canonical provider route
   require generationRef/corpusDigest == currentGenerationBinding
   require censusDigest == digest(providerRef, generationRef, corpusDigest, entries)
+  require every localCoverageRef and exposureEvidenceRef is exact-generation-bound
+  require externalStatus == unknown only as a blocking frontier
   use entries only after these checks
 ```
 
