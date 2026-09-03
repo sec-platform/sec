@@ -12,6 +12,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { GIT_READ_OPERATION_BUDGET } from '../../development/tooling/git/git-read.ts';
 import { GitReadAuthorityError, withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
 import {
   createAuthorityGitScratchIndexTreeSession,
@@ -7988,7 +7989,10 @@ async function main(): Promise<void> {
     let executionDefaultBranch: string | undefined;
     await withAuthorityGitReadSession({
       cwd: executionRoot,
-      budget: { deadlineMs: remainingFreezeBudget() },
+      budget: Object.freeze({
+        ...GIT_READ_OPERATION_BUDGET,
+        deadlineMs: remainingFreezeBudget()
+      }),
       deadlineAtUnixMs: freezeDeadlineAtUnixMs
     }, (session) => documentControlGitReadScope.run(session, async () => {
       const executionBranch = requireCommand(
@@ -8030,7 +8034,10 @@ async function main(): Promise<void> {
     const requestedWorkspace = realpathSync(path.resolve(workspace));
     const result = await withAuthorityGitReadSession({
       cwd: requestedWorkspace,
-      budget: { deadlineMs: remainingFreezeBudget() },
+      budget: Object.freeze({
+        ...GIT_READ_OPERATION_BUDGET,
+        deadlineMs: remainingFreezeBudget()
+      }),
       deadlineAtUnixMs: freezeDeadlineAtUnixMs
     }, (session) => documentControlGitReadScope.run(session, async () => {
       const candidateRoot = path.resolve(requireCommand(
