@@ -738,6 +738,8 @@ DocumentationValidationResult = {
   focusNodeRef,
   relationPath,
   outcome: conforms | violates(code) | unresolved(frontierRef),
+  lifecycleAndDisclosurePredicate,
+  sourceConstraintRefs,
   observationRefs,
   resultDigest
 }
