@@ -483,6 +483,30 @@ It must bind the exact source generation, consumer class, support/retention
 window and revalidation trigger. Without that evidence the migration remains
 blocked even when every local observer reports an empty set.
 
+外部边界由 source/domain owner 分别签发，不集中成第二个全局 consumer registry：
+
+```text
+ConsumerExposureEvidence = exact owner-issued {
+  issuerOwnerRef,
+  issuerAuthorityRef,
+  decisionRevision,
+  subjectRef,
+  generationRef,
+  exposure: private-internal | published-interface | external-protocol,
+  consumerRefs: exact observed protocol/package/CLI readers,
+  localCoverageRef,
+  supportWindowRef,
+  revalidationTriggerRef,
+  evidenceRef
+}
+```
+
+`private-internal` 必须同时绑定可重算的 local coverage 和明确的非公开边界；
+`published-interface`/`external-protocol` 必须列出实际 contract/reader 与支持窗口；
+任一项缺失、过期或无法证明都保持 `ExternalConsumerStatus=unknown`。该 evidence
+只关闭对应 subject 的 consumer frontier，不能改变 owner、权限、生命周期或
+retirement decision；consumerRefs 为空也不能单独证明 consumer-zero。
+
 迁移编译器的输入也必须体现这条边界，而不是让 `CorpusEntry` 中的状态字段
 直接充当权限：
 
