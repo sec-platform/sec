@@ -533,6 +533,7 @@ generation发布采用single-flight keyed by `workspace/tenant/security scope + 
 ```text
 MechanismBinding = exact {
   requirementRef, providerRef, semanticOwnerRef,
+  surveyEvidenceRef,
   sourceGenerationRef, observedRevision, integrity,
   outputFactDigest, coverageFrontier,
   operationEnvelopeRef, settlementRef,
