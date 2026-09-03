@@ -1165,6 +1165,8 @@ DocumentationTargetGraph = generated {
   preservationMapDigest,
   consumerCensusRef,
   consumerCensusDigest,
+  physicalPathCapabilityRef,
+  physicalPathCapabilityDigest,
   targetContractDigest,
   scopes,
   fragments,
@@ -1180,6 +1182,8 @@ deriveDocumentationTargetGraph(targetDesign, placementProfile, sourceBinding):
   preservationMapDigest := targetDesign.preservationMap.mapDigest
   consumerCensusRef := targetDesign.consumerCensusRef
   consumerCensusDigest := verifyIssuedConsumerCensus(consumerCensusRef).censusDigest
+  physicalPathCapabilityRef := placementProfile.physicalPathCapabilityRef
+  physicalPathCapabilityDigest := verifyPhysicalPathCapability(physicalPathCapabilityRef).digest
   derive scopes/fragments/relations/addresses from targetDesign and placementProfile
   require every semantic identity and relation has exactly one target origin
   require placement/projection descriptors carry refs only and cannot add facts/authority
@@ -1187,6 +1191,7 @@ deriveDocumentationTargetGraph(targetDesign, placementProfile, sourceBinding):
   emit graphDigest from canonical target bytes and all typed edge descriptors
   issue graphIssueReceiptRef bound to graphRef, graphDigest, source/target bindings,
     preservationMapDigest, consumerCensusRef, consumerCensusDigest,
+    physicalPathCapabilityRef, physicalPathCapabilityDigest,
     targetContractDigest and compilerRevision
 
 TargetGraphIssueReceipt = exact {
@@ -1200,6 +1205,8 @@ TargetGraphIssueReceipt = exact {
   preservationMapDigest,
   consumerCensusRef,
   consumerCensusDigest,
+  physicalPathCapabilityRef,
+  physicalPathCapabilityDigest,
   targetContractDigest
 }
 
@@ -1216,6 +1223,8 @@ DocumentationMigrationSlice = generated {
   targetGraphIssueReceiptRef,
   consumerCensusRef,
   consumerCensusDigest,
+  physicalPathCapabilityRef,
+  physicalPathCapabilityDigest,
   targetContractDigest,
   requestedRootRefs,
   closedScopeRefs,
@@ -1241,6 +1250,8 @@ deriveMigrationSlices(design, targetGraph, requestedRoots):
   require targetGraph.preservationMapDigest == preservationMapDigest
   require targetGraph.consumerCensusRef == design.consumerCensusRef
   require targetGraph.consumerCensusDigest == design.consumerCensusDigest
+  require targetGraph.physicalPathCapabilityRef == design.targetPlacementPlan.physicalPathCapabilityRef
+  require targetGraph.physicalPathCapabilityDigest == design.targetPlacementPlan.physicalPathCapabilityDigest
   roots := deriveDemandedRoots(design, requestedRoots)
   for root in roots:
     sourceScope := sourceScopeForRoot(design, root)
@@ -1282,6 +1293,8 @@ DocumentationMigration = {
   currentRegistryAndFrontmatterCensus,
   consumerCensusRef,
   consumerCensusDigest,
+  physicalPathCapabilityRef,
+  physicalPathCapabilityDigest,
   machineInputBindings,
   sourceSemanticGraphDigest,
   sourceClauseDispositionDigest,
@@ -1480,7 +1493,7 @@ non-authoritative staged proposal. Missing or contradictory obligation refs
 block activation rather than being treated as an empty future set.
 ```
 
-迁移journal由Change Management/state owner持久化，绑定current/target generation、target graph issue receipt、source/target physical identities、preservation digest、phase、CAS preimage和settlement；它不能由目录存在、Git commit或迁移脚本退出码重建。activation前失败可丢弃隔离target但不动current；activation后只允许forward recovery或显式授权rollback，绝不同时开放两个normal reader。
+迁移journal由Change Management/state owner持久化，绑定current/target generation、target graph issue receipt、physical path capability ref/digest、source/target physical identities、preservation digest、phase、CAS preimage和settlement；它不能由目录存在、Git commit或迁移脚本退出码重建。activation前失败可丢弃隔离target但不动current；activation后只允许forward recovery或显式授权rollback，绝不同时开放两个normal reader。
 
 Conformance Model从relation/operation/fault coverage生成性质而不是手写路径用例：source census totality、strict frontend、identity/path independence、scope/relation laws、projection/disclosure fidelity、incremental/full byte equivalence、unrelated-change stability、address portability、current→target preservation、all crash points recoverable、single active generation、old consumer zero和bounded cold/warm/delta cost。Verifier从target bytes独立重编，不消费迁移执行者的PASS。
 
