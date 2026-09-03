@@ -1169,6 +1169,7 @@ DocumentationTargetGraph = generated {
 
 deriveDocumentationTargetGraph(targetDesign, placementProfile, sourceBinding):
   require targetDesign is frozen by the same sourceBinding and targetContractDigest
+  require targetDesignBindingRef is an issuer-bound ref to that target design, placement profile and freeze receipt
   derive scopes/fragments/relations/addresses from targetDesign and placementProfile
   require every semantic identity and relation has exactly one target origin
   require placement/projection descriptors carry refs only and cannot add facts/authority
