@@ -1432,7 +1432,7 @@ DocumentationLifecycleRef = exact {
 
 DocumentationFutureObligationPreservation = exact {
   currentRef,
-  targetRef,
+  targetRef: ref | null,
   triggerRef,
   expectedConsumerClass,
   invariantRefs,
@@ -1473,6 +1473,10 @@ Every future obligation keeps its trigger, expected consumer class, invariant,
 prerequisite, maintenance-cost and reconsideration refs. `retire` therefore
 requires owner evidence that the trigger is cancelled or the obligation is
 superseded; absence of current consumers is not sufficient.
+`currentRef` is always present; `preserve` and `revise` require a target ref,
+`retire` requires `targetRef = null`, and `blocked` may point only to a
+non-authoritative staged proposal. Missing or contradictory obligation refs
+block activation rather than being treated as an empty future set.
 ```
 
 迁移journal由Change Management/state owner持久化，绑定current/target generation、target graph issue receipt、source/target physical identities、preservation digest、phase、CAS preimage和settlement；它不能由目录存在、Git commit或迁移脚本退出码重建。activation前失败可丢弃隔离target但不动current；activation后只允许forward recovery或显式授权rollback，绝不同时开放两个normal reader。
