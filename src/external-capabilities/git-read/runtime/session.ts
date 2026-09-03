@@ -1979,10 +1979,14 @@ function pathIsInside(parent: string, candidate: string): boolean {
 }
 
 /**
- * Issues the one Git effect needed to compute a tree from an already-created,
- * immutable index snapshot. The scratch root is caller-materialized but must
- * be repository-external and contain exactly the retained `index` file and
- * `objects` directory. The returned object has no generic command surface.
+ * Issues the narrow Git effects needed to compute a tree from an
+ * already-created, immutable index snapshot. The scratch root is
+ * caller-materialized but must be repository-external and contain exactly the
+ * retained `index` file and `objects` directory. Scratch computation remains
+ * isolated; the returned capability's explicit `materializeIndexDelta` method
+ * is the only route that may persist the same typed delta into the retained
+ * repository object store. The returned object has no generic command
+ * surface.
  */
 export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<{
   readonly gitReadSession: GitReadSession;
