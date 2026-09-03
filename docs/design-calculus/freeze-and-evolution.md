@@ -86,6 +86,33 @@ DesignDecision = {
 }
 ```
 
+冻结不是作者标签，而是由 architecture/change state owner 签发的可失效事实：
+
+```text
+DesignFreezeReceipt = exact owner-issued {
+  receiptRef,
+  packageKind,
+  packageRef,
+  packageDigest,
+  exactInputBindingRef,
+  modelRevisionRefs,
+  checkResultDigest,
+  unresolvedFrontierRef,
+  outcome: frozen | blocked | stale,
+  issuerOwnerRef,
+  issuerAuthorityRef,
+  validityAndInvalidationRefs
+}
+```
+
+只有`outcome=frozen`且`unresolvedFrontierRef`为空或已证明与该 package 的目标
+outcome/Effect/Claim 不相交时，receipt 才能满足 `DesignFreeze`；`blocked`、`stale`、
+caller 自报状态、测试退出码、提交或文档存在都不能替代它。receipt 只证明指定
+`packageRef/packageDigest`通过指定 model/check revision，不包含 package 内容、实现
+权限或运行成功；任一 input binding、model/compiler revision、frontier、reversal 或
+issuer authority 变化都会沿反向依赖使 receipt stale。重复签发同一 package 的并列
+receipt 必须合并为同一 owner 的 latest valid receipt，不能形成第二冻结事实源。
+
 `hardConstraintResults`、`dominanceAndCostResults`、`rejectedReasons`、`avoidedFaultTraces`和`invalidationImpact`不由人重复填写；它们由上述refs编译成typed `DesignExplanationTrace`并挂入`DesignRationaleIndex`。后来者在inputs、premises、candidate coverage和reversal未变化时直接复用裁决；出现新事实时沿reverse closure进入演进，而不是重新做无边界讨论或在旧结论上叠补丁。
 
 ### 11.1 权威输入、编译产物与持久载体
