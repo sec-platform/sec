@@ -30,6 +30,9 @@ flowchart LR
 ArchitectureMigration {
   oldGraphRevision
   targetDesignRevision
+  currentSourceGenerationBindingRef
+  targetDesignBindingRef
+  consumerCensusRef
   subjectMappings
   capabilityConservationClaims
   authoredMoves
@@ -37,12 +40,52 @@ ArchitectureMigration {
   packageAndConfigUpdates
   durableStateMigrations
   testClaimMappings
+  operationEnvelopeRef
+  cutoverPreimageRef
   unknowns
   cutoverPredicate
   rollbackOrForwardRecovery
   retirementSet
 }
 ```
+
+`oldGraphRevision`和`targetDesignRevision`只是语义/实现包的内容引用，不能单独
+授权迁移。`currentSourceGenerationBindingRef`必须指向观察 owner 签发的 exact
+source/provider/tree 内容世代（含 observation epoch、semantic/implementation
+graph digest）；`targetDesignBindingRef`必须指向已冻结的目标设计与 target
+profile，而不是执行者临时拼出的路径清单。`consumerCensusRef`必须由 consumer
+coverage owner 签发并绑定 current source generation，明确 local coverage、external
+consumer status、动态/generated/config/workflow readers 和 retention/revalidation；
+空的字面命中集合不能代替它。所有三个引用都必须在同一 migration generation
+binding 下相等，否则返回 stale/unknown，不得继续 staging 或 cutover。
+
+`operationEnvelopeRef`绑定本次迁移的 principal、scope、authority grant、resource
+allocation、monotonic deadline、cancellation、retry/reentrancy 与 recovery policy；
+`cutoverPreimageRef`绑定待替换的 current pointer/registry/physical identities 和
+最后一次 readback。每个 filesystem、store、process、external 或 cleanup effect
+都只能消费该 envelope 的剩余预算，并在 effect 前后重验 preimage；不能把
+`operationId`、commit、branch、退出码或 callback return 当作 envelope、preimage
+或 settlement。迁移执行者丢失句柄时只能根据 durable journal + provider/state
+readback 重新取得这些引用，不能新建一个计划或按目录猜测。
+
+```text
+ArchitectureMigrationAdmitted(m) =
+  issuedByMigrationOwner(m)
+  ∧ currentSourceGenerationBindingRef == exactCurrentObservedGeneration
+  ∧ targetDesignBindingRef == frozenTargetDesignAndProfile
+  ∧ consumerCensusRef.completeFor(m.currentSourceGenerationBindingRef)
+  ∧ every consumer/status frontier is either closed or explicitly disjoint
+  ∧ operationEnvelopeRef.activeFor(m.scope, m.currentSourceGenerationBindingRef)
+  ∧ cutoverPreimageRef.matchesCurrentReadback
+  ∧ capabilityConservationClaims + unknowns + recovery are closed
+```
+
+`ArchitectureMigrationAdmitted`是迁移 owner 的输入准入，不是迁移过程的成功结论；
+任一引用、输入 digest、consumer coverage、authority、allocation、deadline 或
+preimage 变化都会使 migration stale，并沿 reverse closure 使其 plan、Evidence
+和 staging residue 失效。target bytes 写入前后都必须保留 source/target binding
+与 journal readback；只有一次 generation-level CAS 成功且新 reader 独立读回后，
+才允许执行旧地址/旧 owner 的 retirement。
 
 迁移工具消费 symbol/reference graph，不依赖字符串替换。路径缩短不是成功；所有 imports、package exports、CLI entrypoints、runtime locators、generated registries、tests、docs 和 artifacts 必须重编/readback，旧地址 consumer-zero 后才退休，不留 alias/compat barrel。
 
