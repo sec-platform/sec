@@ -309,6 +309,25 @@ normalized graph记录`header-default | local-directive`来源与对应ref，dig
 blocker直接拒绝编译，而不是按最接近的kind猜测。迁移阶段缺失header policy是
 精确的`source-adoption-required` frontier，不是允许编译器批量补标签的理由。
 
+```text
+compileClauseAdoption(fragment, bodyNodes):
+  policy := requireExact(fragment.header.clauseAdoptionPolicy)
+  for node in bodyNodes ownedBy fragment:
+    adoption := node.localDirective ?? policy
+    require adoption.kind in closedKindSet
+    require blockerShape(adoption.kind, adoption.blocker)
+    emit ClauseSource(..., adoption, origin =
+      node.localDirective ? local-directive : header-default)
+  exclude descendantScopeNodes and generated/projection nodes
+  include policyRef + origin + effective adoption in graph/digest
+```
+
+因此，补充一个 fragment header policy 可以一次采用其自身的同类正文；例外节点
+只增加局部directive，不复制整篇规则。policy缺失、继承越过scope、directive覆盖
+未声明或policyRef不属于当前owner时，结果分别是`source-adoption-required`、
+`scope-inheritance-forbidden`、`adoption-override-invalid`或`owner-decision-unbound`，
+全部保留为blocking frontier。
+
 `docs/authority.json`在目标generation中退役authoring职责；目标machine projection为generated、content-addressed `DocumentationIndex`。它聚合全部source headers、scope/relations、physical addresses和digests，但不拥有任何事实，并发布到Runtime State/Artifact Store而不是提交进authored `docs/**`。当前`authority.json`在迁移完成前仍是唯一现行registry，两个generation不得同时被production consumer接受。
 
 ```text
