@@ -100,64 +100,52 @@ Compiler/provider 只发布其能证明的 language facts；SEC 组合唯一 rep
 ### 4.1 一次观察会话、可验证事实分片与重算边界
 
 “一次图”必须有可复用的输入凭证；仅约定消费者“不要重扫”不能阻止第二个
-scanner。Source Program owner 对 exact snapshot 签发唯一观察凭证，所有下游只消费它
-及其内容寻址分片：
+scanner。`SourceObservationGeneration` 是 [实现架构](implementation-architecture/source-and-generation.md)
+定义的唯一观察世代；Brownfield 不再定义第二个 receipt 或 shard schema。Source
+Program owner 只签发该世代的语义投影，下游通过一个不拥有事实的消费绑定取得它：
 
 ```text
-SourceProgramObservationReceipt = exact owner-issued {
-  sourceProgramRef,
-  sourceProgramDigest,
-  exactSnapshotBindingRef,
-  frontendBindingRef,
-  compilerConfigRef,
-  dependencyGenerationRef,
-  factShardRootRef,
-  coverageAndFrontierDigest,
-  observationAllocationRef,
-  observationEpoch,
-  receiptDigest
-}
-
-SourceFactShard = immutable derived {
-  shardRef,
-  sourceProgramReceiptRef,
-  semanticKeyRange,
-  declarations/references/effects/unknowns,
-  predecessorShardRefs,
-  shardDigest
+SourceProgramConsumerBinding = exact relation {
+  sourceObservationGenerationRef,
+  consumerRef,
+  queryRef,
+  consumerReadOnlyAllocationRef,
+  bindingDigest
 }
 ```
 
-`observationAllocationRef`只记录生产观察使用的[统一资源账本](system-architecture/operations-and-resources.md)，
-不在 Brownfield 重复声明 timeout、bytes 或 process 数字。它证明生产观察已经结算，
-不向后续消费者授予资源；每个消费者必须从自己的父 operation 取得只读 allocation。
-Receipt 是观察与复用的边界，不是业务 Definition、Grant、Effect ticket 或 Evidence
-verdict；fact shard 是加速投影，不是第二 Source Program。其判定链为：
+`SourceProgramConsumerBinding` 只证明某个consumer在自己的父 operation allocation中
+读取已发布的世代；它不是新的 Source Program、业务 Definition、Grant、Effect ticket
+或 Evidence verdict。观察生产本身的 allocation 与消费者 allocation 都由[统一资源
+账本](system-architecture/operations-and-resources.md)记录，Brownfield 不重复声明
+timeout、bytes 或 process 数字。fact shard 是 `SourceObservationGeneration` 中的
+immutable 加速投影，不是第二事实源。其判定链为：
 
 ```mermaid
 flowchart LR
   I[Exact snapshot + frontend/config/dependency bindings] --> O[One bounded observation session]
-  O --> F[Content-addressed fact-shard root]
-  F --> R[Receipt: coverage + frontier + allocation + epoch]
-  R --> T[Typecheck]
-  R --> A[Audit / architecture]
-  R --> X[Test-impact / selection]
+  O --> G[One SourceObservationGeneration]
+  G --> F[Content-addressed fact-shard root]
+  G --> T[Typecheck]
+  G --> A[Audit / architecture]
+  G --> X[Test-impact / selection]
   T -. no live rescan .-> F
   A -. no live rescan .-> F
   X -. no live rescan .-> F
 ```
 
 ```text
-Reusable(receipt, consumer) iff
-  verifyIssuerAndSourceProgram(receipt)
-  ∧ exactSnapshot/frontend/config/dependency generation still active
-  ∧ readback(factShardRootRef, shardDigest, coverageAndFrontierDigest)
-  ∧ consumerQuery ⊆ receipt.coverage
-  ∧ consumer has a fresh read-only allocation for this query
+Reusable(generation, binding) iff
+  verifyGenerationIssuerAndSourceProgram(generation)
+  ∧ exactWorkspaceView/frontend/config/dependency generation still active
+  ∧ readback(generation.manifest, generation.factShards,
+             generation.coverageAndUnknownFrontier)
+  ∧ binding.query ⊆ generation.coverage
+  ∧ binding.consumerReadOnlyAllocationRef is fresh and sufficient
 ```
 
 消费者禁止重新创建 AST、Language Service、resolver、PATH/文件 census 或直接读取
-当前 filesystem/environment；若 Receipt 失效，只能由 Source Program owner 在父
+当前 filesystem/environment；若 Generation 失效，只能由 Source Program owner 在父
 operation 的剩余 allocation 内重新开启一次观察会话。失效原因（snapshot drift、
 provider/config/dependency 变化、shard 缺失/损坏、权限、reparse、deadline、abort 或
 opaque frontier）保持 typed `unresolved`，不得降级成空图、普通 cache miss 或隐式
@@ -179,16 +167,16 @@ daemon：Language Service/本地 retained session 只能作为可替换 Provider
 
 ```text
 OneObservationInvariant:
-  one exact snapshot + one active frontend/config/dependency binding
-  → at most one active producer and one canonical shard root
+  one exact WorkspaceContentView + one active frontend/config/dependency binding
+  → at most one active producer and one published SourceObservationGeneration/shard root
   (a failed/settled attempt may be retried only after a new admission)
 
 SemanticReuseInvariant:
-  cold(receipt) ≡ warm(receipt) ≡ delta(receipt, unchanged closure)
+  cold(generation) ≡ warm(generation) ≡ delta(generation, unchanged closure)
   in semantic graph, coverage, unknown frontier and ActionKey inputs
 ```
 
-任何直接消费 live source、创建第二 shard root、绕过 Receipt、扩大 allocation 或把
+任何直接消费 live source、创建第二 shard root、绕过 Generation、扩大 allocation 或把
 warm/delta 结果写成不同语义都产生 `source-observation-duplication` 或
 `source-observation-authority-bypass`，在 Source Program/Implementation conformance
 阶段拒绝。新增语言、Provider 或缓存只扩展其 Binding/Conformance，不复制这条观察链。
