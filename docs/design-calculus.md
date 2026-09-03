@@ -163,8 +163,8 @@ Evidence只能支持同种或更弱的Claim：有限样本不能证明全称性�
 
 ```text
 semanticIdentity ⟂ serializationNamespace ⟂ address ⟂ presentationLabel
-namespaceRequired ⇐ durable | external | collision constraint is proven
-otherwise        ⇐ structured ref or generated projection; no global prefix
+namespaceRequired ⇐ durable ∨ external ∨ proven-collision constraint
+otherwise          ⇐ structured ref or generated projection; no global prefix
 ```
 
 ## 3. 正交关系与相互约束
