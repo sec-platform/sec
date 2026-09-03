@@ -97,6 +97,100 @@ dynamic load、shell composition、reflection 或 external runner 无法解析�
 
 Compiler/provider 只发布其能证明的 language facts；SEC 组合唯一 repository graph，不重写成熟 parser。clean/incremental outputs 必须 byte-equivalent。
 
+### 4.1 一次观察会话、可验证事实分片与重算边界
+
+“一次图”必须有可复用的输入凭证；仅约定消费者“不要重扫”不能阻止第二个
+scanner。Source Program owner 对 exact snapshot 签发唯一观察凭证，所有下游只消费它
+及其内容寻址分片：
+
+```text
+SourceProgramObservationReceipt = exact owner-issued {
+  sourceProgramRef,
+  sourceProgramDigest,
+  exactSnapshotBindingRef,
+  frontendBindingRef,
+  compilerConfigRef,
+  dependencyGenerationRef,
+  factShardRootRef,
+  coverageAndFrontierDigest,
+  resourceAllocationRef,
+  observationEpoch,
+  receiptDigest
+}
+
+SourceFactShard = immutable derived {
+  shardRef,
+  sourceProgramReceiptRef,
+  semanticKeyRange,
+  declarations/references/effects/unknowns,
+  predecessorShardRefs,
+  shardDigest
+}
+```
+
+`resourceAllocationRef`只引用[统一资源账本](system-architecture/operations-and-resources.md)，
+不在 Brownfield 重复声明 timeout、bytes 或 process 数字。Receipt 是观察与复用的
+边界，不是业务 Definition、Grant、Effect ticket 或 Evidence verdict；fact shard 是
+加速投影，不是第二 Source Program。其判定链为：
+
+```mermaid
+flowchart LR
+  I[Exact snapshot + frontend/config/dependency bindings] --> O[One bounded observation session]
+  O --> F[Content-addressed fact-shard root]
+  F --> R[Receipt: coverage + frontier + allocation + epoch]
+  R --> T[Typecheck]
+  R --> A[Audit / architecture]
+  R --> X[Test-impact / selection]
+  T -. no live rescan .-> F
+  A -. no live rescan .-> F
+  X -. no live rescan .-> F
+```
+
+```text
+Reusable(receipt, consumer) iff
+  verifyIssuerAndSourceProgram(receipt)
+  ∧ exactSnapshot/frontend/config/dependency generation still active
+  ∧ readback(factShardRootRef, shardDigest, coverageAndFrontierDigest)
+  ∧ consumerQuery ⊆ receipt.coverage
+  ∧ consumerAllocation ⊆ receipt.resourceAllocationRef
+```
+
+消费者禁止重新创建 AST、Language Service、resolver、PATH/文件 census 或直接读取
+当前 filesystem/environment；若 Receipt 失效，只能由 Source Program owner 在父
+operation 的剩余 allocation 内重新开启一次观察会话。失效原因（snapshot drift、
+provider/config/dependency 变化、shard 缺失/损坏、权限、reparse、deadline、abort 或
+opaque frontier）保持 typed `unresolved`，不得降级成空图、普通 cache miss 或隐式
+全量 fallback。
+
+| 模式 | 唯一允许的物理工作 | 禁止的捷径 | 结果边界 |
+| --- | --- | --- | --- |
+| cold | 一次 bounded census/parse，流式生成 shard，并在同一 allocation 内 readback | 先独立做 byte 全扫描，再让每个 consumer 重读 | receipt + shard root；未覆盖项进 frontier |
+| warm | 验证 receipt、root physical/epoch 与所需 shard；只读取 reverse-reachable 分片 | 以 path、mtime、进程内对象或旧 PASS 跳过验证 | 与 cold 相同的语义 bytes |
+| delta | 观察变更的 exact bytes，按反向依赖失效并重编受影响分片 | 因单文件变化重建全图，或以文件名猜 impact | unaffected shard 保持原 digest |
+| budget/abort | 所有 read/parse/hash/settlement 消费同一父账本的 remaining；耗尽保留 frontier | 重置 timeout、另起 scanner/进程、把未读视为零 | typed `resource-exhausted`/`aborted`，不签发完整 coverage |
+
+Windows ACL、目录链、进程句柄等物理事实属于其 Provider 的 retained capability；
+观察会话只引用 provider-issued binding。新进程不得各自启动 PowerShell 证明；若同一
+host capability 可安全复用，Provider 以 epoch/物理 readback 重验证后共享；否则返回
+`capability-unavailable`，不以环境变量或路径字符串替代。该优化不引入 TypeScript
+daemon：Language Service/本地 retained session 只能作为可替换 Provider，永远不能
+拥有 Source Program 或跨消费者的语义 authority。
+
+```text
+OneObservationInvariant:
+  one exact snapshot + one active frontend/config/dependency binding
+  → at most one observation session and one canonical shard root
+
+SemanticReuseInvariant:
+  cold(receipt) ≡ warm(receipt) ≡ delta(receipt, unchanged closure)
+  in semantic graph, coverage, unknown frontier and ActionKey inputs
+```
+
+任何直接消费 live source、创建第二 shard root、绕过 Receipt、扩大 allocation 或把
+warm/delta 结果写成不同语义都产生 `source-observation-duplication` 或
+`source-observation-authority-bypass`，在 Source Program/Implementation conformance
+阶段拒绝。新增语言、Provider 或缓存只扩展其 Binding/Conformance，不复制这条观察链。
+
 ## 5. Generic external library binding
 
 ~~~mermaid
