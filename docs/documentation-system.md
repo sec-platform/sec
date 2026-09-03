@@ -484,23 +484,27 @@ current source、owner decision、target contract 或 compiler 改变都会使 s
 `docs/authority.json`在目标generation中退役authoring职责；目标machine projection为generated、content-addressed `DocumentationIndex`。它聚合全部source headers、scope/relations、physical addresses和digests，但不拥有任何事实，并发布到Runtime State/Artifact Store而不是提交进authored `docs/**`。当前`authority.json`在迁移完成前仍是唯一现行registry，两个generation不得同时被production consumer接受。
 
 ```text
-docs/
-  README.md                         # generated recursive root view
-  knowledge/
-    <compiled source-stratum>/<recursive semantic scope>/
-      contract.md                   # owning scope contract
-      <cohesive-fragment>.md
-      <child-scope>/contract.md
-  control/<scope>/...               # current control only
-  proposals/<scope>/...             # candidate only
-  records/<scope>/...               # immutable retained records only
+Generated documentation view (illustrative address projection)
+  recursive-root-view
+    <semantic partition>/<recursive scope>/
+      <owning-fragment>
+      <child-scope>/...
 
-Runtime State / Artifact Store
-  documentation/<generation>/documentation-index.json
-  documentation/<generation>/views/...   # disposable/generated projections
+Runtime State / Artifact Store (separate physical carrier)
+  documentation/<generation>/<generated-index-and-views>
 ```
 
-`knowledge/control/proposals/records`由`CorpusPartition`确定，不是任意业务分类。Runtime State、Evidence、cache与artifact不进入`docs/**`；Documentation Compiler只通过`ExternalCorpusBinding`读取其owner签发的immutable descriptor，并把允许披露的内容投影进view。其下目录由`sourceStratum + scope containment + PlacementDecision + PhysicalPathCapability`编译；address compiler可压缩纯namespace节点并选择短、可读、无case-fold/reserved-name冲突的segments，但不能改变scope identity或relation。禁止同名`<owner>.md`与`<owner>/`、空README/index、`misc/shared/common`、重复owner词段和手工长路径。
+`CorpusPartition`是语义 discriminant，不是固定目录名、公共路径或consumer API；任何
+`knowledge/control/proposals/records`等名称都只能是当前 Placement renderer 的可替换
+投影。`targetAddress = place(fragment, sourceStratum, scopeContainment, placementProfile,
+PhysicalPathCapability)`；除非有已证明的外部协议、持久寻址或迁移边界，目标generation
+不得把某个partition root写进identity、import、测试或权限判断。Runtime State、Evidence、
+cache与artifact不进入`docs/**`；Documentation Compiler只通过`ExternalCorpusBinding`
+读取其owner签发的immutable descriptor，并把允许披露的内容投影进view。address compiler
+可压缩纯namespace节点并选择短、可读、无case-fold/reserved-name冲突的segments，但不能
+改变scope identity或relation。禁止同名`<owner>.md`与`<owner>/`、空README/index、
+`misc/shared/common`、重复owner词段和手工长路径；consumer必须使用`DocRef`或生成的
+address binding，不能硬编码renderer目录。
 
 canonical cross-document reference使用`DocRef(documentRef, optionalClauseRef)`；authoring syntax由Markdown AST frontend映射为typed node，不能以相对path字符串作为identity。human/public renderer把`DocRef`解析为当前relative link；move/reparent只更新generated addresses/views，不改semantic source refs。外部URL是ExternalReference observation，若参与normative claim必须声明freshness/retention/unknown policy。
 
