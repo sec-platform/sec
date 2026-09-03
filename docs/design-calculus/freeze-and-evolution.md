@@ -121,6 +121,8 @@ receipt 必须合并为同一 owner 的 latest valid receipt，不能形成第�
 ImplementationWorkAdmitted(targetSlice) =
   DesignFreezeReceipt(targetImplementationDesignPackage(targetSlice)) = frozen
   ∧ DesignFreezeReceipt(conformanceModel(targetSlice)) = frozen
+  ∧ DesignClosed(targetSlice, exactUniverse, targetProfile)
+  ∧ AdversarialFixedPointClosed(targetSlice)
   ∧ exact source/target/profile/provider input binding is current
   ∧ change-locality, owner/consumer, capability, resource and evolution
       obligations are compiled for the same targetSlice
