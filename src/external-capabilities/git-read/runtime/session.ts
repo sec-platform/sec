@@ -2056,14 +2056,21 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
       'Git scratch object directory'
     );
     scratchObjectsCapability = retainedScratchObjectsCapability;
-    const retainedScratchIndexCapability = retainNoFollowOrdinaryFile(
-      scratchChain,
-      scratchIndexEntry.relativePath,
-      { device: scratchIndexEntry.device, inode: scratchIndexEntry.inode },
-      'Git scratch index',
-      7
-    );
-    scratchIndexCapability = retainedScratchIndexCapability;
+    const scratchIndexPath = path.join(scratchRoot, scratchIndexEntry.relativePath);
+    const retainScratchIndex = (): RetainedNoFollowOrdinaryFile => {
+      const currentEntry = inspectNoFollowOrdinaryFileEntry(scratchChain.target, 'index');
+      if (currentEntry === null || currentEntry.kind !== 'file') {
+        throw new Error('Git scratch index is absent or not an ordinary file.');
+      }
+      return retainNoFollowOrdinaryFile(
+        scratchChain,
+        currentEntry.relativePath,
+        { device: currentEntry.device, inode: currentEntry.inode },
+        'Git scratch index',
+        7
+      );
+    };
+    scratchIndexCapability = retainScratchIndex();
     const retainedRepositoryIndexCapability = retainNoFollowOrdinaryFile(
       repositoryIndexParent,
       path.basename(canonicalRepositoryIndex),
@@ -2072,13 +2079,16 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
       8
     );
     repositoryIndexCapability = retainedRepositoryIndexCapability;
-    const auxiliaryInputs = Object.freeze([
+    const auxiliaryInputs = (): readonly RetainedCommandAuxiliaryInput[] => Object.freeze([
       Object.freeze({ kind: 'directory' as const, capability: retainedRepositoryObjectsCapability }),
       Object.freeze({ kind: 'directory' as const, capability: retainedScratchObjectsCapability }),
-      Object.freeze({ kind: 'ordinary-file' as const, capability: retainedScratchIndexCapability })
+      ...(scratchIndexCapability === null ? [] : [Object.freeze({
+        kind: 'ordinary-file' as const,
+        capability: scratchIndexCapability
+      })])
     ]);
-    const environment = Object.freeze(isolatedGitReadEnvironment({
-      GIT_INDEX_FILE: retainedScratchIndexCapability.childPath,
+    const environment = (): Readonly<Record<string, string>> => Object.freeze(isolatedGitReadEnvironment({
+      GIT_INDEX_FILE: scratchIndexCapability?.childPath ?? scratchIndexPath,
       GIT_OBJECT_DIRECTORY: retainedScratchObjectsCapability.childPath,
       GIT_ALTERNATE_OBJECT_DIRECTORIES: retainedRepositoryObjectsCapability.childPath
     }, input.gitReadSession.env));
@@ -2109,10 +2119,10 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
           capability: retainedScratchObjectsCapability,
           failure: 'scratch-object-directory-changed' as const
         }),
-        Object.freeze({
-          capability: retainedScratchIndexCapability,
+        ...(scratchIndexCapability === null ? [] : [Object.freeze({
+          capability: scratchIndexCapability,
           failure: 'scratch-index-changed' as const
-        }),
+        })]),
         Object.freeze({
           capability: retainedRepositoryIndexCapability,
           failure: 'repository-index-changed' as const
@@ -2134,12 +2144,12 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
       commandInput?: Uint8Array
     ): Promise<GitReadSessionCommand | null> => {
       if (!assertCurrent()) return null;
-      const result = await executionOwner.run(args, commandEnvironment, auxiliaryInputs, commandInput);
+      const result = await executionOwner.run(args, commandEnvironment, auxiliaryInputs(), commandInput);
       if (!assertCurrent()) return null;
       return result;
     };
     const run = (args: readonly string[]): Promise<GitReadSessionCommand | null> =>
-      runWithInput(args, environment);
+      runWithInput(args, environment());
     const applyIndexDelta = async (
       input: GitScratchIndexTreeDelta
     ): Promise<GitScratchIndexTreeResult<string>> => {
@@ -2172,7 +2182,7 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
       for (const addition of input.additions) {
         const command = await runWithInput(
           Object.freeze(['hash-object', '-w', '--stdin']),
-          environment,
+          environment(),
           Buffer.from(addition.bytes)
         );
         if (command === null || command.kind !== 'completed' || command.result.code !== 0) {
@@ -2193,11 +2203,22 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
         indexUpdates.push(`100644 ${objectId}\t${addition.path}\0`);
       }
       if (indexUpdates.length > 0) {
+        const previousScratchIndex = scratchIndexCapability;
+        scratchIndexCapability = null;
+        try { previousScratchIndex?.dispose(); } catch { /* preserve the command result */ }
         const command = await runWithInput(
           Object.freeze(['update-index', '-z', '--index-info']),
-          environment,
+          environment(),
           Buffer.from(indexUpdates.join(''), 'utf8')
         );
+        try {
+          scratchIndexCapability = retainScratchIndex();
+        } catch (error) {
+          return unavailable(
+            terminalFailure ?? 'scratch-index-changed',
+            error instanceof Error ? error.message : String(error)
+          );
+        }
         if (command === null || command.kind !== 'completed' || command.result.code !== 0) {
           return unavailable(
             terminalFailure ?? 'session-failed',
@@ -2210,11 +2231,22 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
         }
       }
       if (input.removals.length > 0) {
+        const previousScratchIndex = scratchIndexCapability;
+        scratchIndexCapability = null;
+        try { previousScratchIndex?.dispose(); } catch { /* preserve the command result */ }
         const command = await runWithInput(
           Object.freeze(['update-index', '--remove', '-z', '--stdin']),
-          environment,
+          environment(),
           Buffer.from(`${input.removals.join('\0')}\0`, 'utf8')
         );
+        try {
+          scratchIndexCapability = retainScratchIndex();
+        } catch (error) {
+          return unavailable(
+            terminalFailure ?? 'scratch-index-changed',
+            error instanceof Error ? error.message : String(error)
+          );
+        }
         if (command === null || command.kind !== 'completed' || command.result.code !== 0) {
           return unavailable(
             terminalFailure ?? 'session-failed',
@@ -2255,7 +2287,7 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
         ]);
         const command = await runWithInput(
           args,
-          commitEnvironment(canonical, environment),
+          commitEnvironment(canonical, environment()),
           Buffer.from(canonical.message, 'utf8')
         );
         if (command === null || command.kind !== 'completed' || command.result.code !== 0) {
@@ -2291,11 +2323,11 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
         const failures: unknown[] = [];
         for (const capability of [
           retainedRepositoryIndexCapability,
-          retainedScratchIndexCapability,
+          scratchIndexCapability,
           retainedScratchObjectsCapability,
           retainedRepositoryObjectsCapability
         ]) {
-          try { capability.dispose(); } catch (error) { failures.push(error); }
+          try { capability?.dispose(); } catch (error) { failures.push(error); }
         }
         closed = true;
         if (failures.length > 0) {
