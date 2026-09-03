@@ -385,6 +385,36 @@ compileClauseAdoption(fragment, bodyNodes):
 `scope-inheritance-forbidden`、`adoption-override-invalid`或`owner-decision-unbound`，
 全部保留为blocking frontier。
 
+采用 frontier 以递归 scope 生成波次，不能由人手维护路径/行号清单：
+
+```text
+ClauseAdoptionWave = generated {
+  sourceGenerationRef,
+  scopeSliceRef,
+  candidateClauseRefs,
+  ownerDecisionRefs,
+  dispositionDigest,
+  unresolvedFrontierRefs,
+  actionKey,
+  waveDigest
+}
+
+compileClauseAdoptionWave(sourceGraph, requestedRoots):
+  candidates := reverseReachable(sourceGraph.frontier, requestedRoots)
+  partition candidates by semantic scope and one owner boundary
+  require every ownerDecisionRef is issued for the exact sourceGenerationRef
+  compile each decision through compileClauseAdoption; keep undecided nodes typed
+  reject overlapping waves, path-derived scope, and caller-supplied candidate lists
+  emit dispositionDigest and waveDigest from normalized refs/decisions/frontiers
+```
+
+`ownerDecisionRefs`只能指向各 owner 的既有 Decision/Adoption policy，不创建第二个
+decision log；`ClauseAdoptionWave`是可失效的编译产物，不能签发文档权限或直接移动文件。
+波次只关闭其 scope slice 中已明确采用、非规范化或有界否认的节点；任何未决节点及其
+跨 scope 关系仍进入 `unresolvedFrontierRefs`。source generation、owner decision、
+compiler 或 semantic scope 变化会使波次及所有依赖的 migration design stale；只有
+波次与迁移准入共同闭合后，才允许进入 target generation 的一次性 CAS。
+
 `docs/authority.json`在目标generation中退役authoring职责；目标machine projection为generated、content-addressed `DocumentationIndex`。它聚合全部source headers、scope/relations、physical addresses和digests，但不拥有任何事实，并发布到Runtime State/Artifact Store而不是提交进authored `docs/**`。当前`authority.json`在迁移完成前仍是唯一现行registry，两个generation不得同时被production consumer接受。
 
 ```text
