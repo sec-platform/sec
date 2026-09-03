@@ -77,6 +77,13 @@ stateDiagram-v2
 
 Current capability只有 machine contract + producer/consumer + failure/recovery + focused Evidence + new-main readback闭合后 active；stable docs 不维护 current matrix。
 
+生命周期中的`Designed`只在设计演算 owner 的
+`ImplementationWorkAdmitted(targetSlice)`成立时成立：它同时要求递归
+`DesignClosed`、`AdversarialFixedPointClosed`、同一输入世代的实现/符合性冻结回执
+以及局部性、owner、资源、演进与未知边界闭合。没有该谓词只能做纯设计、观察或
+bounded experiment，不能开始实现写入；这条引用不复制准入逻辑，也不把本文件变成
+设计事实 owner。
+
 ## 9. Work Package 与 ownership
 
 Work Package freezes:
