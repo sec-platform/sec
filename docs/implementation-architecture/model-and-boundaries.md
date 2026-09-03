@@ -533,8 +533,9 @@ flowchart LR
 
 ```text
 checkImplementationDirection(graph):
-  reject any static edge projection/index -> compiler/contract-owner
-  reject any provenance edge used as a static dependency
+  reject Imports(projectionOrIndex, compilerOrContractOwner)
+  reject Calls(consumer, privateCompilerOrProvider)
+  reject any GeneratedFrom/ProjectsFrom edge reused as a static dependency
   reject any cross-cell SCC after excluding generated-data edges
   reject any current compiler input whose only origin is a generated projection
   require every projection source, target contract and consumer ref to resolve
