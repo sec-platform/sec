@@ -106,10 +106,10 @@ DocumentSourceHeader = exact {
 }
 
 ClauseAdoptionPolicy = exact {
-  policyRef: ownerIssuedDecisionRef,
+  policyRef: independentOwnerIssuedDecisionRef,
   defaultKind: stable-decision | temporary-safety-denial | non-normative-explanation,
   defaultBlocker: null | nonEmptyToken,
-  appliesTo: body-nodes-of-this-fragment-only
+  appliesTo: clause-and-explanation-nodes-of-this-fragment-only
 }
 
 DocumentBodyNode =
@@ -312,13 +312,14 @@ blocker直接拒绝编译，而不是按最接近的kind猜测。迁移阶段缺
 ```text
 compileClauseAdoption(fragment, bodyNodes):
   policy := requireExact(fragment.header.clauseAdoptionPolicy)
-  for node in bodyNodes ownedBy fragment:
+  require policy.policyRef is not derived from fragment body, generated view or migration output
+  for node in clauseOrExplanationNodes(bodyNodes) ownedBy fragment:
     adoption := node.localDirective ?? policy
     require adoption.kind in closedKindSet
     require blockerShape(adoption.kind, adoption.blocker)
     emit ClauseSource(..., adoption, origin =
       node.localDirective ? local-directive : header-default)
-  exclude descendantScopeNodes and generated/projection nodes
+  exclude DecisionSource, RelationSource, descendantScopeNodes and generated/projection nodes
   include policyRef + origin + effective adoption in graph/digest
 ```
 
