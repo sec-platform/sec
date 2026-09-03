@@ -1205,6 +1205,7 @@ DocumentationMigrationSlice = generated {
   sliceRef,
   sourceGenerationBindingRef,
   targetGraphDigest,
+  targetGraphIssueReceiptRef,
   targetContractDigest,
   requestedRootRefs,
   closedScopeRefs,
@@ -1221,6 +1222,7 @@ DocumentationMigrationSlice = generated {
 
 deriveMigrationSlices(design, targetGraph, requestedRoots):
   require verifyTargetGraphIssueReceipt(targetGraph.graphIssueReceiptRef, targetGraph)
+  targetGraphIssueReceiptRef := targetGraph.graphIssueReceiptRef
   require targetGraph.sourceGenerationBindingRef == design.currentGenerationBinding.generationRef
   require targetGraph.sourceGenerationBindingDigest == design.currentGenerationBinding.bindingDigest
   require targetGraph.targetDesignBindingRef == design.targetDesignBindingRef
