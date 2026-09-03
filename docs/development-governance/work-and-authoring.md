@@ -175,6 +175,49 @@ delete duplicate owner/scan
 
 不得以放宽 coverage/identity/unknown/readback 换速度。
 
+### 11.1 Validation Route Compiler
+
+验证入口不是按文件扩展名或“上次用了什么命令”选择，而是由 exact semantic
+delta 编译出的最小路线：
+
+```text
+ValidationRoute =
+  docs-graph
+  | source-program
+  | import-graph
+  | owner-sentinel
+  | runtime-effect
+  | final-exact
+
+compileValidationRoutes(delta, sourceGeneration, claimGraph):
+  classify changed relations and affected claims
+  select RequiredClosure ∩ MissingOrStale routes
+  require every selected route's input generation/provider/ActionKey
+  reject path-only escalation, duplicate route owners and hidden side-reads
+  emit route set + skipped-route reasons + unknown frontier
+```
+
+| 变化关系 | 最小路线 | 明确跳过 |
+| --- | --- | --- |
+| 仅 documentation source/header/relation/view | `docs-graph`（semantic graph、link/renderer、migration frontier） | `imports:apply`、`imports:freeze`、TypeScript `tsc`、runtime Effect |
+| 语言声明、import/export、package/config 或 Source Program 输入 | `source-program` → 受影响的 `import-graph` | 未受影响模块的全量重编、第二 AST/解析图 |
+| 仅实现 owner 的纯算法/contract | owner sentinel + 受影响 property/contract claims | 全仓测试、无关 import freeze |
+| provider、process、filesystem、Docker、network、credential 或持久 state | owner sentinel → `runtime-effect`/readback | 用纯 typecheck 或 provider exit 替代 Effect 结算 |
+| release/freeze/merge 或 Claim 要求 exact environment | `final-exact` 一次（frozen tree/environment） | 在 moving tree 上重复 expensive Evidence |
+
+`imports:apply` 只在 selected `import-graph` route 且存在可重写的 task-owned
+TypeScript targets 时运行；`imports:freeze` 只在 apply 后且 import graph 确实改变时
+运行。两者均为有界的单写者 operation，不得由 docs-only、测试数据或无 import 语义的
+文本变更触发。裸 `tsc` 只作为 `final-exact` 的 canonical type contract（或 owner
+明确声明的受影响 type claim），编辑循环优先复用 Language Service、Source Program
+fact shards 与已有 ActionKey；没有受影响 claim 时必须记录 skip，而不是执行 no-op
+全量检查。
+
+每条 route 都必须输出 `selected | reused | skipped | blocked` 与 exact reason、输入
+generation、provider/algorithm、resource allocation 和 unknown frontier。route 选择本身
+不改变 scope、Authority 或 completion；route 失败沿其 owner 的 typed failure 结算，不能
+通过升级到全量命令把 unresolved、预算耗尽或 provider 不可用伪装成 PASS。
+
 ## 12. External capabilities 与工具
 
 采用成熟工具由 `docs/external-provider-policy.md` 决定。普通离散操作直接消费最窄稳定 machine interface；只有 protocol/credential/Effect/resource/settlement/security/compatibility 边界需要薄 Adapter。
