@@ -41,9 +41,9 @@ flowchart LR
 | --- | --- | --- |
 | Design Calculus | relation、constraint、transition、proof 的通用演算 | SEC 实体、路径、实现 |
 | Engineering Constitution | 通用工程不变量与拒绝语义 | SEC 领域事实、源码结构 |
-| SEC System Architecture | logical responsibility、authority、operation、resource、lifecycle、proof | declaration/file/package 的物理实现 |
+| SEC System Architecture | 通用 logical responsibility、Authority、Operation、Resource、Lifecycle、Proof/Evolution 代数及跨域关系 | declaration/file/package 的物理实现 |
 | Implementation Architecture | logical→implementation 映射、局部变更、生成和迁移 | 产品决策、领域字段、当前事实 |
-| Domain owner | Definition、state machine、domain operation、failure algebra | 文件位置、Provider 实现、工作流 |
+| Domain owner | 领域 Subject/Definition、Invariant、StateMachine、DomainOperation、FailureAlgebra 与 public result；只引用通用 Authority/Resource/Lifecycle/Proof 合同并定义其领域谓词 | 通用代数、跨域 Workflow、Grant/Allocation 状态、文件位置、Provider 实现 |
 | Source Program | exact declarations/references/effects/unknown observations | semantic owner、permission、业务价值 |
 | Compiler Target IR | 用户工程的 Target Program、Resolution、Binding、lowering | SEC 自身仓库组织与变更 admission |
 
@@ -73,7 +73,7 @@ flowchart TB
 | --- | --- | --- | --- |
 | `meta` | relation、principle、fault/evolution semantics | validators/model checks | 产品偏好、领域字段 |
 | `product` | outcome、non-goal、accepted tradeoff | capability closure/request | path、Provider、代码结构 |
-| `domain` | Definition、Invariant、StateMachine、FailureAlgebra、DomainOperation；Authority/Resource等support Domain在此定义policy与state语义 | domain contract/result types | workflow、物理实现、Evidence verdict |
+| `domain` | 领域 Definition、Invariant、StateMachine、FailureAlgebra、DomainOperation，以及对通用 Authority/Resource/Lifecycle/Proof 关系的领域谓词与 Requirement | domain contract/result types | 通用 Authority/Resource 状态与 Grant/Allocation、跨域 workflow、物理实现、Evidence verdict |
 | `composition` | WorkflowDefinition、Requirement、Claim、public relation | PureWorkflow/OperationPlan | child private state、Provider、Grant |
 | `realization` | accepted ImplementationDecision/Target/Profile | Responsibility Cell、Provision、Binding、Placement、source/config/test/doc IR | 新业务语义、运行 Authority |
 | `control` | 无新Definition；只消费issuer-signed Grant、capacity facts、compiled admission contract与resource ceilings | ExecutionPlan、AdmittedExecution、tickets、ready set | Authority/Resource policy、Effect结果、domain success |
