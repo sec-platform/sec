@@ -1589,6 +1589,21 @@ function windowsOpenDirectory(absolutePath: string, label: string, forFlush = fa
     if (lastError === 2 || lastError === 3) {
       throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', `${label} is absent.`);
     }
+    // A few Windows filesystem providers leave the thread error slot at zero
+    // after an already-removed directory is opened through the no-follow
+    // handle API.  Confirm that narrow case with lstat (which does not follow
+    // a reparse point); an existing entry still falls through to the unsafe
+    // classification below.
+    if (lastError === 0) {
+      try {
+        lstatSync(absolutePath);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === 'ENOENT' || code === 'ENOTDIR') {
+          throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', `${label} is absent.`);
+        }
+      }
+    }
     throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} cannot be opened without following reparse points (Win32 ${lastError}).`);
   }
   return handle;
