@@ -460,7 +460,7 @@ DependencyGenerationImplementationClosed =
 | product release/support version | 用户可见兼容与支持边界 | distribution/support/evolution | product owner scheme |
 | generation identity | cutover期间区分old/new active realization | activation/readers/retirement | immutable generation ref，不等于schema版本 |
 
-普通API、内部函数、目录、测试名字、policy或单generation算法不带`V1/V2/V3`。只有真实并存reader需要区分时，external/durable contract名才含revision；迁移完成后旧reader、alias、dispatcher和版本测试一起退役。`sec`前缀只用于必须避免外部协议、持久namespace、artifact或环境变量碰撞的边界；内部symbols、types、functions和paths不机械加品牌前缀。
+普通API、内部函数、目录、测试名字、policy或单generation算法不带`V1/V2/V3`。只有真实并存reader需要区分时，external/durable contract名才含revision；迁移完成后旧reader、alias、dispatcher和版本测试一起退役。`sec`前缀只用于必须避免外部协议、持久namespace、artifact、provider token或环境变量碰撞的边界；内部symbols、types、functions和paths不机械加品牌前缀。前缀本身不签发身份：namespace owner必须先绑定grammar、producer、parser/consumer、external-census、support window与retirement；现有token在该闭包完成前保持原identity，不能为风格批量改名，也不能并行保留新旧token。新token由owner serializer从结构化namespace派生，consumer通过strict parser恢复typed identity；无真实边界的`sec-*`常量、alias与数字镜像按whole-graph consumer-zero原子退役。
 
 TypeScript target profile对结构化边界使用Zod作为选定Schema Provider：schema是结构与基础constraint的唯一可执行owner，TypeScript type从schema推导；raw JSON在进入Zod前由bounded decoder拒绝duplicate keys、invalid UTF、trailing data与资源越界，owner validator再检查跨字段、provenance和state invariants，canonical serializer负责bytes。不得并列维护interface、手写validator、JSON cast和测试期望四份schema。非JSON/binary/protocol可绑定更适合的mature parser，但必须满足同一strict reader/writer/migration contract。
 
