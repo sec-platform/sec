@@ -513,6 +513,24 @@ test.skipIf(process.platform !== 'win32')(
             Buffer.from(expectedIndexBlob.result.stdout)
           )).toBe(0);
         }
+        const deltaPath = 'sec-git-scratch-delta.txt';
+        const added = await scratchResolution.session.applyIndexDelta({
+          additions: [{ path: deltaPath, bytes: Buffer.from('scratch delta\n', 'utf8') }],
+          removals: []
+        });
+        expect(added).toMatchObject({ status: 'ready' });
+        if (added.status !== 'ready') return;
+        const addedBlob = await scratchResolution.session.observe(['show', `${added.value}:${deltaPath}`]);
+        expect(addedBlob.status).toBe('ready');
+        if (addedBlob.status === 'ready') {
+          expect(Buffer.from(addedBlob.value.stdout).toString('utf8')).toBe('scratch delta\n');
+        }
+        const restored = await scratchResolution.session.applyIndexDelta({
+          additions: [],
+          removals: [deltaPath]
+        });
+        expect(restored).toMatchObject({ status: 'ready' });
+        if (restored.status === 'ready') expect(restored.value).toBe(tree.value);
       } catch (error) {
         scratchPrimaryFailure = error;
         throw error;
