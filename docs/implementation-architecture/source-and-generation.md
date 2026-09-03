@@ -6,7 +6,7 @@ domain: implementation-architecture
 
 # 源码放置、变更局部性与意图生成
 
-本片段拥有 Placement、Change Locality、双向 Semantic Compiler、受控手写模式与 Brownfield round trip。
+本片段拥有 Placement、Change Locality、实现侧双向 Semantic Compiler、受控手写模式与 Brownfield round trip；exact snapshot 的 Source Program 观察由 [Brownfield owner](../brownfield-import.md) 的 `brownfield.source-program-model` 唯一签发，本片段只能引用并消费该事实，不能再建第二源码图。
 
 本片段与 [owner root](../implementation-architecture.md) 共享同一 domain，但只拥有 registry 分配给本片段的 ownership keys；跨片段语义使用引用，不复制定义。
 
@@ -169,7 +169,7 @@ flowchart LR
   IG --> EQ
 ```
 
-`SourceProgram`是exact snapshot的语言无关语义观察；SEC authored machine input物理根统一为`src/`，任意Target workspace则按其retained snapshot与language frontend读取。目录名永远只属于Address/Placement。
+`SourceProgram`是exact snapshot的语言无关语义观察，由 Brownfield source-program-model owner 唯一签发；SEC authored machine input物理根统一为`src/`，任意Target workspace则按其retained snapshot与language frontend读取。实现架构只消费该观察来做 refinement/lowering，不复制 parser、事实图或 coverage。目录名永远只属于Address/Placement。
 
 ### 7.1 Intent contract
 
