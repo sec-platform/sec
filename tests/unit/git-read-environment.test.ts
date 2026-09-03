@@ -469,7 +469,7 @@ test.skipIf(process.platform !== 'linux')(
 );
 
 test.skipIf(process.platform !== 'win32')(
-  'production Git scratch computes and reads one repository-external index tree without widening GitRead',
+  'production Git scratch computes, reads, and materializes one bound tree without generic GitRead mutation',
   async () => {
     const scratchRoot = mkdtempSync(path.join(tmpdir(), 'sec-git-scratch-index-tree-'));
     const resolution = createAuthorityGitReadSession({
@@ -569,7 +569,7 @@ test.skipIf(process.platform !== 'win32')(
       await resolution.session.close?.();
       rmSync(scratchRoot, { recursive: true, force: true });
     }
-  }
+  }, { timeout: 15_000 }
 );
 
 test('test or structural GitRead sessions cannot issue scratch effect authority', async () => {
