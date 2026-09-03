@@ -1110,7 +1110,13 @@ Conformance Model从relation/operation/fault coverage生成性质而不是手写
 
 ```text
 DocumentationGenerationClosed =
-  every tracked documentation source classified in exactly one partition
+  every member of the declared documentation corpus universe (tracked,
+    untracked, binary, opaque and externally-bound inputs) classified in
+    exactly one partition with an explicit lifecycle and provenance or
+    explicit retirement disposition
+  and every opaque/external member has a closed binding or retirement proof
+  and no unclassified current source, hidden corpus member or applicable
+    unresolved frontier remains
   and source headers strict, role-discriminated and duplicate-free
   and every normative body node is explicitly adopted typed source (header policy or local directive with provenance)
   and every adoption policy is independently owner-issued and scope-bounded
