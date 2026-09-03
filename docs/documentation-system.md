@@ -819,7 +819,7 @@ ReadSettlement =
 若父allocation在解析中失效、取消或耗尽，所有未开始的扩展立即停止；已读事实仍可
 形成带`coverage`的非权威view，未读部分必须是`unresolved`/frontier。只有新的父
 operation与新的`resourceAllocationRef`才能重新读取，而且必须从相同
-`SourceProgramObservationReceipt`/generation开始，不得在同一请求内隐式重试或切换
+`SourceObservationGeneration`开始，不得在同一请求内隐式重试或切换
 第二个scanner。这样 AI、human、public 与 audit view 的表达可以不同，读取成本、
 语义选择和unknown边界仍由同一 operation 结算。
 
