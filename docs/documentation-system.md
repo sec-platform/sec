@@ -532,7 +532,8 @@ compileMigration(..., consumerCensus):
 
 `active-work-package`、CLI、literal search 或 migration script 只能产生待验证的
 `ObservedConsumerRefs`，不能作为 `issuerOwnerRef` 或 `issuerAuthorityRef`。它们若被
-填入 consumer census，compiler 必须返回 `consumer-census-issuer-invalid`，并保留
+填入 consumer census，compiler 必须返回
+`authority-amplification(consumer-census-issuer-invalid)`，并保留
 原始观察作为 frontier；Work Package 的 scope 选择不因此变成文档事实或 retirement
 授权。
 
