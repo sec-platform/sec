@@ -12,18 +12,29 @@ domain: implementation-architecture
 
 ## 5. Placement Compiler：从语义图推导源码组织
 
-### 5.1 唯一 authored source root
+### 5.1 唯一实现源码根与语义 source corpus
 
 | Root | 语义 |
 | --- | --- |
-| `src/**` | SEC全部authored machine input：production code、owner-local verification、cross-domain scenarios、CLI/dev operations、contracts与随owner演进的resources；唯一authored source root |
-| `docs/**` | stable definitions/decisions 和 generated navigation；无 runtime truth |
+| `src/**` | SEC实现层的 authored machine input：production code、owner-local verification、cross-domain scenarios、CLI/dev operations、implementation contracts 与随owner演进的resources；唯一 **implementation source root** |
+| `docs/**` | documentation/design 层的 authored semantic source（definitions/decisions）与 generated navigation；不属于实现源码，也不承载 runtime truth |
 | ecosystem-mandated root files | 外部工具无法迁入`src`的最小bootstrap/config；优先从owner contract生成且不得复制业务语义 |
 | Runtime State | durable operation/recovery state；不进入 Git authored source |
 | Cache | 可删除、可重算、有限额的 acceleration facts |
 | Artifacts | exact published result/Evidence；不作为 mutable truth |
 
-所有SEC authored machine input只有一个`src/`根；工具入口、开发流程、测试场景和owner-governed resources也按真实Responsibility放置。其他顶层位置只能承载文档、生态强制bootstrap或非源码运行产物，不能形成第二源码图。路径不能编码semantic identity。
+实现源码与语义 source 是两个不同的 source corpus，分别由实现架构/Source Program 与文档系统/Documentation Compiler 观察；二者共享 semantic identity/reference grammar，但不能互相复制或互相成为 owner：
+
+```text
+ImplementationSourceCorpus = src/** + explicitly generated implementation inputs
+DocumentationSourceCorpus  = docs/** semantic definitions/decisions
+
+ImplementationSourceCorpus ≠ DocumentationSourceCorpus
+ImplementationSourceCorpus --references--> accepted semantic/design refs
+DocumentationSourceCorpus  --describes--> implementation/design refs
+```
+
+因此，SEC 实现层的 authored machine input 只有一个 `src/` 根；工具入口、开发流程、测试场景和owner-governed implementation resources也按真实Responsibility放置。`docs/**`仍可作为文档/设计编译器的 authored source，但不能被实现 Placement Compiler 当成CodeUnit，也不能把实现源码路径清单写回文档语义。其他顶层位置只能承载文档、生态强制bootstrap或非源码运行产物，不能形成第二实现源码图。路径不能编码semantic identity。
 
 `SEC authored source`、`TargetProject`与`IDE/EngineeringWorkspace`是三个不同的Subject：
 
