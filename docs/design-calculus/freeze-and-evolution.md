@@ -115,6 +115,27 @@ receipt 必须合并为同一 owner 的 latest valid receipt，不能形成第�
 
 `hardConstraintResults`、`dominanceAndCostResults`、`rejectedReasons`、`avoidedFaultTraces`和`invalidationImpact`不由人重复填写；它们由上述refs编译成typed `DesignExplanationTrace`并挂入`DesignRationaleIndex`。后来者在inputs、premises、candidate coverage和reversal未变化时直接复用裁决；出现新事实时沿reverse closure进入演进，而不是重新做无边界讨论或在旧结论上叠补丁。
 
+实现工作也有一个唯一的设计准入边界；它是由既有冻结产物生成的谓词，不是新的状态源或“开始编码”按钮：
+
+```text
+ImplementationWorkAdmitted(targetSlice) =
+  DesignFreezeReceipt(targetImplementationDesignPackage(targetSlice)) = frozen
+  ∧ DesignFreezeReceipt(conformanceModel(targetSlice)) = frozen
+  ∧ exact source/target/profile/provider input binding is current
+  ∧ change-locality, owner/consumer, capability, resource and evolution
+      obligations are compiled for the same targetSlice
+  ∧ no unresolved frontier intersects a required Definition, public boundary,
+      Effect, durable state, Claim or retirement edge
+  ∧ every governed-authored CodeUnit has one owner and one generated change point
+```
+
+`ImplementationWorkAdmitted`只允许在已冻结设计约束下生成或修改实现候选；它不授予
+生产写入、外部调用、Authority、Effect、发布或业务成功。没有该准入时可以继续纯
+设计、bounded experiment 或观察，但不得以“先写再补设计”、测试绿色、文件存在、
+commit 或旧代码可恢复为实现依据。实现期间任一输入、owner、模型、frontier、
+Target/Profile 或逆转条件变化，准入与其未结算 delta 立即 stale，必须回到设计
+反向闭包；不能在旧准入上追加局部兼容字段、alias 或补丁。
+
 ### 11.1 权威输入、编译产物与持久载体
 
 Design Calculus 是纯演算规则，不是记录库、全局 registry 或工作流 owner。设计信息按权威和生命周期分层：
