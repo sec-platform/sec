@@ -12,7 +12,7 @@ last-reviewed: 2026-08-28
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:01a1204afc32740d82feff95e50a5b0de3b2e175bc452ea9e97814655adab486",
+    "manifestDigest": "sha256:162b39ff0acd9910d6c38ffaa962be4460ce9460f75a4ea36b49852b7ffce89a",
     "manifestPath": "docs/work-packages/default-branch-health-repair-36b174ebc783bb2b2e0c079d58fb825f0966b60b-848e6d50f2852dc05566c9d272c71782a7c39fb6c1badea43b1f74e9064b3c8e.md",
     "packageId": "default-branch-health-repair-36b174ebc783bb2b2e0c079d58fb825f0966b60b-848e6d50f2852dc05566c9d272c71782a7c39fb6c1badea43b1f74e9064b3c8e",
     "tracking": "none"
@@ -33,7 +33,7 @@ last-reviewed: 2026-08-28
   ],
   "exactMain": "36b174ebc783bb2b2e0c079d58fb825f0966b60b",
   "exactMainTree": "f7dd21a385a00589ecf04a41e98fe9d9e4fb43d6",
-  "projectionDigest": "sha256:60cd78660fc1a26c4fa92d77eb834619ab45c6b41c6411333cbb69421e61e530",
+  "projectionDigest": "sha256:1bbd28b1a88323bc51ae366a8439f4ab4f60a44e7b1352c1edd2fb576477e16e",
   "schema": "sec-work-rolling-transition-projection-v1"
 }
 ```
@@ -42,7 +42,7 @@ last-reviewed: 2026-08-28
 
 ### default-branch-health-repair-36b174ebc783bb2b2e0c079d58fb825f0966b60b-848e6d50f2852dc05566c9d272c71782a7c39fb6c1badea43b1f74e9064b3c8e
 
-Existing active package replan bound to exact source head `21160041eb8cdbffd72e91d63501491eb7051061`, source tree `d73030fb9244aacde19e8502426e9ad541398afc`, manifest `sha256:01a1204afc32740d82feff95e50a5b0de3b2e175bc452ea9e97814655adab486`, and authority `sha256:4881437c944ac29140b56b1d692f9bc3d452ad521b2663067e0fadc889dd6d21`.
+Existing active package replan bound to exact source head `21160041eb8cdbffd72e91d63501491eb7051061`, source tree `d73030fb9244aacde19e8502426e9ad541398afc`, manifest `sha256:162b39ff0acd9910d6c38ffaa962be4460ce9460f75a4ea36b49852b7ffce89a`, and authority `sha256:4881437c944ac29140b56b1d692f9bc3d452ad521b2663067e0fadc889dd6d21`.
 
 ## 候选 Work Package
 
