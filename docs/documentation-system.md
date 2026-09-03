@@ -1096,11 +1096,25 @@ liftCurrentDocumentation(currentRegistry, exactCorpus):
   recompute registry/contract digests from supplied inputs; reject caller assertions that do not match
   classify by current kind without changing its current authority ceiling
   derive candidate sourceRole, scope and relations from owned semantics
-  require owner adoption where AuthorityContract vs AuthorityTopic is not unique
+  derive an AuthorityContract candidate when the verified current owner record has a
+    non-empty, unique ownership-key set and the source graph contains no competing
+    contract/topic identity; derive an AuthorityTopic candidate only when it has an
+    exact typed reference to one existing AuthorityContract and owns no keys itself
+  auto-adopt that unique candidate through the current owner/generation binding;
+    require an owner decision only when the candidates, ownership keys or relation
+    coverage are ambiguous, missing or cross-owner
   map every current identity/key/relation/consumer to exactly one target or retirement
   reject unregistered bytes, duplicated targets, path-derived identity and hidden state movement
   emit preservation map + target source candidates + typed frontier
 ```
+
+`kind: authority`本身不能决定目标角色；`owns`、typed relation、source graph 与
+generation binding 才是可验证的候选证据。非空且唯一的 `owns` 只能在上述条件同时
+成立时派生 `AuthorityContract`，不能由路径、标题或字符串命中补出；`projects` 等
+导航关系不会单独把 contract 降为 topic。候选不唯一、ownership keys 为空/重复、
+contract 引用缺失或跨 owner 覆盖不足时，仍必须产生
+`authority-role-adoption-required`，不得以“现有 registry 已写过”自动放行。这样
+自动消解的是确定性重复劳动，不是把当前 registry 偷换成新的 target ontology。
 
 正式搬迁不等待“全工程所有未来设计完成”；它等待documentation scope在Design Calculus定义的exact universe上递归`DesignClosed`，并满足本领域更强的迁移设计准入：
 
