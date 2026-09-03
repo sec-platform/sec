@@ -761,7 +761,9 @@ reference inventory只发布identity、kind、allowed display metadata、address
 ## 6. Read compiler
 
 ```text
-DocumentationReadRequest = {
+DocumentationReadRequest = exact {
+  operationRef,
+  resourceAllocationRef,
   purpose,
   rootScopeRefs | subjectRefs | ownershipKeys,
   exactGenerationDigest,
@@ -769,10 +771,13 @@ DocumentationReadRequest = {
   externalObservationRequirementRefs,
   consumerClass,
   disclosureCapability,
-  budget: { maximumDepth, maximumNodes, maximumBytes }
+  budgetProjectionRef
 }
 
 compileRead(request, sourceGeneration, boundExternalDescriptors):
+  verify operation/resource issuer, generation and disclosure bindings
+  derive { maximumDepth, maximumNodes, maximumBytes } from budgetProjectionRef
+    and the parent resourceAllocationRef; caller values cannot widen them
   resolve roots against one exact compiled generation
   traverse containment recursively and other relations by purpose policy
   select exact clauses/fragments rather than unrelated sibling files
@@ -787,6 +792,36 @@ compileRead(request, sourceGeneration, boundExternalDescriptors):
 ```
 
 最小operation context、owner review、public docs与全仓审计共享同一compiler和graph semantics。全量模式只扩大roots、relation policy和budgets，不切换到第二crawler、第二regex graph或第二事实源。budget exhausted不等于完整：输出必须保留可继续展开的frontier；不能把截断投影签成coverage complete。
+
+`resourceAllocationRef`来自统一父账本；递归scope、外部descriptor读取、renderer物化、
+digest与readback共享同一个remaining deadline、取消树和aggregate consumption。一次
+`compileRead`内部不得按子scope、renderer或consumer重新取得allocation，也不得把
+`budgetProjectionRef`改写成新的数字。纯已保留shard读取仍需引用其父allocation（可由
+provider声明的read-only allocation派生），否则不能宣称零成本或无限容量。资源维度
+不适用时由该维度的`not-applicable`证明给出，而不是省略字段。
+
+`budgetProjectionRef`及其digest属于read request/selection identity：同一语义输入在不同
+可用预算下可能得到`ready`或`unresolved`，因此不得从view、cache或ActionKey中省略；它
+仍不能改变DocumentRef、owner或业务Definition。
+
+```text
+ReadAdmission(request) =
+  verify(operationRef, resourceAllocationRef, budgetProjectionRef,
+         exactGenerationDigest, disclosureCapability)
+  ∧ remaining(resourceAllocationRef) > 0
+
+ReadSettlement =
+  one consumption record for all nested reads/renderers
+  + returned/released/unknown accounting
+  + preserved frontier when any limit, abort or deadline is reached
+```
+
+若父allocation在解析中失效、取消或耗尽，所有未开始的扩展立即停止；已读事实仍可
+形成带`coverage`的非权威view，未读部分必须是`unresolved`/frontier。只有新的父
+operation与新的`resourceAllocationRef`才能重新读取，而且必须从相同
+`SourceProgramObservationReceipt`/generation开始，不得在同一请求内隐式重试或切换
+第二个scanner。这样 AI、human、public 与 audit view 的表达可以不同，读取成本、
+语义选择和unknown边界仍由同一 operation 结算。
 
 ```mermaid
 flowchart TD
@@ -819,10 +854,10 @@ DocumentationReadResult =
   | ready {
       generationDigest, purpose, selectedNodeRefs,
       viewGenerationDigest, renderedBytes, selectionDigest, coverage,
-      collapsedFrontier
+      collapsedFrontier, resourceSettlementRef
     }
-  | unresolved { generationDigest, frontier, affectedPurpose }
-  | rejected { code, exactInputDigest }
+  | unresolved { generationDigest, frontier, affectedPurpose, resourceSettlementRef }
+  | rejected { code, exactInputDigest, resourceSettlementRef: ref | null }
 ```
 
 `ready`只表示请求purpose在授权disclosure和budget内完整；它不能证明未请求的全corpus完整。若某个collapsed/opaque/private节点可能改变请求结论，结果必须是`unresolved`而不是删除节点或输出部分摘要。public/AI/human renderer只消费相同selected semantic graph；renderer bytes不同，但selection、meaning、blocker/unknown与source refs必须一致。
