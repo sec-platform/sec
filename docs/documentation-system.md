@@ -1204,11 +1204,11 @@ deriveMigrationSlices(design, targetGraph, requestedRoots):
     sourceScope := sourceScopeForRoot(design, root)
     scope := reverseReachable(
       targetGraph,
-      mapRootThroughPreservation(design.currentToTargetScopeAndFactBijection, root)
+      mapRootThroughPreservation(design.preservationMap, root)
     )
     frontier := projectFrontierThroughPreservation(
       design.frontier,
-      design.currentToTargetScopeAndFactBijection,
+      design.preservationMap,
       sourceScope,
       scope
     )
@@ -1243,7 +1243,7 @@ DocumentationMigration = {
   clauseAdoptionWaveRefs,
   designFreezeReceiptRefs,
   targetSourceHeaderBodyAndRelationSchemas,
-  currentToTargetScopeAndFactBijection,
+  preservationMap,
   typedRelationDecomposition,
   targetPlacementPlan,
   sourceAndExternalConsumerRewritePlan,
@@ -1345,12 +1345,34 @@ stateDiagram-v2
 ```
 
 ```text
-DocumentationPreservationMap = total mapping of
-  current document/owner/fact/clause/lifecycle
-  + current typed or overloaded relation
-  + every source/code/test/workflow/config/external consumer
-  + every generated/public/AI projection
-  -> target ref/address/relation, accepted retirement, or blocking frontier
+DocumentationPreservationEntry = exact {
+  currentSubjectRef,
+  currentOwnerRef,
+  currentAddressRef,
+  currentRevision,
+  currentRelationRefs,
+  targetSubjectRefs,
+  targetOwnerRef,
+  targetAddressRefs,
+  targetRelationRefs,
+  consumerDisposition: rewrite | preserve | retire | blocked,
+  consumerRefs,
+  evidenceRefs,
+  frontierRefs
+}
+
+DocumentationPreservationMap = exact {
+  currentGenerationBindingRef,
+  targetDesignBindingRef,
+  entries: total DocumentationPreservationEntry[],
+  mapDigest
+}
+
+The map is total over every current document/owner/fact/clause/lifecycle,
+typed relation, source/code/test/workflow/config/external consumer and
+generated/public/AI projection. Each entry maps to target refs/addresses/
+relations, an accepted retirement, or a blocking frontier; no path-only or
+count-only entry is admissible.
 ```
 
 迁移journal由Change Management/state owner持久化，绑定current/target generation、source/target physical identities、preservation digest、phase、CAS preimage和settlement；它不能由目录存在、Git commit或迁移脚本退出码重建。activation前失败可丢弃隔离target但不动current；activation后只允许forward recovery或显式授权rollback，绝不同时开放两个normal reader。
