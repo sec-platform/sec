@@ -6460,7 +6460,7 @@ async function retireEmptyFreezeTransactionRootAfterJournalLast(input: {
   });
 }
 
-export async function freezeDocumentControlPlane(input: {
+type FreezeDocumentControlPlaneInput = {
   cwd: string;
   manifestPath: string;
   reviewedOn: string;
@@ -6485,7 +6485,16 @@ export async function freezeDocumentControlPlane(input: {
   beforeCreatedParentBarrier?: FreezeDurabilityOptions['beforeCreatedParentBarrier'];
   /** Internal deterministic observer after a newly-created directory parent is durably flushed. */
   createdParentBarrierObserver?: FreezeDurabilityOptions['createdParentBarrierObserver'];
-}): Promise<CodexDevelopmentFreezeResult> {
+};
+
+/**
+ * Executes a freeze with the caller's already-bound Git read session.  The
+ * public entrypoint below opens this session for production callers; tests and
+ * composed control-plane operations may supply their own owner-issued scope.
+ */
+async function freezeDocumentControlPlaneWithSession(
+  input: FreezeDocumentControlPlaneInput
+): Promise<CodexDevelopmentFreezeResult> {
   assertCanonicalManifestPath(input.manifestPath);
   assertReviewedOn(input.reviewedOn);
   const repositoryRoot = requireCommand(
@@ -7172,6 +7181,45 @@ export async function freezeDocumentControlPlane(input: {
       durability
     });
   });
+}
+
+/**
+ * Public freeze boundary.  A production caller must never reach the freeze
+ * writer without the canonical Git-read issuer: the writer performs both
+ * read-only repository census and index/object effects.  Test transport and a
+ * composing production operation may provide an already-bound session; a
+ * direct production call gets one bounded owner session here.
+ */
+export async function freezeDocumentControlPlane(
+  input: FreezeDocumentControlPlaneInput
+): Promise<CodexDevelopmentFreezeResult> {
+  if (documentControlHostCliTestScope.getStore() === documentControlHostCliTestIssuer
+      || documentControlGitReadScope.getStore() !== undefined) {
+    return freezeDocumentControlPlaneWithSession(input);
+  }
+  const deadlineAtUnixMs = Date.now() + ExternalCommandTimeoutMs;
+  try {
+    return await withAuthorityGitReadSession({
+      cwd: path.resolve(input.cwd),
+      budget: { deadlineMs: ExternalCommandTimeoutMs },
+      deadlineAtUnixMs
+    }, (session) => documentControlGitReadScope.run(
+      session,
+      () => freezeDocumentControlPlaneWithSession(input)
+    ));
+  } catch (error) {
+    if (error instanceof CodexDevelopmentDocumentControlCliAdmissionError) throw error;
+    if (error instanceof GitReadAuthorityError) {
+      throw documentControlCliFailure(
+        'git',
+        'git-read',
+        'unavailable',
+        error.failure.reason,
+        error.failure.detailDigest
+      );
+    }
+    throw error;
+  }
 }
 
 function unresolvedGitHubObservation(reason: string): Readonly<{
@@ -7917,65 +7965,85 @@ async function main(): Promise<void> {
     if (manifestPath === undefined || reviewedOn === undefined || workspace === undefined) {
       throw new Error(usage);
     }
-    const executionRoot = path.resolve(import.meta.dir, '..', '..');
-    const executionBranch = requireCommand(
-      await run('git', ['branch', '--show-current'], executionRoot),
-      'Document-control execution branch'
+    const executionRoot = path.resolve(import.meta.dir, '..', '..', '..');
+    const freezeDeadlineAtUnixMs = Date.now() + ExternalCommandTimeoutMs;
+    const remainingFreezeBudget = (): number => Math.max(
+      1,
+      freezeDeadlineAtUnixMs - Date.now()
     );
-    const executionHead = shaValue(
-      requireCommand(await run('git', ['rev-parse', 'HEAD'], executionRoot), 'Document-control execution HEAD'),
-      'Document-control execution HEAD'
-    );
-    const executionSpec = CodexDevelopmentParseCurrentStateSpec(decodeUtf8(await requireGitBlob(
-      executionRoot,
-      `${executionHead}:${CurrentStatePath}`,
-      'Document-control execution current-state authority'
-    ), 'Document-control execution current-state authority'));
-    const executionDefault = shaValue(requireCommand(
-      await run('git', ['rev-parse', '--verify', executionSpec.resolver.defaultRef], executionRoot),
-      'Document-control execution default'
-    ), 'Document-control execution default');
-    const executionSurfacePaths = [
-      ...compileSecRepositoryModuleMembership(executionRoot).moduleRoots,
-      'package.json',
-      'bun.lock'
-    ];
-    const executionSurfaceStatus = await run('git', [
-      'status', '--porcelain=v1', '--untracked-files=all', '--',
-      ...executionSurfacePaths
-    ], executionRoot);
-    if (executionBranch !== 'main' || executionHead !== executionDefault
-        || executionSurfaceStatus.code !== 0 || executionSurfaceStatus.stdout.length > 0) {
-      throw new Error(
-        'Document-control freeze must execute from the clean trusted main control surface; '
-        + 'use --workspace to target the isolated candidate.'
+    let executionDefaultBranch: string | undefined;
+    await withAuthorityGitReadSession({
+      cwd: executionRoot,
+      budget: { deadlineMs: remainingFreezeBudget() },
+      deadlineAtUnixMs: freezeDeadlineAtUnixMs
+    }, (session) => documentControlGitReadScope.run(session, async () => {
+      const executionBranch = requireCommand(
+        await run('git', ['branch', '--show-current'], executionRoot),
+        'Document-control execution branch'
       );
-    }
-    const requestedWorkspace = path.resolve(workspace);
-    const candidateRoot = path.resolve(requireCommand(
-      await run('git', ['rev-parse', '--show-toplevel'], requestedWorkspace),
-      'Document-control candidate root'
-    ));
-    const physicalKey = (value: string) => {
-      const resolved = realpathSync(value).replaceAll('\\', '/');
-      return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
-    };
-    const candidateBranch = requireCommand(
-      await run('git', ['branch', '--show-current'], candidateRoot),
-      'Document-control candidate branch'
-    );
-    if (physicalKey(candidateRoot) === physicalKey(executionRoot)
-        || candidateBranch.length === 0
-        || candidateBranch === executionSpec.resolver.defaultBranch) {
-      throw new Error(
-        'Document-control freeze target must be one distinct isolated non-default candidate worktree.'
+      const executionHead = shaValue(
+        requireCommand(await run('git', ['rev-parse', 'HEAD'], executionRoot), 'Document-control execution HEAD'),
+        'Document-control execution HEAD'
       );
-    }
-    const result = await freezeDocumentControlPlane({
-      cwd: candidateRoot,
-      manifestPath,
-      reviewedOn
-    });
+      const executionSpec = CodexDevelopmentParseCurrentStateSpec(decodeUtf8(await requireGitBlob(
+        executionRoot,
+        `${executionHead}:${CurrentStatePath}`,
+        'Document-control execution current-state authority'
+      ), 'Document-control execution current-state authority'));
+      executionDefaultBranch = executionSpec.resolver.defaultBranch;
+      const executionDefault = shaValue(requireCommand(
+        await run('git', ['rev-parse', '--verify', executionSpec.resolver.defaultRef], executionRoot),
+        'Document-control execution default'
+      ), 'Document-control execution default');
+      const executionSurfacePaths = [
+        ...compileSecRepositoryModuleMembership(executionRoot).moduleRoots,
+        'package.json',
+        'bun.lock'
+      ];
+      const executionSurfaceStatus = await run('git', [
+        'status', '--porcelain=v1', '--untracked-files=all', '--',
+        ...executionSurfacePaths
+      ], executionRoot);
+      if (executionBranch !== 'main' || executionHead !== executionDefault
+          || executionSurfaceStatus.code !== 0 || executionSurfaceStatus.stdout.length > 0) {
+        throw new Error(
+          'Document-control freeze must execute from the clean trusted main control surface; '
+          + 'use --workspace to target the isolated candidate.'
+        );
+      }
+    }));
+
+    const requestedWorkspace = realpathSync(path.resolve(workspace));
+    const result = await withAuthorityGitReadSession({
+      cwd: requestedWorkspace,
+      budget: { deadlineMs: remainingFreezeBudget() },
+      deadlineAtUnixMs: freezeDeadlineAtUnixMs
+    }, (session) => documentControlGitReadScope.run(session, async () => {
+      const candidateRoot = path.resolve(requireCommand(
+        await run('git', ['rev-parse', '--show-toplevel'], requestedWorkspace),
+        'Document-control candidate root'
+      ));
+      const physicalKey = (value: string) => {
+        const resolved = realpathSync(value).replaceAll('\\', '/');
+        return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+      };
+      const candidateBranch = requireCommand(
+        await run('git', ['branch', '--show-current'], candidateRoot),
+        'Document-control candidate branch'
+      );
+      if (physicalKey(candidateRoot) === physicalKey(executionRoot)
+          || candidateBranch.length === 0
+          || candidateBranch === executionDefaultBranch) {
+        throw new Error(
+          'Document-control freeze target must be one distinct isolated non-default candidate worktree.'
+        );
+      }
+      return freezeDocumentControlPlaneWithSession({
+        cwd: candidateRoot,
+        manifestPath,
+        reviewedOn
+      });
+    }));
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     return;
   }
