@@ -1110,6 +1110,8 @@ DocumentationMigrationDesignReady =
   and exact source-header/body-node frontend grammar + duplicate/unknown rejection frozen
   and header clause-adoption policy, independent issuer, local override, inheritance boundary and provenance digest frozen
   and current source semantic-graph/disposition digests plus typed clause frontier are migration inputs
+  and every source-clause disposition used by the target is emitted by an exact-generation
+      `ClauseAdoptionWave` or remains an explicit blocking frontier
   and ScopeNode/DocumentFragment/DocumentationRelation laws and schemas frozen
   and stable DocRef/clause identity grammar + renderer semantics frozen
   and tracked-corpus discovery + opaque/binary/untracked frontier semantics frozen
@@ -1142,6 +1144,7 @@ DocumentationMigration = {
   machineInputBindings,
   sourceSemanticGraphDigest,
   sourceClauseDispositionDigest,
+  clauseAdoptionWaveRefs,
   targetSourceHeaderBodyAndRelationSchemas,
   currentToTargetScopeAndFactBijection,
   typedRelationDecomposition,
