@@ -290,6 +290,13 @@ export type GitScratchIndexTreeSession = Readonly<{
   readonly scratchRoot: string;
   readonly objectFormat: 'sha1' | 'sha256';
   applyIndexDelta(input: GitScratchIndexTreeDelta): Promise<GitScratchIndexTreeResult<string>>;
+  /**
+   * Materialize the typed delta into the retained repository object store and
+   * return the resulting tree.  This is the only production path that may
+   * persist the precomputed Git objects needed by a later index CAS; callers
+   * cannot select a repository, argv, or object directory.
+   */
+  materializeIndexDelta(input: GitScratchIndexTreeDelta): Promise<GitScratchIndexTreeResult<string>>;
   writeTree(): Promise<GitScratchIndexTreeResult<string>>;
   commitTree(input: GitCommitTreeInput): Promise<GitScratchIndexTreeResult<string>>;
   observe(args: readonly string[]): Promise<GitScratchIndexTreeResult<ByteCommandResult>>;
@@ -2092,6 +2099,11 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
       GIT_OBJECT_DIRECTORY: retainedScratchObjectsCapability.childPath,
       GIT_ALTERNATE_OBJECT_DIRECTORIES: retainedRepositoryObjectsCapability.childPath
     }, input.gitReadSession.env));
+    const repositoryEnvironment = (): Readonly<Record<string, string>> => Object.freeze(isolatedGitReadEnvironment({
+      GIT_INDEX_FILE: scratchIndexCapability?.childPath ?? scratchIndexPath,
+      GIT_OBJECT_DIRECTORY: retainedRepositoryObjectsCapability.childPath,
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: retainedRepositoryObjectsCapability.childPath
+    }, input.gitReadSession.env));
     let closed = false;
     let terminalFailure: GitScratchIndexTreeFailureReason | null = null;
     const unavailable = <T>(
@@ -2150,12 +2162,9 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
     };
     const run = (args: readonly string[]): Promise<GitReadSessionCommand | null> =>
       runWithInput(args, environment());
-    const applyIndexDelta = async (
-      input: GitScratchIndexTreeDelta
-    ): Promise<GitScratchIndexTreeResult<string>> => {
-      if (terminalFailure !== null) return unavailable(terminalFailure);
+    const validateIndexDelta = (input: GitScratchIndexTreeDelta): string | null => {
       if (!Array.isArray(input.additions) || !Array.isArray(input.removals)) {
-        return unavailable('session-failed', 'Git scratch index delta must contain additions and removals arrays.');
+        return 'Git scratch index delta must contain additions and removals arrays.';
       }
       const seenPaths = new Set<string>();
       const validatePath = (value: unknown): value is string => {
@@ -2170,19 +2179,43 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
       for (const addition of input.additions) {
         if (addition === null || typeof addition !== 'object'
             || !validatePath(addition.path) || !(addition.bytes instanceof Uint8Array)) {
-          return unavailable('session-failed', 'Git scratch index delta contains an invalid addition.');
+          return 'Git scratch index delta contains an invalid addition.';
         }
       }
       for (const removal of input.removals) {
         if (!validatePath(removal)) {
-          return unavailable('session-failed', 'Git scratch index delta contains an invalid removal.');
+          return 'Git scratch index delta contains an invalid removal.';
         }
       }
+      return null;
+    };
+    const writeTreeInEnvironment = async (
+      commandEnvironment: Readonly<Record<string, string>>
+    ): Promise<GitScratchIndexTreeResult<string>> => {
+      if (terminalFailure !== null) return unavailable(terminalFailure);
+      const command = await runWithInput(Object.freeze(['write-tree']), commandEnvironment);
+      if (command === null || command.kind !== 'completed' || command.result.code !== 0) {
+        return unavailable(terminalFailure ?? 'session-failed');
+      }
+      const value = Buffer.from(command.result.stdout).toString('utf8').trim();
+      const expectedLength = objectFormat === 'sha1' ? 40 : 64;
+      if (!new RegExp(`^[0-9a-f]{${expectedLength}}$`, 'u').test(value)) {
+        return unavailable('session-failed');
+      }
+      return Object.freeze({ status: 'ready', value });
+    };
+    const applyIndexDeltaToEnvironment = async (
+      input: GitScratchIndexTreeDelta,
+      commandEnvironment: () => Readonly<Record<string, string>>
+    ): Promise<GitScratchIndexTreeResult<string>> => {
+      if (terminalFailure !== null) return unavailable(terminalFailure);
+      const validationFailure = validateIndexDelta(input);
+      if (validationFailure !== null) return unavailable('session-failed', validationFailure);
       const indexUpdates: string[] = [];
       for (const addition of input.additions) {
         const command = await runWithInput(
           Object.freeze(['hash-object', '-w', '--stdin']),
-          environment(),
+          commandEnvironment(),
           Buffer.from(addition.bytes)
         );
         if (command === null || command.kind !== 'completed' || command.result.code !== 0) {
@@ -2208,7 +2241,7 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
         try { previousScratchIndex?.dispose(); } catch { /* preserve the command result */ }
         const command = await runWithInput(
           Object.freeze(['update-index', '-z', '--index-info']),
-          environment(),
+          commandEnvironment(),
           Buffer.from(indexUpdates.join(''), 'utf8')
         );
         try {
@@ -2236,7 +2269,7 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
         try { previousScratchIndex?.dispose(); } catch { /* preserve the command result */ }
         const command = await runWithInput(
           Object.freeze(['update-index', '--remove', '-z', '--stdin']),
-          environment(),
+          commandEnvironment(),
           Buffer.from(`${input.removals.join('\0')}\0`, 'utf8')
         );
         try {
@@ -2258,24 +2291,21 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
           );
         }
       }
-      return scratchSession.writeTree();
+      return writeTreeInEnvironment(commandEnvironment());
     };
+    const applyIndexDelta = async (
+      input: GitScratchIndexTreeDelta
+    ): Promise<GitScratchIndexTreeResult<string>> => applyIndexDeltaToEnvironment(input, environment);
+    const materializeIndexDelta = async (
+      input: GitScratchIndexTreeDelta
+    ): Promise<GitScratchIndexTreeResult<string>> => applyIndexDeltaToEnvironment(input, repositoryEnvironment);
     const scratchSession: GitScratchIndexTreeSession = Object.freeze({
       scratchRoot,
       objectFormat,
       applyIndexDelta,
+      materializeIndexDelta,
       async writeTree(): Promise<GitScratchIndexTreeResult<string>> {
-        if (terminalFailure !== null) return unavailable(terminalFailure);
-        const command = await run(Object.freeze(['write-tree']));
-        if (command === null || command.kind !== 'completed' || command.result.code !== 0) {
-          return unavailable(terminalFailure ?? 'session-failed');
-        }
-        const value = Buffer.from(command.result.stdout).toString('utf8').trim();
-        const expectedLength = objectFormat === 'sha1' ? 40 : 64;
-        if (!new RegExp(`^[0-9a-f]{${expectedLength}}$`, 'u').test(value)) {
-          return unavailable('session-failed');
-        }
-        return Object.freeze({ status: 'ready', value });
+        return writeTreeInEnvironment(environment());
       },
       async commitTree(commitInput: GitCommitTreeInput): Promise<GitScratchIndexTreeResult<string>> {
         if (terminalFailure !== null) return unavailable(terminalFailure);
