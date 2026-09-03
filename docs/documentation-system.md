@@ -1144,7 +1144,7 @@ DocumentationMigrationDesignReady =
       bound to the same generation and target profile
   and current-to-target fact/relation/lifecycle/consumer preservation map total
   and the target graph issue receipt binds graph bytes, source/target bindings,
-      preservation-map digest and compiler revision
+      preservation-map digest, owner-issued consumer census and compiler revision
   and conformance properties/fault scenarios/expected readbacks frozen
   and no applicable design frontier intersects cutover
 ```
@@ -1163,6 +1163,8 @@ DocumentationTargetGraph = generated {
   sourceGenerationBindingDigest,
   targetDesignBindingRef,
   preservationMapDigest,
+  consumerCensusRef,
+  consumerCensusDigest,
   targetContractDigest,
   scopes,
   fragments,
@@ -1176,13 +1178,16 @@ deriveDocumentationTargetGraph(targetDesign, placementProfile, sourceBinding):
   require targetDesign is frozen by the same sourceBinding and targetContractDigest
   require targetDesignBindingRef is an issuer-bound ref to that target design, placement profile and freeze receipt
   preservationMapDigest := targetDesign.preservationMap.mapDigest
+  consumerCensusRef := targetDesign.consumerCensusRef
+  consumerCensusDigest := verifyIssuedConsumerCensus(consumerCensusRef).censusDigest
   derive scopes/fragments/relations/addresses from targetDesign and placementProfile
   require every semantic identity and relation has exactly one target origin
   require placement/projection descriptors carry refs only and cannot add facts/authority
   reject current-registry fields, caller path lists, runtime state or generated views as inputs
   emit graphDigest from canonical target bytes and all typed edge descriptors
   issue graphIssueReceiptRef bound to graphRef, graphDigest, source/target bindings,
-    preservationMapDigest, targetContractDigest and compilerRevision
+    preservationMapDigest, consumerCensusRef, consumerCensusDigest,
+    targetContractDigest and compilerRevision
 
 TargetGraphIssueReceipt = exact {
   graphRef,
@@ -1193,19 +1198,24 @@ TargetGraphIssueReceipt = exact {
   sourceGenerationBindingDigest,
   targetDesignBindingRef,
   preservationMapDigest,
+  consumerCensusRef,
+  consumerCensusDigest,
   targetContractDigest
 }
 
-`graphIssueReceiptRef` proves compiler provenance and exact inputs; it is not an
-Effect grant or a substitute for the migration owner’s admission. Its issuer
-must be the registered target-graph compiler, and a caller-supplied graph,
-digest or issuer label cannot satisfy `verifyTargetGraphIssueReceipt`.
+`graphIssueReceiptRef` proves compiler provenance and exact inputs, including
+the owner-issued consumer census; it is not an Effect grant or a substitute
+for the migration owner’s admission. Its issuer must be the registered
+target-graph compiler, and a caller-supplied graph, digest, census or issuer
+label cannot satisfy `verifyTargetGraphIssueReceipt`.
 
 DocumentationMigrationSlice = generated {
   sliceRef,
   sourceGenerationBindingRef,
   targetGraphDigest,
   targetGraphIssueReceiptRef,
+  consumerCensusRef,
+  consumerCensusDigest,
   targetContractDigest,
   requestedRootRefs,
   closedScopeRefs,
@@ -1229,6 +1239,8 @@ deriveMigrationSlices(design, targetGraph, requestedRoots):
   require targetGraph.targetContractDigest == design.targetContractDigest
   preservationMapDigest := design.preservationMap.mapDigest
   require targetGraph.preservationMapDigest == preservationMapDigest
+  require targetGraph.consumerCensusRef == design.consumerCensusRef
+  require targetGraph.consumerCensusDigest == design.consumerCensusDigest
   roots := deriveDemandedRoots(design, requestedRoots)
   for root in roots:
     sourceScope := sourceScopeForRoot(design, root)
@@ -1268,6 +1280,8 @@ DocumentationMigration = {
   targetDesignBindingRef,
   targetGraphIssueReceiptRef,
   currentRegistryAndFrontmatterCensus,
+  consumerCensusRef,
+  consumerCensusDigest,
   machineInputBindings,
   sourceSemanticGraphDigest,
   sourceClauseDispositionDigest,
