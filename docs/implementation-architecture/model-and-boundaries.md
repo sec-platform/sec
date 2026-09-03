@@ -502,3 +502,62 @@ FacadeAllowed =
 ```
 
 每个facade必须登记它新增的不可由下层表达的invariant、真实consumer和retirement condition，并保持`stateOwners=0 ∧ schemaOwners=0 ∧ domainDecisions=0`。只有缩短import、隐藏移动、保留名字、汇总exports或“未来可能有用”的facade是`duplicate-owner`。纯export entry若生态协议强制存在，只能由public-surface graph生成；空`index`、手写barrel和contract copy没有存在条件。
+
+### 4.4 合同、编译图与索引的单向投影
+
+`Contract`、`CompilerIR`、`Index/Projection`和`Consumer`不是同一层的可互相拉取的资料库；它们的关系必须分成依赖边与来源边。下图箭头表示“右侧可以读取左侧的已接受输入”，而不是文件目录：
+
+```mermaid
+flowchart LR
+  D[Accepted Definition / Policy] --> C[Canonical Contract]
+  C --> IR[Compiler input + typed IR]
+  IR --> P[Generated Index / Projection]
+  P --> U[Consumer query / interface]
+  R[Composition root] --> B[Selected ports and bindings]
+```
+
+图中箭头是读取依赖方向；下表箭头是关系发起端到目标端，二者不可互换。`GeneratedFrom`/`ProjectsFrom`是来源证明，不是反向import：
+
+| 关系 | 唯一允许方向 | 语义 | 禁止形态 |
+| --- | --- | --- | --- |
+| `Defines` | owner → contract/definition | authoring authority | compiler、index或facade定义上游事实 |
+| `Imports`/`Calls` | contract → compiler/operation → projection/consumer | 静态依赖 | projection/index → compiler；consumer → private compiler/provider |
+| `Compiles` | compiler → IR/plan | 从已接受输入产生不可变结果 | compiler读取自己生成的index作为当前语义输入 |
+| `GeneratedFrom`/`ProjectsFrom` | artifact/projection → exact source/IR refs | provenance、digest、coverage | 生成物回写source、index成为Definition |
+| `Consumes` | consumer → public contract/result/projection | 只读使用 | consumer重算owner决策或绕过contract parser |
+| `Assembles` | composition root → selected ports/bindings | runtime wiring | owner/contract反向import composition root |
+
+因此，index的schema/parser若属于公共投影，只拥有该表示合同与readback；编译器拥有`CompilerIR`和生成算法。二者只能通过typed input/output ref协作，不能互相import实现、共享可变registry或把index再喂回当前`CompilerIR`。迁移/恢复读取旧index时必须标成隔离的`MigrationInput`，绑定旧generation与物理preimage；它不能满足当前Definition/Contract，也不能形成普通read path或永久双读。
+
+机器判定在同一 `ImplementationGraph` 上完成：
+
+```text
+checkImplementationDirection(graph):
+  reject any static edge projection/index -> compiler/contract-owner
+  reject any provenance edge used as a static dependency
+  reject any cross-cell SCC after excluding generated-data edges
+  reject any current compiler input whose only origin is a generated projection
+  require every projection source, target contract and consumer ref to resolve
+  require projection bytes to carry source/contract/compiler digests and no writeback edge
+```
+
+违规统一产生 `generated-projection-backedge | implementation-scc | projection-origin-unbound | projection-writeback`；不能通过换文件、补 `index`、加alias或把一条边改名消除。Composition root 和显式 `MigrationInput` 是唯一窄例外，且二者都不产生新的semantic owner。
+
+### 4.5 Contract Facade 的可计算存在证明
+
+Facade不是“方便导出”的第四种owner，而是一个有边界的只读投影。其descriptor只记录：
+
+```text
+FacadeDescriptor = {
+  canonicalOwnerRef,
+  exposedContractRefs,
+  realConsumerRefs,
+  addedBoundaryInvariantRefs,
+  lifecycleAndRetirementRef,
+  underlyingDependencyRefs
+}
+```
+
+`acceptFacade(f)` 当且仅当：`|canonicalOwnerRef| = 1`、`realConsumerRefs ≠ ∅`、`addedBoundaryInvariantRefs ≠ ∅`，且`stateOwners = schemaOwners = domainDecisionOwners = 0`；其静态依赖必须从facade指向canonical owner，canonical owner不得反向依赖facade。任何facade若可由直接引用替代、只有路径/品牌/历史名称价值、重复type/schema/parser/constant、隐藏provider选择、扩大Authority/Effect，或未声明retirement condition，均返回`duplicate-owner`并从实现图退役。
+
+`FacadeProof`与`ImplementationDirectionCheck`共享同一owner/SCC/provenance事实；测试只需验证真实consumer的公共行为、边界收窄和consumer-zero退役，不冻结facade文件名、export数量或index层级。这样“合同→编译→索引→消费者”与“owner→facade→消费者”都只能向外展开，任何反向拉图都会在编译期被拒绝，而不是等运行时或迁移后才发现。
