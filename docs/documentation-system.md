@@ -475,6 +475,26 @@ LocalConsumerCoverage      = complete | unknown
 ExternalConsumerStatus     = none-observed | present | unknown
 ```
 
+```text
+LocalConsumerCoverageEvidence = exact owner-issued {
+  issuerOwnerRef,
+  issuerAuthorityRef,
+  decisionRevision,
+  generationRef,
+  sourceUniverseDigest,
+  observedConsumerRefs,
+  dynamicGeneratedConfigWorkflowFrontierRefs,
+  coverage: complete | unknown,
+  coverageDigest
+}
+```
+
+`coverage=complete` 只有在 source universe、静态/动态/生成/config/workflow reader
+集合和 opaque frontier 都已由同一 provider 读回，或每个不可适用维度有独立
+`not-applicable` 证明时成立；literal search、空数组、当前文件存在或 caller 的
+`complete` 字段不能签发它。任何 coverage frontier、provider/epoch/source digest
+变化都会使 census stale，并保留受影响 subject。
+
 `ObservedConsumerRefs=[]` only means that this observer found no literal hit. It
 does not prove consumer-zero. A migration design may clear the local-consumer
 frontier only when the domain owner supplies a complete, exact-generation-bound
