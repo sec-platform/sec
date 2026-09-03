@@ -971,7 +971,7 @@ CurrentGenerationBinding = exact {
 
 SourceSemanticFrontier = exact {
   documentRef, clauseRef, code, sourceDigest, graphDigest,
-  resolution: unresolved | adopted | explicitly-nonnormative
+  resolution: unresolved
 }
 ```
 
