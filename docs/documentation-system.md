@@ -1196,6 +1196,7 @@ deriveMigrationSlices(design, targetGraph, requestedRoots):
   require targetGraph is issued by the target documentation compiler
   require targetGraph.sourceGenerationBindingRef == design.currentGenerationBinding.generationRef
   require targetGraph.sourceGenerationBindingDigest == design.currentGenerationBinding.treeOrContentDigest
+  require targetGraph.targetDesignBindingRef == design.targetDesignBindingRef
   require targetGraph.targetContractDigest == design.targetContractDigest
   roots := deriveDemandedRoots(design, requestedRoots)
   for root in roots:
@@ -1222,6 +1223,7 @@ target preimage或source generation变化都会使slice及其`actionKey` stale�
 DocumentationMigration = {
   exactCurrentGenerationDigest,
   currentGenerationBinding,
+  targetDesignBindingRef,
   currentRegistryAndFrontmatterCensus,
   machineInputBindings,
   sourceSemanticGraphDigest,
