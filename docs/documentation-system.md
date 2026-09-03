@@ -88,7 +88,7 @@ DocumentationArtifactClass =
 
 DocumentSourceRole =
   | AuthorityContract { ownershipKeys: nonEmptySet }
-  | AuthorityTopic { ownershipKeys: nonEmptyDisjointSet }
+  | AuthorityTopic { ownershipKeys: emptySet }
   | CorpusContract { corpusContractRef, ownershipKeys: nonEmptySet }
   | ControlDeclaration { controlKey, controlContractRef, controlRevision }
   | Proposal { proposalRef, decisionFrontierRef }
@@ -172,7 +172,8 @@ identity。
 
 | Artifact class | 能拥有 | 不能拥有 |
 | --- | --- | --- |
-| AuthorityContract / AuthorityTopic | 其非空且不重叠的normative ownership keys | runtime observation、其他contract facts |
+| AuthorityContract | 其非空且不重叠的normative ownership keys | runtime observation、其他contract facts |
+| AuthorityTopic | 对一个 `AuthorityContract` ownership slice 的 typed reference；不拥有 keys | runtime observation、其他contract facts、ownership keys |
 | CorpusContract | 注册的documentation corpus rule | domain fact、运行Authority |
 | ControlDeclaration | 一个exact repository-authored desired/selection input及其revision | observed progress、session/pointer、runtime ledger、stable principle |
 | Proposal | 无canonical facts；只保存候选、frontier与target refs | active authority、兼容壳、owner key |
