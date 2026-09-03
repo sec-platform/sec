@@ -273,13 +273,23 @@ export type GitScratchIndexTreeResult<T> = Readonly<
 
 /**
  * Narrow Git effect capability for computing a tree from one immutable index.
- * It intentionally exposes no argv, config, ref, index-update, or object-write
- * primitive beyond Git's internally-required tree object publication inside
- * the retained repository-external scratch object directory.
+ * It intentionally exposes no generic argv, config, ref, or repository-write
+ * surface.  The typed index delta is applied only inside the retained,
+ * repository-external scratch object directory and the resulting tree is
+ * read back through the same retained provider.
  */
+export type GitScratchIndexTreeDelta = Readonly<{
+  readonly additions: readonly Readonly<{
+    readonly path: string;
+    readonly bytes: Uint8Array;
+  }>[];
+  readonly removals: readonly string[];
+}>;
+
 export type GitScratchIndexTreeSession = Readonly<{
   readonly scratchRoot: string;
   readonly objectFormat: 'sha1' | 'sha256';
+  applyIndexDelta(input: GitScratchIndexTreeDelta): Promise<GitScratchIndexTreeResult<string>>;
   writeTree(): Promise<GitScratchIndexTreeResult<string>>;
   commitTree(input: GitCommitTreeInput): Promise<GitScratchIndexTreeResult<string>>;
   observe(args: readonly string[]): Promise<GitScratchIndexTreeResult<ByteCommandResult>>;
@@ -2130,9 +2140,98 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
     };
     const run = (args: readonly string[]): Promise<GitReadSessionCommand | null> =>
       runWithInput(args, environment);
+    const applyIndexDelta = async (
+      input: GitScratchIndexTreeDelta
+    ): Promise<GitScratchIndexTreeResult<string>> => {
+      if (terminalFailure !== null) return unavailable(terminalFailure);
+      if (!Array.isArray(input.additions) || !Array.isArray(input.removals)) {
+        return unavailable('session-failed', 'Git scratch index delta must contain additions and removals arrays.');
+      }
+      const seenPaths = new Set<string>();
+      const validatePath = (value: unknown): value is string => {
+        if (typeof value !== 'string' || value.length === 0 || value.includes('\0')
+            || value.includes('\\') || value.startsWith('/') || value.startsWith('../')
+            || value.includes('/../') || value === '..' || value.startsWith('./')
+            || value.includes('/./')) return false;
+        if (seenPaths.has(value)) return false;
+        seenPaths.add(value);
+        return true;
+      };
+      for (const addition of input.additions) {
+        if (addition === null || typeof addition !== 'object'
+            || !validatePath(addition.path) || !(addition.bytes instanceof Uint8Array)) {
+          return unavailable('session-failed', 'Git scratch index delta contains an invalid addition.');
+        }
+      }
+      for (const removal of input.removals) {
+        if (!validatePath(removal)) {
+          return unavailable('session-failed', 'Git scratch index delta contains an invalid removal.');
+        }
+      }
+      const indexUpdates: string[] = [];
+      for (const addition of input.additions) {
+        const command = await runWithInput(
+          Object.freeze(['hash-object', '-w', '--stdin']),
+          environment,
+          Buffer.from(addition.bytes)
+        );
+        if (command === null || command.kind !== 'completed' || command.result.code !== 0) {
+          return unavailable(
+            terminalFailure ?? 'session-failed',
+            command === null
+              ? 'Git scratch blob materialization returned no result.'
+              : command.kind === 'completed'
+                ? command.result.stderr.trim() || `Git scratch blob materialization exited ${command.result.code}.`
+                : command.detail
+          );
+        }
+        const objectId = Buffer.from(command.result.stdout).toString('utf8').trim();
+        const expectedLength = objectFormat === 'sha1' ? 40 : 64;
+        if (!new RegExp(`^[0-9a-f]{${expectedLength}}$`, 'u').test(objectId)) {
+          return unavailable('session-failed', 'Git scratch blob materialization returned an invalid object id.');
+        }
+        indexUpdates.push(`100644 ${objectId}\t${addition.path}\0`);
+      }
+      if (indexUpdates.length > 0) {
+        const command = await runWithInput(
+          Object.freeze(['update-index', '-z', '--index-info']),
+          environment,
+          Buffer.from(indexUpdates.join(''), 'utf8')
+        );
+        if (command === null || command.kind !== 'completed' || command.result.code !== 0) {
+          return unavailable(
+            terminalFailure ?? 'session-failed',
+            command === null
+              ? 'Git scratch index update returned no result.'
+              : command.kind === 'completed'
+                ? command.result.stderr.trim() || `Git scratch index update exited ${command.result.code}.`
+                : command.detail
+          );
+        }
+      }
+      if (input.removals.length > 0) {
+        const command = await runWithInput(
+          Object.freeze(['update-index', '--remove', '-z', '--stdin']),
+          environment,
+          Buffer.from(`${input.removals.join('\0')}\0`, 'utf8')
+        );
+        if (command === null || command.kind !== 'completed' || command.result.code !== 0) {
+          return unavailable(
+            terminalFailure ?? 'session-failed',
+            command === null
+              ? 'Git scratch index removal returned no result.'
+              : command.kind === 'completed'
+                ? command.result.stderr.trim() || `Git scratch index removal exited ${command.result.code}.`
+                : command.detail
+          );
+        }
+      }
+      return scratchSession.writeTree();
+    };
     const scratchSession: GitScratchIndexTreeSession = Object.freeze({
       scratchRoot,
       objectFormat,
+      applyIndexDelta,
       async writeTree(): Promise<GitScratchIndexTreeResult<string>> {
         if (terminalFailure !== null) return unavailable(terminalFailure);
         const command = await run(Object.freeze(['write-tree']));

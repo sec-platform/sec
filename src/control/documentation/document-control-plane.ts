@@ -5420,85 +5420,178 @@ async function buildNextIndex(input: {
   absentPaths: readonly string[];
 }): Promise<Readonly<{ bytes: Buffer; treeSha: string }>> {
   const scratchRoot = await mkdtemp(path.join(tmpdir(), 'sec-document-control-freeze-index-'));
+  let productionScratch: GitScratchIndexTreeSession | null = null;
+  let primaryFailure: unknown;
   try {
-    const canonicalScratchRoot = await realpath(scratchRoot);
-    const canonicalRepositoryRoot = await realpath(input.repositoryRoot);
-    const canonicalGitDirectory = await realpath(input.gitDirectory);
-    if (pathComparisonValue(canonicalScratchRoot).startsWith(`${pathComparisonValue(canonicalRepositoryRoot)}${path.sep}`)
-        || pathComparisonValue(canonicalScratchRoot).startsWith(`${pathComparisonValue(canonicalGitDirectory)}${path.sep}`)) {
-      throw new Error('External freeze scratch index root must not be contained by the repository or Git directory.');
-    }
-    const sourceIndex = await readSafeRegularFile({
-      boundaryRoot: input.gitDirectory,
-      filePath: input.indexPath,
-      label: 'Git index source'
-    });
-    const scratchIndex = path.join(canonicalScratchRoot, 'index');
-    const scratchObjects = path.join(canonicalScratchRoot, 'objects');
-    await mkdir(scratchObjects);
-    const repositoryObjectsCandidate = requireCommand(
-      await run('git', ['rev-parse', '--git-path', 'objects'], input.repositoryRoot),
-      'Repository object directory path'
-    );
-    const repositoryObjects = await realpath(path.isAbsolute(repositoryObjectsCandidate)
-      ? repositoryObjectsCandidate
-      : path.resolve(input.repositoryRoot, repositoryObjectsCandidate));
-    await createSafeRegularFileExclusive({
-      boundaryRoot: canonicalScratchRoot,
-      filePath: scratchIndex,
-      bytes: sourceIndex,
-      label: 'External freeze scratch Git index',
-      durability: {}
-    });
-    const environment = {
-      GIT_INDEX_FILE: scratchIndex,
-      GIT_OBJECT_DIRECTORY: scratchObjects,
-      GIT_ALTERNATE_OBJECT_DIRECTORIES: repositoryObjects,
-      GIT_OPTIONAL_LOCKS: '0'
-    };
-    const indexUpdates: string[] = [];
-    for (const target of input.targets) {
-      if (target.pre !== undefined && target.pre.equals(target.bytes)) continue;
-      const blobSha = requireCommand(
-        await run('git', ['hash-object', '-w', '--stdin'], input.repositoryRoot, {
-          environment,
-          input: target.bytes
-        }),
-        `Scratch Git blob materialization for ${target.path}`
+    try {
+      const canonicalScratchRoot = await realpath(scratchRoot);
+      const canonicalRepositoryRoot = await realpath(input.repositoryRoot);
+      const canonicalGitDirectory = await realpath(input.gitDirectory);
+      if (pathComparisonValue(canonicalScratchRoot).startsWith(`${pathComparisonValue(canonicalRepositoryRoot)}${path.sep}`)
+          || pathComparisonValue(canonicalScratchRoot).startsWith(`${pathComparisonValue(canonicalGitDirectory)}${path.sep}`)) {
+        throw new Error('External freeze scratch index root must not be contained by the repository or Git directory.');
+      }
+      const sourceIndex = await readSafeRegularFile({
+        boundaryRoot: input.gitDirectory,
+        filePath: input.indexPath,
+        label: 'Git index source'
+      });
+      const scratchIndex = path.join(canonicalScratchRoot, 'index');
+      const scratchObjects = path.join(canonicalScratchRoot, 'objects');
+      await mkdir(scratchObjects);
+      const repositoryObjectsCandidate = requireCommand(
+        await run('git', ['rev-parse', '--git-path', 'objects'], input.repositoryRoot),
+        'Repository object directory path'
       );
-      indexUpdates.push(`100644 ${blobSha}\t${target.path}\0`);
-    }
-    if (indexUpdates.length > 0) {
-      requireCommand(await run(
-        'git',
-        ['update-index', '-z', '--index-info'],
-        input.repositoryRoot,
-        { environment, input: Buffer.from(indexUpdates.join(''), 'utf8') }
-      ), 'Batched temporary Git index update');
-    }
-    const treeSha = shaValue(
-      requireCommand(
-        await run('git', ['write-tree'], input.repositoryRoot, { environment }),
-        'Candidate tree write'
-      ),
-      'Candidate tree'
-    );
-    for (const target of input.targets) {
-      const treeBytes = await readGitBlob(input.repositoryRoot, `${treeSha}:${target.path}`, environment);
-      if (treeBytes === undefined) throw new Error(`Candidate ${target.path} is absent from the scratch tree.`);
-      if (!treeBytes.equals(target.bytes)) throw new Error(`Candidate tree bytes drifted for ${target.path}.`);
-    }
-    for (const absentPath of input.absentPaths) {
-      if (await readGitBlob(input.repositoryRoot, `${treeSha}:${absentPath}`, environment) !== undefined) {
-        throw new Error(`Candidate tree retained the retired path ${absentPath}.`);
+      const repositoryObjects = await realpath(path.isAbsolute(repositoryObjectsCandidate)
+        ? repositoryObjectsCandidate
+        : path.resolve(input.repositoryRoot, repositoryObjectsCandidate));
+      await createSafeRegularFileExclusive({
+        boundaryRoot: canonicalScratchRoot,
+        filePath: scratchIndex,
+        bytes: sourceIndex,
+        label: 'External freeze scratch Git index',
+        durability: {}
+      });
+      const environment = {
+        GIT_INDEX_FILE: scratchIndex,
+        GIT_OBJECT_DIRECTORY: scratchObjects,
+        GIT_ALTERNATE_OBJECT_DIRECTORIES: repositoryObjects,
+        GIT_OPTIONAL_LOCKS: '0'
+      };
+      const changedTargets = input.targets.filter(
+        (target) => target.pre === undefined || !target.pre.equals(target.bytes)
+      );
+      const productionSession = documentControlGitReadScope.getStore();
+      const testTransport = documentControlHostCliTestScope.getStore() === documentControlHostCliTestIssuer;
+      if (!testTransport) {
+        if (productionSession === undefined) {
+          throw documentControlCliFailure(
+            'git', 'git-object-index-effect', 'unknown', 'semantic-closure-unproven'
+          );
+        }
+        const resolution = await createAuthorityGitScratchIndexTreeSession({
+          gitReadSession: productionSession,
+          scratchRoot: canonicalScratchRoot
+        });
+        if (resolution.status !== 'ready') {
+          throw documentControlCliFailure(
+            'git', 'git-object-index-effect', 'unavailable', resolution.reason
+          );
+        }
+        productionScratch = resolution.session;
+        const tree = await productionScratch.applyIndexDelta({
+          additions: changedTargets.map((target) => Object.freeze({
+            path: target.path,
+            bytes: target.bytes
+          })),
+          removals: Object.freeze([...input.absentPaths])
+        });
+        if (tree.status !== 'ready') {
+          throw documentControlCliFailure(
+            'git', 'git-object-index-effect', 'unavailable', tree.reason
+          );
+        }
+        const treeSha = shaValue(tree.value, 'Candidate tree');
+        for (const target of input.targets) {
+          const observed = await productionScratch.observe(['show', `${treeSha}:${target.path}`]);
+          if (observed.status !== 'ready') {
+            throw documentControlCliFailure(
+              'git', 'git-object-index-effect', 'unavailable', observed.reason
+            );
+          }
+          if (observed.value.code !== 0) {
+            throw new Error(`Candidate ${target.path} is absent from the scratch tree.`);
+          }
+          const treeBytes = Buffer.from(observed.value.stdout);
+          if (!treeBytes.equals(target.bytes)) {
+            throw new Error(`Candidate tree bytes drifted for ${target.path}.`);
+          }
+        }
+        for (const absentPath of input.absentPaths) {
+          const observed = await productionScratch.observe(['show', `${treeSha}:${absentPath}`]);
+          if (observed.status !== 'ready') {
+            throw documentControlCliFailure(
+              'git', 'git-object-index-effect', 'unavailable', observed.reason
+            );
+          }
+          if (observed.value.code === 0) {
+            throw new Error(`Candidate tree retained the retired path ${absentPath}.`);
+          }
+        }
+        const bytes = await readSafeRegularFile({
+          boundaryRoot: canonicalScratchRoot,
+          filePath: scratchIndex,
+          label: 'External freeze scratch Git index readback'
+        });
+        return Object.freeze({ bytes, treeSha });
+      }
+      const indexUpdates: string[] = [];
+      for (const target of changedTargets) {
+        const blobSha = requireCommand(
+          await run('git', ['hash-object', '-w', '--stdin'], input.repositoryRoot, {
+            environment,
+            input: target.bytes
+          }),
+          `Scratch Git blob materialization for ${target.path}`
+        );
+        indexUpdates.push(`100644 ${blobSha}\t${target.path}\0`);
+      }
+      if (indexUpdates.length > 0) {
+        requireCommand(await run(
+          'git',
+          ['update-index', '-z', '--index-info'],
+          input.repositoryRoot,
+          { environment, input: Buffer.from(indexUpdates.join(''), 'utf8') }
+        ), 'Batched temporary Git index update');
+      }
+      if (input.absentPaths.length > 0) {
+        requireCommand(await run(
+          'git',
+          ['update-index', '--remove', '-z', '--stdin'],
+          input.repositoryRoot,
+          { environment, input: Buffer.from(`${input.absentPaths.join('\0')}\0`, 'utf8') }
+        ), 'Batched temporary Git index removal');
+      }
+      const treeSha = shaValue(
+        requireCommand(
+          await run('git', ['write-tree'], input.repositoryRoot, { environment }),
+          'Candidate tree write'
+        ),
+        'Candidate tree'
+      );
+      for (const target of input.targets) {
+        const treeBytes = await readGitBlob(input.repositoryRoot, `${treeSha}:${target.path}`, environment);
+        if (treeBytes === undefined) throw new Error(`Candidate ${target.path} is absent from the scratch tree.`);
+        if (!treeBytes.equals(target.bytes)) throw new Error(`Candidate tree bytes drifted for ${target.path}.`);
+      }
+      for (const absentPath of input.absentPaths) {
+        if (await readGitBlob(input.repositoryRoot, `${treeSha}:${absentPath}`, environment) !== undefined) {
+          throw new Error(`Candidate tree retained the retired path ${absentPath}.`);
+        }
+      }
+      const bytes = await readSafeRegularFile({
+        boundaryRoot: canonicalScratchRoot,
+        filePath: scratchIndex,
+        label: 'External freeze scratch Git index readback'
+      });
+      return Object.freeze({ bytes, treeSha });
+    } catch (error) {
+      primaryFailure = error;
+      throw error;
+    } finally {
+      let closeFailure: GitScratchIndexTreeFailureReason | null | undefined;
+      try {
+        closeFailure = await productionScratch?.close();
+      } catch {
+        closeFailure = 'session-failed';
+      }
+      if (primaryFailure === undefined && closeFailure !== null && closeFailure !== undefined) {
+        throw documentControlCliFailure(
+          'git', 'git-object-index-effect', 'unavailable', closeFailure
+        );
       }
     }
-    const bytes = await readSafeRegularFile({
-      boundaryRoot: canonicalScratchRoot,
-      filePath: scratchIndex,
-      label: 'External freeze scratch Git index readback'
-    });
-    return Object.freeze({ bytes, treeSha });
   } finally {
     await rm(scratchRoot, { recursive: true, force: true });
     const removed = await lstat(scratchRoot).then(
