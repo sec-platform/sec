@@ -1153,6 +1153,27 @@ DocumentationMigrationDesignReady =
 为使上述规则可执行，migration compiler必须同时产出全局设计和由同一设计派生的slice交集结果；slice不是第二计划、第二generation或人工路径清单：
 
 ```text
+DocumentationTargetGraph = generated {
+  graphRef,
+  sourceGenerationBindingRef,
+  targetDesignBindingRef,
+  targetContractDigest,
+  scopes,
+  fragments,
+  typedRelations,
+  placementDescriptors,
+  projectionDescriptors,
+  graphDigest
+}
+
+deriveDocumentationTargetGraph(targetDesign, placementProfile, sourceBinding):
+  require targetDesign is frozen by the same sourceBinding and targetContractDigest
+  derive scopes/fragments/relations/addresses from targetDesign and placementProfile
+  require every semantic identity and relation has exactly one target origin
+  require placement/projection descriptors carry refs only and cannot add facts/authority
+  reject current-registry fields, caller path lists, runtime state or generated views as inputs
+  emit graphDigest from canonical target bytes and all typed edge descriptors
+
 DocumentationMigrationSlice = generated {
   sliceRef,
   sourceGenerationBindingRef,
@@ -1171,6 +1192,7 @@ DocumentationMigrationSlice = generated {
 }
 
 deriveMigrationSlices(design, targetGraph, requestedRoots):
+  require targetGraph is issued by the target documentation compiler
   require targetGraph.sourceGenerationBindingRef == design.currentGenerationBinding
   require targetGraph.targetContractDigest == design.targetContractDigest
   roots := deriveDemandedRoots(design, requestedRoots)
