@@ -793,7 +793,14 @@ function gitReadCommandIsObservation(args: readonly string[]): boolean {
     return commandArgs.every((argument) => allowed.has(argument) || !argument.startsWith('-'));
   }
   if (command === 'rev-list') {
-    const allowed = new Set(['--parents', '--walk-reflogs', '-n', '1', '--count', '--not']);
+    // These flags only constrain/shape the commit walk; they do not mutate
+    // repository state.  The freeze/replan reader relies on the ancestry
+    // path walk, so keep the allowlist explicit instead of treating every
+    // rev-list option as a read capability.
+    const allowed = new Set([
+      '--parents', '--walk-reflogs', '-n', '1', '--count', '--not',
+      '--first-parent', '--ancestry-path', '--reverse'
+    ]);
     return commandArgs.every((argument) => allowed.has(argument) || !argument.startsWith('-'));
   }
   return false;
