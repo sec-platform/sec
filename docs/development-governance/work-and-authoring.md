@@ -175,6 +175,7 @@ delete duplicate owner/scan
 
 不得以放宽 coverage/identity/unknown/readback 换速度。
 
+<!-- sec-clause {"blocker":null,"kind":"stable-decision"} -->
 ### 11.1 Validation Route Compiler
 
 验证入口不是按文件扩展名或“上次用了什么命令”选择，而是由 exact semantic
