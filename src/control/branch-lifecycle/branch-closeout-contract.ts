@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 
-import type { IntegrationAuthorization } from '../integration/authorization.ts';
 import {
   assertDurableRecoveryAuthority,
   assertGitBranchName,
@@ -62,6 +61,21 @@ export interface BranchCloseoutOperationBinding {
   candidateTreeSha: string;
   preparationDigest: `sha256:${string}`;
   recoveryDigest: `sha256:${string}`;
+}
+
+/**
+ * The closeout owner consumes only the authorization identity facts it binds
+ * into its own operation.  The integration owner remains authoritative for
+ * the authorization contract; keeping this narrow structural projection here
+ * avoids a reverse implementation dependency and therefore an owner cycle.
+ */
+export interface BranchCloseoutAuthorizationIdentity {
+  authorizationId: string;
+  consumptionOperationId: string;
+  receiptDigest: `sha256:${string}`;
+  repository: string;
+  prNumber: number;
+  headSha: string;
 }
 
 export interface BranchCloseoutEffect {
@@ -807,15 +821,7 @@ function operationIdentityPayload(
 }
 
 export function createBranchCloseoutOperationBinding(input: {
-  integrationAuthorization: Pick<
-    IntegrationAuthorization,
-    | 'authorizationId'
-    | 'consumptionOperationId'
-    | 'receiptDigest'
-    | 'repository'
-    | 'prNumber'
-    | 'headSha'
-  >;
+  integrationAuthorization: BranchCloseoutAuthorizationIdentity;
   preparation: BranchCloseoutPreparation;
   newMainSha: string;
   newMainTreeSha: string;
