@@ -89,19 +89,19 @@ preimage 变化都会使 migration stale，并沿 reverse closure 使其 plan、
 
 迁移工具消费 symbol/reference graph，不依赖字符串替换。路径缩短不是成功；所有 imports、package exports、CLI entrypoints、runtime locators、generated registries、tests、docs 和 artifacts 必须重编/readback，旧地址 consumer-zero 后才退休，不留 alias/compat barrel。
 
-Consumer evidence is split into the observed reference set and coverage proof:
+Consumer evidence is a cross-domain relation, not a generic migration boolean. Each
+domain owns its typed census and coverage/exposure evidence; this implementation
+slice only requires the references to be exact-generation-bound, issuer-checked and
+reproducible. The documentation domain's canonical schemas and rules are defined in
+[`docs/documentation-system.md`](../documentation-system.md) (`DocumentationConsumerCensus`,
+`LocalConsumerCoverageEvidence`, and `ConsumerExposureEvidence`). Other domains must
+reference their own owner contract rather than copying those shapes here.
 
-```text
-ObservedConsumerRefs   = references found by one bounded observer
-LocalConsumerCoverage  = complete | unknown
-ExternalConsumerStatus = none-observed | present | unknown
-```
-
-An empty observed set is not consumer-zero. Literal search, package metadata,
+An empty observed set is never consumer-zero. Literal search, package metadata,
 generated entrypoints, dynamic readers and external protocols cover different
 universes; each must be bound to the exact source generation or remain a typed
-frontier. A migration compiler must reject cutover while local coverage is
-`unknown`, even when `ObservedConsumerRefs` is empty.
+frontier. A migration compiler rejects cutover while any required local or external
+coverage is unknown, even when an observer returned an empty set.
 
 Registry and target-contract digests are owner-derived from the actual inputs;
 caller-supplied digest strings are assertions to verify, not credentials. An

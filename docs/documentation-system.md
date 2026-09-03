@@ -481,6 +481,7 @@ LocalConsumerCoverageEvidence = exact owner-issued {
   issuerAuthorityRef,
   decisionRevision,
   generationRef,
+  observationRef,
   sourceUniverseDigest,
   observedConsumerRefs,
   dynamicGeneratedConfigWorkflowFrontierRefs,
@@ -490,10 +491,12 @@ LocalConsumerCoverageEvidence = exact owner-issued {
 ```
 
 `coverage=complete` 只有在 source universe、静态/动态/生成/config/workflow reader
-集合和 opaque frontier 都已由同一 provider 读回，或每个不可适用维度有独立
-`not-applicable` 证明时成立；literal search、空数组、当前文件存在或 caller 的
-`complete` 字段不能签发它。任何 coverage frontier、provider/epoch/source digest
-变化都会使 census stale，并保留受影响 subject。
+集合和 opaque frontier 都已由`observationRef`所绑定的同一 provider/algorithm
+读回，或每个不可适用维度有独立`not-applicable`证明时成立；literal search、空数组、
+当前文件存在或 caller 的`complete`字段不能签发它。`observationRef`必须能读回
+bounded observer 的 provider、algorithm、attempt、输入世代和完整 unknown frontier，
+不能由 caller 字符串或空结果伪造。任何 coverage frontier、provider/epoch/source
+digest 变化都会使 census stale，并保留受影响 subject。
 
 `ObservedConsumerRefs=[]` only means that this observer found no literal hit. It
 does not prove consumer-zero. A migration design may clear the local-consumer
@@ -1057,6 +1060,9 @@ DocumentationMigrationDesignReady =
   and read/write/impact compiler public contracts + deterministic ActionKey frozen
   and incremental/reverse-reachability complexity and cache invalidation model frozen
   and migration journal/state/CAS/crash/recovery/rollback/residue model frozen
+  and DocumentationConsumerCensus plus LocalConsumerCoverageEvidence and
+      ConsumerExposureEvidence issuer, observation, freshness, revalidation and
+      unknown-preservation contracts frozen
   and current-to-target fact/relation/lifecycle/consumer preservation map total
   and conformance properties/fault scenarios/expected readbacks frozen
   and no applicable design frontier intersects cutover
