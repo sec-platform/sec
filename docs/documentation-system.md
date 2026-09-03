@@ -1517,6 +1517,8 @@ DocumentationGenerationClosed =
     ExternalCorpusBinding (or an explicit retirement disposition), never as a
     local documentation partition
   and every opaque/external member has a closed binding or retirement proof
+  and every accepted FutureObligation has a preserved, revised or owner-authorized
+    retired mapping with its trigger, invariants and reconsideration evidence
   and no unclassified current source, hidden corpus member or applicable
     unresolved frontier remains
   and source headers strict, role-discriminated and duplicate-free
