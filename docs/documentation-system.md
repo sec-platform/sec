@@ -145,12 +145,24 @@ DocumentBodyNode =
                    sourceAndReversalRefs }
   | DecisionSource { designDecisionRef }
   | RelationSource { exact AuthoredDocumentationRelation variant }
+  | StructuredDomainPayload { sourceRole: ControlDeclaration | Proposal | ImmutableRecord,
+                              payloadRef, parserOwnerRef, parserRevision,
+                              payloadDigest, claimCeiling }
   | ViewDeclaration { exact clause/relation/state/algorithm refs,
-                      selected renderer + presentation parameters }
+                     selected renderer + presentation parameters }
   | NonNormativeExplanation { text, optionalReferencedRefs }
 
 ProjectionRole = documentation-index | navigation | agent-view | public-view
 ```
+
+`StructuredDomainPayload`是文档层对非知识角色的唯一承载方式：`payloadRef`指向
+Control/Proposal/ImmutableRecord 的 domain owner bytes，`parserOwnerRef`与
+`parserRevision`决定唯一解析器，`payloadDigest`由该解析器读回确认，`claimCeiling`
+限制它能被文档 view 披露的范围。文档 compiler 只验证绑定、摘要和 disclosure，不能
+复制 payload 字段、从 Markdown 推导 domain state，或把该节点转换成
+`ClauseSource`/`DecisionSource`；同一 fragment 不得同时出现 domain payload 与
+clause-adoption policy。这样 `requireDomainParser` 有精确输入/输出边界，也不会
+因为文档角色而产生第二个 Control、Proposal 或 Record owner。
 
 | Artifact class | 能拥有 | 不能拥有 |
 | --- | --- | --- |
@@ -343,7 +355,12 @@ blocker直接拒绝编译，而不是按最接近的kind猜测。迁移阶段缺
 compileClauseAdoption(fragment, bodyNodes):
   if fragment.header.sourceRole in {ControlDeclaration, Proposal, ImmutableRecord}:
     require fragment.header.clauseAdoptionPolicy == null
-    return requireDomainParser(fragment)
+    require exactlyOne bodyNode.kind == StructuredDomainPayload
+    require no ClauseSource, DecisionSource or RelationSource in bodyNodes
+    require bodyNode.sourceRole == fragment.header.sourceRole
+    require bodyNode.parserOwnerRef is the domain owner for fragment.scopeRef
+    require bodyNode.payloadDigest == readbackDigest(bodyNode.payloadRef)
+    return requireDomainParser(fragment, bodyNode)
   policy := requireExact(fragment.header.clauseAdoptionPolicy)
   require policy.policyRef is not derived from fragment body, generated view or migration output
   for node in clauseOrExplanationNodes(bodyNodes) ownedBy fragment:
