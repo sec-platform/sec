@@ -1378,12 +1378,12 @@ DocumentationPreservationMap = exact {
 }
 
 DocumentationLifecycleRef = exact {
-  role,
+  roleRef,
   stateRef,
   stateRevision,
   ownerRef,
   generationRef,
-  terminal: boolean,
+  terminal: derived boolean,
   transitionEvidenceRefs
 }
 
@@ -1402,6 +1402,13 @@ A proposal, control record or residue cannot become `active`, and an `active`
 entry cannot disappear or become `retired` without its settlement, consumer
 cutover and readback evidence. Unknown, stale or contradictory current/target
 lifecycle pairs are mapping blockers, never inferred defaults.
+For `preserve` and `transition`, `targetSubjectRefs` and
+`targetAddressRefs` are non-empty and every target relation endpoint is
+preserved by the map; for `retire`, all target subject/address/relation refs
+are empty and the retirement evidence is terminal. `blocked` may retain
+non-authoritative staged refs only, never activation refs. `roleRef`,
+`stateRef`, `terminal` and legal transition edges are resolved from the
+role/lifecycle owner; they are not free-form fields authored by the migrator.
 ```
 
 迁移journal由Change Management/state owner持久化，绑定current/target generation、source/target physical identities、preservation digest、phase、CAS preimage和settlement；它不能由目录存在、Git commit或迁移脚本退出码重建。activation前失败可丢弃隔离target但不动current；activation后只允许forward recovery或显式授权rollback，绝不同时开放两个normal reader。
