@@ -222,6 +222,7 @@ test('Git read grammar admits exact observations and terminally rejects mutation
     { args: ['status', '--porcelain=v1', '-z', '--untracked-files=all'], permitted: true },
     { args: ['rev-parse', '--verify', 'HEAD^{commit}'], permitted: true },
     { args: ['rev-parse', '--absolute-git-dir'], permitted: true },
+    { args: ['rev-list', '--first-parent', '--ancestry-path', '--reverse', 'HEAD'], permitted: true },
     { args: ['write-tree'], permitted: false },
     { args: ['hash-object', '-w', '--stdin'], permitted: false },
     { args: ['update-index', '-z', '--index-info'], permitted: false },
