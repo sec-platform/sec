@@ -83,14 +83,18 @@ flowchart LR
   E[Engineering Constitution] --> P
   A[Agent Constitution] --> P
   U[Product outcomes/non-goals] --> P
-  S[SEC System Architecture] --> P
-  O[Domain authority documents] --> P
+  S[SEC System Architecture refs] -. "projection refs only" .-> P
+  O[Domain authority refs] -. "projection refs only" .-> P
   P --> H[Human architecture view]
   P --> M[Machine admission obligations]
   P --> C[Compact Agent context]
 ```
 
-投影只能引用各 owner 的 identity/revision/clauses，不能保存原则或领域字段副本；它的失效由任一输入 revision 变化自动传播。
+投影只能引用各 owner 的 identity/revision/clauses，不能保存原则或领域字段副本；其中
+`Domain authority refs` 与 `SEC System Architecture refs` 只决定适用范围和可见投影，
+不成为 `project-composition` 的定义输入，也不能形成 `project → domain → project` 回边。
+Product decisions 与 project-scoped decisions 仍由其原 owner 签发；domain-definition
+只沿显式 typed ref 进入自己的语义闭包。投影的失效由任一输入 revision 变化自动传播。
 
 ### 1.2 逻辑坐标与实现边界
 
