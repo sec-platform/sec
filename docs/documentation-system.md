@@ -1125,6 +1125,8 @@ DocumentationMigrationDesignReady =
   and DocumentationConsumerCensus plus LocalConsumerCoverageEvidence and
       ConsumerExposureEvidence issuer, observation, freshness, revalidation and
       unknown-preservation contracts frozen
+  and every frozen package/contract is backed by a current `DesignFreezeReceipt`
+      bound to the same generation and target profile
   and current-to-target fact/relation/lifecycle/consumer preservation map total
   and conformance properties/fault scenarios/expected readbacks frozen
   and no applicable design frontier intersects cutover
@@ -1145,6 +1147,7 @@ DocumentationMigration = {
   sourceSemanticGraphDigest,
   sourceClauseDispositionDigest,
   clauseAdoptionWaveRefs,
+  designFreezeReceiptRefs,
   targetSourceHeaderBodyAndRelationSchemas,
   currentToTargetScopeAndFactBijection,
   typedRelationDecomposition,
