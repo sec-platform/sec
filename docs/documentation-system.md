@@ -164,6 +164,12 @@ Control/Proposal/ImmutableRecord 的 domain owner bytes，`parserOwnerRef`与
 clause-adoption policy。这样 `requireDomainParser` 有精确输入/输出边界，也不会
 因为文档角色而产生第二个 Control、Proposal 或 Record owner。
 
+Header 不承载作者自报的 `sourceDigest`、`graphDigest` 或 generation digest；fragment
+bytes、normalized body、semantic graph 和 generation digest 都由 exact snapshot
+compiler 派生，并在 readback 中绑定同一 generation。caller/frontmatter 提供的摘要
+只能作为待验证 assertion，不能写入 authority、替代实际内容重算，或成为第二个
+identity。
+
 | Artifact class | 能拥有 | 不能拥有 |
 | --- | --- | --- |
 | AuthorityContract / AuthorityTopic | 其非空且不重叠的normative ownership keys | runtime observation、其他contract facts |
