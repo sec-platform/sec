@@ -1399,7 +1399,7 @@ DocumentationPreservationEntry = exact {
   currentRelationRefs,
   currentFutureObligationRefs,
   targetSubjectRefs,
-  targetOwnerRef,
+  targetOwnerRef: ref | null,
   targetAddressRefs,
   targetLifecycle: DocumentationLifecycleRef | null,
   lifecycleDisposition: preserve | transition | retire | blocked,
@@ -1463,9 +1463,10 @@ entry cannot disappear or become `retired` without its settlement, consumer
 cutover and readback evidence. Unknown, stale or contradictory current/target
 lifecycle pairs are mapping blockers, never inferred defaults.
 For `preserve` and `transition`, `targetSubjectRefs` and
-`targetAddressRefs` are non-empty and every target relation endpoint is
-preserved by the map; for `retire`, all target subject/address/relation refs
-are empty and the retirement evidence is terminal. `blocked` may retain
+`targetAddressRefs` are non-empty, `targetOwnerRef` is non-null, and every
+target relation endpoint is preserved by the map; for `retire`, target owner,
+subject, address and relation refs are all empty and the retirement evidence
+is terminal. `blocked` may retain
 non-authoritative staged refs only, never activation refs. `roleRef`,
 `stateRef`, `terminal` and legal transition edges are resolved from the
 role/lifecycle owner; they are not free-form fields authored by the migrator.
