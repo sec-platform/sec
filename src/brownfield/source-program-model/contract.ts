@@ -2,7 +2,9 @@ import type { SemanticResponsibilityTargetKind } from '../../semantic/contracts/
 import type {
   SecModuleCausalRelation,
   SecModuleOperationObligation,
-  SecModuleOperationRole
+  SecModuleOperationRole,
+  SecRepositoryModuleGraph,
+  SecRepositoryModuleMembership
 } from '../../system-architecture/repository-modules/contract.ts';
 import { isSecRepositoryTestModulePath } from '../../system-architecture/repository-modules/test-module-path.ts';
 
@@ -68,6 +70,26 @@ export interface SourceProgramFileInput {
   readonly path: string;
   readonly source: string;
   readonly contentDigest: string;
+}
+
+/**
+ * The smallest repository-compilation contract consumed by the TypeScript
+ * frontend.  A workspace snapshot implements this contract; the frontend
+ * must depend on these facts, never on that producer's implementation.
+ */
+export type SourceProgramCompilationMatchInput = Readonly<{
+  sourceRevision?: string;
+  productionModel?: SourceProgramModel;
+  files: readonly SourceProgramFileInput[];
+  moduleMembership: SecRepositoryModuleMembership;
+}>;
+
+export interface SourceProgramCompilation {
+  readonly identityDigest: `sha256:${string}`;
+  readonly moduleGraphDigest: `sha256:${string}`;
+  readonly moduleGraph: SecRepositoryModuleGraph;
+  file(repositoryPath: string): SourceProgramFileInput | null;
+  assertMatches(input: SourceProgramCompilationMatchInput): void;
 }
 
 export type SourceProgramSupersessionStatus =

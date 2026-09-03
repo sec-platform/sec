@@ -30,8 +30,9 @@ import {
 } from '../../system-architecture/repository-modules/contract.ts';
 import {
   isSourceProgramInputPath,
-  type SourceProgramFileInput,
-  type SourceProgramModel
+  type SourceProgramCompilation,
+  type SourceProgramCompilationMatchInput,
+  type SourceProgramFileInput
 } from './contract.ts';
 import { sourceProgramModuleImports } from './embedded-programs.ts';
 import { compileSecRepositoryModuleGraph } from './typescript.ts';
@@ -91,13 +92,6 @@ export type PhysicalObservationReceipt = Extract<
   WorkspaceSourceSnapshotSubject,
   { kind: 'physical-repository' }
 >['provenance'];
-
-type WorkspaceSourceSnapshotMatchInput = Readonly<{
-  sourceRevision?: string;
-  productionModel?: SourceProgramModel;
-  files: readonly SourceProgramFileInput[];
-  moduleMembership: SecRepositoryModuleMembership;
-}>;
 
 export type WorkspaceSourceFileMode = '100644' | '100755';
 
@@ -169,7 +163,7 @@ export type AcquireExactGitTreeWorkspaceSourceSnapshotFromSessionInput = Readonl
  * exact source text only; physical paths and transport encodings are not part
  * of the public input.
  */
-export interface WorkspaceSourceSnapshot {
+export interface WorkspaceSourceSnapshot extends SourceProgramCompilation {
   readonly [workspaceSourceSnapshotBrand]: true;
   readonly subject: WorkspaceSourceSnapshotSubject;
   readonly subjectDigest: `sha256:${string}`;
@@ -181,12 +175,8 @@ export interface WorkspaceSourceSnapshot {
   readonly moduleMembership: SecRepositoryModuleMembership;
   readonly snapshotDigest: `sha256:${string}`;
   readonly moduleMembershipDigest: `sha256:${string}`;
-  readonly moduleGraphDigest: `sha256:${string}`;
-  readonly identityDigest: `sha256:${string}`;
   readonly moduleGraphCompilationCount: 1;
-  readonly moduleGraph: SecRepositoryModuleGraph;
   file(repositoryPath: string): WorkspaceSourceFile | null;
-  assertMatches(input: WorkspaceSourceSnapshotMatchInput): void;
 }
 
 export type PhysicalWorkspaceSourceSnapshot = WorkspaceSourceSnapshot & Readonly<{
@@ -1279,7 +1269,7 @@ function issueWorkspaceSourceSnapshot(
     });
     return semanticProjection;
   };
-  const assertMatches = (candidate: WorkspaceSourceSnapshotMatchInput): void => {
+  const assertMatches = (candidate: SourceProgramCompilationMatchInput): void => {
     const candidateFiles = canonicalFiles(candidate.files);
     const candidateRevision = candidate.sourceRevision ?? candidate.productionModel?.sourceRevision;
     const projection = requireSemanticProjection();
