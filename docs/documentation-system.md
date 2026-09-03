@@ -512,6 +512,9 @@ retirement decision；consumerRefs 为空也不能单独证明 consumer-zero。
 
 ```text
 DocumentationConsumerCensus = opaque owner-issued {
+  issuerOwnerRef,
+  issuerAuthorityRef,
+  decisionRevision,
   providerRef,
   generationRef,
   corpusDigest,
@@ -520,11 +523,18 @@ DocumentationConsumerCensus = opaque owner-issued {
 }
 
 compileMigration(..., consumerCensus):
-  require issuer brand and canonical provider route
+  require issuer brand and the `documentation.migration` authority owner
+  plus canonical provider route
   require generationRef/corpusDigest == currentGenerationBinding
   require censusDigest == digest(providerRef, generationRef, corpusDigest, entries)
   use entries only after these checks
 ```
+
+`active-work-package`、CLI、literal search 或 migration script 只能产生待验证的
+`ObservedConsumerRefs`，不能作为 `issuerOwnerRef` 或 `issuerAuthorityRef`。它们若被
+填入 consumer census，compiler 必须返回 `consumer-census-issuer-invalid`，并保留
+原始观察作为 frontier；Work Package 的 scope 选择不因此变成文档事实或 retirement
+授权。
 
 `DocumentationMigrationCorpusEntry` 是 observation payload，不是 authority。
 caller 不能用 object spread、手写 `none-observed` 或空数组替换
