@@ -191,7 +191,7 @@ SystemicRepair(counterexample, exactGeneration):
 | [SHACL](https://www.w3.org/TR/shacl/)、[CUE unification](https://cuelang.org/docs/reference/spec/#unification) | facts与constraint shapes分离；结构化validation result；constraint composition满足可验证的交换/结合/幂等性质 | 强制把SEC事实迁到RDF/CUE；依赖SPARQL或evaluation order定义核心语义 |
 | [TLA+/TLC](https://lamport.azurewebsites.net/tla/high-level-view.html) | 并发、故障与恢复先建state-transition model，再由model checker生成反例 | 把bounded model PASS当实现Evidence，或把所有domain强制翻译成同一formal language |
 
-该表不是允许列表。外部机制、版本或新研究出现时由candidate generator按Requirement query扩展；若只吸收性质而不引入工具，必须证明本地合同确实实现了该性质；若引入工具，必须同时证明其provider、版本、供应链、资源、failure、replacement和retirement闭包。
+该表不是允许列表。外部机制、版本或新研究出现时由candidate generator按Requirement query扩展；若只吸收性质而不引入工具，必须证明本地合同确实实现了该性质；若引入工具，必须同时证明其provider、版本、供应链、资源、failure、replacement和retirement闭包。这里的`ExternalMechanismEvidence`只拥有候选调查与取舍证据；被选机制由实现架构的`MechanismBinding`引用该证据并重新绑定实际snapshot、integrity、coverage、operation envelope和settlement，二者不得复制对方payload或互相签发authority。
 
 ```text
 ExternalMechanismSurvey = {
