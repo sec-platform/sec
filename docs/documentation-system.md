@@ -95,15 +95,23 @@ DocumentSourceRole =
   | ImmutableRecord { recordRef, issuerAndProvenanceRef,
                       authorityCeiling, retentionRef }
 
-DocumentSourceHeader = exact {
+DocumentSourceHeader = exact common {
   documentRef,
   sourceStratumRef,
   scopeRef,
   lifecycle,
   sourceRole: exact DocumentSourceRole variant,
-  disclosureClass,
-  clauseAdoptionPolicy: ClauseAdoptionPolicy
-}
+  disclosureClass
+} & (
+  {
+    sourceRole: AuthorityContract | AuthorityTopic | CorpusContract,
+    clauseAdoptionPolicy: ClauseAdoptionPolicy
+  }
+  | {
+    sourceRole: ControlDeclaration | Proposal | ImmutableRecord,
+    clauseAdoptionPolicy: null
+  }
+)
 
 ClauseAdoptionPolicy = exact {
   policyRef: IndependentOwnerIssuedDecisionRef,
@@ -304,7 +312,11 @@ prose一律是`NonNormativeExplanation`。现有brownfield prose、手写Mermaid
 升级为normative clause。owner必须通过fragment header的一次采用策略或节点级
 覆盖明确承担这个语义，否则保留为frontier或删除。
 
-`ClauseAdoptionPolicy`是降低重复标注的唯一机制，不是默认把整篇文档升格为规范：
+`ClauseAdoptionPolicy`只适用于三类知识 source role（`AuthorityContract`、
+`AuthorityTopic`、`CorpusContract`），是降低重复标注的唯一机制，不是默认把整篇文档
+升格为规范。`ControlDeclaration`、`Proposal`和`ImmutableRecord`由各自 domain
+parser 拥有结构化 payload，header 中必须显式为`clauseAdoptionPolicy: null`，不得借
+此机制重新解释其控制、候选或历史记录语义：
 它必须位于同一fragment的strict header、引用owner-issued decision，并且只作用于
 该fragment自己的body nodes；child scope、外部引用和generated view永不继承它。
 节点级directive可以覆盖header default，但覆盖必须声明自己的kind/blocker，且
@@ -329,6 +341,9 @@ blocker直接拒绝编译，而不是按最接近的kind猜测。迁移阶段缺
 
 ```text
 compileClauseAdoption(fragment, bodyNodes):
+  if fragment.header.sourceRole in {ControlDeclaration, Proposal, ImmutableRecord}:
+    require fragment.header.clauseAdoptionPolicy == null
+    return requireDomainParser(fragment)
   policy := requireExact(fragment.header.clauseAdoptionPolicy)
   require policy.policyRef is not derived from fragment body, generated view or migration output
   for node in clauseOrExplanationNodes(bodyNodes) ownedBy fragment:
