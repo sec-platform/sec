@@ -416,6 +416,70 @@ decision log；`ClauseAdoptionWave`是可失效的编译产物，不能签发文
 compiler 或 semantic scope 变化会使波次及所有依赖的 migration design stale；只有
 波次与迁移准入共同闭合后，才允许进入 target generation 的一次性 CAS。
 
+### 4.4 首代采用启动：独立 Adoption Seed
+
+首代 source 没有 inline directive 时，不能把 `status: stable`、标题、路径或
+`authority.json` 当作采用事实；但也不能要求在开放世界中先完成所有未来设计。启动采用
+因此是一次有界的 owner 决策输入，不是长期 registry 或第二个正文真相：
+
+```text
+DocumentationAdoptionSeed = exact owner-issued {
+  seedRef,
+  sourceGenerationBindingRef + sourceGenerationBindingDigest,
+  targetContractDigest,
+  scopeQueries,                         // semantic scope/owner keys, never paths/headings
+  ownerDecisionRefs,                    // existing owner decisions/policies only
+  policyBindings: {
+    scopeRef,
+    policyRef,
+    decisionDigest,
+    allowedClauseKinds,
+    localOverrideBoundary
+  }[],
+  coveredClauseRefs,
+  unresolvedFrontierRefs,
+  issuerOwnerRef + issuerAuthorityRef,
+  acceptanceRef,
+  expiryAndRetirementRef,
+  seedDigest
+}
+```
+
+```mermaid
+flowchart LR
+  C[Current generation + untyped frontier] --> A[Seed admission]
+  A -->|exact owner decision / scope query| W[ClauseAdoptionWave compiler]
+  A -->|missing, ambiguous, stale| U[Typed unresolved frontier]
+  W --> G[Target graph / migration design]
+  G -->|cutover readback| R[Seed retired; target owns typed source]
+```
+
+`DocumentationAdoptionSeed` 只能在下列条件同时成立时进入 `ClauseAdoptionWave`：
+
+| Admission | 必须满足 | 失败结果 |
+| --- | --- | --- |
+| generation | seed 与 current generation 的 revision、registry/corpus/semantic/frontier digest 全相等 | `seed-generation-stale` |
+| issuer | issuer 是对应 domain/source owner，且不同于被采用 fragment；authority、acceptance、有效期可读回 | `seed-issuer-invalid` |
+| scope | `scopeQueries` 由 semantic scope、ownership key 或 accepted purpose 派生；不含路径、标题、行号或候选文件清单 | `seed-scope-invalid` |
+| policy | 每个 policyRef 是既有 owner decision，策略 digest、允许 kind 与 local override 边界严格匹配 | `seed-policy-unbound` |
+| coverage | `coveredClauseRefs ∪ unresolvedFrontierRefs` 覆盖 seed scope 内全部 source frontier，且二者不重叠 | `seed-coverage-incomplete` |
+| target | seed 只绑定当前 target contract 与 wave，不携带 placement、Effect、permission、consumer-zero 或 cutover 结果 | `seed-authority-amplification` |
+
+seed 的编译语义是：对 `coveredClauseRefs` 应用已签发的 adoption policy，生成带
+`origin=seed` 的 `ClauseSource`；对 `unresolvedFrontierRefs` 保持 blocking frontier。
+它不能创建新的 clause、owner、Decision、consumer census、target address 或
+`DocumentationGeneration`，也不能把未覆盖节点默认变成 `non-normative`。seed 本身的
+digest、frontier 和 acceptance 会进入 wave 与 migration design digest，因此不能靠删
+字段、空数组或 self-digest 伪造完整采用。
+
+seed 只存在于 migration operation 的受保护输入/记录中，不进入 current
+`docs/authority.json` 的 source registry；normal reader 不读取 seed。target cutover
+完成并对 source/consumer/readback 做一次 CAS 后，seed 变为 retired evidence；若 cutover
+失败，current generation 保持唯一 authority，seed 与 target 只作为可恢复 residue。
+current source、owner decision、target contract 或 compiler 改变都会使 seed/wave stale，
+禁止继续使用旧 seed，也禁止通过新增长期 seed 绕过 unresolved frontier。这样一次性
+解决“首代没有标签”的启动问题，同时不引入全局采用表、逐文件手工清单或双写兼容层。
+
 `docs/authority.json`在目标generation中退役authoring职责；目标machine projection为generated、content-addressed `DocumentationIndex`。它聚合全部source headers、scope/relations、physical addresses和digests，但不拥有任何事实，并发布到Runtime State/Artifact Store而不是提交进authored `docs/**`。当前`authority.json`在迁移完成前仍是唯一现行registry，两个generation不得同时被production consumer接受。
 
 ```text
