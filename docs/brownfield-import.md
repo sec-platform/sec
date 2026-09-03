@@ -113,7 +113,7 @@ SourceProgramObservationReceipt = exact owner-issued {
   dependencyGenerationRef,
   factShardRootRef,
   coverageAndFrontierDigest,
-  resourceAllocationRef,
+  observationAllocationRef,
   observationEpoch,
   receiptDigest
 }
@@ -128,10 +128,11 @@ SourceFactShard = immutable derived {
 }
 ```
 
-`resourceAllocationRef`只引用[统一资源账本](system-architecture/operations-and-resources.md)，
-不在 Brownfield 重复声明 timeout、bytes 或 process 数字。Receipt 是观察与复用的
-边界，不是业务 Definition、Grant、Effect ticket 或 Evidence verdict；fact shard 是
-加速投影，不是第二 Source Program。其判定链为：
+`observationAllocationRef`只记录生产观察使用的[统一资源账本](system-architecture/operations-and-resources.md)，
+不在 Brownfield 重复声明 timeout、bytes 或 process 数字。它证明生产观察已经结算，
+不向后续消费者授予资源；每个消费者必须从自己的父 operation 取得只读 allocation。
+Receipt 是观察与复用的边界，不是业务 Definition、Grant、Effect ticket 或 Evidence
+verdict；fact shard 是加速投影，不是第二 Source Program。其判定链为：
 
 ```mermaid
 flowchart LR
@@ -152,7 +153,7 @@ Reusable(receipt, consumer) iff
   ∧ exactSnapshot/frontend/config/dependency generation still active
   ∧ readback(factShardRootRef, shardDigest, coverageAndFrontierDigest)
   ∧ consumerQuery ⊆ receipt.coverage
-  ∧ consumerAllocation ⊆ receipt.resourceAllocationRef
+  ∧ consumer has a fresh read-only allocation for this query
 ```
 
 消费者禁止重新创建 AST、Language Service、resolver、PATH/文件 census 或直接读取
@@ -179,7 +180,8 @@ daemon：Language Service/本地 retained session 只能作为可替换 Provider
 ```text
 OneObservationInvariant:
   one exact snapshot + one active frontend/config/dependency binding
-  → at most one observation session and one canonical shard root
+  → at most one active producer and one canonical shard root
+  (a failed/settled attempt may be retried only after a new admission)
 
 SemanticReuseInvariant:
   cold(receipt) ≡ warm(receipt) ≡ delta(receipt, unchanged closure)
