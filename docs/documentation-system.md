@@ -1156,6 +1156,7 @@ DocumentationMigrationDesignReady =
 DocumentationTargetGraph = generated {
   graphRef,
   sourceGenerationBindingRef,
+  sourceGenerationBindingDigest,
   targetDesignBindingRef,
   targetContractDigest,
   scopes,
@@ -1193,7 +1194,8 @@ DocumentationMigrationSlice = generated {
 
 deriveMigrationSlices(design, targetGraph, requestedRoots):
   require targetGraph is issued by the target documentation compiler
-  require targetGraph.sourceGenerationBindingRef == design.currentGenerationBinding
+  require targetGraph.sourceGenerationBindingRef == design.currentGenerationBinding.generationRef
+  require targetGraph.sourceGenerationBindingDigest == design.currentGenerationBinding.treeOrContentDigest
   require targetGraph.targetContractDigest == design.targetContractDigest
   roots := deriveDemandedRoots(design, requestedRoots)
   for root in roots:
