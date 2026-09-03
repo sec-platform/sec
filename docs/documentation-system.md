@@ -416,6 +416,7 @@ decision log；`ClauseAdoptionWave`是可失效的编译产物，不能签发文
 compiler 或 semantic scope 变化会使波次及所有依赖的 migration design stale；只有
 波次与迁移准入共同闭合后，才允许进入 target generation 的一次性 CAS。
 
+<!-- sec-clause {"blocker":null,"kind":"stable-decision"} -->
 ### 4.4 首代采用启动：独立 Adoption Seed
 
 首代 source 没有 inline directive 时，不能把 `status: stable`、标题、路径或
