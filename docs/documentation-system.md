@@ -1201,8 +1201,19 @@ deriveMigrationSlices(design, targetGraph, requestedRoots):
   require targetGraph.targetContractDigest == design.targetContractDigest
   roots := deriveDemandedRoots(design, requestedRoots)
   for root in roots:
-    scope := reverseReachable(targetGraph, root)
-    frontier := intersect(design.frontier, scope)
+    sourceScope := sourceScopeForRoot(design, root)
+    scope := reverseReachable(
+      targetGraph,
+      mapRootThroughPreservation(design.currentToTargetScopeAndFactBijection, root)
+    )
+    frontier := projectFrontierThroughPreservation(
+      design.frontier,
+      design.currentToTargetScopeAndFactBijection,
+      sourceScope,
+      scope
+    )
+    require every source frontier in sourceScope maps to a target frontier,
+      an explicit retirement disposition, or a typed mapping blocker
     emit ready iff frontier is empty and all slice obligations are closed
     otherwise emit blocked with exact frontier refs
   require every slice uses design.currentGenerationBinding and one target preimage
