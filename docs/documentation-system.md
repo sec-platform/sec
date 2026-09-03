@@ -481,6 +481,28 @@ operation manifest 仍只作为外部 owner 的 opaque projection，不成为 kn
 `unclassified-current-source`/retirement frontier。目录名、文件名和 frontmatter 的
 `kind` 不能单独完成这次分类。
 
+指针与其 payload 是一条绑定关系，不是两个可独立登记的 source：
+
+```text
+MachineInputBinding = exact {
+  pointerRef,
+  payloadRef,
+  parserOwnerRef,
+  parserRevision,
+  pointerGenerationRef,
+  pointerDigest,
+  payloadDigest,
+  authorityCeiling,
+  freshnessAndRetirementRefs
+}
+```
+
+编译器必须同时 read back pointer 与 payload，验证 parser、generation、digest 和
+authority ceiling 后，才可把 payload 计入 `ExternalBoundInput`；只读到 manifest、只
+命中路径、或只验证 schema 都保持 `unclassified-current-source`。迁移时保留这条
+binding，不能把 payload 加入 knowledge registry，也不能把 pointer 的路径字段复制成
+payload identity。pointer/payload 任一变化都会使绑定与依赖 view stale。
+
 `DocumentationIndex`、README、presentation frontmatter、AI/public views全部生成。README只有在Git读者必须零运行时导航时才作为source-bound projection提交；其余index/views进入Runtime State/Artifact Store并可重建。这样消除中央大清单写热点与header/registry镜像，同时仍由aggregate compiler全局验证duplicate owner、ID/path collision、cycle、unresolved ref和lifecycle。
 
 ```text
