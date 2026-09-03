@@ -443,6 +443,14 @@ DocumentSourceDescriptor = {
 
 authored Markdown header是该fragment metadata的唯一authoring point，按role使用closed exact variants；repository control/immutable-record payload继续由其domain strict parser拥有；外部machine state、Evidence与artifact只通过owner签发的`ExternalCorpusBinding`进入purpose-bound view compilation，不变成`DocumentFragment`或canonical source generation。generated projection不是`DocumentationSource`：tracked README等只作为bytes observation与source-derived期望比较，绝不能反向参与graph编译。任何输入都不能由中央手写registry补字段。source grammar/schema revision绑定整个`DocumentationGeneration`，不在每篇文件重复`formatVersion: 1`。
 
+`RepositoryMachineDocument`只有在两个条件同时成立时才归入`ExternalBoundInput`：其唯一
+domain parser 严格确认 payload/schema，且当前 `ControlDeclaration` 或 Runtime State
+pointer 以 exact generation binding 引用它。被指针引用的 Work Package、Task Capsule 或
+operation manifest 仍只作为外部 owner 的 opaque projection，不成为 knowledge fragment；
+未被任何有效指针绑定的 machine document、失效指针和 parser 未知状态必须进入
+`unclassified-current-source`/retirement frontier。目录名、文件名和 frontmatter 的
+`kind` 不能单独完成这次分类。
+
 `DocumentationIndex`、README、presentation frontmatter、AI/public views全部生成。README只有在Git读者必须零运行时导航时才作为source-bound projection提交；其余index/views进入Runtime State/Artifact Store并可重建。这样消除中央大清单写热点与header/registry镜像，同时仍由aggregate compiler全局验证duplicate owner、ID/path collision、cycle、unresolved ref和lifecycle。
 
 ```text
