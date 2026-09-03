@@ -4287,7 +4287,24 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       protectedRoot,
       expectedLocalPreimageSha,
       expectedLocalPreimageTreeSha: expectedLocalTree.stdout.trim(),
-      livePublication: selected.publication,
+      hostedAuthority: {
+        repository: selected.publication.repository,
+        pullRequestNumber: selected.publication.pullRequestNumber,
+        sessionRevision: selected.publication.sessionRevision,
+        authorizationId: selected.publication.authorizationId,
+        authorizationReceiptDigest: selected.publication.authorizationReceiptDigest,
+        consumptionOperationId: selected.publication.consumptionOperationId,
+        authorizationPublicationId: selected.publication.authorizationPublicationId,
+        authorizationPublicationDigest: selected.publication.publicationDigest,
+        authorizationHeadSha: authorization.headSha,
+        authorizationHeadTreeSha: authorization.headTreeSha,
+        reviewReceiptDigest: selected.publication.result.reviewReceipt.receiptDigest,
+        reviewRevision: selected.publication.result.reviewReceipt.reviewRevision,
+        integrationWorkflowSha: selected.publication.provenance.workflowSha,
+        integrationRunId: selected.publication.provenance.runId,
+        integrationRunAttempt: selected.publication.provenance.runAttempt
+      },
+      authorizationMarkers: markers,
       liveCommentId: selected.commentId,
       liveCandidate
     });

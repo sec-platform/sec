@@ -1,4 +1,4 @@
-import { ensureCurrentTrustedRuntimeMainHealth } from '../../src/control/branch-lifecycle/trusted-runtime-closeout.ts';
+import { ensureCurrentTrustedRuntimeMainHealth } from '../../src/control/composition/trusted-runtime-closeout.ts';
 
 const [repositoryRoot, repository, defaultBranch] = process.argv.slice(2);
 if (!repositoryRoot || !repository || !defaultBranch) {

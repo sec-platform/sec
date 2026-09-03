@@ -28,8 +28,8 @@
   "runtimeEntrypoints": [
     "src/control/agent/agent-operation-activation.ts",
     "src/control/agent/skill-applicability.ts",
-    "src/control/branch-lifecycle/trusted-runtime-closeout.ts",
     "src/control/branch-lifecycle/worktree-physical-closeout.ts",
+    "src/control/composition/trusted-runtime-closeout.ts",
     "src/control/documentation/doctor/cli.ts",
     "src/control/integration/authorization.ts",
     "src/control/integration/merge-gate.ts",

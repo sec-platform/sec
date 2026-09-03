@@ -1,8 +1,7 @@
 {
   "importGraph": "runtime",
   "externalEntrypoints": [
-    "src/control/branch-lifecycle/closed-unmerged-closeout-cli.ts",
-    "src/control/branch-lifecycle/trusted-runtime-closeout.ts"
+    "src/control/branch-lifecycle/closed-unmerged-closeout-cli.ts"
   ],
   "capabilityProviders": [
     {
