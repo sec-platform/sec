@@ -1381,12 +1381,15 @@ DocumentationPreservationEntry = exact {
   currentRevision,
   currentLifecycle: DocumentationLifecycleRef,
   currentRelationRefs,
+  currentFutureObligationRefs,
   targetSubjectRefs,
   targetOwnerRef,
   targetAddressRefs,
   targetLifecycle: DocumentationLifecycleRef | null,
   lifecycleDisposition: preserve | transition | retire | blocked,
   targetRelationRefs,
+  targetFutureObligationRefs,
+  futureObligationDisposition: preserve | revise | retire | blocked,
   consumerDisposition: rewrite | preserve | retire | blocked,
   consumerRefs,
   evidenceRefs,
@@ -1397,6 +1400,7 @@ DocumentationPreservationMap = exact {
   currentGenerationBindingRef,
   targetDesignBindingRef,
   entries: total DocumentationPreservationEntry[],
+  futureObligations: total DocumentationFutureObligationPreservation[],
   mapDigest
 }
 
@@ -1410,8 +1414,25 @@ DocumentationLifecycleRef = exact {
   transitionEvidenceRefs
 }
 
+DocumentationFutureObligationPreservation = exact {
+  currentRef,
+  targetRef,
+  triggerRef,
+  expectedConsumerClass,
+  invariantRefs,
+  prerequisiteRefs,
+  maintenanceCostRef,
+  reconsiderationRef,
+  disposition: preserve | revise | retire | blocked,
+  evidenceRefs
+}
+
+`mapDigest` is computed over canonical bytes of both `entries` and
+`futureObligations`; changing an obligation without changing a target subject
+or address therefore invalidates the target graph and every migration slice.
+
 The map is total over every current document/owner/fact/clause/lifecycle,
-typed relation, source/code/test/workflow/config/external consumer and
+typed relation, accepted future obligation, source/code/test/workflow/config/external consumer and
 generated/public/AI projection. Each entry maps to target refs/addresses/
 relations, an accepted retirement, or a blocking frontier; no path-only or
 count-only entry is admissible.
@@ -1432,6 +1453,10 @@ are empty and the retirement evidence is terminal. `blocked` may retain
 non-authoritative staged refs only, never activation refs. `roleRef`,
 `stateRef`, `terminal` and legal transition edges are resolved from the
 role/lifecycle owner; they are not free-form fields authored by the migrator.
+Every future obligation keeps its trigger, expected consumer class, invariant,
+prerequisite, maintenance-cost and reconsideration refs. `retire` therefore
+requires owner evidence that the trigger is cancelled or the obligation is
+superseded; absence of current consumers is not sufficient.
 ```
 
 迁移journal由Change Management/state owner持久化，绑定current/target generation、target graph issue receipt、source/target physical identities、preservation digest、phase、CAS preimage和settlement；它不能由目录存在、Git commit或迁移脚本退出码重建。activation前失败可丢弃隔离target但不动current；activation后只允许forward recovery或显式授权rollback，绝不同时开放两个normal reader。
