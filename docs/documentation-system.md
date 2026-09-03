@@ -1195,7 +1195,7 @@ DocumentationMigrationSlice = generated {
 deriveMigrationSlices(design, targetGraph, requestedRoots):
   require targetGraph is issued by the target documentation compiler
   require targetGraph.sourceGenerationBindingRef == design.currentGenerationBinding.generationRef
-  require targetGraph.sourceGenerationBindingDigest == design.currentGenerationBinding.treeOrContentDigest
+  require targetGraph.sourceGenerationBindingDigest == design.currentGenerationBinding.bindingDigest
   require targetGraph.targetDesignBindingRef == design.targetDesignBindingRef
   require targetGraph.targetContractDigest == design.targetContractDigest
   roots := deriveDemandedRoots(design, requestedRoots)
@@ -1255,8 +1255,13 @@ migration journal 都引用同一 binding。只有 registry/corpus bytes 相同�
 CurrentGenerationBinding = exact {
   generationRef, providerRef, revisionOrSnapshotRef, treeOrContentDigest,
   registryDigest, corpusDigest, semanticGraphDigest,
-  clauseDispositionDigest, sourceFrontierDigest, observationEpoch
+  clauseDispositionDigest, sourceFrontierDigest, observationEpoch,
+  bindingDigest: sha256(all preceding fields in canonical order)
 }
+
+`bindingDigest`只对前述字段的canonical bytes求一次摘要，不能把自身递归加入输入。
+`DocumentationTargetGraph.sourceGenerationBindingDigest`必须等于该完整摘要；只比较
+`treeOrContentDigest`不足以绑定registry、corpus、semantic graph或完整frontier。
 
 迁移设计输出中的`sourceSemanticGraphDigest`与
 `sourceClauseDispositionDigest`是上述binding字段的带语义前缀投影：
