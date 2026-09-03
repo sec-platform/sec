@@ -19,6 +19,7 @@ import {
 } from './compilation-operation.ts';
 import type {
   SourceProgramCapabilityInvocation,
+  SourceProgramCompilation,
   SourceProgramDeclaration,
   SourceProgramEntrypoint,
   SourceProgramFile,
@@ -46,8 +47,6 @@ import {
   SOURCE_PROGRAM_TYPESCRIPT_FACT_SHARD_SCHEMA_DIGEST,
   type TypeScriptSourceProgramFactShard
 } from './typescript-fact-shards.ts';
-import type { WorkspaceSourceSnapshot } from './workspace-source-snapshot.ts';
-
 export interface CompileTypeScriptSourceProgramModelInput {
   readonly sourceRevision: string;
   readonly files: readonly SourceProgramFileInput[];
@@ -56,7 +55,7 @@ export interface CompileTypeScriptSourceProgramModelInput {
 }
 
 type CompileTypeScriptSourceProgramModelInternalInput = CompileTypeScriptSourceProgramModelInput & Readonly<{
-  repositoryCompilation?: WorkspaceSourceSnapshot;
+  repositoryCompilation?: SourceProgramCompilation;
   sourceFileIdentities?: ReadonlyMap<string, TypeScriptSourceProgramFileIdentity>;
 }>;
 
@@ -202,7 +201,7 @@ export function workspaceSourceSnapshotIdentityForTypeScriptModel(
 
 function bindTypeScriptModelToRepositoryCompilation(
   model: SourceProgramModel,
-  context: WorkspaceSourceSnapshot | undefined
+  context: SourceProgramCompilation | undefined
 ): SourceProgramModel {
   if (context !== undefined) {
     repositoryCompilationDigestByModel.set(model, context.identityDigest);
@@ -2231,7 +2230,7 @@ function buildIncrementalState(
 export function adoptTypeScriptSourceProgramFactShardsFromWorkspaceSnapshot(
   input: CompileTypeScriptSourceProgramModelInput,
   shards: readonly TypeScriptSourceProgramFactShard[],
-  repositoryCompilation: WorkspaceSourceSnapshot,
+  repositoryCompilation: SourceProgramCompilation,
   generation?: Readonly<{ moduleGraphDigest: `sha256:${string}` }>
 ): TypeScriptSourceProgramIncrementalState {
   const preparedInput = prepareTypeScriptSourceProgramInput({
@@ -2498,7 +2497,7 @@ export function compileTypeScriptSourceProgramModelIncremental(
 export function compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnapshot(
   input: CompileTypeScriptSourceProgramModelInput,
   previous: TypeScriptSourceProgramIncrementalState | null,
-  repositoryCompilation: WorkspaceSourceSnapshot
+  repositoryCompilation: SourceProgramCompilation
 ): TypeScriptSourceProgramIncrementalResult {
   return compileTypeScriptSourceProgramModelIncrementalInternal({
     ...input,
@@ -3232,7 +3231,7 @@ export function compileTypeScriptSourceProgramModel(
 
 export function compileTypeScriptSourceProgramModelFromWorkspaceSnapshot(
   input: CompileTypeScriptSourceProgramModelInput,
-  repositoryCompilation: WorkspaceSourceSnapshot
+  repositoryCompilation: SourceProgramCompilation
 ): SourceProgramModel {
   return compileTypeScriptSourceProgramModelInternal({ ...input, repositoryCompilation });
 }
