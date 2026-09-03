@@ -42,13 +42,13 @@ flowchart TB
 | `calculus` | 表达和演算规则 | 工程原则、Agent原则、产品答案 |
 | `engineering-constitution` | 普适工程不变量 | 某项目路径、工具、当前实现 |
 | `agent-constitution` | 普适认识与行动不变量 | 产品需求、工程事实、任务授权 |
-| `project-composition` (generated) | 从 Product decisions、适用通用原则与有权 project-level decisions 生成项目目标/风险/取舍投影 | 独立事实、原则 owner、领域字段和运行结果 |
+| `project-composition` (generated) | 从 Product decisions、适用通用原则与 Product/Domain/Architecture owner 签发的 project-scoped Decision refs 生成项目目标/风险/取舍投影 | 独立事实、原则 owner、领域字段和运行结果 |
 | `domain-definition` | 领域语义、状态机、操作、失败代数 | 外部能力可用性、独立证明 |
 | `implementation-design` | logical→CodeUnit/package/file/generated realization、局部变更、迁移 | 产品目的、领域语义、运行成功 |
 | `execution-profile` | capability、binding、allocation、平台约束 | 产品目的、业务成功 |
 | `runtime-observation` | observation、settlement、evidence、unknown | 稳定定义、未来义务 |
 
-source strata形成typed偏序而不是数字等级。`project-composition`不是一个可作者化的source stratum，而是由 Product decisions、适用通用原则和有权 project-level decisions 生成的无所有权投影；它不能产生新的事实、原则、权限或领域字段，也没有独立文件、registry row、writer 或 revision。Domain decisions 只能沿显式引用进入相应 domain-definition，不得回流成为 project-composition 的隐藏输入。实现方向只消费上游定义，runtime方向只返回受限Observation/Result；后者只有经相应authorized owner接受后才能形成新Definition revision。实现或观察不能以“已经实现”“测试绿色”或“工具不支持”改写上游定义；上游也不能以prose宣称下游Effect、状态或Evidence已存在。
+source strata形成typed偏序而不是数字等级。`project-composition`不是一个可作者化的source stratum，而是由 Product decisions、适用通用原则和 Product/Domain/Architecture owner 签发的 project-scoped Decision refs 生成的无所有权投影；project-scoped 只表示适用范围，不创建新的 project owner、registry、writer 或 revision。它不能产生新的事实、原则、权限或领域字段。Domain decisions 只能沿显式引用进入相应 domain-definition，不得回流成为 project-composition 的隐藏输入。实现方向只消费上游定义，runtime方向只返回受限Observation/Result；后者只有经相应authorized owner接受后才能形成新Definition revision。实现或观察不能以“已经实现”“测试绿色”或“工具不支持”改写上游定义；上游也不能以prose宣称下游Effect、状态或Evidence已存在。
 
 ### 1.1 Constitution partition decision
 
