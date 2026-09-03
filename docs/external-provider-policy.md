@@ -254,7 +254,7 @@ old-only | both | new-only | unknown
 
 dispatch、repository/check transport 与 compute 是独立 capabilities。Adapter 只有新增 credential isolation、immutable execution identity、sandbox、remote/local CAS、destructive-resource ownership、settlement/readback 时才成立。
 
-需要启动或采用Provider时，consumer只能请求实现架构定义的`ProviderBootstrapOperation`并消费其opaque live capability；不得在workload adapter内顺手启动daemon、修lock、改context、下载runtime或切换endpoint。provider bootstrap与workload使用不同OperationKey、journal、allocation和terminal；二者只通过exact `ProviderRootBinding`连接。local与remote是重新binding的候选，不是silent fallback，也不共享Evidence身份。
+需要启动或采用Provider时，consumer只能请求实现架构定义的`ProviderBootstrapOperation`并消费其opaque live capability；不得在workload adapter内顺手启动daemon、修lock、改context、下载runtime或切换endpoint。provider bootstrap与workload使用不同OperationKey、journal、allocation和terminal；二者只通过exact `ProviderRootBinding`连接。local与remote是重新binding的候选，不是silent fallback，也不共享Evidence身份。本节状态机描述Provider generation的采用/运行时可用生命周期；单次 workflow/attempt 的执行状态由实现架构执行微内核拥有，不能把两者合并为一个generation或复用同一terminal记录。
 
 Lifecycle：
 
