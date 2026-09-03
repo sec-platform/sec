@@ -1142,6 +1142,7 @@ DocumentationMigrationDesignReady =
 DocumentationMigrationSlice = generated {
   sliceRef,
   sourceGenerationBindingRef,
+  targetGraphDigest,
   targetContractDigest,
   requestedRootRefs,
   closedScopeRefs,
@@ -1155,10 +1156,12 @@ DocumentationMigrationSlice = generated {
   sliceDigest
 }
 
-deriveMigrationSlices(design, requestedRoots):
+deriveMigrationSlices(design, targetGraph, requestedRoots):
+  require targetGraph.sourceGenerationBindingRef == design.currentGenerationBinding
+  require targetGraph.targetContractDigest == design.targetContractDigest
   roots := deriveDemandedRoots(design, requestedRoots)
   for root in roots:
-    scope := reverseReachable(design.targetGraph, root)
+    scope := reverseReachable(targetGraph, root)
     frontier := intersect(design.frontier, scope)
     emit ready iff frontier is empty and all slice obligations are closed
     otherwise emit blocked with exact frontier refs
