@@ -1143,6 +1143,8 @@ DocumentationMigrationDesignReady =
   and every frozen package/contract is backed by a current `DesignFreezeReceipt`
       bound to the same generation and target profile
   and current-to-target fact/relation/lifecycle/consumer preservation map total
+  and the target graph issue receipt binds graph bytes, source/target bindings,
+      preservation-map digest and compiler revision
   and conformance properties/fault scenarios/expected readbacks frozen
   and no applicable design frontier intersects cutover
 ```
@@ -1262,6 +1264,7 @@ DocumentationMigration = {
   exactCurrentGenerationDigest,
   currentGenerationBinding,
   targetDesignBindingRef,
+  targetGraphIssueReceiptRef,
   currentRegistryAndFrontmatterCensus,
   machineInputBindings,
   sourceSemanticGraphDigest,
@@ -1431,7 +1434,7 @@ non-authoritative staged refs only, never activation refs. `roleRef`,
 role/lifecycle owner; they are not free-form fields authored by the migrator.
 ```
 
-迁移journal由Change Management/state owner持久化，绑定current/target generation、source/target physical identities、preservation digest、phase、CAS preimage和settlement；它不能由目录存在、Git commit或迁移脚本退出码重建。activation前失败可丢弃隔离target但不动current；activation后只允许forward recovery或显式授权rollback，绝不同时开放两个normal reader。
+迁移journal由Change Management/state owner持久化，绑定current/target generation、target graph issue receipt、source/target physical identities、preservation digest、phase、CAS preimage和settlement；它不能由目录存在、Git commit或迁移脚本退出码重建。activation前失败可丢弃隔离target但不动current；activation后只允许forward recovery或显式授权rollback，绝不同时开放两个normal reader。
 
 Conformance Model从relation/operation/fault coverage生成性质而不是手写路径用例：source census totality、strict frontend、identity/path independence、scope/relation laws、projection/disclosure fidelity、incremental/full byte equivalence、unrelated-change stability、address portability、current→target preservation、all crash points recoverable、single active generation、old consumer zero和bounded cold/warm/delta cost。Verifier从target bytes独立重编，不消费迁移执行者的PASS。
 
