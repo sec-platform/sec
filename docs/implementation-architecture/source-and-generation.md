@@ -528,6 +528,20 @@ generation发布采用single-flight keyed by `workspace/tenant/security scope + 
 
 采用成熟机制前由Requirement、security、license、platform、protocol、performance与retirement比较候选；已选择的Provider必须pin exact package/binary/integrity/config/environment closure。若更好Provider出现，只做Binding/evolution，不复制上层graph或长期保留compatibility route。
 
+工具表中的`Preferred mature mechanism`只有在下面的绑定封套成立后才进入实现图；未采用的候选（例如尚未完成评估的`dependency-cruiser`）不产生安装、lockfile、package、route或默认执行路径：
+
+```text
+MechanismBinding = exact {
+  requirementRef, providerRef, semanticOwnerRef,
+  sourceGenerationRef, observedRevision, integrity,
+  outputFactDigest, coverageFrontier,
+  operationEnvelopeRef, settlementRef,
+  replacementRetirementRef
+}
+```
+
+`requirementRef`、`semanticOwnerRef`和`operationEnvelopeRef`必须来自当前已准入的逻辑/实现图；`sourceGenerationRef`与`observedRevision`绑定一次 exact snapshot/environment；工具输出只能成为该 owner 认可的 Observation/Provision，不能改写 Definition、Authority、ActionKey 或 DomainResult。缺任一字段的绑定分类为`candidate-unbound`，不得影响正常路径；替换必须在同一 requirement/provider relation 上使旧 binding stale，并完成 settlement/readback 后才能退役，禁止并行保留别名或第二 graph。
+
 ## 8. 自动编译实现前的受控模式
 
 当前没有覆盖全部工程语义的双向 Semantic Compiler 时，人、Agent 和外部工具共同作为 `ManualImplementationProvider`，但不能拥有定义、范围或成功。
