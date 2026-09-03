@@ -106,11 +106,29 @@ DocumentSourceHeader = exact {
 }
 
 ClauseAdoptionPolicy = exact {
-  policyRef: independentOwnerIssuedDecisionRef,
+  policyRef: IndependentOwnerIssuedDecisionRef,
   defaultKind: stable-decision | temporary-safety-denial | non-normative-explanation,
   defaultBlocker: null | nonEmptyToken,
   appliesTo: clause-and-explanation-nodes-of-this-fragment-only
 }
+
+IndependentOwnerIssuedDecisionRef = exact {
+  decisionRef,
+  issuerOwnerKey,
+  issuerAuthorityRef,
+  decisionRevision,
+  applicabilityScopeRef,
+  policyDigest
+}
+
+`policyRef`是现有Decision owner签发的引用封套，不是fragment自行生成的新事实。
+编译器必须解析它并证明：`issuerOwnerKey`与当前fragment owner不同且在
+`issuerAuthorityRef`中有效，`decisionRef/decisionRevision`属于当前active decision，
+`applicabilityScopeRef`覆盖该fragment而不越过其scope边界，`policyDigest`等于
+决策中实际采用策略的canonical bytes。`decisionRef`、issuer、scope或策略正文的
+任一变化都会使header与generation stale。fragment body、generated view、迁移输出、
+caller字段和“独立”布尔值都不能伪造该引用；解析失败、issuer失效、scope不覆盖或
+digest不匹配统一产生`owner-decision-unbound`。
 
 DocumentBodyNode =
   | ClauseSource { clauseId, statementKind, typedSubjectRefs,
@@ -968,6 +986,18 @@ CurrentGenerationBinding = exact {
   registryDigest, corpusDigest, semanticGraphDigest,
   clauseDispositionDigest, sourceFrontierDigest, observationEpoch
 }
+
+迁移设计输出中的`sourceSemanticGraphDigest`与
+`sourceClauseDispositionDigest`是上述binding字段的带语义前缀投影：
+
+| Migration design field | CurrentGenerationBinding field | 约束 |
+| --- | --- | --- |
+| `sourceSemanticGraphDigest` | `semanticGraphDigest` | 必须逐字相等并绑定同一`generationRef` |
+| `sourceClauseDispositionDigest` | `clauseDispositionDigest` | 必须逐字相等并绑定同一`generationRef` |
+| `sourceFrontierDigest` | `sourceFrontierDigest` | 必须逐字相等并覆盖完整frontier（含零项） |
+
+这只是命名投影，不是第二份digest或第二个generation identity；迁移compiler只能
+验证投影相等，不能从设计输出反向生成/覆盖current binding。
 
 SourceSemanticFrontier = exact {
   documentRef, clauseRef, code, sourceDigest, graphDigest,
