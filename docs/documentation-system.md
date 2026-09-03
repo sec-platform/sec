@@ -1136,6 +1136,45 @@ DocumentationMigrationDesignReady =
 
 当上述predicate对documentation migration的最小完整slice成立、live authority/capability/resource可用，且其余global frontier与该slice可证明不相交时，migration scheduler必须立即发布该slice；不得等待全工程、全部domain或开放世界完成设计。若frontier相交则返回具体relation/cell，不能用“设计还没全部结束”作为阻塞理由。
 
+为使上述规则可执行，migration compiler必须同时产出全局设计和由同一设计派生的slice交集结果；slice不是第二计划、第二generation或人工路径清单：
+
+```text
+DocumentationMigrationSlice = generated {
+  sliceRef,
+  sourceGenerationBindingRef,
+  targetContractDigest,
+  requestedRootRefs,
+  closedScopeRefs,
+  requiredRelationRefs,
+  intersectingFrontierRefs,
+  disjointGlobalFrontierDigest,
+  preservationRefs,
+  consumerCensusRefs,
+  actionKey,
+  status: ready | blocked | stale,
+  sliceDigest
+}
+
+deriveMigrationSlices(design, requestedRoots):
+  roots := deriveDemandedRoots(design, requestedRoots)
+  for root in roots:
+    scope := reverseReachable(design.targetGraph, root)
+    frontier := intersect(design.frontier, scope)
+    emit ready iff frontier is empty and all slice obligations are closed
+    otherwise emit blocked with exact frontier refs
+  require every slice uses design.currentGenerationBinding and one target preimage
+  require pairwise disjoint closed scopes or an explicit typed dependency edge
+  reject caller path lists, manually suppressed frontier refs, and slice activation
+```
+
+`requestedRoots`只能来自已接受的Product/Domain/Target demand或migration owner签发的
+purpose query；调用者不能用文件路径、目录或“当前最小改动”自选根。`ready`只表示该
+slice可以在同一target generation中进行设计/编译/验证/staging；它不允许独立切换
+normal reader。任一slice依赖的frontier、consumer coverage、external binding、
+target preimage或source generation变化都会使slice及其`actionKey` stale。当前实现
+若只能给出全局`blocked`，必须明确保留该结果并等待slice编译能力，不能把全局阻断
+改写成“无关项全部已完成”，也不能通过人工删减frontier伪造ready。
+
 这里的slice是设计、编译、验证与staging的调度单位，不是独立normal generation。所有ready slices都写入同一个target generation并绑定同一current preimage；跨slice refs在target federation中解析，尚未ready的required slice使generation不可激活。只有target generation的preservation、consumer rewrite、graph/coverage/disclosure与readback obligations整体闭合后，state owner才执行一次generation-level CAS；activation前normal readers只接受current，activation后只接受target。若某个corpus确需独立激活，它必须先被证明为拥有独立reader/writer/identity/lifecycle的separate generation，而不能借“slice”制造混合generation。
 
 ```text
