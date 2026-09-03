@@ -25,6 +25,27 @@ domain: implementation-architecture
 
 所有SEC authored machine input只有一个`src/`根；工具入口、开发流程、测试场景和owner-governed resources也按真实Responsibility放置。其他顶层位置只能承载文档、生态强制bootstrap或非源码运行产物，不能形成第二源码图。路径不能编码semantic identity。
 
+`SEC authored source`、`TargetProject`与`IDE/EngineeringWorkspace`是三个不同的Subject：
+
+| Subject | 拥有的事实 | 与其他Subject的关系 | 不得冒充 |
+| --- | --- | --- | --- |
+| `SECAuthoredSourceCorpus` | SEC 控制面自身的 accepted implementation declarations、owner contracts 和随其演进的 resources | 由 `src/**` 承载并被自身 `SourceObservationGeneration` 观察 | 用户项目源码、workspace session、Runtime State |
+| `TargetProject` | 用户工程的逻辑目标、源码/配置/依赖与生成结果 | 通过 `ProjectBinding` 进入某个 workspace view，由 Target/Profile/Backend 编译 | SEC semantic owner、宿主目录、临时 checkout |
+| `EngineeringWorkspace` | 一个或多个 ProjectBinding、base/worktree/editor/generated overlays、权限与资源边界 | 为 exact `WorkspaceContentView` 提供观察/操作 envelope | Project identity、SourceProgram truth、业务 Definition |
+
+`Project`是目标程序的语义Subject，`workspace`是承载其 exact view 与操作资源的边界；二者都没有固定的顶层物理目录，也不能由目录名互相推导。SEC 自身仓库若作为目标被 SEC 编译，只是一个带 `ProjectBinding` 的 workspace instance，仍不改变 `src/**` 是 SEC authored source 的唯一规则。用户项目源码保持在其被授权的 workspace/content provider 中，不复制进 SEC `src/`、`docs/` 或 Runtime State。
+
+```text
+checkSourceWorkspaceSeparation(view, sourceGeneration):
+  require every SEC authored declaration is addressed under the single authored source root
+  require every TargetProject byte is reached through an explicit ProjectBinding + WorkspaceContentView
+  reject path-derived Project/Workspace identity or implicit adjacent-checkout discovery
+  reject a source fact that crosses SEC/Target boundary without ExternalCorpusBinding
+  require SourceObservationGeneration identity include project/workspace/access scope and overlay precedence
+```
+
+`ProjectBinding`只绑定目标项目与 workspace view、Target/Profile 和权限/资源事实，不拥有 SEC 实现、业务 Definition 或 source parser。项目移动、workspace 重开或 IDE overlay 变化只产生 Address/ContentView revision；若 bytes、配置、provider 或权限变化，再由同一观察 owner生成新的 SourceObservationGeneration。这样“代码放在哪里”与“它是什么项目/由谁负责”始终正交，Placement Compiler 才能在不复制源码和不改 semantic identity 的前提下迁移真实工程。
+
 ### 5.2 Cell-first layout
 
 示意路径不是固定模板：
