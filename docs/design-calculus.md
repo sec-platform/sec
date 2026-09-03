@@ -152,40 +152,20 @@ Evidence只能支持同种或更弱的Claim：有限样本不能证明全称性�
 
 `relational`拥有的是多条执行之间的性质，而不是把每条轨迹分别判为安全：noninterference、observational equivalence、constant-behavior、declassification与cross-tenant isolation都必须声明比较的trace元数、哪些输入允许不同、哪些观察对哪个principal可见，以及允许泄露的精确关系。单轨迹PASS、日志脱敏样例或两个独立运行结果不能证明relational Claim；验证器必须消费同一relation contract生成self-composition、product program或等价的多轨迹oracle，并把未覆盖输入对保留为frontier。
 
-### 2.4 Identity、命名空间与显示前缀
+### 2.4 Identity 与序列化命名空间
 
-前缀不是身份。身份先由 owner、domain、local subject key 与 revision 组成；只有在
-持久化、跨进程、外部交换或多提供者碰撞边界上，才为该 identity 选择稳定的
-序列化命名空间。`sec-` 因而不是全局变量、目录约定或所有对象的必需前缀：它只
-能作为由命名空间 owner 签发的外部 token 表示，不能被路径、文件名、标题、测试
-名称或调用者字符串提升为语义身份。
-
-| surface | canonical identity | `sec-` 规则 | 失败分类 |
-| --- | --- | --- | --- |
-| semantic Subject/Relation/Decision | typed owner/domain/local key + revision | 不要求；内部使用结构化 ref | `identity-unbound` |
-| in-process API、函数、变量、文件地址 | type/module/Address ref | 禁止用前缀冒充 owner 或 schema | `address-as-identity` |
-| durable schema、journal、wire、artifact、provider token | owner-issued namespace + grammar/schema identity + revision | 仅在 collision/external boundary 被证明时保留；由 owner 生成并解析 | `namespace-unbound` |
-| human label、导航、日志与测试展示 | 对 canonical ref 的 projection | 可显示，但不可被 consumer 反解析为 authority | `presentation-authority-leak` |
+身份由 owner、domain、local subject key 与 revision 决定；序列化命名空间、地址、
+显示标签和文件名只是某个 surface 的表达。任何 surface 都必须先证明自己的
+持久化、跨进程、外部交换或碰撞约束，再由该 surface owner 选择命名空间；前缀
+不能反向成为 semantic identity、owner 或 authority。命名、schema、硬编码与路径
+的具体实现判定由 `docs/implementation-architecture.md` 的唯一 owner 执行，不能在
+本演算层再定义一套 token 规则。
 
 ```text
-NamespaceDecision(subject, surface, consumers, externalCensus, migration) =
-  required(prefixOrEquivalent)
-    iff surface crosses a durable/external collision boundary
-       and an owner-issued parser/consumer binds that namespace
-  omitted
-    iff the identity is internal or a generated presentation only
-  retire(prefix)
-    iff consumer/external producer/old-state census = zero
-       and the whole reader/writer/migration graph is retired atomically
-  unresolved
-    otherwise
+semanticIdentity ⟂ serializationNamespace ⟂ address ⟂ presentationLabel
+namespaceRequired ⇐ durable | external | collision constraint is proven
+otherwise        ⇐ structured ref or generated projection; no global prefix
 ```
-
-现有 `sec-*` durable token 在其 producer、parser、consumer 和 migration 尚未闭合前
-保持原 identity；不能为了风格批量改名，也不能同时保留新旧 token。新 contract 先
-登记 namespace owner、grammar、consumer、support/retirement 条件，再由 serializer
-派生 token。独立的 schema revision、source revision、provider epoch、operation
-epoch 和 Evidence revision 仍各自归属；禁止用 `sec-` 或一个全局 `version` 合并它们。
 
 ## 3. 正交关系与相互约束
 
