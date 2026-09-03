@@ -42,6 +42,7 @@ flowchart TB
 | `calculus` | 表达和演算规则 | 工程原则、Agent原则、产品答案 |
 | `engineering-constitution` | 普适工程不变量 | 某项目路径、工具、当前实现 |
 | `agent-constitution` | 普适认识与行动不变量 | 产品需求、工程事实、任务授权 |
+| `product-decisions` | accepted outcome、non-goal、用户可观察边界与 project tradeoff | 工程实现、Agent授权、运行结果 |
 | `project-composition` (generated) | 从 Product decisions、适用通用原则与 Product/Domain/Architecture owner 签发的 project-scoped Decision refs 生成项目目标/风险/取舍投影 | 独立事实、原则 owner、领域字段和运行结果 |
 | `domain-definition` | 领域语义、状态机、操作、失败代数 | 外部能力可用性、独立证明 |
 | `implementation-design` | logical→CodeUnit/package/file/generated realization、局部变更、迁移 | 产品目的、领域语义、运行成功 |
@@ -261,7 +262,7 @@ Evidence.claimRef        -> Claim.identity
 
 | Coordinate family | 回答 | Canonical discriminants | 不能解释 |
 | --- | --- | --- | --- |
-| Source stratum | 哪类source可定义或观察什么 | `calculus`、`engineering-constitution`、`agent-constitution`、`project-composition` (generated)、`domain-definition`、`implementation-design`、`execution-profile`、`runtime-observation` | realization顺序、runtime Authority |
+| Source stratum | 哪类source可定义或观察什么 | `calculus`、`engineering-constitution`、`agent-constitution`、`product-decisions`、`project-composition` (generated)、`domain-definition`、`implementation-design`、`execution-profile`、`runtime-observation` | realization顺序、runtime Authority |
 | Implementation refinement | accepted meaning如何逐层兑现到interface | `meta`、`product`、`domain`、`composition`、`realization`、`control`、`execution`、`settlement`、`interface` | 时间先后、Evidence成熟度 |
 | Compilation stage | 哪些输入在因果偏序中先于哪个产物 | `outcome`、`observation-universe`、`observation`、`semantics`、`responsibility`、`pure-operation`、`admissibility`、`effect-settlement`、`claim-verdict`、`publish-evolve` | owner hierarchy、源码目录 |
 | Provider maturity | 外部Provision的证据与采用状态 | `physical`、`typed-invocation`、`governed-declaration`、`observed-candidate`、`verified-provider`、`normalized-projection` | 产品版本、实现层级 |
