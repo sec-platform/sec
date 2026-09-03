@@ -475,7 +475,7 @@ test.skipIf(process.platform !== 'win32')(
     const resolution = createAuthorityGitReadSession({
       cwd: process.cwd(),
       operation: issueTestGitReadOperation(),
-      budget: { maxProcesses: 12 }
+      budget: { maxProcesses: 32 }
     });
     expect(resolution.status).toBe('ready');
     if (resolution.status !== 'ready') return;
@@ -531,6 +531,27 @@ test.skipIf(process.platform !== 'win32')(
         });
         expect(restored).toMatchObject({ status: 'ready' });
         if (restored.status === 'ready') expect(restored.value).toBe(tree.value);
+        const materialized = await scratchResolution.session.materializeIndexDelta({
+          additions: [{
+            path: 'package.json',
+            bytes: Buffer.from(expectedIndexBlob.result.stdout)
+          }],
+          removals: []
+        });
+        expect(materialized).toMatchObject({ status: 'ready' });
+        if (materialized.status === 'ready') {
+          expect(materialized.value).toBe(tree.value);
+          const materializedBlob = await resolution.session.run([
+            'show', `${materialized.value}:package.json`
+          ]);
+          expect(materializedBlob).toMatchObject({ kind: 'completed' });
+          if (materializedBlob.kind === 'completed') {
+            expect(Buffer.compare(
+              Buffer.from(materializedBlob.result.stdout),
+              Buffer.from(expectedIndexBlob.result.stdout)
+            )).toBe(0);
+          }
+        }
       } catch (error) {
         scratchPrimaryFailure = error;
         throw error;

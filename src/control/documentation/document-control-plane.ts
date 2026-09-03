@@ -5608,6 +5608,8 @@ async function materializeFreezeCandidateObjects(input: Readonly<{
   journal: FreezeJournal;
 }>): Promise<void> {
   const scratchRoot = await mkdtemp(path.join(tmpdir(), 'sec-document-control-materialize-index-'));
+  let productionScratch: GitScratchIndexTreeSession | null = null;
+  let primaryFailure: unknown;
   try {
     const canonicalScratchRoot = await realpath(scratchRoot);
     const canonicalRepositoryRoot = await realpath(input.repositoryRoot);
@@ -5624,6 +5626,7 @@ async function materializeFreezeCandidateObjects(input: Readonly<{
       label: 'Freeze object materialization scratch Git index',
       durability: {}
     });
+    await mkdir(path.join(canonicalScratchRoot, 'objects'));
     const environment = {
       GIT_INDEX_FILE: scratchIndex,
       GIT_OPTIONAL_LOCKS: '0'
@@ -5633,6 +5636,54 @@ async function materializeFreezeCandidateObjects(input: Readonly<{
       [ActivePointerPath, input.journal.files.pointer.next],
       [RollingPlanPath, input.journal.files.rollingPlan.next]
     ] as const;
+    const testTransport = documentControlHostCliTestScope.getStore() === documentControlHostCliTestIssuer;
+    const productionSession = documentControlGitReadScope.getStore();
+    if (!testTransport) {
+      if (productionSession === undefined) {
+        throw documentControlCliFailure(
+          'git', 'git-object-index-effect', 'unknown', 'semantic-closure-unproven'
+        );
+      }
+      const resolution = await createAuthorityGitScratchIndexTreeSession({
+        gitReadSession: productionSession,
+        scratchRoot: canonicalScratchRoot
+      });
+      if (resolution.status !== 'ready') {
+        throw documentControlCliFailure(
+          'git', 'git-object-index-effect', 'unavailable', resolution.reason
+        );
+      }
+      productionScratch = resolution.session;
+      const materialized = await productionScratch.materializeIndexDelta({
+        additions: nextFiles.map(([repositoryPath, encodedBytes]) => Object.freeze({
+          path: repositoryPath,
+          bytes: fromBase64(encodedBytes, `Freeze ${repositoryPath} NEXT object materialization`)
+        })),
+        removals: Object.freeze([])
+      });
+      if (materialized.status !== 'ready') {
+        throw documentControlCliFailure(
+          'git', 'git-object-index-effect', 'unavailable', materialized.reason
+        );
+      }
+      const materializedTreeSha = shaValue(materialized.value, 'Freeze materialized candidate tree');
+      if (materializedTreeSha !== input.journal.candidateTreeSha) {
+        throw new Error('Materialized freeze candidate tree does not equal the journal candidate tree.');
+      }
+      for (const [repositoryPath, encodedBytes] of nextFiles) {
+        const expected = fromBase64(encodedBytes, `Freeze ${repositoryPath} NEXT object readback`);
+        const actual = await readGitBlob(input.repositoryRoot, `${materializedTreeSha}:${repositoryPath}`);
+        if (actual === undefined || !actual.equals(expected)) {
+          throw new Error(`Materialized freeze candidate ${repositoryPath} does not equal the journal NEXT image.`);
+        }
+      }
+      const retiredManifestPath = await freezeRetiredManifestPath(input.repositoryRoot, input.journal);
+      if (retiredManifestPath !== null
+          && await readGitBlob(input.repositoryRoot, `${materializedTreeSha}:${retiredManifestPath}`) !== undefined) {
+        throw new Error('Materialized freeze candidate retained the prior pointer manifest.');
+      }
+      return;
+    }
     const indexUpdates: string[] = [];
     for (const [repositoryPath, encodedBytes] of nextFiles) {
       const blobSha = requireCommand(await run('git', ['hash-object', '-w', '--stdin'], input.repositoryRoot, {
@@ -5665,7 +5716,21 @@ async function materializeFreezeCandidateObjects(input: Readonly<{
         && await readGitBlob(input.repositoryRoot, `${materializedTreeSha}:${retiredManifestPath}`) !== undefined) {
       throw new Error('Materialized freeze candidate retained the prior pointer manifest.');
     }
+  } catch (error) {
+    primaryFailure = error;
+    throw error;
   } finally {
+    let closeFailure: GitScratchIndexTreeFailureReason | null | undefined;
+    try {
+      closeFailure = await productionScratch?.close();
+    } catch {
+      closeFailure = 'session-failed';
+    }
+    if (primaryFailure === undefined && closeFailure !== null && closeFailure !== undefined) {
+      throw documentControlCliFailure(
+        'git', 'git-object-index-effect', 'unavailable', closeFailure
+      );
+    }
     await rm(scratchRoot, { recursive: true, force: true });
     const removed = await lstat(scratchRoot).then(
       () => false,
@@ -7309,7 +7374,7 @@ export async function freezeDocumentControlPlane(
   try {
     return await withAuthorityGitReadSession({
       cwd: path.resolve(input.cwd),
-      budget: { deadlineMs: ExternalCommandTimeoutMs },
+      budget: GIT_READ_OPERATION_BUDGET,
       deadlineAtUnixMs
     }, (session) => documentControlGitReadScope.run(
       session,
@@ -7612,7 +7677,7 @@ export async function resolveLiveControlPlane(
     const absoluteDeadline = Date.now() + ExternalCommandTimeoutMs;
     return await withAuthorityGitReadSession({
       cwd: path.resolve(cwd),
-      budget: { deadlineMs: ExternalCommandTimeoutMs },
+      budget: GIT_READ_OPERATION_BUDGET,
       deadlineAtUnixMs: absoluteDeadline
     }, (session) => documentControlGitReadScope.run(
       session,
