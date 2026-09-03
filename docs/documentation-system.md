@@ -1351,10 +1351,13 @@ DocumentationPreservationEntry = exact {
   currentOwnerRef,
   currentAddressRef,
   currentRevision,
+  currentLifecycle,
   currentRelationRefs,
   targetSubjectRefs,
   targetOwnerRef,
   targetAddressRefs,
+  targetLifecycle,
+  lifecycleDisposition: preserve | transition | retire | blocked,
   targetRelationRefs,
   consumerDisposition: rewrite | preserve | retire | blocked,
   consumerRefs,
@@ -1374,6 +1377,15 @@ typed relation, source/code/test/workflow/config/external consumer and
 generated/public/AI projection. Each entry maps to target refs/addresses/
 relations, an accepted retirement, or a blocking frontier; no path-only or
 count-only entry is admissible.
+
+Lifecycle conservation is checked before any target effect: `preserve` keeps
+the same lifecycle state and owner; `transition` names one allowed state edge
+and its owner-issued transition evidence; `retire` requires terminal current
+state plus a zero-consumer/zero-producer proof; `blocked` permits no target
+activation. A proposal, control record or residue cannot become `active`, and
+an `active` entry cannot disappear or become `retired` without its settlement,
+consumer cutover and readback evidence. Unknown, stale or contradictory
+current/target lifecycle pairs are mapping blockers, never inferred defaults.
 ```
 
 迁移journal由Change Management/state owner持久化，绑定current/target generation、source/target physical identities、preservation digest、phase、CAS preimage和settlement；它不能由目录存在、Git commit或迁移脚本退出码重建。activation前失败可丢弃隔离target但不动current；activation后只允许forward recovery或显式授权rollback，绝不同时开放两个normal reader。
