@@ -23,15 +23,15 @@ flowchart LR
 
 ## 2. Subject 边界
 
-| Subject | 含义 | 不能混用 |
-|---|---|---|
-| SEC repository | SEC 产品自身代码库 | Target workspace |
-| Target workspace | 用户在 IDE 中开发的目标软件 | Git checkout |
-| external package/source snapshot | 独立外部输入 | SEC source |
-| Git worktree | repository revision 的物理 checkout | workspace identity |
-| path | snapshot 内 Address | semantic/owner identity |
+`SEC repository`、`Target workspace`和`Project`的产品含义只引用[产品词汇](product.md)，本片段不重新定义。Brownfield 只增加导入所需的物理关系：
 
-裸 workspace/source/worktree/path 不能跨边界授权读取、写入或复用。
+| Import subject | 含义 | 不能混用 |
+|---|---|---|
+| external package/source snapshot | 独立外部输入的 exact content subject | SEC authored source、业务 Definition |
+| Git worktree observation | 某个 repository revision 的物理 checkout | workspace/project identity |
+| path | snapshot 内的 Address | semantic identity、owner、permission |
+
+裸 workspace/source/worktree/path 不能跨边界授权读取、写入或复用；它们只能通过产品词汇与本片段的 typed relation 进入导入闭包。
 
 ## 3. Attach：物理事实
 
