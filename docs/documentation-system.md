@@ -101,7 +101,15 @@ DocumentSourceHeader = exact {
   scopeRef,
   lifecycle,
   sourceRole: exact DocumentSourceRole variant,
-  disclosureClass
+  disclosureClass,
+  clauseAdoptionPolicy: ClauseAdoptionPolicy
+}
+
+ClauseAdoptionPolicy = exact {
+  policyRef: ownerIssuedDecisionRef,
+  defaultKind: stable-decision | temporary-safety-denial | non-normative-explanation,
+  defaultBlocker: null | nonEmptyToken,
+  appliesTo: body-nodes-of-this-fragment-only
 }
 
 DocumentBodyNode =
@@ -270,13 +278,23 @@ SubscopeRequired(x, parent) =
 
 每个canonical fragment在自己的strict `DocumentSourceHeader`中一次写入document identity、source stratum、scope、lifecycle、exact role和disclosure；partition与ownership keys严格从role派生，不由作者重复填写。每条relation只在正文的`RelationSource`中authored一次，compiler再把它投影成fragment descriptor、graph edge与index ref；header、frontmatter和registry不得重复保存relation。正文不重复其他header事实。路径、domain label、导航顺序和aggregate records由compiler派生。
 
-Markdown只是`DocumentBodyNode`的容器，不是自然语言语义推断器。只有显式`ClauseSource/DecisionSource/RelationSource`能提供canonical meaning；`ViewDeclaration`只能选择同一refs的图、表、公式、算法或人类句式renderer；自由prose一律是`NonNormativeExplanation`。现有brownfield prose、手写Mermaid、表格和代码块在迁移时只产生candidate/unknown，不能凭AI、embedding、标题或格式自动升级为normative clause。owner必须采用为typed source或接受删除/非规范保留。
+Markdown只是`DocumentBodyNode`的容器，不是自然语言语义推断器。只有显式
+`ClauseSource/DecisionSource/RelationSource`能提供canonical meaning；
+`ViewDeclaration`只能选择同一refs的图、表、公式、算法或人类句式renderer；自由
+prose一律是`NonNormativeExplanation`。现有brownfield prose、手写Mermaid、表格
+和代码块在迁移时只产生candidate/unknown，不能凭AI、embedding、标题或格式自动
+升级为normative clause。owner必须通过fragment header的一次采用策略或节点级
+覆盖明确承担这个语义，否则保留为frontier或删除。
 
-Documentation compiler 对没有显式 clause 指令的标题只生成
-`untyped-observation`：它可出现在 full-human 观察视图，但会进入 typed
-blocker，不能进入 compact-agent、operation authority 或任何 requirement
-projection。显式指令是 source adoption，不是标题格式的隐含推断。指令只允许
-以下闭集，且 `blocker` 必须与 kind 一致：
+`ClauseAdoptionPolicy`是降低重复标注的唯一机制，不是默认把整篇文档升格为规范：
+它必须位于同一fragment的strict header、引用owner-issued decision，并且只作用于
+该fragment自己的body nodes；child scope、外部引用和generated view永不继承它。
+节点级directive可以覆盖header default，但覆盖必须声明自己的kind/blocker，且
+normalized graph记录`header-default | local-directive`来源与对应ref，digest也
+包含该来源。没有policy或覆盖的节点仍生成`untyped-observation`并阻断；不能从
+`status: stable`、registry kind、标题、目录或读者习惯推断采用。
+
+指令与header default共享以下闭集，且`blocker`必须与kind一致：
 
 | directive kind | 语义 | 可进入 normative/agent projection | blocker |
 | --- | --- | --- | --- |
@@ -285,10 +303,11 @@ projection。显式指令是 source adoption，不是标题格式的隐含推断
 | `non-normative-explanation` | 仅解释、例示或导航语句 | 可作为注明非规范的上下文 | 必须为 `null` |
 | 未标注标题 | 尚未被 owner 采纳的观察 | 否 | 编译器生成 typed frontier |
 
-这四类不是四套事实源：每个标题仍只生成一个 clause；`non-normative-explanation`
+这四类不是四套事实源：每个节点仍只生成一个 clause；`non-normative-explanation`
 也不能借 blocker 伪装成安全裁决，`temporary-safety-denial` 不能被 renderer
-降级成普通说明。未知 directive、重复键、额外字段和不匹配的 blocker 直接拒绝
-编译，而不是按最接近的 kind 猜测。
+降级成普通说明。未知 directive、重复键、额外字段、缺失policyRef和不匹配的
+blocker直接拒绝编译，而不是按最接近的kind猜测。迁移阶段缺失header policy是
+精确的`source-adoption-required` frontier，不是允许编译器批量补标签的理由。
 
 `docs/authority.json`在目标generation中退役authoring职责；目标machine projection为generated、content-addressed `DocumentationIndex`。它聚合全部source headers、scope/relations、physical addresses和digests，但不拥有任何事实，并发布到Runtime State/Artifact Store而不是提交进authored `docs/**`。当前`authority.json`在迁移完成前仍是唯一现行registry，两个generation不得同时被production consumer接受。
 
@@ -874,6 +893,7 @@ liftCurrentDocumentation(currentRegistry, exactCorpus):
 DocumentationMigrationDesignReady =
   MigrationDesignReady(current documentation generation, target generation)
   and exact source-header/body-node frontend grammar + duplicate/unknown rejection frozen
+  and header clause-adoption policy, local override, inheritance boundary and provenance digest frozen
   and current source semantic-graph/disposition digests plus typed clause frontier are migration inputs
   and ScopeNode/DocumentFragment/DocumentationRelation laws and schemas frozen
   and stable DocRef/clause identity grammar + renderer semantics frozen
