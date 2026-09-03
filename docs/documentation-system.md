@@ -550,6 +550,7 @@ consumer refs；`unknown`不得附带可执行的 retirement disposition。`expo
 
 ```text
 DocumentationConsumerCensus = opaque owner-issued {
+  schema: DocumentationConsumerCensusContract,
   issuerOwnerRef,
   issuerAuthorityRef,
   decisionRevision,
@@ -575,6 +576,11 @@ compileMigration(..., consumerCensus):
   require externalStatus == unknown only as a blocking frontier
   use entries only after these checks
 ```
+
+`schema`是该 census 的 machine-contract identity，不是可由 caller 改写的版本标签；它
+必须由 documentation migration owner 的 contract registry 签发，并参与`censusDigest`。
+任何未知 schema、schema 与 issuer/authority 不匹配或只在字符串中声明 schema 的对象都
+保持 `consumer-census-issuer-invalid`，不得进入迁移准入。
 
 `active-work-package`、CLI、literal search 或 migration script 只能产生待验证的
 `ObservedConsumerRefs`，不能作为 `issuerOwnerRef` 或 `issuerAuthorityRef`。它们若被
