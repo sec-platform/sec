@@ -1113,6 +1113,8 @@ DocumentationMigrationDesignReady =
   and ScopeNode/DocumentFragment/DocumentationRelation laws and schemas frozen
   and stable DocRef/clause identity grammar + renderer semantics frozen
   and tracked-corpus discovery + opaque/binary/untracked frontier semantics frozen
+  and pointer/payload `MachineInputBinding` parser, issuer, freshness and retirement
+      rules frozen
   and address compiler inputs, normalization and PhysicalPathCapability frozen
   and generated index/view schemas + no-writeback/disclosure contracts frozen
   and read/write/impact compiler public contracts + deterministic ActionKey frozen
@@ -1137,6 +1139,7 @@ DocumentationMigration = {
   exactCurrentGenerationDigest,
   currentGenerationBinding,
   currentRegistryAndFrontmatterCensus,
+  machineInputBindings,
   sourceSemanticGraphDigest,
   sourceClauseDispositionDigest,
   targetSourceHeaderBodyAndRelationSchemas,
