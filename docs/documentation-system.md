@@ -1047,7 +1047,7 @@ Conformance Model从relation/operation/fault coverage生成性质而不是手写
 DocumentationGenerationClosed =
   every tracked documentation source classified in exactly one partition
   and source headers strict, role-discriminated and duplicate-free
-  and every normative body node is explicit typed source while arbitrary prose is non-authoritative
+  and every normative body node is explicitly adopted typed source (header policy or local directive with provenance) while arbitrary prose is non-authoritative
   and containment is a rooted forest with relation-specific graph laws
   and every canonical fact has exactly one owner key
   and every fragment/subscope passes its existence predicate
