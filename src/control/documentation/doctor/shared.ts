@@ -1,9 +1,10 @@
+import { existsSync, readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../system-architecture/foundation/contract/repository-path.ts';
 import type { DocumentationAuthorityRecord } from '../authority.ts';
-import { splitMarkdownReference } from '../markdown-reference.ts';
+import { markdownFragmentExists, splitMarkdownReference } from '../markdown-reference.ts';
 
 export const DOCUMENT_AUTHORITY_REGISTRY_PATH = 'docs/authority.json';
 
@@ -225,6 +226,21 @@ export function repositoryPathForLink(
   const repositoryPath = relative.split(path.sep).join('/');
   if (!CodexDevelopmentIsCanonicalRepositoryPath(repositoryPath)) {
     return { invalid: 'noncanonical', repositoryPath };
+  }
+  if (parsed.fragment !== null && parsed.fragment.length > 0 && repositoryPath.endsWith('.md')
+      && existsSync(target)) {
+    try {
+      if (!markdownFragmentExists(readFileSync(target, 'utf8'), parsed.fragment)) {
+        return {
+          invalid: 'unresolved-fragment',
+          repositoryPath,
+          target,
+          fragment: parsed.fragment
+        };
+      }
+    } catch {
+      // The existing async target-existence diagnostic remains the owner of unreadable/missing files.
+    }
   }
   return { repositoryPath, target, fragment: parsed.fragment };
 }
