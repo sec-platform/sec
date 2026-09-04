@@ -8,7 +8,7 @@ import {
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 
-test('public documentation projection closes manifest, authority and relative links', async () => {
+test('public documentation projection closes manifest, authority, canonical fragments and relative links', async () => {
   const projection = await readPublicDocumentationProjectionV1(REPOSITORY_ROOT);
   expect(projection.locale).toBe('zh-CN');
   expect(projection.pages.length).toBeGreaterThan(0);
@@ -16,6 +16,7 @@ test('public documentation projection closes manifest, authority and relative li
   expect(new Set(projection.pages.map(({ path: pagePath }) => pagePath)).size)
     .toBe(projection.pages.length);
   expect(projection.unregisteredCanonicalRefs).toEqual([]);
+  expect(projection.brokenCanonicalFragments).toEqual([]);
   expect(projection.brokenLinks).toEqual([]);
 });
 
@@ -28,6 +29,17 @@ test('every projected page has public structure and an explicit audience/source 
     expect(page.canonicalRefs.length).toBeGreaterThan(0);
     expect(page.h1Count).toBeGreaterThan(0);
   }
+});
+
+test('public prose canonical locators are scanned rather than trusting only manifest source lists', async () => {
+  const projection = await readPublicDocumentationProjectionV1(REPOSITORY_ROOT);
+  const concepts = projection.pages.find(({ id }) => id === 'concepts');
+  expect(concepts).toBeDefined();
+  expect(concepts!.inlineCanonicalRefs).toContain('docs/semantic-model.md');
+  expect(concepts!.inlineCanonicalRefs).toContain('docs/implementation-architecture/model-and-boundaries.md');
+  expect(concepts!.inlineCanonicalRefs).not.toContain('docs/capability-and-block-model.md');
+  expect(projection.pages.flatMap(({ inlineCanonicalRefs }) => inlineCanonicalRefs))
+    .not.toContain('docs/capability-and-block-model.md');
 });
 
 test('principle identity is derived from the projection without a test-owned vocabulary mirror', async () => {
