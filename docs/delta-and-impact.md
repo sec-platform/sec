@@ -93,7 +93,7 @@ Binding Delta 只比较同一 implementation scope 的 validated Binding sets，
 | existence | added、removed、retained |
 | provider | Provider/reference/existing/custom identity |
 | package | version、integrity、Adapter、configuration |
-| target | Target Profile、Block-delivery binding |
+| target | Target Profile、distribution binding |
 | closure | dependency/peer/native/install/build |
 | authority | Effect、Permission、resource、support references |
 | provenance | source/artifact owner、Decision、conformance/Evidence |
@@ -179,7 +179,7 @@ flowchart LR
   P --> I[Impact fixpoint]
 ~~~
 
-每个 active rule 的 identity 由 predicate/facet、direction、condition、certainty transform、boundary 与 producer generation 派生。Signature 只定义 shape，不拥有传播方向；UI edge、source call、semantic dependency 与 implementation dependency 方向不可互相猜测。
+每条传播规则拥有稳定 `RuleRef`。某一可执行代的 `RuleRevisionRef` 由 `RuleRef`、predicate/facet、direction、condition、certainty transform、boundary、producer generation与canonical bytes派生；producer generation只使该revision及其Impact失效，不能改写规则的稳定identity。Signature 只定义 shape，不拥有传播方向；UI edge、source call、semantic dependency 与 implementation dependency 方向不可互相猜测。
 
 一个 rule 至少声明 change kinds、endpoint side、traversal direction、kind conditions、certainty transform、stop boundary、Verification mapping 或明确无 mapping、cycle/negative proof。
 

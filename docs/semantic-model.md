@@ -48,11 +48,37 @@ flowchart TD
 | Entity | canonical semantic subject | kind、stable identity | path、数组位置、display label、随机 UUID |
 | Fact | normalized subject + predicate + object | triple identity | authority、confidence、Evidence 数量 |
 | Assertion | Fact + authority + provenance identity | source claim、snapshot binding、confidence、Evidence refs | strongest/last-write-wins |
-| Responsibility | stable engineering responsibility | state/operation/effect/contract/lifecycle facets | 等同文件、函数、Block、团队或类库 |
+| Responsibility | stable engineering responsibility | state/operation/effect/contract/lifecycle facets | 等同文件、函数、package、团队或类库 |
 | Scenario | canonical Facts 的确定性投影 | read-only derived view | 第二声明入口 |
 | Validated Snapshot | canonical payload + semantic contract | immutable admitted graph | raw/caller-built/index projection |
 
 同一 triple 在一个 snapshot 中只有一个 Fact；不同来源的主张保留为不同 Assertions。重复来源不能合成“综合事实”。
+
+`Contract`只表示有独立consumer、producer与演进边界的可寻址承诺；共同envelope由Engineering Semantics拥有，专门payload由对应boundary owner拥有：
+
+```text
+ContractDefinition = exact {
+  contractRef,
+  contractKindRef,
+  semanticScopeAndResponsibilityAssignmentRefs,
+  exactPayloadGrammarRef,
+  producerAndConsumerRefs,
+  publicOperationOrBoundaryRefs,
+  informationAndAuthorityCeilingRefs,
+  compatibilityEvolutionAndRetirementRefs,
+  contractRevision
+}
+```
+
+| qualified contract | payload owner | 必须区分 |
+| --- | --- | --- |
+| Domain public contract | owning Domain responsibility | input/result/failure/state/event/policy/permission |
+| durable schema contract | state/evolution responsibility | canonical bytes、strict parser/writer、CAS/readback、migration |
+| capability port contract | Requirement/Provision boundary | capability semantics、limits、settlement；不含Provider brand |
+| external protocol contract | external-provider responsibility | endpoint/principal/credential/protocol/support |
+| conformance contract | Claim/Assurance responsibility | property、universe、observation、oracle、coverage/freshness |
+
+一个boundary同时需要多种contract时只用typed refs合取，不合并成万能DTO。没有独立consumer/revision/lifecycle的内部type、callback参数或fixture不是Contract；实现node、schema文件或test不能反向定义Contract meaning。
 
 ## 4. Semantic Responsibility
 
@@ -102,7 +128,7 @@ stateDiagram-v2
 
 Adopt 只授予明确 scope 的 canonical authority、source owner、allowed Operations、Acceptance 和 Verification obligations；不授予 Verification result、Effect execution 或整个文件/Provider 的 authority。
 
-Block 可以声明多个 Responsibilities，但只有真实分发/信任/版本/迁移生命周期时才是 Entity；没有 Block 的 Contract/Responsibility 同样合法。
+DistributionPackage可以引用多个Responsibilities，但只有真实分发、信任、支持或迁移生命周期时才成立；Contract/Responsibility不依赖package存在。
 
 ## 5. Identity 与 revision 域
 

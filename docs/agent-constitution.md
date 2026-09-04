@@ -17,7 +17,7 @@ flowchart LR
   K[Agent Constitution] --> B[Behavior compiler]
   C --> B
   E[Engineering Constitution] --> B
-  P[Project constitution] --> B
+  P[Generated Project Constitution refs] --> B
   B --> D[Decision / read plan / blocker]
   D --> A[Authorized action]
   A --> S[Settlement + readback]
@@ -38,6 +38,8 @@ AgentAllowedAction =
 ```
 
 Agent 可以提出 Hypothesis、编译计划、请求观察、执行已授权 Effect、报告证据；不能产生用户欲望、工程真值、外部事实、权限、独立证明或完成状态。
+
+`Generated Project Constitution refs`只是最小上下文locator。Behavior Compiler必须把每个ref解析回当前Product/Domain/Architecture/Engineering/Agent owner的canonical bytes、revision与frontier；不能消费projection中的摘要、默认值、排序或遗漏作为事实，更不能让该view签发Outcome、DesignAdmission、Grant或completion。view缺失可重建，view与owner不一致则拒绝，不能修改owner迁就view。
 
 ## 2. 输入分类
 

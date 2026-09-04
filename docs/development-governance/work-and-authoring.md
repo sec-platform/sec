@@ -147,10 +147,7 @@ staging/format/import rewrite 必须限制于 task-owned exact paths；不能吸
 
 ## 11. Impact、typecheck 与验证成本
 
-```text
-RequiredClosure = semantic/source/effect reverse closure of delta
-ExecutionSet = RequiredClosure ∩ MissingOrStale
-```
+Development operation复用System Architecture唯一的`RequiredExecutionClosure`与`ExecutionSet`；本层只提供当前delta、operation与Claim roots，不重定义impact/reuse代数。
 
 | Fact | Behavior |
 | --- | --- |

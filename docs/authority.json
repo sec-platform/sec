@@ -66,16 +66,53 @@
       "lifecycle": "stable",
       "dynamicPolicy": "forbidden",
       "owns": [
-        "documentation.compilation",
-        "documentation.fragmentation",
-        "documentation.migration",
-        "documentation.projection",
-        "documentation.quality",
         "documentation.structure"
       ],
       "projects": [
-        "documentation-registry"
+        "documentation-compilation-views",
+        "documentation-evolution-conformance",
+        "documentation-registry",
+        "documentation-source-authority"
       ]
+    },
+    {
+      "id": "documentation-source-authority",
+      "path": "docs/documentation-system/source-and-authority.md",
+      "kind": "authority",
+      "domain": "documentation",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "documentation.fragmentation",
+        "documentation.source-admission"
+      ],
+      "projects": []
+    },
+    {
+      "id": "documentation-compilation-views",
+      "path": "docs/documentation-system/compilation-and-views.md",
+      "kind": "authority",
+      "domain": "documentation",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "documentation.compilation",
+        "documentation.projection",
+        "documentation.quality"
+      ],
+      "projects": []
+    },
+    {
+      "id": "documentation-evolution-conformance",
+      "path": "docs/documentation-system/evolution-and-conformance.md",
+      "kind": "authority",
+      "domain": "documentation",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "documentation.migration"
+      ],
+      "projects": []
     },
     {
       "id": "design-calculus",
@@ -258,6 +295,19 @@
       "projects": []
     },
     {
+      "id": "system-architecture-scope-domain-topology",
+      "path": "docs/system-architecture/scope-and-domain-topology.md",
+      "kind": "authority",
+      "domain": "system-architecture",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "architecture.domain-boundary",
+        "architecture.scope-topology"
+      ],
+      "projects": []
+    },
+    {
       "id": "system-architecture-operations-resources",
       "path": "docs/system-architecture/operations-and-resources.md",
       "kind": "authority",
@@ -302,6 +352,8 @@
       "lifecycle": "stable",
       "dynamicPolicy": "forbidden",
       "owns": [
+        "capability.port",
+        "capability.typed-extension",
         "implementation.entity-realization"
       ],
       "projects": []
@@ -314,12 +366,48 @@
       "lifecycle": "stable",
       "dynamicPolicy": "forbidden",
       "owns": [
+        "implementation.source-generation"
+      ],
+      "projects": []
+    },
+    {
+      "id": "implementation-architecture-placement-locality",
+      "path": "docs/implementation-architecture/placement-and-locality.md",
+      "kind": "authority",
+      "domain": "implementation-architecture",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
         "architecture.workspace-zones",
         "implementation.change-locality",
+        "implementation.placement"
+      ],
+      "projects": []
+    },
+    {
+      "id": "implementation-architecture-target-roundtrip",
+      "path": "docs/implementation-architecture/target-observation-and-roundtrip.md",
+      "kind": "authority",
+      "domain": "implementation-architecture",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
         "implementation.intent-compilation",
         "implementation.manual-provider",
-        "implementation.placement",
-        "implementation.source-generation"
+        "implementation.roundtrip"
+      ],
+      "projects": []
+    },
+    {
+      "id": "implementation-architecture-source-observation",
+      "path": "docs/implementation-architecture/source-observation-and-incrementality.md",
+      "kind": "authority",
+      "domain": "implementation-architecture",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "implementation.incrementality",
+        "implementation.source-observation"
       ],
       "projects": []
     },
@@ -356,8 +444,10 @@
       "lifecycle": "stable",
       "dynamicPolicy": "forbidden",
       "owns": [
+        "capability.contract",
         "semantic.assertion",
         "semantic.authority",
+        "semantic.contract",
         "semantic.entity",
         "semantic.fact",
         "semantic.responsibility",
@@ -403,6 +493,7 @@
       "lifecycle": "stable",
       "dynamicPolicy": "forbidden",
       "owns": [
+        "capability.generator",
         "compiler.application-ir",
         "compiler.behavior-ir",
         "compiler.implementation-resolution",
@@ -411,25 +502,6 @@
         "compiler.target-profile",
         "compiler.target-program-ir",
         "compiler.type-algebra"
-      ],
-      "projects": []
-    },
-    {
-      "id": "capability-block",
-      "path": "docs/capability-and-block-model.md",
-      "kind": "authority",
-      "domain": "capability-block",
-      "lifecycle": "stable",
-      "dynamicPolicy": "forbidden",
-      "owns": [
-        "capability.block",
-        "capability.block-resolution",
-        "capability.contract",
-        "capability.generator",
-        "capability.port",
-        "capability.registry",
-        "capability.slot-retirement",
-        "capability.typed-extension"
       ],
       "projects": []
     },
@@ -500,6 +572,10 @@
       "lifecycle": "stable",
       "dynamicPolicy": "forbidden",
       "owns": [
+        "capability.block",
+        "capability.block-resolution",
+        "capability.registry",
+        "capability.slot-retirement",
         "runtime.distribution",
         "runtime.support"
       ],

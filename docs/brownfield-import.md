@@ -158,14 +158,14 @@ Reconcile 只读比较 Source Program、Contract、Engineering IR、repository i
 
 | Result | Meaning |
 |---|---|
-| accepted | 该 claim/binding 被 policy 或人接受 |
-| rejected | 保留理由/Evidence，不等于删源码 |
+| candidate-correspondence | observed carrier可能实现某target meaning；保留alternatives、coverage与Evidence，不建立binding |
+| incompatible | hard semantic/refinement constraint排除该对应；不等于删源码或退役能力 |
 | conflicted | 权威或候选互不兼容 |
 | ambiguous | 多种解释仍可行 |
 | unknown | coverage/semantics 不足 |
 | opaque | 边界已知，内部不建模 |
 
-同名、邻近路径、运行时偶遇、高 confidence、同 AST/API/signature 或框架惯例都不建立 canonical relation。
+同名、邻近路径、运行时偶遇、高 confidence、同 AST/API/signature 或框架惯例都不建立 canonical relation。Reconcile结果无adoption、write或retirement authority；只有Adopt阶段的owner Decision可把一个candidate correspondence变成generation-bound semantic-origin/refinement binding。已有binding的后续观察才允许判preserve或drift。
 
 外部调用必须分开 observed type facts、user-declared Contract/Effect、inferred Provider candidate、conformance Evidence、catalog eligibility。
 
@@ -182,7 +182,7 @@ Adopted =
   + preservation/migration/recovery/retirement
 ~~~
 
-Adopt 不复制源码进 IR，不提高 inferred confidence，不把整个文件或 Provider 升格。没有 Block 的工程仍可有 Responsibility、Contract 与 governed mutation；历史 Slot grammar 不因 extension 需要而恢复。
+Adopt不复制源码进IR，不提高inferred confidence，不把整个文件、package或Provider升格。工程无需自定义分发载体即可拥有Responsibility、Contract与governed mutation；历史混合extension record不因扩展需要而恢复。
 
 Adopt Provider 只允许其进入 candidate catalog；最终选择属于 Implementation Resolution。
 
@@ -268,7 +268,7 @@ sequenceDiagram
 | file moved | binding re-evaluation | path identity |
 | adopted region含unowned comments | preserve | regeneration overwrite |
 | Normalize缺runtime parity | remain governed | deterministic projection |
-| no Block | normal Responsibility/Contract | Block-as-license |
+| no custom distribution package | normal Responsibility/Contract | packaging-as-license |
 | frontend parse dynamic import失败 | opaque frontier | regex补图 |
 | current test imports package | consumer evidence | whole package consumer-zero |
 | AI生成Adapter | candidate | catalog eligibility |

@@ -19,7 +19,7 @@ SEC 是位于框架、工具链和 AI 之上的**工程语义与受控演进系�
              ≻ 单次运行速度、局部代码量、报告数量
 ```
 
-局部速度只有在不降低前三项时才是优化。代码、IR、Block、Slot、Adapter、测试、文档、脚本、AI、Provider 和界面都是可替换手段，不产生产品目的。
+局部速度只有在不降低前三项时才是优化。代码、IR、package、extension、Adapter、测试、文档、脚本、AI、Provider和界面都是可替换手段，不产生产品目的。
 
 ## 用户、世界与边界
 
@@ -60,6 +60,35 @@ flowchart LR
 ```
 
 两条入口共享从“工程语义”开始的全部 identity、决策、Effect 和证明；Brownfield 不能获得一套弱化真值，deterministic generation 也不能绕过同一约束。
+
+### 产品 Domain partition
+
+以下是SEC产品generation的accepted semantic partition input，不是文档目录或运行服务清单；System Architecture从这些definitions编译`DomainBoundaryProof`与`DomainMap`：
+
+| Domain | 独立state / invariant | public operations | 明确不拥有 |
+| --- | --- | --- | --- |
+| Engineering Semantics | accepted Definitions、Responsibilities、Contracts、Policies及其semantic revisions | declare、adopt、query/explain | workspace observation、implementation choice、Evidence verdict |
+| Realization | Target/Profile、eligible candidates、DesignDecision、ImplementationBinding与target artifact generation | resolve、compile/lower、explain binding | Product meaning、live Provider availability、Effect terminal |
+| Operation Runtime | AuthorityGrant、ExecutionBinding、Allocation、Attempt、Settlement、operation journal/epoch | admit、execute、join、settle、recover runtime attempt | Domain result、implementation choice、Claim verdict |
+| Workspace Evolution | desired/current Delta、Impact、pure change plan、mutation/migration/cutover/retirement transaction state | plan、apply、migrate、rollback/forward-recover、retire | redefining target to fit current、raw process execution、self-verification |
+| Assurance | ClaimDefinition、Evidence、coverage/freshness、Verdict及其publication/invalidation lifecycle | declare claim、collect observation、evaluate、publish/invalidate verdict | producing claimed artifact、Effect authority、Product success definition |
+| Delivery and Support | distribution/release/deployment binding、published artifact、support/deprecation/withdrawal lifecycle | package、publish、deploy、observe support、deprecate/yank | semantic implementation selection、verification self-proof、generic package manager identity |
+
+```mermaid
+flowchart LR
+  S[Engineering Semantics] --> R[Realization]
+  R --> W[Workspace Evolution]
+  X[Operation Runtime] --> W
+  R --> A[Assurance]
+  W --> A
+  A --> D[Delivery and Support]
+  X --> D
+  D -. observed drift / support change proposal .-> S
+```
+
+箭头是public contract/relation，不是private state读取。`Source Program`/Brownfield reconstruction是Observation compiler；IR/Delta/Impact是derived artifacts/relations；Provider/resource是cross-domain Provisions；documentation/CLI/AI是purpose views；development control是SEC self-hosting profile。它们均不另成产品Domain，除非未来accepted obligation使其获得独立state/invariant/public-operation/evolution证明。
+
+六个Domain不是通用内核硬编码：其他产品profile可编译出更少、更多或嵌套的Domain；SEC自身partition变化必须给出新accepted definition、boundary proof、consumer/evolution map与旧generation retirement，不能靠改目录或authority label完成。
 
 ## 业务能力合同
 
@@ -228,7 +257,7 @@ physical presence
 替换旧系统不是比较文件或当前输出，而是比较完整业务义务：
 
 ```text
-Coverage(new, old) =
+ReplacementBusinessCoverage(new, old) =
   observable outcomes
   ∧ accepted future obligations
   ∧ failure / recovery semantics
@@ -290,7 +319,7 @@ Agent 只能在最小充分 Context、明确 operation、权限、资源和路�
 
 SEC 不是通用 IDE、低代码私有运行时、模板市场、包管理器、单纯代码知识图、万能软件市场、自由式整仓 AI 编码器或通用 AGI。
 
-SEC 产品自身不拥有 browser、Playwright、Workbench、local HTML view、前端 UI graph 或第二交互运行时；这些已退役。它仍可治理或生成 Target workspace 的浏览器应用。Block/Slot 芯片化、统一插槽、旧目录形状、Vn facade、全局 service locator 和一对一工具 wrapper 也不是产品目标。
+SEC产品自身不拥有browser、Playwright、Workbench、local HTML view、前端UI graph或第二交互运行时；这些已退役。它仍可治理或生成Target workspace的浏览器应用。自定义芯片化包装层、统一插槽、旧目录形状、Vn facade、全局service locator和一对一工具wrapper也不是产品目标。
 
 永久边界：
 
@@ -353,4 +382,4 @@ flowchart LR
   K --> C
 ```
 
-长期资产是 stable identity、Contract、Fact provenance、Source/Implementation binding、Verification、Migration 和经验证的 Provider 协议；不是 Prompt、模板、Slot、Block 数量、测试数量或某个流行工具。
+长期资产是stable identity、Contract、Fact provenance、Source/Implementation binding、Verification、Migration和经验证的Provider协议；不是Prompt、模板、包装/插槽数量、测试数量或某个流行工具。

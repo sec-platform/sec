@@ -63,16 +63,7 @@ flowchart LR
   A --> R[Reuse if exact inputs/environment match]
 ```
 
-```text
-ActionKey = digest(
-  semanticInputs,
-  sourceSnapshot,
-  algorithm/provider identities,
-  dependency generation,
-  environment/toolchain,
-  policy/claims
-)
-```
+`ActionKey`的exact合同由System Architecture的derivation/reuse owner定义。这里仅要求`reuseKeyComplete(key, computation)`覆盖所有可能改变语义结果、coverage、authority、resource settlement或Claim validity的输入；遗漏任一因果输入即不得复用。
 
 优化顺序：
 
@@ -115,7 +106,7 @@ presentation、shell 文本、全局环境和 PATH 不能签发语义或 Effect 
 
 ```text
 place(unit) = f(
-  responsibilityCell,
+  responsibilityScopeAndRealization,
   dependencyLayer,
   visibility,
   lifecycle,
@@ -127,8 +118,8 @@ place(unit) = f(
 
 ```mermaid
 flowchart LR
-  G[Declaration/reference/effect graph] --> C[Responsibility cells]
-  C --> D[Owner DAG]
+  G[Declaration/reference/effect graph] --> C[Responsibility realizations]
+  C --> D[Responsibility assignments]
   D --> P[Placement plan]
   P --> M[Transactional move/codemod]
   M --> R[Import/consumer/readback]
@@ -140,7 +131,7 @@ flowchart LR
 - authored executable source 进入一个 canonical source root；tests/docs/assets/generated/runtime state 各有独立 lifecycle root；
 - 目录名表达 responsibility，不表达历史组织、工具名或临时迁移；
 - 文件按 declaration cohesion、变化协同和 boundary 拆分，不按行数机械切割；
-- 同一 cell 可有 contract/domain/operation/provider/runtime 子层，但不建立空目录和空 index；
+- 同一realization只物化其适用的contract/pure logic/operation/provider/runtime角色，不建立空目录和空index；
 - 自动重构消费 compiler/LSP/AST 的 symbol/reference graph；文本替换仅处理无语义载体；
 - move plan 绑定 old/new graph、消费者、生成物、配置、测试和退役清单；
 - 迁移完成要求 old path consumer-zero，不留 alias、barrel 或长期兼容层。

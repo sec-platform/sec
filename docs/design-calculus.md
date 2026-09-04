@@ -6,565 +6,356 @@ domain: design-calculus
 
 # 设计演算与原则语言
 
-本文是 design-calculus 的公共 root，拥有事实种类、正交关系、约束组合与原则记录。设计编译/模拟和冻结/演进由本文件列出的规范片段拥有。整个 domain 不拥有任何产品目标、工程取舍、Agent 行为、实现技术或当前状态。
+本文只拥有跨工程通用的statement、relation、constraint、behavior与principle表达代数。它不拥有SEC产品目标、Domain边界、Agent行为、实现技术、Provider选择或当前状态。设计候选合成与模型检查见 [Compilation](design-calculus/compilation.md)；知识产物、冻结、递归完成与演进见 [Freeze and Evolution](design-calculus/freeze-and-evolution.md)。
 
-## 1. 来源与实现偏序
+## 1. 因果语言
+
+```text
+Outcome → Definition → Requirement
+        → Provision + AuthorityGrant → Binding → Allocation
+        → Effect → Observation → Settlement/Readback
+        → Claim/Evidence → Verdict/Unknown
+        → Evolution/Cutover/Retirement
+```
+
+相邻项不互相蕴含。所有设计语言必须保持以下禁止转换：
+
+```text
+Hypothesis      -/-> Fact
+Decision        -/-> Observation
+Authorization   -/-> Truth or Capability
+Provision       -/-> Authority or Success
+Binding         -/-> Allocation or Effect
+Observation     -/-> Definition or Authorization
+Effect          -/-> Settlement or Verdict
+Evidence        -/-> Effect or Claim identity
+Unknown         -/-> Absent / False / PositiveClaim
+Projection      -/-> Source / Owner / Grant
+```
+
+只有由对应owner定义、满足前置条件且可读回的typed transition才能改变statement或lifecycle种类。
+
+## 2. Source strata 与依赖偏序
 
 ```mermaid
 flowchart TB
-  CALC["source-stratum.calculus<br/>事实、关系、约束、演算"]
-  ENG["source-stratum.engineering-constitution<br/>工程系统应满足什么"]
-  AGENT["source-stratum.agent-constitution<br/>Agent如何认识与行动"]
-  PRODUCT["source-stratum.product-decisions<br/>accepted outcome、non-goal、project tradeoff"]
-  PROJECT["generated project composition<br/>目标、风险、取舍、适用原则"]
-  DOMAIN["source-stratum.domain-definition<br/>领域身份、状态、操作、合同"]
-  IMPL["source-stratum.implementation-design<br/>realization、placement、generation、migration"]
-  EXEC["source-stratum.execution-profile<br/>Provider、资源、平台、工具"]
-  RUNTIME["source-stratum.runtime-observation<br/>exact observation、settlement、proof"]
-  CALC --> ENG
-  CALC --> AGENT
-  PRODUCT --> PROJECT
-  ENG --> PROJECT
-  AGENT --> PROJECT
-  PROJECT --> DOMAIN
-  DOMAIN --> IMPL
-  IMPL --> EXEC
-  EXEC --> RUNTIME
-  RUNTIME --> REVISE[Corresponding owner evolution decision]
-  REVISE -. "accepted project revision" .-> PROJECT
-  REVISE -. "accepted domain revision" .-> DOMAIN
-  REVISE -. "accepted implementation revision" .-> IMPL
-  REVISE -. "accepted execution-profile revision" .-> EXEC
+  C[Calculus]
+  C --> E[Engineering Constitution]
+  C --> A[Agent Constitution]
+  P[Product Decisions] --> D[Domain Definitions]
+  D --> I[Implementation Design]
+  I --> X[Execution Profile]
+  X --> O[Runtime Observations]
+  E -. constrains .-> D
+  A -. constrains agent action .-> X
+  O -. owner-adopted revision request .-> P
+  O -. owner-adopted revision request .-> D
+  O -. owner-adopted revision request .-> I
 ```
 
-| Source stratum | 只拥有 | 不得拥有 |
+| stratum | owns | cannot own |
 | --- | --- | --- |
-| `calculus` | 表达和演算规则 | 工程原则、Agent原则、产品答案 |
-| `engineering-constitution` | 普适工程不变量 | 某项目路径、工具、当前实现 |
-| `agent-constitution` | 普适认识与行动不变量 | 产品需求、工程事实、任务授权 |
-| `product-decisions` | accepted outcome、non-goal、用户可观察边界与 project tradeoff | 工程实现、Agent授权、运行结果 |
-| `project-composition` (generated) | 从 Product decisions、适用通用原则与 Product/Domain/Architecture owner 签发的 project-scoped Decision refs 生成项目目标/风险/取舍投影 | 独立事实、原则 owner、领域字段和运行结果 |
-| `domain-definition` | 领域语义、状态机、操作、失败代数 | 外部能力可用性、独立证明 |
-| `implementation-design` | logical→CodeUnit/package/file/generated realization、局部变更、迁移 | 产品目的、领域语义、运行成功 |
-| `execution-profile` | capability、binding、allocation、平台约束 | 产品目的、业务成功 |
-| `runtime-observation` | observation、settlement、evidence、unknown | 稳定定义、未来义务 |
+| calculus | syntax/semantics of relations, constraints and derivations | engineering law、product answer |
+| engineering constitution | universal engineering invariants | product/path/tool/current state |
+| agent constitution | universal epistemic/action constraints for agents | product truth、runtime authority |
+| product decisions | accepted outcome/non-goal/tradeoff | implementation、Effect、PASS |
+| domain definitions | Subjects/invariants/state/failure/public operations | Provider availability、Evidence verdict |
+| implementation design | logical→target realization | new product meaning、runtime success |
+| execution profile | capabilities/bindings/resources/platform constraints | business definition/result |
+| runtime observation | what actually happened and coverage | stable definition/future obligation |
 
-source strata形成typed偏序而不是数字等级。`project-composition`不是一个可作者化的source stratum，而是由 Product decisions、适用通用原则和 Product/Domain/Architecture owner 签发的 project-scoped Decision refs 生成的无所有权投影；project-scoped 只表示适用范围，不创建新的 project owner、registry、writer 或 revision。它不能产生新的事实、原则、权限或领域字段。Domain decisions 只能沿显式引用进入相应 domain-definition，不得回流成为 project-composition 的隐藏输入。实现方向只消费上游定义，runtime方向只返回受限Observation/Result；后者只有经相应authorized owner接受后才能形成新Definition revision。实现或观察不能以“已经实现”“测试绿色”或“工具不支持”改写上游定义；上游也不能以prose宣称下游Effect、状态或Evidence已存在。
+Source strata是typed dependency order，不是物理目录、数字层级或强制阅读顺序。项目视图只聚合refs；不得成为额外source stratum或owner。
 
-### 1.1 Constitution partition decision
+### 2.1 Named construct admission
 
-| Alternative | Disposition | 原因 | 反转条件 |
-| --- | --- | --- | --- |
-| 一份总架构文档同时拥有逻辑、工程、Agent、项目机制 | rejected | owner 混叠；通用原则随项目细节漂移；投影无法证明不扩权 | none；只可作为 generated combined view |
-| 只拆 Engineering 与 Agent 两层 | rejected | 两者会重复事实种类、关系、约束和原则表达语言 | 存在另一项不复制且更小的共享语义机制 |
-| Design Calculus + Engineering Constitution + Agent Constitution + generated Project composition | selected | meta-language、工程真值、Agent 行为正交；项目只实例化；可单独演进和验证 | 出现不能由 typed reference 组合、且必须共同原子演进的真实语义反例 |
-| 每个项目复制一套通用原则 | rejected | 多 owner、漂移、纠错不能全局传播 | 项目原则语义已证明不再通用，应迁成项目 decision 而非复制 |
+命名空间不是架构。每个命名构件在一个generation中恰有一个primary role；role不同只能通过typed refs连接，不能复用同一payload冒充：
 
-`selected` 的含义是唯一 owner 和依赖方向，不要求人类按四份文档顺序阅读；human/Agent/project views由 registry 和 compiler 按问题生成最小闭包。
-
-## 2. 最小逻辑代数
-
-### 2.1 基本构件
+| role | 成立条件 | 不拥有 |
+| --- | --- | --- |
+| primitive | 不能由现有primitive及组合无损表达，并完成meta-model evolution | 产品名、工具名、当前实现 |
+| semantic profile | 由primitive组成，具有独立laws、producer/consumer与failure semantics | 自动成为Domain、service或folder |
+| accepted carrier | authorized owner采用的Definition/Decision/Policy/FutureObligation | implementation、Evidence、runtime success |
+| compiled artifact | closed inputs + algorithm产生，可重建且有真实consumer | 上游meaning、issuer authority |
+| runtime instance | exact operation generation中的Grant/Binding/Allocation/Attempt/Settlement等实例 | stable Definition、跨epoch identity |
+| purpose view | 对既有refs的consumer/disclosure-bound projection | 新事实、owner、writeback |
 
 ```text
-Subject    := 具有稳定语义身份的对象
-Claim      := 关于一个或多个 Subject、可判定真假的命题
-Relation   := 由明确 issuer 签发的 typed edge
-Constraint := 对一组 Claim/Relation/Transition 的可判定谓词
-Transition := 从 exact pre-state 到 post-state 的允许变化
-Proof      := Evidence 对 exact Claim 的支持关系；不是 Claim 本身
-Unknown    := 已知覆盖边界之外、尚不可安全归真的命题集合
+namedConstructAdmitted(x) iff
+  exactlyOne(primaryRole(x))
+  and exactlyOne(definitionOwner(x))
+  and distinctLawsOrLifecycle(x)
+  and (liveConsumer(x) or acceptedFutureObligation(x) or irreduciblePrimitive(x))
+  and notDerivableAliasOfExistingConstruct(x)
 ```
 
-每个可消费的 Claim、Relation、Transition 与 Proof 都携带同一最小封套：
+算法、predicate和query是对构件求值的规则，不自动成为Subject；`Model`、`Graph`、`Package`、`Manager`、`Service`、任意容器名、`Vn`、文件或目录后缀都不提供存在证明。普通aggregate/value/function不需要升格。重复owner合并时保留meaning、rationale、consumer与reversal refs，删除别名而非删除业务义务。
+
+文档伪代码使用以下判读，不让记法制造实体：
+
+| form | meaning |
+| --- | --- |
+| `Noun = exact { ... }` / `Noun = A \| B` | 一个schema或closed ADT |
+| `verb(inputs) = output` | derivation/query；不是owner |
+| `...Closed`、`...Required`、`...Admitted`、`...Safe` | predicate；不是实体 |
+| `...Ref` | 对既有identity/generation的引用；不复制payload |
+| table/diagram/view | 同一refs的表达投影；不增加semantic node |
+
+以下高风险词必须带role限定，禁止裸词跨层复用：
+
+| word | canonical use | forbidden inference |
+| --- | --- | --- |
+| owner | ResponsibilityAssignment、RelationAuthorityAssignment或issuer policy | 文件、目录、团队、compiler、最后写入者 |
+| source | KnowledgeSource、AuthoredSource或SourceObservation；只是carrier/input role | 文本天然正确或自行授权 |
+| contract | 必须限定public semantic、durable schema、capability port、provider protocol或conformance boundary | 任意DTO、type、test文件 |
+| compiler | exact input到typed output的pure transformation family | service、进程、owner、scheduler、Effect executor |
+| model / graph | 必须限定purpose、generation、schema与coverage的artifact或view | 因后缀获得identity/authority |
+| plan | 默认只指pure description；执行必须另有admission/grant/allocation | plan存在即获Effect权 |
+| artifact | immutable carrier或compiled output | 其payload的semantic owner |
+| package | 具有真实安装/发布/ABI/runtime/support lifecycle的分发单位 | 设计章节、scope容器、目录美观 |
+| Project / Workspace | Project仅指独立产品/业务identity；Workspace是内容与交互环境实例 | 源码目录、worktree、IDE窗口互相冒充 |
+| revision / generation / epoch / version | 分别是单Subject变化、闭合refs集合、运行有效期、兼容grammar discriminator | 用一个`Vn`或数字同时表达四者 |
+
+## 3. 最小构件
 
 ```text
-Envelope = {
+Subject    := stable semantic identity
+Statement  := typed proposition about one or more Subjects
+Relation   := issuer-owned typed connection among Subjects/Statements
+Constraint := decidable predicate over Statements/Relations/Transitions
+Transition := admitted change from exact pre-state to post-state
+```
+
+这是五个不可约语法构件。`Proof`不是第六种对象，而是`Claim + Evidence + proves relation + Verdict`的profile；`Frontier`不是第七种对象，而是`Unknown statements + affected relations + closure predicates`的profile。两者拥有严格laws和consumer，却不复制根ontology。
+
+| primitive | 不可由其余项无损替代的能力 | 若错误合并 |
+| --- | --- | --- |
+| Subject | 在statement变化、address移动和generation演进间保持referent identity | 内容、路径或最新观察冒充身份 |
+| Statement | 表达可被采纳、观察、证伪或判定的命题及认识状态 | 对象存在被误当成事实为真 |
+| Relation | 表达多个exact subjects/statements之间有issuer的连接 | 字段共置、目录或时间相邻冒充因果 |
+| Constraint | 对候选state/trace/relation集合做可组合的合法性判定 | 普通statement无法执行admission或产生最小冲突核 |
+| Transition | 表达带pre/post、时序、权限和settlement义务的合法变化 | 静态relation无法区分允许结构与实际状态演进 |
+
+若未来能给出保持全部laws、failure、consumer与演进语义的无损编码，其中任一primitive都必须继续合并；“已写很多schema”或兼容旧名称不是保留理由。
+
+可消费项携带最小envelope：
+
+```text
+SemanticEnvelope = {
   identity,
-  issuer + issuerAuthority,
-  subjects + subjectRevisions,
-  exactInputs + algorithmIdentity,
-  snapshotOrOperationEpoch,
+  issuer + issuerAuthorityRef,
+  subjectRefs + subjectRevisions,
+  exactInputRefs + algorithmRef,
+  generation/snapshot/operation epoch,
   coverage + unknownFrontier,
   validity + invalidation + retirement
 }
 ```
 
-封套提供引用完整性，不提供万能 payload。领域数据由领域合同拥有；禁止用“所有字段可选”的全局对象替代领域类型。
+Envelope只提供引用完整性与authority ceiling，不是全局可选字段DTO。Domain payload必须使用其自己的closed ADT/schema。
 
-### 2.2 陈述分类
-
-```text
-Statement =
-  | Fact               // 已观察且有来源、覆盖、freshness
-  | Hypothesis         // 可证伪解释或方案
-  | Decision           // 有权主体接受的不可推导取舍
-  | Authorization      // 对 exact Effect 的上限
-  | Requirement        // consumer/operation 所需合同
-  | Observation        // exact read/attempt/measurement
-  | Evidence           // 支持特定 Claim 的独立事实
-  | Unknown            // 无法安全归类或覆盖不足
-```
-
-禁止转换：
+### 3.1 Statement kinds
 
 ```text
-Hypothesis   -/-> Fact
-Decision     -/-> Observation
-Authorization-/-> Truth
-Observation  -/-> Authorization
-Evidence     -/-> Effect
-Unknown      -/-> PositiveClaim
+Statement.kind ∈ {
+  Fact,
+  Hypothesis,
+  Decision,
+  Authorization,
+  Requirement,
+  Provision,
+  Observation,
+  Evidence,
+  Claim,
+  Verdict,
+  Unknown
+}
 ```
 
-只有显式、由 owner 定义并满足前置条件的 transition 才允许改变种类。
+每种variant有独立producer、admission、consumer与failure语义。缺失variant必须演进meta-model；不能放进`kind: string`、`misc`、nullable payload或默认branch。
 
-### 2.3 行为、变异与认识边界
+系统高频名词是primitive的closed profiles，不是新增root types；下游owner只能收窄，不能重新解释：
 
-离散确定性transition不是所有领域的唯一模型。Domain按accepted outcome选择最小充分behavior semantics；未适用的模式不进入其实现或验证闭包：
+| profile | primitive composition | exact specialization owner |
+| --- | --- | --- |
+| Outcome / NonGoal | Product owner采用的Decision + observable Behavior/Constraint refs | Product |
+| Definition | Subject + accepted Statements/Relations/Constraints + adoption/assignment/reversal refs | owning Product/Domain responsibility |
+| Invariant | 对允许states/transitions/traces的hard Constraint | owning state/contract responsibility |
+| Policy | 条件到permit/require/forbid/derive结果的Decision/rule set | named policy responsibility |
+| Responsibility | cohesive Definitions/decisions/state/public obligations的scope profile | System Architecture |
+| Operation | input/precondition到Transition/result/failure/settlement obligations的behavior profile | owning Domain responsibility |
+| Contract | 有独立consumer与evolution边界的Definition/Requirement/Result集合 | Engineering Semantics及qualified boundary owner |
+| Workflow | public Operations的typed composition；不读取private state | System Architecture |
+| Domain | 经boundary proof成立的cohesive semantic scope | Product definition + System Architecture proof |
+| Proof | exact Claim、independent Evidence、`proves` relation与Verdict的闭合组合 | Claim/Evidence/Verdict responsibilities |
+| Frontier | Unknown statements、affected closure与closure predicates的闭合组合 | 产生unknown的responsibility + closure owner |
+| Artifact / View | exact meaning refs的representation或projection | producer/compiler或interface owner；无meaning ownership |
+
+`Definition`因此不是Fact：Fact陈述在某coverage/snapshot下什么成立；Definition承诺某Subject在一个accepted generation中意味着什么。Observation可以触发Definition revision proposal，但不能直接改写Definition。
+
+### 3.2 Behavior 与 Claim semantics
 
 ```text
 BehaviorSemantics =
-  exact-function
-  | discrete-transition-system
-  | partial-order/concurrent
-  | continuous-or-hybrid-dynamics
-  | stochastic-distribution
-  | adversarial-game/environment
-  | adaptive-feedback-system
+  | ExactFunction
+  | DiscreteTransitionSystem
+  | PartialOrderConcurrentSystem
+  | ContinuousOrHybridDynamics
+  | StochasticDistribution
+  | AdversarialGameEnvironment
+  | AdaptiveFeedbackSystem
 
-Variation = declared set/distribution/environment behavior within Definition
-MeasurementUncertainty = bounded error/sampling/calibration limits of an Observation
-EpistemicUnknown = missing or unresolved knowledge outside proven coverage
-```
-
-三者不能互换：合法随机结果不是`Unknown`；未知provider或未观察输入不能用概率分布伪装；测量误差不能被平均值消除后宣称exact。随机源、时钟、外部环境、sampling procedure、population、confidence/error bound、calibration和drift policy都是适用Claim/Observation的显式输入。
-
-```text
 ClaimSemantics =
-  exact(predicate)
-  | bounded(predicate, envelope)
-  | temporal(safety, liveness, fairness)
-  | quantitative(metric, unit, tolerance)
-  | statistical(population, estimator, confidence, errorModel)
-  | robustness(environmentSet, invariant)
-  | relational(traceArity, observationPartition, relationPredicate)
+  | ExactPredicate
+  | BoundedPredicate
+  | TemporalProperty
+  | QuantitativeMetric
+  | StatisticalClaim
+  | RobustnessClaim
+  | RelationalHyperproperty
 ```
 
-Evidence只能支持同种或更弱的Claim：有限样本不能证明全称性质，bounded model exploration不能证明无限状态，simulation不能签发physical Effect completion。adaptive system还必须绑定model/data/policy revision、feedback delay、guardrails、distribution-shift detection、rollback/retirement和human authority；其运行Observation只能触发owner定义的evolution decision，不能自动改写Definition。
+Variation、measurement uncertainty与epistemic unknown正交。随机结果不是unknown；采样Evidence不能证明全称exact Claim；simulation不能证明physical Effect；单轨迹PASS不能证明noninterference或observational equivalence。
 
-`relational`拥有的是多条执行之间的性质，而不是把每条轨迹分别判为安全：noninterference、observational equivalence、constant-behavior、declassification与cross-tenant isolation都必须声明比较的trace元数、哪些输入允许不同、哪些观察对哪个principal可见，以及允许泄露的精确关系。单轨迹PASS、日志脱敏样例或两个独立运行结果不能证明relational Claim；验证器必须消费同一relation contract生成self-composition、product program或等价的多轨迹oracle，并把未覆盖输入对保留为frontier。
+Adaptive/continuous/stochastic系统必须显式绑定model/data/policy revision、population/environment、sampling/calibration、feedback delay、guardrail、drift、human authority与retirement。模型范围外的输入形成frontier。
 
-### 2.4 Identity 与序列化命名空间
+## 4. Typed relation algebra
 
-身份由 owner、domain、local subject key 与 revision 决定；序列化命名空间、地址、
-显示标签和文件名只是某个 surface 的表达。任何 surface 都必须先证明自己的
-持久化、跨进程、外部交换或碰撞约束，再由该 surface owner 选择命名空间；前缀
-不能反向成为 semantic identity、owner 或 authority。命名、schema、硬编码与路径
-的具体实现判定由 `docs/implementation-architecture.md` 的唯一 owner 执行，不能在
-本演算层再定义一套 token 规则。
+| relation | answers | required refs | cannot replace |
+| --- | --- | --- | --- |
+| `defines` | Subject是什么、承诺什么 | owner/decision/reversal | implementation/test |
+| `contains/scopes` | 哪些meaning共享cohesion parent | scope/boundary proof | dependency/path |
+| `requires` | operation/consumer需要什么 | outcome/constraints/failure/terminal | provider/argv |
+| `supplies` | capability/provider可供应什么 | provider/platform/limits | Requirement/Grant |
+| `grants/delegates` | principal可做什么Effect | scope/precondition/expiry/revocation | availability/success |
+| `binds` | exact Requirement采用哪个Provision/Grant | requirement/provision/grant/epoch | lookup/default |
+| `allocates` | 从parent ledger保留多少 | demand/capacity/remaining | static ceiling |
+| `observes` | 实际读/执行/计量什么 | method/target/coverage | expected/permission |
+| `settles` | obligations、release、readback、residue | attempt/all effects/resources | exit/return |
+| `proves` | Evidence支持哪个Claim | exact claim/independence/freshness | PASS/report |
+| `projects` | 为consumer呈现哪些既有meaning | source closure/disclosure | new fact/owner |
+| `evolves` | 代际如何preserve/migrate/retire | old/new/consumer/recovery | suffix/alias |
+
+同一对象可参与多种relation；relation不可互换。Containment形成single-parent递归scope，其他relation保持graph/hyperedge/state-machine语义。
 
 ```text
-semanticIdentity ⟂ serializationNamespace ⟂ address ⟂ presentationLabel
-namespaceRequired ⇐ durable ∨ external ∨ proven-collision constraint
-otherwise          ⇐ structured ref or generated projection; no global prefix
+RelationAdmitted(r) =
+  exactSchema(r)
+  and exactlyOneActiveRelationAuthorityAssignment(r.kind, r.subjectUniverse)
+  and issuerMatchesAssignment(r)
+  and exactSubjectRevisionsAndConstraintsAgree(r)
+  and finiteAcyclicAuthorityClosureToActiveRoot(r)
 ```
 
-## 3. 正交关系与相互约束
+同owner、同invariant、同revision/lifecycle且无独立consumer的relations可co-locate；否则必须以refs组合。正交分解不要求每个relation变成文件、class、service或runtime join。
 
-正交表示“回答不同问题、不能相互替代”；约束表示“一个维度的合法性可引用另一个维度的 exact 事实”。两者不是冲突：维度保持独立，合法性通过 typed reference 组合。
-
-```mermaid
-flowchart LR
-  S[Semantic<br/>是什么/为何] --> K[Knowledge<br/>知道什么]
-  K --> R[Responsibility<br/>谁拥有]
-  R --> A[Authority<br/>谁可改变]
-  A --> C[Capability<br/>谁能供应]
-  C --> B[Binding<br/>本次选哪个]
-  B --> Q[Resource<br/>保留多少]
-  Q --> X[Execution<br/>发生什么]
-  X --> L[Lifecycle<br/>到何状态]
-  L --> P[Proof<br/>能证明什么]
-  P --> E[Evolution<br/>如何演进/退役]
-  E -. "新 revision" .-> S
-```
-
-| Relation | 回答 | 必需引用 | 不能替代 |
-| --- | --- | --- | --- |
-| Address | Subject 在 exact snapshot 中位于何处 | subject revision、snapshot | identity、owner、长期语义 |
-| Definition | owner 接受的意图、不变量、结果、未来义务 | subject、issuer、reversal | implementation、test、current fact |
-| Requirement | consumer/operation 需要什么语义、能力、资源、失败和终止 | consumer、operation、constraints | provider、argv、path |
-| Provision | capability/provider 能供应什么 | provider identity、platform、limits | requirement、authority、成功 |
-| AuthorityGrant | principal 可对哪些 exact Subject 做哪些 Effect | principal、scope、preconditions、expiry | capability、计划、caller DTO |
-| Binding | 本次 Requirement 与 exact Provision 的匹配 | requirement、provision、grant、epoch | lookup result、default provider |
-| Allocation | 从 parent ledger 实际保留多少 | binding、parent ledger、remaining | static ceiling、局部 timeout |
-| Observation | 实际读到、加载、执行或计量什么 | exact target、method、coverage | expected、plan、permission |
-| Settlement | 使用、释放、终止、readback、residue 的结果 | attempt、all obligations、resources | exit code、callback return |
-| Lifecycle | create→active→terminal/residue→retired | state owner、legal transitions | boolean、file exists |
-| Derivation | output 如何由 exact inputs 和 algorithm 确定产生 | all inputs、algorithm、unknown | 名称相似、时间相邻 |
-| EvidenceSupports | 哪些独立事实支持哪个 exact Claim | claim、observations、independence | 无 Claim 的 PASS、report |
-
-### 3.1 约束组合
+## 5. Constraint algebra
 
 ```text
 ConstraintResult =
-  satisfied
-  | violated(code, evidence)
-  | conflicted(minimalConstraintCore, provenance)
-  | unresolved(frontier)
+  | Satisfied
+  | Violated { code, evidenceRefs }
+  | Conflicted { minimalConstraintCore, provenanceRefs }
+  | Unresolved { frontierRefs }
 
 admit(target) iff
-  all hard constraints(target) = satisfied
-  and every unresolved frontier is disjoint from target dependencies
+  every hard constraint is Satisfied
+  and every Unresolved frontier is disjoint from target dependencies
 ```
 
-硬约束不可投票：一个 authority、identity、durable integrity 或 evidence honesty 失败不能被多个 PASS 抵消。`violated`表示候选不满足一个可成立的constraint；`conflicted`表示当前accepted constraints本身不可同时满足，必须返回最小冲突核和各自provenance并回到有权Decision owner，不能靠输入顺序、优先级或last-write-wins暗选一方。软偏好只在所有硬约束均满足且无冲突的候选之间做 dominance 比较。
+Hard constraints不可投票；一个identity/authority/integrity/evidence failure不能被多个PASS抵消。Soft preference只在所有hard constraints满足、无conflict且semantic trace合格的候选间比较。
 
 ```text
-combineConstraints(A, B) = canonical(normalize(A union B))
+combine(A,B) = canonical(normalize(A ∪ B))
 
-require
-  combine(A,B) = combine(B,A)
-  combine(combine(A,B),C) = combine(A,combine(B,C))
-  combine(A,A) = combine(A)
+require commutative(combine)
+    and associative(combine)
+    and idempotent(combine)
 ```
 
-所有领域compiler、文档compiler、policy compiler与architecture search必须复用这一结果代数；局部实现不得把`conflicted`降级成普通`violated`、`unresolved`或默认选择。
+`Conflicted`必须回到有权Decision owner；不得按输入顺序、priority或last-write-wins暗选。`Unresolved`不得降为普通violation、false或默认候选。
 
-### 3.2 引用而非继承
+## 6. Identity、revision 与 representation
 
 ```text
-Requirement.resourceRef -> ResourceBudget.identity
-Binding.grantRef         -> AuthorityGrant.identity
-Settlement.attemptRef    -> Attempt.identity
-Evidence.claimRef        -> Claim.identity
+semanticIdentity ⟂ activeOwner ⟂ scopeMembership ⟂ lifecycle
+                 ⟂ subjectRevision ⟂ serializationNamespace
+                 ⟂ address ⟂ presentationLabel
 ```
 
-引用方保存 identity/digest，不复制被引用对象的 fields。被引用 revision 变化时，依赖图使引用方 stale；禁止靠字段继承、字符串拼接或路径镜像保持“同步”。
+`SubjectRef`由有权identity namespace一次签发为稳定opaque key；owner、scope、lifecycle和Definition revision均通过独立typed relations绑定，不能嵌入identity。`SubjectRevisionRef`绑定`SubjectRef + exact accepted Definition generation/digest`，用于使旧meaning consumer与derived artifact精确stale。Owner transfer、scope reparent、address move或representation变化保持`SubjectRef`；真正split/merge/replacement必须使用显式identity evolution与consumer migration，不能复用或悄悄换key。
 
-### 3.3 信息坐标：这些概念不是同义层级
+Schema/version仅在真实durable、cross-process、external或migration consumer需要区分可观察grammar时存在；serialization namespace也不能成为SubjectRef。Path、prefix、`Vn`、类型名、当前owner和显示标签均不能反向拥有identity。
 
-`construct / statement / relation / profile / plane / constraint family / stage / entity family / view` 是同一设计事实的正交坐标，不是九套并列 ontology，也不是从抽象到具体的单链继承。
+Representation可以是ADT、schema、table、graph、state machine、formula、pseudocode或prose；每个representation只引用同一semantic node。换一种表达不能增加事实、Authority或完成状态。
 
-| 维度 | 回答 | 典型值 | 不回答 |
-| --- | --- | --- | --- |
-| Construct | 这个事实由哪种最小逻辑构件表达 | Subject、Claim、Relation、Constraint、Transition、Proof、Unknown | 来源是否可靠、属于哪个业务 |
-| StatementKind | 当前陈述凭什么成立 | Fact、Hypothesis、Decision、Authorization、Requirement、Observation、Evidence、Unknown | 它和谁连接、何时执行 |
-| RelationKind | 两个 exact Subjects 怎样连接 | Definition、Requires、Provides、Binds、Allocates、Settles、EvidenceSupports | payload 内容、执行顺序 |
-| Profile | 哪组已接受规则适用于当前 Project/Target/Environment | Project Constitution、Target Profile、Execution Profile | 新事实、实现成功 |
-| Plane | 从哪个独立责任维度观察系统 | Semantic、Knowledge、Responsibility、Authority、Capability/Resource、Execution、Lifecycle/Proof、Evolution、Interface | 时间阶段、文件位置 |
-| ConstraintFamily | 哪类合法性必须合取验证 | identity、uniqueness、authority、resource、recovery、coverage 等 | 软偏好、实现候选排名 |
-| Stage | 哪些输入必须先存在才能纯编译下一产物 | outcome→observation→semantics→responsibility→operation→execution→proof→evolution | owner 身份、物理并发线程 |
-| EntityFamily | domain payload 属于哪种可独立拥有和演进的业务族 | Operation、Grant、Binding、State、Evidence、Migration 等 | 通用 relation 的语义 |
-| View | 哪个 consumer 需要哪种无增权投影 | human、machine admission、Agent context、runtime query | 第二真相、裁剪掉的 blocker |
-
-坐标使用有语义的discriminant；偏序由typed relations表达，不把显示序号写进identity：
-
-| Coordinate family | 回答 | Canonical discriminants | 不能解释 |
-| --- | --- | --- | --- |
-| Source stratum | 哪类source可定义或观察什么 | `calculus`、`engineering-constitution`、`agent-constitution`、`product-decisions`、`project-composition` (generated)、`domain-definition`、`implementation-design`、`execution-profile`、`runtime-observation` | realization顺序、runtime Authority |
-| Implementation refinement | accepted meaning如何逐层兑现到interface | `meta`、`product`、`domain`、`composition`、`realization`、`control`、`execution`、`settlement`、`interface` | 时间先后、Evidence成熟度 |
-| Compilation stage | 哪些输入在因果偏序中先于哪个产物 | `outcome`、`observation-universe`、`observation`、`semantics`、`responsibility`、`pure-operation`、`admissibility`、`effect-settlement`、`claim-verdict`、`publish-evolve` | owner hierarchy、源码目录 |
-| Provider maturity | 外部Provision的证据与采用状态 | `physical`、`typed-invocation`、`governed-declaration`、`observed-candidate`、`verified-provider`、`normalized-projection` | 产品版本、实现层级 |
-| Product capability node | SEC产品能力脊柱中的语义能力及其依赖/退出合同 | `capability.<semantic-id>` | implementation refinement、运行时执行顺序 |
-| Target track state | 一个Target/Provider支持轨道的当前合同状态 | `target-track.<semantic-id>` | 通用Provider maturity、产品版本 |
-| Plane | 从哪个正交责任维度投影同一事实 | named plane，无数字顺序 | 生命周期阶段、优先级 |
-
-任何schema、API或文档引用坐标时必须携带coordinate family与semantic discriminant；数字ordinal只允许由当前偏序生成用于展示，不能进入identity、引用、测试或兼容判断。裸`L1`、`R14`、整数或仅凭上下文猜轴属于`coordinate-family-unbound`。
-
-任一可消费事实都有一个概念坐标，但不实现为“所有字段可选”的万能 DTO：
+## 7. 原则语言
 
 ```text
-InformationCoordinate =
-  domainTypedPayload
-  + Envelope reference
-  + StatementKind
-  + applicable Plane/Profile/Constraint refs
-  + typed Relations
-  + lifecycle/coverage/unknown
-```
-
-```mermaid
-flowchart LR
-  C[Construct + domain payload] --> E[Envelope]
-  S[Statement kind] --> E
-  R[Typed relations] --> G[Relation graph]
-  E --> G
-  P[Profiles and planes] --> A[Applicable constraints]
-  G --> A
-  A --> T[Stage compiler]
-  T --> V[Consumer views]
-```
-
-组织规则：Construct定义表达能力；StatementKind保存认识论来源；Relation组成因果图；Profile选择适用规则；Plane保持责任正交；Constraint做合法性合取；Stage规定因果偏序；EntityFamily承载领域payload；View只做无增权投影。新增概念先尝试由现行坐标族与typed relations表达；可等价表达则拒绝重复meta-model，确有独立admission/lifecycle/invalidation/consumer语义则按`expression-gap`演进meta-model并重编coverage，不冻结坐标族数量。
-
-### 3.4 系统不等于一张无类型的图
-
-关系图只是共同底座；完整系统模型还包含领域 payload、合法性、数量、时间、状态和覆盖：
-
-```text
-SystemModel =
-  typed attributed hypergraph(Subjects, Relations, Envelopes)
-  + constraint algebra
-  + transition/state machines
-  + resource quantities and ledgers
-  + temporal/freshness rules
-  + Profiles and coordinate-family grammar
-  + coverage and Unknown frontier
-```
-
-一条多方约束可表达为有 identity 的 relation node/hyperedge，而不是复制成若干二元布尔字段。State transition、allocation consumption、deadline 和 settlement 不能只靠静态 edge 表达；它们分别由 transition、resource 与 temporal semantics 验证。
-
-系统共享一个 canonical identity/reference space，但不构造一个所有字段可选的 monolithic graph：
-
-| Generated projection | 只回答 | 必须保持 |
-| --- | --- | --- |
-| semantic/causal graph | 什么成立、为何成立 | Definition、provenance、unknown |
-| owner/dependency DAG | 谁拥有、谁可依赖谁 | unique owner、acyclic authority/implementation strata |
-| workflow DAG | 哪些 DomainOperations 以何种结果依赖组合 | operation boundary、guards、compensation |
-| capability/binding graph | 哪项 Requirement 由哪个 Provision 满足 | grant、profile、freshness |
-| resource graph/ledger | 哪个 parent 向哪些 attempt 分配多少 | conservation、release、leak |
-| state/transition system | 哪些状态变化合法 | pre-state、CAS、terminal/residue |
-| provenance/Evidence DAG | observation 可支持哪些 Claim | independence、coverage、freshness |
-| evolution graph | old/new generation 如何迁移和退役 | conservation、cutover、consumer-zero |
-
-每个node/edge都引用适用的强类型坐标：至少`sourceStratum + plane + owner + revision`；进入实现refinement或stage时再增加对应coordinate family，未适用的轴保持absent而不是伪默认值。跨坐标只能使用声明过的`refines | materializes | observes | binds | settles | proves | projects | migrates`等relation。不同层级信息只能在`DesignKnowledgeGraph`中通过typed refs组合验证，不能共用identity、payload或writer；任意view只保留所需refs和typed frontier，不能把多个层压成一份自由JSON。
-
-系统知识的 canonical form 不是一棵树、一个嵌套对象或一个全局 mutable graph，而是由各 owner 发布、经 strict contract 验证的规范化事实与 typed relations：
-
-```text
-DesignKnowledgeModel = {
-  subjects + claims + definitions,
-  typedRelations + constraints,
-  transitionSystems + partialOrders,
-  allocationsAndLedgers,
-  provenanceAndEvidenceRelations,
-  coverageAndUnknownFrontiers,
-  owner/revision/invalidation metadata
+Principle = {
+  principleRef,
+  applicabilityUniverse,
+  subjectRefs,
+  preconditions,
+  modality: require | forbid | permit | derive,
+  predicate,
+  observableOrRejection,
+  rationaleRefs,
+  counterexampleRefs,
+  reversalCondition,
+  ownerAndRevision
 }
 ```
 
-`containment`、`dependency`、`causality`、`support`、`temporal-order`和`projection`是不同关系，不能为了目录整齐压成一棵树。一个事实只有一个 semantic owner，但可被多个关系、流程和视图引用；复用通过 stable ref 完成，不复制 payload。某个 owner 内部若存在真正的封装、共同 invariant 与共同 lifecycle，可以用 compound structure 表达；这只是经证明的局部表示，不是系统全局本体。
+一项原则可有多个精确投影：
 
-```text
-KnowledgeView = query(DesignKnowledgeModel, purpose, roots, authority, detailBudget)
-
-ViewFidelity(view, model) =
-  every emitted statement references one canonical fact/relation
-  and every omitted applicable frontier is explicit
-  and blocker/unknown/owner/revision semantics are preserved
-  and the view cannot write back or issue authority
-```
-
-最小operation context、领域视图、流程图、层级导航和最大授权审计都是从同一事实模型编译的不同查询结果，不是彼此嵌套的手写真相。renderer可按关系形状选择表、DAG、hypergraph、state machine、sequence、tree或nested compound view；改变表达粒度不得改变meaning、blocker、unknown或Claim。运行时只消费已编译plan和opaque capabilities，不遍历知识模型。
-
-结构选择必须先从关系与操作语义生成候选，不能从当前代码形状开始微调：
-
-```text
-RepresentationSynthesisInput = {
-  identity/ownership/containment/dependency relations,
-  state/time/concurrency/resource/proof/evolution semantics,
-  required query/mutation/expansion operations,
-  scale/distribution/trust/failure constraints,
-  cold/warm/delta/lifecycle cost objectives,
-  eligible mature external mechanisms
-}
-
-RepresentationDecision =
-  generate materially distinct structure/algorithm families
-  -> reject hard-constraint violations
-  -> prove operation semantics and complexity
-  -> compare lifecycle-cost Pareto frontier
-  -> select or preserve exact unresolved frontier
-```
-
-| Relation / operation shape | 首要候选，不是强制答案 | 常见错误替代 |
-| --- | --- | --- |
-| owner/invariant containment + zoom | nested compound graph/tree of owned fragments | 巨型平面图 + 脱离事实模型的手写views |
-| many-to-many dependency/causality | DAG / typed hypergraph + reachability/fixed point | 路径清单、嵌套对象复制 |
-| lifecycle/terminal/recovery | state machine / transition system | booleans、catch分支 |
-| resource subdivision/conservation | hierarchical ledger/allocation tree | 每层重置timeout/counter |
-| policy/eligibility/unknown refinement | constraint system/lattice | if顺序、评分覆盖hard failure |
-| provenance/Claim support | provenance DAG/hyperedge | producer自报或报告文本 |
-| concurrency/order | partial order、linearization、claim/join | 全串行或无界parallel |
-| immutable content/reuse | content-addressed Merkle structure | path/mtime cache |
-| exact external capability | retained opaque capability + stateful protocol | naked command/function callback |
-
-候选覆盖不能由同一结构的命名变体满足；必须包含适用的composition、indexing、incremental、distributed与成熟外部实现家族。每个候选记录支持操作、渐近/常数成本、failure/recovery、migration、extension和反转条件。结构无法回答某项已声明操作时是model defect，不得拖到编码时用局部分支补齐。
-
-### 3.5 正交分解不等于物理碎片化
-
-语义分解与实现聚合是两次不同演算：
-
-```text
-SemanticSplitRequired(a, b) iff
-  owner(a) != owner(b)
-  ∨ authority(a) != authority(b)
-  ∨ lifecycle(a) != lifecycle(b)
-  ∨ revisionOrInvalidation(a) != revisionOrInvalidation(b)
-  ∨ consumerCanLegitimatelyObserveOneWithoutTheOther(a, b)
-
-PhysicalCoLocationPreferred(a, b) iff
-  sameOwnerAndTrustBoundary(a, b)
-  ∧ sameAtomicConsistencyAndLifecycle(a, b)
-  ∧ highCoChangeOrReadTogether(a, b)
-  ∧ noIndependentPublicConsumer(a, b)
-  ∧ lifecycleCost(coLocated) < lifecycleCost(separate)
-```
-
-| 语义结果 | 实现结果 |
+| view | purpose |
 | --- | --- |
-| 不满足`SemanticSplitRequired`且强共变 | 同一typed aggregate/CodeUnit，不造relation、port或文件 |
-| 语义独立但同owner、同事务、总是一起消费 | payload保持typed字段，物理共置并一次parse/commit |
-| owner/Authority/lifecycle/version独立 | 分离identity与contract，通过typed ref组合 |
-| 跨cell高频稳定组合 | compiler物化content-addressed package/index/view，consumer一次读取 |
-| 开放式低频查询 | 按需求编译最小closure，不预聚合全世界 |
+| normative sentence | 人类快速理解 |
+| formal predicate | compiler判定 |
+| role/boundary matrix | 明确owner、输入输出和禁区 |
+| graph/state/sequence | 表示关系、层级与时间 |
+| machine rejection | 使违反可观察且typed |
+| counterexample/reversal | 暴露适用边界与演进条件 |
 
-`Orthogonality`禁止概念冒充，不要求“一项关系一个对象、文件、包、服务或网络调用”。`Composition`也不是每次业务执行时临时join所有原子；authoring graph经compiler形成按consumer裁剪且可缓存的immutable aggregate。任何拆分必须给出独立变化/权限/生命周期/consumer收益和全生命周期成本；否则判为`over-factored`并合并。任何合并必须证明不会吞掉独立owner、invalidations或unknown；否则判为`boundary-collapse`并拆分。
+这些view共享一个`principleRef`。重复换措辞、历史争论、路径清单和仅强调“不要犯错”的文本不构成新知识。
 
-## 4. 原则记录与多视图精确表达
-
-一条原则只有一个 identity。权威语义是可计算的 `PrincipleIR`；自然语言、图和 compact context 都是投影：
+### 7.1 Rationale closure
 
 ```text
-PrincipleIR = {
-  identity,
-  class,                 // engineering | agent
-  quantifiedSubjects,
-  predicates,
-  precedence,
-  compilerInputs,
-  compilerOutputs,
-  roles,
-  rejectionCodes,
-  counterexampleFamilies,
-  reversalPredicate,
-  materializationTargets
-}
-
-PrincipleRecord = {
-  semanticCore: PrincipleIR,
-  purposeRefs,
-  sourceStatementRefs,
-  premiseRefs,
-  alternativeSetRef,
-  selectedBecauseRef,
-  avoidedFaultFamilyRefs,
-  acceptedConsequenceRefs,
-  proofObligationRefs,
-  carryingCostRef,
-  reversalPredicateRef,
-  supersedesRefs,
-  acceptedBy + authority
+DesignDecision = {
+  decisionRef,
+  subject and decision-dimension refs,
+  problem/outcome refs,
+  candidate and hard-constraint refs,
+  selected candidate ref,
+  objective/tradeoff and consequence refs,
+  premise/evidence and rejected-candidate refs,
+  responsibilityAssignmentRef,
+  reversal predicates,
+  decisionRevision
 }
 ```
 
-```mermaid
-flowchart TB
-  P[Canonical PrincipleIR]
-  P --> N[规范句]
-  P --> F[形式谓词]
-  P --> I[编译 I/O]
-  P --> R[角色/权限图]
-  P --> C[反例/边界矩阵]
-  P --> M[机器拒绝]
-  P --> H[完整推导]
-  P --> A[Agent compact projection]
-```
+不可推导选择只author一次，并由该decision dimension的唯一`ResponsibilityAssignment`采用；cost vector、dominance、impact和projection由compiler生成。可由closed rule唯一推出的结果是derivation，不伪装成owner Decision；未闭合候选是Frontier，不允许compiler、scheduler、Provider、AI或当前文件作者暗选。理由不能依赖该选择后来产生的implementation、test或Verdict，否则是post-hoc self-proof。
 
-这些视图可以长度不同、表达方式不同，但必须语义等价：
+删除任何设计知识前必须证明其meaning、rationale、future obligation与reversal在canonical graph中仍唯一可达。Git历史、AI记忆和“以后可以重想”都不是保存机制。
+
+## 8. 通用性边界
+
+Design Calculus适用于任意软件/系统，但不会强迫每个系统使用每个construct。Compiler按accepted behavior、relations和purpose计算applicability；无authority、resource、tenant、external、durable或migration关系的scope不会看到相应细节。
 
 ```text
-meaningDigest(view) = digest(canonical PrincipleIR)
-blockers(view)       = rejectionCodes(PrincipleIR)
-unknown(view)        = unknownSemantics(PrincipleIR)
+CalculusClosed =
+  every admitted construct has closed syntax and semantics
+  and every conversion is explicit and owner-authorized
+  and every relation has distinct laws and authority assignment
+  and constraints compose deterministically
+  and representation cannot alter meaning
+  and unknown/open-world cases cannot gain positive semantics
+  and meta-model extension preserves the old expressible subset or records retirement
 ```
 
-`PrincipleRecord`只保存不可推导选择及typed refs；候选生成、约束结果、成本、fault traces与投影由compiler产生。自然语言只能解释这些refs，不能改变IR；若文字无法由IR和refs支持，投影拒绝发布。多种表达只适用于原则等需要消歧的高阶约束；普通事实选择一项最合适的载体。不得为了“多视图”复制状态、路径、实现清单或当前结果。
-
-### 4.1 来源、目的与理由闭包
-
-“为什么”不是一个自由文本字段，而是对不同事实种类的typed query。每个可接受的设计node/edge必须能沿唯一知识图回答其适用问题：
-
-| Query | 必须返回 | 不得用作答案 |
-| --- | --- | --- |
-| `sourceOf(x)` | statement kind、issuer、authority、coverage、freshness、contradiction frontier | 聊天摘要、作者名、同名常量 |
-| `purposeOf(x)` | accepted outcome/non-goal/future obligation refs | “可能有用”、实现已存在 |
-| `whyExists(x)` | requirement reachability或accepted FutureObligation + deletion counterfactual | 文件被引用、测试存在 |
-| `whyThisShape(x)` | exact premises、适用constraints、candidate coverage、dominance trace | 首个可行方案、个人偏好 |
-| `whyNot(a)` | hard violation或被另一候选支配的exact trace | 没实现过、名字不好 |
-| `avoids(x)` | fault/counterexample → rejected outcome/constraint → selected property | 手写风险清单、空泛“更安全” |
-| `costOf(x)` | 全生命周期cost vector与承担者 | 仅代码行数或单次命令时间 |
-| `proves(x)` | conformance obligation、independent evidence class、unknown | producer自报PASS |
-| `whenReverse(x)` | reversal predicate、invalidation reverse closure、retirement obligation | “未来再评估” |
-
-```text
-DesignSourceStatement = {
-  identity,
-  statementRef,
-  statementKind: Fact | Hypothesis | Decision | Authorization | Requirement |
-                 Observation | Evidence | Unknown,
-  semanticRole: outcome | non-goal | obligation | principle | domain-definition |
-                external-contract | measurement | constraint-input,
-  issuerRef + issuerAuthority,
-  subjectRevisionRefs,
-  coverage + freshness,
-  contradictionRefs + unknownFrontierRef
-}
-
-DesignExplanationTrace =
-  | ProvenanceTrace(sourceStatementRefs, issuerChain, coverage, contradictionFrontier)
-  | PurposeTrace(outcomeRefs, nonGoalRefs, obligationRefs)
-  | DerivationTrace(exactInputRefs, algorithmRef, outputRef, unknownFrontier)
-  | ExistenceTrace(requirementReachability, deletionCounterfactual, carryingCost)
-  | SelectionTrace(candidateCoverage, hardConstraintResults, dominance, rejectedCandidates)
-  | FaultAvoidanceTrace(faultRef, rejectedOutcomeRef, preservedPropertyRef)
-  | ConsequenceTrace(benefitRefs, acceptedCostRefs, costBearers, lostOptionRefs)
-  | ProofObligationTrace(claimRefs, conformanceRefs, independence, unresolved)
-  | ReversalTrace(predicateRef, invalidationReverseClosure, retirementObligations)
-
-DesignRationaleIndex = {
-  subjectRef,
-  applicableQuerySet,
-  explanationTraceRefs,
-  unresolvedQueryRefs,
-  meaningDigest
-}
-```
-
-`applicableQuerySet`由subject kind、plane和relations编译，不要求无关对象填写空字段。`DesignRationaleIndex`与各trace从owner records、exact observations和compiler traces生成，不是第二份decision log。事实使用provenance，派生结论使用derivation，授权使用issuer chain，选择使用selection，未知使用frontier；禁止把所有对象强塞进`DesignDecision`，也禁止用一个万能trace或自由“rationale”掩盖不同认识论来源。
-
-| Source statement kind | 可参与设计的方式 | 不能产生 |
-| --- | --- | --- |
-| Decision | 定义accepted outcome、non-goal、tradeoff或FutureObligation | Observation、Effect、PASS |
-| Fact / external contract | 作为有coverage与freshness的premise/constraint | 无界全局真理 |
-| Requirement | 进入requirement closure并由consumer reachability验证 | Provision、Authority |
-| Observation | 更新exact world model、cost或counterexample | 永久Definition、授权 |
-| Evidence | 支持exact Claim并携带independence/freshness | Product choice、Effect |
-| Authorization | 只收窄当前设计/实现operation可做的Effect | 设计正确性、长期owner |
-| Hypothesis | 生成候选、实验或可证伪解释 | accepted设计 |
-| Unknown | 扩大frontier、阻断受影响正向Claim | absent、mismatch、success |
-
-用户欲望或maintainer取舍只有在对应Product/Domain decision authority接受后才成为`Decision`；用户提出的技术形状、Agent建议、Skill规则和既有代码默认是`Hypothesis`。这既不把用户终局结果降格，也不把任一技术措辞自动提升为永久架构真理。
-
-```text
-RationaleComplete(x) =
-  sourceOf(x) is typed
-  ∧ purposeOf(x) reaches accepted outcome/non-goal/obligation
-  ∧ (derived(x) -> exact Derivation trace)
-  ∧ (chosen(x) -> bounded candidate coverage + dominance + consequences)
-  ∧ (effectRelevant(x) -> avoided fault + settlement/proof obligations)
-  ∧ reversal and unknown frontier are explicit
-```
-
-理由必须在实现admission前绑定到输入revision。实现成功、测试PASS、已有调用者或迁移成本只能成为后续Observation/cost input，不能反向改写原选择理由；否则是post-hoc rationale laundering。方案空间不可能宣称无限完备，只能证明已声明设计轴的generated coverage，并把未覆盖轴保留为bounded unknown。
-
-
+<!-- sec-clause {"blocker":null,"kind":"stable-decision"} -->
 ## 规范片段
 
-本文件保留设计语言、事实/关系代数、约束组合与原则记录；编译、模拟、冻结和演进由下列独立规范片段拥有。
-
-| 片段 | 独立职责 |
-| --- | --- |
-| [设计编译与模拟](design-calculus/compilation.md) | 本片段拥有 Design Compiler、Operation/Effect 参考模型、未来义务、模型演算、故障族与场景规格。 |
-| [设计冻结与演进](design-calculus/freeze-and-evolution.md) | 本片段拥有 Design Package、知识产物、伪实现完整性、逻辑验证、反例传播与设计完成。 |
+Design Calculus只定义跨工程通用的typed statements、relations、constraints、behavior、identity和principles；产品、Domain、Agent、实现与运行事实由其各自owner实例化。任何隐式类型转换、可选字段万能对象、representation升权或unknown降级都非法。

@@ -19,7 +19,7 @@ domain: verification-governance
 | Frozen Evidence | exact candidate content/generation only when Claim observes it + environment/result | cache/authoring identity as proof |
 
 ```text
-ActionKey = hash(
+VerificationActionKey = ActionKey(
   canonical producer revision,
   normalized operation,
   actual subject closure,
@@ -39,7 +39,7 @@ flowchart LR
   R -->|fresh terminal| Reuse[reuse PASS/FAIL]
   R -->|authenticated live| Join[join in-flight]
   R -->|missing/stale + absence claim| Exec[one physical execution]
-  R -->|unknown start/outcome| Block[reconcile / block]
+  R -->|unknown start/outcome| Stop[reconcile / block]
   Exec --> S[settlement + readback]
   S --> T[immutable terminal Evidence]
 ```
@@ -50,15 +50,7 @@ cache hit/miss不签发 Result；provider availability只是negative circuit bre
 
 ## 6. Impact 与验证选择
 
-```text
-RequiredClosure =
-  changed semantic subjects
-  → direct consumers
-  → public surface / state / Effect / fixture / Claim dependencies
-  → applicable Gates
-
-ExecutionSet = RequiredClosure ∩ MissingOrStaleActionKeys
-```
+Verification复用System Architecture唯一的`RequiredExecutionClosure`与`ExecutionSet`。本Domain只提供verification roots：changed semantic subjects → direct consumers → public/state/Effect/fixture/Claim dependencies → applicable Gates；不复制通用closure或reuse公式。
 
 Impact只传播可证明关系；unknown edge产生保守 blocker/backstop，不允许假精确。plan/query zero Effect：在dependency preparation、cache write、process/provider start、network/fs mutation前返回selection。
 

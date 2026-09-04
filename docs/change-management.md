@@ -131,7 +131,9 @@ Dependency bump 不能静默改变语义；pin/require/custom 不能绕过 hard 
 
 | Required migration fact | 含义 |
 | --- | --- |
-| oldIdentity | exact schema/path/provider/API identity |
+| subjectIdentity | old/new stable SubjectRef；split、merge、replacement必须显式声明 |
+| contractRevision | exact old/new schema、protocol、provider或API grammar revision |
+| addressBinding | exact old/new Address与PhysicalBinding；path不能冒充Subject identity |
 | externalStateClass | bounded physical universe；不是“也许有用户” |
 | readers/writers | 分开列出；cutover先停止old writer/dual-write |
 | census | byte-safe exact count + unknown frontier |
