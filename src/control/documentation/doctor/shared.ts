@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../system-architecture/foundation/contract/repository-path.ts';
 import type { DocumentationAuthorityRecord } from '../authority.ts';
+import { splitMarkdownReference } from '../markdown-reference.ts';
 
 export const DOCUMENT_AUTHORITY_REGISTRY_PATH = 'docs/authority.json';
 
@@ -85,8 +86,9 @@ export function posixRelative(root: string, file: string): string {
   return path.relative(root, file).split(path.sep).join('/');
 }
 
+/** Path-only compatibility helper. Semantic callers that care about anchors must use splitMarkdownReference. */
 export function normalizedReference(reference: string): string {
-  return reference.replace(/^<|>$/gu, '').replace(/[?#].*$/u, '').replace(/^\.\/+/u, '');
+  return splitMarkdownReference(reference).path;
 }
 
 export function isExternalReference(reference: string): boolean {
@@ -204,9 +206,10 @@ export function repositoryPathForLink(
   repositoryRoot: string,
   sourceFile: string,
   rawReference: string
-): { invalid?: string; repositoryPath?: string; target?: string } {
-  const reference = normalizedReference(rawReference);
-  if (!reference || isExternalReference(reference)) return {};
+): { invalid?: string; repositoryPath?: string; target?: string; fragment?: string | null } {
+  const parsed = splitMarkdownReference(rawReference);
+  const reference = parsed.path;
+  if (!reference || isExternalReference(rawReference)) return {};
   if (
     path.isAbsolute(reference)
     || /^[A-Za-z]:[\\/]/u.test(reference)
@@ -223,7 +226,7 @@ export function repositoryPathForLink(
   if (!CodexDevelopmentIsCanonicalRepositoryPath(repositoryPath)) {
     return { invalid: 'noncanonical', repositoryPath };
   }
-  return { repositoryPath, target };
+  return { repositoryPath, target, fragment: parsed.fragment };
 }
 
 export function repositoryPathForInline(rawReference: string): string | undefined {
@@ -255,7 +258,6 @@ export function activeCandidatePath(repositoryPath: string): boolean {
   if (repositoryPath.endsWith('.md')) return true;
   return /^docs\/(?:governance|work)\/.+\.ya?ml$/u.test(repositoryPath);
 }
-
 
 export function recordValue(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
