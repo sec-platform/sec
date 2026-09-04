@@ -81,28 +81,17 @@ export function buildJsonLogRecord(
 function createJsonLogger(level: LogLevel): Logger {
   const threshold = LEVEL_PRIORITY[level];
 
-  function write(priority: number, message: string, data: unknown): void {
-    if (priority < threshold) return;
-    const record = buildJsonLogRecord(
-      priority === LEVEL_PRIORITY.debug
-        ? 'debug'
-        : priority === LEVEL_PRIORITY.info
-          ? 'info'
-          : priority === LEVEL_PRIORITY.warn
-            ? 'warn'
-            : 'error',
-      message,
-      data,
-      Date.now()
-    );
+  function write(recordLevel: LogLevel, message: string, data: unknown): void {
+    if (LEVEL_PRIORITY[recordLevel] < threshold) return;
+    const record = buildJsonLogRecord(recordLevel, message, data, Date.now());
     process.stdout.write(`${JSON.stringify(record)}\n`);
   }
 
   return Object.freeze({
-    debug: (message, data) => write(LEVEL_PRIORITY.debug, message, data),
-    info: (message, data) => write(LEVEL_PRIORITY.info, message, data),
-    warn: (message, data) => write(LEVEL_PRIORITY.warn, message, data),
-    error: (message, data) => write(LEVEL_PRIORITY.error, message, data)
+    debug: (message, data) => write('debug', message, data),
+    info: (message, data) => write('info', message, data),
+    warn: (message, data) => write('warn', message, data),
+    error: (message, data) => write('error', message, data)
   });
 }
 
