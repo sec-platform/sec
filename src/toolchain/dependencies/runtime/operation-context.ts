@@ -270,6 +270,11 @@ export function runtimeDependencyOperationRemainingMs(
   label: string,
   minimumMs = 1
 ): number {
+  if (!Number.isFinite(minimumMs) || minimumMs < 0) {
+    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency minimum budget must be finite and non-negative', {
+      minimumMs
+    });
+  }
   const context = runtimeDependencyOperationContext(options);
   context.signal?.throwIfAborted();
   const observedAtMonotonicMs = context.monotonicNowMs();
@@ -294,6 +299,13 @@ export async function waitForRuntimeDependencyOperation(
   sleep: (ms: number) => Promise<void>,
   label: string
 ): Promise<void> {
+  // Infinite delays keep their existing saturating clamp. NaN and untyped
+  // non-numbers have no ordered duration and must not reach the sleep effect.
+  if (typeof requestedDelayMs !== 'number' || Number.isNaN(requestedDelayMs)) {
+    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency wait delay must be an ordered number', {
+      requestedDelayMs
+    });
+  }
   // Retain one operation ledger even when the caller supplies raw options.
   // Recreating it for the terminal check would reset the deadline and clock.
   const operationOptions = runtimeDependencyOperationOptions(options);

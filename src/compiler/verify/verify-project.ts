@@ -2,7 +2,7 @@ import path from 'node:path';
 import type { AcceptanceCoverageReport } from '../../semantic/acceptance/contract/types.ts';
 import type { Logger } from '../../system-architecture/foundation/logger.ts';
 import { defaultLogger } from '../../system-architecture/foundation/logger.ts';
-import { canonicalEquals, compareCodeUnits, sha256, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalEquals, compareCodeUnits, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { ensureProjectDependencies } from '../../toolchain/dependencies/runtime.ts';
 import type { CanonicalVerificationArtifactSet } from '../../verification/artifact/contract/artifact.ts';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
@@ -288,14 +288,21 @@ export async function assertStagedVerificationLiveContext(
     'verificationReport' | 'runtimeReport' | 'policyReport' | 'acceptanceCoverage'
   >
 ): Promise<void> {
-  const acceptanceCoveragePromise = buildAcceptanceCoverage(
-    workspaceRoot,
-    lock,
-    artifacts.runtimeReport,
-    artifacts.verificationReport.fast
-  );
-  const policyReport = await runPolicyGate(workspaceRoot);
-  const acceptanceCoverage = await acceptanceCoveragePromise;
+  // Observe both rejections immediately and join both reads before leaving
+  // the live-context check. Preserve policy failure priority when both fail.
+  const [coverageResult, policyResult] = await Promise.allSettled([
+    buildAcceptanceCoverage(
+      workspaceRoot,
+      lock,
+      artifacts.runtimeReport,
+      artifacts.verificationReport.fast
+    ),
+    runPolicyGate(workspaceRoot)
+  ]);
+  if (policyResult.status === 'rejected') throw policyResult.reason;
+  if (coverageResult.status === 'rejected') throw coverageResult.reason;
+  const policyReport = policyResult.value;
+  const acceptanceCoverage = coverageResult.value;
   if (!canonicalEquals(policyReport, artifacts.policyReport) ||
       !canonicalEquals(acceptanceCoverage, artifacts.acceptanceCoverage)) {
     throw new Error('Live Verification policy or acceptance context changed after staged proof');
