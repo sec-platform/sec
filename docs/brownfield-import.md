@@ -97,14 +97,7 @@ dynamic load、shell composition、reflection 或 external runner 无法解析�
 
 Compiler/provider 只发布其能证明的 language facts；SEC 组合唯一 repository graph，不重写成熟 parser。clean/incremental outputs 必须 byte-equivalent。
 
-观察世代、内容寻址 fact shard、跨进程复用、父资源账本、Windows retained capability
-以及 cold/warm/delta 的唯一实现合同由
-[实现架构的增量与共享事实章节](implementation-architecture/source-and-generation.md#78-增量共享事实与性能)
-拥有；Brownfield 只负责签发其中可证明的 language facts 与 unknown frontier。所有
-typecheck、audit、test-impact、architecture 和 Agent 查询必须消费同一
-`SourceObservationGeneration`，各自只取得自己的只读 allocation；不得再建 receipt、
-scanner、AST 图或 cache owner。该交接关系变化时只更新相应 owner 的 contract/ref，
-不在本文件复制实现字段。
+观察世代、内容寻址 fact shard、跨进程复用、overlay precedence、父资源账本、retained capability以及 cold/warm/delta 的唯一实现合同由[Source Observation 与增量事实](implementation-architecture/source-observation-and-incrementality.md)拥有；Brownfield 只负责签发其中可证明的 language facts 与 unknown frontier。所有 typecheck、audit、test-impact、architecture 和 Agent 查询必须消费同一 `SourceObservationGeneration` 及其 purpose-reachable fact shards，各自只取得自己的只读 allocation；不得再建 receipt、scanner、AST 图或 cache owner。ActionKey 的局部输入 identity 还必须遵守 [Derivation Locality](system-architecture/derivation-locality.md)：无关 workspace/content generation 变化不能制造全局 cache miss。
 
 ## 5. Generic external library binding
 
@@ -216,7 +209,7 @@ Normalize 必须证明：
 
 Brownfield 提供 adopted existing implementations、verified Provider/Adapter candidates、typed/custom governed candidates、Evidence/unknown、owner/Target/migration constraints。
 
-它不拥有 hard eligibility、policy/tie-break、ResolutionDecision/Binding、Target Program 或 artifact publication。Resolver 选择 candidate 不能反向把 inferred behavior 变成 authoritative semantics。
+它不拥有 hard eligibility、policy/tie-break、ResolutionDecision/Binding、Target Program 或 artifact publication。Resolver 选择 candidate 不能反向把 inferred behavior 变成 authoritative semantics。Brownfield/Provider adoption通过 `SuppliesCandidate` 向 Resolution 提供可选输入，不是 Target Profile / Type Algebra 的硬前置；能力级 relation 由 [Capability Relations](roadmap/capability-relations.md) 分型。
 
 ## 11. Governed write
 
@@ -230,14 +223,14 @@ sequenceDiagram
   participant V as Verification
   O->>S: resolve exact governed region
   S->>T: source binding + byte identity
-  T->>T: lease journal isolated transform
+  T->>T: admitted execution / prepared intent
   T->>T: source and semantic CAS
   T->>V: actual Delta Impact requirements
   V-->>T: typed result
   T->>T: publish or rollback/recovery
 ~~~
 
-不完整 mapping、ambiguous owner、opaque side effect fail closed。Codemod/AST/LST/AI patch 是 proposal；parse/typecheck success 不等于 semantic/runtime parity。
+Pure planning 与 live Effect admission、workspace overlay writeback遵守 [Mutation Planning and Admission](semantic-mutation/planning-and-admission.md)。不完整 mapping、ambiguous owner、opaque side effect fail closed。Codemod/AST/LST/AI patch 是 proposal；parse/typecheck success 不等于 semantic/runtime parity。
 
 ## 12. 配置、资源与多语言
 
