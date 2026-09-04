@@ -6,7 +6,7 @@ domain: system-architecture
 
 # Operation、Owner 与资源关系
 
-本文只拥有通用 Operation、Responsibility、Authority、Capability、Resource 与 Workflow 关系。Domain 集合由 [递归系统拓扑](scope-and-domain-topology.md) 编译；物理 process/container/dependency实现由 implementation architecture 拥有。
+本文拥有通用 Operation、Responsibility、Authority flow、Capability 与 Workflow 关系。Domain 集合由 [递归系统拓扑](scope-and-domain-topology.md) 编译；authority chain 的合法 root kinds由 [Authority Root](authority-roots.md) 拥有；资源维度与 accounting mode由 [Resource Accounting](resource-accounting.md) 拥有；物理 process/container/dependency实现由 Implementation Architecture 拥有。
 
 ## 1. Operation 的四个分型
 
@@ -21,11 +21,11 @@ Operation =
 | variant | owner/input | 包含 | 禁止 |
 | --- | --- | --- | --- |
 | `OperationDefinition` | Domain/Workflow owner | intent grammar、pre/post、state/failure、requirements、idempotency、result | Provider、live grant、path、current state |
-| `PureOperationPlan` | deterministic plan compiler | exact definition/input/observation refs、requirement DAG、readback/recovery、resource ceilings | Effect、ambient discovery、opaque handle |
-| `AdmittedExecution` | authority/capability/resource admission | exact plan、grant、bindings、allocations、preimage、opaque tickets | 重算 Definition、扩大 scope、business success |
+| `PureOperationPlan` | deterministic plan compiler | exact definition/input/observation refs、requirement DAG、readback/recovery、resource requirements/ceilings | Effect、ambient discovery、opaque handle、live EffectGrant |
+| `AdmittedExecution` | authority/capability/resource admission | exact plan、grant、bindings、allocations、preimage、opaque tickets、execution epoch | 重算 Definition、扩大 scope、business success |
 | `OperationObservation` | runtime/state owners | attempt、settlement、readback、DomainResult refs、residue | 修改 plan、自签 Evidence/Verdict |
 
-同一个可变 `Operation` 对象不得跨四个角色。每次转交都是新 identity、exact input refs 和 closed result；plan不能在执行时被callback热改。
+同一个可变 `Operation` 对象不得跨四个角色。每次转交都是新 identity、exact input refs 和 closed result；plan不能在执行时被callback热改。live grant、provider generation、allocation、deadline epoch与preimage只属于`AdmittedExecution`；若它们变化而pure semantic inputs未变，只重新admit，不制造新的PureOperationPlan。
 
 ## 2. 从意图到结果
 
@@ -93,7 +93,7 @@ ResponsibilityAssignment = exact {
 }
 ```
 
-每个 semantic fact、writer、parser、resolver、linearization point、terminal decision 和 public operation恰有一个 active assignment。assignments 构成有限 DAG并终止于有权 Product/Domain decision；source、path、团队、compiler、projection和self-digest不能自授权。
+每个 semantic fact、writer、parser、resolver、linearization point、terminal decision 和 public operation恰有一个 active assignment。assignments 构成有限 DAG，并终止于 [Authority Root](authority-roots.md) 中对**该 exact decision/effect dimension**有权的 typed root；不能把所有 universal law、repository governance 或 external authority 强制归到 Product/Domain。source、path、团队、compiler、projection和self-digest不能自授权。
 
 `owner`是可验证的Responsibility/issuer relation，不等于某个人、团队、文件、class或常驻service。它可以由被治理的machine authority执行，但必须具有唯一identity、scope、decision/transition rights、lifecycle与replacement规则；组织变化或实现替换不自动改变semantic ownership。
 
@@ -139,7 +139,7 @@ flowchart LR
 | ImplementationUnit / package / placement | responsibility、dependency DAG、trust/lifecycle/release、change-locality cost | implementation responsibility assignment或唯一derived result | loader/build tool不产生边界 |
 | state / consistency / linearization | state machine、failure algebra、tenant/security invariants | state responsibility assignment | store/provider只实现已选模型 |
 | concurrency / ordering | semantic partial order、commutativity、idempotency、fairness、resource bounds | operation/state assignment接受policy；compiler导出execution DAG | scheduler只在admitted ready set内选顺序 |
-| resource / timeout / backpressure | parent ledger、service objective、safety ceiling | resource assignment | allocator只收窄，不能重置parent budget |
+| resource / timeout / backpressure | parent ledger、dimension accounting contract、service objective、safety ceiling | resource assignment | allocator按mode收窄/释放/计量，不能重置parent deadline |
 | provider / mechanism / process | Requirement、security/identity/environment、settlement contract | Binding assignment从eligible Provisions中选择 | Provider只供应与结算，不解释业务结果 |
 | Claim / verification method | exact Claim semantics、independence、coverage、freshness | Claim owner声明；Evidence owner观察；Verdict owner判定 | runner/PASS不产生Claim或Authority |
 | migration / cutover / retirement | preservation、reader/writer generations、recovery、consumer-zero | Evolution assignment | migrator只执行admitted transition |
@@ -176,7 +176,7 @@ WorkflowExpression =
 Requirement  = operation needs a semantic/physical capability with constraints
 Provision    = provider can supply a capability under stated conditions
 Binding      = this eligible provision satisfies this exact requirement
-Allocation   = resource owner reserves bounded capacity for this operation
+Allocation   = resource owner reserves bounded capacity/control for this operation
 AuthorityGrant = issuer permits the principal to act on exact subjects/scope/epoch
 ```
 
@@ -187,7 +187,7 @@ AdmittedExecution =
   PurePlan
   ∩ valid AuthorityGrant
   ∩ eligible ProvisionBindings
-  ∩ conserved ResourceAllocations
+  ∩ mode-compatible ResourceAllocations
   ∩ exact current state/preimage
 ```
 
@@ -207,20 +207,21 @@ EffectiveAuthority =
   )
 ```
 
-delegation只能收窄，不能通过多层组合再放大；issuer closure有限、无环、可撤销。read、observe、plan、execute、publish、verify、merge、cleanup等权限分开；拥有物理write capability不等于拥有semantic mutation或completion authority。
+delegation只能收窄，不能通过多层组合再放大；issuer closure有限、无环、可撤销，并按 [Authority Root](authority-roots.md) 验证合法终点。read、observe、plan、execute、publish、verify、merge、cleanup等权限分开；拥有物理write capability不等于拥有semantic mutation或completion authority。
 
-## 8. Resource algebra
+## 8. Resource admission
 
-资源维度由 Requirement声明，可扩展但必须守恒：
+资源维度、单位、reservation、measurement、release/replenishment与settlement由 [Resource Accounting](resource-accounting.md) 唯一拥有。Operation 本层只要求：
 
 ```text
-Allocate(parent, child_i) => Σ reserved(child_i) <= parent.remaining
-Consume(child)            => monotonically increases consumed
-Return(child)             => only unused reservation returns
-Settle(parent)            => every child is terminal or typed residue
+ResourceAdmission =
+  every demanded dimension has one parent dimension contract
+  and accounting mode is compatible
+  and requested ceiling/reservation is parent-bounded
+  and deadline is the shared absolute monotonic deadline
 ```
 
-时间使用parent单调absolute deadline；retry、cleanup、readback和recovery不得重置预算。输入条目/字节、输出、process、network、memory、CPU、锁、provider配额等在实际操作中流式计量；没有理由预扫同一内容两遍。共享immutable content与运行allocation分离：多个consumer可引用同一generation，但各自Attempt仍有独立allocation/settlement。
+CPU time/累计bytes等 `Consumable`、process/lock/connection等 `Lease`、memory/temporary occupancy等 `Gauge`、rate limit 与 external quota不能再复用一个“Consume单调、只退unused reservation”的假统一 algebra。新增资源实例只新增DimensionContract；本文件不加品牌/资源名分支。
 
 ## 9. Effect、并发与恢复
 
@@ -243,10 +244,10 @@ EffectClosed =
 ```text
 OperationSystemClosed =
   every operation variant is disjoint and exact
-  and every semantic owner assignment is unique and acyclic
+  and every semantic owner assignment is unique and authority-root-valid
   and every workflow uses only public operations
   and every admitted execution is the exact grant/binding/allocation/preimage intersection
-  and resource conservation holds through settlement/recovery
+  and mode-specific resource accounting settles through recovery
   and every Effect terminates as result or typed residue
   and unknown never becomes absence, success or fallback
 ```
@@ -254,4 +255,4 @@ OperationSystemClosed =
 <!-- sec-clause {"blocker":null,"kind":"stable-decision"} -->
 ## 规范片段
 
-Operation Definition、Pure Plan、Admitted Execution和Observation/Result必须分型；Responsibility、Authority、Capability与Resource各有唯一owner并以typed relations组合。Workflow只编排public operations，runtime只能执行已准入计划，任何unknown不得降级为absence或fallback。
+Operation Definition、Pure Plan、Admitted Execution和Observation/Result必须分型；Responsibility、Authority、Capability与Resource admission各有唯一owner并以typed relations组合。Authority回根按exact root kind验证，Resource按Dimension accounting mode验证；Workflow只编排public operations，任何unknown不得降级为absence或fallback。
