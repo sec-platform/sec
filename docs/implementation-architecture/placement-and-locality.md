@@ -6,7 +6,7 @@ domain: implementation-architecture
 
 # 实现 Placement 与变更局部性
 
-本文拥有logical carrier到ImplementationUnit/source/package address的placement decision，以及authored change locality。它不拥有Domain边界、source observation、target lowering、package manager或实际文件迁移。
+本文拥有logical carrier到ImplementationUnit/source/package address的placement decision，以及authored change locality。它不拥有Domain边界、source observation、target lowering、package manager或实际文件迁移。多目标成本统一消费 [Constraint、Claim Lowering 与多目标裁决](../design-calculus/constraints-and-decision.md) 的 `LifecycleCostVector` / Pareto，不另造标量公式。
 
 ## 1. Corpus 与 workspace 边界
 
@@ -54,6 +54,7 @@ PlacementDecision = exact {
   generationKind,
   colocatedVerificationClaimRefs,
   migrationObligationRefs,
+  objectiveDimensionRefs,
   decisionDigest
 }
 
@@ -69,22 +70,27 @@ Default是一个产品package内按ResponsibilityRealization高内聚组织；�
 
 Realization内部按semantic subject/operation命名ImplementationUnit。只有上游已证明独立ResponsibilityScope，或实现层显著private co-change/compilation子图需要unit partition时才增加层次；后者不创造semantic scope。禁止空目录、逐目录`index`、root barrel、`common/shared/utils`和路径镜像测试。
 
-## 3. Boundary cost
+## 3. Placement objective vector
+
+Placement不把不同单位的因素直接相加。候选先满足owner、dependency、state/authority/security/lifecycle等hard constraints，再对实际适用维度形成typed objective projection：
 
 ```text
-PlacementCost =
-  authoredOwnerCount
-  + duplicatedMeaning
-  + privateCrossBoundaryEdges
-  + contextReadCost
-  + invalidatedFactShards
-  + verificationImpact
-  + release/runtime coupling
-  + migration/retirement cost
-  + residual unknown risk
+PlacementObjectiveDimensions = {
+  authoredOwnerCount,
+  duplicatedMeaning,
+  privateCrossBoundaryEdges,
+  contextReadCost,
+  invalidatedFactShards,
+  verificationImpact,
+  releaseRuntimeCoupling,
+  migrationRetirementCost,
+  residualUnknownFrontier
+}
 ```
 
-候选必须先满足owner、dependency、state/authority/security/lifecycle硬约束，再做Pareto裁决。文件少但混合owner/Effect/state不是优化；文件多但只有转发/re-export也不是模块化。
+每项必须映射到共享 `LifecycleCostVector` 的有单位/有来源维度或显式 unknown。文件少但混合owner/Effect/state不是优化；文件多但只有转发/re-export也不是模块化。默认按Pareto保留非支配候选；只有该 placement decision 的有权 policy 明确提供归一化/权重/lexicographic order 时才标量化。
+
+新增一个 measured placement concern 只给消费它的 candidate/decision增加objective ref，不修改全局Placement算法，也不让无关placement receipt stale。
 
 ## 4. Change Locality Compiler
 
@@ -152,10 +158,11 @@ PlacementClosed =
   and dependency direction is acyclic across realizations
   and all derived path/import/export/test/doc projections have one source
   and every authored fanout is irreducible or rejected
+  and every placement decision is hard-valid and non-dominated or explicitly owner-selected
   and moves preserve identity with old-address consumer-zero
 ```
 
-<!-- sec-clause {"blocker":null,"kind":"stable-decision"} -->
+<!-- sec-clause {"id":"implementation-placement-locality","blocker":null,"kind":"stable-decision"} -->
 ## 规范片段
 
-Implementation placement由Responsibility、visibility、state/effect/lifecycle、trust、package boundary和co-change graph编译；path不是identity。正确变更只修改最小不可推导owner facts，其余地址/import/export/test/docs由同一graph派生，跨owner变化必须由显式transaction闭合。
+Implementation placement由Responsibility、visibility、state/effect/lifecycle、trust、package boundary和co-change graph编译；path不是identity。候选先过hard constraints，再按共享LifecycleCostVector/Pareto裁决；新增评价维度只局部失效实际消费者。正确变更只修改最小不可推导owner facts，其余地址/import/export/test/docs由同一graph派生。
