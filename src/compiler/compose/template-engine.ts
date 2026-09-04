@@ -1,125 +1,207 @@
-import fs from 'node:fs';
 import path from 'node:path';
+
+import {
+  decodeExactUtf8,
+  readOptionalRetainedOrdinaryFile
+} from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import { compilerRuntimeResources } from '../../toolchain/runtime.ts';
+import { resolvePathInside } from '../../workspace/runtime/paths.ts';
 import { CompilerError } from '../errors.ts';
 
 const TEMPLATES_DIR = compilerRuntimeResources.composeTemplates;
+const TEMPLATE_CONTEXT_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/u;
+const TEMPLATE_IF_PREFIX = '/*#IF ';
+const TEMPLATE_ENDIF = '/*#ENDIF*/';
+const TEMPLATE_MAX_INPUT_BYTES = 1024 * 1024;
+const TEMPLATE_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
+const TEMPLATE_MAX_DIRECTIVES = 4096;
+const TEMPLATE_MAX_NESTING_DEPTH = 64;
 
-export class TemplateEngine {
-  private static cache = new Map<string, string>();
+export type TemplateContextValue = string | number | boolean | null | undefined;
+export type TemplateContext = Readonly<Record<string, TemplateContextValue>>;
 
-  /**
-   * 渲染外部物理模板文件，并根据上下文进行条件编译与文本插值。
-   * @param templateName 模板文件名，例如 'src/runtime/database.ts.template'
-   * @param context 包含布尔变量和文本插值的上下文对象
-   * @param templatesDir 模板存放的基础目录，默认为当前文件目录下的 templates
-   */
-  public static render(
-    templateName: string,
-    context: Record<string, any>,
-    templatesDir: string = TEMPLATES_DIR
-  ): string {
-    const filePath = path.join(templatesDir, templateName);
-    let templateContent = this.cache.get(filePath);
+function fail(code: string, message: string, details: Record<string, unknown> = {}): never {
+  throw new CompilerError(code, message, details);
+}
 
-    if (!templateContent) {
-      if (!fs.existsSync(filePath)) {
-        throw new CompilerError('COMPOSE-TEMPLATE-001', `Scaffold template not found: ${filePath}`);
-      }
-      templateContent = fs.readFileSync(filePath, 'utf8');
-      this.cache.set(filePath, templateContent);
+function assertInputBound(content: string): void {
+  const inputBytes = Buffer.byteLength(content, 'utf8');
+  if (inputBytes > TEMPLATE_MAX_INPUT_BYTES) {
+    fail('COMPOSE-TEMPLATE-006', 'Template input exceeds the canonical byte limit', {
+      inputBytes,
+      maximumBytes: TEMPLATE_MAX_INPUT_BYTES
+    });
+  }
+}
+
+function assertOutputBound(content: string): void {
+  const outputBytes = Buffer.byteLength(content, 'utf8');
+  if (outputBytes > TEMPLATE_MAX_OUTPUT_BYTES) {
+    fail('COMPOSE-TEMPLATE-009', 'Rendered template exceeds the canonical byte limit', {
+      outputBytes,
+      maximumBytes: TEMPLATE_MAX_OUTPUT_BYTES
+    });
+  }
+}
+
+function normalizeContext(context: Readonly<Record<string, unknown>>): TemplateContext {
+  const normalized = Object.create(null) as Record<string, TemplateContextValue>;
+  for (const [key, value] of Object.entries(context)) {
+    if (!TEMPLATE_CONTEXT_KEY.test(key)) {
+      fail('COMPOSE-TEMPLATE-007', `Template context key is not canonical: ${key}`, { key });
+    }
+    if (
+      value !== null &&
+      value !== undefined &&
+      typeof value !== 'string' &&
+      typeof value !== 'boolean' &&
+      !(typeof value === 'number' && Number.isFinite(value))
+    ) {
+      fail('COMPOSE-TEMPLATE-007', `Template context value is unsupported: ${key}`, {
+        key,
+        valueType: typeof value
+      });
+    }
+    normalized[key] = value as TemplateContextValue;
+  }
+  return Object.freeze(normalized);
+}
+
+function conditionValue(
+  condition: string,
+  context: TemplateContext
+): boolean {
+  const match = /^(!)?([A-Za-z_][A-Za-z0-9_]*)$/u.exec(condition);
+  if (!match) {
+    fail('COMPOSE-TEMPLATE-007', `Template condition is not canonical: ${condition}`, {
+      condition
+    });
+  }
+  const negated = match[1] === '!';
+  const key = match[2]!;
+  if (!Object.hasOwn(context, key)) {
+    fail('COMPOSE-TEMPLATE-007', `Template condition references an unknown context key: ${key}`, {
+      key
+    });
+  }
+  const value = context[key];
+  if (typeof value !== 'boolean') {
+    fail('COMPOSE-TEMPLATE-007', `Template condition requires a boolean context value: ${key}`, {
+      key,
+      valueType: value === null ? 'null' : typeof value
+    });
+  }
+  return negated ? !value : value;
+}
+
+function renderConditionals(content: string, context: TemplateContext): string {
+  const parentActivity: boolean[] = [];
+  let active = true;
+  let cursor = 0;
+  let directiveCount = 0;
+  let output = '';
+
+  while (cursor < content.length) {
+    const marker = content.indexOf('/*#', cursor);
+    if (marker === -1) {
+      if (active) output += content.slice(cursor);
+      break;
+    }
+    if (active) output += content.slice(cursor, marker);
+
+    directiveCount += 1;
+    if (directiveCount > TEMPLATE_MAX_DIRECTIVES) {
+      fail('COMPOSE-TEMPLATE-008', 'Template contains too many conditional directives', {
+        directiveCount,
+        maximumDirectives: TEMPLATE_MAX_DIRECTIVES
+      });
     }
 
-    return this.renderString(templateContent, context);
+    if (content.startsWith(TEMPLATE_ENDIF, marker)) {
+      const parent = parentActivity.pop();
+      if (parent === undefined) {
+        fail('COMPOSE-TEMPLATE-004', 'Malformed template: unmatched /*#ENDIF*/');
+      }
+      active = parent;
+      cursor = marker + TEMPLATE_ENDIF.length;
+      continue;
+    }
+
+    if (!content.startsWith(TEMPLATE_IF_PREFIX, marker)) {
+      fail('COMPOSE-TEMPLATE-002', 'Malformed template: unsupported conditional directive', {
+        offset: marker
+      });
+    }
+    const conditionEnd = content.indexOf('*/', marker + TEMPLATE_IF_PREFIX.length);
+    if (conditionEnd === -1) {
+      fail('COMPOSE-TEMPLATE-002', 'Malformed template: missing */ for /*#IF');
+    }
+    const condition = content.slice(marker + TEMPLATE_IF_PREFIX.length, conditionEnd).trim();
+    parentActivity.push(active);
+    if (parentActivity.length > TEMPLATE_MAX_NESTING_DEPTH) {
+      fail('COMPOSE-TEMPLATE-008', 'Template conditional nesting exceeds the canonical limit', {
+        maximumDepth: TEMPLATE_MAX_NESTING_DEPTH
+      });
+    }
+    active = active && conditionValue(condition, context);
+    cursor = conditionEnd + 2;
   }
 
-  /**
-   * 核心递归解析方法，支持无限嵌套的 /*#IF* / 与 /*#ENDIF* / 条件编译
-   */
-  public static renderString(content: string, context: Record<string, any>): string {
-    const parse = (text: string): string => {
-      let output = '';
-      let cursor = 0;
+  if (parentActivity.length > 0) {
+    fail('COMPOSE-TEMPLATE-003', 'Malformed template: missing /*#ENDIF*/');
+  }
+  assertOutputBound(output);
+  return output;
+}
 
-      while (cursor < text.length) {
-        const nextIf = text.indexOf('/*#IF ', cursor);
-        if (nextIf === -1) {
-          output += text.slice(cursor);
-          break;
-        }
+function interpolate(content: string, context: TemplateContext): string {
+  let result = content;
+  for (const [key, value] of Object.entries(context)) {
+    if (typeof value !== 'string' && typeof value !== 'number') continue;
+    const replacement = String(value);
+    result = result.replaceAll(`__${key}__`, () => replacement);
+    assertOutputBound(result);
+  }
+  return result;
+}
 
-        // 拼接 IF 之前的文本
-        output += text.slice(cursor, nextIf);
-
-        // 找到对应的 condition
-        const condEnd = text.indexOf('*/', nextIf);
-        if (condEnd === -1) {
-          throw new CompilerError('COMPOSE-TEMPLATE-002', 'Malformed template: missing */ for /*#IF');
-        }
-        const condition = text.slice(nextIf + 6, condEnd).trim();
-
-        // 递归寻找与当前 IF 配对的 /*#ENDIF*/
-        let depth = 1;
-        let scan = condEnd + 2;
-        let foundEnd = -1;
-
-        while (scan < text.length) {
-          const innerIf = text.indexOf('/*#IF ', scan);
-          const innerEnd = text.indexOf('/*#ENDIF*/', scan);
-
-          if (innerEnd === -1) {
-            throw new CompilerError('COMPOSE-TEMPLATE-003', `Malformed template: missing /*#ENDIF*/ for IF ${condition}`);
-          }
-
-          if (innerIf !== -1 && innerIf < innerEnd) {
-            // 遇到了嵌套的 IF
-            depth++;
-            scan = innerIf + 6;
-          } else {
-            // 遇到了配对的 ENDIF
-            depth--;
-            if (depth === 0) {
-              foundEnd = innerEnd;
-              break;
-            }
-            scan = innerEnd + 10;
-          }
-        }
-
-        if (foundEnd === -1) {
-          throw new CompilerError('COMPOSE-TEMPLATE-004', `Malformed template: unmatched /*#ENDIF*/ for IF ${condition}`);
-        }
-
-        // 提取被 IF 包裹的体内容
-        const bodyContent = text.slice(condEnd + 2, foundEnd);
-
-        // 判定条件
-        const isNegated = condition.startsWith('!');
-        const varName = isNegated ? condition.slice(1) : condition;
-        const val = !!context[varName];
-        const shouldKeep = isNegated ? !val : val;
-
-        if (shouldKeep) {
-          // 递归渲染内部嵌套的块，从而完美支持嵌套 IF
-          output += parse(bodyContent);
-        }
-
-        cursor = foundEnd + 10;
-      }
-
-      return output;
-    };
-
-    let result = parse(content);
-
-    // 2. 处理 __VARIABLE__ 文本插值
-    for (const [key, val] of Object.entries(context)) {
-      if (typeof val === 'string' || typeof val === 'number') {
-        const placeholder = new RegExp(`__${key}__`, 'g');
-        result = result.replace(placeholder, String(val));
-      }
+export class TemplateEngine {
+  /** Render one retained template file strictly inside the supplied root. */
+  public static render(
+    templateName: string,
+    context: Readonly<Record<string, unknown>>,
+    templatesDir: string = TEMPLATES_DIR
+  ): string {
+    const filePath = resolvePathInside(templatesDir, templateName);
+    if (filePath === null) {
+      fail('COMPOSE-TEMPLATE-005', `Scaffold template path escapes its allowed root: ${templateName}`, {
+        templateName
+      });
     }
+    const bytes = readOptionalRetainedOrdinaryFile(filePath, `Scaffold template ${templateName}`);
+    if (bytes === null) {
+      fail('COMPOSE-TEMPLATE-001', `Scaffold template not found: ${filePath}`);
+    }
+    if (bytes.byteLength > TEMPLATE_MAX_INPUT_BYTES) {
+      fail('COMPOSE-TEMPLATE-006', 'Template input exceeds the canonical byte limit', {
+        inputBytes: bytes.byteLength,
+        maximumBytes: TEMPLATE_MAX_INPUT_BYTES,
+        templateName
+      });
+    }
+    return this.renderString(
+      decodeExactUtf8(bytes, `Scaffold template ${templateName}`),
+      context
+    );
+  }
 
-    return result;
+  /** Render bounded, exactly paired conditional directives and literal text substitutions. */
+  public static renderString(
+    content: string,
+    context: Readonly<Record<string, unknown>>
+  ): string {
+    assertInputBound(content);
+    const normalizedContext = normalizeContext(context);
+    return interpolate(renderConditionals(content, normalizedContext), normalizedContext);
   }
 }
