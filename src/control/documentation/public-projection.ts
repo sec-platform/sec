@@ -7,6 +7,11 @@ import {
   documentationRecordByPath,
   parseDocumentationAuthorityRegistry
 } from './authority.ts';
+import {
+  extractCanonicalDocumentationReferences,
+  markdownFragmentExists,
+  splitMarkdownReference
+} from './markdown-reference.ts';
 
 export const PUBLIC_DOCUMENTATION_PROJECTION_SCHEMA =
   'sec-public-documentation-projection-v1' as const;
@@ -38,11 +43,13 @@ export type PublicDocumentationProjection = Readonly<{
     readonly kind: string;
     readonly audiences: readonly string[];
     readonly canonicalRefs: readonly string[];
+    readonly inlineCanonicalRefs: readonly string[];
     readonly h1Count: number;
     readonly internalMarkdownTargets: readonly string[];
   }>[];
   readonly principleIds: readonly string[];
   readonly brokenLinks: readonly string[];
+  readonly brokenCanonicalFragments: readonly string[];
   readonly unregisteredCanonicalRefs: readonly string[];
   readonly revisionLiterals: readonly string[];
   readonly pullRequestUrls: readonly string[];
@@ -55,6 +62,32 @@ function markdownTargets(source: string): readonly string[] {
 
 function principleIds(source: string): readonly string[] {
   return [...source.matchAll(/^##\s+([MRP]\d{1,2})\s+—/gmu)].map((match) => match[1]!);
+}
+
+async function validateCanonicalReference(input: Readonly<{
+  repositoryRoot: string;
+  registry: ReturnType<typeof parseDocumentationAuthorityRegistry>;
+  pagePath: string;
+  rawReference: string;
+  unregisteredCanonicalRefs: string[];
+  brokenCanonicalFragments: string[];
+}>): Promise<void> {
+  const reference = splitMarkdownReference(input.rawReference);
+  const record = documentationRecordByPath(input.registry, reference.path);
+  if (record === undefined) {
+    input.unregisteredCanonicalRefs.push(`${input.pagePath} -> ${input.rawReference}`);
+    return;
+  }
+  if (reference.fragment === null || reference.fragment.length === 0 || !reference.path.endsWith('.md')) {
+    return;
+  }
+  const targetSource = await readFile(
+    path.join(input.repositoryRoot, ...reference.path.split('/')),
+    'utf8'
+  );
+  if (!markdownFragmentExists(targetSource, reference.fragment)) {
+    input.brokenCanonicalFragments.push(`${input.pagePath} -> ${input.rawReference}`);
+  }
 }
 
 export async function readPublicDocumentationProjectionV1(
@@ -74,6 +107,7 @@ export async function readPublicDocumentationProjectionV1(
   }
 
   const brokenLinks: string[] = [];
+  const brokenCanonicalFragments: string[] = [];
   const unregisteredCanonicalRefs: string[] = [];
   const revisionLiterals: string[] = [];
   const pullRequestUrls: string[] = [];
@@ -93,15 +127,24 @@ export async function readPublicDocumentationProjectionV1(
       }
       try { await readFile(resolved, 'utf8'); } catch { brokenLinks.push(`${page.path} -> ${target}`); }
     }
-    for (const canonicalRef of page.canonicalRefs) {
-      if (documentationRecordByPath(registry, canonicalRef) === undefined) {
-        unregisteredCanonicalRefs.push(`${page.path} -> ${canonicalRef}`);
-      }
-    }
+
+    const inlineCanonicalRefs = extractCanonicalDocumentationReferences(source);
+    await Promise.all([...page.canonicalRefs, ...inlineCanonicalRefs].map(async (canonicalRef) => {
+      await validateCanonicalReference({
+        repositoryRoot: root,
+        registry,
+        pagePath: page.path,
+        rawReference: canonicalRef,
+        unregisteredCanonicalRefs,
+        brokenCanonicalFragments
+      });
+    }));
+
     revisionLiterals.push(...source.match(/\b[0-9a-f]{40}\b/gu) ?? []);
     pullRequestUrls.push(...source.match(/https:\/\/github\.com\/[^\s)]+\/pull\/\d+/gu) ?? []);
     return Object.freeze({
       ...page,
+      inlineCanonicalRefs: Object.freeze([...inlineCanonicalRefs]),
       h1Count: source.split('\n').filter((line) => /^#\s+\S/u.test(line)).length,
       internalMarkdownTargets: Object.freeze([...targets])
     });
@@ -117,8 +160,9 @@ export async function readPublicDocumentationProjectionV1(
     locale: manifest.locale,
     pages: Object.freeze(pages),
     principleIds: Object.freeze([...ids]),
-    brokenLinks: Object.freeze(brokenLinks.sort()),
-    unregisteredCanonicalRefs: Object.freeze(unregisteredCanonicalRefs.sort()),
+    brokenLinks: Object.freeze([...new Set(brokenLinks)].sort()),
+    brokenCanonicalFragments: Object.freeze([...new Set(brokenCanonicalFragments)].sort()),
+    unregisteredCanonicalRefs: Object.freeze([...new Set(unregisteredCanonicalRefs)].sort()),
     revisionLiterals: Object.freeze(revisionLiterals.sort()),
     pullRequestUrls: Object.freeze(pullRequestUrls.sort())
   });
