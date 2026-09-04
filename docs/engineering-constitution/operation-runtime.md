@@ -168,20 +168,7 @@ VersionRequired iff
 
 ## 9. 状态、恢复与补偿
 
-```text
-StateTransition = {
-  stateOwner,
-  exactPreimage,
-  intent,
-  operationKey,
-  allowedFrom,
-  targetState,
-  effectPlan,
-  readback,
-  recovery,
-  retirement
-}
-```
+`StateTransition`的exact合同由System Architecture的lifecycle owner定义。这里仅要求`transitionAdmitted(t)`同时具备唯一state owner、exact preimage、合法from/to edge、operation identity、effect/settlement/readback、recovery与retirement；缺一项就不能提交状态变化。
 
 ```mermaid
 flowchart LR

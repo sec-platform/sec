@@ -42,7 +42,7 @@ last-reviewed: 2026-09-02
 ```text
 NodeExit(node) = capability-specific evidence
                  ∧ product maturity admission
-                 ∧ design package admitted
+                 ∧ design artifact closure admitted
                  ∧ implementation/readback closure
 ```
 
@@ -189,7 +189,7 @@ TypeScript Source Program性能出口同时要求：
 
 ### `capability.responsibility-implementation`
 
-Responsibility Cell 由 declaration SCC、single writer/issuer/parser 和 Effect→settlement→readback→recovery 闭包共同生成。
+ResponsibilityScope由semantic cohesion与state/invariant/public-operation边界证明；ResponsibilityRealization才由declaration relations、single writer/issuer/parser和Effect→settlement→readback→recovery闭包生成。
 
 | 状态 | 含义 |
 |---|---|
@@ -199,7 +199,7 @@ Responsibility Cell 由 declaration SCC、single writer/issuer/parser 和 Effect
 | ambiguous | 多个解释不能消解 |
 | opaque | 当前 frontend 无法观察 |
 
-Owner DAG 与 public demand 由系统架构编译；CodeUnit role、visibility、PlacementDecision、Change Locality、generated/authored/opaque classification 和 ArchitectureMigration 由 `docs/implementation-architecture.md` 从同一 Source Program 与 accepted Responsibility graph 编译。path、目录、index、facade、descriptor、package 或测试不能自报 owner。
+Owner DAG与public demand由系统架构编译；ImplementationUnit role、visibility、PlacementDecision、Change Locality、generated/authored/opaque classification和ArchitectureMigration由`docs/implementation-architecture.md`从同一Source Program与accepted Responsibility graph编译。path、目录、index、facade、descriptor、package或测试不能自报owner。
 
 Responsibility/Implementation能力不是一次性的目录整理。每个semantic delta都先定位唯一authored change point，再生成所有可推导投影；常规单责任变化只修改一个owner，真实跨owner变化进入一个带precondition、readback、recovery和retirement的ChangeTransaction。Intent-to-Code未覆盖的部分由受相同合同约束的ManualImplementationProvider提议，不能成为第二设计owner。
 
@@ -308,9 +308,9 @@ flowchart TD
   TPI --> BE[Backend AST printer formatter]
 ~~~
 
-Candidate 是完整 Provider/Reference/Existing/Custom/Block-delivered closure，不是包名。Contract、Type、Target、Effect/Permission、安全、license、dependency、support 和 owner 是 hard eligibility；policy 只在合格候选中排序。Backend 不得重新选库或解释业务兼容。
+Candidate 是完整Provider/Reference/Existing/Custom/distribution-delivered closure，不是包名。Contract、Type、Target、Effect/Permission、安全、license、dependency、support 和 owner 是 hard eligibility；policy 只在合格候选中排序。Backend 不得重新选库或解释业务兼容。
 
-Application/Behavior 只表达可验证、可 lowering 的语义；复杂算法进入 Governed Extension/Opaque Boundary。Block Capability Resolver 只解析自己的领域 binding，不拥有产品最终选择。
+Application/Behavior只表达可验证、可lowering的语义；复杂算法进入governed authored或opaque boundary。Distribution Binding只解析acquisition requirement，不拥有产品最终选择；extension复用普通contract/candidate/provider关系，不建立第二object model。
 
 ### `capability.typescript-engineering-compiler`
 

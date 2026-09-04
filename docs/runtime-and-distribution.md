@@ -139,6 +139,23 @@ Selection 返回 opaque selected capability 或 typed unavailable/mismatch/unver
 
 一个 typecheck operation 的 source observation、adoption、child、stream、cleanup、final fence、terminal readback 共享 absolute deadline 与 aggregate filesystem/process/input/output/entry/byte ledger。
 
+跨进程加速严格消费System Architecture的`ReusableKnowledge`与Implementation Architecture的`WorkspaceViewContinuity`：Source Program/Merkle是`DerivationShard`，build-info与Language Service内存是`AccelerationSeed`，Windows root owner/DACL、toolchain executable和Provider health是`ObservationCertificate`。Runtime只实现各variant的retained physical binding、attach、resource accounting与失效readback；它不能把seed命中、path相同、daemon存活或零watcher事件提升为fresh observation或type PASS。
+
+```text
+TypecheckRuntimeFastPath =
+  attach exact SourceObservationGeneration
+  -> validate checker/dependency/host ObservationCertificates
+  -> lookup exact Verification ActionKey terminal
+  -> fresh terminal ? zero child + referenced readback
+                    : execute selected checker under one ledger
+
+Continuity gap | ACL/security epoch drift | provider generation drift
+  -> invalidate only dependent certificates/shards/results
+  -> bounded clean observation or typed unresolved
+```
+
+因此“热”不是某个后台进程存在，而是exact generation、continuity、certificate与ActionKey仍可验证；服务退出只损失加速，不能损失知识或改变业务结果。昂贵ACL事实可由native retained provider一次观察并在有效security epoch内复用，但每次attach仍验证root/subject/epoch关系；覆盖不明或系统不提供可靠continuity时回到一次bounded native observation，不启动presentation shell也不无限缓存。
+
 ## 8. Target 与 Binding physical interface
 
 Runtime 只消费 Target identity/revision、runtime/build/test/package/deploy requirements、target dependencies/platform support；不复制 Target fields 或从 Host/cwd/layout 推断 Target。
@@ -250,5 +267,5 @@ Windows protected Runtime State 的 owner/DACL proof 只由 native retained phys
 
 | 片段 | 独立职责 |
 | --- | --- |
-| [依赖解析、物化、共享与回收](runtime-and-distribution/dependency-materialization.md) | 本片段拥有 dependency Requirement/Binding/Generation/Projection、store、claim、资源、GC、失败和迁移语义。 |
+| [依赖解析、物化、共享与回收](runtime-and-distribution/dependency-materialization.md) | 本片段把系统物化代数实例化为 dependency Requirement/Binding/Generation/Projection、GenerationKey、readiness、consumer access、failure、GC 与 migration；通用 store/coordination/resource/process primitives 只引用其系统 owner。 |
 | [平台能力、分发与支持](runtime-and-distribution/distribution-and-support.md) | 本片段拥有 browser/container/native 分类、public distribution、support invalidation、逻辑验证与完成条件。 |

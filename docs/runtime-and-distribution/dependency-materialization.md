@@ -6,7 +6,7 @@ domain: runtime-distribution
 
 # 依赖解析、物化、共享与回收
 
-本片段拥有 dependency Requirement/Binding/Generation/Projection、store、claim、资源、GC、失败和迁移语义。
+本片段是 System Architecture 物化代数的 dependency Domain 实例，拥有 dependency Requirement/Binding/Generation/Projection、GenerationKey、readiness、consumer access、失败与回收策略；通用 immutable store、coordination、retained physical、process/Effect 和 resource-ledger primitives 只通过引用消费，不在本片段复制。
 
 本片段与 [owner root](../runtime-and-distribution.md) 共享同一 domain，但只拥有 registry 分配给本片段的 ownership keys；跨片段语义使用引用，不复制定义。
 
@@ -333,4 +333,4 @@ LiveRetain由协调store的时间域与fencing token过期；DurableConsumerBind
 
 负面场景必须覆盖：permission/reparse/foreign tree、same-path ABA、manifest/lock/provider/environment drift、cache corruption、generation mutation、并发caller、短deadline join、crash at every transition、lost process handle、partial projection、GC与retain竞争、offline absent、credential/network unavailable、consumer删除后retention、provider替换。每个场景断言typed terminal/residue和零未授权install/publish/delete，而不是只断言错误字符串。
 
-Journal/stamp/manifest 使用 retained non-reparse identity、shared operation budget、prepared-before-effect、typed unknown/recovery。readiness error 不能 catch 为 absent 后 install。
+transition record与generation manifest分别属于coordination state和immutable content；projection receipt属于consumer lifecycle。目标设计没有通用`stamp`角色：若某个Provider需要hint，它只能是可丢弃projection，不能参与readiness、Authority或recovery。所有持久记录使用retained non-reparse identity、同一operation budget、prepared-before-effect与typed unknown/recovery；readiness error不能catch为absent后install。

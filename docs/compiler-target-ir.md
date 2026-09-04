@@ -94,7 +94,7 @@ Promotion：
 
 只表达可完整验证和 lowering 的控制流、数据流、state transition、Effect、error、authorization 与 transaction。
 
-| 可进入 Behavior IR | 进入 Extension/Opaque |
+| 可进入 Behavior IR | 进入 governed-authored/opaque region |
 |---|---|
 | typed input/output | dynamic reflection |
 | enumerable Effects/Permissions | arbitrary external code |
@@ -102,7 +102,7 @@ Promotion：
 | target-independent oracle | unmodelled side effect |
 | complete source mapping | incomplete semantics |
 
-Governed Extension 声明 interface、Effect、capability、source owner、Verification obligations 与 rollback；不能为“支持一切”无限扩展 Behavior IR。
+不能完整lowering的部分使用Implementation Architecture定义的`GovernedAuthored`或`OpaqueExternal` region，显式绑定interface、Effect、capability、source owner、Verification obligations、unknown ceiling与rollback；它们不是第二Extension object model。不能为“支持一切”无限扩展Behavior IR。
 
 ## 6. Implementation Resolution
 
@@ -147,20 +147,19 @@ flowchart TD
 
 唯一最优只在 semantic/application/behavior revision、Target、repository stack、constraints、policy、eligible catalog/Evidence、measurements 与 Backend 全部冻结后成立。
 
-## 7. Block、Provider 与任意类库
+## 7. Distribution、Provider 与任意类库
 
 ~~~mermaid
 flowchart LR
   IR[Implementation Resolver] --> N[Native Reference Existing Custom]
-  IR --> Q[Bounded Block capability request]
-  Q --> BR[Block Resolver]
-  BR --> BB[BlockProviderBinding or typed failure]
-  BB --> IR
+  Q[Bounded acquisition Requirement] --> DB[Distribution Binding or typed failure]
+  DS[Eligible DistributionSource Provisions] --> DB
+  DB --> IR
   N --> EL[Unified eligibility]
   IR --> EL
 ~~~
 
-Block Resolver 只拥有 Registry trust、version、manifest/resource closure 与 BlockProviderBinding；不理解业务语义或最终候选比较。Implementation Resolver 不读 live Registry 或重新选择 Block。没有 block-delivered requirement 时 Block Resolver 调用与 manifest/resource/trust observation 均为零。
+Distribution Binding只拥有package/source/trust/version/manifest/resource acquisition closure，不理解业务语义或最终候选比较。Implementation Resolver消费冻结的candidate/content refs，不读live registry/source；没有distribution-delivered requirement时，相关source observation与binding均为零。获取、安装和materialization在最终ImplementationBinding之后进入Effect runtime，不能在resolution阶段发生。
 
 无Adapter时，Source Program可提供typed export/call-shape/source-binding；用户连接参数/返回值后可生成type-correct invocation。`provider-maturity.typed-invocation`不证明Effect、idempotency、retry、timeout、cancellation、security或runtime behavior；这些经declaration、conformance与physical Evidence才可提升Provider maturity。
 
@@ -243,7 +242,7 @@ Binding change 由 Delta/Impact 生成，Compatibility/Migration 由 Change Mana
 | require/pin 指向 ineligible | blocked | 自动替代 |
 | candidate discovery 顺序变化 | Decision/Binding 不变 | first wins |
 | Provider API相同但integrity变化 | Binding invalidated | cache reuse |
-| 无 block requirement | zero Block resolution | 普遍 Block identity |
+| 无distribution requirement | zero distribution observation/binding | 普遍package identity |
 | no Adapter typed call | type-correct + behavior unknown | 自动 Provider support |
 | Target Program发现unknown | promotion reject | emit placeholder |
 | Backend想改 Provider | reject boundary violation | 重选实现 |
@@ -262,6 +261,6 @@ CompilerClosed =
   AND Target Program consumes exact Binding
   AND Backend performs no Effect or re-resolution
   AND clean equals incremental
-  AND provider/block/legacy paths have zero competing owner
+  AND provider/distribution/legacy paths have zero competing owner
   AND physical execution is settled by external capability owners
 ~~~

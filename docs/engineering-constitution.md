@@ -135,9 +135,9 @@ Optimize only among NonNegotiable candidates:
 
 | Question | Selected | Rejected | 选择理由 | 反转条件 |
 | --- | --- | --- | --- | --- |
-| 如何划分系统 | Responsibility Cell + owner DAG | 按文件长度、技术品牌、历史目录分组 | 同时闭合定义、状态、Effect、恢复和变化协同 | 出现无法由 cell contract 表达的真实部署/权限边界 |
+| 如何划分系统 | recursive ResponsibilityScope + ResponsibilityAssignment DAG | 按文件长度、技术品牌、历史目录分组 | 同时闭合定义、状态、Effect、恢复和变化协同，且范围与权力分型 | 出现无法由scope/public contract表达的真实语义边界 |
 | 如何组织业务与外部行为 | pure Domain Operation + typed Capability Atoms + orchestrator | mega-script；每命令一 wrapper | intent/decision 与可替换执行机制正交，资源/settlement可统一 | 新 Effect 无法经 port 表达且引入新领域语义 |
-| 如何共享事实 | one exact observation graph + content-addressed shards | typecheck/audit/test-impact各扫一遍 | 同 revision 一次观察，多 consumer复用，增量可验证 | consumer 所需 universe 已证明不同且不可安全投影 |
+| 如何共享事实 | one exact observation generation + typed reusable-knowledge envelopes | typecheck/audit/test-impact各扫一遍；泛化cache混装观察、推导与执行种子 | 同 revision 一次观察，多 consumer按variant与scope复用，增量可验证且不升格Authority | consumer 所需 universe已证明不同且不可安全投影，或某事实无法满足通用reuse envelope而必须独立观察 |
 | 如何处理外部成熟能力 | direct stable machine interface；必要时薄 boundary adapter | 重写同类工具；SEC 镜像 API | 降低 owner/升级/安全/性能成本，不丢领域边界 | 外部接口缺失协议、权限、资源或settlement关键语义 |
 | 如何组织源码 | graph-derived placement under one authored source root | 固定五类目录；长期多 source roots | 位置从责任、层级、可见性、lifecycle生成 | runtime packaging要求独立 authored root且有真实消费者 |
 | 如何演进 | proposal并存、runtime单active generation、一次迁移 | 永久双读/双写；原 schema 静默放宽 | 保持真值唯一且可恢复 | 真实 rolling deployment support window要求短期并存且有退役时间 |
@@ -177,25 +177,9 @@ flowchart LR
 
 ## 4. Responsibility、Owner DAG 与 Facade
 
-### 4.1 Responsibility Cell
+### 4.1 Responsibility scope 与 assignment
 
-```text
-ResponsibilityCell = {
-  subjectKinds,
-  definitions,
-  operations,
-  stateTransitions,
-  writers,
-  parsers,
-  publicContracts,
-  requiredPorts,
-  settlements,
-  evidenceClaims,
-  evolutionObligations
-}
-```
-
-一个 cell 拥有完整语义闭包，不等于一个文件、目录、package 或团队。物理布局从 cell 和 dependency DAG 生成。
+`ResponsibilityScope`是system scope algebra中`scopeKind=responsibility`的合法子型；`ResponsibilityAssignment`是该scope上唯一的decision/transition/issuer relation。宪法只约束二者满足`cohesive invariant + unique active assignment + finite authority closure`，其exact contract由System Architecture拥有，不在这里复制。scope表达完整语义闭包，assignment表达谁有权；二者都不等于文件、目录、package或团队。物理实现从scope、assignment和dependency DAG编译为ResponsibilityRealization。
 
 ### 4.2 依赖方向
 
@@ -232,7 +216,7 @@ lower owner -> higher owner through callback/type-only/self-import trick
 
 ```text
 FacadeAllowed iff
-  realExternalOrCrossCellConsumers > 0
+  realExternalOrCrossBoundaryConsumers > 0
   ∧ exportedSurface < internalSurface
   ∧ facadeOwnsNoSemanticState
   ∧ noReverseDependency
