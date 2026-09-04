@@ -1,5 +1,3 @@
-import path from 'node:path';
-
 import {
   decodeExactUtf8,
   readOptionalRetainedOrdinaryFile
@@ -10,6 +8,7 @@ import { CompilerError } from '../errors.ts';
 
 const TEMPLATES_DIR = compilerRuntimeResources.composeTemplates;
 const TEMPLATE_CONTEXT_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/u;
+const TEMPLATE_PLACEHOLDER = /__([A-Za-z_][A-Za-z0-9_]*)__/gu;
 const TEMPLATE_IF_PREFIX = '/*#IF ';
 const TEMPLATE_ENDIF = '/*#ENDIF*/';
 const TEMPLATE_MAX_INPUT_BYTES = 1024 * 1024;
@@ -17,7 +16,7 @@ const TEMPLATE_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const TEMPLATE_MAX_DIRECTIVES = 4096;
 const TEMPLATE_MAX_NESTING_DEPTH = 64;
 
-export type TemplateContextValue = string | number | boolean | null | undefined;
+export type TemplateContextValue = string | number | boolean;
 export type TemplateContext = Readonly<Record<string, TemplateContextValue>>;
 
 function fail(code: string, message: string, details: Record<string, unknown> = {}): never {
@@ -51,18 +50,16 @@ function normalizeContext(context: Readonly<Record<string, unknown>>): TemplateC
       fail('COMPOSE-TEMPLATE-007', `Template context key is not canonical: ${key}`, { key });
     }
     if (
-      value !== null &&
-      value !== undefined &&
       typeof value !== 'string' &&
       typeof value !== 'boolean' &&
       !(typeof value === 'number' && Number.isFinite(value))
     ) {
       fail('COMPOSE-TEMPLATE-007', `Template context value is unsupported: ${key}`, {
         key,
-        valueType: typeof value
+        valueType: value === null ? 'null' : typeof value
       });
     }
-    normalized[key] = value as TemplateContextValue;
+    normalized[key] = value;
   }
   return Object.freeze(normalized);
 }
@@ -88,7 +85,7 @@ function conditionValue(
   if (typeof value !== 'boolean') {
     fail('COMPOSE-TEMPLATE-007', `Template condition requires a boolean context value: ${key}`, {
       key,
-      valueType: value === null ? 'null' : typeof value
+      valueType: typeof value
     });
   }
   return negated ? !value : value;
@@ -137,13 +134,14 @@ function renderConditionals(content: string, context: TemplateContext): string {
       fail('COMPOSE-TEMPLATE-002', 'Malformed template: missing */ for /*#IF');
     }
     const condition = content.slice(marker + TEMPLATE_IF_PREFIX.length, conditionEnd).trim();
+    const selected = conditionValue(condition, context);
     parentActivity.push(active);
     if (parentActivity.length > TEMPLATE_MAX_NESTING_DEPTH) {
       fail('COMPOSE-TEMPLATE-008', 'Template conditional nesting exceeds the canonical limit', {
         maximumDepth: TEMPLATE_MAX_NESTING_DEPTH
       });
     }
-    active = active && conditionValue(condition, context);
+    active = active && selected;
     cursor = conditionEnd + 2;
   }
 
@@ -155,13 +153,26 @@ function renderConditionals(content: string, context: TemplateContext): string {
 }
 
 function interpolate(content: string, context: TemplateContext): string {
-  let result = content;
-  for (const [key, value] of Object.entries(context)) {
-    if (typeof value !== 'string' && typeof value !== 'number') continue;
-    const replacement = String(value);
-    result = result.replaceAll(`__${key}__`, () => replacement);
-    assertOutputBound(result);
-  }
+  const result = content.replace(
+    TEMPLATE_PLACEHOLDER,
+    (placeholder, key: string): string => {
+      if (!Object.hasOwn(context, key)) {
+        fail('COMPOSE-TEMPLATE-007', `Template placeholder references an unknown context key: ${key}`, {
+          key,
+          placeholder
+        });
+      }
+      const value = context[key];
+      if (typeof value !== 'string' && typeof value !== 'number') {
+        fail('COMPOSE-TEMPLATE-007', `Template placeholder requires a string or number context value: ${key}`, {
+          key,
+          valueType: typeof value
+        });
+      }
+      return String(value);
+    }
+  );
+  assertOutputBound(result);
   return result;
 }
 
