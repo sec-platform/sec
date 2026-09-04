@@ -78,7 +78,10 @@ export async function validateResolvedTemplates(
       generatorPlan,
       semanticViews
     );
-    await composeProject(validationRoot, clonedLock, semanticContext, { commitFence });
+    await composeProject(validationRoot, clonedLock, semanticContext, {
+      commitFence,
+      opaqueModuleMaterializationMode: 'workspace-link'
+    });
     if (isolated) {
       await typecheckProject(validationRoot, {
         dependencyProjectRoot: sourcePaths.workspaceRoot,
