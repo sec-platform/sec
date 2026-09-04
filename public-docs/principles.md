@@ -1,841 +1,352 @@
 # SEC 原则与为什么
 
-本页把 SEC 已经散落在 canonical owner、代码合同、验证体系和工程治理中的高层思想，整理成**可解释的知识投影**。
+本页是 canonical owner 的**公共解释投影**，不是第二套 Architecture Authority。每条原则只保留现实依据、机制、失败模式、反转条件和当前 owner；精确字段、算法、状态机与 Evidence 仍回到对应 `docs/**` owner。
 
-它不是第二套 architecture authority。每条原则的精确产品语义仍由其 canonical owner 拥有；本页负责回答“为什么”。
+## P01 — 结果高于实现
 
-## 如何判断一条原则是否合格
+**原则**：先冻结用户可观察 outcome/non-goal，再比较实现。
 
-原则不能只是一句口号。至少要回答：
+**机制**：当前路径、框架、代码量和历史投入都只是候选约束；只有 accepted outcome 能决定它们是否值得保留。
 
-```text
-Statement      原则是什么
-Classification 它属于逻辑约束、经验事实、价值选择、外部规范还是工程 Evidence
-Reality Basis  现实里什么问题使它存在
-Mechanism      为什么这些事实推出这个原则
-Scope          在什么边界成立
-Non-goals      它没有声称什么
-Counterexample 最强反例是什么
-Reversal       什么条件会削弱、失效或反转它
-Consequences   它进一步推出哪些规则
-Owners         哪些 canonical owner 真正拥有下层语义
-Enforcement    哪些机器机制最终应强制它
-```
+**最强反例**：某实现不可替代地承载外部/持久兼容合同。此时它由该合同而不是“已经写了很多”获得保留资格。
 
-如果不能说明为什么成立，只能叫 heuristic / proposal，不能因为写在文档里就升级为 truth。
+**owner**：`docs/product.md`、`docs/design-calculus.md`。
 
----
+## P02 — Truth、Decision、Authorization、Evidence 分型
 
-# 一、元原则
+**原则**：观察到什么、决定什么、允许做什么、证明了什么不能互相冒充。
 
-## M0 — 原则可证成、可追溯、可反驳
+**机制**：不同 statement kind 有独立 issuer、consumer、freshness 与 failure semantics。
 
-**原则**：任何 SEC 原则、规则、架构裁决或“最佳实践”都不得仅以结论形式存在；必须能够追溯到现实事实、逻辑约束、产品价值、外部规范、工程 Evidence 或明确授权决策。
+**失败**：把 exit code、AI 建议、管理员权限或 PR 状态直接升级成产品 truth。
 
-**现实依据**：没有理由的规则无法判断适用范围，无法处理冲突，也不知道什么时候过时。
+**owner**：`docs/design-calculus.md`、`docs/system-architecture.md`、`docs/verification-governance.md`。
 
-**机制**：
+## P03 — Semantic Identity 不等于 Address
 
-```text
-Basis
-→ mechanism
-→ predicted consequence
-→ principle
-→ applicability
-→ enforcement
-```
+**原则**：同一语义对象移动文件、改标题、换 Provider、换进程时仍是同一 identity；同一路径发生 ABA 替换时必须是不同 physical binding。
 
-**最强反例**：某些公理化定义本身就是系统选择，不需要经验论文证明。例如“SEC 选择 correctness 优先于 performance”主要是产品价值排序。
+**机制**：Subject/Document/Clause 等 stable ref 与 path/heading/PID/version label 分域。
 
-**反转条件**：不会因为某个具体技术变化而消失；但一条具体子原则的 basis 被推翻时必须重新裁决。
+**owner**：`docs/system-architecture/lifecycle-proof-and-evolution.md`、`docs/documentation-system/reference-and-identity.md`。
 
-**结果**：Principle 页面必须记录依据类型、反例和反转条件。
+## P04 — 一个 meaning 一个 owner
 
----
+**原则**：每项不可重算 meaning、writer、parser、resolver、linearization point 只有一个 active owner。
 
-## M1 — 原则作用域不能超过证据作用域
+**机制**：其他模块只引用 owner result；projection、test、Roadmap、cache 与 interface 不复制定义。
 
-**原则**：一个实验、事故、平台限制或论文只支持它实际覆盖的对象、环境、版本和任务；不能自动推广成宇宙规律。
+**失败**：两个 validator 各自“差不多”实现同一规则，最终一个拒绝、一个通过。
 
-**现实依据**：软件系统具有版本、平台、配置和 workload 差异；同一机制在不同条件下可能反转。
+**owner**：`docs/engineering-constitution.md`、`docs/system-architecture.md`。
 
-**机制**：Evidence 必须绑定 subject / revision / environment / task / measurement；超出 closure 的结论只能是推断。
+## P05 — Unknown 是一等状态
 
-**反例**：形式逻辑恒真式不依赖运行环境。
+**原则**：未观察、能力不足、超预算、动态/opaque、冲突都不能降成 false/absent/success。
 
-**结果**：性能、Support、Provider compatibility、模型能力等结论必须显式 scope。
+**机制**：unknown 携 affected closure 与 closure predicate；新信息只关闭相关 frontier。
 
----
+**owner**：`docs/engineering-constitution.md`、`docs/system-architecture/operations-and-resources.md`。
 
-## M2 — 原则必须可修订，但不能被流行度随意改写
+## P06 — Pure Plan 与 Live Admission 分离
 
-**原则**：依赖外部现实的原则应随决定性 Evidence 重新验证；没有新证据时不能因为新框架、新模型或流行趋势就切换。
+**原则**：计划描述“应做什么”；Grant、Provider、Allocation、deadline、physical preimage 描述“现在能否这样执行”。
 
-**现实依据**：模型、语言、平台、法律、Provider 与硬件都会变化。
+**机制**：live 条件变化只重新 admission；只有 immutable semantic/source inputs 改变才重新 plan。
 
-**机制**：稳定原则保存机制和边界；动态参数放 machine profile / Evidence。变化触发 revalidation，而不是手工改一句“现在推荐 X”。
+**现实收益**：credential refresh、Provider restart、resource rebalance 不再让 Delta/plan/设计全部失效。
 
-**反例**：纯定义型规则无需周期性 benchmark。
+**owner**：`docs/system-architecture/operations-and-resources.md`、`docs/semantic-mutation/planning-and-admission.md`。
 
-**结果**：动态版本、SHA、PR、模型名不进入稳定原则 identity。
+## P07 — Effect 前必须有 prepared intent
 
----
+**原则**：不可逆/持久 Effect 前先记录 exact intent、preimage、authority、binding、allocation 与 recovery obligation。
 
-## M3 — 原则本身不能自我授权
+**机制**：lost handle 或响应丢失后靠 readback/journal 收敛，而不是盲重发。
 
-**原则**：一条被标成 Principle 的句子不能因为这个标签就取得 canonical authority。
+**owner**：`docs/semantic-mutation.md`、`docs/implementation-architecture/execution-and-materialization.md`。
 
-**现实依据**：否则 SEC 会犯与“AI confidence = truth”“文档 = reality”同构的错误。
+## P08 — Resource 先分 accounting mode
 
-**机制**：Principle projection 只解释和索引；下层规则仍由对应 canonical owner、machine contract 和 Evidence 决定。
+**原则**：CPU time、lock、memory、rate-limit、external quota 不是一种资源状态机。
 
-**结果**：删除本页不能改变产品行为。
+**机制**：`Consumable | Lease | Gauge | ReplenishingRate | ExternalQuota` 各自拥有 reserve/measure/release/settle law。
 
----
+**失败**：把 process slot 当不可返还累计消耗，或把 peak memory 当 reservation。
 
-# 二、九条根原则
+**owner**：`docs/system-architecture/resource-accounting.md`。
 
-## R1 — Reality Primacy：现实高于叙事
+## P09 — ActionKey 只绑定实际因果输入
 
-**原则**：实际 canonical/physical state 高于聊天、计划、报告、UI 或历史描述。
+**原则**：局部计算 identity 由实际 reachable semantic/content/config/provider closure 决定，而不是“它恰好属于哪个全局 generation”。
 
-**现实依据**：文件、Git、进程、Provider、Runtime 和外部系统会被并发修改、失败、漂移。
+**机制**：global generation 默认只进入 provenance；无关 sibling 变化保持 ActionKey 与结果不变。
 
-**机制**：任何 effectful operation 都必须在必要边界 readback；旧 observation 不能证明 current state。
+**失败**：一篇无关文档或一个无关文件变化导致全仓 cache miss。
 
-**最强反例**：对纯数学对象，不存在外部物理漂移。
+**owner**：`docs/system-architecture/derivation-locality.md`。
 
-**派生**：current main、physical workspace、Runtime observation、Evidence identity、post-write readback。
+## P10 — Eliminate → Reuse → Incremental → Parallel → Faster
 
-**主要 owner**：`docs/system-architecture.md`、`docs/development-governance.md`、`docs/verification-governance.md`。
+**原则**：先删不必要工作，再复用 exact result，再增量，再并行，最后才优化单次机制。
 
----
+**机制**：重复 scanner、第二 truth、机械全测通常比“换更快语言”更先成为瓶颈。
 
-## R2 — Epistemic Separation：认识状态必须分离
+**owner**：`docs/engineering-constitution/proof-and-evolution.md`。
 
-**原则**：Fact、Assertion、Authority、Confidence、Evidence、Provenance、Unknown 不是一个概念。
+## P11 — One snapshot, shared facts
 
-**现实依据**：高 confidence 可能错；多个来源可能复制同一错误；没观察到不等于不存在。
+**原则**：同一 exact workspace view 只生产一套 canonical language/source facts；typecheck、Impact、audit、architecture、Agent query 消费同一 shards。
 
-**机制**：把“世界是什么”“谁声称什么”“为什么相信”“谁有定义权”建成不同对象。
+**机制**：frontend/provider只拥有其能证明的 fact kinds；consumer 不重复建 AST/resolver/cache truth。
 
-**反例**：极小局部程序里可临时把它们编码在一个结构中，但语义仍必须可区分。
+**owner**：`docs/implementation-architecture/source-observation-and-incrementality.md`、`docs/brownfield-import.md`。
 
-**主要 owner**：`docs/semantic-model.md`、`docs/verification-governance.md`。
+## P12 — Overlay observation 与 writeback 必须对齐
 
----
+**原则**：如果 effective source 是 unsaved editor buffer，而 writer 只能改 disk，不能直接把 editor 语义计划覆盖到 disk preimage。
 
-## R3 — Canonical Authority：一个长期真值一个 owner
+**机制**：`WritableSourceLayerBinding` 明确 observed layer、writable layer、preimage 与 reconciliation policy。
 
-**原则**：同一可竞争语义不能长期由多个独立 authority/writer 同时拥有。
+**owner**：`docs/semantic-mutation/planning-and-admission.md`。
 
-**现实依据**：两个 writer 一旦分歧，系统缺少内生规则判断谁是真值。
+## P13 — Hard Constraint 不能被软分抵消
 
-**机制**：
+**原则**：identity、authority、security、data integrity、required semantics 等 hard failure 一项即可拒绝。
 
-```text
-one truth
-→ one canonical owner
-→ many projections / replicas
-```
+**机制**：soft preference 只比较全部 hard-valid 的候选。
 
-**反例**：两个状态如果拥有不同 identity、scope 或 lifecycle，则不是同一个 truth，可以并存。
+**owner**：`docs/design-calculus/constraints-and-decision.md`、`docs/compiler-target-ir.md`。
 
-**主要 owner**：`docs/system-architecture.md`。
+## P14 — Claim 不都能变成 Decidable Constraint
 
----
+**原则**：Temporal、Statistical、Robustness、Relational Claim 需要各自 proof obligation；不能为了自动化谎称所有现实性质都可判定。
 
-## R4 — Identity & Revision：先知道“是谁”和“哪一版”
+**机制**：Claim lowering 到 decidable constraint、bounded model check、measurement、statistical evidence、relational trace 或 bounded frontier。
 
-**原则**：名字、路径、顺序、时间和显示标签不能替代稳定 identity；任何会变化的状态必须有 revision/freshness。
+**owner**：`docs/design-calculus/constraints-and-decision.md`、`docs/verification-governance.md`。
 
-**现实依据**：rename、move、reorder、cache 和并发修改都很常见。
+## P15 — Cost 是有量纲向量
 
-**机制**：Identity 回答对象是谁；Revision 回答对象处于哪个状态；Evidence/Binding/Projection 都绑定相应 revision。
+**原则**：50ms、3 个文件、2 个 owner、10KB 不能直接相加。
 
-**反例**：一次性 ephemeral object 可以使用短生命周期物理 identity，但不能冒充长期 semantic identity。
+**机制**：候选使用带 unit/provenance/uncertainty 的 LifecycleCostVector，默认 Pareto；只有有权 policy 才 scalarize。
 
-**主要 owner**：`docs/semantic-model.md`、`docs/system-architecture.md`。
+**owner**：`docs/design-calculus/constraints-and-decision.md`。
 
----
+## P16 — Responsibility-first Placement
 
-## R5 — Deterministic Validated Computation：可机械决定的结果必须可重复
+**原则**：源码/package 边界来自 Responsibility、state/effect/lifecycle、visibility、trust、co-change，而不是行数、团队或品牌。
 
-**原则**：相同完整输入、规则、Provider revision 与声明环境应得到相同 canonical result。
+**机制**：地址、import/export/test/docs 都从 placement graph 派生；常规单责任变化尽量只修改一个不可推导 owner point。
 
-**现实依据**：缓存、diff、replay、Verification、distributed execution 和审计都需要 reproducibility。
+**owner**：`docs/implementation-architecture/placement-and-locality.md`。
 
-**机制**：raw → validate → canonicalize → deterministic ordering/tie-break → immutable result。
+## P17 — Capability 语义与实现载体分离
 
-**反例**：随机算法、wall-clock、Runtime observation 可以不同，但随机种子/时间/环境必须成为显式输入或 Evidence。
+**原则**：Capability/Contract 说明“需要什么”；Port/Requirement/Candidate/Binding 说明“如何连接和实现”；Distribution Package 只在真实分发生命周期存在时出现。
 
-**主要 owner**：`docs/semantic-model.md`、`docs/compiler-target-ir.md`、`docs/verification-governance.md`。
+**机制**：旧 `Block/Slot` 可以作为 current migration input，但不能重新成为 target canonical primitive。
 
----
+**反例**：用户明确要求某特定实现技术时，它进入 Requirement/Constraint/Preference；仍不能绕过 hard eligibility。
 
-## R6 — Constraints Before Optimization：合法性先于优化
+**owner**：`docs/semantic-model.md`、`docs/implementation-architecture/model-and-boundaries.md`、`docs/compiler-target-ir.md`、`docs/runtime-and-distribution/distribution-and-support.md`。
 
-**原则**：correctness、安全、权限、合同、Target、数据完整性等 hard constraints 失败的候选不能靠性能、流行度或成本加权补回来。
+## P18 — Provider 供应能力，不拥有业务 truth
 
-**现实依据**：一个更快但错误、越权或不兼容的实现没有合法 utility。
+**原则**：外部 compiler、SDK、MCP、container、cloud service 可以供应 Provision/Evidence，不能因为执行成功取得 SEC Definition、Resolution、Verification 或 Support authority。
 
-**机制**：
-
-```text
-candidate closure
-→ hard eligibility
-→ only eligible candidates enter ranking
-```
-
-**反例**：多个都是合法候选时可以做多目标优化。
-
-**主要 owner**：`docs/compiler-target-ir.md`、`docs/external-provider-policy.md`、`docs/semantic-mutation.md`。
-
----
-
-## R7 — Bounded Transactional Change：副作用必须受限并有终态
-
-**原则**：修改必须有明确 scope、precondition、effect、publication、readback 与 recovery terminal。
-
-**现实依据**：crash、disk full、race、partial publication、network uncertainty 都是真实工程状态。
-
-**机制**：
-
-```text
-plan
-→ authorization
-→ CAS / precondition
-→ bounded effect
-→ readback
-→ accepted | rolled-back | recovery-required
-```
-
-**反例**：不可逆物理动作可能无法 rollback，但必须显式标 irreversible boundary，并提供 forward recovery。
-
-**主要 owner**：`docs/semantic-mutation.md`、`docs/change-management.md`。
-
----
-
-## R8 — Independent Verification：声明不能自证
-
-**原则**：candidate、Provider 或 writer 不能同时定义成功标准、验证器和结果并用它给自己授权。
-
-**现实依据**：被测对象若能修改 oracle，“PASS”就失去独立信息价值。
-
-**机制**：Claim/selector/verifier/trust root 与 SUT/candidate 分层，正式 Evidence 绑定可信 producer。
-
-**反例**：开发期自测可以作为 advisory Evidence，但不能升级为独立 merge/support authority。
-
-**主要 owner**：`docs/verification-governance.md`。
-
----
-
-## R9 — Finite Reasoning / Attention Economy：推理资源有限
-
-**原则**：AI、人、CPU、I/O、工具调用、上下文和时间都是有限资源；机器能可靠确定的事实应由确定性机制生产和复用，模型只消费当前任务的最小充分投影并按需展开。
-
-**现实依据**：重复扫描、重复解析、重复推理和巨大上下文都会增加成本；“能放进 context”不等于“没有检索与推理代价”。
-
-**机制**：
-
-```text
-full canonical state
-→ dependency / owner / impact query
-→ minimum sufficient context
-→ AI reasoning on unresolved frontier
-→ exact expansion when needed
-```
-
-**最强反例**：开放探索阶段可能尚不知道哪些信息相关，此时过度裁剪会造成遗漏。
-
-**反转条件**：模型 context 和 compute 成本下降会改变压缩强度，但“不要让昂贵主体反复做已可确定化工作”的机制仍然成立。
-
-**主要 owner**：`docs/agent-and-user-machine-interface.md`、`docs/development-governance.md`。
-
----
-
-# 三、事实与知识原则
-
-## P01 — 当前现实优先于历史描述
-
-**依据**：外部状态会变化。
-
-**机制**：stale observation 只能说明历史，不能授权 current mutation。
-
-**边界**：历史记录仍可作为 provenance 与事故 Evidence。
-
-**派生**：resume、merge、mutation、Provider 状态都需 freshness/readback。
-
----
-
-## P02 — Fact 必须绑定 scope 与 revision
-
-**依据**：同一命题在不同版本、Target、Host 或环境下可能真假不同。
-
-**机制**：没有 scope 的 Fact 会被错误推广。
-
-**反例**：逻辑恒真式不需要运行时 revision。
-
-**owner**：`docs/semantic-model.md`。
-
----
-
-## P03 — Fact 与 Assertion 分离
-
-**依据**：同一事实可以被多个来源独立声明，来源之间可能冲突。
-
-**机制**：Fact 保存命题 identity；Assertion 保存 authority/confidence/provenance/evidence。
-
-**反例**：只有一个永久内置 authority 的极小系统可以物理合并结构，但语义仍应可区分。
-
-**owner**：`docs/semantic-model.md`。
-
----
-
-## P04 — Authority 与 Confidence 分离
-
-**依据**：推断非常自信仍不代表拥有定义权。
-
-**机制**：confidence 只能描述认知强度；authority 决定谁能定义 canonical fact。
-
-**反例**：同一 authority class 内可以用 confidence 排序候选观测。
-
-**owner**：`docs/semantic-model.md`。
-
----
-
-## P05 — Provenance 不能被聚合抹掉
-
-**依据**：多个来源可能并不独立，可能复制同一个错误；last-write 也不证明更新值更正确。
-
-**机制**：保留 Assertion/Evidence source，禁止 strongest-wins、majority-vote、last-write-wins 直接取代 authority policy。
-
-**反例**：某些明确规定 quorum/consensus 的分布式协议可以把多数票作为 authority 机制，但那是显式协议，不是通用知识规则。
-
-**owner**：`docs/semantic-model.md`、`docs/verification-governance.md`。
-
----
-
-## P06 — Unknown / Ambiguous / Conflict / Opaque 是一等状态
-
-**依据**：现实观察和静态分析不可能永远完整。
-
-**机制**：缺少信息时保留不确定性，使后续 Impact、Verification 和 UI 能诚实扩大 frontier。
-
-**反例**：在形式封闭且输入完备的纯函数里，可以不存在 unknown 分支。
-
-**owner**：`docs/semantic-model.md`、`docs/brownfield-import.md`。
-
----
-
-## P07 — “没发现”只有在 coverage 足够时才是负证据
-
-**依据**：一个没有探测能力的工具看不到对象没有任何证明力。
-
-**机制**：只有当 inventory/provider/verification 本应发现该事实时，absence 才能成为 Evidence；否则是 unknown。
-
-**反例**：形式化枚举完整域后，遍历无结果可以证明不存在。
-
-**owner**：`docs/semantic-model.md`、`docs/verification-governance.md`。
-
----
-
-## P08 — Verification 只证明 exact Claim / Input / Environment
-
-**依据**：测试结果依赖实现、输入、环境、Provider 和 revision。
-
-**机制**：Evidence identity 绑定完整 closure；任何相关变化使旧结论 stale/invalidated。
-
-**反例**：数学证明可覆盖无限输入域，但它仍只证明其形式化假设下的命题。
-
-**owner**：`docs/verification-governance.md`。
-
----
-
-# 四、Authority、Owner 与 Identity 原则
-
-## P09 — 每个长期 truth 一个 canonical owner
-
-**依据**：避免 competing truth。
-
-**机制**：consumer 始终知道读哪里、改哪里；其他表示可重建。
-
-**边界**：replica/cache 可以很多。
-
-**owner**：`docs/system-architecture.md`。
-
----
-
-## P10 — 每个 derived fact / state machine 一个 producer/owner
-
-**依据**：两套独立算法会产生分歧和 invalidation 漂移。
-
-**机制**：一个 producer 负责 derived identity、revision、freshness，多个 consumer 复用。
-
-**反例**：独立 cross-check 可以存在，但它是 Verification/Evidence，不是第二 canonical producer。
-
-**owner**：`docs/system-architecture.md`。
-
----
-
-## P11 — 每个竞争 mutable state 一个 writer
-
-**依据**：并发 writer 会造成 race、lost update、ABA 和 partial ordering 问题。
-
-**机制**：single-writer 或通过 transaction/conflict proof 证明资源正交后并行。
-
-**反例**：CRDT/consensus 等协议可以允许多 writer，但必须有明确 conflict semantics；不能靠“大家都写同一个 JSON”实现。
-
-**owner**：`docs/system-architecture.md`、`docs/semantic-mutation.md`。
-
----
-
-## P12 — Projection / Cache / UI / Artifact 不能反向取得 Authority
-
-**依据**：这些表示可能过滤、聚合、延迟、损坏或为某读者定制。
-
-**机制**：projection 从 canonical state 派生，可删除、可重建；修改必须回到 canonical Operation。
-
-**反例**：如果某 UI 本身就是合法 canonical writer，它需要通过明确 Operation/Authority，而不是因为“这是 UI”获得权力。
-
-**owner**：`docs/system-architecture.md`、`docs/agent-and-user-machine-interface.md`。
-
----
-
-## P13 — 稳定 Identity 不依赖 Path / Name / Order / Wall-clock
-
-**依据**：这些 presentation/physical attributes 会变。
-
-**机制**：semantic identity 与 physical binding 分离；rename/move 不等于语义对象死亡。
-
-**反例**：某些 Artifact identity 可以明确包含 path/content，但不能冒充 Engineering Semantic identity。
-
-**owner**：`docs/semantic-model.md`、`docs/system-architecture.md`。
-
----
-
-## P14 — Derived State 必须有 Freshness / Invalidation
-
-**依据**：上游变化后旧 cache、Impact、Binding、Evidence 可能错误。
-
-**机制**：derived result 记录 input/revision closure；任何 relevant input 变化精确失效。
-
-**反例**：真正 immutable content-addressed result 在输入 identity 不变时可永久复用。
-
-**owner**：多个 domain owner；具体 invalidation 由各生产者拥有。
-
----
-
-## P15 — 跨领域关系必须用 Stable Reference，不靠名字相似
-
-**依据**：同名、相邻路径、相同 label 都不证明语义关系。
-
-**机制**：显式 typed identity reference + validator。
-
-**反例**：Parser 可以从 source name 观察候选关系，但必须经过 owning reconciliation 才能变成 canonical relation。
-
-**owner**：`docs/system-architecture.md`。
-
----
-
-# 五、计算、推导与实现原则
-
-## P16 — Raw / Untrusted 与 Validated / Frozen 分层
-
-**依据**：Parser、Provider、AI、文件和网络输入都可能错误或被污染。
-
-**机制**：
-
-```text
-raw
-→ schema/semantic validation
-→ canonicalization
-→ immutable validated boundary
-→ trusted consumer
-```
-
-**反例**：内部 pure function 已经只接受 branded validated type 时不必重复 validate。
-
-**owner**：`docs/semantic-model.md`、各 domain contract。
-
----
-
-## P17 — Semantic Contract 与 Implementation 分离
-
-**依据**：一个行为通常有多个实现；实现技术会变化，但产品语义可能稳定。
-
-**机制**：先定义“必须满足什么”，再解析“由谁、怎样实现”。
-
-**反例**：某能力若本质就是指定实现技术，例如用户明确 pin 某 Provider，则实现选择成为显式 constraint，但仍不能绕过 eligibility。
-
-**owner**：`docs/compiler-target-ir.md`、`docs/capability-and-block-model.md`。
-
----
-
-## P18 — Hard Constraints 不能被 Soft Optimization 抵消
-
-**依据**：错误/越权候选没有合法优化空间。
-
-**机制**：eligibility first, ranking second。
-
-**反例**：合法候选之间可以按性能、成本、existing-stack 等 policy 排序。
-
-**owner**：`docs/compiler-target-ir.md`。
-
----
-
-## P19 — 不存在脱离完整上下文的“宇宙唯一最优实现”
-
-**依据**：Target、Host、license、security、maintenance、performance、existing stack 和用户 constraint 会改变最优解。
-
-**机制**：最优只在冻结 requirement + policy + evidence + environment 下有意义。
-
-**反例**：某些局部问题可能有数学 dominance 解，但仍需要证明其适用条件。
-
-**owner**：`docs/compiler-target-ir.md`。
-
----
-
-## P20 — 冻结完整输入后，Decision / Binding / Output 必须 Deterministic
-
-**依据**：避免枚举顺序、Map insertion、locale 或 filesystem 顺序导致实现漂移。
-
-**机制**：stable key、canonical ordering、deterministic tie-break。
-
-**反例**：显式随机策略必须把 seed/policy 纳入输入。
-
-**owner**：`docs/compiler-target-ir.md`。
-
----
-
-## P21 — Downstream 只能消费 Upstream 冻结结果，不能重新解释
-
-**依据**：如果 Backend、Runtime、CLI projection、Adapter 都重新选实现，会出现多个隐式 Resolver。
-
-**机制**：typed frozen output 逐层 lowering；下层不能回头重定义上层语义。
-
-**反例**：发现 input stale 时可以 invalidated 并回到 owning upstream 重算，不是 downstream silent fallback。
-
-**owner**：`docs/compiler-target-ir.md`、`docs/runtime-and-distribution.md`。
-
----
-
-## P22 — Predicted 与 Actual 必须分离
-
-**依据**：Plan 时只能预测 Impact/Delta；执行中可能出现新事实、race 或 Provider failure。
-
-**机制**：apply 前有 predicted result，apply/readback 后重新计算 actual result，并比较偏差。
-
-**反例**：纯函数、immutable input 下 predicted 与 actual 可以结构相同，但仍是不同阶段身份。
-
-**owner**：`docs/delta-and-impact.md`、`docs/semantic-mutation.md`。
-
----
-
-# 六、权限、修改与恢复原则
-
-## P23 — Authorization 是多个边界的交集
-
-**依据**：caller 有权限不代表可以改任意 target；path 可写也不代表语义允许。
-
-**机制**：
-
-```text
-caller capability
-∩ operation
-∩ semantic target
-∩ canonical owner
-∩ writable path/region
-∩ policy
-∩ effect
-∩ provider capability
-∩ verification requirement
-∩ current revision
-```
-
-任一必要项 unknown/forbidden 都不能被其他权限覆盖。
-
-**owner**：`docs/semantic-mutation.md`。
-
----
-
-## P24 — Plan / Dry-run 与 Apply 必须分离
-
-**依据**：边规划边写会让 Review、Impact 和 rollback 失去稳定对象。
-
-**机制**：Plan 只读并确定 desired transition；Apply 独立授权。
-
-**反例**：纯只读查询没有 Apply 阶段。
-
-**owner**：`docs/semantic-mutation.md`。
-
----
-
-## P25 — Effect 前必须重读 Live State 并 CAS / Re-plan
-
-**依据**：TOCTOU、并发用户修改和 Provider drift 真实存在。
-
-**机制**：Plan 绑定 precondition/revision；Apply 时不一致则 stale/replan，不把旧计划硬写到新世界。
-
-**反例**：完全 immutable target 不需要 CAS，但必须证明 immutable。
-
-**owner**：`docs/semantic-mutation.md`。
-
----
-
-## P26 — 产品事务没有“半成功但算完成”
-
-**依据**：partial publication 会产生不同 consumer 看见不同真相。
-
-**机制**：terminal 至少区分 accepted / rejected / rolled-back / recovery-required；不确定不能投影 completed。
-
-**反例**：分布式 saga 可以分阶段成功，但每阶段必须有明确 durable state，不能把中间态冒充全局完成。
-
-**owner**：`docs/semantic-mutation.md`、`docs/change-management.md`。
-
----
-
-## P27 — Publication 不确定时必须保持不确定
-
-**依据**：process exit 0、syscall return、API 200 都不一定证明 durable readback。
-
-**机制**：写后重新观察 exact target；无法确认进入 recovery-required / unknown。
-
-**反例**：某些纯内存单线程操作的 publication 与计算是同一原子步骤。
-
-**owner**：`docs/semantic-mutation.md`、Runtime/Release owning contracts。
-
----
-
-## P28 — Unknown Effect / Stale / Ambiguous 在需要安全证明时 Fail Closed
-
-**依据**：错误放行可能产生不可逆变化或伪造 PASS。
-
-**机制**：安全性、authority、data-integrity 所需事实 unknown 时阻断；非关键只读展示可显式 degraded。
-
-**反例**：fail-open 可能是某些高可用业务的明确产品策略，但必须由 owning policy 显式选择，不能由基础设施擅自决定。
-
-**owner**：`docs/semantic-mutation.md`、`docs/verification-governance.md`。
-
----
-
-# 七、Verification 与成熟度原则
-
-## P29 — Candidate 不得自证
-
-**依据**：自定义 oracle 可以让任何 candidate PASS。
-
-**机制**：trusted base、independent verifier、external oracle 或不可被 candidate 改写的 authority。
-
-**反例**：candidate 单元测试可作为开发反馈，但不是独立授权 Evidence。
-
-**owner**：`docs/verification-governance.md`。
-
----
-
-## P30 — 能力成熟度不得跳级
-
-**依据**：文档、代码、测试、部署和真实 adoption 是不同事实。
-
-**机制**：至少区分 proposed / accepted / specified / implemented / verified / enforced / adopted / retired，并允许 regressed。
-
-**反例**：极小内部工具可合并某些阶段，但不能因此宣称未经 Evidence 的阶段已成立。
-
-**owner**：Roadmap + architecture maturity machine owner；公共文档只投影。
-
----
-
-## P31 — Compatibility 不能由表面相似推出
-
-**依据**：同 API、类型检查、semver 或绿色测试仍可能改变 timeout、retry、error、Effect、wire schema 或 data semantics。
-
-**机制**：Compatibility Decision 消费 exact old/new contract、Binding Delta、migration capability 与 Evidence。
-
-**反例**：形式等价证明可以直接证明某类 compatibility，但仍要说明证明覆盖的维度。
-
-**owner**：`docs/change-management.md`。
-
----
-
-# 八、演进与复杂度原则
-
-## P32 — 新 Owner 接管旧 Owner 必须 Shadow → Parity → Cutover → Retire
-
-**依据**：长期 dual writer 会重新形成第二 authority。
-
-**机制**：新路径先只产 Evidence；证明 parity 后切换 consumer；最后 old consumer-zero 并删除旧 writer。
-
-**反例**：灾备 replica 可长期存在，但它不能与 primary 同时独立决定 canonical state。
-
-**owner**：`docs/change-management.md`、各迁移 domain。
-
----
-
-## P33 — Incremental / Cache 只是优化，Clean / Reference 是语义裁判
-
-**依据**：cache 会丢、坏、stale；incremental selector 可能漏 dependency。
-
-**机制**：cache off/cold/warm/corrupt 与 incremental/full 需要等价或有明确允许差异；cache absence 只能损失速度。
-
-**反例**：如果系统定义的唯一正式计算本身就是增量状态机，则需要另一个独立 reference/spec oracle；仍不能让 cache 状态成为未经验证的 truth。
-
-**owner**：Compiler、Verification、Development 各 owning contract。
-
----
-
-## P34 — 没有真实 Producer / Consumer，不物理建设抽象宇宙
-
-**依据**：没有 consumer 时无法验证 schema、边界和 lifecycle 是否合理，容易过度设计。
-
-**机制**：可以记录 proposal/deferred(trigger)，只有真实 use case 才建立最小 typed object。
-
-**反例**：标准化公共协议有时需要先定义接口再等生态 consumer，但这也是明确产品战略和外部 contract，不是“可能以后有用”。
-
-**owner**：`docs/roadmap/capability-dag.md`、`docs/system-architecture.md`。
-
----
-
-## P35 — Wheel-first，但不 Wheel-owned
-
-**依据**：Git、TypeScript、Prettier、成熟 parser/DB/toolchain 已经解决大量机械问题；重复自研扩大 bug、性能和维护面积。
-
-**机制**：SEC 保留 semantic contract / identity / authority / lifecycle；第三方 Provider 只实现机械 capability，经 Adapter/Conformance 隔离。
-
-**最强反例**：外部轮子缺少安全性、license、性能、平台或真实能力时，自研可能更合理；但必须由 Evidence 证明，而不是“我们喜欢自己写”。
+**机制**：physical adoption → semantic session → domain operation → independent readback。
 
 **owner**：`docs/external-provider-policy.md`。
 
----
+## P19 — Brownfield 是 Candidate/Evidence 支线，不是 Target 前置
 
-# 九、AI 与信息治理原则
+**原则**：Target Profile / Type Algebra 可以独立定义；Brownfield/Provider adoption 给 Resolution 提供候选和校准 Evidence。
 
-## P36 — AI 是 Bounded Proposer，不是 Truth Authority
+**机制**：Capability edge 分为 hard prerequisite、SuppliesCandidate、RequiresEvidence、CalibratedBy 等。
 
-**依据**：模型是概率系统，输出受模型、提示、上下文和采样影响。
+**owner**：`docs/roadmap/capability-relations.md`、`docs/brownfield-import.md`、`docs/compiler-target-ir.md`。
 
-**机制**：AI 负责 proposal / reasoning；平台重新 validate、resolve、authorize、apply、verify。
+## P20 — Roadmap 不复制领域本体
 
-**反例**：纯创作、非治理任务可以直接使用模型输出；一旦输出要成为 canonical engineering state，必须进入正式 Operation。
+**原则**：Roadmap 只保存 capability identity、typed capability relations、entry/exit/reversal refs。
 
-**owner**：`docs/agent-and-user-machine-interface.md`。
+**机制**：Claim/Gate/Result、Grant、Resource、Mutation、Provider 等内部拓扑回到 owner；owner 模型变化不要求同步改 Roadmap prose。
 
----
+**owner**：`docs/roadmap/capability-dag.md`。
 
-## P37 — Canonical Truth 必须 Full-fidelity，不为 Prompt 有损降级
+## P21 — Implementation Admission 是独立 Gate
 
-**依据**：完整工程模型服务整个生命周期，而 Prompt 只服务一次任务；两个目标函数不同。
+**原则**：DesignClosed 不等于现在可以写代码。
 
-**机制**：
+**机制**：`ImplementationWorkAdmitted` 组合 design、target implementation、current observation、owner/change-locality、Scope、Capability、Resource、Evolution、Verification 与 MainHealth refs。
+
+**owner**：`docs/development-governance/implementation-admission.md`。
+
+## P22 — Universal Law 与 Project Adoption 分离
+
+**原则**：Product 可以决定 SEC 采用某个 Engineering/Agent/Design law revision，但不因此拥有该 universal law 的定义。
+
+**机制**：Authority Root 分为 UniversalLaw、ProjectLawAdoption、ProductOutcome、DomainDefinition、RepositoryGovernance、ExternalAuthority、CompoundIssuer。
+
+**owner**：`docs/system-architecture/authority-roots.md`。
+
+## P23 — Delegation 按 mode 判定
+
+**原则**：只读分析、实现写入、独立 Review、外部 Observation 的 independence 条件不同。
+
+**机制**：共同保证 child authority 不扩大、输入输出/资源有界；write overlap/producer independence按 mode 单独判断。
+
+**owner**：`docs/agent-constitution/delegation-modes.md`。
+
+## P24 — Projection 不能创造 meaning
+
+**原则**：README、public-docs、UI、图、Agent context、report、cache 都只能投影已存在的 refs。
+
+**机制**：canonical locator 与 Markdown fragment 都必须解析；正文不能形成绕过 manifest 的第二引用通道。
+
+**owner**：`docs/documentation-system.md`、`docs/documentation-system/reference-and-identity.md`。
+
+## P25 — Heading/Path 不决定 Clause Identity
+
+**原则**：翻译标题、reparent、拆目录只是 Address/Presentation 变化；稳定规则 identity 使用显式 ClauseRef。
+
+**机制**：`sec-clause` 可携稳定 `id`；heading-derived identity只作为 legacy migration carrier。
+
+**owner**：`docs/documentation-system/reference-and-identity.md`。
+
+## P26 — Public 文档必须随 canonical owner 原子切换
+
+**原则**：删除/迁移 canonical owner 后，public manifest、正文 refs、index 与链接必须同 generation更新；不能继续教旧本体。
+
+**机制**：projection scanner同时验证 manifest refs、正文 canonical refs、target fragments。
+
+**owner**：`docs/documentation-system/reference-and-identity.md`。
+
+## P27 — Verification 不等于命令成功
+
+**原则**：green command ≠ Result PASS ≠ Claim PASS ≠ Merge/Release/Support decision。
+
+**机制**：Claim/Gate identity、applicability、environment、execution/reuse、settlement/readback、Evidence independence、aggregate必须逐层成立。
+
+**owner**：`docs/verification-governance.md`。
+
+## P28 — Producer 不能充分自证
+
+**原则**：candidate 不能选择/修改 verifier 后用结果给自己授权；producer report 也不能直接成为独立 Review。
+
+**机制**：trusted base/independent owner 决定 Claim、selector、Review 与 merge admission。
+
+**owner**：`docs/verification-governance/evidence-and-integration.md`。
+
+## P29 — Same input deterministic failure 也应复用
+
+**原则**：复用不是只复用 PASS；完全相同 causal input 下的 deterministic failure 重跑没有新增信息。
+
+**机制**：retry 需要 observable cause/input/admission 变化；started-without-terminal先 readback/join/recover。
+
+**owner**：`docs/verification-governance/execution-and-session.md`、`docs/agent-constitution/execution-and-recovery.md`。
+
+## P30 — Version 只服务真实双态 consumer
+
+**原则**：数字、Vn 后缀、fixture、API 名称不会自动产生 version semantics。
+
+**机制**：只有 durable/external grammar 或 rolling support 真有多个可观察状态且 reader/migration实际分支时才保留 version；最后一个旧 consumer 退役时 old parser/tests 同批删除。
+
+**owner**：`docs/change-management.md`、`docs/engineering-constitution/operation-runtime.md`。
+
+## P31 — Compatibility 不是 Boolean
+
+**原则**：source/binary/schema/wire/behavior/semantic、backward/forward、read/write/execute、environment/deployment 都可能独立兼容或不兼容。
+
+**机制**：Compatibility Decision 消费 exact Delta、consumer、adapter、deployment、unknown，不由 semver 或 green tests决定。
+
+**owner**：`docs/change-management.md`。
+
+## P32 — 一次语义时刻只有一个 active generation
+
+**原则**：proposal/history 可以多代并存，正常 writer/parser/resolver 对同 identity 只能一个 active generation。
+
+**机制**：shadow compare → independent validation → atomic cutover → old consumer-zero → retirement。
+
+**owner**：`docs/system-architecture/lifecycle-proof-and-evolution.md`、`docs/change-management.md`。
+
+## P33 — Future Obligation 不等于 Active 空壳
+
+**原则**：已接受但未激活的未来能力保留为带 issuer/trigger/reversal/expiry 的 obligation，不物化空 package、facade、version、runtime。
+
+**owner**：`docs/design-calculus/freeze-and-evolution.md`、`docs/change-management.md`。
+
+## P34 — 新信息只局部失效
+
+**原则**：发现缺失事实 x 时，只给真正依赖 x 的 closure 增 typed edge，并 invalidates `reverseReachable(x)`。
+
+**禁止**：给全部 ActionKey/文档/设计加一个 globalXRevision，迫使全仓重算。
+
+**owner**：`docs/system-architecture/derivation-locality.md`。
+
+## P35 — 新实例扩 Binding，不扩 Core
+
+**原则**：新语言、新 Provider、新数据库、新 OS、新部署形态默认只是新 Requirement/Provision/Binding/Target profile 实例。
+
+**反转条件**：出现现有 algebra 无法表达、且具有新的独立 admission/authority/lifecycle/failure semantics 的真实需求。
+
+**owner**：`docs/engineering-constitution.md`、`docs/compiler-target-ir.md`。
+
+## P36 — 外部 Effect 丢响应只 Readback
+
+**原则**：网络/Provider 响应丢失不能证明没执行；重复调用可能制造双 Effect。
+
+**机制**：OperationKey + journal + provider/domain readback → applied / not-applied / partial/unknown。
+
+**owner**：`docs/implementation-architecture/execution-and-materialization.md`。
+
+## P37 — Cleanup 失败不抹掉主失败
+
+**原则**：primary failure 与 cleanup/residue分别保留；cleanup unknown 不能把 operation 投影成成功或完全失败后可安全重试。
+
+**owner**：`docs/engineering-constitution/operation-runtime.md`、`docs/verification-governance.md`。
+
+## P38 — Human/AI Context 是 Projection
+
+**原则**：聊天摘要、memory、README、Skill、Context Packet 只能定位 canonical refs；context loss 后重新绑定 durable/live facts。
+
+**owner**：`docs/agent-constitution.md`、`docs/agent-and-user-machine-interface.md`。
+
+## P39 — Skill 只保留不可机器化 frontier
+
+**原则**：可由 exact inputs 决定的规则迁入 type/schema/compiler/gate；Skill 只保留暂不可计算的判断程序，并有 trigger/stop/reversal。
+
+**owner**：`docs/agent-constitution/execution-and-recovery.md`、`docs/development-governance.md`。
+
+## P40 — 反例要修根模型，不是追加 patch
+
+**原则**：新 counterexample 先最小化 property trace，再定位所有必要因果边界；若根前提错，使 reverse closure stale 并重新合成系统方案。
+
+**owner**：`docs/design-calculus/compilation.md`、`docs/agent-constitution/self-correction.md`。
+
+## P41 — Current、Target、Evidence、Terminal 必须分开说
+
+**原则**：设计冻结不等于实现，代码存在不等于 verified，PASS不等于merge，merge不等于deployment/support。
+
+**机制**：每层 statement kind/identity/owner 独立。
+
+**owner**：`docs/agent-constitution.md`、`docs/verification-governance.md`。
+
+## P42 — “完美”定义为局部可演进，不是预知未来
+
+**原则**：无法预先知道所有语言、Provider、故障、法律和用户需求；可追求的是：未知以 typed frontier存在，新信息通过新 fact/edge/variant/binding进入，只让实际依赖闭包变化。
+
+**验收**：未来新增一个独立事实通常只需要：
 
 ```text
-full canonical state
-→ task-specific projection
-→ model context
+new typed fact / relation / binding
+→ existing owner/compiler consumes it
+→ reverse-reachable closure stale
+→ unaffected identities/ActionKeys/projections remain byte-stable
 ```
 
-禁止把一次自然语言摘要反向覆盖完整 canonical state。
+只有新事实证明现有 algebra 缺少不可替代语义时，才演进 root model，并通过 explicit migration 保留旧 expressible subset。
 
-**反例**：canonical representation 本身可以做无损规范化、dedup、content-addressing；禁止的是丢失会改变工程语义的信息。
-
-**owner**：`docs/semantic-model.md`、`docs/agent-and-user-machine-interface.md`。
-
----
-
-## P38 — Context Compression 的目标是 Decision-preserving，不是“看起来语义相似”
-
-**依据**：一个摘要可以整体意思接近，却删掉唯一会改变 eligibility、permission 或 failure 的异常条件。
-
-**机制**：只有删除后不会改变 candidate set、hard constraints、authority、Impact、Verification、unknown frontier 或 final decision 的信息，才能对该任务视为冗余。
-
-**反例**：开放探索任务尚未知道什么会影响结论，需要更保守的初始 coverage。
-
-**owner**：`docs/agent-and-user-machine-interface.md`。
-
----
-
-## P39 — Progressive Disclosure：最小充分起步，沿 Unresolved Frontier 展开
-
-**依据**：全仓一次性输入会增加检索和定位工作；过度裁剪又会遗漏关键边界。
-
-**机制**：
-
-```text
-minimal sufficient packet
-→ unresolved refs
-→ exact expansion
-→ recompute
-```
-
-security、authority、must-preserve 等 mandatory context 不能等待模型自己想到后才补。
-
-**反例**：非常小的工程可以一次加载完整上下文，仍然不违反原则，因为“完整”本身就是最小充分。
-
-**owner**：`docs/agent-and-user-machine-interface.md`。
-
----
-
-## P40 — Externalize Deterministic Cognition：可机械认知不反复消耗 AI
-
-**依据**：dependency closure、owner resolution、schema validation、test selection、Git identity 等都可以由确定性程序更稳定地产生。
-
-**机制**：
-
-```text
-machine computes
-→ stable identity / receipt
-→ AI consumes result
-```
-
-而不是让模型每次从原始源码重新猜。
-
-**反例**：机器算法 coverage 不完整时，AI 可以作为补充分析，但输出仍是 Evidence/proposal，不升级为 canonical truth。
-
-**owner**：`docs/development-governance.md`、`docs/agent-and-user-machine-interface.md`。
-
----
-
-## P41 — Context Coverage 必须显式；“给了一些相关信息”不等于“充分”
-
-**依据**：过度压缩最危险的不是文字少，而是系统不知道删掉了什么重要事实。
-
-**机制**：Context Packet 最终应能够投影 required / present / missing / stale / unknown / intentionally omitted，并绑定其 coverage source。
-
-**反例**：完全封闭且输入固定的小任务可隐式知道 coverage，但跨仓库/跨 Provider/跨 runtime 的任务不应依赖这种假设。
-
-**owner**：`docs/agent-and-user-machine-interface.md`、相关 Impact/Verification owner。
-
----
-
-# 十、这些原则怎样落到工程，而不是停在文档
-
-原则本身不是完成状态。
-
-完整链条应该是：
-
-```text
-现实 / Evidence / 产品目标
-        ↓
-Principle rationale
-        ↓
-Canonical domain rule
-        ↓
-Type / Schema / Validator / Algorithm / State Machine
-        ↓
-Negative / Property / Physical Verification
-        ↓
-Enforcement
-        ↓
-Real Consumer Adoption
-        ↓
-Old Path Retirement
-```
-
-所以以后看到一句“SEC 原则是 X”，应该继续追问：
-
-1. X 的 basis 是什么？
-2. 哪个 canonical owner 真正拥有下层规则？
-3. 哪些路径已经 machine enforce？
-4. 哪些只是 specified？
-5. 什么 Evidence 能推翻或削弱它？
-
-只有这样，原则才是工程知识，而不是口号。
+**owner**：`docs/design-calculus.md`、`docs/system-architecture/derivation-locality.md`、`docs/documentation-system/reference-and-identity.md`。
