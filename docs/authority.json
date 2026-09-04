@@ -71,6 +71,7 @@
       "projects": [
         "documentation-compilation-views",
         "documentation-evolution-conformance",
+        "documentation-reference-identity",
         "documentation-registry",
         "documentation-source-authority"
       ]
@@ -103,6 +104,18 @@
       "projects": []
     },
     {
+      "id": "documentation-reference-identity",
+      "path": "docs/documentation-system/reference-and-identity.md",
+      "kind": "authority",
+      "domain": "documentation",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "documentation.reference-identity"
+      ],
+      "projects": []
+    },
+    {
       "id": "documentation-evolution-conformance",
       "path": "docs/documentation-system/evolution-and-conformance.md",
       "kind": "authority",
@@ -122,9 +135,22 @@
       "lifecycle": "stable",
       "dynamicPolicy": "forbidden",
       "owns": [
-        "design.constraint",
         "design.principle-language",
         "design.relation-algebra"
+      ],
+      "projects": []
+    },
+    {
+      "id": "design-calculus-constraint-decision",
+      "path": "docs/design-calculus/constraints-and-decision.md",
+      "kind": "authority",
+      "domain": "design-calculus",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "design.claim-lowering",
+        "design.constraint",
+        "design.cost-model"
       ],
       "projects": []
     },
@@ -221,9 +247,20 @@
       "dynamicPolicy": "forbidden",
       "owns": [
         "agent.adversarial-reasoning",
-        "agent.delegation",
         "agent.knowledge-crystallization",
         "agent.recovery"
+      ],
+      "projects": []
+    },
+    {
+      "id": "agent-delegation-modes",
+      "path": "docs/agent-constitution/delegation-modes.md",
+      "kind": "authority",
+      "domain": "agent-constitution",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "agent.delegation"
       ],
       "projects": []
     },
@@ -265,6 +302,20 @@
         "delivery.exit-criteria",
         "delivery.stage-dag"
       ],
+      "projects": [
+        "roadmap-capability-relations"
+      ]
+    },
+    {
+      "id": "roadmap-capability-relations",
+      "path": "docs/roadmap/capability-relations.md",
+      "kind": "authority",
+      "domain": "roadmap",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "delivery.capability-relations"
+      ],
       "projects": []
     },
     {
@@ -292,7 +343,11 @@
         "architecture.cross-domain-reference",
         "architecture.layering"
       ],
-      "projects": []
+      "projects": [
+        "system-architecture-authority-roots",
+        "system-architecture-derivation-locality",
+        "system-architecture-resource-accounting"
+      ]
     },
     {
       "id": "system-architecture-scope-domain-topology",
@@ -317,6 +372,42 @@
       "owns": [
         "architecture.authority-flow",
         "architecture.single-writer"
+      ],
+      "projects": []
+    },
+    {
+      "id": "system-architecture-resource-accounting",
+      "path": "docs/system-architecture/resource-accounting.md",
+      "kind": "authority",
+      "domain": "system-architecture",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "architecture.resource-accounting"
+      ],
+      "projects": []
+    },
+    {
+      "id": "system-architecture-derivation-locality",
+      "path": "docs/system-architecture/derivation-locality.md",
+      "kind": "authority",
+      "domain": "system-architecture",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "architecture.derivation-locality"
+      ],
+      "projects": []
+    },
+    {
+      "id": "system-architecture-authority-roots",
+      "path": "docs/system-architecture/authority-roots.md",
+      "kind": "authority",
+      "domain": "system-architecture",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "architecture.authority-roots"
       ],
       "projects": []
     },
@@ -482,6 +573,20 @@
         "semantic.mutation",
         "semantic.source-ownership",
         "semantic.transaction-recovery"
+      ],
+      "projects": [
+        "semantic-mutation-planning-admission"
+      ]
+    },
+    {
+      "id": "semantic-mutation-planning-admission",
+      "path": "docs/semantic-mutation/planning-and-admission.md",
+      "kind": "authority",
+      "domain": "semantic-mutation",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "semantic.mutation-planning"
       ],
       "projects": []
     },
@@ -654,6 +759,20 @@
         "development.fact-sources",
         "development.plan-layering",
         "development.roles"
+      ],
+      "projects": [
+        "development-implementation-admission"
+      ]
+    },
+    {
+      "id": "development-implementation-admission",
+      "path": "docs/development-governance/implementation-admission.md",
+      "kind": "authority",
+      "domain": "development-governance",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "development.implementation-admission"
       ],
       "projects": []
     },
