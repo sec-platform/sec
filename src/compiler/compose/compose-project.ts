@@ -17,14 +17,22 @@ import { generateRuntimeLibraryScaffold } from './generate-runtime-library.ts';
 import { installOpaqueModules } from './install-opaque-modules.ts';
 import { defaultInstallRegistry } from './install-strategies.ts';
 import { mergePrismaTemplate } from './merge-prisma-template.ts';
+import type { OpaqueModuleMaterializationMode } from './opaque-module-materialization.ts';
+
+export type ComposeProjectOptions = Readonly<{
+  commitFence?: CommitFence;
+  signal?: AbortSignal;
+  opaqueModuleMaterializationMode: OpaqueModuleMaterializationMode;
+}>;
 
 export async function composeProject(
   workspaceRoot: string,
   lock: LockFile,
   semanticContext: PipelineSemanticContext,
-  options?: { commitFence?: CommitFence; signal?: AbortSignal }
+  options: ComposeProjectOptions
 ): Promise<LockFile> {
-  const commitFence = options?.commitFence;
+  const commitFence = options.commitFence;
+  options.signal?.throwIfAborted();
   const blockUsageMapPath = resolveWorkspaceArtifactPath(
     workspaceRoot,
     CI_ARTIFACT_FILES.blockUsageMap
@@ -39,11 +47,16 @@ export async function composeProject(
   // does not belong on the compilation path.
   await checkProjectWriteBoundary(workspaceRoot);
   await ensureProjectBase(workspaceRoot, commitFence);
+  options.signal?.throwIfAborted();
 
   const installContext = { workspaceRoot, lock, commitFence };
   await defaultInstallRegistry.executeAll(lock.installPlan, installContext);
   await mergePrismaTemplate(workspaceRoot, commitFence);
-  const opaqueGeneratedPaths = await installOpaqueModules(workspaceRoot, { commitFence });
+  const opaqueGeneratedPaths = await installOpaqueModules(workspaceRoot, {
+    commitFence,
+    materializationMode: options.opaqueModuleMaterializationMode
+  });
+  options.signal?.throwIfAborted();
 
   const installManifest: Array<InstallPlanStep & { status: 'installed' }> = lock.installPlan.map((step) => ({
     ...step,
@@ -74,6 +87,7 @@ export async function composeProject(
   addGeneratedPaths(lock, initialGeneratedPaths);
   await formatOutputFiles(workspaceRoot, lock.generatedPaths, commitFence);
   await applyOverrides(workspaceRoot, commitFence);
+  options.signal?.throwIfAborted();
   await writeJson(installManifestPath, installManifest, commitFence);
   const overrideManifest = await loadOverrideManifest(workspaceRoot);
   await writeProjectBaseline(
