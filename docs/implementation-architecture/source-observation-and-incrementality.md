@@ -6,7 +6,7 @@ domain: implementation-architecture
 
 # Source Observation 与增量事实
 
-本文拥有exact WorkspaceContentView、SourceObservationGeneration、跨consumer fact shards与增量失效的语言无关实现设计。它不拥有Domain adoption、target realization、具体语言/工具Provider选择、Verification verdict或实际cache地址。
+本文拥有exact WorkspaceContentView、SourceObservationGeneration、跨consumer fact shards与增量失效的语言无关实现设计。通用 computation identity / reverse invalidation遵守 [Derivation Locality](../system-architecture/derivation-locality.md)；资源 accounting遵守 [Resource Accounting](../system-architecture/resource-accounting.md)。本文不拥有Domain adoption、target realization、具体语言/工具Provider选择、Verification verdict或实际cache地址。
 
 ## 1. One content view
 
@@ -33,7 +33,7 @@ SourceObservationGeneration = exact {
 }
 ```
 
-Watcher/editor events只使相关content keys stale，不进入semantic identity。Producer按bytes与readback建立新generation；长期进程的memory不能补造事实。
+Generation 是共享 observation publication lineage，不自动等于每个下游 computation 的 input identity。Watcher/editor events只使相关content keys stale，不进入semantic identity。Producer按bytes与readback建立新generation；长期进程的memory不能补造事实。
 
 ## 2. Source Program owner
 
@@ -117,17 +117,27 @@ FinalCheckBinding   = selected compatible Provider + exact SemanticCheckActionKe
 - Provider unavailable/mismatch/unverified返回typed result，不能退回ambient tool。
 
 ```text
+SemanticCheckInputClosure = exact {
+  requested project/Claim roots,
+  reachable content/declaration/reference/config fact shard refs,
+  exact language/project/config refs that affect diagnostics,
+  dependency/package closure refs,
+  target/environment facts actually observed,
+  unknown dependency frontier
+}
+
 SemanticCheckActionKey = digest(
-  SourceObservationGenerationRef,
-  exact language/project/config references,
-  dependency generation and package closure,
-  checker/provider identity,
+  checker/algorithm identity,
+  SemanticCheckInputClosureRef,
+  checker/provider semantic identity,
   canonical diagnostic-affecting args,
-  environment/target profile
+  applicable target/environment semantics
 )
 ```
 
-相同ActionKey可复用terminal；输入变化只失效反向可达shards。Final frozen tree/environment只需一次full Evidence；editing循环使用editing service或affected closure，不反复裸跑full checker。SEC self-hosting所选的具体语言/checker与性能绑定只由 [Runtime and Distribution](../runtime-and-distribution.md) 的toolchain profile拥有，本片段不复制。
+`SourceObservationGenerationRef`记录在 semantic-check receipt 的 provenance/lineage 中，但**默认不进入 ActionKey**。只有某个 Claim 明确观察 whole SourceObservationGeneration 时才把 generation ref作为真实 input。这样无关 workspace sibling改变可以产生新的共享 observation generation，而不使语义未受影响的 checker ActionKey失效。
+
+相同ActionKey可复用terminal；输入变化只失效反向可达shards/actions。Final frozen tree/environment只需一次full Evidence；editing循环使用editing service或affected closure，不反复裸跑full checker。SEC self-hosting所选的具体语言/checker与性能绑定只由 [Runtime and Distribution](../runtime-and-distribution.md) 的toolchain profile拥有，本片段不复制。
 
 ## 6. Performance model
 
@@ -154,14 +164,16 @@ SourceLoopCost =
 ```text
 IncrementalCorrect =
   result(incremental, SemanticCheckActionKey) == result(clean, SemanticCheckActionKey)
-  and changed unrelated content leaves result byte-identical
+  and changed unrelated content leaves SemanticCheckActionKey and result byte-identical
   and every relevant content/config/provider change invalidates
   and cache/service loss changes only cost
 ```
 
+“为了保守”把整个 workspace/generation revision永久塞进每个局部 key 属于`global-generation-contamination`。动态依赖无法判定时保留 bounded unknown frontier并只扩大受其影响的 closure。
+
 ## 7. Resource and failure boundary
 
-Observation、frontend、attach与consumer projection共享一个operation allocation：entries、bytes、depth、memory、CPU/time、open handles/processes与output。不得每层重置deadline/counter，也不得为算bytes预扫整棵树后再扫描。
+Observation、frontend、attach与consumer projection共享一个operation allocation。entries/bytes/CPU time/request count等 consumable、process/handle等 lease、resident memory等 gauge 必须引用各自 `ResourceDimensionContract`，不能用统一不可返还 Consume 解释。不得每层重置deadline/counter，也不得为算bytes预扫整棵树后再扫描。
 
 Frontend优先single-pass streaming inventory并在同一次读取中计算content digest、byte consumption与facts；若协议要求readback，再以明确的第二阶段budget执行。Abort/deadline/permission/unsafe path/parser failure保留typed原因，不能catch为`false/null/absent`。
 
@@ -172,14 +184,16 @@ SourceObservationClosed =
   one exact WorkspaceContentView per generation
   and every source kind has one frontend or typed opaque frontier
   and all consumers reference the same fact identities
+  and every reusable action binds its actual reachable input closure
   and incremental/clean/cache-disabled results are equivalent
+  and unrelated content preserves unaffected ActionKeys
   and cross-process reuse validates complete scope and invalidation
   and every admitted language has one semantics owner and one selected final checker route
   and resource exhaustion/cancellation never becomes absence or success
   and loss of warm state affects cost only
 ```
 
-<!-- sec-clause {"blocker":null,"kind":"stable-decision"} -->
+<!-- sec-clause {"id":"source-observation-locality","blocker":null,"kind":"stable-decision"} -->
 ## 规范片段
 
-每个exact workspace view只产生一个SourceObservationGeneration；language facts、semantic check、audit、test-impact和rewrite共享content-addressed shards与同一invalidations。canonical compiler/frontend拥有语言语义，final checker是可替换Provider；cache、daemon、path和工具候选不能形成第二source graph或改变clean结果。
+每个exact workspace view只产生一个SourceObservationGeneration；language facts、semantic check、audit、test-impact和rewrite共享content-addressed shards。局部ActionKey只绑定实际可达fact/config/dependency/provider closure，global generation只作lineage；新增无关内容不得使ActionKey变化。canonical frontend拥有语言语义，cache/daemon/path不能形成第二source graph或改变clean结果。
