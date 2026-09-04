@@ -119,6 +119,7 @@ test('explain graph consumes canonical ports, policies, and policy violation gov
   );
   expect(violationEdges).toHaveLength(1);
 }, 180000);
+
 test('explain graph connects upgrade file operations to their block and durable files', async () => {
   const workspaceRoot = await prepareResolvedWorkspace({ prefix: 'engineering-compiler-explain-upgrade-file-' });
   const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
@@ -234,118 +235,153 @@ test('explain graph connects upgrade file operations to their block and durable 
     upgradePlan,
     diagnostics
   );
+  const upgradeId = 'upgrade:entity/customer-basic:0.2.0';
+  const upgradeEdges = graph.edges.filter(
+    (edge) => edge.from === upgradeId || edge.from.startsWith(`${upgradeId}:`)
+  );
+  const upgradeEndpointIds = new Set(
+    upgradeEdges.flatMap((edge) => [edge.from, edge.to])
+  );
+  const upgradeNodes = graph.nodes.filter((node) =>
+    upgradeEndpointIds.has(node.id) ||
+    node.id.startsWith(`${upgradeId}:`) ||
+    node.id.startsWith('upgrade-verification:')
+  );
 
-  // FIXME: arrayContaining hides unexpected extras; need exact node count assertion
-  expect(graph.nodes).toEqual(
-    expect.arrayContaining([
-      {
-        id: 'upgrade:entity/customer-basic:0.2.0',
-        type: 'upgrade',
-        label: 'entity/customer-basic 0.1.0 -> 0.2.0'
-      },
-      {
-        id: 'upgrade:entity/customer-basic:0.2.0:migration:mig-customer-normalizer-file',
-        type: 'upgrade',
-        label: 'mig-customer-normalizer-file'
-      },
-      {
-        id: 'upgrade-verification:required',
-        type: 'upgrade',
-        label: 'verification required'
-      },
-      {
-        id: 'upgrade-verification:skipped',
-        type: 'upgrade',
-        label: 'verification skipped'
-      },
-      {
-        id: 'upgrade:entity/customer-basic:0.2.0:preflight:override-conflicts',
-        type: 'upgrade',
-        label: 'override-conflicts'
-      },
-      {
-        id: 'upgrade:entity/customer-basic:0.2.0:diagnostics',
-        type: 'upgrade',
-        label: 'UPGRADE-CONFLICT-001'
-      },
-      {
-        id: 'upgrade:entity/customer-basic:0.2.0:rollback:restored',
-        type: 'upgrade',
-        label: 'rollback restored'
-      },
-      {
-        id: 'file:src/installed/entity/customer-service.ts',
-        type: 'file',
-        label: 'src/installed/entity/customer-service.ts'
-      },
-      {
-        id: 'file:migrations/customer-normalizer-file.json',
-        type: 'file',
-        label: 'migrations/customer-normalizer-file.json'
-      },
-      { id: 'file:upgrade.metadata.json', type: 'file', label: 'upgrade.metadata.json' }
-    ])
-  );
-  // FIXME: arrayContaining hides unexpected extras; need exact edge count assertion
-  expect(graph.edges).toEqual(
-    expect.arrayContaining([
-      { from: 'upgrade:entity/customer-basic:0.2.0', to: 'block:entity/customer-basic', type: 'connects_to' },
-      { from: 'upgrade:entity/customer-basic:0.2.0', to: 'file:upgrade.metadata.json', type: 'writes_to' },
-      {
-        from: 'upgrade:entity/customer-basic:0.2.0',
-        to: 'upgrade:entity/customer-basic:0.2.0:migration:mig-customer-normalizer-file',
-        type: 'depends_on'
-      },
-      {
-        from: 'upgrade:entity/customer-basic:0.2.0',
-        to: 'upgrade:entity/customer-basic:0.2.0:preflight:override-conflicts',
-        type: 'depends_on'
-      },
-      {
-        from: 'upgrade:entity/customer-basic:0.2.0:migration:mig-customer-normalizer-file',
-        to: 'upgrade-verification:required',
-        type: 'depends_on'
-      },
-      {
-        from: 'upgrade:entity/customer-basic:0.2.0:migration:mig-customer-normalizer-file',
-        to: 'file:src/installed/entity/customer-service.ts',
-        type: 'writes_to'
-      },
-      {
-        from: 'upgrade:entity/customer-basic:0.2.0:migration:mig-upgrade-metadata',
-        to: 'upgrade-verification:skipped',
-        type: 'depends_on'
-      },
-      {
-        from: 'upgrade:entity/customer-basic:0.2.0:migration:mig-upgrade-metadata',
-        to: 'file:upgrade.metadata.json',
-        type: 'writes_to'
-      },
-      {
-        from: 'upgrade:entity/customer-basic:0.2.0:diagnostics',
-        to: 'upgrade:entity/customer-basic:0.2.0',
-        type: 'connects_to'
-      },
-      {
-        from: 'upgrade:entity/customer-basic:0.2.0:diagnostics',
-        to: 'upgrade:entity/customer-basic:0.2.0:migration:mig-customer-normalizer-file',
-        type: 'connects_to'
-      },
-      {
-        from: 'upgrade:entity/customer-basic:0.2.0:diagnostics',
-        to: 'upgrade:entity/customer-basic:0.2.0:preflight:override-conflicts',
-        type: 'connects_to'
-      },
-      {
-        from: 'upgrade:entity/customer-basic:0.2.0:diagnostics',
-        to: 'file:migrations/customer-normalizer-file.json',
-        type: 'connects_to'
-      },
-      {
-        from: 'upgrade:entity/customer-basic:0.2.0:diagnostics',
-        to: 'upgrade:entity/customer-basic:0.2.0:rollback:restored',
-        type: 'connects_to'
-      }
-    ])
-  );
+  expect(upgradeNodes).toHaveLength(15);
+  expect(upgradeNodes).toEqual(expect.arrayContaining([
+    {
+      id: upgradeId,
+      type: 'upgrade',
+      label: 'entity/customer-basic 0.1.0 -> 0.2.0'
+    },
+    {
+      id: `${upgradeId}:preflight:version-range`,
+      type: 'upgrade',
+      label: 'version-range'
+    },
+    {
+      id: `${upgradeId}:preflight:migration-entries`,
+      type: 'upgrade',
+      label: 'migration-entries'
+    },
+    {
+      id: `${upgradeId}:preflight:impact-scan`,
+      type: 'upgrade',
+      label: 'impact-scan'
+    },
+    {
+      id: `${upgradeId}:preflight:override-conflicts`,
+      type: 'upgrade',
+      label: 'override-conflicts'
+    },
+    {
+      id: `${upgradeId}:migration:mig-customer-normalizer-file`,
+      type: 'upgrade',
+      label: 'mig-customer-normalizer-file'
+    },
+    {
+      id: `${upgradeId}:migration:mig-upgrade-metadata`,
+      type: 'upgrade',
+      label: 'mig-upgrade-metadata'
+    },
+    {
+      id: 'upgrade-verification:required',
+      type: 'upgrade',
+      label: 'verification required'
+    },
+    {
+      id: 'upgrade-verification:skipped',
+      type: 'upgrade',
+      label: 'verification skipped'
+    },
+    {
+      id: `${upgradeId}:diagnostics`,
+      type: 'upgrade',
+      label: 'UPGRADE-CONFLICT-001'
+    },
+    {
+      id: `${upgradeId}:rollback:restored`,
+      type: 'upgrade',
+      label: 'rollback restored'
+    },
+    {
+      id: 'block:entity/customer-basic',
+      type: 'block',
+      label: 'entity/customer-basic'
+    },
+    {
+      id: 'file:src/installed/entity/customer-service.ts',
+      type: 'file',
+      label: 'src/installed/entity/customer-service.ts'
+    },
+    {
+      id: 'file:migrations/customer-normalizer-file.json',
+      type: 'file',
+      label: 'migrations/customer-normalizer-file.json'
+    },
+    {
+      id: 'file:upgrade.metadata.json',
+      type: 'file',
+      label: 'upgrade.metadata.json'
+    }
+  ]));
+
+  expect(upgradeEdges).toHaveLength(18);
+  expect(upgradeEdges).toEqual(expect.arrayContaining([
+    { from: upgradeId, to: 'block:entity/customer-basic', type: 'connects_to' },
+    { from: upgradeId, to: 'file:src/installed/entity/customer-service.ts', type: 'writes_to' },
+    { from: upgradeId, to: 'file:upgrade.metadata.json', type: 'writes_to' },
+    { from: upgradeId, to: `${upgradeId}:preflight:version-range`, type: 'depends_on' },
+    { from: upgradeId, to: `${upgradeId}:preflight:migration-entries`, type: 'depends_on' },
+    { from: upgradeId, to: `${upgradeId}:preflight:impact-scan`, type: 'depends_on' },
+    { from: upgradeId, to: `${upgradeId}:preflight:override-conflicts`, type: 'depends_on' },
+    { from: upgradeId, to: `${upgradeId}:migration:mig-customer-normalizer-file`, type: 'depends_on' },
+    { from: upgradeId, to: `${upgradeId}:migration:mig-upgrade-metadata`, type: 'depends_on' },
+    {
+      from: `${upgradeId}:migration:mig-customer-normalizer-file`,
+      to: 'upgrade-verification:required',
+      type: 'depends_on'
+    },
+    {
+      from: `${upgradeId}:migration:mig-customer-normalizer-file`,
+      to: 'file:src/installed/entity/customer-service.ts',
+      type: 'writes_to'
+    },
+    {
+      from: `${upgradeId}:migration:mig-upgrade-metadata`,
+      to: 'upgrade-verification:skipped',
+      type: 'depends_on'
+    },
+    {
+      from: `${upgradeId}:migration:mig-upgrade-metadata`,
+      to: 'file:upgrade.metadata.json',
+      type: 'writes_to'
+    },
+    {
+      from: `${upgradeId}:diagnostics`,
+      to: upgradeId,
+      type: 'connects_to'
+    },
+    {
+      from: `${upgradeId}:diagnostics`,
+      to: `${upgradeId}:migration:mig-customer-normalizer-file`,
+      type: 'connects_to'
+    },
+    {
+      from: `${upgradeId}:diagnostics`,
+      to: `${upgradeId}:preflight:override-conflicts`,
+      type: 'connects_to'
+    },
+    {
+      from: `${upgradeId}:diagnostics`,
+      to: 'file:migrations/customer-normalizer-file.json',
+      type: 'connects_to'
+    },
+    {
+      from: `${upgradeId}:diagnostics`,
+      to: `${upgradeId}:rollback:restored`,
+      type: 'connects_to'
+    }
+  ]));
 }, 180000);
