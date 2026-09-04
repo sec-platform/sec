@@ -6,7 +6,7 @@ domain: documentation
 
 # 文档编译、查询与视图
 
-本文拥有 documentation corpus discovery、semantic compilation、purpose-bound closure、addressing、read/write projection、incremental identity与表达选择。Source/Authority定义由 [Source, Scope and Authority](source-and-authority.md) 拥有；通用资源、Effect和恢复由系统架构拥有；迁移只在 [Evolution and Conformance](evolution-and-conformance.md)。
+本文拥有 documentation corpus discovery、semantic compilation、purpose-bound closure、read/write projection、incremental compilation与表达选择。Source/Authority定义由 [Source, Scope and Authority](source-and-authority.md) 拥有；Document/Clause identity、Address/reference federation与fragment validity由 [Reference and Identity](reference-and-identity.md) 拥有；通用 derivation locality由 [System Derivation Locality](../system-architecture/derivation-locality.md) 拥有；成本向量与Pareto由 [Constraint and Decision](../design-calculus/constraints-and-decision.md) 拥有；迁移只在 [Evolution and Conformance](evolution-and-conformance.md)。
 
 ## 1. Semantic generation 与 projection input 分离
 
@@ -25,12 +25,13 @@ DocumentationSemanticCompilationInput = exact {
 }
 
 DocumentationProjectionCompilationInput = exact {
-  documentationGenerationRef,
-  purpose/query contract ref,
+  purposeClosureRef,
+  exact source/clause/scope refs reachable by that closure,
   consumer/principal/disclosure binding refs,
-  target placement/address profile ref,
+  exact address refs actually rendered,
   renderer contract revision ref,
-  presentation contract ref
+  presentation contract ref,
+  sourceDocumentationGenerationRefs as lineage only
 }
 ```
 
@@ -66,7 +67,7 @@ flowchart LR
   I --> B[Independent byte/readback verification]
 ```
 
-每个阶段只接受前一阶段的immutable result；任何 side read 必须作为显式 input relation加入 ActionKey，否则当前result不可复用和freeze。每个named formal declaration必须归一为一个`ConstructDefinitionNode`或`RuleDefinitionNode`，并通过named-construct admission或rule contract；同名唯一并不足以证明角色正确。
+每个阶段只接受前一阶段的immutable result；任何 side read 必须作为显式 input relation加入该阶段的 actual input closure，否则当前result不可复用和freeze。每个named formal declaration必须归一为一个`ConstructDefinitionNode`或`RuleDefinitionNode`，并通过named-construct admission或rule contract；同名唯一并不足以证明角色正确。
 
 ```text
 DocumentationGeneration = exact {
@@ -87,20 +88,20 @@ DocumentationGeneration = exact {
 }
 ```
 
-Generation不包含purpose query、renderer、address、cache path、process/session、resource allocation、presentation budget或当前working directory。相同semantic input与compiler contract必须产生byte-equivalent canonical graph；projection有自己的input与identity，不能反向改变Generation。
+Generation不包含purpose query、renderer、address、cache path、process/session、resource allocation、presentation budget或当前working directory。相同semantic input与compiler contract必须产生byte-equivalent canonical graph；projection有自己的局部input closure与identity，不能反向改变Generation。
 
 ## 3. Constraint 与 conflict
 
-Normative clause被normalization为可判定形式：
+Normative clause先normalization为typed proposition/rule form；只有可 lower 到 [Design Constraint](../design-calculus/constraints-and-decision.md) 的 bounded predicate才直接机器判定。Temporal/statistical/robustness/relational性质必须生成对应 proof obligation/frontier，不能把“规范句”自动升级为 decidable。
 
 ```text
 ClauseNormalForm = alphaNormalize(
   quantifier + universe + modality + subject refs + precondition
-  + predicate + observable/rejection + source refs + reversal
+  + predicate/proof-obligation kind + observable/rejection + source refs + reversal
 )
 ```
 
-约束组合必须交换、结合、幂等；输入顺序或并行顺序不得改变结果。等价clause合并为一个owner node；相交冲突返回最小冲突核和provenance；不得按“后写覆盖前写”、文件顺序或措辞相似度裁决。
+可判定约束组合必须交换、结合、幂等；输入顺序或并行顺序不得改变结果。等价clause合并为一个owner node；相交冲突返回最小冲突核和provenance；不得按“后写覆盖前写”、文件顺序或措辞相似度裁决。
 
 Embedding、LLM与文本搜索只生成candidate pair；semantic equivalence只由typed refs、normal form、owner adoption或`unknown-equivalence`决定。
 
@@ -110,7 +111,7 @@ Embedding、LLM与文本搜索只生成candidate pair；semantic equivalence只�
 DocumentationKnowledgeClosure = leastFixedPoint(
   query.rootRefs,
   query.purposeAllowedRelations,
-  exact generation,
+  exact semantic shards/relations reachable from those roots,
   accepted disclosure ceiling
 )
 ```
@@ -122,7 +123,7 @@ DocumentationReadResult =
   | Ready {
       closureRef,
       projectionRef,
-      exact source/generation refs,
+      exact source/generation lineage refs,
       resourceSettlementRef
     }
   | RejectedBeforeAllocation { reason }
@@ -147,19 +148,7 @@ render(scope, purpose, detailBudget):
 
 ## 5. Address 与 reference federation
 
-Semantic identity不含path。Address由目标generation与平台约束编译：
-
-```text
-DocumentAddress = place(
-  DocumentRef,
-  source role/partition,
-  semantic scope containment,
-  placement profile,
-  repository/platform path capability
-)
-```
-
-Placement必须证明：case-fold/Unicode/reserved-name/same-file-dir/path-length collision-free；新增无关sibling不改变既有address；reparent/move只改变address revision，不改变DocumentRef。
+Semantic identity、Address、heading/fragment与reference rules由 [Reference and Identity](reference-and-identity.md) 唯一拥有。本层只消费其结果：
 
 ```text
 DocumentationLinkIndexEntry = {
@@ -171,7 +160,7 @@ DocumentationLinkIndexEntry = {
 }
 ```
 
-Index只发布identity、relation与address projection，不复制target正文。每个可披露active fragment必须从至少一个admitted purpose/root可达，或有typed `non-navigation` 原因。
+Index只发布identity、relation与address projection，不复制target正文。每个可披露active fragment必须从至少一个admitted purpose/root可达，或有typed `non-navigation` 原因。Markdown path/fragment不能反向成为DocumentRef/ClauseRef。
 
 ## 6. Read 与 Write compiler
 
@@ -182,7 +171,7 @@ DocumentationKnowledgeQuery = exact {
   consumer/principal ref,
   purpose ref,
   root Subject/Clause/Scope refs,
-  exact or minimum generation constraint,
+  exact or minimum semantic generation constraint,
   disclosure requirement
 }
 
@@ -215,7 +204,7 @@ Write compiler先产生 semantic delta、owner/consumer impact、projection/addr
 | --- | --- | --- |
 | edit | same owner + exact preimage + affected closure | foreign fact、hidden side read |
 | create | new identity + nonempty responsibility/consumer or accepted obligation | orphan、duplicate owner |
-| split/merge | fact-preservation bijection + owner redistribution + context/cost dominance | 按长度拆、丢fact、双owner |
+| split/merge | fact-preservation/evolution mapping + owner redistribution + context/cost non-dominance | 按长度拆、丢fact、双owner |
 | reparent | semantic containment proof + relation/read impact | path-derived parent、多父 |
 | retire | replacement/consumer/effect/future-obligation closure | unused/name/zero-local-import shortcut |
 
@@ -230,32 +219,32 @@ DocumentationGraphActionKey = digest(
 )
 
 DocumentationProjectionActionKey = digest(
-  exact DocumentationGeneration ref,
-  purpose/query/disclosure refs,
-  address/placement profile ref,
+  exact DocumentationKnowledgeClosure ref,
+  exact disclosure refs,
+  exact address/fragment refs actually rendered,
   renderer/presentation contract revisions
 )
 ```
 
+`DocumentationGenerationRef`默认只保存在projection receipt的 lineage/provenance中；只有 whole-corpus index/audit 确实观察完整 generation 时才进入其 ActionKey。无关文档新增、修改或删除若不改变当前 purpose closure/address/disclosure，则必须保持 projection ActionKey 与 bytes 不变。
+
 Compiler维护content-addressed source, clause, scope与relation shards；projection compiler维护closure、address与view shards。Semantic Delta只失效reverse-reachable semantic shards及引用它们的projection keys；purpose、renderer或placement变化不能使semantic generation stale。同一对应ActionKey的incremental和clean结果必须byte-equivalent。Cache/schema/producer/key/content无法重验时返回stale/unresolved，不静默长期full-scan。
 
-性能目标是最小化正确变更全生命周期成本：
+性能目标是最小化正确变更全生命周期成本。Fragment partition 不再把 bytes、contention、review、migration 等异量纲值直接加成一个假标量，而是声明适用的 `LifecycleCostVector` dimensions：
 
 ```text
-DocumentationLifecycleCost =
-  authoring + discovery + compilation + review + context retrieval
-  + consumer rewrite + verification + migration + support + retirement
+FragmentationObjective = {
+  localContextBytes,
+  reverseImpact,
+  concurrentEditContention,
+  crossReferenceCost,
+  navigationCost,
+  reviewSurface,
+  migrationCost
+}
 ```
 
-Fragment partition按Pareto比较：
-
-```text
-FragmentCost =
-  localContextBytes + reverseImpact + concurrentEditContention
-  + crossRefResolution + navigation + review + migration cost
-```
-
-不存在固定行数阈值。巨型fragment在多owner/高局部读取或高并发成本下必须拆；无独立边界的小fragment在cross-ref成本更高时必须合并。常用slice可物化，但不得成为第二事实源。
+先满足 owner/semantic/lifecycle/consumer 硬约束，再按共享 Pareto 语义比较。只有有权 policy 明确提供单位归一化/权重时才 scalarize。不存在固定行数阈值；巨型fragment在多owner/高局部读取或高并发成本下必须拆，无独立边界的小fragment在cross-ref成本支配时合并。
 
 ## 8. 表达选择
 
@@ -267,10 +256,10 @@ FragmentCost =
 | lifecycle / recovery | state machine / sequence diagram |
 | algorithm | pseudocode + invariants + complexity |
 | competing design | decision matrix / Pareto vectors |
-| normative rule | concise clause + predicate + rejection + reversal |
+| normative rule | concise clause + typed predicate/proof obligation + rejection + reversal |
 | explanation/example | typed refs；executable artifact或明确non-normative |
 
-一项原则可以有 sentence、formal predicate、role matrix、diagram、machine rejection、counterexample/reversal 等多种精确投影，但它们必须引用同一 principle/clause ID。只重复语气、历史争论或显然错误旧做法的段落删除。
+一项原则可以有 sentence、formal predicate、role matrix、diagram、machine rejection、counterexample/reversal 等多种精确投影，但它们必须引用同一 stable principle/clause ID。只重复语气、历史争论或显然错误旧做法的段落删除。
 
 ## 9. Projection fidelity
 
@@ -300,14 +289,15 @@ DocumentationCompilationClosed =
   and constraint conflicts are empty or explicit frontier
   and semantic incremental output equals clean output for the same DocumentationGraphActionKey
   and every required purpose has a complete closure contract
-  and all required addresses are collision-free under target profile
+  and all required addresses/references are valid under the target profile
   and all required projections preserve meaning/disclosure/blockers/unknowns
+  and unrelated semantic changes preserve unaffected projection ActionKeys
   and projection incremental output equals clean output for the same DocumentationProjectionActionKey
 ```
 
 此结果只证明一个immutable documentation target generation；不签发migration、publication或consumer cutover authority。
 
-<!-- sec-clause {"blocker":null,"kind":"stable-decision"} -->
+<!-- sec-clause {"id":"documentation-compilation-locality","blocker":null,"kind":"stable-decision"} -->
 ## 规范片段
 
-Documentation Compiler从exact corpus与独立source bindings生成一个递归typed knowledge generation；所有reader按purpose取得同一graph的最小完整closure，所有writer提交semantic intent，path/index/view仅由compiler生成。预算、cache、presentation和工具不得改变selection或truth。
+Documentation Compiler从exact corpus与独立source bindings生成typed semantic shards；reader按purpose取得最小完整closure，writer提交semantic intent。Projection ActionKey只绑定实际purpose closure/disclosure/address/renderer inputs，global generation只作lineage；Fragment成本使用共享CostVector/Pareto，path/index/view均不得形成第二truth。
