@@ -40,22 +40,36 @@ export function isPlainObject(value: unknown): value is Record<string, unknown> 
 }
 
 export function canonicalJson(value: unknown): unknown {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value)) throw new Error('Canonical JSON numbers must be finite');
-    return Object.is(value, -0) ? 0 : value;
+  // Track the current ancestor chain, not every previously seen object: a
+  // shared subtree is valid JSON input, while a back-edge is not.
+  const ancestors = new WeakSet<object>();
+  function normalize(entry: unknown): unknown {
+    if (entry === null || typeof entry === 'string' || typeof entry === 'boolean') return entry;
+    if (typeof entry === 'number') {
+      if (!Number.isFinite(entry)) throw new Error('Canonical JSON numbers must be finite');
+      return Object.is(entry, -0) ? 0 : entry;
+    }
+    if (!Array.isArray(entry) && !isPlainObject(entry)) {
+      throw new Error('Canonical JSON only accepts arrays and plain objects');
+    }
+    if (ancestors.has(entry)) throw new Error('Canonical JSON rejects circular references');
+    ancestors.add(entry);
+    try {
+      if (Array.isArray(entry)) return entry.map(normalize);
+      return Object.fromEntries(Object.keys(entry)
+        .sort(compareCodeUnits)
+        .map((key) => {
+          const nested = entry[key];
+          if (nested === undefined || typeof nested === 'bigint' || typeof nested === 'function' || typeof nested === 'symbol') {
+            throw new Error(`Canonical JSON rejects unsupported value at key "${key}"`);
+          }
+          return [key, normalize(nested)];
+        }));
+    } finally {
+      ancestors.delete(entry);
+    }
   }
-  if (Array.isArray(value)) return value.map(canonicalJson);
-  if (!isPlainObject(value)) throw new Error('Canonical JSON only accepts arrays and plain objects');
-  return Object.fromEntries(Object.keys(value)
-    .sort(compareCodeUnits)
-    .map((key) => {
-      const entry = value[key];
-      if (entry === undefined || typeof entry === 'bigint' || typeof entry === 'function' || typeof entry === 'symbol') {
-        throw new Error(`Canonical JSON rejects unsupported value at key "${key}"`);
-      }
-      return [key, canonicalJson(entry)];
-    }));
+  return normalize(value);
 }
 
 export function sha256(value: unknown): string {
@@ -81,10 +95,39 @@ export function stableById<Value extends { id: string }>(values: readonly Value[
   return [...values].sort((left, right) => compareCodeUnits(left.id, right.id));
 }
 
+/**
+ * Freeze the reachable own-data-property graph without invoking accessors.
+ * A shallow-frozen container is not evidence that its descendants are frozen.
+ * Functions and collection internal slots retain their existing semantics;
+ * this does not turn Map/Set/Date instances into immutable value types.
+ */
 export function deepFreeze<Value>(value: Value): Value {
-  if (value === null || typeof value !== 'object' || Object.isFrozen(value)) return value;
-  for (const nested of Object.values(value as Record<string, unknown>)) deepFreeze(nested);
-  Object.freeze(value);
+  if (value === null || typeof value !== 'object') return value;
+  const visited = new WeakSet<object>();
+  const pending: Array<{ value: object; childrenVisited: boolean }> = [
+    { value, childrenVisited: false }
+  ];
+  while (pending.length > 0) {
+    const current = pending.pop()!;
+    if (current.childrenVisited) {
+      Object.freeze(current.value);
+      continue;
+    }
+    if (visited.has(current.value)) continue;
+    visited.add(current.value);
+    // Postorder preserves child-before-parent freezing on acyclic edges;
+    // already visited cycle back-edges must not schedule another traversal.
+    pending.push({ value: current.value, childrenVisited: true });
+    const keys = Reflect.ownKeys(current.value);
+    for (let index = keys.length - 1; index >= 0; index -= 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(current.value, keys[index]!);
+      if (descriptor === undefined || !Object.hasOwn(descriptor, 'value')) continue;
+      const nested: unknown = descriptor.value;
+      if (nested !== null && typeof nested === 'object' && !visited.has(nested)) {
+        pending.push({ value: nested, childrenVisited: false });
+      }
+    }
+  }
   return value;
 }
 

@@ -1,3 +1,4 @@
+import { deepFreeze } from '../../system-architecture/foundation/runtime/canonical.ts';
 import type { ManifestEntry } from '../contract.ts';
 import type { RegistryKind, RegistryLocation } from '../registry/contract/types.ts';
 
@@ -15,17 +16,6 @@ export interface ManifestCacheKey {
 interface ManifestCacheRecord {
   readonly sourceDigest: `sha256:${string}`;
   readonly entry: ManifestEntry;
-}
-
-function deepFreezeSnapshot<Value>(value: Value, seen = new WeakSet<object>()): Value {
-  if (value === null || typeof value !== 'object') return value;
-  const object = value as object;
-  if (seen.has(object)) return value;
-  seen.add(object);
-  for (const key of Reflect.ownKeys(object)) {
-    deepFreezeSnapshot((object as Record<PropertyKey, unknown>)[key], seen);
-  }
-  return Object.freeze(value);
 }
 
 /**
@@ -69,7 +59,7 @@ class ManifestCache {
     ) {
       throw new Error('Manifest cache entry does not match its causal registry identity.');
     }
-    const snapshot = deepFreezeSnapshot(entry);
+    const snapshot = deepFreeze(entry);
     this.records.set(this.locatorKey(key), Object.freeze({
       sourceDigest: key.sourceDigest,
       entry: snapshot

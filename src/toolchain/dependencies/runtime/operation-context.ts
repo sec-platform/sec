@@ -139,7 +139,7 @@ export type RuntimeDependencyOperationContext = Readonly<{
 
 export type RuntimeDependencyOperationOptions<
   T extends RuntimeDependencyInstallOptions = RuntimeDependencyInstallOptions
-> = T & Readonly<{
+> = Readonly<T> & Readonly<{
   [RUNTIME_DEPENDENCY_OPERATION_CONTEXT]: RuntimeDependencyOperationContext;
 }>;
 
@@ -250,12 +250,12 @@ export function runtimeDependencyOperationOptions<T extends RuntimeDependencyIns
         telemetryKey: existing?.telemetryKey ?? Object.freeze({})
       });
   context.signal?.throwIfAborted();
-  return {
+  return Object.freeze({
     ...options,
     lockTimeoutMs: Math.min(initialBudgetMs, context.initialBudgetMs),
     pollIntervalMs,
     [RUNTIME_DEPENDENCY_OPERATION_CONTEXT]: context
-  };
+  });
 }
 
 export function runtimeDependencyOperationContext(
@@ -273,6 +273,9 @@ export function runtimeDependencyOperationRemainingMs(
   const context = runtimeDependencyOperationContext(options);
   context.signal?.throwIfAborted();
   const observedAtMonotonicMs = context.monotonicNowMs();
+  // Injected clock sources can synchronously cancel the operation while
+  // sampling its budget. Do not admit an effect using that stale check.
+  context.signal?.throwIfAborted();
   const remainingMs = context.deadlineAtMonotonicMs - observedAtMonotonicMs;
   if (!Number.isFinite(remainingMs) || remainingMs < minimumMs) {
     throw new SecError('RUNTIME-DEPS-003', `${label} exceeded the runtime dependency operation deadline`, {
@@ -291,16 +294,22 @@ export async function waitForRuntimeDependencyOperation(
   sleep: (ms: number) => Promise<void>,
   label: string
 ): Promise<void> {
-  const context = runtimeDependencyOperationContext(options);
-  const remainingMs = runtimeDependencyOperationRemainingMs(options, label);
+  // Retain one operation ledger even when the caller supplies raw options.
+  // Recreating it for the terminal check would reset the deadline and clock.
+  const operationOptions = runtimeDependencyOperationOptions(options);
+  const context = runtimeDependencyOperationContext(operationOptions);
+  const signal = context.signal;
+  const remainingMs = runtimeDependencyOperationRemainingMs(operationOptions, label);
   const boundedDelayMs = Math.max(1, Math.min(requestedDelayMs, Math.floor(remainingMs)));
   let abortListener: (() => void) | undefined;
   let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
-  const aborted = context.signal === undefined
+  const aborted = signal === undefined
     ? null
     : new Promise<never>((_resolve, reject) => {
-        abortListener = () => reject(context.signal?.reason ?? new Error(`${label} was aborted`));
-        context.signal?.addEventListener('abort', abortListener, { once: true });
+        abortListener = () => reject(signal.reason);
+        signal.addEventListener('abort', abortListener, { once: true });
+        // EventTarget does not replay an abort that preceded registration.
+        if (signal.aborted) abortListener();
       });
   const deadline = new Promise<never>((_resolve, reject) => {
     deadlineTimer = setTimeout(() => reject(new SecError(
@@ -311,15 +320,22 @@ export async function waitForRuntimeDependencyOperation(
   });
   try {
     await Promise.race([
-      sleep(boundedDelayMs),
+      // Attach handlers to every race arm before user-supplied sleep runs.
+      // This also captures synchronous throws without orphaned rejections.
+      Promise.resolve().then(() => {
+        // The caller can consume budget before this microtask starts. A
+        // scheduling-time check is not admission to start the deferred work.
+        const admittedRemainingMs = runtimeDependencyOperationRemainingMs(operationOptions, label);
+        return sleep(Math.min(boundedDelayMs, Math.floor(admittedRemainingMs)));
+      }),
       deadline,
       ...(aborted === null ? [] : [aborted])
     ]);
   } finally {
     if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
-    if (abortListener !== undefined) context.signal?.removeEventListener('abort', abortListener);
+    if (abortListener !== undefined) signal?.removeEventListener('abort', abortListener);
   }
-  runtimeDependencyOperationRemainingMs(options, label);
+  runtimeDependencyOperationRemainingMs(operationOptions, label);
 }
 
 export async function runtimeDependencyOperationEffectFence(

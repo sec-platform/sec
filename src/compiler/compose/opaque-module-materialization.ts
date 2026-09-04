@@ -1,9 +1,9 @@
 import { CompilerError } from '../errors.ts';
 
-export const OPAQUE_MODULE_MATERIALIZATION_MODES = [
+export const OPAQUE_MODULE_MATERIALIZATION_MODES = Object.freeze([
   'workspace-link',
   'build-copy'
-] as const;
+] as const);
 
 export type OpaqueModuleMaterializationMode =
   (typeof OPAQUE_MODULE_MATERIALIZATION_MODES)[number];
@@ -43,7 +43,17 @@ export function resolveOpaqueModuleMaterializationMode(
   explicitMode: OpaqueModuleMaterializationMode | undefined,
   environment: OpaqueModuleMaterializationEnvironment
 ): OpaqueModuleMaterializationMode {
-  if (explicitMode !== undefined) return explicitMode;
+  if (explicitMode !== undefined) {
+    // TypeScript types do not validate JavaScript/configuration callers.
+    if (explicitMode !== 'workspace-link' && explicitMode !== 'build-copy') {
+      throw new CompilerError(
+        'OPAQUE-MODULE-004',
+        'Explicit opaque-module materialization mode is unsupported',
+        { value: explicitMode }
+      );
+    }
+    return explicitMode;
+  }
 
   const candidates: MaterializationCandidate[] = [];
   if (environment.NODE_ENV === 'production') {

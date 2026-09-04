@@ -1,5 +1,4 @@
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 import type { AcceptanceCoverageReport } from '../../semantic/acceptance/contract/types.ts';
 import type { Logger } from '../../system-architecture/foundation/logger.ts';
 import { defaultLogger } from '../../system-architecture/foundation/logger.ts';
@@ -25,6 +24,7 @@ import {
 import { buildAcceptanceCoverage } from './build-acceptance-coverage.ts';
 import { runPolicyGate } from './run-policy-gate.ts';
 import { createSkippedRuntimeLane, runRuntimeVerification } from './run-runtime-verification.ts';
+import { runSuiteFiles } from './run-suite-files.ts';
 import {
   consumeStagedVerificationProof,
   revalidateStagedVerificationProof,
@@ -32,10 +32,6 @@ import {
 } from './staged-verification-proof.ts';
 import { typecheckProject } from './typecheck-project.ts';
 import { publishVerificationArtifactSet } from './verification-artifact-publication.ts';
-
-interface SuiteModule {
-  runSuite?: () => Promise<void> | void;
-}
 
 export function productVerificationSubjectRevision(lock: LockFile): string {
   return sha256({
@@ -148,30 +144,12 @@ function createSkippedFastLane(): FastVerificationLaneReport {
   };
 }
 
-async function listSuiteFiles(rootDir: string, suffix: string): Promise<string[]> {
-  return (await listFilesRecursive(rootDir))
+async function listSuiteFiles(rootDir: string, suffix: string): Promise<readonly string[]> {
+  // The same captured inventory must drive execution and its report. A later
+  // filesystem scan would silently select a different verification subject.
+  return Object.freeze((await listFilesRecursive(rootDir))
     .filter((file) => file.endsWith(suffix))
-    .sort((left, right) => compareCodeUnits(left, right))
-    .map((file) => relativePosixPath(rootDir, file));
-}
-
-async function runSuiteFiles(rootDir: string, suffix: string): Promise<string[]> {
-  const files = (await listFilesRecursive(rootDir))
-    .filter((file) => file.endsWith(suffix))
-    .sort((left, right) => compareCodeUnits(left, right));
-  const results: string[] = [];
-
-  for (const file of files) {
-    const moduleUrl = `${pathToFileURL(file).href}?t=${Date.now()}`;
-    const testModule = (await import(moduleUrl)) as SuiteModule;
-    if (typeof testModule.runSuite !== 'function') {
-      throw new CompilerError('VERIFY-BUILD-002', `Test file "${file}" must export runSuite()`);
-    }
-    await testModule.runSuite();
-    results.push(relativePosixPath(rootDir, file));
-  }
-
-  return results;
+    .sort((left, right) => compareCodeUnits(left, right)));
 }
 
 async function runFastVerification(
@@ -196,7 +174,10 @@ async function runFastVerification(
   }
 
   try {
-    lane.unit.passed = await runSuiteFiles(unitRoot, '.test.ts');
+    const unitFiles = await listSuiteFiles(unitRoot, '.test.ts');
+    await runSuiteFiles(unitFiles, (file) => {
+      lane.unit.passed.push(relativePosixPath(unitRoot, file));
+    });
     lane.unit.status = 'passed';
   } catch (error) {
     lane.unit.status = 'failed';
@@ -206,11 +187,18 @@ async function runFastVerification(
   }
 
   try {
-    lane.acceptance.passed = await runSuiteFiles(acceptanceRoot, '.test.ts');
+    await runSuiteFiles(acceptanceFiles, (file) => {
+      lane.acceptance.passed.push(relativePosixPath(acceptanceRoot, file));
+    });
     lane.acceptance.status = 'passed';
   } catch (error) {
     lane.acceptance.status = 'failed';
-    lane.acceptance.failed = acceptanceFiles;
+    // The loader stops at the first failure. A passed prefix and an unrun
+    // suffix must not be relabeled as failed executions.
+    const failedFile = acceptanceFiles[lane.acceptance.passed.length];
+    lane.acceptance.failed = failedFile === undefined
+      ? []
+      : [relativePosixPath(acceptanceRoot, failedFile)];
     lane.status = 'failed';
     lane.logs.stderr = formatCompilerFailure(error);
     return { lane, failure: error };
