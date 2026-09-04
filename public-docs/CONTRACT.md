@@ -31,28 +31,38 @@ public-docs/**
 8. 原则必须说明现实依据、机制、适用范围、反例与反转条件；不能把一句口号写成不可质疑的 truth。
 9. 文档站框架只是 Provider；Nextra、Fumadocs、Docusaurus、VitePress、Next、MkDocs 等不得取得 documentation semantic authority。
 10. 不恢复已由信息生命周期治理退役的大段 archive、聊天或旧 Architecture Bible。
+11. 页面中的 canonical locator 必须解析到当前 registry owner；删除/迁移 owner 后，manifest 与正文引用必须在同一 projection generation 更新。
+12. Page manifest 只声明 source binding；正文中的 owner/ref 也必须被 scanner 验证，不能形成未登记的第二引用通道。
+13. 公共文档不得把 current migration carrier（例如 Legacy Block/Slot）重新提升成 target canonical primitive。
+14. 无关 canonical generation 变化不能迫使语义未变的 public closure 失效；projection identity最终应绑定实际 reachable source closure，而不是整个 corpus generation。
 
 ## Canonical 来源
 
-公共文档只投影这些现有 owner：
+公共文档只投影当前 `docs/authority.json` 注册且与页面 purpose 相关的 owner。核心来源包括：
 
 - `docs/product.md`
+- `docs/design-calculus.md`
+- `docs/engineering-constitution.md`
+- `docs/agent-constitution.md`
 - `docs/system-architecture.md`
 - `docs/semantic-model.md`
+- `docs/implementation-architecture.md`
+- `docs/implementation-architecture/model-and-boundaries.md`
 - `docs/brownfield-import.md`
-- `docs/capability-and-block-model.md`
 - `docs/compiler-target-ir.md`
 - `docs/delta-and-impact.md`
 - `docs/semantic-mutation.md`
 - `docs/change-management.md`
 - `docs/verification-governance.md`
 - `docs/runtime-and-distribution.md`
+- `docs/runtime-and-distribution/distribution-and-support.md`
 - `docs/agent-and-user-machine-interface.md`
 - `docs/development-governance.md`
 - `docs/external-provider-policy.md`
 - `docs/roadmap/capability-dag.md`
+- `docs/documentation-system.md`
 
-`docs/authority.json` 继续拥有 documentation identity/lifecycle/ownership；本目录不替代它。
+这不是一份需要手工保持完备的第二 authority registry；机器 projection 必须以 `docs/authority.json` 为注册事实，页面只引用自己实际消费的 owner。
 
 ## 读者模型
 
@@ -63,7 +73,7 @@ public-docs/**
 - SEC 用户；
 - 应用开发者；
 - Brownfield 接入者；
-- Block / Provider / Target 扩展作者；
+- Capability / Provider / Target / Distribution 扩展作者；
 - 构建、验证、迁移、发布和排障人员；
 - SEC contributor；
 - 架构师；
