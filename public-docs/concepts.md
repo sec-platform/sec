@@ -48,43 +48,33 @@ Evidence 支持 Claim，但不自动成为产品规则。
 - 文件；
 - class；
 - package；
-- Block。
+- 历史 Block。
 
-## Capability / Block
+## Capability / Contract / Port
 
-Capability 表示能力语义；Block 是可复用、可解析和连接的实现/组合结构之一。
+Capability 表示“需要或提供什么能力”的语义；Contract 定义能力必须满足的稳定边界；Port 是实现层消费该 Contract 的 typed connection point。
 
-精确语义见 `docs/capability-and-block-model.md`。
+三者都不由包名、目录、UI node 或某个 Provider 品牌反向定义。Capability/Contract 的语义由 `docs/semantic-model.md` 拥有，implementation port 与 realization 边界由 `docs/implementation-architecture/model-and-boundaries.md` 拥有。
 
-## Port / Contract / Slot
+## Implementation Candidate / Resolution / Binding
 
-用于表达：
+Implementation Candidate 是满足某个 Requirement 的具体实现闭包候选。Implementation Resolution 先执行 hard eligibility，再在合格候选中按已批准 policy 裁决；Implementation Binding 是裁决后冻结的具体实现闭包。
 
-- 可以连接什么；
-- 需要满足什么合同；
-- 哪些位置允许受治理的实现变化。
+下游只消费 Binding，不得每个模块重新选一次。
 
-## Implementation Resolution
+精确语义见 `docs/compiler-target-ir.md`。
 
-把：
+## Distribution Package / Distribution Binding
 
-```text
-我要什么能力
-```
+Distribution Package 只是具有独立分发、信任、Support 或演进生命周期时才存在的物理分发载体；它不是 Capability identity，也不是每项实现都必须有的壳。
 
-变成：
+Distribution Binding 只把合格 distribution source/content 与 exact acquisition requirement 绑定，不取得业务语义或 Resolution authority。
 
-```text
-由哪个具体实现闭包负责
-```
+精确语义见 `docs/runtime-and-distribution/distribution-and-support.md`。
 
-它必须先做 hard eligibility，再在合格候选中按 policy 排序。
+## Legacy Block / Slot
 
-## Implementation Binding
-
-已经冻结的具体实现选择。
-
-下游只能消费 Binding，不能每个模块重新选一次。
+`Block`、`Slot` 仍可能存在于当前实现、历史 schema、迁移 reader 或测试中，但它们已经不是 target architecture 的通用 canonical primitive。新设计不得为了兼容这些旧载体恢复第二套 Capability/Resolution/Registry 本体；它们只能在 Change Management 证明真实旧 consumer 后作为有界 migration source 存在，并在 consumer-zero 后退役。
 
 ## Delta / Impact
 
@@ -102,12 +92,13 @@ Impact 表示“这个变化会传播到哪里”。
 
 ```text
 input
-→ plan
-→ delta / impact
-→ authorize
-→ apply
-→ readback
+→ pure plan
+→ admission(grant + binding + allocation + preimage)
+→ effect
+→ settlement / readback
 ```
+
+Pure plan 描述应做什么；live Grant、Provider、Allocation、deadline 和物理 preimage 属于 Admitted Execution，不应反向污染 pure plan identity。
 
 ## Verification
 
@@ -137,6 +128,6 @@ input
 
 - Unknown：缺少足够事实；
 - Unsupported：当前能力合同不支持；
-- Not-run：适用但尚未执行。
+- Not-run：根据可信 applicability 可能是无需执行，也可能只是尚未执行；必须保留具体 reason，不能把两者混在 presentation 文本里。
 
-把它们压成一个布尔值会制造错误确定性。
+把这些状态压成一个布尔值会制造错误确定性。
