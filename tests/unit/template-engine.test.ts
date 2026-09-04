@@ -1,0 +1,79 @@
+import { expect, test } from 'bun:test';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
+import { TemplateEngine } from '../../src/compiler/compose/template-engine.ts';
+
+test('template conditionals are exactly paired, nested, and boolean-owned', () => {
+  const source = [
+    'before',
+    '/*#IF enabled*/',
+    'enabled',
+    '/*#IF !nested*/',
+    'not-nested',
+    '/*#ENDIF*/',
+    '/*#ENDIF*/',
+    'after'
+  ].join('\n');
+
+  expect(TemplateEngine.renderString(source, {
+    enabled: true,
+    nested: false
+  })).toBe('before\nenabled\nnot-nested\n\nafter');
+  expect(TemplateEngine.renderString(source, {
+    enabled: false,
+    nested: false
+  })).toBe('before\n\nafter');
+});
+
+test('unknown, inherited, non-boolean, and malformed conditions fail closed', () => {
+  expect(() => TemplateEngine.renderString(
+    '/*#IF missing*/value/*#ENDIF*/',
+    {}
+  )).toThrow(/unknown context key/);
+  expect(() => TemplateEngine.renderString(
+    '/*#IF toString*/value/*#ENDIF*/',
+    {}
+  )).toThrow(/unknown context key/);
+  expect(() => TemplateEngine.renderString(
+    '/*#IF enabled*/value/*#ENDIF*/',
+    { enabled: 'true' }
+  )).toThrow(/requires a boolean/);
+  expect(() => TemplateEngine.renderString(
+    '/*#IF enabled*/value',
+    { enabled: true }
+  )).toThrow(/missing \/\*#ENDIF\*\//);
+  expect(() => TemplateEngine.renderString(
+    'value/*#ENDIF*/',
+    {}
+  )).toThrow(/unmatched \/\*#ENDIF\*\//);
+});
+
+test('interpolation uses literal keys and literal replacement bytes', () => {
+  expect(TemplateEngine.renderString(
+    'value=__value__; count=__count__',
+    { value: '$&-$`-$\'', count: 2 }
+  )).toBe('value=$&-$`-$\'; count=2');
+
+  expect(() => TemplateEngine.renderString('unchanged', {
+    'value.*': 'invalid'
+  })).toThrow(/context key is not canonical/);
+});
+
+test('template file reads stay inside the root and observe current bytes', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-template-engine-'));
+  try {
+    const templatePath = path.join(root, 'sample.template');
+    writeFileSync(templatePath, 'first __value__', 'utf8');
+    expect(TemplateEngine.render('sample.template', { value: 1 }, root)).toBe('first 1');
+
+    writeFileSync(templatePath, 'second __value__', 'utf8');
+    expect(TemplateEngine.render('sample.template', { value: 2 }, root)).toBe('second 2');
+
+    expect(() => TemplateEngine.render('../outside.template', {}, root))
+      .toThrow(/escapes its allowed root/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
