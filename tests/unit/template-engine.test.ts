@@ -41,6 +41,10 @@ test('unknown, inherited, non-boolean, and malformed conditions fail closed', ()
     { enabled: 'true' }
   )).toThrow(/requires a boolean/);
   expect(() => TemplateEngine.renderString(
+    '/*#IF enabled*//*#IF dormantMissing*/value/*#ENDIF*//*#ENDIF*/',
+    { enabled: false }
+  )).toThrow(/unknown context key/);
+  expect(() => TemplateEngine.renderString(
     '/*#IF enabled*/value',
     { enabled: true }
   )).toThrow(/missing \/\*#ENDIF\*\//);
@@ -56,9 +60,16 @@ test('interpolation uses literal keys and literal replacement bytes', () => {
     { value: '$&-$`-$\'', count: 2 }
   )).toBe('value=$&-$`-$\'; count=2');
 
+  expect(() => TemplateEngine.renderString('value=__missing__', {}))
+    .toThrow(/placeholder references an unknown context key/);
+  expect(() => TemplateEngine.renderString('value=__enabled__', { enabled: true }))
+    .toThrow(/placeholder requires a string or number/);
   expect(() => TemplateEngine.renderString('unchanged', {
     'value.*': 'invalid'
   })).toThrow(/context key is not canonical/);
+  expect(() => TemplateEngine.renderString('unchanged', {
+    value: Number.NaN
+  })).toThrow(/context value is unsupported/);
 });
 
 test('template file reads stay inside the root and observe current bytes', () => {
