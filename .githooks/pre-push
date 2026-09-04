@@ -3,11 +3,46 @@ set -eu
 
 export SEC_GIT_HOOK_ACTIVE=1
 
-# imports:freeze is a pure identity seal (zero source/index writes); push
-# never mutates the working tree or the index.
+# Push must not mutate the candidate/index. imports:freeze is a pure identity seal.
 if ! git diff --cached --quiet HEAD --; then
   echo "Push stopped: commit or unstage the existing index changes before candidate sealing." >&2
   exit 1
+fi
+
+zero_oid=0000000000000000000000000000000000000000
+documentation_changed=0
+
+# Git supplies every proposed ref update on stdin. Documentation validation is
+# selected from the actual pushed delta, so unrelated pushes do not pay a
+# repository-wide documentation test cost.
+while read -r local_ref local_oid remote_ref remote_oid; do
+  [ -n "${local_ref:-}" ] || continue
+  [ "$local_oid" = "$zero_oid" ] && continue
+
+  if [ "$remote_oid" = "$zero_oid" ]; then
+    base_oid=$(git merge-base "$local_oid" refs/remotes/origin/main 2>/dev/null || git rev-parse "$local_oid^")
+  else
+    base_oid=$remote_oid
+  fi
+
+  if git diff --name-only "$base_oid" "$local_oid" -- \
+      docs public-docs src/control/documentation \
+      tests/unit/public-documentation-projection.test.ts \
+      tests/unit/documentation-markdown-reference.test.ts \
+      .github/workflows/sec-main-docs-health.yml \
+      .githooks/pre-push \
+    | grep -q .; then
+    documentation_changed=1
+  fi
+done
+
+if [ "$documentation_changed" -eq 1 ]; then
+  bun run docs:doctor
+  bun test \
+    src/control/documentation/compiler.test.ts \
+    tests/unit/public-documentation-projection.test.ts \
+    tests/unit/documentation-markdown-reference.test.ts \
+    --timeout 180000
 fi
 
 bun run imports:freeze
