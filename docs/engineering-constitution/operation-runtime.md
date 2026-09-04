@@ -6,40 +6,42 @@ domain: engineering-constitution
 
 # 工程 Operation、资源与恢复原则
 
-本片段拥有领域 Operation、能力原子、资源守恒、Effect worker、持久状态与恢复原则。
+本片段拥有跨项目通用的 Domain Operation / Capability Atom / Effect worker / durable state / recovery 原则。资源的具体 algebra 不在宪法重复：`ResourceDimensionContract` 与 `Consumable | Lease | Gauge | ReplenishingRate | ExternalQuota` 由 `docs/system-architecture/resource-accounting.md` 唯一拥有；本文件只规定工程设计必须声明并遵守它们。
 
-本片段与 [owner root](../engineering-constitution.md) 共享同一 domain，但只拥有 registry 分配给本片段的 ownership keys；跨片段语义使用引用，不复制定义。
-
-## 5. 领域 Operation 与能力原子
+## 5. Domain Operation 与 Capability Atom
 
 ```mermaid
 flowchart LR
   I[Domain intent] --> O[Domain Operation]
   O --> P[Pure plan + Requirement DAG]
-  P --> B[Capability Binding]
-  B --> A[Capability Atom]
-  A --> S[Settlement]
+  P --> A[Admission]
+  G[Grant] --> A
+  B[Capability Binding] --> A
+  R[Resource Allocation] --> A
+  A --> X[Capability Atom / Effect]
+  X --> S[Settlement + readback]
   S --> O
 ```
 
-| 单元 | 拥有 | 不拥有 |
+| unit | owns | does not own |
 | --- | --- | --- |
-| Domain Operation | intent、invariant、Requirement DAG、纯决策、业务终态 | executable、credential、process mechanics |
-| Capability Port | requirement/provision contract、failure/settlement shape | provider implementation、业务选择 |
-| Capability Atom | 一个可替换外部 Effect 机制及物理边界 | 跨领域流程、产品策略、成功宣称 |
-| Operation Orchestrator | DAG ordering、Binding、Allocation、recovery、readback | 新领域真值、第二 provider owner |
-| Interface | typed intent/result projection | domain resolver、Effect、state owner |
+| Domain Operation | intent、invariant、Requirement DAG、pure decisions、business terminal mapping | executable discovery、credential、process mechanics |
+| Pure Plan | immutable definition/input/observation closure、ordering/readback/recovery/resource requirements | live Grant、Provider handle、Allocation、preimage |
+| Capability Port | requirement/provision contract、failure/settlement shape | provider implementation、business selection |
+| Capability Atom | 一个可替换 external/physical Effect mechanism | cross-domain policy、product success |
+| Operation Orchestrator | admitted DAG ordering、binding/allocation consumption、recovery/readback | new domain truth、second provider owner |
+| Interface | typed intent/result projection | resolver、Effect、state owner |
 
-“所有逻辑集中在一个脚本”与“每个行为一个 wrapper”都不成立。正确切分是：纯领域决策集中于 operation；Effect mechanics 聚合为少量高复用 capability atoms；编排只消费 typed ports。
+“所有逻辑集中一个脚本”和“每条命令一个wrapper”都不是目标。边界由 semantic operation 与不可再分 Effect/settlement contract决定。
 
-### 5.1 原子不是一条命令
+### 5.1 Atom 不是 command
 
 ```text
 CapabilityAtom = {
   provisionIdentity,
   admittedInputs,
   physicalBinding,
-  resourceDimensions,
+  resourceDimensionRefs,
   startBoundary,
   cancellation,
   outputProtocol,
@@ -49,64 +51,58 @@ CapabilityAtom = {
 }
 ```
 
-原子边界由不可再分的 Effect/settlement contract 决定，不由 shell 命令、函数长度或文件数决定。
+shell command、SDK method、HTTP request都只是某 Atom 的 Provider realization；只有新增 identity/authority/resource/settlement/failure semantics 才需要新 Atom contract。
 
-## 6. 资源、进程与截止时间
+## 6. Resource principles
 
-进程、线程、句柄、文件描述符、锁、连接、容器、内存、CPU、磁盘 I/O、网络、输入和输出都是 allocation；不只是“代码调用”。
-
-```mermaid
-flowchart TB
-  P[Parent operation ledger]
-  P --> W[wall/monotonic deadline]
-  P --> N[process/task count]
-  P --> I[input/argv bytes]
-  P --> O[output/record bytes]
-  P --> F[file entries/depth/observed bytes]
-  P --> C[CPU/memory/IO/network]
-  W --> A[Child allocation]
-  N --> A
-  I --> A
-  O --> A
-  F --> A
-  C --> A
-```
+进程、线程、句柄、文件描述符、锁、连接、容器、内存、CPU、I/O、network、input/output 都是需要 allocation/measurement/settlement 的资源，但**不是同一种 accounting law**。
 
 ```text
-ChildBudget = reserve(parentRemaining, childDemand)
-remaining(t) = min(parentAbsoluteDeadline - monotonicNow, reservedLocalCeiling)
+EngineeringResourceRequirement = {
+  dimensionRef,
+  acceptableAccountingMode,
+  requiredCeilingOrReservation,
+  safety/service constraints,
+  settlement/readback requirements
+}
 ```
 
-规则：
+工程不变量：
 
-- absolute deadline 由顶层 operation 一次派生；锁、发现、扫描、命令、readback、cleanup 消费同一 ledger；
-- `signal` 在每次等待、Effect admission、分段处理和 cleanup 检查；
-- 静态 timeout 只是 ceiling，不能扩大 parent remaining；
-- 预算维度由风险和 Requirement 选择，不机械要求所有操作全量预扫；
-- entries/bytes 在实际流式观察中计量，禁止为了“先数一遍”额外全遍历；
-- 内容 identity 可用增量 hash、文件元数据+readback、Merkle/fact shards，但 cache hit 必须绑定 exact producer/environment；
-- cleanup 也受 settlement policy 约束；主错误和 cleanup residue 分开保存。
+1. 每个 demand 必须匹配 parent ledger 中同 unit / mode-compatible 的 DimensionContract；
+2. absolute monotonic deadline 由顶层 operation 一次派生，child 只能收窄；
+3. CPU time/累计bytes/requests 等 Consumable 单调计量；
+4. process slot/lock/connection/handle 等 Lease 必须在 terminal 释放或保留 typed residue；
+5. memory/temp occupancy 等 Gauge 允许 current 上下变化，同时约束 ceiling/peak/terminal baseline；
+6. rate-limit按明确 refill clock/window演进；retry 不重置；
+7. external quota 要绑定 exact principal/provider/epoch readback，unknown 不等于 unlimited；
+8. cleanup/recovery继续消费同一 operation ledger；
+9. 新品牌/资源实例只新增 DimensionContract/Binding，不给 core 加 `if resourceName/provider`。
 
-### 6.1 单飞、并发与背压
+### 6.1 Concurrency / backpressure
 
 ```text
-ConcurrencyPolicy = serial | singleFlight(key) | parallel(disjointResources) | join(existing)
+ConcurrencyPolicy =
+  serial
+  | singleFlight(key)
+  | parallel(disjointSemanticAndResourceSets)
+  | join(existing)
 ```
 
-同一个不可重入 session 内的请求顺序执行；需要并行时由 owner 签发可并行 provision 或多个独立 binding，不能由 caller 放宽原子合同。并发度由依赖、资源和 settlement 风险决定，不由线程上限决定。
+同一个 non-reentrant session顺序执行；并行需要 owner证明 semantic state、authority、writer、lease/resource decision可组合。并发上限只是 capacity，不是需要占满的配额。
 
 ## 7. Durable Local Effect Worker
 
-长生命周期或可能丢失 caller handle 的 Effect 需要 durable worker；普通短命令不自动升级为 worker。
+可能跨调用者生命周期、主机重启、超时或丢句柄的 Effect 需要 durable worker；普通短命令不自动升级。
 
 ```mermaid
 stateDiagram-v2
-  [*] --> Claimed: durable OperationKey + intent
-  Claimed --> Running: worker binding + allocation
+  [*] --> Claimed: durable OperationKey + prepared intent
+  Claimed --> Running: live Grant/Binding/Allocation
   Running --> Settling: exit/cancel/handle lost
   Settling --> Complete: domain readback exact
   Settling --> Residue: partial/unknown
-  Residue --> Running: owner-issued resume
+  Residue --> Running: owner-issued recovery/resume
   Residue --> Blocked: no safe continuation
   Complete --> Retired: retention closed
 ```
@@ -114,72 +110,81 @@ stateDiagram-v2
 ```text
 DurableEffectRecord = {
   operationKey,
-  intentDigest,
-  grantRef,
-  bindingRef,
-  allocationRef,
+  purePlanRef,
+  liveAdmissionRef,
   exactPreimage,
   attemptEpoch,
-  progressFacts,
+  progressObservationRefs,
   settlementObligations,
   terminalOrResidue,
   readbackRefs
 }
 ```
 
-lost handle 后先读 domain state 和 durable record：exact applied→合成 terminal；conclusively not applied→owner 可发 retry；partial/unknown→residue。PID 不存在、锁文件缺失或 launcher 报错都不能证明“未执行”。
+lost handle 后先读取 domain state/journal/provider。exact applied → terminalize；conclusively not applied → new retry admission；partial/unknown → residue/recovery。PID不存在、lock缺失或launcher报错都不能证明 not-applied。
 
-## 8. 持久状态、Schema 与 Parser
-
-```mermaid
-flowchart LR
-  W[Canonical writer] --> B[Canonical bytes]
-  B --> D[Durable storage]
-  D --> R[Retained read]
-  R --> P[Strict parser]
-  P --> I[Identity/provenance/invariant checks]
-  I --> C[Consumer]
-```
-
-持久/跨进程/外部合同必须有：
+## 8. Durable State / Schema / Parser
 
 ```text
-one schema identity + literal type
+one schema identity
++ exact canonical byte grammar
++ one writer
 + one strict parser
-+ exact writer
++ provenance/subject/producer binding
 + unknown/duplicate/trailing rejection
-+ provenance and producer binding
-+ readback
-+ migration/retirement policy
++ durable publication/readback
++ migration/retirement owner
 ```
 
-成熟 schema/validation library用于实现语法和类型约束；领域 owner 仍拥有字段、不变量和迁移。手写通用 JSON/YAML/parser 只有在成熟机制无法满足 exact bytes、duplicate keys、streaming、physical binding 或安全边界时才成立，并必须有存在证明。
+mature schema/validation libraries可以实现语法机制，但不能取得领域字段/meaning/evolution ownership。
 
-版本只在真实 consumer 需要区分至少两个可观察状态时存在：
+Version只有真实 durable/external consumer需要区分多个可观察 grammar/protocol state时成立；否则 version field、Vn suffix、dispatcher、alias都应删除。`revision / generation / epoch / version` 不能用一个数字混写。
 
-```text
-VersionRequired iff
-  durableOrExternalBoundary
-  ∧ distinctStates≥2
-  ∧ readerOrMigrationActuallyBranches
-```
-
-否则删除版本字段、`Vn` 后缀、dispatcher、alias 和数字镜像测试。需要版本时由 contract owner 定义，writer/reader 引用同一 identity；正常路径只接受当前代，旧 parser 只存在于一次迁移入口。
-
-## 9. 状态、恢复与补偿
-
-`StateTransition`的exact合同由System Architecture的lifecycle owner定义。这里仅要求`transitionAdmitted(t)`同时具备唯一state owner、exact preimage、合法from/to edge、operation identity、effect/settlement/readback、recovery与retirement；缺一项就不能提交状态变化。
+## 9. Recovery / compensation
 
 ```mermaid
 flowchart LR
-  P[Pure transition plan] --> J[Durable intent]
+  P[Pure transition plan] --> A[Admitted execution]
+  A --> J[Prepared durable intent]
   J --> F[Pre-effect fence]
   F --> E[Effect]
   E --> R[Readback]
   R --> T{Terminal?}
   T -->|yes| C[Complete]
   T -->|partial/unknown| X[Typed residue]
-  X --> Q[Join/recover/retry/block]
+  X --> Q[Join / recover / retry / block]
 ```
 
-恢复是原状态机的一部分，不是异常脚本。未知或不安全读不能折叠成 absent/mismatch/cache miss；只有明确 absent/mismatch 才允许 materialize/recreate。
+Recovery 是原 state machine 的一部分，不是异常脚本。未知/不安全 read不能折叠成 absent/mismatch/cache miss；rollback只覆盖本 operation仍拥有且 preimage匹配的 state；跨revision补偿由 Change Management裁决。
+
+## 10. Local evolution principle
+
+新 Provider、runtime、resource dimension、failure kind、storage backend进入系统时：
+
+```text
+existing semantic Operation/Requirement
++ new Provision/Dimension/Binding/Settlement implementation
+→ local consumer cutover
+→ old realization retirement
+```
+
+只有新需求无法由现有 Operation/Capability/Resource/Recovery algebra无损表达时才演进宪法/系统 root；新增实例本身不能成为理由。
+
+## 11. 完成
+
+```text
+OperationRuntimePrinciplesClosed =
+  pure plan and live admission are disjoint
+  and every Effect uses one typed capability boundary
+  and every resource demand has a mode-compatible parent contract
+  and deadline/cancellation propagate monotonically
+  and every attempt settles/readbacks or retains typed residue
+  and durable state has one schema/writer/parser/evolution owner
+  and lost-handle recovery never blind-replays
+  and new instances extend bindings/contracts locally rather than core switches
+```
+
+<!-- sec-clause {"id":"engineering-operation-runtime","blocker":null,"kind":"stable-decision"} -->
+## 规范片段
+
+工程 Operation 必须分离Pure Plan与live Admission；Capability Atom由不可再分Effect/settlement边界决定。资源先匹配ResourceDimension accounting mode而不是统一Consume/Return；lost handle、partial publication与cleanup均通过原state machine/readback收敛。新Provider/资源/运行时只增加Provision/Dimension/Binding realization，不能让core增加品牌分支。
