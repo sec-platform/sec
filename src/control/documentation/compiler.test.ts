@@ -205,4 +205,54 @@ describe('documentation semantic compiler', () => {
       admission: unavailableDocumentationAdmissionProjection('tree-e')
     })).toThrow(/non-normative explanation cannot carry/u);
   });
+
+  test('explicit stable clause id survives heading rename and reparenting', () => {
+    const compile = (heading: string, level: 2 | 3, parent = '') => compileDocumentationSemanticGraph({
+      trustedTree: 'tree-stable-id',
+      registry,
+      sources: [
+        {
+          documentId: 'architecture',
+          source: `<!-- sec-clause {"blocker":null,"kind":"stable-decision"} -->\n# Architecture\n${parent}\n<!-- sec-clause {"id":"architecture-boundary","blocker":null,"kind":"stable-decision"} -->\n${'#'.repeat(level)} ${heading}\nOnly the owner may publish.\n`
+        },
+        {
+          documentId: 'mutation',
+          source: `<!-- sec-clause {"blocker":null,"kind":"stable-decision"} -->\n# Mutation\n
+<!-- sec-clause {"blocker":null,"kind":"stable-decision"} -->\n## Boundary\nTransition.\n`
+        }
+      ],
+      admission: unavailableDocumentationAdmissionProjection('tree-stable-id')
+    });
+    const first = compile('Boundary', 2);
+    const second = compile(
+      'Renamed Boundary',
+      3,
+      '<!-- sec-clause {"blocker":null,"kind":"non-normative-explanation"} -->\n## Presentation Group\n'
+    );
+    const firstClause = first.clauses.find(({ headingPath }) => headingPath.at(-1) === 'Boundary')!;
+    const secondClause = second.clauses.find(({ headingPath }) => headingPath.at(-1) === 'Renamed Boundary')!;
+    expect(firstClause.id).toBe(secondClause.id);
+    expect(firstClause.headingPath).not.toEqual(secondClause.headingPath);
+  });
+
+  test('duplicate explicit clause ids in one document fail closed', () => {
+    expect(() => compileDocumentationSemanticGraph({
+      trustedTree: 'tree-duplicate-id',
+      registry,
+      sources: [
+        {
+          documentId: 'architecture',
+          source: `<!-- sec-clause {"blocker":null,"kind":"stable-decision"} -->\n# Architecture\n
+<!-- sec-clause {"id":"same-rule","blocker":null,"kind":"stable-decision"} -->\n## First\nOne.\n
+<!-- sec-clause {"id":"same-rule","blocker":null,"kind":"stable-decision"} -->\n## Second\nTwo.\n`
+        },
+        {
+          documentId: 'mutation',
+          source: `<!-- sec-clause {"blocker":null,"kind":"stable-decision"} -->\n# Mutation\n
+<!-- sec-clause {"blocker":null,"kind":"stable-decision"} -->\n## Boundary\nTransition.\n`
+        }
+      ],
+      admission: unavailableDocumentationAdmissionProjection('tree-duplicate-id')
+    })).toThrow(/clause identity collision/u);
+  });
 });
