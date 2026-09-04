@@ -5,8 +5,8 @@ interface SuiteModule {
   runSuite?: () => Promise<void> | void;
 }
 
-// This counter is only a process-local import-cache discriminator, not a
-// semantic revision or verification identity. BigInt cannot wrap at 2^53.
+// The loader module URL namespaces this instance-local cache discriminator.
+// It is not a semantic revision or verification identity. BigInt cannot wrap.
 let suiteModuleRevision = 0n;
 
 /** Execute exactly the captured file inventory, serially and fail-fast. */
@@ -19,6 +19,7 @@ export async function runSuiteFiles(
   const capturedFiles = [...files];
   for (const file of capturedFiles) {
     const moduleUrl = pathToFileURL(file);
+    moduleUrl.searchParams.set('loader', import.meta.url);
     moduleUrl.searchParams.set('revision', String(++suiteModuleRevision));
     const testModule = (await import(moduleUrl.href)) as SuiteModule;
     if (typeof testModule.runSuite !== 'function') {

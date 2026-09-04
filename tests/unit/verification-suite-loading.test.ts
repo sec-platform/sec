@@ -219,3 +219,34 @@ test('suite observer failures propagate and stop subsequent side effects', async
     assert.equal(state.evaluations, 0);
   });
 });
+
+
+test('independently loaded suite loaders cannot collide on equal local revision counters', async () => {
+  await fixture(async ({ module, state }) => {
+    const file = await module('multi-loader.mjs', `state.evaluations++; export function runSuite() {}`);
+    const loaderUrl = new URL('../../src/compiler/verify/run-suite-files.ts', import.meta.url);
+    loaderUrl.searchParams.set('instance', randomUUID());
+    const first = await import(loaderUrl.href) as { runSuiteFiles: typeof runSuiteFiles };
+    loaderUrl.searchParams.set('instance', randomUUID());
+    const second = await import(loaderUrl.href) as { runSuiteFiles: typeof runSuiteFiles };
+    await first.runSuiteFiles([file]);
+    await second.runSuiteFiles([file]);
+    assert.equal(state.evaluations, 2);
+  });
+});
+
+test('concurrent loader module instances observe their own fresh entry evaluations', async () => {
+  await fixture(async ({ module, state }) => {
+    const file = await module('concurrent-loaders.mjs', `state.evaluations++; export async function runSuite() {
+      await Promise.resolve(); state.events.push('done');
+    }`);
+    const loaderUrl = new URL('../../src/compiler/verify/run-suite-files.ts', import.meta.url);
+    loaderUrl.hash = randomUUID();
+    const first = await import(loaderUrl.href) as { runSuiteFiles: typeof runSuiteFiles };
+    loaderUrl.hash = randomUUID();
+    const second = await import(loaderUrl.href) as { runSuiteFiles: typeof runSuiteFiles };
+    await Promise.all([first.runSuiteFiles([file]), second.runSuiteFiles([file])]);
+    assert.equal(state.evaluations, 2);
+    assert.deepEqual(state.events, ['done', 'done']);
+  });
+});
