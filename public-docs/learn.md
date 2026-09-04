@@ -69,28 +69,31 @@ Attach
 
 最重要的边界：无法完整理解的动态、反射、native 或第三方区域可以保持 unknown / opaque；SEC 不应为了“覆盖率漂亮”伪造语义。
 
-## L3：理解能力复用与实现选择
+## L3：理解能力复用、实现选择与分发
 
 重点区分：
 
 - Responsibility；
-- Capability；
-- Block；
-- Contract；
+- Capability Contract；
 - Port；
-- Slot；
 - Implementation Candidate；
 - Eligibility；
 - Resolution Decision；
 - Implementation Binding；
 - Provider；
-- Adapter。
+- Adapter；
+- Distribution Package / Binding；
+- Legacy Block / Slot migration input。
 
 阅读：
 
-- `docs/capability-and-block-model.md`
+- `docs/semantic-model.md`
+- `docs/implementation-architecture/model-and-boundaries.md`
 - `docs/compiler-target-ir.md`
+- `docs/runtime-and-distribution/distribution-and-support.md`
 - `docs/external-provider-policy.md`
+
+旧 `Block` / `Slot` 只用于理解 current implementation 与迁移，不是 target architecture 的通用 primitive。
 
 ## L4：理解物理世界
 
@@ -131,6 +134,24 @@ AI 的上下文也只是 revision-bound projection；AI 输出默认是 proposal
 - `AGENTS.md`
 
 这一层面向 contributor，不是普通用户前置。
+
+## L7：理解为什么未来变化应该局部化
+
+重点观察三种 identity：
+
+```text
+stable semantic identity
+exact reachable input closure
+physical/publication generation
+```
+
+它们不能互相代替。新信息只能使真正依赖它的 reverse-reachable closure stale；全局 generation、目录移动、无关文档或 Provider instance 变化不能制造无关语义失效。
+
+阅读：
+
+- `docs/system-architecture/lifecycle-proof-and-evolution.md`
+- `docs/implementation-architecture/source-observation-and-incrementality.md`
+- `docs/documentation-system/compilation-and-views.md`
 
 ## 图形化学习
 
