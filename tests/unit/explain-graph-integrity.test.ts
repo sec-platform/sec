@@ -113,8 +113,8 @@ test('edge tuple identity cannot collide through colon-bearing node ids', async 
   );
 
   expect(graph.edges).toEqual([
-    { from: secondSource.id, to: secondTarget.id, type: 'depends_on' },
-    { from: firstSource.id, to: firstTarget.id, type: 'contains' }
+    { from: firstSource.id, to: firstTarget.id, type: 'contains' },
+    { from: secondSource.id, to: secondTarget.id, type: 'depends_on' }
   ]);
 });
 
