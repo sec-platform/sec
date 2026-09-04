@@ -5,7 +5,7 @@ import { createNoFollowDirectoryChain, inspectNoFollowDirectoryChain, PhysicalNo
 import { SEMANTIC_ENTITY_KINDS } from '../semantic/engineering-ir/contract/entity-types.ts';
 import { FACT_PROVENANCE_KINDS, SEMANTIC_AUTHORITIES, SEMANTIC_PREDICATES } from '../semantic/engineering-ir/contract/fact-types.ts';
 import { SEMANTIC_GENERATOR_ARTIFACT_KINDS, SEMANTIC_GENERATOR_CONSUME_KINDS, SEMANTIC_GENERATOR_KINDS, SEMANTIC_GENERATOR_TASK_STATUSES } from '../semantic/generation/contract/types.ts';
-import { AUTHORITY_OVERLAY_STATUSES, INSPECTOR_SECTION_IDS, SEMANTIC_VIEW_FORMAT_VERSION, SEMANTIC_VIEW_KINDS, SEMANTIC_VIEW_SET_FORMAT_VERSION, VIEW_BADGES, VIEW_REFERENCE_KINDS } from '../semantic/projection/contract/types.ts';
+import { AUTHORITY_OVERLAY_STATUSES, INSPECTOR_SECTION_IDS, SEMANTIC_VIEW_FORMAT_VERSION, SEMANTIC_VIEW_KINDS, SEMANTIC_VIEW_SET_FORMAT_VERSION, VIEW_BADGES, VIEW_REFERENCE_KINDS, type SemanticViewSet } from '../semantic/projection/contract/types.ts';
 import { uniqueSorted } from '../system-architecture/foundation/runtime/canonical.ts';
 import {
   CI_ARTIFACT_FILES,
@@ -138,6 +138,24 @@ const semanticViewSchema = z.strictObject({
   }))
 });
 
+const semanticViewSetSchema = z.strictObject({
+  formatVersion: z.literal(SEMANTIC_VIEW_SET_FORMAT_VERSION),
+  inputRevision: z.string(),
+  semanticRevision: z.string(),
+  views: z.array(semanticViewSchema)
+}).superRefine((semanticViews, context) => {
+  const architectureViewCount = semanticViews.views.filter(
+    (view) => view.viewKind === 'architecture'
+  ).length;
+  if (architectureViewCount !== 1) {
+    context.addIssue({
+      code: 'custom',
+      path: ['views'],
+      message: `semantic view set must contain exactly one architecture view; received ${architectureViewCount}`
+    });
+  }
+});
+
 const lockFileSchema = z.strictObject({
   formatVersion: z.literal(LOCK_FILE_FORMAT_VERSION),
   app: z.strictObject({
@@ -166,12 +184,7 @@ const lockFileSchema = z.strictObject({
     to: z.string()
   })),
   semanticLoweringTasks: z.array(semanticGeneratorTaskSchema).optional(),
-  semanticViews: z.strictObject({
-    formatVersion: z.literal(SEMANTIC_VIEW_SET_FORMAT_VERSION),
-    inputRevision: z.string(),
-    semanticRevision: z.string(),
-    views: z.array(semanticViewSchema)
-  }).optional(),
+  semanticViews: semanticViewSetSchema.optional(),
   generatedPaths: stringArraySchema,
   acceptancePlan: stringArraySchema,
   passStatus: z.strictObject({
@@ -186,6 +199,19 @@ const lockFileSchema = z.strictObject({
     emit: z.enum(LOCK_PASS_STATES)
   })
 });
+
+export function requireSemanticViewSetSchema(
+  value: unknown,
+  source: string
+): SemanticViewSet {
+  const result = semanticViewSetSchema.safeParse(value);
+  if (!result.success) {
+    throw new Error(
+      `SemanticViewSet from ${source} does not match ${SEMANTIC_VIEW_SET_FORMAT_VERSION}: ${z.prettifyError(result.error)}`
+    );
+  }
+  return result.data as SemanticViewSet;
+}
 
 function requireLockFileSchema(value: unknown, source: string): LockFile {
   const result = lockFileSchema.safeParse(value);
