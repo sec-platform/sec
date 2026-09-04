@@ -145,6 +145,7 @@ export interface DocumentationClauseSelectionReference {
 }
 
 type ClauseDirective = Readonly<{
+  id: string | null;
   kind: DocumentationClauseKind;
   blocker: string | null;
 }>;
@@ -196,14 +197,16 @@ function parseDirective(source: string, label: string): ClauseDirective {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) fail(`${label} must be one object.`);
   const record = raw as Record<string, unknown>;
   const keys = Object.keys(record).sort(compareCodeUnits);
-  if (keys.length !== 2 || keys[0] !== 'blocker' || keys[1] !== 'kind') {
-    fail(`${label} keys must be exactly blocker and kind.`);
+  const allowed = new Set(['blocker', 'id', 'kind']);
+  if (!keys.includes('blocker') || !keys.includes('kind') || keys.some((key) => !allowed.has(key))) {
+    fail(`${label} keys must be blocker and kind with optional id.`);
   }
   if (record.kind !== 'stable-decision'
       && record.kind !== 'temporary-safety-denial'
       && record.kind !== 'non-normative-explanation') {
     fail(`${label}.kind is unsupported.`);
   }
+  const id = record.id === undefined ? null : token(record.id, `${label}.id`);
   const blocker = record.blocker === null ? null : token(record.blocker, `${label}.blocker`);
   if (record.kind === 'temporary-safety-denial' && blocker === null) {
     fail(`${label} temporary safety denial requires one blocker.`);
@@ -214,7 +217,7 @@ function parseDirective(source: string, label: string): ClauseDirective {
   if (record.kind === 'non-normative-explanation' && blocker !== null) {
     fail(`${label} non-normative explanation cannot carry one runtime blocker.`);
   }
-  return Object.freeze({ kind: record.kind, blocker });
+  return Object.freeze({ id, kind: record.kind, blocker });
 }
 
 function compilerSources(registry: DocumentationAuthorityRegistry): readonly DocumentationAuthorityRecord[] {
@@ -329,7 +332,11 @@ function parseClauses(record: DocumentationAuthorityRecord, source: string): rea
         title: text(headingMatch[2]!, `${record.path}:${index + 1} heading`),
         level: headingMatch[1]!.length,
         line: index,
-        directive: pendingDirective ?? Object.freeze({ kind: 'untyped-observation', blocker: null })
+        directive: pendingDirective ?? Object.freeze({
+          id: null,
+          kind: 'untyped-observation',
+          blocker: null
+        })
       });
       pendingDirective = null;
       pendingDirectiveLine = -1;
@@ -348,7 +355,10 @@ function parseClauses(record: DocumentationAuthorityRecord, source: string): rea
   return Object.freeze(headings.map((heading, index) => {
     while (stack.length > 0 && stack.at(-1)!.level >= heading.level) stack.pop();
     const headingPath = Object.freeze([...stack.map(({ title }) => title), heading.title]);
-    const id = `clause:${sha256({ documentId: record.id, headingPath }).slice('sha256:'.length)}` as const;
+    const identityInput = heading.directive.id === null
+      ? { documentId: record.id, legacyHeadingPath: headingPath }
+      : { documentId: record.id, stableClauseId: heading.directive.id };
+    const id = `clause:${sha256(identityInput).slice('sha256:'.length)}` as const;
     const parentClauseId = stack.at(-1)?.id ?? null;
     const lineEnd = (headings[index + 1]?.line ?? lines.length) - 1;
     const content = lines.slice(heading.line, lineEnd + 1).join('\n').trimEnd();
