@@ -1,3 +1,5 @@
+import type { CommandValue } from './command-value.ts';
+export { commandValue as inspectionValue } from './command-value.ts';
 import type { Command } from 'commander';
 import { addJsonFlags, commandFromRoot, jsonOpts, optionalModeCommand, usageError } from './command-options.ts';
 import { printJsonOrText } from './format-utils.ts';
@@ -10,17 +12,7 @@ export interface InspectionContext {
 }
 
 type Awaitable<T> = T | PromiseLike<T>;
-interface InspectionValue {
-  readonly value: unknown;
-  readonly formatText: () => string;
-}
-
-/** Preserve the value/formatter type relation without an any-valued registry. */
-export function inspectionValue<T>(value: T, format: (value: T) => string): InspectionValue {
-  return Object.freeze({ value, formatText: () => format(value) });
-}
-
-type InspectionView<T> = (value: T, context: InspectionContext) => Awaitable<InspectionValue>;
+type InspectionView<T> = (value: T, context: InspectionContext) => Awaitable<CommandValue>;
 
 /** One lifecycle for read-only inspection: admit, capture, read, project, print.
  * Domain reads retain their existing parsers and physical policies. This does

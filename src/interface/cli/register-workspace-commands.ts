@@ -1,3 +1,5 @@
+import { commandValue } from './command-value.ts';
+import { registerWorkspaceAction } from './workspace-action.ts';
 import { ARTIFACT_PATHS_OPTION, ARTIFACT_KIND_OPTION, parseArtifactCommandInput } from './artifact-command-input.ts';
 import { VERIFICATION_LANE_OPTION } from './verification-lane-option.ts';
 import { runWithOptionalSpinner } from './command-progress.ts';
@@ -6,7 +8,7 @@ import type { LockFile } from '../../compiler/contract.ts';
 import { CompilerError } from '../../compiler/errors.ts';
 import { printJsonOrText } from './format-utils.ts';
 import { addBlock, composeWorkspace, explainWorkspace, initWorkspace, lockWorkspace, repairWorkspace, resolveWorkspace, upgradeWorkspace, verifyWorkspace } from './lazy-command-domains.ts';
-import { jsonOpts, commandPath, usageError, addJsonFlags, optionalModeCommand } from './command-options.ts';
+import { jsonOpts, commandPath, addJsonFlags, optionalModeCommand } from './command-options.ts';
 import {
   COMPOSE_LOCK_OPTION, WORKSPACE_DRY_RUN_OPTION,
   parseComposeCommandInput, parseRepairCommandInput, parseUpgradeCommandInput,
@@ -14,52 +16,47 @@ import {
 } from './workspace-command-input.ts';
 
 export function registerWorkspaceCommands(program: Command): void {
-  program.command('init')
-    .description('Initialize project workspace')
-    .action(async () => {
-      const cwd = process.cwd();
-      await initWorkspace(cwd);
-      console.log('Initialized project workspace');
-    });
+  // These commands have one execution and one result, without CLI-level recovery.
+  const textOutput = jsonOpts({});
+  registerWorkspaceAction(program.command('init').description('Initialize project workspace'), {
+    decode: () => ({ request: undefined, output: textOutput }),
+    execute: (root) => initWorkspace(root),
+    view: () => commandValue(undefined, () => 'Initialized project workspace')
+  });
 
-  program.command('add <block-id>')
-    .description('Add a block to the project')
-    .action(async (blockId: string) => {
-      const cwd = process.cwd();
-      const result = await addBlock(cwd, blockId);
-      const selected = result.selectedBlock;
-      console.log(`${result.changed ? 'Added' : 'Selected'} block ${selected.id}@${selected.version} from ${selected.registrySourceId} (${selected.registryKind})`);
-    });
+  registerWorkspaceAction(program.command('add <block-id>').description('Add a block to the project'), {
+    decode: (blockId: string) => ({ request: blockId, output: textOutput }),
+    execute: (root, blockId) => addBlock(root, blockId),
+    view: (result) => commandValue(result, (value) => {
+      const selected = value.selectedBlock;
+      return `${value.changed ? 'Added' : 'Selected'} block ${selected.id}@${selected.version} from ${selected.registrySourceId} (${selected.registryKind})`;
+    })
+  });
 
-  program.command('resolve')
-    .description('Resolve block dependencies')
-    .action(async () => {
-      const cwd = process.cwd();
-      const { withSpinner } = await import('./runtime/spinner.ts');
-      const { lock } = await withSpinner('Resolving block dependencies', () => resolveWorkspace(cwd));
-      console.log(`Resolved ${lock.resolvedBlocks.length} blocks`);
-    });
+  registerWorkspaceAction(program.command('resolve').description('Resolve block dependencies'), {
+    decode: () => ({ request: undefined, output: textOutput }),
+    progress: 'Resolving block dependencies',
+    execute: (root) => resolveWorkspace(root),
+    view: (result) => commandValue(result, (value) => `Resolved ${value.lock.resolvedBlocks.length} blocks`)
+  });
 
-  program.command('compose')
+  registerWorkspaceAction(program.command('compose')
     .description('Compose project')
-    .option(COMPOSE_LOCK_OPTION.flags, 'Lock project files as read-only')
-    .action(async (rawOptions: Record<string, unknown>) => {
-      const cwd = process.cwd();
-      const input = parseComposeCommandInput(rawOptions);
-      const { withSpinner } = await import('./runtime/spinner.ts');
-      await withSpinner('Composing project', () => composeWorkspace(cwd, { lock: input.lock }));
-      console.log('Composed project');
-    });
+    .option(COMPOSE_LOCK_OPTION.flags, 'Lock project files as read-only'), {
+    decode: (rawOptions: Record<string, unknown>) => ({ request: parseComposeCommandInput(rawOptions), output: textOutput }),
+    progress: 'Composing project',
+    execute: (root, input) => composeWorkspace(root, { lock: input.lock }),
+    view: () => commandValue(undefined, () => 'Composed project')
+  });
 
-  addJsonFlags(program.command('verify'))
+  registerWorkspaceAction(addJsonFlags(program.command('verify'))
     .description('Run verification')
-    .option(VERIFICATION_LANE_OPTION.flags, VERIFICATION_LANE_OPTION.description, VERIFY_COMMAND_DEFAULT_LANE)
-    .action(async (rawOptions: Record<string, unknown>) => {
-      const cwd = process.cwd();
-      const { output, request } = parseVerifyCommandInput(rawOptions);
-      const { report } = await runWithOptionalSpinner('Running verification', output, () => verifyWorkspace(cwd, request));
-      printJsonOrText(report, output, (v) => `Verification ${v.summary.status} (${v.summary.requestedLane})`);
-    });
+    .option(VERIFICATION_LANE_OPTION.flags, VERIFICATION_LANE_OPTION.description, VERIFY_COMMAND_DEFAULT_LANE), {
+    decode: parseVerifyCommandInput,
+    progress: 'Running verification',
+    execute: (root, request) => verifyWorkspace(root, request),
+    view: ({ report }) => commandValue(report, (value) => `Verification ${value.summary.status} (${value.summary.requestedLane})`)
+  });
 
   addJsonFlags(optionalModeCommand(program.command('repair'), 'mode', ['plan']))
     .description('Run repair')
