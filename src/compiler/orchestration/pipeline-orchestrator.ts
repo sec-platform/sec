@@ -6,7 +6,7 @@ import type { ProvenanceFile } from '../../semantic/provenance/contract/types.ts
 import { compareCodeUnits, rawSha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { assertCanonicalVerificationArtifactSet } from '../../verification/artifact/contract/artifact.ts';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
-import type { VerificationLane, VerificationReport } from '../../verification/contract/types.ts';
+import type { VerificationReport } from '../../verification/contract/types.ts';
 import { validateReviewSummary } from '../../verification/review/contract/summary.ts';
 import { type ReviewSummary } from '../../verification/review/contract/types.ts';
 import { formatJsonFile } from '../../workspace/files.ts';
@@ -29,6 +29,8 @@ import { readLockFile } from '../lock.ts';
 import { emitPipelineExecutionBoundary } from '../pipeline/journal.ts';
 import { withPipelineTransaction } from '../pipeline/kernel.ts';
 import { getPipelineStageDefinition } from '../pipeline/pass-registry.ts';
+import { withLeaseObservationMonitor } from '../pipeline/lease-monitor.ts';
+import { bindPipelineCompileRequest, type PipelineCompileRequest } from '../pipeline/invocation.ts';
 import { requirePipelineSemanticContext } from '../pipeline/semantic-context.ts';
 import {
   PIPELINE_COMPLETION_PROOF_REVISION,
@@ -37,7 +39,6 @@ import {
   type PipelineCompletionProof,
   type PipelineEventHandler,
   type PipelineSemanticContext,
-  type PipelineSource,
   type PipelineStageId
 } from '../pipeline/types.ts';
 import { buildAcceptanceCoverage } from '../verify/build-acceptance-coverage.ts';
@@ -55,14 +56,9 @@ import {
   type StagedVerificationProof
 } from './verify-orchestrator.ts';
 
-const PIPELINE_LEASE_MONITOR_INTERVAL_MS = 250;
 const PIPELINE_PENDING_TRANSACTION_ID = 'tx:pending';
 
-export interface CompileWorkspaceOptions {
-  source?: PipelineSource;
-  from?: PipelineStageId;
-  through?: PipelineStageId;
-  verificationLane?: VerificationLane;
+export interface CompileWorkspaceOptions extends PipelineCompileRequest {
   onEvent?: PipelineEventHandler;
   isolatedVerificationCapability?: IsolatedVerificationCapability;
   stagedVerificationProof?: StagedVerificationProof;
@@ -74,34 +70,9 @@ export async function withMonitoredWorkspaceWriteLease<T>(
   workspaceWriteLease: WorkspaceWriteLeaseToken,
   callback: (signal: AbortSignal) => Promise<T>
 ): Promise<T> {
-  const controller = new AbortController();
-  let checkingLease = false;
-  let leaseFailure: unknown;
-  const checkLease = (): void => {
-    if (checkingLease || leaseFailure !== undefined) return;
-    checkingLease = true;
-    void assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease)
-      .catch((error: unknown) => {
-        leaseFailure = error;
-        controller.abort();
-      })
-      .finally(() => {
-        checkingLease = false;
-      });
-  };
-  const monitor = setInterval(checkLease, PIPELINE_LEASE_MONITOR_INTERVAL_MS);
-  try {
-    await assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease);
-    const result = await callback(controller.signal);
-    await assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease);
-    if (leaseFailure !== undefined) throw leaseFailure;
-    return result;
-  } catch (error) {
-    if (leaseFailure !== undefined) throw leaseFailure;
-    throw error;
-  } finally {
-    clearInterval(monitor);
-  }
+  return withLeaseObservationMonitor(
+    () => assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease), callback
+  );
 }
 
 export interface CompileWorkspaceResult {
@@ -564,50 +535,44 @@ export async function buildPipelineCompletionProof(
   });
 }
 
-function selectStages(options: CompileWorkspaceOptions): PipelineStageId[] {
-  const fromIndex = options.from ? PIPELINE_STAGE_IDS.indexOf(options.from) : 0;
-  const throughIndex = options.through
-    ? PIPELINE_STAGE_IDS.indexOf(options.through)
-    : PIPELINE_STAGE_IDS.length - 1;
-
-  if (fromIndex < 0 || throughIndex < 0 || fromIndex > throughIndex) {
-    throw new Error(`Invalid pipeline stage range: ${options.from ?? PIPELINE_STAGE_IDS[0]} -> ${options.through ?? PIPELINE_STAGE_IDS.at(-1)}`);
-  }
-  const selected = PIPELINE_STAGE_IDS.slice(fromIndex, throughIndex + 1);
-  const semanticIndex = PIPELINE_STAGE_IDS.indexOf('semantic');
-  return fromIndex > semanticIndex ? ['semantic', ...selected] : selected;
-}
-
 export async function compileWorkspace(
   workspaceRoot = process.cwd(),
   options: CompileWorkspaceOptions = {}
 ): Promise<CompileWorkspaceResult> {
-  const stages = selectStages(options);
-  if (options.isolatedVerificationCapability) {
-    assertIsolatedVerificationCapability(workspaceRoot, options.isolatedVerificationCapability);
+  const request = bindPipelineCompileRequest(options);
+  const { onEvent, isolatedVerificationCapability, stagedVerificationProof, workspaceWriteLease: requestedLease } = options;
+  if (onEvent !== undefined && typeof onEvent !== 'function') {
+    throw new TypeError('Pipeline event handler must be callable');
+  }
+  // Capture capability identities before any callback or await. This snapshot
+  // grants nothing: existing capability, lease and proof owners still validate.
+  const bindings = Object.freeze({ onEvent, isolatedVerificationCapability, stagedVerificationProof, requestedLease });
+  const { stages } = request;
+  if (bindings.isolatedVerificationCapability) {
+    assertIsolatedVerificationCapability(workspaceRoot, bindings.isolatedVerificationCapability);
   }
   await emitPipelineExecutionBoundary(
-    options.onEvent,
+    bindings.onEvent,
     PIPELINE_PENDING_TRANSACTION_ID,
     'pipeline-lease-bind'
   );
-  return withWorkspaceWriteLease(workspaceRoot, options.workspaceWriteLease, async (workspaceWriteLease) => {
+  return withWorkspaceWriteLease(workspaceRoot, bindings.requestedLease, async (workspaceWriteLease) => {
     await emitPipelineExecutionBoundary(
-      options.onEvent,
+      bindings.onEvent,
       PIPELINE_PENDING_TRANSACTION_ID,
       'pipeline-lease-bound'
     );
     return withMonitoredWorkspaceWriteLease(workspaceRoot, workspaceWriteLease, async (leaseSignal) => {
       await emitPipelineExecutionBoundary(
-        options.onEvent,
+        bindings.onEvent,
         PIPELINE_PENDING_TRANSACTION_ID,
         'pipeline-transaction-bootstrap'
       );
       return withPipelineTransaction(
       workspaceRoot,
-      options.source ?? 'api',
+      request.source,
       stages,
-      options.onEvent,
+      bindings.onEvent,
       async (context) => {
         let plan: PlanFile | undefined;
         let verificationReport: VerificationReport | undefined;
@@ -618,43 +583,42 @@ export async function compileWorkspace(
         let semanticContext: PipelineSemanticContext | undefined;
         const completedStages: PipelineStageId[] = [];
 
-        for (const stage of stages) {
-          await assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease);
-          await emitPipelineExecutionBoundary(
-            context.onEvent,
-            context.transactionId,
-            `pipeline-${stage}`
-          );
-          if (stage === 'resolve') {
+        const executeStage: Readonly<Record<PipelineStageId, () => Promise<void>>> = Object.freeze({
+          resolve: async () => {
             const result = await resolveWorkspace(workspaceRoot, context);
             plan = result.plan;
-          } else if (stage === 'semantic') {
+          },
+          semantic: async () => {
             semanticContext = await runWorkspaceSemanticFrontend(workspaceRoot, context);
-          } else if (stage === 'compose') {
+          },
+          compose: async () => {
             requirePipelineSemanticContext(context);
             const result = await composeWorkspace(workspaceRoot, { signal: leaseSignal }, context);
             plan = result.plan;
-          } else if (stage === 'verify') {
+          },
+          verify: async () => {
             requirePipelineSemanticContext(context);
             const result = await verifyWorkspace(
               workspaceRoot,
               {
-                lane: options.verificationLane ?? 'all',
+                lane: request.verificationLane,
                 signal: leaseSignal,
-                ...(options.stagedVerificationProof
-                  ? { stagedVerificationProof: options.stagedVerificationProof }
+                ...(bindings.stagedVerificationProof
+                  ? { stagedVerificationProof: bindings.stagedVerificationProof }
                   : {}),
-                ...(options.isolatedVerificationCapability
-                  ? { isolatedVerificationCapability: options.isolatedVerificationCapability }
+                ...(bindings.isolatedVerificationCapability
+                  ? { isolatedVerificationCapability: bindings.isolatedVerificationCapability }
                   : {})
               },
               context
             );
             verificationReport = result.report;
-          } else if (stage === 'lock') {
+          },
+          lock: async () => {
             requirePipelineSemanticContext(context);
             await lockWorkspace(workspaceRoot, context);
-          } else if (stage === 'emit') {
+          },
+          emit: async () => {
             requirePipelineSemanticContext(context);
             const result = await explainWorkspace(workspaceRoot, context);
             emittedLock = result.lock;
@@ -662,6 +626,11 @@ export async function compileWorkspace(
             explainGraph = result.graph;
             reviewSummary = result.reviewSummary;
           }
+        });
+        for (const stage of stages) {
+          await assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease);
+          await emitPipelineExecutionBoundary(context.onEvent, context.transactionId, `pipeline-${stage}`);
+          await executeStage[stage]();
           completedStages.push(stage);
         }
 
@@ -679,7 +648,7 @@ export async function compileWorkspace(
             reviewSummary
           }
         );
-        if (options.stagedVerificationProof) {
+        if (bindings.stagedVerificationProof) {
           await assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease);
           const verificationArtifacts = {
             verificationReport: await readCanonicalJsonArtifact<unknown>(
@@ -704,7 +673,7 @@ export async function compileWorkspace(
             workspaceRoot,
             lock,
             verificationArtifacts,
-            options.stagedVerificationProof
+            bindings.stagedVerificationProof
           );
           await assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease);
         }

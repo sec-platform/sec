@@ -1,17 +1,9 @@
 import { parseVerificationLaneOption } from './verification-lane-option.ts';
 import { CompilerError } from '../../compiler/errors.ts';
 import { parseJsonOutputOptions, type JsonOutputIssue } from './json-output-options.ts';
-import { PIPELINE_STAGE_IDS, type PipelineStageId } from '../../compiler/pipeline/stages.ts';
+import { selectPipelineStageRange, PIPELINE_DEFAULT_VERIFICATION_LANE } from '../../compiler/pipeline/invocation.ts';
 
-function pipelineStage(value: unknown, option: string): PipelineStageId | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value !== 'string' || !PIPELINE_STAGE_IDS.includes(value as PipelineStageId)) {
-    throw new CompilerError('PIPELINE-USAGE-001', `${option} must be one of: ${PIPELINE_STAGE_IDS.join(', ')}`);
-  }
-  return value as PipelineStageId;
-}
-
-export const PIPELINE_COMPILE_DEFAULT_LANE = 'all' as const;
+export const PIPELINE_COMPILE_DEFAULT_LANE = PIPELINE_DEFAULT_VERIFICATION_LANE;
 
 export function rejectPipelineOutputIssue(issue: JsonOutputIssue): never {
   throw new CompilerError('PIPELINE-USAGE-003', issue.message);
@@ -26,8 +18,7 @@ export function parsePipelineOutputOptions(options: Readonly<Record<string, unkn
 export function parsePipelineCompileOptions(options: Readonly<Record<string, unknown>>) {
   const { json, compact, from, through, lane } = options;
   const output = parsePipelineOutputOptions({ json, compact });
-  const first = pipelineStage(from, '--from');
-  const last = pipelineStage(through, '--through');
+  const { from: first, through: last } = selectPipelineStageRange(from, through);
   return Object.freeze({
     output,
     invocation: Object.freeze({
