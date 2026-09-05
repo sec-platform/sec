@@ -3,25 +3,16 @@ import type { SemanticGeneratorPlan } from '../../semantic/generation/contract/t
 import type { SemanticViewSet } from '../../semantic/projection/contract/types.ts';
 import type { WorkspaceWriteLeaseToken } from '../../workspace/lease.ts';
 import type { PassStatus } from '../contract.ts';
+import type { PipelineStageId } from './stages.ts';
 
 export const PIPELINE_JOURNAL_FORMAT_VERSION = '2' as const;
 export const PIPELINE_ADAPT_RETIREMENT_SCHEMA = 'sec-pipeline-adapt-retirement-v1' as const;
 
-export const PIPELINE_STAGE_IDS = [
-  'resolve',
-  'semantic',
-  'compose',
-  'verify',
-  'lock',
-  'emit'
-] as const;
+export { PIPELINE_STAGE_IDS, PIPELINE_VERIFY_STAGE_IDS } from './stages.ts';
+export type { PipelineStageId } from './stages.ts';
 
 export type PassId = keyof PassStatus;
-export type PipelineStageId = (typeof PIPELINE_STAGE_IDS)[number];
-export const PIPELINE_VERIFY_STAGE_IDS = Object.freeze(
-  PIPELINE_STAGE_IDS.slice(0, PIPELINE_STAGE_IDS.indexOf('verify') + 1)
-) as readonly PipelineStageId[];
-export const PIPELINE_EXECUTION_BOUNDARIES = [
+export const PIPELINE_EXECUTION_BOUNDARIES = Object.freeze([
   'pipeline-bootstrap',
   'pipeline-lease-bind',
   'pipeline-lease-bound',
@@ -37,7 +28,7 @@ export const PIPELINE_EXECUTION_BOUNDARIES = [
   'verify-fast',
   'verify-runtime',
   'verify-artifact-publish'
-] as const;
+] as const);
 export type PipelineExecutionBoundary = (typeof PIPELINE_EXECUTION_BOUNDARIES)[number];
 export type PipelineSource = 'api' | 'cli' | 'reference' | 'upgrade' | 'repair' | 'ci';
 export type PipelineTransactionStatus = 'running' | 'succeeded' | 'failed';

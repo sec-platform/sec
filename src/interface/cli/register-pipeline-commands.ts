@@ -1,40 +1,8 @@
 import type { Command } from 'commander';
 
-import { CompilerError } from '../../compiler/errors.ts';
-import { readPipelineJournal } from '../../compiler/pipeline/journal.ts';
-import {
-  PIPELINE_STAGE_IDS,
-  type PipelineStageId
-} from '../../compiler/pipeline/types.ts';
-import type { VerificationLane } from '../../verification/contract/types.ts';
-import { formatJson, printJsonOrText } from './format-utils.ts';
-import { compileWorkspace } from './lazy-command-domains.ts';
-
-function pipelineStage(value: string | undefined, option: string): PipelineStageId | undefined {
-  if (value === undefined) return undefined;
-  if (!PIPELINE_STAGE_IDS.includes(value as PipelineStageId)) {
-    throw new CompilerError(
-      'PIPELINE-USAGE-001',
-      `${option} must be one of: ${PIPELINE_STAGE_IDS.join(', ')}`
-    );
-  }
-  return value as PipelineStageId;
-}
-
-function verificationLane(value: string): VerificationLane {
-  if (value !== 'fast' && value !== 'runtime' && value !== 'all') {
-    throw new CompilerError('PIPELINE-USAGE-002', '--lane must be fast, runtime, or all');
-  }
-  return value;
-}
-
-function outputOptions(opts: Record<string, unknown>): { json: boolean; compact: boolean } {
-  const output = { json: !!opts.json, compact: !!opts.compact };
-  if (output.compact && !output.json) {
-    throw new CompilerError('PIPELINE-USAGE-003', '--compact requires --json');
-  }
-  return output;
-}
+import { printJsonOrText } from './format-utils.ts';
+import { parsePipelineCompileOptions, parsePipelineOutputOptions } from './pipeline-command-input.ts';
+import { formatPipelineCompilation, formatPipelineJournal } from './pipeline-command-presentation.ts';
 
 export function registerPipelineCommands(program: Command): void {
   program.command('compile')
@@ -45,21 +13,11 @@ export function registerPipelineCommands(program: Command): void {
     .option('--json', 'Output as JSON')
     .option('--compact', 'Compact JSON output')
     .action(async (opts: Record<string, unknown>) => {
-      const output = outputOptions(opts);
-      const from = pipelineStage(opts.from as string | undefined, '--from');
-      const through = pipelineStage(opts.through as string | undefined, '--through');
-      const result = await compileWorkspace(process.cwd(), {
-        source: 'cli',
-        ...(from ? { from } : {}),
-        ...(through ? { through } : {}),
-        verificationLane: verificationLane(String(opts.lane))
-      });
-
-      printJsonOrText(result, output, (value) => [
-        `Compilation transaction ${value.transactionId} succeeded`,
-        `Stages: ${value.completedStages.join(' -> ')}`,
-        `Lock: ${Object.entries(value.lock.passStatus).map(([passId, state]) => `${passId}=${state}`).join(', ')}`
-      ].join('\n'));
+      const workspaceRoot = process.cwd();
+      const { output, invocation } = parsePipelineCompileOptions(opts);
+      const { compileWorkspace } = await import('../../compiler/orchestration/pipeline-orchestrator.ts');
+      const result = await compileWorkspace(workspaceRoot, invocation);
+      printJsonOrText(result, output, formatPipelineCompilation);
     });
 
   const pipeline = program.command('pipeline')
@@ -70,22 +28,11 @@ export function registerPipelineCommands(program: Command): void {
     .option('--json', 'Output as JSON')
     .option('--compact', 'Compact JSON output')
     .action(async (opts: Record<string, unknown>) => {
-      const output = outputOptions(opts);
-      const journal = await readPipelineJournal(process.cwd());
-      if (output.json) {
-        console.log(formatJson(journal, output));
-        return;
-      }
-      const latest = journal.transactions.at(-1);
-      console.log([
-        `Pipeline journal ${journal.formatVersion}`,
-        `Active transaction: ${journal.activeTransactionId ?? 'none'}`,
-        `Last committed transaction: ${journal.lastCommittedTransactionId ?? 'none'}`,
-        `Transactions: ${journal.transactions.length}`,
-        ...(latest ? [
-          `Latest: ${latest.id} ${latest.status} source=${latest.source}`,
-          `Passes: ${latest.passRecords.map((entry) => `${entry.passId}=${entry.status}`).join(', ') || 'none'}`
-        ] : [])
-      ].join('\n'));
+      const workspaceRoot = process.cwd();
+      const output = parsePipelineOutputOptions(opts);
+      // Help and invalid options must not initialize journal or lease owners.
+      const { readPipelineJournal } = await import('../../compiler/pipeline/journal.ts');
+      const journal = await readPipelineJournal(workspaceRoot);
+      printJsonOrText(journal, output, formatPipelineJournal);
     });
 }
