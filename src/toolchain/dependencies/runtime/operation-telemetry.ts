@@ -1,6 +1,7 @@
 import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
 import {
   runtimeDependencyOperationContext,
+  type RuntimeDependencyOperationContext,
   type RuntimeDependencyOperationOptions
 } from './operation-context.ts';
 
@@ -28,7 +29,9 @@ export interface RuntimeDependencyOperationTelemetry {
   readonly phases: readonly Readonly<{
     readonly phase: RuntimeDependencyOperationPhase;
     readonly count: number;
+    /** Sum of measured durations only; missing measurements are counted separately. */
     readonly durationMs: number;
+    readonly unmeasuredCount: number;
     readonly outcomes: Readonly<Record<RuntimeDependencyOperationPhaseOutcome, number>>;
   }>[];
 }
@@ -36,6 +39,7 @@ export interface RuntimeDependencyOperationTelemetry {
 type MutablePhaseTelemetry = {
   count: number;
   durationMs: number;
+  unmeasuredCount: number;
   outcomes: Record<RuntimeDependencyOperationPhaseOutcome, number>;
 };
 
@@ -44,25 +48,33 @@ const runtimeDependencyOperationTelemetry = new WeakMap<
   Map<RuntimeDependencyOperationPhase, MutablePhaseTelemetry>
 >();
 
-function phaseOutcome(error: unknown, signalAborted: boolean): RuntimeDependencyOperationPhaseOutcome {
-  if (signalAborted) return 'aborted';
-  if (error instanceof SecError && error.code === 'RUNTIME-DEPS-003' &&
-      error.message.toLocaleLowerCase('en-US').includes('deadline')) {
-    return 'deadline-exhausted';
-  }
-  if (error instanceof Error && error.name === 'AbortError') return 'aborted';
+function phaseOutcome(error: unknown, context: RuntimeDependencyOperationContext): RuntimeDependencyOperationPhaseOutcome {
+  // Classification is diagnostic. A getter or revoked Proxy on a thrown
+  // value must not replace the failure that the action actually produced.
+  try {
+    if (context.signal?.aborted === true) return 'aborted';
+    if (error instanceof SecError && error.code === 'RUNTIME-DEPS-003') {
+      const message = error.message;
+      if (typeof message === 'string' && message.toLowerCase().includes('deadline')) {
+        return 'deadline-exhausted';
+      }
+    }
+    if (error instanceof Error && error.name === 'AbortError') return 'aborted';
+  } catch { /* Unclassifiable thrown values remain failures. */ }
   return 'failed';
 }
 
 function recordRuntimeDependencyOperationPhase(
-  options: RuntimeDependencyOperationOptions,
+  context: RuntimeDependencyOperationContext,
   phase: RuntimeDependencyOperationPhase,
   startedAtMonotonicMs: number,
   outcome: RuntimeDependencyOperationPhaseOutcome
 ): void {
-  const context = runtimeDependencyOperationContext(options);
-  const completedAtMonotonicMs = context.monotonicNowMs();
-  const durationMs = Math.max(0, completedAtMonotonicMs - startedAtMonotonicMs);
+  let durationMs: number | undefined;
+  try {
+    const elapsed = context.monotonicNowMs() - startedAtMonotonicMs;
+    if (Number.isFinite(elapsed) && elapsed >= 0) durationMs = elapsed;
+  } catch { /* Completion timing cannot change an already-produced result. */ }
   let phases = runtimeDependencyOperationTelemetry.get(context.telemetryKey);
   if (phases === undefined) {
     phases = new Map();
@@ -71,6 +83,7 @@ function recordRuntimeDependencyOperationPhase(
   const current = phases.get(phase) ?? {
     count: 0,
     durationMs: 0,
+    unmeasuredCount: 0,
     outcomes: {
       completed: 0,
       aborted: 0,
@@ -79,7 +92,8 @@ function recordRuntimeDependencyOperationPhase(
     }
   };
   current.count += 1;
-  current.durationMs += durationMs;
+  if (durationMs === undefined) current.unmeasuredCount += 1;
+  else current.durationMs += durationMs;
   current.outcomes[outcome] += 1;
   phases.set(phase, current);
 }
@@ -89,20 +103,17 @@ export function measureRuntimeDependencyOperationPhase<T>(
   phase: RuntimeDependencyOperationPhase,
   action: () => T
 ): T {
-  const startedAtMonotonicMs = runtimeDependencyOperationContext(options).monotonicNowMs();
+  const context = runtimeDependencyOperationContext(options);
+  const startedAtMonotonicMs = context.monotonicNowMs();
+  let result: T;
   try {
-    const result = action();
-    recordRuntimeDependencyOperationPhase(options, phase, startedAtMonotonicMs, 'completed');
-    return result;
+    result = action();
   } catch (error) {
-    recordRuntimeDependencyOperationPhase(
-      options,
-      phase,
-      startedAtMonotonicMs,
-      phaseOutcome(error, runtimeDependencyOperationContext(options).signal?.aborted === true)
-    );
+    recordRuntimeDependencyOperationPhase(context, phase, startedAtMonotonicMs, phaseOutcome(error, context));
     throw error;
   }
+  recordRuntimeDependencyOperationPhase(context, phase, startedAtMonotonicMs, 'completed');
+  return result;
 }
 
 export async function measureRuntimeDependencyOperationPhaseAsync<T>(
@@ -110,20 +121,17 @@ export async function measureRuntimeDependencyOperationPhaseAsync<T>(
   phase: RuntimeDependencyOperationPhase,
   action: () => Promise<T>
 ): Promise<T> {
-  const startedAtMonotonicMs = runtimeDependencyOperationContext(options).monotonicNowMs();
+  const context = runtimeDependencyOperationContext(options);
+  const startedAtMonotonicMs = context.monotonicNowMs();
+  let result: T;
   try {
-    const result = await action();
-    recordRuntimeDependencyOperationPhase(options, phase, startedAtMonotonicMs, 'completed');
-    return result;
+    result = await action();
   } catch (error) {
-    recordRuntimeDependencyOperationPhase(
-      options,
-      phase,
-      startedAtMonotonicMs,
-      phaseOutcome(error, runtimeDependencyOperationContext(options).signal?.aborted === true)
-    );
+    recordRuntimeDependencyOperationPhase(context, phase, startedAtMonotonicMs, phaseOutcome(error, context));
     throw error;
   }
+  recordRuntimeDependencyOperationPhase(context, phase, startedAtMonotonicMs, 'completed');
+  return result;
 }
 
 export function readRuntimeDependencyOperationTelemetry(
@@ -142,6 +150,7 @@ export function readRuntimeDependencyOperationTelemetry(
         phase,
         count: value.count,
         durationMs: value.durationMs,
+        unmeasuredCount: value.unmeasuredCount,
         outcomes: Object.freeze({ ...value.outcomes })
       })))
   });
