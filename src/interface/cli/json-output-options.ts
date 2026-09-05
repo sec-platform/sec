@@ -1,3 +1,5 @@
+import { decodeBooleanFlag } from './boolean-option.ts';
+
 /** One owner for JSON output fields, defaults, CLI spelling and dependencies. */
 export const JSON_OUTPUT_OPTIONS = Object.freeze([
   Object.freeze({ name: 'json', flags: '--json', description: 'Output as JSON',
@@ -24,11 +26,9 @@ export function parseJsonOutputOptions(
   const captured = JSON_OUTPUT_OPTIONS.map((definition) =>
     [definition, input[definition.name]] as const);
   const output = Object.fromEntries(captured.map(([definition, value]) => {
-    if (value !== undefined && typeof value !== 'boolean') {
-      return reject({ kind: 'invalid-boolean', option: definition.name,
-        message: `${definition.flags} must be a boolean flag` });
-    }
-    return [definition.name, value === undefined ? definition.defaultValue : value];
+    return [definition.name, decodeBooleanFlag(value, definition.defaultValue, () =>
+      reject({ kind: 'invalid-boolean', option: definition.name,
+        message: `${definition.flags} must be a boolean flag` }))];
   })) as Record<JsonOutputOptionName, boolean>;
   for (const definition of JSON_OUTPUT_OPTIONS) {
     if (!output[definition.name]) continue;

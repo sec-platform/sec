@@ -7,6 +7,10 @@ import type { VerificationLane } from '../../verification/contract/types.ts';
 import { formatJson, printJsonOrText } from './format-utils.ts';
 import { addBlock, composeWorkspace, explainWorkspace, initWorkspace, lockWorkspace, observeWorkspaceArtifacts, repairWorkspace, resolveWorkspace, upgradeWorkspace, verifyWorkspace, writeWorkspaceArtifacts } from './lazy-command-domains.ts';
 import { jsonOpts, commandPath, usageError, addJsonFlags, optionalModeCommand } from './command-options.ts';
+import {
+  COMPOSE_LOCK_OPTION, WORKSPACE_DRY_RUN_OPTION,
+  parseComposeCommandInput, parseRepairCommandInput, parseUpgradeCommandInput
+} from './workspace-command-input.ts';
 
 export function registerWorkspaceCommands(program: Command): void {
   program.command('init')
@@ -37,12 +41,12 @@ export function registerWorkspaceCommands(program: Command): void {
 
   program.command('compose')
     .description('Compose project')
-    .option('--lock', 'Lock project files as read-only')
+    .option(COMPOSE_LOCK_OPTION.flags, 'Lock project files as read-only')
     .action(async (rawOptions: Record<string, unknown>) => {
-      const opts = Object.freeze({ ...rawOptions });
       const cwd = process.cwd();
+      const input = parseComposeCommandInput(rawOptions);
       const { withSpinner } = await import('./runtime/spinner.ts');
-      await withSpinner('Composing project', () => composeWorkspace(cwd, { lock: !!opts.lock }));
+      await withSpinner('Composing project', () => composeWorkspace(cwd, { lock: input.lock }));
       console.log('Composed project');
     });
 
@@ -63,32 +67,33 @@ export function registerWorkspaceCommands(program: Command): void {
 
   addJsonFlags(optionalModeCommand(program.command('repair'), 'mode', ['plan']))
     .description('Run repair')
-    .option('--dry-run', 'Dry run repair')
+    .option(WORKSPACE_DRY_RUN_OPTION.flags, 'Dry run repair')
     .action(async (mode: string | undefined, rawOptions: Record<string, unknown>, cmd: Command) => {
-      const opts = Object.freeze({ ...rawOptions });
       const cwd = process.cwd();
+      const invocationPath = commandPath(cmd);
+      const input = parseRepairCommandInput(mode, rawOptions);
+      const { output } = input;
       const { CI_ARTIFACT_FILES } = await import('../../verification/ci-artifacts/contract/manifest.ts');
       const { pathExists } = await import('../../workspace/files.ts');
       const { resolveWorkspaceArtifactPath } = await import('../../workspace/runtime/paths.ts');
       const { formatRepairSummary } = await import('./formatters.ts');
       const { readRequiredRepairPlan } = await import('./artifact-command-read.ts');
-      const output = jsonOpts(opts);
-      if (mode === 'plan') {
+      if (input.kind === 'plan') {
         const repairPlanPath = resolveWorkspaceArtifactPath(cwd, CI_ARTIFACT_FILES.repairPlan);
         const repairPlan = readRequiredRepairPlan(
           repairPlanPath,
-          `Repair plan not found; run ${commandPath(cmd)} --dry-run first`
+          `Repair plan not found; run ${invocationPath} --dry-run first`
         );
         printJsonOrText(repairPlan, output, (p) => formatRepairSummary(p, true));
         return;
       }
       try {
         const { repairPlan } = await runWithOptionalSpinner(
-          opts.dryRun ? 'Previewing repair' : 'Running repair',
+          input.request.dryRun ? 'Previewing repair' : 'Running repair',
           output,
-          () => repairWorkspace(cwd, { dryRun: !!opts.dryRun })
+          () => repairWorkspace(cwd, { dryRun: input.request.dryRun })
         );
-        printJsonOrText(repairPlan, output, (p) => formatRepairSummary(p, !!opts.dryRun));
+        printJsonOrText(repairPlan, output, (p) => formatRepairSummary(p, input.request.dryRun));
       } catch (error) {
         const repairPlanPath = resolveWorkspaceArtifactPath(cwd, CI_ARTIFACT_FILES.repairPlan);
         if (await pathExists(repairPlanPath)) {
@@ -96,7 +101,7 @@ export function registerWorkspaceCommands(program: Command): void {
             repairPlanPath,
             'Repair plan disappeared before it could be read back.'
           );
-          printJsonOrText(repairPlan, output, (p) => formatRepairSummary(p, !!opts.dryRun));
+          printJsonOrText(repairPlan, output, (p) => formatRepairSummary(p, input.request.dryRun));
         }
         throw error;
       }
@@ -106,24 +111,25 @@ export function registerWorkspaceCommands(program: Command): void {
     .argument('[subject]')
     .argument('[target-version]'))
     .description('Run upgrade')
-    .option('--dry-run', 'Dry run upgrade')
+    .option(WORKSPACE_DRY_RUN_OPTION.flags, 'Dry run upgrade')
     .action(async (
       subject: string | undefined,
       targetVersion: string | undefined,
       rawOptions: Record<string, unknown>,
       cmd: Command
     ) => {
-      const opts = Object.freeze({ ...rawOptions });
       const cwd = process.cwd();
-      const output = jsonOpts(opts);
-      if (subject === 'plan' && targetVersion === undefined) {
+      const invocationPath = commandPath(cmd);
+      const input = parseUpgradeCommandInput(subject, targetVersion, rawOptions, invocationPath);
+      const { output } = input;
+      if (input.kind === 'plan') {
         const { readUpgradeArtifactSet } = await import('../../change-management/upgrade/runtime/artifact-readback.ts');
         const { formatUpgradePlan } = await import('./formatters.ts');
         const { plan: upgradePlan, executionTerminal: upgradeExecutionTerminal } = readUpgradeArtifactSet(cwd);
         if (upgradePlan === null) {
           throw new CompilerError(
             'UPGRADE-BLOCKED-003',
-            `Upgrade plan not found; run ${commandPath(cmd)} <block-id> <target-version>`
+            `Upgrade plan not found; run ${invocationPath} <block-id> <target-version>`
           );
         }
         printJsonOrText(
@@ -133,27 +139,24 @@ export function registerWorkspaceCommands(program: Command): void {
         );
         return;
       }
-      if (subject === 'diagnostics' && targetVersion === undefined) {
+      if (input.kind === 'diagnostics') {
         const { readUpgradeArtifactSet } = await import('../../change-management/upgrade/runtime/artifact-readback.ts');
         const { formatUpgradeDiagnostics } = await import('./formatters.ts');
         const { diagnostics: upgradeDiagnostics } = readUpgradeArtifactSet(cwd);
         if (upgradeDiagnostics === null) {
           throw new CompilerError(
             'UPGRADE-BLOCKED-003',
-            `Upgrade diagnostics not found; run ${commandPath(cmd)} <block-id> <target-version>`
+            `Upgrade diagnostics not found; run ${invocationPath} <block-id> <target-version>`
           );
         }
         printJsonOrText(upgradeDiagnostics, output, formatUpgradeDiagnostics);
         return;
       }
-      if (subject === undefined || targetVersion === undefined) {
-        throw usageError(`Usage: ${commandPath(cmd)} <block-id> <target-version> [--dry-run] [--json [--compact]]`);
-      }
       const { formatUpgradePlan, formatUpgradePreview } = await import('./formatters.ts');
       const result = await runWithOptionalSpinner(
-        opts.dryRun ? 'Previewing upgrade' : 'Running upgrade',
+        input.request.dryRun ? 'Previewing upgrade' : 'Running upgrade',
         output,
-        () => upgradeWorkspace(cwd, subject, targetVersion, { dryRun: !!opts.dryRun })
+        () => upgradeWorkspace(cwd, input.subject, input.targetVersion, { dryRun: input.request.dryRun })
       );
       if (result.resultKind === 'preview') {
         printJsonOrText(result.upgradePlan, output, formatUpgradePreview);
