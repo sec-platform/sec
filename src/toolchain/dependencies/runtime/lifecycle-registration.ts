@@ -2,13 +2,12 @@ import path from 'node:path';
 
 import type { GeneratedStatePhysicalIdentity } from '../../../runtime-state/generated-state/contract.ts';
 import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
-import { sameGeneratedStateIdentity } from './dependency-transition/contract.ts';
 import {
   runtimeDependencyOperationEffectFence,
-  runtimeDependencyOperationRemainingMs,
-  type RuntimeDependencyInstallOptions,
-  type RuntimeDependencyOperationOptions
+  type RuntimeDependencyEffectFenceOptions
 } from './operation-context.ts';
+import { runtimeDependencyOperationRemainingMs, type RuntimeDependencyOperationControlInput } from './operation-controls.ts';
+import { captureRuntimeDependencyLifecycle, type CapturedRuntimeDependencyLifecycle, type RuntimeDependencyLifecycleInput } from './lifecycle-capabilities.ts';
 
 export const COMPILER_NODE_MODULES_LIFECYCLE_OWNER = 'compiler-dependency-runtime' as const;
 export const COMPILER_NODE_MODULES_LIFECYCLE_PRODUCER = 'ensure-compiler-deps-ready' as const;
@@ -69,11 +68,11 @@ export function compilerDependencyStagingLifecycleExpectation(
 }
 
 export async function settleRetiredCompilerDependencyGeneration(
-  options: RuntimeDependencyOperationOptions,
+  options: RuntimeDependencyEffectFenceOptions & RuntimeDependencyLifecycleInput<'settleRetired'>,
   expectedPhysical?: GeneratedStatePhysicalIdentity
 ): Promise<void> {
-  const lifecycle = options.generatedStateLifecycle;
-  if (lifecycle === undefined || lifecycle.settleRetired === undefined) return;
+  const lifecycle = captureRuntimeDependencyLifecycle(options, ['settleRetired']);
+  if (lifecycle?.settleRetired === undefined) return;
   await runtimeDependencyOperationEffectFence(
     options,
     'Compiler dependency retired lifecycle settlement'
@@ -85,35 +84,29 @@ export async function settleRetiredCompilerDependencyGeneration(
 }
 
 export async function birthAndBindCompilerDependencyGeneration(
-  options: RuntimeDependencyOperationOptions,
+  options: RuntimeDependencyEffectFenceOptions & RuntimeDependencyLifecycleInput<'born' | 'bind'>,
   stagingRoot: string,
   expectedPhysical: GeneratedStatePhysicalIdentity
 ): Promise<void> {
-  const lifecycle = options.generatedStateLifecycle;
+  const lifecycle = captureRuntimeDependencyLifecycle(options, ['born', 'bind']);
   if (lifecycle === undefined) return;
-  await runtimeDependencyOperationEffectFence(options, 'Compiler dependency active lifecycle birth');
-  await lifecycle.born(
-    'node_modules',
-    `compiler-node-modules:${path.basename(stagingRoot)}`
-  );
-  const bind = lifecycle.bind;
-  if (bind === undefined) {
+  const { born, bind } = lifecycle;
+  if (born === undefined || bind === undefined) {
     throw new SecError(
       'IMPORT-AUTHORITY-004',
       'Compiler dependency active lifecycle birth has no exact readback binding'
     );
   }
-  await bind(
-    'node_modules',
-    compilerDependencyGenerationLifecycleExpectation(expectedPhysical)
-  );
+  await runtimeDependencyOperationEffectFence(options, 'Compiler dependency active lifecycle birth');
+  await born('node_modules', `compiler-node-modules:${path.basename(stagingRoot)}`);
+  await bind('node_modules', compilerDependencyGenerationLifecycleExpectation(expectedPhysical));
 }
 
 export async function bindExistingCompilerDependencyGeneration(
-  options: RuntimeDependencyInstallOptions,
+  options: RuntimeDependencyLifecycleInput<'bind'>,
   expectedPhysical: GeneratedStatePhysicalIdentity
 ): Promise<void> {
-  const lifecycle = options.generatedStateLifecycle;
+  const lifecycle = captureRuntimeDependencyLifecycle(options, ['bind']);
   if (lifecycle === undefined) {
     throw new SecError(
       'IMPORT-AUTHORITY-004',
@@ -136,16 +129,17 @@ export async function bindExistingCompilerDependencyGeneration(
     throw new SecError(
       'IMPORT-AUTHORITY-004',
       'Compiler dependency generation producer provenance is missing, invalid, foreign, or stale; physical target is preserved',
-      { cause: error instanceof Error ? error.message : String(error) }
+      { cause: lifecycleFailureMessage(error) },
+      { cause: error }
     );
   }
 }
 
 export async function bindExistingSharedDependencyRoot(
-  options: RuntimeDependencyInstallOptions,
+  options: RuntimeDependencyLifecycleInput<'bind'>,
   expectedPhysical: GeneratedStatePhysicalIdentity
 ): Promise<void> {
-  const lifecycle = options.generatedStateLifecycle;
+  const lifecycle = captureRuntimeDependencyLifecycle(options, ['bind']);
   if (lifecycle === undefined) {
     throw new SecError(
       'IMPORT-AUTHORITY-004',
@@ -168,25 +162,44 @@ export async function bindExistingSharedDependencyRoot(
     throw new SecError(
       'IMPORT-AUTHORITY-004',
       'Shared dependency root producer provenance is missing, invalid, foreign, or stale; physical root is preserved',
-      { cause: error instanceof Error ? error.message : String(error) }
+      { cause: lifecycleFailureMessage(error) },
+      { cause: error }
     );
   }
 }
 
+function lifecycleFailureMessage(error: unknown): string {
+  try {
+    const message = error instanceof Error ? error.message : String(error);
+    return typeof message === 'string' ? message : 'Unreadable lifecycle failure';
+  } catch {
+    return 'Unreadable lifecycle failure';
+  }
+}
+
 export async function bindAndRetireCompilerDependencyPreimage(
-  options: RuntimeDependencyInstallOptions,
+  options: RuntimeDependencyLifecycleInput<'bind' | 'retired'>,
   expectedPhysical: GeneratedStatePhysicalIdentity,
   outcome: string
 ): Promise<`sha256:${string}` | null> {
-  const lifecycle = options.generatedStateLifecycle;
+  return retireCapturedCompilerDependencyPreimage(
+    captureRuntimeDependencyLifecycle(options, ['bind', 'retired']), expectedPhysical, outcome
+  );
+}
+
+async function retireCapturedCompilerDependencyPreimage(
+  lifecycle: CapturedRuntimeDependencyLifecycle<'bind' | 'retired'> | undefined,
+  expectedPhysical: GeneratedStatePhysicalIdentity,
+  outcome: string
+): Promise<`sha256:${string}` | null> {
   if (lifecycle === undefined) {
     throw new SecError(
       'IMPORT-AUTHORITY-004',
       'Existing compiler dependency generation has no producer provenance registration and is preserved'
     );
   }
-  const bind = lifecycle.bind;
-  if (bind === undefined) {
+  const { bind, retired: retire } = lifecycle;
+  if (bind === undefined || retire === undefined) {
     throw new SecError(
       'IMPORT-AUTHORITY-004',
       'Compiler dependency preimage retirement requires read-only producer provenance binding and is preserved'
@@ -197,26 +210,34 @@ export async function bindAndRetireCompilerDependencyPreimage(
       'node_modules',
       compilerDependencyGenerationLifecycleExpectation(expectedPhysical)
     );
-    const retired = await lifecycle.retired('node_modules', outcome);
+    const retired = await retire('node_modules', outcome);
     return retired !== undefined && 'registrationDigest' in retired
       ? retired.registrationDigest
       : null;
   } catch (error) {
-    if (error instanceof SecError && error.code === 'IMPORT-AUTHORITY-004') throw error;
+    // A revoked proxy or a hostile code getter is still the original cause.
+    let ownerFailure = false;
+    try { ownerFailure = error instanceof SecError && error.code === 'IMPORT-AUTHORITY-004'; } catch { /* Preserve below. */ }
+    if (ownerFailure) throw error;
     throw new SecError(
       'IMPORT-AUTHORITY-004',
       'Compiler dependency preimage producer provenance is missing, invalid, foreign, or stale; physical target is preserved',
-      { cause: error instanceof Error ? error.message : String(error) }
+      { cause: lifecycleFailureMessage(error) },
+      { cause: error }
     );
   }
 }
 
 export async function ensureCompilerDependencyPreimageRetiredForRecovery(
-  options: RuntimeDependencyInstallOptions,
+  options: RuntimeDependencyOperationControlInput & RuntimeDependencyLifecycleInput<'observeRetirement' | 'bind' | 'retired'>,
   expectedPhysical: GeneratedStatePhysicalIdentity,
   outcome: string
 ): Promise<void> {
-  const lifecycle = options.generatedStateLifecycle;
+  // Observation and retirement are different phases. A read-only no-op must
+  // not inspect unused write methods, while a selected write captures its
+  // methods before its own first effect. Keep the provider reference stable.
+  const source = options.generatedStateLifecycle;
+  const lifecycle = captureRuntimeDependencyLifecycle({ generatedStateLifecycle: source }, ['observeRetirement']);
   if (lifecycle === undefined) {
     throw new SecError(
       'IMPORT-AUTHORITY-004',
@@ -232,9 +253,10 @@ export async function ensureCompilerDependencyPreimageRetiredForRecovery(
       'node_modules',
       compilerDependencyGenerationLifecycleExpectation(expectedPhysical)
     );
-    const { assertGeneratedStateRetirementObservation } = await import(
-      '../../../runtime-state/generated-state/lifecycle.ts'
-    );
+    const [{ assertGeneratedStateRetirementObservation }, { sameGeneratedStateIdentity }] = await Promise.all([
+      import('../../../runtime-state/generated-state/lifecycle.ts'),
+      import('./dependency-transition/contract.ts')
+    ]);
     assertGeneratedStateRetirementObservation(observation);
     if (observation.status === 'retired-present' && observation.physical !== null &&
         sameGeneratedStateIdentity(observation.physical, expectedPhysical)) return;
@@ -246,5 +268,8 @@ export async function ensureCompilerDependencyPreimageRetiredForRecovery(
       );
     }
   }
-  await bindAndRetireCompilerDependencyPreimage(options, expectedPhysical, outcome);
+  await retireCapturedCompilerDependencyPreimage(
+    captureRuntimeDependencyLifecycle({ generatedStateLifecycle: source }, ['bind', 'retired']),
+    expectedPhysical, outcome
+  );
 }

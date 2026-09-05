@@ -1,11 +1,5 @@
-import type {
-  GeneratedStateCleanupContinuationReceipt,
-  GeneratedStateCleanupProfile,
-  GeneratedStateDisposalReceipt,
-  GeneratedStatePhysicalIdentity,
-  GeneratedStateRegistration
-} from '../../../runtime-state/generated-state/contract.ts';
-import type { GeneratedStateRetirementObservation } from '../../../runtime-state/generated-state/lifecycle.ts';
+import type { RuntimeDependencyLifecycleInput } from './lifecycle-capabilities.ts';
+export type { RuntimeDependencyGeneratedStateLifecycle, RuntimeDependencyLifecycleInput } from './lifecycle-capabilities.ts';
 import type { CommitFence } from '../../../workspace/files.ts';
 import type { RuntimeDependencyTestMaterializationCapability } from './materialization-fixture-capability.ts';
 
@@ -37,7 +31,7 @@ export const COMPILER_DEPENDENCY_EXECUTION_RETENTION_POLICY = Object.freeze({
   maximumDurationMs: MAX_DEPENDENCY_OPERATION_TIMEOUT_MS
 });
 
-export interface RuntimeDependencyInstallOptions extends RuntimeDependencyOperationControlInput {
+export interface RuntimeDependencyInstallOptions extends RuntimeDependencyOperationControlInput, RuntimeDependencyLifecycleInput {
   beforeCommit?: CommitFence;
   installMode?: 'allow' | 'offline-copy-only' | 'prebound-only';
   now?: () => string;
@@ -64,73 +58,6 @@ export interface RuntimeDependencyInstallOptions extends RuntimeDependencyOperat
    * transport.
    */
   testMaterialization?: RuntimeDependencyTestMaterializationCapability;
-  generatedStateLifecycle?: Readonly<{
-    born(relativePath: string, operationId: string): Promise<void>;
-    /** Read-only adoption of an issuer-created active registration. */
-    bind?: (
-      relativePath: string,
-      expected?: Readonly<{
-        owner?: string;
-        producer?: string;
-        ruleId?: string;
-        physical?: GeneratedStatePhysicalIdentity;
-      }>
-    ) => Promise<GeneratedStateRegistration>;
-    /** Re-activate one exact retired predecessor after owner-local rollback. */
-    restore?: (
-      relativePath: string,
-      expectedRegistrationDigest: `sha256:${string}`,
-      expectedPhysical: GeneratedStatePhysicalIdentity,
-      outcome: string
-    ) => Promise<GeneratedStateRegistration>;
-    retired(relativePath: string, outcome: string): Promise<GeneratedStateRegistration | void>;
-    settleRetired?: (
-      relativePath: string,
-      expected?: Readonly<{
-        owner?: string;
-        producer?: string;
-        ruleId?: string;
-        physical?: GeneratedStatePhysicalIdentity;
-      }>
-    ) => Promise<boolean>;
-    observeRetirement?: (
-      relativePath: string,
-      expected?: Readonly<{
-        owner?: string;
-        producer?: string;
-        ruleId?: string;
-        physical?: GeneratedStatePhysicalIdentity;
-      }>
-    ) => Promise<GeneratedStateRetirementObservation>;
-    /** Terminalize one exact active registration after its physical root is already absent. */
-    settleAbsent?: (
-      relativePath: string,
-      expected: Readonly<{
-        owner: string;
-        producer: string;
-        ruleId: string;
-        physical: GeneratedStatePhysicalIdentity;
-      }>,
-      outcome: string
-    ) => Promise<Readonly<{
-      schema: 'sec-generated-state-absent-registration-settlement-v1';
-      relativePath: string;
-      registrationDigest: `sha256:${string}`;
-      retirementRef: `sha256:${string}`;
-      physical: GeneratedStatePhysicalIdentity;
-      outcome: string;
-      terminal: 'disposed';
-      receiptDigest: `sha256:${string}`;
-    }>>;
-    disposed(
-      relativePath: string,
-      request: Readonly<{ outcome: string; profile: GeneratedStateCleanupProfile }>
-    ): Promise<GeneratedStateDisposalReceipt>;
-    quarantine?: (
-      relativePath: string,
-      request: Readonly<{ outcome: string; profile: GeneratedStateCleanupProfile }>
-    ) => Promise<GeneratedStateCleanupContinuationReceipt>;
-  }>;
 }
 
 export type RuntimeDependencyOperationOptions<
@@ -147,8 +74,10 @@ export function runtimeDependencyOperationOptions<T extends RuntimeDependencyIns
   return Object.freeze({ ...captured, ...runtimeDependencyOperationControls(captured) });
 }
 
+export type RuntimeDependencyEffectFenceOptions = BoundRuntimeDependencyOperationControls & Readonly<{ beforeCommit?: CommitFence }>;
+
 export async function runtimeDependencyOperationEffectFence(
-  options: BoundRuntimeDependencyOperationControls & Readonly<Pick<RuntimeDependencyInstallOptions, 'beforeCommit'>>,
+  options: RuntimeDependencyEffectFenceOptions,
   label: string
 ): Promise<void> {
   runtimeDependencyOperationRemainingMs(options, `${label} admission`);
