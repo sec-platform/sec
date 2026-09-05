@@ -73,7 +73,8 @@ class IndexMap<Key, Value> implements ReadonlyMap<Key, Value> {
   values() { return this.#source.values(); }
   [Symbol.iterator]() { return this.#source[Symbol.iterator](); }
   forEach(callback: (value: Value, key: Key, map: ReadonlyMap<Key, Value>) => void, thisArg?: unknown): void {
-    this.#source.forEach((value, key) => callback.call(thisArg, value, key, this));
+    if (typeof callback !== 'function') throw new TypeError('IndexMap forEach callback must be callable');
+    this.#source.forEach((value, key) => Reflect.apply(callback, thisArg, [value, key, this]));
   }
 }
 Object.freeze(IndexMap.prototype);

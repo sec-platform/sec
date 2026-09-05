@@ -183,3 +183,22 @@ test('writable result fields remain caller-local while the underlying read index
   assert.ok(second.entityById.size > 0);
   assert.equal(indexValidatedEngineeringIR(snapshot).entityById, second.entityById);
 });
+
+
+test('empty read maps reject noncallable forEach callbacks like a native map', () => {
+  const ir = emptyIR(); ir.entities = [];
+  const index = indexValidatedEngineeringIR(projectionSnapshot(ir));
+  assert.throws(() => index.entityById.forEach(null as never), TypeError);
+});
+
+test('forEach invokes the callback itself rather than its replaceable call property', () => {
+  const index = indexValidatedEngineeringIR(projectionSnapshot(viewIR()));
+  const receiver = {}; let count = 0; let hookCalled = false;
+  const callback = function (this: object, value: SemanticEntity, key: string, map: ReadonlyMap<string, SemanticEntity>): void {
+    count += 1; assert.equal(this, receiver); assert.equal(map, index.entityById);
+    assert.equal(map.get(key), value);
+  };
+  Object.defineProperty(callback, 'call', { value: () => { hookCalled = true; } });
+  index.entityById.forEach(callback, receiver);
+  assert.equal(count, index.entityById.size); assert.equal(hookCalled, false);
+});
