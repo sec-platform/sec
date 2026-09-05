@@ -49,38 +49,45 @@ const GIT_HELPER_ENV_KEYS = [
   'PAGER',
   'GIT_EDITOR',
   'GIT_SEQUENCE_EDITOR',
-  'GIT_TRACE',
-  'GIT_TRACE2',
-  'GIT_TRACE2_EVENT',
-  'GIT_TRACE2_PERF',
-  'GIT_TRACE_PERFORMANCE',
-  'GIT_TRACE_PACKET',
   'GIT_CURL_VERBOSE',
   'GIT_SSH_VARIANT',
   'GIT_ATTR_NOSYSTEM',
   'GIT_FS_MONITOR'
 ] as const;
 
-const MANDATORY_GIT_ENV_KEYS = [
-  'GH_PROMPT_DISABLED',
-  'GIT_TERMINAL_PROMPT',
-  'GIT_NO_REPLACE_OBJECTS',
-  'GIT_NO_LAZY_FETCH',
-  'GIT_OPTIONAL_LOCKS',
-  'GIT_LITERAL_PATHSPECS',
-  'GIT_CONFIG_GLOBAL',
-  'GIT_CONFIG_NOSYSTEM',
+// The enforced values are the single owner of both spelling and value;
+// the rejection set is derived rather than maintained as a second list.
+const MANDATORY_GIT_ENVIRONMENT = Object.freeze({
+  GH_PROMPT_DISABLED: '1',
+  GIT_TERMINAL_PROMPT: '0',
+  GIT_NO_REPLACE_OBJECTS: '1',
+  GIT_NO_LAZY_FETCH: '1',
+  GIT_OPTIONAL_LOCKS: '0',
+  GIT_LITERAL_PATHSPECS: '1',
+  GIT_CONFIG_GLOBAL: GIT_NULL_CONFIG_GLOBAL_SINK,
+  GIT_CONFIG_NOSYSTEM: '1'
+});
+const AMBIENT_GIT_ENV_KEY_SET: ReadonlySet<string> = new Set(AMBIENT_GIT_ENV_KEYS);
+const MANDATORY_GIT_ENV_KEY_SET: ReadonlySet<string> = new Set([
+  ...Object.keys(MANDATORY_GIT_ENVIRONMENT),
   'GIT_ASKPASS',
   'SSH_ASKPASS',
   'SSH_ASKPASS_REQUIRE',
   ...GIT_HELPER_ENV_KEYS
-] as const;
+]);
 
-function deleteCaseInsensitiveEnvironmentKey(env: NodeJS.ProcessEnv, key: string): void {
-  const canonicalKey = key.toUpperCase();
-  for (const name of Object.keys(env)) {
-    if (name.toUpperCase() === canonicalKey) delete env[name];
-  }
+function isMandatoryGitEnvironmentKey(canonicalName: string): boolean {
+  // Git trace variables can write arbitrary files (or Trace2 sockets), even
+  // during read-only commands. Cover the trace namespace, not a partial list.
+  return MANDATORY_GIT_ENV_KEY_SET.has(canonicalName)
+    || /^GIT_TRACE(?:2)?(?:_|$)/u.test(canonicalName);
+}
+
+function checkedEnvironmentValue(name: string, value: unknown): string | undefined {
+  if (value === undefined || typeof value === 'string') return value;
+  // Child-process coercion must not give a value a different meaning after
+  // the provider has captured and hashed its effective environment.
+  throw new TypeError(`Git environment ${JSON.stringify(name)} must be a string or undefined.`);
 }
 
 export function gitEnvironmentValue(
@@ -88,43 +95,42 @@ export function gitEnvironmentValue(
   key: string
 ): string | undefined {
   const canonicalKey = key.toUpperCase();
-  for (const [name, value] of Object.entries(env)) {
-    if (name.toUpperCase() === canonicalKey) return value;
+  for (const name of Object.keys(env)) {
+    if (name.toUpperCase() === canonicalKey) return env[name];
   }
   return undefined;
-}
-
-function enforceMandatoryGitIsolation(env: NodeJS.ProcessEnv): void {
-  for (const key of MANDATORY_GIT_ENV_KEYS) deleteCaseInsensitiveEnvironmentKey(env, key);
-  env.GH_PROMPT_DISABLED = '1';
-  env.GIT_TERMINAL_PROMPT = '0';
-  env.GIT_NO_REPLACE_OBJECTS = '1';
-  env.GIT_NO_LAZY_FETCH = '1';
-  env.GIT_OPTIONAL_LOCKS = '0';
-  env.GIT_LITERAL_PATHSPECS = '1';
-  env.GIT_CONFIG_GLOBAL = GIT_NULL_CONFIG_GLOBAL_SINK;
-  env.GIT_CONFIG_NOSYSTEM = '1';
 }
 
 export function canonicalGitChildEnvironment(
   overrides: Readonly<Record<string, string | undefined>> = {},
   source: NodeJS.ProcessEnv = process.env
 ): Readonly<Record<string, string>> {
-  const env: Record<string, string> = {};
-  const retainedNames = new Set<string>();
-  for (const [name, value] of Object.entries(source)) {
-    if (value === undefined) continue;
+  const env: Record<string, string> = Object.create(null);
+  const retainedNames = new Map<string, string>();
+  for (const name of Object.keys(source)) {
     const canonicalName = name.toUpperCase();
-    if (AMBIENT_GIT_ENV_KEYS.includes(canonicalName as typeof AMBIENT_GIT_ENV_KEYS[number])
+    if (AMBIENT_GIT_ENV_KEY_SET.has(canonicalName)
+        || isMandatoryGitEnvironmentKey(canonicalName)
         || /^GIT_CONFIG_(?:KEY|VALUE)_\d+$/u.test(canonicalName)) continue;
     if (retainedNames.has(canonicalName)) continue;
-    retainedNames.add(canonicalName);
+    const value = checkedEnvironmentValue(name, source[name]);
+    if (value === undefined) continue;
+    retainedNames.set(canonicalName, name);
     env[name] = value;
   }
-  for (const [key, value] of Object.entries(overrides)) {
-    if (value === undefined) deleteCaseInsensitiveEnvironmentKey(env, key);
-    else env[key] = value;
+  for (const key of Object.keys(overrides)) {
+    const canonicalKey = key.toUpperCase();
+    if (isMandatoryGitEnvironmentKey(canonicalKey)) continue;
+    const value = checkedEnvironmentValue(key, overrides[key]);
+    const previousName = retainedNames.get(canonicalKey);
+    if (previousName !== undefined) delete env[previousName];
+    if (value === undefined) {
+      retainedNames.delete(canonicalKey);
+    } else {
+      retainedNames.set(canonicalKey, key);
+      env[key] = value;
+    }
   }
-  enforceMandatoryGitIsolation(env);
+  Object.assign(env, MANDATORY_GIT_ENVIRONMENT);
   return Object.freeze(env);
 }

@@ -313,53 +313,41 @@ export function runtimeDependencyOperationRemainingMs(
   return remainingMs;
 }
 
-export async function waitForRuntimeDependencyOperation(
-  options: RuntimeDependencyInstallOptions,
-  requestedDelayMs: number,
-  sleep: (ms: number) => Promise<void>,
-  label: string
+/** Own the deadline/cancellation lifecycle of one await, not the provider's work. */
+async function awaitRuntimeDependencyOperation(
+  operationOptions: RuntimeDependencyOperationOptions,
+  label: string,
+  start: (remainingMs: number) => Promise<void> | void
 ): Promise<void> {
-  // Infinite delays keep their existing saturating clamp. NaN and untyped
-  // non-numbers have no ordered duration and must not reach the sleep effect.
-  if (typeof requestedDelayMs !== 'number' || Number.isNaN(requestedDelayMs)) {
-    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency wait delay must be an ordered number', {
-      requestedDelayMs
-    });
-  }
-  // Retain one operation ledger even when the caller supplies raw options.
-  // Recreating it for the terminal check would reset the deadline and clock.
-  const operationOptions = runtimeDependencyOperationOptions(options);
   const context = runtimeDependencyOperationContext(operationOptions);
-  const signal = context.signal;
+  // The observer is private: third-party abort listeners cannot suppress its
+  // event, and dispatchEvent('abort') on the public signal is not cancellation.
+  // Native dependent signals observe abort state, not synthetic source events.
+  const signal = context.signal === undefined ? undefined : AbortSignal.any([context.signal]);
   const remainingMs = runtimeDependencyOperationRemainingMs(operationOptions, label);
-  const boundedDelayMs = Math.max(1, Math.min(requestedDelayMs, Math.floor(remainingMs)));
   let abortListener: (() => void) | undefined;
   let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
-  const aborted = signal === undefined
-    ? null
-    : new Promise<never>((_resolve, reject) => {
-        abortListener = () => reject(signal.reason);
-        signal.addEventListener('abort', abortListener, { once: true });
-        // EventTarget does not replay an abort that preceded registration.
-        if (signal.aborted) abortListener();
-      });
-  const deadline = new Promise<never>((_resolve, reject) => {
-    deadlineTimer = setTimeout(() => reject(new SecError(
-      'RUNTIME-DEPS-003',
-      `${label} exceeded the runtime dependency operation deadline`,
-      { initialBudgetMs: context.initialBudgetMs }
-    )), Math.max(1, Math.ceil(remainingMs)));
-  });
   try {
+    const aborted = signal === undefined
+      ? null
+      : new Promise<never>((_resolve, reject) => {
+          abortListener = () => reject(signal.reason);
+          signal.addEventListener('abort', abortListener, { once: true });
+          if (signal.aborted) abortListener();
+        });
+    const deadline = new Promise<never>((_resolve, reject) => {
+      deadlineTimer = setTimeout(() => reject(new SecError(
+        'RUNTIME-DEPS-003',
+        `${label} exceeded the runtime dependency operation deadline`,
+        { initialBudgetMs: context.initialBudgetMs }
+      )), Math.max(1, Math.ceil(remainingMs)));
+    });
     await Promise.race([
-      // Attach handlers to every race arm before user-supplied sleep runs.
-      // This also captures synchronous throws without orphaned rejections.
-      Promise.resolve().then(() => {
-        // The caller can consume budget before this microtask starts. A
-        // scheduling-time check is not admission to start the deferred work.
-        const admittedRemainingMs = runtimeDependencyOperationRemainingMs(operationOptions, label);
-        return sleep(Math.min(boundedDelayMs, Math.floor(admittedRemainingMs)));
-      }),
+      // Attach handlers before provider code starts, including synchronous
+      // throws and rejections that arrive after cancellation or timeout.
+      Promise.resolve().then(() => start(
+        runtimeDependencyOperationRemainingMs(operationOptions, label)
+      )),
       deadline,
       ...(aborted === null ? [] : [aborted])
     ]);
@@ -370,13 +358,35 @@ export async function waitForRuntimeDependencyOperation(
   runtimeDependencyOperationRemainingMs(operationOptions, label);
 }
 
+export async function waitForRuntimeDependencyOperation(
+  options: RuntimeDependencyInstallOptions,
+  requestedDelayMs: number,
+  sleep: (ms: number) => Promise<void>,
+  label: string
+): Promise<void> {
+  // Infinite delays retain the saturating clamp; unordered inputs must not
+  // reach provider work. Keep one captured ledger throughout the await.
+  if (typeof requestedDelayMs !== 'number' || Number.isNaN(requestedDelayMs)) {
+    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency wait delay must be an ordered number', {
+      requestedDelayMs
+    });
+  }
+  const operationOptions = runtimeDependencyOperationOptions(options);
+  const remainingMs = runtimeDependencyOperationRemainingMs(operationOptions, label);
+  const boundedDelayMs = Math.max(1, Math.min(requestedDelayMs, Math.floor(remainingMs)));
+  await awaitRuntimeDependencyOperation(operationOptions, label, (admittedRemainingMs) =>
+    sleep(Math.min(boundedDelayMs, Math.floor(admittedRemainingMs)))
+  );
+}
+
 export async function runtimeDependencyOperationEffectFence(
   options: RuntimeDependencyOperationOptions,
   label: string
 ): Promise<void> {
   runtimeDependencyOperationRemainingMs(options, `${label} admission`);
-  await options.beforeCommit?.();
-  runtimeDependencyOperationRemainingMs(options, `${label} effect`);
+  // A never-settling fence must not hold the caller beyond cancellation or
+  // its operation deadline. Rejection is not a claim that provider work stopped.
+  await awaitRuntimeDependencyOperation(options, `${label} effect`, () => options.beforeCommit?.());
 }
 
 export function runtimeDependencyOperationDeadlineAt(

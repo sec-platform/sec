@@ -68,6 +68,16 @@ export function buildJsonLogRecord(
     );
   }
 
+  // JavaScript/configuration callers do not carry TypeScript's string proof.
+  // Do not coerce a message or dispatch its serialization hooks into `msg`.
+  if (typeof message !== 'string') {
+    throw new SecError(
+      'LOGGING-RECORD-001',
+      'Log record message must be a string',
+      { valueType: message === null ? 'null' : typeof message }
+    );
+  }
+
   const payload = Object.create(null) as Record<string, unknown>;
   if (data !== null && typeof data === 'object' && !Array.isArray(data)) {
     for (const key of Object.keys(data)) {

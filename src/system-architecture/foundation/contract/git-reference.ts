@@ -9,6 +9,7 @@ export function assertGitBranchName(value: string, label = 'Git branch'): void {
     || value.length > 255
     || value.trim() !== value
     || value === '@'
+    || value === 'HEAD'
     || value.startsWith('-')
     || value.startsWith('/')
     || value.endsWith('/')

@@ -81,20 +81,29 @@ test('dependency wait closes an abort-before-listener-registration gap', async (
   const controller = new AbortController();
   const signal = controller.signal;
   const reason = new Error('cancelled in registration');
-  const original = signal.addEventListener.bind(signal);
-  Object.defineProperty(signal, 'addEventListener', {
-    value(...args: Parameters<AbortSignal['addEventListener']>) {
+  // Interpose the actual listener registration, including an owner-private
+  // dependent signal. An override on the public source alone is not a seam.
+  const descriptor = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'addEventListener');
+  const original = AbortSignal.prototype.addEventListener;
+  Object.defineProperty(AbortSignal.prototype, 'addEventListener', {
+    configurable: true,
+    value(this: AbortSignal, ...args: Parameters<AbortSignal['addEventListener']>) {
       controller.abort(reason);
-      original(...args);
+      Reflect.apply(original, this, args);
     }
   });
-  let started = false;
-  const failure = await rejectionOf(waitForRuntimeDependencyOperation(
-    { signal }, 1, async () => { started = true; }, 'registration-gap'
-  ));
-  assert.strictEqual(failure, reason);
-  assert.equal(started, false);
-  assert.equal(getEventListeners(signal, 'abort').length, 0);
+  try {
+    let started = false;
+    const failure = await rejectionOf(waitForRuntimeDependencyOperation(
+      { signal }, 1, async () => { started = true; }, 'registration-gap'
+    ));
+    assert.strictEqual(failure, reason);
+    assert.equal(started, false);
+    assert.equal(getEventListeners(signal, 'abort').length, 0);
+  } finally {
+    if (descriptor) Object.defineProperty(AbortSignal.prototype, 'addEventListener', descriptor);
+    else Reflect.deleteProperty(AbortSignal.prototype, 'addEventListener');
+  }
 });
 
 test('dependency wait does not run deferred sleep after immediate caller cancellation', async () => {

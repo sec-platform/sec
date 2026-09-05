@@ -6,13 +6,11 @@ export function createConcurrencyLimit(concurrency: number = DEFAULT_CONCURRENCY
   return pLimit(concurrency);
 }
 
-let _defaultLimit: LimitFunction | null = null;
+// Export the provider itself: a callable wrapper is not a LimitFunction and
+// loses queue state, map/clearQueue and the live concurrency setter. Creating
+// this idle queue starts no tasks, timers or I/O.
+export const defaultLimit: LimitFunction = createConcurrencyLimit();
 
 export function getDefaultLimit(): LimitFunction {
-  if (_defaultLimit === null) {
-    _defaultLimit = createConcurrencyLimit();
-  }
-  return _defaultLimit;
+  return defaultLimit;
 }
-
-export const defaultLimit: LimitFunction = ((...args: Parameters<LimitFunction>) => getDefaultLimit()(...args)) as LimitFunction;

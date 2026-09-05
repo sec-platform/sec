@@ -14,11 +14,11 @@ export async function runSuiteFiles(
   files: readonly string[],
   onSuitePassed?: (file: string) => void
 ): Promise<void> {
-  // Capture before the first await: caller mutation must not change the set or
-  // order of modules selected by this invocation.
-  const capturedFiles = [...files];
-  for (const file of capturedFiles) {
-    const moduleUrl = pathToFileURL(file);
+  // Bind both order and absolute location before the first await. A suite or
+  // reporting callback may change process.cwd(); it must not redirect a later
+  // relative entry to a different file. Keep caller labels for diagnostics.
+  const capturedFiles = [...files].map((file) => ({ file, moduleUrl: pathToFileURL(file) }));
+  for (const { file, moduleUrl } of capturedFiles) {
     moduleUrl.searchParams.set('loader', import.meta.url);
     moduleUrl.searchParams.set('revision', String(++suiteModuleRevision));
     const testModule = (await import(moduleUrl.href)) as SuiteModule;

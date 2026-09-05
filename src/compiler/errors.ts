@@ -43,11 +43,15 @@ export function formatCompilerFailure(error: unknown): string {
  * Handles both `Error` instances with `code` property and plain objects.
  */
 export function getErrorCode(error: unknown): string | undefined {
-  if (error && typeof error === 'object' && 'code' in error) {
+  if (error === null || typeof error !== 'object') return undefined;
+  try {
+    // Read once. Error classification must not replace the original failure
+    // with a throwing accessor, Proxy trap, or revoked Proxy exception.
     const code = (error as { code?: unknown }).code;
-    if (typeof code === 'string') return code;
+    return typeof code === 'string' ? code : undefined;
+  } catch {
+    return undefined;
   }
-  return undefined;
 }
 
 /**
