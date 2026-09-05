@@ -1,0 +1,235 @@
+import {
+  compareCodeUnits,
+  deepFreeze,
+  sha256,
+  uniqueSorted
+} from '../../system-architecture/foundation/runtime/canonical.ts';
+
+/** Read-only view of facts already compiled by Source Program, not a second parser or graph. */
+export interface MechanismReviewModel {
+  readonly sourceRevision: string;
+  readonly modelDigest: string;
+  readonly files: readonly Readonly<{
+    path: string; contentDigest: string; surface: string;
+  }>[];
+  readonly declarations: readonly Readonly<{
+    observationId: string; path: string; moduleId: string | null;
+  }>[];
+  readonly references: readonly Readonly<{
+    path: string; kind: string; sourceRelation: string;
+    sourceObservationId: string | null; targetObservationId: string | null;
+    observationClass: string; span: Readonly<{ start: number; end: number }>;
+  }>[];
+  readonly capabilities: readonly Readonly<{
+    observationId: string; path: string; moduleId: string | null;
+    capability: string; operation: string; transport: string;
+    moduleSpecifier: string | null; owningDeclarationObservationId: string | null;
+    observationClass: string; span: Readonly<{ start: number; end: number }>;
+  }>[];
+  readonly dependencies: readonly Readonly<{
+    manifestPath: string; name: string; requirement: string; scope: string;
+    consumerPaths: readonly string[]; observationClass: string;
+  }>[];
+}
+
+// Review conditions, not admission policy. None of these structures proves a
+// defect: recursion may be bounded, startup I/O intentional, and a coordinator
+// may correctly combine effects. Retain the falsifying question with the rule.
+export const MECHANISM_REVIEW_RULES = deepFreeze({
+  'module-initialization-effect': {
+    mechanism: 'Importing a module can perform an observed effect before an operation is selected.',
+    review: 'Is eager work required for every consumer, or can the existing operation boundary load it on demand?'
+  },
+  'distributed-direct-transport': {
+    mechanism: 'The same observed transport operation appears in more than one declared module.',
+    review: 'Do those modules duplicate policy or lifecycle handling, or intentionally own independent effects?'
+  },
+  'mixed-effect-declaration': {
+    mechanism: 'One declaration directly invokes more than one concrete effect family.',
+    review: 'Separate policy from transport only if this is not the intended orchestration owner.'
+  },
+  'direct-recursive-call': {
+    mechanism: 'A compiler-resolved call returns to its own enclosing declaration.',
+    review: 'Prove an input depth bound or test deep inputs before considering an iterative implementation.'
+  },
+  'dependency-requirement-divergence': {
+    mechanism: 'The same package has distinct declared requirements across dependency declarations.',
+    review: 'Check actual resolution, required API coverage and deployment boundaries; different ranges need not conflict.'
+  }
+} as const);
+
+export type MechanismReviewCode = keyof typeof MECHANISM_REVIEW_RULES;
+
+export interface MechanismReviewSite {
+  readonly path: string;
+  readonly contentDigest: string;
+  readonly start: number | null;
+  readonly end: number | null;
+  readonly observationId: string | null;
+}
+
+export interface MechanismReviewFinding {
+  readonly code: MechanismReviewCode;
+  readonly subject: string;
+  readonly evidenceClass: 'derived-structure';
+  readonly disposition: 'review-required';
+  readonly sites: readonly MechanismReviewSite[];
+  readonly related: readonly string[];
+  readonly findingDigest: string;
+}
+
+export interface SourceProgramMechanismReview {
+  readonly authority: 'none-diagnostic-only';
+  readonly sourceRevision: string;
+  readonly modelDigest: string;
+  readonly coverage: Readonly<{
+    scope: 'supplied-source-program';
+    files: number;
+    productionFiles: number;
+    scannedCapabilities: number;
+    scannedReferences: number;
+    scannedDependencies: number;
+    unresolvedCapabilities: number;
+    unresolvedCallReferences: number;
+    unlocatedRecords: number;
+    unassessedMechanisms: readonly string[];
+  }>;
+  readonly rules: typeof MECHANISM_REVIEW_RULES;
+  readonly findings: readonly MechanismReviewFinding[];
+  readonly counts: Readonly<Record<MechanismReviewCode, number>>;
+  readonly reviewDigest: string;
+}
+
+/**
+ * Relational mechanism search over existing semantic facts. No I/O, source
+ * parsing, name-based authority inference, graph reconstruction or automatic
+ * rewrite. A small/partial input model never establishes whole-repository
+ * coverage. Unknown and missing joins are counted instead of treated as safe.
+ */
+export function compileSourceProgramMechanismReview(model: MechanismReviewModel): SourceProgramMechanismReview {
+  const files = new Map(model.files.map((file) => [file.path, file]));
+  if (files.size !== model.files.length) throw new Error('Mechanism review requires unique source file identities');
+  const declarations = new Map(model.declarations.map((declaration) => [declaration.observationId, declaration]));
+  if (declarations.size !== model.declarations.length) throw new Error('Mechanism review requires unique declaration identities');
+  const production = new Set(model.files.filter((file) => file.surface === 'production').map((file) => file.path));
+  const findings: MechanismReviewFinding[] = [];
+  let unresolvedCapabilities = 0;
+  let unresolvedCallReferences = 0;
+  let unlocatedRecords = 0;
+  const site = (
+    path: string,
+    span: Readonly<{ start: number; end: number }> | null,
+    observationId: string | null
+  ): MechanismReviewSite | null => {
+    const file = files.get(path);
+    if (file === undefined) { unlocatedRecords += 1; return null; }
+    return {
+      path, contentDigest: file.contentDigest,
+      start: span?.start ?? null, end: span?.end ?? null, observationId
+    };
+  };
+  const add = (code: MechanismReviewCode, subject: string, sites: readonly MechanismReviewSite[], related: readonly string[]): void => {
+    const located = [...new Map(sites.map((item) => [JSON.stringify(item), item])).entries()]
+      .sort(([left], [right]) => compareCodeUnits(left, right)).map(([, item]) => item);
+    const canonical = {
+      code, subject, evidenceClass: 'derived-structure' as const,
+      disposition: 'review-required' as const, sites: located, related: uniqueSorted(related)
+    };
+    findings.push({ ...canonical, findingDigest: sha256(canonical) });
+  };
+  type EffectGroup = { modules: Set<string>; families: Set<string>; sites: MechanismReviewSite[] };
+  const transports = new Map<string, EffectGroup>();
+  const effectsByDeclaration = new Map<string, EffectGroup>();
+  for (const capability of model.capabilities) {
+    if (!files.has(capability.path)) { unlocatedRecords += 1; continue; }
+    if (!production.has(capability.path)) continue;
+    if (capability.observationClass === 'unknown' || capability.transport === 'unknown') {
+      unresolvedCapabilities += 1; continue;
+    }
+    const location = site(capability.path, capability.span, capability.observationId)!;
+    const owner = capability.owningDeclarationObservationId;
+    if (owner === null) {
+      add('module-initialization-effect', capability.path, [location], [capability.capability, capability.operation]);
+    } else {
+      const declaration = declarations.get(owner);
+      if (declaration === undefined || declaration.path !== capability.path) {
+        unresolvedCapabilities += 1;
+      } else if (capability.capability !== 'provider') {
+        // A provider wrapper is a transport, not a second concrete effect family.
+        const group = effectsByDeclaration.get(owner) ?? { modules: new Set(), families: new Set(), sites: [] };
+        group.families.add(capability.capability);
+        group.sites.push(location);
+        effectsByDeclaration.set(owner, group);
+      }
+    }
+    if (capability.moduleId !== null && capability.moduleSpecifier !== null
+        && capability.transport !== 'repository-provider') {
+      const key = JSON.stringify([capability.capability, capability.moduleSpecifier, capability.operation, capability.transport]);
+      const group = transports.get(key) ?? { modules: new Set(), families: new Set(), sites: [] };
+      group.modules.add(capability.moduleId);
+      group.sites.push(location);
+      transports.set(key, group);
+    }
+  }
+  for (const [key, group] of transports) {
+    if (group.modules.size > 1) add('distributed-direct-transport', key, group.sites, [...group.modules]);
+  }
+  for (const [key, group] of effectsByDeclaration) {
+    if (group.families.size > 1) add('mixed-effect-declaration', key, group.sites, [...group.families]);
+  }
+  for (const reference of model.references) {
+    if (!files.has(reference.path)) { unlocatedRecords += 1; continue; }
+    if (!production.has(reference.path) || reference.kind !== 'call') continue;
+    const source = reference.sourceObservationId;
+    const target = reference.targetObservationId;
+    if (reference.observationClass === 'unknown' || source === null || target === null
+        || !declarations.has(source) || !declarations.has(target)
+        || declarations.get(source)!.path !== reference.path) {
+      unresolvedCallReferences += 1; continue;
+    }
+    if (reference.sourceRelation === 'declaration' && source === target) {
+      add('direct-recursive-call', source, [site(reference.path, reference.span, source)!], []);
+    }
+  }
+  const dependencies = new Map<string, { requirements: Set<string>; sites: MechanismReviewSite[] }>();
+  for (const dependency of model.dependencies) {
+    const location = site(dependency.manifestPath, null, null);
+    if (location === null) continue;
+    const group = dependencies.get(dependency.name) ?? { requirements: new Set(), sites: [] };
+    group.requirements.add(dependency.requirement);
+    group.sites.push(location);
+    dependencies.set(dependency.name, group);
+  }
+  for (const [name, group] of dependencies) {
+    if (group.requirements.size > 1) add('dependency-requirement-divergence', name, group.sites, [...group.requirements]);
+  }
+  const uniqueFindings = [...new Map(findings.map((finding) => [finding.findingDigest, finding])).values()]
+    .sort((left, right) => compareCodeUnits(left.code, right.code)
+      || compareCodeUnits(left.subject, right.subject)
+      || compareCodeUnits(left.findingDigest, right.findingDigest));
+  const counts = Object.fromEntries(Object.keys(MECHANISM_REVIEW_RULES).map((code) => [code, 0])) as Record<MechanismReviewCode, number>;
+  for (const finding of uniqueFindings) counts[finding.code] += 1;
+  const canonical = {
+    authority: 'none-diagnostic-only' as const,
+    sourceRevision: model.sourceRevision,
+    modelDigest: model.modelDigest,
+    coverage: {
+      scope: 'supplied-source-program' as const,
+      files: files.size, productionFiles: production.size,
+      scannedCapabilities: model.capabilities.length,
+      scannedReferences: model.references.length,
+      scannedDependencies: model.dependencies.length,
+      unresolvedCapabilities, unresolvedCallReferences, unlocatedRecords,
+      unassessedMechanisms: [
+        'parameter-value-flow-and-precedence', 'aggregate-budget-and-queue-bounds',
+        'cancellation-and-cleanup-order', 'cache-freshness-and-capacity',
+        'physical-races-and-crash-recovery', 'provider-contract-equivalence',
+        'runtime-performance-and-allocation', 'indirect-recursion-and-dynamic-calls'
+      ]
+    },
+    rules: MECHANISM_REVIEW_RULES,
+    findings: uniqueFindings,
+    counts
+  };
+  return deepFreeze({ ...canonical, reviewDigest: sha256(canonical) });
+}

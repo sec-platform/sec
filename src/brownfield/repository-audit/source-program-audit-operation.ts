@@ -21,6 +21,8 @@ import type {
   SourceProgramTestValueCompilation
 } from '../source-program-model/test-value.ts';
 
+import { compileSourceProgramMechanismReview, type SourceProgramMechanismReview } from './mechanism-review.ts';
+
 const REDUCTION_MODES = new Set<string>(['none', 'version', 'graph-cut', 'aggregate-import']);
 const OPERATION_INPUT_KEYS = Object.freeze([
   'binding',
@@ -219,6 +221,8 @@ export interface CompileSourceProgramAuditOperationInput {
     readonly modelDigest: string;
     readonly sourceFileSetDigest: string;
     readonly candidateDigests: readonly string[];
+    /** Nonblocking diagnostic view; older in-process projections may omit it. */
+    readonly mechanismReview?: SourceProgramMechanismReview;
     readonly candidates: readonly SourceProgramCandidate[];
     readonly counts: Readonly<{
       readonly capabilities: number;
@@ -252,7 +256,7 @@ export interface CompileSourceProgramAuditOperationInput {
     readonly modelDigest: string;
     readonly declarations: readonly unknown[];
     readonly edges: readonly unknown[];
-    readonly strongComponents: readonly Readonly<{ readonly declarationObservationIds: readonly string[] }>[];
+    readonly strongComponents: readonly Readonly<{ readonly declarationObservationIds: readonly string[] }> [];
     readonly unknowns: readonly unknown[];
     readonly topologyDigest: Digest;
   }>;
@@ -402,6 +406,7 @@ export function compileSourceProgramAuditSourceProgramProjection(
     sourceRevision: model.sourceRevision,
     modelDigest: model.modelDigest,
     sourceFileSetDigest: sha256(sourceFileIdentities),
+    mechanismReview: compileSourceProgramMechanismReview(model),
     candidateDigests: Object.freeze(model.candidates.map((candidate) => sha256(candidate))),
     candidates: includeCandidates ? model.candidates : Object.freeze([]),
     counts: Object.freeze({
@@ -461,6 +466,14 @@ function assertFacts(input: CompileSourceProgramAuditOperationInput): void {
         input.options.includeCandidates ? input.sourceProgram.counts.candidates : 0
       )) {
     throw new Error('Source Program projection is not bound to its exact fact set');
+  }
+  const mechanisms = input.sourceProgram.mechanismReview;
+  if (mechanisms !== undefined && (
+    mechanisms.sourceRevision !== input.sourceProgram.sourceRevision
+    || mechanisms.modelDigest !== input.sourceProgram.modelDigest
+    || mechanisms.coverage.files !== input.sourceProgram.counts.files
+  )) {
+    throw new Error('Mechanism review is not bound to the Source Program projection');
   }
   if (input.implementationDominance.sourceRevision !== input.sourceProgram.sourceRevision
       || input.implementationDominance.sourceProgramModelDigest !== input.sourceProgram.modelDigest) {
@@ -753,6 +766,19 @@ export function compileSourceProgramAuditOperationInput(
     modelDigest: input.sourceProgram.modelDigest,
     sourceRevision: input.sourceProgram.sourceRevision,
     sourceProgramCompilation: input.sourceProgramCompilation,
+    // Mechanism findings are review leads, never new blocking reasons or
+    // rewrite authority. Compact output retains coverage and its full digest.
+    ...(input.sourceProgram.mechanismReview === undefined ? {} : {
+      mechanisms: full ? input.sourceProgram.mechanismReview : Object.freeze({
+        authority: input.sourceProgram.mechanismReview.authority,
+        sourceRevision: input.sourceProgram.mechanismReview.sourceRevision,
+        modelDigest: input.sourceProgram.mechanismReview.modelDigest,
+        reviewDigest: input.sourceProgram.mechanismReview.reviewDigest,
+        coverage: input.sourceProgram.mechanismReview.coverage,
+        counts: input.sourceProgram.mechanismReview.counts
+      })
+    }),
+
     declarationTopology: full ? input.declarationTopology : Object.freeze({
       compilationReceiptDigest: input.declarationTopology.compilationReceiptDigest,
       topologyDigest: input.declarationTopology.topologyDigest,
