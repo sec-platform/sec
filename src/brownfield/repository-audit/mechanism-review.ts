@@ -78,6 +78,17 @@ export interface MechanismReviewFinding {
   readonly findingDigest: string;
 }
 
+export interface MechanismReviewUnknown {
+  readonly factKind: 'capability' | 'reference' | 'dependency';
+  readonly reason: 'source-file-unavailable' | 'observation-unresolved' | 'transport-unresolved'
+    | 'enclosing-declaration-unresolved' | 'ownership-inconsistent'
+    | 'target-declaration-unresolved' | 'scope-relation-unresolved';
+  readonly site: Readonly<Omit<MechanismReviewSite, 'contentDigest'> & { contentDigest: string | null }>;
+  readonly details: Readonly<Record<string, string | null>>;
+  /** Duplicate fact occurrences remain counted without repeating the location. */
+  readonly occurrences: number;
+}
+
 export interface SourceProgramMechanismReview {
   readonly authority: 'none-diagnostic-only';
   readonly sourceRevision: string;
@@ -92,6 +103,7 @@ export interface SourceProgramMechanismReview {
     unresolvedCapabilities: number;
     unresolvedCallReferences: number;
     unresolvedDependencies: number;
+    unresolvedSiteGroups: number;
     /** Findings are grouped without discarding any distinct evidence site. */
     findingUnit: 'rule-subject-context';
     unlocatedRecords: number;
@@ -99,6 +111,8 @@ export interface SourceProgramMechanismReview {
   }>;
   readonly rules: typeof MECHANISM_REVIEW_RULES;
   readonly findings: readonly MechanismReviewFinding[];
+  /** Exact unresolved joins, not inferred defects or successful coverage. */
+  readonly unknowns: readonly MechanismReviewUnknown[];
   /** Number of review groups, not number of calls, defects or semantic kinds. */
   readonly counts: Readonly<Record<MechanismReviewCode, number>>;
   readonly reviewDigest: string;
@@ -126,6 +140,37 @@ export function compileSourceProgramMechanismReview(model: MechanismReviewModel)
   let unresolvedCallReferences = 0;
   let unresolvedDependencies = 0;
   let unlocatedRecords = 0;
+  const unknownByKey = new Map<string, Omit<MechanismReviewUnknown, 'occurrences'> & { occurrences: number }>();
+  const unknown = (
+    factKind: MechanismReviewUnknown['factKind'], reason: MechanismReviewUnknown['reason'],
+    path: string, span: Readonly<{ start: number; end: number }> | null,
+    observationId: string | null, details: Readonly<Record<string, string | null>>
+  ): void => {
+    const record = {
+      factKind, reason,
+      site: { path, contentDigest: files.get(path)?.contentDigest ?? null,
+        start: span?.start ?? null, end: span?.end ?? null, observationId },
+      details: Object.fromEntries(Object.entries(details)
+        .sort(([left], [right]) => compareCodeUnits(left, right)))
+    };
+    const key = JSON.stringify(record);
+    const previous = unknownByKey.get(key);
+    if (previous === undefined) unknownByKey.set(key, { ...record, occurrences: 1 });
+    else previous.occurrences += 1;
+  };
+  const capabilityDetails = (fact: MechanismReviewModel['capabilities'][number]) => ({
+    capability: fact.capability, operation: fact.operation, transport: fact.transport,
+    moduleId: fact.moduleId, ownerId: fact.owningDeclarationObservationId,
+    observationClass: fact.observationClass
+  });
+  const referenceDetails = (fact: MechanismReviewModel['references'][number]) => ({
+    kind: fact.kind, sourceRelation: fact.sourceRelation, targetObservationId: fact.targetObservationId,
+    observationClass: fact.observationClass
+  });
+  const dependencyDetails = (fact: MechanismReviewModel['dependencies'][number]) => ({
+    name: fact.name, requirement: fact.requirement, scope: fact.scope,
+    observationClass: fact.observationClass
+  });
   const resolvedObservation = (value: string): boolean => value === 'observed' || value === 'derived';
   const site = (
     path: string,
@@ -159,10 +204,19 @@ export function compileSourceProgramMechanismReview(model: MechanismReviewModel)
   const transports = new Map<string, { modules: Set<string>; sites: MechanismReviewSite[] }>();
   const effectsByDeclaration = new Map<string, { families: Set<string>; sites: MechanismReviewSite[] }>();
   for (const capability of model.capabilities) {
-    if (!files.has(capability.path)) { unlocatedRecords += 1; continue; }
+    if (!files.has(capability.path)) {
+      unlocatedRecords += 1;
+      unknown('capability', 'source-file-unavailable', capability.path, capability.span,
+        capability.observationId, capabilityDetails(capability));
+      continue;
+    }
     if (!production.has(capability.path)) continue;
     if (!resolvedObservation(capability.observationClass) || capability.transport === 'unknown') {
-      unresolvedCapabilities += 1; continue;
+      unresolvedCapabilities += 1;
+      unknown('capability', !resolvedObservation(capability.observationClass)
+        ? 'observation-unresolved' : 'transport-unresolved', capability.path, capability.span,
+      capability.observationId, capabilityDetails(capability));
+      continue;
     }
     const location = site(capability.path, capability.span, capability.observationId)!;
     const owner = capability.owningDeclarationObservationId;
@@ -174,6 +228,8 @@ export function compileSourceProgramMechanismReview(model: MechanismReviewModel)
       if (declaration === undefined || declaration.path !== capability.path
           || declaration.moduleId !== capability.moduleId) {
         unresolvedCapabilities += 1;
+        unknown('capability', declaration === undefined ? 'enclosing-declaration-unresolved'
+          : 'ownership-inconsistent', capability.path, capability.span, capability.observationId, capabilityDetails(capability));
         // An invalid ownership join is not evidence for either mixed effects
         // or distributed transport. Do not count it unresolved and then use it.
         continue;
@@ -201,14 +257,23 @@ export function compileSourceProgramMechanismReview(model: MechanismReviewModel)
     if (group.families.size > 1) add('mixed-effect-declaration', key, group.sites, [...group.families]);
   }
   for (const reference of model.references) {
-    if (!files.has(reference.path)) { unlocatedRecords += 1; continue; }
+    if (!files.has(reference.path)) {
+      unlocatedRecords += 1;
+      unknown('reference', 'source-file-unavailable', reference.path, reference.span,
+        reference.sourceObservationId, referenceDetails(reference));
+      continue;
+    }
     if (!production.has(reference.path) || reference.kind !== 'call') continue;
     const source = reference.sourceObservationId;
     const target = reference.targetObservationId;
     const targetDeclaration = target === null ? undefined : declarations.get(target);
     if (!resolvedObservation(reference.observationClass) || targetDeclaration === undefined
         || !files.has(targetDeclaration.path)) {
-      unresolvedCallReferences += 1; continue;
+      unresolvedCallReferences += 1;
+      unknown('reference', !resolvedObservation(reference.observationClass)
+        ? 'observation-unresolved' : 'target-declaration-unresolved', reference.path, reference.span,
+      source, referenceDetails(reference));
+      continue;
     }
     if (reference.sourceRelation === 'module-initialization' && source === null) {
       // This is a resolved top-level call, not a missing enclosing declaration.
@@ -217,7 +282,10 @@ export function compileSourceProgramMechanismReview(model: MechanismReviewModel)
     const sourceDeclaration = source === null ? undefined : declarations.get(source);
     if (reference.sourceRelation !== 'declaration' || sourceDeclaration === undefined
         || sourceDeclaration.path !== reference.path) {
-      unresolvedCallReferences += 1; continue;
+      unresolvedCallReferences += 1;
+      unknown('reference', 'scope-relation-unresolved', reference.path, reference.span,
+        source, referenceDetails(reference));
+      continue;
     }
     if (source === target) {
       add('direct-recursive-call', source!, [site(reference.path, reference.span, source)!], []);
@@ -226,9 +294,16 @@ export function compileSourceProgramMechanismReview(model: MechanismReviewModel)
   const dependencies = new Map<string, { requirements: Set<string>; sites: MechanismReviewSite[] }>();
   for (const dependency of model.dependencies) {
     const location = site(dependency.manifestPath, null, null);
-    if (location === null) continue;
+    if (location === null) {
+      unknown('dependency', 'source-file-unavailable', dependency.manifestPath, null, null,
+        dependencyDetails(dependency));
+      continue;
+    }
     if (!resolvedObservation(dependency.observationClass)) {
-      unresolvedDependencies += 1; continue;
+      unresolvedDependencies += 1;
+      unknown('dependency', 'observation-unresolved', dependency.manifestPath, null, null,
+        dependencyDetails(dependency));
+      continue;
     }
     const group = dependencies.get(dependency.name) ?? { requirements: new Set(), sites: [] };
     group.requirements.add(dependency.requirement);
@@ -252,6 +327,8 @@ export function compileSourceProgramMechanismReview(model: MechanismReviewModel)
   uniqueFindings.sort((left, right) => compareCodeUnits(left.code, right.code)
     || compareCodeUnits(left.subject, right.subject)
     || compareCodeUnits(left.findingDigest, right.findingDigest));
+  const unknowns = [...unknownByKey.entries()]
+    .sort(([left], [right]) => compareCodeUnits(left, right)).map(([, record]) => record);
   const counts = Object.fromEntries(Object.keys(MECHANISM_REVIEW_RULES).map((code) => [code, 0])) as Record<MechanismReviewCode, number>;
   for (const finding of uniqueFindings) counts[finding.code] += 1;
   const canonical = {
@@ -266,6 +343,7 @@ export function compileSourceProgramMechanismReview(model: MechanismReviewModel)
       scannedDependencies: model.dependencies.length,
       unresolvedCapabilities, unresolvedCallReferences, unresolvedDependencies, unlocatedRecords,
       findingUnit: 'rule-subject-context' as const,
+      unresolvedSiteGroups: unknowns.length,
       unassessedMechanisms: [
         'parameter-value-flow-and-precedence', 'aggregate-budget-and-queue-bounds',
         'cancellation-and-cleanup-order', 'cache-freshness-and-capacity',
@@ -275,6 +353,7 @@ export function compileSourceProgramMechanismReview(model: MechanismReviewModel)
     },
     rules: MECHANISM_REVIEW_RULES,
     findings: uniqueFindings,
+    unknowns,
     counts
   };
   return deepFreeze({ ...canonical, reviewDigest: sha256(canonical) });
