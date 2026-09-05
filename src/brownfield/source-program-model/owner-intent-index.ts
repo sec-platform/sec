@@ -17,6 +17,9 @@ interface Closure {
 interface Capability {
   readonly path: string;
   readonly surface: string;
+  readonly capability: string;
+  readonly observationClass: string;
+  readonly transport: string;
 }
 interface Reference {
   readonly path: string;
@@ -98,12 +101,27 @@ export function indexOwnerIntentInputs<
     return { firstClosure, byTarget: freezeBuckets(byTarget), byOwner: freezeBuckets(byOwner) };
   });
 
-  const capabilities = lazyIndex(() => {
-    const byPath = new Map<string, F[]>();
-    for (const capability of model.capabilities) {
-      if (capability.surface === 'production') append(byPath, capability.path, capability);
+  const capabilitySummaries = lazyIndex(() => {
+    const byPath = new Map<string, {
+      kinds: Set<F['capability']>;
+      hasUnknown: boolean;
+    }>();
+    for (const fact of model.capabilities) {
+      if (fact.surface !== 'production') continue;
+      let summary = byPath.get(fact.path);
+      if (summary === undefined) {
+        summary = { kinds: new Set(), hasUnknown: false };
+        byPath.set(fact.path, summary);
+      }
+      // Preserve both original projections: an unknown transport prevents
+      // completeness, but does not erase a kind with a known observation.
+      const observationClass = fact.observationClass;
+      if (observationClass !== 'unknown') summary.kinds.add(fact.capability);
+      if (observationClass === 'unknown' || fact.transport === 'unknown') {
+        summary.hasUnknown = true;
+      }
     }
-    return freezeBuckets(byPath);
+    return byPath;
   });
 
   const consumers = lazyIndex(() => {
@@ -131,12 +149,24 @@ export function indexOwnerIntentInputs<
       entrypoints().byOwner.get(owner) ?? EMPTY,
     entrypointsForTarget: (path: string): readonly E[] => entrypoints().byTarget.get(path) ?? EMPTY,
     firstClosureForEntrypoint: (id: string): C | undefined => entrypoints().firstClosure.get(id),
-    capabilitiesForPaths: (paths: ReadonlySet<string>): readonly F[] => {
-      if (paths.size === 0) return EMPTY;
-      const byPath = capabilities();
-      const result: F[] = [];
-      for (const path of paths) for (const fact of byPath.get(path) ?? EMPTY) result.push(fact);
-      return result;
+    capabilitySummaryForPaths: (paths: ReadonlySet<string>): Readonly<{
+      observedKinds: readonly F['capability'][];
+      hasUnknown: boolean;
+    }> => {
+      const kinds = new Set<F['capability']>();
+      let hasUnknown = false;
+      if (paths.size > 0) {
+        const byPath = capabilitySummaries();
+        for (const path of paths) {
+          const summary = byPath.get(path);
+          if (summary === undefined) continue;
+          for (const kind of summary.kinds) kinds.add(kind);
+          hasUnknown ||= summary.hasUnknown;
+        }
+      }
+      // Caller retains policy and canonical order. Return only the sufficient
+      // statistics it uses, not a misleading sample of the underlying facts.
+      return Object.freeze({ observedKinds: Object.freeze([...kinds]), hasUnknown });
     },
     consumerPaths: (ids: ReadonlySet<string>, paths: ReadonlySet<string>): ReadonlySet<string> => {
       const result = new Set<string>();

@@ -230,10 +230,8 @@ export function compileSourceProgramOwnerIntentEvidence(
           for (const path of closure?.capabilityPaths ?? []) operationPaths.add(path);
         }
       }
-      const operationCapabilityFacts = index.capabilitiesForPaths(operationPaths);
-      const effectKinds = Object.freeze([...new Set(operationCapabilityFacts
-        .filter(({ observationClass }) => observationClass !== 'unknown')
-        .map(({ capability }) => capability))].sort(compareCodeUnits));
+      const capabilitySummary = index.capabilitySummaryForPaths(operationPaths);
+      const effectKinds = Object.freeze([...capabilitySummary.observedKinds].sort(compareCodeUnits));
       const actualConsumerModuleIds = Object.freeze([...new Set(
         [...index.consumerPaths(operationObservationIds, operationPaths)].flatMap((path) => {
           const sourceOwner = membership.moduleForPath(path)?.moduleId ?? null;
@@ -256,9 +254,8 @@ export function compileSourceProgramOwnerIntentEvidence(
         && obligation.consumerSupport.consumers.every((consumer) => (
           actualConsumerSet.has(consumer) && knownOwnerIds.has(consumer)
         ));
-      const effectVerified = operationCapabilityFacts.every(({ observationClass, transport }) => (
-        observationClass !== 'unknown' && transport !== 'unknown'
-      )) && effectKinds.every((kind) => obligation.effect.kinds.includes(kind));
+      const effectVerified = !capabilitySummary.hasUnknown
+        && effectKinds.every((kind) => obligation.effect.kinds.includes(kind));
       const reason = !identityVerified
         ? 'identity-unresolved' as const
         : !consumersVerified
@@ -744,7 +741,9 @@ function compileRepositorySourceProgramModelInternal(
       packages.push(Object.freeze({
         manifestPath: file.path,
         name: packageName,
-        version: typeof manifest.version === 'string' ? manifest.version : null,
+        version: typeof manifest.version === 'string'
+          ? manifest.version
+          : null,
         private: typeof manifest.private === 'boolean' ? manifest.private : null
       }));
 

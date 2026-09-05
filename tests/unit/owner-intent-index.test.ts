@@ -97,8 +97,8 @@ test('entrypoint with no closure is still target-addressable but not assigned to
 
 test('unknown capability observations are retained for the existing effect guard', () => {
   const input = fixture(); input.capabilities.push({ ...input.capabilities[0]!, surface: 'test' });
-  const facts = index(input).capabilitiesForPaths(new Set(['src/a.ts']));
-  assert.equal(facts.length, 1); assert.equal(facts[0], input.capabilities[0]);
+  const summary = index(input).capabilitySummaryForPaths(new Set(['src/a.ts']));
+  assert.deepEqual(summary, { observedKinds: [], hasUnknown: true });
 });
 
 test('empty capability and consumer demands do not build or read their indexes', () => {
@@ -107,7 +107,7 @@ test('empty capability and consumer demands do not build or read their indexes',
     Object.defineProperty(input, key, { get() { throw new Error(`unused ${key}`); } });
   }
   const view = index(input);
-  assert.deepEqual(view.capabilitiesForPaths(new Set()), []);
+  assert.deepEqual(view.capabilitySummaryForPaths(new Set()), { observedKinds: [], hasUnknown: false });
   assert.equal(view.consumerPaths(new Set(), new Set()).size, 0);
 });
 
@@ -147,12 +147,13 @@ test('published buckets are frozen but input declarations and input arrays are n
   assert.equal(Object.isFrozen(input.declarations[0]), false);
 });
 
-test('returned capability arrays and consumer sets cannot mutate stored indexes', () => {
+test('returned capability summaries and consumer sets cannot mutate stored indexes', () => {
   const view = index(fixture());
-  const facts = view.capabilitiesForPaths(new Set(['src/a.ts'])) as unknown[];
-  facts.length = 0;
+  const summary = view.capabilitySummaryForPaths(new Set(['src/a.ts']));
+  assert.equal(Reflect.set(summary, 'hasUnknown', false), false);
+  assert.equal(Reflect.set(summary.observedKinds, 0, 'injected'), false);
   (view.consumerPaths(new Set(['a']), new Set()) as Set<string>).clear();
-  assert.equal(view.capabilitiesForPaths(new Set(['src/a.ts'])).length, 1);
+  assert.equal(view.capabilitySummaryForPaths(new Set(['src/a.ts'])).hasUnknown, true);
   assert.equal(view.consumerPaths(new Set(['a']), new Set()).size, 1);
 });
 
