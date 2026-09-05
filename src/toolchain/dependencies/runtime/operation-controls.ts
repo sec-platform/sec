@@ -1,0 +1,299 @@
+import crypto from 'node:crypto';
+
+import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
+
+// A default and a ceiling are independent decisions, even when equal today.
+const DEFAULT_DEPENDENCY_LOCK_TIMEOUT_MS = 300_000;
+export const MAX_DEPENDENCY_OPERATION_TIMEOUT_MS = 300_000;
+const DEFAULT_DEPENDENCY_LOCK_POLL_INTERVAL_MS = 50;
+const MAX_DEPENDENCY_LOCK_POLL_INTERVAL_MS = 1_000;
+const RUNTIME_DEPENDENCY_OPERATION_CONTEXT = Symbol('sec-runtime-dependency-operation-context-v1');
+
+/** Control inputs, not installation requests or effect capabilities. */
+export interface RuntimeDependencyOperationControlInput {
+  /** Parent wall-clock deadline is captured once into the monotonic ledger. */
+  deadlineAtUnixMs?: number;
+  lockTimeoutMs?: number;
+  pollIntervalMs?: number;
+  signal?: AbortSignal;
+  /** Environment input; only its checked ledger survives in the bound context. */
+  monotonicNowMs?: () => number;
+}
+
+export type RuntimeDependencyOperationContext = Readonly<{
+  deadlineAtUnixMs: number;
+  deadlineAtMonotonicMs: number;
+  initialBudgetMs: number;
+  monotonicNowMs: () => number;
+  operationId: string;
+  pollIntervalMs: number;
+  signal: AbortSignal | undefined;
+  startedAtMonotonicMs: number;
+  telemetryKey: object;
+}>;
+
+/** Runtime projection contains no install, lifecycle, publication or test capability. */
+export type BoundRuntimeDependencyOperationControls = Readonly<{
+  deadlineAtUnixMs: number;
+  lockTimeoutMs: number;
+  pollIntervalMs: number;
+  signal: AbortSignal | undefined;
+  [RUNTIME_DEPENDENCY_OPERATION_CONTEXT]: RuntimeDependencyOperationContext;
+}>;
+
+function runtimeDependencyPositiveBoundedInteger(
+  field: 'lockTimeoutMs' | 'pollIntervalMs',
+  configured: number | undefined,
+  fallback: number,
+  maximum: number
+): number {
+  const value = configured ?? fallback;
+  if (!Number.isSafeInteger(value) || value <= 0 || value > maximum) {
+    throw new SecError(
+      'RUNTIME-DEPS-003',
+      `Runtime dependency ${field} must be a positive safe integer within its canonical ceiling`,
+      { field, maximum, value }
+    );
+  }
+  return value;
+}
+
+function defaultRuntimeDependencyMonotonicNowMs(): number {
+  return performance.now();
+}
+
+function createRuntimeDependencyMonotonicLedger(source: () => number): () => number {
+  let previous = Number.NEGATIVE_INFINITY;
+  return () => {
+    const observed = source();
+    if (!Number.isFinite(observed) || observed < previous) {
+      throw new SecError(
+        'RUNTIME-DEPS-003',
+        'Runtime dependency operation monotonic clock is invalid or moved backwards',
+        { observed, previous }
+      );
+    }
+    previous = observed;
+    return observed;
+  };
+}
+
+/** Preserve the existing own-enumerable request boundary without enumerating unrelated fields. */
+function ownControl<K extends keyof RuntimeDependencyOperationControlInput>(
+  options: RuntimeDependencyOperationControlInput,
+  key: K
+): RuntimeDependencyOperationControlInput[K] {
+  return Object.getOwnPropertyDescriptor(options, key)?.enumerable ? options[key] : undefined;
+}
+
+export function runtimeDependencyOperationControls(
+  options: RuntimeDependencyOperationControlInput
+): BoundRuntimeDependencyOperationControls {
+  // Capture only control inputs before any clock/provider callback. Do not
+  // enumerate installation requests, lifecycle capabilities or test seams.
+  const requestedDeadline = ownControl(options, 'deadlineAtUnixMs');
+  const lockTimeoutMs = ownControl(options, 'lockTimeoutMs');
+  const requestedPollIntervalMs = ownControl(options, 'pollIntervalMs');
+  const requestedMonotonicNowMs = ownControl(options, 'monotonicNowMs');
+  const requestedSignal = ownControl(options, 'signal');
+  const existing = Object.getOwnPropertyDescriptor(options, RUNTIME_DEPENDENCY_OPERATION_CONTEXT)?.enumerable
+    ? (options as Partial<BoundRuntimeDependencyOperationControls>)[RUNTIME_DEPENDENCY_OPERATION_CONTEXT]
+    : undefined;
+  const lockBudgetMs = runtimeDependencyPositiveBoundedInteger(
+    'lockTimeoutMs',
+    lockTimeoutMs,
+    DEFAULT_DEPENDENCY_LOCK_TIMEOUT_MS,
+    MAX_DEPENDENCY_OPERATION_TIMEOUT_MS
+  );
+  const pollIntervalMs = runtimeDependencyPositiveBoundedInteger(
+    'pollIntervalMs',
+    requestedPollIntervalMs,
+    DEFAULT_DEPENDENCY_LOCK_POLL_INTERVAL_MS,
+    MAX_DEPENDENCY_LOCK_POLL_INTERVAL_MS
+  );
+  if (requestedDeadline !== undefined && !Number.isSafeInteger(requestedDeadline)) {
+    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency absolute deadline is invalid', {
+      deadlineAtUnixMs: requestedDeadline
+    });
+  }
+  const monotonicNowMs = existing?.monotonicNowMs ?? createRuntimeDependencyMonotonicLedger(
+    requestedMonotonicNowMs ?? defaultRuntimeDependencyMonotonicNowMs
+  );
+  const nowMonotonicMs = monotonicNowMs();
+  const nowUnixMs = Date.now();
+  // Once captured, a parent deadline is monotonic. Sampling the same wall
+  // deadline again would let clock corrections change an existing operation.
+  const hasNewAbsoluteBound = requestedDeadline !== undefined &&
+    (existing === undefined || requestedDeadline !== existing.deadlineAtUnixMs);
+  const absoluteDeadlineBudgetMs = hasNewAbsoluteBound
+    ? requestedDeadline - nowUnixMs
+    : Number.POSITIVE_INFINITY;
+  if (absoluteDeadlineBudgetMs < 1) {
+    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency absolute deadline is exhausted');
+  }
+  const initialBudgetMs = Math.min(
+    lockBudgetMs,
+    absoluteDeadlineBudgetMs,
+    MAX_DEPENDENCY_OPERATION_TIMEOUT_MS
+  );
+  const deadlineAtMonotonicMs = Math.min(
+    existing?.deadlineAtMonotonicMs ?? Number.POSITIVE_INFINITY,
+    nowMonotonicMs + initialBudgetMs
+  );
+  const deadlineAtUnixMs = existing === undefined
+    ? requestedDeadline ?? nowUnixMs + initialBudgetMs
+    : Math.min(
+        existing.deadlineAtUnixMs,
+        hasNewAbsoluteBound ? requestedDeadline : Number.POSITIVE_INFINITY,
+        deadlineAtMonotonicMs < existing.deadlineAtMonotonicMs
+          ? nowUnixMs + initialBudgetMs
+          : Number.POSITIVE_INFINITY
+      );
+  const signal = existing?.signal === undefined || requestedSignal === existing.signal
+    ? requestedSignal
+    : requestedSignal === undefined
+      ? existing.signal
+      : AbortSignal.any([existing.signal, requestedSignal]);
+  const existingContextIsStillCanonical = existing !== undefined &&
+    deadlineAtUnixMs === existing.deadlineAtUnixMs &&
+    deadlineAtMonotonicMs === existing.deadlineAtMonotonicMs &&
+    pollIntervalMs === existing.pollIntervalMs &&
+    signal === existing.signal;
+  const context = existing !== undefined && existingContextIsStillCanonical
+    ? existing
+    : Object.freeze({
+        deadlineAtUnixMs,
+        deadlineAtMonotonicMs,
+        initialBudgetMs: existing?.initialBudgetMs ?? initialBudgetMs,
+        monotonicNowMs,
+        operationId: existing?.operationId ?? crypto.randomUUID(),
+        pollIntervalMs,
+        signal,
+        startedAtMonotonicMs: existing?.startedAtMonotonicMs ?? nowMonotonicMs,
+        telemetryKey: existing?.telemetryKey ?? Object.freeze({})
+      });
+  context.signal?.throwIfAborted();
+  return Object.freeze({
+    deadlineAtUnixMs,
+    lockTimeoutMs: Math.min(initialBudgetMs, context.initialBudgetMs),
+    pollIntervalMs,
+    signal,
+    [RUNTIME_DEPENDENCY_OPERATION_CONTEXT]: context
+  });
+}
+
+export function runtimeDependencyOperationContext(
+  options: RuntimeDependencyOperationControlInput
+): RuntimeDependencyOperationContext {
+  return (options as Partial<BoundRuntimeDependencyOperationControls>)[RUNTIME_DEPENDENCY_OPERATION_CONTEXT]
+    ?? runtimeDependencyOperationControls(options)[RUNTIME_DEPENDENCY_OPERATION_CONTEXT];
+}
+
+export function runtimeDependencyOperationRemainingMs(
+  options: RuntimeDependencyOperationControlInput,
+  label: string,
+  minimumMs = 1
+): number {
+  if (!Number.isFinite(minimumMs) || minimumMs < 0) {
+    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency minimum budget must be finite and non-negative', {
+      minimumMs
+    });
+  }
+  return remainingFromContext(runtimeDependencyOperationContext(options), label, minimumMs);
+}
+
+function remainingFromContext(
+  context: RuntimeDependencyOperationContext,
+  label: string,
+  minimumMs = 1
+): number {
+  context.signal?.throwIfAborted();
+  const observedAtMonotonicMs = context.monotonicNowMs();
+  // Injected clock sources can synchronously cancel the operation while
+  // sampling its budget. Do not admit an effect using that stale check.
+  context.signal?.throwIfAborted();
+  const remainingMs = context.deadlineAtMonotonicMs - observedAtMonotonicMs;
+  if (!Number.isFinite(remainingMs) || remainingMs < minimumMs) {
+    throw new SecError('RUNTIME-DEPS-003', `${label} exceeded the runtime dependency operation deadline`,
+      {
+        initialBudgetMs: context.initialBudgetMs,
+        minimumMs,
+        observedAtMonotonicMs,
+        remainingMs: Math.max(0, Math.floor(remainingMs))
+      });
+  }
+  return remainingMs;
+}
+
+/** Own the deadline/cancellation lifecycle of one await, not the provider's work. */
+export async function awaitRuntimeDependencyOperation(
+  context: RuntimeDependencyOperationContext,
+  label: string,
+  start: (remainingMs: number) => Promise<void> | void
+): Promise<void> {
+  // The observer is private: third-party abort listeners cannot suppress its
+  // event, and dispatchEvent('abort') on the public signal is not cancellation.
+  // Native dependent signals observe abort state, not synthetic source events.
+  const signal = context.signal === undefined ? undefined : AbortSignal.any([context.signal]);
+  const remainingMs = remainingFromContext(context, label);
+  let abortListener: (() => void) | undefined;
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const aborted = signal === undefined
+      ? null
+      : new Promise<never>((_resolve, reject) => {
+          abortListener = () => reject(signal.reason);
+          signal.addEventListener('abort', abortListener, { once: true });
+          if (signal.aborted) abortListener();
+        });
+    const deadline = new Promise<never>((_resolve, reject) => {
+      deadlineTimer = setTimeout(() => reject(new SecError(
+        'RUNTIME-DEPS-003',
+        `${label} exceeded the runtime dependency operation deadline`,
+        { initialBudgetMs: context.initialBudgetMs }
+      )), Math.max(1, Math.ceil(remainingMs)));
+    });
+    await Promise.race([
+      // Attach handlers before provider code starts, including synchronous
+      // throws and rejections that arrive after cancellation or timeout.
+      Promise.resolve().then(() => start(
+        remainingFromContext(context, label)
+      )),
+      deadline,
+      ...(aborted === null ? [] : [aborted])
+    ]);
+  } finally {
+    if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
+    if (abortListener !== undefined) signal?.removeEventListener('abort', abortListener);
+  }
+  remainingFromContext(context, label);
+}
+
+export async function waitForRuntimeDependencyOperation(
+  options: RuntimeDependencyOperationControlInput,
+  requestedDelayMs: number,
+  sleep: (ms: number) => Promise<void>,
+  label: string
+): Promise<void> {
+  // Infinite delays retain the saturating clamp; unordered inputs must not
+  // reach provider work. Keep one captured ledger throughout the await.
+  if (typeof requestedDelayMs !== 'number' || Number.isNaN(requestedDelayMs)) {
+    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency wait delay must be an ordered number', {
+      requestedDelayMs
+    });
+  }
+  const context = runtimeDependencyOperationContext(runtimeDependencyOperationControls(options));
+  const remainingMs = remainingFromContext(context, label);
+  const boundedDelayMs = Math.max(1, Math.min(requestedDelayMs, Math.floor(remainingMs)));
+  await awaitRuntimeDependencyOperation(context, label, (admittedRemainingMs) =>
+    sleep(Math.min(boundedDelayMs, Math.floor(admittedRemainingMs)))
+  );
+}
+
+export function runtimeDependencyOperationDeadlineAt(
+  options: BoundRuntimeDependencyOperationControls,
+  label: string
+): number {
+  runtimeDependencyOperationRemainingMs(options, label);
+  return runtimeDependencyOperationContext(options).deadlineAtMonotonicMs;
+}

@@ -2,8 +2,8 @@ import { SecError } from '../../../system-architecture/foundation/contract/failu
 import {
   runtimeDependencyOperationContext,
   type RuntimeDependencyOperationContext,
-  type RuntimeDependencyOperationOptions
-} from './operation-context.ts';
+  type BoundRuntimeDependencyOperationControls
+} from './operation-controls.ts';
 
 export type RuntimeDependencyOperationPhase =
   | 'identity'
@@ -99,7 +99,7 @@ function recordRuntimeDependencyOperationPhase(
 }
 
 export function measureRuntimeDependencyOperationPhase<T>(
-  options: RuntimeDependencyOperationOptions,
+  options: BoundRuntimeDependencyOperationControls,
   phase: RuntimeDependencyOperationPhase,
   action: () => T
 ): T {
@@ -117,7 +117,7 @@ export function measureRuntimeDependencyOperationPhase<T>(
 }
 
 export async function measureRuntimeDependencyOperationPhaseAsync<T>(
-  options: RuntimeDependencyOperationOptions,
+  options: BoundRuntimeDependencyOperationControls,
   phase: RuntimeDependencyOperationPhase,
   action: () => Promise<T>
 ): Promise<T> {
@@ -135,7 +135,7 @@ export async function measureRuntimeDependencyOperationPhaseAsync<T>(
 }
 
 export function readRuntimeDependencyOperationTelemetry(
-  options: RuntimeDependencyOperationOptions
+  options: BoundRuntimeDependencyOperationControls
 ): RuntimeDependencyOperationTelemetry {
   const context = runtimeDependencyOperationContext(options);
   const phases = runtimeDependencyOperationTelemetry.get(context.telemetryKey) ?? new Map();
