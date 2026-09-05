@@ -1,17 +1,20 @@
 import ora, { type Ora } from 'ora';
+import { withProgressLifecycle } from './progress-lifecycle.ts';
 
+function unstartedSpinner(text: string): Ora {
+  return ora({ text, spinner: 'dots' });
+}
+
+/** Manual spinner callers own its lifetime; action callers use withSpinner. */
 export function createSpinner(text: string): Ora {
-  return ora({ text, spinner: 'dots' }).start();
+  const spinner = unstartedSpinner(text);
+  try { return spinner.start(); }
+  catch (error) {
+    try { spinner.stop(); } catch { /* Preserve the start failure. */ }
+    throw error;
+  }
 }
 
 export async function withSpinner<T>(text: string, fn: () => Promise<T>): Promise<T> {
-  const spinner = createSpinner(text);
-  try {
-    const result = await fn();
-    spinner.succeed(text);
-    return result;
-  } catch (error) {
-    spinner.fail(text);
-    throw error;
-  }
+  return withProgressLifecycle(text, () => unstartedSpinner(text), fn);
 }
