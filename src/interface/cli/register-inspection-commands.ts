@@ -18,7 +18,6 @@ export function registerInspectionCommands(program: Command): void {
       const opts = Object.freeze({ ...rawOptions });
       const cwd = process.cwd();
       const { CI_ARTIFACT_FILES } = await import('../../verification/ci-artifacts/contract/manifest.ts');
-      const { buildReviewPolicySummary } = await import('../../verification/review/contract/policy.ts');
       const { resolveWorkspaceArtifactPath } = await import('../../workspace/runtime/paths.ts');
       const { buildPolicySourceInspect, formatPolicyReport, formatPolicySources } = await import('./formatters.ts');
       const { readRequiredJson } = await import('./artifact-command-read.ts');
@@ -29,6 +28,7 @@ export function registerInspectionCommands(program: Command): void {
         printJsonOrText(buildPolicySourceInspect(report), output, formatPolicySources);
         return;
       }
+      const { buildReviewPolicySummary } = await import('../../verification/review/contract/policy.ts');
       printJsonOrText(report, output, (v) => formatPolicyReport(buildReviewPolicySummary(v)));
     });
 
@@ -102,7 +102,6 @@ export function registerInspectionCommands(program: Command): void {
       const opts = Object.freeze({ ...rawOptions });
       const cwd = process.cwd();
       const { CI_ARTIFACT_FILES } = await import('../../verification/ci-artifacts/contract/manifest.ts');
-      const { buildE2eMatrix } = await import('../../verification/review/runtime/matrix.ts');
       const { resolveWorkspaceArtifactPath } = await import('../../workspace/runtime/paths.ts');
       const { buildReviewDiagnosticsInspect, formatE2eMatrix, formatReviewDiagnosticsInspect, formatReviewSummaryContract } = await import('./formatters.ts');
       const { readRequiredReviewSummary } = await import('./artifact-command-read.ts');
@@ -113,6 +112,7 @@ export function registerInspectionCommands(program: Command): void {
         `Review summary not found; run ${commandFromRoot(cmd, 'explain')} first`
       );
       if (mode === 'matrix') {
+        const { buildE2eMatrix } = await import('../../verification/review/runtime/matrix.ts');
         printJsonOrText(buildE2eMatrix(summary), output, formatE2eMatrix);
         return;
       }
@@ -153,19 +153,19 @@ export function registerInspectionCommands(program: Command): void {
     .description('Contract inspection')
     .action(async (kind: string, rawOptions: Record<string, unknown>, cmd: Command) => {
       const opts = Object.freeze({ ...rawOptions });
-      const { buildCiContract, formatCiContract } = await import('../../verification/ci/contract/core.ts');
-      const { buildContractFreezeContract, formatContractFreezeContract } = await import('../../verification/freeze.ts');
-      const { buildErrorProtocolContract, formatErrorProtocolContract } = await import('./error-protocol-contract.ts');
       const output = jsonOpts(opts);
       if (kind === 'freeze') {
+        const { buildContractFreezeContract, formatContractFreezeContract } = await import('../../verification/freeze.ts');
         printJsonOrText(buildContractFreezeContract(), output, formatContractFreezeContract);
         return;
       }
       if (kind === 'ci') {
+        const { buildCiContract, formatCiContract } = await import('../../verification/ci/contract/core.ts');
         printJsonOrText(buildCiContract(), output, formatCiContract);
         return;
       }
       if (kind === 'errors') {
+        const { buildErrorProtocolContract, formatErrorProtocolContract } = await import('./error-protocol-contract.ts');
         printJsonOrText(buildErrorProtocolContract(), output, formatErrorProtocolContract);
         return;
       }

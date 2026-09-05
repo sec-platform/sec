@@ -115,10 +115,10 @@ export function registerWorkspaceCommands(program: Command): void {
     ) => {
       const opts = Object.freeze({ ...rawOptions });
       const cwd = process.cwd();
-      const { readUpgradeArtifactSet } = await import('../../change-management/upgrade/runtime/artifact-readback.ts');
-      const { formatUpgradeDiagnostics, formatUpgradePlan, formatUpgradePreview } = await import('./formatters.ts');
       const output = jsonOpts(opts);
       if (subject === 'plan' && targetVersion === undefined) {
+        const { readUpgradeArtifactSet } = await import('../../change-management/upgrade/runtime/artifact-readback.ts');
+        const { formatUpgradePlan } = await import('./formatters.ts');
         const { plan: upgradePlan, executionTerminal: upgradeExecutionTerminal } = readUpgradeArtifactSet(cwd);
         if (upgradePlan === null) {
           throw new CompilerError(
@@ -134,6 +134,8 @@ export function registerWorkspaceCommands(program: Command): void {
         return;
       }
       if (subject === 'diagnostics' && targetVersion === undefined) {
+        const { readUpgradeArtifactSet } = await import('../../change-management/upgrade/runtime/artifact-readback.ts');
+        const { formatUpgradeDiagnostics } = await import('./formatters.ts');
         const { diagnostics: upgradeDiagnostics } = readUpgradeArtifactSet(cwd);
         if (upgradeDiagnostics === null) {
           throw new CompilerError(
@@ -147,6 +149,7 @@ export function registerWorkspaceCommands(program: Command): void {
       if (subject === undefined || targetVersion === undefined) {
         throw usageError(`Usage: ${commandPath(cmd)} <block-id> <target-version> [--dry-run] [--json [--compact]]`);
       }
+      const { formatUpgradePlan, formatUpgradePreview } = await import('./formatters.ts');
       const result = await runWithOptionalSpinner(
         opts.dryRun ? 'Previewing upgrade' : 'Running upgrade',
         output,
@@ -168,11 +171,11 @@ export function registerWorkspaceCommands(program: Command): void {
     .action(async (mode: string | undefined, rawOptions: Record<string, unknown>, cmd: Command) => {
       const opts = Object.freeze({ ...rawOptions });
       const cwd = process.cwd();
-      const { resolveWorkspaceLockPath } = await import('../../workspace/runtime/paths.ts');
-      const { formatLockInspect } = await import('./formatters.ts');
-      const { printRequiredJson } = await import('./artifact-command-read.ts');
       const output = jsonOpts(opts);
       if (mode === 'inspect') {
+        const { resolveWorkspaceLockPath } = await import('../../workspace/runtime/paths.ts');
+        const { formatLockInspect } = await import('./formatters.ts');
+        const { printRequiredJson } = await import('./artifact-command-read.ts');
         const lockPath = await resolveWorkspaceLockPath(cwd);
         await printRequiredJson<LockFile>(lockPath, `Graph lock not found; run ${commandPath(cmd)} first`, output, formatLockInspect);
         return;
@@ -186,18 +189,19 @@ export function registerWorkspaceCommands(program: Command): void {
     .action(async (mode: string | undefined, rawOptions: Record<string, unknown>, cmd: Command) => {
       const opts = Object.freeze({ ...rawOptions });
       const cwd = process.cwd();
-      const { CI_ARTIFACT_FILES } = await import('../../verification/ci-artifacts/contract/manifest.ts');
-      const { buildE2eMatrix } = await import('../../verification/review/runtime/matrix.ts');
-      const { resolveWorkspaceArtifactPath } = await import('../../workspace/runtime/paths.ts');
-      const { formatExplainGraphInspect, formatExplainSummary } = await import('./formatters.ts');
-      const { printWorkspaceJson } = await import('./artifact-command-read.ts');
       const output = jsonOpts(opts);
       if (mode === 'graph') {
+        const { formatExplainGraphInspect } = await import('./formatters.ts');
+        const { CI_ARTIFACT_FILES } = await import('../../verification/ci-artifacts/contract/manifest.ts');
+        const { resolveWorkspaceArtifactPath } = await import('../../workspace/runtime/paths.ts');
+        const { printWorkspaceJson } = await import('./artifact-command-read.ts');
         await printWorkspaceJson<import('../../semantic/projection/contract/explain.ts').ExplainGraph>(
           cwd, (root) => resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.explainGraph), `Explain graph not found; run ${commandPath(cmd)} first`, output, formatExplainGraphInspect
         );
         return;
       }
+      const { buildE2eMatrix } = await import('../../verification/review/runtime/matrix.ts');
+      const { formatExplainSummary } = await import('./formatters.ts');
       const { graph, reviewSummary } = await runWithOptionalSpinner('Explaining project', output, () => explainWorkspace(cwd));
       printJsonOrText({ graph, reviewSummary, e2eMatrix: buildE2eMatrix(reviewSummary) }, output, (s) => formatExplainSummary(s.graph, s.reviewSummary));
     });
@@ -209,18 +213,19 @@ export function registerWorkspaceCommands(program: Command): void {
     .action(async (mode: string | undefined, rawOptions: Record<string, unknown>, cmd: Command) => {
       const opts = Object.freeze({ ...rawOptions });
       const cwd = process.cwd();
-      const { CI_ARTIFACT_FILES } = await import('../../verification/ci-artifacts/contract/manifest.ts');
-      const { resolveWorkspaceArtifactPath } = await import('../../workspace/runtime/paths.ts');
-      const { buildArtifactUploadPathContract, formatCiArtifactManifest } = await import('./formatters.ts');
-      const { printWorkspaceJson } = await import('./artifact-command-read.ts');
       const output = jsonOpts(opts);
       if (mode === 'manifest') {
+        const { CI_ARTIFACT_FILES } = await import('../../verification/ci-artifacts/contract/manifest.ts');
+        const { resolveWorkspaceArtifactPath } = await import('../../workspace/runtime/paths.ts');
+        const { printWorkspaceJson } = await import('./artifact-command-read.ts');
+        const { formatCiArtifactManifest } = await import('./formatters.ts');
         await printWorkspaceJson<import('../../verification/ci-artifacts/contract/types.ts').CiArtifactManifest>(
           cwd, (root) => resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.artifactManifest), `Artifact manifest not found; run ${commandPath(cmd)} --json first`, output, formatCiArtifactManifest
         );
         return;
       }
       if (opts.paths) {
+        const { buildArtifactUploadPathContract } = await import('./formatters.ts');
         const manifest = await observeWorkspaceArtifacts(cwd);
         const kind = opts.kind as CiArtifactKind | undefined;
         const contract = buildArtifactUploadPathContract(manifest, kind);
