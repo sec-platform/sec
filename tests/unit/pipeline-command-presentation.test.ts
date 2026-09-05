@@ -1,20 +1,19 @@
 import assert from 'node:assert/strict';
 import { test } from 'bun:test';
 
-import type { LockFile } from '../../src/compiler/contract.ts';
-import type { PipelineJournal } from '../../src/compiler/pipeline/types.ts';
+import type { PassStatus } from '../../src/compiler/contract/pass-status.ts';
+import type { PipelineJournal } from '../../src/compiler/pipeline/journal-types.ts';
 import { formatPipelineCompilation, formatPipelineJournal } from '../../src/interface/cli/pipeline-command-presentation.ts';
 
-function lock(): LockFile {
+function passStatus(): PassStatus {
   return {
-    formatVersion: '1', app: { id: 'example', name: 'Example', stack: 'test', mode: 'test' },
-    resolvedBlocks: [], resolvedCapabilities: [], installPlan: [], generatedPaths: [], acceptancePlan: [],
-    passStatus: { parse: 'succeeded', align: 'succeeded', resolve: 'succeeded', compose: 'succeeded', verify: 'succeeded', repair: 'skipped', lock: 'succeeded', emit: 'succeeded' }
+    parse: 'succeeded', align: 'succeeded', resolve: 'succeeded', compose: 'succeeded',
+    verify: 'succeeded', repair: 'skipped', lock: 'succeeded', emit: 'succeeded'
   };
 }
 
 test('compilation display preserves result order and legacy text byte-for-byte', () => {
-  const value = { transactionId: 'tx-123', completedStages: ['compose', 'verify'] as ['compose', 'verify'], lock: lock() };
+  const value = { transactionId: 'tx-123', completedStages: ['compose', 'verify'] as ['compose', 'verify'], lock: { passStatus: passStatus() } };
   assert.equal(formatPipelineCompilation(value), [
     'Compilation transaction tx-123 succeeded', 'Stages: compose -> verify',
     'Lock: parse=succeeded, align=succeeded, resolve=succeeded, compose=succeeded, verify=succeeded, repair=skipped, lock=succeeded, emit=succeeded'
@@ -52,4 +51,29 @@ test('empty pass records use the existing none marker, not a success inference',
     { id: 'pending', source: 'repair', requestedStages: [], status: 'running', startedAt: 'now', passRecords: [] }
   ] };
   assert.match(formatPipelineJournal(journal), /Latest: pending running source=repair\nPasses: none$/);
+});
+
+test('presentation accepts an immutable minimal result without compiler-internal fields', () => {
+  const value = Object.freeze({
+    transactionId: 'minimal',
+    completedStages: Object.freeze(['verify'] as const),
+    lock: Object.freeze({ passStatus: Object.freeze(passStatus()) })
+  });
+  assert.match(formatPipelineCompilation(value), /^Compilation transaction minimal succeeded\nStages: verify\nLock: /);
+  assert.equal(value.lock.passStatus.verify, 'succeeded');
+});
+
+test('optional build-ir pass state is displayed rather than silently dropped', () => {
+  const states: PassStatus = { ...passStatus(), 'build-ir': 'blocked' };
+  const rendered = formatPipelineCompilation({ transactionId: 'partial', completedStages: [], lock: { passStatus: states } });
+  assert.match(rendered, /, build-ir=blocked$/);
+});
+
+test('journal rendering preserves present empty identities rather than treating them as absent', () => {
+  const journal: PipelineJournal = {
+    formatVersion: '2', activeTransactionId: '', lastCommittedTransactionId: '', transactions: []
+  };
+  assert.equal(formatPipelineJournal(journal), [
+    'Pipeline journal 2', 'Active transaction: ', 'Last committed transaction: ', 'Transactions: 0'
+  ].join('\n'));
 });

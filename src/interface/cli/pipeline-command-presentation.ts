@@ -1,9 +1,14 @@
-import type { CompileWorkspaceResult } from '../../compiler/orchestration/pipeline-orchestrator.ts';
-import type { PipelineJournal } from '../../compiler/pipeline/types.ts';
+import type { PassStatus } from '../../compiler/contract/pass-status.ts';
+import type { PipelineJournal } from '../../compiler/pipeline/journal-types.ts';
+import type { PipelineStageId } from '../../compiler/pipeline/stages.ts';
 
 /** Presentation reads results; it neither loads an executor nor decides success. */
 export function formatPipelineCompilation(
-  value: Pick<CompileWorkspaceResult, 'transactionId' | 'completedStages' | 'lock'>
+  value: Readonly<{
+    transactionId: string;
+    completedStages: readonly PipelineStageId[];
+    lock: Readonly<{ passStatus: Readonly<PassStatus> }>;
+  }>
 ): string {
   return [
     `Compilation transaction ${value.transactionId} succeeded`,

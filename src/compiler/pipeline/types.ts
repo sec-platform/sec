@@ -2,16 +2,20 @@ import type { ValidatedEngineeringIRSnapshot } from '../../semantic/engineering-
 import type { SemanticGeneratorPlan } from '../../semantic/generation/contract/types.ts';
 import type { SemanticViewSet } from '../../semantic/projection/contract/types.ts';
 import type { WorkspaceWriteLeaseToken } from '../../workspace/lease.ts';
-import type { PassStatus } from '../contract.ts';
+import type { PassId } from '../contract/pass-status.ts';
+import type { PipelineSource } from './journal-types.ts';
 import type { PipelineStageId } from './stages.ts';
-
-export const PIPELINE_JOURNAL_FORMAT_VERSION = '2' as const;
-export const PIPELINE_ADAPT_RETIREMENT_SCHEMA = 'sec-pipeline-adapt-retirement-v1' as const;
 
 export { PIPELINE_STAGE_IDS, PIPELINE_VERIFY_STAGE_IDS } from './stages.ts';
 export type { PipelineStageId } from './stages.ts';
 
-export type PassId = keyof PassStatus;
+export type { PassId } from '../contract/pass-status.ts';
+export { PIPELINE_JOURNAL_FORMAT_VERSION, PIPELINE_ADAPT_RETIREMENT_SCHEMA } from './journal-types.ts';
+export type {
+  PipelineSource, PipelineTransactionStatus, PipelinePassStatus, PipelinePassRecord,
+  PipelineTransactionRecord, PipelineJournal, PipelineAdaptRetirementRecord
+} from './journal-types.ts';
+
 export const PIPELINE_EXECUTION_BOUNDARIES = Object.freeze([
   'pipeline-bootstrap',
   'pipeline-lease-bind',
@@ -30,10 +34,6 @@ export const PIPELINE_EXECUTION_BOUNDARIES = Object.freeze([
   'verify-artifact-publish'
 ] as const);
 export type PipelineExecutionBoundary = (typeof PIPELINE_EXECUTION_BOUNDARIES)[number];
-export type PipelineSource = 'api' | 'cli' | 'reference' | 'upgrade' | 'repair' | 'ci';
-export type PipelineTransactionStatus = 'running' | 'succeeded' | 'failed';
-export type PipelinePassStatus = 'running' | 'succeeded' | 'failed' | 'blocked' | 'skipped';
-
 export const PIPELINE_COMPLETION_PROOF_REVISION = 'pipeline-completion-proof-v2' as const;
 
 export interface PipelineCompletionProof {
@@ -48,42 +48,6 @@ export interface PipelineCompletionProof {
   readonly explainGraphDigest: string;
   readonly reviewSummaryDigest: string;
   readonly proofRevision: string;
-}
-
-export interface PipelinePassRecord {
-  passId: PassId;
-  status: PipelinePassStatus;
-  startedAt: string;
-  completedAt?: string;
-  errorCode?: string;
-  message?: string;
-}
-
-export interface PipelineTransactionRecord {
-  id: string;
-  source: PipelineSource;
-  requestedStages: PipelineStageId[];
-  status: PipelineTransactionStatus;
-  startedAt: string;
-  completedAt?: string;
-  passRecords: PipelinePassRecord[];
-  errorCode?: string;
-  message?: string;
-}
-
-export interface PipelineJournal {
-  formatVersion: typeof PIPELINE_JOURNAL_FORMAT_VERSION;
-  activeTransactionId?: string;
-  lastCommittedTransactionId?: string;
-  transactions: PipelineTransactionRecord[];
-  retirements?: PipelineAdaptRetirementRecord[];
-}
-
-export interface PipelineAdaptRetirementRecord {
-  readonly schema: typeof PIPELINE_ADAPT_RETIREMENT_SCHEMA;
-  readonly retiredStage: 'adapt';
-  readonly legacyJournalBytesDigest: `sha256:${string}`;
-  readonly evidenceFile: string;
 }
 
 export type PipelineEventType =
