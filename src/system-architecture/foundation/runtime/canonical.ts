@@ -40,9 +40,17 @@ export function isPlainObject(value: unknown): value is Record<string, unknown> 
 }
 
 export function canonicalJson(value: unknown): unknown {
-  // Track the current ancestor chain, not every previously seen object: a
-  // shared subtree is valid JSON input, while a back-edge is not.
+  // Only the active ancestry identifies cycles; shared acyclic inputs still
+  // produce independent normalized subtrees. Frames replace native recursion.
   const ancestors = new WeakSet<object>();
+  type Frame = {
+    kind: 'array'; input: unknown[]; output: unknown[]; length: number; cursor: number;
+  } | {
+    kind: 'object'; input: Record<string, unknown>; output: Record<string, unknown>;
+    keys: string[]; cursor: number;
+  };
+  const pending: Frame[] = [];
+
   function normalize(entry: unknown): unknown {
     if (entry === null || typeof entry === 'string' || typeof entry === 'boolean') return entry;
     if (typeof entry === 'number') {
@@ -54,22 +62,42 @@ export function canonicalJson(value: unknown): unknown {
     }
     if (ancestors.has(entry)) throw new Error('Canonical JSON rejects circular references');
     ancestors.add(entry);
-    try {
-      if (Array.isArray(entry)) return entry.map(normalize);
-      return Object.fromEntries(Object.keys(entry)
-        .sort(compareCodeUnits)
-        .map((key) => {
-          const nested = entry[key];
-          if (nested === undefined || typeof nested === 'bigint' || typeof nested === 'function' || typeof nested === 'symbol') {
-            throw new Error(`Canonical JSON rejects unsupported value at key "${key}"`);
-          }
-          return [key, normalize(nested)];
-        }));
-    } finally {
-      ancestors.delete(entry);
+    if (Array.isArray(entry)) {
+      // Do not dispatch input.map or ArraySpeciesCreate: input hooks must not
+      // choose the normalized value or its digest. Retain length/hole semantics.
+      const output = new Array<unknown>(entry.length);
+      pending.push({ kind: 'array', input: entry, output, length: output.length, cursor: 0 });
+      return output;
     }
+    const output: Record<string, unknown> = {};
+    pending.push({ kind: 'object', input: entry, output, keys: Object.keys(entry).sort(compareCodeUnits), cursor: 0 });
+    return output;
   }
-  return normalize(value);
+
+  const result = normalize(value);
+  while (pending.length > 0) {
+    const frame = pending[pending.length - 1]!;
+    if (frame.cursor >= (frame.kind === 'array' ? frame.length : frame.keys.length)) {
+      ancestors.delete(frame.input);
+      pending.pop();
+      continue;
+    }
+    const index = frame.cursor++;
+    if (frame.kind === 'array') {
+      if (index in frame.input) frame.output[index] = normalize(frame.input[index]);
+      continue;
+    }
+    const key = frame.keys[index]!;
+    const nested = frame.input[key];
+    if (nested === undefined || typeof nested === 'bigint' || typeof nested === 'function' || typeof nested === 'symbol') {
+      throw new Error(`Canonical JSON rejects unsupported value at key "${key}"`);
+    }
+    // Define data properties so __proto__ stays data rather than a setter.
+    Object.defineProperty(frame.output, key, {
+      value: normalize(nested), enumerable: true, configurable: true, writable: true
+    });
+  }
+  return result;
 }
 
 export function sha256(value: unknown): string {

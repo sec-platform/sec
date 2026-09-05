@@ -139,7 +139,11 @@ export type RuntimeDependencyOperationContext = Readonly<{
 
 export type RuntimeDependencyOperationOptions<
   T extends RuntimeDependencyInstallOptions = RuntimeDependencyInstallOptions
-> = Readonly<T> & Readonly<{
+> = Readonly<Omit<T, 'deadlineAtUnixMs' | 'lockTimeoutMs' | 'pollIntervalMs' | 'signal'>> & Readonly<{
+  deadlineAtUnixMs: number;
+  lockTimeoutMs: number;
+  pollIntervalMs: number;
+  signal: AbortSignal | undefined;
   [RUNTIME_DEPENDENCY_OPERATION_CONTEXT]: RuntimeDependencyOperationContext;
 }>;
 
@@ -183,60 +187,73 @@ function createRuntimeDependencyMonotonicLedger(source: () => number): () => num
 export function runtimeDependencyOperationOptions<T extends RuntimeDependencyInstallOptions>(
   options: T
 ): RuntimeDependencyOperationOptions<T> {
+  // Capture input before invoking clock/provider callbacks. The returned
+  // options and their operation ledger must describe the same admitted input.
+  const captured = { ...options };
+  const existing = (captured as unknown as Partial<RuntimeDependencyOperationOptions<T>>)
+    [RUNTIME_DEPENDENCY_OPERATION_CONTEXT];
   const lockBudgetMs = runtimeDependencyPositiveBoundedInteger(
     'lockTimeoutMs',
-    options.lockTimeoutMs,
+    captured.lockTimeoutMs,
     DEFAULT_DEPENDENCY_LOCK_TIMEOUT_MS,
     MAX_DEPENDENCY_OPERATION_TIMEOUT_MS
   );
-  let absoluteDeadlineBudgetMs = Number.POSITIVE_INFINITY;
-  if (options.deadlineAtUnixMs !== undefined) {
-    if (!Number.isSafeInteger(options.deadlineAtUnixMs)) {
-      throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency absolute deadline is invalid', {
-        deadlineAtUnixMs: options.deadlineAtUnixMs
-      });
-    }
-    absoluteDeadlineBudgetMs = options.deadlineAtUnixMs - Date.now();
-    if (absoluteDeadlineBudgetMs < 1) {
-      throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency absolute deadline is exhausted');
-    }
+  const pollIntervalMs = runtimeDependencyPositiveBoundedInteger(
+    'pollIntervalMs',
+    captured.pollIntervalMs,
+    DEFAULT_DEPENDENCY_LOCK_POLL_INTERVAL_MS,
+    MAX_DEPENDENCY_LOCK_POLL_INTERVAL_MS
+  );
+  const requestedDeadline = captured.deadlineAtUnixMs;
+  if (requestedDeadline !== undefined && !Number.isSafeInteger(requestedDeadline)) {
+    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency absolute deadline is invalid', {
+      deadlineAtUnixMs: requestedDeadline
+    });
+  }
+  const monotonicNowMs = existing?.monotonicNowMs ?? createRuntimeDependencyMonotonicLedger(
+    captured.monotonicNowMs ?? defaultRuntimeDependencyMonotonicNowMs
+  );
+  const nowMonotonicMs = monotonicNowMs();
+  const nowUnixMs = Date.now();
+  // Once captured, a parent deadline is monotonic. Sampling the same wall
+  // deadline again would let clock corrections change an existing operation.
+  const hasNewAbsoluteBound = requestedDeadline !== undefined &&
+    (existing === undefined || requestedDeadline !== existing.deadlineAtUnixMs);
+  const absoluteDeadlineBudgetMs = hasNewAbsoluteBound
+    ? requestedDeadline - nowUnixMs
+    : Number.POSITIVE_INFINITY;
+  if (absoluteDeadlineBudgetMs < 1) {
+    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency absolute deadline is exhausted');
   }
   const initialBudgetMs = Math.min(
     lockBudgetMs,
     absoluteDeadlineBudgetMs,
     MAX_DEPENDENCY_OPERATION_TIMEOUT_MS
   );
-  const pollIntervalMs = runtimeDependencyPositiveBoundedInteger(
-    'pollIntervalMs',
-    options.pollIntervalMs,
-    DEFAULT_DEPENDENCY_LOCK_POLL_INTERVAL_MS,
-    MAX_DEPENDENCY_LOCK_POLL_INTERVAL_MS
+  const deadlineAtMonotonicMs = Math.min(
+    existing?.deadlineAtMonotonicMs ?? Number.POSITIVE_INFINITY,
+    nowMonotonicMs + initialBudgetMs
   );
-  const existing = (options as unknown as Partial<RuntimeDependencyOperationOptions<T>>)
-    [RUNTIME_DEPENDENCY_OPERATION_CONTEXT];
-  const monotonicNowMs = existing?.monotonicNowMs ?? createRuntimeDependencyMonotonicLedger(
-    options.monotonicNowMs ?? defaultRuntimeDependencyMonotonicNowMs
-  );
-  const nowMonotonicMs = monotonicNowMs();
-  const nowUnixMs = Date.now();
-  const deadlineAtUnixMs = Math.min(
-    existing?.deadlineAtUnixMs ?? Number.POSITIVE_INFINITY,
-    options.deadlineAtUnixMs ?? nowUnixMs + initialBudgetMs
-  );
+  const deadlineAtUnixMs = existing === undefined
+    ? requestedDeadline ?? nowUnixMs + initialBudgetMs
+    : Math.min(
+        existing.deadlineAtUnixMs,
+        hasNewAbsoluteBound ? requestedDeadline : Number.POSITIVE_INFINITY,
+        deadlineAtMonotonicMs < existing.deadlineAtMonotonicMs
+          ? nowUnixMs + initialBudgetMs
+          : Number.POSITIVE_INFINITY
+      );
+  const signal = existing?.signal === undefined || captured.signal === existing.signal
+    ? captured.signal
+    : captured.signal === undefined
+      ? existing.signal
+      : AbortSignal.any([existing.signal, captured.signal]);
   const existingContextIsStillCanonical = existing !== undefined &&
     deadlineAtUnixMs === existing.deadlineAtUnixMs &&
-    lockBudgetMs >= existing.initialBudgetMs &&
+    deadlineAtMonotonicMs === existing.deadlineAtMonotonicMs &&
     pollIntervalMs === existing.pollIntervalMs &&
-    (options.signal === undefined || options.signal === existing.signal);
-  const deadlineAtMonotonicMs = existingContextIsStillCanonical
-    ? existing.deadlineAtMonotonicMs
-    : Math.min(
-        existing?.deadlineAtMonotonicMs ?? Number.POSITIVE_INFINITY,
-        nowMonotonicMs + initialBudgetMs,
-        nowMonotonicMs + Math.max(0, deadlineAtUnixMs - nowUnixMs)
-      );
-  const context = existing !== undefined
-      && existingContextIsStillCanonical
+    signal === existing.signal;
+  const context = existing !== undefined && existingContextIsStillCanonical
     ? existing
     : Object.freeze({
         deadlineAtUnixMs,
@@ -245,15 +262,17 @@ export function runtimeDependencyOperationOptions<T extends RuntimeDependencyIns
         monotonicNowMs,
         operationId: existing?.operationId ?? crypto.randomUUID(),
         pollIntervalMs,
-        signal: options.signal ?? existing?.signal,
+        signal,
         startedAtMonotonicMs: existing?.startedAtMonotonicMs ?? nowMonotonicMs,
         telemetryKey: existing?.telemetryKey ?? Object.freeze({})
       });
   context.signal?.throwIfAborted();
   return Object.freeze({
-    ...options,
+    ...captured,
+    deadlineAtUnixMs,
     lockTimeoutMs: Math.min(initialBudgetMs, context.initialBudgetMs),
     pollIntervalMs,
+    signal,
     [RUNTIME_DEPENDENCY_OPERATION_CONTEXT]: context
   });
 }
@@ -283,12 +302,13 @@ export function runtimeDependencyOperationRemainingMs(
   context.signal?.throwIfAborted();
   const remainingMs = context.deadlineAtMonotonicMs - observedAtMonotonicMs;
   if (!Number.isFinite(remainingMs) || remainingMs < minimumMs) {
-    throw new SecError('RUNTIME-DEPS-003', `${label} exceeded the runtime dependency operation deadline`, {
-      initialBudgetMs: context.initialBudgetMs,
-      minimumMs,
-      observedAtMonotonicMs,
-      remainingMs: Math.max(0, Math.floor(remainingMs))
-    });
+    throw new SecError('RUNTIME-DEPS-003', `${label} exceeded the runtime dependency operation deadline`,
+      {
+        initialBudgetMs: context.initialBudgetMs,
+        minimumMs,
+        observedAtMonotonicMs,
+        remainingMs: Math.max(0, Math.floor(remainingMs))
+      });
   }
   return remainingMs;
 }
