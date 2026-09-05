@@ -47,7 +47,6 @@ export function projectScenarioView(
   snapshot: ValidatedEngineeringIRSnapshot,
   scenarioId: string
 ): SemanticView {
-  const { ir } = snapshot;
   const index = indexValidatedEngineeringIR(snapshot);
   const scenario = index.entityById.get(scenarioId);
   if (!scenario || scenario.kind !== 'scenario') {
@@ -61,11 +60,13 @@ export function projectScenarioView(
   );
   const stepIds = containsFacts.map((fact) => fact.object.kind === 'entity' ? fact.object.entityId : '').sort();
   const stepIdSet = new Set(stepIds);
-  const scenarioFacts = ir.facts.filter((fact) => {
-    if (!SCENARIO_RELATIONS.has(fact.predicate)) return false;
-    if (fact.subject === scenarioId) return fact.predicate === 'CONTAINS' || fact.predicate === 'INVOKES';
-    return stepIdSet.has(fact.subject);
-  });
+  const scenarioFacts = [
+    ...(index.outgoingFactsBySubject.get(scenarioId) ?? []).filter((fact) =>
+      fact.predicate === 'CONTAINS' || fact.predicate === 'INVOKES'),
+    ...[...stepIdSet].flatMap((stepId) =>
+      (index.outgoingFactsBySubject.get(stepId) ?? []).filter((fact) => SCENARIO_RELATIONS.has(fact.predicate)))
+  ];
+  const scenarioFactSet = new Set(scenarioFacts);
   const operationIds = new Set(scenarioFacts.flatMap((fact) => {
     const targetId = entityObjectId(fact);
     return targetId && index.entityById.get(targetId)?.kind === 'operation' ? [targetId] : [];
@@ -82,14 +83,15 @@ export function projectScenarioView(
   }));
 
   for (const stepId of stepIds) {
-    const stepFacts = scenarioFacts.filter((fact) =>
-      fact.subject === stepId || entityObjectId(fact) === stepId
-    );
+    const stepFacts = [
+      ...(index.outgoingFactsBySubject.get(stepId) ?? []),
+      ...(index.incomingFactsByEntityObject.get(stepId) ?? []).filter((fact) => fact.subject !== stepId)
+    ].filter((fact) => scenarioFactSet.has(fact));
     const invokedOperationIds = stepFacts.filter((fact) => fact.subject === stepId && fact.predicate === 'INVOKES')
       .flatMap((fact) => entityObjectId(fact) ?? []);
     const badges: ViewBadge[] = [];
     if (invokedOperationIds.some((operationId) => entryOperationIds.has(operationId)) &&
-        !scenarioFacts.some((fact) => fact.predicate === 'PRECEDES' && entityObjectId(fact) === stepId)) {
+        !stepFacts.some((fact) => fact.predicate === 'PRECEDES' && entityObjectId(fact) === stepId)) {
       badges.push('entry');
     }
     if (stepFacts.some((fact) => fact.predicate === 'AWAITS')) badges.push('async');

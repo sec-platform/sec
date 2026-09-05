@@ -26,7 +26,6 @@ function transitionValue(fact: SemanticFact): SemanticValueObject | null {
 }
 
 export function projectStateView(snapshot: ValidatedEngineeringIRSnapshot, subjectId: string): SemanticView {
-  const { ir } = snapshot;
   const index = indexValidatedEngineeringIR(snapshot);
   const subject = index.entityById.get(subjectId);
   if (!subject) throw new CompilerError('VIEW-STATE-001', `Unknown state view subject "${subjectId}"`);
@@ -84,20 +83,21 @@ export function projectStateView(snapshot: ValidatedEngineeringIRSnapshot, subje
       });
     }
 
-    for (const fact of ir.facts) {
-      if (!['READS', 'WRITES', 'MUTATES'].includes(fact.predicate)) continue;
-      const targetId = entityTargetId(fact);
-      if (!targetId || !targetIds.has(targetId) || index.entityById.get(fact.subject)?.kind !== 'operation') continue;
-      const operationFacts = index.outgoingFactsBySubject.get(fact.subject) ?? [];
-      nodes.set(fact.subject, buildViewNode(index, fact.subject, { facts: operationFacts, group: 'operation' }));
-      mergeViewEdge(edges, {
-        id: viewEdgeId(fact.subject, fact.predicate, targetId),
-        source: fact.subject,
-        target: targetId,
-        relation: fact.predicate,
-        label: fact.predicate.toLowerCase(),
-        references: referencesForFacts([fact])
-      });
+    for (const targetId of targetIds) {
+      for (const fact of index.incomingFactsByEntityObject.get(targetId) ?? []) {
+        if (!['READS', 'WRITES', 'MUTATES'].includes(fact.predicate)
+            || index.entityById.get(fact.subject)?.kind !== 'operation') continue;
+        const operationFacts = index.outgoingFactsBySubject.get(fact.subject) ?? [];
+        nodes.set(fact.subject, buildViewNode(index, fact.subject, { facts: operationFacts, group: 'operation' }));
+        mergeViewEdge(edges, {
+          id: viewEdgeId(fact.subject, fact.predicate, targetId),
+          source: fact.subject,
+          target: targetId,
+          relation: fact.predicate,
+          label: fact.predicate.toLowerCase(),
+          references: referencesForFacts([fact])
+        });
+      }
     }
 
     for (const transitionFact of stateFacts.filter((fact) => fact.predicate === 'TRANSITIONS_TO')) {

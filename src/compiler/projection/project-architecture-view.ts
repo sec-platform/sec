@@ -65,10 +65,13 @@ export function projectArchitectureView(
   );
 
   const nodes: ViewNode[] = includedEntities.map((entity) => {
-    const facts = architectureFacts.filter((fact) =>
-      fact.subject === entity.id ||
-      (fact.object.kind === 'entity' && fact.object.entityId === entity.id)
-    );
+    // A node only needs its incident facts. Self-edges appear in both indexes
+    // but must retain the single occurrence selected by the original filter.
+    const facts = [
+      ...(index.outgoingFactsBySubject.get(entity.id) ?? []),
+      ...(index.incomingFactsByEntityObject.get(entity.id) ?? []).filter((fact) => fact.subject !== entity.id)
+    ].filter((fact) => includedIds.has(fact.subject) && fact.object.kind === 'entity'
+      && includedIds.has(fact.object.entityId));
     return buildViewNode(index, entity.id, {
       badges: badgesFor(entity.kind, facts),
       facts,
