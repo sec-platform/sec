@@ -1,19 +1,6 @@
 import { CompilerError } from '../../compiler/errors.ts';
+import { parseJsonOutputOptions, type JsonOutputIssue } from './json-output-options.ts';
 import { PIPELINE_STAGE_IDS, type PipelineStageId } from '../../compiler/pipeline/stages.ts';
-
-function booleanFlag(value: unknown, option: string): boolean {
-  if (value === undefined) return false;
-  if (typeof value === 'boolean') return value;
-  throw new CompilerError('PIPELINE-USAGE-003', `${option} must be a boolean flag`);
-}
-
-function outputOptions(json: unknown, compact: unknown): Readonly<{ json: boolean; compact: boolean }> {
-  const output = { json: booleanFlag(json, '--json'), compact: booleanFlag(compact, '--compact') };
-  if (output.compact && !output.json) {
-    throw new CompilerError('PIPELINE-USAGE-003', '--compact requires --json');
-  }
-  return Object.freeze(output);
-}
 
 function pipelineStage(value: unknown, option: string): PipelineStageId | undefined {
   if (value === undefined) return undefined;
@@ -30,16 +17,19 @@ function verificationLane(value: unknown) {
   return value;
 }
 
+export function rejectPipelineOutputIssue(issue: JsonOutputIssue): never {
+  throw new CompilerError('PIPELINE-USAGE-003', issue.message);
+}
+
 /** Decode only command-owned fields before loading an execution domain. */
 export function parsePipelineOutputOptions(options: Readonly<Record<string, unknown>>) {
-  const { json, compact } = options;
-  return outputOptions(json, compact);
+  return parseJsonOutputOptions(options, rejectPipelineOutputIssue);
 }
 
 /** Capture the invocation once; no coercion hooks or mutable CLI object crosses an await. */
 export function parsePipelineCompileOptions(options: Readonly<Record<string, unknown>>) {
   const { json, compact, from, through, lane } = options;
-  const output = outputOptions(json, compact);
+  const output = parsePipelineOutputOptions({ json, compact });
   const first = pipelineStage(from, '--from');
   const last = pipelineStage(through, '--through');
   return Object.freeze({

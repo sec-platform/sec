@@ -1,3 +1,4 @@
+import type { JsonOutputOptions } from './json-output-options.ts';
 import { mergeCountSummaries, summarizeCounts } from '../../system-architecture/foundation/runtime/collections.ts';
 
 export function formatList(values: string[], fallback = 'none'): string {
@@ -18,13 +19,13 @@ export function formatFields(values: readonly string[]): string {
   return values.join('; ');
 }
 
-export function formatJson(value: unknown, options: { compact: boolean }): string {
+export function formatJson(value: unknown, options: Pick<JsonOutputOptions, 'compact'>): string {
   return JSON.stringify(value, null, options.compact ? 0 : 2);
 }
 
 export function printJsonOrText<T>(
   value: T,
-  options: { json: boolean; compact: boolean },
+  options: JsonOutputOptions,
   formatText: (value: T) => string
 ): void {
   console.log(options.json ? formatJson(value, options) : formatText(value));
