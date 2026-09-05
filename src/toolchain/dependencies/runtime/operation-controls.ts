@@ -8,6 +8,10 @@ export const MAX_DEPENDENCY_OPERATION_TIMEOUT_MS = 300_000;
 const DEFAULT_DEPENDENCY_LOCK_POLL_INTERVAL_MS = 50;
 const MAX_DEPENDENCY_LOCK_POLL_INTERVAL_MS = 1_000;
 const RUNTIME_DEPENDENCY_OPERATION_CONTEXT = Symbol('sec-runtime-dependency-operation-context-v1');
+// A discoverable symbol is a carrier, not proof that the owner issued a ledger.
+const issuedOperationContexts = new WeakSet<object>();
+const nativeSignalAborted = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'aborted')!.get!;
+const nativeThrowIfAborted = AbortSignal.prototype.throwIfAborted;
 
 /** Control inputs, not installation requests or effect capabilities. */
 export interface RuntimeDependencyOperationControlInput {
@@ -47,7 +51,7 @@ function runtimeDependencyPositiveBoundedInteger(
   fallback: number,
   maximum: number
 ): number {
-  const value = configured ?? fallback;
+  const value = configured === undefined ? fallback : configured;
   if (!Number.isSafeInteger(value) || value <= 0 || value > maximum) {
     throw new SecError(
       'RUNTIME-DEPS-003',
@@ -86,19 +90,61 @@ function ownControl<K extends keyof RuntimeDependencyOperationControlInput>(
   return Object.getOwnPropertyDescriptor(options, key)?.enumerable ? options[key] : undefined;
 }
 
+function invalidBinding(): never {
+  throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency operation binding is not owner-issued');
+}
+
+function assertIssuedContext(value: unknown): asserts value is RuntimeDependencyOperationContext {
+  if (typeof value !== 'object' || value === null || !issuedOperationContexts.has(value)) invalidBinding();
+}
+
+function existingContext(options: RuntimeDependencyOperationControlInput): RuntimeDependencyOperationContext | undefined {
+  const descriptor = Object.getOwnPropertyDescriptor(options, RUNTIME_DEPENDENCY_OPERATION_CONTEXT);
+  if (descriptor === undefined) return undefined;
+  // Do not invoke a forged binding accessor. Copies must carry the same exact
+  // issued object, not a shape-compatible clone or a proxy-selected substitute.
+  if (!descriptor.enumerable || !('value' in descriptor)) invalidBinding();
+  const value = (options as Partial<BoundRuntimeDependencyOperationControls>)[RUNTIME_DEPENDENCY_OPERATION_CONTEXT];
+  if (value !== descriptor.value) invalidBinding();
+  assertIssuedContext(value);
+  return value;
+}
+
+/** Keep the same parent across a compatibility boundary that copies caller getters. */
+export function captureRuntimeDependencyBindingGuard(
+  options: RuntimeDependencyOperationControlInput
+): (captured: RuntimeDependencyOperationControlInput) => void {
+  const expected = existingContext(options);
+  return (captured) => { if (existingContext(captured) !== expected) invalidBinding(); };
+}
+
+function validateSignal(signal: AbortSignal | undefined): void {
+  if (signal === undefined) return;
+  try {
+    // Native brand checking does not use instanceof; supplied aborted getters and
+    // throwIfAborted methods are not evidence that this is an AbortSignal.
+    nativeSignalAborted.call(signal);
+  } catch {
+    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency signal must be a native AbortSignal');
+  }
+}
+
 export function runtimeDependencyOperationControls(
   options: RuntimeDependencyOperationControlInput
 ): BoundRuntimeDependencyOperationControls {
   // Capture only control inputs before any clock/provider callback. Do not
   // enumerate installation requests, lifecycle capabilities or test seams.
+  const existing = existingContext(options);
   const requestedDeadline = ownControl(options, 'deadlineAtUnixMs');
   const lockTimeoutMs = ownControl(options, 'lockTimeoutMs');
   const requestedPollIntervalMs = ownControl(options, 'pollIntervalMs');
   const requestedMonotonicNowMs = ownControl(options, 'monotonicNowMs');
   const requestedSignal = ownControl(options, 'signal');
-  const existing = Object.getOwnPropertyDescriptor(options, RUNTIME_DEPENDENCY_OPERATION_CONTEXT)?.enumerable
-    ? (options as Partial<BoundRuntimeDependencyOperationControls>)[RUNTIME_DEPENDENCY_OPERATION_CONTEXT]
-    : undefined;
+  if (existingContext(options) !== existing) invalidBinding();
+  validateSignal(requestedSignal);
+  if (existing === undefined && requestedMonotonicNowMs !== undefined && typeof requestedMonotonicNowMs !== 'function') {
+    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency monotonic clock must be callable');
+  }
   const lockBudgetMs = runtimeDependencyPositiveBoundedInteger(
     'lockTimeoutMs',
     lockTimeoutMs,
@@ -172,7 +218,8 @@ export function runtimeDependencyOperationControls(
         startedAtMonotonicMs: existing?.startedAtMonotonicMs ?? nowMonotonicMs,
         telemetryKey: existing?.telemetryKey ?? Object.freeze({})
       });
-  context.signal?.throwIfAborted();
+  if (context.signal !== undefined) nativeThrowIfAborted.call(context.signal);
+  issuedOperationContexts.add(context);
   return Object.freeze({
     deadlineAtUnixMs,
     lockTimeoutMs: Math.min(initialBudgetMs, context.initialBudgetMs),
@@ -185,7 +232,7 @@ export function runtimeDependencyOperationControls(
 export function runtimeDependencyOperationContext(
   options: RuntimeDependencyOperationControlInput
 ): RuntimeDependencyOperationContext {
-  return (options as Partial<BoundRuntimeDependencyOperationControls>)[RUNTIME_DEPENDENCY_OPERATION_CONTEXT]
+  return existingContext(options)
     ?? runtimeDependencyOperationControls(options)[RUNTIME_DEPENDENCY_OPERATION_CONTEXT];
 }
 
@@ -207,11 +254,12 @@ function remainingFromContext(
   label: string,
   minimumMs = 1
 ): number {
-  context.signal?.throwIfAborted();
+  assertIssuedContext(context);
+  if (context.signal !== undefined) nativeThrowIfAborted.call(context.signal);
   const observedAtMonotonicMs = context.monotonicNowMs();
   // Injected clock sources can synchronously cancel the operation while
   // sampling its budget. Do not admit an effect using that stale check.
-  context.signal?.throwIfAborted();
+  if (context.signal !== undefined) nativeThrowIfAborted.call(context.signal);
   const remainingMs = context.deadlineAtMonotonicMs - observedAtMonotonicMs;
   if (!Number.isFinite(remainingMs) || remainingMs < minimumMs) {
     throw new SecError('RUNTIME-DEPS-003', `${label} exceeded the runtime dependency operation deadline`,
@@ -234,6 +282,7 @@ export async function awaitRuntimeDependencyOperation(
   // The observer is private: third-party abort listeners cannot suppress its
   // event, and dispatchEvent('abort') on the public signal is not cancellation.
   // Native dependent signals observe abort state, not synthetic source events.
+  assertIssuedContext(context);
   const signal = context.signal === undefined ? undefined : AbortSignal.any([context.signal]);
   const remainingMs = remainingFromContext(context, label);
   let abortListener: (() => void) | undefined;

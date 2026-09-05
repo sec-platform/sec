@@ -14,6 +14,7 @@ import {
   MAX_DEPENDENCY_OPERATION_TIMEOUT_MS,
   runtimeDependencyOperationContext,
   runtimeDependencyOperationControls,
+  captureRuntimeDependencyBindingGuard,
   runtimeDependencyOperationRemainingMs,
   type BoundRuntimeDependencyOperationControls,
   type RuntimeDependencyOperationControlInput
@@ -140,7 +141,9 @@ export type RuntimeDependencyOperationOptions<
 export function runtimeDependencyOperationOptions<T extends RuntimeDependencyInstallOptions>(
   options: T
 ): RuntimeDependencyOperationOptions<T> {
+  const assertBindingUnchanged = captureRuntimeDependencyBindingGuard(options);
   const captured = { ...options };
+  assertBindingUnchanged(captured);
   return Object.freeze({ ...captured, ...runtimeDependencyOperationControls(captured) });
 }
 
