@@ -1,3 +1,4 @@
+import { parseVerificationLaneOption } from './verification-lane-option.ts';
 import { decodeBooleanFlag } from './boolean-option.ts';
 import { jsonOpts, usageError } from './command-options.ts';
 
@@ -53,4 +54,15 @@ export function parseUpgradeCommandInput(
     throw usageError(`Usage: ${command} <block-id> <target-version> [--dry-run] [--json [--compact]]`);
   }
   return Object.freeze({ kind: 'execute' as const, subject, targetVersion, output, request: dryRunRequest(options) });
+}
+
+// A standalone verification request and a pipeline compile have independent defaults.
+export const VERIFY_COMMAND_DEFAULT_LANE = 'fast' as const;
+
+export function parseVerifyCommandInput(options: RawOptions) {
+  const { json, compact } = options;
+  const lane = Object.getOwnPropertyDescriptor(options, 'lane')?.enumerable ? options.lane : undefined;
+  const admittedLane = parseVerificationLaneOption(lane, (choices) => { throw usageError(`Lane must be ${choices}`); });
+  const output = jsonOpts({ json, compact });
+  return Object.freeze({ output, request: Object.freeze({ lane: admittedLane, emitTiming: !output.json }) });
 }

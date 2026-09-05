@@ -1,3 +1,4 @@
+import { shouldExecuteRuntimeVerification, verificationLaneProfile, type VerificationRuntimeMode } from '../../verification/contract/lanes.ts';
 import path from 'node:path';
 import type { AcceptanceCoverageReport } from '../../semantic/acceptance/contract/types.ts';
 import type { Logger } from '../../system-architecture/foundation/logger.ts';
@@ -50,7 +51,7 @@ export function productVerificationSubjectRevision(lock: LockFile): string {
 export function productVerificationObservationBindings(
   lock: LockFile,
   lane: VerificationLane,
-  runtimeMode: 'service' | 'full'
+  runtimeMode: VerificationRuntimeMode
 ): ProductVerificationObservations {
   return buildProductVerificationObservationBindings(
     productVerificationSubjectRevision(lock),
@@ -240,7 +241,7 @@ function summarizeReport(
   lane: VerificationLane,
   fast: FastVerificationLaneReport,
   runtime: RuntimeVerificationLaneReport,
-  runtimeMode: 'service' | 'full',
+  runtimeMode: VerificationRuntimeMode,
   policyReport: PolicyReport,
   acceptanceCoverage: AcceptanceCoverageReport,
   observations: ProductVerificationObservations
@@ -258,13 +259,13 @@ function summarizeReport(
     ? 'passed'
     : 'failed';
   const failedLanes: Array<'fast' | 'runtime'> = [];
-  if ((lane === 'fast' || lane === 'all') && fast.status === 'failed') failedLanes.push('fast');
+  if (verificationLaneProfile(lane).runFast && fast.status === 'failed') failedLanes.push('fast');
   if (runtime.status === 'failed') failedLanes.push('runtime');
   return { status, requestedLane: lane, failedLanes, claimSummary };
 }
 
 function updateVerifyPassState(lock: LockFile, report: VerificationReport): void {
-  if (report.summary.requestedLane === 'all') {
+  if (verificationLaneProfile(report.summary.requestedLane).scope === 'complete') {
     lock.passStatus.verify = report.summary.status === 'passed' ? 'succeeded' : 'failed';
     return;
   }
@@ -315,6 +316,7 @@ export async function verifyProject(
   lane: VerificationLane = 'all',
   options: VerifyProjectOptions = {}
 ): Promise<VerificationReport> {
+  const selection = verificationLaneProfile(lane);
   const logger = options.logger ?? defaultLogger;
   assertPassStatus(
     lock,
@@ -336,7 +338,7 @@ export async function verifyProject(
   }
 
   if (options.stagedVerificationProof) {
-    if (options.isolated || lane !== 'all') {
+    if (options.isolated || selection.scope !== 'complete') {
       throw new Error('Staged Verification proof is restricted to one live all-lane rebuild');
     }
     await options.beforeCommit?.();
@@ -364,15 +366,15 @@ export async function verifyProject(
   }
 
   const fastStartedAtMs = Date.now();
-  const fastResult = lane === 'runtime'
+  const fastResult = !selection.runFast
     ? { lane: createSkippedFastLane(), failure: null }
     : await (async () => {
         await emitVerifyBoundary(options, 'verify-fast');
         return runFastVerification(workspaceRoot, options.isolated === true);
       })();
   const fastFinishedAtMs = Date.now();
-  const shouldRunRuntime = fastResult.lane.status === 'passed' || lane === 'runtime';
-  const runtimeMode = lane === 'all' ? 'full' : 'service';
+  const shouldRunRuntime = shouldExecuteRuntimeVerification(selection, fastResult.lane.status === 'passed');
+  const runtimeMode = selection.runtimeMode;
   let runtimeLane: RuntimeVerificationLaneReport;
   const runtimeStartedAtMs = Date.now();
   if (shouldRunRuntime) {

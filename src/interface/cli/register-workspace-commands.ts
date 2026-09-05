@@ -1,15 +1,16 @@
+import { VERIFICATION_LANE_OPTION } from './verification-lane-option.ts';
 import { runWithOptionalSpinner } from './command-progress.ts';
 import type { Command } from 'commander';
 import type { LockFile } from '../../compiler/contract.ts';
 import { CompilerError } from '../../compiler/errors.ts';
 import type { CiArtifactKind } from '../../verification/ci-artifacts/contract/types.ts';
-import type { VerificationLane } from '../../verification/contract/types.ts';
 import { formatJson, printJsonOrText } from './format-utils.ts';
 import { addBlock, composeWorkspace, explainWorkspace, initWorkspace, lockWorkspace, observeWorkspaceArtifacts, repairWorkspace, resolveWorkspace, upgradeWorkspace, verifyWorkspace, writeWorkspaceArtifacts } from './lazy-command-domains.ts';
 import { jsonOpts, commandPath, usageError, addJsonFlags, optionalModeCommand } from './command-options.ts';
 import {
   COMPOSE_LOCK_OPTION, WORKSPACE_DRY_RUN_OPTION,
-  parseComposeCommandInput, parseRepairCommandInput, parseUpgradeCommandInput
+  parseComposeCommandInput, parseRepairCommandInput, parseUpgradeCommandInput,
+  parseVerifyCommandInput, VERIFY_COMMAND_DEFAULT_LANE
 } from './workspace-command-input.ts';
 
 export function registerWorkspaceCommands(program: Command): void {
@@ -52,16 +53,11 @@ export function registerWorkspaceCommands(program: Command): void {
 
   addJsonFlags(program.command('verify'))
     .description('Run verification')
-    .option('--lane <lane>', 'Verification lane', 'fast')
+    .option(VERIFICATION_LANE_OPTION.flags, VERIFICATION_LANE_OPTION.description, VERIFY_COMMAND_DEFAULT_LANE)
     .action(async (rawOptions: Record<string, unknown>) => {
-      const opts = Object.freeze({ ...rawOptions });
       const cwd = process.cwd();
-      const lane = opts.lane as VerificationLane;
-      if (lane !== 'fast' && lane !== 'runtime' && lane !== 'all') {
-        throw usageError('Lane must be fast, runtime, or all');
-      }
-      const output = jsonOpts(opts);
-      const { report } = await runWithOptionalSpinner('Running verification', output, () => verifyWorkspace(cwd, { lane, emitTiming: !output.json }));
+      const { output, request } = parseVerifyCommandInput(rawOptions);
+      const { report } = await runWithOptionalSpinner('Running verification', output, () => verifyWorkspace(cwd, request));
       printJsonOrText(report, output, (v) => `Verification ${v.summary.status} (${v.summary.requestedLane})`);
     });
 

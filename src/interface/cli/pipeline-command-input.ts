@@ -1,3 +1,4 @@
+import { parseVerificationLaneOption } from './verification-lane-option.ts';
 import { CompilerError } from '../../compiler/errors.ts';
 import { parseJsonOutputOptions, type JsonOutputIssue } from './json-output-options.ts';
 import { PIPELINE_STAGE_IDS, type PipelineStageId } from '../../compiler/pipeline/stages.ts';
@@ -10,12 +11,7 @@ function pipelineStage(value: unknown, option: string): PipelineStageId | undefi
   return value as PipelineStageId;
 }
 
-function verificationLane(value: unknown) {
-  if (value !== 'fast' && value !== 'runtime' && value !== 'all') {
-    throw new CompilerError('PIPELINE-USAGE-002', '--lane must be fast, runtime, or all');
-  }
-  return value;
-}
+export const PIPELINE_COMPILE_DEFAULT_LANE = 'all' as const;
 
 export function rejectPipelineOutputIssue(issue: JsonOutputIssue): never {
   throw new CompilerError('PIPELINE-USAGE-003', issue.message);
@@ -38,7 +34,9 @@ export function parsePipelineCompileOptions(options: Readonly<Record<string, unk
       source: 'cli' as const,
       ...(first === undefined ? {} : { from: first }),
       ...(last === undefined ? {} : { through: last }),
-      verificationLane: verificationLane(lane)
+      verificationLane: parseVerificationLaneOption(lane, (choices) => {
+        throw new CompilerError('PIPELINE-USAGE-002', `--lane must be ${choices}`);
+      })
     })
   });
 }

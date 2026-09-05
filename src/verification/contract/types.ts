@@ -1,3 +1,5 @@
+import type { VerificationLane } from './lanes.ts';
+export type { VerificationLane } from './lanes.ts';
 import type { PolicyReport, PolicyViolation } from '../../compiler/policies/contract/types.ts';
 import type { SemanticMutationBase, SemanticMutationVerificationCapability, VerificationRequirement } from '../../semantic/mutation/contract/types.ts';
 import type { VerificationAggregateResult, VerificationGateResult } from '../result/contract/result.ts';
@@ -61,7 +63,6 @@ export interface SemanticMutationVerificationReport {
   readonly reportRevision: string;
 }
 
-export type VerificationLane = 'fast' | 'runtime' | 'all';
 export type VerificationStatus = 'passed' | 'failed' | 'skipped';
 
 export interface VerificationStepReport {
