@@ -8,7 +8,7 @@ import {
 export { SecError as CompilerError };
 export type CompilerErrorDetails = SecErrorDetails;
 
-function inspectFailureValue(value: unknown): string {
+export function inspectFailureValue(value: unknown): string {
   try {
     return inspect(value, { customInspect: false, getters: false });
   } catch {

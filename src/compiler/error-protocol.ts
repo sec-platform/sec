@@ -4,7 +4,7 @@ import {
   posixPath,
   workspaceConfigRelativePath
 } from '../workspace/runtime/paths.ts';
-import type { CompilerErrorDetails } from './errors.ts';
+import { getErrorCode } from './errors.ts';
 
 export type ErrorProtocol = {
   code: string;
@@ -13,7 +13,7 @@ export type ErrorProtocol = {
   issueType: 'usage' | 'spec' | 'composition' | 'kernel';
   suggestedActions: string[];
   artifactPaths: string[];
-  details?: CompilerErrorDetails;
+  details?: unknown;
 };
 
 type ErrorProtocolRule = {
@@ -58,22 +58,28 @@ const ERROR_PROTOCOL_RULES: ErrorProtocolRule[] = [
   { prefix: 'IMPORT-AUTHORITY-', recoverable: true, issueType: 'usage', suggestedActions: ['install-canonical-bun-version', 'align-packageManager-field', 'verify-bunfig-toolchain-profile'], artifactPaths: [] }
 ];
 
-export function buildErrorProtocol(error: {
-  code?: string;
-  message?: string;
-  details?: CompilerErrorDetails;
-}): ErrorProtocol {
-  const code = error.code ?? 'UNEXPECTED';
-  const message = error.message ?? 'Unexpected failure';
+/** Observing a failure must not throw a second failure from a caller-owned getter. */
+function failureField(error: unknown, field: 'message' | 'details'): unknown {
+  if (error === null || (typeof error !== 'object' && typeof error !== 'function')) return undefined;
+  try { return (error as Record<string, unknown>)[field]; } catch { return undefined; }
+}
+
+export function buildErrorProtocol(error: unknown): ErrorProtocol {
+  const code = getErrorCode(error) ?? 'UNEXPECTED';
+  const observedMessage = failureField(error, 'message');
+  const message = typeof observedMessage === 'string' ? observedMessage : 'Unexpected failure';
 
   if (code === 'UNEXPECTED') {
     return { code, message, recoverable: false, issueType: 'kernel', suggestedActions: ['inspect-cli-stack', 'collect-error-output'], artifactPaths: [] };
   }
 
+  const details = failureField(error, 'details');
   const rule = ERROR_PROTOCOL_RULES.find((r) => code.startsWith(r.prefix));
   if (rule) {
-    return { code, message, recoverable: rule.recoverable, issueType: rule.issueType, suggestedActions: rule.suggestedActions, artifactPaths: rule.artifactPaths, details: error.details };
+    // Public projections never lend the rule owner's mutable arrays to callers.
+    return { code, message, recoverable: rule.recoverable, issueType: rule.issueType,
+      suggestedActions: [...rule.suggestedActions], artifactPaths: [...rule.artifactPaths], details };
   }
 
-  return { code, message, recoverable: false, issueType: 'kernel', suggestedActions: ['collect-error-output'], artifactPaths: [], details: error.details };
+  return { code, message, recoverable: false, issueType: 'kernel', suggestedActions: ['collect-error-output'], artifactPaths: [], details };
 }

@@ -83,24 +83,23 @@ export function registerWorkspaceCommands(program: Command): void {
         printJsonOrText(repairPlan, output, (p) => formatRepairSummary(p, true));
         return;
       }
-      try {
-        const { repairPlan } = await runWithOptionalSpinner(
+      const { runRepairWithFailureReadback } = await import('./repair-command-execution.ts');
+      const { repairPlan } = await runRepairWithFailureReadback(
+        () => runWithOptionalSpinner(
           input.request.dryRun ? 'Previewing repair' : 'Running repair',
           output,
           () => repairWorkspace(cwd, { dryRun: input.request.dryRun })
-        );
-        printJsonOrText(repairPlan, output, (p) => formatRepairSummary(p, input.request.dryRun));
-      } catch (error) {
-        const repairPlanPath = resolveWorkspaceArtifactPath(cwd, CI_ARTIFACT_FILES.repairPlan);
-        if (await pathExists(repairPlanPath)) {
-          const repairPlan = readRequiredRepairPlan(
-            repairPlanPath,
-            'Repair plan disappeared before it could be read back.'
-          );
-          printJsonOrText(repairPlan, output, (p) => formatRepairSummary(p, input.request.dryRun));
+        ),
+        async () => {
+          const repairPlanPath = resolveWorkspaceArtifactPath(cwd, CI_ARTIFACT_FILES.repairPlan);
+          if (await pathExists(repairPlanPath)) {
+            const plan = readRequiredRepairPlan(repairPlanPath, 'Repair plan disappeared before it could be read back.');
+            printJsonOrText(plan, output, (p) => formatRepairSummary(p, input.request.dryRun));
+          }
         }
-        throw error;
-      }
+      );
+      // A successful execution followed by presentation failure must not trigger failure readback.
+      printJsonOrText(repairPlan, output, (p) => formatRepairSummary(p, input.request.dryRun));
     });
 
   addJsonFlags(program.command('upgrade')
