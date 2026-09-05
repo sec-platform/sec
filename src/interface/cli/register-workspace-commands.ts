@@ -1,11 +1,11 @@
+import { ARTIFACT_PATHS_OPTION, ARTIFACT_KIND_OPTION, parseArtifactCommandInput } from './artifact-command-input.ts';
 import { VERIFICATION_LANE_OPTION } from './verification-lane-option.ts';
 import { runWithOptionalSpinner } from './command-progress.ts';
 import type { Command } from 'commander';
 import type { LockFile } from '../../compiler/contract.ts';
 import { CompilerError } from '../../compiler/errors.ts';
-import type { CiArtifactKind } from '../../verification/ci-artifacts/contract/types.ts';
-import { formatJson, printJsonOrText } from './format-utils.ts';
-import { addBlock, composeWorkspace, explainWorkspace, initWorkspace, lockWorkspace, observeWorkspaceArtifacts, repairWorkspace, resolveWorkspace, upgradeWorkspace, verifyWorkspace, writeWorkspaceArtifacts } from './lazy-command-domains.ts';
+import { printJsonOrText } from './format-utils.ts';
+import { addBlock, composeWorkspace, explainWorkspace, initWorkspace, lockWorkspace, repairWorkspace, resolveWorkspace, upgradeWorkspace, verifyWorkspace } from './lazy-command-domains.ts';
 import { jsonOpts, commandPath, usageError, addJsonFlags, optionalModeCommand } from './command-options.ts';
 import {
   COMPOSE_LOCK_OPTION, WORKSPACE_DRY_RUN_OPTION,
@@ -207,31 +207,13 @@ export function registerWorkspaceCommands(program: Command): void {
 
   addJsonFlags(optionalModeCommand(program.command('artifacts'), 'mode', ['manifest']))
     .description('Manage CI artifacts')
-    .option('--paths', 'List artifact paths')
-    .option('--kind <kind>', 'Filter by artifact kind')
+    .option(ARTIFACT_PATHS_OPTION.flags, ARTIFACT_PATHS_OPTION.description)
+    .option(ARTIFACT_KIND_OPTION.flags, ARTIFACT_KIND_OPTION.description)
     .action(async (mode: string | undefined, rawOptions: Record<string, unknown>, cmd: Command) => {
-      const opts = Object.freeze({ ...rawOptions });
       const cwd = process.cwd();
-      const output = jsonOpts(opts);
-      if (mode === 'manifest') {
-        const { CI_ARTIFACT_FILES } = await import('../../verification/ci-artifacts/contract/manifest.ts');
-        const { resolveWorkspaceArtifactPath } = await import('../../workspace/runtime/paths.ts');
-        const { printWorkspaceJson } = await import('./artifact-command-read.ts');
-        const { formatCiArtifactManifest } = await import('./formatters.ts');
-        await printWorkspaceJson<import('../../verification/ci-artifacts/contract/types.ts').CiArtifactManifest>(
-          cwd, (root) => resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.artifactManifest), `Artifact manifest not found; run ${commandPath(cmd)} --json first`, output, formatCiArtifactManifest
-        );
-        return;
-      }
-      if (opts.paths) {
-        const { buildArtifactUploadPathContract } = await import('./formatters.ts');
-        const manifest = await observeWorkspaceArtifacts(cwd);
-        const kind = opts.kind as CiArtifactKind | undefined;
-        const contract = buildArtifactUploadPathContract(manifest, kind);
-        printJsonOrText(contract, output, (c) => c.paths.join('\n'));
-        return;
-      }
-      const { manifest } = await writeWorkspaceArtifacts(cwd);
-      console.log(formatJson(manifest, output));
+      const invocationPath = commandPath(cmd);
+      const input = parseArtifactCommandInput(mode, rawOptions);
+      const { executeArtifactCommand } = await import('./artifact-command-execution.ts');
+      await executeArtifactCommand(cwd, invocationPath, input);
     });
 }

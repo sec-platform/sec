@@ -1,12 +1,16 @@
 export const CI_ARTIFACT_FORMAT_VERSION = '2' as const;
 
-export const CI_ARTIFACT_KINDS = [
+export const CI_ARTIFACT_KINDS = Object.freeze([
   'governance',
   'test',
   'contract'
-] as const;
+] as const);
 
 export type CiArtifactKind = typeof CI_ARTIFACT_KINDS[number];
+
+export function isCiArtifactKind(value: unknown): value is CiArtifactKind {
+  return typeof value === 'string' && CI_ARTIFACT_KINDS.some((kind) => kind === value);
+}
 
 export const CI_ARTIFACT_MISSING_REASON = {
   declaredGeneratedMissing: 'declared-generated-missing',
