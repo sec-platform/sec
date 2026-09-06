@@ -1,3 +1,6 @@
+import { compilerDependencyManifestAuthority, compilerInputText } from './compiler-input-contract.ts';
+export { compilerDependencyManifestAuthority } from './compiler-input-contract.ts';
+export type { CompilerDependencyManifestAuthority } from './compiler-input-contract.ts';
 import { readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -11,15 +14,13 @@ import {
 import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
 import {
   canonicalJson,
-  compareCodeUnits,
   digest,
   sortedKeys
 } from '../../../system-architecture/foundation/runtime/canonical.ts';
 import { compilerRoot } from '../../../workspace/runtime/paths.ts';
 import { loadCanonicalBunRuntimeVersion } from '../../runtime.ts';
-import type { RootPackageJson } from '../contract/runtime-dependency-spec.ts';
 import { sameHostPath } from './host-path.ts';
-import type { RuntimeDependencyOperationOptions } from './operation-context.ts';
+import { runtimeDependencyOperationControls, runtimeDependencyOperationRemainingMs, type RuntimeDependencyOperationControlInput } from './operation-controls.ts';
 import { measureRuntimeDependencyOperationPhaseAsync } from './operation-telemetry.ts';
 
 export type CompilerDependencyMaterializationDigest = `sha256:${string}`;
@@ -72,47 +73,11 @@ export type RuntimeExecutableIdentity = Readonly<{
   signature: string;
 }>;
 
-export type CompilerDependencyManifestAuthority = Readonly<{
-  declaredBunVersion: string;
-  dependencies: Record<string, string>;
-  dependencyManifestSha256: string;
-  devDependencies: Record<string, string>;
-}>;
-
-function sortedRecord(record: Record<string, string> | undefined): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(record ?? {}).sort(([left], [right]) => compareCodeUnits(left, right))
-  );
-}
-
 export function compilerInstallConfigSha256(bytes: Uint8Array | null): string {
   const install = bytes === null
     ? null
-    : (Bun.TOML.parse(Buffer.from(bytes).toString('utf8')) as Record<string, unknown>).install ?? null;
+    : (Bun.TOML.parse(compilerInputText(bytes, 'Compiler installation configuration')) as Record<string, unknown>).install ?? null;
   return digest(JSON.stringify(canonicalJson({ install })));
-}
-
-export function compilerDependencyManifestAuthority(
-  packageJsonBytes: Uint8Array
-): CompilerDependencyManifestAuthority {
-  const packageJson = JSON.parse(Buffer.from(packageJsonBytes).toString('utf8')) as
-    RootPackageJson & { packageManager?: string };
-  const packageManagerMatch = /^bun@([^\s]+)$/u.exec(packageJson.packageManager ?? '');
-  if (!packageManagerMatch) {
-    throw new SecError('IMPORT-AUTHORITY-001', 'Root packageManager must pin one Bun version exactly');
-  }
-  const dependencies = sortedRecord(packageJson.dependencies);
-  const devDependencies = sortedRecord(packageJson.devDependencies);
-  return Object.freeze({
-    declaredBunVersion: packageManagerMatch[1]!,
-    dependencies,
-    dependencyManifestSha256: digest(JSON.stringify({
-      dependencies,
-      devDependencies,
-      packageManager: packageJson.packageManager
-    })),
-    devDependencies
-  });
 }
 
 // Only coalesce observations that are currently in flight. A settled
@@ -123,6 +88,7 @@ let runtimeExecutableIdentityInFlight: Promise<RuntimeExecutableIdentity> | null
 export async function currentRuntimeExecutableIdentity(
   refresh = false
 ): Promise<RuntimeExecutableIdentity> {
+  if (typeof refresh !== 'boolean') throw new TypeError('Executable refresh mode must be boolean');
   if (!refresh && runtimeExecutableIdentityInFlight !== null) {
     return runtimeExecutableIdentityInFlight;
   }
@@ -165,6 +131,7 @@ export async function currentRuntimeExecutableIdentity(
 }
 
 export async function compilerDependencyIdentity(root: string): Promise<CompilerDependencyIdentity> {
+  root = path.resolve(root);
   const [packageJsonBytes, lockfileBytes, installConfigBytes, runtimeExecutable] = await Promise.all([
     fs.readFile(path.join(root, 'package.json')),
     fs.readFile(path.join(root, 'bun.lock')),
@@ -223,15 +190,18 @@ export async function compilerDependencyIdentity(root: string): Promise<Compiler
   };
 }
 
-export function observeCompilerDependencyIdentity(
+export async function observeCompilerDependencyIdentity(
   root: string,
-  options: RuntimeDependencyOperationOptions
+  input: RuntimeDependencyOperationControlInput
 ): Promise<CompilerDependencyIdentity> {
-  return measureRuntimeDependencyOperationPhaseAsync(
-    options,
-    'identity',
-    () => compilerDependencyIdentity(root)
+  root = path.resolve(root);
+  const controls = runtimeDependencyOperationControls(input);
+  runtimeDependencyOperationRemainingMs(controls, 'Compiler dependency identity admission');
+  const result = await measureRuntimeDependencyOperationPhaseAsync(
+    controls, 'identity', () => compilerDependencyIdentity(root)
   );
+  runtimeDependencyOperationRemainingMs(controls, 'Compiler dependency identity readback');
+  return result;
 }
 
 function materializationDigest(value: string): CompilerDependencyMaterializationDigest {
@@ -281,10 +251,23 @@ export async function observeCompilerDependencyMaterializationInput(
   );
 }
 
+type CompilerInputExpectation = Pick<CompilerDependencyIdentity,
+  'packageSourceSha256' | 'lockSha256' | 'installConfigPresent' | 'installConfigSha256'
+  | 'bunVersion' | 'declaredBunVersion' | 'dependencyManifestSha256'>;
+
+function captureCompilerInputExpectation(input: CompilerInputExpectation): Readonly<CompilerInputExpectation> {
+  const { packageSourceSha256, lockSha256, installConfigPresent, installConfigSha256,
+    bunVersion, declaredBunVersion, dependencyManifestSha256 } = input;
+  return Object.freeze({ packageSourceSha256, lockSha256, installConfigPresent, installConfigSha256,
+    bunVersion, declaredBunVersion, dependencyManifestSha256 });
+}
+
 export function assertCompilerDependencyInputsCurrent(
   root: string,
-  expected: CompilerDependencyIdentity
+  expectedInput: CompilerDependencyIdentity
 ): void {
+  root = path.resolve(root);
+  const expected = captureCompilerInputExpectation(expectedInput);
   const sourceRoot = inspectNoFollowDirectoryChain(
     root,
     'Compiler dependency input source root fence'
@@ -316,7 +299,7 @@ export function assertCompilerDependencyInputsCurrent(
   let version: string;
   try {
     const versionBytes = readNoFollowOrdinaryFile(sourceRoot, '.bun-version');
-    version = versionBytes === null ? '' : Buffer.from(versionBytes).toString('utf8').trim();
+    version = versionBytes === null ? '' : compilerInputText(versionBytes, 'Compiler Bun version marker').trim();
   } catch (error) {
     throw new SecError(
       'IMPORT-AUTHORITY-001',
@@ -335,9 +318,11 @@ export function assertCompilerDependencyInputsCurrent(
 
 export function compilerDependencyInputFenceMatches(
   root: string,
-  expected: CompilerDependencyIdentity
+  expectedInput: CompilerDependencyIdentity
 ): boolean {
   try {
+    root = path.resolve(root);
+    const expected = captureCompilerInputExpectation(expectedInput);
     const packageJsonBytes = readFileSync(path.join(root, 'package.json'));
     const lockfileBytes = readFileSync(path.join(root, 'bun.lock'));
     let installConfigBytes: Buffer | null;
@@ -348,7 +333,7 @@ export function compilerDependencyInputFenceMatches(
       installConfigBytes = null;
     }
     const manifest = compilerDependencyManifestAuthority(packageJsonBytes);
-    const canonicalBunVersion = readFileSync(path.join(root, '.bun-version'), 'utf8').trim();
+    const canonicalBunVersion = compilerInputText(readFileSync(path.join(root, '.bun-version')), 'Compiler Bun version marker').trim();
     return manifest.declaredBunVersion === expected.declaredBunVersion &&
       manifest.dependencyManifestSha256 === expected.dependencyManifestSha256 &&
       digest(lockfileBytes) === expected.lockSha256 &&

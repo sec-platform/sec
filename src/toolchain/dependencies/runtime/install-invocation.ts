@@ -1,3 +1,4 @@
+import { isRuntimeDependencyInstallMode } from '../contract/install-request.ts';
 import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
 import { assertRuntimeDependencyTestMaterialization } from './materialization-fixture-capability.ts';
 import { captureRuntimeDependencyBindingGuard, runtimeDependencyOperationControls } from './operation-controls.ts';
@@ -14,7 +15,7 @@ export function bindCompilerInstallInvocation(options: RuntimeDependencyInstallO
   const mode = own('installMode');
   const beforeCommit = own('beforeCommit');
   const materialization = own('testMaterialization');
-  if (mode !== undefined && mode !== 'allow' && mode !== 'offline-copy-only' && mode !== 'prebound-only') {
+  if (mode !== undefined && !isRuntimeDependencyInstallMode(mode)) {
     throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency install mode is invalid');
   }
   if (mode === 'prebound-only') throw new SecError('RUNTIME-DEPS-003', 'Prebound-only mode cannot execute a dependency installation');

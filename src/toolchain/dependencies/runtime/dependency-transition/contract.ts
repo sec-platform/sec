@@ -6,9 +6,6 @@ import {
 import {
   type PhysicalDirectoryIdentity
 } from '../../../../runtime-state/physical/runtime/physical-no-follow.ts';
-import {
-  compareCodeUnits
-} from '../../../../system-architecture/foundation/runtime/canonical.ts';
 
 /**
  * Sole internal owner for dependency transition journal schemas, immutable
@@ -149,10 +146,20 @@ export function hasExactObjectKeys(
   value: unknown,
   keys: readonly string[]
 ): value is Record<string, unknown> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value) ||
-      Object.getPrototypeOf(value) !== Object.prototype) return false;
-  return Object.keys(value).sort(compareCodeUnits).join('\0') ===
-    [...keys].sort(compareCodeUnits).join('\0');
+  try {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)
+        || Object.getPrototypeOf(value) !== Object.prototype) return false;
+    const expected = new Set(keys);
+    const actual = Reflect.ownKeys(value);
+    if (expected.size !== keys.length || actual.length !== expected.size) return false;
+    // Never concatenate field names: embedded delimiters are ordinary key data.
+    // Persisted JSON owns enumerable data properties, not hidden/symbol/accessor state.
+    return actual.every(key => {
+      if (typeof key !== 'string' || !expected.has(key)) return false;
+      const field = Object.getOwnPropertyDescriptor(value, key);
+      return field !== undefined && field.enumerable === true && 'value' in field;
+    });
+  } catch { return false; }
 }
 
 export function isCanonicalAbsolutePath(value: unknown): value is string {
@@ -174,12 +181,14 @@ export function transitionSlotFromPhysical(input: Readonly<{
   linkTarget?: string | null;
   bindingDigest?: `sha256:${string}` | null;
 }>): DependencyTransitionSlot {
+  const cwd = process.cwd();
+  const { path: selectedPath, kind, physical, linkTarget, bindingDigest } = input;
   return Object.freeze({
-    path: path.resolve(input.path),
-    kind: input.kind,
-    physical: input.physical,
-    linkTarget: input.linkTarget ?? null,
-    bindingDigest: input.bindingDigest ?? null
+    path: path.resolve(cwd, selectedPath),
+    kind,
+    physical: generatedStatePhysicalIdentity(physical),
+    linkTarget: linkTarget ?? null,
+    bindingDigest: bindingDigest ?? null
   });
 }
 
@@ -208,5 +217,8 @@ export function sourceGenerationWithPath(
   source: RuntimeDependencySourceGeneration,
   sourcePath: string
 ): RuntimeDependencySourceGeneration {
-  return Object.freeze({ ...source, sourcePath: path.resolve(sourcePath) });
+  sourcePath = path.resolve(sourcePath);
+  return Object.freeze({ ...source, sourcePath,
+    ownerRootPhysical: generatedStatePhysicalIdentity(source.ownerRootPhysical),
+    physical: generatedStatePhysicalIdentity(source.physical) });
 }

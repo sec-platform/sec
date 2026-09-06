@@ -1,3 +1,4 @@
+import type { RuntimeDependencyInstallRequest } from '../contract/install-request.ts';
 import type { RuntimeDependencyLifecycleInput } from './lifecycle-capabilities.ts';
 export type { RuntimeDependencyGeneratedStateLifecycle, RuntimeDependencyLifecycleInput } from './lifecycle-capabilities.ts';
 import type { CommitFence } from '../../../workspace/files.ts';
@@ -32,14 +33,15 @@ export const COMPILER_DEPENDENCY_EXECUTION_RETENTION_POLICY = Object.freeze({
   maximumDurationMs: 300_000
 });
 
-export interface RuntimeDependencyInstallOptions extends RuntimeDependencyOperationControlInput, RuntimeDependencyLifecycleInput {
-  beforeCommit?: CommitFence;
-  installMode?: 'allow' | 'offline-copy-only' | 'prebound-only';
+/** Internal environment supplied by dependency orchestration, never public input. */
+export interface RuntimeDependencyEnvironmentInput {
   now?: () => string;
-  rematerialize?: boolean;
   sharedDepsRoot?: string;
-  skipSharedDepsWarmup?: boolean;
   sleep?: (ms: number) => Promise<void>;
+}
+
+/** Test-owner facilities remain explicit and separate from production requests. */
+export interface RuntimeDependencyFaultInjectionInput {
   testCompilerPublishPlatform?: NodeJS.Platform;
   testCompilerPublishHook?: (stage: 'active-backed-up') => void | Promise<void>;
   testProjectProjectionHook?: (
@@ -60,6 +62,12 @@ export interface RuntimeDependencyInstallOptions extends RuntimeDependencyOperat
    */
   testMaterialization?: RuntimeDependencyTestMaterializationCapability;
 }
+
+/** Compatibility composition at the coordinator only. Lower consumers must
+ * use controls, effect input or a selected lifecycle projection instead. */
+export interface RuntimeDependencyInstallOptions extends RuntimeDependencyInstallRequest,
+  RuntimeDependencyOperationControlInput, RuntimeDependencyLifecycleInput,
+  RuntimeDependencyEnvironmentInput, RuntimeDependencyFaultInjectionInput {}
 
 export type RuntimeDependencyOperationOptions<
   T extends RuntimeDependencyInstallOptions = RuntimeDependencyInstallOptions
