@@ -1,4 +1,5 @@
 import pLimit, { type LimitFunction } from 'p-limit';
+import { isNativeAborted, linkNativeAbortSignals, throwIfNativeAborted } from './native-abort.ts';
 
 const DEFAULT_CONCURRENCY = 10;
 
@@ -23,21 +24,29 @@ export async function runTaskGroup<T>(
   tasks: readonly ((signal: AbortSignal) => T | PromiseLike<T>)[],
   options: TaskGroupOptions = {}
 ): Promise<T[]> {
-  const configuredConcurrency = options.concurrency;
+  const { concurrency: configuredConcurrency, signal: parent } = options;
+  throwIfNativeAborted(parent);
   const concurrency = configuredConcurrency === undefined ? DEFAULT_CONCURRENCY : configuredConcurrency;
   if (!Number.isSafeInteger(concurrency) || concurrency < 1) throw new TypeError('Task group concurrency must be a positive safe integer');
-  const captured = Array.from(tasks);
-  if (captured.some(task => typeof task !== 'function')) throw new TypeError('Task group entries must be callable');
-  const parent = options.signal;
+  if (!Array.isArray(tasks)) throw new TypeError('Task group entries must be an array');
+  const captured: Array<(signal: AbortSignal) => T | PromiseLike<T>> = [];
+  const length = tasks.length;
+  for (let index = 0; index < length; index += 1) {
+    const slot = Object.getOwnPropertyDescriptor(tasks, index);
+    if (!slot || !('value' in slot) || typeof slot.value !== 'function') {
+      throw new TypeError('Task group entries must be dense own callable data');
+    }
+    captured.push(slot.value);
+  }
   const controller = new AbortController();
-  const signal = parent === undefined ? controller.signal : AbortSignal.any([parent, controller.signal]);
-  signal.throwIfAborted();
+  const signal = linkNativeAbortSignals(parent, controller.signal);
+  throwIfNativeAborted(signal);
   const results: T[] = new Array(captured.length);
   const failures: Array<{ index: number; reason: unknown }> = [];
   let primary: { reason: unknown } | undefined;
   let next = 0;
   const worker = async (): Promise<void> => {
-    while (primary === undefined && !signal.aborted && next < captured.length) {
+    while (primary === undefined && !isNativeAborted(signal) && next < captured.length) {
       const index = next++;
       try { results[index] = await captured[index]!(signal); }
       catch (reason) {
@@ -53,6 +62,6 @@ export async function runTaskGroup<T>(
     failures.sort((a, b) => a.index - b.index);
     throw new AggregateError(failures.map(f => f.reason), 'Task group failed after joining all started work', { cause: primary!.reason });
   }
-  signal.throwIfAborted();
+  throwIfNativeAborted(signal);
   return results;
 }
