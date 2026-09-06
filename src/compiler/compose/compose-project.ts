@@ -31,8 +31,18 @@ export async function composeProject(
   semanticContext: PipelineSemanticContext,
   options: ComposeProjectOptions
 ): Promise<LockFile> {
-  const commitFence = options.commitFence;
-  options.signal?.throwIfAborted();
+  workspaceRoot = path.resolve(workspaceRoot);
+  const { commitFence: providerFence, signal, opaqueModuleMaterializationMode } = options;
+  if (providerFence !== undefined && typeof providerFence !== 'function') throw new TypeError('Compose commit fence must be callable');
+  signal?.throwIfAborted();
+  // One admitted plan drives both execution and its manifest, not a later
+  // caller-mutated lock.installPlan. Lock state remains owned by composition.
+  const installPlan = Object.freeze(lock.installPlan.map(step => Object.freeze({ ...step })));
+  const commitFence: CommitFence = async () => {
+    signal?.throwIfAborted();
+    if (providerFence !== undefined) await Reflect.apply(providerFence, options, []);
+    signal?.throwIfAborted();
+  };
   const blockUsageMapPath = resolveWorkspaceArtifactPath(
     workspaceRoot,
     CI_ARTIFACT_FILES.blockUsageMap
@@ -47,26 +57,25 @@ export async function composeProject(
   // does not belong on the compilation path.
   await checkProjectWriteBoundary(workspaceRoot);
   await ensureProjectBase(workspaceRoot, commitFence);
-  options.signal?.throwIfAborted();
+  signal?.throwIfAborted();
 
-  const installContext = { workspaceRoot, lock, commitFence };
-  await defaultInstallRegistry.executeAll(lock.installPlan, installContext);
+  const installContext = Object.freeze({ workspaceRoot, lock, commitFence, signal });
+  await defaultInstallRegistry.executeAll(installPlan, installContext);
   await mergePrismaTemplate(workspaceRoot, commitFence);
   const opaqueGeneratedPaths = await installOpaqueModules(workspaceRoot, {
     commitFence,
-    materializationMode: options.opaqueModuleMaterializationMode
+    materializationMode: opaqueModuleMaterializationMode
   });
-  options.signal?.throwIfAborted();
+  signal?.throwIfAborted();
 
-  const installManifest: Array<InstallPlanStep & { status: 'installed' }> = lock.installPlan.map((step) => ({
+  const installManifest: Array<InstallPlanStep & { status: 'installed' }> = installPlan.map((step) => ({
     ...step,
     status: 'installed' as const
   }));
 
-  await Promise.all([
-    ensureDir(path.dirname(blockUsageMapPath), commitFence),
-    ensureDir(path.dirname(installManifestPath), commitFence)
-  ]);
+  // Directory preparation must not outlive a failed compose attempt.
+  await ensureDir(path.dirname(blockUsageMapPath), commitFence);
+  await ensureDir(path.dirname(installManifestPath), commitFence);
 
   await writeJson(blockUsageMapPath, {
     blocks: lock.resolvedBlocks.map((block) => ({ id: block.id, installOrder: block.installOrder }))
@@ -87,14 +96,14 @@ export async function composeProject(
   addGeneratedPaths(lock, initialGeneratedPaths);
   await formatOutputFiles(workspaceRoot, lock.generatedPaths, commitFence);
   await applyOverrides(workspaceRoot, commitFence);
-  options.signal?.throwIfAborted();
+  signal?.throwIfAborted();
   await writeJson(installManifestPath, installManifest, commitFence);
   const overrideManifest = await loadOverrideManifest(workspaceRoot);
   await writeProjectBaseline(
     workspaceRoot,
     {
       artifactPaths: [
-        ...lock.installPlan.map((step) => step.to),
+        ...installPlan.map((step) => step.to),
         ...lock.generatedPaths,
         ...overrideManifest.overrides.map((entry) => entry.target)
       ]

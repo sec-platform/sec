@@ -1,7 +1,8 @@
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import { assertCanonicalPortableLogicalPath } from '../../system-architecture/foundation/contract/logical-path.ts';
 import { normalizeNewlines } from '../../system-architecture/foundation/runtime/collections.ts';
-import { defaultLimit } from '../../system-architecture/foundation/runtime/concurrency.ts';
+import path from 'node:path';
+import { runTaskGroup } from '../../system-architecture/foundation/runtime/concurrency.ts';
 import { writeText, type CommitFence } from '../../workspace/files.ts';
 import { copyRecursive } from '../../workspace/runtime/discovery.ts';
 import {
@@ -17,6 +18,7 @@ export interface InstallContext {
   workspaceRoot: string;
   lock: LockFile;
   commitFence?: CommitFence;
+  signal?: AbortSignal;
 }
 
 export interface InstallStrategy {
@@ -106,16 +108,21 @@ export class MergePrismaInstallStrategy implements InstallStrategy {
   }
 }
 
-function groupInstallStepsByTarget(steps: readonly InstallPlanStep[]): InstallPlanStep[][] {
-  const groups = new Map<string, InstallPlanStep[]>();
-  for (const step of steps) {
-    const target = canonicalInstallTarget(step);
-    const group = groups.get(target);
-    if (group) {
-      group.push(step);
-    } else {
-      groups.set(target, [step]);
+/** Ancestor/descendant targets share one serial lane, not just exact names.
+ * Uses resolved lexical targets; physical alias admission remains with the IO owner. */
+function groupInstallTargets<T extends { target: string }>(entries: readonly T[]): T[][] {
+  const key = (value: string) => process.platform === 'win32' ? value.toLowerCase() : value;
+  const targets = new Set(entries.map(entry => key(entry.target)));
+  const groups = new Map<string, T[]>();
+  for (const entry of entries) {
+    let root = key(entry.target);
+    let parent = path.dirname(root);
+    while (parent !== path.dirname(parent)) {
+      if (targets.has(parent)) root = parent;
+      parent = path.dirname(parent);
     }
+    const group = groups.get(root);
+    if (group) group.push(entry); else groups.set(root, [entry]);
   }
   return [...groups.values()];
 }
@@ -129,6 +136,7 @@ export class InstallStrategyRegistry {
   private strategies: InstallStrategy[] = [...BUILTIN_STRATEGIES];
 
   register(strategy: InstallStrategy): this {
+    if (typeof strategy?.canHandle !== 'function' || typeof strategy?.execute !== 'function') throw new TypeError('Install strategy needs callable selection and execution');
     this.strategies.push(strategy);
     return this;
   }
@@ -141,15 +149,37 @@ export class InstallStrategyRegistry {
     return strategy;
   }
 
-  async executeAll(steps: InstallPlanStep[], context: InstallContext): Promise<void> {
-    const targetGroups = groupInstallStepsByTarget(steps);
-    await Promise.all(
-      targetGroups.map((group) => defaultLimit(async () => {
-        for (const step of group) {
-          await this.resolve(step).execute(step, context);
-        }
-      }))
-    );
+  async executeAll(steps: readonly InstallPlanStep[], context: InstallContext): Promise<void> {
+    const workspaceRoot = path.resolve(context.workspaceRoot);
+    const { lock, signal: parentSignal, commitFence } = context;
+    if (commitFence !== undefined && typeof commitFence !== 'function') throw new TypeError('Install commit fence must be callable');
+    parentSignal?.throwIfAborted();
+    const base = Object.freeze({ workspaceRoot, lock });
+    // Capture all providers before selection callbacks or async execution.
+    const strategies = this.strategies.map(receiver => ({
+      accepts: receiver.canHandle.bind(receiver), execute: receiver.execute.bind(receiver)
+    }));
+    // Finish input capture before a provider's selector can modify another step.
+    const capturedSteps = Array.from(steps, raw => Object.freeze({ ...raw }));
+    const prepared = capturedSteps.map(step => {
+      const target = resolveTargetPath(step, base);
+      const selected = strategies.find(strategy => strategy.accepts(step));
+      if (!selected) throw new CompilerError('COMPOSE-PATH-002', `Unsupported install action "${step.action}"`);
+      return { step, target, execute: selected.execute };
+    });
+    const groups = groupInstallTargets(prepared);
+    await runTaskGroup(groups.map(group => async (signal: AbortSignal) => {
+      const fence: CommitFence = async () => {
+        signal.throwIfAborted();
+        if (commitFence) await Reflect.apply(commitFence, context, []);
+        signal.throwIfAborted();
+      };
+      const effective = Object.freeze({ ...base, signal, commitFence: fence });
+      for (const { step, execute } of group) {
+        await fence();
+        await execute(step, effective);
+      }
+    }), { signal: parentSignal });
   }
 }
 
