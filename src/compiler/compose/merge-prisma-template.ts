@@ -22,8 +22,9 @@ export async function materializePrismaSource(input: Readonly<{
   sourceRequired: boolean;
   commitFence?: CommitFence;
 }>): Promise<void> {
+  const cwd = process.cwd();
   const { workspaceRoot: root, sourcePath: source, targetPath: target, sourceRequired, commitFence } = input;
-  const workspaceRoot = path.resolve(root);
+  const workspaceRoot = path.resolve(cwd, root);
   const sourcePath = path.resolve(workspaceRoot, source);
   const targetPath = path.resolve(workspaceRoot, target);
   if (targetPath === workspaceRoot || !isPathInside(workspaceRoot, targetPath)) {

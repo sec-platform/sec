@@ -142,3 +142,15 @@ test('source publication checks retain a class-based fence receiver', async () =
   assert.ok(request.calls > 0);
   assert.equal(readFileSync(f.target, 'utf8'), schema('A'));
 }));
+
+
+test('relative root interpretation is fixed before request getters can change cwd', async () => fixture(async f => {
+  const cwd = process.cwd(); writeFileSync(f.source, schema('A'));
+  try {
+    process.chdir(f.root);
+    await materializePrismaSource({ workspaceRoot: '.',
+      get sourcePath() { process.chdir(tmpdir()); return 'registry/model.prisma'; },
+      targetPath: 'prisma/schema.prisma', sourceRequired: true });
+    assert.equal(readFileSync(f.target, 'utf8'), schema('A'));
+  } finally { process.chdir(cwd); }
+}));
