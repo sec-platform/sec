@@ -10,7 +10,7 @@ import {
   type SecBoundSemanticOperation,
   type SecOperationDigest
 } from '../../system-architecture/operation/semantic.ts';
-import { decodeTrackedProjectPathInventory } from './tracked-path-inventory.ts';
+import { decodeTrackedProjectPathInventory, isTrackedProjectRepositoryAbsent } from './tracked-path-inventory.ts';
 
 const TRACKED_PROJECT_PATH_DURATION_MS = 30_000;
 const TRACKED_PROJECT_PATH_PROCESS_MAXIMUM = 1;
@@ -96,7 +96,7 @@ export async function listTrackedProjectPaths(workspaceRoot: string): Promise<Se
         throw new GitReadAuthorityError('Unable to observe tracked project paths.', command);
       }
       if (command.result.code !== 0) {
-        if (/not a git repository/u.test(command.result.stderr)) return null;
+        if (isTrackedProjectRepositoryAbsent(command.result.code, command.result.stderr)) return null;
         throw new Error(
           `Unable to observe tracked project paths (git exit ${command.result.code}): ` +
           `${command.result.stderr.trim() || 'no stderr'}`

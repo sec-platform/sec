@@ -27,3 +27,13 @@ export function decodeTrackedProjectPathInventory(
   }
   return captureProjectPathInventory(text.split('\0'), 'coalesce', 'Tracked project paths');
 }
+
+/** Only the C-locale discovery failure of this exact Git command means absent.
+ * Exit 128 alone also covers corruption, unsafe ownership and configuration
+ * errors. A matching fragment inside another diagnostic is not absence.
+ */
+export function isTrackedProjectRepositoryAbsent(code: unknown, stderr: unknown): boolean {
+  if (code !== 128 || typeof stderr !== 'string') return false;
+  return /^fatal: not a git repository \(or any of the parent directories\): \.git\r?\n?$/u.test(stderr)
+    || /^fatal: not a git repository \(or any parent up to mount point [^\r\n]+\)\r?\nStopping at filesystem boundary \(GIT_DISCOVERY_ACROSS_FILESYSTEM not set\)\.\r?\n?$/u.test(stderr);
+}
