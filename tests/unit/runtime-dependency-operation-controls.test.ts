@@ -122,15 +122,16 @@ for (const canceller of ['parent', 'child'] as const) {
 
 test('coordinator excludes undeclared capabilities and preserves the true callback receiver', async () => {
   const capability = Object.freeze({ owner: 'install' });
+  const installRoot = process.cwd();
   let reads = 0, calls = 0;
   const raw = { lockTimeoutMs: 100, monotonicNowMs: () => 0,
-    sharedDepsRoot: '/install', get customCapability() { reads += 1; return capability; },
+    sharedDepsRoot: installRoot, get customCapability() { reads += 1; return capability; },
     beforeCommit() { assert.equal(this, raw); assert.equal(this.sharedDepsRoot, '/changed'); calls += 1; } };
   const bound = runtimeDependencyOperationOptions(raw);
   assert.equal(reads, 0);
   // @ts-expect-error Coordinator inputs no longer forward arbitrary extensions.
   assert.equal(bound.customCapability, undefined);
-  assert.equal(bound.sharedDepsRoot, '/install');
+  assert.equal(bound.sharedDepsRoot, installRoot);
   raw.sharedDepsRoot = '/changed';
   await runtimeDependencyOperationEffectFence(bound, 'fence');
   assert.equal(calls, 1); assert.equal(reads, 0); assert.ok(Object.isFrozen(bound));
