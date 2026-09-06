@@ -11,6 +11,7 @@ import { copyRecursive } from '../../workspace/runtime/discovery.ts';
 import {
   getWorkspacePaths,
   isPathInside,
+  resolvePathInside,
   resolveWorkspaceArtifactPath
 } from '../../workspace/runtime/paths.ts';
 import { composeProject } from '../compose/compose-project.ts';
@@ -25,8 +26,30 @@ export async function validateResolvedTemplates(
   lock: LockFile,
   commitFence?: CommitFence
 ): Promise<void> {
+  workspaceRoot = path.resolve(workspaceRoot);
+  if (commitFence !== undefined && typeof commitFence !== 'function') {
+    throw new TypeError('Template validation commit fence must be callable');
+  }
   const sourcePaths = getWorkspacePaths(workspaceRoot);
   const isolated = process.env[ISOLATED_VERIFICATION_ENV_KEY] === '1';
+  // Complete data preparation before acquiring a temporary root. A clone or
+  // registry-path failure must not leak an allocation outside the cleanup scope.
+  const clonedLock = structuredClone(lock);
+  const registryCopies = new Map<string, string>();
+  for (const block of clonedLock.resolvedBlocks) {
+    if (block.registryLocation !== 'workspace' || registryCopies.has(block.registryPath)) continue;
+    const sourceRoot = typeof block.registryPath === 'string'
+      ? resolvePathInside(workspaceRoot, block.registryPath) : null;
+    if (sourceRoot === null) {
+      throw new CompilerError('TEMPLATE-BUILD-002', 'Workspace registry source escapes its validated workspace',
+        { registryPath: block.registryPath });
+    }
+    if (isolated && isPathInside(sourceRoot, sourcePaths.workspaceRoot)) {
+      throw new CompilerError('TEMPLATE-BUILD-002',
+        'Workspace registry source cannot contain the template validation root', { registryPath: block.registryPath });
+    }
+    registryCopies.set(block.registryPath, sourceRoot);
+  }
   if (isolated) {
     await ensureProjectDependencies(sourcePaths.workspaceRoot, {
       beforeCommit: commitFence,
@@ -34,21 +57,11 @@ export async function validateResolvedTemplates(
     });
   }
   await commitFence?.();
+  let failure: { error: unknown } | undefined;
   const validationRoot = await fs.mkdtemp(path.join(
     isolated ? sourcePaths.workspaceRoot : os.tmpdir(),
     '.engineering-compiler-template-'
   ));
-  const clonedLock = structuredClone(lock);
-  const registryCopies = new Map<string, string>();
-  for (const block of clonedLock.resolvedBlocks) {
-    if (block.registryLocation !== 'workspace' || registryCopies.has(block.registryPath)) {
-      continue;
-    }
-    registryCopies.set(
-      block.registryPath,
-      path.join(workspaceRoot, block.registryPath)
-    );
-  }
 
   try {
     for (const [registryPath, sourceRoot] of registryCopies) {
@@ -62,7 +75,12 @@ export async function validateResolvedTemplates(
     }
     await ensureProjectBase(validationRoot, commitFence);
     for (const [registryPath, sourceRoot] of registryCopies) {
-      await copyRecursive(sourceRoot, path.join(validationRoot, registryPath), commitFence);
+      const targetRoot = resolvePathInside(validationRoot, registryPath);
+      if (targetRoot === null) {
+        throw new CompilerError('TEMPLATE-BUILD-002', 'Template registry destination escapes its temporary workspace',
+          { registryPath });
+      }
+      await copyRecursive(sourceRoot, targetRoot, commitFence);
     }
     const validationPaths = getWorkspacePaths(validationRoot);
     await copyRecursive(sourcePaths.workspaceConfigPath, validationPaths.workspaceConfigPath, commitFence);
@@ -91,18 +109,32 @@ export async function validateResolvedTemplates(
       await typecheckProject(validationRoot);
     }
   } catch (error) {
-    if (error instanceof WorkspaceWriteLeaseError || (
-      error instanceof CompilerError &&
-      ['TEMPLATE-BUILD-002', 'VERIFY-ISOLATION-003'].includes(error.code)
-    )) {
-      throw error;
-    }
-    throw new CompilerError(
-      'TEMPLATE-BUILD-001',
-      'Resolved block templates failed validation before compose',
-      formatCompilerFailure(error)
-    );
-  } finally {
-    await removeDir(validationRoot, commitFence);
+    // Presence is separate from the thrown value: undefined/null/false/0 can
+    // all be genuine failures and must survive a later cleanup error.
+    failure = { error };
   }
+  try {
+    // Retain the original effect fence. Failure is not permission to force
+    // cleanup through revoked authority or delete any other workspace.
+    await removeDir(validationRoot, commitFence);
+  } catch (cleanupError) {
+    throw new CompilerError(
+      'TEMPLATE-BUILD-003',
+      'Template validation workspace cleanup did not complete',
+      { validationRoot, validationCompleted: failure === undefined },
+      { cause: failure === undefined ? cleanupError : new AggregateError(
+        [failure.error, cleanupError], 'Template validation and workspace cleanup failed', { cause: failure.error }
+      ) }
+    );
+  }
+  if (failure !== undefined) throw templateValidationFailure(failure.error);
+}
+
+function templateValidationFailure(error: unknown): unknown {
+  try {
+    if (error instanceof WorkspaceWriteLeaseError || (error instanceof CompilerError &&
+        ['TEMPLATE-BUILD-002', 'VERIFY-ISOLATION-003'].includes(error.code))) return error;
+  } catch { /* A hostile or revoked thrown object is still the original cause. */ }
+  return new CompilerError('TEMPLATE-BUILD-001',
+    'Resolved block templates failed validation before compose', formatCompilerFailure(error), { cause: error });
 }
