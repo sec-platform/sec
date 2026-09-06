@@ -1,8 +1,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { isPathInside } from './paths.ts';
 
 import { inspectExactNoFollowDirectoryPresence, scanNoFollowDirectoryTreeMetadata } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { createConcurrencyLimit } from '../../system-architecture/foundation/runtime/concurrency.ts';
+import { createTaskGroupEffectFence, mapTaskGroup } from '../../system-architecture/foundation/runtime/concurrency.ts';
+import { throwIfNativeAborted } from '../../system-architecture/foundation/runtime/native-abort.ts';
 import {
   ensureDir,
   prepareOrdinaryFileWrite,
@@ -14,34 +16,93 @@ const WORKSPACE_FILE_DISCOVERY_LIMITS = Object.freeze({
   maximumEntries: 100_000,
   maximumBytes: 1_073_741_824
 });
+const COPY_CONCURRENCY = 8;
 
+type CopyEntry = Readonly<{
+  source: string;
+  target: string;
+  device: bigint;
+  inode: bigint;
+  size: bigint;
+  modifiedAtNs: bigint;
+  kind: 'directory' | 'file';
+}>;
+
+async function assertCopySourceCurrent(entry: CopyEntry): Promise<void> {
+  const current = await fs.lstat(entry.source, { bigint: true });
+  if (current.isSymbolicLink() || current.dev !== entry.device || current.ino !== entry.inode
+      || (entry.kind === 'directory' ? !current.isDirectory()
+        : !current.isFile() || current.size !== entry.size || current.mtimeNs !== entry.modifiedAtNs)) {
+    throw new Error(`Copy source identity changed after planning: ${entry.source}`);
+  }
+}
+
+/** Ordinary filesystem copy, not a retained path capability or atomic tree
+ * publication. Plan structural inputs before effects; one group owns all file
+ * callbacks, instead of multiplying independent queues at each directory.
+ */
 export async function copyRecursive(
   source: string,
   target: string,
-  commitFence?: CommitFence
+  commitFence?: CommitFence,
+  signal?: AbortSignal
 ): Promise<void> {
-  const sourceMetadata = await fs.lstat(source);
-  if (sourceMetadata.isSymbolicLink()) {
-    throw new Error(`Refusing to copy symbolic-link source: ${source}`);
+  const cwd = process.cwd();
+  source = path.resolve(cwd, source);
+  target = path.resolve(cwd, target);
+  throwIfNativeAborted(signal);
+  if (commitFence !== undefined && typeof commitFence !== 'function') throw new TypeError('Copy commit fence must be callable');
+  // Copying into the source can recursively discover its own output. Copying
+  // onto an ancestor can overwrite source entries that have not been read yet.
+  if (isPathInside(source, target) || isPathInside(target, source)) {
+    throw new Error('Recursive copy source and destination must not overlap');
   }
-  if (sourceMetadata.isDirectory()) {
-    await ensureDir(target, commitFence);
-    const entries = (await fs.readdir(source)).sort();
-    const limit = createConcurrencyLimit(8);
-    await Promise.all(entries.map((entry) => limit(() => copyRecursive(
-      path.join(source, entry),
-      path.join(target, entry),
-      commitFence
-    ))));
-    return;
+  const directories: CopyEntry[] = [];
+  const files: CopyEntry[] = [];
+  const pending = [{ source, target }];
+  while (pending.length > 0) {
+    throwIfNativeAborted(signal);
+    const next = pending.pop()!;
+    const metadata = await fs.lstat(next.source, { bigint: true });
+    throwIfNativeAborted(signal);
+    if (metadata.isSymbolicLink() || (!metadata.isDirectory() && !metadata.isFile())) {
+      throw new Error(`Refusing to copy non-ordinary or symbolic-link source: ${next.source}`);
+    }
+    const entry: CopyEntry = Object.freeze({ ...next, device: metadata.dev, inode: metadata.ino,
+      kind: metadata.isDirectory() ? 'directory' : 'file', size: metadata.size, modifiedAtNs: metadata.mtimeNs });
+    if (entry.kind === 'file') { files.push(entry); continue; }
+    directories.push(entry);
+    const names = (await fs.readdir(entry.source)).sort();
+    await assertCopySourceCurrent(entry);
+    for (let index = names.length - 1; index >= 0; index--) {
+      pending.push({ source: path.join(entry.source, names[index]!), target: path.join(entry.target, names[index]!) });
+    }
   }
-  if (!sourceMetadata.isFile()) {
-    throw new Error(`Refusing to copy non-ordinary source: ${source}`);
+  const directoryFence: CommitFence = async () => {
+    throwIfNativeAborted(signal);
+    await commitFence?.();
+    throwIfNativeAborted(signal);
+  };
+  // Parent-first and sequential: no directory task can outlive a failed copy.
+  for (const directory of directories) {
+    await directoryFence();
+    await assertCopySourceCurrent(directory);
+    await ensureDir(directory.target, directoryFence);
   }
-  await ensureDir(path.dirname(target), commitFence);
-  await prepareOrdinaryFileWrite(target, commitFence);
-  await commitFence?.();
-  await fs.copyFile(source, target);
+  await mapTaskGroup(files, async (entry, _index, childSignal) => {
+    const fence = createTaskGroupEffectFence(childSignal, commitFence);
+    await assertCopySourceCurrent(entry);
+    await ensureDir(path.dirname(entry.target), fence);
+    await prepareOrdinaryFileWrite(entry.target, fence);
+    await fence();
+    await assertCopySourceCurrent(entry);
+    throwIfNativeAborted(childSignal);
+    await fs.copyFile(entry.source, entry.target);
+    // These observations detect substitutions; they cannot close every OS-level
+    // check/use race against a writer outside the caller's authority protocol.
+    await assertCopySourceCurrent(entry);
+    throwIfNativeAborted(childSignal);
+  }, { concurrency: COPY_CONCURRENCY, signal });
 }
 
 export async function listFilesRecursive(rootDir: string): Promise<string[]> {

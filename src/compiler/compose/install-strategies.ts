@@ -70,7 +70,7 @@ export class CopyInstallStrategy implements InstallStrategy {
   async execute(step: InstallPlanStep, context: InstallContext): Promise<void> {
     const sourcePath = resolveSourcePath(step, context);
     const targetPath = resolveTargetPath(step, context);
-    await copyRecursive(sourcePath, targetPath, context.commitFence);
+    await copyRecursive(sourcePath, targetPath, context.commitFence, context.signal);
   }
 }
 
