@@ -1,3 +1,4 @@
+import { CodexDevelopmentSnapshotVerificationData } from '../../verification/result/contract/result.ts';
 import { isNativeAborted, throwIfNativeAborted } from '../../system-architecture/foundation/runtime/native-abort.ts';
 import { observeOptionalDiagnostic } from '../../system-architecture/foundation/runtime/optional-diagnostic.ts';
 import { captureVerifyProjectOptions } from './verify-invocation.ts';
@@ -310,23 +311,32 @@ export async function assertStagedVerificationLiveContext(
     'verificationReport' | 'runtimeReport' | 'policyReport' | 'acceptanceCoverage'
   >
 ): Promise<void> {
-  // Observe both rejections immediately and join both reads before leaving
-  // the live-context check. Preserve policy failure priority when both fail.
+  workspaceRoot = path.resolve(workspaceRoot);
+  const expected = CodexDevelopmentSnapshotVerificationData(
+    artifacts, 'Staged Verification live-context input'
+  ) as unknown as typeof artifacts;
+  // Join both reads, keep their original named-role priority and retain every
+  // cause if both fail. Mutation of caller artifacts cannot rewrite the expected
+  // values while these live observations are suspended.
   const [coverageResult, policyResult] = await Promise.allSettled([
     buildAcceptanceCoverage(
       workspaceRoot,
       lock,
-      artifacts.runtimeReport,
-      artifacts.verificationReport.fast
+      expected.runtimeReport,
+      expected.verificationReport.fast
     ),
     runPolicyGate(workspaceRoot)
   ]);
+  if (policyResult.status === 'rejected' && coverageResult.status === 'rejected') {
+    throw new AggregateError([policyResult.reason, coverageResult.reason],
+      'Live Verification policy and acceptance observations both failed', { cause: policyResult.reason });
+  }
   if (policyResult.status === 'rejected') throw policyResult.reason;
   if (coverageResult.status === 'rejected') throw coverageResult.reason;
   const policyReport = policyResult.value;
   const acceptanceCoverage = coverageResult.value;
-  if (!canonicalEquals(policyReport, artifacts.policyReport) ||
-      !canonicalEquals(acceptanceCoverage, artifacts.acceptanceCoverage)) {
+  if (!canonicalEquals(policyReport, expected.policyReport) ||
+      !canonicalEquals(acceptanceCoverage, expected.acceptanceCoverage)) {
     throw new Error('Live Verification policy or acceptance context changed after staged proof');
   }
 }

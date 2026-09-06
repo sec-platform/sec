@@ -1,3 +1,5 @@
+import assert from 'node:assert/strict';
+import { tmpdir } from 'node:os';
 import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -152,4 +154,84 @@ test('Verification artifact rejects duplicate and noncanonical runtime inventori
     candidate.runtimeReport.unit.passed = inventory;
     expect(isCanonicalVerificationArtifactSet(candidate)).toBe(false);
   }
+});
+
+
+// These additional cases retain the real schemas, physical publishers, lock and
+// canonical reader. They are native integration, not local boundary fixtures.
+test('publication owns one root, input set and callback despite mutation at the first fence', async () => {
+  await withTempWorkspace(async workspaceRoot => {
+    await ensureProjectBase(workspaceRoot);
+    const expected = blockedArtifactSet();
+    const input = { workspaceRoot, artifacts: structuredClone(expected),
+      lock: buildReviewLock({ passStatus: { verify: 'failed' } }), commitFence: async () => {} };
+    let calls = 0;
+    input.commitFence = async () => {
+      calls++;
+      input.workspaceRoot = path.join(workspaceRoot, 'retargeted');
+      input.artifacts = {} as typeof input.artifacts;
+      input.lock = {} as typeof input.lock;
+      input.commitFence = async () => assert.fail('replacement fence ran');
+    };
+    const published = await publishVerificationArtifactSet(input);
+    assert.ok(calls > 1);
+    assert.deepEqual(published, expected);
+    assert.deepEqual(readOptionalCanonicalVerificationArtifactSet(workspaceRoot), expected);
+    await assert.rejects(fs.access(path.join(workspaceRoot, 'retargeted')));
+  });
+});
+
+test('nested source changes cannot retarget the already validated artifact set', async () => {
+  await withTempWorkspace(async workspaceRoot => {
+    await ensureProjectBase(workspaceRoot);
+    const artifacts = blockedArtifactSet(), expected = structuredClone(artifacts);
+    await publishVerificationArtifactSet({ workspaceRoot, artifacts,
+      lock: buildReviewLock({ passStatus: { verify: 'failed' } }), commitFence: async () => {
+        artifacts.verificationReport.fast.unit.passed.push('changed.test.ts');
+        artifacts.runtimeReport.logs.stdout = 'changed';
+      } });
+    assert.deepEqual(readOptionalCanonicalVerificationArtifactSet(workspaceRoot), expected);
+  });
+});
+
+test('a relative publication root cannot move when the callback changes cwd', async () => {
+  await withTempWorkspace(async workspaceRoot => {
+    await ensureProjectBase(workspaceRoot);
+    const previous = process.cwd(), artifacts = blockedArtifactSet();
+    try {
+      process.chdir(workspaceRoot);
+      await publishVerificationArtifactSet({ workspaceRoot: '.', artifacts,
+        lock: buildReviewLock({ passStatus: { verify: 'failed' } }), commitFence: async () => { process.chdir(tmpdir()); } });
+      assert.deepEqual(readOptionalCanonicalVerificationArtifactSet(workspaceRoot), artifacts);
+    } finally { process.chdir(previous); }
+  });
+});
+
+test('publication callback keeps private state on the actual provider receiver', async () => {
+  await withTempWorkspace(async workspaceRoot => {
+    await ensureProjectBase(workspaceRoot);
+    class Input {
+      #calls = 0;
+      workspaceRoot = workspaceRoot;
+      artifacts = blockedArtifactSet();
+      lock = buildReviewLock({ passStatus: { verify: 'failed' } });
+      async commitFence() { this.#calls++; }
+      get calls() { return this.#calls; }
+    }
+    const input = new Input();
+    await publishVerificationArtifactSet(input);
+    assert.ok(input.calls > 1);
+    assert.deepEqual(readOptionalCanonicalVerificationArtifactSet(workspaceRoot), input.artifacts);
+  });
+});
+
+test('invalid callback rejects before any verification artifact is published', async () => {
+  await withTempWorkspace(async workspaceRoot => {
+    await ensureProjectBase(workspaceRoot);
+    await assert.rejects(publishVerificationArtifactSet({ workspaceRoot, artifacts: blockedArtifactSet(),
+      lock: buildReviewLock({ passStatus: { verify: 'failed' } }), commitFence: 7 as never }), TypeError);
+    for (const key of ['runtimeReport', 'policyReport', 'acceptanceCoverage', 'verificationReport'] as const) {
+      await assert.rejects(fs.access(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES[key])));
+    }
+  });
 });
