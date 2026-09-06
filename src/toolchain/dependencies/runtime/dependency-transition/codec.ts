@@ -6,7 +6,8 @@ import {
   SecError
 } from '../../../../system-architecture/foundation/contract/failure.ts';
 import {
-  canonicalJson
+  canonicalJson,
+  deepFreeze
 } from '../../../../system-architecture/foundation/runtime/canonical.ts';
 import {
   formatJsonFile
@@ -167,7 +168,7 @@ export function parseDependencyTransitionRecord(
   if (formatJsonFile(canonicalJson(record)) !== Buffer.from(bytes).toString('utf8')) {
     throw new SecError('RUNTIME-DEPS-002', 'Dependency transition journal record bytes are not canonical');
   }
-  return Object.freeze(record);
+  return deepFreeze(record);
 }
 
 export function assertDependencyTransitionRecordBytes(bytes: Uint8Array): void {
