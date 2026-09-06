@@ -117,3 +117,28 @@ test('actual merge-prisma strategy shares model identity instead of appending du
   const merged = readFileSync(f.target, 'utf8');
   assert.equal(merged.match(/model Record/g)?.length, 1); assert.ok(merged.includes('id Int')); assert.ok(merged.includes('name String'));
 }));
+
+
+test('target containment is admitted even for missing-source and no-op branches', async () => fixture(async f => {
+  for (const targetPath of [f.root, path.join(f.root, '..', 'outside.prisma')]) {
+    await assert.rejects(materializePrismaSource({ ...input(f), targetPath, sourceRequired: false,
+      commitFence: () => assert.fail('fence before path admission') }), /inside its workspace/);
+  }
+}));
+
+test('source publication checks retain a class-based fence receiver', async () => fixture(async f => {
+  writeFileSync(f.source, schema('A'));
+  class Input {
+    #calls = 0;
+    workspaceRoot = f.root;
+    sourcePath = f.source;
+    targetPath = f.target;
+    sourceRequired = true;
+    commitFence() { this.#calls++; }
+    get calls() { return this.#calls; }
+  }
+  const request = new Input();
+  await materializePrismaSource(request);
+  assert.ok(request.calls > 0);
+  assert.equal(readFileSync(f.target, 'utf8'), schema('A'));
+}));

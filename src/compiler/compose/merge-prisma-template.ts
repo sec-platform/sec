@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import { publishExclusiveCanonicalWorkspaceFile, publishExpectedCanonicalWorkspaceFile, type CommitFence } from '../../workspace/files.ts';
-import { getWorkspacePaths } from '../../workspace/runtime/paths.ts';
+import { getWorkspacePaths, isPathInside } from '../../workspace/runtime/paths.ts';
 import { CompilerError } from '../errors.ts';
 import { mergePrismaSchemas } from './prisma-schema.ts';
 
@@ -26,12 +26,15 @@ export async function materializePrismaSource(input: Readonly<{
   const workspaceRoot = path.resolve(root);
   const sourcePath = path.resolve(workspaceRoot, source);
   const targetPath = path.resolve(workspaceRoot, target);
+  if (targetPath === workspaceRoot || !isPathInside(workspaceRoot, targetPath)) {
+    throw new CompilerError('COMPOSE-PATH-004', 'Prisma target must be a file inside its workspace');
+  }
   if (typeof sourceRequired !== 'boolean') throw new TypeError('Prisma source requirement must be boolean');
   if (commitFence !== undefined && typeof commitFence !== 'function') throw new TypeError('Prisma commit fence must be callable');
   const sourceBytes = readOptionalRetainedOrdinaryFile(sourcePath, 'Prisma merge source');
   if (sourceBytes === null && sourceRequired) throw new CompilerError('COMPOSE-PATH-003', `Prisma source is missing: ${sourcePath}`);
   const sourceFence = async () => {
-    await commitFence?.();
+    if (commitFence !== undefined) await Reflect.apply(commitFence, input, []);
     if (!sameBytes(readOptionalRetainedOrdinaryFile(sourcePath, 'Prisma source publication readback'), sourceBytes)) {
       throw new CompilerError('COMPOSE-PRISMA-003', 'Prisma source changed after merge planning');
     }
