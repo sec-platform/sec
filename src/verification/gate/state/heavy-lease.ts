@@ -1,3 +1,5 @@
+import { parseExactJson } from '../../../system-architecture/foundation/runtime/exact-json.ts';
+import { HeavyVerificationGateBusyError, onceHeavyVerificationGateRelease, waitForHeavyVerificationGateLease, withAcquiredHeavyVerificationGateLease } from './heavy-lease-lifecycle.ts';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
@@ -109,7 +111,7 @@ export function heavyVerificationGateMutexName(worktreeRoot: string, namespace?:
 }
 
 function validateHeavyVerificationGateNamespace(namespace: string): void {
-  if (!HEAVY_VERIFICATION_GATE_ID_PATTERN.test(namespace)) {
+  if (typeof namespace !== 'string' || !HEAVY_VERIFICATION_GATE_ID_PATTERN.test(namespace)) {
     throw new Error('Heavy verification gate namespace must be canonical.');
   }
 }
@@ -139,12 +141,17 @@ function isOwner(value: unknown): value is HeavyVerificationGateOwner {
 }
 
 async function readOwner(lockPath: string): Promise<HeavyVerificationGateOwner | null> {
-  try {
-    const parsed = JSON.parse(await readFile(path.join(lockPath, OWNER_FILE), 'utf8')) as unknown;
-    return isOwner(parsed) ? parsed : null;
-  } catch {
-    return null;
+  let source: string;
+  try { source = await readFile(path.join(lockPath, OWNER_FILE), 'utf8'); }
+  catch (error) {
+    if (error !== null && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return null;
+    throw error;
   }
+  let parsed: unknown;
+  try { parsed = parseExactJson(source, 'Heavy verification gate owner'); }
+  catch (cause) { throw new Error('Heavy verification gate owner publication is invalid and requires recovery.', { cause }); }
+  if (!isOwner(parsed)) throw new Error('Heavy verification gate owner publication is invalid and requires recovery.');
+  return parsed;
 }
 
 async function publishCandidate(
@@ -162,7 +169,8 @@ async function publishCandidate(
     await rename(candidatePath, lockPath);
     return candidatePath;
   } catch (error) {
-    await rm(candidatePath, { recursive: true, force: true });
+    try { await rm(candidatePath, { recursive: true, force: true }); }
+    catch (cleanup) { throw new AggregateError([error, cleanup], 'Heavy gate publication and candidate cleanup failed', { cause: error }); }
     throw error;
   }
 }
@@ -191,7 +199,7 @@ async function acquireWindowsHeavyVerificationGateLease(
   const mutexName = heavyVerificationGateMutexName(mutexIdentity, namespace);
   const held = windowsHeavyVerificationGatesHeld.get(mutexName);
   if (held !== undefined) {
-    throw new Error(
+    throw new HeavyVerificationGateBusyError('active',
       `Heavy verification gate ${held.gateId} is already active ` +
       `(pid ${held.pid}, started ${held.startedAt}).`
     );
@@ -217,7 +225,7 @@ async function acquireWindowsHeavyVerificationGateLease(
       kernel32.symbols.CloseHandle(handle);
       handle = 0n;
       if (wait === WINDOWS_WAIT_TIMEOUT) {
-        throw new Error('Another heavy verification gate is already active in this worktree.');
+        throw new HeavyVerificationGateBusyError('active', 'Another heavy verification gate is already active in this worktree.');
       }
       throw new Error('Heavy verification gate mutex wait failed.');
     }
@@ -230,11 +238,9 @@ async function acquireWindowsHeavyVerificationGateLease(
   }
   const acquiredKernel32 = kernel32;
   const acquiredHandle = handle;
-  let released = false;
   return Object.freeze({
     owner,
-    release: async (): Promise<void> => {
-      if (released) return;
+    release: onceHeavyVerificationGateRelease(async (): Promise<void> => {
       const current = windowsHeavyVerificationGatesHeld.get(mutexName);
       if (current?.token !== owner.token) {
         throw new Error('Heavy verification gate lease ownership was lost before release.');
@@ -242,25 +248,33 @@ async function acquireWindowsHeavyVerificationGateLease(
       const releaseResult = acquiredKernel32.symbols.ReleaseMutex(acquiredHandle);
       const closeResult = acquiredKernel32.symbols.CloseHandle(acquiredHandle);
       windowsHeavyVerificationGatesHeld.delete(mutexName);
-      released = true;
       if (releaseResult === 0 || closeResult === 0) {
         throw new Error('Heavy verification gate mutex release failed.');
       }
-    }
+    })
   });
 }
 
 export async function acquireHeavyVerificationGateLease(
   options: HeavyVerificationGateLeaseOptions
 ): Promise<HeavyVerificationGateLease> {
-  if (!HEAVY_VERIFICATION_GATE_ID_PATTERN.test(options.gateId)) {
+  const { gateId, isProcessAlive: liveness, lockPath: suppliedPath, namespace: suppliedNamespace,
+    ownerHost, ownerPid, startedAt, token: suppliedToken, waitTimeoutMs: suppliedWait } = options;
+  options = Object.freeze({ gateId, isProcessAlive: liveness,
+    lockPath: suppliedPath === undefined ? undefined : path.resolve(suppliedPath),
+    namespace: suppliedNamespace, ownerHost, ownerPid, startedAt, token: suppliedToken, waitTimeoutMs: suppliedWait });
+  const environment = Object.freeze({ ...process.env });
+  if (typeof options.gateId !== 'string' || !HEAVY_VERIFICATION_GATE_ID_PATTERN.test(options.gateId)) {
     throw new Error('Heavy verification gate id must be canonical.');
   }
   const namespace = options.namespace;
   if (namespace !== undefined) {
     validateHeavyVerificationGateNamespace(namespace);
   }
-  const waitTimeoutMs = options.waitTimeoutMs ?? HEAVY_VERIFICATION_GATE_DEFAULT_WAIT_TIMEOUT_MS;
+  const waitTimeoutMs = options.waitTimeoutMs === undefined ? HEAVY_VERIFICATION_GATE_DEFAULT_WAIT_TIMEOUT_MS : options.waitTimeoutMs;
+  // Windows uses a DWORD; 0xffffffff is INFINITE, never a bounded wait.
+  if (!Number.isSafeInteger(waitTimeoutMs) || waitTimeoutMs < 0 || waitTimeoutMs >= 0xffffffff) throw new TypeError('Heavy gate wait must be a bounded non-negative integer');
+  if (options.isProcessAlive !== undefined && typeof options.isProcessAlive !== 'function') throw new TypeError('Process liveness observer must be callable');
   const namespaceSegment = namespace
     ? heavyVerificationGateNamespaceSegment(namespace)
     : undefined;
@@ -268,7 +282,7 @@ export async function acquireHeavyVerificationGateLease(
     ? await realpath(compilerRoot)
     : null;
   const baseLockPath = options.lockPath
-    ?? heavyVerificationGateLockPath({ physicalWorktreeRoot: physicalWorktreeRoot! });
+    ?? heavyVerificationGateLockPath({ physicalWorktreeRoot: physicalWorktreeRoot!, environment });
   const lockPath = namespaceSegment
     ? path.join(baseLockPath, namespaceSegment)
     : path.resolve(baseLockPath);
@@ -284,6 +298,7 @@ export async function acquireHeavyVerificationGateLease(
     startedAt: options.startedAt ?? new Date().toISOString(),
     token
   });
+  if (!isOwner(owner)) throw new TypeError('Heavy gate owner identity is invalid');
   if (process.platform === 'win32') {
     return acquireWindowsHeavyVerificationGateLease(
       owner,
@@ -298,11 +313,9 @@ export async function acquireHeavyVerificationGateLease(
   for (let attempt = 0; attempt < 8; attempt += 1) {
     try {
       await publishCandidate(lockPath, owner);
-      let released = false;
       return Object.freeze({
         owner,
-        release: async (): Promise<void> => {
-          if (released) return;
+        release: onceHeavyVerificationGateRelease(async (): Promise<void> => {
           const current = await readOwner(lockPath);
           if (!current || current.token !== owner.token) {
             throw new Error('Heavy verification gate lease ownership was lost before release.');
@@ -310,8 +323,7 @@ export async function acquireHeavyVerificationGateLease(
           const releasePath = `${lockPath}.release-${owner.token}`;
           await rename(lockPath, releasePath);
           await rm(releasePath, { recursive: true, force: false });
-          released = true;
-        }
+        })
       });
     } catch (error) {
       if (!(error && typeof error === 'object' && 'code' in error &&
@@ -328,7 +340,7 @@ export async function acquireHeavyVerificationGateLease(
         );
       }
       if (ownerIsAlive(current.pid)) {
-        throw new Error(
+        throw new HeavyVerificationGateBusyError('active',
           `Heavy verification gate ${current.gateId} is already active ` +
           `(pid ${current.pid}, started ${current.startedAt}).`
         );
@@ -337,7 +349,7 @@ export async function acquireHeavyVerificationGateLease(
     if (!current) {
       const lockStat = await stat(lockPath).catch(() => null);
       if (lockStat && Date.now() - lockStat.mtimeMs < INITIALIZATION_GRACE_MS) {
-        throw new Error('Heavy verification gate owner publication is still initializing.');
+        throw new HeavyVerificationGateBusyError('initializing', 'Heavy verification gate owner publication is still initializing.');
       }
       throw new Error('Heavy verification gate owner publication is invalid and requires recovery.');
     }
@@ -351,10 +363,10 @@ export async function withHeavyVerificationGateLease<T>(
   callback: () => Promise<T>,
   options?: HeavyVerificationGateLeaseCallOptions
 ): Promise<T> {
-  const lease = await acquireHeavyVerificationGateLease({ gateId, ...options });
-  try {
-    return await callback();
-  } finally {
-    await lease.release();
-  }
+  const { namespace, waitTimeoutMs } = options ?? {};
+  if (typeof callback !== 'function') throw new TypeError('Heavy gate operation must be callable');
+  const lease = await waitForHeavyVerificationGateLease(
+    () => acquireHeavyVerificationGateLease({ gateId, namespace, waitTimeoutMs: 0 }), waitTimeoutMs === undefined ? 0 : waitTimeoutMs
+  );
+  return withAcquiredHeavyVerificationGateLease(lease, callback);
 }
