@@ -1,3 +1,4 @@
+import { throwIfNativeAborted } from '../../system-architecture/foundation/runtime/native-abort.ts';
 import path from 'node:path';
 
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
@@ -34,14 +35,14 @@ export async function composeProject(
   workspaceRoot = path.resolve(workspaceRoot);
   const { commitFence: providerFence, signal, opaqueModuleMaterializationMode } = options;
   if (providerFence !== undefined && typeof providerFence !== 'function') throw new TypeError('Compose commit fence must be callable');
-  signal?.throwIfAborted();
+  throwIfNativeAborted(signal);
   // One admitted plan drives both execution and its manifest, not a later
   // caller-mutated lock.installPlan. Lock state remains owned by composition.
   const installPlan = Object.freeze(lock.installPlan.map(step => Object.freeze({ ...step })));
   const commitFence: CommitFence = async () => {
-    signal?.throwIfAborted();
+    throwIfNativeAborted(signal);
     if (providerFence !== undefined) await Reflect.apply(providerFence, options, []);
-    signal?.throwIfAborted();
+    throwIfNativeAborted(signal);
   };
   const blockUsageMapPath = resolveWorkspaceArtifactPath(
     workspaceRoot,
@@ -57,7 +58,7 @@ export async function composeProject(
   // does not belong on the compilation path.
   await checkProjectWriteBoundary(workspaceRoot);
   await ensureProjectBase(workspaceRoot, commitFence);
-  signal?.throwIfAborted();
+  throwIfNativeAborted(signal);
 
   const installContext = Object.freeze({ workspaceRoot, lock, commitFence, signal });
   await defaultInstallRegistry.executeAll(installPlan, installContext);
@@ -66,7 +67,7 @@ export async function composeProject(
     commitFence,
     materializationMode: opaqueModuleMaterializationMode
   });
-  signal?.throwIfAborted();
+  throwIfNativeAborted(signal);
 
   const installManifest: Array<InstallPlanStep & { status: 'installed' }> = installPlan.map((step) => ({
     ...step,
@@ -84,7 +85,7 @@ export async function composeProject(
   const semanticLowering = await lowerSemanticTasks(workspaceRoot, semanticContext, commitFence);
   lock.semanticLoweringTasks = semanticLowering.tasks;
   const semanticGeneratedPaths = semanticLowering.generatedPaths;
-  const runtimeScaffoldPaths = await generateRuntimeLibraryScaffold(workspaceRoot, lock, commitFence);
+  const runtimeScaffoldPaths = await generateRuntimeLibraryScaffold(workspaceRoot, lock, commitFence, signal);
 
   const initialGeneratedPaths = [
     ...semanticGeneratedPaths,
@@ -94,9 +95,9 @@ export async function composeProject(
     ...opaqueGeneratedPaths
   ];
   addGeneratedPaths(lock, initialGeneratedPaths);
-  await formatOutputFiles(workspaceRoot, lock.generatedPaths, commitFence);
+  await formatOutputFiles(workspaceRoot, lock.generatedPaths, commitFence, signal);
   await applyOverrides(workspaceRoot, commitFence);
-  signal?.throwIfAborted();
+  throwIfNativeAborted(signal);
   await writeJson(installManifestPath, installManifest, commitFence);
   const overrideManifest = await loadOverrideManifest(workspaceRoot);
   await writeProjectBaseline(
