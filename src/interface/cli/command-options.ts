@@ -8,20 +8,30 @@ export function jsonOpts(opts: Readonly<Record<string, unknown>>): JsonOutputOpt
   return parseJsonOutputOptions(opts, rejectJsonOutputIssue);
 }
 
-export function commandPath(cmd: Command): string {
-  const names: string[] = [];
+/** One parent traversal; callers only inspect the names they actually need. */
+function* commandLineage(cmd: Command): Generator<Command> {
+  const visited = new Set<Command>();
   let current: Command | null = cmd;
   while (current) {
+    if (visited.has(current)) throw usageError('CLI command parent cycle');
+    visited.add(current);
+    yield current;
+    current = current.parent ?? null;
+  }
+}
+
+export function commandPath(cmd: Command): string {
+  const names: string[] = [];
+  for (const current of commandLineage(cmd)) {
     const name = current.name();
     if (name) names.push(name);
-    current = current.parent ?? null;
   }
   return names.reverse().join(' ');
 }
 
 export function commandFromRoot(cmd: Command, ...segments: readonly string[]): string {
   let root = cmd;
-  while (root.parent) root = root.parent;
+  for (const current of commandLineage(cmd)) root = current;
   return [root.name(), ...segments].filter((segment) => segment.length > 0).join(' ');
 }
 

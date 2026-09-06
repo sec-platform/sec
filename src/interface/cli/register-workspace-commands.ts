@@ -178,7 +178,7 @@ export function registerWorkspaceCommands(program: Command): void {
         return;
       }
       await runWithOptionalSpinner('Locking project', output, () => lockWorkspace(cwd));
-      console.log('Locked project');
+      printJsonOrText({ status: 'locked' as const }, output, () => 'Locked project');
     });
 
   addJsonFlags(optionalModeCommand(program.command('explain'), 'mode', [WORKSPACE_INSPECTION_MODES.explain]))
