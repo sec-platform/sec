@@ -272,6 +272,17 @@ function remainingFromContext(
   return remainingMs;
 }
 
+/** Validate an already-issued ledger without reconstructing raw options.
+ * Context-owning scans use the same cancellation, clock and deadline decision
+ * as effects; a matching structural object is not an issued operation.
+ */
+export function assertRuntimeDependencyOperationActive(
+  context: RuntimeDependencyOperationContext,
+  label: string
+): void {
+  remainingFromContext(context, label);
+}
+
 /** Own the deadline/cancellation lifecycle of one await, not the provider's work. */
 export async function awaitRuntimeDependencyOperation(
   context: RuntimeDependencyOperationContext,
