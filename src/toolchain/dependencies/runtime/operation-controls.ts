@@ -12,6 +12,22 @@ const RUNTIME_DEPENDENCY_OPERATION_CONTEXT = Symbol('sec-runtime-dependency-oper
 // A discoverable symbol is a carrier, not proof that the owner issued a ledger.
 const issuedOperationContexts = new WeakSet<object>();
 const issuedControlViews = new WeakSet<object>();
+// Capture provenance for immutable raw views and clock wrappers only. Neither
+// set authenticates a caller ledger or skips normal budget/cancellation checks.
+const capturedControlInputs = new WeakSet<object>();
+const capturedClockMethods = new WeakSet<object>();
+
+function captureMonotonicSource(
+  source: RuntimeDependencyOperationControlInput['monotonicNowMs'],
+  receiver: object
+): RuntimeDependencyOperationControlInput['monotonicNowMs'] {
+  // Preserve invalid values for the existing owner validation. A derived
+  // operation still uses its parent's checked ledger, never a replacement clock.
+  if (typeof source !== 'function' || capturedClockMethods.has(source)) return source;
+  const selected = () => Reflect.apply(source, receiver, []);
+  capturedClockMethods.add(selected);
+  return selected;
+}
 
 /** Control inputs, not installation requests or effect capabilities. */
 export interface RuntimeDependencyOperationControlInput {
@@ -139,16 +155,19 @@ export function captureRuntimeDependencyControlInput(
   if (options === null || typeof options !== 'object') {
     throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency controls must be an object');
   }
-  if (issuedControlViews.has(options)) return options;
+  if (issuedControlViews.has(options) || capturedControlInputs.has(options)) return options;
   const existing = existingContext(options);
   const deadlineAtUnixMs = ownControl(options, 'deadlineAtUnixMs');
   const lockTimeoutMs = ownControl(options, 'lockTimeoutMs');
   const pollIntervalMs = ownControl(options, 'pollIntervalMs');
-  const monotonicNowMs = ownControl(options, 'monotonicNowMs');
+  const source = ownControl(options, 'monotonicNowMs');
   const signal = ownControl(options, 'signal');
   if (existingContext(options) !== existing) invalidBinding();
-  return Object.freeze({ deadlineAtUnixMs, lockTimeoutMs, pollIntervalMs, monotonicNowMs, signal,
+  const captured = Object.freeze({ deadlineAtUnixMs, lockTimeoutMs, pollIntervalMs,
+    monotonicNowMs: captureMonotonicSource(source, options), signal,
     ...(existing === undefined ? {} : { [RUNTIME_DEPENDENCY_OPERATION_CONTEXT]: existing }) });
+  capturedControlInputs.add(captured);
+  return captured;
 }
 
 export function runtimeDependencyOperationControls(

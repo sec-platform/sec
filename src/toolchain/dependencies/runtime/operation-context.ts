@@ -159,8 +159,10 @@ export function runtimeDependencyOperationOptions<T extends RuntimeDependencyIns
     testInstallLockDelete: bindOperationMethod(testInstallLockDelete, options, 'Install-lock deletion hook'),
     testCompilerRename: bindOperationMethod(testCompilerRename, options, 'Compiler rename provider')
   };
-  const monotonicNowMs = bindOperationMethod(controlsInput.monotonicNowMs, options, 'Runtime dependency monotonic clock');
-  const controls = runtimeDependencyOperationControls({ ...controlsInput, monotonicNowMs });
+  // Clock capture and its receiver belong to controls for all callers, not
+  // only coordinator requests. Reuse that exact snapshot and parent ledger.
+  const monotonicNowMs = controlsInput.monotonicNowMs;
+  const controls = runtimeDependencyOperationControls(controlsInput);
   guard(options);
   const captured: RuntimeDependencyOperationOptions = Object.freeze({
     ...request, ...methods, ...controls, monotonicNowMs,
