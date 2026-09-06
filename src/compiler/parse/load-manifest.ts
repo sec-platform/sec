@@ -418,10 +418,23 @@ export async function loadAllManifests(options: ManifestLoadOptions = {}): Promi
           `Registry "${registrySource.id}" directory "${entry.name}" is missing block.manifest.yaml`
         );
       }
+      const cached = manifestCache.getByObservedSource({ workspaceRoot,
+        registrySourceId: registrySource.id, registryKind: registrySource.kind,
+        registryLocation: registrySource.location, registryPath: registrySource.path,
+        manifestPath, sourceDigest: source.digest });
+      if (cached !== undefined) {
+        assertRegistryDirectoryIdentity(registrySource, entry.name, cached.manifest, manifestPath);
+        // Catalog callers historically receive mutable independent entries.
+        // Reuse validated parse work without exposing the cache's shared object.
+        return structuredClone(cached);
+      }
       const manifest = parseManifestSource(source);
       validateManifest(manifest);
       assertRegistryDirectoryIdentity(registrySource, entry.name, manifest, manifestPath);
-      return manifestEntryFromPath(registrySource, manifest, manifestPath);
+      const parsed = manifestEntryFromPath(registrySource, manifest, manifestPath);
+      manifestCache.set(manifestCacheKey(workspaceRoot, registrySource, manifest.id, undefined, source.digest),
+        structuredClone(parsed));
+      return parsed;
     });
 
     assertSameNoFollowDirectoryIdentity(registryRoot, `Registry ${registrySource.id} root`);

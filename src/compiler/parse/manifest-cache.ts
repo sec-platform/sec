@@ -13,7 +13,12 @@ export interface ManifestCacheKey {
   readonly sourceDigest: `sha256:${string}`;
 }
 
+export type ManifestObservedSourceKey = Omit<ManifestCacheKey, 'blockId' | 'version'> & Readonly<{
+  manifestPath: string;
+}>;
+
 interface ManifestCacheRecord {
+  readonly sourceLocator: string | undefined;
   readonly workspaceRoot: string;
   readonly sourceDigest: `sha256:${string}`;
   readonly entry: ManifestEntry;
@@ -34,6 +39,9 @@ interface ManifestCacheRecord {
 export const DEFAULT_MANIFEST_CACHE_ENTRIES = 1024;
 export class ManifestCache {
   private readonly records = new Map<string, ManifestCacheRecord>();
+  // Secondary lookup only. It refers to the same bounded LRU records; it owns
+  // neither another entry cache nor independent capacity/eviction policy.
+  private readonly sourceLocators = new Map<string, string>();
   private readonly maximumEntries: number;
 
   constructor(maximumEntries = DEFAULT_MANIFEST_CACHE_ENTRIES) {
@@ -60,15 +68,42 @@ export class ManifestCache {
     ]);
   }
 
-  get(key: ManifestCacheKey): ManifestEntry | undefined {
-    key = this.capture(key);
-    const locator = this.locatorKey(key);
+  private sourceKey(key: Omit<ManifestObservedSourceKey, 'sourceDigest'>): string {
+    return JSON.stringify([key.workspaceRoot, key.registrySourceId, key.registryKind,
+      key.registryLocation, key.registryPath, key.manifestPath]);
+  }
+
+  private discard(locator: string): void {
+    const record = this.records.get(locator);
+    this.records.delete(locator);
+    if (record?.sourceLocator !== undefined && this.sourceLocators.get(record.sourceLocator) === locator) {
+      this.sourceLocators.delete(record.sourceLocator);
+    }
+  }
+
+  private reuse(locator: string, sourceDigest: `sha256:${string}`): ManifestEntry | undefined {
     const record = this.records.get(locator);
     if (record === undefined) return undefined;
+    if (record.sourceDigest !== sourceDigest) { this.discard(locator); return undefined; }
     this.records.delete(locator);
-    if (record.sourceDigest !== key.sourceDigest) return undefined;
-    this.records.set(locator, record); // Most recently reused, not merely inserted.
+    this.records.set(locator, record);
     return record.entry;
+  }
+
+  get(key: ManifestCacheKey): ManifestEntry | undefined {
+    key = this.capture(key);
+    return this.reuse(this.locatorKey(key), key.sourceDigest);
+  }
+
+  /** The caller has read current source bytes but does not yet know the logical
+   * ID. Consult an already validated path binding, never decode an ID from a
+   * directory name. Version overlays cannot enter this root-source projection.
+   */
+  getByObservedSource(key: ManifestObservedSourceKey): ManifestEntry | undefined {
+    const { workspaceRoot, registrySourceId, registryKind, registryLocation, registryPath, manifestPath, sourceDigest } = key;
+    const source = this.sourceKey({ workspaceRoot, registrySourceId, registryKind, registryLocation, registryPath, manifestPath });
+    const locator = this.sourceLocators.get(source);
+    return locator === undefined ? undefined : this.reuse(locator, sourceDigest);
   }
 
   set(key: ManifestCacheKey, entry: ManifestEntry): void {
@@ -86,18 +121,26 @@ export class ManifestCache {
     if (this.maximumEntries === 0) return;
     const snapshot = deepFreeze(entry);
     const locator = this.locatorKey(key);
-    this.records.delete(locator);
-    this.records.set(locator, Object.freeze({ workspaceRoot: key.workspaceRoot,
+    const sourceLocator = key.version === undefined && typeof snapshot.manifestPath === 'string' && snapshot.manifestPath.length > 0
+      ? this.sourceKey({ ...key, manifestPath: snapshot.manifestPath }) : undefined;
+    this.discard(locator);
+    if (sourceLocator !== undefined) {
+      const previousLocator = this.sourceLocators.get(sourceLocator);
+      if (previousLocator !== undefined) this.discard(previousLocator);
+      this.sourceLocators.set(sourceLocator, locator);
+    }
+    this.records.set(locator, Object.freeze({ workspaceRoot: key.workspaceRoot, sourceLocator,
       sourceDigest: key.sourceDigest, entry: snapshot }));
-    while (this.records.size > this.maximumEntries) this.records.delete(this.records.keys().next().value!);
+    while (this.records.size > this.maximumEntries) this.discard(this.records.keys().next().value!);
   }
 
   clearWorkspace(workspaceRoot: string): void {
-    for (const [locator, record] of this.records) if (record.workspaceRoot === workspaceRoot) this.records.delete(locator);
+    for (const [locator, record] of this.records) if (record.workspaceRoot === workspaceRoot) this.discard(locator);
   }
 
   clear(): void {
     this.records.clear();
+    this.sourceLocators.clear();
   }
 }
 
