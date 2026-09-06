@@ -187,7 +187,7 @@ export function runtimeDependencyOperationControls(
     nowMonotonicMs + initialBudgetMs
   );
   const deadlineAtUnixMs = existing === undefined
-    ? requestedDeadline ?? nowUnixMs + initialBudgetMs
+    ? Math.min(requestedDeadline ?? Number.POSITIVE_INFINITY, nowUnixMs + initialBudgetMs)
     : Math.min(
         existing.deadlineAtUnixMs,
         hasNewAbsoluteBound ? requestedDeadline : Number.POSITIVE_INFINITY,

@@ -1,5 +1,5 @@
-import type { PassId } from '../contract/pass-status.ts';
-import { PIPELINE_STAGE_IDS, PIPELINE_STAGE_OWNERSHIP, type PipelineStageId } from './stages.ts';
+import { PASS_INITIAL_STATES, type PassId } from '../contract/pass-status.ts';
+import { PIPELINE_STAGE_OWNERSHIP, type PipelineStageId } from './stages.ts';
 
 export interface PassDefinition {
   readonly id: PassId;
@@ -65,10 +65,39 @@ export const PASS_DEFINITIONS: Readonly<Record<PassId, PassDefinition>> = Object
   })])) as Record<PassId, PassDefinition>
 );
 
-function buildStageDefinitions(): Readonly<Record<PipelineStageId, PipelineStageDefinition>> {
+/** Compile data, not execution authority. Inputs remain untouched; all output
+ * relations are snapshots. The built-in registry uses this same compiler. */
+export function compilePipelineStageDefinitions(
+  passes: Readonly<Record<PassId, PassDefinition>>,
+  ownership: Readonly<Record<PipelineStageId, Readonly<{ primaryPass: PassId; ownedPasses?: readonly PassId[] }>>>
+): Readonly<Record<PipelineStageId, PipelineStageDefinition>> {
+  const exactIdentities = (actual: object, expected: object, label: string): void => {
+    const keys = Object.keys(actual);
+    const identities = Object.keys(expected);
+    if (keys.length !== identities.length || keys.some((key) => !Object.hasOwn(expected, key))) {
+      throw new Error(`Pipeline ${label} does not match its declared identity set`);
+    }
+  };
+  exactIdentities(passes, PASS_INITIAL_STATES, 'passes');
+  exactIdentities(ownership, PIPELINE_STAGE_OWNERSHIP, 'stages');
+  for (const [id, pass] of Object.entries(passes)) {
+    if (pass.id !== id) throw new Error(`Pipeline pass identity mismatch: ${id}`);
+    for (const relation of [pass.requires, pass.invalidates]) {
+      if (!Array.isArray(relation) || new Set(relation).size !== relation.length) {
+        throw new Error(`Pipeline pass ${id} contains an invalid or duplicate relation`);
+      }
+      for (let index = 0; index < relation.length; index++) {
+        const target = relation[index];
+        if (!Object.hasOwn(relation, index) || typeof target !== 'string' || !Object.hasOwn(passes, target)) {
+          throw new Error(`Pipeline pass ${id} references an unknown endpoint`);
+        }
+      }
+    }
+  }
   const owners = new Map<PassId, PipelineStageId>();
-  const definitions = PIPELINE_STAGE_IDS.map((id) => {
-    const spec: Readonly<{ primaryPass: PassId; ownedPasses?: readonly PassId[] }> = PIPELINE_STAGE_OWNERSHIP[id];
+  const stageIds = Object.keys(ownership) as PipelineStageId[];
+  const definitions = stageIds.map((id) => {
+    const spec: Readonly<{ primaryPass: PassId; ownedPasses?: readonly PassId[] }> = ownership[id];
     const ownedPasses = Object.freeze([...(spec.ownedPasses ?? [spec.primaryPass])]);
     const owned = new Set(ownedPasses);
     if (ownedPasses.length === 0 || owned.size !== ownedPasses.length || !owned.has(spec.primaryPass)) {
@@ -78,18 +107,24 @@ function buildStageDefinitions(): Readonly<Record<PipelineStageId, PipelineStage
     const requires = new Set<PassId>();
     const invalidates = new Set<PassId>();
     for (const passId of ownedPasses) {
-      if (owners.has(passId) || !Object.hasOwn(PASS_DEFINITIONS, passId)) {
+      if (owners.has(passId) || !Object.hasOwn(passes, passId)) {
         throw new Error(`Pipeline pass ${passId} has invalid or duplicate stage ownership`);
       }
       owners.set(passId, id);
-      const pass = PASS_DEFINITIONS[passId];
+      const pass = passes[passId];
       for (const dependency of pass.requires) {
         if (owned.has(dependency)) {
           if (!completed.has(dependency)) throw new Error(`Pipeline stage ${id} uses ${dependency} before its producer`);
         } else requires.add(dependency);
       }
-      for (const invalidated of pass.invalidates) if (!owned.has(invalidated)) invalidates.add(invalidated);
+      for (const invalidated of pass.invalidates) {
+        if (owned.has(invalidated)) completed.delete(invalidated);
+        else invalidates.add(invalidated);
+      }
       completed.add(passId);
+    }
+    if (completed.size !== owned.size) {
+      throw new Error(`Pipeline stage ${id} leaves an owned pass invalidated`);
     }
     return [id, Object.freeze({ id, primaryPass: spec.primaryPass, ownedPasses,
       requires: Object.freeze([...requires]), invalidates: Object.freeze([...invalidates]) })] as const;
@@ -98,7 +133,7 @@ function buildStageDefinitions(): Readonly<Record<PipelineStageId, PipelineStage
 }
 
 /** The stage kernel and completion proof consume these same compiled relations. */
-export const PIPELINE_STAGE_DEFINITIONS = buildStageDefinitions();
+export const PIPELINE_STAGE_DEFINITIONS = compilePipelineStageDefinitions(PASS_DEFINITIONS, PIPELINE_STAGE_OWNERSHIP);
 
 export function getPipelineStageDefinition(stageId: PipelineStageId): PipelineStageDefinition {
   if (!Object.hasOwn(PIPELINE_STAGE_DEFINITIONS, stageId)) {

@@ -100,8 +100,57 @@ export function canonicalJson(value: unknown): unknown {
   return result;
 }
 
+/** Serialize only owner-normalized data. Native JSON.stringify is used for
+ * scalar escaping, never for a recursively nested container or a toJSON hook.
+ * Keys retain the existing JSON property order, including integer-index keys. */
+function* canonicalTokens(value: unknown): Generator<string> {
+  const normalized = canonicalJson(value);
+  type Frame = { value: Record<string, unknown> | unknown[]; keys: string[] | null; cursor: number; length: number };
+  const frames: Frame[] = [];
+  function open(entry: unknown): string {
+    if (entry === null || typeof entry !== 'object') return JSON.stringify(entry);
+    const keys = Array.isArray(entry) ? null : Object.keys(entry);
+    frames.push({ value: entry as Frame['value'], keys, cursor: 0,
+      length: keys === null ? (entry as unknown[]).length : keys.length });
+    return keys === null ? '[' : '{';
+  }
+  yield open(normalized);
+  while (frames.length > 0) {
+    const frame = frames[frames.length - 1]!;
+    if (frame.cursor === frame.length) {
+      frames.pop();
+      yield frame.keys === null ? ']' : '}';
+      continue;
+    }
+    const index = frame.cursor++;
+    if (index > 0) yield ',';
+    if (frame.keys === null) {
+      // Missing array elements have always serialized as null. Do not ask an
+      // ambient Array.prototype hook to supply a normalized output element.
+      yield open(Object.hasOwn(frame.value, index) ? (frame.value as unknown[])[index] : null);
+    } else {
+      const key = frame.keys[index]!;
+      yield JSON.stringify(key);
+      yield ':';
+      yield open((frame.value as Record<string, unknown>)[key]);
+    }
+  }
+}
+
+// Internal coalescing target, not a JSON input size limit; whole tokens may exceed it.
+const CANONICAL_HASH_BATCH_CODE_UNITS = 8_192;
+
 export function sha256(value: unknown): string {
-  return `sha256:${digest(JSON.stringify(canonicalJson(value)))}`;
+  const hash = createHash('sha256');
+  // Coalesce complete tokens: avoid a native hash call per punctuation token
+  // without splitting UTF-16 surrogate pairs across separately encoded writes.
+  let buffered = '';
+  for (const token of canonicalTokens(value)) {
+    buffered += token;
+    if (buffered.length >= CANONICAL_HASH_BATCH_CODE_UNITS) { hash.update(buffered); buffered = ''; }
+  }
+  if (buffered.length > 0) hash.update(buffered);
+  return `sha256:${hash.digest('hex')}`;
 }
 
 export function uniqueSorted<Value extends string>(values: readonly Value[]): Value[] {
@@ -176,7 +225,14 @@ export function rawSha256(value: string | Uint8Array): `sha256:${string}` {
  * Compare two values for canonical equality (key-order independent).
  */
 export function canonicalEquals(left: unknown, right: unknown): boolean {
-  return JSON.stringify(canonicalJson(left)) === JSON.stringify(canonicalJson(right));
+  const leftTokens = canonicalTokens(left);
+  const rightTokens = canonicalTokens(right);
+  for (;;) {
+    const a = leftTokens.next();
+    const b = rightTokens.next();
+    if (a.done || b.done) return a.done === b.done;
+    if (a.value !== b.value) return false;
+  }
 }
 
 /**
