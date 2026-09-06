@@ -1,9 +1,10 @@
+import path from 'node:path';
 import { Buffer } from 'node:buffer';
 import { readFile } from 'node:fs/promises';
 
 import type { ExplainGraph } from '../../semantic/projection/contract/explain.ts';
 import type { ProvenanceFile } from '../../semantic/provenance/contract/types.ts';
-import { compareCodeUnits, rawSha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { rawSha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { assertCanonicalVerificationArtifactSet } from '../../verification/artifact/contract/artifact.ts';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../verification/contract/types.ts';
@@ -28,6 +29,7 @@ import {
 import { readLockFile } from '../lock.ts';
 import { emitPipelineExecutionBoundary } from '../pipeline/journal.ts';
 import { withPipelineTransaction } from '../pipeline/kernel.ts';
+import { capturePipelineProofRecord, samePipelineSequence } from '../pipeline/proof-data.ts';
 import { getPipelineStageDefinition } from '../pipeline/pass-registry.ts';
 import { withLeaseObservationMonitor } from '../pipeline/lease-monitor.ts';
 import { bindPipelineCompileRequest, type PipelineCompileRequest } from '../pipeline/invocation.ts';
@@ -70,8 +72,9 @@ export async function withMonitoredWorkspaceWriteLease<T>(
   workspaceWriteLease: WorkspaceWriteLeaseToken,
   callback: (signal: AbortSignal) => Promise<T>
 ): Promise<T> {
+  const root = path.resolve(workspaceRoot);
   return withLeaseObservationMonitor(
-    () => assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease), callback
+    () => assertWorkspaceWriteLease(root, workspaceWriteLease), callback
   );
 }
 
@@ -182,9 +185,6 @@ function assertExactArtifactBytes(label: string, actual: Uint8Array, expectedTex
   }
 }
 
-function sameOrderedValues(left: readonly unknown[], right: readonly unknown[]): boolean {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
-}
 
 function completionPassClosure(): PassId[] {
   const seen = new Set<PassId>();
@@ -195,20 +195,6 @@ function completionPassClosure(): PassId[] {
   });
 }
 
-function assertExactKeys(
-  value: unknown,
-  expected: readonly string[],
-  label: string
-): asserts value is Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(`${label} must be an object with the exact schema`);
-  }
-  const actualKeys = Object.keys(value).sort(compareCodeUnits);
-  const expectedKeys = [...expected].sort(compareCodeUnits);
-  if (!sameOrderedValues(actualKeys, expectedKeys)) {
-    throw new Error(`${label} does not match the exact schema`);
-  }
-}
 
 function assertNonEmptyString(value: unknown, label: string): asserts value is string {
   if (typeof value !== 'string' || value.length === 0) {
@@ -253,7 +239,7 @@ function assertSemanticBindings(proof: PipelineCompletionProof, evidence: Pipeli
   ) {
     throw new Error('Pipeline completion proof does not bind the completed semantic transaction');
   }
-  if (!sameOrderedValues(evidence.completedStages, PIPELINE_STAGE_IDS)) {
+  if (!samePipelineSequence(evidence.completedStages, PIPELINE_STAGE_IDS)) {
     throw new Error('Pipeline completion evidence does not contain the registry-owned stage closure');
   }
   if (
@@ -263,13 +249,24 @@ function assertSemanticBindings(proof: PipelineCompletionProof, evidence: Pipeli
     throw new Error('Pipeline completion Lock does not bind the completed semantic views');
   }
 
+  type LoweringTask = NonNullable<LockFile['semanticLoweringTasks']>[number];
+  const loweringById = new Map<string, Map<string, { record: LoweringTask; count: number }>>();
+  for (const record of evidence.lock.semanticLoweringTasks ?? []) {
+    let byTarget = loweringById.get(record.id);
+    if (!byTarget) { byTarget = new Map(); loweringById.set(record.id, byTarget); }
+    const found = byTarget.get(record.target);
+    if (found) found.count++;
+    else byTarget.set(record.target, { record, count: 1 });
+  }
   for (const task of semantic.generatorPlan.tasks) {
     if (task.inputRevision !== proof.inputRevision || task.semanticRevision !== proof.semanticRevision) {
       throw new Error(`Semantic Generator task "${task.id}" has stale proof revisions`);
     }
-    const lockTask = evidence.lock.semanticLoweringTasks?.find(
-      (candidate) => candidate.id === task.id && candidate.target === task.target
-    );
+    const matched = loweringById.get(task.id)?.get(task.target);
+    if (matched !== undefined && matched.count !== 1) {
+      throw new Error(`Semantic Generator task "${task.id}" has ambiguous Lock bindings`);
+    }
+    const lockTask = matched?.record;
     const binding = lockTask?.artifactBinding;
     if (
       !lockTask ||
@@ -311,8 +308,19 @@ function assertDerivativeBindings(proof: PipelineCompletionProof, evidence: Pipe
       throw new Error(`Provenance artifact "${artifact.path}" has a stale semantic revision`);
     }
   }
+  type Artifact = ProvenanceFile['artifacts'][number];
+  const artifactsByPath = new Map<string, { record: Artifact; count: number }>();
+  for (const record of evidence.provenance.artifacts) {
+    const found = artifactsByPath.get(record.path);
+    if (found) found.count++;
+    else artifactsByPath.set(record.path, { record, count: 1 });
+  }
   for (const task of evidence.semanticContext.generatorPlan.tasks) {
-    const artifact = evidence.provenance.artifacts.find((candidate) => candidate.path === task.target);
+    const matched = artifactsByPath.get(task.target);
+    if (matched !== undefined && matched.count !== 1) {
+      throw new Error(`Provenance artifact for Semantic Generator task "${task.id}" is ambiguous`);
+    }
+    const artifact = matched?.record;
     if (
       !artifact ||
       artifact.generatorTaskId !== task.id ||
@@ -353,8 +361,7 @@ export function assertPipelineCompletionProofInvariant(
   value: unknown,
   evidence?: PipelineCompletionProofEvidence
 ): asserts value is PipelineCompletionProof {
-  assertExactKeys(value, PIPELINE_COMPLETION_PROOF_KEYS, 'Pipeline completion proof');
-  const proof = value as unknown as PipelineCompletionProof;
+  const proof = capturePipelineProofRecord(value, PIPELINE_COMPLETION_PROOF_KEYS, 'Pipeline completion proof') as unknown as PipelineCompletionProof;
   if (proof.formatRevision !== PIPELINE_COMPLETION_PROOF_REVISION) {
     throw new Error('Pipeline completion proof has an unsupported format revision');
   }
@@ -368,10 +375,10 @@ export function assertPipelineCompletionProofInvariant(
   assertDigest(proof.proofRevision, 'Pipeline completion proofRevision');
 
   const expectedPasses = completionPassClosure();
-  if (!Array.isArray(proof.completedStages) || !sameOrderedValues(proof.completedStages, PIPELINE_STAGE_IDS)) {
+  if (!Array.isArray(proof.completedStages) || !samePipelineSequence(proof.completedStages, PIPELINE_STAGE_IDS)) {
     throw new Error('Pipeline completion proof does not contain the registry-owned stage closure');
   }
-  if (!Array.isArray(proof.completedPasses) || !sameOrderedValues(proof.completedPasses, expectedPasses)) {
+  if (!Array.isArray(proof.completedPasses) || !samePipelineSequence(proof.completedPasses, expectedPasses)) {
     throw new Error('Pipeline completion proof does not contain the registry-owned pass closure');
   }
   const expectedProofRevision = proofJsonDigest({
@@ -420,7 +427,7 @@ export async function buildPipelineCompletionProof(
   workspaceRoot: string,
   stageEvidence: PipelineCompletionProofStageEvidence
 ): Promise<PipelineCompletionProof | undefined> {
-  if (!sameOrderedValues(stageEvidence.completedStages, PIPELINE_STAGE_IDS)) return undefined;
+  if (!samePipelineSequence(stageEvidence.completedStages, PIPELINE_STAGE_IDS)) return undefined;
   const {
     semanticContext,
     lock: stageLock,
@@ -539,6 +546,7 @@ export async function compileWorkspace(
   workspaceRoot = process.cwd(),
   options: CompileWorkspaceOptions = {}
 ): Promise<CompileWorkspaceResult> {
+  workspaceRoot = path.resolve(workspaceRoot);
   const request = bindPipelineCompileRequest(options);
   const { onEvent, isolatedVerificationCapability, stagedVerificationProof, workspaceWriteLease: requestedLease } = options;
   if (onEvent !== undefined && typeof onEvent !== 'function') {

@@ -1,6 +1,8 @@
+import path from 'node:path';
 import { createWorkspaceWriteCommitFence, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../workspace/lease.ts';
 import type { LockFile, PassState } from '../contract.ts';
-import { CompilerError } from '../errors.ts';
+import { CompilerError, getErrorCode } from '../errors.ts';
+import { describePipelineFailure, settlePipelineFailure } from './failure.ts';
 import { readLockFile, saveLock } from '../lock.ts';
 import {
   commitPipelineTransaction,
@@ -12,6 +14,7 @@ import {
   startPipelineTransaction
 } from './journal.ts';
 import { getPipelineStageDefinition } from './pass-registry.ts';
+import { PASS_STATUS_PENDING } from './defaults.ts';
 import type {
   PassId,
   PipelineEventHandler,
@@ -25,15 +28,22 @@ interface StageExecutionOptions<T> {
   preserveOwnedPassStates?: boolean;
 }
 
+const issuedPassFailures = new WeakSet<object>();
+
 class PipelinePassFailure extends CompilerError {
   readonly originPass: PassId;
 
   constructor(originPass: PassId, error: unknown) {
-    const failure = normalizeFailure(error);
-    super(failure.code, failure.message, error instanceof CompilerError ? error.details : {});
+    const failure = describePipelineFailure(error);
+    let details = {};
+    try { if (error instanceof CompilerError) details = error.details ?? {}; }
+    catch { /* Keep the original cause when its diagnostic details are unreadable. */ }
+    super(failure.code, failure.message, details);
     this.name = 'PipelinePassFailure';
     this.originPass = originPass;
+    Object.defineProperty(this, 'originPass', { value: originPass, enumerable: true, writable: false, configurable: false });
     this.cause = error;
+    issuedPassFailures.add(this);
   }
 }
 
@@ -44,32 +54,26 @@ export async function runPipelinePass<T>(
   try {
     return await execute();
   } catch (error) {
-    if (error instanceof PipelinePassFailure) throw error;
+    if (isPipelinePassFailure(error)) throw error;
     throw new PipelinePassFailure(originPass, error);
   }
 }
 
-function normalizeFailure(error: unknown): { code: string; message: string } {
-  if (error instanceof CompilerError) {
-    return { code: error.code, message: error.message };
-  }
-  if (error instanceof Error) {
-    return { code: 'UNEXPECTED', message: error.message };
-  }
-  return { code: 'UNEXPECTED', message: String(error) };
+function isPipelinePassFailure(value: unknown): value is PipelinePassFailure {
+  return typeof value === 'object' && value !== null && issuedPassFailures.has(value);
 }
 
 function readExistingLock(workspaceRoot: string): LockFile | null {
   try {
     return readLockFile(workspaceRoot);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    if (getErrorCode(error) === 'ENOENT') return null;
     throw error;
   }
 }
 
 function invalidatedState(passId: PassId): PassState {
-  return passId === 'repair' ? 'skipped' : 'pending';
+  return PASS_STATUS_PENDING[passId];
 }
 
 function assertStageRequirements(lock: LockFile | null, stageId: PipelineStageId, requires: readonly PassId[]): void {
@@ -139,23 +143,21 @@ async function executeStageWithContext<T>(
   try {
     assertStageRequirements(previousLock, stageId, definition.requires);
   } catch (error) {
-    const failure = normalizeFailure(error);
-    if (previousLock) {
-      blockStageState(previousLock, definition.ownedPasses, definition.invalidates);
-      await commitFence();
-      await saveLock(workspaceRoot, previousLock, commitFence);
-    }
-    await commitFence();
-    await recordPipelinePassBlocked(
-      workspaceRoot,
-      context.transactionId,
-      definition.primaryPass,
-      failure.code,
-      failure.message,
-      commitFence,
-      context.onEvent
-    );
-    throw error;
+    const failure = describePipelineFailure(error);
+    return settlePipelineFailure(error, [
+      { operation: 'lock-blocked', run: async () => {
+        if (previousLock) {
+          blockStageState(previousLock, definition.ownedPasses, definition.invalidates);
+          await commitFence();
+          await saveLock(workspaceRoot, previousLock, commitFence);
+        }
+      } },
+      { operation: 'journal-blocked', run: async () => {
+        await commitFence();
+        await recordPipelinePassBlocked(workspaceRoot, context.transactionId, definition.primaryPass,
+          failure.code, failure.message, commitFence, context.onEvent);
+      } }
+    ]);
   }
 
   if (previousLock) {
@@ -192,32 +194,23 @@ async function executeStageWithContext<T>(
     );
     return result;
   } catch (error) {
-    const failure = normalizeFailure(error);
-    const lock = definition.requires.length === 0
-      ? null
-      : readExistingLock(workspaceRoot);
-    if (lock) {
-      failStageState(
-        lock,
-        definition.primaryPass,
-        definition.ownedPasses,
-        definition.invalidates,
-        error instanceof PipelinePassFailure ? error.originPass : definition.primaryPass
-      );
-      await commitFence();
-      await saveLock(workspaceRoot, lock, commitFence);
-    }
-    await commitFence();
-    await recordPipelinePassFailure(
-      workspaceRoot,
-      context.transactionId,
-      definition.primaryPass,
-      failure.code,
-      failure.message,
-      commitFence,
-      context.onEvent
-    );
-    throw error;
+    const failure = describePipelineFailure(error);
+    return settlePipelineFailure(error, [
+      { operation: 'lock-failed', run: async () => {
+        const lock = definition.requires.length === 0 ? null : readExistingLock(workspaceRoot);
+        if (lock) {
+          failStageState(lock, definition.primaryPass, definition.ownedPasses, definition.invalidates,
+            isPipelinePassFailure(error) ? error.originPass : definition.primaryPass);
+          await commitFence();
+          await saveLock(workspaceRoot, lock, commitFence);
+        }
+      } },
+      { operation: 'journal-failed', run: async () => {
+        await commitFence();
+        await recordPipelinePassFailure(workspaceRoot, context.transactionId, definition.primaryPass,
+          failure.code, failure.message, commitFence, context.onEvent);
+      } }
+    ]);
   }
 }
 
@@ -229,13 +222,16 @@ export async function withPipelineTransaction<T>(
   execute: (context: PipelineExecutionContext) => Promise<T>,
   workspaceWriteLease?: WorkspaceWriteLeaseToken
 ): Promise<T> {
+  workspaceRoot = path.resolve(workspaceRoot);
+  // A caller cannot change the journal request while lease admission is suspended.
+  const stages = Object.freeze([...requestedStages]);
   return withWorkspaceWriteLease(workspaceRoot, workspaceWriteLease, async (lease) => {
     const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, lease);
     await commitFence();
     const transactionId = await startPipelineTransaction(
       workspaceRoot,
       source,
-      requestedStages,
+      stages,
       commitFence,
       onEvent
     );
@@ -245,6 +241,12 @@ export async function withPipelineTransaction<T>(
       ...(onEvent ? { onEvent } : {}),
       workspaceWriteLease: lease
     };
+    // Semantic state remains owned and mutable by its producer. Transaction
+    // identity, observer and lease binding cannot be retargeted after admission.
+    for (const key of ['transactionId', 'source', 'onEvent', 'workspaceWriteLease'] as const) {
+      Object.defineProperty(context, key, { value: context[key], writable: false, configurable: false,
+        enumerable: Object.hasOwn(context, key) });
+    }
 
     try {
       const result = await execute(context);
@@ -252,17 +254,11 @@ export async function withPipelineTransaction<T>(
       await commitPipelineTransaction(workspaceRoot, transactionId, commitFence, onEvent);
       return result;
     } catch (error) {
-      const failure = normalizeFailure(error);
-      await commitFence();
-      await failPipelineTransaction(
-        workspaceRoot,
-        transactionId,
-        failure.code,
-        failure.message,
-        commitFence,
-        onEvent
-      );
-      throw error;
+      const failure = describePipelineFailure(error);
+      return settlePipelineFailure(error, [{ operation: 'transaction-failed', run: async () => {
+        await commitFence();
+        await failPipelineTransaction(workspaceRoot, transactionId, failure.code, failure.message, commitFence, onEvent);
+      } }]);
     }
   });
 }
@@ -274,10 +270,21 @@ export async function executePipelineStage<T>(
   execute: (effectiveContext: PipelineExecutionContext) => Promise<T>,
   options: StageExecutionOptions<T> = {}
 ): Promise<T> {
+  workspaceRoot = path.resolve(workspaceRoot);
+  const { extractLock, preserveOwnedPassStates } = options;
+  if (extractLock !== undefined && typeof extractLock !== 'function') {
+    throw new TypeError('Pipeline lock extractor must be callable');
+  }
+  if (preserveOwnedPassStates !== undefined && typeof preserveOwnedPassStates !== 'boolean') {
+    throw new TypeError('Pipeline preserveOwnedPassStates must be boolean');
+  }
+  // Preserve method receiver compatibility with an immutable owned-field snapshot.
+  const effectiveOptions = Object.freeze({ extractLock, preserveOwnedPassStates });
+  getPipelineStageDefinition(stageId);
   if (context) {
     const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, context.workspaceWriteLease);
     await commitFence();
-    return executeStageWithContext(workspaceRoot, stageId, context, execute, commitFence, options);
+    return executeStageWithContext(workspaceRoot, stageId, context, execute, commitFence, effectiveOptions);
   }
   return withPipelineTransaction(workspaceRoot, 'api', [stageId], undefined, (transaction) =>
     executeStageWithContext(
@@ -286,7 +293,7 @@ export async function executePipelineStage<T>(
       transaction,
       execute,
       createWorkspaceWriteCommitFence(workspaceRoot, transaction.workspaceWriteLease),
-      options
+      effectiveOptions
     )
   );
 }
