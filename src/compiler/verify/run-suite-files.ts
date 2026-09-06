@@ -1,31 +1,46 @@
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { throwIfNativeAborted } from '../../system-architecture/foundation/runtime/native-abort.ts';
 import { CompilerError } from '../errors.ts';
 
 interface SuiteModule {
   runSuite?: () => Promise<void> | void;
 }
 
-// The loader module URL namespaces this instance-local cache discriminator.
-// It is not a semantic revision or verification identity. BigInt cannot wrap.
+// Instance-local loader cache discriminator, not a semantic verification key.
 let suiteModuleRevision = 0n;
 
-/** Execute exactly the captured file inventory, serially and fail-fast. */
+/** Capture the inventory before effects. Import, execution and pass recording
+ * remain serial and are all joined. Cancellation does not turn unstarted files
+ * into failed tests, nor physically terminate a module or suite already running. */
 export async function runSuiteFiles(
   files: readonly string[],
-  onSuitePassed?: (file: string) => void
+  onSuitePassed?: (file: string) => void | PromiseLike<void>,
+  signal?: AbortSignal
 ): Promise<void> {
-  // Bind both order and absolute location before the first await. A suite or
-  // reporting callback may change process.cwd(); it must not redirect a later
-  // relative entry to a different file. Keep caller labels for diagnostics.
-  const capturedFiles = [...files].map((file) => ({ file, moduleUrl: pathToFileURL(file) }));
+  const root = process.cwd();
+  throwIfNativeAborted(signal);
+  if (onSuitePassed !== undefined && typeof onSuitePassed !== 'function') throw new TypeError('Suite pass recorder must be callable');
+  if (!Array.isArray(files)) throw new TypeError('Suite file inventory must be an array');
+  const capturedFiles: Array<{ file: string; moduleUrl: URL }> = [];
+  const length = files.length;
+  for (let index = 0; index < length; index++) {
+    const descriptor = Object.getOwnPropertyDescriptor(files, index);
+    const file: unknown = descriptor && 'value' in descriptor ? descriptor.value : undefined;
+    if (typeof file !== 'string' || file.length === 0 || file.includes('\0')) throw new TypeError('Suite files must be dense own non-empty path strings');
+    capturedFiles.push({ file, moduleUrl: pathToFileURL(path.resolve(root, file)) });
+  }
   for (const { file, moduleUrl } of capturedFiles) {
+    throwIfNativeAborted(signal);
     moduleUrl.searchParams.set('loader', import.meta.url);
     moduleUrl.searchParams.set('revision', String(++suiteModuleRevision));
     const testModule = (await import(moduleUrl.href)) as SuiteModule;
-    if (typeof testModule.runSuite !== 'function') {
-      throw new CompilerError('VERIFY-BUILD-002', `Test file "${file}" must export runSuite()`);
-    }
-    await testModule.runSuite();
-    onSuitePassed?.(file);
+    throwIfNativeAborted(signal);
+    const execute = testModule.runSuite;
+    if (typeof execute !== 'function') throw new CompilerError('VERIFY-BUILD-002', `Test file "${file}" must export runSuite()`);
+    await Reflect.apply(execute, testModule, []);
+    throwIfNativeAborted(signal);
+    await onSuitePassed?.(file);
+    throwIfNativeAborted(signal);
   }
 }

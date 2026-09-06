@@ -1,3 +1,5 @@
+import { observeOptionalDiagnostic as observe } from '../../../system-architecture/foundation/runtime/optional-diagnostic.ts';
+
 /** Progress is an observer, never the authority for the action's result.
  * Providers implement synchronous UI methods. Any accidentally returned
  * thenable is rejection-observed, not awaited or treated as settled UI work. */
@@ -8,10 +10,6 @@ export interface ProgressObserver {
   stop(): unknown;
 }
 
-function observe(effect: () => unknown): void {
-  try { void Promise.resolve(effect()).catch(() => {}); }
-  catch { /* A diagnostic failure cannot change the action's outcome. */ }
-}
 
 export async function withProgressLifecycle<T>(
   text: string,

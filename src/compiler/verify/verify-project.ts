@@ -1,3 +1,6 @@
+import { isNativeAborted, throwIfNativeAborted } from '../../system-architecture/foundation/runtime/native-abort.ts';
+import { observeOptionalDiagnostic } from '../../system-architecture/foundation/runtime/optional-diagnostic.ts';
+import { captureVerifyProjectOptions } from './verify-invocation.ts';
 import { shouldExecuteRuntimeVerification, verificationLaneProfile, type VerificationRuntimeMode } from '../../verification/contract/lanes.ts';
 import path from 'node:path';
 import type { AcceptanceCoverageReport } from '../../semantic/acceptance/contract/types.ts';
@@ -153,46 +156,62 @@ async function listSuiteFiles(rootDir: string, suffix: string): Promise<readonly
     .sort((left, right) => compareCodeUnits(left, right)));
 }
 
+function throwFastCancellation(signal: AbortSignal | undefined, executionFailure: unknown): void {
+  if (!isNativeAborted(signal)) return;
+  try { throwIfNativeAborted(signal); }
+  catch (cancellation) {
+    if (cancellation === executionFailure) throw executionFailure;
+    throw new AggregateError([executionFailure, cancellation], 'Verification execution failed during cancellation', { cause: executionFailure });
+  }
+}
+
 async function runFastVerification(
   workspaceRoot: string,
-  isolated: boolean
-): Promise<{ lane: FastVerificationLaneReport; failure: unknown | null }> {
+  isolated: boolean,
+  signal?: AbortSignal
+): Promise<{ lane: FastVerificationLaneReport; failure?: Readonly<{ reason: unknown }> }> {
+  throwIfNativeAborted(signal);
   const testsRoot = getWorkspacePaths(workspaceRoot).testsRoot;
   const unitRoot = path.join(testsRoot, 'unit');
   const acceptanceRoot = path.join(testsRoot, 'acceptance');
   const acceptanceFiles = await listSuiteFiles(acceptanceRoot, '.test.ts');
+  const unitFiles = await listSuiteFiles(unitRoot, '.test.ts');
+  throwIfNativeAborted(signal);
   const lane = createSkippedFastLane();
-  let failure: unknown | null = null;
+  let failure: Readonly<{ reason: unknown }> | undefined;
 
   try {
     await typecheckProject(workspaceRoot, { isolated });
+    throwIfNativeAborted(signal);
     lane.build.status = 'passed';
   } catch (error) {
+    throwFastCancellation(signal, error);
     lane.build.status = 'failed';
     lane.status = 'failed';
     lane.logs.stderr = formatCompilerFailure(error);
-    return { lane, failure: error };
+    return { lane, failure: { reason: error } };
   }
 
   try {
-    const unitFiles = await listSuiteFiles(unitRoot, '.test.ts');
     await runSuiteFiles(unitFiles, (file) => {
       lane.unit.passed.push(relativePosixPath(unitRoot, file));
-    });
+    }, signal);
     lane.unit.status = 'passed';
   } catch (error) {
+    throwFastCancellation(signal, error);
     lane.unit.status = 'failed';
     lane.status = 'failed';
     lane.logs.stderr = formatCompilerFailure(error);
-    return { lane, failure: error };
+    return { lane, failure: { reason: error } };
   }
 
   try {
     await runSuiteFiles(acceptanceFiles, (file) => {
       lane.acceptance.passed.push(relativePosixPath(acceptanceRoot, file));
-    });
+    }, signal);
     lane.acceptance.status = 'passed';
   } catch (error) {
+    throwFastCancellation(signal, error);
     lane.acceptance.status = 'failed';
     // The loader stops at the first failure. A passed prefix and an unrun
     // suffix must not be relabeled as failed executions.
@@ -202,10 +221,12 @@ async function runFastVerification(
       : [relativePosixPath(acceptanceRoot, failedFile)];
     lane.status = 'failed';
     lane.logs.stderr = formatCompilerFailure(error);
-    return { lane, failure: error };
+    return { lane, failure: { reason: error } };
   }
 
+  throwIfNativeAborted(signal);
   const policyReport = await runPolicyGate(workspaceRoot);
+  throwIfNativeAborted(signal);
   lane.policyReport = policyReport;
   lane.policy = { status: policyReport.status, violations: policyReport.violations };
   lane.logs.stdout = [
@@ -216,15 +237,15 @@ async function runFastVerification(
   ].join(' ');
 
   if (policyReport.status === 'failed') {
-    failure = new CompilerError('VERIFY-POLICY-001', 'Policy gate failed', policyReport.violations);
+    failure = { reason: new CompilerError('VERIFY-POLICY-001', 'Policy gate failed', policyReport.violations) };
     lane.status = 'failed';
-    lane.logs.stderr = formatCompilerFailure(failure);
+    lane.logs.stderr = formatCompilerFailure(failure.reason);
     return { lane, failure };
   }
 
   lane.status = 'passed';
   lane.acceptance.failed = [];
-  return { lane, failure: null };
+  return { lane };
 }
 
 function summarizeLogs(
@@ -316,8 +337,33 @@ export async function verifyProject(
   lane: VerificationLane = 'all',
   options: VerifyProjectOptions = {}
 ): Promise<VerificationReport> {
+  workspaceRoot = path.resolve(workspaceRoot);
   const selection = verificationLaneProfile(lane);
+  options = captureVerifyProjectOptions(options);
   const logger = options.logger ?? defaultLogger;
+  let errorReporter: Logger['error'] | undefined;
+  observeOptionalDiagnostic(() => { errorReporter = logger.error; });
+  const subjectRevision = productVerificationSubjectRevision(lock);
+  const assertSubjectCurrent = (): void => {
+    throwIfNativeAborted(options.signal);
+    if (productVerificationSubjectRevision(lock) !== subjectRevision) {
+      throw new CompilerError('VERIFY-SUBJECT-001', 'Verification subject changed after invocation admission');
+    }
+  };
+  const ownerFence = options.beforeCommit;
+  options = Object.freeze({ ...options, beforeCommit: async () => {
+    assertSubjectCurrent();
+    await ownerFence?.();
+    assertSubjectCurrent();
+  } });
+  const boundary = async (name: Extract<PipelineExecutionBoundary, `verify-${string}`>): Promise<void> => {
+    assertSubjectCurrent();
+    await emitVerifyBoundary(options, name);
+    assertSubjectCurrent();
+  };
+  if (options.stagedVerificationProof !== undefined && (options.isolated || selection.scope !== 'complete')) {
+    throw new Error('Staged Verification proof is restricted to one live all-lane rebuild');
+  }
   assertPassStatus(
     lock,
     'compose',
@@ -325,8 +371,9 @@ export async function verifyProject(
     new CompilerError('VERIFY-BLOCKED-001', 'compose must succeed before verify')
   );
 
-  await emitVerifyBoundary(options, 'verify-preflight');
+  await boundary('verify-preflight');
   await checkProjectBeforeVerify(workspaceRoot);
+  assertSubjectCurrent();
   if (options.isolated) {
     await ensureProjectDependencies(workspaceRoot, {
       beforeCommit: options.beforeCommit,
@@ -337,10 +384,7 @@ export async function verifyProject(
     await assertIsolatedStagingTree(workspaceRoot, options.stagingTreeOptions);
   }
 
-  if (options.stagedVerificationProof) {
-    if (options.isolated || selection.scope !== 'complete') {
-      throw new Error('Staged Verification proof is restricted to one live all-lane rebuild');
-    }
+  if (options.stagedVerificationProof !== undefined) {
     await options.beforeCommit?.();
     const artifacts = await consumeStagedVerificationProof(
       workspaceRoot,
@@ -352,7 +396,7 @@ export async function verifyProject(
     await options.beforeCommit?.();
     ensureGeneratedPaths(lock);
     updateVerifyPassState(lock, artifacts.verificationReport);
-    await emitVerifyBoundary(options, 'verify-artifact-publish');
+    await boundary('verify-artifact-publish');
     const published = await publishVerificationArtifactSet({
       workspaceRoot,
       lock,
@@ -367,10 +411,10 @@ export async function verifyProject(
 
   const fastStartedAtMs = Date.now();
   const fastResult = !selection.runFast
-    ? { lane: createSkippedFastLane(), failure: null }
+    ? { lane: createSkippedFastLane(), failure: undefined }
     : await (async () => {
-        await emitVerifyBoundary(options, 'verify-fast');
-        return runFastVerification(workspaceRoot, options.isolated === true);
+        await boundary('verify-fast');
+        return runFastVerification(workspaceRoot, options.isolated === true, options.signal);
       })();
   const fastFinishedAtMs = Date.now();
   const shouldRunRuntime = shouldExecuteRuntimeVerification(selection, fastResult.lane.status === 'passed');
@@ -378,7 +422,7 @@ export async function verifyProject(
   let runtimeLane: RuntimeVerificationLaneReport;
   const runtimeStartedAtMs = Date.now();
   if (shouldRunRuntime) {
-    await emitVerifyBoundary(options, 'verify-runtime');
+    await boundary('verify-runtime');
     runtimeLane = await runRuntimeVerification(workspaceRoot, runtimeMode, {
       beforeCommit: options.beforeCommit,
       emitTiming: options.emitTiming,
@@ -399,7 +443,8 @@ export async function verifyProject(
     runtimeLane,
     fastResult.lane
   );
-  const observationBindings = productVerificationObservationBindings(lock, lane, runtimeMode);
+  assertSubjectCurrent();
+  const observationBindings = buildProductVerificationObservationBindings(subjectRevision, lane, runtimeMode);
   const observations: ProductVerificationObservations = {
     fast: observedExecution(
       observationBindings.fast,
@@ -446,35 +491,37 @@ export async function verifyProject(
   ensureGeneratedPaths(lock);
   updateVerifyPassState(lock, report);
 
-  if (summary.status === 'passed') await emitVerifyBoundary(options, 'verify-artifact-publish');
-  await options.beforeCommit?.();
-  const published = await publishVerificationArtifactSet({
-    workspaceRoot,
-    lock,
-    artifacts: {
-      verificationReport: report,
-      runtimeReport: runtimeLane,
-      policyReport,
-      acceptanceCoverage: coverage
-    },
-    commitFence: options.beforeCommit
-  });
+  const verificationFailure = (verificationReport: VerificationReport) => new CompilerError(
+    'VERIFY-ACCEPTANCE-003', 'Project verification failed', { verificationReport },
+    fastResult.failure === undefined ? undefined : { cause: fastResult.failure.reason }
+  );
+  let published: Awaited<ReturnType<typeof publishVerificationArtifactSet>>;
+  try {
+    if (summary.status === 'passed') await boundary('verify-artifact-publish');
+    await options.beforeCommit?.();
+    published = await publishVerificationArtifactSet({ workspaceRoot, lock,
+      artifacts: { verificationReport: report, runtimeReport: runtimeLane, policyReport, acceptanceCoverage: coverage },
+      commitFence: options.beforeCommit });
+  } catch (publicationFailure) {
+    if (summary.status !== 'failed') throw publicationFailure;
+    const primary = verificationFailure(report);
+    throw new AggregateError([primary, publicationFailure], 'Verification failed and report publication did not complete', { cause: primary });
+  }
 
   if (summary.status === 'failed') {
     if (runtimeLane.acceptance?.status === 'failed') {
-      logger.error('VERIFY-ACCEPTANCE-003: runtime acceptance failed', {
+      observeOptionalDiagnostic(() => errorReporter === undefined ? undefined : Reflect.apply(errorReporter, logger, ['VERIFY-ACCEPTANCE-003: runtime acceptance failed', {
         passed: runtimeLane.acceptance.passed,
         failed: runtimeLane.acceptance.failed,
         command: runtimeLane.acceptance.command,
         stdout: runtimeLane.logs?.stdout?.slice(0, 3000),
         stderr: runtimeLane.logs?.stderr?.slice(0, 3000)
-      });
+      }]));
     }
-    console.error('VERIFY-ACCEPTANCE-003 full report:', JSON.stringify(published.verificationReport, null, 2));
-    throw new CompilerError('VERIFY-ACCEPTANCE-003', 'Project verification failed', {
-      verificationReport: published.verificationReport
-    });
+    observeOptionalDiagnostic(() => console.error('VERIFY-ACCEPTANCE-003 full report:', JSON.stringify(published.verificationReport, null, 2)));
+    throw verificationFailure(published.verificationReport);
   }
 
+  assertSubjectCurrent();
   return published.verificationReport;
 }
