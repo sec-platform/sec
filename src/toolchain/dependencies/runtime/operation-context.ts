@@ -5,11 +5,9 @@ import type { RuntimeDependencyTestMaterializationCapability } from './materiali
 
 import {
   awaitRuntimeDependencyOperation,
-  MAX_DEPENDENCY_OPERATION_TIMEOUT_MS,
   runtimeDependencyOperationContext,
   runtimeDependencyOperationControls,
   captureRuntimeDependencyBindingGuard,
-  runtimeDependencyOperationRemainingMs,
   type BoundRuntimeDependencyOperationControls,
   type RuntimeDependencyOperationControlInput
 } from './operation-controls.ts';
@@ -27,8 +25,11 @@ export {
   type RuntimeDependencyOperationControlInput
 } from './operation-controls.ts';
 
+// Execution-generation retention and install-operation admission are separate
+// policy decisions. Preserve today's value without making either future change
+// silently alter the other. This is not an evidence/GC retention period.
 export const COMPILER_DEPENDENCY_EXECUTION_RETENTION_POLICY = Object.freeze({
-  maximumDurationMs: MAX_DEPENDENCY_OPERATION_TIMEOUT_MS
+  maximumDurationMs: 300_000
 });
 
 export interface RuntimeDependencyInstallOptions extends RuntimeDependencyOperationControlInput, RuntimeDependencyLifecycleInput {
@@ -80,11 +81,18 @@ export async function runtimeDependencyOperationEffectFence(
   options: RuntimeDependencyEffectFenceOptions,
   label: string
 ): Promise<void> {
-  runtimeDependencyOperationRemainingMs(options, `${label} admission`);
+  // Fix the selected method before budget sampling invokes caller clock code.
+  // The supplied receiver remains real; a record clone would lose private state.
+  const beforeCommit = options.beforeCommit;
+  if (beforeCommit !== undefined && typeof beforeCommit !== 'function') {
+    throw new TypeError('Runtime dependency effect fence must be callable');
+  }
+  const context = runtimeDependencyOperationContext(options);
   // A never-settling fence must not hold the caller beyond cancellation or
   // its operation deadline. Rejection is not a claim that provider work stopped.
   await awaitRuntimeDependencyOperation(
-    runtimeDependencyOperationContext(options), `${label} effect`, () => options.beforeCommit?.()
+    context, `${label} effect`, () => beforeCommit === undefined
+      ? undefined : Reflect.apply(beforeCommit, options, [])
   );
 }
 
