@@ -1,0 +1,158 @@
+import assert from 'node:assert/strict';
+import { test } from 'bun:test';
+import {
+  buildAcceptanceTargetInspect, buildPolicySourceInspect, buildReviewDiagnosticsInspect,
+  buildRuntimeStepsInspect, formatCiArtifactManifest, formatProvenanceRegistry
+} from '../../src/interface/cli/formatters.ts';
+
+type PolicyInput = Parameters<typeof buildPolicySourceInspect>[0];
+type CoverageInput = Parameters<typeof buildAcceptanceTargetInspect>[0];
+type RuntimeInput = Parameters<typeof buildRuntimeStepsInspect>[0];
+type ReviewInput = Parameters<typeof buildReviewDiagnosticsInspect>[0];
+type ProvenanceInput = Parameters<typeof formatProvenanceRegistry>[0];
+type ManifestInput = Parameters<typeof formatCiArtifactManifest>[0];
+// Focused domain fixtures: these tests exercise projections, not domain parsers.
+function policy() {
+  return { status: 'passed', official: { sources: [{ path: 'z', policyIds: ['one'] }] },
+    project: { sources: [{ path: 'a', policyIds: ['two', 'three'] }] } };
+}
+function coverage() {
+  return { status: 'passed', blocks: [{ id: 'block', uncovered: true,
+    declaredAcceptance: ['declared'], coveredBy: [] as string[] }], uncoveredBlocks: ['block'] };
+}
+function step() { return { status: 'passed', command: 'test', passed: ['one'], failed: [] as string[] }; }
+function runtime() { return { status: 'passed', build: step(), unit: step(), acceptance: step() }; }
+function manifest(counts: Record<string, number>) {
+  return { summary: { artifactStatus: 'passed', artifactCount: 1, missingCount: 1, uploadGroupCount: 0,
+    governanceCount: 1, testCount: 0, contractCount: 0, missingReasonCounts: counts }, uploadGroups: [] };
+}
+
+test('policy projection owns its arrays while preserving source order and counts', () => {
+  const source = policy(), projected = buildPolicySourceInspect(source as PolicyInput);
+  assert.equal(projected.sourceCount, 2); assert.equal(projected.policyCount, 3);
+  assert.deepEqual(projected.sources.map(value => value.scope), ['official', 'project']);
+  source.official.sources[0]!.policyIds.push('later');
+  source.project.sources[0]!.policyIds.length = 0;
+  assert.deepEqual(projected.sources.map(value => value.policyIds), [['one'], ['two', 'three']]);
+  assert.deepEqual(projected.sources.map(value => value.policyCount), [1, 2]);
+});
+
+test('policy list and count use one observation of a provider getter', () => {
+  const source = policy(); let reads = 0;
+  Object.defineProperty(source.official.sources[0], 'policyIds', { get() { reads++; return reads === 1 ? ['first'] : ['later', 'later']; } });
+  const projected = buildPolicySourceInspect(source as PolicyInput);
+  assert.equal(reads, 1);
+  assert.deepEqual(projected.sources[0]!.policyIds, ['first']);
+  assert.equal(projected.sources[0]!.policyCount, 1);
+});
+
+test('editing a policy projection never changes the domain result', () => {
+  const source = policy(), projected = buildPolicySourceInspect(source as PolicyInput);
+  projected.sources[0]!.policyIds.push('projection-only');
+  assert.deepEqual(source.official.sources[0]!.policyIds, ['one']);
+});
+
+test('coverage copies declared, covered and uncovered arrays in both directions', () => {
+  const source = coverage(), projected = buildAcceptanceTargetInspect(source as CoverageInput);
+  source.blocks[0]!.declaredAcceptance.push('later'); source.uncoveredBlocks.length = 0;
+  projected.targets[0]!.coveredBy.push('projection-only');
+  assert.deepEqual(projected.targets[0]!.declaredAcceptance, ['declared']);
+  assert.deepEqual(projected.uncoveredIds, ['block']); assert.equal(projected.uncoveredCount, 1);
+  assert.equal(projected.targets[0]!.declaredAcceptanceCount, 1);
+  assert.deepEqual(source.blocks[0]!.coveredBy, []);
+});
+
+test('coverage summary and target fields use the same captured observations', () => {
+  const source = coverage(); let declaredReads = 0, coveredReads = 0, uncoveredReads = 0;
+  Object.defineProperties(source.blocks[0], {
+    declaredAcceptance: { enumerable: true, get() { declaredReads++; return ['declaration']; } },
+    coveredBy: { enumerable: true, get() { coveredReads++; return ['coverage']; } },
+    uncovered: { enumerable: true, get() { uncoveredReads++; return false; } }
+  });
+  const projected = buildAcceptanceTargetInspect(source as CoverageInput);
+  assert.deepEqual([declaredReads, coveredReads, uncoveredReads], [1, 1, 1]);
+  assert.equal(projected.coveredCount, 1); assert.equal(projected.targets[0]!.uncovered, false);
+  assert.equal(projected.targets[0]!.declaredAcceptanceCount, projected.targets[0]!.declaredAcceptance.length);
+  assert.equal(projected.targets[0]!.coveredByCount, projected.targets[0]!.coveredBy.length);
+});
+
+test('coverage projection does not acquire later-added targets', () => {
+  const source = coverage(), projected = buildAcceptanceTargetInspect(source as CoverageInput);
+  source.blocks.push({ ...source.blocks[0]!, id: 'later' });
+  assert.equal(projected.targetCount, 1); assert.deepEqual(projected.targets.map(v => v.id), ['block']);
+});
+
+test('all runtime step details are copied, without freezing the provider result', () => {
+  const source = runtime(), projected = buildRuntimeStepsInspect(source as RuntimeInput);
+  for (const key of ['build', 'unit', 'acceptance'] as const) {
+    source[key].passed.push('later'); source[key].failed.push('later');
+  }
+  assert.deepEqual(projected.steps.map(v => v.passed), [['one'], ['one'], ['one']]);
+  assert.deepEqual(projected.steps.map(v => [v.passedCount, v.failedCount]), [[1, 0], [1, 0], [1, 0]]);
+  projected.steps[0]!.failed.push('projection');
+  assert.deepEqual(source.build.failed, ['later']);
+});
+
+test('runtime getters are read once for each count/list pair', () => {
+  const source = runtime(); let passed = 0, failed = 0;
+  Object.defineProperties(source.build, {
+    passed: { get() { passed++; return passed === 1 ? ['one'] : []; } },
+    failed: { get() { failed++; return failed === 1 ? ['failure'] : []; } }
+  });
+  const projected = buildRuntimeStepsInspect(source as RuntimeInput).steps[0]!;
+  assert.deepEqual([passed, failed], [1, 1]);
+  assert.equal(projected.passedCount, projected.passed.length);
+  assert.equal(projected.failedCount, projected.failed.length);
+});
+
+test('missing block identities do not manufacture an empty block', () => {
+  const source = { ciSummary: { status: 'passed' }, failurePoints: [], conflictHints: [], regressionRisks: [
+    { kind: 'fixture', message: 'unbound' }, { kind: 'fixture', message: 'empty', blockId: '' },
+    { kind: 'fixture', message: 'bound', blockId: 'valid' }, { kind: 'fixture', message: 'duplicate', blockId: 'valid' }
+  ] };
+  const projected = buildReviewDiagnosticsInspect(source as unknown as ReviewInput);
+  assert.deepEqual(projected.blocks, ['valid']); assert.equal(projected.blockCount, 1);
+  assert.equal(projected.diagnosticCount, 4); // No diagnostic is removed with its absent identity.
+});
+
+test('block index derives from the emitted diagnostic rather than re-reading raw risks', () => {
+  const risk = { kind: 'fixture', message: 'bound', get blockId() { return ++reads === 1 ? 'initial' : reads === 2 ? 'emitted' : 'different'; } };
+  let reads = 0;
+  const projected = buildReviewDiagnosticsInspect({ ciSummary: { status: 'passed' }, failurePoints: [], conflictHints: [], regressionRisks: [risk] } as unknown as ReviewInput);
+  assert.deepEqual(projected.blocks, ['emitted']); assert.equal(reads, 2);
+  assert.equal((projected.diagnostics[0] as {blockId?: string}).blockId, 'emitted');
+});
+
+test('an absent generating pass displays none, not an empty string identity', () => {
+  const artifact = { path: 'a', originType: 'generated', originId: 'fixture', verifiedBy: [], overrideStatus: 'none' };
+  const absent = formatProvenanceRegistry({ artifacts: [artifact] } as unknown as ProvenanceInput);
+  assert.ok(absent.includes('Generated passes: none'));
+  const mixed = formatProvenanceRegistry({ artifacts: [artifact, { ...artifact, path: 'b', generatedByPass: 'emit' }] } as unknown as ProvenanceInput);
+  assert.ok(mixed.includes('Generated passes: emit')); assert.ok(!mixed.includes('Generated passes: ,'));
+});
+
+test('manifest formatter consumes large aggregate counts without occurrence expansion', () => {
+  const output = formatCiArtifactManifest(manifest({ z: Number.MAX_SAFE_INTEGER, a: 2 ** 40, zero: 0 }) as ManifestInput);
+  assert.ok(output.includes(`Missing reasons: a=${2 ** 40}, z=${Number.MAX_SAFE_INTEGER}`));
+});
+
+test('manifest zero/ordinary count presentation preserves existing sorted wording', () => {
+  assert.ok(formatCiArtifactManifest(manifest({ z: 2, a: 1 }) as ManifestInput).includes('Missing reasons: a=1, z=2'));
+  assert.ok(formatCiArtifactManifest(manifest({ z: 0 }) as ManifestInput).includes('Missing reasons: none'));
+});
+
+test('manifest invalid aggregate counts fail explicitly instead of expanding malformed data', () => {
+  for (const count of [-1, 0.5, Infinity, NaN]) {
+    assert.throws(() => formatCiArtifactManifest(manifest({ invalid: count }) as ManifestInput), RangeError);
+  }
+});
+
+test('coverage preserves existing JSON field order while detaching source arrays', () => {
+  const entry = { coveredBy: ['coverage'], id: 'block', declaredAcceptance: ['declared'], uncovered: false };
+  const source = { status: 'passed', blocks: [entry], uncoveredBlocks: [] };
+  const projected = buildAcceptanceTargetInspect(source as CoverageInput).targets[0]!;
+  const expected = { ...entry, declaredAcceptanceCount: 1, coveredByCount: 1 };
+  assert.equal(JSON.stringify(projected), JSON.stringify(expected));
+  assert.notEqual(projected.coveredBy, entry.coveredBy);
+  assert.notEqual(projected.declaredAcceptance, entry.declaredAcceptance);
+});

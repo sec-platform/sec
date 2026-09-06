@@ -1,15 +1,16 @@
+import { captureJsonOutputInput } from './json-output-options.ts';
+import { registerNamedInspectionQuery } from './named-inspection-query.ts';
 import { runWithOptionalSpinner } from './command-progress.ts';
-import { Argument, type Command } from 'commander';
+import type { Command } from 'commander';
 import type { PolicyReport } from '../../compiler/policies/contract/types.ts';
 import type { AcceptanceCoverageReport } from '../../semantic/acceptance/contract/types.ts';
 import type { ProvenanceFile } from '../../semantic/provenance/contract/types.ts';
 import type { RuntimeVerificationLaneReport, VerificationReport } from '../../verification/contract/types.ts';
 import type { ReviewSummary } from '../../verification/review/contract/types.ts';
-import { printJsonOrText } from './format-utils.ts';
 import type { BlockUsageMap, InstallManifestEntry, PostgresContract } from './formatters.ts';
 import { loadProjectOverviewDomain } from './lazy-command-domains.ts';
 import type { ProjectOverview } from './project-overview.ts';
-import { jsonOpts, commandPath, commandFromRoot, usageError, addJsonFlags } from './command-options.ts';
+import { jsonOpts, commandFromRoot, addJsonFlags } from './command-options.ts';
 import { inspectionValue, registerInspectionQuery, type InspectionContext } from './inspection-query.ts';
 
 type ArtifactKey = keyof typeof import('../../verification/ci-artifacts/contract/manifest.ts').CI_ARTIFACT_FILES;
@@ -137,29 +138,20 @@ export function registerInspectionCommands(program: Command): void {
     }
   });
 
-  addJsonFlags(program.command('contract')
-    .addArgument(new Argument('<kind>').choices(['freeze', 'errors', 'ci'])))
-    .description('Contract inspection')
-    .action(async (kind: string, rawOptions: Record<string, unknown>, cmd: Command) => {
-      const opts = Object.freeze({ ...rawOptions });
-      const output = jsonOpts(opts);
-      if (kind === 'freeze') {
-        const { buildContractFreezeContract, formatContractFreezeContract } = await import('../../verification/freeze.ts');
-        printJsonOrText(buildContractFreezeContract(), output, formatContractFreezeContract);
-        return;
-      }
-      if (kind === 'ci') {
-        const { buildCiContract, formatCiContract } = await import('../../verification/ci/contract/core.ts');
-        printJsonOrText(buildCiContract(), output, formatCiContract);
-        return;
-      }
-      if (kind === 'errors') {
-        const { buildErrorProtocolContract, formatErrorProtocolContract } = await import('./error-protocol-contract.ts');
-        printJsonOrText(buildErrorProtocolContract(), output, formatErrorProtocolContract);
-        return;
-      }
-      throw usageError(`Usage: ${commandPath(cmd)} <freeze|errors|ci> [--json [--compact]]`);
-    });
+  registerNamedInspectionQuery(program.command('contract'), {
+    freeze: async () => {
+      const { buildContractFreezeContract, formatContractFreezeContract } = await import('../../verification/freeze.ts');
+      return inspectionValue(buildContractFreezeContract(), formatContractFreezeContract);
+    },
+    errors: async () => {
+      const { buildErrorProtocolContract, formatErrorProtocolContract } = await import('./error-protocol-contract.ts');
+      return inspectionValue(buildErrorProtocolContract(), formatErrorProtocolContract);
+    },
+    ci: async () => {
+      const { buildCiContract, formatCiContract } = await import('../../verification/ci/contract/core.ts');
+      return inspectionValue(buildCiContract(), formatCiContract);
+    }
+  }).description('Contract inspection');
 
   registerInspectionQuery(program.command('install'), {
     read: artifactReader<InstallManifestEntry[]>('installManifest', (c) => `Install manifest not found; run ${c.rootCommand} compose first`),
@@ -178,14 +170,15 @@ export function registerInspectionCommands(program: Command): void {
   });
 
   addJsonFlags(program.command('postgres')).action(async (rawOptions: Record<string, unknown>, cmd: Command) => {
-      const opts = Object.freeze({ ...rawOptions });
       const cwd = process.cwd();
+      const output = jsonOpts(captureJsonOutputInput(rawOptions, 'own-enumerable'));
+      const missingMessage = `Postgres contract not found; run ${commandFromRoot(cmd, 'compose')} first`;
       const { formatPostgresContract } = await import('./formatters.ts');
       const { printGeneratedContract } = await import('./artifact-command-read.ts');
     await printGeneratedContract<PostgresContract>(
       cwd,
-      `Postgres contract not found; run ${commandFromRoot(cmd, 'compose')} first`,
-      jsonOpts(opts),
+      missingMessage,
+      output,
       formatPostgresContract,
       (contract) => contract.provider === 'postgres'
     );

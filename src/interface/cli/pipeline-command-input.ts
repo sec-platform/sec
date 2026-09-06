@@ -1,3 +1,4 @@
+import { captureCliOptions } from './own-options.ts';
 import { parseVerificationLaneOption } from './verification-lane-option.ts';
 import { CompilerError } from '../../compiler/errors.ts';
 import { parseJsonOutputOptions, type JsonOutputIssue } from './json-output-options.ts';
@@ -16,7 +17,7 @@ export function parsePipelineOutputOptions(options: Readonly<Record<string, unkn
 
 /** Capture the invocation once; no coercion hooks or mutable CLI object crosses an await. */
 export function parsePipelineCompileOptions(options: Readonly<Record<string, unknown>>) {
-  const { json, compact, from, through, lane } = options;
+  const { json, compact, from, through, lane } = captureCliOptions(options, ['json', 'compact', 'from', 'through', 'lane'].map((name) => ({ name, scope: 'property' as const })));
   const output = parsePipelineOutputOptions({ json, compact });
   const { from: first, through: last } = selectPipelineStageRange(from, through);
   return Object.freeze({

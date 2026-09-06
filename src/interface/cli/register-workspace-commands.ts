@@ -12,7 +12,8 @@ import { jsonOpts, commandPath, addJsonFlags, optionalModeCommand } from './comm
 import {
   COMPOSE_LOCK_OPTION, WORKSPACE_DRY_RUN_OPTION,
   parseComposeCommandInput, parseRepairCommandInput, parseUpgradeCommandInput,
-  parseVerifyCommandInput, VERIFY_COMMAND_DEFAULT_LANE
+  parseVerifyCommandInput, VERIFY_COMMAND_DEFAULT_LANE,
+  WORKSPACE_INSPECTION_MODES, parseWorkspaceViewCommandInput
 } from './workspace-command-input.ts';
 
 export function registerWorkspaceCommands(program: Command): void {
@@ -161,37 +162,39 @@ export function registerWorkspaceCommands(program: Command): void {
       }
     });
 
-  addJsonFlags(optionalModeCommand(program.command('lock'), 'mode', ['inspect']))
+  addJsonFlags(optionalModeCommand(program.command('lock'), 'mode', [WORKSPACE_INSPECTION_MODES.lock]))
     .description('Lock project')
     .action(async (mode: string | undefined, rawOptions: Record<string, unknown>, cmd: Command) => {
-      const opts = Object.freeze({ ...rawOptions });
       const cwd = process.cwd();
-      const output = jsonOpts(opts);
-      if (mode === 'inspect') {
+      const invocationPath = commandPath(cmd);
+      const input = parseWorkspaceViewCommandInput('lock', mode, rawOptions);
+      const { output } = input;
+      if (input.kind === 'inspect') {
         const { resolveWorkspaceLockPath } = await import('../../workspace/runtime/paths.ts');
         const { formatLockInspect } = await import('./formatters.ts');
         const { printRequiredJson } = await import('./artifact-command-read.ts');
         const lockPath = await resolveWorkspaceLockPath(cwd);
-        await printRequiredJson<LockFile>(lockPath, `Graph lock not found; run ${commandPath(cmd)} first`, output, formatLockInspect);
+        await printRequiredJson<LockFile>(lockPath, `Graph lock not found; run ${invocationPath} first`, output, formatLockInspect);
         return;
       }
       await runWithOptionalSpinner('Locking project', output, () => lockWorkspace(cwd));
       console.log('Locked project');
     });
 
-  addJsonFlags(optionalModeCommand(program.command('explain'), 'mode', ['graph']))
+  addJsonFlags(optionalModeCommand(program.command('explain'), 'mode', [WORKSPACE_INSPECTION_MODES.explain]))
     .description('Explain project')
     .action(async (mode: string | undefined, rawOptions: Record<string, unknown>, cmd: Command) => {
-      const opts = Object.freeze({ ...rawOptions });
       const cwd = process.cwd();
-      const output = jsonOpts(opts);
-      if (mode === 'graph') {
+      const invocationPath = commandPath(cmd);
+      const input = parseWorkspaceViewCommandInput('explain', mode, rawOptions);
+      const { output } = input;
+      if (input.kind === 'inspect') {
         const { formatExplainGraphInspect } = await import('./formatters.ts');
         const { CI_ARTIFACT_FILES } = await import('../../verification/ci-artifacts/contract/manifest.ts');
         const { resolveWorkspaceArtifactPath } = await import('../../workspace/runtime/paths.ts');
         const { printWorkspaceJson } = await import('./artifact-command-read.ts');
         await printWorkspaceJson<import('../../semantic/projection/contract/explain.ts').ExplainGraph>(
-          cwd, (root) => resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.explainGraph), `Explain graph not found; run ${commandPath(cmd)} first`, output, formatExplainGraphInspect
+          cwd, (root) => resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.explainGraph), `Explain graph not found; run ${invocationPath} first`, output, formatExplainGraphInspect
         );
         return;
       }

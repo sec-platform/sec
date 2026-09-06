@@ -1,3 +1,4 @@
+import { captureCliOptions, type CliFieldRead } from './own-options.ts';
 import { decodeBooleanFlag } from './boolean-option.ts';
 
 /** One owner for JSON output fields, defaults, CLI spelling and dependencies. */
@@ -16,6 +17,11 @@ export type JsonOutputIssue = Readonly<{
   message: string;
 }>;
 
+/** Field selection is shared; transport scope remains explicit at each boundary. */
+export function captureJsonOutputInput(input: Readonly<Record<string, unknown>>, scope: CliFieldRead['scope']) {
+  return captureCliOptions(input, JSON_OUTPUT_OPTIONS.map((definition) => ({ name: definition.name, scope })));
+}
+
 /** Decode once before effects. Callers only translate diagnostics, not policy. */
 export function parseJsonOutputOptions(
   input: Readonly<Record<string, unknown>>,
@@ -23,8 +29,9 @@ export function parseJsonOutputOptions(
 ): JsonOutputOptions {
   // Capture every owned field before invoking a caller's error adapter. Do
   // not enumerate unrelated options or invoke any input conversion hook.
+  const owned = captureJsonOutputInput(input, 'property');
   const captured = JSON_OUTPUT_OPTIONS.map((definition) =>
-    [definition, input[definition.name]] as const);
+    [definition, owned[definition.name]] as const);
   const output = Object.fromEntries(captured.map(([definition, value]) => {
     return [definition.name, decodeBooleanFlag(value, definition.defaultValue, () =>
       reject({ kind: 'invalid-boolean', option: definition.name,

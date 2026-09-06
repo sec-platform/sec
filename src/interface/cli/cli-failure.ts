@@ -30,7 +30,6 @@ export function reportCliFailure(
       let rendered: string;
       try {
         rendered = formatJson(details, { compact: false });
-        if (typeof rendered !== 'string') throw new TypeError('Failure details have no JSON representation');
       }
       catch { rendered = `[Details could not be rendered as JSON]\n${inspectFailureValue(details)}`; }
       emit(rendered, 'dim');

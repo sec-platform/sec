@@ -1,3 +1,4 @@
+import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
 import type { JsonOutputOptions } from './json-output-options.ts';
 import { mergeCountSummaries, summarizeCounts } from '../../system-architecture/foundation/runtime/collections.ts';
 
@@ -20,7 +21,9 @@ export function formatFields(values: readonly string[]): string {
 }
 
 export function formatJson(value: unknown, options: Pick<JsonOutputOptions, 'compact'>): string {
-  return JSON.stringify(value, null, options.compact ? 0 : 2);
+  const serialized = JSON.stringify(value, null, options.compact ? 0 : 2);
+  if (typeof serialized !== 'string') throw new TypeError('CLI JSON output must contain one JSON value');
+  return serialized;
 }
 
 export function printJsonOrText<T>(
@@ -45,4 +48,15 @@ export function formatSummaryEntries(entries: Array<{ id: string; count: number 
 
 export function formatMergedSummaryEntries(entries: Array<{ id: string; count: number }>): string {
   return formatSummaryEntries(summarizeById(entries));
+}
+
+
+/** Format already-aggregated non-negative counts without expanding them into
+ * one value per occurrence. Zero entries retain the old absent-display rule. */
+export function formatCountRecord(counts: Readonly<Record<string, number>>): string {
+  const entries = Object.entries(counts).map(([id, count]) => {
+    if (!Number.isSafeInteger(count) || count < 0) throw new RangeError(`Invalid count for ${id}`);
+    return { id, count };
+  }).filter((entry) => entry.count > 0).sort((left, right) => compareCodeUnits(left.id, right.id));
+  return formatSummaryEntries(entries);
 }

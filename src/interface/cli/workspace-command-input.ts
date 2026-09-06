@@ -1,3 +1,5 @@
+import { captureJsonOutputInput } from './json-output-options.ts';
+import { captureCliOptions } from './own-options.ts';
 import { parseVerificationLaneOption } from './verification-lane-option.ts';
 import { decodeBooleanFlag } from './boolean-option.ts';
 import { jsonOpts, usageError } from './command-options.ts';
@@ -14,8 +16,7 @@ type WorkspaceBooleanOption = typeof COMPOSE_LOCK_OPTION | typeof WORKSPACE_DRY_
 type RawOptions = Readonly<Record<string, unknown>>;
 
 function readBooleanOption(options: RawOptions, definition: WorkspaceBooleanOption): boolean {
-  const value = Object.getOwnPropertyDescriptor(options, definition.name)?.enumerable
-    ? options[definition.name] : undefined;
+  const value = captureCliOptions(options, [{ name: definition.name, scope: 'own-enumerable' }])[definition.name];
   return decodeBooleanFlag(value, definition.defaultValue, () => {
     throw usageError(`${definition.flags} must be a boolean flag`);
   });
@@ -60,9 +61,23 @@ export function parseUpgradeCommandInput(
 export const VERIFY_COMMAND_DEFAULT_LANE = 'fast' as const;
 
 export function parseVerifyCommandInput(options: RawOptions) {
-  const { json, compact } = options;
-  const lane = Object.getOwnPropertyDescriptor(options, 'lane')?.enumerable ? options.lane : undefined;
+  const { json, compact, lane } = captureCliOptions(options, [
+    { name: 'json', scope: 'property' }, { name: 'compact', scope: 'property' },
+    { name: 'lane', scope: 'own-enumerable' }
+  ]);
   const admittedLane = parseVerificationLaneOption(lane, (choices) => { throw usageError(`Lane must be ${choices}`); });
   const output = jsonOpts({ json, compact });
   return Object.freeze({ output, request: Object.freeze({ lane: admittedLane, emitTiming: !output.json }) });
+}
+
+/** Mixed read/write commands keep their native spelling, not a shared writer. */
+export const WORKSPACE_INSPECTION_MODES = Object.freeze({ lock: 'inspect', explain: 'graph' } as const);
+
+export function parseWorkspaceViewCommandInput(
+  command: keyof typeof WORKSPACE_INSPECTION_MODES, mode: unknown, options: RawOptions
+) {
+  const output = jsonOpts(captureJsonOutputInput(options, 'own-enumerable'));
+  if (mode === WORKSPACE_INSPECTION_MODES[command]) return Object.freeze({ kind: 'inspect' as const, output });
+  if (mode !== undefined) throw usageError(`Unsupported ${command} mode`);
+  return Object.freeze({ kind: 'execute' as const, output });
 }
