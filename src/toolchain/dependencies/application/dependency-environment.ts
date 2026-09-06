@@ -1,3 +1,5 @@
+import { observeDependencyEntry, classifyDependencyEnvironment, type DependencyEnvironmentMode, type DependencyEntryStatus } from '../runtime/environment-observation.ts';
+export type { DependencyEntryStatus, DependencyEntryKind, DependencyEnvironmentMode } from '../runtime/environment-observation.ts';
 import { constants as fsConstants } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -14,18 +16,7 @@ import {
   readRuntimeDepsStamp,
 } from '../runtime/project-runtime.ts';
 
-export type DependencyEnvironmentMode = 'cold' | 'warm-shared' | 'warm-project' | 'dirty' | 'stale';
-export type DependencyEntryKind = 'missing' | 'physical' | 'link';
 export type DoctorCheckStatus = 'ok' | 'warn' | 'fail';
-
-export interface DependencyEntryStatus {
-  path: string;
-  exists: boolean;
-  kind: DependencyEntryKind;
-  sizeBytes: number;
-  entryCount?: number;
-  target?: string;
-}
 
 export interface DependencyEnvironmentStatus {
   mode: DependencyEnvironmentMode;
@@ -93,53 +84,6 @@ export interface DoctorReport {
   dependencies: DependencyEnvironmentStatus;
 }
 
-async function safeRealpath(targetPath: string): Promise<string | undefined> {
-  try {
-    return await fs.realpath(targetPath);
-  } catch (error) {
-    if (isFileNotFoundError(error)) return undefined;
-    throw error;
-  }
-}
-
-async function shallowEntryCount(targetPath: string): Promise<number | undefined> {
-  try {
-    const entries = await fs.readdir(targetPath, { withFileTypes: true });
-    return entries.length;
-  } catch (error) {
-    if (isFileNotFoundError(error)) return undefined;
-    throw error;
-  }
-}
-
-async function readEntryStatus(targetPath: string): Promise<DependencyEntryStatus> {
-  let stat: Awaited<ReturnType<typeof fs.lstat>>;
-  try {
-    stat = await fs.lstat(targetPath);
-  } catch (error) {
-    if (!isFileNotFoundError(error)) throw error;
-    return {
-      path: targetPath,
-      exists: false,
-      kind: 'missing',
-      sizeBytes: 0
-    };
-  }
-
-  const [target, entryCount] = await Promise.all([
-    safeRealpath(targetPath),
-    stat.isDirectory() ? shallowEntryCount(targetPath) : Promise.resolve(undefined)
-  ]);
-  return {
-    path: targetPath,
-    exists: true,
-    kind: stat.isSymbolicLink() ? 'link' : 'physical',
-    sizeBytes: stat.size,
-    entryCount,
-    target
-  };
-}
-
 function defaultSharedDepsRoot(): string {
   return path.join(compilerRoot, '.shared-deps');
 }
@@ -154,33 +98,6 @@ function projectStampPath(projectRoot: string): string {
 
 function sharedStampPath(sharedDepsRoot: string): string {
   return path.join(sharedDepsRoot, 'runtime-deps.stamp.json');
-}
-
-function classifyStatus(status: DependencyEnvironmentStatus): DependencyEnvironmentMode {
-  const sharedMatches = status.sharedStampHash === status.manifestHash;
-  const projectMatches = status.projectStampHash === status.manifestHash;
-
-  if (!status.sharedNodeModules.exists || !status.sharedStampHash) {
-    return 'cold';
-  }
-
-  if (!sharedMatches || (status.projectStampHash && !projectMatches)) {
-    return 'stale';
-  }
-
-  if (!status.projectNodeModules.exists) {
-    return 'warm-shared';
-  }
-
-  if (status.projectNodeModules.kind === 'physical' && status.sharedNodeModules.exists) {
-    return 'dirty';
-  }
-
-  if (projectMatches) {
-    return 'warm-project';
-  }
-
-  return 'warm-shared';
 }
 
 function recommendAction(mode: DependencyEnvironmentMode): string {
@@ -291,10 +208,10 @@ export async function getDependencyEnvironmentStatus(
   const { sharedDepsRoot: sharedRoot } = environmentLocation(options, cwd);
   const [runtimeSpec, rootNodeModules, sharedNodeModules, projectNodeModules, bunCache, sharedStamp, projectStamp] = await Promise.all([
     loadRuntimeDependencySpec(),
-    readEntryStatus(path.join(compilerRoot, 'node_modules')),
-    readEntryStatus(path.join(sharedRoot, 'node_modules')),
-    readEntryStatus(path.join(targetWorkspaceRoot, 'node_modules')),
-    readEntryStatus(bunCacheRoot(sharedRoot)),
+    observeDependencyEntry(path.join(compilerRoot, 'node_modules')),
+    observeDependencyEntry(path.join(sharedRoot, 'node_modules')),
+    observeDependencyEntry(path.join(targetWorkspaceRoot, 'node_modules')),
+    observeDependencyEntry(bunCacheRoot(sharedRoot)),
     readRuntimeDepsStamp(sharedStampPath(sharedRoot)),
     readRuntimeDepsStamp(projectStampPath(targetWorkspaceRoot))
   ]);
@@ -303,16 +220,12 @@ export async function getDependencyEnvironmentStatus(
     manifestHash: runtimeSpec.manifestHash,
     sharedStampHash: sharedStamp?.manifestHash,
     projectStampHash: projectStamp?.manifestHash,
-    rootNodeModules,
-    sharedNodeModules,
-    projectNodeModules,
-    bunCache
+    rootNodeModules: rootNodeModules.entry,
+    sharedNodeModules: sharedNodeModules.entry,
+    projectNodeModules: projectNodeModules.entry,
+    bunCache: bunCache.entry
   };
-  const mode = classifyStatus({
-    ...statusWithoutMode,
-    mode: 'cold',
-    recommendedAction: 'none'
-  });
+  const mode = classifyDependencyEnvironment(statusWithoutMode, sharedNodeModules, projectNodeModules);
 
   return {
     ...statusWithoutMode,
