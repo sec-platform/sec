@@ -34,6 +34,23 @@ export function captureRuntimeDependencyInstallRequest(
   }
   const { beforeCommit, deadlineAtUnixMs, installMode, lockTimeoutMs,
     rematerialize, signal, skipSharedDepsWarmup } = input;
+  const captured = { beforeCommit, deadlineAtUnixMs, installMode, lockTimeoutMs,
+    rematerialize, signal, skipSharedDepsWarmup };
+  assertCapturedRuntimeDependencyInstallRequest(captured);
+  return Object.freeze({
+    beforeCommit: beforeCommit === undefined ? undefined : () => Reflect.apply(beforeCommit, input, []),
+    deadlineAtUnixMs, installMode, lockTimeoutMs, rematerialize, signal, skipSharedDepsWarmup
+  });
+}
+
+/** Validate a previously captured request without invoking or re-binding its
+ * provider. Public capture and coordinator capture share these decisions;
+ * deadline, signal branding and limits stay with the operation-control owner.
+ */
+export function assertCapturedRuntimeDependencyInstallRequest(
+  input: Readonly<RuntimeDependencyInstallRequest>
+): void {
+  const { beforeCommit, installMode, rematerialize, skipSharedDepsWarmup } = input;
   if (beforeCommit !== undefined && typeof beforeCommit !== 'function') {
     throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency commit fence must be callable');
   }
@@ -46,8 +63,4 @@ export function captureRuntimeDependencyInstallRequest(
       throw new SecError('RUNTIME-DEPS-003', `Runtime dependency ${field} must be boolean`);
     }
   }
-  return Object.freeze({
-    beforeCommit: beforeCommit === undefined ? undefined : () => Reflect.apply(beforeCommit, input, []),
-    deadlineAtUnixMs, installMode, lockTimeoutMs, rematerialize, signal, skipSharedDepsWarmup
-  });
 }

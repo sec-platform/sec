@@ -160,7 +160,7 @@ test('a clock callback cannot replace the captured admission hook', async () => 
   const input: RuntimeDependencyInstallOptions = { beforeCommit: originalHook };
   input.monotonicNowMs = () => { input.beforeCommit = replacementHook; return 0; };
   const normalized = normalize(input);
-  assert.strictEqual(normalized.beforeCommit, originalHook);
+  assert.notStrictEqual(normalized.beforeCommit, originalHook); // Receiver-bound selection, not the raw function.
   await fence(normalized, 'publish');
   assert.deepEqual(calls, ['original']);
 });
@@ -210,7 +210,7 @@ test('normalized options expose the retained deadline instead of a discarded wid
   } finally { Date.now = original; }
 });
 
-test('normalized option types describe resolved fields while preserving caller extensions', () => {
+test('normalized option types describe resolved fields without forwarding caller extensions', () => {
   const normalized = normalize({
     marker: 'retained' as const,
     signal: undefined,
@@ -223,10 +223,12 @@ test('normalized option types describe resolved fields while preserving caller e
   const lockTimeout: number = normalized.lockTimeoutMs;
   const pollInterval: number = normalized.pollIntervalMs;
   const signal: AbortSignal | undefined = normalized.signal;
-  const marker: 'retained' = normalized.marker;
+  // @ts-expect-error Undeclared extensions are not execution inputs.
+  const marker = normalized.marker;
   assert.equal(deadline, contextOf(normalized).deadlineAtUnixMs);
   assert.equal(lockTimeout, contextOf(normalized).initialBudgetMs);
   assert.equal(pollInterval, contextOf(normalized).pollIntervalMs);
   assert.strictEqual(signal, contextOf(normalized).signal);
-  assert.equal(marker, 'retained');
+  assert.equal(marker, undefined);
+  assert.equal('marker' in normalized, false);
 });

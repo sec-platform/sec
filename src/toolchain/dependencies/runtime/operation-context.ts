@@ -1,4 +1,6 @@
-import type { RuntimeDependencyInstallRequest } from '../contract/install-request.ts';
+import path from 'node:path';
+import { assertCapturedRuntimeDependencyInstallRequest, type RuntimeDependencyInstallRequest } from '../contract/install-request.ts';
+import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
 import type { RuntimeDependencyLifecycleInput } from './lifecycle-capabilities.ts';
 export type { RuntimeDependencyGeneratedStateLifecycle, RuntimeDependencyLifecycleInput } from './lifecycle-capabilities.ts';
 import type { CommitFence } from '../../../workspace/files.ts';
@@ -9,6 +11,7 @@ import {
   runtimeDependencyOperationContext,
   runtimeDependencyOperationControls,
   captureRuntimeDependencyBindingGuard,
+  captureRuntimeDependencyControlInput,
   type BoundRuntimeDependencyOperationControls,
   type RuntimeDependencyOperationControlInput
 } from './operation-controls.ts';
@@ -69,18 +72,103 @@ export interface RuntimeDependencyInstallOptions extends RuntimeDependencyInstal
   RuntimeDependencyOperationControlInput, RuntimeDependencyLifecycleInput,
   RuntimeDependencyEnvironmentInput, RuntimeDependencyFaultInjectionInput {}
 
-export type RuntimeDependencyOperationOptions<
-  T extends RuntimeDependencyInstallOptions = RuntimeDependencyInstallOptions
-> = Readonly<Omit<T, 'deadlineAtUnixMs' | 'lockTimeoutMs' | 'pollIntervalMs' | 'signal'>> & BoundRuntimeDependencyOperationControls;
+/** Closed coordinator view. A generic input may contain application data, but
+ * those extra keys are no longer forwarded as implicit execution capabilities.
+ */
+export type RuntimeDependencyOperationOptions = Readonly<Omit<RuntimeDependencyInstallOptions,
+  'deadlineAtUnixMs' | 'lockTimeoutMs' | 'pollIntervalMs' | 'signal'>> & BoundRuntimeDependencyOperationControls;
 
-/** Install boundary keeps its own capabilities; budget consumers receive only controls. */
+const issuedOperationOptions = new WeakSet<object>();
+const boundOperationMethods = new WeakSet<object>();
+
+function ownOption<K extends keyof RuntimeDependencyInstallOptions>(
+  input: RuntimeDependencyInstallOptions, key: K
+): RuntimeDependencyInstallOptions[K] {
+  return Object.getOwnPropertyDescriptor(input, key)?.enumerable ? input[key] : undefined;
+}
+
+/** Method identity is fixed, while legitimate provider-private state remains
+ * owned by its real receiver. A wrapper issued here is not wrapped again when
+ * a child changes another option; repeated binds do not grow callback chains.
+ */
+function bindOperationMethod<F extends (...args: never[]) => unknown>(
+  value: F | undefined, receiver: object, label: string
+): F | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'function') throw new SecError('RUNTIME-DEPS-003', `${label} must be callable`);
+  if (boundOperationMethods.has(value)) return value;
+  const bound = ((...args: Parameters<F>) => Reflect.apply(value, receiver, args)) as F;
+  boundOperationMethods.add(bound);
+  return bound;
+}
+
+/** The coordinator still owns the composition of request, environment and
+ * capabilities. Capture only declared fields, once, before clock execution;
+ * lower consumers keep using their existing narrower projections.
+ */
 export function runtimeDependencyOperationOptions<T extends RuntimeDependencyInstallOptions>(
   options: T
-): RuntimeDependencyOperationOptions<T> {
-  const assertBindingUnchanged = captureRuntimeDependencyBindingGuard(options);
-  const captured = { ...options };
-  assertBindingUnchanged(captured);
-  return Object.freeze({ ...captured, ...runtimeDependencyOperationControls(captured) });
+): RuntimeDependencyOperationOptions {
+  if (options === null || typeof options !== 'object') {
+    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency options must be an object');
+  }
+  if (issuedOperationOptions.has(options)) {
+    // Re-sample the checked clock and propagate cancellation as before; effects
+    // still own their remaining-budget checks. Only capture/allocation is elided.
+    const controls = runtimeDependencyOperationControls(options);
+    if (runtimeDependencyOperationContext(controls) === runtimeDependencyOperationContext(options)) {
+      return options as T & RuntimeDependencyOperationOptions;
+    }
+  }
+  const cwd = process.cwd();
+  const guard = captureRuntimeDependencyBindingGuard(options);
+  const controlsInput = captureRuntimeDependencyControlInput(options);
+  const beforeCommit = ownOption(options, 'beforeCommit');
+  const installMode = ownOption(options, 'installMode');
+  const rematerialize = ownOption(options, 'rematerialize');
+  const skipSharedDepsWarmup = ownOption(options, 'skipSharedDepsWarmup');
+  const now = ownOption(options, 'now');
+  const sleep = ownOption(options, 'sleep');
+  const sharedDepsRoot = ownOption(options, 'sharedDepsRoot');
+  const generatedStateLifecycle = ownOption(options, 'generatedStateLifecycle');
+  const testCompilerPublishPlatform = ownOption(options, 'testCompilerPublishPlatform');
+  const testCompilerPublishHook = ownOption(options, 'testCompilerPublishHook');
+  const testProjectProjectionHook = ownOption(options, 'testProjectProjectionHook');
+  const testCompilerBridgeValidationHook = ownOption(options, 'testCompilerBridgeValidationHook');
+  const testInstallLockDelete = ownOption(options, 'testInstallLockDelete');
+  const testInstallLockDeletePlatform = ownOption(options, 'testInstallLockDeletePlatform');
+  const testCompilerRename = ownOption(options, 'testCompilerRename');
+  const testMaterialization = ownOption(options, 'testMaterialization');
+  guard(options);
+  if (sharedDepsRoot !== undefined && typeof sharedDepsRoot !== 'string') {
+    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency shared root must be a path string');
+  }
+  // Reuse the request owner's boolean/mode/fence grammar. Do not maintain a
+  // second coercion policy at the internal coordinator boundary.
+  const request = Object.freeze({
+    beforeCommit: bindOperationMethod(beforeCommit, options, 'Runtime dependency commit fence'),
+    installMode, rematerialize, skipSharedDepsWarmup
+  });
+  assertCapturedRuntimeDependencyInstallRequest(request);
+  const methods = {
+    now: bindOperationMethod(now, options, 'Runtime dependency wall clock'),
+    sleep: bindOperationMethod(sleep, options, 'Runtime dependency sleep'),
+    testCompilerPublishHook: bindOperationMethod(testCompilerPublishHook, options, 'Compiler publication hook'),
+    testProjectProjectionHook: bindOperationMethod(testProjectProjectionHook, options, 'Project projection hook'),
+    testCompilerBridgeValidationHook: bindOperationMethod(testCompilerBridgeValidationHook, options, 'Compiler bridge hook'),
+    testInstallLockDelete: bindOperationMethod(testInstallLockDelete, options, 'Install-lock deletion hook'),
+    testCompilerRename: bindOperationMethod(testCompilerRename, options, 'Compiler rename provider')
+  };
+  const monotonicNowMs = bindOperationMethod(controlsInput.monotonicNowMs, options, 'Runtime dependency monotonic clock');
+  const controls = runtimeDependencyOperationControls({ ...controlsInput, monotonicNowMs });
+  guard(options);
+  const captured: RuntimeDependencyOperationOptions = Object.freeze({
+    ...request, ...methods, ...controls, monotonicNowMs,
+    sharedDepsRoot: sharedDepsRoot === undefined ? undefined : path.resolve(cwd, sharedDepsRoot),
+    generatedStateLifecycle, testCompilerPublishPlatform, testInstallLockDeletePlatform, testMaterialization
+  } satisfies Record<keyof RuntimeDependencyInstallOptions, unknown>);
+  issuedOperationOptions.add(captured);
+  return captured;
 }
 
 export type RuntimeDependencyEffectFenceOptions = BoundRuntimeDependencyOperationControls & Readonly<{ beforeCommit?: CommitFence }>;
@@ -103,7 +191,7 @@ export function runtimeDependencyEffectFenceOptions(
   const controls = runtimeDependencyOperationControls(input);
   guard(input);
   return Object.freeze({ ...controls, ...(beforeCommit === undefined ? {} : {
-    beforeCommit: () => Reflect.apply(beforeCommit, input, [])
+    beforeCommit: bindOperationMethod(beforeCommit, input, 'Runtime dependency effect fence')
   }) });
 }
 

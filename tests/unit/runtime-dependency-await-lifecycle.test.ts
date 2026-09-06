@@ -186,13 +186,12 @@ test('the effect hook does not start after its budget is consumed before its mic
 test('a successful fence retains its receiver, operation identity and public signal', async () => {
   let receiver: unknown;
   const controller = new AbortController();
-  const options = runtimeDependencyOperationOptions({
-    marker: 'retained', signal: controller.signal,
-    beforeCommit: async function () { receiver = this; }
-  });
+  const provider = { marker: 'retained', signal: controller.signal,
+    beforeCommit: async function () { receiver = this; } };
+  const options = runtimeDependencyOperationOptions(provider);
   const context = runtimeDependencyOperationContext(options);
   await runtimeDependencyOperationEffectFence(options, 'receiver');
-  assert.strictEqual(receiver, options);
+  assert.strictEqual(receiver, provider);
   assert.strictEqual(runtimeDependencyOperationContext(options), context);
   assert.strictEqual(options.signal, controller.signal);
   assert.equal(getEventListeners(controller.signal, 'abort').length, 0);

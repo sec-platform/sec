@@ -116,21 +116,24 @@ for (const canceller of ['parent', 'child'] as const) {
     const retained = runtimeDependencyOperationControls({ ...narrowed, signal: undefined });
     const reason = Object.freeze({ canceller });
     (canceller === 'parent' ? parent : child).abort(reason);
-    assert.throws(() => runtimeDependencyOperationRemainingMs(retained, 'cancel'), (error) => error === reason);
+    assert.throws(() => runtimeDependencyOperationRemainingMs(retained, 'cancel'), (error: unknown) => error === reason);
   });
 }
 
-test('install boundary still captures capabilities once and preserves callback receiver', async () => {
+test('coordinator excludes undeclared capabilities and preserves the true callback receiver', async () => {
   const capability = Object.freeze({ owner: 'install' });
   let reads = 0, calls = 0;
   const raw = { lockTimeoutMs: 100, monotonicNowMs: () => 0,
     sharedDepsRoot: '/install', get customCapability() { reads += 1; return capability; },
-    beforeCommit() { assert.equal(this.sharedDepsRoot, '/install'); calls += 1; } };
+    beforeCommit() { assert.equal(this, raw); assert.equal(this.sharedDepsRoot, '/changed'); calls += 1; } };
   const bound = runtimeDependencyOperationOptions(raw);
-  assert.equal(reads, 1); assert.equal(bound.customCapability, capability);
+  assert.equal(reads, 0);
+  // @ts-expect-error Coordinator inputs no longer forward arbitrary extensions.
+  assert.equal(bound.customCapability, undefined);
+  assert.equal(bound.sharedDepsRoot, '/install');
   raw.sharedDepsRoot = '/changed';
   await runtimeDependencyOperationEffectFence(bound, 'fence');
-  assert.equal(calls, 1); assert.equal(reads, 1); assert.ok(Object.isFrozen(bound));
+  assert.equal(calls, 1); assert.equal(reads, 0); assert.ok(Object.isFrozen(bound));
 });
 
 test('telemetry can consume stripped controls without a second operation identity', () => {

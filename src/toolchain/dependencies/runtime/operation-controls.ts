@@ -11,6 +11,7 @@ const MAX_DEPENDENCY_LOCK_POLL_INTERVAL_MS = 1_000;
 const RUNTIME_DEPENDENCY_OPERATION_CONTEXT = Symbol('sec-runtime-dependency-operation-context-v1');
 // A discoverable symbol is a carrier, not proof that the owner issued a ledger.
 const issuedOperationContexts = new WeakSet<object>();
+const issuedControlViews = new WeakSet<object>();
 
 /** Control inputs, not installation requests or effect capabilities. */
 export interface RuntimeDependencyOperationControlInput {
@@ -128,18 +129,36 @@ function validateSignal(signal: AbortSignal | undefined): void {
   }
 }
 
+/** Capture the owner's raw control fields and exact parent binding without
+ * sampling a clock. Coordinator admission can validate its selected request
+ * before starting the same ledger; no arbitrary caller symbols are copied.
+ */
+export function captureRuntimeDependencyControlInput(
+  options: RuntimeDependencyOperationControlInput
+): Readonly<RuntimeDependencyOperationControlInput> {
+  if (options === null || typeof options !== 'object') {
+    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency controls must be an object');
+  }
+  if (issuedControlViews.has(options)) return options;
+  const existing = existingContext(options);
+  const deadlineAtUnixMs = ownControl(options, 'deadlineAtUnixMs');
+  const lockTimeoutMs = ownControl(options, 'lockTimeoutMs');
+  const pollIntervalMs = ownControl(options, 'pollIntervalMs');
+  const monotonicNowMs = ownControl(options, 'monotonicNowMs');
+  const signal = ownControl(options, 'signal');
+  if (existingContext(options) !== existing) invalidBinding();
+  return Object.freeze({ deadlineAtUnixMs, lockTimeoutMs, pollIntervalMs, monotonicNowMs, signal,
+    ...(existing === undefined ? {} : { [RUNTIME_DEPENDENCY_OPERATION_CONTEXT]: existing }) });
+}
+
 export function runtimeDependencyOperationControls(
   options: RuntimeDependencyOperationControlInput
 ): BoundRuntimeDependencyOperationControls {
-  // Capture only control inputs before any clock/provider callback. Do not
-  // enumerate installation requests, lifecycle capabilities or test seams.
-  const existing = existingContext(options);
-  const requestedDeadline = ownControl(options, 'deadlineAtUnixMs');
-  const lockTimeoutMs = ownControl(options, 'lockTimeoutMs');
-  const requestedPollIntervalMs = ownControl(options, 'pollIntervalMs');
-  const requestedMonotonicNowMs = ownControl(options, 'monotonicNowMs');
-  const requestedSignal = ownControl(options, 'signal');
-  if (existingContext(options) !== existing) invalidBinding();
+  const captured = captureRuntimeDependencyControlInput(options);
+  const existing = existingContext(captured);
+  const { deadlineAtUnixMs: requestedDeadline, lockTimeoutMs,
+    pollIntervalMs: requestedPollIntervalMs, monotonicNowMs: requestedMonotonicNowMs,
+    signal: requestedSignal } = captured;
   validateSignal(requestedSignal);
   if (existing === undefined && requestedMonotonicNowMs !== undefined && typeof requestedMonotonicNowMs !== 'function') {
     throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency monotonic clock must be callable');
@@ -219,13 +238,18 @@ export function runtimeDependencyOperationControls(
       });
   throwIfNativeAborted(context.signal);
   issuedOperationContexts.add(context);
-  return Object.freeze({
+  const effectiveLockTimeoutMs = Math.min(initialBudgetMs, context.initialBudgetMs);
+  if (issuedControlViews.has(options) && existingContextIsStillCanonical &&
+      options.lockTimeoutMs === effectiveLockTimeoutMs) return options as BoundRuntimeDependencyOperationControls;
+  const view = Object.freeze({
     deadlineAtUnixMs,
-    lockTimeoutMs: Math.min(initialBudgetMs, context.initialBudgetMs),
+    lockTimeoutMs: effectiveLockTimeoutMs,
     pollIntervalMs,
     signal,
     [RUNTIME_DEPENDENCY_OPERATION_CONTEXT]: context
   });
+  issuedControlViews.add(view);
+  return view;
 }
 
 export function runtimeDependencyOperationContext(

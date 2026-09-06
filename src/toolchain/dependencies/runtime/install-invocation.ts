@@ -2,14 +2,19 @@ import { isRuntimeDependencyInstallMode } from '../contract/install-request.ts';
 import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
 import { assertRuntimeDependencyTestMaterialization } from './materialization-fixture-capability.ts';
 import { captureRuntimeDependencyBindingGuard, runtimeDependencyOperationControls } from './operation-controls.ts';
-import type { RuntimeDependencyInstallOptions } from './operation-context.ts';
+import type { RuntimeDependencyEffectFenceInput, RuntimeDependencyFaultInjectionInput } from './operation-context.ts';
+import type { RuntimeDependencyInstallRequest } from '../contract/install-request.ts';
+
+export type CompilerInstallInvocationInput = RuntimeDependencyEffectFenceInput
+  & Readonly<Pick<RuntimeDependencyInstallRequest, 'installMode'>>
+  & Readonly<Pick<RuntimeDependencyFaultInjectionInput, 'testMaterialization'>>;
 
 /** Capture only the fields this installer owns. The compatibility facade may
  * remain wide for other consumers, but unrelated getters/capabilities never
  * enter this process execution boundary. A method retains its real provider. */
-export function bindCompilerInstallInvocation(options: RuntimeDependencyInstallOptions) {
+export function bindCompilerInstallInvocation(options: CompilerInstallInvocationInput) {
   const guard = captureRuntimeDependencyBindingGuard(options);
-  function own<K extends keyof RuntimeDependencyInstallOptions>(key: K): RuntimeDependencyInstallOptions[K] {
+  function own<K extends keyof CompilerInstallInvocationInput>(key: K): CompilerInstallInvocationInput[K] {
     return Object.getOwnPropertyDescriptor(options, key)?.enumerable ? options[key] : undefined;
   }
   const mode = own('installMode');
