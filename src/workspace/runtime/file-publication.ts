@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { types as nativeTypes } from 'node:util';
+import { snapshotByteView } from '../../system-architecture/foundation/runtime/byte-snapshot.ts';
 
 import {
   createNoFollowDirectoryChain,
@@ -32,11 +32,6 @@ extends CanonicalWorkspaceFilePublicationInput {
 // the first fence and preserve a method's real receiver, not a record clone.
 type PublicationTarget = Pick<CanonicalWorkspaceFilePublicationInput,
   'workspaceRoot' | 'targetPath' | 'label' | 'commitFence'>;
-const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
-const nativeByteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, 'byteLength')!.get!;
-const nativeByteOffset = Object.getOwnPropertyDescriptor(typedArrayPrototype, 'byteOffset')!.get!;
-const nativeBuffer = Object.getOwnPropertyDescriptor(typedArrayPrototype, 'buffer')!.get!;
-
 function captureTarget(input: PublicationTarget): PublicationTarget {
   const cwd = process.cwd();
   const { workspaceRoot, targetPath, label, commitFence } = input;
@@ -50,24 +45,14 @@ function captureTarget(input: PublicationTarget): PublicationTarget {
   });
 }
 
-function captureBytes(bytes: Uint8Array, label: string): Uint8Array {
-  if (!nativeTypes.isUint8Array(bytes)) throw new TypeError(`${label} must be Uint8Array data`);
-  const buffer = nativeBuffer.call(bytes);
-  // Shared memory has no atomic byte-snapshot contract. Callers must first
-  // transfer/copy it under their own synchronization, not race publication.
-  if (nativeTypes.isSharedArrayBuffer(buffer)) throw new TypeError(`${label} cannot use shared memory`);
-  const view = new Uint8Array(buffer, nativeByteOffset.call(bytes), nativeByteLength.call(bytes));
-  return Buffer.from(view);
-}
-
 function capturePublication(input: CanonicalWorkspaceFilePublicationInput): CanonicalWorkspaceFilePublicationInput {
   const target = captureTarget(input);
-  return Object.freeze({ ...target, bytes: captureBytes(input.bytes, `${target.label} bytes`) });
+  return Object.freeze({ ...target, bytes: snapshotByteView(input.bytes, `${target.label} bytes`) });
 }
 
 function captureExpectedPublication(input: ExpectedCanonicalWorkspaceFilePublicationInput): ExpectedCanonicalWorkspaceFilePublicationInput {
   const publication = capturePublication(input);
-  return Object.freeze({ ...publication, expectedBytes: captureBytes(input.expectedBytes, `${publication.label} preimage`) });
+  return Object.freeze({ ...publication, expectedBytes: snapshotByteView(input.expectedBytes, `${publication.label} preimage`) });
 }
 
 function workspaceRelativeSegments(workspaceRoot: string, targetPath: string): string[] {
@@ -241,7 +226,7 @@ export async function deleteExpectedCanonicalWorkspaceFile(
 ): Promise<void> {
   const target = captureTarget(input);
   // Deletion consumes only its observed preimage, never input.bytes.
-  const expectedBytes = captureBytes(input.expectedBytes, `${target.label} preimage`);
+  const expectedBytes = snapshotByteView(input.expectedBytes, `${target.label} preimage`);
   const { parent, leafName } = await retainedExistingPublicationParent(target);
   await target.commitFence?.();
   const current = inspectNoFollowOrdinaryFileEntry(parent, leafName);

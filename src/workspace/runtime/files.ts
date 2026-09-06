@@ -1,7 +1,16 @@
+import { snapshotByteView } from '../../system-architecture/foundation/runtime/byte-snapshot.ts';
+import { stringifyJsonValue } from '../../system-architecture/foundation/runtime/json-text.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
 export type CommitFence = () => Promise<void>;
+
+function assertCommitFence(commitFence: CommitFence | undefined): void {
+  if (commitFence !== undefined && typeof commitFence !== 'function') {
+    throw new TypeError('File operation commit fence must be callable');
+  }
+}
+
 
 async function readLstatOrNull(targetPath: string): Promise<Awaited<ReturnType<typeof fs.lstat>> | null> {
   try {
@@ -16,6 +25,8 @@ export async function prepareOrdinaryFileWrite(
   targetPath: string,
   commitFence?: CommitFence
 ): Promise<void> {
+  targetPath = path.resolve(targetPath);
+  assertCommitFence(commitFence);
   const metadata = await readLstatOrNull(targetPath);
   if (metadata === null) return;
   if (metadata.isSymbolicLink() || !metadata.isFile()) {
@@ -41,6 +52,8 @@ async function ensureOrdinaryDirectory(dirPath: string, commitFence?: CommitFenc
  * security capability.
  */
 export async function ensureDir(dirPath: string, commitFence?: CommitFence): Promise<void> {
+  dirPath = path.resolve(dirPath);
+  assertCommitFence(commitFence);
   const before = await readLstatOrNull(dirPath);
   if (before !== null) {
     if (before.isSymbolicLink() || !before.isDirectory()) {
@@ -99,7 +112,7 @@ export async function readOptionalJson<T>(filePath: string): Promise<T | null> {
 }
 
 export function formatJsonFile(value: unknown): string {
-  return `${JSON.stringify(value, null, 2)}\n`;
+  return `${stringifyJsonValue(value, 2, 'JSON file')}\n`;
 }
 
 export async function writeBuffer(
@@ -107,6 +120,16 @@ export async function writeBuffer(
   bytes: Uint8Array,
   commitFence?: CommitFence
 ): Promise<void> {
+  filePath = path.resolve(filePath);
+  assertCommitFence(commitFence);
+  const snapshot = snapshotByteView(bytes, 'File write bytes');
+  await writeOwnedBuffer(filePath, snapshot, commitFence);
+}
+
+/** The caller has already fixed the absolute path and privately owns these
+ * bytes. Text/JSON enter here to avoid copying their newly encoded buffer twice.
+ * These ordinary-file mechanics are not retained/no-follow or atomic publish. */
+async function writeOwnedBuffer(filePath: string, bytes: Uint8Array, commitFence?: CommitFence): Promise<void> {
   await ensureDir(path.dirname(filePath), commitFence);
   await prepareOrdinaryFileWrite(filePath, commitFence);
   await commitFence?.();
@@ -118,10 +141,16 @@ export async function writeJson(
   value: unknown,
   commitFence?: CommitFence
 ): Promise<void> {
-  await writeBuffer(filePath, Buffer.from(formatJsonFile(value), 'utf8'), commitFence);
+  // Fix the destination before a legitimate toJSON callback can change cwd.
+  filePath = path.resolve(filePath);
+  assertCommitFence(commitFence);
+  const bytes = Buffer.from(formatJsonFile(value), 'utf8');
+  await writeOwnedBuffer(filePath, bytes, commitFence);
 }
 
 export async function removeDir(targetPath: string, commitFence?: CommitFence): Promise<void> {
+  targetPath = path.resolve(targetPath);
+  assertCommitFence(commitFence);
   await commitFence?.();
   await fs.rm(targetPath, { recursive: true, force: true });
 }
@@ -131,5 +160,8 @@ export async function readText(filePath: string): Promise<string> {
 }
 
 export async function writeText(filePath: string, text: string, commitFence?: CommitFence): Promise<void> {
-  await writeBuffer(filePath, Buffer.from(text, 'utf8'), commitFence);
+  filePath = path.resolve(filePath);
+  assertCommitFence(commitFence);
+  if (typeof text !== 'string') throw new TypeError('File write text must be a string');
+  await writeOwnedBuffer(filePath, Buffer.from(text, 'utf8'), commitFence);
 }

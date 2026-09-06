@@ -1,3 +1,4 @@
+import { stringifyJsonValue } from '../../system-architecture/foundation/runtime/json-text.ts';
 import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
 import type { JsonOutputOptions } from './json-output-options.ts';
 import { mergeCountSummaries, summarizeCounts } from '../../system-architecture/foundation/runtime/collections.ts';
@@ -21,9 +22,7 @@ export function formatFields(values: readonly string[]): string {
 }
 
 export function formatJson(value: unknown, options: Pick<JsonOutputOptions, 'compact'>): string {
-  const serialized = JSON.stringify(value, null, options.compact ? 0 : 2);
-  if (typeof serialized !== 'string') throw new TypeError('CLI JSON output must contain one JSON value');
-  return serialized;
+  return stringifyJsonValue(value, options.compact ? 0 : 2, 'CLI JSON output');
 }
 
 export function printJsonOrText<T>(
