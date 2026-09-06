@@ -41,8 +41,27 @@ export async function settlePipelineFailure(
   primary: unknown,
   steps: readonly Readonly<{ operation: string; run: () => Promise<void> }> []
 ): Promise<never> {
+  // Fix the settlement inventory before invoking any step. Neither a prior
+  // callback nor its await may replace later work or labels. Keep the actual
+  // receiver: providers may own private state that a record clone cannot carry.
+  const captured: Array<Readonly<{ operation: string; run: () => Promise<void> }>> = [];
+  try {
+    if (!Array.isArray(steps)) throw new TypeError('Pipeline settlement steps must be an array');
+    const length = steps.length;
+    for (let index = 0; index < length; index += 1) {
+      if (!Object.hasOwn(steps, index)) throw new TypeError('Pipeline settlement steps must be dense');
+      const receiver = steps[index]!;
+      const { operation, run } = receiver;
+      if (typeof operation !== 'string' || operation.length === 0 || typeof run !== 'function') {
+        throw new TypeError('Pipeline settlement steps need a name and callable operation');
+      }
+      captured.push(Object.freeze({ operation, run: async () => { await Reflect.apply(run, receiver, []); } }));
+    }
+  } catch (reason) {
+    throw new PipelineSettlementFailure(primary, [{ operation: 'settlement-plan', reason }]);
+  }
   const failures: PipelineSettlementFailureEntry[] = [];
-  for (const step of steps) {
+  for (const step of captured) {
     try { await step.run(); }
     catch (reason) { failures.push({ operation: step.operation, reason }); }
   }
