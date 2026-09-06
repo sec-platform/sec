@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { assertNativeAbortSignal, linkNativeAbortSignals, throwIfNativeAborted } from '../../../system-architecture/foundation/runtime/native-abort.ts';
 
 import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
 
@@ -10,8 +11,6 @@ const MAX_DEPENDENCY_LOCK_POLL_INTERVAL_MS = 1_000;
 const RUNTIME_DEPENDENCY_OPERATION_CONTEXT = Symbol('sec-runtime-dependency-operation-context-v1');
 // A discoverable symbol is a carrier, not proof that the owner issued a ledger.
 const issuedOperationContexts = new WeakSet<object>();
-const nativeSignalAborted = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'aborted')!.get!;
-const nativeThrowIfAborted = AbortSignal.prototype.throwIfAborted;
 
 /** Control inputs, not installation requests or effect capabilities. */
 export interface RuntimeDependencyOperationControlInput {
@@ -123,7 +122,7 @@ function validateSignal(signal: AbortSignal | undefined): void {
   try {
     // Native brand checking does not use instanceof; supplied aborted getters and
     // throwIfAborted methods are not evidence that this is an AbortSignal.
-    nativeSignalAborted.call(signal);
+    assertNativeAbortSignal(signal);
   } catch {
     throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency signal must be a native AbortSignal');
   }
@@ -199,7 +198,7 @@ export function runtimeDependencyOperationControls(
     ? requestedSignal
     : requestedSignal === undefined
       ? existing.signal
-      : AbortSignal.any([existing.signal, requestedSignal]);
+      : linkNativeAbortSignals(existing.signal, requestedSignal);
   const existingContextIsStillCanonical = existing !== undefined &&
     deadlineAtUnixMs === existing.deadlineAtUnixMs &&
     deadlineAtMonotonicMs === existing.deadlineAtMonotonicMs &&
@@ -218,7 +217,7 @@ export function runtimeDependencyOperationControls(
         startedAtMonotonicMs: existing?.startedAtMonotonicMs ?? nowMonotonicMs,
         telemetryKey: existing?.telemetryKey ?? Object.freeze({})
       });
-  if (context.signal !== undefined) nativeThrowIfAborted.call(context.signal);
+  throwIfNativeAborted(context.signal);
   issuedOperationContexts.add(context);
   return Object.freeze({
     deadlineAtUnixMs,
@@ -255,11 +254,11 @@ function remainingFromContext(
   minimumMs = 1
 ): number {
   assertIssuedContext(context);
-  if (context.signal !== undefined) nativeThrowIfAborted.call(context.signal);
+  throwIfNativeAborted(context.signal);
   const observedAtMonotonicMs = context.monotonicNowMs();
   // Injected clock sources can synchronously cancel the operation while
   // sampling its budget. Do not admit an effect using that stale check.
-  if (context.signal !== undefined) nativeThrowIfAborted.call(context.signal);
+  throwIfNativeAborted(context.signal);
   const remainingMs = context.deadlineAtMonotonicMs - observedAtMonotonicMs;
   if (!Number.isFinite(remainingMs) || remainingMs < minimumMs) {
     throw new SecError('RUNTIME-DEPS-003', `${label} exceeded the runtime dependency operation deadline`,
@@ -283,7 +282,7 @@ export async function awaitRuntimeDependencyOperation(
   // event, and dispatchEvent('abort') on the public signal is not cancellation.
   // Native dependent signals observe abort state, not synthetic source events.
   assertIssuedContext(context);
-  const signal = context.signal === undefined ? undefined : AbortSignal.any([context.signal]);
+  const signal = context.signal === undefined ? undefined : linkNativeAbortSignals(context.signal);
   const remainingMs = remainingFromContext(context, label);
   let abortListener: (() => void) | undefined;
   let deadlineTimer: ReturnType<typeof setTimeout> | undefined;

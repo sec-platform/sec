@@ -1,8 +1,9 @@
+import { throwIfNativeAborted } from '../../system-architecture/foundation/runtime/native-abort.ts';
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import { assertCanonicalPortableLogicalPath } from '../../system-architecture/foundation/contract/logical-path.ts';
 import { normalizeNewlines } from '../../system-architecture/foundation/runtime/collections.ts';
 import path from 'node:path';
-import { runTaskGroup } from '../../system-architecture/foundation/runtime/concurrency.ts';
+import { createTaskGroupEffectFence, mapTaskGroup } from '../../system-architecture/foundation/runtime/concurrency.ts';
 import { writeText, type CommitFence } from '../../workspace/files.ts';
 import { copyRecursive } from '../../workspace/runtime/discovery.ts';
 import {
@@ -153,7 +154,7 @@ export class InstallStrategyRegistry {
     const workspaceRoot = path.resolve(context.workspaceRoot);
     const { lock, signal: parentSignal, commitFence } = context;
     if (commitFence !== undefined && typeof commitFence !== 'function') throw new TypeError('Install commit fence must be callable');
-    parentSignal?.throwIfAborted();
+    throwIfNativeAborted(parentSignal);
     const base = Object.freeze({ workspaceRoot, lock });
     // Capture all providers before selection callbacks or async execution.
     const strategies = this.strategies.map(receiver => ({
@@ -168,18 +169,15 @@ export class InstallStrategyRegistry {
       return { step, target, execute: selected.execute };
     });
     const groups = groupInstallTargets(prepared);
-    await runTaskGroup(groups.map(group => async (signal: AbortSignal) => {
-      const fence: CommitFence = async () => {
-        signal.throwIfAborted();
-        if (commitFence) await Reflect.apply(commitFence, context, []);
-        signal.throwIfAborted();
-      };
+    await mapTaskGroup(groups, async (group, _index, signal) => {
+      const fence = createTaskGroupEffectFence(signal, commitFence === undefined
+        ? undefined : () => Reflect.apply(commitFence, context, []));
       const effective = Object.freeze({ ...base, signal, commitFence: fence });
       for (const { step, execute } of group) {
         await fence();
         await execute(step, effective);
       }
-    }), { signal: parentSignal });
+    }, { signal: parentSignal });
   }
 }
 

@@ -1,3 +1,4 @@
+import { isNativeAborted } from '../../../system-architecture/foundation/runtime/native-abort.ts';
 import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
 import {
   runtimeDependencyOperationContext,
@@ -52,7 +53,7 @@ function phaseOutcome(error: unknown, context: RuntimeDependencyOperationContext
   // Classification is diagnostic. A getter or revoked Proxy on a thrown
   // value must not replace the failure that the action actually produced.
   try {
-    if (context.signal?.aborted === true) return 'aborted';
+    if (isNativeAborted(context.signal)) return 'aborted';
     if (error instanceof SecError && error.code === 'RUNTIME-DEPS-003') {
       const message = error.message;
       if (typeof message === 'string' && message.toLowerCase().includes('deadline')) {
