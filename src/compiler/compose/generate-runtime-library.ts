@@ -2,9 +2,9 @@ import path from 'node:path';
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import { isCanonicalPortableLogicalPath, portableLogicalPathCollisionKey } from '../../system-architecture/foundation/contract/logical-path.ts';
 import { uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { runTaskGroup } from '../../system-architecture/foundation/runtime/concurrency.ts';
+import { createTaskGroupEffectFence, mapTaskGroup } from '../../system-architecture/foundation/runtime/concurrency.ts';
 import { throwIfNativeAborted } from '../../system-architecture/foundation/runtime/native-abort.ts';
-import { publishExclusiveCanonicalWorkspaceFile, publishExpectedCanonicalWorkspaceFile, type CommitFence } from '../../workspace/files.ts';
+import { publishExpectedCanonicalWorkspaceFile, publishExclusiveCanonicalWorkspaceFile, type CommitFence } from '../../workspace/files.ts';
 import {
   packageJsonRelativePath,
   resolvePathInside,
@@ -120,14 +120,6 @@ function buildRuntimeLibraryFeatures(lock: LockFile): RuntimeLibraryFeatures {
   };
 }
 
-function readOptionalScaffoldSource(targetPath: string, relativePath: string) {
-  const bytes = readOptionalRetainedOrdinaryFile(
-    targetPath,
-    `Runtime library target ${relativePath}`
-  );
-  return bytes === null ? null : { bytes, text: decodeExactUtf8(bytes, `Runtime library target ${relativePath}`) };
-}
-
 export async function generateRuntimeLibraryScaffold(
   workspaceRoot: string,
   lock: LockFile,
@@ -135,35 +127,30 @@ export async function generateRuntimeLibraryScaffold(
   signal?: AbortSignal
 ): Promise<string[]> {
   workspaceRoot = path.resolve(workspaceRoot);
-  throwIfNativeAborted(signal);
   if (commitFence !== undefined && typeof commitFence !== 'function') throw new TypeError('Scaffold commit fence must be callable');
+  throwIfNativeAborted(signal);
   const features = Object.freeze(buildRuntimeLibraryFeatures(lock));
   const entries = runtimeLibraryScaffoldDefinitions
     .filter((definition) => definition.enabled?.(features) ?? true)
     .map((definition) => ({
       relativePath: definition.relativePath,
       source: definition.render(features)
-    })).map(entry => {
-      const targetPath = resolvePathInside(workspaceRoot, entry.relativePath);
-      if (!targetPath) throw new Error(`Runtime library scaffold path escapes native workspace root: ${entry.relativePath}`);
-      return { ...entry, targetPath };
-    });
+    }));
 
-  await runTaskGroup(entries.map(entry => async (childSignal: AbortSignal) => {
-    const current = readOptionalScaffoldSource(entry.targetPath, entry.relativePath);
-    if (current?.text === entry.source) return;
-    const publication = {
-      workspaceRoot, targetPath: entry.targetPath, bytes: Buffer.from(entry.source, 'utf8'),
-      label: `Runtime library output ${entry.relativePath}`,
-      commitFence: async () => {
-        throwIfNativeAborted(childSignal);
-        await commitFence?.();
-        throwIfNativeAborted(childSignal);
-      }
-    };
-    if (current === null) await publishExclusiveCanonicalWorkspaceFile(publication);
-    else await publishExpectedCanonicalWorkspaceFile({ ...publication, expectedBytes: current.bytes });
-  }), { signal });
+  const targets = entries.map(entry => {
+    const targetPath = resolvePathInside(workspaceRoot, entry.relativePath);
+    if (!targetPath) throw new Error(`Runtime library scaffold path escapes native workspace root: ${entry.relativePath}`);
+    return Object.freeze({ ...entry, targetPath });
+  });
+  await mapTaskGroup(targets, async (entry, _index, groupSignal) => {
+    throwIfNativeAborted(groupSignal);
+    const current = readOptionalRetainedOrdinaryFile(entry.targetPath, `Runtime library target ${entry.relativePath}`);
+    if (current !== null && decodeExactUtf8(current, `Runtime library target ${entry.relativePath}`) === entry.source) return;
+    const input = { workspaceRoot, targetPath: entry.targetPath, bytes: Buffer.from(entry.source, 'utf8'),
+      label: `Runtime library output ${entry.relativePath}`, commitFence: createTaskGroupEffectFence(groupSignal, commitFence) };
+    if (current === null) await publishExclusiveCanonicalWorkspaceFile(input);
+    else await publishExpectedCanonicalWorkspaceFile({ ...input, expectedBytes: current });
+  }, { signal });
 
   return uniqueSorted([...BASE_RUNTIME_SCAFFOLD_PATHS, ...entries.map((entry) => entry.relativePath)]);
 }
