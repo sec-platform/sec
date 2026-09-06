@@ -1,5 +1,6 @@
 import { CompilerError } from '../errors.ts';
 import { isVerificationLane, VERIFICATION_LANES, type VerificationLane } from '../../verification/contract/lanes.ts';
+import { requirePipelineSource } from './execution-context.ts';
 import type { PipelineSource } from './journal-types.ts';
 import { PIPELINE_STAGE_IDS, type PipelineStageId } from './stages.ts';
 
@@ -38,7 +39,7 @@ export function selectPipelineStageRange(fromValue: unknown, throughValue: unkno
 }
 
 /** Capture request decisions, not the operation's live capabilities. An unused
- * verification lane is not read; source validity remains owned by the journal. */
+ * verification lane is not read; source values share the journal contract. */
 export function bindPipelineCompileRequest(input: Readonly<PipelineCompileRequest>) {
   const { from, through } = input;
   const selection = selectPipelineStageRange(from, through);
@@ -52,6 +53,7 @@ export function bindPipelineCompileRequest(input: Readonly<PipelineCompileReques
       verificationLane = configured;
     }
   }
-  const source = input.source ?? 'api';
+  const requestedSource = input.source;
+  const source = requirePipelineSource(requestedSource === undefined ? 'api' : requestedSource);
   return Object.freeze({ ...selection, source, verificationLane });
 }

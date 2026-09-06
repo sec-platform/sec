@@ -13,6 +13,8 @@ import {
   recordPipelinePassSuccess,
   startPipelineTransaction
 } from './journal.ts';
+import { PASS_INITIAL_STATES } from '../contract/pass-status.ts';
+import { capturePipelineRequestedStages, requirePipelineSource, sealPipelineExecutionContext, capturePipelineStageExecutionOptions, type PipelineStageExecutionOptions } from './execution-context.ts';
 import { getPipelineStageDefinition } from './pass-registry.ts';
 import { pipelineStageBlockers, pipelineStageStatePatch, type PipelineStageTransition } from './stage-state.ts';
 import type {
@@ -23,10 +25,7 @@ import type {
   PipelineStageId
 } from './types.ts';
 
-interface StageExecutionOptions<T> {
-  extractLock?: (result: T) => LockFile | Promise<LockFile>;
-  preserveOwnedPassStates?: boolean;
-}
+type StageExecutionOptions<T> = PipelineStageExecutionOptions<T>;
 
 const issuedPassFailures = new WeakSet<object>();
 
@@ -51,6 +50,7 @@ export async function runPipelinePass<T>(
   originPass: PassId,
   execute: () => T | Promise<T>
 ): Promise<T> {
+  if (!Object.hasOwn(PASS_INITIAL_STATES, originPass)) throw new CompilerError('PIPELINE-USAGE-001', 'Unknown pipeline pass');
   try {
     return await execute();
   } catch (error) {
@@ -206,7 +206,10 @@ export async function withPipelineTransaction<T>(
 ): Promise<T> {
   workspaceRoot = path.resolve(workspaceRoot);
   // A caller cannot change the journal request while lease admission is suspended.
-  const stages = Object.freeze([...requestedStages]);
+  const stages = capturePipelineRequestedStages(requestedStages);
+  source = requirePipelineSource(source);
+  if (onEvent !== undefined && typeof onEvent !== 'function') throw new TypeError('Pipeline observer must be callable');
+  if (typeof execute !== 'function') throw new TypeError('Pipeline executor must be callable');
   return withWorkspaceWriteLease(workspaceRoot, workspaceWriteLease, async (lease) => {
     const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, lease);
     await commitFence();
@@ -223,12 +226,7 @@ export async function withPipelineTransaction<T>(
       ...(onEvent ? { onEvent } : {}),
       workspaceWriteLease: lease
     };
-    // Semantic state remains owned and mutable by its producer. Transaction
-    // identity, observer and lease binding cannot be retargeted after admission.
-    for (const key of ['transactionId', 'source', 'onEvent', 'workspaceWriteLease'] as const) {
-      Object.defineProperty(context, key, { value: context[key], writable: false, configurable: false,
-        enumerable: Object.hasOwn(context, key) });
-    }
+    sealPipelineExecutionContext(context);
 
     try {
       const result = await execute(context);
@@ -253,17 +251,11 @@ export async function executePipelineStage<T>(
   options: StageExecutionOptions<T> = {}
 ): Promise<T> {
   workspaceRoot = path.resolve(workspaceRoot);
-  const { extractLock, preserveOwnedPassStates } = options;
-  if (extractLock !== undefined && typeof extractLock !== 'function') {
-    throw new TypeError('Pipeline lock extractor must be callable');
-  }
-  if (preserveOwnedPassStates !== undefined && typeof preserveOwnedPassStates !== 'boolean') {
-    throw new TypeError('Pipeline preserveOwnedPassStates must be boolean');
-  }
-  // Preserve method receiver compatibility with an immutable owned-field snapshot.
-  const effectiveOptions = Object.freeze({ extractLock, preserveOwnedPassStates });
+  const effectiveOptions = capturePipelineStageExecutionOptions(options);
+  if (typeof execute !== 'function') throw new TypeError('Pipeline stage executor must be callable');
   getPipelineStageDefinition(stageId);
-  if (context) {
+  if (context !== undefined) {
+    sealPipelineExecutionContext(context);
     const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, context.workspaceWriteLease);
     await commitFence();
     return executeStageWithContext(workspaceRoot, stageId, context, execute, commitFence, effectiveOptions);
