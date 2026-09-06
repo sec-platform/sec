@@ -12,6 +12,8 @@ import { CodeBuilder } from './codegen/code-builder.ts';
 import { CompilerError } from './errors.ts';
 import { indexValidatedEngineeringIR } from './ir/index-engineering-ir.ts';
 import type { PipelineSemanticContext } from './pipeline/types.ts';
+import { assertUniqueSemanticOutputPaths } from './semantic-output-paths.ts';
+import { assertStateTransitionFunctions } from './state-transition-plan.ts';
 
 function constantPrefix(stateId: string): string {
   return stateId.replace(/[^a-zA-Z0-9]+/gu, '_').replace(/^_+|_+$/gu, '').toUpperCase();
@@ -20,6 +22,7 @@ function constantPrefix(stateId: string): string {
 export function renderStateTransitionMapSource(
   task: StateTransitionMapGeneratorPlanTask
 ): string {
+  assertStateTransitionFunctions([task]);
   const prefix = constantPrefix(task.stateId);
   const boundType = task.typeBinding.name;
   const nextByValue = new Map(task.transitions.map((transition) => [transition.from, transition.to]));
@@ -27,17 +30,19 @@ export function renderStateTransitionMapSource(
   const transitions = [...task.transitions]
     .map(({ operationEntityId: _operationEntityId, ...transition }) => transition)
     .sort((left, right) =>
-      compareCodeUnits(`${left.from}:${left.to}:${left.by}`, `${right.from}:${right.to}:${right.by}`)
+      compareCodeUnits(left.from, right.from) || compareCodeUnits(left.to, right.to) || compareCodeUnits(left.by, right.by)
     );
 
   const valueInitializer = `${JSON.stringify(values)} as const satisfies readonly ${boundType}[]`;
   const transitionInitializer = `${JSON.stringify(transitions, null, 2)} as const`;
   const nextEntries = values.map((value) => [value, nextByValue.get(value)!] as const);
-  const nextInitializer = `${JSON.stringify(
-    Object.fromEntries(nextEntries),
-    null,
-    2
-  )} as const satisfies Record<${boundType}, ${boundType}>`;
+  // Object-literal __proto__ has special semantics. Emit that one property
+  // as computed data; ordinary JSON key ordering and spelling stay unchanged.
+  const nextProperties = Object.entries(Object.fromEntries(nextEntries)).map(([value, next]) =>
+    `  ${value === '__proto__' ? `[${JSON.stringify(value)}]` : JSON.stringify(value)}: ${JSON.stringify(next)}`
+  );
+  const nextLiteral = nextProperties.length === 0 ? '{}' : `{\n${nextProperties.join(',\n')}\n}`;
+  const nextInitializer = `${nextLiteral} as const satisfies Record<${boundType}, ${boundType}>`;
 
   return new CodeBuilder(task.target)
     .addFileComment(`@generated semantic-task:${task.id} contract:${task.contractId} state:${task.stateId}`)
@@ -57,7 +62,9 @@ export interface SemanticLoweringResult {
   tasks: SemanticGeneratorTask[];
 }
 
-function assertPlanOwnership(context: PipelineSemanticContext): void {
+type LoweringContext = Pick<PipelineSemanticContext, 'transactionId' | 'inputRevision' | 'semanticRevision' | 'snapshot' | 'generatorPlan'>;
+
+function assertPlanOwnership(context: LoweringContext): void {
   const plan = context.generatorPlan;
   if (
     plan.inputRevision !== context.inputRevision ||
@@ -89,6 +96,8 @@ function renderTask(task: SemanticGeneratorPlanTask): string {
   switch (task.kind) {
     case 'generate-state-transition-map':
       return renderStateTransitionMapSource(task);
+    default:
+      throw new CompilerError('GENERATOR-LOWER-009', 'Unsupported Semantic Generator task kind');
   }
 }
 
@@ -97,34 +106,58 @@ export async function lowerSemanticTasks(
   context: PipelineSemanticContext,
   commitFence?: CommitFence
 ): Promise<SemanticLoweringResult> {
-  assertPlanOwnership(context);
-  const generatedPaths: string[] = [];
-  const tasks: SemanticGeneratorTask[] = [];
-
-  for (const task of context.generatorPlan.tasks) {
+  workspaceRoot = path.resolve(workspaceRoot);
+  if (commitFence !== undefined && typeof commitFence !== 'function') throw new TypeError('Semantic lowering fence must be callable');
+  const { transactionId, inputRevision, semanticRevision, snapshot, generatorPlan } = context;
+  if ([transactionId, inputRevision, semanticRevision].some(value => typeof value !== 'string' || value.length === 0)) {
+    throw new CompilerError('GENERATOR-LOWER-006', 'Semantic lowering requires non-empty transaction and revision identities');
+  }
+  const capturedIr = snapshot.ir;
+  // The declarative plan is copied once before effects. The validated IR stays
+  // with its original owner; no cloned object pretends to carry IR authority.
+  const plan = structuredClone(generatorPlan);
+  const bound = Object.freeze({ transactionId, inputRevision, semanticRevision, snapshot, generatorPlan: plan });
+  if (snapshot.ir !== capturedIr) throw new CompilerError('GENERATOR-LOWER-006', 'Semantic lowering IR identity changed during admission');
+  assertPlanOwnership(bound);
+  for (const task of plan.tasks) {
+    if (task.kind !== 'generate-state-transition-map') {
+      throw new CompilerError('GENERATOR-LOWER-009', 'Unsupported Semantic Generator task kind');
+    }
+  }
+  assertUniqueSemanticOutputPaths(plan.tasks);
+  assertStateTransitionFunctions(plan.tasks);
+  // All path/identity/state decisions are admitted before the first write.
+  // Rendering stays per-file: this is not a claim of crash-atomic batch output.
+  const prepared = plan.tasks.map(task => {
     const targetPath = isCanonicalWorkspaceArtifactPath(task.target)
       ? resolveWorkspaceArtifactPath(workspaceRoot, task.target)
       : resolvePathInside(workspaceRoot, task.target);
-    if (!targetPath) {
-      throw new CompilerError('GENERATOR-LOWER-004', `Task "${task.id}" target escapes native workspace root`);
+    if (!targetPath) throw new CompilerError('GENERATOR-LOWER-004', `Task "${task.id}" target escapes native workspace root`);
+    return Object.freeze({ task, targetPath });
+  });
+  const generatedPaths: string[] = [];
+  const tasks: SemanticGeneratorTask[] = [];
+  const fence: CommitFence = async () => {
+    await commitFence?.();
+    // Reuse the retained snapshot/revision, not the caller's possibly replaced
+    // context fields. The full IR validator remains the snapshot owner's job.
+    if (snapshot.ir !== capturedIr || capturedIr.inputRevision !== inputRevision || capturedIr.semanticRevision !== semanticRevision) {
+      throw new CompilerError('GENERATOR-LOWER-006', 'Semantic lowering IR revision changed during publication');
     }
-
-    await writeText(targetPath, renderTask(task), commitFence);
+  };
+  for (const { task, targetPath } of prepared) {
+    await writeText(targetPath, renderTask(task), fence);
     generatedPaths.push(path.relative(workspaceRoot, targetPath).replaceAll(path.sep, '/'));
     tasks.push({
-      ...structuredClone(task),
+      ...task,
       status: 'generated',
       artifactBinding: {
         generatorEntityId: task.generatorEntityId,
         artifactEntityId: task.artifactEntityId,
-        semanticRevision: context.semanticRevision,
-        compilationTransactionId: context.transactionId
+        semanticRevision,
+        compilationTransactionId: transactionId
       }
     });
   }
-
-  return {
-    generatedPaths: uniqueSorted(generatedPaths),
-    tasks
-  };
+  return { generatedPaths: uniqueSorted(generatedPaths), tasks };
 }
