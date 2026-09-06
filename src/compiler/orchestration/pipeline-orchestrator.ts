@@ -1,3 +1,4 @@
+import { pipelineStageBoundary } from '../pipeline/execution-boundaries.ts';
 import path from 'node:path';
 import { Buffer } from 'node:buffer';
 import { readFile } from 'node:fs/promises';
@@ -637,7 +638,7 @@ export async function compileWorkspace(
         });
         for (const stage of stages) {
           await assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease);
-          await emitPipelineExecutionBoundary(context.onEvent, context.transactionId, `pipeline-${stage}`);
+          await emitPipelineExecutionBoundary(context.onEvent, context.transactionId, pipelineStageBoundary(stage));
           await executeStage[stage]();
           completedStages.push(stage);
         }

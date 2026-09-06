@@ -16,24 +16,10 @@ export type {
   PipelineTransactionRecord, PipelineJournal, PipelineAdaptRetirementRecord
 } from './journal-types.ts';
 
-export const PIPELINE_EXECUTION_BOUNDARIES = Object.freeze([
-  'pipeline-bootstrap',
-  'pipeline-lease-bind',
-  'pipeline-lease-bound',
-  'pipeline-transaction-bootstrap',
-  'pipeline-transaction',
-  'pipeline-resolve',
-  'pipeline-semantic',
-  'pipeline-compose',
-  'pipeline-verify',
-  'pipeline-lock',
-  'pipeline-emit',
-  'verify-preflight',
-  'verify-fast',
-  'verify-runtime',
-  'verify-artifact-publish'
-] as const);
-export type PipelineExecutionBoundary = (typeof PIPELINE_EXECUTION_BOUNDARIES)[number];
+import type { PipelineExecutionBoundary } from './execution-boundaries.ts';
+export { PIPELINE_EXECUTION_BOUNDARIES } from './execution-boundaries.ts';
+export type { PipelineExecutionBoundary } from './execution-boundaries.ts';
+
 export const PIPELINE_COMPLETION_PROOF_REVISION = 'pipeline-completion-proof-v2' as const;
 
 export interface PipelineCompletionProof {

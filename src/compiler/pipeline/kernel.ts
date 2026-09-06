@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { createWorkspaceWriteCommitFence, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../workspace/lease.ts';
-import type { LockFile, PassState } from '../contract.ts';
+import type { LockFile } from '../contract.ts';
 import { CompilerError, getErrorCode } from '../errors.ts';
 import { describePipelineFailure, settlePipelineFailure } from './failure.ts';
 import { readLockFile, saveLock } from '../lock.ts';
@@ -14,7 +14,7 @@ import {
   startPipelineTransaction
 } from './journal.ts';
 import { getPipelineStageDefinition } from './pass-registry.ts';
-import { PASS_STATUS_PENDING } from './defaults.ts';
+import { pipelineStageBlockers, pipelineStageStatePatch, type PipelineStageTransition } from './stage-state.ts';
 import type {
   PassId,
   PipelineEventHandler,
@@ -72,10 +72,6 @@ function readExistingLock(workspaceRoot: string): LockFile | null {
   }
 }
 
-function invalidatedState(passId: PassId): PassState {
-  return PASS_STATUS_PENDING[passId];
-}
-
 function assertStageRequirements(lock: LockFile | null, stageId: PipelineStageId, requires: readonly PassId[]): void {
   if (requires.length === 0) return;
   if (!lock) {
@@ -84,44 +80,20 @@ function assertStageRequirements(lock: LockFile | null, stageId: PipelineStageId
       requires
     });
   }
-  const blockers = requires.filter((passId) => lock.passStatus[passId] !== 'succeeded');
+  const blockers = pipelineStageBlockers(lock.passStatus, requires);
   if (blockers.length > 0) {
     throw new CompilerError('PIPELINE-BLOCKED-002', `Pipeline stage "${stageId}" has unsatisfied pass dependencies`, {
-      stageId,
-      blockers: blockers.map((passId) => ({ passId, state: lock.passStatus[passId] }))
+      stageId, blockers
     });
   }
 }
 
-function beginStageState(lock: LockFile, ownedPasses: readonly PassId[], invalidates: readonly PassId[]): void {
-  for (const passId of invalidates) lock.passStatus[passId] = invalidatedState(passId);
-  for (const passId of ownedPasses) lock.passStatus[passId] = 'running';
-}
-
-function blockStageState(lock: LockFile, ownedPasses: readonly PassId[], invalidates: readonly PassId[]): void {
-  for (const passId of ownedPasses) lock.passStatus[passId] = 'blocked';
-  for (const passId of invalidates) lock.passStatus[passId] = 'blocked';
-}
-
-function completeStageState(lock: LockFile, ownedPasses: readonly PassId[]): void {
-  for (const passId of ownedPasses) lock.passStatus[passId] = 'succeeded';
-}
-
-function failStageState(
+function transitionStageState(
   lock: LockFile,
-  primaryPass: PassId,
-  ownedPasses: readonly PassId[],
-  invalidates: readonly PassId[],
-  originPass: PassId
+  definition: ReturnType<typeof getPipelineStageDefinition>,
+  transition: PipelineStageTransition
 ): void {
-  const failurePass = ownedPasses.includes(originPass) ? originPass : primaryPass;
-  const failureIndex = ownedPasses.indexOf(failurePass);
-
-  for (let index = 0; index < ownedPasses.length; index += 1) {
-    const passId = ownedPasses[index]!;
-    lock.passStatus[passId] = index < failureIndex ? 'succeeded' : index === failureIndex ? 'failed' : 'blocked';
-  }
-  for (const passId of invalidates) lock.passStatus[passId] = 'blocked';
+  Object.assign(lock.passStatus, pipelineStageStatePatch(definition, transition));
 }
 
 async function executeStageWithContext<T>(
@@ -147,7 +119,7 @@ async function executeStageWithContext<T>(
     return settlePipelineFailure(error, [
       { operation: 'lock-blocked', run: async () => {
         if (previousLock) {
-          blockStageState(previousLock, definition.ownedPasses, definition.invalidates);
+          transitionStageState(previousLock, definition, { kind: 'blocked' });
           await commitFence();
           await saveLock(workspaceRoot, previousLock, commitFence);
         }
@@ -160,27 +132,31 @@ async function executeStageWithContext<T>(
     ]);
   }
 
-  if (previousLock) {
-    beginStageState(previousLock, definition.ownedPasses, definition.invalidates);
-    await commitFence();
-    await saveLock(workspaceRoot, previousLock, commitFence);
-  }
-  await commitFence();
-  await recordPipelinePassStart(
-    workspaceRoot,
-    context.transactionId,
-    definition.primaryPass,
-    commitFence,
-    context.onEvent
-  );
-
+  let startAttempted = false;
+  let executionStarted = false;
   try {
+    if (previousLock) {
+      transitionStageState(previousLock, definition, { kind: 'started' });
+      await commitFence();
+      await saveLock(workspaceRoot, previousLock, commitFence);
+    }
+    await commitFence();
+    startAttempted = true;
+    await recordPipelinePassStart(
+      workspaceRoot,
+      context.transactionId,
+      definition.primaryPass,
+      commitFence,
+      context.onEvent
+    );
+
+    executionStarted = true;
     const result = await execute(context);
     const lock = options.extractLock
       ? await options.extractLock(result)
       : readExistingLock(workspaceRoot);
     if (lock && !options.preserveOwnedPassStates) {
-      completeStageState(lock, definition.ownedPasses);
+      transitionStageState(lock, definition, { kind: 'succeeded' });
       await commitFence();
       await saveLock(workspaceRoot, lock, commitFence);
     }
@@ -199,15 +175,21 @@ async function executeStageWithContext<T>(
       { operation: 'lock-failed', run: async () => {
         const lock = definition.requires.length === 0 ? null : readExistingLock(workspaceRoot);
         if (lock) {
-          failStageState(lock, definition.primaryPass, definition.ownedPasses, definition.invalidates,
-            isPipelinePassFailure(error) ? error.originPass : definition.primaryPass);
+          transitionStageState(lock, definition, executionStarted
+            ? { kind: 'failed', originPass: isPipelinePassFailure(error) ? error.originPass : definition.primaryPass }
+            : { kind: startAttempted ? 'preparation-failed' : 'blocked' });
           await commitFence();
           await saveLock(workspaceRoot, lock, commitFence);
         }
       } },
-      { operation: 'journal-failed', run: async () => {
+      { operation: startAttempted ? 'journal-failed' : 'journal-preparation-blocked', run: async () => {
         await commitFence();
-        await recordPipelinePassFailure(workspaceRoot, context.transactionId, definition.primaryPass,
+        // Before calling the start owner there cannot be a running record. A
+        // rejected start may already have persisted one; retain that owner's
+        // failure, including an absent-running-record settlement error, rather
+        // than guessing whether a partial publication occurred.
+        const settle = startAttempted ? recordPipelinePassFailure : recordPipelinePassBlocked;
+        await settle(workspaceRoot, context.transactionId, definition.primaryPass,
           failure.code, failure.message, commitFence, context.onEvent);
       } }
     ]);
