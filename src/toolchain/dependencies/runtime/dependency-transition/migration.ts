@@ -17,18 +17,23 @@ import {
 } from '../../../../system-architecture/foundation/contract/failure.ts';
 import {
   canonicalJson,
+  deepFreeze,
   compareCodeUnits
 } from '../../../../system-architecture/foundation/runtime/canonical.ts';
 import {
   formatJsonFile
 } from '../../../../workspace/files.ts';
 import {
-  runtimeDependencyOperationContext,
-  type RuntimeDependencyOperationContext,
-  runtimeDependencyOperationEffectFence,
-  type RuntimeDependencyOperationOptions,
-  runtimeDependencyOperationRemainingMs
+  runtimeDependencyOperationEffectFence, runtimeDependencyEffectFenceOptions,
+  type RuntimeDependencyEffectFenceOptions, type RuntimeDependencyEffectFenceInput
 } from '../operation-context.ts';
+import {
+  runtimeDependencyOperationContext, runtimeDependencyOperationControls,
+  runtimeDependencyOperationRemainingMs, assertRuntimeDependencyOperationActive,
+  type RuntimeDependencyOperationContext, type RuntimeDependencyOperationControlInput,
+  type BoundRuntimeDependencyOperationControls
+} from '../operation-controls.ts';
+import { readonlyMapSnapshot } from '../../../../system-architecture/foundation/runtime/collections.ts';
 import {
   assertDependencyTransitionRecordBytes,
   dependencyTransitionRecordBytes,
@@ -225,7 +230,7 @@ function parseLegacyDependencyTransitionRecord(
   if (formatJsonFile(record) !== Buffer.from(bytes).toString('utf8')) {
     throw new SecError('RUNTIME-DEPS-002', 'Legacy dependency transition journal record bytes are not canonical');
   }
-  return Object.freeze(record);
+  return deepFreeze(record);
 }
 
 function dependencyTransitionMigrationIntentStableDigest(
@@ -327,7 +332,7 @@ function parseDependencyTransitionMigrationIntent(
   if (formatJsonFile(canonicalJson(intent)) !== Buffer.from(bytes).toString('utf8')) {
     throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration intent bytes are not canonical');
   }
-  return Object.freeze(intent);
+  return deepFreeze(intent);
 }
 
 function assertDependencyTransitionMigrationIntentBytes(bytes: Uint8Array): void {
@@ -412,6 +417,7 @@ function readLegacyDependencyTransitionRecordSet(
   operation: RuntimeDependencyOperationContext,
   label: string
 ): LegacyDependencyTransitionRecordSet {
+  assertRuntimeDependencyOperationActive(operation, `${label} census admission`);
   const before = assertSameNoFollowDirectoryIdentity(recordsRoot, `${label} before census`).target;
   const census = scanNoFollowDirectoryTree(before, {
     deadlineAtMs: operation.deadlineAtMonotonicMs,
@@ -420,12 +426,7 @@ function readLegacyDependencyTransitionRecordSet(
   });
   const records = new Map<`sha256:${string}`, LegacyDependencyTransitionJournal>();
   for (const entry of census) {
-    if (operation.monotonicNowMs() > operation.deadlineAtMonotonicMs) {
-      throw new SecError('RUNTIME-DEPS-004', `${label} exceeded its read deadline`, {
-        deadlineAtMs: operation.deadlineAtMonotonicMs,
-        observedEntries: records.size
-      });
-    }
+    assertRuntimeDependencyOperationActive(operation, `${label} read deadline`);
     if (entry.kind !== 'file' || !/^record-[0-9a-f]{64}\.json$/u.test(entry.relativePath)) {
       throw new SecError('RUNTIME-DEPS-002', `${label} contains an unknown physical entry`);
     }
@@ -456,6 +457,7 @@ function readLegacyDependencyTransitionRecordSet(
   const grouped = new Map<`sha256:${string}`, LegacyDependencyTransitionJournal[]>();
   const children = new Map<`sha256:${string}`, `sha256:${string}`>();
   for (const record of records.values()) {
+    assertRuntimeDependencyOperationActive(operation, `${label} grouping`);
     const chain = grouped.get(record.operationKey);
     if (chain === undefined) grouped.set(record.operationKey, [record]);
     else chain.push(record);
@@ -473,6 +475,7 @@ function readLegacyDependencyTransitionRecordSet(
       compareCodeUnits(left.recordDigest, right.recordDigest));
     let previous: LegacyDependencyTransitionJournal | undefined;
     for (const record of chain) {
+      assertRuntimeDependencyOperationActive(operation, `${label} chain validation`);
       if (previous === undefined) {
         if (record.sequence !== 1 || record.previousRecordDigest !== null) {
           throw new SecError('RUNTIME-DEPS-002', `${label} legacy chain has an invalid root`);
@@ -489,16 +492,9 @@ function readLegacyDependencyTransitionRecordSet(
   if (chains.length === 0) {
     throw new SecError('RUNTIME-DEPS-004', `${label} has no complete legacy chain`);
   }
-  operation.signal?.throwIfAborted();
-  const graphReadbackNow = operation.monotonicNowMs();
-  if (graphReadbackNow > operation.deadlineAtMonotonicMs) {
-    throw new SecError('RUNTIME-DEPS-004', `${label} exceeded its graph-validation deadline`, {
-      deadlineAtMs: operation.deadlineAtMonotonicMs,
-      observedEntries: records.size
-    });
-  }
+  assertRuntimeDependencyOperationActive(operation, `${label} graph-validation readback`);
   return Object.freeze({
-    records,
+    records: readonlyMapSnapshot(records),
     ledgerDigest: dependencyTransitionLedgerDigest(records),
     recordsRootPhysical: generatedStatePhysicalIdentity(after),
     chains: Object.freeze(chains)
@@ -538,7 +534,7 @@ async function buildMigratedDependencyTransitionRecords(
   // fresh, empty v2 operation ledger for future transitions.
   const ordered = Object.freeze([]) as readonly DependencyTransitionJournal[];
   return Object.freeze({
-    records,
+    records: readonlyMapSnapshot(records),
     ordered,
     ledgerDigest: dependencyTransitionLedgerDigest(records)
   });
@@ -551,8 +547,9 @@ export type DependencyTransitionMigrationIntents = Readonly<{
 
 export async function readDependencyTransitionMigrationIntents(
   namespace: DependencyTransitionNamespace,
-  options: RuntimeDependencyOperationOptions
+  input: RuntimeDependencyOperationControlInput
 ): Promise<DependencyTransitionMigrationIntents> {
+  const options = runtimeDependencyOperationControls(input);
   const names = await readNoFollowDirectNames(
     namespace.journalRoot,
     'Dependency transition migration intent namespace',
@@ -569,6 +566,7 @@ export async function readDependencyTransitionMigrationIntents(
   let prepared: DependencyTransitionMigrationIntent | null = null;
   let complete: DependencyTransitionMigrationIntent | null = null;
   for (const name of names) {
+    runtimeDependencyOperationRemainingMs(options, 'Dependency transition migration intent validation');
     if (!name.startsWith('migration-')) continue;
     const entry = inspectNoFollowOrdinaryFileEntry(namespace.journalRoot, name);
     if (entry === null || entry.bytes === null) {
@@ -607,6 +605,7 @@ export async function readDependencyTransitionMigrationIntents(
   if (complete !== null && (prepared === null || complete.previousIntentDigest !== prepared.intentDigest)) {
     throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration complete intent has no prepared predecessor');
   }
+  runtimeDependencyOperationRemainingMs(options, 'Dependency transition migration intents readback');
   return Object.freeze({ prepared, complete });
 }
 
@@ -688,7 +687,7 @@ export function assertDependencyTransitionMigrationTargetBinding(
 async function writeDependencyTransitionMigrationIntent(
   namespace: DependencyTransitionNamespace,
   intent: DependencyTransitionMigrationIntent,
-  options: RuntimeDependencyOperationOptions,
+  options: RuntimeDependencyEffectFenceOptions,
   verifySourceBeforeWrite?: () => Promise<void>
 ): Promise<void> {
   await runtimeDependencyOperationEffectFence(
@@ -734,10 +733,10 @@ function dependencyTransitionMigrationIntent(
 async function assertLegacyDependencyTransitionUnchanged(
   source: DependencyTransitionNamespace,
   expected: LegacyDependencyTransitionRecordSet,
-  options: RuntimeDependencyOperationOptions,
+  options: BoundRuntimeDependencyOperationControls,
   label: string
 ): Promise<LegacyDependencyTransitionRecordSet> {
-  await runtimeDependencyOperationRemainingMs(options, `${label} admission`);
+  runtimeDependencyOperationRemainingMs(options, `${label} admission`);
   const currentNamespace = inspectLegacyDependencyTransitionNamespace(source.ownerRoot.path);
   if (currentNamespace === null ||
       !sameGeneratedStateIdentity(
@@ -771,7 +770,7 @@ async function assertLegacyDependencyTransitionUnchanged(
 async function publishMigratedDependencyTransitionRecords(
   namespace: DependencyTransitionNamespace,
   expected: MigratedDependencyTransitionRecords,
-  options: RuntimeDependencyOperationOptions
+  options: RuntimeDependencyEffectFenceOptions
 ): Promise<void> {
   const current = readDependencyTransitionRecordSet(
     namespace.recordsRoot,
@@ -829,8 +828,11 @@ async function publishMigratedDependencyTransitionRecords(
 
 export async function migrateLegacyDependencyTransitionUnderLease(
   ownerRoot: string,
-  options: RuntimeDependencyOperationOptions
+  input: RuntimeDependencyEffectFenceInput
 ): Promise<void> {
+  ownerRoot = path.resolve(ownerRoot);
+  const options = runtimeDependencyEffectFenceOptions(input);
+  runtimeDependencyOperationRemainingMs(options, 'Dependency transition migration admission');
   const legacyNamespace = inspectLegacyDependencyTransitionNamespace(ownerRoot);
   const targetNamespace = inspectDependencyTransitionNamespace(ownerRoot);
   if (legacyNamespace === null) {
