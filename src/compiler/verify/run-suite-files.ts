@@ -15,7 +15,7 @@ let suiteModuleRevision = 0n;
  * into failed tests, nor physically terminate a module or suite already running. */
 export async function runSuiteFiles(
   files: readonly string[],
-  onSuitePassed?: (file: string) => void | PromiseLike<void>,
+  onSuitePassed?: (file: string) => unknown,
   signal?: AbortSignal
 ): Promise<void> {
   const root = process.cwd();
