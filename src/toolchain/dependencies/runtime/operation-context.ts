@@ -77,6 +77,29 @@ export function runtimeDependencyOperationOptions<T extends RuntimeDependencyIns
 
 export type RuntimeDependencyEffectFenceOptions = BoundRuntimeDependencyOperationControls & Readonly<{ beforeCommit?: CommitFence }>;
 
+export type RuntimeDependencyEffectFenceInput = RuntimeDependencyOperationControlInput & Readonly<{ beforeCommit?: CommitFence }>;
+
+/** Bind just operation controls and the selected commit fence. Consumers that
+ * need no install request or lifecycle provider must not carry that facade.
+ * The method retains its real receiver; the guard preserves the parent ledger.
+ */
+export function runtimeDependencyEffectFenceOptions(
+  input: RuntimeDependencyEffectFenceInput
+): RuntimeDependencyEffectFenceOptions {
+  const guard = captureRuntimeDependencyBindingGuard(input);
+  const beforeCommit = input.beforeCommit;
+  if (beforeCommit !== undefined && typeof beforeCommit !== 'function') {
+    throw new TypeError('Runtime dependency effect fence must be callable');
+  }
+  guard(input);
+  const controls = runtimeDependencyOperationControls(input);
+  guard(input);
+  return Object.freeze({ ...controls, ...(beforeCommit === undefined ? {} : {
+    beforeCommit: () => Reflect.apply(beforeCommit, input, [])
+  }) });
+}
+
+
 export async function runtimeDependencyOperationEffectFence(
   options: RuntimeDependencyEffectFenceOptions,
   label: string
