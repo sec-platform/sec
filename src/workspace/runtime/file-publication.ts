@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { types as nativeTypes } from 'node:util';
 
 import {
   createNoFollowDirectoryChain,
@@ -24,6 +25,49 @@ export interface CanonicalWorkspaceFilePublicationInput {
 export interface ExpectedCanonicalWorkspaceFilePublicationInput
 extends CanonicalWorkspaceFilePublicationInput {
   readonly expectedBytes: Uint8Array;
+}
+
+
+// A request is a decision snapshot, not a source of authority. Capture before
+// the first fence and preserve a method's real receiver, not a record clone.
+type PublicationTarget = Pick<CanonicalWorkspaceFilePublicationInput,
+  'workspaceRoot' | 'targetPath' | 'label' | 'commitFence'>;
+const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
+const nativeByteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, 'byteLength')!.get!;
+const nativeByteOffset = Object.getOwnPropertyDescriptor(typedArrayPrototype, 'byteOffset')!.get!;
+const nativeBuffer = Object.getOwnPropertyDescriptor(typedArrayPrototype, 'buffer')!.get!;
+
+function captureTarget(input: PublicationTarget): PublicationTarget {
+  const cwd = process.cwd();
+  const { workspaceRoot, targetPath, label, commitFence } = input;
+  if (typeof label !== 'string') throw new TypeError('Publication label must be text');
+  if (commitFence !== undefined && typeof commitFence !== 'function') {
+    throw new TypeError('Publication commit fence must be callable');
+  }
+  return Object.freeze({
+    workspaceRoot: path.resolve(cwd, workspaceRoot), targetPath: path.resolve(cwd, targetPath), label,
+    commitFence: commitFence === undefined ? undefined : () => Reflect.apply(commitFence, input, [])
+  });
+}
+
+function captureBytes(bytes: Uint8Array, label: string): Uint8Array {
+  if (!nativeTypes.isUint8Array(bytes)) throw new TypeError(`${label} must be Uint8Array data`);
+  const buffer = nativeBuffer.call(bytes);
+  // Shared memory has no atomic byte-snapshot contract. Callers must first
+  // transfer/copy it under their own synchronization, not race publication.
+  if (nativeTypes.isSharedArrayBuffer(buffer)) throw new TypeError(`${label} cannot use shared memory`);
+  const view = new Uint8Array(buffer, nativeByteOffset.call(bytes), nativeByteLength.call(bytes));
+  return Buffer.from(view);
+}
+
+function capturePublication(input: CanonicalWorkspaceFilePublicationInput): CanonicalWorkspaceFilePublicationInput {
+  const target = captureTarget(input);
+  return Object.freeze({ ...target, bytes: captureBytes(input.bytes, `${target.label} bytes`) });
+}
+
+function captureExpectedPublication(input: ExpectedCanonicalWorkspaceFilePublicationInput): ExpectedCanonicalWorkspaceFilePublicationInput {
+  const publication = capturePublication(input);
+  return Object.freeze({ ...publication, expectedBytes: captureBytes(input.expectedBytes, `${publication.label} preimage`) });
 }
 
 function workspaceRelativeSegments(workspaceRoot: string, targetPath: string): string[] {
@@ -59,7 +103,7 @@ function creatableWorkspaceRelativeSegments(workspaceRoot: string, targetPath: s
 }
 
 async function retainedCreatablePublicationParent(
-  input: CanonicalWorkspaceFilePublicationInput
+  input: PublicationTarget
 ): Promise<Readonly<{ parent: PhysicalDirectoryIdentity; leafName: string }>> {
   const rootPath = path.resolve(input.workspaceRoot);
   const segments = creatableWorkspaceRelativeSegments(rootPath, input.targetPath);
@@ -78,7 +122,7 @@ async function retainedCreatablePublicationParent(
 }
 
 async function retainedExistingPublicationParent(
-  input: CanonicalWorkspaceFilePublicationInput
+  input: PublicationTarget
 ): Promise<Readonly<{ parent: PhysicalDirectoryIdentity; leafName: string }>> {
   const rootPath = path.resolve(input.workspaceRoot);
   const segments = workspaceRelativeSegments(rootPath, input.targetPath);
@@ -111,6 +155,7 @@ function validateRequestedBytes(input: CanonicalWorkspaceFilePublicationInput, c
 export async function publishCanonicalWorkspaceFile(
   input: CanonicalWorkspaceFilePublicationInput
 ): Promise<void> {
+  input = capturePublication(input);
   const { parent, leafName } = await retainedCreatablePublicationParent(input);
   await input.commitFence?.();
   replaceDurableCanonicalFile({
@@ -129,6 +174,7 @@ export async function publishCanonicalWorkspaceFile(
 export async function publishExistingParentCanonicalWorkspaceFile(
   input: CanonicalWorkspaceFilePublicationInput
 ): Promise<void> {
+  input = capturePublication(input);
   const { parent, leafName } = await retainedExistingPublicationParent(input);
   await input.commitFence?.();
   replaceDurableCanonicalFile({
@@ -148,6 +194,7 @@ export async function publishExistingParentCanonicalWorkspaceFile(
 export async function publishExpectedCanonicalWorkspaceFile(
   input: ExpectedCanonicalWorkspaceFilePublicationInput
 ): Promise<void> {
+  input = captureExpectedPublication(input);
   const { parent, leafName } = await retainedExistingPublicationParent(input);
   await input.commitFence?.();
   const current = readNoFollowOrdinaryFile(parent, leafName);
@@ -171,6 +218,7 @@ export async function publishExpectedCanonicalWorkspaceFile(
 export async function publishExclusiveCanonicalWorkspaceFile(
   input: CanonicalWorkspaceFilePublicationInput
 ): Promise<Readonly<{ created: boolean }>> {
+  input = capturePublication(input);
   const { parent, leafName } = await retainedCreatablePublicationParent(input);
   await input.commitFence?.();
   const result = publishExclusiveDurableCanonicalFile({
@@ -191,16 +239,19 @@ export async function publishExclusiveCanonicalWorkspaceFile(
 export async function deleteExpectedCanonicalWorkspaceFile(
   input: ExpectedCanonicalWorkspaceFilePublicationInput
 ): Promise<void> {
-  const { parent, leafName } = await retainedExistingPublicationParent(input);
-  await input.commitFence?.();
+  const target = captureTarget(input);
+  // Deletion consumes only its observed preimage, never input.bytes.
+  const expectedBytes = captureBytes(input.expectedBytes, `${target.label} preimage`);
+  const { parent, leafName } = await retainedExistingPublicationParent(target);
+  await target.commitFence?.();
   const current = inspectNoFollowOrdinaryFileEntry(parent, leafName);
   if (
     current === null
     || current.kind !== 'file'
     || current.bytes === null
-    || !Buffer.from(current.bytes).equals(Buffer.from(input.expectedBytes))
+    || !Buffer.from(current.bytes).equals(Buffer.from(expectedBytes))
   ) {
-    throw new Error(`${input.label} rollback preimage changed before deletion`);
+    throw new Error(`${target.label} rollback preimage changed before deletion`);
   }
   deleteRetainedNoFollowEntry({
     root: parent,
