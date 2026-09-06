@@ -1,10 +1,9 @@
 import { throwIfNativeAborted } from '../../system-architecture/foundation/runtime/native-abort.ts';
-import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import { assertCanonicalPortableLogicalPath } from '../../system-architecture/foundation/contract/logical-path.ts';
-import { normalizeNewlines } from '../../system-architecture/foundation/runtime/collections.ts';
 import path from 'node:path';
 import { createTaskGroupEffectFence, mapTaskGroup } from '../../system-architecture/foundation/runtime/concurrency.ts';
-import { writeText, type CommitFence } from '../../workspace/files.ts';
+import type { CommitFence } from '../../workspace/files.ts';
+import { materializePrismaSource } from './merge-prisma-template.ts';
 import { copyRecursive } from '../../workspace/runtime/discovery.ts';
 import {
   isCanonicalWorkspaceArtifactPath,
@@ -61,19 +60,6 @@ function resolveTargetPath(step: InstallPlanStep, context: InstallContext): stri
   return targetPath;
 }
 
-function readRequiredRetainedText(filePath: string, label: string): string {
-  const bytes = readOptionalRetainedOrdinaryFile(filePath, label);
-  if (bytes === null) {
-    throw new CompilerError('COMPOSE-PATH-003', `${label} is missing`);
-  }
-  return decodeExactUtf8(bytes, label);
-}
-
-function readOptionalRetainedText(filePath: string, label: string): string {
-  const bytes = readOptionalRetainedOrdinaryFile(filePath, label);
-  return bytes === null ? '' : decodeExactUtf8(bytes, label);
-}
-
 export class CopyInstallStrategy implements InstallStrategy {
   readonly action = 'copy';
 
@@ -98,14 +84,8 @@ export class MergePrismaInstallStrategy implements InstallStrategy {
   async execute(step: InstallPlanStep, context: InstallContext): Promise<void> {
     const sourcePath = resolveSourcePath(step, context);
     const targetPath = resolveTargetPath(step, context);
-    const source = readRequiredRetainedText(sourcePath, `Install source ${step.blockId}:${step.from}`);
-    const existing = readOptionalRetainedText(targetPath, `Install merge target ${step.to}`);
-    const trimmed = source.trim();
-    if (normalizeNewlines(existing).includes(normalizeNewlines(trimmed))) {
-      return;
-    }
-    const next = `${existing.trimEnd()}\n\n${trimmed}\n`;
-    await writeText(targetPath, next, context.commitFence);
+    await materializePrismaSource({ workspaceRoot: context.workspaceRoot, sourcePath, targetPath,
+      sourceRequired: true, commitFence: context.commitFence });
   }
 }
 
