@@ -1,0 +1,29 @@
+import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
+import { assertRuntimeDependencyTestMaterialization } from './materialization-fixture-capability.ts';
+import { captureRuntimeDependencyBindingGuard, runtimeDependencyOperationControls } from './operation-controls.ts';
+import type { RuntimeDependencyInstallOptions } from './operation-context.ts';
+
+/** Capture only the fields this installer owns. The compatibility facade may
+ * remain wide for other consumers, but unrelated getters/capabilities never
+ * enter this process execution boundary. A method retains its real provider. */
+export function bindCompilerInstallInvocation(options: RuntimeDependencyInstallOptions) {
+  const guard = captureRuntimeDependencyBindingGuard(options);
+  function own<K extends keyof RuntimeDependencyInstallOptions>(key: K): RuntimeDependencyInstallOptions[K] {
+    return Object.getOwnPropertyDescriptor(options, key)?.enumerable ? options[key] : undefined;
+  }
+  const mode = own('installMode');
+  const beforeCommit = own('beforeCommit');
+  const materialization = own('testMaterialization');
+  if (mode !== undefined && mode !== 'allow' && mode !== 'offline-copy-only' && mode !== 'prebound-only') {
+    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency install mode is invalid');
+  }
+  if (mode === 'prebound-only') throw new SecError('RUNTIME-DEPS-003', 'Prebound-only mode cannot execute a dependency installation');
+  if (beforeCommit !== undefined && typeof beforeCommit !== 'function') throw new SecError('RUNTIME-DEPS-003', 'Compiler dependency commit fence must be callable');
+  if (materialization !== undefined) assertRuntimeDependencyTestMaterialization(materialization);
+  guard(options);
+  const controls = runtimeDependencyOperationControls(options);
+  guard(options);
+  return Object.freeze({ controls, isolated: mode === 'offline-copy-only', materialization,
+    beforeCommit: beforeCommit === undefined ? undefined : () => Reflect.apply(beforeCommit, options, [])
+  });
+}

@@ -1,3 +1,4 @@
+import { bindCompilerInstallInvocation } from './install-invocation.ts';
 import path from 'node:path';
 
 import { generatedStateDigest } from '../../../runtime-state/generated-state/contract.ts';
@@ -39,14 +40,13 @@ import { sameHostPath } from './host-path.ts';
 import { consumeRuntimeDependencyTestMaterialization } from './materialization-fixture-capability.ts';
 import {
   runtimeDependencyOperationContext,
-  runtimeDependencyOperationOptions,
   runtimeDependencyOperationEffectFence,
   runtimeDependencyOperationRemainingMs,
   type RuntimeDependencyInstallOptions
 } from './operation-context.ts';
 import { measureRuntimeDependencyOperationPhaseAsync } from './operation-telemetry.ts';
 import { withCompilerInstallResources } from './install-resource-scope.ts';
-import { runtimeDependencyOperationControls, type BoundRuntimeDependencyOperationControls } from './operation-controls.ts';
+import { type BoundRuntimeDependencyOperationControls } from './operation-controls.ts';
 
 function buildDependencyInstallEnvironment(
   writableRoot: string,
@@ -186,16 +186,8 @@ export async function runBunInstall(
   if (inputFence !== undefined && typeof inputFence !== 'function') {
     throw new SecError('RUNTIME-DEPS-003', 'Compiler dependency input fence must be callable');
   }
-  const operationOptions = runtimeDependencyOperationOptions(options);
-  if (operationOptions.beforeCommit !== undefined && typeof operationOptions.beforeCommit !== 'function') {
-    throw new SecError('RUNTIME-DEPS-003', 'Compiler dependency commit fence must be callable');
-  }
-  const controls = runtimeDependencyOperationControls(operationOptions);
-  const isolated = operationOptions.installMode === 'offline-copy-only';
-  const materialization = operationOptions.testMaterialization;
-  // Preserve the compatibility receiver at the boundary; downstream budget and
-  // process consumers receive only the narrow bound control projection.
-  const effectOptions = Object.freeze({ ...controls, beforeCommit: () => operationOptions.beforeCommit?.() });
+  const { controls, isolated, materialization, beforeCommit } = bindCompilerInstallInvocation(options);
+  const effectOptions = Object.freeze({ ...controls, beforeCommit });
   const effectFence = () => runtimeDependencyOperationEffectFence(effectOptions, 'Compiler dependency install');
   const spawnFence = async () => {
     await effectFence();
