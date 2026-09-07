@@ -7,12 +7,10 @@ export class PhysicalResourceCompositeSettlementError extends AggregateError {
   readonly failures: readonly PhysicalResourceSettlementFailure[];
 
   constructor(failures: readonly PhysicalResourceSettlementFailure[]) {
-    super(
-      failures.map(({ error }) => error),
-      'Physical resource composite settlement failed.'
-    );
+    const captured = Object.freeze(Array.from(failures, ({ label, error }) => Object.freeze({ label, error })));
+    super(captured.map(({ error }) => error), 'Physical resource composite settlement failed.');
     this.name = 'PhysicalResourceCompositeSettlementError';
-    this.failures = Object.freeze([...failures]);
+    this.failures = captured;
   }
 }
 
@@ -30,6 +28,37 @@ function throwPhysicalResourceSettlementFailures(
   throw new PhysicalResourceCompositeSettlementError(failures);
 }
 
+/** Bind a valid declared cleanup plan before any of its effects. The caller
+ * still owns action ordering, resource permissions and all deadline decisions.
+ * Do not let one cleanup remove a later action, relabel its failure or replace
+ * its method. Providers keep their actual receiver; Error values remain exact.
+ */
+function captureSettlement<T>(input: Readonly<{
+  primary?: PhysicalResourceSettlementFailure;
+  cleanup: readonly Readonly<{ label: string; settle(): T }>[];
+}>) {
+  const primaryInput = input.primary;
+  const primary = primaryInput === undefined ? undefined : Object.freeze({
+    label: primaryInput.label, error: primaryInput.error
+  });
+  const cleanup = Array.from(input.cleanup, (entry, index) => {
+    let label = `cleanup[${index}]`;
+    try {
+      const selectedLabel = entry.label;
+      if (typeof selectedLabel !== 'string') throw new TypeError('Physical resource cleanup label must be a string');
+      label = selectedLabel;
+      const settle = entry.settle;
+      if (typeof settle !== 'function') throw new TypeError('Physical resource cleanup settlement must be callable');
+      return Object.freeze({ label, settle: () => Reflect.apply(settle, entry, []) as T });
+    } catch (error) {
+      // A malformed selected action is a failed cleanup attempt. It must not
+      // discard the primary error or prevent the other known actions running.
+      return Object.freeze({ label, settle: (): T => { throw error; } });
+    }
+  });
+  return { primary, cleanup };
+}
+
 /**
  * Settles every supplied physical resource even when an earlier settlement
  * fails. When an operation is already unwinding, the primary failure remains
@@ -39,16 +68,17 @@ export function settlePhysicalResources(input: Readonly<{
   primary?: PhysicalResourceSettlementFailure;
   cleanup: readonly Readonly<{ label: string; settle(): void }>[];
 }>): void {
+  const captured = captureSettlement(input);
   const failures: PhysicalResourceSettlementFailure[] = [];
-  if (input.primary !== undefined) failures.push(input.primary);
-  for (const cleanup of input.cleanup) {
+  if (captured.primary !== undefined) failures.push(captured.primary);
+  for (const cleanup of captured.cleanup) {
     try {
       cleanup.settle();
     } catch (error) {
       failures.push(Object.freeze({ label: cleanup.label, error }));
     }
   }
-  throwPhysicalResourceSettlementFailures(failures, input.primary);
+  throwPhysicalResourceSettlementFailures(failures, captured.primary);
 }
 
 /**
@@ -61,10 +91,11 @@ export async function settlePhysicalResourcesAsync(input: Readonly<{
   primary?: PhysicalResourceSettlementFailure;
   cleanup: readonly Readonly<{ label: string; settle(): void | Promise<void> }>[];
 }>): Promise<PhysicalResourceSettlementTerminal> {
+  const captured = captureSettlement(input);
   const failures: PhysicalResourceSettlementFailure[] = [];
   const attemptedLabels: string[] = [];
-  if (input.primary !== undefined) failures.push(input.primary);
-  for (const cleanup of input.cleanup) {
+  if (captured.primary !== undefined) failures.push(captured.primary);
+  for (const cleanup of captured.cleanup) {
     attemptedLabels.push(cleanup.label);
     try {
       await cleanup.settle();
@@ -72,7 +103,7 @@ export async function settlePhysicalResourcesAsync(input: Readonly<{
       failures.push(Object.freeze({ label: cleanup.label, error }));
     }
   }
-  throwPhysicalResourceSettlementFailures(failures, input.primary);
+  throwPhysicalResourceSettlementFailures(failures, captured.primary);
   return Object.freeze({
     status: 'settled',
     attemptedLabels: Object.freeze(attemptedLabels)

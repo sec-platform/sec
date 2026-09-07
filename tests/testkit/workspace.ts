@@ -5,15 +5,13 @@ import { availableParallelism } from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleepMs } from 'node:timers/promises';
 
-import { addBlock, compileWorkspace, initWorkspace } from '../../src/compiler/orchestration/cli.ts';
-import type { PipelineStageId } from '../../src/compiler/pipeline/types.ts';
 import { getTestWorkspaceTemplateRoot, getTestWorkspaceTempRoot } from '../../src/development/runner/env-manager.ts';
 import { createConcurrencyLimit } from '../../src/system-architecture/foundation/runtime/concurrency.ts';
 import { getErrorCode } from '../../src/system-architecture/foundation/runtime/failure-inspection.ts';
 import { copyWorkspaceFixture } from './workspace-files.ts';
-import { createTemplatePreparation } from './template-preparation.ts';
+import { createTemplatePreparation, captureWorkspacePipelineOptions, workspaceTemplatePipeline, type WorkspaceTemplateKind, type WorkspacePipelineFixtureOptions } from './template-preparation.ts';
 import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
-import { createWorkspaceWithDeferredCleanup, removeWorkspaceDirectoryWithRetry, settleWorkspaceCallback, settleWorkspaceCleanups } from './workspace-cleanup.ts';
+import { createWorkspaceWithDeferredCleanup, removeWorkspaceDirectoryWithRetry, settleWorkspaceCallback, settleWorkspaceCleanups, workspaceTemporaryPrefix, captureWorkspaceRetention } from './workspace-cleanup.ts';
 
 export { copyWorkspaceFixture } from './workspace-files.ts';
 
@@ -22,14 +20,7 @@ const templateParent = path.join(getTestWorkspaceTemplateRoot(), `run-${process.
 const deferredCleanupDirs = new Set<string>();
 const deferredCleanupConcurrency = createConcurrencyLimit(Math.min(availableParallelism(), 16));
 
-export type WorkspaceTemplateKind =
-  | 'empty-default'
-  | 'resolved-default'
-  | 'composed-default'
-  | 'verified-fast-default'
-  | 'locked-default'
-  | 'locked-all-default'
-  | 'explained-all-default';
+export type { WorkspaceTemplateKind } from './template-preparation.ts';
 export type WorkspaceScenarioKind = WorkspaceTemplateKind;
 
 export type WorkspaceCallbackOptions = {
@@ -77,8 +68,9 @@ async function runWorkspaceCallback<T>(
 }
 
 export async function createWorkspace(prefix = 'engineering-compiler-test-'): Promise<string> {
+  const selectedPrefix = workspaceTemporaryPrefix(workspaceParent, prefix);
   await fs.mkdir(workspaceParent, { recursive: true });
-  return createWorkspaceWithDeferredCleanup(path.join(workspaceParent, prefix), deferredCleanupDirs, fs.mkdtemp);
+  return createWorkspaceWithDeferredCleanup(selectedPrefix, deferredCleanupDirs, fs.mkdtemp);
 }
 
 export async function withTempWorkspace<T>(
@@ -86,38 +78,9 @@ export async function withTempWorkspace<T>(
   prefix = 'engineering-compiler-test-',
   options: WorkspaceCallbackOptions = {}
 ): Promise<T> {
+  const retained = { retainOnCallbackFailure: captureWorkspaceRetention(options) };
   const workspaceRoot = await createWorkspace(prefix);
-  return runWorkspaceCallback(workspaceRoot, callback, options);
-}
-
-type WorkspacePipelineFixtureOptions = {
-  prefix?: string;
-  blockIds?: string[];
-};
-
-function defaultWorkspaceOptions(options: WorkspacePipelineFixtureOptions): boolean {
-  return (options.blockIds?.length ?? 0) === 0;
-}
-
-function templatePipelineTarget(target: WorkspaceTemplateKind): {
-  through: PipelineStageId;
-  verificationLane: 'fast' | 'all';
-} | null {
-  switch (target) {
-    case 'empty-default':
-      return null;
-    case 'resolved-default':
-      return { through: 'resolve', verificationLane: 'all' };
-    case 'composed-default':
-      return { through: 'compose', verificationLane: 'all' };
-    case 'verified-fast-default':
-      return { through: 'verify', verificationLane: 'fast' };
-    case 'locked-default':
-    case 'locked-all-default':
-      return { through: 'lock', verificationLane: 'all' };
-    case 'explained-all-default':
-      return { through: 'emit', verificationLane: 'all' };
-  }
+  return runWorkspaceCallback(workspaceRoot, callback, retained);
 }
 
 async function prepareWorkspacePipeline(
@@ -125,8 +88,9 @@ async function prepareWorkspacePipeline(
   options: WorkspacePipelineFixtureOptions,
   target: WorkspaceTemplateKind
 ): Promise<void> {
+  const { addBlock, compileWorkspace, initWorkspace } = await import('../../src/compiler/orchestration/cli.ts');
   await initWorkspace(workspaceRoot, { template: 'reference-customer' });
-  const pipelineTarget = templatePipelineTarget(target);
+  const pipelineTarget = workspaceTemplatePipeline(target);
   if (!pipelineTarget) return;
 
   for (const blockId of options.blockIds ?? []) {
@@ -238,46 +202,44 @@ async function prepareOwnedWorkspace(
 }
 
 export async function cloneWorkspaceTemplate(kind: WorkspaceTemplateKind, prefix = `engineering-compiler-${kind}-`): Promise<string> {
+  workspaceTemplatePipeline(kind);
+  workspaceTemporaryPrefix(workspaceParent, prefix);
   const templateRoot = await ensureTemplate(kind);
   // The template remains run-owned; each caller receives independent files.
   // Copying is outside the same-kind preparation window.
   return prepareOwnedWorkspace(prefix, root => copyWorkspaceFixture(templateRoot, root));
 }
 
+/** All custom pipeline preparations share one capture/allocation/cleanup path.
+ * Named public helpers keep their existing stage and prefix decisions.
+ */
+function preparePipelineFixture(kind: WorkspaceTemplateKind, defaultPrefix: string, options: WorkspacePipelineFixtureOptions): Promise<string> {
+  const captured = captureWorkspacePipelineOptions(options);
+  const prefix = captured.blockIds.length === 0 ? captured.prefix ?? defaultPrefix : captured.prefix;
+  workspaceTemporaryPrefix(workspaceParent, prefix); // admission before template or workspace effects
+  return captured.blockIds.length === 0
+    ? cloneWorkspaceTemplate(kind, prefix ?? defaultPrefix)
+    : prepareOwnedWorkspace(prefix, root => prepareWorkspacePipeline(root, captured, kind));
+}
+
 export async function prepareComposedWorkspace(options: WorkspacePipelineFixtureOptions = {}): Promise<string> {
-  if (defaultWorkspaceOptions(options)) {
-    return cloneWorkspaceTemplate('composed-default', options.prefix ?? 'engineering-compiler-composed-');
-  }
-  const captured = { ...options, blockIds: [...(options.blockIds ?? [])] };
-  return prepareOwnedWorkspace(captured.prefix, root => prepareWorkspacePipeline(root, captured, 'composed-default'));
+  return preparePipelineFixture('composed-default', 'engineering-compiler-composed-', options);
 }
 
 export async function prepareLockedWorkspace(options: WorkspacePipelineFixtureOptions = {}): Promise<string> {
-  if (defaultWorkspaceOptions(options)) {
-    return cloneWorkspaceTemplate('locked-default', options.prefix ?? 'engineering-compiler-locked-');
-  }
-  const captured = { ...options, blockIds: [...(options.blockIds ?? [])] };
-  return prepareOwnedWorkspace(captured.prefix, root => prepareWorkspacePipeline(root, captured, 'locked-default'));
+  return preparePipelineFixture('locked-default', 'engineering-compiler-locked-', options);
 }
 
 export async function prepareVerifiedWorkspace(options: WorkspacePipelineFixtureOptions = {}): Promise<string> {
-  if (defaultWorkspaceOptions(options)) {
-    return cloneWorkspaceTemplate('verified-fast-default', options.prefix ?? 'engineering-compiler-verified-');
-  }
-  const captured = { ...options, blockIds: [...(options.blockIds ?? [])] };
-  return prepareOwnedWorkspace(captured.prefix, root => prepareWorkspacePipeline(root, captured, 'verified-fast-default'));
+  return preparePipelineFixture('verified-fast-default', 'engineering-compiler-verified-', options);
 }
 
 export async function prepareEmptyWorkspace(prefix?: string): Promise<string> {
-  return cloneWorkspaceTemplate('empty-default', prefix ?? 'engineering-compiler-empty-');
+  return cloneWorkspaceTemplate('empty-default', prefix === undefined ? 'engineering-compiler-empty-' : prefix);
 }
 
 export async function prepareResolvedWorkspace(options: WorkspacePipelineFixtureOptions = {}): Promise<string> {
-  if (defaultWorkspaceOptions(options)) {
-    return cloneWorkspaceTemplate('resolved-default', options.prefix ?? 'engineering-compiler-resolved-');
-  }
-  const captured = { ...options, blockIds: [...(options.blockIds ?? [])] };
-  return prepareOwnedWorkspace(captured.prefix, root => prepareWorkspacePipeline(root, captured, 'resolved-default'));
+  return preparePipelineFixture('resolved-default', 'engineering-compiler-resolved-', options);
 }
 
 export async function withWorkspaceScenario<T>(
@@ -285,6 +247,7 @@ export async function withWorkspaceScenario<T>(
   callback: (workspaceRoot: string) => Promise<T>,
   options: WorkspaceCallbackOptions = {}
 ): Promise<T> {
+  const retained = { retainOnCallbackFailure: captureWorkspaceRetention(options) };
   const workspaceRoot = await cloneWorkspaceTemplate(kind, `engineering-compiler-${kind}-scenario-`);
-  return runWorkspaceCallback(workspaceRoot, callback, options);
+  return runWorkspaceCallback(workspaceRoot, callback, retained);
 }

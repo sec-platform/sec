@@ -5,13 +5,39 @@ const nativeByteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, 'b
 const nativeByteOffset = Object.getOwnPropertyDescriptor(typedArrayPrototype, 'byteOffset')!.get!;
 const nativeBuffer = Object.getOwnPropertyDescriptor(typedArrayPrototype, 'buffer')!.get!;
 
-/** Copy the actual admitted byte view, not shadowable public properties or a
- * custom iterator. This snapshot owns bytes, not resource/IO authority. Shared
- * memory requires synchronization by its owner before entering this boundary. */
-export function snapshotByteView(bytes: Uint8Array, label = 'Bytes'): Uint8Array {
+function ordinaryByteView(bytes: Uint8Array, label: string): Uint8Array {
   if (!nativeTypes.isUint8Array(bytes)) throw new TypeError(`${label} must be Uint8Array data`);
   const buffer = nativeBuffer.call(bytes);
   if (nativeTypes.isSharedArrayBuffer(buffer)) throw new TypeError(`${label} cannot use shared memory`);
-  const view = new Uint8Array(buffer, nativeByteOffset.call(bytes), nativeByteLength.call(bytes));
+  return new Uint8Array(buffer, nativeByteOffset.call(bytes), nativeByteLength.call(bytes));
+}
+
+function validateMaximum(maximumBytes: number): void {
+  if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 0) {
+    throw new TypeError('Byte snapshot maximum must be a non-negative safe integer');
+  }
+}
+
+/** Copy the actual admitted byte view, not shadowable public properties or a
+ * custom iterator. This snapshot owns bytes, not resource/IO authority. Shared
+ * memory requires synchronization by its owner before entering this boundary. */
+export function snapshotByteView(bytes: Uint8Array, label = 'Bytes', maximumBytes?: number): Uint8Array {
+  if (maximumBytes !== undefined) validateMaximum(maximumBytes);
+  const view = ordinaryByteView(bytes, label);
+  if (maximumBytes !== undefined && view.byteLength > maximumBytes) {
+    throw new RangeError(`${label} exceeds its byte snapshot limit`);
+  }
   return Buffer.from(view);
+}
+
+/** Diagnostic suffix projection, deliberately different from full-input
+ * admission: excess leading bytes are discarded. The native subview is built
+ * before copying, so copied memory is bounded by maximumBytes, not input size.
+ * No caller iterator/species/subarray override participates; shared memory is
+ * still refused. The result owns its bytes and cannot retain the source buffer.
+ */
+export function snapshotByteTail(bytes: Uint8Array, maximumBytes: number, label = 'Byte tail'): Buffer {
+  validateMaximum(maximumBytes);
+  const view = ordinaryByteView(bytes, label);
+  return Buffer.from(view.subarray(Math.max(0, view.byteLength - maximumBytes)));
 }

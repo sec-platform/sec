@@ -9,6 +9,7 @@ import {
   retainNoFollowOrdinaryFile,
   type PhysicalDirectoryChain
 } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { settlePhysicalResources, settlePhysicalResourcesAsync, type PhysicalResourceSettlementFailure } from '../../runtime-state/physical/runtime/resource-settlement.ts';
 import { SecError } from '../../system-architecture/foundation/contract/failure.ts';
 import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../system-architecture/foundation/contract/repository-path.ts';
 import { rawSha256, sha256, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
@@ -33,9 +34,9 @@ export type RepositoryObservationFailureKind =
 export class RepositoryObservationError extends SecError {
   readonly kind: RepositoryObservationFailureKind;
 
-  constructor(kind: RepositoryObservationFailureKind, message: string, cause?: unknown) {
+  constructor(kind: RepositoryObservationFailureKind, message: string, ...cause: [] | [unknown]) {
     super('DEVELOPMENT-REPOSITORY-OBSERVATION-001', message, { kind },
-      cause === undefined ? undefined : { cause });
+      cause.length === 0 ? undefined : { cause: cause[0] });
     this.name = 'RepositoryObservationError';
     this.kind = kind;
   }
@@ -128,11 +129,10 @@ export async function resolveRepositoryObservationRoots(
       'rev-parse', '--path-format=absolute', '--git-common-dir'
     ], 'resolve the common Git directory for continuous observation'), exactRoot,
     'Repository common Git directory');
-    session.verifyExecutable();
-    if (session.verifyWorkingDirectory?.() !== true) {
+    if (!session.verifyExecutable() || session.verifyWorkingDirectory?.() !== true) {
       throw new RepositoryObservationError(
         'authority-unavailable',
-        'Repository observation root discovery lost its retained working directory'
+        'Repository observation root discovery lost its retained provider or working directory'
       );
     }
     const rootKey = process.platform === 'win32' ? exactRoot.toLowerCase() : exactRoot;
@@ -338,8 +338,9 @@ function absolutePathFact(
   if (!metadata.isFile()) {
     throw new RepositoryObservationError('physical-unresolved', `Repository path is not an ordinary file: ${repositoryPath}`);
   }
-  let retained;
-  let primaryFailure: unknown;
+  let retained: ReturnType<typeof retainNoFollowOrdinaryFile> | undefined;
+  let result: RepositoryPathFact | undefined;
+  let primary: PhysicalResourceSettlementFailure | undefined;
   try {
     retained = retainNoFollowOrdinaryFile(
       parent,
@@ -349,7 +350,7 @@ function absolutePathFact(
     );
     const digest = retained.digest();
     retained.assertCurrent();
-    return Object.freeze({
+    result = Object.freeze({
       path: repositoryPath,
       kind: 'file',
       device: retained.physical.device,
@@ -360,20 +361,22 @@ function absolutePathFact(
       absenceWitnessDigest: null
     });
   } catch (error) {
-    primaryFailure = error;
-    if (error instanceof RepositoryObservationError) throw error;
-    throw new RepositoryObservationError('physical-unresolved', `Repository file observation failed: ${repositoryPath}`, error);
-  } finally {
-    try { retained?.dispose(); } catch (error) {
-      if (primaryFailure === undefined) {
-        throw new RepositoryObservationError(
-          'physical-unresolved',
-          `Repository file observation did not settle: ${repositoryPath}`,
-          error
-        );
+    let recognized = false;
+    try { recognized = error instanceof RepositoryObservationError; } catch { /* Preserve the thrown value. */ }
+    primary = { label: `repository-file:${repositoryPath}`, error: recognized ? error :
+      new RepositoryObservationError('physical-unresolved', `Repository file observation failed: ${repositoryPath}`, error) };
+  }
+  settlePhysicalResources({ primary, cleanup: retained === undefined ? [] : [{
+    label: `repository-file-release:${repositoryPath}`,
+    settle: () => {
+      try { retained!.dispose(); }
+      catch (error) {
+        throw new RepositoryObservationError('physical-unresolved',
+          `Repository file observation did not settle: ${repositoryPath}`, error);
       }
     }
-  }
+  }] });
+  return result!;
 }
 
 function pathFact(
@@ -522,6 +525,7 @@ export async function withRepositoryFinalStateObservation<Value>(
   semanticOperation: SecBoundSemanticOperation,
   operation: () => Promise<Value>
 ): Promise<RepositoryObservedOperation<Value>> {
+  if (typeof operation !== 'function') throw new TypeError('Repository observed operation must be callable');
   const exactRoot = path.resolve(repositoryRoot);
   return withAuthorityGitReadSession({
     cwd: exactRoot,
@@ -540,15 +544,27 @@ export async function withRepositoryFinalStateObservation<Value>(
     liveObservations.set(receipt, live);
     try {
       let value: Value | undefined;
-      let primaryFailure: unknown;
+      let primary: PhysicalResourceSettlementFailure | undefined;
       try {
         value = await operation();
       } catch (error) {
-        primaryFailure = error;
+        primary = { label: 'repository-observed-operation', error };
       }
-      const verification = await verifyRepositoryObservationCurrent(receipt, session);
-      if (primaryFailure !== undefined) throw primaryFailure;
-      return Object.freeze({ value: value!, receipt, verification });
+      let verification: RepositoryObservationVerification | undefined;
+      await settlePhysicalResourcesAsync({ primary, cleanup: [{
+        label: 'repository-final-state-readback',
+        settle: async () => {
+          verification = await verifyRepositoryObservationCurrent(receipt, session);
+          // Preserve an independent changed-state observation when the body also
+          // failed. A successful body still returns this non-authoritative view;
+          // it does not become a proof of strict zero writes or permission to undo.
+          if (primary !== undefined && verification.status === 'changed') {
+            throw new RepositoryObservationError('physical-unresolved',
+              'Repository final state changed while the observed operation failed', verification);
+          }
+        }
+      }] });
+      return Object.freeze({ value: value!, receipt, verification: verification! });
     } finally {
       live.closed = true;
       liveObservations.delete(receipt);

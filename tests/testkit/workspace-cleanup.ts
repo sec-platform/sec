@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { getErrorCode } from '../../src/system-architecture/foundation/runtime/failure-inspection.ts';
 
 export type WorkspaceDirectoryRemoveOptions = {
@@ -27,6 +28,26 @@ export type WorkspaceCallbackSettlementOptions =
       readonly directory: string;
       readonly deferredCleanupDirs: Set<string>;
     };
+
+/** Native mkdtemp appends random characters to a prefix; it does not make an
+ * arbitrary caller path a child of our workspace parent. Admit a label first.
+ * The caller still owns the parent directory and actual allocation capability.
+ */
+export function workspaceTemporaryPrefix(parent: string, prefix = 'engineering-compiler-test-'): string {
+  if (typeof prefix !== 'string' || prefix.length === 0 || prefix === '.' || prefix === '..' ||
+      prefix.includes('\0') || prefix.includes('/') || prefix.includes('\\') || /^[A-Za-z]:/u.test(prefix)) {
+    throw new TypeError('Workspace prefix must be a non-empty single path segment');
+  }
+  return path.join(path.resolve(parent), prefix);
+}
+
+export function captureWorkspaceRetention(options: Readonly<{ retainOnCallbackFailure?: boolean }>): boolean {
+  const retain = options.retainOnCallbackFailure;
+  if (retain !== undefined && typeof retain !== 'boolean') {
+    throw new TypeError('Workspace retention must be boolean');
+  }
+  return retain === true;
+}
 
 const retryDelaysMs = [50, 100, 200, 400, 800] as const;
 
@@ -98,8 +119,11 @@ export async function settleWorkspaceCallback<T>(
 ): Promise<T> {
   // Capture the explicit forensic-retention decision before the callback can
   // mutate its source. A failure never grants implicit permission to skip cleanup.
-  const retention = options.retainOnCallbackFailure === true
-    ? { directory: options.directory, deferredCleanupDirs: options.deferredCleanupDirs }
+  const retention = captureWorkspaceRetention(options)
+    ? (() => {
+        const retained = options as Extract<WorkspaceCallbackSettlementOptions, { retainOnCallbackFailure: true }>;
+        return { directory: retained.directory, deferredCleanupDirs: retained.deferredCleanupDirs };
+      })()
     : undefined;
   let callbackFailed = false;
   let primaryFailure: unknown;

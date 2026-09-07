@@ -1,3 +1,5 @@
+import path from 'node:path';
+import { settlePhysicalResources, settlePhysicalResourcesAsync, type PhysicalResourceSettlementFailure } from '../../runtime-state/physical/runtime/resource-settlement.ts';
 import {
   assertProcessResourceSessionReceipt,
   openProcessResourceSession,
@@ -171,11 +173,16 @@ export async function withAuthorityGitReadOperation<T>(
   input: AuthorityGitReadOperationInput,
   operation: (scope: AuthorityGitReadOperation) => Promise<T>
 ): Promise<T> {
-  const budget = resolveGitReadSessionBudget(input.budget);
-  const boundOperation = issueGitReadAuthorityOperation(
-    { ...input, budget },
-    input.deadlineAtUnixMs
-  );
+  const cwd = process.cwd();
+  if (typeof operation !== 'function') throw new TypeError('Git read operation callback must be callable');
+  // One private invocation owns the same provider selection, environment and
+  // deadline in every phase. Caller edits cannot renew it between phases.
+  const { budget: requestedBudget, deadlineAtUnixMs, environment, ...providerInput } = input;
+  const budget = resolveGitReadSessionBudget(requestedBudget);
+  input = Object.freeze({ ...providerInput, cwd: path.resolve(cwd, providerInput.cwd),
+    ...(environment === undefined ? {} : { environment: Object.freeze({ ...environment }) }),
+    deadlineAtUnixMs, budget });
+  const boundOperation = issueGitReadAuthorityOperation(input, deadlineAtUnixMs);
   const processSession: ProcessResourceSession = openProcessResourceSession({
     operation: boundOperation,
     requirementBindingContext: issueSecOperationRequirementBindingContext({
@@ -192,7 +199,7 @@ export async function withAuthorityGitReadOperation<T>(
   });
   let active = false;
   const activePhaseSettlements = new Set<Promise<void>>();
-  let phaseFailure: unknown;
+  let phaseFailure: PhysicalResourceSettlementFailure | undefined;
   let closed = false;
   let argumentBytes = 0;
   let stdinBytes = 0;
@@ -213,12 +220,15 @@ export async function withAuthorityGitReadOperation<T>(
       if (!ISSUED_GIT_READ_OPERATIONS.has(scope) || closed || active) {
         throw new Error('Git read operation phase requires one live non-reentrant owner-issued scope.');
       }
-      if (phase.length === 0 || phase.includes('\0')) {
+      // A phase already failed terminal settlement. Catching it in user code
+      // cannot reopen a healthy resource ledger for another phase.
+      if (phaseFailure !== undefined) throw phaseFailure.error;
+      if (typeof phase !== 'string' || phase.length === 0 || phase.includes('\0') || typeof callback !== 'function') {
         throw new Error('Git read operation phase identity is invalid.');
       }
       const now = Date.now();
       const remainingDurationMs = Math.min(
-        remainingPositive(budget.deadlineMs, activeDurationMs, 'duration-ms'),
+        remainingPositive(budget.deadlineMs, Math.ceil(activeDurationMs), 'duration-ms'),
         input.deadlineAtUnixMs - now
       );
       if (!Number.isSafeInteger(remainingDurationMs) || remainingDurationMs < 1) {
@@ -268,32 +278,64 @@ export async function withAuthorityGitReadOperation<T>(
           'executable-byte'
         )
       });
-      const phaseStartedAt = Date.now();
+      const phaseStartedAt = performance.now();
       active = true;
       try {
-        return await withAuthorityGitReadSession({
-          ...input,
-          budget: phaseBudget,
-          deadlineAtUnixMs: now + remainingDurationMs,
-          operation: boundOperation,
-          processSession
-        }, async (session) => {
-          try {
-            return await callback(session);
-          } finally {
-            argumentBytes += session.argumentBytes ?? 0;
-            stdinBytes += session.stdinBytes ?? 0;
-            stdoutBytes += session.stdoutBytes;
-            stderrBytes += session.stderrBytes;
-            executableBytes += session.executableBytes ?? 0;
-            recordCount += session.recordCount;
-            rootObservedBytes += session.rootObservedBytes ?? 0;
-            reopenRefreshes += session.reopenRefreshes ?? 0;
-            settlementAttempts += session.settlementAttempts ?? 0;
+        let observedSession: GitReadSession | undefined;
+        let value: Value | undefined;
+        let primary: PhysicalResourceSettlementFailure | undefined;
+        try {
+          value = await withAuthorityGitReadSession({
+            ...input,
+            budget: phaseBudget,
+            deadlineAtUnixMs: now + remainingDurationMs,
+            operation: boundOperation,
+            processSession
+          }, async session => {
+            observedSession = session;
+            return callback(session);
+          });
+        } catch (error) {
+          primary = { label: 'git-read-phase-operation', error };
+        }
+        // The provider closes and joins admitted commands before these getters
+        // are sampled. Accounting in the callback's finally loses close costs
+        // and output produced by commands whose settlement is still in flight.
+        settlePhysicalResources({ primary, cleanup: [{
+          label: 'git-read-phase-final-usage', settle: () => {
+            if (observedSession === undefined) return;
+            const session = observedSession;
+            const selected = [
+              [argumentBytes, session.argumentBytes ?? 0, budget.maxTotalArgumentBytes, 'argument-byte'],
+              [stdinBytes, session.stdinBytes ?? 0, budget.maxStdinBytes, 'stdin-byte'],
+              [stdoutBytes, session.stdoutBytes, budget.maxStdoutBytes, 'stdout-byte'],
+              [stderrBytes, session.stderrBytes, budget.maxStderrBytes, 'stderr-byte'],
+              [executableBytes, session.executableBytes ?? 0, budget.maxExecutableBytes, 'executable-byte'],
+              [recordCount, session.recordCount, budget.maxRecords, 'record'],
+              [rootObservedBytes, session.rootObservedBytes ?? 0, budget.maxRootObservedBytes, 'root-observation-byte'],
+              [reopenRefreshes, session.reopenRefreshes ?? 0, budget.maxReopenRefreshes, 'reopen-refresh'],
+              [settlementAttempts, session.settlementAttempts ?? 0, budget.maxSettlementAttempts, 'settlement-attempt']
+            ] as const;
+            const totals = selected.map(([consumed, observed, maximum, label]) => {
+              const total = consumed + observed;
+              if (!Number.isSafeInteger(observed) || observed < 0 ||
+                  !Number.isSafeInteger(total) || total > maximum) {
+                throw operationFailure('operation-not-permitted',
+                  `Git read phase returned invalid or excess ${label} usage.`);
+              }
+              return total;
+            });
+            // Publish the complete validated observation, not a partial update
+            // if a later counter is invalid. No counters or budgets are renewed.
+            [argumentBytes, stdinBytes, stdoutBytes, stderrBytes, executableBytes,
+              recordCount, rootObservedBytes, reopenRefreshes, settlementAttempts] = totals as
+                [number, number, number, number, number, number, number, number, number];
           }
-        });
+        }] });
+        return value as Value;
       } finally {
-        activeDurationMs += Math.max(0, Date.now() - phaseStartedAt);
+        // Wall-clock correction cannot refund elapsed active provider time.
+        activeDurationMs += Math.max(0, performance.now() - phaseStartedAt);
         active = false;
       }
     })();
@@ -301,7 +343,7 @@ export async function withAuthorityGitReadOperation<T>(
     settlement = phaseResult.then(
       () => undefined,
       (error: unknown) => {
-        phaseFailure ??= error;
+        phaseFailure ??= Object.freeze({ label: `git-read-phase:${phase}`, error });
       }
     ).finally(() => {
       activePhaseSettlements.delete(settlement);
@@ -312,30 +354,38 @@ export async function withAuthorityGitReadOperation<T>(
   scope = Object.freeze({ runPhase });
   ISSUED_GIT_READ_OPERATIONS.add(scope);
   let result: T | undefined;
-  let primaryError: unknown;
+  let primary: PhysicalResourceSettlementFailure | undefined;
   try {
     result = await operation(scope);
   } catch (error) {
-    primaryError = error;
+    primary = { label: 'git-read-operation', error };
   } finally {
     closed = true;
     ISSUED_GIT_READ_OPERATIONS.delete(scope);
-    while (activePhaseSettlements.size > 0) {
-      await Promise.all([...activePhaseSettlements]);
-    }
-    primaryError ??= phaseFailure;
-    try {
-      const receipt = processSession.close();
-      assertProcessResourceSessionReceipt(receipt, {
-        operationIdentityDigest: boundOperation.plan.identity.identityDigest,
-        boundAttemptDigest: boundOperation.boundAttemptDigest,
-        requirementId: GIT_READ_AUTHORITY_REQUIREMENT
-      });
-    } catch (error) {
-      primaryError ??= error;
-    }
   }
-  if (primaryError !== undefined) throw primaryError;
+  await settlePhysicalResourcesAsync({
+    primary,
+    cleanup: [
+      { label: 'git-read-active-phases', settle: async () => {
+        // These promises record rejection and resolve. Join each already-started
+        // phase before closing the shared process owner; never abandon a worker.
+        while (activePhaseSettlements.size > 0) await Promise.all([...activePhaseSettlements]);
+        // The same propagated value is one failure carried across two wrappers,
+        // not a second cleanup fault. First-phase failure policy remains intact.
+        if (phaseFailure !== undefined && (primary === undefined || !Object.is(primary.error, phaseFailure.error))) {
+          throw phaseFailure.error;
+        }
+      } },
+      { label: 'git-read-process-session', settle: () => {
+        const receipt = processSession.close();
+        assertProcessResourceSessionReceipt(receipt, {
+          operationIdentityDigest: boundOperation.plan.identity.identityDigest,
+          boundAttemptDigest: boundOperation.boundAttemptDigest,
+          requirementId: GIT_READ_AUTHORITY_REQUIREMENT
+        });
+      } }
+    ]
+  });
   return result as T;
 }
 
@@ -348,6 +398,7 @@ export async function withAuthorityGitReadSession<T>(
   input: AuthorityGitReadSessionInput,
   operation: (session: GitReadSession) => Promise<T>
 ): Promise<T> {
+  if (typeof operation !== 'function') throw new TypeError('Git read session callback must be callable');
   const { operation: suppliedOperation, ...sessionInput } = input;
   const boundOperation = suppliedOperation ?? issueGitReadAuthorityOperation(sessionInput);
   const resolution = createAuthorityGitReadSession({
@@ -359,7 +410,7 @@ export async function withAuthorityGitReadSession<T>(
   }
   const session = resolution.session;
   let result: T | undefined;
-  let primaryError: unknown;
+  let primary: PhysicalResourceSettlementFailure | undefined;
   try {
     if (!isProductionGitReadSession(session)) {
       throw new GitReadAuthorityError(
@@ -373,27 +424,30 @@ export async function withAuthorityGitReadSession<T>(
     }
     result = await operation(session);
   } catch (error) {
-    primaryError = error;
+    primary = { label: 'git-read-session-operation', error };
   }
-  try {
-    const receipt = await session.close?.();
-    const processRequirements = boundOperation.plan.execution.requirements.filter(
-      ({ effectKinds }) => effectKinds.includes('process')
-    );
-    if (receipt === undefined || processRequirements.length !== 1) {
-      throw new Error('Git read authority did not receive one terminal provider receipt.');
-    }
-    assertGitReadSessionReceipt(receipt, {
-      operationIdentityDigest: boundOperation.plan.identity.identityDigest,
-      boundAttemptDigest: boundOperation.boundAttemptDigest,
-      requirementId: processRequirements[0]!.id
-    });
-  } catch (error) {
-    primaryError ??= error;
-  }
-  if (primaryError !== undefined) throw primaryError;
-  if (session.failure !== null) {
-    throw new GitReadAuthorityError('Git read session failed terminal settlement.', session.failure);
-  }
+  await settlePhysicalResourcesAsync({
+    primary,
+    cleanup: [
+      { label: 'git-read-provider-close-and-receipt', settle: async () => {
+        const receipt = await session.close?.();
+        const processRequirements = boundOperation.plan.execution.requirements.filter(
+          ({ effectKinds }) => effectKinds.includes('process')
+        );
+        if (receipt === undefined || processRequirements.length !== 1) {
+          throw new Error('Git read authority did not receive one terminal provider receipt.');
+        }
+        assertGitReadSessionReceipt(receipt, {
+          operationIdentityDigest: boundOperation.plan.identity.identityDigest,
+          boundAttemptDigest: boundOperation.boundAttemptDigest,
+          requirementId: processRequirements[0]!.id
+        });
+      } },
+      { label: 'git-read-provider-terminal-failure', settle: () => {
+        const failure = session.failure;
+        if (failure !== null) throw new GitReadAuthorityError('Git read session failed terminal settlement.', failure);
+      } }
+    ]
+  });
   return result as T;
 }
