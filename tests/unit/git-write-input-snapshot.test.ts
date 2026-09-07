@@ -74,7 +74,7 @@ test('complete scratch delta capture detaches every addition before any consumer
 test('scratch stdin admission counts object content plus exact UTF-8 index records and removal terminators', () => {
   const input = { additions: [{ path: '好.ts', bytes: Uint8Array.of(1, 2) }], removals: ['old'] };
   for (const [format, hash] of [['sha1', 'a'.repeat(40)], ['sha256', 'a'.repeat(64)]] as const) {
-    const maximum = 2 + Buffer.byteLength(`100644 ${hash}\t好.ts\0old\0`, 'utf8');
+    const maximum = 2 + Buffer.byteLength(`0 ${'0'.repeat(hash.length)}\told\0` + `100644 ${hash}\t好.ts\0`, 'utf8');
     assert.deepEqual(captureGitScratchIndexDelta(input, format, maximum).removals, ['old']);
     assert.throws(() => captureGitScratchIndexDelta(input, format, maximum - 1), RangeError);
   }

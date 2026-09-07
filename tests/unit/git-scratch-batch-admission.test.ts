@@ -37,8 +37,8 @@ test('metadata minimum includes both arrays and is checked before their data acc
   let reads = 0;
   const additions: ReturnType<typeof addition>[] = new Array(1);
   Object.defineProperty(additions, '0', { get() { reads++; return addition('a'); } });
-  // One empty SHA1 addition needs at least 50 bytes; one removal needs at least 2.
-  assert.throws(() => captureGitScratchIndexDelta({ additions, removals: ['b'] }, 'sha1', 51), RangeError);
+  // One empty SHA1 addition needs at least 50 bytes; one mode-zero SHA1 removal needs at least 45.
+  assert.throws(() => captureGitScratchIndexDelta({ additions, removals: ['b'] }, 'sha1', 94), RangeError);
   assert.equal(reads, 0);
 });
 
@@ -72,7 +72,7 @@ test('invalid trailing metadata is rejected before any blob snapshot allocation'
 test('exact byte thresholds account for each hash format, path and deletion terminator', () => {
   const input = { additions: [addition('好.ts', Uint8Array.of(1, 2))], removals: ['old'] };
   for (const [format, oid] of [['sha1', 'a'.repeat(40)], ['sha256', 'a'.repeat(64)]] as const) {
-    const maximum = 2 + Buffer.byteLength(`100644 ${oid}\t好.ts\0old\0`, 'utf8');
+    const maximum = 2 + Buffer.byteLength(`0 ${'0'.repeat(oid.length)}\told\0` + `100644 ${oid}\t好.ts\0`, 'utf8');
     assert.deepEqual(captureGitScratchIndexDelta(input, format, maximum).removals, ['old']);
     assert.throws(() => captureGitScratchIndexDelta(input, format, maximum - 1), RangeError);
   }

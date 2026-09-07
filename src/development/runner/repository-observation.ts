@@ -3,6 +3,8 @@ import path from 'node:path';
 
 import { GitReadAuthorityError, issueGitReadAuthorityOperation, withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
 import type { GitReadSession } from '../../external-capabilities/git-read/runtime/session.ts';
+import { parseGitAbsolutePathReply, parseGitObjectIdReply, parseWorktreeStatusPorcelainZ }
+  from '../../runtime-state/physical/contract/git-worktree-observation.ts';
 import {
   inspectNoFollowDirectoryChain,
   PhysicalNoFollowError,
@@ -11,13 +13,11 @@ import {
 } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { settlePhysicalResources, settlePhysicalResourcesAsync, type PhysicalResourceSettlementFailure } from '../../runtime-state/physical/runtime/resource-settlement.ts';
 import { SecError } from '../../system-architecture/foundation/contract/failure.ts';
-import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../system-architecture/foundation/contract/repository-path.ts';
 import { rawSha256, sha256, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
 import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
 
 import { compilerRoot } from '../../workspace/runtime/paths.ts';
 
-const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const OBSERVATION_BUDGET = Object.freeze({
   deadlineMs: 30_000,
   maxProcesses: 8,
@@ -142,7 +142,7 @@ export async function resolveRepositoryObservationRoots(
     requireSessionIdentity(session);
     const commonDirectory = parseDirectoryPath(await gitBytes(session, [
       'rev-parse', '--path-format=absolute', '--git-common-dir'
-    ], 'resolve the common Git directory for continuous observation'), exactRoot,
+    ], 'resolve the common Git directory for continuous observation'),
     'Repository common Git directory');
     if (!session.verifyExecutable() || session.verifyWorkingDirectory?.() !== true) {
       throw new RepositoryObservationError(
@@ -176,51 +176,25 @@ async function gitBytes(session: GitReadSession, args: readonly string[], label:
   return command.result.stdout;
 }
 
-function exactUtf8(bytes: Uint8Array, label: string): string {
-  try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-  } catch (error) {
-    throw new RepositoryObservationError('authority-unavailable', `${label} is not exact UTF-8`, error);
-  }
-}
-
-function exactRepositoryPath(value: string, label: string): string {
-  if (!CodexDevelopmentIsCanonicalRepositoryPath(value)) {
-    throw new RepositoryObservationError('authority-unavailable', `${label} is not canonical`);
-  }
-  return value;
-}
-
 function statusPaths(bytes: Uint8Array): Readonly<{
   changedPaths: readonly string[];
   untrackedPaths: readonly string[];
 }> {
-  if (bytes.byteLength === 0) {
-    return Object.freeze({ changedPaths: Object.freeze([]), untrackedPaths: Object.freeze([]) });
+  let records: ReturnType<typeof parseWorktreeStatusPorcelainZ>;
+  try {
+    // This command requests --untracked-files=all and --ignored=no; a directory
+    // summary is not a file observation. Reuse the protocol owner, not a second
+    // NUL/rename parser that silently coalesces malformed statuses.
+    records = parseWorktreeStatusPorcelainZ(bytes, { allowDirectoryEntries: false });
+  } catch (error) {
+    throw new RepositoryObservationError('authority-unavailable', 'Repository status record is malformed', error);
   }
-  const source = exactUtf8(bytes, 'Repository status');
-  if (!source.endsWith('\0')) {
-    throw new RepositoryObservationError('authority-unavailable', 'Repository status is not NUL terminated');
-  }
-  const records = source.slice(0, -1).split('\0');
   const changedPaths: string[] = [];
   const untrackedPaths: string[] = [];
-  for (let index = 0; index < records.length; index += 1) {
-    const record = records[index]!;
-    if (record.length < 4 || record[2] !== ' ') {
-      throw new RepositoryObservationError('authority-unavailable', 'Repository status record is malformed');
-    }
-    const repositoryPath = exactRepositoryPath(record.slice(3), 'Repository status path');
-    changedPaths.push(repositoryPath);
-    if (record.slice(0, 2) === '??') untrackedPaths.push(repositoryPath);
-    if (record[0] === 'R' || record[0] === 'C' || record[1] === 'R' || record[1] === 'C') {
-      const previousPath = records[index + 1];
-      if (previousPath === undefined) {
-        throw new RepositoryObservationError('authority-unavailable', 'Repository rename status is incomplete');
-      }
-      changedPaths.push(exactRepositoryPath(previousPath, 'Repository prior path'));
-      index += 1;
-    }
+  for (const record of records) {
+    changedPaths.push(record.path);
+    if (record.originalPath !== null) changedPaths.push(record.originalPath);
+    if (record.index === '?' && record.worktree === '?') untrackedPaths.push(record.path);
   }
   return Object.freeze({
     changedPaths: Object.freeze(uniqueSorted(changedPaths)),
@@ -412,27 +386,19 @@ function pathFacts(repositoryRoot: string, paths: readonly string[]): readonly R
 }
 
 function parseHead(bytes: Uint8Array): string {
-  const head = exactUtf8(bytes, 'Repository HEAD').trim();
-  if (!OBJECT_ID.test(head)) {
+  const head = parseGitObjectIdReply(bytes);
+  if (head === null) {
     throw new RepositoryObservationError('authority-unavailable', 'Repository HEAD is not one exact object id');
   }
   return head;
 }
 
-function parseIndexPath(bytes: Uint8Array, repositoryRoot: string): string {
-  const observed = exactUtf8(bytes, 'Repository index path').trim();
-  if (observed.length === 0) {
-    throw new RepositoryObservationError('authority-unavailable', 'Repository index path is empty');
+function parseDirectoryPath(bytes: Uint8Array, label: string): string {
+  const observed = parseGitAbsolutePathReply(bytes);
+  if (observed === null) {
+    throw new RepositoryObservationError('authority-unavailable', `${label} is not one exact absolute path`);
   }
-  return path.isAbsolute(observed) ? path.resolve(observed) : path.resolve(repositoryRoot, observed);
-}
-
-function parseDirectoryPath(bytes: Uint8Array, repositoryRoot: string, label: string): string {
-  const observed = exactUtf8(bytes, label).trim();
-  if (observed.length === 0) {
-    throw new RepositoryObservationError('authority-unavailable', `${label} is empty`);
-  }
-  return path.isAbsolute(observed) ? path.resolve(observed) : path.resolve(repositoryRoot, observed);
+  return observed;
 }
 
 function requireSessionIdentity(session: GitReadSession): Readonly<{
@@ -461,12 +427,12 @@ async function observeBaseline(
     '-c', 'core.quotepath=false', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false',
     'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=no'
   ], 'observe status');
-  const indexPath = parseIndexPath(await gitBytes(session, [
+  const indexPath = parseDirectoryPath(await gitBytes(session, [
     'rev-parse', '--path-format=absolute', '--git-path', 'index'
-  ], 'resolve the index'), repositoryRoot);
+  ], 'resolve the index'), 'Repository index path');
   const commonDirectoryPath = parseDirectoryPath(await gitBytes(session, [
     'rev-parse', '--path-format=absolute', '--git-common-dir'
-  ], 'resolve the common Git directory'), repositoryRoot, 'Repository common Git directory');
+  ], 'resolve the common Git directory'), 'Repository common Git directory');
   const commonDirectoryIdentity = inspectNoFollowDirectoryChain(
     commonDirectoryPath,
     'Repository common Git directory'

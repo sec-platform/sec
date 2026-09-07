@@ -11,9 +11,12 @@ export function captureGitReadArguments(
   const args: string[] = [];
   let bytes = 0;
   const length = Object.getOwnPropertyDescriptor(input, 'length')!.value as number;
+  // Each argument costs at least its terminating NUL byte. Reject an
+  // impossible array length before touching any element or allocating copies.
+  if (length > maximumBytes) return { status: 'exhausted' };
   for (let index = 0; index < length; index++) {
     const slot = Object.getOwnPropertyDescriptor(input, String(index));
-    if (slot === undefined || !('value' in slot) || typeof slot.value !== 'string' || slot.value.includes('\0')) {
+    if (slot === undefined || !('value' in slot) || typeof slot.value !== 'string' || /[\0\p{Surrogate}]/u.test(slot.value)) {
       return { status: 'invalid' };
     }
     bytes += Buffer.byteLength(slot.value, 'utf8') + 1;
@@ -70,6 +73,10 @@ const GIT_READ_ONLY_COMMANDS = new Set([
   'var',
   'worktree'
 ]);
+
+// These commands stop option parsing at --; following tokens are literal
+// pathspecs, even when a tracked filename happens to spell a forbidden flag.
+const GIT_PATHSPEC_COMMANDS = new Set(['status', 'diff', 'diff-files', 'diff-index', 'ls-files', 'ls-tree']);
 
 const GIT_READ_FORBIDDEN_HELPER_ARGUMENTS = new Set([
   '--ext-diff',
@@ -137,7 +144,11 @@ export function gitReadCommandIsObservation(args: readonly string[]): boolean {
   if (command === '--version') return true;
   if (!GIT_READ_ONLY_COMMANDS.has(command)) return false;
   const commandArgs = args.slice(commandIndex + 1);
-  if (gitReadArgumentsInvokeHelper(commandArgs)) return false;
+  const separator = GIT_PATHSPEC_COMMANDS.has(command) ? commandArgs.indexOf('--') : -1;
+  const optionArgs = separator < 0 ? commandArgs : commandArgs.slice(0, separator);
+  // grep owns a closed grammar below, including -e's one literal operand.
+  // Scanning that operand as another switch confuses data with an option.
+  if (command !== 'grep' && gitReadArgumentsInvokeHelper(optionArgs)) return false;
   if (command === 'branch') return commandArgs.length === 1 && commandArgs[0] === '--show-current';
   if (command === 'cat-file') {
     return (commandArgs.length === 1 && commandArgs[0] === '--batch')
@@ -214,7 +225,7 @@ export function gitReadCommandIsObservation(args: readonly string[]): boolean {
       ));
   }
   if (command === 'status') {
-    return commandArgs.every((argument) => (
+    return optionArgs.every((argument) => (
       argument === '--short'
       || argument === '--branch'
       || argument === '--porcelain'
@@ -249,19 +260,19 @@ export function gitReadCommandIsObservation(args: readonly string[]): boolean {
   }
   if (command === 'diff' || command === 'diff-files' || command === 'diff-index') {
     const allowed = DIFF_FLAGS;
-    return commandArgs.every((argument) => (
+    return optionArgs.every((argument) => (
       allowed.has(argument)
       || argument.startsWith('--diff-filter=')
       || !argument.startsWith('-')
-    )) && (command !== 'diff-files' || !commandArgs.includes('--cached'));
+    )) && (command !== 'diff-files' || !optionArgs.includes('--cached'));
   }
   if (command === 'ls-files') {
     const allowed = LS_FILES_FLAGS;
-    return commandArgs.every((argument) => allowed.has(argument) || !argument.startsWith('-'));
+    return optionArgs.every((argument) => allowed.has(argument) || !argument.startsWith('-'));
   }
   if (command === 'ls-tree') {
     const allowed = LS_TREE_FLAGS;
-    return commandArgs.every((argument) => allowed.has(argument) || !argument.startsWith('-'));
+    return optionArgs.every((argument) => allowed.has(argument) || !argument.startsWith('-'));
   }
   if (command === 'ls-remote') {
     const positional = commandArgs[0] === '--exit-code' ? commandArgs.slice(1) : commandArgs;

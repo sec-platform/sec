@@ -9,6 +9,15 @@ export type GitScratchIndexTreeDelta = Readonly<{
   readonly removals: readonly string[];
 }>;
 
+/** NUL-delimited index-info record. The caller has already admitted the path
+ * and object identity. Sharing this protocol representation keeps preflight
+ * byte cost and actual stdin in agreement; it does not grant a write. */
+export function formatGitScratchIndexRecord(
+  mode: '0' | '100644', objectId: string, path: string
+): string {
+  return `${mode} ${objectId}\t${path}\0`;
+}
+
 function ownEntry<T>(input: readonly T[], index: number): T {
   const slot = Object.getOwnPropertyDescriptor(input, String(index));
   if (slot === undefined || !('value' in slot)) {
@@ -38,12 +47,14 @@ export function captureGitScratchIndexDelta(
   }
   const additionCount = Object.getOwnPropertyDescriptor(additions, 'length')!.value as number;
   const removalCount = Object.getOwnPropertyDescriptor(removals, 'length')!.value as number;
-  const indexRecordOverhead = 9 + (objectFormat === 'sha1' ? 40 : 64);
+  const zeroObject = '0'.repeat(objectFormat === 'sha1' ? 40 : 64);
+  const indexRecordOverhead = Buffer.byteLength(formatGitScratchIndexRecord('100644', zeroObject, ''), 'utf8');
+  const removalRecordOverhead = Buffer.byteLength(formatGitScratchIndexRecord('0', zeroObject, ''), 'utf8');
   // Every accepted path has at least one UTF-8 byte. Apply this lower bound
   // before traversing or duplicating a possibly huge caller-supplied array.
   const minimumAdditionBytes = indexRecordOverhead + 1;
   if (additionCount > Math.floor(maximumInputBytes / minimumAdditionBytes)
-      || removalCount > Math.floor((maximumInputBytes - additionCount * minimumAdditionBytes) / 2)) {
+      || removalCount > Math.floor((maximumInputBytes - additionCount * minimumAdditionBytes) / (removalRecordOverhead + 1))) {
     throw new RangeError('Git scratch delta exceeds remaining stdin budget');
   }
   const seen = new Set<string>();
@@ -83,7 +94,7 @@ export function captureGitScratchIndexDelta(
   const capturedRemovals: string[] = [];
   for (let index = 0; index < removalCount; index++) {
     const path = selectPath(ownEntry(removals, index));
-    consume(Buffer.byteLength(path, 'utf8') + 1);
+    consume(removalRecordOverhead + Buffer.byteLength(path, 'utf8'));
     capturedRemovals.push(path);
   }
   // Two additions cannot simultaneously describe a file and its descendant.

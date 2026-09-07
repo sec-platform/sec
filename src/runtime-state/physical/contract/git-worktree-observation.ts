@@ -1,3 +1,7 @@
+import path from 'node:path';
+import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../system-architecture/foundation/contract/repository-path.ts';
+import { snapshotByteView } from '../../../system-architecture/foundation/runtime/byte-snapshot.ts';
+
 export interface WorktreePorcelainRecord {
   readonly path: string;
   readonly headSha: string | null;
@@ -48,12 +52,12 @@ function fieldPayload(field: string, prefix: string): string {
 
 /** Strict parser for `git worktree list --porcelain -z`. */
 export function parseWorktreePorcelainZ(source: Buffer | Uint8Array): WorktreePorcelainRecord[] {
-  const bytes = Buffer.from(source);
+  const bytes = snapshotByteView(source, 'Git machine reply');
   if (bytes.length === 0) return [];
   if (bytes[bytes.length - 1] !== 0) fail('porcelain-z input must end with NUL.');
   let decoded: string;
   try {
-    decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    decoded = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
   } catch {
     return fail('porcelain-z input contains invalid UTF-8.');
   }
@@ -157,13 +161,20 @@ export function parseWorktreePorcelainZ(source: Buffer | Uint8Array): WorktreePo
 }
 
 /** Strict parser for `git status --porcelain=v1 -z` machine records. */
-export function parseWorktreeStatusPorcelainZ(source: Buffer | Uint8Array): WorktreeStatusPorcelainRecord[] {
-  const bytes = Buffer.from(source);
+export function parseWorktreeStatusPorcelainZ(
+  source: Buffer | Uint8Array,
+  options: Readonly<{ allowDirectoryEntries?: boolean }> = {}
+): WorktreeStatusPorcelainRecord[] {
+  const allowDirectoryEntries = options.allowDirectoryEntries;
+  if (allowDirectoryEntries !== undefined && typeof allowDirectoryEntries !== 'boolean') {
+    throw new TypeError('Git status directory-entry policy must be boolean');
+  }
+  const bytes = snapshotByteView(source, 'Git machine reply');
   if (bytes.length === 0) return [];
   if (bytes[bytes.length - 1] !== 0) fail('status porcelain-z input must end with NUL.');
   let decoded: string;
   try {
-    decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    decoded = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
   } catch {
     return fail('status porcelain-z input contains invalid UTF-8.');
   }
@@ -171,17 +182,16 @@ export function parseWorktreeStatusPorcelainZ(source: Buffer | Uint8Array): Work
   fields.pop();
   const records: WorktreeStatusPorcelainRecord[] = [];
   const allowed = new Set([' ', 'M', 'T', 'A', 'D', 'R', 'C', 'U', '?', '!']);
-  const canonicalPath = (value: string, label: string): string => {
-    const normalized = value.replaceAll('\\', '/').replace(/\/+$/u, '');
-    if (
-      normalized.length === 0 ||
-      normalized.startsWith('/') ||
-      /^[A-Za-z]:\//u.test(normalized) ||
-      normalized.split('/').some((segment) => segment === '' || segment === '.' || segment === '..')
-    ) {
-      fail(`${label} is not one repository-relative path.`);
+  const canonicalPath = (value: string, label: string, directoryEntry = false): string => {
+    // Git's -z paths are already unquoted machine data. Backslashes are
+    // filename bytes on POSIX, not separators; do not silently retarget them.
+    // Only untracked/ignored directory records have a removable final slash.
+    const selected = directoryEntry && allowDirectoryEntries !== false && value.endsWith('/')
+      ? value.slice(0, -1) : value;
+    if (!CodexDevelopmentIsCanonicalRepositoryPath(selected)) {
+      fail(`${label} is not one canonical repository-relative path.`);
     }
-    return normalized;
+    return selected;
   };
   for (let index = 0; index < fields.length; index += 1) {
     const field = fields[index]!;
@@ -199,7 +209,7 @@ export function parseWorktreeStatusPorcelainZ(source: Buffer | Uint8Array): Work
     records.push(Object.freeze({
       index: status[0]!,
       worktree: status[1]!,
-      path: canonicalPath(field.slice(3), 'status path'),
+      path: canonicalPath(field.slice(3), 'status path', status === '??' || status === '!!'),
       originalPath
     }));
   }
@@ -210,4 +220,48 @@ export function parseWorktreeStatusPorcelainZ(source: Buffer | Uint8Array): Work
     identities.add(identity);
   }
   return records;
+}
+
+/** Decode Git's LF-terminated machine lines without generic whitespace
+ * trimming or repairing invalid UTF-8. The transport already owns output
+ * limits. This checks framing only, not repository or effect authority.
+ * A CR before LF remains a path character on POSIX; it is not stripped as an
+ * assumed CRLF. Object/path consumers validate their own records below.
+ */
+export function parseGitLineReply(
+  source: Uint8Array, expectedRecords = 1
+): readonly string[] | null {
+  if (!Number.isSafeInteger(expectedRecords) || expectedRecords < 1) {
+    throw new TypeError('Git line reply needs a positive record count');
+  }
+  let text: string;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
+      .decode(snapshotByteView(source, 'Git line reply'));
+  } catch { return null; }
+  if (!text.endsWith('\n') || text.includes('\0')) return null;
+  const records = text.slice(0, -1).split('\n');
+  if (records.length !== expectedRecords || records.some(value => value.length === 0)) return null;
+  return Object.freeze(records);
+}
+
+/** Object IDs are one complete lowercase SHA-1/SHA-256 record. Whitespace,
+ * extra records and a BOM are not alternate spellings of the same identity. */
+export function parseGitObjectIdReply(
+  source: Uint8Array, objectFormat?: 'sha1' | 'sha256'
+): string | null {
+  if (objectFormat !== undefined && objectFormat !== 'sha1' && objectFormat !== 'sha256') {
+    throw new TypeError('Unsupported Git object format');
+  }
+  const value = parseGitLineReply(source)?.[0];
+  if (value === undefined || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(value)
+      || (objectFormat !== undefined && value.length !== (objectFormat === 'sha1' ? 40 : 64))) return null;
+  return value;
+}
+
+/** Only for commands explicitly asked for --path-format=absolute. Host path
+ * separator projection is retained, but data spaces/tabs/CR are not trimmed. */
+export function parseGitAbsolutePathReply(source: Uint8Array): string | null {
+  const value = parseGitLineReply(source)?.[0];
+  return value === undefined || !path.isAbsolute(value) ? null : path.resolve(value);
 }
