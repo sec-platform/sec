@@ -1,36 +1,70 @@
 import assert from 'node:assert/strict';
 import { test } from 'bun:test';
 import { withCompilerInstallResources, CompilerInstallSettlementFailure } from '../../src/toolchain/dependencies/runtime/install-resource-scope.ts';
+import type { RetainedNoFollowOrdinaryFile, RetainedNoFollowChildProcessDirectory } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { openProcessResourceSession, type ProcessResourceSession } from '../../src/runtime-state/physical/runtime/process-resource-session.ts';
+import { issueSecOperationRequirementBindingContext } from '../../src/system-architecture/operation/requirement-binding-context.ts';
+import { bindSecSemanticOperation, compileSecCapabilityBinding, compileSecSemanticOperationPlan,
+  issueSecSemanticOperationAttemptContext, type SecOperationDigest } from '../../src/system-architecture/operation/semantic.ts';
+import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+
+// Mechanical resources here prove order and failure preservation, not physical
+// retention. A successful session receipt comes from the real process owner;
+// plain objects are used only in tests that expect close or receipt rejection.
+const executable = (dispose: () => void) => ({ dispose }) as RetainedNoFollowOrdinaryFile;
+const directory = (dispose: () => void) => ({ dispose }) as RetainedNoFollowChildProcessDirectory;
+const fixtureDigest = sha256({ fixture: 'compiler-install-resource-settlement' }) as SecOperationDigest;
+const expectation = () => ({ operationIdentityDigest: fixtureDigest, boundAttemptDigest: fixtureDigest, requirementId: 'test.install' });
+function ownedSession() {
+  const budgets = [
+    { resource: 'duration-ms' as const, maximum: 5000 }, { resource: 'input-bytes' as const, maximum: 0 },
+    { resource: 'output-bytes' as const, maximum: 1 }, { resource: 'processes' as const, maximum: 1 }
+  ];
+  const plan = compileSecSemanticOperationPlan({ operation: 'test.compiler-install-settlement', intentDigest: fixtureDigest,
+    decisionDigest: fixtureDigest, deadlineAtUnixMs: Date.now() + 5000,
+    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: fixtureDigest }),
+    aggregateBudgets: budgets, requirements: [{ id: 'test.install', contractDigest: fixtureDigest,
+      effectKinds: ['process'], failureKinds: ['process.unavailable'] }] });
+  const operation = bindSecSemanticOperation(plan, [compileSecCapabilityBinding({ requirementId: 'test.install',
+    contractDigest: fixtureDigest, providerIdentityDigest: fixtureDigest })]);
+  const session = openProcessResourceSession({ operation, requirementBindingContext: issueSecOperationRequirementBindingContext({
+    operation, requirementId: 'test.install', resourceCeilings: budgets }) });
+  return { session, expected: { operationIdentityDigest: operation.plan.identity.identityDigest,
+    boundAttemptDigest: operation.boundAttemptDigest, requirementId: 'test.install' } };
+}
 
 for (const count of [0, 1, 2, 3]) {
   test(`partial acquisition releases exactly the ${count} already acquired resources`, async () => {
-    const names = ['executable', 'working-directory', 'process-session'] as const;
-    const events: string[] = [];
-    const primary = Object.freeze({ acquisition: count });
-    await assert.rejects(withCompilerInstallResources(async (retain) => {
-      for (const name of names.slice(0, count)) retain(name, () => { events.push(name); });
+    const events: string[] = [], primary = Object.freeze({ acquisition: count });
+    let session: ProcessResourceSession | undefined;
+    await assert.rejects(withCompilerInstallResources(async resources => {
+      if (count >= 1) resources.executable(executable(() => { events.push('executable'); }));
+      if (count >= 2) resources.workingDirectory(directory(() => { events.push('working-directory'); }));
+      if (count === 3) {
+        const owned = ownedSession(); session = owned.session;
+        resources.processSession(session, owned.expected);
+      }
       throw primary;
-    }), (reason) => reason === primary);
-    assert.deepEqual(events, names.slice(0, count).reverse());
+    }), reason => reason === primary);
+    assert.deepEqual(events, count < 2 ? count === 1 ? ['executable'] : [] : ['working-directory', 'executable']);
+    if (session !== undefined) assert.equal(session.signal.aborted, true);
   });
 }
 
 for (const primary of [undefined, null, false, 0, 'execution failure']) {
   test(`cleanup preserves ${String(primary)} as a present execution failure`, async () => {
-    const closeFailure = new Error('close'), disposeFailure = new Error('dispose');
-    const order: string[] = [];
-    await assert.rejects(withCompilerInstallResources(async (retain) => {
-      retain('executable', () => { order.push('exe'); throw disposeFailure; });
-      retain('working-directory', () => { order.push('cwd'); });
-      retain('process-session', () => { order.push('session'); throw closeFailure; });
+    const closeFailure = new Error('close'), disposeFailure = new Error('dispose'), order: string[] = [];
+    await assert.rejects(withCompilerInstallResources(async resources => {
+      resources.executable(executable(() => { order.push('exe'); throw disposeFailure; }));
+      resources.workingDirectory(directory(() => { order.push('cwd'); }));
+      resources.processSession({ close() { order.push('session'); throw closeFailure; } } as ProcessResourceSession, expectation());
       throw primary;
-    }), (error: unknown) => {
+    }), error => {
       assert.ok(error instanceof CompilerInstallSettlementFailure);
       assert.equal(error.primaryFailed, true); assert.equal(error.cause, primary);
       assert.deepEqual(error.resourceFailures.map(f => f.reason), [closeFailure, disposeFailure]);
       assert.deepEqual(error.resourceFailures.map(f => f.resource), ['process-session', 'executable']);
-      assert.ok(Object.isFrozen(error.resourceFailures));
-      assert.ok(error.resourceFailures.every(Object.isFrozen));
+      assert.ok(Object.isFrozen(error.resourceFailures)); assert.ok(error.resourceFailures.every(Object.isFrozen));
       return true;
     });
     assert.deepEqual(order, ['session', 'cwd', 'exe']);
@@ -38,51 +72,78 @@ for (const primary of [undefined, null, false, 0, 'execution failure']) {
 }
 
 test('successful execution with failed settlement is not returned as success', async () => {
-  await assert.rejects(withCompilerInstallResources(async (retain) => {
-    retain('executable', () => { throw undefined; }); return 7;
-  }), (error: unknown) => {
-    assert.ok(error instanceof CompilerInstallSettlementFailure);
-    assert.equal(error.primaryFailed, false);
+  await assert.rejects(withCompilerInstallResources(async resources => {
+    resources.executable(executable(() => { throw undefined; })); return 7;
+  }), error => {
+    assert.ok(error instanceof CompilerInstallSettlementFailure); assert.equal(error.primaryFailed, false);
     assert.equal(Object.hasOwn(error, 'cause'), false);
-    assert.equal(error.resourceFailures.length, 1); assert.equal(error.resourceFailures[0]?.reason, undefined);
-    return true;
+    assert.deepEqual(error.resourceFailures, [{ resource: 'executable', reason: undefined }]); return true;
   });
 });
 
 test('successful cleanup preserves the exact result and invokes the action once', async () => {
   const result = { value: 7 }; let calls = 0;
-  assert.equal(await withCompilerInstallResources(async (retain) => {
-    calls++; retain('executable', () => {}); return result;
-  }), result);
-  assert.equal(calls, 1);
+  assert.equal(await withCompilerInstallResources(async resources => {
+    resources.executable(executable(() => { calls++; })); return result;
+  }), result); assert.equal(calls, 1);
 });
 
-test('asynchronous cleanup is settled in reverse order before returning', async () => {
+test('synchronous physical releases do not yield between the directory and executable', async () => {
   const order: string[] = [];
-  await assert.rejects(withCompilerInstallResources(async (retain) => {
-    retain('executable', async () => { order.push('last'); });
-    retain('working-directory', async () => { await Promise.resolve(); order.push('first'); throw 'asynchronous'; });
-    return 7;
-  }), (error: unknown) => {
-    assert.ok(error instanceof CompilerInstallSettlementFailure);
-    assert.equal(error.resourceFailures[0]?.reason, 'asynchronous'); return true;
+  await withCompilerInstallResources(async resources => {
+    resources.executable(executable(() => { order.push('exe'); }));
+    resources.workingDirectory(directory(() => { order.push('cwd'); queueMicrotask(() => order.push('later')); }));
   });
-  assert.deepEqual(order, ['first', 'last']);
+  assert.deepEqual(order, ['cwd', 'exe', 'later']);
 });
 
-test('a retired scope refuses late registration instead of silently leaking the release', async () => {
+test('a retired scope refuses late adoption', async () => {
   let retained: Parameters<Parameters<typeof withCompilerInstallResources>[0]>[0] | undefined;
-  await withCompilerInstallResources(async (retain) => { retained = retain; });
-  assert.throws(() => retained!('executable', () => {}), /closed/);
+  await withCompilerInstallResources(async resources => { retained = resources; });
+  assert.throws(() => retained!.executable(executable(() => {})), /closed/);
 });
 
 test('settlement does not stringify hostile thrown values', async () => {
   const value = { toString() { assert.fail('coerced'); } };
   const { proxy, revoke } = Proxy.revocable({}, {}); revoke();
-  await assert.rejects(withCompilerInstallResources(async (retain) => {
-    retain('executable', () => { throw proxy; }); throw value;
-  }), (error: unknown) => {
+  await assert.rejects(withCompilerInstallResources(async resources => {
+    resources.executable(executable(() => { throw proxy; })); throw value;
+  }), error => {
     assert.ok(error instanceof CompilerInstallSettlementFailure);
     assert.equal(error.cause, value); assert.equal(error.resourceFailures[0]?.reason, proxy); return true;
   });
+});
+
+test('a malformed terminal receipt cannot certify session closure', async () => {
+  await assert.rejects(withCompilerInstallResources(async resources => {
+    resources.processSession({ close() { return {}; } } as ProcessResourceSession, expectation());
+  }), error => error instanceof CompilerInstallSettlementFailure && error.resourceFailures[0]?.resource === 'process-session');
+});
+
+test('method selection keeps the actual provider receiver and ignores later replacement', async () => {
+  class Resource { #closed = false; dispose() { this.#closed = true; } get closed() { return this.#closed; } }
+  const value = new Resource();
+  await withCompilerInstallResources(async resources => {
+    assert.equal(resources.executable(value as unknown as RetainedNoFollowOrdinaryFile), value);
+    value.dispose = () => assert.fail('replacement');
+  });
+  assert.equal(value.closed, true);
+});
+
+test('session admission snapshots its receipt expectation before later caller edits', async () => {
+  const owned = ownedSession();
+  await withCompilerInstallResources(async resources => {
+    resources.processSession(owned.session, owned.expected);
+    owned.expected.requirementId = 'replaced';
+  });
+  assert.equal(owned.session.signal.aborted, true);
+});
+
+test('a failed receipt-expectation read still releases the adopted session and other resources', async () => {
+  const reason = new Error('expected identity'), owned = ownedSession(); let disposed = false;
+  await assert.rejects(withCompilerInstallResources(async resources => {
+    resources.executable(executable(() => { disposed = true; }));
+    resources.processSession(owned.session, { ...owned.expected, get operationIdentityDigest() { throw reason; } });
+  }), error => error === reason);
+  assert.equal(owned.session.signal.aborted, true); assert.equal(disposed, true);
 });

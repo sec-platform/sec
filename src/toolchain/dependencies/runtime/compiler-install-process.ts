@@ -1,4 +1,4 @@
-import { bindCompilerInstallInvocation } from './install-invocation.ts';
+import { bindCompilerInstallInvocation, type CompilerInstallInvocationInput } from './install-invocation.ts';
 import path from 'node:path';
 
 import { generatedStateDigest } from '../../../runtime-state/generated-state/contract.ts';
@@ -9,7 +9,6 @@ import {
   retainNoFollowOrdinaryFile
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
-  assertProcessResourceSessionReceipt,
   openProcessResourceSession
 } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
 import {
@@ -41,8 +40,7 @@ import { consumeRuntimeDependencyTestMaterialization } from './materialization-f
 import {
   runtimeDependencyOperationContext,
   runtimeDependencyOperationEffectFence,
-  runtimeDependencyOperationRemainingMs,
-  type RuntimeDependencyInstallOptions
+  runtimeDependencyOperationRemainingMs
 } from './operation-context.ts';
 import { measureRuntimeDependencyOperationPhaseAsync } from './operation-telemetry.ts';
 import { withCompilerInstallResources } from './install-resource-scope.ts';
@@ -171,8 +169,8 @@ function compilerDependencyInstallProcessOperation(input: Readonly<{
 
 export async function runBunInstall(
   workingDirectory: string,
-  options: RuntimeDependencyInstallOptions,
-  bunArgs: string[],
+  options: CompilerInstallInvocationInput,
+  bunArgs: readonly string[],
   cacheDir?: string,
   expectedExecutable?: Readonly<RuntimeExecutableIdentity>,
   inputFence?: CommitFence
@@ -229,32 +227,28 @@ export async function runBunInstall(
         return requireSuccessfulInstall(result, workingDirectory);
       }
       const expected = capturedExecutable ?? captureExpectedExecutable(await currentRuntimeExecutableIdentity(true));
-      return withCompilerInstallResources(async (retain) => {
+      return withCompilerInstallResources(async resources => {
         const executableParent = inspectNoFollowDirectoryChain(
           path.dirname(expected.path),
           'Bun executable retained parent'
         );
-        const executable = retainNoFollowOrdinaryFile(
+        const executable = resources.executable(retainNoFollowOrdinaryFile(
           executableParent,
           path.basename(expected.path),
           undefined,
           'Bun executable retained capability',
           RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
           'executable'
-        );
-        const disposeExecutable = executable.dispose;
-        retain('executable', () => Reflect.apply(disposeExecutable, executable, []));
+        ));
         const workingDirectoryChain = inspectNoFollowDirectoryChain(
           workingDirectory,
           'Bun retained working directory'
         );
-        const retainedWorkingDirectory = retainNoFollowDirectoryForChildProcess(
+        const retainedWorkingDirectory = resources.workingDirectory(retainNoFollowDirectoryForChildProcess(
           workingDirectoryChain,
           RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
           'Bun retained working directory capability'
-        );
-        const disposeWorkingDirectory = retainedWorkingDirectory.dispose;
-        retain('working-directory', () => Reflect.apply(disposeWorkingDirectory, retainedWorkingDirectory, []));
+        ));
         assertRetainedNoFollowCapability(executable, 'executable', 'Bun executable capability');
         assertRetainedNoFollowCapability(
           retainedWorkingDirectory,
@@ -293,7 +287,7 @@ export async function runBunInstall(
           options: controls,
           workingDirectory
         });
-        const processSession = openProcessResourceSession({
+        const processSession = resources.processSession(openProcessResourceSession({
           operation: processOperation,
           requirementBindingContext: issueSecOperationRequirementBindingContext({
             operation: processOperation,
@@ -303,15 +297,10 @@ export async function runBunInstall(
             )))
           }),
           signal: runtimeDependencyOperationContext(controls).signal
-        });
-        const closeSession = processSession.close;
-        retain('process-session', () => {
-          const receipt = Reflect.apply(closeSession, processSession, []);
-          assertProcessResourceSessionReceipt(receipt, {
-            operationIdentityDigest: processOperation.plan.identity.identityDigest,
-            boundAttemptDigest: processOperation.boundAttemptDigest,
-            requirementId: COMPILER_DEPENDENCY_INSTALL_PROCESS_REQUIREMENT
-          });
+        }), {
+          operationIdentityDigest: processOperation.plan.identity.identityDigest,
+          boundAttemptDigest: processOperation.boundAttemptDigest,
+          requirementId: COMPILER_DEPENDENCY_INSTALL_PROCESS_REQUIREMENT
         });
         const executed = await processSession.run(retainedCommandBoundary, commandArgs, {
           ...retainedRunOptions,
