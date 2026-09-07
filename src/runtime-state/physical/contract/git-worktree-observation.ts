@@ -24,7 +24,7 @@ function fail(message: string): never {
 }
 
 export function assertLowercaseGitSha(value: string, label: string): void {
-  if (!/^[0-9a-f]{40}$/u.test(value)) fail(`${label} must be a lowercase Git SHA-1.`);
+  if (typeof value !== 'string' || !/^[0-9a-f]{40}$/u.test(value)) fail(`${label} must be a lowercase Git SHA-1.`);
 }
 
 function assertBranch(value: string): void {
@@ -38,7 +38,7 @@ function assertBranch(value: string): void {
     value.includes('..') ||
     value.includes('@{') ||
     /[\u0000-\u0020~^:?*\[\\\u007f]/u.test(value) ||
-    segments.some((segment) => segment.length === 0 || segment === '.' || segment.endsWith('.') || segment.endsWith('.lock'))
+    segments.some((segment) => segment.length === 0 || segment.startsWith('.') || segment.endsWith('.') || segment.endsWith('.lock'))
   ) {
     fail('branch field is not a canonical Git branch name.');
   }
@@ -76,6 +76,9 @@ export function parseWorktreePorcelainZ(source: Buffer | Uint8Array): WorktreePo
 
   const finish = (): void => {
     if (current === null) return;
+    // Bare repositories do not have a checked-out HEAD. Validate the whole
+    // record so contradictory fields fail independently of their order.
+    if (current.bare && current.headSha !== null) fail(`bare worktree ${current.path} cannot carry HEAD.`);
     if (!current.bare && current.headSha === null) fail(`worktree ${current.path} has no HEAD field.`);
     if (!current.bare && current.branch === null && !current.detached) {
       fail(`worktree ${current.path} has neither branch nor detached field.`);
@@ -160,6 +163,10 @@ export function parseWorktreePorcelainZ(source: Buffer | Uint8Array): WorktreePo
   return records;
 }
 
+// Porcelain v1 encodes conflict stages as these pairs, not arbitrary X/Y
+// combinations containing U. DD and AA are valid conflicts without a U.
+const UNMERGED_STATUS_PAIRS: ReadonlySet<string> = new Set(['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU']);
+
 /** Strict parser for `git status --porcelain=v1 -z` machine records. */
 export function parseWorktreeStatusPorcelainZ(
   source: Buffer | Uint8Array,
@@ -199,7 +206,8 @@ export function parseWorktreeStatusPorcelainZ(
       fail(`unsupported status porcelain field: ${field}`);
     }
     const status = field.slice(0, 2);
-    if (status === '  ' || (status.includes('?') && status !== '??') || (status.includes('!') && status !== '!!')) {
+    if (status === '  ' || (status.includes('?') && status !== '??') || (status.includes('!') && status !== '!!')
+        || (status.includes('U') && !UNMERGED_STATUS_PAIRS.has(status))) {
       fail(`unsupported status pair: ${status}`);
     }
     const renamed = status.includes('R') || status.includes('C');
