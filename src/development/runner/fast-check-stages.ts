@@ -15,24 +15,46 @@ export async function executeFastCheckStages(stages: FastCheckStages): Promise<n
   if ([imports, sourceAudit, documentation, types, tests].some(stage => typeof stage !== 'function')) {
     throw new TypeError('Fast check requires all declared stages');
   }
-  const run = (stage: () => Promise<number>) => Reflect.apply(stage, stages, []) as Promise<number>;
-  const importCode = await run(imports);
+  const run = async (name: keyof FastCheckStages, stage: () => Promise<number>): Promise<number> => {
+    const code: unknown = await Reflect.apply(stage, stages, []);
+    // Keep platform-specific nonzero statuses representable; do not truncate to
+    // eight bits or coerce a string/boolean/undefined into an execution result.
+    if (typeof code !== 'number' || !Number.isSafeInteger(code) || code < 0) {
+      throw new TypeError(`Fast-check stage ${name} must return a non-negative safe-integer exit code`);
+    }
+    return code;
+  };
+  const importCode = await run('imports', imports);
   if (importCode !== 0) return importCode;
-  const auditCode = await run(sourceAudit);
+  const auditCode = await run('sourceAudit', sourceAudit);
   if (auditCode !== 0) return auditCode;
-  // Both started checks settle before this scope returns or begins tests.
-  // Rejection is not proof the other worker stopped; Promise.all would return early.
+  // Capture both calls before waiting. A rejection cannot abandon the other
+  // check or erase a nonzero exit that the other check already produced.
+  const names = ['documentation', 'types'] as const;
   const results = await Promise.allSettled([
-    Promise.resolve().then(() => run(documentation)),
-    Promise.resolve().then(() => run(types))
+    run(names[0], documentation),
+    run(names[1], types)
   ]);
-  const failures = results.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
-  if (failures.length === 1) throw failures[0];
-  if (failures.length > 1) {
+  if (results.some(result => result.status === 'rejected')) {
+    const failures: unknown[] = [];
+    for (let index = 0; index < results.length; index += 1) {
+      const result = results[index]!;
+      if (result.status === 'rejected') {
+        failures.push(result.reason);
+      } else if (result.value !== 0) {
+        failures.push(Object.assign(
+          new Error(`Fast-check stage ${names[index]} exited with status ${result.value}`),
+          { stage: names[index], exitCode: result.value }
+        ));
+      }
+    }
+    if (failures.length === 1) throw failures[0];
     throw new AggregateError(failures, 'Parallel fast-check stages failed', { cause: failures[0] });
   }
+  // Preserve the existing documentation-before-types priority when both
+  // workers completed normally, including when both returned nonzero codes.
   for (const result of results) {
     if (result.status === 'fulfilled' && result.value !== 0) return result.value;
   }
-  return run(tests);
+  return run('tests', tests);
 }
