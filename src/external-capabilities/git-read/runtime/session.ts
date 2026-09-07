@@ -1,6 +1,19 @@
 import path from 'node:path';
+import { captureGitScratchIndexDelta, type GitScratchIndexTreeDelta } from './scratch-input.ts';
+export type { GitScratchIndexTreeDelta } from './scratch-input.ts';
+import { canonicalCommitTreeInput, captureGitDevelopmentCommitContract, compileGitDevelopmentCommitContractDigest,
+  type GitCommitTreeInput, type GitDevelopmentCommitContract, type GitDevelopmentCommitEffectResult } from './commit-contract.ts';
+export { compileGitDevelopmentCommitContractDigest } from './commit-contract.ts';
+export type { GitCommitIdentity, GitCommitTreeInput, GitDevelopmentCommitContract, GitDevelopmentCommitEffectResult } from './commit-contract.ts';
+import { resolveGitReadSessionBudget, boundedGitReadDeadlineAt, type GitReadSessionBudget } from './budget.ts';
+import { captureGitReadArguments, gitReadCommandIsObservation } from './read-command.ts';
+import { snapshotByteView } from '../../../system-architecture/foundation/runtime/byte-snapshot.ts';
+import { failureMessage } from '../../../system-architecture/foundation/runtime/failure-inspection.ts';
+import { settlePhysicalResources, type PhysicalResourceSettlementFailure } from '../../../runtime-state/physical/runtime/resource-settlement.ts';
+export { GIT_READ_DEFAULT_OPERATION_BUDGET, GIT_READ_EXACT_TREE_OPERATION_BUDGET, GitReadBudgetError, resolveGitReadSessionBudget } from './budget.ts';
+export type { GitReadSessionBudget } from './budget.ts';
 
-import { PhysicalNoFollowError, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryChain, type RetainedNoFollowChildProcessDirectory, type RetainedNoFollowOrdinaryFile } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { PhysicalNoFollowError, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, type PhysicalDirectoryChain, type RetainedNoFollowChildProcessDirectory, type RetainedNoFollowOrdinaryFile } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { assertProcessResourceSessionReceipt, openProcessResourceSession, type ProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
 import { RetainedCommandTransportError, resolveExecutableLocator, type ByteCommandResult } from '../../../runtime-state/physical/runtime/process.ts';
 import type { RetainedCommandAuxiliaryInput } from '../../../runtime-state/physical/runtime/retained-command-boundary.ts';
@@ -64,23 +77,6 @@ export type GitBlobIdentity = Readonly<{
 /** Exact Git blob identity plus the bytes read from that same object. */
 export type GitBlobBytes = GitBlobIdentity & Readonly<{
   bytes: Uint8Array;
-}>;
-
-export type GitReadSessionBudget = Readonly<{
-  deadlineMs: number;
-  maxProcesses: number;
-  maxTotalArgumentBytes: number;
-  maxStdinBytes: number;
-  maxStdoutBytes: number;
-  maxStderrBytes: number;
-  maxRecords: number;
-  maxRootObservedBytes: number;
-  maxReopenRefreshes: number;
-  maxSettlementAttempts: number;
-  maxCommandStdoutBytes: number;
-  maxCommandStderrBytes: number;
-  /** Aggregate bytes retained while binding/rechecking the Git executable. */
-  maxExecutableBytes: number;
 }>;
 
 /** One installed-Git route; every host retains and fences the executable and cwd. */
@@ -278,14 +274,6 @@ export type GitScratchIndexTreeResult<T> = Readonly<
  * repository-external scratch object directory and the resulting tree is
  * read back through the same retained provider.
  */
-export type GitScratchIndexTreeDelta = Readonly<{
-  readonly additions: readonly Readonly<{
-    readonly path: string;
-    readonly bytes: Uint8Array;
-  }>[];
-  readonly removals: readonly string[];
-}>;
-
 export type GitScratchIndexTreeSession = Readonly<{
   readonly scratchRoot: string;
   readonly objectFormat: 'sha1' | 'sha256';
@@ -318,38 +306,6 @@ type GitScratchExecutionOwner = Readonly<{
 
 const GIT_SCRATCH_EXECUTION_OWNERS = new WeakMap<object, GitScratchExecutionOwner>();
 
-export type GitCommitIdentity = Readonly<{
-  readonly name: string;
-  readonly email: string;
-  /** Git internal date: `<unix-seconds> <+|->HHMM`. */
-  readonly date: string;
-}>;
-
-export type GitCommitTreeInput = Readonly<{
-  readonly tree: string;
-  readonly parents: readonly string[];
-  readonly message: string;
-  readonly author: GitCommitIdentity;
-  readonly committer: GitCommitIdentity;
-}>;
-
-export type GitDevelopmentCommitContract = GitCommitTreeInput & Readonly<{
-  readonly repositoryRoot: string;
-  readonly worktreeRoot: string;
-  readonly ref: string;
-  readonly expectedOld: string;
-  readonly target: string;
-  readonly signing: 'disabled';
-  readonly hooks: 'disabled';
-  readonly preflightReceiptDigest: SecOperationDigest;
-}>;
-
-export type GitDevelopmentCommitEffectResult = Readonly<
-  | { readonly status: 'completed'; readonly object: string }
-  | { readonly status: 'cas-conflict'; readonly object: string }
-  | { readonly status: 'unavailable'; readonly reason: 'operation-not-authorized' | 'invalid-contract' | 'provider-failed' | 'index-drift' | 'target-mismatch'; readonly detail?: string }
->;
-
 type GitDevelopmentCommitExecutionOwner = Readonly<{
   readonly operation: SecBoundSemanticOperation;
   readonly providerIdentityDigest: SecOperationDigest;
@@ -361,43 +317,6 @@ type GitDevelopmentCommitExecutionOwner = Readonly<{
 }>;
 
 const GIT_DEVELOPMENT_COMMIT_EXECUTION_OWNERS = new WeakMap<object, GitDevelopmentCommitExecutionOwner>();
-
-const GIT_OBJECT_ID_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
-const GIT_COMMIT_REF_PATTERN = /^refs\/heads\/[A-Za-z0-9][A-Za-z0-9._\/-]*$/u;
-const GIT_INTERNAL_DATE_PATTERN = /^(?:0|[1-9][0-9]*) [+-][0-9]{4}$/u;
-
-function canonicalCommitIdentity(identity: GitCommitIdentity): GitCommitIdentity | null {
-  if (identity.name.length === 0 || identity.name.length > 256
-      || identity.email.length < 3 || identity.email.length > 320
-      || /[\0\r\n<>]/u.test(identity.name)
-      || /[\0\r\n<>]/u.test(identity.email)
-      || !GIT_INTERNAL_DATE_PATTERN.test(identity.date)) return null;
-  const [, zone] = identity.date.split(' ');
-  const hours = Number(zone?.slice(1, 3));
-  const minutes = Number(zone?.slice(3, 5));
-  if (!Number.isSafeInteger(hours) || !Number.isSafeInteger(minutes)
-      || hours > 14 || minutes > 59 || (hours === 14 && minutes !== 0)) return null;
-  return Object.freeze({ name: identity.name, email: identity.email, date: identity.date });
-}
-
-function canonicalCommitTreeInput(input: GitCommitTreeInput): GitCommitTreeInput | null {
-  const author = canonicalCommitIdentity(input.author);
-  const committer = canonicalCommitIdentity(input.committer);
-  if (!GIT_OBJECT_ID_PATTERN.test(input.tree)
-      || input.parents.length !== 1
-      || !GIT_OBJECT_ID_PATTERN.test(input.parents[0] ?? '')
-      || input.message.length === 0
-      || Buffer.byteLength(input.message, 'utf8') > 64 * 1024
-      || input.message.includes('\0')
-      || author === null || committer === null) return null;
-  return Object.freeze({
-    tree: input.tree,
-    parents: Object.freeze([...input.parents]),
-    message: input.message,
-    author,
-    committer
-  });
-}
 
 function commitEnvironment(
   input: GitCommitTreeInput,
@@ -415,37 +334,6 @@ function commitEnvironment(
     GIT_COMMITTER_EMAIL: input.committer.email,
     GIT_COMMITTER_DATE: input.committer.date
   });
-}
-
-export function compileGitDevelopmentCommitContractDigest(
-  input: GitDevelopmentCommitContract
-): SecOperationDigest {
-  const treeInput = canonicalCommitTreeInput(input);
-  if (treeInput === null
-      || !path.isAbsolute(input.repositoryRoot)
-      || path.resolve(input.repositoryRoot) !== input.repositoryRoot
-      || !path.isAbsolute(input.worktreeRoot)
-      || path.resolve(input.worktreeRoot) !== input.worktreeRoot
-      || !GIT_COMMIT_REF_PATTERN.test(input.ref)
-      || input.expectedOld !== input.parents[0]
-      || !GIT_OBJECT_ID_PATTERN.test(input.target)
-      || input.signing !== 'disabled'
-      || input.hooks !== 'disabled'
-      || !/^sha256:[0-9a-f]{64}$/u.test(input.preflightReceiptDigest)) {
-    throw new Error('Git development commit contract is not canonical.');
-  }
-  return sha256({
-    schema: 'sec-development-commit-git-contract-v1',
-    repositoryRoot: input.repositoryRoot,
-    worktreeRoot: input.worktreeRoot,
-    ref: input.ref,
-    expectedOld: input.expectedOld,
-    target: input.target,
-    ...treeInput,
-    signing: input.signing,
-    hooks: input.hooks,
-    preflightReceiptDigest: input.preflightReceiptDigest
-  }) as SecOperationDigest;
 }
 
 function authorizedDevelopmentCommitOwner(
@@ -503,388 +391,6 @@ export function assertProductionGitReadSession(session: GitReadSession): void {
   }
 }
 
-/**
- * Canonical bounded envelope for a production Git read operation. Callers
- * must select an envelope explicitly; operation owners may narrow it but may
- * not rely on an implicit fresh session or widen the provider ceiling.
- */
-export const GIT_READ_DEFAULT_OPERATION_BUDGET: GitReadSessionBudget = Object.freeze({
-  deadlineMs: 5_000,
-  maxProcesses: 32,
-  maxTotalArgumentBytes: 16 * 1024 * 1024,
-  maxStdinBytes: 16 * 1024 * 1024,
-  maxStdoutBytes: 64 * 1024 * 1024,
-  maxStderrBytes: 2 * 1024 * 1024,
-  maxRecords: 250_000,
-  maxRootObservedBytes: 256 * 1024 * 1024,
-  maxReopenRefreshes: 10_000,
-  maxSettlementAttempts: 32,
-  maxCommandStdoutBytes: 32 * 1024 * 1024,
-  maxCommandStderrBytes: 512 * 1024,
-  maxExecutableBytes: 64 * 1024 * 1024
-});
-
-/** Exact-tree observations may read the complete tracked source graph once. */
-export const GIT_READ_EXACT_TREE_OPERATION_BUDGET: GitReadSessionBudget = Object.freeze({
-  ...GIT_READ_DEFAULT_OPERATION_BUDGET,
-  deadlineMs: 120_000
-});
-
-/**
- * Absolute ceilings for every GitRead transport. Operation-specific callers
- * may narrow these values, but a caller cannot silently widen the canonical
- * envelope or use a fresh session to reset an aggregate owner budget.
- */
-const CANONICAL_GIT_READ_BUDGET_CEILING: GitReadSessionBudget = Object.freeze({
-  deadlineMs: 120_000,
-  maxProcesses: 128,
-  maxTotalArgumentBytes: 16 * 1024 * 1024,
-  maxStdinBytes: 64 * 1024 * 1024,
-  maxStdoutBytes: 64 * 1024 * 1024,
-  maxStderrBytes: 2 * 1024 * 1024,
-  maxRecords: 250_000,
-  maxRootObservedBytes: 256 * 1024 * 1024,
-  maxReopenRefreshes: 10_000,
-  maxSettlementAttempts: 10_000,
-  maxCommandStdoutBytes: 32 * 1024 * 1024,
-  maxCommandStderrBytes: 512 * 1024,
-  maxExecutableBytes: 64 * 1024 * 1024
-});
-
-export class GitReadBudgetError extends Error {
-  readonly kind = 'git-read-budget-error' as const;
-
-  constructor(
-    readonly reason: 'unknown-field' | 'invalid-value' | 'canonical-ceiling-exceeded',
-    readonly field: string,
-    message: string
-  ) {
-    super(message);
-    this.name = 'GitReadBudgetErrorV1';
-  }
-}
-
-function gitReadCommandArgumentBytes(args: readonly string[]): number | null {
-  if (!Array.isArray(args)) return null;
-  let bytes = 0;
-  for (const argument of args) {
-    if (typeof argument !== 'string' || argument.includes('\0')) return null;
-    bytes += Buffer.byteLength(argument, 'utf8') + 1;
-    if (!Number.isSafeInteger(bytes)) return null;
-  }
-  return bytes;
-}
-
-const GIT_READ_ONLY_COMMANDS = new Set([
-  'cat-file',
-  'branch',
-  'check-attr',
-  'config',
-  'diff',
-  'diff-files',
-  'diff-index',
-  'for-each-ref',
-  'grep',
-  'ls-files',
-  'ls-remote',
-  'ls-tree',
-  'merge-base',
-  'remote',
-  'rev-list',
-  'rev-parse',
-  'show',
-  'status',
-  'symbolic-ref',
-  'var',
-  'worktree'
-]);
-
-const GIT_READ_FORBIDDEN_HELPER_ARGUMENTS = new Set([
-  '--ext-diff',
-  '--textconv',
-  '--filters',
-  '--use-bitmap-index',
-  '--exec',
-  '--recurse-submodules',
-  '--submodule'
-]);
-
-function gitReadArgumentsInvokeHelper(args: readonly string[]): boolean {
-  return args.some((argument) => (
-    GIT_READ_FORBIDDEN_HELPER_ARGUMENTS.has(argument)
-    || argument.startsWith('--filter=')
-    || argument.startsWith('--upload-pack=')
-    || argument.startsWith('--receive-pack=')
-  ));
-}
-
-const GIT_READ_SAFE_CONFIG_OVERRIDES = new Set([
-  'core.attributesFile=',
-  'core.fsmonitor=false',
-  'core.quotepath=false',
-  'core.untrackedCache=false'
-]);
-
-function gitReadCommandName(args: readonly string[]): string | null {
-  if (args.length === 1 && args[0] === '--version') return '--version';
-  let index = 0;
-  while (index < args.length) {
-    const argument = args[index]!;
-    if (argument === '-c') {
-      const value = args[index + 1];
-      if (value === undefined || !GIT_READ_SAFE_CONFIG_OVERRIDES.has(value)) return null;
-      index += 2;
-      continue;
-    }
-    if (argument === '--git-dir' || argument === '--work-tree') {
-      if (args[index + 1] === undefined) return null;
-      index += 2;
-      continue;
-    }
-    if (argument === '--no-pager' || argument === '--literal-pathspecs') {
-      index += 1;
-      continue;
-    }
-    return argument.startsWith('-') ? null : argument;
-  }
-  return null;
-}
-
-/**
- * GitRead is an observation capability, not a generic Git process wrapper.
- * Reject mutation grammar before any retained executable is invoked. Commands
- * with read and write modes are narrowed to their observation-only form here;
- * a semantic mutation owner must use a separately issued effect capability.
- */
-function gitReadCommandIsObservation(args: readonly string[]): boolean {
-  const command = gitReadCommandName(args);
-  if (command === '--version') return true;
-  if (command === null || !GIT_READ_ONLY_COMMANDS.has(command)) return false;
-  const commandIndex = args.indexOf(command);
-  const commandArgs = args.slice(commandIndex + 1);
-  if (gitReadArgumentsInvokeHelper(commandArgs)) return false;
-  if (command === 'branch') return commandArgs.length === 1 && commandArgs[0] === '--show-current';
-  if (command === 'cat-file') {
-    return (commandArgs.length === 1 && commandArgs[0] === '--batch')
-      || (commandArgs.length === 2
-        && ['-e', '-s', '-t', 'blob', 'commit'].includes(commandArgs[0]!));
-  }
-  if (command === 'grep') {
-    let patternCount = 0;
-    let revisionCount = 0;
-    let separatorIndex = -1;
-    for (let index = 0; index < commandArgs.length; index += 1) {
-      const argument = commandArgs[index]!;
-      if (argument === '--') {
-        if (separatorIndex !== -1) return false;
-        separatorIndex = index;
-        continue;
-      }
-      if (separatorIndex !== -1) {
-        if (argument !== '.') return false;
-        continue;
-      }
-      if (argument === '-e') {
-        const pattern = commandArgs[index + 1];
-        if (pattern === undefined || pattern.length === 0 || pattern.includes('\0')) return false;
-        patternCount += 1;
-        index += 1;
-        continue;
-      }
-      if (argument === '-l' || argument === '-F' || argument === '-z') continue;
-      if (argument.startsWith('-')) return false;
-      if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(argument)) return false;
-      revisionCount += 1;
-    }
-    return patternCount > 0
-      && revisionCount === 1
-      && separatorIndex >= 0
-      && separatorIndex === commandArgs.length - 2
-      && commandArgs.at(-1) === '.';
-  }
-  if (command === 'check-attr') {
-    return commandArgs.length === 6
-      && commandArgs[0] === '-z'
-      && commandArgs[1] === '--stdin'
-      && commandArgs[2] === '--source'
-      && !commandArgs[3]!.startsWith('-')
-      && commandArgs[4] === 'text'
-      && commandArgs[5] === 'eol';
-  }
-  if (command === 'config') {
-    return commandArgs.length === 2
-      && commandArgs[0] === '--get'
-      && !commandArgs[1]!.startsWith('-');
-  }
-  if (command === 'remote') {
-    return commandArgs.length >= 2
-      && commandArgs[0] === 'get-url'
-      && commandArgs.slice(1, -1).every((argument) => argument === '--all' || argument === '--push')
-      && !commandArgs.at(-1)!.startsWith('-');
-  }
-  if (command === 'worktree') {
-    return commandArgs[0] === 'list'
-      && commandArgs.slice(1).every((argument) => (
-        argument === '--porcelain' || argument === '-z' || argument === '-v'
-      ));
-  }
-  if (command === 'symbolic-ref') {
-    const positional = commandArgs.filter((argument) => !argument.startsWith('-'));
-    return positional.length === 1
-      && commandArgs.every((argument) => (
-        !argument.startsWith('-')
-        || argument === '--short'
-        || argument === '--quiet'
-        || argument === '-q'
-      ));
-  }
-  if (command === 'status') {
-    return commandArgs.every((argument) => (
-      argument === '--short'
-      || argument === '--branch'
-      || argument === '--porcelain'
-      || argument === '--porcelain=v1'
-      || argument === '--porcelain=v2'
-      || argument === '-z'
-      || argument === '--untracked-files=all'
-      || argument === '--untracked-files=no'
-      || argument === '--ignored=no'
-      || argument === '--ignored=matching'
-      || argument === '--'
-      || !argument.startsWith('-')
-    ));
-  }
-  if (command === 'var') {
-    return commandArgs.length === 1
-      && (commandArgs[0] === 'GIT_AUTHOR_IDENT' || commandArgs[0] === 'GIT_COMMITTER_IDENT');
-  }
-  if (command === 'show') {
-    return commandArgs.length === 1 && !commandArgs[0]!.startsWith('-');
-  }
-  if (command === 'merge-base') {
-    return (commandArgs.length === 2 && commandArgs.every((argument) => !argument.startsWith('-')))
-      || (commandArgs.length === 3
-        && commandArgs[0] === '--is-ancestor'
-        && commandArgs.slice(1).every((argument) => !argument.startsWith('-')));
-  }
-  if (command === 'for-each-ref') {
-    return commandArgs.length === 2
-      && commandArgs[0]!.startsWith('--format=')
-      && !commandArgs[1]!.startsWith('-');
-  }
-  if (command === 'diff' || command === 'diff-files' || command === 'diff-index') {
-    const allowed = new Set([
-      '--no-ext-diff', '--no-textconv', '--binary', '--full-index', '--no-renames',
-      '--name-status', '--name-only', '--exit-code', '-z', '--find-renames',
-      '--find-copies', '--cached', '--'
-    ]);
-    return commandArgs.every((argument) => (
-      allowed.has(argument)
-      || argument.startsWith('--diff-filter=')
-      || !argument.startsWith('-')
-    )) && (command !== 'diff-files' || !commandArgs.includes('--cached'));
-  }
-  if (command === 'ls-files') {
-    const allowed = new Set([
-      '-z', '--stage', '--unmerged', '--cached', '--others', '--exclude-standard', '--ignored',
-      '--deleted', '--'
-    ]);
-    return commandArgs.every((argument) => allowed.has(argument) || !argument.startsWith('-'));
-  }
-  if (command === 'ls-tree') {
-    const allowed = new Set(['-r', '-z', '-l', '--full-tree', '--name-only', '--']);
-    return commandArgs.every((argument) => allowed.has(argument) || !argument.startsWith('-'));
-  }
-  if (command === 'ls-remote') {
-    const positional = commandArgs[0] === '--exit-code' ? commandArgs.slice(1) : commandArgs;
-    return positional.length === 2
-      && positional.every((argument) => argument.length > 0 && !argument.startsWith('-'))
-      && positional[1]!.startsWith('refs/heads/');
-  }
-  if (command === 'rev-parse') {
-    const allowed = new Set([
-      '--verify', '--quiet', '-q', '--end-of-options', '--show-toplevel', '--git-common-dir',
-      '--absolute-git-dir', '--is-inside-work-tree', '--path-format=absolute', '--git-path',
-      '--show-object-format'
-    ]);
-    return commandArgs.every((argument) => allowed.has(argument) || !argument.startsWith('-'));
-  }
-  if (command === 'rev-list') {
-    // These flags only constrain/shape the commit walk; they do not mutate
-    // repository state.  The freeze/replan reader relies on the ancestry
-    // path walk, so keep the allowlist explicit instead of treating every
-    // rev-list option as a read capability.
-    const allowed = new Set([
-      '--parents', '--walk-reflogs', '-n', '1', '--count', '--not',
-      '--first-parent', '--ancestry-path', '--reverse'
-    ]);
-    return commandArgs.every((argument) => allowed.has(argument) || !argument.startsWith('-'));
-  }
-  return false;
-}
-
-export function resolveGitReadSessionBudget(
-  input: Partial<GitReadSessionBudget> | undefined
-): GitReadSessionBudget {
-  const requested = input ?? {};
-  for (const [label, value] of Object.entries(requested)) {
-    if (!(label in CANONICAL_GIT_READ_BUDGET_CEILING)) {
-      throw new GitReadBudgetError(
-        'unknown-field',
-        label,
-        `Git read session budget field ${label} is not canonical.`
-      );
-    }
-    validBudgetNumber(label, value as number);
-    const ceiling = CANONICAL_GIT_READ_BUDGET_CEILING[
-      label as keyof GitReadSessionBudget
-    ];
-    if ((value as number) > ceiling) {
-      throw new GitReadBudgetError(
-        'canonical-ceiling-exceeded',
-        label,
-        `Git read session ${label} exceeds its canonical ceiling.`
-      );
-    }
-  }
-  const budget = Object.freeze({
-    ...GIT_READ_DEFAULT_OPERATION_BUDGET,
-    ...requested
-  });
-  for (const [label, value] of Object.entries(budget)) validBudgetNumber(label, value);
-  return budget;
-}
-
-function validBudgetNumber(label: string, value: number): number {
-  if (!Number.isSafeInteger(value) || value < 1) {
-    throw new GitReadBudgetError(
-      'invalid-value',
-      label,
-      `Git read session ${label} must be a positive safe integer.`
-    );
-  }
-  return value;
-}
-
-function boundedGitReadDeadlineAt(
-  startedAt: number,
-  budget: GitReadSessionBudget,
-  parentDeadlineAt: number | undefined
-): number {
-  if (parentDeadlineAt !== undefined
-      && (!Number.isSafeInteger(parentDeadlineAt) || parentDeadlineAt < 0)) {
-    throw new GitReadBudgetError(
-      'invalid-value',
-      'deadlineAtUnixMs',
-      'Git read parent deadline must be a non-negative safe integer.'
-    );
-  }
-  return Math.min(
-    parentDeadlineAt ?? startedAt + budget.deadlineMs,
-    startedAt + budget.deadlineMs
-  );
-}
-
 type GitExecutableInspection = Readonly<{
   identity: GitExecutableIdentity;
   bytes: number;
@@ -892,7 +398,7 @@ type GitExecutableInspection = Readonly<{
 
 type GitExecutableInspectionResult =
   | GitExecutableInspection
-  | Readonly<{ kind: 'unavailable'; reason: 'deadline' | 'budget' | 'identity' }>;
+  | Readonly<{ kind: 'unavailable'; reason: 'deadline' | 'budget' | 'identity'; settlementFailure?: PhysicalResourceSettlementFailure }>;
 
 function executableAncestor(
   identity: PhysicalDirectoryChain['target']
@@ -924,73 +430,49 @@ function inspectGitExecutable(
   input: Readonly<{ deadlineAtMs: number; maxBytes: number }>
 ): GitExecutableInspectionResult {
   if (performance.now() > input.deadlineAtMs) return { kind: 'unavailable', reason: 'deadline' };
+  let retained: RetainedNoFollowOrdinaryFile | undefined;
+  let primary: PhysicalResourceSettlementFailure | undefined;
+  let observation: GitExecutableInspectionResult = { kind: 'unavailable', reason: 'identity' };
   try {
-    const executablePath = path.resolve(executable);
-    const parentPath = path.dirname(executablePath);
-    const leafName = path.basename(executablePath);
-    const parent = inspectNoFollowDirectoryChain(parentPath, 'Git executable parent');
+    const executablePath = path.resolve(executable), leafName = path.basename(executablePath);
+    const parent = inspectNoFollowDirectoryChain(path.dirname(executablePath), 'Git executable parent');
     if (performance.now() > input.deadlineAtMs) return { kind: 'unavailable', reason: 'deadline' };
-    // Read metadata for this lexical parent first so a custom executable-byte
-    // budget rejects a large leaf before the retained byte reader allocates.
-    const metadata = scanNoFollowDirectoryTreeMetadata(parent.target, {
-      deadlineAtMs: input.deadlineAtMs,
-      maximumEntries: 10_000
-    }).find((entry) => entry.relativePath === leafName);
-    if (metadata === undefined || metadata.kind !== 'file') {
-      return { kind: 'unavailable', reason: 'identity' };
+    retained = retainNoFollowOrdinaryFile(parent, leafName, undefined, 'Git executable observation');
+    // The same retained file supplies size, bytes and identity. A tiny caller
+    // budget is checked before hashing; siblings and descendants are unrelated.
+    if (!Number.isSafeInteger(retained.size) || retained.size < 0 || retained.size > input.maxBytes) {
+      observation = { kind: 'unavailable', reason: 'budget' };
+    } else if (performance.now() > input.deadlineAtMs) {
+      observation = { kind: 'unavailable', reason: 'deadline' };
+    } else {
+      const digest = retained.digest();
+      retained.assertCurrent();
+      if (performance.now() > input.deadlineAtMs) observation = { kind: 'unavailable', reason: 'deadline' };
+      else if (digest.size !== retained.size || digest.size > input.maxBytes) observation = { kind: 'unavailable', reason: 'budget' };
+      else observation = Object.freeze({ identity: Object.freeze({
+        path: executablePath, realPath: path.join(parent.target.finalPath, leafName),
+        device: retained.physical.device, inode: retained.physical.inode, size: digest.size,
+        mtimeMs: 0, ctimeMs: 0, birthtimeMs: 0, digest: digest.byteDigest,
+        ancestorChain: Object.freeze(parent.ancestors.map(executableAncestor))
+      }), bytes: digest.size });
     }
-    if (!Number.isSafeInteger(metadata.size) || metadata.size < 0 || metadata.size > input.maxBytes) {
-      return { kind: 'unavailable', reason: 'budget' };
-    }
-    const entry = inspectNoFollowOrdinaryFileEntry(parent.target, leafName);
-    if (entry === null || entry.kind !== 'file' || entry.bytes === null) {
-      return { kind: 'unavailable', reason: 'identity' };
-    }
-    if (performance.now() > input.deadlineAtMs) return { kind: 'unavailable', reason: 'deadline' };
-    if (entry.bytes.byteLength > input.maxBytes || entry.bytes.byteLength !== metadata.size) {
-      return { kind: 'unavailable', reason: 'budget' };
-    }
-    const identity = Object.freeze({
-      path: executablePath,
-      // This is a retained no-follow locator, not a realpath authority.  Keep
-      // the historical field for callers while binding the physical identity
-      // to the leaf and parent-chain values below.
-      realPath: path.join(parent.target.finalPath, leafName),
-      device: entry.device,
-      inode: entry.inode,
-      size: entry.size,
-      mtimeMs: 0,
-      ctimeMs: 0,
-      birthtimeMs: 0,
-      digest: rawSha256(entry.bytes),
-      ancestorChain: Object.freeze(parent.ancestors.map(executableAncestor))
-    });
-    return Object.freeze({ identity, bytes: entry.bytes.byteLength });
+  } catch (error) { primary = { label: 'git-executable-observation', error }; }
+  try {
+    settlePhysicalResources({ primary, cleanup: retained === undefined ? [] : [{
+      label: 'git-executable-observation-release', settle: () => retained!.dispose()
+    }] });
   } catch (error) {
-    if (error instanceof PhysicalNoFollowError
-        && error.code === 'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE') {
-      return { kind: 'unavailable', reason: 'identity' };
+    if (primary === undefined || !Object.is(primary.error, error)) {
+      // The enclosing admission also settles its owned process session, then
+      // propagates this original cleanup failure instead of publishing a ready
+      // provider or losing the raw cause in an identity-unavailable string.
+      return { kind: 'unavailable', reason: 'identity', settlementFailure: {
+        label: 'git-executable-observation-settlement', error
+      } };
     }
-    if (performance.now() > input.deadlineAtMs) return { kind: 'unavailable', reason: 'deadline' };
-    return { kind: 'unavailable', reason: 'identity' };
+    return { kind: 'unavailable', reason: performance.now() > input.deadlineAtMs ? 'deadline' : 'identity' };
   }
-}
-
-function sameGitExecutableIdentity(
-  left: GitExecutableIdentity | null,
-  right: GitExecutableIdentity | null
-): boolean {
-  return left !== null && right !== null
-    && left.path === right.path
-    && left.realPath === right.realPath
-    && left.device === right.device
-    && left.inode === right.inode
-    && left.size === right.size
-    && left.mtimeMs === right.mtimeMs
-    && left.ctimeMs === right.ctimeMs
-    && left.birthtimeMs === right.birthtimeMs
-    && left.digest === right.digest
-    && JSON.stringify(left.ancestorChain) === JSON.stringify(right.ancestorChain);
+  return observation;
 }
 
 function physicalDirectoryChainObservedBytes(chain: PhysicalDirectoryChain): number {
@@ -1094,7 +576,12 @@ function semanticOperationBudget(
 }
 
 function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSession {
+  const startedAt = Date.now();
+  const startedMonotonicAt = performance.now();
   const budget = resolveGitReadSessionBudget(input.budget);
+  const workingDirectoryPath = path.resolve(input.cwd);
+  const requestedDeadlineAt = boundedGitReadDeadlineAt(startedAt, budget, input.deadlineAtUnixMs);
+  const env = Object.freeze(isolatedGitReadEnvironment(input.environment ?? {}, input.source));
   let processResourceSession: ProcessResourceSession | null = null;
   let processOperation: SecBoundSemanticOperation | null = null;
   let processRequirementId: string | null = null;
@@ -1138,10 +625,8 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
       });
     }
   } catch (error) {
-    operationAdmissionFailure = error instanceof Error ? error.message : String(error);
+    operationAdmissionFailure = failureMessage(error);
   }
-  const startedAt = Date.now();
-  const startedMonotonicAt = performance.now();
   const operationAdmissionUnavailable = processResourceSession === null;
   const processOutputBudget = semanticOperationBudget(
     processOperation ?? undefined,
@@ -1158,16 +643,9 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
   const processCountAtStart = processResourceSession?.processCount ?? 0;
   const processInputBytesAtStart = processResourceSession?.inputBytes ?? 0;
   const processOutputBytesAtStart = processResourceSession?.outputBytes ?? 0;
-  const deadlineAt = boundedGitReadDeadlineAt(
-    startedAt,
-    budget,
-    Math.min(
-      input.deadlineAtUnixMs ?? Number.MAX_SAFE_INTEGER,
-      processResourceSession?.deadlineAtUnixMs ?? Number.MAX_SAFE_INTEGER
-    )
-  );
+  const deadlineAt = Math.min(requestedDeadlineAt,
+    processResourceSession?.deadlineAtUnixMs ?? Number.MAX_SAFE_INTEGER);
   const deadlineMonotonicAt = startedMonotonicAt + Math.max(0, deadlineAt - startedAt);
-  const env = Object.freeze(isolatedGitReadEnvironment(input.environment ?? {}, input.source));
   let admissionCancelled = input.signal?.aborted === true;
   let admissionDeadlineExpired = Date.now() >= deadlineAt
     || performance.now() >= deadlineMonotonicAt;
@@ -1176,11 +654,11 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
   if (!operationAdmissionUnavailable && !admissionCancelled && !admissionDeadlineExpired) {
     try {
       workingDirectoryIdentity = inspectNoFollowDirectoryChain(
-        path.resolve(input.cwd),
+        workingDirectoryPath,
         'Git read working directory'
       );
     } catch (error) {
-      workingDirectoryObservationFailure = error instanceof Error ? error.message : String(error);
+      workingDirectoryObservationFailure = failureMessage(error);
     }
   }
   // The no-follow cwd inspection is synchronous, so it cannot be cancelled
@@ -1196,16 +674,16 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
   // Do not even perform executable/PATH discovery when the cwd observation
   // cannot be proved. This keeps an unsafe or unavailable cwd from becoming a
   // transport authority through a later child-process check.
-  const gitExecutable = operationAdmissionUnavailable || admissionCancelled
-      || admissionDeadlineExpired || workingDirectoryIdentity === null
-    ? null
-    : resolveExecutableLocator(
-      'git',
-      {
-        pathValue: gitEnvironmentValue(env, 'PATH') ?? '',
-        cwd: path.resolve(input.cwd)
-      }
-    );
+  let gitExecutable: string | null = null;
+  let executableDiscoveryFailure: string | null = null;
+  if (!operationAdmissionUnavailable && !admissionCancelled && !admissionDeadlineExpired && workingDirectoryIdentity !== null) {
+    try {
+      gitExecutable = resolveExecutableLocator('git', {
+        pathValue: gitEnvironmentValue(env, 'PATH') ?? '', cwd: workingDirectoryPath
+      });
+    } catch (error) { executableDiscoveryFailure = failureMessage(error); }
+  }
+
   if (!admissionCancelled && !admissionDeadlineExpired && (
     Date.now() >= deadlineAt || performance.now() >= deadlineMonotonicAt
   )) {
@@ -1240,30 +718,27 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
       && gitExecutableIdentity !== null
       && processOperation !== null
       && processResourceSession !== null) {
-    const resolution = openGitPhysicalProvider({
-      cwd: workingDirectoryIdentity.target.path,
-      executablePath: gitExecutable,
-      operation: processOperation,
-      processSession: processResourceSession,
-      environment: env,
-      environmentSource: {},
-      maximumExecutableBytes: budget.maxExecutableBytes
-    });
-    if (resolution.status === 'ready') {
-      const physical = resolution.capability.identity.executablePhysical;
-      if (physical.device === gitExecutableIdentity.device
-          && physical.inode === gitExecutableIdentity.inode
-          && resolution.capability.identity.executableSize === gitExecutableIdentity.size
-          && resolution.capability.identity.executableDigest === gitExecutableIdentity.digest) {
+    try {
+      const resolution = openGitPhysicalProvider({
+        cwd: workingDirectoryIdentity.target.path,
+        executablePath: gitExecutable, operation: processOperation,
+        processSession: processResourceSession, environment: env, environmentSource: {},
+        maximumExecutableBytes: budget.maxExecutableBytes
+      });
+      if (resolution.status === 'ready') {
         gitPhysicalProvider = resolution.capability;
+        const physical = resolution.capability.identity.executablePhysical;
+        if (physical.device !== gitExecutableIdentity.device || physical.inode !== gitExecutableIdentity.inode
+            || resolution.capability.identity.executableSize !== gitExecutableIdentity.size
+            || resolution.capability.identity.executableDigest !== gitExecutableIdentity.digest) {
+          retainedAdmissionFailure = 'Git executable identity changed before shared provider retention.';
+        }
       } else {
-        try { closeGitPhysicalProvider(resolution.capability); } catch { /* preserve identity drift */ }
-        retainedAdmissionFailure = 'Git executable identity changed before shared provider retention.';
+        retainedAdmissionFailure = `Git physical provider admission failed: ${resolution.reason}.`;
       }
-    } else {
-      retainedAdmissionFailure = `Git physical provider admission failed: ${resolution.reason}.`;
-    }
+    } catch (error) { retainedAdmissionFailure = failureMessage(error); }
   }
+
   // Retention is synchronous as well.  A slow capability admission must not
   // turn an operation whose absolute deadline elapsed during that admission
   // into a ready session, and it must not leave a retained child boundary
@@ -1273,21 +748,6 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
     Date.now() >= deadlineAt || performance.now() >= deadlineMonotonicAt
   )) {
     admissionDeadlineExpired = true;
-  }
-  if ((admissionCancelled || admissionDeadlineExpired)
-      && gitPhysicalProvider !== null) {
-    let disposalFailure: unknown;
-    try {
-      closeGitPhysicalProvider(gitPhysicalProvider);
-    } catch (error) {
-      disposalFailure = error;
-    }
-    gitPhysicalProvider = null;
-    if (disposalFailure !== undefined && retainedAdmissionFailure === null) {
-      retainedAdmissionFailure = disposalFailure instanceof Error
-        ? disposalFailure.message
-        : String(disposalFailure);
-    }
   }
   let activeProcesses = 0;
   let closed = false;
@@ -1360,6 +820,7 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
       kind: 'unresolved-git-read-session',
       reason: 'command-error',
       detail: 'The trusted Git executable could not be resolved.'
+        + (executableDiscoveryFailure === null ? '' : ` ${executableDiscoveryFailure}`)
     });
   } else if (gitExecutableIdentity === null) {
     failure = Object.freeze({
@@ -1375,7 +836,7 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
           ? 'The trusted Git executable observation exceeded the read-session deadline.'
           : 'The trusted Git executable physical identity could not be observed.'
     });
-  } else if (gitPhysicalProvider === null) {
+  } else if (gitPhysicalProvider === null || retainedAdmissionFailure !== null) {
     failure = Object.freeze({
       kind: 'unresolved-git-read-session',
       reason: 'retained-provider-unavailable',
@@ -1383,6 +844,32 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
         + (retainedAdmissionFailure === null ? '' : ` ${retainedAdmissionFailure}`)
     });
   }
+
+  const settleOwnedResources = (checkBorrowed: boolean, primary?: PhysicalResourceSettlementFailure): void => {
+    const physical = gitPhysicalProvider, processes = processResourceSession;
+    settlePhysicalResources({ primary, cleanup: [
+      ...(physical === null ? [] : [{ label: 'git-physical-provider', settle() {
+        closeGitPhysicalProvider(physical);
+        gitPhysicalProvider = null;
+      } }]),
+      ...(processes === null ? [] : [{ label: ownsProcessResourceSession ? 'git-owned-process-session' : 'git-borrowed-process-observation', settle() {
+        if (ownsProcessResourceSession) {
+          if (processOperation === null || processRequirementId === null) {
+            throw new Error('Git process settlement lacks its bound semantic operation.');
+          }
+          const receipt = processes.close();
+          assertProcessResourceSessionReceipt(receipt, {
+            operationIdentityDigest: processOperation.plan.identity.identityDigest,
+            boundAttemptDigest: processOperation.boundAttemptDigest, requirementId: processRequirementId
+          });
+        } else if (checkBorrowed) {
+          // Borrowing never transfers the parent's close authority, including
+          // failed admission and expired/cancelled terminal observations.
+          processes.cooperativeDeadlineAtUnixMs();
+        }
+      } }])
+    ] });
+  };
 
   const fail = (
     reason: GitReadSessionFailure['reason'],
@@ -1420,7 +907,7 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
       // proof remains current while this handle/metadata/lexical fence holds.
       assertGitPhysicalProviderCurrentInternal(gitPhysicalProvider);
     } catch (error) {
-      fail('command-error', `The retained Git executable changed. ${error instanceof Error ? error.message : String(error)}`);
+      fail('command-error', `The retained Git executable changed. ${failureMessage(error)}`);
       return false;
     }
     if (Date.now() >= deadlineAt || performance.now() > deadlineMonotonicAt) {
@@ -1437,7 +924,7 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
     readonly input?: Uint8Array;
   }> | null = null;
   const session: GitReadSession = {
-    cwd: input.cwd,
+    cwd: workingDirectoryPath,
     gitExecutable: gitExecutable ?? '',
     gitExecutableIdentity,
     providerRoute: 'host-local-git-v1',
@@ -1452,6 +939,7 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
     startedAt,
     deadlineAt,
     get processCount() {
+      if (closeReceipt !== null) return closeReceipt.processCount;
       return Math.max(0, (processResourceSession?.processCount ?? processCountAtStart)
         - processCountAtStart);
     },
@@ -1480,7 +968,7 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
         if (gitPhysicalProvider === null) throw new Error('Git physical provider is unavailable.');
         assertGitPhysicalProviderCurrentInternal(gitPhysicalProvider);
         const current = inspectNoFollowDirectoryChain(
-          path.resolve(input.cwd),
+          workingDirectoryPath,
           'Git read working directory verification'
         );
         const observedBytes = physicalDirectoryChainObservedBytes(current);
@@ -1506,7 +994,7 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
           fail(
             'command-error',
             'The trusted Git working-directory physical identity could not be re-observed.'
-              + (error instanceof Error ? ` ${error.message}` : ` ${String(error)}`)
+              + ` ${failureMessage(error)}`
           );
         }
         return false;
@@ -1525,11 +1013,33 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
       const scratchInvocation = authorizedScratchInvocation?.args === args
         ? authorizedScratchInvocation
         : null;
+      let capturedArgs: ReturnType<typeof captureGitReadArguments>;
+      try { capturedArgs = captureGitReadArguments(args, budget.maxTotalArgumentBytes - argumentBytes); }
+      catch { return fail('command-error', 'Git read session arguments could not be captured.'); }
+      if (capturedArgs.status !== 'ready') {
+        return fail(capturedArgs.status === 'exhausted' ? 'argument-budget-exhausted' : 'command-error',
+          'Git read session command arguments are invalid or exceed the remaining byte budget.');
+      }
+      args = capturedArgs.args;
       if (scratchInvocation === null && !gitReadCommandIsObservation(args)) {
         return fail(
           'operation-not-permitted',
           'Git session rejected command grammar outside its observation capability.'
         );
+      }
+      const commandArgumentBytes = capturedArgs.bytes;
+      let commandInput: Uint8Array | null;
+      try {
+        const suppliedInput = scratchInvocation === null ? options.input : scratchInvocation.input;
+        const inputRemaining = Math.min(budget.maxStdinBytes - stdinBytes,
+          (processInputBudget ?? 0) - (processResourceSession?.inputBytes ?? 0));
+        commandInput = suppliedInput === undefined ? null : snapshotByteView(
+          suppliedInput, 'Git read session stdin', Math.max(0, inputRemaining));
+      } catch (error) {
+        let exceeded = false;
+        try { exceeded = error instanceof RangeError; } catch { /* Caller errors need not be inspectable objects. */ }
+        return fail(exceeded ? 'stdin-budget-exhausted' : 'command-error',
+          'Git read session stdin is invalid or exceeds the remaining input budget.');
       }
       const remainingWallMs = deadlineAt - Date.now();
       const remainingMonotonicMs = deadlineMonotonicAt - performance.now();
@@ -1558,25 +1068,6 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
       }
       if (activeProcesses !== 0) {
         return fail('process-budget-exhausted', 'Git read session does not permit unbounded concurrent processes.');
-      }
-      const commandArgumentBytes = gitReadCommandArgumentBytes(args);
-      if (commandArgumentBytes === null) {
-        return fail('command-error', 'Git read session command arguments are invalid.');
-      }
-      if (argumentBytes + commandArgumentBytes > budget.maxTotalArgumentBytes) {
-        return fail('argument-budget-exhausted', 'Git read session argument-byte budget exhausted.');
-      }
-      if (options.input !== undefined && !(options.input instanceof Uint8Array)) {
-        return fail('command-error', 'Git read session stdin must be one Uint8Array.');
-      }
-      const suppliedInput = scratchInvocation?.input ?? options.input;
-      const commandInput = suppliedInput === undefined ? null : Buffer.from(suppliedInput);
-      if (commandInput !== null && stdinBytes + commandInput.byteLength > budget.maxStdinBytes) {
-        return fail('stdin-budget-exhausted', 'Git read session stdin-byte budget exhausted.');
-      }
-      if (commandInput !== null
-          && commandInput.byteLength > (processInputBudget ?? 0) - (processResourceSession?.inputBytes ?? 0)) {
-        return fail('stdin-budget-exhausted', 'Git operation input-byte budget exhausted.');
       }
       const remainingStdout = budget.maxStdoutBytes - stdoutBytes;
       const remainingStderr = budget.maxStderrBytes - stderrBytes;
@@ -1612,23 +1103,12 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
         );
         admittedStdoutLimit = commandStdoutBytes;
         admittedStderrLimit = commandStderrBytes;
-        const commandOptions = {
-          env: commandEnvironment,
-          envMode: 'replace' as const,
-          ...(commandInput === null ? {} : {
-            input: commandInput,
-            maxStdinBytes: commandInput.byteLength
-          }),
-          timeoutMs: Math.max(1, Math.floor(remainingMs)),
-          maxStdoutBytes: commandStdoutBytes,
-          maxStderrBytes: commandStderrBytes
-        };
         if (processResourceSession === null) {
           return fail('operation-admission-unavailable', 'Git process session is unavailable.');
         }
         const result = (await runGitPhysicalCommandInternal(gitPhysicalProvider, args, {
-          env: commandOptions.env,
-          envMode: commandOptions.envMode,
+          env: commandEnvironment,
+          envMode: 'replace',
           ...(commandInput === null ? {} : {
             input: commandInput,
             maxStdinBytes: commandInput.byteLength
@@ -1670,18 +1150,20 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
           'command-error',
           'The trusted Git executable physical identity could not be verified after child failure.'
         );
-        if (error instanceof RetainedCommandTransportError) {
-          if (error.outcome.stdout.bytes > admittedStdoutLimit) {
+        let transport: RetainedCommandTransportError | undefined;
+        try { if (error instanceof RetainedCommandTransportError) transport = error; } catch { /* Keep the original failure. */ }
+        if (transport !== undefined) {
+          if (transport.outcome.stdout.bytes > admittedStdoutLimit) {
             return fail('stdout-budget-exhausted', 'Git command exceeded its admitted stdout-byte budget.');
           }
-          if (error.outcome.stderr.bytes > admittedStderrLimit) {
+          if (transport.outcome.stderr.bytes > admittedStderrLimit) {
             return fail('stderr-budget-exhausted', 'Git command exceeded its admitted stderr-byte budget.');
           }
-          if (error.outcome.status === 'timed-out') {
+          if (transport.outcome.status === 'timed-out') {
             return fail('deadline-exhausted', 'Git command exhausted the operation deadline.');
           }
         }
-        return fail('command-error', error instanceof Error ? error.message : String(error));
+        return fail('command-error', failureMessage(error));
       } finally {
         activeProcesses -= 1;
         settleRun();
@@ -1734,32 +1216,12 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
             'Git retained provider close exceeded the settlement-attempt budget.'
           );
         }
-        let closeFailure: unknown;
-        try {
-          if (gitPhysicalProvider !== null) closeGitPhysicalProvider(gitPhysicalProvider);
-        } catch (error) {
-          closeFailure = error;
-        }
-        try {
-          if (processResourceSession !== null && ownsProcessResourceSession) {
-            if (processOperation === null || processRequirementId === null) {
-              throw new Error('Git process settlement lacks its bound semantic operation.');
-            }
-            const receipt = processResourceSession.close();
-            assertProcessResourceSessionReceipt(receipt, {
-              operationIdentityDigest: processOperation.plan.identity.identityDigest,
-              boundAttemptDigest: processOperation.boundAttemptDigest,
-              requirementId: processRequirementId
-            });
-          } else if (processResourceSession !== null) {
-            processResourceSession.cooperativeDeadlineAtUnixMs();
-          }
-        } catch (error) {
-          closeFailure ??= error;
-        }
-        gitPhysicalProvider = null;
-        if (closeFailure !== undefined) {
-          fail('command-error', `Git retained provider settlement failed. ${closeFailure instanceof Error ? closeFailure.message : String(closeFailure)}`);
+        try { settleOwnedResources(true); }
+        catch (error) {
+          fail('command-error', `Git retained provider settlement failed. ${failureMessage(error)}`);
+          // No receipt is issued for a failed physical settlement. The cached
+          // rejection also prevents blind double-release on repeated close.
+          throw error;
         }
         const finalProcessCount = processResourceSession?.processCount ?? processCountAtStart;
         const finalInputBytes = processResourceSession?.inputBytes ?? processInputBytesAtStart;
@@ -1842,32 +1304,15 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
     }));
   }
   if (failure !== null) {
-    let admissionSettlementFailure: unknown;
     settlementAttempts += 1;
-    try {
-      if (gitPhysicalProvider !== null) closeGitPhysicalProvider(gitPhysicalProvider);
-    } catch (error) {
-      admissionSettlementFailure = error;
-    }
-    try {
-      processResourceSession?.close();
-    } catch (error) {
-      admissionSettlementFailure ??= error;
-    }
-    gitPhysicalProvider = null;
-    processResourceSession = null;
-    if (admissionSettlementFailure !== undefined) {
-      // Preserve the terminal admission class while binding settlement failure
-      // into the bounded detail presented by the provider projection.
-      const primary = failure;
-      failure = Object.freeze({
-        ...primary,
-        detail: `${primary.detail} Provider admission settlement also failed: ${
-          admissionSettlementFailure instanceof Error
-            ? admissionSettlementFailure.message
-            : String(admissionSettlementFailure)
-        }`
-      });
+    const inspectionSettlement = initialExecutableObservation !== null && 'settlementFailure' in initialExecutableObservation
+      ? initialExecutableObservation.settlementFailure : undefined;
+    const primary = inspectionSettlement ?? { label: 'git-provider-admission', error: failure };
+    try { settleOwnedResources(false, primary); }
+    catch (error) {
+      // Ordinary unavailability stays a typed provider result. Cleanup failure
+      // from either admission layer always propagates with its original causes.
+      if (inspectionSettlement !== undefined || !Object.is(error, failure)) throw error;
     }
   }
   return issuedSession;
@@ -1992,6 +1437,8 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
   readonly gitReadSession: GitReadSession;
   readonly scratchRoot: string;
 }>): Promise<GitScratchIndexTreeResolution> {
+  const { gitReadSession, scratchRoot: requestedScratchRoot } = input;
+  input = Object.freeze({ gitReadSession, scratchRoot: requestedScratchRoot });
   if (!isProductionGitReadSession(input.gitReadSession)) {
     return Object.freeze({ status: 'unavailable', reason: 'production-session-required' });
   }
@@ -2109,6 +1556,11 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
       GIT_ALTERNATE_OBJECT_DIRECTORIES: retainedRepositoryObjectsCapability.childPath
     }, input.gitReadSession.env));
     let closed = false;
+    let closing = false;
+    let closeResult: Promise<GitScratchIndexTreeFailureReason | null> | null = null;
+    let activeSettlement: Promise<void> | null = null;
+    let primaryFailure: PhysicalResourceSettlementFailure | undefined;
+    let failedIndexRetirement: Readonly<{ capability: RetainedNoFollowOrdinaryFile; error: unknown }> | undefined;
     let terminalFailure: GitScratchIndexTreeFailureReason | null = null;
     const unavailable = <T>(
       reason: GitScratchIndexTreeFailureReason,
@@ -2120,6 +1572,34 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
         reason: terminalFailure,
         ...(detail === undefined ? {} : { detail })
       });
+    };
+    const operate = <T>(operation: () => Promise<GitScratchIndexTreeResult<T>>): Promise<GitScratchIndexTreeResult<T>> => {
+      if (closed || closing) return Promise.resolve(unavailable('closed'));
+      if (activeSettlement !== null) return Promise.resolve(unavailable('session-failed', 'Git scratch operations are non-reentrant.'));
+      let settled!: () => void;
+      activeSettlement = new Promise<void>(resolve => { settled = resolve; });
+      // Invoke synchronously so data snapshots precede caller mutation after
+      // invocation, while ownership already rejects nested/admitted work.
+      let result: Promise<GitScratchIndexTreeResult<T>>;
+      try { result = Promise.resolve(operation()); }
+      catch (error) { result = Promise.reject(error); }
+      const outcome = result.then(value => terminalFailure === null ? value : unavailable<T>(terminalFailure));
+      void outcome.then(() => undefined, error => {
+        primaryFailure ??= { label: 'git-scratch-operation', error };
+        terminalFailure ??= 'session-failed';
+      }).finally(() => { activeSettlement = null; settled(); });
+      return outcome;
+    };
+    const releaseScratchIndexForUpdate = (): void => {
+      const previous = scratchIndexCapability;
+      scratchIndexCapability = null;
+      if (previous === null) return;
+      try { previous.dispose(); }
+      catch (error) {
+        failedIndexRetirement = { capability: previous, error };
+        terminalFailure ??= 'scratch-index-changed';
+        throw error;
+      }
     };
     const assertCurrent = (): boolean => {
       if (closed) {
@@ -2166,33 +1646,6 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
     };
     const run = (args: readonly string[]): Promise<GitReadSessionCommand | null> =>
       runWithInput(args, environment());
-    const validateIndexDelta = (input: GitScratchIndexTreeDelta): string | null => {
-      if (!Array.isArray(input.additions) || !Array.isArray(input.removals)) {
-        return 'Git scratch index delta must contain additions and removals arrays.';
-      }
-      const seenPaths = new Set<string>();
-      const validatePath = (value: unknown): value is string => {
-        if (typeof value !== 'string' || value.length === 0 || value.includes('\0')
-            || value.includes('\\') || value.startsWith('/') || value.startsWith('../')
-            || value.includes('/../') || value === '..' || value.startsWith('./')
-            || value.includes('/./')) return false;
-        if (seenPaths.has(value)) return false;
-        seenPaths.add(value);
-        return true;
-      };
-      for (const addition of input.additions) {
-        if (addition === null || typeof addition !== 'object'
-            || !validatePath(addition.path) || !(addition.bytes instanceof Uint8Array)) {
-          return 'Git scratch index delta contains an invalid addition.';
-        }
-      }
-      for (const removal of input.removals) {
-        if (!validatePath(removal)) {
-          return 'Git scratch index delta contains an invalid removal.';
-        }
-      }
-      return null;
-    };
     const writeTreeInEnvironment = async (
       commandEnvironment: Readonly<Record<string, string>>
     ): Promise<GitScratchIndexTreeResult<string>> => {
@@ -2213,14 +1666,15 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
       commandEnvironment: () => Readonly<Record<string, string>>
     ): Promise<GitScratchIndexTreeResult<string>> => {
       if (terminalFailure !== null) return unavailable(terminalFailure);
-      const validationFailure = validateIndexDelta(input);
-      if (validationFailure !== null) return unavailable('session-failed', validationFailure);
+      try { input = captureGitScratchIndexDelta(input, objectFormat,
+        gitReadSession.budget.maxStdinBytes - (gitReadSession.stdinBytes ?? 0)); }
+      catch (error) { return unavailable('session-failed', failureMessage(error)); }
       const indexUpdates: string[] = [];
       for (const addition of input.additions) {
         const command = await runWithInput(
           Object.freeze(['hash-object', '-w', '--stdin']),
           commandEnvironment(),
-          Buffer.from(addition.bytes)
+          addition.bytes
         );
         if (command === null || command.kind !== 'completed' || command.result.code !== 0) {
           return unavailable(
@@ -2240,9 +1694,7 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
         indexUpdates.push(`100644 ${objectId}\t${addition.path}\0`);
       }
       if (indexUpdates.length > 0) {
-        const previousScratchIndex = scratchIndexCapability;
-        scratchIndexCapability = null;
-        try { previousScratchIndex?.dispose(); } catch { /* preserve the command result */ }
+        releaseScratchIndexForUpdate();
         const command = await runWithInput(
           Object.freeze(['update-index', '-z', '--index-info']),
           commandEnvironment(),
@@ -2253,7 +1705,7 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
         } catch (error) {
           return unavailable(
             terminalFailure ?? 'scratch-index-changed',
-            error instanceof Error ? error.message : String(error)
+            failureMessage(error)
           );
         }
         if (command === null || command.kind !== 'completed' || command.result.code !== 0) {
@@ -2268,9 +1720,7 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
         }
       }
       if (input.removals.length > 0) {
-        const previousScratchIndex = scratchIndexCapability;
-        scratchIndexCapability = null;
-        try { previousScratchIndex?.dispose(); } catch { /* preserve the command result */ }
+        releaseScratchIndexForUpdate();
         const command = await runWithInput(
           Object.freeze(['update-index', '--remove', '-z', '--stdin']),
           commandEnvironment(),
@@ -2281,7 +1731,7 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
         } catch (error) {
           return unavailable(
             terminalFailure ?? 'scratch-index-changed',
-            error instanceof Error ? error.message : String(error)
+            failureMessage(error)
           );
         }
         if (command === null || command.kind !== 'completed' || command.result.code !== 0) {
@@ -2299,19 +1749,20 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
     };
     const applyIndexDelta = async (
       input: GitScratchIndexTreeDelta
-    ): Promise<GitScratchIndexTreeResult<string>> => applyIndexDeltaToEnvironment(input, environment);
+    ): Promise<GitScratchIndexTreeResult<string>> => operate(() => applyIndexDeltaToEnvironment(input, environment));
     const materializeIndexDelta = async (
       input: GitScratchIndexTreeDelta
-    ): Promise<GitScratchIndexTreeResult<string>> => applyIndexDeltaToEnvironment(input, repositoryEnvironment);
+    ): Promise<GitScratchIndexTreeResult<string>> => operate(() => applyIndexDeltaToEnvironment(input, repositoryEnvironment));
     const scratchSession: GitScratchIndexTreeSession = Object.freeze({
       scratchRoot,
       objectFormat,
       applyIndexDelta,
       materializeIndexDelta,
       async writeTree(): Promise<GitScratchIndexTreeResult<string>> {
-        return writeTreeInEnvironment(environment());
+        return operate(() => writeTreeInEnvironment(environment()));
       },
       async commitTree(commitInput: GitCommitTreeInput): Promise<GitScratchIndexTreeResult<string>> {
+        return operate(async () => {
         if (terminalFailure !== null) return unavailable(terminalFailure);
         const canonical = canonicalCommitTreeInput(commitInput);
         if (canonical === null) return unavailable('session-failed');
@@ -2338,54 +1789,65 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
           return unavailable('session-failed');
         }
         return Object.freeze({ status: 'ready', value });
+        });
       },
       async observe(args: readonly string[]): Promise<GitScratchIndexTreeResult<ByteCommandResult>> {
+        return operate(async () => {
         if (terminalFailure !== null) return unavailable(terminalFailure);
-        if (!gitReadCommandIsObservation(args)) {
+        let captured: ReturnType<typeof captureGitReadArguments>;
+        try { captured = captureGitReadArguments(args, input.gitReadSession.budget.maxTotalArgumentBytes); }
+        catch { return unavailable('session-failed', 'Scratch observation arguments could not be captured.'); }
+        if (captured.status !== 'ready' || !gitReadCommandIsObservation(captured.args)) {
           return unavailable('session-failed');
         }
-        const result = await run(Object.freeze([...args]));
+        const result = await run(captured.args);
         if (result === null) return unavailable(terminalFailure ?? 'session-failed');
         if (result.kind !== 'completed') {
           return unavailable('session-failed');
         }
         return Object.freeze({ status: 'ready', value: result.result });
+        });
       },
       async close(): Promise<GitScratchIndexTreeFailureReason | null> {
-        if (closed) return terminalFailure;
-        assertCurrent();
-        const failures: unknown[] = [];
-        for (const capability of [
-          retainedRepositoryIndexCapability,
-          scratchIndexCapability,
-          retainedScratchObjectsCapability,
-          retainedRepositoryObjectsCapability
-        ]) {
-          try { capability?.dispose(); } catch (error) { failures.push(error); }
-        }
-        closed = true;
-        if (failures.length > 0) {
-          terminalFailure ??= 'scratch-identity-changed';
-        }
-        return terminalFailure;
+        if (closeResult !== null) return closeResult;
+        closing = true;
+        closeResult = (async () => {
+          // Closing denies new operations but lets the admitted one finish. No
+          // retained index/object directory is released beneath an active child.
+          if (activeSettlement !== null) await activeSettlement;
+          assertCurrent();
+          const prior = primaryFailure ?? (failedIndexRetirement === undefined ? undefined : {
+            label: 'git-scratch-index-retirement', error: failedIndexRetirement.error
+          });
+          settlePhysicalResources({ primary: prior, cleanup: [
+            { label: 'git-repository-index', capability: retainedRepositoryIndexCapability },
+            { label: 'git-scratch-index', capability: scratchIndexCapability },
+            { label: 'git-scratch-object-directory', capability: retainedScratchObjectsCapability },
+            { label: 'git-repository-object-directory', capability: retainedRepositoryObjectsCapability }
+          ].filter(entry => entry.capability !== null).map(({ label, capability }) => ({
+            label, settle: () => capability!.dispose()
+          })) });
+          closed = true;
+          return terminalFailure;
+        })();
+        return closeResult;
       }
     });
     return Object.freeze({ status: 'ready', session: scratchSession });
   } catch (error) {
-    for (const capability of [
-      repositoryIndexCapability,
-      scratchIndexCapability,
-      scratchObjectsCapability,
-      repositoryObjectsCapability
-    ]) {
-      try { capability?.dispose(); } catch { /* preserve the primary admission error */ }
+    try {
+      settlePhysicalResources({ primary: { label: 'git-scratch-admission', error }, cleanup: [
+        { label: 'git-repository-index', capability: repositoryIndexCapability },
+        { label: 'git-scratch-index', capability: scratchIndexCapability },
+        { label: 'git-scratch-object-directory', capability: scratchObjectsCapability },
+        { label: 'git-repository-object-directory', capability: repositoryObjectsCapability }
+      ].filter(entry => entry.capability !== null).map(({ label, capability }) => ({ label, settle: () => capability!.dispose() })) });
+    } catch (settlementError) {
+      if (!Object.is(settlementError, error)) throw settlementError;
     }
-    return Object.freeze({
-      status: 'unavailable',
-      reason: error instanceof PhysicalNoFollowError
-        ? 'retained-provider-unavailable'
-        : 'invalid-scratch-layout'
-    });
+    let physicalFailure = false;
+    try { physicalFailure = error instanceof PhysicalNoFollowError; } catch { /* Classification must not replace the original failure. */ }
+    return Object.freeze({ status: 'unavailable', reason: physicalFailure ? 'retained-provider-unavailable' : 'invalid-scratch-layout' });
   }
 }
 
@@ -2399,14 +1861,17 @@ export async function materializeAuthorityDevelopmentCommitObject(input: Readonl
   readonly gitReadSession: GitReadSession;
   readonly contract: GitDevelopmentCommitContract;
 }>): Promise<GitDevelopmentCommitEffectResult> {
-  const owner = authorizedDevelopmentCommitOwner(input.gitReadSession, input.contract);
+  const session = input.gitReadSession;
+  const contract = captureGitDevelopmentCommitContract(input.contract);
+  if (contract === null) return Object.freeze({ status: 'unavailable', reason: 'invalid-contract' });
+  const owner = authorizedDevelopmentCommitOwner(session, contract);
   if (owner === null) {
     return Object.freeze({ status: 'unavailable', reason: 'operation-not-authorized' });
   }
-  if (path.resolve(input.gitReadSession.cwd) !== input.contract.worktreeRoot) {
+  if (path.resolve(session.cwd) !== contract.worktreeRoot) {
     return Object.freeze({ status: 'unavailable', reason: 'invalid-contract' });
   }
-  const environment = commitEnvironment(input.contract, input.gitReadSession.env);
+  const environment = commitEnvironment(contract, session.env);
   const tree = await owner.run(Object.freeze(['write-tree']), environment);
   if (tree.kind !== 'completed' || tree.result.code !== 0) {
     return Object.freeze({
@@ -2418,16 +1883,16 @@ export async function materializeAuthorityDevelopmentCommitObject(input: Readonl
     });
   }
   const observedTree = Buffer.from(tree.result.stdout).toString('utf8').trim();
-  if (observedTree !== input.contract.tree) {
+  if (observedTree !== contract.tree) {
     return Object.freeze({ status: 'unavailable', reason: 'index-drift' });
   }
   const commit = await owner.run(
     Object.freeze([
-      'commit-tree', input.contract.tree,
-      ...input.contract.parents.flatMap((parent) => ['-p', parent])
+      'commit-tree', contract.tree,
+      ...contract.parents.flatMap((parent) => ['-p', parent])
     ]),
     environment,
-    Buffer.from(input.contract.message, 'utf8')
+    Buffer.from(contract.message, 'utf8')
   );
   if (commit.kind !== 'completed' || commit.result.code !== 0) {
     return Object.freeze({
@@ -2439,7 +1904,7 @@ export async function materializeAuthorityDevelopmentCommitObject(input: Readonl
     });
   }
   const object = Buffer.from(commit.result.stdout).toString('utf8').trim();
-  if (object !== input.contract.target) {
+  if (object !== contract.target) {
     return Object.freeze({ status: 'unavailable', reason: 'target-mismatch' });
   }
   return Object.freeze({ status: 'completed', object });
@@ -2485,17 +1950,20 @@ export async function compareAndSwapAuthorityDevelopmentCommitRef(input: Readonl
   readonly gitReadSession: GitReadSession;
   readonly contract: GitDevelopmentCommitContract;
 }>): Promise<GitDevelopmentCommitEffectResult> {
-  const owner = authorizedDevelopmentCommitOwner(input.gitReadSession, input.contract);
+  const session = input.gitReadSession;
+  const contract = captureGitDevelopmentCommitContract(input.contract);
+  if (contract === null) return Object.freeze({ status: 'unavailable', reason: 'invalid-contract' });
+  const owner = authorizedDevelopmentCommitOwner(session, contract);
   if (owner === null) {
     return Object.freeze({ status: 'unavailable', reason: 'operation-not-authorized' });
   }
-  if (path.resolve(input.gitReadSession.cwd) !== input.contract.worktreeRoot) {
+  if (path.resolve(session.cwd) !== contract.worktreeRoot) {
     return Object.freeze({ status: 'unavailable', reason: 'invalid-contract' });
   }
   const update = await owner.run(Object.freeze([
     'update-ref', '--create-reflog', '-m', 'development.commit',
-    input.contract.ref, input.contract.target, input.contract.expectedOld
-  ]), input.gitReadSession.env);
+    contract.ref, contract.target, contract.expectedOld
+  ]), session.env);
   if (update.kind !== 'completed') {
     return Object.freeze({
       status: 'unavailable',
@@ -2504,8 +1972,8 @@ export async function compareAndSwapAuthorityDevelopmentCommitRef(input: Readonl
     });
   }
   return update.result.code === 0
-    ? Object.freeze({ status: 'completed', object: input.contract.target })
-    : Object.freeze({ status: 'cas-conflict', object: input.contract.target });
+    ? Object.freeze({ status: 'completed', object: contract.target })
+    : Object.freeze({ status: 'cas-conflict', object: contract.target });
 }
 
 /**
