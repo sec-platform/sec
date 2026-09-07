@@ -39,8 +39,8 @@
     "deps:ensure": "\"$npm_execpath\" ./src/development/runner/cli.ts deps:ensure",
     "hooks:install": "\"$npm_execpath\" ./src/development/hooks/install.ts",
     "postinstall": "\"$npm_execpath\" ./src/development/hooks/install.ts --lifecycle",
-    "unused": "knip --include files,dependencies,devDependencies,unlisted",
-    "jscpd": "jscpd src/ --reporters console --format typescript,javascript --ignore \"**/node_modules/**,**/dist/**,**/*.test.ts,**/*.d.ts,**/upgrade/**,.tmp/**\" --min-lines 5 --min-tokens 50 --absolute",
+    "unused": "knip --include files,dependencies,devDependencies,unlisted,exports,types",
+    "jscpd": "jscpd src/ tests/ --reporters console --format typescript,javascript --ignore \"**/node_modules/**,**/dist/**,.tmp/**\" --max-lines 100000 --max-size 2mb --min-lines 5 --min-tokens 50 --absolute",
     "audit:static": "\"$npm_execpath\" run audit:source-program",
     "audit:module-topology": "\"$npm_execpath\" src/brownfield/repository-audit/cli.ts --worktree-module-topology --enforce",
     "audit:source-program": "\"$npm_execpath\" src/brownfield/repository-audit/cli.ts --worktree-source-program --enforce",
@@ -53,7 +53,7 @@
     "check": "\"$npm_execpath\" run check:fast",
     "check:affected": "\"$npm_execpath\" ./src/development/runner/cli.ts check:affected",
     "check:fast": "\"$npm_execpath\" ./src/development/runner/cli.ts check:fast",
-    "check:full": "\"$npm_execpath\" run imports:check --all && \"$npm_execpath\" run typecheck && \"$npm_execpath\" run docs:doctor && \"$npm_execpath\" run test:full"
+    "check:full": "\"$npm_execpath\" run imports:check --all && \"$npm_execpath\" run audit:static && \"$npm_execpath\" run unused && \"$npm_execpath\" run jscpd && \"$npm_execpath\" run typecheck && \"$npm_execpath\" run docs:doctor && \"$npm_execpath\" run test:full"
   },
   "dependencies": {
     "commander": "^15.0.0",

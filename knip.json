@@ -6,14 +6,18 @@
     "src/control/agent/operation-read-plan.ts!",
     "src/control/agent/skill-applicability.ts!",
     "src/control/agent/task-capsule-host.ts!",
-    "tests/unit/worktree-physical-closeout-crash-fixture.ts!"
+    "tests/unit/worktree-physical-closeout-crash-fixture.ts"
   ],
   "project": [
-    "src/**/*.ts!",
-    "tests/**/*.ts!"
+    "src/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}!",
+    "!src/**/*.{test,spec}.{ts,tsx,mts,cts,js,jsx,mjs,cjs}!",
+    "tests/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}"
   ],
   "bun": {
-    "entry": ["src/**/*.{test,spec}.ts!", "tests/**/*.{test,spec}.ts!"]
+    "entry": [
+      "src/**/*.{test,spec}.{ts,tsx,mts,cts,js,jsx,mjs,cjs}",
+      "tests/**/*.{test,spec}.{ts,tsx,mts,cts,js,jsx,mjs,cjs}"
+    ]
   },
   "includeEntryExports": false
 }

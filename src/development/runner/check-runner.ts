@@ -1,4 +1,5 @@
 import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
+import { executeFastCheckStages } from './fast-check-stages.ts';
 import { isAffectedSelectionFailClosed } from '../../verification/test-impact/affected.ts';
 import {
   affectedTestPlanExitCode,
@@ -177,33 +178,40 @@ export async function runFastCheck(options: FastCheckExecutionOptions = {}): Pro
 
   const compilerDependencies = await options.prepareCompilerDependencies();
 
-  console.log('Running fast check: imports:check -> docs:doctor + typecheck (parallel) -> test:fast');
+  console.log('Running fast check: imports:check -> audit:static -> docs:doctor + typecheck (parallel) -> test:fast');
 
-  const { runImportCheck } = await import('./import-organizer.ts');
-  const importsOutcome = await runImportCheck({});
-  if (importsOutcome.status !== 'canonical') {
-    console.error(
-      `Imports need transform (needs-import-transform) in ${importsOutcome.files.length} file(s):\n`
-      + `${importsOutcome.files.map((file) => `- ${file}`).join('\n')}\nRun bun run imports:apply.`
-    );
-    return 1;
-  }
-
-  const { runDevCommand } = await import('./command-runner.ts');
-  const { runTypecheckWithDependencyRoot } = await import('./typecheck-runner.ts');
-  const typecheck = () => runTypecheckWithDependencyRoot(compilerDependencies);
-
-  const [docsCode, typecheckCode] = await Promise.all([
-    runDevCommand('bun', ['src/control/documentation/doctor/cli.ts'], {}),
-    typecheck()
-  ]);
-  if (docsCode !== 0) return docsCode;
-  if (typecheckCode !== 0) return typecheckCode;
-
-  const { withHeavyVerificationGateLease } = await import('../../verification/gate/state/heavy-lease.ts');
-  const { runFastTests } = await import('./test-runner.ts');
-  return withHeavyVerificationGateLease('test:fast', () => runFastTests([], compilerDependencies), {
-    namespace: 'test:fast',
-    waitTimeoutMs: 5000
+  return executeFastCheckStages({
+    imports: async () => {
+      const { runImportCheck } = await import('./import-organizer.ts');
+      const outcome = await runImportCheck({});
+      if (outcome.status === 'canonical') return 0;
+      console.error(
+        `Imports need transform (needs-import-transform) in ${outcome.files.length} file(s):\n`
+        + `${outcome.files.map(file => `- ${file}`).join('\n')}\nRun bun run imports:apply.`
+      );
+      return 1;
+    },
+    sourceAudit: async () => {
+      // The existing enforced audit already includes executable tests and
+      // their value/retirement contracts. No parallel test-quality parser.
+      const { runDevCommand } = await import('./command-runner.ts');
+      return runDevCommand('bun', ['run', 'audit:static'], {});
+    },
+    documentation: async () => {
+      const { runDevCommand } = await import('./command-runner.ts');
+      return runDevCommand('bun', ['src/control/documentation/doctor/cli.ts'], {});
+    },
+    types: async () => {
+      const { runTypecheckWithDependencyRoot } = await import('./typecheck-runner.ts');
+      return runTypecheckWithDependencyRoot(compilerDependencies);
+    },
+    tests: async () => {
+      const { withHeavyVerificationGateLease } = await import('../../verification/gate/state/heavy-lease.ts');
+      const { runFastTests } = await import('./test-runner.ts');
+      return withHeavyVerificationGateLease('test:fast', () => runFastTests([], compilerDependencies), {
+        namespace: 'test:fast',
+        waitTimeoutMs: 5000
+      });
+    }
   });
 }
