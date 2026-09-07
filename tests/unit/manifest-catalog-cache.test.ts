@@ -3,20 +3,23 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, unlinkSync } from 'node:
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { test } from 'bun:test';
-import YAML from 'yaml';
+import YAML, { type Document } from 'yaml';
 import { loadAllManifests, loadManifestById } from '../../src/compiler/parse/load-manifest.ts';
 import { manifestCache } from '../../src/compiler/parse/manifest-cache.ts';
 import type { PlanRegistrySource } from '../../src/compiler/contract.ts';
 
 // Native runs use the actual YAML parser, semantic validator and retained reads.
-// Local replay declares JSON-subset/physical/semantic boundary adapters. The
-// counter wraps the selected parser; it is not a wall-time performance gate.
+// The counter wraps the existing Document value-decoding boundary. Both the
+// strict parser and previous YAML.parse use this library operation; cache hits
+// must not decode again. It is not a wall-time performance gate.
 async function using(run: (f: ReturnType<typeof fixture>, parses: () => number) => Promise<void>) {
-  const f = fixture(); const original = YAML.parse; let parsed = 0;
-  YAML.parse = ((...args: Parameters<typeof YAML.parse>) => { parsed++; return original(...args); }) as typeof YAML.parse;
+  const f = fixture(); const original = YAML.Document.prototype.toJS; let parsed = 0;
+  YAML.Document.prototype.toJS = function (this: Document, ...args: Parameters<typeof original>) {
+    parsed++; return Reflect.apply(original, this, args);
+  };
   manifestCache.clear();
   try { await run(f, () => parsed); }
-  finally { YAML.parse = original; manifestCache.clear(); rmSync(f.root, { recursive: true, force: true }); }
+  finally { YAML.Document.prototype.toJS = original; manifestCache.clear(); rmSync(f.root, { recursive: true, force: true }); }
 }
 function fixture() {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-manifest-catalog-'));

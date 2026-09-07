@@ -2,29 +2,11 @@ import type { AcceptanceItem } from '../../semantic/acceptance/contract/types.ts
 import type { ManifestGenerator } from '../../semantic/generation/contract/types.ts';
 import type { RegistryKind, RegistryLocation } from '../registry/contract/types.ts';
 
-export type PackageManager = 'pnpm' | 'npm' | 'yarn';
-export type AppMode = 'single-tenant' | 'multi-tenant';
+import type { PlanApp, PlanRegistry, PlanBlock } from './plan-schema.ts';
+export type { PackageManager, AppMode, PlanApp, PlanRegistrySource, PlanRegistry, PlanBlock } from './plan-schema.ts';
+
 export const MANIFEST_KINDS = ['capability', 'strategy', 'infra', 'governance'] as const;
-
 export type ManifestKind = (typeof MANIFEST_KINDS)[number];
-
-export interface PlanApp {
-  id: string;
-  name: string;
-  stack: string;
-  packageManager: PackageManager;
-  mode: AppMode;
-}
-
-export interface PlanRegistrySource {
-  id: string;
-  kind: RegistryKind;
-  location: RegistryLocation;
-  path: string;
-}
-
-export interface PlanRegistry { sources: PlanRegistrySource[]; }
-export interface PlanBlock { id: string; version?: string; }
 
 export interface PlanFile {
   app: PlanApp;

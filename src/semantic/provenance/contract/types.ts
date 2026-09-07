@@ -1,10 +1,11 @@
 import type { RegistryKind, RegistryLocation } from '../../../compiler/registry/contract/types.ts';
+import type { OverrideSource, OverrideManifest } from './override-schema.ts';
+export type { OverrideSource, OverrideEntry, OverrideManifest } from './override-schema.ts';
 
 export const PROVENANCE_FORMAT_VERSION = '1' as const;
 
 export type ProvenanceOriginType = 'block' | 'generated' | 'override';
-export type OverrideStatus = 'none' | 'manual' | 'rule-backed';
-export type OverrideSource = 'manual' | 'rule-backed';
+export type OverrideStatus = 'none' | OverrideSource;
 
 export interface ProvenanceArtifact {
   path: string;
@@ -31,19 +32,6 @@ export interface ProvenanceArtifact {
 export interface ProvenanceFile {
   formatVersion: typeof PROVENANCE_FORMAT_VERSION;
   artifacts: ProvenanceArtifact[];
-}
-
-export interface OverrideEntry {
-  id: string;
-  entry: string;
-  target: string;
-  reason: string;
-  source: OverrideSource;
-  conflictsWith: string[];
-}
-
-export interface OverrideManifest {
-  overrides: OverrideEntry[];
 }
 
 export function emptyOverrideManifest(): OverrideManifest {

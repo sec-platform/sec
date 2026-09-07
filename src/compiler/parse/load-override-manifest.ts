@@ -1,13 +1,13 @@
 import path from 'node:path';
 
-import YAML from 'yaml';
-import { z } from 'zod';
+import { parseYamlValue } from '../../system-architecture/foundation/runtime/yaml.ts';
+import { failureMessage } from '../../system-architecture/foundation/runtime/failure-inspection.ts';
+import { OverrideManifestSchema } from '../../semantic/provenance/contract/override-schema.ts';
 
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
-import type { OverrideEntry, OverrideManifest } from '../../semantic/provenance/contract/types.ts';
+import type { OverrideManifest } from '../../semantic/provenance/contract/types.ts';
 import { isCanonicalPortableLogicalPath, portableLogicalPathCollisionKey } from '../../system-architecture/foundation/contract/logical-path.ts';
 import { modelRelativePath } from '../../workspace/contract/types.ts';
-import { pathEntryExists } from '../../workspace/files.ts';
 import {
   getWorkspacePaths,
   packageJsonRelativePath,
@@ -26,24 +26,8 @@ const BLOCKED_OVERRIDE_TARGETS = new Set<string>([
   packageJsonRelativePath,
   tsconfigRelativePath
 ]);
-const OVERRIDE_ID = /^[a-z0-9](?:[a-z0-9_-]{0,126}[a-z0-9])?$/u;
-
-const overrideEntrySchema = z.object({
-  id: z.string().regex(OVERRIDE_ID),
-  entry: z.string().min(1),
-  target: z.string().min(1),
-  reason: z.string().trim().min(1),
-  source: z.enum(['manual', 'rule-backed']).default('manual'),
-  conflictsWith: z.array(z.string().regex(OVERRIDE_ID)).default([])
-}).strict();
-
-const overrideManifestSchema = z.object({
-  overrides: z.array(overrideEntrySchema).default([])
-}).strict();
-
-function schemaError(message: string): never {
-  throw new CompilerError('OVERRIDE-SCHEMA-001', message);
-}
+export const OVERRIDE_YAML_MAX_INPUT_BYTES = 1024 * 1024;
+export const OVERRIDE_YAML_MAX_ALIAS_COUNT = 100;
 
 function requireCanonicalOverridePath(kind: string, value: string): void {
   if (!isCanonicalPortableLogicalPath(value)) {
@@ -54,7 +38,17 @@ function requireCanonicalOverridePath(kind: string, value: string): void {
   }
 }
 
-export function validateOverrideManifest(manifest: OverrideManifest): OverrideManifest {
+export function validateOverrideManifest(input: unknown): OverrideManifest {
+  const parsed = OverrideManifestSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new CompilerError('OVERRIDE-SCHEMA-001',
+      `Override manifest violates the exact schema: ${parsed.error.issues
+        .map(issue => `${issue.path.join('.') || '<root>'}: ${issue.message}`).join('; ')}`,
+      {}, { cause: parsed.error });
+  }
+  // The library already returns an independent decoded value. Do not hand-map
+  // every field into a second DTO or re-parse it on the file-loading path.
+  const manifest = parsed.data;
   const ids = new Set<string>();
   const targetOwners = new Map<string, string>();
 
@@ -124,32 +118,16 @@ export async function resolveOverrideManifestPath(workspaceRoot: string): Promis
 function parseOverrideManifest(source: string, filePath: string): OverrideManifest {
   let raw: unknown;
   try {
-    raw = YAML.parse(source) as unknown;
+    raw = parseYamlValue(source, { label: `Override manifest ${filePath}`,
+      maximumInputBytes: OVERRIDE_YAML_MAX_INPUT_BYTES,
+      stringKeys: true, maximumAliasCount: OVERRIDE_YAML_MAX_ALIAS_COUNT });
   } catch (error) {
-    throw new CompilerError(
-      'OVERRIDE-SCHEMA-001',
-      `Override manifest is not valid YAML: ${filePath}`,
-      { cause: error instanceof Error ? error.message : String(error) }
-    );
+    throw new CompilerError('OVERRIDE-SCHEMA-001', `Override manifest is not valid YAML: ${filePath}`,
+      { cause: failureMessage(error) }, { cause: error });
   }
-  const parsed = overrideManifestSchema.safeParse(raw ?? {});
-  if (!parsed.success) {
-    schemaError(
-      `Override manifest violates the exact schema: ${parsed.error.issues
-        .map((issue) => `${issue.path.join('.') || '<root>'}: ${issue.message}`)
-        .join('; ')}`
-    );
-  }
-  return {
-    overrides: parsed.data.overrides.map((entry): OverrideEntry => ({
-      id: entry.id,
-      entry: entry.entry,
-      target: entry.target,
-      reason: entry.reason,
-      source: entry.source,
-      conflictsWith: [...entry.conflictsWith]
-    }))
-  };
+  // Preserve empty YAML's existing empty-manifest interpretation. Runtime
+  // schema validation still precedes cross-record/path/ownership decisions.
+  return validateOverrideManifest(raw ?? {});
 }
 
 export async function loadOverrideManifest(workspaceRoot: string): Promise<OverrideManifest> {
@@ -160,5 +138,5 @@ export async function loadOverrideManifest(workspaceRoot: string): Promise<Overr
   );
   if (bytes === null) return { overrides: [] };
   const source = decodeExactUtf8(bytes, 'Override manifest');
-  return validateOverrideManifest(parseOverrideManifest(source, overrideManifestPath));
+  return parseOverrideManifest(source, overrideManifestPath);
 }

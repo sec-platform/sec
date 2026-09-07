@@ -1,13 +1,14 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import type { DocsDoctorFrontmatter } from './frontmatter.ts';
+export { parseFrontmatter, VALID_STATUS, ACTIVE_POINTER_STATUS } from './frontmatter.ts';
+export type { DocsDoctorFrontmatter } from './frontmatter.ts';
 
 import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../system-architecture/foundation/contract/repository-path.ts';
 import type { DocumentationAuthorityRecord } from '../authority.ts';
 
 export const DOCUMENT_AUTHORITY_REGISTRY_PATH = 'docs/authority.json';
 
-export const VALID_STATUS = new Set(['stable', 'active', 'draft', 'historical', 'archive']);
-export const ACTIVE_POINTER_STATUS = new Set([...VALID_STATUS, 'conditional']);
 export const EXCLUDED_DOC_PREFIXES = [
   'docs/archive/',
   'docs/evidence/',
@@ -73,14 +74,6 @@ export interface DocsDoctorScanOptions {
   changedDocumentPaths?: ReadonlySet<string> | null;
 }
 
-export interface DocsDoctorFrontmatter {
-  ok: boolean;
-  status?: string;
-  domain?: string;
-  generatedFrom?: string;
-  reason?: string;
-}
-
 export function posixRelative(root: string, file: string): string {
   return path.relative(root, file).split(path.sep).join('/');
 }
@@ -125,32 +118,6 @@ export async function* walk(dir: string, root = dir): AsyncGenerator<string> {
       yield full;
     }
   }
-}
-
-export function parseFrontmatter(
-  content: string,
-  validStatus = VALID_STATUS
-): DocsDoctorFrontmatter {
-  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u);
-  if (!match) {
-    return {
-      ok: false,
-      reason: content.startsWith('---') ? 'unterminated frontmatter' : 'missing frontmatter'
-    };
-  }
-  const value = (name: string): string | undefined => {
-    const field = match[1]!.match(new RegExp(`^${name}:\\s*([^\\s#]+)\\s*(?:#.*)?$`, 'mu'));
-    return field?.[1]?.replace(/^['"]|['"]$/gu, '');
-  };
-  const status = value('status');
-  if (!status) return { ok: false, reason: 'missing status' };
-  if (!validStatus.has(status)) return { ok: false, reason: `invalid status "${status}"` };
-  return {
-    ok: true,
-    status,
-    domain: value('domain'),
-    generatedFrom: value('generated-from')
-  };
 }
 
 export function extractH1Headings(content: string): string[] {
