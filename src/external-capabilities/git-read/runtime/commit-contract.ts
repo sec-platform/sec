@@ -38,6 +38,17 @@ const GIT_OBJECT_ID_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const GIT_COMMIT_REF_PATTERN = /^refs\/heads\/[A-Za-z0-9][A-Za-z0-9._\/-]*$/u;
 const GIT_INTERNAL_DATE_PATTERN = /^(?:0|[1-9][0-9]*) [+-][0-9]{4}$/u;
 
+/** This owner's existing ASCII branch namespace is narrower than arbitrary Git
+ * refs. Keep that policy, but also reject the component forms Git cannot store.
+ * Do not normalize a requested CAS target into a different reference.
+ */
+function canonicalCommitRef(value: unknown): value is string {
+  return typeof value === 'string' && GIT_COMMIT_REF_PATTERN.test(value)
+    && !value.includes('..') && !value.endsWith('.')
+    && value.split('/').every(segment => segment.length > 0
+      && !segment.startsWith('.') && !segment.endsWith('.lock'));
+}
+
 function canonicalCommitIdentity(input: GitCommitIdentity): GitCommitIdentity | null {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) return null;
   const { name, email, date } = input;
@@ -72,9 +83,10 @@ export function captureGitDevelopmentCommitContract(input: GitDevelopmentCommitC
   const { repositoryRoot, worktreeRoot, ref, expectedOld, target, signing, hooks, preflightReceiptDigest } = input;
   const tree = canonicalCommitTreeInput(input);
   if (tree === null || typeof repositoryRoot !== 'string' || !path.isAbsolute(repositoryRoot)
-      || path.resolve(repositoryRoot) !== repositoryRoot || typeof worktreeRoot !== 'string'
+      || repositoryRoot.includes('\0') || path.resolve(repositoryRoot) !== repositoryRoot
+      || typeof worktreeRoot !== 'string' || worktreeRoot.includes('\0')
       || !path.isAbsolute(worktreeRoot) || path.resolve(worktreeRoot) !== worktreeRoot
-      || typeof ref !== 'string' || !GIT_COMMIT_REF_PATTERN.test(ref) || expectedOld !== tree.parents[0]
+      || !canonicalCommitRef(ref) || expectedOld !== tree.parents[0]
       || typeof target !== 'string' || !GIT_OBJECT_ID_PATTERN.test(target)
       || signing !== 'disabled' || hooks !== 'disabled' || typeof preflightReceiptDigest !== 'string'
       || !/^sha256:[0-9a-f]{64}$/u.test(preflightReceiptDigest)) return null;

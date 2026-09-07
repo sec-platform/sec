@@ -97,19 +97,19 @@ const GIT_READ_SAFE_CONFIG_OVERRIDES = new Set([
   'core.untrackedCache=false'
 ]);
 
-function gitReadCommandName(args: readonly string[]): string | null {
-  if (args.length === 1 && args[0] === '--version') return '--version';
+function gitReadCommandIndex(args: readonly string[]): number {
+  if (args.length === 1 && args[0] === '--version') return 0;
   let index = 0;
   while (index < args.length) {
     const argument = args[index]!;
     if (argument === '-c') {
       const value = args[index + 1];
-      if (value === undefined || !GIT_READ_SAFE_CONFIG_OVERRIDES.has(value)) return null;
+      if (value === undefined || !GIT_READ_SAFE_CONFIG_OVERRIDES.has(value)) return -1;
       index += 2;
       continue;
     }
     if (argument === '--git-dir' || argument === '--work-tree') {
-      if (args[index + 1] === undefined) return null;
+      if (args[index + 1] === undefined) return -1;
       index += 2;
       continue;
     }
@@ -117,9 +117,9 @@ function gitReadCommandName(args: readonly string[]): string | null {
       index += 1;
       continue;
     }
-    return argument.startsWith('-') ? null : argument;
+    return argument.startsWith('-') ? -1 : index;
   }
-  return null;
+  return -1;
 }
 
 /**
@@ -129,10 +129,13 @@ function gitReadCommandName(args: readonly string[]): string | null {
  * a semantic mutation owner must use a separately issued effect capability.
  */
 export function gitReadCommandIsObservation(args: readonly string[]): boolean {
-  const command = gitReadCommandName(args);
+  // The command is identified by grammar position, not a value search: a
+  // --git-dir/--work-tree operand may itself be named branch, show or config.
+  const commandIndex = gitReadCommandIndex(args);
+  if (commandIndex < 0) return false;
+  const command = args[commandIndex]!;
   if (command === '--version') return true;
-  if (command === null || !GIT_READ_ONLY_COMMANDS.has(command)) return false;
-  const commandIndex = args.indexOf(command);
+  if (!GIT_READ_ONLY_COMMANDS.has(command)) return false;
   const commandArgs = args.slice(commandIndex + 1);
   if (gitReadArgumentsInvokeHelper(commandArgs)) return false;
   if (command === 'branch') return commandArgs.length === 1 && commandArgs[0] === '--show-current';
