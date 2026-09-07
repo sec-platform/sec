@@ -1,16 +1,13 @@
 import path from 'node:path';
 
-import YAML from 'yaml';
-import { z } from 'zod';
+import { parseYamlValue } from '../../system-architecture/foundation/runtime/yaml.ts';
+import { PolicySpecSchema } from '../policies/contract/source-schema.ts';
 
 import { inspectExactNoFollowDirectoryPresence, scanNoFollowDirectoryTreeMetadata } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
-import { isCanonicalBlockId } from '../../semantic/identity/contract/block.ts';
-import { canonicalEquals, compareCodeUnits, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { compareCodeUnits, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { compilerRuntimeResources } from '../../toolchain/runtime/layout.ts';
 import { getWorkspacePaths, officialPoliciesRelativePath, policiesRelativePath, posixPath, relativePosixPath } from '../../workspace/runtime/paths.ts';
-import { isCanonicalPolicyId } from '../policies/contract/identity.ts';
-import { POLICY_RULE_IDS } from '../policies/contract/rules.ts';
 import type { PolicyRule, PolicySourceFileReport, PolicySourceScope, PolicySpec } from '../policies/contract/types.ts';
 
 export interface LoadedPolicyDefinition {
@@ -35,60 +32,10 @@ export interface LoadedPolicyDeclarations {
 
 export const POLICY_SOURCE_INVENTORY_MAX_ENTRIES = 4096;
 export const POLICY_SOURCE_INVENTORY_TIMEOUT_MS = 5000;
-const policyRuleSchema = z.object({
-  id: z.string().refine(isCanonicalPolicyId, 'Policy id must be one canonical lowercase token'),
-  severity: z.enum(['info', 'warn', 'error', 'blocker']),
-  appliesTo: z.array(z.string()).min(1),
-  rule: z.enum(POLICY_RULE_IDS)
-}).strict().superRefine((policy, context) => {
-  for (let index = 0; index < policy.appliesTo.length; index += 1) {
-    const blockId = policy.appliesTo[index]!;
-    if (!isCanonicalBlockId(blockId)) {
-      context.addIssue({
-        code: 'custom',
-        path: ['appliesTo', index],
-        message: 'Policy appliesTo entries must be canonical Block IDs'
-      });
-    }
-  }
-  if (!canonicalEquals(policy.appliesTo, uniqueSorted(policy.appliesTo))) {
-    context.addIssue({
-      code: 'custom',
-      path: ['appliesTo'],
-      message: 'Policy appliesTo entries must be unique and canonically ordered'
-    });
-  }
-});
-
-function canonicalPolicyValue(policy: z.output<typeof policyRuleSchema>): string {
-  return JSON.stringify({
-    id: policy.id,
-    severity: policy.severity,
-    appliesTo: policy.appliesTo,
-    rule: policy.rule
-  });
-}
-
-const policySpecSchema = z.object({
-  policies: z.array(policyRuleSchema)
-}).strict().superRefine((spec, context) => {
-  // Canonical-equal duplicate declarations carry no additional semantics; only
-  // conflicting duplicates (same id with a differing canonical value) are rejected.
-  const seen = new Map<string, string>();
-  for (let index = 0; index < spec.policies.length; index += 1) {
-    const policy = spec.policies[index]!;
-    const canonical = canonicalPolicyValue(policy);
-    const previous = seen.get(policy.id);
-    if (previous !== undefined && previous !== canonical) {
-      context.addIssue({
-        code: 'custom',
-        path: ['policies', index, 'id'],
-        message: `Conflicting duplicate policy id in one source: ${policy.id}`
-      });
-    }
-    seen.set(policy.id, canonical);
-  }
-});
+// Parsing admission is independent of the directory inventory capacity and
+// does not bound bytes already allocated by the retained reader.
+export const POLICY_YAML_MAX_INPUT_BYTES = 1024 * 1024;
+export const POLICY_YAML_MAX_ALIAS_COUNT = 100;
 
 function withinScopePath(
   scope: PolicySourceScope,
@@ -134,26 +81,24 @@ function readPolicySpec(filePath: string, normalizedPath: string): PolicySpec {
   const source = decodeExactUtf8(bytes, `Policy source ${normalizedPath}`);
   let parsed: unknown;
   try {
-    parsed = YAML.parse(source) as unknown;
+    parsed = parseYamlValue(source, { label: `Policy source ${normalizedPath}`,
+      maximumInputBytes: POLICY_YAML_MAX_INPUT_BYTES,
+      maximumAliasCount: POLICY_YAML_MAX_ALIAS_COUNT, stringKeys: true });
   } catch (error) {
     throw new Error(`Policy source is not valid YAML: ${normalizedPath}`, { cause: error });
   }
-  const result = policySpecSchema.safeParse(parsed);
+  const result = PolicySpecSchema.safeParse(parsed);
   if (!result.success) {
     const details = result.error.issues
       .map((issue) => `${issue.path.join('.') || '<root>'}: ${issue.message}`)
       .join('; ');
-    throw new Error(`Policy source violates the exact schema: ${normalizedPath}: ${details}`);
+    throw new Error(`Policy source violates the exact schema: ${normalizedPath}: ${details}`, { cause: result.error });
   }
 
   return {
+    // Zod already owns the decoded objects and arrays. Only same-source
+    // duplicate coalescing remains here; do not copy each field a second time.
     policies: [...new Map(result.data.policies.map((policy) => [policy.id, policy])).values()]
-      .map((policy) => ({
-        id: policy.id,
-        severity: policy.severity,
-        appliesTo: [...policy.appliesTo],
-        rule: policy.rule
-      }))
   };
 }
 
@@ -189,16 +134,6 @@ function loadPolicyScope(
     policies: uniqueSorted([...declaredPolicyIds]),
     sources,
     definitions
-  };
-}
-
-function mergePolicyScopes(scopesLowToHighPrecedence: readonly LoadedPolicyScope[]): LoadedPolicyScope {
-  return {
-    policies: uniqueSorted(scopesLowToHighPrecedence.flatMap((scope) => scope.policies)),
-    sources: scopesLowToHighPrecedence
-      .flatMap((scope) => scope.sources)
-      .sort((left, right) => compareCodeUnits(left.path, right.path)),
-    definitions: scopesLowToHighPrecedence.flatMap((scope) => scope.definitions)
   };
 }
 

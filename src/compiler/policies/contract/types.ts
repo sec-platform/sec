@@ -1,6 +1,7 @@
 import type { PolicyRuleId } from './rules.ts';
 
-export type PolicySeverity = 'info' | 'warn' | 'error' | 'blocker';
+import type { PolicySeverity } from './source-schema.ts';
+export type { PolicySeverity, PolicyRule, PolicySpec } from './source-schema.ts';
 export type PolicySourceScope = 'official' | 'project';
 
 export interface PolicySourceFileReport {
@@ -73,13 +74,3 @@ export interface PolicyReport {
   evaluation?: PolicyEvaluationAssurance;
 }
 
-export interface PolicyRule {
-  id: string;
-  severity: PolicySeverity;
-  appliesTo: string[];
-  rule: PolicyRuleId;
-}
-
-export interface PolicySpec {
-  policies: PolicyRule[];
-}
