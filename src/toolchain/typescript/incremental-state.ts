@@ -14,18 +14,13 @@ import {
   type PhysicalDirectoryIdentity,
   type RetainedNoFollowChildProcessDirectory
 } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { rawSha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
-
-const DIGEST = /^sha256:[0-9a-f]{64}$/u;
-const BUILD_INFO_FILE_NAME = 'tsconfig.tsbuildinfo' as const;
-const BUILD_INFO_MAXIMUM_BYTES = 64 * 1024 * 1024;
-
-type StableSeedEnvelope = Readonly<{
-  bindingDigest: `sha256:${string}`;
-  payloadBase64: string;
-  payloadDigest: `sha256:${string}`;
-  schema: 'sec-typescript-incremental-seed-v1';
-}>;
+import { isNativeAborted } from '../../system-architecture/foundation/runtime/native-abort.ts';
+import { settlePhysicalResources, type PhysicalResourceSettlementFailure }
+  from '../../runtime-state/physical/runtime/resource-settlement.ts';
+import {
+  BUILD_INFO_FILE_NAME, BUILD_INFO_MAXIMUM_BYTES, STABLE_SEED_MAXIMUM_BYTES,
+  assertSeedBindingDigest, encodeStableSeed, parseStableSeed
+} from './incremental-seed.ts';
 
 export type TypeScriptIncrementalPublication = Readonly<{
   status: 'published' | 'cache-unavailable';
@@ -52,56 +47,14 @@ export type PrepareTypeScriptIncrementalStateInput = Readonly<{
   stableSeedParent: PhysicalDirectoryIdentity;
 }>;
 
-function canonicalSeedBytes(envelope: StableSeedEnvelope): Buffer {
-  return Buffer.from(`${JSON.stringify(envelope)}\n`, 'utf8');
-}
-
-function parseStableSeed(
-  bytes: Uint8Array,
-  expectedBindingDigest: `sha256:${string}`
-): Buffer | null {
-  if (bytes.byteLength > Math.ceil(BUILD_INFO_MAXIMUM_BYTES * 4 / 3) + 1024) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
-  } catch {
-    return null;
+// Parent values are identity observations, not retained capabilities. Capture
+// their declared data only; the physical owner still verifies every actual use.
+function captureParent(parent: PhysicalDirectoryIdentity): PhysicalDirectoryIdentity {
+  const { path, finalPath, device, inode, objectId } = parent;
+  if ([path, finalPath, device, inode, objectId].some(value => typeof value !== 'string')) {
+    throw new TypeError('TypeScript incremental parent identity must contain string fields.');
   }
-  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-  const value = parsed as Record<string, unknown>;
-  if (Object.keys(value).sort().join(',') !== 'bindingDigest,payloadBase64,payloadDigest,schema'
-      || value.schema !== 'sec-typescript-incremental-seed-v1'
-      || value.bindingDigest !== expectedBindingDigest
-      || typeof value.payloadBase64 !== 'string'
-      || typeof value.payloadDigest !== 'string'
-      || !DIGEST.test(value.payloadDigest)) {
-    return null;
-  }
-  const payload = Buffer.from(value.payloadBase64, 'base64');
-  if (payload.byteLength > BUILD_INFO_MAXIMUM_BYTES
-      || payload.toString('base64') !== value.payloadBase64
-      || rawSha256(payload) !== value.payloadDigest) {
-    return null;
-  }
-  const envelope = Object.freeze({
-    schema: 'sec-typescript-incremental-seed-v1' as const,
-    bindingDigest: expectedBindingDigest,
-    payloadDigest: value.payloadDigest as `sha256:${string}`,
-    payloadBase64: value.payloadBase64
-  });
-  return Buffer.from(bytes).equals(canonicalSeedBytes(envelope)) ? payload : null;
-}
-
-function seedEnvelope(
-  payload: Uint8Array,
-  bindingDigest: `sha256:${string}`
-): StableSeedEnvelope {
-  return Object.freeze({
-    schema: 'sec-typescript-incremental-seed-v1' as const,
-    bindingDigest,
-    payloadDigest: rawSha256(payload),
-    payloadBase64: Buffer.from(payload).toString('base64')
-  });
+  return Object.freeze({ path, finalPath, device, inode, objectId });
 }
 
 function retireActionPrivateTree(
@@ -135,6 +88,15 @@ function retireActionPrivateTree(
 export async function prepareTypeScriptIncrementalState(
   input: PrepareTypeScriptIncrementalStateInput
 ): Promise<TypeScriptIncrementalStateSession> {
+  // These decisions belong to one attempt. Later edits of the caller object
+  // cannot replace its parent, seed binding, cancellation source or deadline.
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+    throw new TypeError('TypeScript incremental input must be a record.');
+  }
+  const { actionPrivateParent, deadlineAtUnixMs, seedBindingDigest, signal,
+    stableSeedFile: requestedSeedFile, stableSeedParent } = input;
+  input = Object.freeze({ actionPrivateParent: captureParent(actionPrivateParent), deadlineAtUnixMs,
+    seedBindingDigest, signal, stableSeedFile: requestedSeedFile, stableSeedParent: captureParent(stableSeedParent) });
   if (!Number.isSafeInteger(input.deadlineAtUnixMs)) {
     throw new Error('TypeScript incremental state deadline must be an absolute safe integer.');
   }
@@ -144,7 +106,7 @@ export async function prepareTypeScriptIncrementalState(
     input.deadlineAtUnixMs - startedAtUnixMs
   );
   const assertActive = (label: string): void => {
-    if (input.signal?.aborted === true) {
+    if (isNativeAborted(input.signal)) {
       throw new Error(`TypeScript incremental state ${label} was cancelled.`);
     }
     if (input.deadlineAtUnixMs - Date.now() < 1
@@ -153,8 +115,9 @@ export async function prepareTypeScriptIncrementalState(
     }
   };
   assertActive('admission');
-  if (!DIGEST.test(input.seedBindingDigest)) {
-    throw new Error('TypeScript incremental seed binding must be one canonical digest.');
+  assertSeedBindingDigest(input.seedBindingDigest);
+  if (typeof input.stableSeedFile !== 'string' || /[\0\p{Surrogate}]/u.test(input.stableSeedFile)) {
+    throw new TypeError('TypeScript incremental seed path must be well-formed text without NUL.');
   }
   const stableSeedFile = path.resolve(input.stableSeedFile);
   if (stableSeedFile !== input.stableSeedFile
@@ -169,7 +132,7 @@ export async function prepareTypeScriptIncrementalState(
     const digest = inspectNoFollowOrdinaryFileDigest(input.stableSeedParent, stableSeedName);
     if (digest === null) {
       expectedExisting = null;
-    } else if (digest.size > Math.ceil(BUILD_INFO_MAXIMUM_BYTES * 4 / 3) + 1024) {
+    } else if (digest.size > STABLE_SEED_MAXIMUM_BYTES) {
       expectedExisting = undefined;
     } else {
       const observed = inspectNoFollowOrdinaryFileEntry(input.stableSeedParent, stableSeedName);
@@ -185,6 +148,7 @@ export async function prepareTypeScriptIncrementalState(
     // Cache observation is not semantic authority. An unsafe or unreadable
     // seed selects the cold path and disables publication for this attempt.
     expectedExisting = undefined;
+    seed = null;
   }
 
   assertActive('private tree creation');
@@ -192,7 +156,28 @@ export async function prepareTypeScriptIncrementalState(
     input.actionPrivateParent,
     'typecheck-aux-'
   );
-  let auxiliaryDirectory: RetainedNoFollowChildProcessDirectory;
+  let auxiliaryDirectory: RetainedNoFollowChildProcessDirectory | undefined;
+  let releaseAuxiliary: (() => void) | undefined;
+  const settleActionPrivateTree = (
+    primary?: PhysicalResourceSettlementFailure
+  ): TypeScriptIncrementalCleanupReceipt => {
+    let released = releaseAuxiliary === undefined;
+    let tree: NoFollowDirectoryTreeRetirementReceipt | undefined;
+    settlePhysicalResources({ primary, cleanup: [
+      ...(releaseAuxiliary === undefined ? [] : [{ label: 'typescript-auxiliary-release', settle() {
+        // Closing an already-owned handle grants no new IO budget. Cancellation
+        // must not strand it. Destructive tree retirement still uses the old
+        // deadline/cancellation policy and cannot occur under an unreleased handle.
+        releaseAuxiliary!();
+        released = true;
+      } }]),
+      { label: 'typescript-private-tree-retirement', settle() {
+        if (released) tree = retireActionPrivateTree(actionRoot, input.actionPrivateParent,
+          deadlineAtMonotonicMs, assertActive);
+      } }
+    ] });
+    return Object.freeze({ tree: tree! });
+  };
   try {
     if (seed !== null) {
       assertActive('private seed publication');
@@ -213,37 +198,31 @@ export async function prepareTypeScriptIncrementalState(
       16,
       'TypeScript action-private auxiliary directory'
     );
+    const retainedDirectory = auxiliaryDirectory;
+    // Adoption precedes method selection: an unreadable provider method must
+    // not make the tree appear unretained and therefore safe to delete.
+    releaseAuxiliary = () => { throw new Error('TypeScript auxiliary release was not bound.'); };
+    const disposeAuxiliary = retainedDirectory.dispose;
+    if (typeof disposeAuxiliary !== 'function') throw new TypeError('TypeScript auxiliary release must be callable.');
+    releaseAuxiliary = () => { Reflect.apply(disposeAuxiliary, retainedDirectory, []); };
     assertActive('private directory readback');
   } catch (error) {
-    try {
-      retireActionPrivateTree(
-        actionRoot,
-        input.actionPrivateParent,
-        deadlineAtMonotonicMs,
-        assertActive
-      );
-    } catch (cleanupError) {
-      throw new AggregateError(
-        [error, cleanupError],
-        'TypeScript action-private auxiliary setup left physical residue'
-      );
-    }
-    throw error;
+    settleActionPrivateTree({ label: 'typescript-incremental-setup', error });
+    throw error; // The settlement owner propagates every present primary value.
   }
   const executionBuildInfoFile = path.join(actionRoot.path, BUILD_INFO_FILE_NAME);
   let disposed = false;
   let disposal: Promise<TypeScriptIncrementalCleanupReceipt> | null = null;
 
   const publish = async (): Promise<TypeScriptIncrementalPublication> => {
-    if (disposed) return Object.freeze({ status: 'cache-unavailable' as const });
+    if (disposed || expectedExisting === undefined) return Object.freeze({ status: 'cache-unavailable' as const });
     try {
       assertActive('stable seed publication admission');
       const output = inspectNoFollowOrdinaryFileEntry(actionRoot, BUILD_INFO_FILE_NAME);
-      if (output === null || output.bytes === null || output.size > BUILD_INFO_MAXIMUM_BYTES
-          || expectedExisting === undefined) {
+      if (output === null || output.bytes === null || output.size > BUILD_INFO_MAXIMUM_BYTES) {
         return Object.freeze({ status: 'cache-unavailable' as const });
       }
-      const envelope = canonicalSeedBytes(seedEnvelope(output.bytes, input.seedBindingDigest));
+      const envelope = encodeStableSeed(output.bytes, input.seedBindingDigest);
       assertActive('stable seed publication');
       replaceDurableCanonicalFile({
         parent: input.stableSeedParent,
@@ -266,23 +245,12 @@ export async function prepareTypeScriptIncrementalState(
   const dispose = (): Promise<TypeScriptIncrementalCleanupReceipt> => {
     if (disposal !== null) return disposal;
     disposed = true;
-    disposal = Promise.resolve().then(() => {
-      assertActive('auxiliary capability disposal');
-      auxiliaryDirectory.dispose();
-      return Object.freeze({
-        tree: retireActionPrivateTree(
-          actionRoot,
-          input.actionPrivateParent,
-          deadlineAtMonotonicMs,
-          assertActive
-        )
-      });
-    });
+    disposal = Promise.resolve().then(() => settleActionPrivateTree());
     return disposal;
   };
 
   return Object.freeze({
-    auxiliaryDirectory,
+    auxiliaryDirectory: auxiliaryDirectory!,
     buildInfoFileName: BUILD_INFO_FILE_NAME,
     executionBuildInfoFile,
     publish,
