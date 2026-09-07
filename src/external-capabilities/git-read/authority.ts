@@ -48,7 +48,11 @@ type AuthorityGitReadSessionInput = Omit<
   operation?: SecBoundSemanticOperation;
 }>;
 
-function issueGitReadAuthorityOperation(
+/** Compile the canonical read-only Git operation for an enclosing observer.
+ * This opens no provider or process. Production session, requirement binding
+ * and native observer admission are still required before any actual effect.
+ */
+export function issueGitReadAuthorityOperation(
   input: Omit<AuthorityGitReadSessionInput, 'operation'>,
   parentDeadlineAtUnixMs?: number
 ): SecBoundSemanticOperation {

@@ -1,7 +1,7 @@
 import { lstatSync, readlinkSync } from 'node:fs';
 import path from 'node:path';
 
-import { GitReadAuthorityError, withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
+import { GitReadAuthorityError, issueGitReadAuthorityOperation, withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
 import type { GitReadSession } from '../../external-capabilities/git-read/runtime/session.ts';
 import {
   inspectNoFollowDirectoryChain,
@@ -15,6 +15,8 @@ import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../system-architec
 import { rawSha256, sha256, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
 import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
 
+import { compilerRoot } from '../../workspace/runtime/paths.ts';
+
 const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const OBSERVATION_BUDGET = Object.freeze({
   deadlineMs: 30_000,
@@ -23,6 +25,19 @@ const OBSERVATION_BUDGET = Object.freeze({
   maxStderrBytes: 512 * 1024,
   maxRecords: 250_000
 });
+/** Bind the standalone runner's existing repository discovery contract.
+ * The root, environment and per-session budget match the real read consumer
+ * below. This does not authorize the command body or prove zero writes; those
+ * remain with its original provider and native change-observer owners.
+ */
+export function compileRepositoryObservationOperation(): SecBoundSemanticOperation {
+  return issueGitReadAuthorityOperation({
+    cwd: compilerRoot,
+    environment: { LANG: 'C', LC_ALL: 'C' },
+    budget: OBSERVATION_BUDGET
+  });
+}
+
 const receiptBrand: unique symbol = Symbol('repository-observation-receipt');
 
 export type RepositoryObservationFailureKind =

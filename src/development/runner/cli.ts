@@ -4,6 +4,7 @@ import { compileSecOperationDemandGraph } from '../../control/operation/demand.t
 import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
 import { WORKSPACE_TRANSITION_DEADLINE_ENV } from '../workspace-transition/contract.ts';
 import { DEV_RUNNER_ENTRYPOINT_PATH } from './contract.ts';
+import { requireCommandExitCode } from './command-outcome.ts';
 import {
   assertMaterializedOperationDependencyBootstrapResult,
   createDependencyFreshProcessHandoff,
@@ -79,14 +80,23 @@ export async function runCheckAffectedCommand(
   if (args.length > 0 && (args.length !== 1 || args[0] !== '--plan')) {
     throw new Error('check:affected accepts only --plan');
   }
-  if (args.length === 1) return operations.runPlan();
+  if (args.length === 1) {
+    const runPlan = operations.runPlan;
+    if (typeof runPlan !== 'function') throw new TypeError('Affected plan callback must be callable');
+    return requireCommandExitCode(await Reflect.apply(runPlan, operations, []), 'Affected plan');
+  }
+  const { ensureDependencies, handoff, runExecution } = operations;
+  if ([ensureDependencies, handoff, runExecution].some(action => typeof action !== 'function')) {
+    throw new TypeError('Affected execution requires its dependency, handoff and execution callbacks');
+  }
   const demand = compileSecOperationDemandGraph({
     operation: 'check-affected',
     terminalWorkIds: []
   });
-  const dependencies = await operations.ensureDependencies(demand);
-  const handoffExitCode = await operations.handoff(dependencies);
-  return handoffExitCode ?? operations.runExecution(dependencies, demand);
+  const dependencies = await Reflect.apply(ensureDependencies, operations, [demand]);
+  const handoffExitCode = await Reflect.apply(handoff, operations, [dependencies]);
+  if (handoffExitCode !== null) return requireCommandExitCode(handoffExitCode, 'Affected dependency handoff');
+  return requireCommandExitCode(await Reflect.apply(runExecution, operations, [dependencies, demand]), 'Affected execution');
 }
 
 /**
@@ -96,6 +106,7 @@ export async function runCheckAffectedCommand(
  * the runner unchanged; the runner may not bootstrap a second generation.
  */
 export async function runTypecheckCommand(args: readonly string[]): Promise<number> {
+  const selectedArgs = [...args];
   const demand = compileSecOperationDemandGraph({
     operation: 'typecheck',
     terminalWorkIds: []
@@ -103,7 +114,7 @@ export async function runTypecheckCommand(args: readonly string[]): Promise<numb
   const dependencies = await ensureOperationDependencies(demand);
   const admittedDependencies = reuseOperationDependencies(dependencies, demand);
   const { runTypecheckWithDependencyAuthority } = await import('./typecheck-runner.ts');
-  return runTypecheckWithDependencyAuthority(admittedDependencies, [...args]);
+  return requireCommandExitCode(await runTypecheckWithDependencyAuthority(admittedDependencies, selectedArgs), 'Typecheck command');
 }
 
 function usage(): never {
@@ -121,7 +132,7 @@ type ParsedImportOperationArgs = Readonly<{
 async function runRepositoryZeroWriteCommand(
   commandId: string,
   operation: () => Promise<number>,
-  semanticOperation?: SecBoundSemanticOperation
+  semanticOperation: SecBoundSemanticOperation
 ): Promise<number> {
   if (semanticOperation === undefined) {
     console.error(`${commandId} strict-zero-write-unproven: semantic operation authority is unavailable.`);
@@ -131,6 +142,20 @@ async function runRepositoryZeroWriteCommand(
     './repository-mutation-fence.ts'
   );
   return runRepositoryZeroWriteOperationV1(commandId, operation, { operation: semanticOperation });
+}
+
+
+/** Standalone checks have no enclosing affected-selection operation to borrow.
+ * Their repository owner compiles the missing read-only observation binding;
+ * the command's own providers and the native zero-write observer still admit
+ * their respective effects. This is not a fallback that skips an authority.
+ */
+async function runStandaloneRepositoryZeroWriteCommand(
+  commandId: string,
+  operation: () => Promise<number>
+): Promise<number> {
+  const { compileRepositoryObservationOperation } = await import('./repository-observation.ts');
+  return runRepositoryZeroWriteCommand(commandId, operation, compileRepositoryObservationOperation());
 }
 
 function parseImportOperationArgs(
@@ -160,7 +185,7 @@ function parseImportOperationArgs(
     }
     if (argument === '--candidate-base') {
       const value = args[index + 1];
-      if (value === undefined || !/^[0-9a-f]{40,64}$/u.test(value)) usage();
+      if (value === undefined || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(value)) usage();
       candidateBase = value;
       index += 1;
       continue;
@@ -280,7 +305,7 @@ async function main(): Promise<void> {
       return;
     }
     const { runFastCheck } = await import('./check-runner.ts');
-    process.exitCode = await runRepositoryZeroWriteCommand('check:fast', () =>
+    process.exitCode = await runStandaloneRepositoryZeroWriteCommand('check:fast', () =>
       runFastCheck({
         prepareCompilerDependencies: async () => reuseOperationDependencies(dependencies, demand)
       }));
@@ -296,14 +321,14 @@ async function main(): Promise<void> {
     const { runAffectedTests } = await import('./test-runner.ts');
     const { issueCheckAffectedTestImpactProjection } = await import('./check-affected-source.ts');
     if (args.length === 1 && args[0] === '--plan') {
-      process.exitCode = await runRepositoryZeroWriteCommand(
+      process.exitCode = await runStandaloneRepositoryZeroWriteCommand(
         'test:affected',
         () => runAffectedTests(issueCheckAffectedTestImpactProjection, args)
       );
       return;
     }
     const { withHeavyVerificationGateLease } = await import('../../verification/gate/state/heavy-lease.ts');
-    process.exitCode = await runRepositoryZeroWriteCommand('test:affected', () =>
+    process.exitCode = await runStandaloneRepositoryZeroWriteCommand('test:affected', () =>
       withHeavyVerificationGateLease(
         'test:affected',
         () => runAffectedTests(issueCheckAffectedTestImpactProjection, args),
@@ -327,6 +352,11 @@ async function main(): Promise<void> {
   if (
     target === 'imports:check' || target === 'imports:apply' || target === 'imports:freeze'
   ) {
+    // Input rejection precedes dependency installation and process handoff.
+    // Imports:freeze accepts no options; check/apply use the existing grammar.
+    if (target === 'imports:freeze' && args.length !== 0) usage();
+    const selectedImport = target === 'imports:freeze'
+      ? undefined : parseImportOperationArgs(args, { allowStaged: true });
     const dependencies = await ensureOperationDependencies(compileSecOperationDemandGraph({
       operation: target === 'imports:check'
         ? 'imports-check'
@@ -357,7 +387,6 @@ async function main(): Promise<void> {
       }));
     };
     if (target === 'imports:freeze') {
-      if (args.length !== 0) usage();
       const outcome = await checkStagedImports(process.env.SEC_CHANGED_BASE);
       if (outcome.status === 'canonical') {
         if (shouldReportDevRunnerSuccess()) {
@@ -380,7 +409,7 @@ async function main(): Promise<void> {
       runSynchronizedStagedImportOrganizer
     } = await import('./import-organizer.ts');
     if (target === 'imports:check' || target === 'imports:apply') {
-      const operation = parseImportOperationArgs(args, { allowStaged: true });
+      const operation = selectedImport!;
       if (operation.staged) {
         const selection = operation.candidateBase === undefined
           ? {}
@@ -444,16 +473,18 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (!['contract-freeze', 'test', 'test:full', 'test:fast', 'test:slow'].includes(target)) usage();
+
   const {
     runContractFreeze,
     runFastTests,
     runSlowTests,
     runTests
   } = await import('./test-runner.ts');
-  process.exitCode = await runRepositoryZeroWriteCommand(target, () => (
+  process.exitCode = await runStandaloneRepositoryZeroWriteCommand(target, () => (
     target === 'contract-freeze'
       ? runContractFreeze()
-      : target === 'test'
+      : target === 'test' || target === 'test:full'
         ? runTests(args)
         : target === 'test:fast'
             ? runFastTests(args)
