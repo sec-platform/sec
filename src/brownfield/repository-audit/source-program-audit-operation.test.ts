@@ -1,8 +1,8 @@
-import { describe, expect, test } from 'bun:test';
+import assert from 'node:assert/strict';
+import { describe, test } from 'bun:test';
 
 import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import type { SourceProgramModel } from '../source-program-model/contract.ts';
-import { sourceProgramTestBaselineEvidenceDigest } from '../source-program-model/test-value.ts';
 import {
   compileSourceProgramAuditOperation,
   compileSourceProgramAuditOperationInput,
@@ -24,7 +24,8 @@ function input(): CompileSourceProgramAuditOperationInput {
   const testCompilationDigest = digest('test-compilation');
   const supersessionReceiptDigest = digest('supersession');
   const reconciliationProjectionDigest = digest('reconciliation');
-  const baselineEvidence = Object.freeze([]);
+  // Parent-normalized fixture identity, not owner-issued baseline Evidence.
+  const baselineEvidenceDigest = digest('baseline-evidence-fixture');
   const sourcePath = 'src/domain.ts';
   const source = 'export const domain = true;\n';
   const contentDigest = rawSha256(source);
@@ -60,7 +61,7 @@ function input(): CompileSourceProgramAuditOperationInput {
     sourceRevision,
     baselineTestPaths: Object.freeze([]),
     baselineDigest: sha256([]),
-    baselineEvidenceDigest: sourceProgramTestBaselineEvidenceDigest(baselineEvidence),
+    baselineEvidenceDigest,
     dispositions: Object.freeze([]),
     records: Object.freeze([]),
     findings: Object.freeze([]),
@@ -179,7 +180,7 @@ function input(): CompileSourceProgramAuditOperationInput {
       sourceRevision,
       baselineTestPaths: Object.freeze([]),
       baselineDigest: sha256([]),
-      baselineEvidenceDigest: sourceProgramTestBaselineEvidenceDigest(baselineEvidence),
+      baselineEvidenceDigest,
       dispositions: Object.freeze([]),
       findings: Object.freeze([]),
       observationCompilationDigest: testCompilationDigest,
@@ -278,24 +279,24 @@ describe('Source Program audit domain operation', () => {
     const result = compileSourceProgramAuditOperation(parsedInput);
     const encodedResult = encodeSourceProgramAuditOperationResult(result);
 
-    expect(parseSourceProgramAuditOperationResult(
+    assert.deepEqual(parseSourceProgramAuditOperationResult(
       encodedResult,
       encodedResult.byteLength
-    )).toEqual(result);
+    ), result);
     const unknownInput = Buffer.from(JSON.stringify({
       ...JSON.parse(Buffer.from(encodedInput).toString('utf8')),
       transportAuthority: true
     }));
-    expect(() => parseSourceProgramAuditOperationInput(
+    assert.throws(() => parseSourceProgramAuditOperationInput(
       unknownInput,
       unknownInput.byteLength
-    )).toThrow(/unsupported root key/u);
+    ), /unsupported root key/u);
     const changedResult = Buffer.from(encodedResult);
     changedResult[changedResult.byteLength - 2] ^= 1;
-    expect(() => parseSourceProgramAuditOperationResult(
+    assert.throws(() => parseSourceProgramAuditOperationResult(
       changedResult,
       changedResult.byteLength
-    )).toThrow();
+    ));
   });
 
   test('is deterministic and excludes unknown caller properties from its result identity', () => {
@@ -309,10 +310,10 @@ describe('Source Program audit domain operation', () => {
       JSON.parse(JSON.stringify(canonical)) as SourceProgramAuditOperationInput
     );
 
-    expect(first).toEqual(second);
-    expect(serialized).toEqual(first);
-    expect(first.exitCode).toBe(0);
-    expect(first.reductionPatch).toBeNull();
+    assert.deepEqual(first, second);
+    assert.deepEqual(serialized, first);
+    assert.equal(first.exitCode, 0);
+    assert.equal(first.reductionPatch, null);
   });
 
   test('projects parent-issued query facts and candidate observations without a compiler import', () => {
@@ -329,9 +330,9 @@ describe('Source Program audit domain operation', () => {
       })
     })));
 
-    expect(projected.projection.result).toBe(queryProjection);
-    expect(projected.projection.candidates).toEqual([]);
-    expect(projected.projection.architecture).toEqual({
+    assert.equal(projected.projection.result, queryProjection);
+    assert.deepEqual(projected.projection.candidates, []);
+    assert.deepEqual(projected.projection.architecture, {
       feedbackProjections: [],
       reciprocalPairs: [],
       strongComponents: [],
@@ -367,8 +368,8 @@ describe('Source Program audit domain operation', () => {
       })
     })));
 
-    expect(result.reductionPatch).toBe(patch);
-    expect(result.projection.versionReductionPlan).toEqual({
+    assert.equal(result.reductionPatch, patch);
+    assert.deepEqual(result.projection.versionReductionPlan, {
       sourceRevision: facts.sourceProgram.sourceRevision,
       planDigest,
       ready: 0,
@@ -379,12 +380,10 @@ describe('Source Program audit domain operation', () => {
       outputPath: null,
       blockedReductions: []
     });
-    expect(() => compileSourceProgramAuditOperationInput({
+    assert.throws(() => compileSourceProgramAuditOperationInput({
       ...facts,
       reduction: { mode: 'version+graph-cut' }
-    } as unknown as CompileSourceProgramAuditOperationInput)).toThrow(
-      'Unsupported Source Program audit reduction mode'
-    );
+    } as unknown as CompileSourceProgramAuditOperationInput), /Unsupported Source Program audit reduction mode/u);
   });
 
   test('enforce converts derived blockers into a domain exit decision without publishing effects', () => {
@@ -417,8 +416,70 @@ describe('Source Program audit domain operation', () => {
       options: Object.freeze({ ...facts.options, enforce: false })
     })));
 
-    expect(blocked.exitCode).toBe(1);
-    expect(diagnosticOnly.exitCode).toBe(0);
-    expect(blocked.projection.summary).toEqual(expect.objectContaining({ blockingCandidates: 1 }));
+    assert.equal(blocked.exitCode, 1);
+    assert.equal(diagnosticOnly.exitCode, 0);
+    assert.equal((blocked.projection.summary as { blockingCandidates: number }).blockingCandidates, 1);
+  });
+
+
+  test('enforced audits refuse uncovered source observations even without known candidates', () => {
+    const facts = input();
+    const request = compileSourceProgramAuditOperationInput({ ...facts,
+      sourceProgram: { ...facts.sourceProgram, counts: { ...facts.sourceProgram.counts, unknowns: 1 } }
+    });
+    assert.ok(request.blockingReasons.includes('source-program-incomplete'));
+    assert.equal(compileSourceProgramAuditOperation(request).exitCode, 1);
+  });
+
+  test('unresolved declaration topology independently blocks enforce', () => {
+    const facts = input();
+    const request = compileSourceProgramAuditOperationInput({ ...facts,
+      declarationTopology: { ...facts.declarationTopology, unknowns: [{ reason: 'unresolved-reference' }] }
+    });
+    assert.ok(request.blockingReasons.includes('declaration-topology-incomplete'));
+    assert.equal(compileSourceProgramAuditOperation(request).exitCode, 1);
+  });
+
+  test('a blocked retirement proof cannot disappear behind an empty test-finding list', () => {
+    const facts = input();
+    const request = compileSourceProgramAuditOperationInput({ ...facts,
+      testRetirement: { ...facts.testRetirement, proofs: [{ status: 'blocked' }] }
+    });
+    assert.ok(request.blockingReasons.includes('test-retirement-blocked'));
+    assert.equal(compileSourceProgramAuditOperation(request).exitCode, 1);
+  });
+
+  test('full and compact reports disclose the same reasons without granting diagnostic success', () => {
+    const facts = input();
+    for (const full of [false, true]) for (const enforce of [false, true]) {
+      const request = compileSourceProgramAuditOperationInput({ ...facts,
+        sourceProgram: { ...facts.sourceProgram, counts: { ...facts.sourceProgram.counts, unknowns: 1 } },
+        declarationTopology: { ...facts.declarationTopology, unknowns: [{ reason: 'unresolved' }] },
+        testRetirement: { ...facts.testRetirement, proofs: [{ status: 'blocked' }] },
+        options: { ...facts.options, full, enforce }
+      });
+      const expected = ['declaration-topology-incomplete', 'source-program-incomplete', 'test-retirement-blocked'];
+      assert.deepEqual(request.blockingReasons, expected);
+      assert.deepEqual(request.projection.enforcement, { requested: enforce, blockingReasons: expected });
+      assert.equal(compileSourceProgramAuditOperation(request).exitCode, enforce ? 1 : 0);
+    }
+  });
+
+  test('complete coverage and retired proofs remain nonblocking', () => {
+    const facts = input();
+    const request = compileSourceProgramAuditOperationInput({ ...facts,
+      testRetirement: { ...facts.testRetirement, proofs: [{ status: 'retired' }] }
+    });
+    assert.deepEqual(request.blockingReasons, []);
+    assert.equal(compileSourceProgramAuditOperation(request).exitCode, 0);
+  });
+
+  test('invalid unknown counts reject instead of masquerading as zero coverage gaps', () => {
+    const facts = input();
+    for (const unknowns of [-1, NaN, Infinity, 0.5, undefined, '0']) {
+      assert.throws(() => compileSourceProgramAuditOperationInput({ ...facts,
+        sourceProgram: { ...facts.sourceProgram, counts: { ...facts.sourceProgram.counts, unknowns: unknowns as number } }
+      }), /unknown observation count/u);
+    }
   });
 });

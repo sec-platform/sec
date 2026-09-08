@@ -734,7 +734,17 @@ export function compileSourceProgramAuditOperationInput(
     disposition !== 'unknown');
   const compactFindings = input.testDisposition.findings.filter(({ disposition }) =>
     disposition?.disposition !== 'unknown');
+  // An enforced audit needs coverage, not just an empty known-finding list.
+  // Mechanism-review heuristics remain nonblocking review leads.
+  if (!Number.isSafeInteger(input.sourceProgram.counts.unknowns)
+      || input.sourceProgram.counts.unknowns < 0) {
+    throw new Error('Source Program unknown observation count is invalid');
+  }
   const blockingReasons = Object.freeze([
+    ...(input.sourceProgram.counts.unknowns > 0 ? ['source-program-incomplete'] : []),
+    ...(input.declarationTopology.unknowns.length > 0 ? ['declaration-topology-incomplete'] : []),
+    ...(input.testRetirement.proofs.some(({ status }) => status === 'blocked')
+      ? ['test-retirement-blocked'] : []),
     ...(candidates.length > 0 ? ['source-program-candidates'] : []),
     ...(input.implementationDominance.findings.length > 0
       ? ['implementation-dominance'] : []),
@@ -766,6 +776,12 @@ export function compileSourceProgramAuditOperationInput(
     modelDigest: input.sourceProgram.modelDigest,
     sourceRevision: input.sourceProgram.sourceRevision,
     sourceProgramCompilation: input.sourceProgramCompilation,
+    // Both presentation modes expose the exact reasons consumed by the exit
+    // decision. This is not an independent success or authority declaration.
+    enforcement: Object.freeze({
+      requested: input.options.enforce,
+      blockingReasons
+    }),
     // Mechanism findings are review leads, never new blocking reasons or
     // rewrite authority. Compact output retains coverage and its full digest.
     ...(input.sourceProgram.mechanismReview === undefined ? {} : {
