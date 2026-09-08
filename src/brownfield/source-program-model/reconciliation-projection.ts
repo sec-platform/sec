@@ -27,6 +27,9 @@ import {
   type RepositorySourceProgramCompilationReceipt
 } from './repository-compilation.ts';
 
+import { compileSourceProgramFindingDelta, type SourceProgramFindingDelta } from './reconciliation-findings.ts';
+import { compareSourceProgramDeclarations as declarationOrder, pairSourceProgramDeclarations } from './reconciliation-declarations.ts';
+
 type SourceProgramReconciliationBinding = Readonly<{
   before: RepositorySourceProgramCompilationReceipt;
   after: RepositorySourceProgramCompilationReceipt;
@@ -67,6 +70,9 @@ export type SourceProgramReconciliationReasonCode =
   | 'candidate-provider-evidence-unresolved'
   | 'changed-declaration-owner-relation-unresolved'
   | 'changed-path-source-program-unknown'
+  | 'finding-disappearance-unobserved'
+  | 'source-program-observation-coverage-regressed'
+  | 'source-program-observation-outside-snapshot'
   | 'consumer-frontier-removed-without-retirement'
   | 'effect-terminal-unresolved'
   | 'effect-readback-unresolved'
@@ -131,6 +137,7 @@ export type SourceProgramReconciliationProjection = Readonly<{
     compilationReceiptDigest: `sha256:${string}`;
   }>;
   changes: readonly SourceProgramReconciliationDeclarationChange[];
+  findingDelta: SourceProgramFindingDelta;
   frontiers: readonly SourceProgramReconciliationFrontier[];
   providerEvidence: readonly SourceProgramReconciliationProviderEvidence[];
   unresolvedReasons: readonly SourceProgramReconciliationReason[];
@@ -356,8 +363,8 @@ function transitiveConsumerPaths(
   const paths = new Set<string>();
   const visited = new Set<string>([declaration.observationId]);
   const pending = [declaration.observationId];
-  while (pending.length > 0) {
-    const targetObservationId = pending.shift()!;
+  for (let cursor = 0; cursor < pending.length; cursor += 1) {
+    const targetObservationId = pending[cursor]!;
     for (const reference of index.referencesByTarget.get(targetObservationId) ?? []) {
       paths.add(reference.path);
       if (reference.sourceObservationId === null
@@ -376,13 +383,13 @@ function transitiveDependencyPaths(
   const paths = new Set<string>();
   const visited = new Set<string>();
   const pending = [...references];
-  while (pending.length > 0) {
-    const reference = pending.shift()!;
+  for (let cursor = 0; cursor < pending.length; cursor += 1) {
+    const reference = pending[cursor]!;
     if (reference.targetPath !== null) paths.add(reference.targetPath);
     if (reference.targetObservationId === null
         || visited.has(reference.targetObservationId)) continue;
     visited.add(reference.targetObservationId);
-    pending.push(...(index.referencesBySource.get(reference.targetObservationId) ?? []));
+    for (const next of index.referencesBySource.get(reference.targetObservationId) ?? []) pending.push(next);
   }
   return sortedUnique(paths);
 }
@@ -406,35 +413,6 @@ function reexportIdentity(
     .map((reference) => referenceIdentity(reference, index)));
 }
 
-function relationDeclarationPairs(
-  beforeRelations: readonly BoundRelation[],
-  afterRelations: readonly BoundRelation[]
-): ReadonlyMap<string, Readonly<{ before: SourceProgramDeclaration; after: SourceProgramDeclaration }>> {
-  const beforeByKey = new Map(beforeRelations
-    .filter((relation): relation is BoundRelation & { declaration: SourceProgramDeclaration } => (
-      relation.declaration !== null
-    ))
-    .map((relation) => [`${relation.subject}\0${relation.relation}`, relation] as const));
-  const pairs = new Map<string, Readonly<{ before: SourceProgramDeclaration; after: SourceProgramDeclaration }>>();
-  for (const relation of afterRelations) {
-    if (relation.declaration === null) continue;
-    const before = beforeByKey.get(`${relation.subject}\0${relation.relation}`)?.declaration ?? null;
-    if (before === null) continue;
-    pairs.set(before.observationId, Object.freeze({ before, after: relation.declaration }));
-  }
-  return pairs;
-}
-
-function declarationOrder(
-  left: SourceProgramDeclaration,
-  right: SourceProgramDeclaration
-): number {
-  return left.span.start - right.span.start
-    || left.span.end - right.span.end
-    || compareCodeUnits(left.declarationDigest, right.declarationDigest)
-    || compareCodeUnits(left.observationId, right.observationId);
-}
-
 function compileChanges(
   before: SourceProgramModel,
   after: SourceProgramModel,
@@ -443,71 +421,9 @@ function compileChanges(
   beforeRelations: readonly BoundRelation[],
   afterRelations: readonly BoundRelation[]
 ): readonly SourceProgramReconciliationDeclarationChange[] {
-  const pairs = new Map(relationDeclarationPairs(beforeRelations, afterRelations));
+  const pairs = pairSourceProgramDeclarations(before.declarations, after.declarations,
+    beforeRelations, afterRelations);
   const pairedAfterIds = new Set([...pairs.values()].map(({ after: declaration }) => declaration.observationId));
-  const beforeByExactAddress = new Map<string, SourceProgramDeclaration[]>();
-  const afterByExactAddress = new Map<string, SourceProgramDeclaration[]>();
-  const afterByStableKey = new Map<string, SourceProgramDeclaration[]>();
-  for (const declaration of after.declarations) {
-    const exactAddress = `${declaration.moduleId ?? ''}\0${declaration.path}\0${declaration.name}\0${declaration.kind}\0${declaration.exported}`;
-    const exactGroup = afterByExactAddress.get(exactAddress) ?? [];
-    exactGroup.push(declaration);
-    afterByExactAddress.set(exactAddress, exactGroup);
-    const key = `${declaration.moduleId ?? ''}\0${declaration.name}\0${declaration.kind}\0${declaration.exported}`;
-    const group = afterByStableKey.get(key) ?? [];
-    group.push(declaration);
-    afterByStableKey.set(key, group);
-  }
-  for (const declaration of before.declarations) {
-    const exactAddress = `${declaration.moduleId ?? ''}\0${declaration.path}\0${declaration.name}\0${declaration.kind}\0${declaration.exported}`;
-    const group = beforeByExactAddress.get(exactAddress) ?? [];
-    group.push(declaration);
-    beforeByExactAddress.set(exactAddress, group);
-  }
-  for (const [exactAddress, rawBeforeGroup] of beforeByExactAddress) {
-    const beforeGroup = rawBeforeGroup
-      .filter(({ observationId }) => !pairs.has(observationId))
-      .sort(declarationOrder);
-    const afterGroup = (afterByExactAddress.get(exactAddress) ?? [])
-      .filter(({ observationId }) => !pairedAfterIds.has(observationId))
-      .sort(declarationOrder);
-    const unmatchedAfter = new Set(afterGroup.map(({ observationId }) => observationId));
-    for (const beforeDeclaration of beforeGroup) {
-      const exactDigest = afterGroup.find((afterDeclaration) => (
-        unmatchedAfter.has(afterDeclaration.observationId)
-        && afterDeclaration.declarationDigest === beforeDeclaration.declarationDigest
-      ));
-      if (exactDigest === undefined) continue;
-      pairs.set(beforeDeclaration.observationId, Object.freeze({
-        before: beforeDeclaration,
-        after: exactDigest
-      }));
-      pairedAfterIds.add(exactDigest.observationId);
-      unmatchedAfter.delete(exactDigest.observationId);
-    }
-    const remainingBefore = beforeGroup.filter(({ observationId }) => !pairs.has(observationId));
-    const remainingAfter = afterGroup.filter(({ observationId }) => unmatchedAfter.has(observationId));
-    const remainingAfterIterator = remainingAfter.values();
-    for (const beforeDeclaration of remainingBefore) {
-      const nextAfter = remainingAfterIterator.next();
-      if (nextAfter.done) break;
-      const afterDeclaration = nextAfter.value;
-      pairs.set(beforeDeclaration.observationId, Object.freeze({
-        before: beforeDeclaration,
-        after: afterDeclaration
-      }));
-      pairedAfterIds.add(afterDeclaration.observationId);
-    }
-  }
-  for (const declaration of before.declarations) {
-    if (pairs.has(declaration.observationId)) continue;
-    const key = `${declaration.moduleId ?? ''}\0${declaration.name}\0${declaration.kind}\0${declaration.exported}`;
-    const candidates = (afterByStableKey.get(key) ?? [])
-      .filter(({ observationId }) => !pairedAfterIds.has(observationId));
-    if (candidates.length !== 1) continue;
-    pairs.set(declaration.observationId, Object.freeze({ before: declaration, after: candidates[0]! }));
-    pairedAfterIds.add(candidates[0]!.observationId);
-  }
   const subjectsFor = (
     declaration: SourceProgramDeclaration | null,
     relations: readonly BoundRelation[]
@@ -726,8 +642,12 @@ function reconciliationReason(
 export function compileSourceProgramReconciliationProjection(
   input: CompileSourceProgramReconciliationProjectionInput
 ): SourceProgramReconciliationProjection {
+  // Bind this invocation once; receipt issuer checks remain the authority.
+  const { before, after, providerEvidence: requestedProviderEvidence } = input;
+  input = Object.freeze({ before, after, providerEvidence: requestedProviderEvidence });
   assertRepositorySourceProgramCompilationReceipt(input.before);
   assertRepositorySourceProgramCompilationReceipt(input.after);
+  const findingDelta = compileSourceProgramFindingDelta(input.before, input.after);
   const beforeModelIndex = reconciliationModelIndex(input.before.model);
   const afterModelIndex = reconciliationModelIndex(input.after.model);
   const beforeMembership = input.before.workspaceSnapshot.moduleMembership;
@@ -746,6 +666,19 @@ export function compileSourceProgramReconciliationProjection(
   );
   const subjects = sortedUnique(changes.flatMap(({ subjects: changeSubjects }) => changeSubjects));
   const reasons: SourceProgramReconciliationReason[] = [];
+  if (findingDelta.scope.regressedPaths.length > 0) {
+    reasons.push(reconciliationReason('source-program-observation-coverage-regressed',
+      'source-program', findingDelta.scope.regressedPaths, findingDelta.after));
+  }
+  if (findingDelta.after.unexpectedObservedPaths.length > 0) {
+    reasons.push(reconciliationReason('source-program-observation-outside-snapshot',
+      'source-program', findingDelta.after.unexpectedObservedPaths, findingDelta.after));
+  }
+  for (const entry of findingDelta.entries) {
+    if (entry.status !== 'unobserved') continue;
+    reasons.push(reconciliationReason('finding-disappearance-unobserved', entry.subject,
+      entry.beforePaths, { entry, changedContextFields: findingDelta.changedContextFields }));
+  }
   for (const change of changes) {
     const beforeOwner = change.before?.moduleId ?? null;
     const afterOwner = change.after?.moduleId ?? null;
@@ -918,8 +851,6 @@ export function compileSourceProgramReconciliationProjection(
       frontierDigest: sha256(canonical) as `sha256:${string}`
     }));
   }
-  const changedPaths = new Set(changes.flatMap(({ before, after }) => [before?.path, after?.path]
-    .filter((path): path is string => path !== undefined)));
   const beforeFileDigests = new Map(Object.entries(input.before.semanticSourceDigests));
   const afterFileDigests = new Map(Object.entries(input.after.semanticSourceDigests));
   const changedSourcePaths = new Set([...new Set([
@@ -1023,6 +954,7 @@ export function compileSourceProgramReconciliationProjection(
       compilationReceiptDigest: input.after.receiptDigest
     },
     changes,
+    findingDelta,
     frontiers: frontiers.sort((left, right) => compareCodeUnits(left.subject, right.subject)),
     providerEvidence,
     unresolvedReasons

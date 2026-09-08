@@ -21,6 +21,9 @@ import type {
   SourceProgramTestValueCompilation
 } from '../source-program-model/test-value.ts';
 
+import { sourceProgramFindingDeltaIsUnresolved, summarizeSourceProgramFindingDelta,
+  type SourceProgramFindingDelta } from '../source-program-model/reconciliation-findings.ts';
+
 import { compileSourceProgramMechanismReview, type SourceProgramMechanismReview } from './mechanism-review.ts';
 
 const REDUCTION_MODES = new Set<string>(['none', 'version', 'graph-cut', 'aggregate-import']);
@@ -74,6 +77,8 @@ export type SourceProgramAuditReconciliationProjection = Readonly<{
     readonly compilationReceiptDigest: Digest;
   }>;
   readonly changes: readonly unknown[];
+  /** Absent only on older parent projections; never implied to have been checked. */
+  readonly findingDelta?: SourceProgramFindingDelta;
   readonly frontiers: readonly unknown[];
   readonly providerEvidence: readonly unknown[];
   readonly unresolvedReasons: readonly unknown[];
@@ -493,6 +498,16 @@ function assertFacts(input: CompileSourceProgramAuditOperationInput): void {
         !== input.reconciliation.projectionDigest) {
     throw new Error('Architecture projections are not bound to the Source Program model');
   }
+  const delta = input.reconciliation.findingDelta;
+  if (delta !== undefined && (
+    delta.before.sourceRevision !== input.reconciliation.before.sourceRevision
+    || delta.before.modelDigest !== input.reconciliation.before.modelDigest
+    || delta.after.sourceRevision !== input.reconciliation.after.sourceRevision
+    || delta.after.modelDigest !== input.reconciliation.after.modelDigest
+    || (sourceProgramFindingDeltaIsUnresolved(delta) && input.reconciliation.status !== 'unresolved')
+  )) {
+    throw new Error('Finding reconciliation is not bound to the compared models or unresolved state');
+  }
   const testBindingFailures = [
     ...(input.testValue.sourceRevision === input.sourceProgram.sourceRevision ? [] : ['test-value-source']),
     ...(input.testDisposition.sourceRevision === input.sourceProgram.sourceRevision ? [] : ['test-disposition-source']),
@@ -585,6 +600,37 @@ export function parseSourceProgramAuditOperationInput(
   return input;
 }
 
+function operationExitCode(enforce: boolean, reasons: readonly string[]): 0 | 1 {
+  return enforce && reasons.length > 0 ? 1 : 0;
+}
+
+function readEnforcement(projection: Readonly<Record<string, unknown>>): Readonly<{
+  requested: boolean; blockingReasons: readonly string[];
+}> {
+  const enforcement = projection.enforcement;
+  if (!isPlainObject(enforcement) || typeof enforcement.requested !== 'boolean'
+      || !Array.isArray(enforcement.blockingReasons)) {
+    throw new Error('Repository Audit report is missing an explicit enforcement decision');
+  }
+  const reasons = enforcement.blockingReasons as unknown[];
+  for (const reason of reasons) {
+    if (typeof reason !== 'string' || reason.length === 0 || reason.trim() !== reason) {
+      throw new Error('Repository Audit report has invalid blocking reasons');
+    }
+  }
+  if (new Set(reasons).size !== reasons.length) {
+    throw new Error('Repository Audit report repeats a blocking reason');
+  }
+  return enforcement as { requested: boolean; blockingReasons: readonly string[] };
+}
+
+function assertResultDecision(projection: Readonly<Record<string, unknown>>, exitCode: number): void {
+  const enforcement = readEnforcement(projection);
+  if (exitCode !== operationExitCode(enforcement.requested, enforcement.blockingReasons)) {
+    throw new Error('Repository Audit result exit code contradicts its reported enforcement decision');
+  }
+}
+
 function assertOperationInput(input: SourceProgramAuditOperationInput): void {
   if (!isPlainObject(input.binding)
       || !/^sha256:[0-9a-f]{64}$/u.test(input.binding.sourceRevision)
@@ -601,6 +647,12 @@ function assertOperationInput(input: SourceProgramAuditOperationInput): void {
       || input.projection.modelDigest !== input.binding.modelDigest
       || (input.reductionPatch !== null && !isPlainObject(input.reductionPatch))) {
     throw new Error('Repository Audit Source Program operation input is inconsistent');
+  }
+  const enforcement = readEnforcement(input.projection);
+  if (enforcement.requested !== input.enforce
+      || enforcement.blockingReasons.length !== input.blockingReasons.length
+      || enforcement.blockingReasons.some((reason, index) => reason !== input.blockingReasons[index])) {
+    throw new Error('Repository Audit input contradicts its reported enforcement decision');
   }
   if (input.reductionPatch !== null
       && input.reductionPatch.sourceRevision !== input.binding.sourceRevision) {
@@ -620,6 +672,7 @@ export function encodeSourceProgramAuditOperationResult(
       })) {
     throw new Error('Repository Audit Source Program operation result is inconsistent');
   }
+  assertResultDecision(result.projection, result.exitCode);
   return canonicalWireBytes({
     exitCode: result.exitCode,
     projection: result.projection,
@@ -651,6 +704,7 @@ export function parseSourceProgramAuditOperationResult(
   })) {
     throw new Error('Repository Audit Source Program operation result digest differs');
   }
+  assertResultDecision(result.projection, result.exitCode);
   return result;
 }
 
@@ -834,7 +888,10 @@ export function compileSourceProgramAuditOperationInput(
       changes: input.reconciliation.changes.length,
       frontiers: input.reconciliation.frontiers.length,
       providerEvidence: input.reconciliation.providerEvidence,
-      unresolvedReasons: compactRecordSet(input.reconciliation.unresolvedReasons)
+      unresolvedReasons: compactRecordSet(input.reconciliation.unresolvedReasons),
+      ...(input.reconciliation.findingDelta === undefined ? {} : {
+        findingDelta: summarizeSourceProgramFindingDelta(input.reconciliation.findingDelta)
+      })
     }),
     architectureEvolution: full ? input.architectureEvolution : Object.freeze({
       status: input.architectureEvolution.status,
@@ -963,7 +1020,7 @@ export function compileSourceProgramAuditOperation(
   input: SourceProgramAuditOperationInput
 ): SourceProgramAuditOperationResult {
   assertOperationInput(input);
-  const exitCode = input.enforce && input.blockingReasons.length > 0 ? 1 as const : 0 as const;
+  const exitCode = operationExitCode(input.enforce, input.blockingReasons);
   const projection = input.projection;
   const reductionPatch = input.reductionPatch;
   const resultDigest = sha256({ projection, reductionPatch, exitCode }) as Digest;

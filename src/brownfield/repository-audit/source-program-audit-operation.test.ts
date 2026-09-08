@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'bun:test';
 
-import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalJson, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import type { SourceProgramModel } from '../source-program-model/contract.ts';
 import {
   compileSourceProgramAuditOperation,
@@ -15,6 +15,8 @@ import {
   type CompileSourceProgramAuditOperationInput,
   type SourceProgramAuditOperationInput
 } from './source-program-audit-operation.ts';
+
+import { compileSourceProgramFindingDelta } from '../source-program-model/reconciliation-findings.ts';
 
 const digest = (value: unknown): `sha256:${string}` => sha256(value) as `sha256:${string}`;
 
@@ -482,4 +484,114 @@ describe('Source Program audit domain operation', () => {
       }), /unknown observation count/u);
     }
   });
+
+
+  test('full and compact reports carry the same finding comparison through the actual wire chain', () => {
+    const facts = input();
+    type Snapshot = Parameters<typeof compileSourceProgramFindingDelta>[0];
+    const make = (which: 'before' | 'after'): Snapshot => ({
+      sourceRevision: facts.reconciliation[which].sourceRevision,
+      moduleMembershipDigest: digest('membership'),
+      workspaceSnapshot: { files: facts.sourceFileIdentities },
+      projectGeneration: { compilerRevision: digest('compiler'), providerRevision: digest('provider'),
+        compilerConfigDigest: digest('configuration'), dependencyGenerationDigest: digest('dependency'),
+        environmentDigest: digest('environment'), projectConfigDigest: null },
+      model: { modelDigest: facts.reconciliation[which].modelDigest,
+        providers: [{ id: 'test-provider', revision: 'fixed' }], unknowns: [],
+        files: facts.sourceFileIdentities.map(file => ({ ...file, semanticObservationClass: 'observed' })),
+        candidates: which === 'before' ? [{ code: 'production-declaration-without-consumer', subject: 'domain',
+          paths: ['src/domain.ts'], reason: 'prior observation', observationClass: 'derived' }] : [] }
+    }) as unknown as Snapshot;
+    const findingDelta = compileSourceProgramFindingDelta(make('before'), make('after'));
+    assert.equal(findingDelta.entries[0]!.status, 'absent');
+    for (const full of [false, true]) for (const enforce of [false, true]) {
+      const request = compileSourceProgramAuditOperationInput({ ...facts,
+        reconciliation: { ...facts.reconciliation, findingDelta }, options: { ...facts.options, full, enforce } });
+      const decoded = parseSourceProgramAuditOperationInput(encodeSourceProgramAuditOperationInput(request), 1_000_000);
+      const result = parseSourceProgramAuditOperationResult(
+        encodeSourceProgramAuditOperationResult(compileSourceProgramAuditOperation(decoded)), 1_000_000);
+      const observed = (result.projection.reconciliation as { findingDelta: typeof findingDelta }).findingDelta;
+      assert.deepEqual(observed.counts, { introduced: 0, persistent: 0, changed: 0, absent: 1,
+        'out-of-scope': 0, unobserved: 0 });
+      assert.equal(observed.contextComparable, true); assert.equal(observed.deltaDigest, findingDelta.deltaDigest);
+      assert.equal('entries' in observed, full); assert.equal(result.exitCode, 0);
+    }
+  });
+
+  test('foreign finding models and an unresolved comparison disguised as resolved are refused', () => {
+    const facts = input();
+    type Snapshot = Parameters<typeof compileSourceProgramFindingDelta>[0];
+    const base = { sourceRevision: facts.reconciliation.before.sourceRevision,
+      moduleMembershipDigest: digest('membership'), workspaceSnapshot: { files: facts.sourceFileIdentities },
+      projectGeneration: { compilerRevision: digest('compiler'), providerRevision: digest('provider'),
+        compilerConfigDigest: digest('configuration'), dependencyGenerationDigest: digest('dependency'),
+        environmentDigest: digest('environment'), projectConfigDigest: null },
+      model: { modelDigest: facts.reconciliation.before.modelDigest, providers: [], unknowns: [], candidates: [],
+        files: facts.sourceFileIdentities.map(file => ({ ...file, semanticObservationClass: 'observed' })) }
+    } as unknown as Snapshot;
+    const after = { ...base, sourceRevision: facts.reconciliation.after.sourceRevision,
+      model: { ...base.model, modelDigest: facts.reconciliation.after.modelDigest, files: [] } };
+    const delta = compileSourceProgramFindingDelta(base, after);
+    assert.throws(() => compileSourceProgramAuditOperationInput({ ...facts,
+      reconciliation: { ...facts.reconciliation, findingDelta: delta } }), /Finding reconciliation/);
+    for (const full of [false, true]) for (const enforce of [false, true]) {
+      const request = compileSourceProgramAuditOperationInput({ ...facts,
+        reconciliation: { ...facts.reconciliation, status: 'unresolved', findingDelta: delta,
+          unresolvedReasons: [{ code: 'source-program-observation-coverage-regressed' }] },
+        options: { ...facts.options, full, enforce } });
+      assert.ok(request.blockingReasons.includes('reconciliation-unresolved'));
+      assert.equal(compileSourceProgramAuditOperation(request).exitCode, enforce ? 1 : 0);
+    }
+    const foreign = { ...delta, after: { ...delta.after, modelDigest: digest('foreign') } };
+    assert.throws(() => compileSourceProgramAuditOperationInput({ ...facts,
+      reconciliation: { ...facts.reconciliation, status: 'unresolved', findingDelta: foreign } }), /Finding reconciliation/);
+  });
+
+  test('an input cannot advertise a different decision from the one the worker executes', () => {
+    const original = compileSourceProgramAuditOperationInput(input());
+    for (const projection of [
+      { ...original.projection, enforcement: { requested: false, blockingReasons: [] } },
+      { ...original.projection, enforcement: { requested: true, blockingReasons: ['hidden'] } }
+    ]) {
+      const altered = { ...original, projection };
+      assert.throws(() => compileSourceProgramAuditOperation(altered), /reported enforcement/);
+      assert.throws(() => encodeSourceProgramAuditOperationInput(altered), /reported enforcement/);
+      const bytes = Buffer.from(JSON.stringify(canonicalJson(altered)));
+      assert.throws(() => parseSourceProgramAuditOperationInput(bytes, 1_000_000), /reported enforcement/);
+    }
+  });
+
+  test('recomputed public result hashes cannot hide a failed enforced decision behind exit zero', () => {
+    const facts = input(), request = compileSourceProgramAuditOperationInput({ ...facts,
+      sourceProgram: { ...facts.sourceProgram, counts: { ...facts.sourceProgram.counts, unknowns: 1 } } });
+    const honest = compileSourceProgramAuditOperation(request);
+    assert.equal(honest.exitCode, 1);
+    const unsigned = { projection: honest.projection, reductionPatch: honest.reductionPatch, exitCode: 0 as const };
+    const forged = { ...unsigned, resultDigest: digest(unsigned) };
+    assert.throws(() => encodeSourceProgramAuditOperationResult(forged), /contradicts.*decision/);
+    assert.throws(() => parseSourceProgramAuditOperationResult(Buffer.from(JSON.stringify(canonicalJson(forged))),
+      1_000_000), /contradicts.*decision/);
+  });
+
+  test('a failure exit cannot be invented for an explicitly successful diagnostic decision', () => {
+    const facts = input(), request = compileSourceProgramAuditOperationInput({ ...facts,
+      sourceProgram: { ...facts.sourceProgram, counts: { ...facts.sourceProgram.counts, unknowns: 1 } },
+      options: { ...facts.options, enforce: false } });
+    const honest = compileSourceProgramAuditOperation(request);
+    assert.equal(honest.exitCode, 0);
+    const unsigned = { projection: honest.projection, reductionPatch: honest.reductionPatch, exitCode: 1 as const };
+    const forged = { ...unsigned, resultDigest: digest(unsigned) };
+    assert.throws(() => encodeSourceProgramAuditOperationResult(forged), /contradicts.*decision/);
+  });
+
+  test('missing or malformed reported enforcement is not interpreted as success', () => {
+    const original = compileSourceProgramAuditOperationInput(input());
+    for (const enforcement of [undefined, null, {}, { requested: 'false', blockingReasons: [] },
+      { requested: true, blockingReasons: [null] }, { requested: true, blockingReasons: ['same', 'same'] },
+      { requested: true, blockingReasons: new Array(1) }]) {
+      assert.throws(() => compileSourceProgramAuditOperation({ ...original,
+        projection: { ...original.projection, enforcement } }), /enforcement|blocking reason/);
+    }
+  });
+
 });
