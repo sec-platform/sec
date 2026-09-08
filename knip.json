@@ -10,13 +10,13 @@
   ],
   "project": [
     "src/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}!",
-    "!src/**/*.{test,spec}.{ts,tsx,mts,cts,js,jsx,mjs,cjs}!",
+    "!src/**/*{.test,.spec,_test,_spec}.{ts,tsx,mts,cts,js,jsx,mjs,cjs}!",
     "tests/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}"
   ],
   "bun": {
     "entry": [
-      "src/**/*.{test,spec}.{ts,tsx,mts,cts,js,jsx,mjs,cjs}",
-      "tests/**/*.{test,spec}.{ts,tsx,mts,cts,js,jsx,mjs,cjs}"
+      "src/**/*{.test,.spec,_test,_spec}.{ts,tsx,mts,cts,js,jsx,mjs,cjs}",
+      "tests/**/*{.test,.spec,_test,_spec}.{ts,tsx,mts,cts,js,jsx,mjs,cjs}"
     ]
   },
   "includeEntryExports": false
