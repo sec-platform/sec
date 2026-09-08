@@ -38,10 +38,6 @@ export async function prepareOrdinaryFileWrite(
   }
 }
 
-async function ensureOrdinaryDirectory(dirPath: string, commitFence?: CommitFence): Promise<void> {
-  await ensureDir(dirPath, commitFence);
-}
-
 /**
  * Directory existence is physical state, not process-local cache state.
  * Recursive mkdir is idempotent; always re-observing the final directory keeps

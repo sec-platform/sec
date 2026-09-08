@@ -49,14 +49,12 @@ import {
   type DependencyTransitionJournal,
   type DependencyTransitionLedger,
   type DependencyTransitionNamespace,
-  type DependencyTransitionSlot,
   type DependencyTransitionUnsigned,
   generatedStatePhysicalIdentity,
   hasExactObjectKeys,
   isCanonicalAbsolutePath,
   isCanonicalGeneratedStatePhysicalIdentity,
   isSha256Digest,
-  type RuntimeDependencySourceGeneration,
   sameGeneratedStateIdentity,
   transitionSlotMatches
 } from './contract.ts';

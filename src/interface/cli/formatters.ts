@@ -16,7 +16,6 @@ import { buildCiArtifactUploadGroups, CI_ARTIFACT_MANIFEST_PATH } from '../../ve
 import type { CiArtifactKind, CiArtifactManifest, CiArtifactUploadGroup } from '../../verification/ci-artifacts/contract/types.ts';
 import type { RuntimeVerificationLaneReport, VerificationReport } from '../../verification/contract/types.ts';
 import { reviewArtifactMissingReasonTypeCount, reviewArtifactUploadGroupCount } from '../../verification/review/contract/artifact.ts';
-import { buildReviewPolicySummary } from '../../verification/review/contract/policy.ts';
 import type { ReviewSummary } from '../../verification/review/contract/types.ts';
 import { upgradeDiagnosticsAttributionParts } from '../../verification/review/contract/upgrade.ts';
 import { buildE2eMatrix, type E2eMatrix } from '../../verification/review/runtime/matrix.ts';
