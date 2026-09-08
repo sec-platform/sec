@@ -204,3 +204,77 @@ test('malformed or compact topology summaries cannot impersonate the complete pr
     assert.throws(() => topologyFails(input as never, true), TypeError);
   }
 });
+
+test('Source Program unknowns cannot disappear behind an empty top-level report list', () => {
+  const report = { findings: [], unknowns: [], sourceProgram: { unknowns: [{ code: 'unresolved-import' }] } };
+  assert.equal(shouldFail(report), true);
+  assert.equal(shouldFail(report, { failOn: 'none' }), true);
+  assert.equal(shouldFail(report, { diagnostic: true }), false);
+});
+
+test('declaration topology unknowns retain the same diagnostic opt-out as other unknowns', () => {
+  const report = { findings: [], unknowns: [], declarationTopology: { unknowns: ['unresolved-target'] } };
+  assert.equal(shouldFail(report), true);
+  assert.equal(shouldFail(report, { failOn: 'none' }), true);
+  assert.equal(shouldFail(report, { diagnostic: true }), false);
+});
+
+test('unknown content coverage is blocking independently of other report producers', () => {
+  const report = { findings: [], unknowns: [], contentCoverage: [{ status: 'unknown' as const }] };
+  assert.equal(shouldFail(report), true);
+  assert.equal(shouldFail(report, { diagnostic: true }), false);
+});
+
+test('scanned and explicitly excluded content are not converted into missing coverage', () => {
+  const report = { findings: [], unknowns: [], sourceProgram: { unknowns: [] },
+    declarationTopology: { unknowns: [] }, contentCoverage: [
+      { status: 'scanned' as const }, { status: 'excluded' as const }
+    ] };
+  assert.equal(shouldFail(report), false);
+});
+
+test('all combinations of detailed unknown channels obey one explicit diagnostic decision', () => {
+  for (let mask = 0; mask < 8; mask++) {
+    const report = { findings: [], unknowns: [],
+      sourceProgram: { unknowns: mask & 1 ? ['model'] : [] },
+      declarationTopology: { unknowns: mask & 2 ? ['topology'] : [] },
+      contentCoverage: [{ status: mask & 4 ? 'unknown' as const : 'scanned' as const }] };
+    assert.equal(shouldFail(report, { failOn: 'none' }), mask !== 0);
+    assert.equal(shouldFail(report, { diagnostic: true, failOn: 'none' }), false);
+  }
+});
+
+test('compact count or digest substitutes cannot masquerade as detailed observation arrays', () => {
+  for (const field of ['sourceProgram', 'declarationTopology'] as const) {
+    for (const value of [null, {}, { unknowns: 0 }, { unknowns: { count: 0, digest: 'unknown' } }]) {
+      assert.throws(() => shouldFail({ findings: [], unknowns: [], [field]: value } as never), TypeError);
+      assert.throws(() => shouldFail({ findings: [], unknowns: [], [field]: value } as never,
+        { diagnostic: true, failOn: 'none' }), TypeError);
+    }
+  }
+});
+
+test('malformed coverage is rejected rather than implicitly classified as scanned', () => {
+  for (const value of [null, {}, [null], [{}], [{ status: 'SCANNED' }], [{ status: 'complete' }]]) {
+    assert.throws(() => shouldFail({ findings: [], unknowns: [], contentCoverage: value } as never), TypeError);
+  }
+});
+
+test('summary counters never override the original model and topology observations', () => {
+  const report = { findings: [], unknowns: [], sourceProgram: { unknowns: ['unresolved'] },
+    summary: { unknowns: 0, sourceProgram: { unknowns: 0 } } };
+  assert.equal(shouldFail(report), true);
+  const clean = { findings: [], unknowns: [], sourceProgram: { unknowns: [] }, summary: { unknowns: 99 } };
+  assert.equal(shouldFail(clean), false);
+});
+
+test('diagnostic mode does not suppress an independent severe finding in a detailed report', () => {
+  const report = { findings: [{ severity: 'critical' as const }], unknowns: [],
+    sourceProgram: { unknowns: ['unresolved'] } };
+  assert.equal(shouldFail(report, { diagnostic: true }), true);
+});
+
+test('the legacy narrowed findings/unknowns contract remains valid without detailed fields', () => {
+  assert.equal(shouldFail({ findings: [], unknowns: [] }), false);
+  assert.equal(shouldFail({ findings: [], unknowns: ['known-gap'] }), true);
+});

@@ -135,6 +135,11 @@ export function repositoryAuditShouldFail(
   report: Readonly<{
     findings: readonly Readonly<{ severity: RepositoryAuditSeverity }>[];
     unknowns: readonly string[];
+    /** Original detailed observations when the full report is available. Their
+     * absence preserves the legacy findings/unknowns-only decision surface. */
+    sourceProgram?: Readonly<{ unknowns: readonly unknown[] }>;
+    declarationTopology?: Readonly<{ unknowns: readonly unknown[] }>;
+    contentCoverage?: readonly Readonly<{ status: 'excluded' | 'scanned' | 'unknown' }>[];
   }>,
   options: Readonly<{ diagnostic?: boolean; failOn?: RepositoryAuditSeverity | 'none' }> = {}
 ): boolean {
@@ -157,7 +162,31 @@ export function repositoryAuditShouldFail(
       findingFails = true;
     }
   }
-  return (!diagnostic && report.unknowns.length > 0) || findingFails;
+  // A complete report already carries these independent observations. Do not
+  // rely on another producer having copied every unknown into the top-level
+  // string list, or on presentation counts being mutually consistent.
+  let hasUnknown = report.unknowns.length > 0;
+  for (const [label, observation] of [
+    ['Source Program', report.sourceProgram],
+    ['declaration topology', report.declarationTopology]
+  ] as const) {
+    if (observation === undefined) continue;
+    if (observation === null || !Array.isArray(observation.unknowns)) {
+      throw new TypeError(`Audit ${label} must expose its original unknown observations`);
+    }
+    if (observation.unknowns.length > 0) hasUnknown = true;
+  }
+  if (report.contentCoverage !== undefined) {
+    if (!Array.isArray(report.contentCoverage)) throw new TypeError('Audit content coverage must be an array');
+    for (const entry of report.contentCoverage) {
+      if (entry === null || typeof entry !== 'object'
+          || !['excluded', 'scanned', 'unknown'].includes(entry.status)) {
+        throw new TypeError('Audit content coverage status is invalid');
+      }
+      if (entry.status === 'unknown') hasUnknown = true;
+    }
+  }
+  return (!diagnostic && hasUnknown) || findingFails;
 }
 
 /** A topology with unparsed files is not a clean, enforced topology result.
