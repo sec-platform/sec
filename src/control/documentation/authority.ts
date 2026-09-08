@@ -1,6 +1,7 @@
 import { portableLogicalPathCollisionKey } from '../../system-architecture/foundation/contract/logical-path.ts';
 import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../system-architecture/foundation/contract/repository-path.ts';
 import { compareCodeUnits, isPlainObject } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { parseExactJson } from '../../system-architecture/foundation/runtime/exact-json.ts';
 
 export const DOCUMENT_AUTHORITY_KINDS = [
   'authority',
@@ -418,16 +419,20 @@ export function parseDocumentationAuthorityRegistry(
 ): DocumentationAuthorityRegistry {
   let raw: unknown;
   try {
-    raw = JSON.parse(source);
+    // Use the same exact JSON owner as the other machine contracts. An object
+    // built by JSON.parse has already lost duplicate (including escaped) keys.
+    raw = parseExactJson(source, 'Documentation authority registry', {
+      rootObjectKeys: ['documents']
+    });
   } catch (error) {
     throw new Error(
       `Documentation authority registry is not valid JSON: ${
         error instanceof Error ? error.message : String(error)
-      }`
+      }`,
+      { cause: error }
     );
   }
   assertPlainObject(raw, 'registry');
-  assertExactKeys(raw, new Set(['documents']), ['documents'], 'registry');
   if (!Array.isArray(raw.documents)) throw new Error('registry.documents must be an array.');
   const documents = raw.documents.map(parseRecord);
   if (documents.length === 0) throw new Error('registry.documents must not be empty.');
