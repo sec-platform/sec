@@ -213,9 +213,25 @@ const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze(
   slowFileSuite('e2e-workspace', 'workspace', 'compiler-workspace-e2e', 120_000, { parallelSafe: true, prRiskBaseline: true })
 ]);
 
-const explicitSlowTestFiles: ReadonlySet<string> = new Set(
-  slowTestSuiteDefinitions.flatMap((suite) => suite.files)
-);
+// This index derives only from the immutable definitions above. Its maps never
+// escape; query results are frozen and retain declaration order. Do not rebuild
+// the same suite identity/path tables for every changed-file lookup.
+const slowTestSuiteIndex = (() => {
+  const ids = Object.freeze(slowTestSuiteDefinitions.map(({ id }) => id));
+  const mutable = new Map<string, string[]>();
+  for (const suite of slowTestSuiteDefinitions) {
+    for (const file of suite.files) {
+      const matches = mutable.get(file);
+      if (matches === undefined) mutable.set(file, [suite.id]);
+      else matches.push(suite.id);
+    }
+  }
+  const idsByFile: ReadonlyMap<string, readonly string[]> = new Map(
+    [...mutable].map(([file, matches]) => [file, Object.freeze(matches)] as const)
+  );
+  return { ids, knownIds: new Set(ids), idsByFile };
+})();
+const NO_SLOW_TEST_SUITES: readonly string[] = Object.freeze([]);
 
 function buildSlowTestSuites(slowFiles: readonly string[]): readonly SlowTestSuite[] {
     const slowFileSet = new Set(slowFiles);
@@ -275,12 +291,33 @@ function budgetProjectionDigest(
   return sha256(projection) as `sha256:${string}`;
 }
 
-function compileExactTestBudgetProjection(
-  source: TestImpactProjectionReceipt
-): TestBudgetProjection {
+type CapturedTestBudgetInput = Readonly<{
+  generation: TestBudgetSnapshotGeneration;
+  generationKey: `sha256:${string}`;
+  testFiles: ReadonlySet<string>;
+}>;
+
+function captureTestBudgetInput(source: TestImpactProjectionReceipt): CapturedTestBudgetInput {
   const generation = projectionGeneration(source);
-  const generationKey = projectionGenerationKey(generation);
-  const testFiles = uniqueSorted(source.testFiles.filter(isSecRepositoryTestModulePath).map(normalizeSecRepositoryTestModulePath));
+  return {
+    generation,
+    generationKey: projectionGenerationKey(generation),
+    testFiles: new Set(source.testFiles.filter(isSecRepositoryTestModulePath)
+      .map(normalizeSecRepositoryTestModulePath))
+  };
+}
+
+// A cache is disposable storage, not a second compiler. Only exact immutable
+// results constructed here may be reused; a recomputed public digest cannot
+// certify a forged partition or suite assignment. This is local derivation
+// provenance, not Source Program membership or execution authority.
+const compiledTestBudgetProjections = new WeakSet<TestBudgetProjection>();
+
+function compileExactTestBudgetProjection(
+  input: CapturedTestBudgetInput
+): TestBudgetProjection {
+  const { generation, generationKey } = input;
+  const testFiles = uniqueSorted([...input.testFiles]);
   const fastTestFiles = testFiles.filter(isFastTestFile);
   const slowTestFiles = testFiles.filter(isSlowTestFile);
   const slowSuites = buildSlowTestSuites(slowTestFiles);
@@ -292,33 +329,29 @@ function compileExactTestBudgetProjection(
     slowTestFiles,
     slowSuites
   });
-  return deepFreeze({
+  const compiled = deepFreeze({
     ...unsigned,
     projectionDigest: budgetProjectionDigest(unsigned)
   });
+  compiledTestBudgetProjections.add(compiled);
+  return compiled;
 }
 
 function isCurrentCachedProjection(
   cached: TestBudgetProjection,
-  source: TestImpactProjectionReceipt,
-  generationKey: `sha256:${string}`
+  input: CapturedTestBudgetInput
 ): boolean {
-  if (!Object.isFrozen(cached)
-      || cached.generationKey !== generationKey
-      || cached.generation.sourceProjectionDigest !== source.projectionDigest
-      || cached.generation.testObservationDigest !== source.testObservationDigest
-      || cached.generation.workspaceSnapshotIdentityDigest !== source.workspaceSnapshotIdentityDigest) {
-    return false;
-  }
-  const { projectionDigest, ...unsigned } = cached;
-  const sourceFiles = new Set(source.testFiles.filter(isSecRepositoryTestModulePath)
-    .map(normalizeSecRepositoryTestModulePath));
-  return projectionDigest === budgetProjectionDigest(unsigned)
-    && cached.testFiles.every((file) => sourceFiles.has(file))
-    && cached.testFiles.length === sourceFiles.size
-    && cached.fastTestFiles.every(isFastTestFile)
-    && cached.slowTestFiles.every(isSlowTestFile)
-    && cached.slowSuites.every((suite) => Object.isFrozen(suite) && Object.isFrozen(suite.files));
+  // Reject unknown entries before invoking any property, even on an unreadable
+  // proxy. Rebuild through the same compiler instead of validating a caller's
+  // self-authored digest. Issued results are deeply frozen and need no repeated
+  // whole-projection hash, classification, or suite-frozenness scan on a hit.
+  if (!compiledTestBudgetProjections.has(cached)) return false;
+  return cached.generationKey === input.generationKey
+    && cached.generation.sourceProjectionDigest === input.generation.sourceProjectionDigest
+    && cached.generation.testObservationDigest === input.generation.testObservationDigest
+    && cached.generation.workspaceSnapshotIdentityDigest === input.generation.workspaceSnapshotIdentityDigest
+    && cached.testFiles.length === input.testFiles.size
+    && cached.testFiles.every((file) => input.testFiles.has(file));
 }
 
 /**
@@ -329,13 +362,15 @@ export class TestBudgetProjectionCache {
   private readonly projections = new Map<`sha256:${string}`, TestBudgetProjection>();
 
   project(source: TestImpactProjectionReceipt): TestBudgetProjection {
-    const generationKey = projectionGenerationKey(projectionGeneration(source));
-    const cached = this.projections.get(generationKey);
-    if (cached !== undefined && isCurrentCachedProjection(cached, source, generationKey)) {
+    // Capture once: the cache key, membership check and miss compilation must
+    // consume the same generation and selected file set.
+    const input = captureTestBudgetInput(source);
+    const cached = this.projections.get(input.generationKey);
+    if (cached !== undefined && isCurrentCachedProjection(cached, input)) {
       return cached;
     }
-    const exact = compileExactTestBudgetProjection(source);
-    this.projections.set(generationKey, exact);
+    const exact = compileExactTestBudgetProjection(input);
+    this.projections.set(input.generationKey, exact);
     return exact;
   }
 }
@@ -343,7 +378,7 @@ export class TestBudgetProjectionCache {
 export function compileTestBudgetProjection(
   source: TestImpactProjectionReceipt
 ): TestBudgetProjection {
-  return compileExactTestBudgetProjection(source);
+  return compileExactTestBudgetProjection(captureTestBudgetInput(source));
 }
 
 export function getTestFilesSync(projection: TestBudgetProjection): readonly string[] {
@@ -363,19 +398,17 @@ export function getSlowTestSuitesSync(projection: TestBudgetProjection): readonl
 }
 
 export function isKnownSlowTestSuiteId(suiteId: string): boolean {
-  return slowTestSuiteIds().includes(suiteId);
+  return slowTestSuiteIndex.knownIds.has(suiteId);
 }
 
 export function slowTestSuiteIds(): readonly string[] {
-  return Object.freeze(slowTestSuiteDefinitions.map((suite) => suite.id));
+  return slowTestSuiteIndex.ids;
 }
 
 /** Canonical suite identity for a live, removed, or renamed test path. */
 export function slowTestSuiteIdsForFile(file: string): readonly string[] {
   file = normalizeSecRepositoryTestModulePath(file);
-  return Object.freeze(slowTestSuiteDefinitions
-    .filter((suite) => suite.files.includes(file))
-    .map((suite) => suite.id));
+  return slowTestSuiteIndex.idsByFile.get(file) ?? NO_SLOW_TEST_SUITES;
 }
 
 export function slowTestSuiteFiles(
@@ -396,7 +429,7 @@ export function slowTestPrRiskBaselineSuiteIds(
 export function isSlowTestFile(file: string): boolean {
   const normalized = normalizeSecRepositoryTestModulePath(file);
   return isSecRepositoryTestModulePath(normalized)
-    && (explicitSlowTestFiles.has(normalized) || normalized.startsWith('tests/e2e/'));
+    && (slowTestSuiteIndex.idsByFile.has(normalized) || normalized.startsWith('tests/e2e/'));
 }
 
 export function isFastTestFile(file: string): boolean {
