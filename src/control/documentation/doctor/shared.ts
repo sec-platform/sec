@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { markdownFacts } from './markdown-syntax.ts';
 import type { DocsDoctorFrontmatter } from './frontmatter.ts';
 export { parseFrontmatter, VALID_STATUS, ACTIVE_POINTER_STATUS } from './frontmatter.ts';
 export type { DocsDoctorFrontmatter } from './frontmatter.ts';
@@ -121,22 +122,7 @@ export async function* walk(dir: string, root = dir): AsyncGenerator<string> {
 }
 
 export function extractH1Headings(content: string): string[] {
-  const headings: string[] = [];
-  let fence: { character: '`' | '~'; length: number } | undefined;
-  for (const line of content.split(/\r?\n/u)) {
-    const fenceMatch = line.match(/^\s{0,3}(`{3,}|~{3,})/u);
-    if (fenceMatch) {
-      const marker = fenceMatch[1]!;
-      const character = marker[0] as '`' | '~';
-      if (!fence) fence = { character, length: marker.length };
-      else if (fence.character === character && marker.length >= fence.length) fence = undefined;
-      continue;
-    }
-    if (fence) continue;
-    const heading = line.match(/^#\s+(.+?)\s*$/u);
-    if (heading) headings.push(heading[1]!.trim());
-  }
-  return headings;
+  return [...markdownFacts(content).headings];
 }
 
 export function extractFileLinks(content: string): string[] {
@@ -150,21 +136,14 @@ export function extractFileLinks(content: string): string[] {
 }
 
 export function extractBacktickFilePaths(content: string): string[] {
-  const paths: string[] = [];
-  for (const match of content.matchAll(/(?<!`)`([^`\r\n]+)`(?!`)/gu)) {
-    const value = match[1]!.trim();
-    if (
-      !/[*{}<>]/u.test(value)
-      && /(?:^|\/)[^/]+\.[A-Za-z0-9_-]{1,12}$/u.test(value.replace(/\\/gu, '/'))
-    ) paths.push(value);
-  }
-  return paths;
+  return markdownFacts(content).inlineCode.map(value => value.trim()).filter(value =>
+    !/[*{}<>]/u.test(value)
+    && /(?:^|\/)[^/]+\.[A-Za-z0-9_-]{1,12}$/u.test(value.replace(/\\/gu, '/'))
+  );
 }
 
 export function extractMarkdownLinks(content: string): string[] {
-  return [...content.matchAll(
-    /!?\[[^\]\r\n]*\]\(\s*(<[^>\r\n]+>|[^)\s\r\n]+)(?:\s+["'][^"']*["'])?\s*\)/gu
-  )].map((match) => match[1]!);
+  return [...markdownFacts(content).links];
 }
 
 export function repositoryPathForLink(
