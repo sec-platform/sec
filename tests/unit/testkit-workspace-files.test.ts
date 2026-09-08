@@ -4,21 +4,26 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { test } from 'bun:test';
 import { copyWorkspaceFixture } from '../testkit/workspace-files.ts';
+import { settleWorkspaceCallback } from '../testkit/workspace-cleanup.ts';
 
 // Expected files and state are declared independently of the copy filter. This
 // fixture uses real filesystem operations, not a second implementation of cp.
 async function using(run: (root: string, source: string, target: string) => Promise<void>) {
   const root = await fs.mkdtemp(path.join(tmpdir(), 'sec-fixture-copy-'));
   const source = path.join(root, 'source'), target = path.join(root, 'target');
-  await fs.mkdir(source); await fs.mkdir(target);
-  try { await run(root, source, target); }
-  finally { await fs.rm(root, { recursive: true, force: true }); }
+  return settleWorkspaceCallback(async () => {
+    await fs.mkdir(source);
+    await fs.mkdir(target);
+    await run(root, source, target);
+  }, () => fs.rm(root, { recursive: true, force: true }));
 }
+
 async function write(root: string, relative: string, text: string) {
   const destination = path.join(root, relative);
   await fs.mkdir(path.dirname(destination), { recursive: true });
   await fs.writeFile(destination, text);
 }
+
 const absent = (file: string) => assert.rejects(fs.lstat(file), error => (error as { code?: string }).code === 'ENOENT');
 
 test('independent copies preserve file bytes and empty directories without mutable sibling sharing', () => using(async (root, source, target) => {
