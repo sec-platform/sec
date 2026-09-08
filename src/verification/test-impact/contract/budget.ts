@@ -6,7 +6,7 @@ import {
   sha256,
   uniqueSorted
 } from '../../../system-architecture/foundation/runtime/canonical.ts';
-import { isSecRepositoryTestModulePath } from '../../../system-architecture/repository-modules/test-module-path.ts';
+import { isSecRepositoryTestModulePath, normalizeSecRepositoryTestModulePath } from '../../../system-architecture/repository-modules/test-module-path.ts';
 
 export type TestBudgetLane = {
   id: 'fast' | 'runtime' | 'all';
@@ -280,7 +280,7 @@ function compileExactTestBudgetProjection(
 ): TestBudgetProjection {
   const generation = projectionGeneration(source);
   const generationKey = projectionGenerationKey(generation);
-  const testFiles = uniqueSorted(source.testFiles.filter(isSecRepositoryTestModulePath));
+  const testFiles = uniqueSorted(source.testFiles.filter(isSecRepositoryTestModulePath).map(normalizeSecRepositoryTestModulePath));
   const fastTestFiles = testFiles.filter(isFastTestFile);
   const slowTestFiles = testFiles.filter(isSlowTestFile);
   const slowSuites = buildSlowTestSuites(slowTestFiles);
@@ -311,9 +311,11 @@ function isCurrentCachedProjection(
     return false;
   }
   const { projectionDigest, ...unsigned } = cached;
+  const sourceFiles = new Set(source.testFiles.filter(isSecRepositoryTestModulePath)
+    .map(normalizeSecRepositoryTestModulePath));
   return projectionDigest === budgetProjectionDigest(unsigned)
-    && cached.testFiles.every((file) => source.testFiles.includes(file))
-    && cached.testFiles.length === source.testFiles.filter(isSecRepositoryTestModulePath).length
+    && cached.testFiles.every((file) => sourceFiles.has(file))
+    && cached.testFiles.length === sourceFiles.size
     && cached.fastTestFiles.every(isFastTestFile)
     && cached.slowTestFiles.every(isSlowTestFile)
     && cached.slowSuites.every((suite) => Object.isFrozen(suite) && Object.isFrozen(suite.files));
@@ -370,6 +372,7 @@ export function slowTestSuiteIds(): readonly string[] {
 
 /** Canonical suite identity for a live, removed, or renamed test path. */
 export function slowTestSuiteIdsForFile(file: string): readonly string[] {
+  file = normalizeSecRepositoryTestModulePath(file);
   return Object.freeze(slowTestSuiteDefinitions
     .filter((suite) => suite.files.includes(file))
     .map((suite) => suite.id));
@@ -391,7 +394,7 @@ export function slowTestPrRiskBaselineSuiteIds(
 }
 
 export function isSlowTestFile(file: string): boolean {
-  const normalized = file.replaceAll('\\', '/').replace(/^\.\//u, '');
+  const normalized = normalizeSecRepositoryTestModulePath(file);
   return isSecRepositoryTestModulePath(normalized)
     && (explicitSlowTestFiles.has(normalized) || normalized.startsWith('tests/e2e/'));
 }
