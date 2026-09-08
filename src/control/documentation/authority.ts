@@ -274,7 +274,12 @@ function parseRecord(value: unknown, index: number): DocumentationAuthorityRecor
   };
 }
 
-function assertRegistryClosure(records: readonly DocumentationAuthorityRecord[]): void {
+type DocumentationRecordIndex = Readonly<{
+  byId: ReadonlyMap<string, DocumentationAuthorityRecord>;
+  byPath: ReadonlyMap<string, DocumentationAuthorityRecord>;
+}>;
+
+function assertRegistryClosure(records: readonly DocumentationAuthorityRecord[]): DocumentationRecordIndex {
   const ids = new Map<string, DocumentationAuthorityRecord>();
   const paths = new Map<string, DocumentationAuthorityRecord>();
   const caseInsensitivePaths = new Map<string, DocumentationAuthorityRecord>();
@@ -380,38 +385,62 @@ function assertRegistryClosure(records: readonly DocumentationAuthorityRecord[])
       );
     }
   }
+  // Reuse the identities already checked for duplicate and closure failures.
+  // This is one parse-local index, never a cache over a mutable registry.
+  return { byId: ids, byPath: paths };
 }
 
-function assertDependencyGraphAcyclic(records: readonly DocumentationAuthorityRecord[]): void {
-  const byId = new Map(records.map((record) => [record.id, record] as const));
-  const idByPath = new Map(records.map((record) => [record.path, record.id] as const));
+function assertDependencyGraphAcyclic(
+  records: readonly DocumentationAuthorityRecord[],
+  index: DocumentationRecordIndex
+): void {
   const visiting = new Set<string>();
   const visited = new Set<string>();
+  const frames: Array<{ id: string; targets: Iterator<string> }> = [];
 
-  const visit = (id: string, chain: string[]): void => {
-    if (visited.has(id)) return;
-    if (visiting.has(id)) {
-      throw new Error(`Documentation dependency cycle: ${[...chain, id].join(' -> ')}.`);
-    }
-    const record = byId.get(id);
-    if (!record) throw new Error(`Documentation dependency references unknown document ${id}.`);
-    visiting.add(id);
-    for (const target of record.projects) visit(target, [...chain, id]);
-    for (const target of record.proposal?.canonicalTargets ?? []) visit(target, [...chain, id]);
+  function* dependencies(record: DocumentationAuthorityRecord): Generator<string> {
+    // Preserve the established diagnostic traversal: projects, proposal targets,
+    // then the generation source. No separate adjacency graph is constructed.
+    yield* record.projects;
+    yield* record.proposal?.canonicalTargets ?? [];
     if (record.generatedFrom) {
-      const sourceId = idByPath.get(record.generatedFrom);
-      if (!sourceId) {
+      const source = index.byPath.get(record.generatedFrom);
+      if (source === undefined) {
         throw new Error(
           `Documentation generation dependency references unknown path ${record.generatedFrom}.`
         );
       }
-      visit(sourceId, [...chain, id]);
+      yield source.id;
     }
-    visiting.delete(id);
-    visited.add(id);
+  }
+
+  const enter = (id: string): void => {
+    if (visited.has(id)) return;
+    if (visiting.has(id)) {
+      // Build the diagnostic path only on failure, not a new ancestor array on
+      // every edge. The explicit stack also removes the host call-stack limit.
+      throw new Error(`Documentation dependency cycle: ${[...frames.map(frame => frame.id), id].join(' -> ')}.`);
+    }
+    const record = index.byId.get(id);
+    if (record === undefined) throw new Error(`Documentation dependency references unknown document ${id}.`);
+    visiting.add(id);
+    frames.push({ id, targets: dependencies(record) });
   };
 
-  for (const record of records) visit(record.id, []);
+  for (const record of records) {
+    enter(record.id);
+    while (frames.length > 0) {
+      const frame = frames[frames.length - 1]!;
+      const next = frame.targets.next();
+      if (!next.done) {
+        enter(next.value);
+      } else {
+        visiting.delete(frame.id);
+        visited.add(frame.id);
+        frames.pop();
+      }
+    }
+  }
 }
 
 export function parseDocumentationAuthorityRegistry(
@@ -436,8 +465,8 @@ export function parseDocumentationAuthorityRegistry(
   if (!Array.isArray(raw.documents)) throw new Error('registry.documents must be an array.');
   const documents = raw.documents.map(parseRecord);
   if (documents.length === 0) throw new Error('registry.documents must not be empty.');
-  assertRegistryClosure(documents);
-  assertDependencyGraphAcyclic(documents);
+  const index = assertRegistryClosure(documents);
+  assertDependencyGraphAcyclic(documents, index);
   return { documents };
 }
 
