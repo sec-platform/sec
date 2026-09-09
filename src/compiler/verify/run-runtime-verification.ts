@@ -97,6 +97,9 @@ export function runtimeVerificationInvocation(
   isolated = false,
   isolatedConfigPath?: string
 ): { command: string; args: string[] } {
+  if (!path.isAbsolute(projectRoot)) {
+    throw new Error('Runtime verification requires one absolute project root');
+  }
   if (!isolated) {
     return {
       command: 'bun',

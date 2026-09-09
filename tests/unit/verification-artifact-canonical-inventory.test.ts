@@ -1,7 +1,7 @@
-import assert from 'node:assert/strict';
-import { tmpdir } from 'node:os';
 import { expect, test } from 'bun:test';
+import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { publishVerificationArtifactSet } from '../../src/compiler/verify/verification-artifact-publication.ts';

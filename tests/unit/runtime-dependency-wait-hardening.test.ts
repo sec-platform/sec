@@ -1,6 +1,6 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { getEventListeners } from 'node:events';
-import { test } from 'bun:test';
 import { SecError } from '../../src/system-architecture/foundation/contract/failure.ts';
 import {
   runtimeDependencyOperationContext,

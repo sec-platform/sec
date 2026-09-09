@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { executeFastCheckStages, type FastCheckStages } from '../../src/development/runner/fast-check-stages.ts';
 
 function stages(events: string[], overrides: Partial<FastCheckStages> = {}): FastCheckStages {

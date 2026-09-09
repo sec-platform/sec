@@ -1,11 +1,11 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
-import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { test } from 'bun:test';
+import path from 'node:path';
 import YAML from 'yaml';
-import { readYaml, writeYaml, WORKSPACE_YAML_MAX_INPUT_BYTES } from '../../src/workspace/yaml.ts';
-import { YamlSyntaxError, YamlInputLimitError } from '../../src/system-architecture/foundation/runtime/yaml.ts';
+import { YamlInputLimitError, YamlSyntaxError } from '../../src/system-architecture/foundation/runtime/yaml.ts';
+import { readYaml, WORKSPACE_YAML_MAX_INPUT_BYTES, writeYaml } from '../../src/workspace/yaml.ts';
 
 // Real YAML and ordinary filesystem semantics are required. No JSON-parser,
 // serializer or physical-write substitutes may establish these results.

@@ -1593,6 +1593,25 @@ async function ensureMainHealthSupersessionProviderAuthorization(input: Readonly
  * ledger is current; the normal observer marks this terminal inactive and
  * resolves the newly chained successor against the live provider.
  */
+function settleOwnedMainHealthOperationLease(
+  lease: PhysicalMutationLeaseHandle,
+  primaryFailure: unknown,
+  hasPrimaryFailure: boolean
+): void {
+  try {
+    if (lease.recoveryPending) lease.restoreReclaimedOwner();
+    else lease.release();
+  } catch (settlementFailure) {
+    if (hasPrimaryFailure) {
+      throw new AggregateError(
+        [primaryFailure, settlementFailure],
+        'MainHealth operation and lease settlement both failed.'
+      );
+    }
+    throw settlementFailure;
+  }
+}
+
 async function publishPreparedHistoricalTerminal(input: Readonly<{
   repositoryRoot: string;
   preimage: ReturnType<typeof observeTrustedLocalSupersessionPreimage>;
@@ -1618,7 +1637,10 @@ async function publishPreparedHistoricalTerminal(input: Readonly<{
     throw new Error('MainHealth supersession historical terminal lease is already active');
   }
   const releaseLease = input.operationLease === undefined;
+  let primaryFailure: unknown;
+  let hasPrimaryFailure = false;
   try {
+    if (releaseLease) operationLease.acknowledgeReclaimedRecovery();
     assertMainHealthSupersessionSourceExact(input.preimage, 'before historical terminal');
     assertMainHealthSupersessionAuthorizationSource(
       input.preimage,
@@ -1696,8 +1718,14 @@ async function publishPreparedHistoricalTerminal(input: Readonly<{
       receipt: terminal,
       recordPath: path.join(supersessionDirectory.path, recordName)
     });
+  } catch (error) {
+    primaryFailure = error;
+    hasPrimaryFailure = true;
+    throw error;
   } finally {
-    if (releaseLease) operationLease.release();
+    if (releaseLease) {
+      settleOwnedMainHealthOperationLease(operationLease, primaryFailure, hasPrimaryFailure);
+    }
   }
 }
 
@@ -2630,7 +2658,10 @@ async function executeMainHealthSupersessionEffect(input: Readonly<{
     throw new Error('MainHealth supersession operation is already active or its owner liveness is unknown');
   }
   const releaseLease = input.operationLease === undefined;
+  let primaryFailure: unknown;
+  let hasPrimaryFailure = false;
   try {
+    if (releaseLease) operationLease.acknowledgeReclaimedRecovery();
     // Re-admit the maximal predecessor only after taking the subject lease.
     // This is the durable CAS fence that prevents two stale observers from
     // creating different prepared intents (and therefore two external POSTs)
@@ -2898,8 +2929,14 @@ async function executeMainHealthSupersessionEffect(input: Readonly<{
       receipt: terminal,
       recordPath: publication.path
     });
+  } catch (error) {
+    primaryFailure = error;
+    hasPrimaryFailure = true;
+    throw error;
   } finally {
-    if (releaseLease) operationLease.release();
+    if (releaseLease) {
+      settleOwnedMainHealthOperationLease(operationLease, primaryFailure, hasPrimaryFailure);
+    }
   }
 }
 
@@ -3312,6 +3349,7 @@ async function observeHostedMainHealthChecks(input: Readonly<{
 type CanonicalMainHealthProvidersObservation = Readonly<{
   repositoryRoot: string;
   repository: string;
+  defaultBranch: string;
   mainSha: string;
   mainTreeSha: string;
   observedAt: string;
@@ -3531,6 +3569,7 @@ async function observeCanonicalMainHealthProvidersBound(input: Readonly<{
   return Object.freeze({
     repositoryRoot: input.repositoryRoot,
     repository: input.repository,
+    defaultBranch: input.defaultBranch,
     mainSha: input.mainSha,
     mainTreeSha: input.mainTreeSha,
     observedAt: base.observedAt,
@@ -3687,7 +3726,10 @@ async function reconcileCanonicalMainHealthProviderConflictBound(input: Readonly
     if (operationLease === null) {
       throw new Error('MainHealth supersession subject lease is already active or liveness is unknown');
     }
+    let primaryFailure: unknown;
+    let hasPrimaryFailure = false;
     try {
+      operationLease.acknowledgeReclaimedRecovery();
       if (preparedRecovery?.providerDrift === true) {
         // The status POST already happened, but the hosted ledger changed
         // before the terminal was durable.  Keep that exact status evidence as
@@ -3762,8 +3804,12 @@ async function reconcileCanonicalMainHealthProviderConflictBound(input: Readonly
         supersession,
         resolution: postEffect.resolution
       });
+    } catch (error) {
+      primaryFailure = error;
+      hasPrimaryFailure = true;
+      throw error;
     } finally {
-      operationLease.release();
+      settleOwnedMainHealthOperationLease(operationLease, primaryFailure, hasPrimaryFailure);
     }
 }
 
@@ -3830,6 +3876,12 @@ export type MainHealthPublicationAuthority = Readonly<{
 }>;
 
 type MainHealthPublicationAuthorityBinding = Readonly<{
+  subject: Readonly<{
+    repository: string;
+    defaultBranch: string;
+    mainSha: string;
+    mainTreeSha: string;
+  }>;
   runtimeAuthorityBinding: MainHealthDigest | null;
   localPhysical: Readonly<{
     relativePath: string;
@@ -3860,17 +3912,38 @@ export function assertMainHealthPublicationAuthorityStable(
   first: MainHealthPublicationAuthority,
   second: MainHealthPublicationAuthority
 ): void {
-  if (encodeVerificationActionData(mainHealthPublicationAuthorityBinding(first))
-      !== encodeVerificationActionData(mainHealthPublicationAuthorityBinding(second))) {
+  if (encodeVerificationActionData(mainHealthPublicationStableAuthorityBinding(
+    mainHealthPublicationAuthorityBinding(first)
+  )) !== encodeVerificationActionData(mainHealthPublicationStableAuthorityBinding(
+    mainHealthPublicationAuthorityBinding(second)
+  ))) {
     throw new Error('MainHealth publication authority drifted between live snapshots');
   }
 }
 
-function createMainHealthPublicationAuthority(input: Readonly<{
+function mainHealthPublicationStableAuthorityBinding(
+  binding: MainHealthPublicationAuthorityBinding
+): Readonly<{
+  subject: MainHealthPublicationAuthorityBinding['subject'];
+  runtimeAuthorityBinding: MainHealthDigest | null;
+  localPhysical: MainHealthPublicationAuthorityBinding['localPhysical'];
+  hostedProviderEpoch: MainHealthDigest | null;
+  hostedProvenanceDigest: MainHealthDigest | null;
+}> {
+  return Object.freeze({
+    subject: binding.subject,
+    runtimeAuthorityBinding: binding.runtimeAuthorityBinding,
+    localPhysical: binding.localPhysical,
+    hostedProviderEpoch: binding.hostedProviderEpoch,
+    hostedProvenanceDigest: binding.hostedProvenanceDigest
+  });
+}
+
+function createMainHealthPublicationAuthorityBinding(input: Readonly<{
   observation: CanonicalMainHealthProvidersObservation;
   runtimeAuthority?: MainHealthRuntimeAuthority;
   environment?: NodeJS.ProcessEnv;
-}>): MainHealthPublicationAuthority {
+}>): MainHealthPublicationAuthorityBinding {
   const physicalLocal = input.observation.physicalLocalProvider.kind === 'available'
     ? (() => {
         const preimage = observeTrustedLocalSupersessionPreimage({
@@ -3895,8 +3968,13 @@ function createMainHealthPublicationAuthority(input: Readonly<{
   const hostedLedger = input.observation.hostedProvider.kind === 'available'
     ? input.observation.hostedProvider.ledger
     : null;
-  const authority = Object.freeze({}) as MainHealthPublicationAuthority;
-  mainHealthPublicationAuthorityBindings.set(authority, Object.freeze({
+  return Object.freeze({
+    subject: Object.freeze({
+      repository: input.observation.repository,
+      defaultBranch: input.observation.defaultBranch,
+      mainSha: input.observation.mainSha,
+      mainTreeSha: input.observation.mainTreeSha
+    }),
     runtimeAuthorityBinding: input.runtimeAuthority === undefined
       ? null
       : mainHealthRuntimeAuthorityBinding(input.runtimeAuthority).binding,
@@ -3911,22 +3989,34 @@ function createMainHealthPublicationAuthority(input: Readonly<{
           schema: 'sec-main-health-hosted-provenance-v2',
           producer: hostedLedger.producer
         }))
-  }));
+  });
+}
+
+function createMainHealthPublicationAuthority(input: Readonly<{
+  observation: CanonicalMainHealthProvidersObservation;
+  runtimeAuthority?: MainHealthRuntimeAuthority;
+  environment?: NodeJS.ProcessEnv;
+}>): MainHealthPublicationAuthority {
+  const authority = Object.freeze({}) as MainHealthPublicationAuthority;
+  mainHealthPublicationAuthorityBindings.set(
+    authority,
+    createMainHealthPublicationAuthorityBinding(input)
+  );
   return authority;
 }
 
-function mainHealthPublicationStableDigest(input: Readonly<{
+function mainHealthPublicationStableDigestFromBinding(input: Readonly<{
   projection: WorkSelectionMainHealthProjection;
   ledger: MainHealthLedger | null;
   repairDecision: MainHealthRepairDecision;
   supersession: MainHealthSupersessionObservation;
-  authority: MainHealthPublicationAuthority;
+  authority: MainHealthPublicationAuthorityBinding;
 }>): MainHealthDigest {
   const ledger = input.ledger;
   return digestRef(Object.freeze({
     schema: 'sec-main-health-publication-stable-observation-v2',
     projection: input.projection,
-    authority: mainHealthPublicationAuthorityBinding(input.authority),
+    authority: mainHealthPublicationStableAuthorityBinding(input.authority),
     ledger: ledger === null ? null : Object.freeze({
       repository: ledger.repository,
       defaultBranch: ledger.defaultBranch,
@@ -3945,8 +4035,20 @@ function mainHealthPublicationStableDigest(input: Readonly<{
       status: input.repairDecision.status,
       routingState: input.repairDecision.routingState,
       reasonCode: input.repairDecision.reasonCode,
-      observationDigest: input.repairDecision.observationDigest,
-      binding: input.repairDecision.binding
+      binding: input.repairDecision.binding === null
+        ? null
+        : Object.freeze({
+            repository: input.repairDecision.binding.repository,
+            defaultBranch: input.repairDecision.binding.defaultBranch,
+            mainSha: input.repairDecision.binding.mainSha,
+            mainTreeSha: input.repairDecision.binding.mainTreeSha,
+            trustRevision: input.repairDecision.binding.trustRevision,
+            healthRevision: input.repairDecision.binding.healthRevision,
+            owner: input.repairDecision.binding.owner,
+            manifestPath: input.repairDecision.binding.manifestPath,
+            packageId: input.repairDecision.binding.packageId,
+            failureFingerprints: input.repairDecision.binding.failureFingerprints
+          })
     }),
     supersession: input.supersession.kind === 'active'
       ? Object.freeze({
@@ -3965,8 +4067,30 @@ function mainHealthPublicationStableDigest(input: Readonly<{
           })
         : input.supersession.kind === 'blocked'
           ? Object.freeze({ kind: 'blocked' as const, ref: input.supersession.ref })
-          : Object.freeze({ kind: input.supersession.kind as 'absent' | 'prepared' })
+          : input.supersession.kind === 'prepared'
+            ? Object.freeze({
+                kind: 'prepared' as const,
+                intentDigest: input.supersession.intent.intentDigest,
+                operationId: input.supersession.intent.authorization.operationId,
+                effectAuthorizationDigest:
+                  input.supersession.intent.authorization.effectAuthorizationDigest,
+                providerDrift: input.supersession.providerDrift
+              })
+            : Object.freeze({ kind: 'absent' as const })
   }));
+}
+
+function mainHealthPublicationStableDigest(input: Readonly<{
+  projection: WorkSelectionMainHealthProjection;
+  ledger: MainHealthLedger | null;
+  repairDecision: MainHealthRepairDecision;
+  supersession: MainHealthSupersessionObservation;
+  authority: MainHealthPublicationAuthority;
+}>): MainHealthDigest {
+  return mainHealthPublicationStableDigestFromBinding({
+    ...input,
+    authority: mainHealthPublicationAuthorityBinding(input.authority)
+  });
 }
 
 const mainHealthTestingResultBrand = Symbol('sec-main-health-testing-result-v2');
@@ -4153,6 +4277,47 @@ export async function observeCanonicalMainHealthForRepairTestingV2(input: Readon
   const observation = await observeCanonicalMainHealthProvidersBound(input);
   return Object.freeze({
     ...compileMainHealthRepairDecisionFromCanonicalObservation(input, observation),
+    [mainHealthTestingResultBrand]: true as const
+  });
+}
+
+/**
+ * @internal Test-only document-control observation. Both projections are
+ * compiled from one canonical provider observation so a fixture can preserve
+ * the production T2 routing relationship without receiving a production
+ * WorkSelection snapshot or publication authority.
+ */
+export async function observeCanonicalMainHealthForDocumentControlTestingV2(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  defaultBranch: string;
+  mainSha: string;
+  mainTreeSha: string;
+  capability: GitHubApiCapability;
+  runtimeAuthority?: MainHealthRuntimeAuthority;
+  environment?: NodeJS.ProcessEnv;
+}>): Promise<MainHealthTestingResult<Readonly<{
+  projection: WorkSelectionMainHealthProjection;
+  repairDecision: MainHealthRepairDecision;
+  stableDigest: MainHealthDigest;
+}>>> {
+  const observation = await observeCanonicalMainHealthProvidersBound(input);
+  const repairDecision = compileMainHealthRepairDecisionFromCanonicalObservation(input, observation);
+  const authority = createMainHealthPublicationAuthorityBinding({
+    observation,
+    runtimeAuthority: input.runtimeAuthority,
+    environment: input.environment
+  });
+  return Object.freeze({
+    projection: observation.resolution.projection,
+    repairDecision,
+    stableDigest: mainHealthPublicationStableDigestFromBinding({
+      projection: observation.resolution.projection,
+      ledger: observation.resolution.ledger,
+      repairDecision,
+      supersession: observation.supersession,
+      authority
+    }),
     [mainHealthTestingResultBrand]: true as const
   });
 }

@@ -1,14 +1,16 @@
-import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import path from 'node:path';
-import { tmpdir } from 'node:os';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { dependencyTransitionRecordBytes, parseDependencyTransitionRecord } from '../../src/toolchain/dependencies/runtime/dependency-transition/codec.ts';
+import {
+  advanceDependencyTransition, beginDependencyTransition, markDependencyTransitionFailure,
+  readDependencyTransition, readDependencyTransitionLedger, transitionFailure
+} from '../../src/toolchain/dependencies/runtime/dependency-transition/operation.ts';
+import { dependencyTransitionNamespacePaths } from '../../src/toolchain/dependencies/runtime/dependency-transition/store.ts';
 import { runtimeDependencyOperationControls } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
 import { runtimeDependencySourceGeneration } from '../../src/toolchain/dependencies/runtime/source-generation.ts';
-import { advanceDependencyTransition, beginDependencyTransition, markDependencyTransitionFailure,
-  readDependencyTransition, readDependencyTransitionLedger, transitionFailure } from '../../src/toolchain/dependencies/runtime/dependency-transition/operation.ts';
-import { dependencyTransitionRecordBytes, parseDependencyTransitionRecord } from '../../src/toolchain/dependencies/runtime/dependency-transition/codec.ts';
-import { dependencyTransitionNamespacePaths } from '../../src/toolchain/dependencies/runtime/dependency-transition/store.ts';
 
 // Repository execution uses actual source compilation and retained state owners.
 // Local replay explicitly replaces physical/namespace/migration/rollover/digest
@@ -74,7 +76,7 @@ test('relative begin paths are interpreted at invocation, not after an await cha
 test('begin captures only known request fields and narrows effect options before callbacks', async () => using(async f => {
   let calls = 0;
   const rawOptions = new Proxy({ ...f.options, beforeCommit: async () => { calls++; },
-    get generatedStateLifecycle() { assert.fail('unrelated lifecycle'); }, get testMaterialization() { assert.fail('test capability'); }
+    get generatedStateLifecycle() { assert.fail('unrelated lifecycle'); throw new Error('unreachable'); }, get testMaterialization() { assert.fail('test capability'); throw new Error('unreachable'); }
   }, { ownKeys() { assert.fail('whole options enumeration'); } });
   const input = { ...request(f), options: rawOptions };
   const pending = beginDependencyTransition(input);
@@ -95,7 +97,7 @@ for (const [key, value] of [['sequence', 3], ['attemptNonce', 'replaced'], ['ope
   test(`a successor cannot override immutable ${key}`, async () => using(async f => {
     const first = await beginDependencyTransition(request(f)); let effects = 0;
     await assert.rejects(advanceDependencyTransition(first, { phase: 'complete', [key]: value } as never,
-      { ...f.options, beforeCommit() { effects++; } }));
+      { ...f.options, async beforeCommit() { effects++; } }));
     assert.equal(effects, 0); assert.deepEqual(await readDependencyTransition(f.root, f.options), first);
   }));
 }
@@ -114,7 +116,7 @@ test('nested successor data cannot drift during namespace admission or publicati
   const first = await beginDependencyTransition(request(f));
   const failure = { code: 'ORIGINAL', message: 'original failure' };
   const next = await advanceDependencyTransition(first, { phase: 'recovery-required', durability: 'unknown', failure },
-    { ...f.options, beforeCommit() { failure.code = 'REPLACED'; failure.message = 'changed'; } });
+    { ...f.options, async beforeCommit() { failure.code = 'REPLACED'; failure.message = 'changed'; } });
   assert.deepEqual(next.failure, { code: 'ORIGINAL', message: 'original failure' });
   assert.notEqual(next.failure, failure); assertDeepFrozen(next);
   assert.deepEqual(await readDependencyTransition(f.root, f.options), next);
@@ -123,7 +125,7 @@ test('nested successor data cannot drift during namespace admission or publicati
 test('the existing record schema refuses malformed updates before any namespace effect', async () => using(async f => {
   const first = await beginDependencyTransition(request(f)); let effects = 0;
   await assert.rejects(advanceDependencyTransition(first, { phase: 'not-a-phase' as never },
-    { ...f.options, beforeCommit() { effects++; } }));
+    { ...f.options, async beforeCommit() { effects++; } }));
   assert.equal(effects, 0);
   assert.deepEqual(await readDependencyTransition(f.root, f.options), first);
 }));
@@ -131,13 +133,13 @@ test('the existing record schema refuses malformed updates before any namespace 
 test('invalid begin record shape is rejected before creating a ledger namespace', async () => using(async f => {
   let effects = 0;
   await assert.rejects(beginDependencyTransition({ ...request(f), kind: 'unknown-kind' as never,
-    options: { ...f.options, beforeCommit() { effects++; } } }));
+    options: { ...f.options, async beforeCommit() { effects++; } } }));
   assert.equal(effects, 0); assert.equal(existsSync(dependencyTransitionNamespacePaths(f.root).recordsRoot), false);
 }));
 
 test('read-only observation ignores effect capabilities and has no namespace creation side effect', async () => using(async f => {
-  const options = new Proxy({ ...f.options, get beforeCommit() { assert.fail('reader acquired write fence'); },
-    get generatedStateLifecycle() { assert.fail('reader acquired lifecycle'); } }, { ownKeys() { assert.fail('reader enumerated facade'); } });
+  const options = new Proxy({ ...f.options, get beforeCommit() { assert.fail('reader acquired write fence'); throw new Error('unreachable'); },
+    get generatedStateLifecycle() { assert.fail('reader acquired lifecycle'); throw new Error('unreachable'); } }, { ownKeys() { assert.fail('reader enumerated facade'); } });
   assert.equal(await readDependencyTransitionLedger(f.root, options), null);
   assert.equal(existsSync(dependencyTransitionNamespacePaths(f.root).recordsRoot), false);
 }));

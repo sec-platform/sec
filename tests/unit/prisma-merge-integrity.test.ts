@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { mergePrismaSchemas, parsePrismaSchema } from '../../src/compiler/compose/prisma-schema.ts';
 
 const schema = (type: string, name: string, body: string) => `${type} ${name} {\n${body}\n}\n`;

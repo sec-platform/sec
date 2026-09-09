@@ -1,8 +1,11 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import {
-  resolveGitReadSessionBudget, GitReadBudgetError, GIT_READ_DEFAULT_OPERATION_BUDGET,
-  GIT_READ_EXACT_TREE_OPERATION_BUDGET, boundedGitReadDeadlineAt
+  GIT_READ_DEFAULT_OPERATION_BUDGET,
+  GIT_READ_EXACT_TREE_OPERATION_BUDGET,
+  GitReadBudgetError,
+  boundedGitReadDeadlineAt,
+  resolveGitReadSessionBudget
 } from '../../src/external-capabilities/git-read/runtime/budget.ts';
 import { captureGitReadArguments, gitReadCommandIsObservation } from '../../src/external-capabilities/git-read/runtime/read-command.ts';
 
@@ -97,7 +100,7 @@ test('capturing arguments never grants mutation or external-helper grammar', () 
 
 test('argv snapshots ignore custom iteration and method replacements', () => {
   const input = ['status', '--short'];
-  input[Symbol.iterator] = function* () { yield 'reset'; };
+  input[Symbol.iterator] = () => ['reset'].values();
   input.slice = () => ['reset']; input.indexOf = () => -1;
   const captured = captureGitReadArguments(input, 4096);
   assert.equal(captured.status, 'ready');

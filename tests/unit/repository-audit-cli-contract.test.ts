@@ -1,6 +1,6 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { test } from 'bun:test';
 import {
   parseRepositoryAuditCliOptions as parse,
   repositoryAuditShouldFail as shouldFail,
@@ -111,7 +111,7 @@ test('source-only reduction, candidate and baseline options cannot silently run 
 
 test('each reduction works alone and conflicting reductions reject', () => {
   for (const [flag, mode] of [['--aggregate-import-reductions', 'aggregate-import'],
-    ['--graph-cuts', 'graph-cut'], ['--version-reductions', 'version']]) {
+    ['--version-reductions', 'version']]) {
     const result = parse([flag!, '--output=changes.patch'], 'source-program');
     assert.equal(result.reductionMode, mode); assert.equal(result.outputPath, path.resolve('changes.patch'));
   }
@@ -119,6 +119,12 @@ test('each reduction works alone and conflicting reductions reject', () => {
     ['--version-reductions', '--aggregate-import-reductions']]) {
     assert.throws(() => parse(flags, 'source-program'), /one reduction mode/);
   }
+});
+
+test('graph-cut output is admitted only for the exact-snapshot provider path', () => {
+  assert.equal(parse(['--graph-cuts'], 'source-program').reductionMode, 'graph-cut');
+  assert.equal(parse(['--graph-cuts', '--output=changes.patch'], 'source-program').outputPath,
+    path.resolve('changes.patch'));
 });
 
 test('a source output without a reduction is refused before the producer can be called', () => {

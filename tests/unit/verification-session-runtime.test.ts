@@ -588,10 +588,6 @@ class ReducerTransport extends FakeTransport {
   }
 }
 
-function botComment(body = `Codex Review: Didn't find any major issues. Bravo.\n\n**Reviewed commit:** \`${HEAD.slice(0, 10)}\``): GitHubAppReviewCommentObservation {
-  return { id: 'C1', authorNodeId: BOT, appId: 1144995, body, createdAt: '2026-08-09T14:00:00.000Z' };
-}
-
 function botIssueComment(body = `Codex Review: Didn't find any major issues. Bravo.\n\n**Reviewed commit:** \`${HEAD.slice(0, 10)}\``,
   overrides: Partial<GitHubIssueCommentObservation> = {}): GitHubIssueCommentObservation {
   return { id: '101', body, authorLogin: 'codex-review[bot]', authorId: 101,

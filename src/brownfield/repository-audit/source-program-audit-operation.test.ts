@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { describe, test } from 'bun:test';
+import assert from 'node:assert/strict';
 
 import { canonicalJson, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import type { SourceProgramModel } from '../source-program-model/contract.ts';

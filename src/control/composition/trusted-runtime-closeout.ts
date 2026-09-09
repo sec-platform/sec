@@ -3,6 +3,8 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
+import { GIT_READ_OPERATION_BUDGET, gitReadText } from '../../development/tooling/git/git-read.ts';
+import { withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
 import {
   executeGitHubApiOperation,
   inspectGitHubApiCapability,
@@ -500,7 +502,6 @@ export async function ensureCurrentTrustedRuntimeMainHealth(input: Readonly<{
   defaultBranch: string;
 }>): Promise<TrustedRuntimeMainHealthPublication> {
   const repositoryRoot = path.resolve(input.repositoryRoot);
-  assertTrustedRuntimeWindowsControlCliAdmission(repositoryRoot);
   if (input.defaultBranch !== 'main') {
     fail('standalone MainHealth requires the canonical main default branch');
   }
@@ -509,17 +510,15 @@ export async function ensureCurrentTrustedRuntimeMainHealth(input: Readonly<{
     repository: input.repository,
     defaultBranch: input.defaultBranch
   });
-  const [branch, headSha, mainTreeSha, status, originUrl, liveDefaultSha] = await Promise.all([
-    tool('git', ['branch', '--show-current'], repositoryRoot),
-    tool('git', ['rev-parse', 'HEAD'], repositoryRoot),
-    tool('git', ['rev-parse', 'HEAD^{tree}'], repositoryRoot),
-    tool('git', ['status', '--porcelain=v1', '--untracked-files=all'], repositoryRoot),
-    tool('git', ['remote', 'get-url', 'origin'], repositoryRoot),
-    liveDefaultBranchSha()
-  ]);
+  const { branch, headSha, treeSha: mainTreeSha, status, originUrl } =
+    await observeMainHealthGitFence(repositoryRoot);
   assertOriginMatchesRepository(originUrl, input.repository);
-  if (branch !== input.defaultBranch || status !== '' || !/^[0-9a-f]{40}$/u.test(liveDefaultSha)
-      || liveDefaultSha !== headSha) {
+  if (branch !== input.defaultBranch || status !== '' || !/^[0-9a-f]{40}$/u.test(headSha)
+      || !/^[0-9a-f]{40}$/u.test(mainTreeSha)) {
+    fail('standalone MainHealth must execute from the clean exact default-branch worktree');
+  }
+  const liveDefaultSha = await liveDefaultBranchSha();
+  if (!/^[0-9a-f]{40}$/u.test(liveDefaultSha) || liveDefaultSha !== headSha) {
     fail('standalone MainHealth must execute from the clean exact default-branch worktree');
   }
   const ensured = await ensureTrustedRuntimeMainHealthReceipt({
@@ -566,15 +565,9 @@ export async function ensureCurrentTrustedRuntimeMainHealth(input: Readonly<{
     fail('durable local MainHealth receipt changed during publication readback');
   }
   await ensured.authority.assertCurrent();
-  const [finalBranch, finalHeadSha, finalTreeSha, finalStatus, finalOriginUrl, finalLiveDefaultSha] =
-    await Promise.all([
-      tool('git', ['branch', '--show-current'], repositoryRoot),
-      tool('git', ['rev-parse', 'HEAD'], repositoryRoot),
-      tool('git', ['rev-parse', 'HEAD^{tree}'], repositoryRoot),
-      tool('git', ['status', '--porcelain=v1', '--untracked-files=all'], repositoryRoot),
-      tool('git', ['remote', 'get-url', 'origin'], repositoryRoot),
-      liveDefaultBranchSha()
-    ]);
+  const { branch: finalBranch, headSha: finalHeadSha, treeSha: finalTreeSha,
+    status: finalStatus, originUrl: finalOriginUrl } = await observeMainHealthGitFence(repositoryRoot);
+  const finalLiveDefaultSha = await liveDefaultBranchSha();
   assertOriginMatchesRepository(finalOriginUrl, input.repository);
   if (finalBranch !== 'main' || finalHeadSha !== headSha || finalTreeSha !== mainTreeSha
       || finalStatus !== '' || finalLiveDefaultSha !== headSha) {
@@ -665,6 +658,21 @@ export async function ensureCurrentTrustedRuntimeMainHealth(input: Readonly<{
         })
   });
   return Object.freeze({ ...semantic, publicationDigest: hash(publicationSemantic) });
+}
+
+async function observeMainHealthGitFence(repositoryRoot: string) {
+  return withAuthorityGitReadSession({ cwd: repositoryRoot, budget: GIT_READ_OPERATION_BUDGET }, async (session) => {
+    // A retained GitRead session is single-flight. The whole fence settles
+    // before its observations can enter publication or hosted admission.
+    // Initial and final fences each own one bounded observation; no read
+    // session stays retained across container verification or publication.
+    const branch = (await gitReadText(session, ['branch', '--show-current'])).trim();
+    const headSha = (await gitReadText(session, ['rev-parse', 'HEAD'])).trim();
+    const treeSha = (await gitReadText(session, ['rev-parse', 'HEAD^{tree}'])).trim();
+    const status = await gitReadText(session, ['status', '--porcelain=v1', '--untracked-files=all']);
+    const originUrl = (await gitReadText(session, ['remote', 'get-url', 'origin'])).trim();
+    return Object.freeze({ branch, headSha, treeSha, status, originUrl });
+  });
 }
 
 function assertOriginMatchesRepository(originUrl: string, repository: string): void {

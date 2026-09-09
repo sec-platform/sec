@@ -1,5 +1,5 @@
-import { captureCliOptions, type CliFieldRead } from './own-options.ts';
 import { decodeBooleanFlag } from './boolean-option.ts';
+import { captureCliOptions, type CliFieldRead } from './own-options.ts';
 
 /** One owner for JSON output fields, defaults, CLI spelling and dependencies. */
 export const JSON_OUTPUT_OPTIONS = Object.freeze([

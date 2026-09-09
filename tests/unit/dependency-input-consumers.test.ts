@@ -1,18 +1,20 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
-import { runtimeDependencyOperationOptions as bind, runtimeDependencyEffectFenceOptions as effect,
-  runtimeDependencyOperationEffectFence as fence } from '../../src/toolchain/dependencies/runtime/operation-context.ts';
-import { runtimeDependencyOperationContext as context, runtimeDependencyOperationRemainingMs as remaining } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
-import { bindCompilerInstallInvocation } from '../../src/toolchain/dependencies/runtime/install-invocation.ts';
+import assert from 'node:assert/strict';
 import { captureRuntimeDependencyInstallRequest as capture } from '../../src/toolchain/dependencies/contract/install-request.ts';
-import { issueRuntimeDependencyTestMaterialization, consumeRuntimeDependencyTestMaterialization } from '../../src/toolchain/dependencies/runtime/materialization-fixture-capability.ts';
+import { bindCompilerInstallInvocation } from '../../src/toolchain/dependencies/runtime/install-invocation.ts';
+import { consumeRuntimeDependencyTestMaterialization, issueRuntimeDependencyTestMaterialization } from '../../src/toolchain/dependencies/runtime/materialization-fixture-capability.ts';
+import {
+  runtimeDependencyOperationOptions as bind, runtimeDependencyEffectFenceOptions as effect,
+  runtimeDependencyOperationEffectFence as fence
+} from '../../src/toolchain/dependencies/runtime/operation-context.ts';
+import { runtimeDependencyOperationContext as context, runtimeDependencyOperationRemainingMs as remaining } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
 
 const controls=()=>({lockTimeoutMs:1000,monotonicNowMs:()=>0});
 
 test('public request, coordinator, process binder and effect use one captured provider receiver', async()=>{
   class Provider {
     #calls=0;
-    beforeCommit(){this.#calls++;}
+    async beforeCommit(){this.#calls++;}
     installMode='offline-copy-only' as const;
     get calls(){return this.#calls;}
   }
@@ -24,7 +26,7 @@ test('public request, coordinator, process binder and effect use one captured pr
 });
 
 test('effect projections cannot add another bound callback layer on repeated nested calls', async()=>{
-  let calls=0;const bound=bind({...controls(),beforeCommit(){calls++;}});
+  let calls=0;const bound=bind({...controls(),async beforeCommit(){calls++;}});
   let input=effect(bound);const original=input.beforeCommit;
   for(let i=0;i<1000;i++)input=effect(input);
   assert.equal(input.beforeCommit,original);assert.equal(context(input),context(bound));
@@ -33,8 +35,8 @@ test('effect projections cannot add another bound callback layer on repeated nes
 
 test('process and effect projections do not reacquire unrelated coordinator facilities',()=>{
   const input=new Proxy({...controls(),installMode:'allow' as const,
-    get generatedStateLifecycle(){assert.fail('lifecycle');},get now(){assert.fail('wall clock');},
-    get sharedDepsRoot(){assert.fail('shared root');},get testCompilerRename(){assert.fail('rename');}
+    get generatedStateLifecycle(){assert.fail('lifecycle'); throw new Error('unreachable');},get now(){assert.fail('wall clock'); throw new Error('unreachable');},
+    get sharedDepsRoot(){assert.fail('shared root'); throw new Error('unreachable');},get testCompilerRename(){assert.fail('rename'); throw new Error('unreachable');}
   },{ownKeys(){assert.fail('wide enumeration');}});
   assert.equal(bindCompilerInstallInvocation(input).isolated,false);
   assert.equal(remaining(effect(input),'narrow'),1000);

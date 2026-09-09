@@ -1,15 +1,18 @@
-import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
-import path from 'node:path';
-import { tmpdir } from 'node:os';
 import { test } from 'bun:test';
-import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import assert from 'node:assert/strict';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { generatedStateDigest } from '../../src/runtime-state/generated-state/contract.ts';
-import { runtimeDependencyOperationControls, runtimeDependencyOperationContext } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
-import { dependencyTransitionNamespacePaths, ensureDependencyTransitionNamespace, inspectDependencyTransitionNamespace,
-  readNoFollowDirectNames, readDependencyTransitionRecordSet } from '../../src/toolchain/dependencies/runtime/dependency-transition/store.ts';
-import { dependencyTransitionRecordBytes, dependencyTransitionDigestWithoutRecord, transitionRecordName } from '../../src/toolchain/dependencies/runtime/dependency-transition/codec.ts';
+import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { dependencyTransitionDigestWithoutRecord, dependencyTransitionRecordBytes, transitionRecordName } from '../../src/toolchain/dependencies/runtime/dependency-transition/codec.ts';
 import { generatedStatePhysicalIdentity, runtimeDependencySourceGenerationEpoch, type DependencyTransitionJournal } from '../../src/toolchain/dependencies/runtime/dependency-transition/contract.ts';
+import {
+  dependencyTransitionNamespacePaths, ensureDependencyTransitionNamespace, inspectDependencyTransitionNamespace,
+  readDependencyTransitionRecordSet,
+  readNoFollowDirectNames
+} from '../../src/toolchain/dependencies/runtime/dependency-transition/store.ts';
+import { runtimeDependencyOperationContext, runtimeDependencyOperationControls } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
 
 async function fixture(run: (root: string) => Promise<void>) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ledger-storage-'));
@@ -35,8 +38,8 @@ function save(root: string, value: DependencyTransitionJournal) {
 
 test('direct enumeration is sorted, bounded, and ignores unrelated effect capabilities', async () => fixture(async root => {
   for (const name of ['z', 'a', 'middle']) writeFileSync(path.join(root, name), 'x');
-  const input = new Proxy({ ...controls(), get beforeCommit() { assert.fail('reader acquired write fence'); },
-    get generatedStateLifecycle() { assert.fail('reader acquired lifecycle'); } }, { ownKeys() { assert.fail('enumerated facade'); } });
+  const input = new Proxy({ ...controls(), get beforeCommit() { assert.fail('reader acquired write fence'); throw new Error('unreachable'); },
+    get generatedStateLifecycle() { assert.fail('reader acquired lifecycle'); throw new Error('unreachable'); } }, { ownKeys() { assert.fail('enumerated facade'); } });
   const names = await readNoFollowDirectNames(inspectNoFollowDirectoryChain(root).target, 'names', 3, input);
   assert.deepEqual(names, ['a', 'middle', 'z']); assert.ok(Object.isFrozen(names));
   await assert.rejects(readNoFollowDirectNames(inspectNoFollowDirectoryChain(root).target, 'names', 2, controls()), /capacity/);

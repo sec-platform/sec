@@ -1,10 +1,12 @@
 import path from 'node:path';
 
 import { compileSecOperationDemandGraph } from '../../control/operation/demand.ts';
+import type { ProcessResourceSession } from '../../runtime-state/physical/runtime/process-resource-session.ts';
 import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
 import { WORKSPACE_TRANSITION_DEADLINE_ENV } from '../workspace-transition/contract.ts';
-import { DEV_RUNNER_ENTRYPOINT_PATH } from './contract.ts';
+import { DEV_COMMAND_MAX_DURATION_MS } from './command-input.ts';
 import { requireCommandExitCode } from './command-outcome.ts';
+import { DEV_RUNNER_ENTRYPOINT_PATH } from './contract.ts';
 import {
   assertMaterializedOperationDependencyBootstrapResult,
   createDependencyFreshProcessHandoff,
@@ -13,6 +15,7 @@ import {
   reuseOperationDependencies,
   type MaterializedOperationDependencyBootstrapResult
 } from './dependency-bootstrap.ts';
+import type { RepositoryMutationFenceOptions } from './repository-mutation-fence.ts';
 
 export function shouldReportDevRunnerSuccess(
   environment: Readonly<Record<string, string | undefined>> = process.env
@@ -131,8 +134,9 @@ type ParsedImportOperationArgs = Readonly<{
 
 async function runRepositoryZeroWriteCommand(
   commandId: string,
-  operation: () => Promise<number>,
-  semanticOperation: SecBoundSemanticOperation
+  operation: (processSession?: ProcessResourceSession) => Promise<number>,
+  semanticOperation: SecBoundSemanticOperation,
+  fenceOptions: Omit<RepositoryMutationFenceOptions, 'operation'> = {}
 ): Promise<number> {
   if (semanticOperation === undefined) {
     console.error(`${commandId} strict-zero-write-unproven: semantic operation authority is unavailable.`);
@@ -141,7 +145,10 @@ async function runRepositoryZeroWriteCommand(
   const { runRepositoryZeroWriteOperation: runRepositoryZeroWriteOperationV1 } = await import(
     './repository-mutation-fence.ts'
   );
-  return runRepositoryZeroWriteOperationV1(commandId, operation, { operation: semanticOperation });
+  return runRepositoryZeroWriteOperationV1(commandId, operation, {
+    ...fenceOptions,
+    operation: semanticOperation
+  });
 }
 
 
@@ -155,7 +162,19 @@ async function runStandaloneRepositoryZeroWriteCommand(
   operation: () => Promise<number>
 ): Promise<number> {
   const { compileRepositoryObservationOperation } = await import('./repository-observation.ts');
-  return runRepositoryZeroWriteCommand(commandId, operation, compileRepositoryObservationOperation());
+  return runRepositoryZeroWriteCommand(
+    commandId,
+    operation,
+    compileRepositoryObservationOperation(),
+    {
+      // Standalone commands own their provider process budgets inside the
+      // callback. Root discovery settles its short Git ledger before the
+      // native observer begins, so slow lanes retain their canonical managed
+      // command window without borrowing a second operation.
+      observerDeadlineAtUnixMs: Date.now() + DEV_COMMAND_MAX_DURATION_MS,
+      retainProcessSession: false
+    }
+  );
 }
 
 function parseImportOperationArgs(
@@ -273,7 +292,7 @@ async function main(): Promise<void> {
         });
         return runRepositoryZeroWriteCommand(
           'check:affected',
-          () => runLocalAffectedCheck(['--plan'], { operation }),
+          (processSession) => runLocalAffectedCheck(['--plan'], { operation, processSession }),
           operation
         );
       },
@@ -285,9 +304,10 @@ async function main(): Promise<void> {
         const operation = compileAffectedTestSelectionSemanticOperation({
           purpose: 'check-affected'
         });
-        return runRepositoryZeroWriteCommand('check:affected', () =>
+        return runRepositoryZeroWriteCommand('check:affected', (processSession) =>
           runLocalAffectedCheck([], {
             operation,
+            processSession,
             prepareCompilerDependencies: async () => reuseOperationDependencies(dependencies, demand)
           }), operation);
       }
@@ -320,20 +340,31 @@ async function main(): Promise<void> {
     }
     const { runAffectedTests } = await import('./test-runner.ts');
     const { issueCheckAffectedTestImpactProjection } = await import('./check-affected-source.ts');
+    const { compileAffectedTestSelectionSemanticOperation } = await import('./affected-plan-contract.ts');
+    const operation = compileAffectedTestSelectionSemanticOperation({
+      purpose: 'check-affected'
+    });
     if (args.length === 1 && args[0] === '--plan') {
-      process.exitCode = await runStandaloneRepositoryZeroWriteCommand(
+      process.exitCode = await runRepositoryZeroWriteCommand(
         'test:affected',
-        () => runAffectedTests(issueCheckAffectedTestImpactProjection, args)
+        (processSession) => runAffectedTests(issueCheckAffectedTestImpactProjection, args, {
+          operation,
+          processSession
+        }),
+        operation
       );
       return;
     }
     const { withHeavyVerificationGateLease } = await import('../../verification/gate/state/heavy-lease.ts');
-    process.exitCode = await runStandaloneRepositoryZeroWriteCommand('test:affected', () =>
+    process.exitCode = await runRepositoryZeroWriteCommand('test:affected', (processSession) =>
       withHeavyVerificationGateLease(
         'test:affected',
-        () => runAffectedTests(issueCheckAffectedTestImpactProjection, args),
+        () => runAffectedTests(issueCheckAffectedTestImpactProjection, args, {
+          operation,
+          processSession
+        }),
         { namespace: 'test:affected', waitTimeoutMs: 5000 }
-      ));
+      ), operation);
     return;
   }
 

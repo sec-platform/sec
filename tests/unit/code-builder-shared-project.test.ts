@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import ts from 'typescript';
 
 import { CodeBuilder } from '../../src/compiler/codegen/code-builder.ts';

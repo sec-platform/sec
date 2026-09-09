@@ -1,8 +1,8 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { test } from 'bun:test';
 import prettier from 'prettier';
 import { formatOutputFiles } from '../../src/compiler/compose/format-output-files.ts';
 

@@ -1,12 +1,14 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
-import { withCompilerInstallResources, CompilerInstallSettlementFailure } from '../../src/toolchain/dependencies/runtime/install-resource-scope.ts';
-import type { RetainedNoFollowOrdinaryFile, RetainedNoFollowChildProcessDirectory } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import assert from 'node:assert/strict';
+import type { RetainedNoFollowChildProcessDirectory, RetainedNoFollowOrdinaryFile } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 import { openProcessResourceSession, type ProcessResourceSession } from '../../src/runtime-state/physical/runtime/process-resource-session.ts';
-import { issueSecOperationRequirementBindingContext } from '../../src/system-architecture/operation/requirement-binding-context.ts';
-import { bindSecSemanticOperation, compileSecCapabilityBinding, compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext, type SecOperationDigest } from '../../src/system-architecture/operation/semantic.ts';
 import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { issueSecOperationRequirementBindingContext } from '../../src/system-architecture/operation/requirement-binding-context.ts';
+import {
+  bindSecSemanticOperation, compileSecCapabilityBinding, compileSecSemanticOperationPlan,
+  issueSecSemanticOperationAttemptContext, type SecOperationDigest
+} from '../../src/system-architecture/operation/semantic.ts';
+import { CompilerInstallSettlementFailure, withCompilerInstallResources } from '../../src/toolchain/dependencies/runtime/install-resource-scope.ts';
 
 // Mechanical resources here prove order and failure preservation, not physical
 // retention. A successful session receipt comes from the real process owner;
@@ -57,7 +59,8 @@ for (const primary of [undefined, null, false, 0, 'execution failure']) {
     await assert.rejects(withCompilerInstallResources(async resources => {
       resources.executable(executable(() => { order.push('exe'); throw disposeFailure; }));
       resources.workingDirectory(directory(() => { order.push('cwd'); }));
-      resources.processSession({ close() { order.push('session'); throw closeFailure; } } as ProcessResourceSession, expectation());
+      // @ts-expect-error Deliberately malformed session exercises settlement failure preservation.
+      resources.processSession({ close() { order.push('session'); throw closeFailure; } }, expectation());
       throw primary;
     }), error => {
       assert.ok(error instanceof CompilerInstallSettlementFailure);
@@ -143,7 +146,7 @@ test('a failed receipt-expectation read still releases the adopted session and o
   const reason = new Error('expected identity'), owned = ownedSession(); let disposed = false;
   await assert.rejects(withCompilerInstallResources(async resources => {
     resources.executable(executable(() => { disposed = true; }));
-    resources.processSession(owned.session, { ...owned.expected, get operationIdentityDigest() { throw reason; } });
+    resources.processSession(owned.session, { ...owned.expected, get operationIdentityDigest(): never { throw reason; } });
   }), error => error === reason);
   assert.equal(owned.session.signal.aborted, true); assert.equal(disposed, true);
 });

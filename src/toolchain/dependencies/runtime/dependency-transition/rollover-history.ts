@@ -1,9 +1,11 @@
 import path from 'node:path';
 import { SecError } from '../../../../system-architecture/foundation/contract/failure.ts';
 import { sameGeneratedStateIdentity } from './contract.ts';
-import { DEPENDENCY_ROLLOVER_PHASES, assertRolloverPhaseAdvance, matchesRolloverPhaseState,
-  rolloverMayOwnNextResidue, rolloverPhaseIndex } from './rollover-phase.ts';
 import type { DependencyTransitionRolloverIntent } from './rollover-phase.ts';
+import {
+  DEPENDENCY_ROLLOVER_PHASES, assertRolloverPhaseAdvance, matchesRolloverPhaseState,
+  rolloverMayOwnNextResidue, rolloverPhaseIndex
+} from './rollover-phase.ts';
 
 type Intent = DependencyTransitionRolloverIntent;
 type History = Readonly<{ active: Intent | null; latestComplete: Intent | null }>;

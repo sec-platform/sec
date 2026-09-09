@@ -1,9 +1,11 @@
 import path from 'node:path';
 import { createWorkspaceWriteCommitFence, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../workspace/lease.ts';
 import type { LockFile } from '../contract.ts';
+import { PASS_INITIAL_STATES } from '../contract/pass-status.ts';
 import { CompilerError, getErrorCode } from '../errors.ts';
-import { describePipelineFailure, settlePipelineFailure } from './failure.ts';
 import { readLockFile, saveLock } from '../lock.ts';
+import { capturePipelineRequestedStages, capturePipelineStageExecutionOptions, requirePipelineSource, sealPipelineExecutionContext, type PipelineStageExecutionOptions } from './execution-context.ts';
+import { describePipelineFailure, settlePipelineFailure } from './failure.ts';
 import {
   commitPipelineTransaction,
   failPipelineTransaction,
@@ -13,8 +15,6 @@ import {
   recordPipelinePassSuccess,
   startPipelineTransaction
 } from './journal.ts';
-import { PASS_INITIAL_STATES } from '../contract/pass-status.ts';
-import { capturePipelineRequestedStages, requirePipelineSource, sealPipelineExecutionContext, capturePipelineStageExecutionOptions, type PipelineStageExecutionOptions } from './execution-context.ts';
 import { getPipelineStageDefinition } from './pass-registry.ts';
 import { pipelineStageBlockers, pipelineStageStatePatch, type PipelineStageTransition } from './stage-state.ts';
 import type {

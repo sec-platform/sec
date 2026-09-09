@@ -1,5 +1,4 @@
 import { afterAll, expect, test } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { parse as parseYaml } from 'yaml';
 
 import { CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST, createCiMainHealthRequestOperationId } from '../../src/control/main-health/provider-policy.ts';
@@ -192,10 +191,10 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
   });
   const preSteps = workflow.jobs['checker-pre']?.steps ?? [];
   expect(preSteps.map((step) => step.name)).toEqual([
+    'Setup trusted-base Bun runtime',
     'Checkout exact trusted base checker',
     'Checkout exact candidate as data',
     'Preflight exact trusted-base checkout',
-    'Setup trusted-base Bun runtime',
     'Install trusted-base checker dependencies without lifecycle scripts',
     'Produce trusted-base PRE candidate-root receipt',
     'Upload bounded checker PRE artifact'
@@ -257,11 +256,11 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
     candidate.name === 'Install candidate SUT dependencies without lifecycle scripts')).toBe(false);
   const postSteps = workflow.jobs['checker-post']?.steps ?? [];
   expect(postSteps.map((step) => step.name)).toEqual([
+    'Setup trusted-base Bun runtime for reducer',
     'Initialize fail-closed final evidence envelope',
     'Checkout exact trusted base reducer',
     'Checkout exact candidate as POST data',
     'Preflight exact trusted-base checkout',
-    'Setup trusted-base Bun runtime for reducer',
     'Install trusted-base reducer dependencies without lifecycle scripts',
     'Download bounded checker PRE artifact',
     'Download bounded candidate SUT artifact',

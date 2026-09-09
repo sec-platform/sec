@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import {
   canonicalEquals, canonicalJson, sha256
 } from '../../src/system-architecture/foundation/runtime/canonical.ts';

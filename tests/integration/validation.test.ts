@@ -8,7 +8,7 @@ import { prepareBlockUpgradeDryRunFixture } from '../helpers/block-upgrade-fixtu
 import { expectUpgradeDryRunFailure, expectUpgradeDryRunFailureWithDiagnostics } from './upgrade-diagnostics-fixtures.ts';
 
 test('upgrade records missing migration entry diagnostics before planning', async () => {
-  const { paths, workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
+  const { workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
     prefix: 'engineering-compiler-upgrade-missing-migration-entry-',
     migration: {
       id: 'mig-missing-entry-file',
@@ -64,7 +64,7 @@ test('upgrade rejects migration entry paths that escape the manifest root', asyn
 });
 
 test('upgrade records mismatched migration entry metadata diagnostics before planning', async () => {
-  const { paths, workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
+  const { workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
     prefix: 'engineering-compiler-upgrade-mismatched-migration-entry-',
     migration: {
       id: 'mig-expected-entry',
@@ -111,7 +111,7 @@ test('upgrade records mismatched migration entry metadata diagnostics before pla
 });
 
 test('upgrade rejects duplicate migration ids before planning', async () => {
-  const { paths, workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
+  const { workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
     prefix: 'engineering-compiler-upgrade-duplicate-migration-id-',
     migrations: [
       {
@@ -166,7 +166,7 @@ test('upgrade rejects duplicate migration ids before planning', async () => {
 });
 
 test('upgrade records migration target path escape diagnostics before planning', async () => {
-  const { paths, workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
+  const { workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
     prefix: 'engineering-compiler-upgrade-target-escape-',
     migration: {
       id: 'mig-target-escape',
@@ -211,7 +211,7 @@ test('upgrade records migration target path escape diagnostics before planning',
 });
 
 test('upgrade records migration manifest source escape diagnostics before planning', async () => {
-  const { paths, workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
+  const { workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
     prefix: 'engineering-compiler-upgrade-source-escape-',
     migration: {
       id: 'mig-source-escape',
@@ -256,7 +256,7 @@ test('upgrade records migration manifest source escape diagnostics before planni
 });
 
 test('upgrade rejects empty config rewrite paths before planning', async () => {
-  const { paths, workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
+  const { workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
     prefix: 'engineering-compiler-upgrade-empty-config-path-',
     migration: {
       id: 'mig-empty-config-path',
@@ -303,7 +303,7 @@ test('upgrade rejects empty config rewrite paths before planning', async () => {
 });
 
 test('upgrade rejects JSON array structure mismatches before planning', async () => {
-  const { paths, workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
+  const { workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
     prefix: 'engineering-compiler-upgrade-json-structure-',
     migration: {
       id: 'mig-json-array-append',
@@ -339,7 +339,7 @@ test('upgrade rejects JSON array structure mismatches before planning', async ()
 });
 
 test('upgrade rejects JSON array parent structure mismatches before planning', async () => {
-  const { paths, workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
+  const { workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
     prefix: 'engineering-compiler-upgrade-json-parent-structure-',
     migration: {
       id: 'mig-json-array-append-nested',

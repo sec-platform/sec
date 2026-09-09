@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { withLeaseObservationMonitor } from '../../src/compiler/pipeline/lease-monitor.ts';
 
 function deferred<T = void>() {

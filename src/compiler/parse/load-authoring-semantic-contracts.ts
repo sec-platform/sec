@@ -1,5 +1,5 @@
-import { z } from 'zod';
 import path from 'node:path';
+import { z } from 'zod';
 
 import type { LoadedSemanticContract, SemanticContract } from '../../semantic/contracts/contract/types.ts';
 import type { SemanticMutationLoadedSourceCandidate, SemanticMutationSourceKind } from '../../semantic/mutation/contract/types.ts';
@@ -10,7 +10,7 @@ import { modelRelativePath } from '../../workspace/contract/types.ts';
 import { isSafeRelativePath, posixPath, resolvePathInside } from '../../workspace/runtime/paths.ts';
 import { readYaml } from '../../workspace/yaml.ts';
 import { CompilerError } from '../errors.ts';
-import { normalizeSemanticContract, SEMANTIC_CONTRACT_YAML_MAX_INPUT_BYTES, SEMANTIC_CONTRACT_YAML_MAX_ALIAS_COUNT } from './load-semantic-contract.ts';
+import { normalizeSemanticContract, SEMANTIC_CONTRACT_YAML_MAX_ALIAS_COUNT, SEMANTIC_CONTRACT_YAML_MAX_INPUT_BYTES } from './load-semantic-contract.ts';
 
 export const AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH =
   `${modelRelativePath}/semantic-contracts.yaml` as const;

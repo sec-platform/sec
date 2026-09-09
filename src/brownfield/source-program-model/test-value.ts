@@ -1,5 +1,10 @@
 import { compareCodeUnits, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { isSecRepositoryTestModulePath } from '../../system-architecture/repository-modules/test-module-path.ts';
+import {
+  resolveSourceProgramCompilationOperation,
+  sourceProgramCompilationCheckpoint,
+  type SourceProgramCompilationOperation
+} from './compilation-operation.ts';
 import type {
   SourceProgramFileInput,
   SourceProgramModel,
@@ -178,6 +183,7 @@ export interface CompileSourceProgramTestValueInput {
   readonly repositoryRoot: string;
   readonly files: readonly SourceProgramFileInput[];
   readonly model: SourceProgramModel;
+  readonly operation?: SourceProgramCompilationOperation;
   /** Tracked test paths from the baseline; callers should derive this from Git. */
   readonly baselineTestPaths?: readonly string[];
   /** Strict owner dispositions for baseline tests absent from the candidate. */
@@ -190,22 +196,8 @@ export interface CompileSourceProgramTestValueInput {
 }
 
 const GOVERNED_TEXT_DOCUMENT = /^(?:AGENTS\.md|\.agents\/skills\/.+\/SKILL\.md|\.github\/workflows\/[^/]+\.ya?ml)$/u;
-const IDENTITY_NAME = /^(?:format)?(?:schema|version)$|(?:Schema|Version)$/u;
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 const OWNER_ID = /^[A-Za-z][A-Za-z0-9._-]{0,127}$/u;
-const TEST_SUPPORT_MODULE = /^(?:bun:test|node:test|node:assert(?:\/strict)?|vitest(?:\/.*)?|@jest\/globals|uvu|tap)$/iu;
-const TEST_FRAMEWORK_CALL_ROOTS = new Set([
-  'assert',
-  'afterAll',
-  'afterEach',
-  'beforeAll',
-  'beforeEach',
-  'describe',
-  'expect',
-  'it',
-  'mock',
-  'test'
-]);
 const DISPOSITION_KINDS = Object.freeze([
   'keep',
   'rewrite',
@@ -669,17 +661,22 @@ export function compileSourceProgramTestBaselineEvidence(
     baselineModel: SourceProgramModel;
     candidateModel: SourceProgramModel;
     baselineRevision: string;
+    operation?: SourceProgramCompilationOperation;
   }>
 ): readonly SourceProgramTestBaselineEvidence[] {
+  const operation = resolveSourceProgramCompilationOperation(input.operation);
+  sourceProgramCompilationCheckpoint(operation, 'baseline-test-evidence', 'start');
   if (!DIGEST.test(input.baselineRevision)) {
     return dispositionError('baselineRevision', 'expected a sha256 digest');
   }
   const canonicalPaths = canonicalBaselinePaths(input.baselineTestPaths);
-  return Object.freeze(canonicalPaths.map((repositoryPath) => {
+  const evidence = Object.freeze(canonicalPaths.map((repositoryPath) => {
+    sourceProgramCompilationCheckpoint(operation, 'baseline-test-evidence');
     const observation = observeSourceProgramTestContractCensus(
       input.baselineModel,
       input.candidateModel,
-      repositoryPath
+      repositoryPath,
+      operation
     );
     return Object.freeze({
       path: repositoryPath,
@@ -692,6 +689,8 @@ export function compileSourceProgramTestBaselineEvidence(
         : Object.freeze({ producerCount: 0, consumerCount: 0, externalContractCount: 1 })
     });
   }));
+  sourceProgramCompilationCheckpoint(operation, 'baseline-test-evidence', 'complete');
+  return evidence;
 }
 
 function testFinding(
@@ -777,6 +776,8 @@ export function summarizeSourceProgramTestUnknownDispositionClusters(
 export function compileSourceProgramTestValue(
   input: CompileSourceProgramTestValueInput
 ): SourceProgramTestValueCompilation {
+  const operation = resolveSourceProgramCompilationOperation(input.operation);
+  sourceProgramCompilationCheckpoint(operation, 'test-value', 'start');
   if (input.baselineTestPaths !== undefined && !Array.isArray(input.baselineTestPaths)) {
     return dispositionError('baselineTestPaths', 'expected an array');
   }
@@ -800,6 +801,7 @@ export function compileSourceProgramTestValue(
     .sort((left, right) => compareCodeUnits(left.path, right.path)));
   const baselineEvidencePaths = new Set<string>();
   for (const evidence of baselineEvidence) {
+    sourceProgramCompilationCheckpoint(operation, 'test-value');
     if (baselineEvidencePaths.has(evidence.path)) {
       return dispositionError('baselineEvidence', `duplicate path: ${evidence.path}`);
     }
@@ -831,6 +833,7 @@ export function compileSourceProgramTestValue(
   ].sort((left, right) => compareCodeUnits(left.path, right.path)));
   const dispositionsByPath = new Map<string, SourceProgramTestDisposition>();
   for (const disposition of dispositions) {
+    sourceProgramCompilationCheckpoint(operation, 'test-value');
     if (dispositionsByPath.has(disposition.path)) {
       dispositionError('dispositions', `duplicate path: ${disposition.path}`);
     }
@@ -855,6 +858,7 @@ export function compileSourceProgramTestValue(
   } else {
     const registrationsByPath = new Map<string, number>();
     for (const registration of observations.registrations) {
+      sourceProgramCompilationCheckpoint(operation, 'test-value');
       registrationsByPath.set(
         registration.path,
         (registrationsByPath.get(registration.path) ?? 0) + 1
@@ -911,6 +915,7 @@ export function compileSourceProgramTestValue(
       }));
     }
     for (const testPath of observations.testPaths) {
+      sourceProgramCompilationCheckpoint(operation, 'test-value');
       if (candidateTestPaths.has(testPath)
           && (registrationsByPath.get(testPath) ?? 0) === 0) {
         findings.push(testFinding(
@@ -922,6 +927,7 @@ export function compileSourceProgramTestValue(
       }
     }
     for (const reader of observations.productionSourceReads) {
+      sourceProgramCompilationCheckpoint(operation, 'test-value');
       if (GOVERNED_TEXT_DOCUMENT.test(reader.target)) continue;
       findings.push(testFinding(
         'test-reads-production-source-text',
@@ -931,6 +937,7 @@ export function compileSourceProgramTestValue(
       ));
     }
     for (const unknown of observations.unknowns) {
+      sourceProgramCompilationCheckpoint(operation, 'test-value');
       if (!candidateTestPaths.has(unknown.path)
           || (unknown.code !== 'test-source-parse-unresolved'
             && unknown.code !== 'test-dynamic-module-unresolved')) continue;
@@ -949,6 +956,7 @@ export function compileSourceProgramTestValue(
   const recordIds = new Set(records.map(({ testId }) => testId));
   const baselinePathSet = new Set(baselineTestPaths);
   for (const disposition of dispositions) {
+    sourceProgramCompilationCheckpoint(operation, 'test-value');
     if (!baselinePathSet.has(disposition.path)) {
       findings.push(testFinding(
         'test-module-disposition-outside-baseline',
@@ -960,6 +968,7 @@ export function compileSourceProgramTestValue(
     }
   }
   for (const baselinePath of baselineTestPaths) {
+    sourceProgramCompilationCheckpoint(operation, 'test-value');
     if (candidateTestPaths.has(baselinePath)) continue;
     const disposition = dispositionsByPath.get(baselinePath);
     if (disposition === undefined) {
@@ -1048,6 +1057,7 @@ export function compileSourceProgramTestValue(
     records,
     findings
   });
+  sourceProgramCompilationCheckpoint(operation, 'test-value', 'complete');
   return Object.freeze({
     sourceRevision: input.model.sourceRevision,
     baselineTestPaths,

@@ -1,12 +1,10 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { test } from 'bun:test';
-import { prepareTypeScriptIncrementalState, type PrepareTypeScriptIncrementalStateInput }
-  from '../../src/toolchain/typescript/incremental-state.ts';
-import { inspectNoFollowDirectoryChain }
-  from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { prepareTypeScriptIncrementalState, type PrepareTypeScriptIncrementalStateInput } from '../../src/toolchain/typescript/incremental-state.ts';
 import { settleWorkspaceCallback } from '../testkit/workspace-cleanup.ts';
 
 // Repository execution requires the real physical owner. Local adapter replay

@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { indexOwnerIntentInputs } from '../../src/brownfield/source-program-model/owner-intent-index.ts';
 
 function fact(overrides: Partial<{

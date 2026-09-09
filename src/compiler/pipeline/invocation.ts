@@ -1,5 +1,5 @@
-import { CompilerError } from '../errors.ts';
 import { isVerificationLane, VERIFICATION_LANES, type VerificationLane } from '../../verification/contract/lanes.ts';
+import { CompilerError } from '../errors.ts';
 import { requirePipelineSource } from './execution-context.ts';
 import type { PipelineSource } from './journal-types.ts';
 import { PIPELINE_STAGE_IDS, type PipelineStageId } from './stages.ts';

@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { createTaskGroupEffectFence, mapTaskGroup, runTaskGroup } from '../../src/system-architecture/foundation/runtime/concurrency.ts';
 
 function deferred() {

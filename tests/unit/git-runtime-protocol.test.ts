@@ -1,12 +1,12 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { devNull } from 'node:os';
 import path from 'node:path';
-import { test } from 'bun:test';
-import { canonicalGitChildEnvironment, gitEnvironmentValue } from '../../src/external-capabilities/git/environment.ts';
 import { gitReadCommandIsObservation } from '../../src/external-capabilities/git-read/runtime/read-command.ts';
-import { inGitProtocolRepository as inRepository, gitProtocolSuccess as commandSucceeded } from '../testkit/git-protocol.ts';
+import { canonicalGitChildEnvironment, gitEnvironmentValue } from '../../src/external-capabilities/git/environment.ts';
+import { gitProtocolSuccess as commandSucceeded, inGitProtocolRepository as inRepository } from '../testkit/git-protocol.ts';
 
 test('real Git cannot consume config-count or config-parameters restored through explicit overrides', () => inRepository(async (root, git) => {
   for (const injected of [

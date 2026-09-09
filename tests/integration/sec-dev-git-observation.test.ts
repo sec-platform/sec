@@ -26,6 +26,7 @@ import {
 import { runCensus } from '../../src/development/tooling/text/text-byte-census.ts';
 import { runSettlement } from '../../src/development/tooling/workspace/worktree-settlement.ts';
 import { withAuthorityGitReadSession } from '../../src/external-capabilities/git-read/authority.ts';
+import { createAuthorityGitReadSession } from '../../src/external-capabilities/git-read/runtime/session.ts';
 
 function git(repositoryRoot: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], {
@@ -122,24 +123,41 @@ test('Git replacement objects cannot substitute committed blob bytes', async () 
   }
 });
 
-test('trusted Git reads reject ambient config injection', async () => {
+test('trusted Git reads isolate ambient config and alternate index injection', async () => {
   const root = await createRepository('sec-dev-git-config-isolation-');
   try {
+    const alternateIndex = path.join(root, '.git', 'outside.index');
+    const hostileEnvironment = { ...process.env, GIT_INDEX_FILE: alternateIndex };
+    const emptyIndex = spawnSync('git', ['read-tree', '--empty'], {
+      cwd: root, env: hostileEnvironment, encoding: 'utf8', windowsHide: true
+    });
+    expect(emptyIndex.status).toBe(0);
+    const alternateIndexBytes = await fs.readFile(alternateIndex);
+    const canonicalIndexBytes = await fs.readFile(path.join(root, '.git', 'index'));
+    const redirectedRead = spawnSync('git', ['ls-files', '--cached', '-z'], {
+      cwd: root, env: hostileEnvironment, encoding: 'utf8', windowsHide: true
+    });
+    expect(redirectedRead.status).toBe(0);
+    expect(redirectedRead.stdout).toBe('');
     const moduleUrl = pathToFileURL(path.resolve('src/development/tooling/git/git-read.ts')).href;
     const source = [
       `import { withAuthorityGitReadSession } from ${JSON.stringify(pathToFileURL(path.resolve('src/external-capabilities/git-read/authority.ts')).href)};`,
       `import { compileAffectedTestSelectionSemanticOperation } from ${JSON.stringify(pathToFileURL(path.resolve('src/development/runner/affected-plan-contract.ts')).href)};`,
       `import { GIT_READ_OPERATION_BUDGET, runGitRead } from ${JSON.stringify(moduleUrl)};`,
       `const operation = compileAffectedTestSelectionSemanticOperation({ purpose: 'check-affected' });`,
-      `const result = await withAuthorityGitReadSession({ cwd: ${JSON.stringify(root)}, operation, budget: GIT_READ_OPERATION_BUDGET }, (session) => runGitRead(session, ['config', '--get', 'sec.injected']));`,
-      "process.stdout.write(JSON.stringify({ status: result.status, stdoutByteLength: result.stdout.byteLength }));"
+      `const result = await withAuthorityGitReadSession({ cwd: ${JSON.stringify(root)}, operation, budget: GIT_READ_OPERATION_BUDGET }, async (session) => {`,
+      "const config = await runGitRead(session, ['config', '--get', 'sec.injected']);",
+      "const index = await runGitRead(session, ['ls-files', '--cached', '-z']);",
+      "return { status: config.status, stdoutByteLength: config.stdout.byteLength, indexStatus: index.status, indexPaths: index.stdout.toString('utf8') }; });",
+      "process.stdout.write(JSON.stringify(result));"
     ].join('\n');
     const ambientChild = spawnSync(process.execPath, ['--no-env-file', '--eval', source], {
       cwd: process.cwd(),
       encoding: 'utf8',
       windowsHide: true,
+      timeout: 30_000,
       env: {
-        ...process.env,
+        ...hostileEnvironment,
         GIT_CONFIG_COUNT: '1',
         GIT_CONFIG_KEY_0: 'sec.injected',
         GIT_CONFIG_VALUE_0: 'forged',
@@ -148,7 +166,14 @@ test('trusted Git reads reject ambient config injection', async () => {
     });
     expect(ambientChild.status).toBe(0);
     expect(ambientChild.stderr).toBe('');
-    expect(JSON.parse(ambientChild.stdout)).toEqual({ status: 1, stdoutByteLength: 0 });
+    expect(JSON.parse(ambientChild.stdout)).toEqual({
+      status: 1,
+      stdoutByteLength: 0,
+      indexStatus: 0,
+      indexPaths: '.gitattributes\0committed.ts\0'
+    });
+    expect(await fs.readFile(alternateIndex)).toEqual(alternateIndexBytes);
+    expect(await fs.readFile(path.join(root, '.git', 'index'))).toEqual(canonicalIndexBytes);
 
     await withAuthorityGitReadSession({
       cwd: root,
@@ -306,6 +331,38 @@ test('repository mutation operation fence turns a child write into one diagnosti
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0]).toContain('mutated or lost continuous observation');
     expect(await fs.readFile(path.join(root, 'committed.ts'), 'utf8')).toBe('export const escaped = true;\n');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('repository mutation fence shares one process ledger with a nested Git admission', async () => {
+  if (process.platform !== 'win32') return;
+  const root = await createRepository('sec-dev-mutation-shared-ledger-');
+  try {
+    const operation = compileAffectedTestSelectionSemanticOperation({ purpose: 'check-affected' });
+    let nestedSessionReady = false;
+    const result = await runRepositoryZeroWriteOperation(
+      'test:shared-ledger',
+      async (processSession) => {
+        const resolution = createAuthorityGitReadSession({
+          cwd: root,
+          operation,
+          processSession,
+          budget: GIT_READ_OPERATION_BUDGET
+        });
+        expect(resolution.status).toBe('ready');
+        if (resolution.status !== 'ready') return 1;
+        nestedSessionReady = true;
+        const head = await resolution.session.run(['rev-parse', '--verify', 'HEAD^{commit}']);
+        expect(head.kind).toBe('completed');
+        await resolution.session.close?.();
+        return 0;
+      },
+      { operation, repositoryRoot: root }
+    );
+    expect(result).toBe(0);
+    expect(nestedSessionReady).toBe(true);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

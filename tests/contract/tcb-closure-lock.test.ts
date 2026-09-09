@@ -127,6 +127,21 @@ test('TCB candidate root rejects aliases, traversal, and non-regular candidate l
   }
 });
 
+test('Markdown parser approval is limited to its static consumer edge', () => {
+  const owner = 'src/control/documentation/doctor/markdown-syntax.ts';
+  const source = "import { parsers } from 'prettier/plugins/markdown';";
+  const reviewed = new Set<string>();
+  expect(runtimeRelativeImportsFromSource(owner, source, new Set(), reviewed)).toEqual([]);
+  expect([...reviewed]).toEqual([`${owner} -> prettier/plugins/markdown`]);
+  expect(() => runtimeRelativeImportsFromSource('unreviewed-consumer.ts', source))
+    .toThrow('outside the approved relative/external policy');
+  expect(() => runtimeRelativeImportsFromSource(owner, "import prettier from 'prettier';"))
+    .toThrow('outside the approved relative/external policy');
+  expect(() => runtimeRelativeImportsFromSource(owner,
+    "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);"))
+    .toThrow('outside the relative ESM closure model');
+});
+
 test('TCB closure explicitly models direct OS parent-process identity without opening computed process access', () => {
   expect(() => runtimeRelativeImportsFromSource(
     'synthetic-parent-process.ts',

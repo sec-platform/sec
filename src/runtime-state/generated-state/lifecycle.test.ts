@@ -1,9 +1,10 @@
 import { afterEach, expect, test } from 'bun:test';
-import { mkdir, mkdtemp, rename, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, rename, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 import { canonicalJson } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { compilerDependencyLocatorWorktreeRetirementProvider } from '../../toolchain/dependencies/test/runtime.ts';
 import { runCommandBytes } from '../physical/runtime/process.ts';
 import { generatedStateDomainProviderMaterialDigest } from './contract.ts';
 import {
@@ -11,6 +12,7 @@ import {
   assertGeneratedStateDisposalReceipt,
   assertGeneratedStateRetirementObservation,
   assertGeneratedStateWorktreeRetirementEffectStart,
+  consumeGeneratedStateWorktreeRetirementEffectAuthority,
   continueGeneratedStateCleanup,
   createGeneratedStateCleanupOperationSession,
   GeneratedStateProducerBindingBlockedError,
@@ -208,7 +210,6 @@ test('worktree retirement delegates an exact locator to its domain provider and 
     fixture.options
   );
   await lifecycle.born('node_modules', 'compiler-dependency-bridge:fixture');
-  await lifecycle.retired('node_modules', 'external-generation-bridge-ready');
   const input = {
     repositoryRoot: fixture.repositoryRoot,
     workspaceRoot: fixture.workspaceRoot,
@@ -217,23 +218,37 @@ test('worktree retirement delegates an exact locator to its domain provider and 
     expectedTreeSha: fixture.treeSha
   } as const;
 
-  await expect(settleGeneratedStateForWorktreeRetirement(input, fixture.options))
-    .rejects.toThrow('provider is unavailable or ambiguous');
-  expect(await absent(locatorPath)).toBe(false);
-
   const providerId = 'compiler-dependency-locator';
+  const concurrentProducer = generatedStateProducerHooks(
+    { repositoryRoot: fixture.repositoryRoot, workspaceRoot: fixture.workspaceRoot },
+    fixture.options
+  );
+  let retiredRegistration: Parameters<typeof concurrentProducer.restore>[1] | null = null;
   const provider: GeneratedStateWorktreeRetirementProvider =
   Object.freeze<GeneratedStateWorktreeRetirementProvider>({
     id: providerId,
-    plan: async ({ source }) => {
+    plan: async ({ registration, source }) => {
+      expect(registration.phase).toBe('active');
       const bytes = JSON.stringify(canonicalJson({ schema: 'fixture-locator-plan-v1', source }));
       return Object.freeze({
         bytes,
         digest: generatedStateDomainProviderMaterialDigest(providerId, 'plan', bytes)
       });
     },
-    retire: async ({ planBytes, planDigest }) => {
+    retire: async (authority) => {
+      const { planBytes, planDigest, registration } =
+        consumeGeneratedStateWorktreeRetirementEffectAuthority(authority, providerId);
+      expect(() => consumeGeneratedStateWorktreeRetirementEffectAuthority(authority, providerId))
+        .toThrow('forged, stale, replayed');
+      expect(registration.phase).toBe('retired');
+      retiredRegistration = registration.registrationDigest;
       expect(planDigest).toBe(generatedStateDomainProviderMaterialDigest(providerId, 'plan', planBytes));
+      await expect(concurrentProducer.restore(
+        'node_modules',
+        registration.registrationDigest,
+        registration.root,
+        'concurrent-producer-restore'
+      )).rejects.toThrow('mutation lease is unavailable');
       const outcome = await absent(locatorPath) ? 'resumed-absent' : 'removed';
       if (outcome === 'removed') await unlink(locatorPath);
       const bytes = JSON.stringify(canonicalJson({ schema: 'fixture-locator-receipt-v1', outcome }));
@@ -265,7 +280,61 @@ test('worktree retirement delegates an exact locator to its domain provider and 
   });
   expect(await absent(locatorPath)).toBe(true);
   expect(await absent(path.join(generationRoot, 'sentinel.txt'))).toBe(false);
+  if (retiredRegistration === null) throw new Error('Fixture provider did not observe one retired registration.');
+  await expect(concurrentProducer.restore(
+    'node_modules',
+    retiredRegistration,
+    (await lifecycle.observeRetirement('node_modules')).physical!,
+    'post-retirement-restore'
+  )).rejects.toThrow('physical preimage differs');
 });
+
+for (const mutation of ['ordinary-directory', 'retargeted-link'] as const) {
+  test(`compiler locator retirement preserves a ${mutation} replacement made after its durable plan`, async () => {
+    const fixture = await registeredWorktreeFixture();
+    const generationRoot = path.join(path.dirname(fixture.repositoryRoot), `external-generation-${mutation}`);
+    await mkdir(generationRoot);
+    await writeFile(path.join(generationRoot, 'sentinel.txt'), 'preserve');
+    const locatorPath = path.join(fixture.workspaceRoot, 'node_modules');
+    await symlink(generationRoot, locatorPath, process.platform === 'win32' ? 'junction' : 'dir');
+    const lifecycle = generatedStateProducerHooks(
+      { repositoryRoot: fixture.repositoryRoot, workspaceRoot: fixture.workspaceRoot },
+      fixture.options
+    );
+    await lifecycle.born('node_modules', `compiler-dependency-bridge:${mutation}`);
+    const parkedLocator = `${locatorPath}.planned`;
+    const replacementGeneration = path.join(path.dirname(fixture.repositoryRoot), `replacement-${mutation}`);
+    const provider = Object.freeze<GeneratedStateWorktreeRetirementProvider>({
+      id: compilerDependencyLocatorWorktreeRetirementProvider.id,
+      plan: async (input) => {
+        const plan = await compilerDependencyLocatorWorktreeRetirementProvider.plan(input);
+        await rename(locatorPath, parkedLocator);
+        if (mutation === 'ordinary-directory') {
+          await mkdir(locatorPath);
+        } else {
+          await mkdir(replacementGeneration);
+          await symlink(replacementGeneration, locatorPath, process.platform === 'win32' ? 'junction' : 'dir');
+        }
+        return plan;
+      },
+      retire: (authority) => compilerDependencyLocatorWorktreeRetirementProvider.retire(authority)
+    });
+    await expect(settleGeneratedStateForWorktreeRetirement({
+      repositoryRoot: fixture.repositoryRoot,
+      workspaceRoot: fixture.workspaceRoot,
+      expectedBranch: 'candidate',
+      expectedHeadSha: fixture.headSha,
+      expectedTreeSha: fixture.treeSha
+    }, {
+      ...fixture.options,
+      worktreeRetirementProviders: [provider]
+    })).rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-004' });
+    const replacement = await lstat(locatorPath);
+    expect(mutation === 'ordinary-directory' ? replacement.isDirectory() : replacement.isSymbolicLink()).toBeTrue();
+    expect(await absent(parkedLocator)).toBe(false);
+    expect(await absent(path.join(generationRoot, 'sentinel.txt'))).toBe(false);
+  });
+}
 
 test('worktree retirement blocks one unknown ignored descendant before moving any root', async () => {
   const fixture = await registeredWorktreeFixture();

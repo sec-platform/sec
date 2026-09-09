@@ -12,7 +12,6 @@ import {
 } from '../../system-architecture/operation/semantic.ts';
 import {
   PhysicalNoFollowError,
-  assertSameNoFollowDirectoryIdentity,
   deleteRetainedNoFollowEntry,
   inspectNoFollowDirectoryChain,
   inspectNoFollowDirectoryChild,

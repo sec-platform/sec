@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { describe, test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { createWorkspaceWithDeferredCleanup, removeWorkspaceDirectoryWithRetry, settleWorkspaceCallback, settleWorkspaceCleanups, type WorkspaceDirectoryRemoveOptions } from '../testkit/workspace-cleanup.ts';
 function errnoFailure(code: string): Error & {
   code: string;

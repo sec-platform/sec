@@ -1,11 +1,15 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
-import { runtimeDependencyOperationControls } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
+import assert from 'node:assert/strict';
+import type { RuntimeDependencyGeneratedStateLifecycle } from '../../src/toolchain/dependencies/runtime/lifecycle-capabilities.ts';
 import {
-  compilerDependencyGenerationLifecycleExpectation, compilerDependencyStagingLifecycleExpectation, sharedDependencyLifecycleExpectation,
+  bindAndRetireCompilerDependencyPreimage,
   bindExistingCompilerDependencyGeneration, bindExistingSharedDependencyRoot, birthAndBindCompilerDependencyGeneration,
-  settleRetiredCompilerDependencyGeneration, bindAndRetireCompilerDependencyPreimage, ensureCompilerDependencyPreimageRetiredForRecovery
+  compilerDependencyGenerationLifecycleExpectation, compilerDependencyStagingLifecycleExpectation,
+  ensureCompilerDependencyPreimageRetiredForRecovery,
+  settleRetiredCompilerDependencyGeneration,
+  sharedDependencyLifecycleExpectation
 } from '../../src/toolchain/dependencies/runtime/lifecycle-registration.ts';
+import { runtimeDependencyOperationControls } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
 
 const physical = () => ({ device: 'device', inode: 'inode-a', objectId: 'object-a' });
 const receipt = { registrationDigest: `sha256:${'a'.repeat(64)}` } as never;
@@ -29,10 +33,11 @@ for (const expectation of [compilerDependencyGenerationLifecycleExpectation, com
 for (const adopt of [bindExistingCompilerDependencyGeneration, bindExistingSharedDependencyRoot]) {
   test(`${adopt.name} is bound to the expected identity before method getters run`, async () => {
     const expected = physical();
-    await adopt({ generatedStateLifecycle: { get bind() {
+    const generatedStateLifecycle: Pick<RuntimeDependencyGeneratedStateLifecycle, 'bind'> = { get bind(): NonNullable<RuntimeDependencyGeneratedStateLifecycle['bind']> {
       expected.inode = 'replacement';
       return async (_path, expectation) => { assert.equal(expectation!.physical!.inode, 'inode-a'); return receipt; };
-    } } }, expected);
+    } };
+    await adopt({ generatedStateLifecycle }, expected);
   });
 }
 
@@ -40,7 +45,7 @@ test('birth fence and birth callback cannot retarget the later binding', async (
   const expected = physical();
   const events: string[] = [];
   await birthAndBindCompilerDependencyGeneration({ ...control(),
-    beforeCommit() { expected.inode = 'fence-replaced'; events.push('fence'); },
+    async beforeCommit() { expected.inode = 'fence-replaced'; events.push('fence'); },
     generatedStateLifecycle: {
       async born(_path, id) { assert.equal(id, 'compiler-node-modules:stage'); expected.inode = 'born-replaced'; events.push('born'); },
       async bind(_path, expectation) { assert.equal(expectation!.physical!.inode, 'inode-a'); events.push('bind'); return receipt; }
@@ -51,7 +56,7 @@ test('birth fence and birth callback cannot retarget the later binding', async (
 
 test('retired settlement observes its originally selected physical generation', async () => {
   const expected = physical();
-  await settleRetiredCompilerDependencyGeneration({ ...control(), beforeCommit() { expected.objectId = 'other'; },
+  await settleRetiredCompilerDependencyGeneration({ ...control(), async beforeCommit() { expected.objectId = 'other'; },
     generatedStateLifecycle: { async settleRetired(_path, expectation) {
       assert.equal(expectation!.physical!.objectId, 'object-a'); return true;
     } }
@@ -70,8 +75,8 @@ test('retirement receives an immutable expectation and preserves the original ph
 });
 
 test('optional absence stays a no-op without reading a physical identity or stage label', async () => {
-  const expected = { get device() { assert.fail('unused identity read'); }, inode: 'inode', objectId: 'object' };
-  const options = { ...control(), beforeCommit() { assert.fail('unused fence'); } };
+  const expected = { get device(): never { assert.fail('unused identity read'); throw new Error('unreachable'); }, inode: 'inode', objectId: 'object' };
+  const options = { ...control(), async beforeCommit() { assert.fail('unused fence'); } };
   await birthAndBindCompilerDependencyGeneration(options, undefined as never, expected);
   await settleRetiredCompilerDependencyGeneration(options, expected);
 });

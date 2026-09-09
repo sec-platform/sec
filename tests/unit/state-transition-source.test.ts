@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import ts from 'typescript';
 import { renderStateTransitionMapSource } from '../../src/compiler/codegen/state-transition-source.ts';
 import type { StateTransitionMapGeneratorPlanTask } from '../../src/semantic/generation/contract/types.ts';

@@ -10,15 +10,12 @@ export { PIPELINE_STAGE_IDS, PIPELINE_VERIFY_STAGE_IDS } from './stages.ts';
 export type { PipelineStageId } from './stages.ts';
 
 export type { PassId } from '../contract/pass-status.ts';
-export { PIPELINE_JOURNAL_FORMAT_VERSION, PIPELINE_ADAPT_RETIREMENT_SCHEMA } from './journal-types.ts';
-export type {
-  PipelineSource, PipelineTransactionStatus, PipelinePassStatus, PipelinePassRecord,
-  PipelineTransactionRecord, PipelineJournal, PipelineAdaptRetirementRecord
-} from './journal-types.ts';
-
-import type { PipelineExecutionBoundary } from './execution-boundaries.ts';
 export { PIPELINE_EXECUTION_BOUNDARIES } from './execution-boundaries.ts';
 export type { PipelineExecutionBoundary } from './execution-boundaries.ts';
+export { PIPELINE_ADAPT_RETIREMENT_SCHEMA, PIPELINE_JOURNAL_FORMAT_VERSION } from './journal-types.ts';
+export type { PipelineAdaptRetirementRecord, PipelineJournal, PipelinePassRecord, PipelinePassStatus, PipelineSource, PipelineTransactionRecord, PipelineTransactionStatus } from './journal-types.ts';
+
+import type { PipelineExecutionBoundary } from './execution-boundaries.ts';
 
 export const PIPELINE_COMPLETION_PROOF_REVISION = 'pipeline-completion-proof-v2' as const;
 

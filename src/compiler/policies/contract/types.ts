@@ -1,7 +1,7 @@
 import type { PolicyRuleId } from './rules.ts';
 
 import type { PolicySeverity } from './source-schema.ts';
-export type { PolicySeverity, PolicyRule, PolicySpec } from './source-schema.ts';
+export type { PolicyRule, PolicySeverity, PolicySpec } from './source-schema.ts';
 export type PolicySourceScope = 'official' | 'project';
 
 export interface PolicySourceFileReport {

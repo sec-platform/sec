@@ -1,9 +1,11 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
-import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
-import { compileSourceProgramFindingDelta as compare,
-  sourceProgramFindingDeltaIsUnresolved as unresolved, summarizeSourceProgramFindingDelta as summarize
+import assert from 'node:assert/strict';
+import {
+  compileSourceProgramFindingDelta as compare,
+  summarizeSourceProgramFindingDelta as summarize,
+  sourceProgramFindingDeltaIsUnresolved as unresolved
 } from '../../src/brownfield/source-program-model/reconciliation-findings.ts';
+import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
 
 import { captureRepositoryAnalysisPolicy } from '../../src/brownfield/source-program-model/repository-analysis-policy.ts';
 

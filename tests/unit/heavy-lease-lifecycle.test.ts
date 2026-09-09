@@ -1,7 +1,9 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
-import { HeavyVerificationGateBusyError, onceHeavyVerificationGateRelease, waitForHeavyVerificationGateLease,
-  withAcquiredHeavyVerificationGateLease } from '../../src/verification/gate/state/heavy-lease-lifecycle.ts';
+import assert from 'node:assert/strict';
+import {
+  HeavyVerificationGateBusyError, onceHeavyVerificationGateRelease, waitForHeavyVerificationGateLease,
+  withAcquiredHeavyVerificationGateLease
+} from '../../src/verification/gate/state/heavy-lease-lifecycle.ts';
 
 for (const reason of [undefined, null, false, 0]) test(`operation ${String(reason)} and release failure both survive`, async () => {
   const release = new Error('release');

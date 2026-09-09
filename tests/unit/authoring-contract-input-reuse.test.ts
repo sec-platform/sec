@@ -1,14 +1,18 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
-import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { test } from 'bun:test';
-import { buildSemanticContractSourceCandidate, semanticContractSourceRevision, loadAuthoringSemanticContractSources,
+import path from 'node:path';
+import {
+  AUTHORING_SEMANTIC_CONTRACT_INDEX_MAX_INPUT_BYTES,
   AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH, AUTHORING_SEMANTIC_CONTRACT_INDEX_REVISION,
-  AUTHORING_SEMANTIC_CONTRACT_INDEX_MAX_INPUT_BYTES } from '../../src/compiler/parse/load-authoring-semantic-contracts.ts';
+  buildSemanticContractSourceCandidate,
+  loadAuthoringSemanticContractSources,
+  semanticContractSourceRevision
+} from '../../src/compiler/parse/load-authoring-semantic-contracts.ts';
 import { SEMANTIC_CONTRACT_FORMAT_VERSION, type LoadedSemanticContract, type SemanticContract } from '../../src/semantic/contracts/contract/types.ts';
-import { modelRelativePath } from '../../src/workspace/contract/types.ts';
 import { YamlInputLimitError, YamlSyntaxError } from '../../src/system-architecture/foundation/runtime/yaml.ts';
+import { modelRelativePath } from '../../src/workspace/contract/types.ts';
 
 function contract(id = 'contract-a') {
   return { formatVersion: SEMANTIC_CONTRACT_FORMAT_VERSION, id, namespace: id } as SemanticContract;

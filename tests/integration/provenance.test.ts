@@ -6,7 +6,6 @@ import { buildProvenance } from '../../src/compiler/emit/write-provenance.ts';
 import type { PolicyReport } from '../../src/compiler/policies/contract/types.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../src/verification/contract/types.ts';
-import { buildExpectedProductVerificationClaimSummary } from '../../src/verification/profile/contract/product.ts';
 import { writeJson } from '../../src/workspace/files.ts';
 import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
 import { buildOfficialCopyInstallStep } from '../helpers/lock-fixtures.ts';

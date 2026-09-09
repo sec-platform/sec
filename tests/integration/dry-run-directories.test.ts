@@ -33,7 +33,7 @@ test('upgrade dry-run records create directory migration impacts', async () => {
 });
 
 test('upgrade dry-run rejects create directory migrations when target is a file', async () => {
-  const { paths, workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
+  const { workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
     prefix: 'engineering-compiler-upgrade-create-directory-file-target-',
     migration: {
       id: 'mig-create-snapshots-dir',
@@ -140,7 +140,7 @@ test('upgrade dry-run records copy directory migration impacts', async () => {
 });
 
 test('upgrade dry-run rejects copy directory migrations when target is a file', async () => {
-  const { paths, workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
+  const { workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
     prefix: 'engineering-compiler-upgrade-copy-directory-file-target-',
     migration: {
       id: 'mig-copy-report-templates',

@@ -4,8 +4,13 @@ import ts from 'typescript';
 import { SEMANTIC_RESPONSIBILITY_TARGET_KINDS, type SemanticResponsibilityTargetKind } from '../../semantic/contracts/contract/types.ts';
 import type { SemanticEntity } from '../../semantic/engineering-ir/contract/entity-types.ts';
 import type { ValidatedEngineeringIRSnapshot } from '../../semantic/engineering-ir/contract/validated-types.ts';
-import { compareCodeUnits, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { compareCodeUnits, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import type { SecRepositoryModuleMembership } from '../../system-architecture/repository-modules/contract.ts';
+import {
+  resolveSourceProgramCompilationOperation,
+  sourceProgramCompilationCheckpoint,
+  type SourceProgramCompilationOperation
+} from './compilation-operation.ts';
 import type {
   SourceProgramCandidate,
   SourceProgramCapabilityAuthorityClass,
@@ -33,6 +38,8 @@ import {
   observeSourceProgramEmbeddedTypeScriptLiteral,
   sourceProgramModuleImports
 } from './embedded-programs.ts';
+import { indexOwnerIntentInputs } from './owner-intent-index.ts';
+import { indexResponsibilityEvidenceInputs } from './responsibility-evidence-index.ts';
 import {
   compileSourceProgramTestObservations,
   compileSourceProgramTestObservationsFromWorkspaceSnapshot,
@@ -49,8 +56,6 @@ import {
   workspaceSourceSnapshotIdentityForTypeScriptModel
 } from './typescript.ts';
 import type { WorkspaceSourceSnapshot } from './workspace-source-snapshot.ts';
-import { indexResponsibilityEvidenceInputs } from './responsibility-evidence-index.ts';
-import { indexOwnerIntentInputs } from './owner-intent-index.ts';
 
 export interface CompileRepositorySourceProgramModelInput {
   readonly sourceRevision: string;
@@ -178,14 +183,21 @@ export function compileSourceProgramResponsibilityEvidence(
  */
 export function compileSourceProgramOwnerIntentEvidence(
   model: SourceProgramModel,
-  membership: SecRepositoryModuleMembership
+  membership: SecRepositoryModuleMembership,
+  requestedOperation?: SourceProgramCompilationOperation
 ): readonly SourceProgramOwnerIntentEvidence[] {
-  if (membership.descriptors.length === 0) return Object.freeze([]);
+  const operation = resolveSourceProgramCompilationOperation(requestedOperation);
+  sourceProgramCompilationCheckpoint(operation, 'owner-intent', 'start');
+  if (membership.descriptors.length === 0) {
+    sourceProgramCompilationCheckpoint(operation, 'owner-intent', 'complete');
+    return Object.freeze([]);
+  }
   const index = indexOwnerIntentInputs(model);
   const knownOwnerIds = new Set(membership.descriptors.map(({ moduleId }) => moduleId));
   // Reuse membership.moduleForPath: membership already owns its lookup cache.
   // Only the missing relation indexes belong to this projection.
-  return Object.freeze(membership.descriptors.map((descriptor) => {
+  const evidence = Object.freeze(membership.descriptors.map((descriptor) => {
+    sourceProgramCompilationCheckpoint(operation, 'owner-intent');
     const capabilityEnvelope = Object.freeze(descriptor.capabilityProviders
       .map(({ capability, operations }) => Object.freeze({
         capability,
@@ -209,22 +221,26 @@ export function compileSourceProgramOwnerIntentEvidence(
       for (const operation of operations) names.add(operation);
     }
     const operationObligations = Object.freeze(descriptor.operationObligations.map((obligation) => {
-      const operation = obligation.operation;
+      sourceProgramCompilationCheckpoint(operation, 'owner-intent');
+      const operationIdentity = obligation.operation;
       let operationDeclarations: readonly SourceProgramDeclaration[];
-      switch (operation.kind) {
+      switch (operationIdentity.kind) {
         case 'capability':
-          operationDeclarations = index.declarationsForCapability(descriptor.moduleId, operation.operation);
+          operationDeclarations = index.declarationsForCapability(
+            descriptor.moduleId,
+            operationIdentity.operation
+          );
           break;
         case 'public-entrypoint':
-          operationDeclarations = index.declarationsForPath(operation.path);
+          operationDeclarations = index.declarationsForPath(operationIdentity.path);
           break;
         default:
-          return unreachableModuleOperationIdentity(operation);
+          return unreachableModuleOperationIdentity(operationIdentity);
       }
       const operationObservationIds = new Set(operationDeclarations.map(({ observationId }) => observationId));
       const operationPaths = new Set(operationDeclarations.map(({ path }) => path));
-      if (operation.kind === 'public-entrypoint') {
-        for (const entrypoint of index.entrypointsForTarget(operation.path)) {
+      if (operationIdentity.kind === 'public-entrypoint') {
+        for (const entrypoint of index.entrypointsForTarget(operationIdentity.path)) {
           const closure = index.firstClosureForEntrypoint(entrypoint.observationId);
           for (const path of closure?.reachablePaths ?? []) operationPaths.add(path);
           for (const path of closure?.capabilityPaths ?? []) operationPaths.add(path);
@@ -240,14 +256,15 @@ export function compileSourceProgramOwnerIntentEvidence(
       )].sort(compareCodeUnits));
       const actualConsumerSet = new Set(actualConsumerModuleIds);
       const identityVerified = (() => {
-        switch (operation.kind) {
+        switch (operationIdentity.kind) {
           case 'capability':
-            return capabilityOperations.get(operation.capability)?.has(operation.operation) === true
+            return capabilityOperations.get(operationIdentity.capability)
+              ?.has(operationIdentity.operation) === true
               && operationDeclarations.length === 1;
           case 'public-entrypoint':
-            return publicEntrypointTargets.has(operation.path);
+            return publicEntrypointTargets.has(operationIdentity.path);
           default:
-            return unreachableModuleOperationIdentity(operation);
+            return unreachableModuleOperationIdentity(operationIdentity);
         }
       })();
       const consumersVerified = obligation.consumerSupport.consumers.length === actualConsumerModuleIds.length
@@ -289,6 +306,8 @@ export function compileSourceProgramOwnerIntentEvidence(
       evidenceDigest: sha256(canonical)
     });
   }).sort((left, right) => compareCodeUnits(left.owner, right.owner)));
+  sourceProgramCompilationCheckpoint(operation, 'owner-intent', 'complete');
+  return evidence;
 }
 
 type JsonRecord = Record<string, unknown>;
@@ -390,7 +409,7 @@ function executableSourceLiteralPaths(
       return observation.executable
         ? [Object.freeze({ ownerPath: path, digest: observation.contentDigest })]
         : [];
-    }));
+  }));
 }
 
 export function compileSourceProgramCausalRelationEvidence(

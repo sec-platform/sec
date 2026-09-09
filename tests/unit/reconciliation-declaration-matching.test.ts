@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { pairSourceProgramDeclarations as pair } from '../../src/brownfield/source-program-model/reconciliation-declarations.ts';
 
 type Declaration = Parameters<typeof pair>[0][number];

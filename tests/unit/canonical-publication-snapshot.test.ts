@@ -1,12 +1,14 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { test } from 'bun:test';
 import {
-  publishCanonicalWorkspaceFile, publishExistingParentCanonicalWorkspaceFile,
-  publishExpectedCanonicalWorkspaceFile, publishExclusiveCanonicalWorkspaceFile,
   deleteExpectedCanonicalWorkspaceFile,
+  publishCanonicalWorkspaceFile,
+  publishExclusiveCanonicalWorkspaceFile,
+  publishExistingParentCanonicalWorkspaceFile,
+  publishExpectedCanonicalWorkspaceFile,
   type CanonicalWorkspaceFilePublicationInput
 } from '../../src/workspace/runtime/file-publication.ts';
 
@@ -54,7 +56,7 @@ test('conditional publication snapshots both the desired bytes and its preimage'
 test('rollback consumes only a captured preimage, not unused publication bytes', async () => fixture(async (root, target) => {
   writeFileSync(target, 'old'); const expectedBytes = Buffer.from('old');
   await deleteExpectedCanonicalWorkspaceFile({ workspaceRoot: root, targetPath: target, label: 'rollback',
-    expectedBytes, get bytes(): Uint8Array { assert.fail('unused new bytes were read'); },
+    expectedBytes, get bytes(): Uint8Array { assert.fail('unused new bytes were read'); throw new Error('unreachable'); },
     async commitFence() { expectedBytes.fill(0); }
   });
   assert.equal(existsSync(target), false);

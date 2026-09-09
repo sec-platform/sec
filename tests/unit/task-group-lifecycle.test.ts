@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { runTaskGroup } from '../../src/system-architecture/foundation/runtime/concurrency.ts';
 
 function held() { let release!: () => void; const promise = new Promise<void>(r => { release = r; }); return { promise, release }; }

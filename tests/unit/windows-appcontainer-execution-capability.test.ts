@@ -86,7 +86,7 @@ test('plain objects and foreign staging roots cannot substitute a capability', a
 });
 
 test('expired capabilities fail before their upstream fence can authorize another effect', async () => {
-  await withCapabilityWorkspace(async ({ workspaceRoot, stagingRoot }) => {
+  await withCapabilityWorkspace(async ({ stagingRoot }) => {
     let fenceCalls = 0;
     const deadline = operationDeadline(20);
     const capability = await issuePhysicalWindowsAppContainerExecutionCapability({

@@ -1,9 +1,9 @@
-import { compilerDependencyManifestAuthority, compilerInputText } from './compiler-input-contract.ts';
-export { compilerDependencyManifestAuthority } from './compiler-input-contract.ts';
-export type { CompilerDependencyManifestAuthority } from './compiler-input-contract.ts';
 import { readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { compilerDependencyManifestAuthority, compilerInputText } from './compiler-input-contract.ts';
+export { compilerDependencyManifestAuthority } from './compiler-input-contract.ts';
+export type { CompilerDependencyManifestAuthority } from './compiler-input-contract.ts';
 
 import {
   assertSameNoFollowDirectoryIdentity,

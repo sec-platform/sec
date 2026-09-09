@@ -1,6 +1,6 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
 import { Command } from 'commander';
+import assert from 'node:assert/strict';
 
 import { decodeBooleanFlag } from '../../src/interface/cli/boolean-option.ts';
 import { jsonOpts } from '../../src/interface/cli/command-options.ts';
@@ -53,8 +53,8 @@ test('decode rejection preserves the exact original thrown value without coercio
 for (const mode of ['repair-plan', 'upgrade-plan', 'upgrade-diagnostics'] as const) {
   test(`${mode} does not read or retain write-only options`, () => {
     const options = new Proxy({ json: true, compact: false,
-      get dryRun() { assert.fail('inspection read a write flag'); },
-      get unrelated() { assert.fail('unrelated field inspected'); } }, {
+      get dryRun() { assert.fail('inspection read a write flag'); throw new Error('unreachable'); },
+      get unrelated() { assert.fail('unrelated field inspected'); throw new Error('unreachable'); } }, {
       ownKeys() { assert.fail('options enumerated'); }
     });
     const input = mode === 'repair-plan' ? parseRepairCommandInput('plan', options)
@@ -78,7 +78,7 @@ test('selected write flag is captured once and unrelated fields are not enumerat
   let reads = 0;
   const raw = new Proxy({ json: true, compact: false,
     get dryRun() { reads++; return true; },
-    get unrelated() { assert.fail('unrelated field read'); } }, {
+    get unrelated() { assert.fail('unrelated field read'); throw new Error('unreachable'); } }, {
     ownKeys() { assert.fail('whole options enumerated'); }
   });
   const input = parseRepairCommandInput(undefined, raw);
@@ -106,7 +106,7 @@ for (const subject of ['plan', 'diagnostics']) {
 
 for (const subject of [undefined, null, 1, {}, []]) {
   test(`invalid upgrade subject type ${typeof subject} is rejected without reading write options`, () => {
-    const input = { get dryRun() { assert.fail('invalid route read write flag'); } };
+    const input = { get dryRun() { assert.fail('invalid route read write flag'); throw new Error('unreachable'); } };
     assert.throws(() => parseUpgradeCommandInput(subject, '1', input, 'custom upgrade'),
       (error: unknown) => usage(error) && (error as Error).message.startsWith('Usage: custom upgrade '));
   });
@@ -114,14 +114,14 @@ for (const subject of [undefined, null, 1, {}, []]) {
 
 for (const target of [undefined, null, 1, {}, []]) {
   test(`invalid upgrade target type ${typeof target} is rejected without reading write options`, () => {
-    const input = { get dryRun() { assert.fail('invalid route read write flag'); } };
+    const input = { get dryRun() { assert.fail('invalid route read write flag'); throw new Error('unreachable'); } };
     assert.throws(() => parseUpgradeCommandInput('block', target, input, 'sec upgrade'), usage);
   });
 }
 
 test('unsupported repair modes cannot fall through to repair execution', () => {
   for (const mode of ['unknown', 'toString', null, 1, {}]) {
-    assert.throws(() => parseRepairCommandInput(mode, { get dryRun() { assert.fail('unused flag read'); } }), usage);
+    assert.throws(() => parseRepairCommandInput(mode, { get dryRun() { assert.fail('unused flag read'); throw new Error('unreachable'); } }), usage);
   }
 });
 

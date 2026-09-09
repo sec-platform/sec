@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 
 import { CompilerError } from '../../src/compiler/errors.ts';
 import { PIPELINE_EXECUTION_BOUNDARIES, PIPELINE_STAGE_IDS, PIPELINE_VERIFY_STAGE_IDS } from '../../src/compiler/pipeline/types.ts';

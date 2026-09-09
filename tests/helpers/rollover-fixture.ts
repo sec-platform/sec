@@ -4,14 +4,22 @@ import path from 'node:path';
 import { generatedStateDigest } from '../../src/runtime-state/generated-state/contract.ts';
 import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 import { canonicalJson } from '../../src/system-architecture/foundation/runtime/canonical.ts';
-import { formatJsonFile } from '../../src/workspace/files.ts';
-import { runtimeDependencyOperationControls } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
-import { generatedStatePhysicalIdentity, runtimeDependencySourceGenerationEpoch,
-  DEPENDENCY_TRANSITION_SCHEMA, type DependencyTransitionUnsigned, type DependencyTransitionJournal } from '../../src/toolchain/dependencies/runtime/dependency-transition/contract.ts';
-import { dependencyTransitionRecordBytes, dependencyTransitionDigestWithoutRecord, transitionRecordName,
-  parseDependencyTransitionRecord } from '../../src/toolchain/dependencies/runtime/dependency-transition/codec.ts';
-import { dependencyTransitionNamespacePaths, dependencyTransitionLedgerDigest } from '../../src/toolchain/dependencies/runtime/dependency-transition/store.ts';
+import {
+  dependencyTransitionDigestWithoutRecord,
+  dependencyTransitionRecordBytes,
+  parseDependencyTransitionRecord,
+  transitionRecordName
+} from '../../src/toolchain/dependencies/runtime/dependency-transition/codec.ts';
+import {
+  DEPENDENCY_TRANSITION_SCHEMA,
+  generatedStatePhysicalIdentity, runtimeDependencySourceGenerationEpoch,
+  type DependencyTransitionJournal,
+  type DependencyTransitionUnsigned
+} from '../../src/toolchain/dependencies/runtime/dependency-transition/contract.ts';
 import type { DependencyTransitionRolloverIntent } from '../../src/toolchain/dependencies/runtime/dependency-transition/rollover.ts';
+import { dependencyTransitionLedgerDigest, dependencyTransitionNamespacePaths } from '../../src/toolchain/dependencies/runtime/dependency-transition/store.ts';
+import { runtimeDependencyOperationControls } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
+import { formatJsonFile } from '../../src/workspace/files.ts';
 
 /** Deliberately constructs persisted protocol inputs, not an authorization or a
  * replacement parser. Recovery revalidates their exact bytes and physical roots.

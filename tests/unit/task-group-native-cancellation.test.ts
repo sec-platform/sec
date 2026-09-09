@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { runTaskGroup } from '../../src/system-architecture/foundation/runtime/concurrency.ts';
 
 function deferred() {
@@ -29,7 +29,7 @@ test('already cancelled admission executes no task-array getter or iterator', as
 
 test('dense task identity is captured independently of a replacement iterator', async () => {
   const tasks = [async () => 7];
-  tasks[Symbol.iterator] = function* () { yield async () => assert.fail('substituted task'); };
+  tasks[Symbol.iterator] = () => [async () => assert.fail('substituted task')].values();
   assert.deepEqual(await runTaskGroup(tasks), [7]);
 });
 

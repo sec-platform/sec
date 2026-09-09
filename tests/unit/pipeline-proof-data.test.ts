@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { capturePipelineProofRecord, samePipelineSequence } from '../../src/compiler/pipeline/proof-data.ts';
 
 for (const count of [0, 1, 6]) {
@@ -22,7 +22,9 @@ test('holes and inherited slots cannot satisfy a proof closure', () => {
 });
 
 test('caller array methods and element accessors do not participate in proof comparison', () => {
-  const values = ['forged']; values.every = () => true;
+  const values = ['forged'];
+  // @ts-expect-error Deliberately replaces an overloaded array method with a hostile implementation.
+  values.every = () => true;
   assert.equal(samePipelineSequence(values, ['actual']), false);
   const getter = [1]; Object.defineProperty(getter, 0, { get() { assert.fail('element getter'); } });
   assert.equal(samePipelineSequence(getter, [1]), false);

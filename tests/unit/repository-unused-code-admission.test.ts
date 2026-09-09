@@ -1,9 +1,9 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { test } from 'bun:test';
 import ts from 'typescript';
 import { settleWorkspaceCallback } from '../testkit/workspace-cleanup.ts';
 

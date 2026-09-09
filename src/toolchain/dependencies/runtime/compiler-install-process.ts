@@ -1,5 +1,5 @@
-import { bindCompilerInstallInvocation, type CompilerInstallInvocationInput } from './install-invocation.ts';
 import path from 'node:path';
+import { bindCompilerInstallInvocation, type CompilerInstallInvocationInput } from './install-invocation.ts';
 
 import { generatedStateDigest } from '../../../runtime-state/generated-state/contract.ts';
 import {
@@ -36,15 +36,15 @@ import {
 } from './compiler-materialization-input.ts';
 import { DEPENDENCY_COMMAND_OUTPUT_BYTES_CAPACITY } from './dependency-transition/store.ts';
 import { sameHostPath } from './host-path.ts';
+import { withCompilerInstallResources } from './install-resource-scope.ts';
 import { consumeRuntimeDependencyTestMaterialization } from './materialization-fixture-capability.ts';
 import {
   runtimeDependencyOperationContext,
   runtimeDependencyOperationEffectFence,
   runtimeDependencyOperationRemainingMs
 } from './operation-context.ts';
-import { measureRuntimeDependencyOperationPhaseAsync } from './operation-telemetry.ts';
-import { withCompilerInstallResources } from './install-resource-scope.ts';
 import { type BoundRuntimeDependencyOperationControls } from './operation-controls.ts';
+import { measureRuntimeDependencyOperationPhaseAsync } from './operation-telemetry.ts';
 
 function buildDependencyInstallEnvironment(
   writableRoot: string,

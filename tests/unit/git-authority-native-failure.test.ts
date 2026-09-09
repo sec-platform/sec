@@ -1,8 +1,8 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
+import { DEFAULT_TEST_TIMEOUT_MS } from '../../src/development/runner/test-execution-policy.ts';
 import { withAuthorityGitReadOperation, withAuthorityGitReadSession } from '../../src/external-capabilities/git-read/authority.ts';
 import { resolveGitReadSessionBudget } from '../../src/external-capabilities/git-read/runtime/session.ts';
-import { DEFAULT_TEST_TIMEOUT_MS } from '../../src/development/runner/test-execution-policy.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 // Real production session issuance and physical closure are required here.
@@ -13,7 +13,7 @@ test('native Git session closure preserves every actual caller rejection value',
   for (const reason of [undefined, null, false, 0, NaN, new Error('caller')]) {
     let entered = false, failed = false;
     try {
-      await withAuthorityGitReadSession({ cwd: root }, async () => { entered = true; throw reason; });
+      await withAuthorityGitReadSession({ cwd: root, budget: {} }, async () => { entered = true; throw reason; });
     } catch (error) {
       failed = true;
       assert.equal(entered, true, 'The real provider must have admitted the callback');
@@ -24,9 +24,9 @@ test('native Git session closure preserves every actual caller rejection value',
 }, 'sec-git-caller-rejection-'), DEFAULT_TEST_TIMEOUT_MS);
 
 test('native Git session closure keeps successful undefined distinct from rejected undefined', () => withTempWorkspace(async root => {
-  assert.equal(await withAuthorityGitReadSession({ cwd: root }, async () => undefined), undefined);
+  assert.equal(await withAuthorityGitReadSession({ cwd: root, budget: {} }, async () => undefined), undefined);
   const value = { result: 'preserved' };
-  assert.equal(await withAuthorityGitReadSession({ cwd: root }, async () => value), value);
+  assert.equal(await withAuthorityGitReadSession({ cwd: root, budget: {} }, async () => value), value);
 }, 'sec-git-caller-result-'), DEFAULT_TEST_TIMEOUT_MS);
 
 test('native multi-phase scope cannot erase its outer null or undefined failure', () => withTempWorkspace(async root => {

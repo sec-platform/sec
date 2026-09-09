@@ -4,7 +4,7 @@ import { isCanonicalPortableLogicalPath, portableLogicalPathCollisionKey } from 
 import { uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { createTaskGroupEffectFence, mapTaskGroup } from '../../system-architecture/foundation/runtime/concurrency.ts';
 import { throwIfNativeAborted } from '../../system-architecture/foundation/runtime/native-abort.ts';
-import { publishExpectedCanonicalWorkspaceFile, publishExclusiveCanonicalWorkspaceFile, type CommitFence } from '../../workspace/files.ts';
+import { publishExclusiveCanonicalWorkspaceFile, publishExpectedCanonicalWorkspaceFile, type CommitFence } from '../../workspace/files.ts';
 import {
   packageJsonRelativePath,
   resolvePathInside,

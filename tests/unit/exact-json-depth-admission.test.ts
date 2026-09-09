@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 
 import { ExactJsonError, parseExactJson, parseExactJsonBytes } from '../../src/system-architecture/foundation/runtime/exact-json.ts';
 

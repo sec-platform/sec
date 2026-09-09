@@ -1,6 +1,10 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 
+import {
+  runtimeDependencyOperationEffectFence,
+  runtimeDependencyOperationOptions
+} from '../../src/toolchain/dependencies/runtime/operation-context.ts';
 import {
   MAX_DEPENDENCY_OPERATION_TIMEOUT_MS,
   runtimeDependencyOperationContext,
@@ -9,10 +13,6 @@ import {
   waitForRuntimeDependencyOperation,
   type RuntimeDependencyOperationControlInput
 } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
-import {
-  runtimeDependencyOperationOptions,
-  runtimeDependencyOperationEffectFence
-} from '../../src/toolchain/dependencies/runtime/operation-context.ts';
 import {
   measureRuntimeDependencyOperationPhase,
   readRuntimeDependencyOperationTelemetry
@@ -126,7 +126,7 @@ test('coordinator excludes undeclared capabilities and preserves the true callba
   let reads = 0, calls = 0;
   const raw = { lockTimeoutMs: 100, monotonicNowMs: () => 0,
     sharedDepsRoot: installRoot, get customCapability() { reads += 1; return capability; },
-    beforeCommit() { assert.equal(this, raw); assert.equal(this.sharedDepsRoot, '/changed'); calls += 1; } };
+    async beforeCommit() { assert.equal(this, raw); assert.equal(this.sharedDepsRoot, '/changed'); calls += 1; } };
   const bound = runtimeDependencyOperationOptions(raw);
   assert.equal(reads, 0);
   // @ts-expect-error Coordinator inputs no longer forward arbitrary extensions.

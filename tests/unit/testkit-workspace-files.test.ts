@@ -1,10 +1,10 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
-import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { test } from 'bun:test';
-import { copyWorkspaceFixture } from '../testkit/workspace-files.ts';
+import path from 'node:path';
 import { settleWorkspaceCallback } from '../testkit/workspace-cleanup.ts';
+import { copyWorkspaceFixture } from '../testkit/workspace-files.ts';
 
 // Expected files and state are declared independently of the copy filter. This
 // fixture uses real filesystem operations, not a second implementation of cp.

@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { afterEach, test } from 'bun:test';
+import assert from 'node:assert/strict';
 import type { ManifestEntry } from '../../src/compiler/contract/plan-manifest.ts';
 import { manifestCache, type ManifestCacheKey } from '../../src/compiler/parse/manifest-cache.ts';
 

@@ -1560,8 +1560,7 @@ interface OwnedRuntimeParentProof {
 
 async function captureOwnedRuntimeParentProofs(
   plan: SemanticMutationIsolatedRuntimePlan,
-  inspector: ReparsePointInspector,
-  commitFence: CommitFence
+  inspector: ReparsePointInspector
 ): Promise<ReadonlyMap<string, OwnedRuntimeParentProof>> {
   const proofs = new Map<string, OwnedRuntimeParentProof>();
   for (const relativeRoot of OWNED_RUNTIME_ROOTS) {
@@ -1613,7 +1612,7 @@ export async function materializeSemanticMutationIsolatedRuntime(input: {
       file.sourceAbsolutePath !== null && !('generatedDigest' in file.sourceIdentity)
         ? [`${file.sourceIdentity.dev}:${file.sourceIdentity.ino}`]
         : []));
-    const parentProofs = await captureOwnedRuntimeParentProofs(plan, inspector, input.commitFence);
+    const parentProofs = await captureOwnedRuntimeParentProofs(plan, inspector);
     for (const relativeRoot of OWNED_RUNTIME_ROOTS) {
       const parentProof = parentProofs.get(relativeRoot);
       if (!parentProof) throw new Error('Semantic Mutation runtime destination parent proof is missing');

@@ -1,17 +1,17 @@
-import { captureJsonOutputInput } from './json-output-options.ts';
-import { registerNamedInspectionQuery } from './named-inspection-query.ts';
-import { runWithOptionalSpinner } from './command-progress.ts';
 import type { Command } from 'commander';
 import type { PolicyReport } from '../../compiler/policies/contract/types.ts';
 import type { AcceptanceCoverageReport } from '../../semantic/acceptance/contract/types.ts';
 import type { ProvenanceFile } from '../../semantic/provenance/contract/types.ts';
 import type { RuntimeVerificationLaneReport, VerificationReport } from '../../verification/contract/types.ts';
 import type { ReviewSummary } from '../../verification/review/contract/types.ts';
+import { addJsonFlags, commandFromRoot, jsonOpts } from './command-options.ts';
+import { runWithOptionalSpinner } from './command-progress.ts';
 import type { BlockUsageMap, InstallManifestEntry, PostgresContract } from './formatters.ts';
-import { loadProjectOverviewDomain } from './lazy-command-domains.ts';
-import type { ProjectOverview } from './project-overview.ts';
-import { jsonOpts, commandFromRoot, addJsonFlags } from './command-options.ts';
 import { inspectionValue, registerInspectionQuery, type InspectionContext } from './inspection-query.ts';
+import { captureJsonOutputInput } from './json-output-options.ts';
+import { loadProjectOverviewDomain } from './lazy-command-domains.ts';
+import { registerNamedInspectionQuery } from './named-inspection-query.ts';
+import type { ProjectOverview } from './project-overview.ts';
 
 type ArtifactKey = keyof typeof import('../../verification/ci-artifacts/contract/manifest.ts').CI_ARTIFACT_FILES;
 
@@ -130,7 +130,7 @@ export function registerInspectionCommands(program: Command): void {
     read: async (c): Promise<ProjectOverview> => {
       const domain = await loadProjectOverviewDomain();
       return runWithOptionalSpinner('Building project overview', c.output,
-        () => domain.buildProjectOverviewFromWorkspace(c.workspaceRoot));
+        async () => domain.buildProjectOverviewFromWorkspace(c.workspaceRoot));
     },
     view: async (report) => {
       const domain = await loadProjectOverviewDomain();

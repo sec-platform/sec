@@ -1,6 +1,6 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
 import { Command } from 'commander';
+import assert from 'node:assert/strict';
 import { commandValue } from '../../src/interface/cli/command-value.ts';
 import { registerNamedInspectionQuery } from '../../src/interface/cli/named-inspection-query.ts';
 const program = () => new Command().name('sec').exitOverride().configureOutput({ writeOut() {}, writeErr() {} });

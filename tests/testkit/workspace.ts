@@ -8,10 +8,10 @@ import { setTimeout as sleepMs } from 'node:timers/promises';
 import { getTestWorkspaceTemplateRoot, getTestWorkspaceTempRoot } from '../../src/development/runner/env-manager.ts';
 import { createConcurrencyLimit } from '../../src/system-architecture/foundation/runtime/concurrency.ts';
 import { getErrorCode } from '../../src/system-architecture/foundation/runtime/failure-inspection.ts';
-import { copyWorkspaceFixture } from './workspace-files.ts';
-import { createTemplatePreparation, captureWorkspacePipelineOptions, workspaceTemplatePipeline, type WorkspaceTemplateKind, type WorkspacePipelineFixtureOptions } from './template-preparation.ts';
 import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
-import { createWorkspaceWithDeferredCleanup, removeWorkspaceDirectoryWithRetry, settleWorkspaceCallback, settleWorkspaceCleanups, workspaceTemporaryPrefix, captureWorkspaceRetention } from './workspace-cleanup.ts';
+import { captureWorkspacePipelineOptions, createTemplatePreparation, workspaceTemplatePipeline, type WorkspacePipelineFixtureOptions, type WorkspaceTemplateKind } from './template-preparation.ts';
+import { captureWorkspaceRetention, createWorkspaceWithDeferredCleanup, removeWorkspaceDirectoryWithRetry, settleWorkspaceCallback, settleWorkspaceCleanups, workspaceTemporaryPrefix } from './workspace-cleanup.ts';
+import { copyWorkspaceFixture } from './workspace-files.ts';
 
 export { copyWorkspaceFixture } from './workspace-files.ts';
 

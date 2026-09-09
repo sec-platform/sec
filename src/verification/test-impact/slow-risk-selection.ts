@@ -17,6 +17,8 @@ export type SlowTestRiskClosureSelection = {
   slowTests: string[];
   affectedSlowTests: string[];
   owners: string[];
+  /** Canonical union of both unresolved frontiers; never a changed-path fallback. */
+  unresolvedPaths: string[];
   reasons: Array<
     'bounded-baseline'
     | 'changed-files-unresolved'
@@ -78,14 +80,15 @@ export function selectSlowTestRiskClosure(
       slowTests: [],
       affectedSlowTests: [],
       owners: ['bounded-slow-risk'],
+      unresolvedPaths: [],
       reasons: ['bounded-baseline', 'changed-files-unresolved'],
       resolved: false
     };
   }
 
-  const boundedBaselineRequired = resolveTestImpactRiskPolicies(files)
+  const boundedBaselineRequired = resolveTestImpactRiskPolicies(files, provider)
     .includes('slow-risk-baseline');
-  const inventory = CodexDevelopmentBuildAffectedTestInventory(files, provider, transition);
+  const inventory = CodexDevelopmentBuildAffectedTestInventory(files, provider);
   const directlyChangedSlowTests = inventory.changedSlowTests;
   // Use the batch inventory + hasTestImpactForFile (which leverages the
   // reverse-import-map) instead of per-file CodexDevelopmentBuildAffectedTestInventoryV1
@@ -110,6 +113,7 @@ export function selectSlowTestRiskClosure(
   const unresolvedSlowTests = directlyChangedSlowTests.filter((file) => (
     slowSuiteIdsForChangedPath(file, transition).length === 0
   ));
+  const unresolvedPaths = uniqueSorted([...unresolvedFiles, ...unresolvedSlowTests]);
   // `tests/e2e/**` is a syntactic slow-test shape, not a suite authority.
   // A deleted/renamed path absent from the immutable registry cannot be
   // safely mapped to a risk owner; keep it typed-unresolved instead of
@@ -141,6 +145,7 @@ export function selectSlowTestRiskClosure(
         : []),
       ...inventory.affectedOwners
     ]),
+    unresolvedPaths,
     reasons,
     resolved: finalSelectionResolved
   };

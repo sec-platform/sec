@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { captureGitReadArguments, gitReadCommandIsObservation } from '../../src/external-capabilities/git-read/runtime/read-command.ts';
 
 // These are independent argv protocol vectors, not generated from the policy.

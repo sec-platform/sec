@@ -9,6 +9,11 @@ import type {
   SecRepositoryModuleMembership
 } from '../../system-architecture/repository-modules/contract.ts';
 import { isSecRepositoryTestModulePath } from '../../system-architecture/repository-modules/test-module-path.ts';
+import {
+  resolveSourceProgramCompilationOperation,
+  sourceProgramCompilationCheckpoint,
+  type SourceProgramCompilationOperation
+} from './compilation-operation.ts';
 import type {
   SourceProgramCapabilityInvocation,
   SourceProgramDeclaration,
@@ -244,7 +249,7 @@ export const SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA = Object.freeze({
     'testCompilationDigest',
     'intentEvidenceDigest'
   ]),
-  semanticUnitKeys: Object.freeze(['id', 'owner', 'path', 'signature']),
+  semanticUnitKeys: Object.freeze(['id', 'occurrenceId', 'owner', 'path', 'signature']),
   testUnitKeys: Object.freeze([
     'testId',
     'path',
@@ -357,21 +362,31 @@ export interface CompileSourceProgramSupersessionEvidenceInput {
   readonly tests: SourceProgramTestValueCompilation;
   readonly intentEvidence: readonly SourceProgramOwnerIntentEvidence[];
   readonly identity: SourceProgramSupersessionEvidenceIdentity;
+  readonly operation?: SourceProgramCompilationOperation;
 }
 
 export interface CompileSourceProgramSupersessionInput {
   readonly baseline: SourceProgramSupersessionEvidence;
   readonly current: SourceProgramSupersessionEvidence;
+  readonly operation?: SourceProgramCompilationOperation;
 }
 
 export interface SourceProgramSemanticUnit {
   readonly id: string;
+  readonly occurrenceId: string;
   readonly owner: string | null;
   readonly path: string;
   readonly signature: string;
 }
 
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
+
+function pathSemanticUnitOccurrenceId(
+  kind: 'production' | 'resource',
+  path: string
+): string {
+  return sha256({ kind, path });
+}
 
 function sourceProgramModelEvidenceIsExact(model: SourceProgramModel): boolean {
   return DIGEST.test(model.modelDigest)
@@ -681,57 +696,73 @@ function capabilitySemanticAddress(
   });
 }
 
-function sourceProgramRequiredProductionPaths(model: SourceProgramModel): ReadonlySet<string> {
+function sourceProgramRequiredProductionPaths(
+  model: SourceProgramModel,
+  operation: SourceProgramCompilationOperation
+): ReadonlySet<string> {
   const required = new Set<string>();
   for (const closure of model.entrypointClosures) {
+    sourceProgramCompilationCheckpoint(operation, 'supersession-evidence');
     for (const path of [...closure.targetPaths, ...closure.reachablePaths, ...closure.capabilityPaths]) {
       required.add(path);
     }
   }
   for (const entrypoint of model.entrypoints) {
+    sourceProgramCompilationCheckpoint(operation, 'supersession-evidence');
     required.add(entrypoint.path);
     for (const path of entrypoint.targetPaths) required.add(path);
   }
-  for (const capability of model.capabilities) required.add(capability.path);
+  for (const capability of model.capabilities) {
+    sourceProgramCompilationCheckpoint(operation, 'supersession-evidence');
+    required.add(capability.path);
+  }
   for (const declaration of model.declarations) {
+    sourceProgramCompilationCheckpoint(operation, 'supersession-evidence');
     if (declaration.exported) required.add(declaration.path);
   }
   for (const reference of model.references) {
+    sourceProgramCompilationCheckpoint(operation, 'supersession-evidence');
     if (reference.targetPath !== null) required.add(reference.targetPath);
   }
   return required;
 }
 
 function compileSourceProgramSemanticUnits(
-  model: SourceProgramModel
+  model: SourceProgramModel,
+  operation: SourceProgramCompilationOperation
 ): readonly SourceProgramSemanticUnit[] {
   const moduleIdByPath = new Map<string, string | null>();
   for (const file of model.files) {
+    sourceProgramCompilationCheckpoint(operation, 'supersession-evidence');
     if (!moduleIdByPath.has(file.path)) moduleIdByPath.set(file.path, file.moduleId);
   }
   const declarationById = new Map(model.declarations.map((declaration) =>
     [declaration.observationId, declaration] as const));
   const declarationsByPath = new Map<string, SourceProgramDeclaration[]>();
   for (const declaration of model.declarations) {
+    sourceProgramCompilationCheckpoint(operation, 'supersession-evidence');
     const declarations = declarationsByPath.get(declaration.path);
     if (declarations === undefined) declarationsByPath.set(declaration.path, [declaration]);
     else declarations.push(declaration);
   }
   const referencesByPath = new Map<string, SourceProgramReference[]>();
   for (const reference of model.references) {
+    sourceProgramCompilationCheckpoint(operation, 'supersession-evidence');
     const references = referencesByPath.get(reference.path);
     if (references === undefined) referencesByPath.set(reference.path, [reference]);
     else references.push(reference);
   }
   const capabilitiesByPath = new Map<string, SourceProgramCapabilityInvocation[]>();
   for (const capability of model.capabilities) {
+    sourceProgramCompilationCheckpoint(operation, 'supersession-evidence');
     const capabilities = capabilitiesByPath.get(capability.path);
     if (capabilities === undefined) capabilitiesByPath.set(capability.path, [capability]);
     else capabilities.push(capability);
   }
-  const requiredPaths = sourceProgramRequiredProductionPaths(model);
+  const requiredPaths = sourceProgramRequiredProductionPaths(model, operation);
   const units: SourceProgramSemanticUnit[] = [];
   for (const file of model.files) {
+    sourceProgramCompilationCheckpoint(operation, 'supersession-evidence');
     if (file.surface !== 'production' || !requiredPaths.has(file.path)) continue;
     const owner = file.moduleId ?? null;
     const declarations = (declarationsByPath.get(file.path) ?? [])
@@ -752,8 +783,10 @@ function compileSourceProgramSemanticUnits(
         : null
     });
     const signature = sha256(semanticShape);
+    const occurrenceId = pathSemanticUnitOccurrenceId('production', file.path);
     units.push(Object.freeze({
-      id: sha256({ kind: 'production', signature }),
+      id: sha256({ kind: 'production', path: file.path, occurrenceId, signature }),
+      occurrenceId,
       owner,
       path: file.path,
       signature
@@ -765,19 +798,23 @@ function compileSourceProgramSemanticUnits(
 }
 
 function compileSourceProgramResourceUnits(
-  model: SourceProgramModel
+  model: SourceProgramModel,
+  operation: SourceProgramCompilationOperation
 ): readonly SourceProgramSemanticUnit[] {
   return Object.freeze(model.files
     .filter(({ surface }) => surface === 'resource' || surface === 'workflow')
     .map((file) => {
+      sourceProgramCompilationCheckpoint(operation, 'supersession-evidence');
       const signature = sha256({
         path: file.path,
         contentDigest: file.contentDigest,
         moduleId: file.moduleId,
         surface: file.surface
       });
+      const occurrenceId = pathSemanticUnitOccurrenceId('resource', file.path);
       return Object.freeze({
-        id: sha256({ kind: 'resource', signature }),
+        id: sha256({ kind: 'resource', path: file.path, occurrenceId, signature }),
+        occurrenceId,
         owner: file.moduleId,
         path: file.path,
         signature
@@ -788,15 +825,18 @@ function compileSourceProgramResourceUnits(
 
 function compileSourceProgramEntrypointUnits(
   model: SourceProgramModel,
-  productionUnitByPath: ReadonlyMap<string, SourceProgramSemanticUnit>
+  productionUnitByPath: ReadonlyMap<string, SourceProgramSemanticUnit>,
+  operation: SourceProgramCompilationOperation
 ): readonly SourceProgramSemanticUnit[] {
   const closureByEntrypoint = new Map<string, SourceProgramModel['entrypointClosures'][number]>();
   for (const closure of model.entrypointClosures) {
+    sourceProgramCompilationCheckpoint(operation, 'supersession-evidence');
     if (!closureByEntrypoint.has(closure.entrypointObservationId)) {
       closureByEntrypoint.set(closure.entrypointObservationId, closure);
     }
   }
   return Object.freeze(model.entrypoints.map((entrypoint) => {
+    sourceProgramCompilationCheckpoint(operation, 'supersession-evidence');
     const closure = closureByEntrypoint.get(entrypoint.observationId);
     const targetSignatures = [...new Set([
       ...(closure?.targetPaths ?? []),
@@ -827,14 +867,17 @@ function compileSourceProgramEntrypointUnits(
       providerModuleIds: closure?.providerModuleIds ?? [],
       observationClass: closure?.observationClass ?? entrypoint.observationClass
     });
+    const occurrenceId = entrypoint.observationId;
     return Object.freeze({
-      id: sha256({ kind: 'entrypoint', signature }),
+      id: sha256({ kind: 'entrypoint', path: entrypoint.path, occurrenceId, signature }),
+      occurrenceId,
       owner,
       path: entrypoint.path,
       signature
     });
   }).sort((left, right) => compareCodeUnits(left.signature, right.signature)
-    || compareCodeUnits(left.path, right.path)));
+    || compareCodeUnits(left.path, right.path)
+    || compareCodeUnits(left.occurrenceId, right.occurrenceId)));
 }
 
 function testBoundary(
@@ -869,11 +912,16 @@ function semanticUnitsAreCanonical(
   kind: 'production' | 'resource' | 'entrypoint'
 ): boolean {
   if (new Set(units.map(({ id }) => id)).size !== units.length) return false;
-  if (units.some(({ id, signature }) => !DIGEST.test(signature)
-      || id !== sha256({ kind, signature }))) return false;
+  if (new Set(units.map(({ occurrenceId }) => occurrenceId)).size !== units.length) return false;
+  if (units.some(({ id, occurrenceId, path, signature }) => !DIGEST.test(signature)
+      || !DIGEST.test(occurrenceId)
+      || (kind !== 'entrypoint' && occurrenceId !== pathSemanticUnitOccurrenceId(kind, path))
+      || id !== sha256({ kind, path, occurrenceId, signature }))) return false;
   const sorted = [...units].sort((left, right) => kind === 'resource'
     ? compareCodeUnits(left.path, right.path)
-    : compareCodeUnits(left.signature, right.signature) || compareCodeUnits(left.path, right.path));
+    : compareCodeUnits(left.signature, right.signature)
+      || compareCodeUnits(left.path, right.path)
+      || compareCodeUnits(left.occurrenceId, right.occurrenceId));
   return sorted.every(({ id }, index) => id === units[index]?.id);
 }
 
@@ -976,6 +1024,8 @@ export function parseSourceProgramSupersessionEvidence(
 export function compileSourceProgramSupersessionEvidence(
   input: CompileSourceProgramSupersessionEvidenceInput
 ): SourceProgramSupersessionEvidence {
+  const operation = resolveSourceProgramCompilationOperation(input.operation);
+  sourceProgramCompilationCheckpoint(operation, 'supersession-evidence', 'start');
   const invalidOwnerIntent = input.intentEvidence.find((evidence) =>
     !ownerIntentEvidenceIsExact(evidence));
   const inputFailures = [
@@ -995,10 +1045,13 @@ export function compileSourceProgramSupersessionEvidence(
       `Source Program supersession evidence requires exact revision-bound inputs: ${inputFailures.join(', ')}`
     );
   }
-  const productionUnits = compileSourceProgramSemanticUnits(input.model);
+  const productionUnits = compileSourceProgramSemanticUnits(input.model, operation);
+  sourceProgramCompilationCheckpoint(operation, 'supersession-evidence');
   const productionUnitByPath = new Map(productionUnits.map((unit) => [unit.path, unit] as const));
-  const intentEvidence = Object.freeze([...input.intentEvidence]
-    .sort((left, right) => compareCodeUnits(left.owner, right.owner)));
+  const intentEvidence = Object.freeze(input.intentEvidence.map((evidence) => {
+    sourceProgramCompilationCheckpoint(operation, 'supersession-evidence');
+    return evidence;
+  }).sort((left, right) => compareCodeUnits(left.owner, right.owner)));
   const identity = Object.freeze({
     sourceRevision: input.model.sourceRevision,
     ...input.identity
@@ -1008,14 +1061,9 @@ export function compileSourceProgramSupersessionEvidence(
     testCompilationDigest: input.tests.compilationDigest,
     intentEvidenceDigest: sourceProgramIntentEvidenceDigest(intentEvidence)
   });
-  const canonicalEvidence = Object.freeze({
-    actionKey: supersessionEvidenceActionKey(identity, source),
-    identity,
-    source,
-    productionUnits,
-    resourceUnits: compileSourceProgramResourceUnits(input.model),
-    entrypointUnits: compileSourceProgramEntrypointUnits(input.model, productionUnitByPath),
-    tests: Object.freeze(input.tests.records.map((registration) => Object.freeze({
+  const tests = Object.freeze(input.tests.records.map((registration) => {
+    sourceProgramCompilationCheckpoint(operation, 'supersession-evidence');
+    return Object.freeze({
       testId: registration.testId,
       path: registration.path,
       semanticClasses: Object.freeze([...registration.semanticClasses].sort(compareCodeUnits)),
@@ -1024,16 +1072,26 @@ export function compileSourceProgramSupersessionEvidence(
       capabilityOperations: Object.freeze([...registration.capabilityOperations]
         .sort(compareCodeUnits)),
       unknowns: Object.freeze([...registration.unknowns].sort(compareCodeUnits))
-    })).sort((left, right) => compareCodeUnits(left.testId, right.testId))),
+    });
+  }).sort((left, right) => compareCodeUnits(left.testId, right.testId)));
+  const unknowns = Object.freeze(input.model.unknowns.map(({ code, path, detail }) => {
+    sourceProgramCompilationCheckpoint(operation, 'supersession-evidence');
+    return Object.freeze({ code, path, detail });
+  }).sort((left, right) => compareCodeUnits(left.path, right.path)
+    || compareCodeUnits(left.code, right.code)
+    || compareCodeUnits(left.detail, right.detail)));
+  const canonicalEvidence = Object.freeze({
+    actionKey: supersessionEvidenceActionKey(identity, source),
+    identity,
+    source,
+    productionUnits,
+    resourceUnits: compileSourceProgramResourceUnits(input.model, operation),
+    entrypointUnits: compileSourceProgramEntrypointUnits(input.model, productionUnitByPath, operation),
+    tests,
     intentEvidence,
-    unknowns: Object.freeze(input.model.unknowns.map(({ code, path, detail }) => Object.freeze({
-      code,
-      path,
-      detail
-    })).sort((left, right) => compareCodeUnits(left.path, right.path)
-      || compareCodeUnits(left.code, right.code)
-      || compareCodeUnits(left.detail, right.detail)))
+    unknowns
   });
+  sourceProgramCompilationCheckpoint(operation, 'supersession-evidence', 'complete');
   return Object.freeze({
     ...canonicalEvidence,
     evidenceDigest: sha256(canonicalEvidence)
@@ -1071,6 +1129,8 @@ function supersessionFinding(
 export function compileSourceProgramSupersessionReceipt(
   input: CompileSourceProgramSupersessionInput
 ): SourceProgramSupersessionReceipt {
+  const compilationOperation = resolveSourceProgramCompilationOperation(input.operation);
+  sourceProgramCompilationCheckpoint(compilationOperation, 'supersession-receipt', 'start');
   const findings: SourceProgramSupersessionFinding[] = [];
   if (!sourceProgramSupersessionEvidenceIsExact(input.baseline)) {
     findings.push(supersessionFinding(
@@ -1104,8 +1164,6 @@ export function compileSourceProgramSupersessionReceipt(
     [evidence.owner, evidence] as const));
   const currentIntentByOwner = new Map(input.current.intentEvidence.map((evidence) =>
     [evidence.owner, evidence] as const));
-  const baselineProductionByPath = new Map(baselineProduction.map((unit) => [unit.path, unit] as const));
-  const currentProductionByPath = new Map(currentProduction.map((unit) => [unit.path, unit] as const));
   const currentProductionBySignature = new Map<string, SourceProgramSemanticUnit[]>();
   for (const unit of currentProduction) {
     const candidates = currentProductionBySignature.get(unit.signature) ?? [];
@@ -1176,18 +1234,88 @@ export function compileSourceProgramSupersessionReceipt(
   }
 
   const baselineEntrypoints = input.baseline.entrypointUnits;
-  const currentEntrypointBySignature = new Map(input.current.entrypointUnits
-    .map((unit) => [unit.signature, unit] as const));
+  const currentEntrypointsBySignature = new Map<string, SourceProgramSemanticUnit[]>();
+  for (const unit of input.current.entrypointUnits) {
+    const candidates = currentEntrypointsBySignature.get(unit.signature) ?? [];
+    candidates.push(unit);
+    currentEntrypointsBySignature.set(unit.signature, candidates);
+  }
+  const baselineEntrypointsBySignature = new Map<string, SourceProgramSemanticUnit[]>();
+  for (const unit of baselineEntrypoints) {
+    const candidates = baselineEntrypointsBySignature.get(unit.signature) ?? [];
+    candidates.push(unit);
+    baselineEntrypointsBySignature.set(unit.signature, candidates);
+  }
+  const selectedCurrentEntrypointIdByBaselineId = new Map<string, string>();
+  const reservedCurrentEntrypointIds = new Set<string>();
   for (const baselineUnit of baselineEntrypoints) {
-    const currentUnit = currentEntrypointBySignature.get(baselineUnit.signature);
+    const exactOccurrences = (currentEntrypointsBySignature.get(baselineUnit.signature) ?? [])
+      .filter(({ occurrenceId }) => occurrenceId === baselineUnit.occurrenceId);
+    if (exactOccurrences.length !== 1) continue;
+    selectedCurrentEntrypointIdByBaselineId.set(baselineUnit.id, exactOccurrences[0]!.id);
+    reservedCurrentEntrypointIds.add(exactOccurrences[0]!.id);
+  }
+  const unmatchedBaselineEntrypointsBySignaturePath = new Map<string, SourceProgramSemanticUnit[]>();
+  const unmatchedCurrentEntrypointsBySignaturePath = new Map<string, SourceProgramSemanticUnit[]>();
+  for (const unit of baselineEntrypoints) {
+    if (selectedCurrentEntrypointIdByBaselineId.has(unit.id)) continue;
+    const key = `${unit.signature}\0${unit.path}`;
+    const candidates = unmatchedBaselineEntrypointsBySignaturePath.get(key) ?? [];
+    candidates.push(unit);
+    unmatchedBaselineEntrypointsBySignaturePath.set(key, candidates);
+  }
+  for (const unit of input.current.entrypointUnits) {
+    if (reservedCurrentEntrypointIds.has(unit.id)) continue;
+    const key = `${unit.signature}\0${unit.path}`;
+    const candidates = unmatchedCurrentEntrypointsBySignaturePath.get(key) ?? [];
+    candidates.push(unit);
+    unmatchedCurrentEntrypointsBySignaturePath.set(key, candidates);
+  }
+  for (const [key, baselineCandidates] of unmatchedBaselineEntrypointsBySignaturePath) {
+    const currentCandidates = unmatchedCurrentEntrypointsBySignaturePath.get(key) ?? [];
+    if (baselineCandidates.length !== 1 || currentCandidates.length !== 1) continue;
+    selectedCurrentEntrypointIdByBaselineId.set(
+      baselineCandidates[0]!.id,
+      currentCandidates[0]!.id
+    );
+    reservedCurrentEntrypointIds.add(currentCandidates[0]!.id);
+  }
+  for (const [signature, baselineCandidates] of baselineEntrypointsBySignature) {
+    const unmatchedBaseline = baselineCandidates.filter(({ id }) => (
+      !selectedCurrentEntrypointIdByBaselineId.has(id)
+    ));
+    const unmatchedCurrent = (currentEntrypointsBySignature.get(signature) ?? []).filter(({ id }) => (
+      !reservedCurrentEntrypointIds.has(id)
+    ));
+    if (unmatchedBaseline.length !== 1 || unmatchedCurrent.length !== 1) continue;
+    selectedCurrentEntrypointIdByBaselineId.set(
+      unmatchedBaseline[0]!.id,
+      unmatchedCurrent[0]!.id
+    );
+    reservedCurrentEntrypointIds.add(unmatchedCurrent[0]!.id);
+  }
+  const currentEntrypointById = new Map(input.current.entrypointUnits.map((unit) => (
+    [unit.id, unit] as const
+  )));
+  for (const baselineUnit of baselineEntrypoints) {
+    const candidates = currentEntrypointsBySignature.get(baselineUnit.signature) ?? [];
+    const selectedCurrentId = selectedCurrentEntrypointIdByBaselineId.get(baselineUnit.id);
+    const currentUnit = selectedCurrentId === undefined
+      ? undefined
+      : currentEntrypointById.get(selectedCurrentId);
     if (currentUnit === undefined) {
       findings.push(supersessionFinding(
-        'required-entrypoint-missing',
-        'no current entrypoint proves the same public command, semantic target closure, provider, and capability transport',
+        candidates.length === 0
+          ? 'required-entrypoint-missing'
+          : 'replacement-ambiguous',
+        candidates.length === 0
+          ? 'no current entrypoint proves the same public command, semantic target closure, provider, and capability transport'
+          : 'multiple current entrypoint occurrences have the same semantic shape; source order cannot choose authority',
         {
           baselineId: baselineUnit.id,
           owner: baselineUnit.owner,
-          baselinePaths: [baselineUnit.path]
+          baselinePaths: [baselineUnit.path],
+          currentCandidateIds: candidates.map(({ id }) => id)
         }
       ));
       continue;
@@ -1279,7 +1407,49 @@ export function compileSourceProgramSupersessionReceipt(
   const baselineRequirementIdByPath = new Map(baselineProduction.map((unit) =>
     [unit.path, unit.id] as const));
   const availableCurrentTestIds = new Set(input.current.tests.map(({ testId }) => testId));
+  const baselineTestBoundaryById = new Map(input.baseline.tests
+    .filter(({ unknowns }) => unknowns.length === 0)
+    .map((test) => {
+      sourceProgramCompilationCheckpoint(compilationOperation, 'supersession-receipt');
+      return [test.testId, testBoundary(test, baselineRequirementIdByPath)] as const;
+    }));
+  const currentTestBoundaryById = new Map(input.current.tests
+    .filter(({ unknowns }) => unknowns.length === 0)
+    .map((test) => {
+      sourceProgramCompilationCheckpoint(compilationOperation, 'supersession-receipt');
+      return [test.testId, testBoundary(test, currentRequirementIdByPath)] as const;
+    }));
+  const currentTestsByPath = new Map<string, SourceProgramSupersessionTestUnit[]>();
+  const currentTestsById = input.current.tests
+    .filter(({ testId, unknowns }) => (
+      availableCurrentTestIds.has(testId) && unknowns.length === 0
+    ))
+    .sort((left, right) => compareCodeUnits(left.testId, right.testId));
+  for (const test of currentTestsById) {
+    const tests = currentTestsByPath.get(test.path) ?? [];
+    tests.push(test);
+    currentTestsByPath.set(test.path, tests);
+  }
+  const boundaryIsSuperset = (
+    currentTest: SourceProgramSupersessionTestUnit,
+    baselineBoundary: ReturnType<typeof testBoundary>
+  ): boolean => {
+    sourceProgramCompilationCheckpoint(compilationOperation, 'supersession-receipt');
+    if (!availableCurrentTestIds.has(currentTest.testId)) return false;
+    const currentBoundary = currentTestBoundaryById.get(currentTest.testId);
+    return currentBoundary !== undefined
+      && isStringSuperset(currentBoundary.semanticClasses, baselineBoundary.semanticClasses)
+      && isStringSuperset(
+        currentBoundary.observedRequirementIds,
+        baselineBoundary.observedRequirementIds
+      )
+      && isStringSuperset(
+        currentBoundary.capabilityOperations,
+        baselineBoundary.capabilityOperations
+      );
+  };
   for (const baselineTest of input.baseline.tests) {
+    sourceProgramCompilationCheckpoint(compilationOperation, 'supersession-receipt');
     if (baselineTest.unknowns.length > 0) {
       findings.push(supersessionFinding(
         'dynamic-or-external-observation-unresolved',
@@ -1288,19 +1458,10 @@ export function compileSourceProgramSupersessionReceipt(
       ));
       continue;
     }
-    const baselineBoundary = testBoundary(baselineTest, baselineRequirementIdByPath);
-    const candidates = input.current.tests.filter((currentTest) => {
-      if (!availableCurrentTestIds.has(currentTest.testId) || currentTest.unknowns.length > 0) return false;
-      const currentBoundary = testBoundary(currentTest, currentRequirementIdByPath);
-      return isStringSuperset(currentBoundary.semanticClasses, baselineBoundary.semanticClasses)
-        && isStringSuperset(currentBoundary.observedRequirementIds, baselineBoundary.observedRequirementIds)
-        && isStringSuperset(currentBoundary.capabilityOperations, baselineBoundary.capabilityOperations);
-    }).sort((left, right) => {
-      const leftSamePath = left.path === baselineTest.path ? 0 : 1;
-      const rightSamePath = right.path === baselineTest.path ? 0 : 1;
-      return leftSamePath - rightSamePath || compareCodeUnits(left.testId, right.testId);
-    });
-    const currentTest = candidates.find(({ testId }) => availableCurrentTestIds.has(testId));
+    const baselineBoundary = baselineTestBoundaryById.get(baselineTest.testId)!;
+    const currentTest = (currentTestsByPath.get(baselineTest.path) ?? [])
+      .find((candidate) => boundaryIsSuperset(candidate, baselineBoundary))
+      ?? currentTestsById.find((candidate) => boundaryIsSuperset(candidate, baselineBoundary));
     if (currentTest === undefined) {
       findings.push(supersessionFinding(
         'required-test-boundary-missing',
@@ -1308,13 +1469,13 @@ export function compileSourceProgramSupersessionReceipt(
         {
           baselineId: baselineTest.testId,
           baselinePaths: [baselineTest.path],
-          currentCandidateIds: candidates.map(({ testId }) => testId)
+          currentCandidateIds: []
         }
       ));
       continue;
     }
     availableCurrentTestIds.delete(currentTest.testId);
-    const currentBoundary = testBoundary(currentTest, currentRequirementIdByPath);
+    const currentBoundary = currentTestBoundaryById.get(currentTest.testId)!;
     const exactBoundary = sha256(currentBoundary) === sha256(baselineBoundary);
     replacements.push(Object.freeze({
       kind: 'test',
@@ -1390,6 +1551,7 @@ export function compileSourceProgramSupersessionReceipt(
     replacements: Object.freeze(replacements),
     findings: Object.freeze(findings)
   });
+  sourceProgramCompilationCheckpoint(compilationOperation, 'supersession-receipt', 'complete');
   return Object.freeze({
     ...canonicalReceipt,
     receiptDigest: sha256(canonicalReceipt)
@@ -1442,6 +1604,7 @@ export interface CompileSourceProgramTestRetirementReceiptInput {
   readonly baselineFiles: readonly WorkspaceSourceFile[];
   /** Exact current bytes compiled into currentModel/currentTestCompilation. */
   readonly currentFiles: readonly WorkspaceSourceFile[];
+  readonly operation?: SourceProgramCompilationOperation;
 }
 
 export interface SourceProgramTestRetirementDispositionProjection
@@ -1468,34 +1631,45 @@ function supersessionReceiptBindsEvidence(
     && receipt.current.testCompilationDigest === current.source.testCompilationDigest;
 }
 
-function sourceProgramTestPathConsumers(
+function sourceProgramTestPathConsumerIndex(
   model: SourceProgramModel,
-  testPath: string,
-  knownPaths: ReadonlySet<string>
-): readonly string[] {
-  const consumers = new Set<string>();
+  testPaths: readonly string[],
+  knownPaths: ReadonlySet<string>,
+  operation: SourceProgramCompilationOperation
+): ReadonlyMap<string, readonly string[]> {
+  const consumersByPath = new Map(testPaths.map((path) => [path, new Set<string>()] as const));
+  const addConsumer = (path: string, consumer: string): void => {
+    consumersByPath.get(path)?.add(consumer);
+  };
   for (const reference of model.references) {
-    if (reference.targetPath === testPath) {
-      consumers.add(`reference:${reference.path}:${reference.kind}`);
+    sourceProgramCompilationCheckpoint(operation, 'test-retirement');
+    if (reference.targetPath !== null) {
+      addConsumer(reference.targetPath, `reference:${reference.path}:${reference.kind}`);
     }
   }
   for (const entrypoint of model.entrypoints) {
-    if (entrypoint.targetPaths.includes(testPath)) {
-      consumers.add(`entrypoint:${entrypoint.kind}:${entrypoint.name}`);
+    sourceProgramCompilationCheckpoint(operation, 'test-retirement');
+    for (const targetPath of entrypoint.targetPaths) {
+      addConsumer(targetPath, `entrypoint:${entrypoint.kind}:${entrypoint.name}`);
     }
   }
   for (const closure of model.entrypointClosures) {
-    if (closure.targetPaths.includes(testPath) || closure.reachablePaths.includes(testPath)) {
-      consumers.add(`entrypoint-closure:${closure.entrypointObservationId}`);
+    sourceProgramCompilationCheckpoint(operation, 'test-retirement');
+    for (const targetPath of [...closure.targetPaths, ...closure.reachablePaths]) {
+      addConsumer(targetPath, `entrypoint-closure:${closure.entrypointObservationId}`);
     }
   }
   for (const literal of model.literals) {
-    const target = literal.value === testPath
-      ? testPath
-      : resolveRelativeModulePath(literal.path, literal.value, knownPaths);
-    if (target === testPath) consumers.add(`path-literal:${literal.path}`);
+    sourceProgramCompilationCheckpoint(operation, 'test-retirement');
+    const consumer = `path-literal:${literal.path}`;
+    addConsumer(literal.value, consumer);
+    const resolvedTarget = resolveRelativeModulePath(literal.path, literal.value, knownPaths);
+    if (resolvedTarget !== null) addConsumer(resolvedTarget, consumer);
   }
-  return Object.freeze([...consumers].sort(compareCodeUnits));
+  return new Map([...consumersByPath].map(([path, consumers]) => [
+    path,
+    Object.freeze([...consumers].sort(compareCodeUnits))
+  ] as const));
 }
 
 /**
@@ -1507,6 +1681,8 @@ function sourceProgramTestPathConsumers(
 export function compileSourceProgramTestRetirementReceipt(
   input: CompileSourceProgramTestRetirementReceiptInput
 ): SourceProgramTestRetirementReceipt {
+  const operation = resolveSourceProgramCompilationOperation(input.operation);
+  sourceProgramCompilationCheckpoint(operation, 'test-retirement', 'start');
   const baselineRevision = compileWorkspaceSourceRevision(input.baselineFiles);
   const currentRevision = compileWorkspaceSourceRevision(input.currentFiles);
   const sealFailures = [
@@ -1570,7 +1746,14 @@ export function compileSourceProgramTestRetirementReceipt(
     ? Object.freeze(input.supersession.findings.map(({ code }) => `supersession:${code}`)
       .sort(compareCodeUnits))
     : Object.freeze([] as string[]);
+  const modelConsumersByTestPath = sourceProgramTestPathConsumerIndex(
+    input.currentModel,
+    baselineTestPaths,
+    knownPaths,
+    operation
+  );
   const proofs = baselineTestPaths.map((testPath) => {
+    sourceProgramCompilationCheckpoint(operation, 'test-retirement');
     const census = censusByPath.get(testPath) ?? Object.freeze({
       producerCount: 0,
       consumerCount: 0,
@@ -1587,7 +1770,7 @@ export function compileSourceProgramTestRetirementReceipt(
       ...test.capabilityOperations.map((operation) => `capability:${operation}`)
     ]))].sort(compareCodeUnits));
     const consumerEvidence = Object.freeze([
-      ...sourceProgramTestPathConsumers(input.currentModel, testPath, knownPaths),
+      ...(modelConsumersByTestPath.get(testPath) ?? []),
       ...observationConsumers,
       ...currentTests.map(({ testId }) => `current-registration:${testId}`)
     ].sort(compareCodeUnits));
@@ -1639,6 +1822,7 @@ export function compileSourceProgramTestRetirementReceipt(
     ...canonicalReceipt,
     receiptDigest: sha256(canonicalReceipt)
   });
+  sourceProgramCompilationCheckpoint(operation, 'test-retirement', 'complete');
   compiledSourceProgramTestRetirementReceipts.add(receipt);
   return receipt;
 }
@@ -2297,18 +2481,7 @@ export function compileSourceProgramGraphCutReductionPlan(
       'Graph-cut reduction requires one compiler-issued exact provider candidate receipt'
     );
   }
-  const sourceFileByPath = new Map<string, ts.SourceFile>();
-  for (const { path } of files) {
-    if (!/\.[cm]?[jt]sx?$/iu.test(path)) continue;
-    const sourceFile = sourceProgramTypeScriptSourceFile(typeScriptModel, path);
-    if (sourceFile === null) {
-      throw new SourceProgramReductionAdmissionError(
-        'compiler-issued-plan-required',
-        `Graph-cut reduction lacks exact compiler syntax: ${path}`
-      );
-    }
-    sourceFileByPath.set(path, sourceFile);
-  }
+  const sourceFileByPath = new Map<string, ts.SourceFile | null>();
   const candidateCodes = new Set([
     'production-declaration-without-consumer',
     'identity-token-without-consumer'
@@ -2339,6 +2512,11 @@ export function compileSourceProgramGraphCutReductionPlan(
     const key = `${item.path}\0${item.name}`;
     if (seen.has(key)) continue;
     seen.add(key);
+    let sourceFile = sourceFileByPath.get(item.path);
+    if (sourceFile === undefined) {
+      sourceFile = sourceProgramTypeScriptSourceFile(typeScriptModel, item.path);
+      sourceFileByPath.set(item.path, sourceFile);
+    }
     const matchingDeclarations = model.declarations.filter((candidate) =>
       candidate.path === item.path && candidate.name === item.name);
     const declaration = matchingDeclarations.length === 1 ? matchingDeclarations[0] : undefined;
@@ -2351,8 +2529,7 @@ export function compileSourceProgramGraphCutReductionPlan(
           ownerIntents,
           consumers.length > 0
         );
-    const sourceFile = sourceFileByPath.get(item.path);
-    const declarationNode = declaration === undefined || sourceFile === undefined
+    const declarationNode = declaration === undefined || sourceFile === null
       ? null
       : graphCutNode(sourceFile, item.name, declaration.span);
     const removalNode = declarationNode === null ? null : graphCutRemovalNode(declarationNode);
@@ -2362,7 +2539,7 @@ export function compileSourceProgramGraphCutReductionPlan(
         ? 'source file has an unresolved dynamic consumer frontier'
         : matchingDeclarations.length > 1
           ? 'unused symbol resolves to multiple declarations'
-        : declaration === undefined || sourceFile === undefined
+        : declaration === undefined || sourceFile === null
           ? 'declaration source snapshot is unresolved'
           : consumers.length > 0
             ? 'TypeScript Program resolved one or more value, type, alias, or re-export consumers'

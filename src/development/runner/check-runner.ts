@@ -1,5 +1,5 @@
+import type { ProcessResourceSession } from '../../runtime-state/physical/runtime/process-resource-session.ts';
 import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
-import { executeFastCheckStages } from './fast-check-stages.ts';
 import { isAffectedSelectionFailClosed } from '../../verification/test-impact/affected.ts';
 import {
   affectedTestPlanExitCode,
@@ -8,12 +8,15 @@ import {
 } from './affected-plan-contract.ts';
 import type { MaterializedOperationDependencyBootstrapResult } from './dependency-bootstrap.ts';
 import { retainOperationDependencyReadGeneration } from './dependency-read-generation.ts';
+import { executeFastCheckStages } from './fast-check-stages.ts';
 import {
   type ResolvedAffectedTestExecution
 } from './test-runner.ts';
 
 interface LocalAffectedCheckExecutionOptions {
   readonly operation: SecBoundSemanticOperation;
+  /** Borrowed by the repository fence; no selector may open a second ledger. */
+  readonly processSession?: ProcessResourceSession;
   readonly prepareCompilerDependencies?: () => Promise<MaterializedOperationDependencyBootstrapResult>;
 }
 
@@ -103,6 +106,7 @@ export async function runLocalAffectedCheck(
     affectedExecution = await resolveAffectedTestExecution({
       dependencyGeneration: dependencyResolution?.generation,
       operation: options.operation,
+      processSession: options.processSession,
       issueTestImpactProjection: issueCheckAffectedTestImpactProjection,
       // This owner performs the explicit admission immediately before compiler
       // dependency preparation and before every gate. Plan output keeps the

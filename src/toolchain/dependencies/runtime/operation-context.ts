@@ -1,17 +1,17 @@
 import path from 'node:path';
-import { assertCapturedRuntimeDependencyInstallRequest, type RuntimeDependencyInstallRequest } from '../contract/install-request.ts';
 import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
-import type { RuntimeDependencyLifecycleInput } from './lifecycle-capabilities.ts';
-export type { RuntimeDependencyGeneratedStateLifecycle, RuntimeDependencyLifecycleInput } from './lifecycle-capabilities.ts';
 import type { CommitFence } from '../../../workspace/files.ts';
+import { assertCapturedRuntimeDependencyInstallRequest, type RuntimeDependencyInstallRequest } from '../contract/install-request.ts';
+import type { RuntimeDependencyLifecycleInput } from './lifecycle-capabilities.ts';
 import type { RuntimeDependencyTestMaterializationCapability } from './materialization-fixture-capability.ts';
+export type { RuntimeDependencyGeneratedStateLifecycle, RuntimeDependencyLifecycleInput } from './lifecycle-capabilities.ts';
 
 import {
   awaitRuntimeDependencyOperation,
-  runtimeDependencyOperationContext,
-  runtimeDependencyOperationControls,
   captureRuntimeDependencyBindingGuard,
   captureRuntimeDependencyControlInput,
+  runtimeDependencyOperationContext,
+  runtimeDependencyOperationControls,
   type BoundRuntimeDependencyOperationControls,
   type RuntimeDependencyOperationControlInput
 } from './operation-controls.ts';

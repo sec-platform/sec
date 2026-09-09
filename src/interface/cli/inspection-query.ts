@@ -1,9 +1,9 @@
-import type { CommandValue } from './command-value.ts';
-export { commandValue as inspectionValue } from './command-value.ts';
 import type { Command } from 'commander';
 import { addJsonFlags, commandFromRoot, jsonOpts, optionalModeCommand, usageError } from './command-options.ts';
+import type { CommandValue } from './command-value.ts';
 import { printJsonOrText } from './format-utils.ts';
 import type { JsonOutputOptions } from './json-output-options.ts';
+export { commandValue as inspectionValue } from './command-value.ts';
 
 export interface InspectionContext {
   readonly workspaceRoot: string;

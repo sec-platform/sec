@@ -1,9 +1,9 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { test } from 'bun:test';
 import { CompilerError } from '../../src/compiler/errors.ts';
 import { runSuiteFiles } from '../../src/compiler/verify/run-suite-files.ts';
 

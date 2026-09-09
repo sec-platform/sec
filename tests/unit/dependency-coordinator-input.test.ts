@@ -1,9 +1,13 @@
-import assert from 'node:assert/strict';
-import path from 'node:path';
-import { tmpdir } from 'node:os';
 import { test } from 'bun:test';
-import { runtimeDependencyOperationOptions as bind, runtimeDependencyOperationEffectFence as fence,
-  runtimeDependencyOperationContext as context, runtimeDependencyOperationRemainingMs as remaining } from '../../src/toolchain/dependencies/runtime/operation-context.ts';
+import assert from 'node:assert/strict';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import {
+  runtimeDependencyOperationOptions as bind,
+  runtimeDependencyOperationContext as context,
+  runtimeDependencyOperationEffectFence as fence,
+  runtimeDependencyOperationRemainingMs as remaining
+} from '../../src/toolchain/dependencies/runtime/operation-context.ts';
 import { captureRuntimeDependencyControlInput, runtimeDependencyOperationControls } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
 
 const controls = () => ({ lockTimeoutMs: 1000, monotonicNowMs: () => 0 });
@@ -11,17 +15,19 @@ const controls = () => ({ lockTimeoutMs: 1000, monotonicNowMs: () => 0 });
 test('every coordinator route consumes the same closed fields without evaluating or forwarding extensions', () => {
   const hiddenCapability = { invoke() { assert.fail('extension executed'); } };
   const input = new Proxy({ ...controls(), extension: hiddenCapability,
-    get unknownSecret() { assert.fail('unknown getter'); },
+    get unknownSecret() { assert.fail('unknown getter'); throw new Error('unreachable'); },
     [Symbol('foreign authority')]: hiddenCapability }, { ownKeys() { assert.fail('enumerated whole input'); } });
   const bound = bind(input);
   assert.equal(remaining(bound, 'closed'), 1000);
   assert.equal('extension' in bound, false); assert.equal('unknownSecret' in bound, false);
-  assert.ok(!Object.values(bound).includes(hiddenCapability));
+  assert.ok(!Object.values(bound as Readonly<Record<string, unknown>>).includes(hiddenCapability));
   assert.equal(Object.getOwnPropertySymbols(bound).length, 1); // Only the actual owner's parent ledger.
 });
 
 test('declared capability identity is preserved without inspecting its methods or freezing the provider', () => {
-  const lifecycle = new Proxy({}, { ownKeys() { assert.fail('provider enumeration'); }, get() { assert.fail('provider access'); } });
+  const lifecycle = new Proxy({
+    async born() {}, async retired() {}, async disposed() { throw new Error('unused disposal'); }
+  }, { ownKeys() { assert.fail('provider enumeration'); }, get() { assert.fail('provider access'); } });
   const capability = Object.freeze({ fixture: true });
   const bound = bind({ ...controls(), generatedStateLifecycle: lifecycle, testMaterialization: capability as never });
   assert.equal(bound.generatedStateLifecycle, lifecycle); assert.equal(bound.testMaterialization, capability);
@@ -33,7 +39,7 @@ test('callback and environment methods retain private provider state, arguments 
     #events: unknown[][] = [];
     lockTimeoutMs = 1000;
     monotonicNowMs = function(this: Provider) { this.#events.push(['clock']); return 0; };
-    beforeCommit = function(this: Provider) { this.#events.push(['fence']); };
+    beforeCommit = async function(this: Provider) { this.#events.push(['fence']); };
     now = function(this: Provider) { this.#events.push(['now']); return 'time'; };
     sleep = async function(this: Provider, ms: number) { this.#events.push(['sleep', ms]); };
     testCompilerRename = async function(this: Provider, from: string, to: string) { this.#events.push(['rename', from, to]); };
@@ -44,7 +50,7 @@ test('callback and environment methods retain private provider state, arguments 
     get events() { return this.#events; }
   }
   const provider = new Provider(); const bound = bind(provider);
-  provider.beforeCommit = () => assert.fail('late fence'); provider.now = () => assert.fail('late clock');
+  provider.beforeCommit = async () => assert.fail('late fence'); provider.now = () => assert.fail('late clock');
   await fence(bound, 'private'); assert.equal(bound.now?.(), 'time');
   await bound.sleep?.(4); await bound.testCompilerRename?.('a','b'); await bound.testInstallLockDelete?.('p',3);
   await bound.testCompilerPublishHook?.('active-backed-up'); await bound.testProjectProjectionHook?.('published');
@@ -72,15 +78,15 @@ for (const input of [{ rematerialize: 'false' }, { skipSharedDepsWarmup: 0 }, { 
 test('all request decisions and method identities are captured before the clock can change source options', async () => {
   const events: string[]=[];
   const raw = { lockTimeoutMs:1000, installMode:'allow' as 'allow'|'prebound-only', rematerialize:false,
-    skipSharedDepsWarmup:false, sharedDepsRoot:'original', beforeCommit(){events.push('original');},
-    monotonicNowMs(){raw.installMode='prebound-only';raw.rematerialize=true;raw.sharedDepsRoot='replaced';raw.beforeCommit=()=>assert.fail('replacement');return 0;} };
+    skipSharedDepsWarmup:false, sharedDepsRoot:'original', async beforeCommit(){events.push('original');},
+    monotonicNowMs(){raw.installMode='prebound-only';raw.rematerialize=true;raw.sharedDepsRoot='replaced';raw.beforeCommit=async()=>assert.fail('replacement');return 0;} };
   const bound=bind(raw); assert.equal(bound.installMode,'allow'); assert.equal(bound.rematerialize,false);
   assert.equal(bound.sharedDepsRoot,path.resolve('original')); await fence(bound,'capture'); assert.deepEqual(events,['original']);
 });
 
 test('unchanged issued invocations reuse object and callback identity while still checking cancellation', () => {
   const controller=new AbortController();let clocks=0;
-  const first=bind({lockTimeoutMs:1000,signal:controller.signal,monotonicNowMs:()=>{clocks++;return 0;},beforeCommit(){}});
+  const first=bind({lockTimeoutMs:1000,signal:controller.signal,monotonicNowMs:()=>{clocks++;return 0;},async beforeCommit(){}});
   const before=clocks; assert.equal(bind(first),first); assert.ok(clocks>before);
   const reason=Object.freeze({stop:true});controller.abort(reason);
   assert.throws(()=>bind(first),e=>e===reason);
@@ -88,7 +94,7 @@ test('unchanged issued invocations reuse object and callback identity while stil
 
 test('child rebinding does not grow provider wrapper chains or renew the parent budget', async () => {
   let now=0,calls=0;
-  const parent=bind({lockTimeoutMs:100,monotonicNowMs:()=>now,beforeCommit(){calls++;}});
+  const parent=bind({lockTimeoutMs:100,monotonicNowMs:()=>now,async beforeCommit(){calls++;}});
   let child=parent;
   for(let i=0;i<1000;i++)child=bind({...child,pollIntervalMs:1+i%10});
   assert.equal(child.beforeCommit,parent.beforeCommit);assert.equal(child.monotonicNowMs,parent.monotonicNowMs);

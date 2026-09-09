@@ -1,7 +1,7 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
-import { PolicyRuleSchema, PolicySpecSchema, PolicySeveritySchema } from '../../src/compiler/policies/contract/source-schema.ts';
+import assert from 'node:assert/strict';
 import { POLICY_RULE_IDS } from '../../src/compiler/policies/contract/rules.ts';
+import { PolicyRuleSchema, PolicySeveritySchema, PolicySpecSchema } from '../../src/compiler/policies/contract/source-schema.ts';
 import type { PolicyRule, PolicySeverity, PolicySpec } from '../../src/compiler/policies/contract/types.ts';
 
 const policy = () => ({ id: 'policy-reuse', severity: 'warn' as const,

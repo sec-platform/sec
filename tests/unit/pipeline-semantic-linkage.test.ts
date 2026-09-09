@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { bindPipelineSemanticContext, createPipelineSemanticContext, requirePipelineSemanticContext } from '../../src/compiler/pipeline/semantic-context.ts';
 
 function input() {

@@ -16,11 +16,13 @@ import {
   createHostGitReadSessionForTests,
   type GitReadSessionResolution
 } from '../../src/external-capabilities/git-read/test/session.ts';
+import { acquirePhysicalMutationLease } from '../../src/runtime-state/physical/runtime/mutation-lease.ts';
+import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 
 // Real repository, linked-worktree, and managed-hook lifecycle acceptance belongs to the slow lane.
 
 const managedHookNames = ['pre-commit', 'pre-push', 'post-checkout', 'post-merge', 'post-rewrite'] as const;
-const workspaceTransitionCommand = `bun ./${DEV_RUNNER_ENTRYPOINT_PATH} workspace-transition`;
+const workspaceTransitionCommand = 'bun run dev -- workspace-transition';
 const importsApplyStagedCommand = 'bun run imports:apply --staged';
 const importsFreezeCommand = 'bun run imports:freeze';
 
@@ -140,9 +142,6 @@ function configuredBootstrapHooksPath(repoRoot: string): string {
 async function expectManagedHooksMirror(repoRoot: string, configured: string): Promise<void> {
   for (const hook of managedHookNames) {
     const source = await readFile(path.join(repoRoot, '.githooks', hook), 'utf8');
-    const importCommand = hook === 'pre-commit'
-      ? importsApplyStagedCommand
-      : importsFreezeCommand;
     const expected = source
       .replaceAll(workspaceTransitionCommand, runtimeBoundCommand(workspaceTransitionCommand))
       .replaceAll(importsApplyStagedCommand, runtimeBoundCommand(importsApplyStagedCommand))
@@ -899,6 +898,63 @@ test('managed fast path settles a completed transition after marker publication 
   });
 });
 
+test('managed fast-path recovery acknowledges a dead operation owner only after transition settlement', async () => {
+  await withRepository(async (repoRoot) => {
+    const deadPid = 2_147_483_647;
+    expect(await installGitHooks({
+      repoRoot,
+      lifecycle: true,
+      crashAfterOperationLeaseAcquisition: true,
+      leaseOwnerPid: deadPid
+    })).toMatchObject({ status: 'conflict' });
+
+    const commonGitDir = path.resolve(git(repoRoot, [
+      'rev-parse', '--path-format=absolute', '--git-common-dir'
+    ]));
+    const managedRoot = path.join(commonGitDir, 'sec-managed-hooks-v3');
+    const managedRootIdentity = inspectNoFollowDirectoryChain(
+      managedRoot,
+      'Managed hook fast-path recovery fixture'
+    ).target;
+    const issuedLeaseEntries = (await readdir(managedRoot, { withFileTypes: true }))
+      .filter((entry) => entry.isFile());
+    expect(issuedLeaseEntries).toHaveLength(1);
+    const leaseName = issuedLeaseEntries[0]!.name;
+    const leasePath = path.join(managedRoot, leaseName);
+
+    expect(await installGitHooks({
+      repoRoot,
+      lifecycle: true,
+      crashAfterMarkerPublication: true
+    })).toMatchObject({ status: 'conflict' });
+    const transitionNames = await configTransitionNames(repoRoot);
+    expect(transitionNames).toHaveLength(1);
+    await expect(lstat(leasePath)).rejects.toThrow();
+
+    const abandoned = acquirePhysicalMutationLease(managedRootIdentity, leaseName, {
+      ownerPid: deadPid
+    });
+    expect(abandoned).not.toBeNull();
+    const abandonedBytes = await readFile(leasePath);
+    const unexpectedTransitionFile = path.join(
+      managedRoot,
+      transitionNames[0]!,
+      'unexpected-recovery-fixture'
+    );
+    await writeFile(unexpectedTransitionFile, 'preserve predecessor lease\n', 'utf8');
+
+    expect(await installGitHooks({ repoRoot, lifecycle: true }))
+      .toMatchObject({ status: 'conflict' });
+    expect(await readFile(leasePath)).toEqual(abandonedBytes);
+    expect(await configTransitionNames(repoRoot)).toEqual(transitionNames);
+
+    await rm(unexpectedTransitionFile);
+    expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'managed' });
+    expect(await configTransitionNames(repoRoot)).toHaveLength(0);
+    await expect(lstat(leasePath)).rejects.toThrow();
+  });
+});
+
 test('unknown or forked config transition namespaces are retained and block reuse', async () => {
   await withRepository(async (repoRoot) => {
     expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
@@ -1471,7 +1527,12 @@ test('repository-common hook generation runs when an older worktree creates the 
     git(repoRoot, ['config', 'user.email', 'tests@example.com']);
     git(repoRoot, ['config', 'user.name', 'SEC Tests']);
     await writeFile(path.join(repoRoot, 'README.md'), 'fixture\n', 'utf8');
-    git(repoRoot, ['add', 'README.md']);
+    // Both revisions supply the package entry invoked by the managed hook.
+    // The fixture observes dispatch; package metadata is verified separately.
+    await writeFile(path.join(repoRoot, 'package.json'), JSON.stringify({
+      scripts: { dev: '"$npm_execpath" -e "process.exit(0)"' }
+    }));
+    git(repoRoot, ['add', 'README.md', 'package.json']);
     git(repoRoot, ['commit', '--quiet', '-m', 'older checkout without managed hooks']);
     const olderHead = git(repoRoot, ['rev-parse', 'HEAD']);
 
@@ -1482,7 +1543,9 @@ test('repository-common hook generation runs when an older worktree creates the 
       await writeFile(
         hookPath,
         hook === 'post-checkout'
-          ? `${managedHookSource(hook)}printf first-checkout > .dependency-bootstrap-marker\n`
+          // A command after exec is unreachable; observe dispatch before it.
+          ? managedHookSource(hook).replace('exec bun',
+            'printf first-checkout > .dependency-bootstrap-marker\nexec bun')
           : managedHookSource(hook),
         'utf8'
       );

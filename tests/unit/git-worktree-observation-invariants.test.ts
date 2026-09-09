@@ -1,10 +1,9 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { test } from 'bun:test';
-import { assertLowercaseGitSha, parseWorktreePorcelainZ, parseWorktreeStatusPorcelainZ }
-  from '../../src/runtime-state/physical/contract/git-worktree-observation.ts';
-import { inGitProtocolRepository, gitProtocolSuccess } from '../testkit/git-protocol.ts';
+import { assertLowercaseGitSha, parseWorktreePorcelainZ, parseWorktreeStatusPorcelainZ } from '../../src/runtime-state/physical/contract/git-worktree-observation.ts';
+import { gitProtocolSuccess, inGitProtocolRepository } from '../testkit/git-protocol.ts';
 
 const oid = 'a'.repeat(40);
 const record = (...fields: string[]) => Buffer.from(['worktree /fixture', ...fields, '', ''].join('\0'));

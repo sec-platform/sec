@@ -1,7 +1,7 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
-import { test } from 'bun:test';
 import { CodeBuilder } from '../../src/compiler/codegen/code-builder.ts';
 
 function statements(builder: CodeBuilder) {

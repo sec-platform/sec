@@ -3,13 +3,13 @@ import type { TextByteCensusReport, TextByteClassification } from '../../runtime
 import type { WorktreeSettlementReceipt } from '../../runtime-state/worktree-settlement.ts';
 import type { DependencyCleanOptions } from '../../toolchain/dependencies/environment.ts';
 import { buildBenchmarkTaskSuiteContract, formatBenchmarkTaskSuiteContract } from '../../verification/benchmark/contract.ts';
+import { addJsonFlags, commandPath, jsonOpts, usageError, type JsonOpts } from './command-options.ts';
 import { platformCommand } from './contract/command.ts';
 import { printJsonOrText } from './format-utils.ts';
 import { loadDependencyEnvironmentDomain, loadReferenceCheckDomain, loadTestBudgetDomain, observeLocalContainerEngineReadiness, runCensus, runSettlement } from './lazy-command-domains.ts';
-import { withSpinner } from './runtime/spinner.ts';
-import { jsonOpts, commandPath, usageError, addJsonFlags, type JsonOpts } from './command-options.ts';
-import { registerWorkspaceCommands } from './register-workspace-commands.ts';
 import { registerInspectionCommands } from './register-inspection-commands.ts';
+import { registerWorkspaceCommands } from './register-workspace-commands.ts';
+import { withSpinner } from './runtime/spinner.ts';
 
 type DependencyEnvironmentModule = typeof import('../../toolchain/dependencies/environment.ts');
 

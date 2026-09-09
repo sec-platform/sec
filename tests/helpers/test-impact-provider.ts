@@ -251,6 +251,7 @@ export async function createExactGitTreeTestRunnerFixture(
     const provider = createRepositoryTestImpactSourceProvider({
       projection: issueTestImpactProjection({
         workspaceSnapshot: exactSnapshot,
+        repositoryModel: exactCompilation.model,
         typeScriptModel: exactCompilation.typeScriptCompilation.model,
         testObservations: exactCompilation.testObservations
       }),
@@ -278,6 +279,7 @@ export async function createExactGitTreeTestRunnerFixture(
           projection: issueTestImpactProjection({
             workspaceSnapshot,
             projectGeneration: compilation.projectGeneration,
+            repositoryModel: compilation.model,
             typeScriptModel: compilation.typeScriptCompilation.model,
             testObservations: compilation.testObservations
           }),
@@ -399,6 +401,7 @@ async function createExactRepositoryTestImpactProviderFixture(
     const provider = createRepositoryTestImpactSourceProvider({
       projection: issueTestImpactProjection({
         workspaceSnapshot,
+        repositoryModel: compilation.model,
         typeScriptModel: compilation.typeScriptCompilation.model,
         testObservations: compilation.testObservations
       }),

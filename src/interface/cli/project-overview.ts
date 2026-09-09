@@ -1,4 +1,3 @@
-import path from 'node:path';
 
 import type { LockFile } from '../../compiler/contract.ts';
 import { CompilerError } from '../../compiler/errors.ts';

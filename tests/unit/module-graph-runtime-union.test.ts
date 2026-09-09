@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 
 import { assembleSecRepositoryModuleGraph as assemble, resolveSecRepositoryModuleImportCandidates as candidates } from '../../src/brownfield/source-program-model/module-graph.ts';
 

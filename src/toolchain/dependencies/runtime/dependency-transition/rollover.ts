@@ -25,18 +25,14 @@ import {
   formatJsonFile
 } from '../../../../workspace/files.ts';
 import {
+  type RuntimeDependencyEffectFenceInput,
+  runtimeDependencyEffectFenceOptions,
+  type RuntimeDependencyEffectFenceOptions,
   runtimeDependencyOperationContext,
   runtimeDependencyOperationEffectFence,
-  runtimeDependencyEffectFenceOptions,
-  type RuntimeDependencyEffectFenceInput,
-  type RuntimeDependencyEffectFenceOptions,
   runtimeDependencyOperationRemainingMs
 } from '../operation-context.ts';
-import { runtimeDependencyOperationControls, type RuntimeDependencyOperationControlInput } from '../operation-controls.ts';
-import { analyzeRolloverHistory } from './rollover-history.ts';
-import { isRolloverPhase, matchesRolloverPhaseState, assertRolloverPhaseAdvance, rolloverIntentNameMatches,
-  DEPENDENCY_TRANSITION_ROLLOVER_SCHEMA, type DependencyTransitionRolloverIntent,
-  type DependencyTransitionRolloverPhase } from './rollover-phase.ts';
+import { type RuntimeDependencyOperationControlInput, runtimeDependencyOperationControls } from '../operation-controls.ts';
 import {
   assertDependencyTransitionRecordBytes,
   dependencyTransitionDigestWithoutRecord,
@@ -58,6 +54,14 @@ import {
   sameGeneratedStateIdentity,
   transitionSlotMatches
 } from './contract.ts';
+import { analyzeRolloverHistory } from './rollover-history.ts';
+import {
+  assertRolloverPhaseAdvance,
+  DEPENDENCY_TRANSITION_ROLLOVER_SCHEMA, type DependencyTransitionRolloverIntent,
+  type DependencyTransitionRolloverPhase,
+  isRolloverPhase, matchesRolloverPhaseState,
+  rolloverIntentNameMatches
+} from './rollover-phase.ts';
 import {
   DEPENDENCY_TRANSITION_RECORD_CAPACITY,
   dependencyTransitionLedgerDigest,

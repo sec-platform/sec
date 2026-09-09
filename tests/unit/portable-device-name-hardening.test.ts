@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { isWindowsReservedLogicalComponent } from '../../src/system-architecture/foundation/contract/logical-path-component.ts';
 import { isCanonicalPortableLogicalPath } from '../../src/system-architecture/foundation/contract/logical-path.ts';
 import { isCanonicalCiArtifactPath } from '../../src/verification/ci-artifacts/contract/manifest.ts';

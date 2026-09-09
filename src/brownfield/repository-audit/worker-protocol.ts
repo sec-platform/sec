@@ -1,3 +1,4 @@
+import { snapshotByteView } from '../../system-architecture/foundation/runtime/byte-snapshot.ts';
 import {
   canonicalJson,
   isPlainObject,
@@ -8,7 +9,6 @@ import {
   ExactJsonError,
   parseExactJsonBytes
 } from '../../system-architecture/foundation/runtime/exact-json.ts';
-import { snapshotByteView } from '../../system-architecture/foundation/runtime/byte-snapshot.ts';
 import type { SourceProgramEntrypointAddress } from '../source-program-model/contract.ts';
 
 type Digest = `sha256:${string}`;

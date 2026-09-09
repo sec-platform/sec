@@ -21,8 +21,10 @@ import type {
   SourceProgramTestValueCompilation
 } from '../source-program-model/test-value.ts';
 
-import { sourceProgramFindingDeltaIsUnresolved, summarizeSourceProgramFindingDelta,
-  type SourceProgramFindingDelta } from '../source-program-model/reconciliation-findings.ts';
+import {
+  sourceProgramFindingDeltaIsUnresolved, summarizeSourceProgramFindingDelta,
+  type SourceProgramFindingDelta
+} from '../source-program-model/reconciliation-findings.ts';
 
 import { compileSourceProgramMechanismReview, type SourceProgramMechanismReview } from './mechanism-review.ts';
 

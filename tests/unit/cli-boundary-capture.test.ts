@@ -1,9 +1,9 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
-import { captureCliOptions } from '../../src/interface/cli/own-options.ts';
-import { captureJsonOutputInput } from '../../src/interface/cli/json-output-options.ts';
-import { parseWorkspaceViewCommandInput } from '../../src/interface/cli/workspace-command-input.ts';
+import assert from 'node:assert/strict';
 import { formatJson, printJsonOrText } from '../../src/interface/cli/format-utils.ts';
+import { captureJsonOutputInput } from '../../src/interface/cli/json-output-options.ts';
+import { captureCliOptions } from '../../src/interface/cli/own-options.ts';
+import { parseWorkspaceViewCommandInput } from '../../src/interface/cli/workspace-command-input.ts';
 
 test('property and own-enumerable fields retain explicitly different transport boundaries', () => {
   const input = Object.create({ inherited: true });
@@ -15,7 +15,7 @@ test('property and own-enumerable fields retain explicitly different transport b
 
 test('selected capture does not enumerate or inspect unrelated fields, while preserving proxy reads', () => {
   let reads = 0;
-  const input = new Proxy({ value: 7, get unrelated() { assert.fail('unowned getter'); } }, {
+  const input = new Proxy({ value: 7, get unrelated() { assert.fail('unowned getter'); throw new Error('unreachable'); } }, {
     ownKeys() { assert.fail('whole options enumeration'); },
     get(target, key, receiver) { if (key === 'value') reads++; return Reflect.get(target, key, receiver); }
   });
@@ -71,7 +71,7 @@ test('mixed command output retains the old own-enumerable boundary without whole
 
 test('mixed read/write command routes expose distinct immutable selections', () => {
   for (const [command, mode] of [['lock', 'inspect'], ['explain', 'graph']] as const) {
-    const raw = new Proxy({ json: true, compact: true, get unused() { assert.fail('unowned'); } }, { ownKeys() { assert.fail('enumerated'); } });
+    const raw = new Proxy({ json: true, compact: true, get unused() { assert.fail('unowned'); throw new Error('unreachable'); } }, { ownKeys() { assert.fail('enumerated'); } });
     const inspected = parseWorkspaceViewCommandInput(command, mode, raw);
     const executed = parseWorkspaceViewCommandInput(command, undefined, raw);
     assert.equal(inspected.kind, 'inspect'); assert.equal(executed.kind, 'execute');

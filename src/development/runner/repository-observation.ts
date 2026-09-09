@@ -2,15 +2,16 @@ import { lstatSync, readlinkSync } from 'node:fs';
 import path from 'node:path';
 
 import { GitReadAuthorityError, issueGitReadAuthorityOperation, withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
+import { GIT_READ_EXACT_TREE_OPERATION_BUDGET } from '../../external-capabilities/git-read/runtime/budget.ts';
 import type { GitReadSession } from '../../external-capabilities/git-read/runtime/session.ts';
-import { parseGitAbsolutePathReply, parseGitObjectIdReply, parseWorktreeStatusPorcelainZ }
-  from '../../runtime-state/physical/contract/git-worktree-observation.ts';
+import { parseGitAbsolutePathReply, parseGitObjectIdReply, parseWorktreeStatusPorcelainZ } from '../../runtime-state/physical/contract/git-worktree-observation.ts';
 import {
   inspectNoFollowDirectoryChain,
   PhysicalNoFollowError,
   retainNoFollowOrdinaryFile,
   type PhysicalDirectoryChain
 } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
+import type { ProcessResourceSession } from '../../runtime-state/physical/runtime/process-resource-session.ts';
 import { settlePhysicalResources, settlePhysicalResourcesAsync, type PhysicalResourceSettlementFailure } from '../../runtime-state/physical/runtime/resource-settlement.ts';
 import { SecError } from '../../system-architecture/foundation/contract/failure.ts';
 import { rawSha256, sha256, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
@@ -19,7 +20,10 @@ import type { SecBoundSemanticOperation } from '../../system-architecture/operat
 import { compilerRoot } from '../../workspace/runtime/paths.ts';
 
 const OBSERVATION_BUDGET = Object.freeze({
-  deadlineMs: 30_000,
+  // GitRead remains inside its canonical provider ceiling. A standalone
+  // command's longer native observation window is owned by the fence, after
+  // this short root-discovery ledger is settled.
+  deadlineMs: GIT_READ_EXACT_TREE_OPERATION_BUDGET.deadlineMs,
   maxProcesses: 8,
   maxStdoutBytes: 32 * 1024 * 1024,
   maxStderrBytes: 512 * 1024,
@@ -130,13 +134,15 @@ const liveObservations = new WeakMap<object, LiveObservation>();
  */
 export async function resolveRepositoryObservationRoots(
   repositoryRoot: string,
-  operation: SecBoundSemanticOperation
+  operation: SecBoundSemanticOperation,
+  processSession?: ProcessResourceSession
 ): Promise<readonly string[]> {
   const exactRoot = path.resolve(repositoryRoot);
   return withAuthorityGitReadSession({
     cwd: exactRoot,
     environment: { LANG: 'C', LC_ALL: 'C' },
     operation,
+    ...(processSession === undefined ? {} : { processSession }),
     budget: OBSERVATION_BUDGET
   }, async (session) => {
     requireSessionIdentity(session);

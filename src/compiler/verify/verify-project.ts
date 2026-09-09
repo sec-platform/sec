@@ -1,18 +1,17 @@
-import { CodexDevelopmentSnapshotVerificationData } from '../../verification/result/contract/result.ts';
-import { isNativeAborted, throwIfNativeAborted } from '../../system-architecture/foundation/runtime/native-abort.ts';
-import { observeOptionalDiagnostic } from '../../system-architecture/foundation/runtime/optional-diagnostic.ts';
-import { captureVerifyProjectOptions } from './verify-invocation.ts';
-import { shouldExecuteRuntimeVerification, verificationLaneProfile, type VerificationRuntimeMode } from '../../verification/contract/lanes.ts';
 import path from 'node:path';
 import type { AcceptanceCoverageReport } from '../../semantic/acceptance/contract/types.ts';
 import type { Logger } from '../../system-architecture/foundation/logger.ts';
 import { defaultLogger } from '../../system-architecture/foundation/logger.ts';
 import { canonicalEquals, compareCodeUnits, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { isNativeAborted, throwIfNativeAborted } from '../../system-architecture/foundation/runtime/native-abort.ts';
+import { observeOptionalDiagnostic } from '../../system-architecture/foundation/runtime/optional-diagnostic.ts';
 import { ensureProjectDependencies } from '../../toolchain/dependencies/runtime.ts';
 import type { CanonicalVerificationArtifactSet } from '../../verification/artifact/contract/artifact.ts';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
+import { shouldExecuteRuntimeVerification, verificationLaneProfile, type VerificationRuntimeMode } from '../../verification/contract/lanes.ts';
 import type { FastVerificationLaneReport, RuntimeVerificationLaneReport, VerificationLane, VerificationReport } from '../../verification/contract/types.ts';
 import { buildExpectedProductVerificationClaimSummary, buildProductVerificationObservationBindings, type ProductVerificationGateObservation, type ProductVerificationObservations } from '../../verification/profile/contract/product.ts';
+import { CodexDevelopmentSnapshotVerificationData } from '../../verification/result/contract/result.ts';
 import { checkProjectBeforeVerify } from '../../workspace/application/project-integrity.ts';
 import { listFilesRecursive } from '../../workspace/runtime/discovery.ts';
 import { getWorkspacePaths, relativePosixPath } from '../../workspace/runtime/paths.ts';
@@ -37,6 +36,7 @@ import {
 } from './staged-verification-proof.ts';
 import { typecheckProject } from './typecheck-project.ts';
 import { publishVerificationArtifactSet } from './verification-artifact-publication.ts';
+import { captureVerifyProjectOptions } from './verify-invocation.ts';
 
 export function productVerificationSubjectRevision(lock: LockFile): string {
   return sha256({

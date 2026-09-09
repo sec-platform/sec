@@ -110,7 +110,9 @@ function parseAdmittedYamlDocument(
   try {
     document = parseExternalYamlDocument(source, {
       keepSourceTokens,
-      logLevel: 'silent',
+      // yaml's silent mode also suppresses MULTIPLE_DOCS diagnostics in
+      // parseDocument. Keep errors while the wrapper owns their presentation.
+      logLevel: 'error',
       strict: true,
       uniqueKeys: true,
       ...(admission.stringKeys === undefined ? {} : { stringKeys: admission.stringKeys })

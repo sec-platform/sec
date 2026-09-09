@@ -1,4 +1,4 @@
-import { createRequire } from 'node:module';
+import { parsers } from 'prettier/plugins/markdown';
 
 /** Only the mdast fields consumed by the doctor. This is a provider projection,
  * not a second Markdown grammar or a document-authority schema. */
@@ -17,13 +17,11 @@ export interface MarkdownFacts {
   readonly inlineCode: readonly string[];
 }
 
-const require = createRequire(import.meta.url);
 let previous: Readonly<{ source: string; facts: MarkdownFacts }> | undefined;
 
 /** Use the already-declared Prettier Markdown plugin's public parser export.
  * Do not load Prettier config, run a formatter, discover plugins or render HTML.
- * Loading is deferred so consumers of unrelated doctor helpers do not acquire
- * the Markdown dependency at module initialization.
+ * The static ESM edge makes the parser visible to the trusted import closure.
  *
  * The synchronous helper contract requires a synchronous mdast root. An
  * incompatible provider fails visibly; it never falls back to regex parsing.
@@ -34,7 +32,6 @@ let previous: Readonly<{ source: string; facts: MarkdownFacts }> | undefined;
 export function markdownFacts(source: string): MarkdownFacts {
   if (typeof source !== 'string') throw new TypeError('Markdown source must be a string');
   if (previous?.source === source) return previous.facts;
-  const { parsers } = require('prettier/plugins/markdown') as typeof import('prettier/plugins/markdown');
   const parser = parsers.markdown;
   // The built-in Markdown parser consumes text only. Its documented parse
   // callback is invoked directly; formatter options and printers are not used.

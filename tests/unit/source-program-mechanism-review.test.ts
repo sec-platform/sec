@@ -1,9 +1,9 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 
 import {
-  compileSourceProgramMechanismReview as review,
   MECHANISM_REVIEW_RULES,
+  compileSourceProgramMechanismReview as review,
   type MechanismReviewModel
 } from '../../src/brownfield/repository-audit/mechanism-review.ts';
 

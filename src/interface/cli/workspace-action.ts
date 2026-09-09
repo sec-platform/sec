@@ -1,8 +1,8 @@
 import type { Command } from 'commander';
-import type { JsonOutputOptions } from './json-output-options.ts';
 import { runWithOptionalSpinner } from './command-progress.ts';
 import type { CommandValue } from './command-value.ts';
 import { printJsonOrText } from './format-utils.ts';
+import type { JsonOutputOptions } from './json-output-options.ts';
 
 export interface WorkspaceActionInput<T> {
   readonly request: T;

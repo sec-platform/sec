@@ -1,6 +1,6 @@
 import type { RegistryKind, RegistryLocation } from '../../../compiler/registry/contract/types.ts';
-import type { OverrideSource, OverrideManifest } from './override-schema.ts';
-export type { OverrideSource, OverrideEntry, OverrideManifest } from './override-schema.ts';
+import type { OverrideManifest, OverrideSource } from './override-schema.ts';
+export type { OverrideEntry, OverrideManifest, OverrideSource } from './override-schema.ts';
 
 export const PROVENANCE_FORMAT_VERSION = '1' as const;
 

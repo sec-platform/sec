@@ -1,11 +1,11 @@
-import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import path from 'node:path';
-import { tmpdir } from 'node:os';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { generatedStateDigest } from '../../src/runtime-state/generated-state/contract.ts';
 import { runtimeDependencyOperationControls } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
-import { runtimeDependencySourceGeneration, assertRuntimeDependencySourceGenerationIssued } from '../../src/toolchain/dependencies/runtime/source-generation.ts';
+import { assertRuntimeDependencySourceGenerationIssued, runtimeDependencySourceGeneration } from '../../src/toolchain/dependencies/runtime/source-generation.ts';
 
 // In repository execution these retain the real source compiler and physical
 // owner. The standalone local replay substitutes only the declared physical,
@@ -51,9 +51,9 @@ test('relative paths bind before callbacks or the deferred scan can change cwd',
 
 test('read-only source observation neither enumerates input nor propagates install capabilities', async () => {
   const f=fixture();try{
-    const options=new Proxy({...f.options,get generatedStateLifecycle(){assert.fail('unused lifecycle');},get beforeCommit(){assert.fail('write fence');}},
+    const options=new Proxy({...f.options,get generatedStateLifecycle(){assert.fail('unused lifecycle'); throw new Error('unreachable');},get beforeCommit(){assert.fail('write fence'); throw new Error('unreachable');}},
       {ownKeys(){assert.fail('options enumerated');}});
-    const request=new Proxy({...input(f),options,get unrelated(){assert.fail('unrelated input');}}, {ownKeys(){assert.fail('input enumerated');}});
+    const request=new Proxy({...input(f),options,get unrelated(){assert.fail('unrelated input'); throw new Error('unreachable');}}, {ownKeys(){assert.fail('input enumerated');}});
     assert.equal((await runtimeDependencySourceGeneration(request)).sourcePath,path.join(f.root,'a'));
   }finally{rmSync(f.root,{recursive:true,force:true});}
 });

@@ -1,8 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { markdownFacts } from './markdown-syntax.ts';
 import type { DocsDoctorFrontmatter } from './frontmatter.ts';
-export { parseFrontmatter, VALID_STATUS, ACTIVE_POINTER_STATUS } from './frontmatter.ts';
+import { markdownFacts } from './markdown-syntax.ts';
+export { ACTIVE_POINTER_STATUS, parseFrontmatter, VALID_STATUS } from './frontmatter.ts';
 export type { DocsDoctorFrontmatter } from './frontmatter.ts';
 
 import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../system-architecture/foundation/contract/repository-path.ts';

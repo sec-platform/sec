@@ -1,6 +1,6 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { test } from 'bun:test';
 import { canonicalCommitTreeInput, captureGitDevelopmentCommitContract, gitCommitEnvironment } from '../../src/external-capabilities/git-read/runtime/commit-contract.ts';
 import { captureGitReadArguments } from '../../src/external-capabilities/git-read/runtime/read-command.ts';
 import { captureGitScratchIndexDelta, formatGitScratchIndexRecord } from '../../src/external-capabilities/git-read/runtime/scratch-input.ts';

@@ -1,7 +1,7 @@
-import { captureCliOptions } from './own-options.ts';
 import { CI_ARTIFACT_KINDS, isCiArtifactKind } from '../../verification/ci-artifacts/contract/types.ts';
 import { decodeBooleanFlag } from './boolean-option.ts';
 import { jsonOpts, usageError } from './command-options.ts';
+import { captureCliOptions } from './own-options.ts';
 
 export const ARTIFACT_PATHS_OPTION = Object.freeze({
   name: 'paths', flags: '--paths', description: 'List artifact paths', defaultValue: false

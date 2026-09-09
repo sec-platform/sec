@@ -31,6 +31,8 @@ const SOURCE_PROGRAM_GRAPH_EXTENSION = /\.(?:[cm]?[jt]sx?|json|ya?ml|toml)$/iu;
 const SOURCE_PROGRAM_ROOT_INPUT = new Set([
   'bunfig.toml',
   'docs/authority.json',
+  '.gitignore',
+  'knip.json',
   'package.json',
   'tsconfig.json'
 ]);
@@ -42,6 +44,7 @@ const SOURCE_PROGRAM_ROOT_INPUT = new Set([
  */
 export function isSourceProgramInputPath(repositoryPath: string): boolean {
   if (SOURCE_PROGRAM_ROOT_INPUT.has(repositoryPath)) return true;
+  if (/^\.githooks\/[^/]+$/u.test(repositoryPath)) return true;
   if (/^\.github\/workflows\/[^/]+\.ya?ml$/iu.test(repositoryPath)) return true;
   if (!SOURCE_PROGRAM_GRAPH_EXTENSION.test(repositoryPath)) return false;
   return repositoryPath.startsWith('src/') || repositoryPath.startsWith('tests/');

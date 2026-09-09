@@ -10,7 +10,6 @@ import {
 import { parseVerificationRegistryProjection } from '../../verification/session/contract/session.ts';
 import { projectBranchLifecycleForWorkSelection } from '../branch-lifecycle/branch-lifecycle-audit.ts';
 import {
-  createBranchLifecycleGitChildEnvironment,
   createBranchLifecycleGitHubRemoteObservation
 } from '../branch-lifecycle/branch-lifecycle-command.ts';
 import {

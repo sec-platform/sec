@@ -15,6 +15,7 @@ import {
 } from '../contract/budget.ts';
 import {
   classifyTestImpactSource,
+  isTypecheckOnlyTestPath,
   testImpactModuleIdsForSourceKind,
   type ResolvedTestOwnership,
   type TestImpactRiskPolicy
@@ -45,6 +46,7 @@ let providerReverseImportMapCache = new WeakMap<object, ReverseImportMap>();
 const issuedTestImpactProviders = new WeakSet<object>();
 type ProviderIndex = Readonly<{
   activeDocumentationPaths: ReadonlySet<string>;
+  gitHookEntrypointPaths: ReadonlySet<string>;
   moduleIds: ReadonlyMap<string, string | null>;
   candidateOwners: ReadonlyMap<string, string | null>;
   moduleGraphInputs: ReadonlySet<string>;
@@ -89,6 +91,9 @@ function providerIndex(provider: CodexDevelopmentTestImpactSourceProvider): Prov
   }
   const built: ProviderIndex = Object.freeze({
     activeDocumentationPaths: new Set(provider.activeDocumentationPaths),
+    gitHookEntrypointPaths: new Set(provider.projection.entrypoints
+      .filter(({ kind }) => kind === 'git-hook')
+      .map(({ path }) => path)),
     moduleIds,
     candidateOwners,
     moduleGraphInputs
@@ -102,7 +107,11 @@ function classifyProviderSource(
   provider: CodexDevelopmentTestImpactSourceProvider
 ) {
   const index = providerIndex(provider);
-  return classifyTestImpactSource(file, (candidate) => index.activeDocumentationPaths.has(candidate));
+  return classifyTestImpactSource(
+    file,
+    (candidate) => index.activeDocumentationPaths.has(candidate),
+    (candidate) => index.gitHookEntrypointPaths.has(candidate)
+  );
 }
 
 function moduleIdForPath(
@@ -143,6 +152,7 @@ export function isTestImpactSourceFile(
   const normalized = normalizeRepoPath(file);
   if (isSecRepositoryTestModulePath(normalized)) return false;
   return isTestImpactModuleGraphInputFile(normalized, provider)
+    || buildReverseImportMap(provider).map.has(normalized)
     || classifyProviderSource(normalized, provider) !== null;
 }
 
@@ -211,6 +221,12 @@ function buildReverseImportMap(provider: CodexDevelopmentTestImpactSourceProvide
     if (reference.targetPath === null
         || reference.targetPath === reference.path) continue;
     addConsumer(map, reference.targetPath, reference.path);
+  }
+  for (const consumer of provider.projection.observedTestConsumers) {
+    if (consumer.targetPath !== consumer.testPath) {
+      addConsumer(map, consumer.targetPath, consumer.testPath);
+      addConsumer(structuralMap, consumer.targetPath, consumer.testPath);
+    }
   }
   for (const [key, references] of referencesByImport) {
     if (references.length > 0 && references.every((reference) => (
@@ -292,7 +308,9 @@ export function deriveTestsForSources(
   provider: CodexDevelopmentTestImpactSourceProvider
 ): string[] {
   const { declarationPaths, map, structuralMap } = buildReverseImportMap(provider);
-  const testFiles = new Set(provider.projection.testFiles.map(normalizeRepoPath));
+  const runnableTestFiles = new Set(provider.projection.testFiles
+    .map(normalizeRepoPath)
+    .filter((testPath) => isFastTestFile(testPath) || isSlowTestFile(testPath)));
   const matchedTests = new Set<string>();
   const visited = new Set<string>();
   const queue = files.map((file) => {
@@ -310,7 +328,7 @@ export function deriveTestsForSources(
       ? structuralMap.get(current.path) ?? []
       : map.get(current.path) ?? [];
     for (const consumer of consumers) {
-      if (testFiles.has(consumer)) matchedTests.add(consumer);
+      if (runnableTestFiles.has(consumer)) matchedTests.add(consumer);
       else if (!visited.has(consumer)) queue.push(Object.freeze({ path: consumer, structural: false }));
     }
   }
@@ -343,6 +361,7 @@ function selectionForSource(
   const cached = reverseGraph.selectionCache.get(normalizedFile);
   if (cached !== undefined) return cached;
   const graphTests = isTestImpactModuleGraphInputFile(normalizedFile, provider)
+      || reverseGraph.map.has(normalizedFile)
     ? deriveTestsForSources([normalizedFile], provider)
     : [];
   const sourceKind = classifyProviderSource(normalizedFile, provider);
@@ -373,7 +392,7 @@ export function resolveTestImpactForFiles(
 ): ReadonlySet<string> {
   return new Set(files.filter((file) => (
     hasTestImpactForFile(file, provider)
-    || resolveTestImpactRiskPolicies([file]).length > 0
+    || resolveTestImpactRiskPolicies([file], provider).length > 0
   )));
 }
 
@@ -388,10 +407,32 @@ export function resolveTestOwnership(
   })));
 }
 
-export function resolveTestImpactRiskPolicies(files: readonly string[]): TestImpactRiskPolicy[] {
-  return files.some((file) => file.startsWith('tests/setup/'))
-    ? ['slow-risk-baseline']
-    : [];
+export function resolveTestImpactRiskPolicies(
+  files: readonly string[],
+  provider: CodexDevelopmentTestImpactSourceProvider
+): TestImpactRiskPolicy[] {
+  const index = providerIndex(provider);
+  const graph = readRepositoryModuleGraphV1(provider);
+  const reverseConsumers = buildReverseImportMap(provider).map;
+  const compilerTestInputs = new Set(provider.projection.testFiles);
+  return uniqueSorted([
+    ...(files.some((file) => file.startsWith('tests/setup/'))
+      ? ['slow-risk-baseline' as const]
+      : []),
+    ...(files.some((file) => {
+      const normalized = normalizeRepoPath(file);
+      const projected = provider.projection.files.find(({ path }) => path === normalized);
+      return isTypecheckOnlyTestPath(normalized)
+        && projected?.surface === 'test'
+        && compilerTestInputs.has(normalized)
+        && index.moduleGraphInputs.has(normalized)
+        && graph.directConsumers(normalized).length === 0
+        && (reverseConsumers.get(normalized)?.length ?? 0) === 0
+        && !provider.projection.entrypoints.some(({ path, targetPaths }) => (
+          path === normalized || targetPaths.includes(normalized)
+        ));
+    }) ? ['typecheck-only' as const] : [])
+  ]);
 }
 
 export function selectTestsForSources(

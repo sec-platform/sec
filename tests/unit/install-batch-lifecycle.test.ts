@@ -1,9 +1,9 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { InstallStrategyRegistry, type InstallStrategy } from '../../src/compiler/compose/install-strategies.ts';
 import type { InstallPlanStep } from '../../src/compiler/contract.ts';
-import path from 'node:path';
-import { tmpdir } from 'node:os';
 
 function step(to: string, id = to): InstallPlanStep { return { action: 'probe', to, blockId: id } as unknown as InstallPlanStep; }
 function context(signal?: AbortSignal) { return { workspaceRoot: path.join(tmpdir(), 'sec-batch-contract'), lock: {} as never, signal }; }
@@ -65,7 +65,7 @@ test('all started installs are joined before batch failure returns', async () =>
 test('cancellation during the owner fence prevents the selected effect', async () => {
   const registry = new InstallStrategyRegistry(), controller = new AbortController(), reason = new Error('cancelled');
   registry.register(custom(async () => assert.fail('effect after cancellation')));
-  await assert.rejects(registry.executeAll([step('a')], { ...context(controller.signal), commitFence() { controller.abort(reason); } }), e => e === reason);
+  await assert.rejects(registry.executeAll([step('a')], { ...context(controller.signal), async commitFence() { controller.abort(reason); } }), e => e === reason);
 });
 
 test('the provider keeps private instance state and receives a frozen batch context', async () => {

@@ -1,9 +1,9 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { devNull, tmpdir } from 'node:os';
 import path from 'node:path';
-import { test } from 'bun:test';
 
 import { canonicalGitChildEnvironment as environment, gitEnvironmentValue } from '../../src/external-capabilities/git/environment.ts';
 

@@ -1,15 +1,17 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import {
   assertFastTestProcessPolicyInventory, assertUniqueFastTestProcessIsolationDefinitions,
   DEFAULT_FAST_TEST_EXCLUDED_FILES, FAST_TEST_PROCESS_ISOLATION_REGISTRY,
   isDefaultFastTestFile, partitionFastTestFiles, planFastTestProcesses,
   resolveFastTestConcurrencyBudget, resolveManagedFastTestConcurrency
 } from '../../src/development/runner/fast-test-policy.ts';
-import {
-  compileTestBudgetProjection, TestBudgetProjectionCache, slowTestSuiteIdsForFile
-} from '../../src/verification/test-impact/contract/budget.ts';
 import { isSecRepositoryTestModulePath } from '../../src/system-architecture/repository-modules/test-module-path.ts';
+import {
+  compileTestBudgetProjection,
+  slowTestSuiteIdsForFile,
+  TestBudgetProjectionCache
+} from '../../src/verification/test-impact/contract/budget.ts';
 
 const spellings = (file: string) => [file, `./${file}`, file.replaceAll('/', '\\'), `.\\${file.replaceAll('/', '\\')}`];
 const independent = 'tests/unit/command-runner.test.ts';

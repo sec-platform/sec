@@ -1,10 +1,10 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { test } from 'bun:test';
-import { resolveGraph } from '../../src/compiler/resolve/resolve-graph.ts';
 import type { PlanFile } from '../../src/compiler/contract/plan-manifest.ts';
+import { resolveGraph } from '../../src/compiler/resolve/resolve-graph.ts';
 
 // Native runs use the real retained YAML loader and registry sources. Local
 // replay substitutes the declared loader/path imports, not resolveGraph or

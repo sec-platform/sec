@@ -1,7 +1,7 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
-import { OverrideManifestSchema, OverrideSourceSchema } from '../../src/semantic/provenance/contract/override-schema.ts';
+import assert from 'node:assert/strict';
 import { validateOverrideManifest } from '../../src/compiler/parse/load-override-manifest.ts';
+import { OverrideManifestSchema, OverrideSourceSchema } from '../../src/semantic/provenance/contract/override-schema.ts';
 import { emptyOverrideManifest, type OverrideManifest, type OverrideSource } from '../../src/semantic/provenance/contract/types.ts';
 
 const row = (id = 'first', target = 'src/value.ts') => ({ id, entry: `patches/${id}.ts`, target, reason: '  reason  ' });
@@ -41,9 +41,10 @@ test('schema acceptance does not authorize a reserved target, duplicate owner or
 });
 
 test('one decode returns detached arrays without hand-written field copying', () => {
-  const raw = { overrides: [{ ...row('first', 'src/a.ts'), conflictsWith: ['second'] }, row('second', 'src/b.ts')] };
+  const first = { ...row('first', 'src/a.ts'), conflictsWith: ['second'] };
+  const raw = { overrides: [first, row('second', 'src/b.ts')] };
   const parsed = validate(raw); parsed.overrides[0]!.conflictsWith.length = 0;
-  assert.deepEqual(raw.overrides[0]!.conflictsWith, ['second']);
+  assert.deepEqual(first.conflictsWith, ['second']);
   assert.notEqual(parsed, raw);
 });
 

@@ -1,7 +1,7 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { compilerDependencyManifestAuthority,compilerInputText } from '../../src/toolchain/dependencies/runtime/compiler-input-contract.ts';
+import { compilerDependencyManifestAuthority, compilerInputText } from '../../src/toolchain/dependencies/runtime/compiler-input-contract.ts';
 const encode=(v:unknown)=>Buffer.from(JSON.stringify(v));
 const base={packageManager:'bun@1.2.3',dependencies:{z:'^2',a:'workspace:*'},devDependencies:{tool:'file:../tool'}};
 const oldDigest=(v:typeof base)=>{

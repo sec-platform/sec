@@ -1,9 +1,12 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { test } from 'bun:test';
-import { encodeStableSeed, parseStableSeed, assertSeedBindingDigest,
-  BUILD_INFO_MAXIMUM_BYTES, STABLE_SEED_MAXIMUM_BYTES }
-  from '../../src/toolchain/typescript/incremental-seed.ts';
+import {
+  assertSeedBindingDigest,
+  BUILD_INFO_MAXIMUM_BYTES,
+  encodeStableSeed, parseStableSeed,
+  STABLE_SEED_MAXIMUM_BYTES
+} from '../../src/toolchain/typescript/incremental-seed.ts';
 
 const binding = `sha256:${'a'.repeat(64)}` as const;
 // An independent wire fixture: field order, newline, content digest and base64

@@ -1,9 +1,9 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
-import { PASS_INITIAL_STATES, LOCK_PASS_STATES, type PassStatus } from '../../src/compiler/contract/pass-status.ts';
+import assert from 'node:assert/strict';
+import { LOCK_PASS_STATES, PASS_INITIAL_STATES, type PassStatus } from '../../src/compiler/contract/pass-status.ts';
 import { PASS_SEQUENCE, PASS_STATUS_PENDING } from '../../src/compiler/pipeline/defaults.ts';
-import { PIPELINE_STAGE_OWNERSHIP } from '../../src/compiler/pipeline/stages.ts';
 import { PASS_DEFINITIONS, PIPELINE_STAGE_DEFINITIONS, compilePipelineStageDefinitions } from '../../src/compiler/pipeline/pass-registry.ts';
+import { PIPELINE_STAGE_OWNERSHIP } from '../../src/compiler/pipeline/stages.ts';
 
 const inputs = () => ({ passes: structuredClone(PASS_DEFINITIONS), ownership: structuredClone(PIPELINE_STAGE_OWNERSHIP) });
 

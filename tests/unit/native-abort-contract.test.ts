@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { assertNativeAbortSignal, isNativeAborted, linkNativeAbortSignals, throwIfNativeAborted } from '../../src/system-architecture/foundation/runtime/native-abort.ts';
 
 for (const reason of [null, false, 0, 'cancelled', Object.freeze({ source: 'parent' })]) {

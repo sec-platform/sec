@@ -3,7 +3,6 @@ import {
   link,
   mkdir,
   mkdtemp,
-  readFile,
   rename,
   rm,
   symlink,

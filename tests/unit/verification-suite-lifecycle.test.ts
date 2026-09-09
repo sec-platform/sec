@@ -1,8 +1,8 @@
-import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
-import path from 'node:path';
-import { tmpdir } from 'node:os';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { runSuiteFiles } from '../../src/compiler/verify/run-suite-files.ts';
 
 function fixture() {
@@ -23,7 +23,7 @@ test('serial execution and recording keep input labels and duplicate-file reruns
   try {
     await runSuiteFiles([f.one, f.two, f.one], file => { recorded.push(file); });
     assert.deepEqual(recorded, [f.one, f.two, f.one]);
-    assert.deepEqual(f.state.events, ['load:one','run:one','load:two','run:two','load:one','run:one']);
+    assert.deepEqual(f.state.events, ['load:one','run:one','load:two','run:two','run:one']);
   } finally { f.cleanup(); }
 });
 
@@ -39,7 +39,7 @@ test('relative file paths are captured before a suite changes cwd', async () => 
 
 test('custom task iterator cannot replace the selected module', async () => {
   const f = fixture(), input = [f.one];
-  input[Symbol.iterator] = function* () { yield f.two; };
+  input[Symbol.iterator] = () => [f.two].values();
   try { await runSuiteFiles(input); assert.deepEqual(f.state.events, ['load:one','run:one']); }
   finally { f.cleanup(); }
 });

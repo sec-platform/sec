@@ -1,7 +1,7 @@
-import { stringifyJsonValue } from '../../system-architecture/foundation/runtime/json-text.ts';
 import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
-import type { JsonOutputOptions } from './json-output-options.ts';
 import { mergeCountSummaries, summarizeCounts } from '../../system-architecture/foundation/runtime/collections.ts';
+import { stringifyJsonValue } from '../../system-architecture/foundation/runtime/json-text.ts';
+import type { JsonOutputOptions } from './json-output-options.ts';
 
 export function formatList(values: string[], fallback = 'none'): string {
   return values.length > 0 ? values.join(', ') : fallback;

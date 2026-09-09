@@ -1,5 +1,5 @@
 import { inspectFailureValue } from '../system-architecture/foundation/runtime/failure-inspection.ts';
-export { inspectFailureValue, getErrorCode } from '../system-architecture/foundation/runtime/failure-inspection.ts';
+export { getErrorCode, inspectFailureValue } from '../system-architecture/foundation/runtime/failure-inspection.ts';
 
 import {
   SecError,

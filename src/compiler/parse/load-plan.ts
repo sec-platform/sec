@@ -1,6 +1,6 @@
 import path from 'node:path';
-import { parseYamlValue } from '../../system-architecture/foundation/runtime/yaml.ts';
 import { failureMessage } from '../../system-architecture/foundation/runtime/failure-inspection.ts';
+import { parseYamlValue } from '../../system-architecture/foundation/runtime/yaml.ts';
 import { AppModeSchema, PackageManagerSchema, PlanInputSchema, PlanRegistrySourceSchema, type PlanRegistrySourceInput } from '../contract/plan-schema.ts';
 
 import { isCanonicalAcceptanceId } from '../../semantic/acceptance/contract/identity.ts';

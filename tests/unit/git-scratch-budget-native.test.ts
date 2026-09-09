@@ -1,11 +1,11 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { test } from 'bun:test';
 import { issueGitReadAuthorityOperation, withAuthorityGitReadSession } from '../../src/external-capabilities/git-read/authority.ts';
 import { createAuthorityGitScratchIndexTreeSession } from '../../src/external-capabilities/git-read/runtime/session.ts';
-import { inGitProtocolRepository, gitProtocolSuccess } from '../testkit/git-protocol.ts';
+import { gitProtocolSuccess, inGitProtocolRepository } from '../testkit/git-protocol.ts';
 import { settleWorkspaceCallback } from '../testkit/workspace-cleanup.ts';
 
 // Production Git and retained scratch capabilities are required. This test

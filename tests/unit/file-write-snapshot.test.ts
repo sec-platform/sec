@@ -1,8 +1,8 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { test } from 'bun:test';
+import path from 'node:path';
 import { ensureDir, formatJsonFile, prepareOrdinaryFileWrite, removeDir, writeBuffer, writeJson, writeText } from '../../src/workspace/runtime/files.ts';
 
 async function fixture(run: (root: string) => Promise<void>) {

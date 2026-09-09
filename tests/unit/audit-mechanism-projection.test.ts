@@ -1,8 +1,6 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 
-import { rawSha256, sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
-import type { SourceProgramModel } from '../../src/brownfield/source-program-model/contract.ts';
 import {
   compileSourceProgramAuditOperation,
   compileSourceProgramAuditOperationInput,
@@ -13,6 +11,8 @@ import {
   parseSourceProgramAuditOperationResult,
   type CompileSourceProgramAuditOperationInput
 } from '../../src/brownfield/repository-audit/source-program-audit-operation.ts';
+import type { SourceProgramModel } from '../../src/brownfield/source-program-model/contract.ts';
+import { rawSha256, sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
 
 const digest = (value: unknown): `sha256:${string}` => sha256(value) as `sha256:${string}`;
 

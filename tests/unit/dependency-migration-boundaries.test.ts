@@ -1,14 +1,14 @@
-import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, existsSync } from 'node:fs';
-import path from 'node:path';
-import { tmpdir } from 'node:os';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { generatedStateDigest } from '../../src/runtime-state/generated-state/contract.ts';
 import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { runtimeDependencyOperationControls } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
 import { generatedStatePhysicalIdentity, runtimeDependencySourceGenerationEpoch } from '../../src/toolchain/dependencies/runtime/dependency-transition/contract.ts';
-import { dependencyTransitionNamespacePaths, inspectDependencyTransitionNamespace } from '../../src/toolchain/dependencies/runtime/dependency-transition/store.ts';
 import { migrateLegacyDependencyTransitionUnderLease, readDependencyTransitionMigrationIntents } from '../../src/toolchain/dependencies/runtime/dependency-transition/migration.ts';
+import { dependencyTransitionNamespacePaths, inspectDependencyTransitionNamespace } from '../../src/toolchain/dependencies/runtime/dependency-transition/store.ts';
+import { runtimeDependencyOperationControls } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
 
 // Uses native retained providers in repository execution. Local replay declares
 // ordinary-FS physical and digest/codec boundaries explicitly; it is not FFI proof.
@@ -50,9 +50,9 @@ test('legacy terminal migration preserves source bytes and returns immutable int
 
 test('completed migration remains idempotent and a reader never acquires write callbacks', async () => fixture(async root => {
   legacy(root); await migrateLegacyDependencyTransitionUnderLease(root, control());
-  await migrateLegacyDependencyTransitionUnderLease(root, { ...control(), beforeCommit() { assert.fail('complete migration rewrote state'); } });
-  const options = new Proxy({ ...control(), get beforeCommit() { assert.fail('reader observed fence'); },
-    get installMode() { assert.fail('reader observed install mode'); } }, { ownKeys() { assert.fail('reader enumerated facade'); } });
+  await migrateLegacyDependencyTransitionUnderLease(root, { ...control(), async beforeCommit() { assert.fail('complete migration rewrote state'); } });
+  const options = new Proxy({ ...control(), get beforeCommit() { assert.fail('reader observed fence'); throw new Error('unreachable'); },
+    get installMode() { assert.fail('reader observed install mode'); throw new Error('unreachable'); } }, { ownKeys() { assert.fail('reader enumerated facade'); } });
   const value = await readDependencyTransitionMigrationIntents(inspectDependencyTransitionNamespace(root)!, options);
   assert.equal(value.complete!.phase, 'complete');
 }));
@@ -81,7 +81,7 @@ test('migration captures its root before a fence changes cwd and options', async
 
 test('interrupted prepared migration resumes from its existing receipt without altering v1', async () => fixture(async root => {
   const source = legacy(root), failure = new Error('interrupted'); let injected = false;
-  await assert.rejects(migrateLegacyDependencyTransitionUnderLease(root, { ...control(), beforeCommit() {
+  await assert.rejects(migrateLegacyDependencyTransitionUnderLease(root, { ...control(), async beforeCommit() {
     if (!injected && existsSync(source.paths.journalRoot) && readdirSync(source.paths.journalRoot).some(name => /^migration-.*-prepared\.json$/.test(name))) {
       injected = true; throw failure;
     }
@@ -101,6 +101,6 @@ test('cancellation after intent enumeration starts cannot produce a successful r
 }));
 
 test('migration is a true no-effect operation when both source and target are absent', async () => fixture(async root => {
-  await migrateLegacyDependencyTransitionUnderLease(root, { ...control(), beforeCommit() { assert.fail('unnecessary effect'); } });
+  await migrateLegacyDependencyTransitionUnderLease(root, { ...control(), async beforeCommit() { assert.fail('unnecessary effect'); } });
   assert.equal(existsSync(dependencyTransitionNamespacePaths(root).backupRoot), false);
 }));

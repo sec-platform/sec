@@ -1,19 +1,20 @@
 import path from 'node:path';
-import { parseGitLineReply, parseGitObjectIdReply }
-  from '../../../runtime-state/physical/contract/git-worktree-observation.ts';
-import { captureGitScratchIndexDelta, formatGitScratchIndexRecord, type GitScratchIndexTreeDelta } from './scratch-input.ts';
-export type { GitScratchIndexTreeDelta } from './scratch-input.ts';
-import { canonicalCommitTreeInput, captureGitDevelopmentCommitContract, compileGitDevelopmentCommitContractDigest, gitCommitEnvironment,
-  type GitCommitTreeInput, type GitDevelopmentCommitContract, type GitDevelopmentCommitEffectResult } from './commit-contract.ts';
-export { compileGitDevelopmentCommitContractDigest } from './commit-contract.ts';
-export type { GitCommitIdentity, GitCommitTreeInput, GitDevelopmentCommitContract, GitDevelopmentCommitEffectResult } from './commit-contract.ts';
-import { resolveGitReadSessionBudget, boundedGitReadDeadlineAt, type GitReadSessionBudget } from './budget.ts';
-import { captureGitReadArguments, gitReadCommandIsObservation } from './read-command.ts';
+import { parseGitLineReply, parseGitObjectIdReply } from '../../../runtime-state/physical/contract/git-worktree-observation.ts';
+import { settlePhysicalResources, type PhysicalResourceSettlementFailure } from '../../../runtime-state/physical/runtime/resource-settlement.ts';
 import { snapshotByteView } from '../../../system-architecture/foundation/runtime/byte-snapshot.ts';
 import { failureMessage } from '../../../system-architecture/foundation/runtime/failure-inspection.ts';
-import { settlePhysicalResources, type PhysicalResourceSettlementFailure } from '../../../runtime-state/physical/runtime/resource-settlement.ts';
+import { boundedGitReadDeadlineAt, resolveGitReadSessionBudget, type GitReadSessionBudget } from './budget.ts';
+import {
+  canonicalCommitTreeInput, captureGitDevelopmentCommitContract, compileGitDevelopmentCommitContractDigest, gitCommitEnvironment,
+  type GitCommitTreeInput, type GitDevelopmentCommitContract, type GitDevelopmentCommitEffectResult
+} from './commit-contract.ts';
+import { captureGitReadArguments, gitReadCommandIsObservation } from './read-command.ts';
+import { captureGitScratchIndexDelta, formatGitScratchIndexRecord, type GitScratchIndexTreeDelta } from './scratch-input.ts';
 export { GIT_READ_DEFAULT_OPERATION_BUDGET, GIT_READ_EXACT_TREE_OPERATION_BUDGET, GitReadBudgetError, resolveGitReadSessionBudget } from './budget.ts';
 export type { GitReadSessionBudget } from './budget.ts';
+export { compileGitDevelopmentCommitContractDigest } from './commit-contract.ts';
+export type { GitCommitIdentity, GitCommitTreeInput, GitDevelopmentCommitContract, GitDevelopmentCommitEffectResult } from './commit-contract.ts';
+export type { GitScratchIndexTreeDelta } from './scratch-input.ts';
 
 import { PhysicalNoFollowError, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, type PhysicalDirectoryChain, type RetainedNoFollowChildProcessDirectory, type RetainedNoFollowOrdinaryFile } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { assertProcessResourceSessionReceipt, openProcessResourceSession, type ProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';

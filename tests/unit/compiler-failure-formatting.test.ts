@@ -1,6 +1,6 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { inspect } from 'node:util';
-import { test } from 'bun:test';
 import { CompilerError, formatCompilerFailure } from '../../src/compiler/errors.ts';
 
 test('compiler failure formatting preserves existing JSON detail output', () => {

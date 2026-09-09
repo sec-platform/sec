@@ -1,12 +1,12 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { test } from 'bun:test';
 import { loadPolicyDeclarations, POLICY_YAML_MAX_INPUT_BYTES } from '../../src/compiler/parse/load-policy-declarations.ts';
 import { POLICY_RULE_IDS } from '../../src/compiler/policies/contract/rules.ts';
+import { YamlInputLimitError, YamlSyntaxError } from '../../src/system-architecture/foundation/runtime/yaml.ts';
 import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
-import { YamlSyntaxError, YamlInputLimitError } from '../../src/system-architecture/foundation/runtime/yaml.ts';
 
 // Keep actual YAML/Zod, physical source inventory and retained readers in native
 // runs. Do not mark these passed using a JSON or schema substitute. The bundled

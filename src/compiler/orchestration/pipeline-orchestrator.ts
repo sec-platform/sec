@@ -1,7 +1,7 @@
-import { pipelineStageBoundary } from '../pipeline/execution-boundaries.ts';
-import path from 'node:path';
 import { Buffer } from 'node:buffer';
 import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { pipelineStageBoundary } from '../pipeline/execution-boundaries.ts';
 
 import type { ExplainGraph } from '../../semantic/projection/contract/explain.ts';
 import type { ProvenanceFile } from '../../semantic/provenance/contract/types.ts';
@@ -28,12 +28,12 @@ import {
   buildSemanticViewSummary
 } from '../emit/write-review-summary.ts';
 import { readLockFile } from '../lock.ts';
+import { bindPipelineCompileRequest, type PipelineCompileRequest } from '../pipeline/invocation.ts';
 import { emitPipelineExecutionBoundary } from '../pipeline/journal.ts';
 import { withPipelineTransaction } from '../pipeline/kernel.ts';
-import { capturePipelineProofRecord, samePipelineSequence } from '../pipeline/proof-data.ts';
-import { getPipelineStageDefinition } from '../pipeline/pass-registry.ts';
 import { withLeaseObservationMonitor } from '../pipeline/lease-monitor.ts';
-import { bindPipelineCompileRequest, type PipelineCompileRequest } from '../pipeline/invocation.ts';
+import { getPipelineStageDefinition } from '../pipeline/pass-registry.ts';
+import { capturePipelineProofRecord, samePipelineSequence } from '../pipeline/proof-data.ts';
 import { requirePipelineSemanticContext } from '../pipeline/semantic-context.ts';
 import {
   PIPELINE_COMPLETION_PROOF_REVISION,

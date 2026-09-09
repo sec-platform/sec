@@ -406,7 +406,6 @@ async function readDefaultBranchSubject(
 
 async function listStatuses(
   capability: GitHubApiCapability,
-  repositoryName: string,
   headSha: string
 ): Promise<readonly GitHubStatus[]> {
   const output: GitHubStatus[] = [];
@@ -463,7 +462,7 @@ export async function publishIntegrationAuthorizationStatus(input: Readonly<{
 
   const [subjectAfter, statuses] = await Promise.all([
     readDefaultBranchSubject(input.capability, repositoryName, result.authorization.prNumber),
-    listStatuses(input.capability, repositoryName, result.authorization.headSha)
+    listStatuses(input.capability, result.authorization.headSha)
   ]);
   exactPullSubject(subjectAfter, result, defaultBranch);
   const exact = statuses.filter((status) => status.id === created.id);

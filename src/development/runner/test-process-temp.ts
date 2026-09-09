@@ -355,10 +355,7 @@ function recoverReclaimedGeneration(input: Readonly<{
   }
 }
 
-function assertInvocationContainerEmpty(
-  container: PhysicalDirectoryIdentity,
-  invocationDigest: TestProcessTempDigest
-): void {
+function assertInvocationContainerEmpty(container: PhysicalDirectoryIdentity): void {
   if (topLevelInventory(container).length > 0) {
     throw new TestProcessTempLifecycleError(
       'TEST_PROCESS_TEMP_RESIDUE_UNKNOWN',
@@ -438,10 +435,12 @@ function createParentOwnedTempSupervisor(input: Readonly<{
         owner: lease.reclaimedOwner
       });
     }
-    assertInvocationContainerEmpty(container.target, input.invocationDigest);
+    assertInvocationContainerEmpty(container.target);
+    lease.acknowledgeReclaimedRecovery();
   } catch (error) {
     try {
-      lease.release();
+      if (lease.recoveryPending) lease.restoreReclaimedOwner();
+      else lease.release();
     } catch (releaseError) {
       throw new AggregateError(
         [error, releaseError],
@@ -452,6 +451,8 @@ function createParentOwnedTempSupervisor(input: Readonly<{
   }
   const active = new Map<string, PhysicalDirectoryChain>();
   let ownerSettled = false;
+  let containerSettled = false;
+  let settlementStarted = false;
 
   const settleGeneration = (generation: PhysicalDirectoryChain): void => {
     deleteOwnedDirectoryGeneration(generation, 'SEC test process temp generation');
@@ -460,7 +461,7 @@ function createParentOwnedTempSupervisor(input: Readonly<{
 
   return Object.freeze({
     prepare(environment): TestProcessTempRoot {
-      if (ownerSettled) throw new Error('SEC test process temp supervisor is settled.');
+      if (settlementStarted) throw new Error('SEC test process temp supervisor is settling or settled.');
       const generation = createChildGeneration({
         container,
         invocationDigest: input.invocationDigest,
@@ -500,19 +501,27 @@ function createParentOwnedTempSupervisor(input: Readonly<{
     },
     cleanup(): void {
       if (ownerSettled) return;
+      settlementStarted = true;
       const failures: unknown[] = [];
       for (const generation of [...active.values()]) {
         try { settleGeneration(generation); } catch (error) { failures.push(error); }
       }
-      try {
-        deleteOwnedDirectoryGeneration(container, 'SEC test process temp invocation container');
-      } catch (error) {
-        failures.push(error);
+      if (failures.length === 0 && !containerSettled) {
+        try {
+          deleteOwnedDirectoryGeneration(container, 'SEC test process temp invocation container');
+          containerSettled = true;
+        } catch (error) {
+          failures.push(error);
+        }
       }
-      try {
-        lease.release();
-      } catch (error) {
-        failures.push(error);
+      // The lease is the durable recovery identity for these generations.
+      // A failed retirement must leave it available for dead-owner reclaim.
+      if (failures.length === 0) {
+        try {
+          lease.release();
+        } catch (error) {
+          failures.push(error);
+        }
       }
       if (failures.length === 0) {
         ownerSettled = true;
@@ -698,8 +707,16 @@ export async function createTestProcessTempRootV1(input: Readonly<{
         } catch (error) {
           primary = error;
         }
-        await releaseAuthority(authority, primary);
+        if (primary === undefined) {
+          try {
+            await releaseAuthority(authority);
+            authority = null;
+          } catch (error) {
+            primary = error;
+          }
+        }
         if (primary === undefined) settled = true;
+        if (primary !== undefined) throw primary;
       }
     });
   } catch (error) {
@@ -733,13 +750,15 @@ export async function createTestInvocationRuntimeRoots(input: Readonly<{
     if (settled) return;
     const failures: unknown[] = [];
     for (const settle of [
-      () => supervisor?.cleanup(),
-      () => { if (cache !== null) deleteOwnedDirectoryGeneration(cache, 'SEC test invocation Cache generation'); },
-      () => { if (state !== null) deleteOwnedDirectoryGeneration(state, 'SEC test invocation State generation'); }
+      () => { supervisor?.cleanup(); supervisor = null; },
+      () => { if (cache !== null) { deleteOwnedDirectoryGeneration(cache, 'SEC test invocation Cache generation'); cache = null; } },
+      () => { if (state !== null) { deleteOwnedDirectoryGeneration(state, 'SEC test invocation State generation'); state = null; } }
     ]) {
       try { settle(); } catch (error) { failures.push(error); }
     }
-    try { await authority?.release(); } catch (error) { failures.push(error); }
+    if (failures.length === 0) {
+      try { await authority?.release(); authority = null; } catch (error) { failures.push(error); }
+    }
     if (failures.length > 0) {
       throw new TestProcessTempLifecycleError(
         'TEST_PROCESS_TEMP_CLEANUP_FAILED',

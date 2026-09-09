@@ -1,7 +1,7 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { test } from 'bun:test';
 import { captureGitDevelopmentCommitContract, compileGitDevelopmentCommitContractDigest } from '../../src/external-capabilities/git-read/runtime/commit-contract.ts';
 
 function input(ref = 'refs/heads/feature') {

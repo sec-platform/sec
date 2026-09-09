@@ -35,7 +35,7 @@ import {
   RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
   RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR
 } from '../../../runtime-state/physical/runtime/process.ts';
-import { rawSha256, uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
 import { issueSecOperationRequirementBindingContext } from '../../../system-architecture/operation/requirement-binding-context.ts';
 import type { SecBoundSemanticOperation } from '../../../system-architecture/operation/semantic.ts';
 import { createRepositoryTestImpactSourceProvider, type CodexDevelopmentTestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
@@ -309,6 +309,7 @@ export function CodexDevelopmentTestImpactSourceProviderFromSnapshot(
   return createRepositoryTestImpactSourceProvider({
     projection: issueTestImpactProjection({
       workspaceSnapshot,
+      repositoryModel: sourceProgramCompilation.model,
       typeScriptModel: sourceProgramCompilation.typeScriptCompilation.model,
       testObservations: sourceProgramCompilation.testObservations
     }),

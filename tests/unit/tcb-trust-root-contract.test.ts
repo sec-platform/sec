@@ -8,7 +8,6 @@ import {
   TCB_TRUST_ROOT
 } from '../../src/verification/trust/compiler.ts';
 import { createSecTrustedBootstrapTrustRoot, matchSecTrustedBootstrapPath, parseSecTrustedBootstrapRegistry, SEC_TCB_CLOSURE_RUNTIME_PATH, SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER, SEC_TRUSTED_BOOTSTRAP_REGISTRY, SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH, type SecTrustedBootstrapRegistry } from '../../src/verification/trust/contract/root.ts';
-import { compilerRoot } from '../../src/workspace/runtime/paths.ts';
 
 const TCB_CLOSURE_LOCK = compileTcbClosureIdentity();
 
@@ -17,7 +16,7 @@ function canonicalSource(value: SecTrustedBootstrapRegistry | Record<string, unk
 }
 
 function registrySource(): string {
-  return readFileSync(path.join(compilerRoot, ...SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH.split('/')), 'utf8');
+  return readFileSync(path.resolve(import.meta.dir, '../../src/verification/trust/contract/ci-trust-root-registry.json'), 'utf8');
 }
 
 function mutate(patch: Partial<Record<keyof SecTrustedBootstrapRegistry, unknown>>): string {

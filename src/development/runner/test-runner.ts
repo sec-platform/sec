@@ -17,8 +17,9 @@ import {
   type SecOperationKind
 } from '../../control/operation/demand.ts';
 import { createAuthorityGitReadSession, type GitExecutableIdentity, type GitReadProviderIdentity, type GitReadProviderRoute, type GitReadSession, type GitReadSessionCommand } from '../../external-capabilities/git-read/runtime/session.ts';
+import type { ProcessResourceSession } from '../../runtime-state/physical/runtime/process-resource-session.ts';
 import { secRuntimeStateEnvironment } from '../../runtime-state/workspace-state/layout.ts';
-import { deepFreeze, rawSha256, sha256, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { deepFreeze, rawSha256, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { uniqueSortedLines } from '../../system-architecture/foundation/runtime/collections.ts';
 import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
 import { isSecRepositoryTestModulePath } from '../../system-architecture/repository-modules/test-module-path.ts';
@@ -43,7 +44,6 @@ import {
   affectedSelectionSourceCompilationDeadlineAtUnixMs,
   affectedTestPlanExitCode,
   compileAffectedTestSelectionSemanticOperation,
-  type AffectedPlanIdentity,
   type AffectedTestPlan,
   type AffectedTestSelection
 } from './affected-plan-contract.ts';
@@ -64,8 +64,7 @@ import {
   type OperationDependencyBootstrapResult
 } from './dependency-bootstrap.ts';
 import {
-  observeOperationDependencyReadGeneration,
-  retainOperationDependencyReadGeneration
+  observeOperationDependencyReadGeneration
 } from './dependency-read-generation.ts';
 import {
   consumeTestWorkspaceSupervisorChallenge,
@@ -471,6 +470,7 @@ async function observeGitSelectionState(
 
 type AffectedGitRevalidationLedger = {
   readonly operation: SecBoundSemanticOperation;
+  readonly processSession?: ProcessResourceSession;
   /** Absolute parent wall deadline shared by every revalidation session. */
   readonly deadlineAt: number;
   readonly maxProcesses: number;
@@ -497,14 +497,16 @@ type AffectedGitRevalidationLedger = {
 function createAffectedGitRevalidationLedger(
   operation: SecBoundSemanticOperation,
   initialSession: GitReadSession,
-  initialIdentity: GitExecutableIdentity | null
+  initialIdentity: GitExecutableIdentity | null,
+  processSession?: ProcessResourceSession
 ): AffectedGitRevalidationLedger {
   return {
     operation,
+    ...(processSession === undefined ? {} : { processSession }),
     deadlineAt: operation.plan.attempt.deadlineAtUnixMs,
     ...AFFECTED_GIT_REVALIDATION_AGGREGATE_CEILING,
     revalidationCount: 0,
-    processCount: initialSession.processCount,
+    processCount: processSession?.processCount ?? initialSession.processCount,
     argumentBytes: initialSession.argumentBytes ?? 0,
     stdoutBytes: initialSession.stdoutBytes,
     stderrBytes: initialSession.stderrBytes,
@@ -520,7 +522,8 @@ function accountAffectedGitRevalidationSession(
   ledger: AffectedGitRevalidationLedger,
   session: GitReadSession
 ): boolean {
-  ledger.processCount += session.processCount;
+  if (ledger.processSession === undefined) ledger.processCount += session.processCount;
+  else ledger.processCount = ledger.processSession.processCount;
   ledger.argumentBytes += session.argumentBytes ?? 0;
   ledger.stdoutBytes += session.stdoutBytes;
   ledger.stderrBytes += session.stderrBytes;
@@ -564,6 +567,7 @@ async function reobserveAffectedGitSelectionState(
   const resolution = createAuthorityGitReadSession({
     cwd: compilerRoot,
     operation: ledger.operation,
+    ...(ledger.processSession === undefined ? {} : { processSession: ledger.processSession }),
     budget: {
       // Each fresh provider session consumes the same parent absolute
       // deadline. The relative value only narrows the transport request; it
@@ -1206,8 +1210,7 @@ async function runWithTestInvocationRuntime(
 function affectedTestSelection(
   files: string[],
   budgetProjection: TestBudgetProjection,
-  provider: CodexDevelopmentTestImpactSourceProvider,
-  transition?: CodexDevelopmentTestImpactTransitionObservation
+  provider: CodexDevelopmentTestImpactSourceProvider
 ): AffectedTestSelection {
   const currentFastFiles = [...getFastTestFilesSync(budgetProjection)];
   assertFastTestProcessPolicyInventory(currentFastFiles);
@@ -1217,8 +1220,7 @@ function affectedTestSelection(
   ]);
   const inventory = CodexDevelopmentBuildAffectedTestInventory(
     CodexDevelopmentAffectedInventoryInputs(files, (file) => currentTestFiles.has(file)),
-    provider,
-    transition
+    provider
   );
   // A changed fast-test source can introduce or remove a process-global
   // hazard without changing the scheduler itself. Always select the one
@@ -1253,18 +1255,6 @@ function unionTestFiles(...groups: string[][]): string[] {
   return uniqueSortedLines(groups.flat().join('\n'));
 }
 
-function unresolvedRiskPaths(
-  files: readonly string[],
-  closure: ReturnType<typeof selectSlowTestRiskClosure>
-): string[] {
-  // `selectSlowTestRiskClosure` already performs one batch inventory. Re-running
-  // it once per changed path rebuilt the same graph and source observation for
-  // large deltas. When the aggregate resolution is false, retain the complete
-  // changed-path frontier; callers get a conservative typed diagnostic and no
-  // path can be authorized from a partial per-file approximation.
-  return closure.resolved ? [] : uniqueSorted([...files]);
-}
-
 export interface ResolvedAffectedTestExecution {
   readonly plan: AffectedTestPlan;
   /**
@@ -1293,8 +1283,8 @@ function affectedTestPlan(
 ): AffectedTestPlan {
   const budgetProjection = compileTestBudgetProjection(provider.projection);
   const risk = selectSlowTestRiskClosure(files, provider, transition);
-  const selection = affectedTestSelection(files, budgetProjection, provider, transition);
-  const unresolvedPaths = unresolvedRiskPaths(files, risk);
+  const selection = affectedTestSelection(files, budgetProjection, provider);
+  const unresolvedPaths = risk.unresolvedPaths;
   const sourceObservationUnresolved = provider.projection.moduleGraph.unresolvedFiles;
   const observedSelection: AffectedTestSelection = observationFailure === 'source'
     ? {
@@ -1479,6 +1469,8 @@ async function runAffectedTestPlan(
 export async function resolveAffectedTestExecution(options: Readonly<{
   dependencyGeneration?: RetainedCompilerDependencyReadGeneration;
   operation: SecBoundSemanticOperation;
+  /** Borrowed process ledger owned by the surrounding repository fence. */
+  processSession?: ProcessResourceSession;
   issueTestImpactProjection: AffectedTestImpactProjectionIssuer;
   /** Callers with an explicit pre-effect fence may defer this first recheck. */
   verifyAtResolution?: boolean;
@@ -1500,12 +1492,14 @@ export async function resolveAffectedTestExecution(options: Readonly<{
   const gitResolution = createAuthorityGitReadSession({
     cwd: compilerRoot,
     operation: options.operation,
+    ...(options.processSession === undefined ? {} : { processSession: options.processSession }),
     budget: GIT_READ_OPERATION_BUDGET
   });
   if (gitResolution.status !== 'ready') {
     if (ownedDependencyResolution?.status === 'ready') {
       await ownedDependencyResolution.generation.retire();
     }
+    console.error('Affected Git provider admission failed:', gitResolution);
     return null;
   }
   const gitSession = gitResolution.session;
@@ -1536,7 +1530,8 @@ export async function resolveAffectedTestExecution(options: Readonly<{
     try {
       await gitSession.close?.();
       initialSessionClosed = true;
-    } catch {
+    } catch (error) {
+      console.error('Affected Git observation settlement failed:', error);
       initialSessionClosed = false;
     }
     initialSessionFailure = gitSession.failure;
@@ -1544,11 +1539,19 @@ export async function resolveAffectedTestExecution(options: Readonly<{
       await ownedDependencyResolution.generation.retire();
     }
   }
-  if (!initialSessionClosed || initialSessionFailure !== null || changed === null) return null;
+  if (!initialSessionClosed || initialSessionFailure !== null || changed === null) {
+    console.error('Affected Git observation is unavailable:', {
+      settled: initialSessionClosed,
+      failure: initialSessionFailure,
+      changedFilesObserved: changed !== null
+    });
+    return null;
+  }
   gitRevalidationLedger = createAffectedGitRevalidationLedger(
     options.operation,
     gitSession,
-    changed.gitObservation.gitExecutableIdentity
+    changed.gitObservation.gitExecutableIdentity,
+    options.processSession
   );
   const revalidationLedger = gitRevalidationLedger;
   if (testImpactObservation === null) return null;
@@ -1624,7 +1627,11 @@ export async function resolveAffectedTestExecution(options: Readonly<{
 
 export async function runAffectedTests(
   issueTestImpactProjection: AffectedTestImpactProjectionIssuer,
-  args: string[] = []
+  args: string[] = [],
+  options: Readonly<{
+    operation?: SecBoundSemanticOperation;
+    processSession?: ProcessResourceSession;
+  }> = {}
 ): Promise<number> {
   if (args.includes('--plan') && !(args.length === 1 && args[0] === '--plan')) {
     console.error('test:affected --plan cannot be combined with execution arguments.');
@@ -1633,11 +1640,12 @@ export async function runAffectedTests(
   if (args.length > 0 && !(args.length === 1 && args[0] === '--plan')) {
     return runTests(args);
   }
-  const operation = compileAffectedTestSelectionSemanticOperation({
+  const operation = options.operation ?? compileAffectedTestSelectionSemanticOperation({
     purpose: 'check-affected'
   });
   const execution = await resolveAffectedTestExecution({
     operation,
+    processSession: options.processSession,
     issueTestImpactProjection,
     // The execution object retains the same frozen plan identity and performs
     // its own last-mile fence immediately before dependency/test effects. A

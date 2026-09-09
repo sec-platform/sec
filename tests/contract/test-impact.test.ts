@@ -49,6 +49,7 @@ function sourceProvider(sources: Readonly<Record<string, string>>) {
     return createRepositoryTestImpactSourceProvider({
       projection: issueTestImpactProjection({
         workspaceSnapshot,
+        repositoryModel: repositoryCompilation.model,
         typeScriptModel: repositoryCompilation.typeScriptCompilation.model,
         testObservations: repositoryCompilation.testObservations
       }),
@@ -79,6 +80,15 @@ test('repository sources route by semantic kind and module identity', () => {
   expect(classifyTestImpactSource(
     '.github/workflows/compiler-pr-validation.yml', activeDocumentationPath
   )).toBe('workflow');
+  expect(classifyTestImpactSource(
+    '.githooks/post-merge',
+    activeDocumentationPath,
+    (candidate) => candidate === '.githooks/post-merge'
+  )).toBe('git-hook');
+  expect(classifyTestImpactSource(
+    '.githooks/unobserved',
+    activeDocumentationPath
+  )).toBeNull();
   expect(classifyTestImpactSource('docs/roadmap.md', activeDocumentationPath))
     .toBe('active-documentation');
   expect(classifyTestImpactSource('docs/unregistered.manifest.yaml', activeDocumentationPath))
@@ -94,6 +104,28 @@ test('repository sources route by semantic kind and module identity', () => {
     owner: 'compiler',
     identity: { kind: 'module', id: 'compiler' }
   }]);
+});
+
+test('observed git-hook entrypoints route through development hooks ownership', () => {
+  const provider = sourceProvider({
+    '.githooks/post-merge': '#!/usr/bin/env sh\nexec bun run dev -- workspace-transition post-merge "$@"\n',
+    'src/development/hooks/install.ts': 'export const installHooks = true;',
+    'src/development/hooks/sec.module.json': JSON.stringify({
+      importGraph: 'runtime',
+      externalEntrypoints: ['src/development/hooks/install.ts'],
+      capabilityProviders: [],
+      preDependencyBootstrap: false
+    }),
+    'tests/unit/install-hooks-fixture.test.ts': "import { installHooks } from '../../src/development/hooks/install.ts'; void installHooks;"
+  });
+
+  expect(resolveTestOwnership(['.githooks/post-merge'], provider)).toEqual([{
+    source: '.githooks/post-merge',
+    owner: 'development.hooks',
+    identity: { kind: 'module', id: 'development.hooks' }
+  }]);
+  expect(selectTestsForSources(['.githooks/post-merge'], provider).fast)
+    .toContain('tests/unit/install-hooks-fixture.test.ts');
 });
 
 test('repository module graph is the single resolved dependency observation', () => {

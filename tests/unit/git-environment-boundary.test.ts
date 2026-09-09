@@ -1,6 +1,6 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { devNull } from 'node:os';
-import { test } from 'bun:test';
 import { canonicalGitChildEnvironment, gitEnvironmentValue } from '../../src/external-capabilities/git/environment.ts';
 
 // Independent forbidden-input vectors, not derived from the production sets.

@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { captureVerifyProjectOptions } from '../../src/compiler/verify/verify-invocation.ts';
 
 for (const key of ['isolated', 'emitTiming'] as const) {

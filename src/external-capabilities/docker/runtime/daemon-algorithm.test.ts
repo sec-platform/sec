@@ -374,7 +374,7 @@ describe('Docker daemon lifecycle algorithm', () => {
         physicalDisposition: 'settled'
       }),
       withLauncherLock: async (operation) => await operation(),
-      run: async ({ lifecycle }) => {
+      run: async () => {
         observations += 1;
         return observations < 3 ? unavailable : available;
       }

@@ -1,9 +1,9 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { test } from 'bun:test';
 import { SecError } from '../../src/system-architecture/foundation/contract/failure.ts';
 import {
   PACKAGE_SOURCE_LAUNCHER_SCRIPT,

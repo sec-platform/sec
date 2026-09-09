@@ -1,6 +1,6 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { test } from 'bun:test';
 import {
   captureRepositoryAnalysisPolicy as capture,
   repositoryAnalysisPolicyDigest as readDigest
@@ -33,7 +33,7 @@ test('capture detaches data without freezing or mutating its caller', () => {
 
 test('capture does not invoke custom iteration or sparse/accessor elements', () => {
   const input = [a];
-  input[Symbol.iterator] = function* () { yield b; };
+  input[Symbol.iterator] = () => [b].values();
   assert.deepEqual(capture(input).reviewedProcessDispatchers, [a]);
   const getter: string[] = [];
   Object.defineProperty(getter, '0', { get() { assert.fail('accessor evaluated'); } });
@@ -69,7 +69,7 @@ test('unreadable context never evaluates declared getters or manufactures compar
   const { proxy, revoke } = Proxy.revocable({}, {}); revoke();
   assert.equal(readDigest(proxy), null);
   assert.equal(readDigest({
-    get reviewedProcessDispatchers() { assert.fail('context getter'); },
+    get reviewedProcessDispatchers() { assert.fail('context getter'); throw new Error('unreachable'); },
     policyDigest: capture([]).policyDigest
   }), null);
 });

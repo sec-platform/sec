@@ -1,9 +1,9 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
-import {tmpdir} from 'node:os';
-import {cleanDependencyEnvironment} from '../../src/toolchain/dependencies/application/dependency-environment.ts';
+import { cleanDependencyEnvironment } from '../../src/toolchain/dependencies/application/dependency-environment.ts';
 
 // Native consumer tests: do not replace Workspace removal or lifecycle owners.
 // All possible deletion targets are inside this fixture; the shared target is
@@ -28,5 +28,5 @@ test('force does not authorize foreign shared-root retirement',async()=>fixture(
  assert.equal(await fs.readFile(path.join(root,'node_modules/keep'),'utf8'),'keep');
 }));
 test('an empty cleanup does not consume an unused environment provider',async()=>fixture(async root=>{
- assert.deepEqual(await cleanDependencyEnvironment(root,{}, {get sharedDepsRoot(){assert.fail('unused root');},get generatedStateLifecycle(){assert.fail('unused provider');}}),[]);
+ assert.deepEqual(await cleanDependencyEnvironment(root,{}, {get sharedDepsRoot(): never {assert.fail('unused root'); throw new Error('unreachable');},get generatedStateLifecycle(): never {assert.fail('unused provider'); throw new Error('unreachable');}}),[]);
 }));

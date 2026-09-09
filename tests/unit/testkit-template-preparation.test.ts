@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { createTemplatePreparation } from '../testkit/template-preparation.ts';
 
 test('concurrent requests for one kind share only the in-flight preparation', async () => {

@@ -1,8 +1,8 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { test } from 'bun:test';
 import { formatOutputFiles } from '../../src/compiler/compose/format-output-files.ts';
 import { generateRuntimeLibraryScaffold } from '../../src/compiler/compose/generate-runtime-library.ts';
 import type { LockFile } from '../../src/compiler/contract.ts';
@@ -44,7 +44,7 @@ test('formatter refuses to overwrite a changed preimage at its publication fence
   const file = path.join(root, 'a.json');
   writeFileSync(file, '{"a":1}');
   try {
-    await assert.rejects(formatOutputFiles(root, ['a.json'], () => { writeFileSync(file, '{"user":true}'); }), /preimage/);
+    await assert.rejects(formatOutputFiles(root, ['a.json'], async () => { writeFileSync(file, '{"user":true}'); }), /preimage/);
     assert.equal(readFileSync(file, 'utf8'), '{"user":true}');
   } finally { rmSync(root, { recursive: true, force: true }); }
 }, 30_000);
@@ -55,7 +55,7 @@ test('real parent cancellation at the formatter fence prevents publication', asy
   const reason = new Error('cancelled');
   writeFileSync(file, '{"a":1}');
   try {
-    await assert.rejects(formatOutputFiles(root, ['a.json'], () => controller.abort(reason), controller.signal), error => error === reason);
+    await assert.rejects(formatOutputFiles(root, ['a.json'], async () => controller.abort(reason), controller.signal), error => error === reason);
     assert.equal(readFileSync(file, 'utf8'), '{"a":1}');
   } finally { rmSync(root, { recursive: true, force: true }); }
 }, 30_000);
@@ -63,7 +63,7 @@ test('real parent cancellation at the formatter fence prevents publication', asy
 test('cancelled scaffold admission performs neither source rendering nor writes', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-scaffold-abort-'));
   const controller = new AbortController(), reason = new Error('cancelled'); controller.abort(reason);
-  const lock = { get resolvedBlocks() { assert.fail('features read after cancellation'); } } as unknown as LockFile;
+  const lock = { get resolvedBlocks() { assert.fail('features read after cancellation'); throw new Error('unreachable'); } } as unknown as LockFile;
   try { await assert.rejects(generateRuntimeLibraryScaffold(root, lock, undefined, controller.signal), error => error === reason); }
   finally { rmSync(root, { recursive: true, force: true }); }
 }, 30_000);

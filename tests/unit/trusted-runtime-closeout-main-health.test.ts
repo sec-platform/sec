@@ -10,12 +10,17 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import process from 'node:process';
 
 import { resolveSecRuntimeStateForRepository } from '../../src/runtime-state/workspace-state/paths.ts';
 import { encodeVerificationActionData } from '../../src/verification/action/contract/action.ts';
 import { createTrustedRuntimeMainHealthBaselineObservation, createTrustedRuntimeMainHealthReceipt, TRUSTED_RUNTIME_CONTAINER_IMAGE_ID, TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST } from '../../src/verification/trusted-runtime/trusted-runtime-container.ts';
 
 const REPOSITORY = 'sec-platform/sec';
+const TRUSTED_RUNTIME_MAIN_HEALTH_PROGRAM_PATH = path.resolve(
+  import.meta.dir,
+  '../helpers/trusted-runtime-main-health-child.ts'
+);
 
 function git(repositoryRoot: string, args: readonly string[]): string {
   const result = spawnSync('git', args, {
@@ -42,10 +47,9 @@ function installFakeMainHealthGh(binHome: string): void {
 
 function runProductionMainHealth(
   repositoryRoot: string,
-  environment: NodeJS.ProcessEnv,
-  runnerPath: string
+  environment: NodeJS.ProcessEnv
 ) {
-  return spawnSync(process.execPath, [runnerPath, repositoryRoot, REPOSITORY, 'main'], {
+  return spawnSync(process.execPath, [TRUSTED_RUNTIME_MAIN_HEALTH_PROGRAM_PATH, repositoryRoot, REPOSITORY, 'main'], {
     cwd: repositoryRoot,
     encoding: 'utf8',
     env: environment,
@@ -87,7 +91,6 @@ test('production sec main health returns its first typed provider admission fail
       PATH: `${binHome}${path.delimiter}${process.env.PATH ?? ''}`
     });
     installFakeMainHealthGh(binHome);
-    const runnerPath = path.resolve(import.meta.dir, '../helpers/trusted-runtime-main-health-child.ts');
     const layout = resolveSecRuntimeStateForRepository({
       repository: REPOSITORY,
       repositoryRoot,
@@ -133,17 +136,34 @@ test('production sec main health returns its first typed provider admission fail
     const receiptBytes = `${encodeVerificationActionData(receipt)}\n`;
     writeFileSync(receiptPath, receiptBytes, 'utf8');
 
-    const firstRun = runProductionMainHealth(repositoryRoot, childEnvironment, runnerPath);
+    const firstRun = runProductionMainHealth(repositoryRoot, childEnvironment);
     expect(firstRun.status).not.toBe(0);
-    if (process.platform === 'win32') {
-      expect(firstRun.stderr).toContain('trusted-runtime-control-cli-unavailable');
-      expect(firstRun.stderr).toContain('semantic-session-unavailable');
-    } else {
-      expect(firstRun.stderr).toContain('credential-provider-unavailable');
-    }
+    expect(firstRun.stderr).toContain('github-api-provider-unavailable');
+    expect(firstRun.stderr).toContain('GitHub API credential provider is unavailable');
     expect(() => readFileSync(fakeGhExecutionSentinel, 'utf8')).toThrow();
     expect(readFileSync(receiptPath, 'utf8')).toBe(receiptBytes);
     expect(() => readdirSync(path.join(healthRoot, 'supersessions'))).toThrow();
+
+    git(repositoryRoot, ['branch', '-m', 'candidate']);
+    const candidateRun = runProductionMainHealth(repositoryRoot, childEnvironment);
+    expect(candidateRun.status).not.toBe(0);
+    expect(candidateRun.stderr).toContain('standalone MainHealth must execute from the clean exact default-branch worktree');
+    expect(candidateRun.stderr).not.toContain('github-api-provider-unavailable');
+    expect(() => readFileSync(fakeGhExecutionSentinel, 'utf8')).toThrow();
+    expect(readFileSync(receiptPath, 'utf8')).toBe(receiptBytes);
+
+    git(repositoryRoot, ['branch', '-m', 'main']);
+    writeFileSync(path.join(repositoryRoot, 'untracked.txt'), 'dirty\n');
+    const dirtyRun = runProductionMainHealth(repositoryRoot, childEnvironment);
+    expect(dirtyRun.stderr).toContain('standalone MainHealth must execute from the clean exact default-branch worktree');
+    expect(dirtyRun.stderr).not.toContain('github-api-provider-unavailable');
+    rmSync(path.join(repositoryRoot, 'untracked.txt'));
+    git(repositoryRoot, ['remote', 'set-url', 'origin', 'https://github.com/unrelated/repository.git']);
+    const originRun = runProductionMainHealth(repositoryRoot, childEnvironment);
+    expect(originRun.stderr).toContain('origin remote does not match the requested GitHub repository');
+    expect(originRun.stderr).not.toContain('github-api-provider-unavailable');
+    expect(() => readFileSync(fakeGhExecutionSentinel, 'utf8')).toThrow();
+    expect(readFileSync(receiptPath, 'utf8')).toBe(receiptBytes);
   } finally {
     const cleanup = { recursive: true, force: true, maxRetries: 10, retryDelay: 50 } as const;
     rmSync(repositoryRoot, cleanup);

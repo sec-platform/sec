@@ -1,10 +1,10 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
-import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { test } from 'bun:test';
-import { workspaceTemporaryPrefix, captureWorkspaceRetention } from '../testkit/workspace-cleanup.ts';
+import path from 'node:path';
 import { captureWorkspacePipelineOptions, workspaceTemplatePipeline, type WorkspaceTemplateKind } from '../testkit/template-preparation.ts';
+import { captureWorkspaceRetention, workspaceTemporaryPrefix } from '../testkit/workspace-cleanup.ts';
 
 test('a workspace name is an allocation label, never a caller-selected parent path', () => {
   for (const prefix of ['', '.', '..', '../escape-', '/absolute-', 'nested/prefix-', '..\\escape-', 'C:drive-', 'x\0y']) {
@@ -40,7 +40,7 @@ test('pipeline selection owns a single block list rather than re-reading it afte
 
 test('pipeline options sample known fields once and ignore unrelated capability getters', () => {
   let count = 0;
-  const input = { get blockIds() { count++; return ['block/a']; }, get extra() { assert.fail('unrelated'); } };
+  const input = { get blockIds() { count++; return ['block/a']; }, get extra() { assert.fail('unrelated'); throw new Error('unreachable'); } };
   assert.deepEqual(captureWorkspacePipelineOptions(input).blockIds, ['block/a']); assert.equal(count, 1);
 });
 

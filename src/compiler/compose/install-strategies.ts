@@ -1,9 +1,8 @@
-import { throwIfNativeAborted } from '../../system-architecture/foundation/runtime/native-abort.ts';
-import { assertCanonicalPortableLogicalPath } from '../../system-architecture/foundation/contract/logical-path.ts';
 import path from 'node:path';
+import { assertCanonicalPortableLogicalPath } from '../../system-architecture/foundation/contract/logical-path.ts';
 import { createTaskGroupEffectFence, mapTaskGroup } from '../../system-architecture/foundation/runtime/concurrency.ts';
+import { throwIfNativeAborted } from '../../system-architecture/foundation/runtime/native-abort.ts';
 import type { CommitFence } from '../../workspace/files.ts';
-import { materializePrismaSource } from './merge-prisma-template.ts';
 import { copyRecursive } from '../../workspace/runtime/discovery.ts';
 import {
   isCanonicalWorkspaceArtifactPath,
@@ -13,6 +12,7 @@ import {
 } from '../../workspace/runtime/paths.ts';
 import type { InstallPlanStep, LockFile } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
+import { materializePrismaSource } from './merge-prisma-template.ts';
 
 export interface InstallContext {
   workspaceRoot: string;

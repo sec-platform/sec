@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { formatCountRecord, formatCounts } from '../../src/interface/cli/format-utils.ts';
 
 test('pre-aggregated count display matches occurrence expansion for ordinary inputs', () => {

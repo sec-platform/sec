@@ -1,9 +1,9 @@
+import { test } from 'bun:test';
+import { Command } from 'commander';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { test } from 'bun:test';
-import { Command } from 'commander';
 import { inspectionValue, registerInspectionQuery, type InspectionContext } from '../../src/interface/cli/inspection-query.ts';
 
 function program() {

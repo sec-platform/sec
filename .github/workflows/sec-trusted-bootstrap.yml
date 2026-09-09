@@ -228,6 +228,11 @@ jobs:
     runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-trusted-v1]
     timeout-minutes: 30
     steps:
+      - name: Setup trusted-base Bun runtime
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ needs.resolve.outputs.bun-version }}
+
       - name: Checkout exact trusted base checker
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
@@ -254,7 +259,7 @@ jobs:
           set -euo pipefail
           unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
           unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
-          node <<'NODE'
+          bun --no-env-file - <<'BUN'
             const { lstatSync, realpathSync } = require("node:fs");
             const path = require("node:path");
             const { spawnSync } = require("node:child_process");
@@ -297,12 +302,7 @@ jobs:
                 git(["status", "--porcelain=v1", "--untracked-files=all"]).byteLength !== 0) {
               throw new Error("trusted-base workflow-owned identity, tree, root, or cleanliness preflight failed.");
             }
-          NODE
-
-      - name: Setup trusted-base Bun runtime
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: ${{ needs.resolve.outputs.bun-version }}
+          BUN
 
       - name: Install trusted-base checker dependencies without lifecycle scripts
         shell: bash
@@ -772,6 +772,11 @@ jobs:
     runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-trusted-v1]
     timeout-minutes: 30
     steps:
+      - name: Setup trusted-base Bun runtime for reducer
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ needs.resolve.outputs.bun-version }}
+
       - name: Initialize fail-closed final evidence envelope
         shell: bash
         env:
@@ -787,7 +792,7 @@ jobs:
           unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
           unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
           mkdir -p "$FINAL_EVIDENCE_ROOT"
-          node <<'NODE'
+          bun --no-env-file - <<'BUN'
             const { createHash } = require("node:crypto");
             const { renameSync, writeFileSync } = require("node:fs");
             const path = require("node:path");
@@ -818,7 +823,7 @@ jobs:
             const temporary = path.join(root, "final-envelope.json.tmp");
             writeFileSync(temporary, `${JSON.stringify({ ...semantic, receiptDigest }, null, 2)}\n`, { flag: "wx" });
             renameSync(temporary, path.join(root, "final-envelope.json"));
-          NODE
+          BUN
           (cd "$FINAL_EVIDENCE_ROOT" && sha256sum final-envelope.json > SHA256SUMS.tmp && mv SHA256SUMS.tmp SHA256SUMS)
 
       - name: Checkout exact trusted base reducer
@@ -847,7 +852,7 @@ jobs:
           set -euo pipefail
           unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
           unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
-          node <<'NODE'
+          bun --no-env-file - <<'BUN'
             const { lstatSync, realpathSync } = require("node:fs");
             const path = require("node:path");
             const { spawnSync } = require("node:child_process");
@@ -890,12 +895,7 @@ jobs:
                 git(["status", "--porcelain=v1", "--untracked-files=all"]).byteLength !== 0) {
               throw new Error("trusted-base workflow-owned identity, tree, root, or cleanliness preflight failed.");
             }
-          NODE
-
-      - name: Setup trusted-base Bun runtime for reducer
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: ${{ needs.resolve.outputs.bun-version }}
+          BUN
 
       - name: Install trusted-base reducer dependencies without lifecycle scripts
         shell: bash
@@ -969,7 +969,7 @@ jobs:
             printf 'git=%s\n' "$(git --version)"
             printf 'os=%s\n' "$(uname -a)"
           } > "$FINAL_EVIDENCE_ROOT/environment.txt"
-          node <<'NODE'
+          bun --no-env-file - <<'BUN'
             const { createHash } = require("node:crypto");
             const { readFileSync, renameSync, writeFileSync } = require("node:fs");
             const path = require("node:path");
@@ -1028,11 +1028,11 @@ jobs:
             const temporary = path.join(root, "final-envelope.json.tmp");
             writeFileSync(temporary, `${JSON.stringify(upgraded, null, 2)}\n`, { flag: "wx" });
             renameSync(temporary, envelopePath);
-          NODE
+          BUN
           (cd "$FINAL_EVIDENCE_ROOT" && \
             sha256sum environment.txt final-envelope.json post-receipt.json pre-receipt.json sut-diagnostic.json > SHA256SUMS.tmp && \
             mv SHA256SUMS.tmp SHA256SUMS)
-          test "$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).status' "$FINAL_EVIDENCE_ROOT/final-envelope.json")" = passed
+          test "$(bun --no-env-file -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).status' "$FINAL_EVIDENCE_ROOT/final-envelope.json")" = passed
 
       - name: Upload final canonical trusted bootstrap evidence
         if: always()

@@ -1,5 +1,5 @@
-import { rawSha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { snapshotByteView } from '../../system-architecture/foundation/runtime/byte-snapshot.ts';
+import { rawSha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 
 // This cache family owns its layout and capacities. No caller override or new
 // generation policy is introduced; the existing 64 MiB payload ceiling stays.

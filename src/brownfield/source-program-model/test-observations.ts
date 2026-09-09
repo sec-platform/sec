@@ -29,6 +29,8 @@ import { resolveSecRepositoryModuleImportCandidates } from './module-graph.ts';
 import {
   compileSecRepositoryModuleGraph,
   isCompiledTypeScriptSourceProgramModel,
+  sourceProgramTypeScriptIdentifierIsAmbientGlobal,
+  sourceProgramTypeScriptIdentifierResolvesToImport,
   sourceProgramTypeScriptSourceFile,
   workspaceSourceSnapshotIdentityForTypeScriptModel
 } from './typescript.ts';
@@ -94,6 +96,12 @@ export interface SourceProgramTestSourceReadObservation {
   readonly span: SourceProgramSpan;
 }
 
+export interface SourceProgramTestLocalProgramInvocationObservation {
+  readonly path: string;
+  readonly target: string;
+  readonly span: SourceProgramSpan;
+}
+
 export interface SourceProgramTestObservations {
   readonly sourceRevision: string;
   readonly productionModelDigest: string;
@@ -103,6 +111,9 @@ export interface SourceProgramTestObservations {
   readonly capabilities: readonly SourceProgramCapabilityInvocation[];
   readonly registrations: readonly SourceProgramTestRegistrationObservation[];
   readonly productionSourceReads: readonly SourceProgramTestSourceReadObservation[];
+  readonly resourceReads: readonly SourceProgramTestSourceReadObservation[];
+  /** Static local TypeScript argv targets invoked through the current Bun process. */
+  readonly localProgramInvocations: readonly SourceProgramTestLocalProgramInvocationObservation[];
   readonly unknowns: readonly SourceProgramUnknown[];
   readonly observationDigest: string;
 }
@@ -744,21 +755,139 @@ function repositoryPath(repositoryRoot: string, value: string): string | null {
   return relative === '..' || relative.startsWith('../') ? null : relative;
 }
 
-function rawTextReadPath(node: ts.CallExpression): ts.Expression | null {
-  const identity = callIdentity(node.expression);
-  if (identity !== null && (
-    identity === 'readFile'
-    || identity === 'readFileSync'
-    || identity.endsWith('.readFile')
-    || identity.endsWith('.readFileSync')
-  )) return node.arguments[0] ?? null;
+function rawTextReadPath(
+  node: ts.CallExpression,
+  bindings: ReadonlyMap<string, ImportedBinding>,
+  model: SourceProgramModel,
+  repositoryPath: string
+): ts.Expression | null {
+  const bound = callBinding(node.expression, bindings);
+  const callee = ts.isIdentifier(node.expression) ? node.expression
+    : ts.isPropertyAccessExpression(node.expression) && ts.isIdentifier(node.expression.expression)
+      ? node.expression.expression : null;
+  if (bound !== null && callee !== null
+      && ((['node:fs', 'fs'].includes(bound.binding.moduleSpecifier)
+          && (bound.operation === 'readFile' || bound.operation === 'readFileSync'))
+        || (['node:fs/promises', 'fs/promises'].includes(bound.binding.moduleSpecifier)
+          && bound.operation === 'readFile'))
+      && sourceProgramTypeScriptIdentifierResolvesToImport(
+        model, repositoryPath, callee, bound.binding.moduleSpecifier, bound.binding.targetName
+      )) return node.arguments[0] ?? null;
   if (ts.isPropertyAccessExpression(node.expression)
       && node.expression.name.text === 'text'
-      && ts.isCallExpression(node.expression.expression)
-      && callIdentity(node.expression.expression.expression) === 'Bun.file') {
-    return node.expression.expression.arguments[0] ?? null;
+      && ts.isCallExpression(node.expression.expression)) {
+    const fileCall = node.expression.expression;
+    if (ts.isPropertyAccessExpression(fileCall.expression)
+        && fileCall.expression.name.text === 'file'
+        && ts.isIdentifier(fileCall.expression.expression)
+        && (sourceProgramTypeScriptIdentifierIsAmbientGlobal(
+          model, repositoryPath, fileCall.expression.expression, 'Bun'
+        ) || sourceProgramTypeScriptIdentifierResolvesToImport(
+          model, repositoryPath, fileCall.expression.expression, 'bun', '*'
+        ))) return fileCall.arguments[0] ?? null;
   }
   return null;
+}
+
+function isCurrentProcessExecutable(
+  expression: ts.Expression,
+  model: SourceProgramModel,
+  repositoryPath: string
+): boolean {
+  const current = unwrap(expression);
+  return ts.isPropertyAccessExpression(current)
+    && ts.isIdentifier(current.expression)
+    && current.expression.text === 'process'
+    && current.name.text === 'execPath'
+    && (sourceProgramTypeScriptIdentifierIsAmbientGlobal(
+        model,
+        repositoryPath,
+        current.expression,
+        'process'
+      ) || sourceProgramTypeScriptIdentifierResolvesToImport(
+        model,
+        repositoryPath,
+        current.expression,
+        'node:process',
+        'default'
+      ));
+}
+
+function localProgramInvocationArgument(
+  node: ts.CallExpression,
+  bindings: ReadonlyMap<string, ImportedBinding>,
+  model: SourceProgramModel,
+  repositoryPath: string
+): readonly ts.Expression[] | null | undefined {
+  const bound = callBinding(node.expression, bindings);
+  if (bound !== null
+      && ['node:child_process', 'child_process'].includes(bound.binding.moduleSpecifier)
+      && (bound.operation === 'spawn' || bound.operation === 'spawnSync')) {
+    const calleeIdentifier = ts.isIdentifier(node.expression)
+      ? node.expression
+      : ts.isPropertyAccessExpression(node.expression) && ts.isIdentifier(node.expression.expression)
+        ? node.expression.expression
+        : null;
+    if (calleeIdentifier === null
+        || !sourceProgramTypeScriptIdentifierResolvesToImport(
+          model,
+          repositoryPath,
+          calleeIdentifier,
+          bound.binding.moduleSpecifier,
+          bound.binding.targetName
+        )) return undefined;
+    const [executable, argv] = node.arguments;
+    if (executable === undefined
+        || !isCurrentProcessExecutable(executable, model, repositoryPath)) {
+      return undefined;
+    }
+    const argumentList = argv === undefined ? null : unwrap(argv);
+    if (argumentList === null || !ts.isArrayLiteralExpression(argumentList)) return null;
+    const program = argumentList.elements[0];
+    return program === undefined ? null : Object.freeze([program]);
+  }
+
+  if (!ts.isPropertyAccessExpression(node.expression)
+      || !ts.isIdentifier(node.expression.expression)
+      || node.expression.expression.text !== 'Bun'
+      || (node.expression.name.text !== 'spawn' && node.expression.name.text !== 'spawnSync')
+      || !(sourceProgramTypeScriptIdentifierIsAmbientGlobal(
+          model,
+          repositoryPath,
+          node.expression.expression,
+          'Bun'
+        ) || sourceProgramTypeScriptIdentifierResolvesToImport(
+          model,
+          repositoryPath,
+          node.expression.expression,
+          'bun',
+          '*'
+        ))) return undefined;
+  const input = node.arguments[0] === undefined ? null : unwrap(node.arguments[0]);
+  const safeProperty = (property: ts.ObjectLiteralElementLike): property is ts.PropertyAssignment & {
+    name: ts.Identifier | ts.StringLiteralLike;
+  } => (
+    ts.isPropertyAssignment(property)
+    && (ts.isIdentifier(property.name) || ts.isStringLiteralLike(property.name))
+  );
+  let commandList: ts.Expression | null = input !== null && ts.isArrayLiteralExpression(input)
+    ? input
+    : null;
+  if (input !== null && ts.isObjectLiteralExpression(input)) {
+    const properties = input.properties.filter(safeProperty);
+    if (properties.length !== input.properties.length) return null;
+    const commandProperties = properties.filter((property) => property.name.text === 'cmd');
+    if (commandProperties.length === 1) commandList = unwrap(commandProperties[0]!.initializer);
+  }
+  if (commandList === null || !ts.isArrayLiteralExpression(commandList)) return null;
+  const [executable, firstArgument, secondArgument] = commandList.elements;
+  if (executable === undefined
+      || !isCurrentProcessExecutable(executable, model, repositoryPath)) return null;
+  if (firstArgument === undefined) return null;
+  if (ts.isStringLiteralLike(firstArgument) && firstArgument.text === '--no-env-file') {
+    return secondArgument === undefined ? null : Object.freeze([secondArgument]);
+  }
+  return Object.freeze([firstArgument]);
 }
 
 function assertionMatcher(node: ts.CallExpression): Readonly<{
@@ -783,6 +912,37 @@ function expressionIdentityName(expression: ts.Expression): string | null {
   return null;
 }
 
+type CandidateTestContractIndex = Readonly<{
+  candidatePaths: ReadonlySet<string>;
+  candidateExports: ReadonlySet<string>;
+}>;
+
+const candidateTestContractIndexes = new WeakMap<object, CandidateTestContractIndex>();
+
+function candidateTestContractIndex(
+  model: SourceProgramModel,
+  operation: SourceProgramCompilationOperation
+): CandidateTestContractIndex {
+  const cached = candidateTestContractIndexes.get(model);
+  if (cached !== undefined) return cached;
+  const candidatePaths = new Set<string>();
+  for (const file of model.files) {
+    sourceProgramCompilationCheckpoint(operation, 'baseline-test-evidence');
+    candidatePaths.add(file.path);
+  }
+  const candidateExports = new Set<string>();
+  for (const declaration of model.declarations) {
+    sourceProgramCompilationCheckpoint(operation, 'baseline-test-evidence');
+    if (declaration.exported) candidateExports.add(declaration.name);
+  }
+  const index = Object.freeze({
+    candidatePaths,
+    candidateExports
+  });
+  candidateTestContractIndexes.set(model, index);
+  return index;
+}
+
 /**
  * Observe one baseline test contract from the exact baseline Program against
  * one exact candidate Program.  The two generations remain distinct; this
@@ -792,8 +952,11 @@ function expressionIdentityName(expression: ts.Expression): string | null {
 export function observeSourceProgramTestContractCensus(
   baselineModel: SourceProgramModel,
   candidateModel: SourceProgramModel,
-  repositoryPath: string
+  repositoryPath: string,
+  operation?: SourceProgramCompilationOperation
 ): SourceProgramTestContractCensusObservation {
+  const censusOperation = resolveSourceProgramCompilationOperation(operation);
+  sourceProgramCompilationCheckpoint(censusOperation, 'baseline-test-evidence');
   const unresolved = (
     reason: SourceProgramTestContractCensusUnresolvedReason
   ): SourceProgramTestContractCensusObservation => Object.freeze({
@@ -820,10 +983,10 @@ export function observeSourceProgramTestContractCensus(
   }).parseDiagnostics ?? [];
   if (diagnostics.length > 0) return unresolved('baseline-test-source-unresolved');
 
-  const candidatePaths = new Set(candidateModel.files.map(({ path: filePath }) => filePath));
-  const candidateExports = new Set(candidateModel.declarations
-    .filter(({ exported }) => exported)
-    .map(({ name }) => name));
+  const { candidatePaths, candidateExports } = candidateTestContractIndex(
+    candidateModel,
+    censusOperation
+  );
   const relativeSpecifier = (value: string): boolean =>
     value.startsWith('./') || value.startsWith('../');
   const liveRelativeConsumer = (specifier: string): boolean => (
@@ -852,6 +1015,7 @@ export function observeSourceProgramTestContractCensus(
   let consumerCount = 0;
   let externalContractCount = 0;
   for (const statement of sourceFile.statements) {
+    sourceProgramCompilationCheckpoint(censusOperation, 'baseline-test-evidence');
     if (ts.isImportDeclaration(statement) && ts.isStringLiteralLike(statement.moduleSpecifier)) {
       const specifier = statement.moduleSpecifier.text;
       if (TEST_SUPPORT_MODULE.test(specifier)) continue;
@@ -879,6 +1043,7 @@ export function observeSourceProgramTestContractCensus(
     }
   }
   const visit = (node: ts.Node): void => {
+    sourceProgramCompilationCheckpoint(censusOperation, 'baseline-test-evidence');
     if (ts.isCallExpression(node)) {
       const identity = callIdentity(node.expression);
       if (identity === 'require') {
@@ -1079,6 +1244,8 @@ function compileSourceProgramTestObservationsInternal(
   const capabilities: SourceProgramCapabilityInvocation[] = [];
   const registrations: SourceProgramTestRegistrationObservation[] = [];
   const productionSourceReads: SourceProgramTestSourceReadObservation[] = [];
+  const resourceReads: SourceProgramTestSourceReadObservation[] = [];
+  const localProgramInvocations: SourceProgramTestLocalProgramInvocationObservation[] = [];
   const unknowns: SourceProgramUnknown[] = [];
   const testFiles = files.filter(({ path }) => sourceProgramSurfaceForPath(path) === 'test');
   const repositoryRoot = input.repositoryRoot ?? process.cwd();
@@ -1171,7 +1338,7 @@ function compileSourceProgramTestObservationsInternal(
           registrationNodes.push(node);
         }
         if (ts.isCallExpression(node)) {
-          const sourcePathExpression = rawTextReadPath(node);
+          const sourcePathExpression = rawTextReadPath(node, bindings, input.productionModel, file.path);
           if (sourcePathExpression !== null) {
             const value = staticString(sourcePathExpression, file.path, repositoryRoot, constants);
             const target = value === null ? null : repositoryPath(repositoryRoot, value);
@@ -1179,6 +1346,39 @@ function compileSourceProgramTestObservationsInternal(
               productionSourceReads.push(Object.freeze({
                 path: file.path,
                 target,
+                span: spanFor(sourceFile, node)
+              }));
+            } else if (target !== null && filesByPath.has(target)
+                && sourceProgramSurfaceForPath(target) === 'resource') {
+              resourceReads.push(Object.freeze({
+                path: file.path,
+                target,
+                span: spanFor(sourceFile, node)
+              }));
+            }
+          }
+          const programArgument = localProgramInvocationArgument(
+            node,
+            bindings,
+            input.productionModel,
+            file.path
+          );
+          if (programArgument !== undefined) {
+            const value = programArgument === null || programArgument.length !== 1
+              ? null
+              : staticString(programArgument[0]!, file.path, repositoryRoot, constants);
+            const target = value === null ? null : repositoryPath(repositoryRoot, value);
+            if (target !== null && compiledFiles.has(target) && /\.tsx?$/u.test(target)) {
+              localProgramInvocations.push(Object.freeze({
+                path: file.path,
+                target,
+                span: spanFor(sourceFile, node)
+              }));
+            } else {
+              unknowns.push(Object.freeze({
+                code: 'test-local-program-invocation-unresolved',
+                path: file.path,
+                detail: 'current Bun program argv[0] is dynamic or outside the compiled snapshot',
                 span: spanFor(sourceFile, node)
               }));
             }
@@ -1550,6 +1750,12 @@ function compileSourceProgramTestObservationsInternal(
   productionSourceReads.sort((left, right) => compareCodeUnits(left.path, right.path)
     || compareSpans(left.span, right.span)
     || compareCodeUnits(left.target, right.target));
+  resourceReads.sort((left, right) => compareCodeUnits(left.path, right.path)
+    || compareSpans(left.span, right.span)
+    || compareCodeUnits(left.target, right.target));
+  localProgramInvocations.sort((left, right) => compareCodeUnits(left.path, right.path)
+    || compareSpans(left.span, right.span)
+    || compareCodeUnits(left.target, right.target));
   unknowns.sort((left, right) => compareCodeUnits(left.path, right.path)
     || (left.span?.start ?? -1) - (right.span?.start ?? -1)
     || compareCodeUnits(left.code, right.code)
@@ -1568,6 +1774,8 @@ function compileSourceProgramTestObservationsInternal(
     capabilities: Object.freeze(compilerCapabilities),
     registrations: Object.freeze(registrations),
     productionSourceReads: Object.freeze(productionSourceReads),
+    resourceReads: Object.freeze(resourceReads),
+    localProgramInvocations: Object.freeze(localProgramInvocations),
     unknowns: Object.freeze([...compilerUnknowns, ...unknowns])
   });
   const observations = Object.freeze({

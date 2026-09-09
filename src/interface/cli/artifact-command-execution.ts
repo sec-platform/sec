@@ -1,7 +1,7 @@
 import type { CiArtifactManifest } from '../../verification/ci-artifacts/contract/types.ts';
-import { observeWorkspaceArtifacts, writeWorkspaceArtifacts } from './lazy-command-domains.ts';
-import { formatJson, printJsonOrText } from './format-utils.ts';
 import type { ArtifactCommandInput } from './artifact-command-input.ts';
+import { formatJson, printJsonOrText } from './format-utils.ts';
+import { observeWorkspaceArtifacts, writeWorkspaceArtifacts } from './lazy-command-domains.ts';
 
 /** A route owns exactly one artifact operation; no raw options or live Command crosses it. */
 export async function executeArtifactCommand(workspaceRoot: string, commandPath: string, input: ArtifactCommandInput): Promise<void> {

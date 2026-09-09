@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import {
   buildAcceptanceTargetInspect, buildPolicySourceInspect, buildReviewDiagnosticsInspect,
   buildRuntimeStepsInspect, formatCiArtifactManifest, formatProvenanceRegistry
@@ -17,14 +17,24 @@ function policy() {
     project: { sources: [{ path: 'a', policyIds: ['two', 'three'] }] } };
 }
 function coverage() {
-  return { status: 'passed', blocks: [{ id: 'block', uncovered: true,
-    declaredAcceptance: ['declared'], coveredBy: [] as string[] }], uncoveredBlocks: ['block'] };
+  const value: CoverageInput = { formatVersion: '1', status: 'passed', acceptancePassed: [],
+    blocks: [{ id: 'block', uncovered: true, declaredAcceptance: ['declared'], coveredBy: [] }],
+    uncoveredBlocks: ['block'] };
+  return value;
 }
 function step() { return { status: 'passed', command: 'test', passed: ['one'], failed: [] as string[] }; }
 function runtime() { return { status: 'passed', build: step(), unit: step(), acceptance: step() }; }
-function manifest(counts: Record<string, number>) {
-  return { summary: { artifactStatus: 'passed', artifactCount: 1, missingCount: 1, uploadGroupCount: 0,
-    governanceCount: 1, testCount: 0, contractCount: 0, missingReasonCounts: counts }, uploadGroups: [] };
+function manifest(counts: Partial<ManifestInput['summary']['missingReasonCounts']>): ManifestInput {
+  const missingReasonCounts = {
+    'declared-generated-missing': 0,
+    'fixed-governance-missing': 0,
+    'stale-semantic-projection': 0,
+    ...counts
+  };
+  return { formatVersion: '2', root: 'workspace', artifacts: [], missing: [],
+    summary: { artifactStatus: 'passed', artifactCount: 1, missingCount: 1, uploadGroupCount: 0,
+      governanceCount: 1, testCount: 0, contractCount: 0, contractPaths: [], missingReasonTypeCount: 0,
+      missingReasonCounts }, uploadGroups: [] };
 }
 
 test('policy projection owns its arrays while preserving source order and counts', () => {
@@ -53,7 +63,7 @@ test('editing a policy projection never changes the domain result', () => {
 });
 
 test('coverage copies declared, covered and uncovered arrays in both directions', () => {
-  const source = coverage(), projected = buildAcceptanceTargetInspect(source as CoverageInput);
+  const source = coverage(), projected = buildAcceptanceTargetInspect(source);
   source.blocks[0]!.declaredAcceptance.push('later'); source.uncoveredBlocks.length = 0;
   projected.targets[0]!.coveredBy.push('projection-only');
   assert.deepEqual(projected.targets[0]!.declaredAcceptance, ['declared']);
@@ -69,7 +79,7 @@ test('coverage summary and target fields use the same captured observations', ()
     coveredBy: { enumerable: true, get() { coveredReads++; return ['coverage']; } },
     uncovered: { enumerable: true, get() { uncoveredReads++; return false; } }
   });
-  const projected = buildAcceptanceTargetInspect(source as CoverageInput);
+  const projected = buildAcceptanceTargetInspect(source);
   assert.deepEqual([declaredReads, coveredReads, uncoveredReads], [1, 1, 1]);
   assert.equal(projected.coveredCount, 1); assert.equal(projected.targets[0]!.uncovered, false);
   assert.equal(projected.targets[0]!.declaredAcceptanceCount, projected.targets[0]!.declaredAcceptance.length);
@@ -77,7 +87,7 @@ test('coverage summary and target fields use the same captured observations', ()
 });
 
 test('coverage projection does not acquire later-added targets', () => {
-  const source = coverage(), projected = buildAcceptanceTargetInspect(source as CoverageInput);
+  const source = coverage(), projected = buildAcceptanceTargetInspect(source);
   source.blocks.push({ ...source.blocks[0]!, id: 'later' });
   assert.equal(projected.targetCount, 1); assert.deepEqual(projected.targets.map(v => v.id), ['block']);
 });
@@ -132,25 +142,27 @@ test('an absent generating pass displays none, not an empty string identity', ()
 });
 
 test('manifest formatter consumes large aggregate counts without occurrence expansion', () => {
-  const output = formatCiArtifactManifest(manifest({ z: Number.MAX_SAFE_INTEGER, a: 2 ** 40, zero: 0 }) as ManifestInput);
-  assert.ok(output.includes(`Missing reasons: a=${2 ** 40}, z=${Number.MAX_SAFE_INTEGER}`));
+  const output = formatCiArtifactManifest(manifest({ 'fixed-governance-missing': Number.MAX_SAFE_INTEGER,
+    'declared-generated-missing': 2 ** 40 }));
+  assert.ok(output.includes(`Missing reasons: declared-generated-missing=${2 ** 40}, fixed-governance-missing=${Number.MAX_SAFE_INTEGER}`));
 });
 
 test('manifest zero/ordinary count presentation preserves existing sorted wording', () => {
-  assert.ok(formatCiArtifactManifest(manifest({ z: 2, a: 1 }) as ManifestInput).includes('Missing reasons: a=1, z=2'));
-  assert.ok(formatCiArtifactManifest(manifest({ z: 0 }) as ManifestInput).includes('Missing reasons: none'));
+  assert.ok(formatCiArtifactManifest(manifest({ 'fixed-governance-missing': 2, 'declared-generated-missing': 1 }))
+    .includes('Missing reasons: declared-generated-missing=1, fixed-governance-missing=2'));
+  assert.ok(formatCiArtifactManifest(manifest({})).includes('Missing reasons: none'));
 });
 
 test('manifest invalid aggregate counts fail explicitly instead of expanding malformed data', () => {
   for (const count of [-1, 0.5, Infinity, NaN]) {
-    assert.throws(() => formatCiArtifactManifest(manifest({ invalid: count }) as ManifestInput), RangeError);
+    assert.throws(() => formatCiArtifactManifest(manifest({ 'declared-generated-missing': count })), RangeError);
   }
 });
 
 test('coverage preserves existing JSON field order while detaching source arrays', () => {
   const entry = { coveredBy: ['coverage'], id: 'block', declaredAcceptance: ['declared'], uncovered: false };
-  const source = { status: 'passed', blocks: [entry], uncoveredBlocks: [] };
-  const projected = buildAcceptanceTargetInspect(source as CoverageInput).targets[0]!;
+  const source: CoverageInput = { formatVersion: '1', status: 'passed', acceptancePassed: [], blocks: [entry], uncoveredBlocks: [] };
+  const projected = buildAcceptanceTargetInspect(source).targets[0]!;
   const expected = { ...entry, declaredAcceptanceCount: 1, coveredByCount: 1 };
   assert.equal(JSON.stringify(projected), JSON.stringify(expected));
   assert.notEqual(projected.coveredBy, entry.coveredBy);

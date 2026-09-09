@@ -1,13 +1,13 @@
+import { test } from 'bun:test';
+import { Command } from 'commander';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { test } from 'bun:test';
-import { Command } from 'commander';
+import { jsonOpts } from '../../src/interface/cli/command-options.ts';
 import { commandValue } from '../../src/interface/cli/command-value.ts';
 import { inspectionValue } from '../../src/interface/cli/inspection-query.ts';
 import { registerWorkspaceAction } from '../../src/interface/cli/workspace-action.ts';
-import { jsonOpts } from '../../src/interface/cli/command-options.ts';
 
 function program() { return new Command().name('sec').exitOverride().configureOutput({ writeOut() {}, writeErr() {} }); }
 async function capture(run: () => Promise<unknown>) {

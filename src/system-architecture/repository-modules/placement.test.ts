@@ -163,3 +163,86 @@ test('responsibility admission resolves compiler and descriptor facts while bloc
     'repository-node-responsibility-reverse-dependency'
   );
 });
+
+test('frontier indexes preserve exact identity and entrypoint multiplicity while scanning references once', () => {
+  const input = fixture({});
+  const helperPath = 'src/example-alpha/helper.ts';
+  const runPath = 'src/example-alpha/run.ts';
+  const entrypoint = Object.freeze({
+    observationId: 'entrypoint-helper',
+    kind: 'package-script' as const,
+    path: 'package.json',
+    name: 'helper',
+    command: 'bun src/example-alpha/helper.ts',
+    targetPackages: Object.freeze([]),
+    targetPaths: Object.freeze([helperPath]),
+    observationClass: 'observed' as const
+  });
+  const withEntrypoint = (targetPaths: readonly string[]) => ({
+    ...input.facts,
+    entrypoints: Object.freeze([Object.freeze({ ...entrypoint, targetPaths: Object.freeze(targetPaths) })])
+  }) as typeof input.facts;
+  const single = compileSecRepositoryModulePlacementAdmission({
+    graph: input.graph,
+    membership: input.membership,
+    facts: withEntrypoint([helperPath])
+  });
+  const duplicate = compileSecRepositoryModulePlacementAdmission({
+    graph: input.graph,
+    membership: input.membership,
+    facts: withEntrypoint([helperPath, helperPath])
+  });
+  expect(duplicate).toEqual(single);
+  expect(single.responsibilityFrontier.find(({ name }) => name === 'helper')).toEqual(
+    expect.objectContaining({ status: 'resolved', responsibility: 'interface' })
+  );
+
+  const undefinedIdentityFacts = {
+    ...input.facts,
+    declarations: Object.freeze((input.facts.declarations ?? []).map((declaration) => (
+      declaration.path === runPath
+        ? Object.freeze({ ...declaration, observationId: undefined, declarationDigest: undefined })
+        : declaration
+    )))
+  } as typeof input.facts;
+  const undefinedIdentity = compileSecRepositoryModulePlacementAdmission({
+    graph: input.graph,
+    membership: input.membership,
+    facts: undefinedIdentityFacts
+  });
+  expect(undefinedIdentity.responsibilityFrontier.find(({ name }) => name === 'run')).toEqual(
+    expect.objectContaining({ nodeId: '', declarationDigest: '', status: 'bounded-unknown' })
+  );
+
+  let targetIdentityReads = 0;
+  const declarationCount = 32;
+  const declarations = Object.freeze(Array.from({ length: declarationCount }, (_, index) => Object.freeze({
+    observationId: `node-batch-${index}`,
+    declarationDigest: `digest-batch-${index}`,
+    path: helperPath,
+    moduleId: input.alpha.moduleId,
+    name: `helper${index}`,
+    kind: 'FunctionDeclaration',
+    exported: true
+  })));
+  const references = Object.freeze(declarations.map((declaration) => Object.freeze({
+    path: 'src/example-beta/contract.ts',
+    sourceObservationId: 'node-contract',
+    get targetObservationId() {
+      targetIdentityReads += 1;
+      return declaration.observationId;
+    },
+    targetPath: helperPath,
+    observationClass: 'observed' as const
+  })));
+  compileSecRepositoryModulePlacementAdmission({
+    graph: input.graph,
+    membership: input.membership,
+    facts: {
+      ...input.facts,
+      declarations,
+      references
+    }
+  });
+  expect(targetIdentityReads).toBe(declarationCount);
+});

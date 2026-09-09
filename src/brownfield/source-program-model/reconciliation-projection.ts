@@ -27,8 +27,8 @@ import {
   type RepositorySourceProgramCompilationReceipt
 } from './repository-compilation.ts';
 
-import { compileSourceProgramFindingDelta, type SourceProgramFindingDelta } from './reconciliation-findings.ts';
 import { compareSourceProgramDeclarations as declarationOrder, pairSourceProgramDeclarations } from './reconciliation-declarations.ts';
+import { compileSourceProgramFindingDelta, type SourceProgramFindingDelta } from './reconciliation-findings.ts';
 
 type SourceProgramReconciliationBinding = Readonly<{
   before: RepositorySourceProgramCompilationReceipt;

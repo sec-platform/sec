@@ -48,6 +48,7 @@ function pipelineProvider(sources: Readonly<Record<string, string>>) {
     return createRepositoryTestImpactSourceProvider({
       projection: issueTestImpactProjection({
         workspaceSnapshot,
+        repositoryModel: repositoryCompilation.model,
         typeScriptModel: repositoryCompilation.typeScriptCompilation.model,
         testObservations: repositoryCompilation.testObservations
       }),

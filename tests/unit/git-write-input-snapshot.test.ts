@@ -1,9 +1,11 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { test } from 'bun:test';
-import { canonicalCommitTreeInput, captureGitDevelopmentCommitContract,
-  compileGitDevelopmentCommitContractDigest } from '../../src/external-capabilities/git-read/runtime/commit-contract.ts';
+import {
+  canonicalCommitTreeInput, captureGitDevelopmentCommitContract,
+  compileGitDevelopmentCommitContractDigest
+} from '../../src/external-capabilities/git-read/runtime/commit-contract.ts';
 import { captureGitScratchIndexDelta } from '../../src/external-capabilities/git-read/runtime/scratch-input.ts';
 
 const tree = 'a'.repeat(40), parent = 'b'.repeat(40), target = 'c'.repeat(40);
@@ -57,7 +59,7 @@ test('commit policy still rejects noncanonical identities, signatures, roots and
 });
 
 test('a parent data slot cannot be replaced by iteration or accessor evaluation', () => {
-  const input = commit(); input.parents[Symbol.iterator] = function* () { yield target; };
+  const input = commit(); input.parents[Symbol.iterator] = () => [target].values();
   assert.deepEqual(canonicalCommitTreeInput(input)?.parents, [parent]);
   Object.defineProperty(input.parents, '0', { get() { assert.fail('parent accessor'); } });
   assert.equal(canonicalCommitTreeInput(input), null);

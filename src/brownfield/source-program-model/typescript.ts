@@ -124,7 +124,6 @@ const RUNTIME_BUILTIN_MODULE = /^(?:node:|bun(?::|$))/u;
 export function isSourceProgramRuntimeBuiltinModuleSpecifier(specifier: string): boolean {
   return RUNTIME_BUILTIN_MODULE.test(specifier);
 }
-const VERSIONED_IDENTIFIER = /(?:_?V[1-9][0-9]*)$/u;
 const compiledTypeScriptModels = new WeakSet<object>();
 const factShardsByModel = new WeakMap<object, readonly TypeScriptSourceProgramFactShard[]>();
 const repositoryCompilationDigestByModel = new WeakMap<object, `sha256:${string}`>();
@@ -1353,6 +1352,71 @@ export function sourceProgramTypeScriptSourceFile(
   repositoryPath: string
 ): ts.SourceFile | null {
   return exactFactGenerationByModel.get(model)?.sourceFiles.get(repositoryPath) ?? null;
+}
+
+function exactGenerationIdentifier(
+  model: SourceProgramModel,
+  repositoryPath: string,
+  node: ts.Identifier,
+  expectedName: string
+): Readonly<{ generation: TypeScriptExactFactGenerationReceipt; sourceFile: ts.SourceFile }> | null {
+  const generation = exactFactGenerationByModel.get(model);
+  const sourceFile = generation?.sourceFiles.get(repositoryPath);
+  if (generation === undefined || sourceFile === undefined
+      || node.text !== expectedName || node.getSourceFile() !== sourceFile) return null;
+  return Object.freeze({ generation, sourceFile });
+}
+
+/** Resolve an intrinsic global through the retained exact Program generation. */
+export function sourceProgramTypeScriptIdentifierIsAmbientGlobal(
+  model: SourceProgramModel,
+  repositoryPath: string,
+  node: ts.Identifier,
+  expectedName: string
+): boolean {
+  const exact = exactGenerationIdentifier(model, repositoryPath, node, expectedName);
+  if (exact === null) return false;
+  const symbol = exact.generation.checker.getSymbolAtLocation(node);
+  const declarations = symbol?.declarations ?? [];
+  const repositorySourceFiles = new Set(exact.generation.sourceFiles.values());
+  return declarations.length > 0 && declarations.every((declaration) => {
+    const declarationFile = declaration.getSourceFile();
+    return declarationFile.isDeclarationFile && !repositorySourceFiles.has(declarationFile);
+  });
+}
+
+/** Resolve an imported call owner through the retained exact Program generation. */
+export function sourceProgramTypeScriptIdentifierResolvesToImport(
+  model: SourceProgramModel,
+  repositoryPath: string,
+  node: ts.Identifier,
+  moduleSpecifier: string,
+  expectedExportName: string
+): boolean {
+  const exact = exactGenerationIdentifier(model, repositoryPath, node, node.text);
+  if (exact === null) return false;
+  const symbol = exact.generation.checker.getSymbolAtLocation(node);
+  if (symbol === undefined || (symbol.flags & ts.SymbolFlags.Alias) === 0) return false;
+  return (symbol.declarations ?? []).some((declaration) => {
+    const importedExportName = ts.isImportSpecifier(declaration)
+      ? (declaration.propertyName ?? declaration.name).text
+      : ts.isNamespaceImport(declaration)
+        ? '*'
+        : ts.isImportClause(declaration) && declaration.name !== undefined
+          ? 'default'
+          : null;
+    if (importedExportName !== expectedExportName) return false;
+    let current: ts.Node | undefined = declaration;
+    while (current !== undefined && !ts.isSourceFile(current)) {
+      if (ts.isImportDeclaration(current)) {
+        return current.getSourceFile() === exact.sourceFile
+          && ts.isStringLiteralLike(current.moduleSpecifier)
+          && current.moduleSpecifier.text === moduleSpecifier;
+      }
+      current = current.parent;
+    }
+    return false;
+  });
 }
 
 /** Syntax validity is projected from the exact compiler generation; consumers do not reparse source. */

@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { snapshotByteTail, snapshotByteView } from '../../src/system-architecture/foundation/runtime/byte-snapshot.ts';
 
 test('suffix selection matches an independent array slice for sizes and nonzero offsets', () => {
@@ -29,7 +29,7 @@ test('a bounded diagnostic tail does not copy or retain a large discarded prefix
 });
 
 test('tail projection does not read caller array properties, iterators or subclass species', () => {
-  class Bytes extends Uint8Array { static get [Symbol.species]() { assert.fail('species'); } }
+  class Bytes extends Uint8Array { static get [Symbol.species]() { assert.fail('species'); throw new Error('unreachable'); } }
   const bytes = new Bytes([1, 2, 3]);
   Object.defineProperties(bytes, {
     byteLength: { get() { assert.fail('byteLength'); } },

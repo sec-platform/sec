@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { captureProjectPathInventory } from '../../src/workspace/contract/project-path-inventory.ts';
 
 test('explicit producer coalescing and strict scope uniqueness remain different decisions', () => {
@@ -10,7 +10,7 @@ test('explicit producer coalescing and strict scope uniqueness remain different 
 
 test('a changed iterator or map implementation cannot substitute a validated scope', () => {
   const paths = ['src/a.ts'];
-  paths[Symbol.iterator] = function* () { yield '../substituted'; };
+  paths[Symbol.iterator] = () => ['../substituted'].values();
   paths.map = () => { assert.fail('caller map'); };
   assert.deepEqual(captureProjectPathInventory(paths, 'reject', 'scope'), ['src/a.ts']);
 });

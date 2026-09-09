@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { isSecRepositoryTestModulePath } from './test-module-path.ts';
 
 test('repository test identity preserves dotted suffixes and portable path spellings', () => {

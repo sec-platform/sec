@@ -1,8 +1,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
 
-import { captureProjectPathInventory } from '../contract/project-path-inventory.ts';
 import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { captureProjectPathInventory } from '../contract/project-path-inventory.ts';
 
 const PROJECT_WRITE_AUTHORIZATION = Symbol('project-write-authorization');
 

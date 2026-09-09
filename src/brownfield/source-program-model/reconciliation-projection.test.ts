@@ -2,7 +2,6 @@ import { expect, test } from 'bun:test';
 
 import { rawSha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import {
-  compileSecRepositoryModuleArchitectureProjection,
   compileSecRepositoryModuleMembershipSnapshot
 } from '../../system-architecture/repository-modules/contract.ts';
 import type { SourceProgramUnknown } from './contract.ts';
@@ -174,7 +173,10 @@ test('declaration rename, move, and re-export changes are derived from owner rel
   }));
 
   const reference = architectureEvolution(before, moved);
-  expect(reference.status).toBe('blocked');
+  // The owner relation and every consumer moved together. A path change
+  // alone is not an unresolved architecture obligation or effect grant.
+  expect(reconcile(before, moved).unresolvedReasons).toEqual([]);
+  expect(reference.status).toBe('ready');
   expect(reference.changes).toContainEqual(expect.objectContaining({
     kind: 'moved',
     sourcePath: 'src/example/service.ts',
@@ -661,22 +663,25 @@ test('malformed candidate-provider evidence is typed unresolved and cannot autho
     subject: 'static-analysis.unused'
   }));
 
-  const unavailableShadow = compileSourceProgramReconciliationProjection({
-    before: before.compilation,
-    after: after.compilation,
-    providerEvidence: [Object.freeze({
-      provider: 'static-analysis.dependencies',
-      status: 'unresolved',
-      providerRevision: null,
-      configDigest: null,
-      inputDigest: null,
-      candidateDigest: null
-    })]
-  });
-  expect(unavailableShadow.unresolvedReasons).toContainEqual(expect.objectContaining({
-    code: 'candidate-provider-evidence-unresolved',
-    subject: 'static-analysis.dependencies'
-  }));
+  for (const provider of ['static-analysis.dependencies', 'knip']) {
+    const unavailableShadow = compileSourceProgramReconciliationProjection({
+      before: before.compilation,
+      after: after.compilation,
+      providerEvidence: [Object.freeze({
+        provider,
+        status: 'unresolved',
+        providerRevision: null,
+        configDigest: null,
+        inputDigest: null,
+        candidateDigest: null
+      })]
+    });
+    expect(unavailableShadow.unresolvedReasons).toContainEqual(expect.objectContaining({
+      code: 'candidate-provider-evidence-unresolved',
+      subject: provider
+    }));
+    expect(unavailableShadow.status).toBe('unresolved');
+  }
 
   for (const status of ['absent', 'unexpected']) {
     const invalidRuntimeStatus = compileSourceProgramReconciliationProjection({

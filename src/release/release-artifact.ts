@@ -343,12 +343,15 @@ async function publishAcceptedArtifact(
   if (lease === null) {
     throw new Error(`Release artifact publication is contended: ${destinationRoot}`);
   }
-
   const sameExpectedManifest = (manifest: ReleaseArtifactManifest): boolean =>
     manifest.contentDigest === expectedManifest.contentDigest &&
     sha256(manifestMaterialFromReadback(manifest)) === sha256(manifestMaterialFromReadback(expectedManifest));
 
+  let primaryFailure: unknown;
+  let hasPrimaryFailure = false;
   try {
+    // Publication recovery is bound to the retained artifact/backup manifest.
+    lease.acknowledgeReclaimedRecovery();
     let backup: PhysicalDirectoryIdentity | null = null;
     const retainedBackup = inspectExactNoFollowDirectoryPresence(
       backupRoot,
@@ -471,8 +474,23 @@ async function publishAcceptedArtifact(
       }
     );
     return Object.freeze(cleanup === null ? [] : [cleanup]);
+  } catch (error) {
+    primaryFailure = error;
+    hasPrimaryFailure = true;
+    throw error;
   } finally {
-    lease.release();
+    try {
+      if (lease.recoveryPending) lease.restoreReclaimedOwner();
+      else lease.release();
+    } catch (settlementFailure) {
+      if (hasPrimaryFailure) {
+        throw new AggregateError(
+          [primaryFailure, settlementFailure],
+          'Release artifact publication and lease settlement both failed.'
+        );
+      }
+      throw settlementFailure;
+    }
   }
 }
 

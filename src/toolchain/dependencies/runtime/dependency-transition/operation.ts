@@ -13,15 +13,15 @@ import {
 import {
   canonicalJson
 } from '../../../../system-architecture/foundation/runtime/canonical.ts';
+import { failureMessage, getErrorCode } from '../../../../system-architecture/foundation/runtime/failure-inspection.ts';
 import {
+  type RuntimeDependencyEffectFenceInput,
+  runtimeDependencyEffectFenceOptions,
   runtimeDependencyOperationContext,
   runtimeDependencyOperationEffectFence,
-  runtimeDependencyEffectFenceOptions,
-  type RuntimeDependencyEffectFenceInput,
   runtimeDependencyOperationRemainingMs
 } from '../operation-context.ts';
-import { runtimeDependencyOperationControls, type RuntimeDependencyOperationControlInput } from '../operation-controls.ts';
-import { failureMessage, getErrorCode } from '../../../../system-architecture/foundation/runtime/failure-inspection.ts';
+import { type RuntimeDependencyOperationControlInput, runtimeDependencyOperationControls } from '../operation-controls.ts';
 import {
   assertRuntimeDependencySourceGenerationIssued
 } from '../source-generation.ts';
@@ -37,7 +37,6 @@ import {
   type DependencyTransitionJournal,
   type DependencyTransitionKind,
   type DependencyTransitionLedger,
-  type DependencyTransitionNamespace,
   type DependencyTransitionPhase,
   type DependencyTransitionSlot,
   type DependencyTransitionUnsigned,
@@ -50,21 +49,17 @@ import {
   assertDependencyTransitionMigrationTargetBinding,
   DEPENDENCY_TRANSITION_LEGACY_SCHEMA,
   type DependencyTransitionMigrationIntent,
-  type DependencyTransitionMigrationIntents,
   inspectLegacyDependencyTransitionNamespace,
   readDependencyTransitionMigrationIntents
 } from './migration.ts';
 import {
   DEPENDENCY_TRANSITION_ROLLOVER_TRIGGER,
-  type DependencyTransitionRolloverIntent,
-  type DependencyTransitionRolloverObservation,
   inspectActiveDependencyTransitionRollover,
   rolloverDependencyTransitionLedger
 } from './rollover.ts';
 import {
   DEPENDENCY_TRANSITION_RECORD_CAPACITY,
   dependencyTransitionNamespacePaths,
-  type DependencyTransitionRecordSet,
   ensureDependencyTransitionNamespace,
   inspectDependencyTransitionNamespace,
   observeDependencyTransitionSlot,

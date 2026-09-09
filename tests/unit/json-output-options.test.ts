@@ -1,9 +1,9 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
 import { Command } from 'commander';
+import assert from 'node:assert/strict';
 
-import { jsonOpts, addJsonFlags } from '../../src/interface/cli/command-options.ts';
-import { parseJsonOutputOptions, JSON_OUTPUT_OPTIONS, type JsonOutputIssue } from '../../src/interface/cli/json-output-options.ts';
+import { addJsonFlags, jsonOpts } from '../../src/interface/cli/command-options.ts';
+import { JSON_OUTPUT_OPTIONS, parseJsonOutputOptions, type JsonOutputIssue } from '../../src/interface/cli/json-output-options.ts';
 import { parsePipelineOutputOptions } from '../../src/interface/cli/pipeline-command-input.ts';
 import { registerPipelineCommands } from '../../src/interface/cli/register-pipeline-commands.ts';
 

@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 
 import { SecError } from '../../src/system-architecture/foundation/contract/failure.ts';
 import { runtimeDependencyOperationOptions, runtimeDependencyOperationRemainingMs } from '../../src/toolchain/dependencies/runtime/operation-context.ts';

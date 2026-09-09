@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { capturePipelineRequestedStages, requirePipelineSource, sealPipelineExecutionContext } from '../../src/compiler/pipeline/execution-context.ts';
 
 const context = () => ({ transactionId: 'tx:one', source: 'api' as const, workspaceWriteLease: {} as never });
@@ -39,7 +39,7 @@ for (const values of [new Array(1), ['compose', 'compose'], ['__proto__'], ['unk
 });
 
 test('stage capture ignores a custom iterator and refuses accessor slots', () => {
-  const values = ['resolve']; values[Symbol.iterator] = function* () { yield 'bad'; };
+  const values = ['resolve']; values[Symbol.iterator] = () => ['bad'].values();
   assert.deepEqual(capturePipelineRequestedStages(values as never), ['resolve']);
   Object.defineProperty(values, 0, { get() { assert.fail('slot getter'); } });
   assert.throws(() => capturePipelineRequestedStages(values as never));

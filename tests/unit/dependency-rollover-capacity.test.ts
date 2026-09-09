@@ -1,12 +1,15 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { test } from 'bun:test';
-import { createRolloverFixture } from '../helpers/rollover-fixture.ts';
-import { DEPENDENCY_TRANSITION_ROLLOVER_TRIGGER, rolloverDependencyTransitionLedger,
-  inspectActiveDependencyTransitionRollover } from '../../src/toolchain/dependencies/runtime/dependency-transition/rollover.ts';
-import { inspectDependencyTransitionNamespace, dependencyTransitionLedgerDigest } from '../../src/toolchain/dependencies/runtime/dependency-transition/store.ts';
 import { dependencyTransitionRecordBytes, transitionRecordName } from '../../src/toolchain/dependencies/runtime/dependency-transition/codec.ts';
+import {
+  DEPENDENCY_TRANSITION_ROLLOVER_TRIGGER,
+  inspectActiveDependencyTransitionRollover,
+  rolloverDependencyTransitionLedger
+} from '../../src/toolchain/dependencies/runtime/dependency-transition/rollover.ts';
+import { dependencyTransitionLedgerDigest, inspectDependencyTransitionNamespace } from '../../src/toolchain/dependencies/runtime/dependency-transition/store.ts';
+import { createRolloverFixture } from '../helpers/rollover-fixture.ts';
 
 // Uses the real canonical trigger, not an injected smaller capacity. Local
 // replay still uses declared physical/store adapters; this is not a benchmark

@@ -23,7 +23,6 @@ import {
   compileSecRepositoryModuleMembershipSnapshot,
   compileSecRepositoryModuleTopologyProjection,
   parseSecModuleDescriptor,
-  type SecRepositoryModuleArchitectureProjection,
   type SecRepositoryModuleMembership
 } from '../../src/system-architecture/repository-modules/contract.ts';
 import { compileSecRepositoryModulePlacementAdmission } from '../../src/system-architecture/repository-modules/placement.ts';

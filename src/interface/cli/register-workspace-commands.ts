@@ -1,19 +1,22 @@
-import { commandValue } from './command-value.ts';
-import { registerWorkspaceAction } from './workspace-action.ts';
-import { ARTIFACT_PATHS_OPTION, ARTIFACT_KIND_OPTION, parseArtifactCommandInput } from './artifact-command-input.ts';
-import { VERIFICATION_LANE_OPTION } from './verification-lane-option.ts';
-import { runWithOptionalSpinner } from './command-progress.ts';
 import type { Command } from 'commander';
 import type { LockFile } from '../../compiler/contract.ts';
 import { CompilerError } from '../../compiler/errors.ts';
+import { ARTIFACT_KIND_OPTION, ARTIFACT_PATHS_OPTION, parseArtifactCommandInput } from './artifact-command-input.ts';
+import { addJsonFlags, commandPath, jsonOpts, optionalModeCommand } from './command-options.ts';
+import { runWithOptionalSpinner } from './command-progress.ts';
+import { commandValue } from './command-value.ts';
 import { printJsonOrText } from './format-utils.ts';
 import { addBlock, composeWorkspace, explainWorkspace, initWorkspace, lockWorkspace, repairWorkspace, resolveWorkspace, upgradeWorkspace, verifyWorkspace } from './lazy-command-domains.ts';
-import { jsonOpts, commandPath, addJsonFlags, optionalModeCommand } from './command-options.ts';
+import { VERIFICATION_LANE_OPTION } from './verification-lane-option.ts';
+import { registerWorkspaceAction } from './workspace-action.ts';
 import {
-  COMPOSE_LOCK_OPTION, WORKSPACE_DRY_RUN_OPTION,
+  COMPOSE_LOCK_OPTION,
+  VERIFY_COMMAND_DEFAULT_LANE,
+  WORKSPACE_DRY_RUN_OPTION,
+  WORKSPACE_INSPECTION_MODES,
   parseComposeCommandInput, parseRepairCommandInput, parseUpgradeCommandInput,
-  parseVerifyCommandInput, VERIFY_COMMAND_DEFAULT_LANE,
-  WORKSPACE_INSPECTION_MODES, parseWorkspaceViewCommandInput
+  parseVerifyCommandInput,
+  parseWorkspaceViewCommandInput
 } from './workspace-command-input.ts';
 
 export function registerWorkspaceCommands(program: Command): void {

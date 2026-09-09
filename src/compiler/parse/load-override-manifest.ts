@@ -1,8 +1,8 @@
 import path from 'node:path';
 
-import { parseYamlValue } from '../../system-architecture/foundation/runtime/yaml.ts';
-import { failureMessage } from '../../system-architecture/foundation/runtime/failure-inspection.ts';
 import { OverrideManifestSchema } from '../../semantic/provenance/contract/override-schema.ts';
+import { failureMessage } from '../../system-architecture/foundation/runtime/failure-inspection.ts';
+import { parseYamlValue } from '../../system-architecture/foundation/runtime/yaml.ts';
 
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import type { OverrideManifest } from '../../semantic/provenance/contract/types.ts';

@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { buildJsonLogRecord, createLogger } from '../../src/system-architecture/foundation/logger.ts';
 
 const invalidMessages: ReadonlyArray<readonly [string, unknown]> = [

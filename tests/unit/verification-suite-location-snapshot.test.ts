@@ -1,9 +1,9 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { test } from 'bun:test';
 import { runSuiteFiles } from '../../src/compiler/verify/run-suite-files.ts';
 
 type FixtureState = { visited: string[]; entered: () => void; pending: Promise<void> };

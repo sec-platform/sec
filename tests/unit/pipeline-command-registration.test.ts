@@ -1,6 +1,6 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
 import { Command } from 'commander';
+import assert from 'node:assert/strict';
 
 import { registerPipelineCommands } from '../../src/interface/cli/register-pipeline-commands.ts';
 

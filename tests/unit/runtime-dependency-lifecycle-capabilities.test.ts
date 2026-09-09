@@ -1,13 +1,15 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { SecError } from '../../src/system-architecture/foundation/contract/failure.ts';
 import { captureRuntimeDependencyLifecycle as capture, type RuntimeDependencyGeneratedStateLifecycle } from '../../src/toolchain/dependencies/runtime/lifecycle-capabilities.ts';
-import { runtimeDependencyOperationOptions } from '../../src/toolchain/dependencies/runtime/operation-context.ts';
 import {
+  bindAndRetireCompilerDependencyPreimage,
   bindExistingCompilerDependencyGeneration, bindExistingSharedDependencyRoot,
-  birthAndBindCompilerDependencyGeneration, settleRetiredCompilerDependencyGeneration,
-  bindAndRetireCompilerDependencyPreimage, ensureCompilerDependencyPreimageRetiredForRecovery
+  birthAndBindCompilerDependencyGeneration,
+  ensureCompilerDependencyPreimageRetiredForRecovery,
+  settleRetiredCompilerDependencyGeneration
 } from '../../src/toolchain/dependencies/runtime/lifecycle-registration.ts';
+import { runtimeDependencyOperationOptions } from '../../src/toolchain/dependencies/runtime/operation-context.ts';
 
 const physical = Object.freeze({ device: 'dev', inode: 'inode', objectId: 'object' });
 const digest = `sha256:${'2'.repeat(64)}` as const;
@@ -23,8 +25,8 @@ for (const adopt of [bindExistingCompilerDependencyGeneration, bindExistingShare
     class Provider {
       #calls = 0;
       async bind(_path: string, expected: unknown) { this.#calls++; assert.ok(expected); return registration; }
-      get retired() { assert.fail('read-only consumer acquired retirement'); }
-      get disposed() { assert.fail('read-only consumer acquired disposal'); }
+      get retired() { assert.fail('read-only consumer acquired retirement'); throw new Error('unreachable'); }
+      get disposed() { assert.fail('read-only consumer acquired disposal'); throw new Error('unreachable'); }
       calls() { return this.#calls; }
     }
     const provider = new Provider();
@@ -36,8 +38,8 @@ for (const adopt of [bindExistingCompilerDependencyGeneration, bindExistingShare
 test('capability capture never enumerates its provider or unrelated installation fields', () => {
   let reads = 0;
   const provider = new Proxy({ get bind() { reads++; return async () => registration; },
-    get disposed() { assert.fail('unused capability read'); } }, { ownKeys() { assert.fail('provider enumerated'); } });
-  const input = { generatedStateLifecycle: provider, get testMaterialization() { assert.fail('unrelated options'); } };
+    get disposed() { assert.fail('unused capability read'); throw new Error('unreachable'); } }, { ownKeys() { assert.fail('provider enumerated'); } });
+  const input = { generatedStateLifecycle: provider, get testMaterialization() { assert.fail('unrelated options'); throw new Error('unreachable'); } };
   const view = capture(input, ['bind', 'bind']);
   assert.equal(reads, 1); assert.deepEqual(Object.keys(view!), ['bind']); assert.ok(Object.isFrozen(view));
   assert.equal('disposed' in view!, false);

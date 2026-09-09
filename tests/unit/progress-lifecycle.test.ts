@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { withProgressLifecycle, type ProgressObserver } from '../../src/interface/cli/runtime/progress-lifecycle.ts';
 
 function observer(events: string[], broken?: string, reason: unknown = new Error('display')): ProgressObserver {

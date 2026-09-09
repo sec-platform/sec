@@ -1,15 +1,15 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
-import { test } from 'bun:test';
+import type { PipelineSemanticContext } from '../../src/compiler/pipeline/types.ts';
 import { lowerSemanticTasks, renderStateTransitionMapSource } from '../../src/compiler/semantic-lowering.ts';
 import { assertUniqueSemanticOutputPaths } from '../../src/compiler/semantic-output-paths.ts';
 import { assertStateTransitionFunctions } from '../../src/compiler/state-transition-plan.ts';
 import type { StateTransitionMapGeneratorPlanTask } from '../../src/semantic/generation/contract/types.ts';
-import type { PipelineSemanticContext } from '../../src/compiler/pipeline/types.ts';
 
 function task(id = 'one', values = ['open', 'closed']): StateTransitionMapGeneratorPlanTask {
   return {

@@ -548,6 +548,7 @@ test.serial('a published project generation is strictly revalidated by a fresh p
     .toBe(generation.workspaceSnapshotIdentityDigest);
   const projection = compileVirtualTestImpactProjection({
     workspaceSnapshot: cleanInput.workspaceSnapshot,
+    repositoryModel: compiled.model,
     typeScriptModel: compiled.typeScriptCompilation.model,
     testObservations: compiled.testObservations,
     projectGeneration: readerGeneration
@@ -556,6 +557,7 @@ test.serial('a published project generation is strictly revalidated by a fresh p
   expect(projection.projectGenerationReceiptDigest).toBe(readerGeneration.receiptDigest);
   expect(() => compileVirtualTestImpactProjection({
     workspaceSnapshot: cleanInput.workspaceSnapshot,
+    repositoryModel: compiled.model,
     typeScriptModel: compiled.typeScriptCompilation.model,
     testObservations: compiled.testObservations,
     projectGeneration: Object.freeze({

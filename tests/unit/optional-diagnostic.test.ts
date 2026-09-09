@@ -1,7 +1,7 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
-import { observeOptionalDiagnostic } from '../../src/system-architecture/foundation/runtime/optional-diagnostic.ts';
+import assert from 'node:assert/strict';
 import { withProgressLifecycle } from '../../src/interface/cli/runtime/progress-lifecycle.ts';
+import { observeOptionalDiagnostic } from '../../src/system-architecture/foundation/runtime/optional-diagnostic.ts';
 
 for (const reason of [undefined, null, false, 0, new Error('display')]) test(`diagnostic synchronous rejection ${String(reason)} is non-authoritative`, () => {
   assert.doesNotThrow(() => observeOptionalDiagnostic(() => { throw reason; }));

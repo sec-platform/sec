@@ -1,7 +1,6 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
-import { settlePhysicalResources, settlePhysicalResourcesAsync, PhysicalResourceCompositeSettlementError }
-  from '../../src/runtime-state/physical/runtime/resource-settlement.ts';
+import assert from 'node:assert/strict';
+import { PhysicalResourceCompositeSettlementError, settlePhysicalResources, settlePhysicalResourcesAsync } from '../../src/runtime-state/physical/runtime/resource-settlement.ts';
 
 for (const asynchronous of [false, true]) {
   const execute = asynchronous ? settlePhysicalResourcesAsync : settlePhysicalResources;

@@ -1,15 +1,15 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
+import { runtimeDependencyOperationOptions as install } from '../../src/toolchain/dependencies/runtime/operation-context.ts';
 import {
+  awaitRuntimeDependencyOperation,
   runtimeDependencyOperationControls as bind,
   runtimeDependencyOperationContext as context,
-  runtimeDependencyOperationRemainingMs as remaining,
   runtimeDependencyOperationDeadlineAt as deadline,
-  awaitRuntimeDependencyOperation,
+  runtimeDependencyOperationRemainingMs as remaining,
   waitForRuntimeDependencyOperation
 } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
-import { runtimeDependencyOperationOptions as install } from '../../src/toolchain/dependencies/runtime/operation-context.ts';
-import { readRuntimeDependencyOperationTelemetry, measureRuntimeDependencyOperationPhase } from '../../src/toolchain/dependencies/runtime/operation-telemetry.ts';
+import { measureRuntimeDependencyOperationPhase, readRuntimeDependencyOperationTelemetry } from '../../src/toolchain/dependencies/runtime/operation-telemetry.ts';
 
 const rejected = (error: unknown) => (error as { code?: string }).code === 'RUNTIME-DEPS-003';
 function parent() { return bind({ lockTimeoutMs: 100, monotonicNowMs: () => 0 }); }
@@ -81,7 +81,7 @@ for (const bad of [null, false, 0, 'signal', {}, { aborted: false, throwIfAborte
 }
 
 test('signal validation never invokes a duck signal getter or method', () => {
-  const signal = { get aborted() { assert.fail('fake aborted getter'); }, throwIfAborted() { assert.fail('fake method'); } };
+  const signal = { get aborted() { assert.fail('fake aborted getter'); throw new Error('unreachable'); }, throwIfAborted() { assert.fail('fake method'); } };
   assert.throws(() => bind({ signal: signal as never }), rejected);
 });
 

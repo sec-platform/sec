@@ -204,10 +204,29 @@ export function createRuntimeStateJournalFileSystem(
     const lockName = runtimeStateJournalMutationLeaseName(rootPath, filePath);
     const lease = acquirePhysicalMutationLease(retained.parent, lockName, options);
     if (lease === null) return null;
+    let primaryFailure: unknown;
+    let hasPrimaryFailure = false;
     try {
+      // Journal recovery is bound to journal identity, never to a lease PID.
+      lease.acknowledgeReclaimedRecovery();
       return operation();
+    } catch (error) {
+      primaryFailure = error;
+      hasPrimaryFailure = true;
+      throw error;
     } finally {
-      lease.release();
+      try {
+        if (lease.recoveryPending) lease.restoreReclaimedOwner();
+        else lease.release();
+      } catch (settlementFailure) {
+        if (hasPrimaryFailure) {
+          throw new AggregateError(
+            [primaryFailure, settlementFailure],
+            'Runtime State journal mutation and lease settlement both failed.'
+          );
+        }
+        throw settlementFailure;
+      }
     }
   };
 

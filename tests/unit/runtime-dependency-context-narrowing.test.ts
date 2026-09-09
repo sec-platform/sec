@@ -1,11 +1,11 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { SecError } from '../../src/system-architecture/foundation/contract/failure.ts';
 import {
-  runtimeDependencyOperationOptions as normalize,
   runtimeDependencyOperationContext as contextOf,
-  runtimeDependencyOperationRemainingMs as remaining,
   runtimeDependencyOperationEffectFence as fence,
+  runtimeDependencyOperationOptions as normalize,
+  runtimeDependencyOperationRemainingMs as remaining,
   waitForRuntimeDependencyOperation as wait,
   type RuntimeDependencyInstallOptions
 } from '../../src/toolchain/dependencies/runtime/operation-context.ts';
@@ -84,7 +84,7 @@ test('cancellation during an effect fence prevents effect admission', async () =
   const parent = new AbortController();
   const reason = new Error('fence canceled');
   const first = normalize({ signal: parent.signal, monotonicNowMs: () => 0 });
-  const child = normalize({ ...first, signal: new AbortController().signal, beforeCommit: () => { parent.abort(reason); } });
+  const child = normalize({ ...first, signal: new AbortController().signal, beforeCommit: async () => { parent.abort(reason); } });
   await assert.rejects(fence(child, 'publish'), (error: unknown) => error === reason);
 });
 
@@ -155,8 +155,8 @@ test('fresh or newly narrowed exhausted absolute deadlines still fail closed', (
 
 test('a clock callback cannot replace the captured admission hook', async () => {
   const calls: string[] = [];
-  const originalHook = () => { calls.push('original'); };
-  const replacementHook = () => { calls.push('replacement'); };
+  const originalHook = async () => { calls.push('original'); };
+  const replacementHook = async () => { calls.push('replacement'); };
   const input: RuntimeDependencyInstallOptions = { beforeCommit: originalHook };
   input.monotonicNowMs = () => { input.beforeCommit = replacementHook; return 0; };
   const normalized = normalize(input);

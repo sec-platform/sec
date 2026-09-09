@@ -1,12 +1,12 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { test } from 'bun:test';
+import { DEFAULT_TEST_TIMEOUT_MS } from '../../src/development/runner/test-execution-policy.ts';
 import { issueGitReadAuthorityOperation } from '../../src/external-capabilities/git-read/authority.ts';
 import { createAuthorityGitReadSession } from '../../src/external-capabilities/git-read/runtime/session.ts';
-import { openProcessResourceSession, assertProcessResourceSessionReceipt } from '../../src/runtime-state/physical/runtime/process-resource-session.ts';
+import { assertProcessResourceSessionReceipt, openProcessResourceSession } from '../../src/runtime-state/physical/runtime/process-resource-session.ts';
 import { issueSecOperationRequirementBindingContext } from '../../src/system-architecture/operation/requirement-binding-context.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
-import { DEFAULT_TEST_TIMEOUT_MS } from '../../src/development/runner/test-execution-policy.ts';
 
 // Native execution only: these tests borrow an actual owner-issued process
 // session. No close monkey-patch or structural stand-in can establish ownership.

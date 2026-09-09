@@ -1,5 +1,6 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
+import { SecError } from '../../src/system-architecture/foundation/contract/failure.ts';
 import {
   LOG_LEVELS,
   buildJsonLogRecord,
@@ -7,7 +8,6 @@ import {
   resolveLogLevel,
   type LogLevel
 } from '../../src/system-architecture/foundation/logger.ts';
-import { SecError } from '../../src/system-architecture/foundation/contract/failure.ts';
 
 const invalidLevel = (error: unknown): boolean =>
   error instanceof SecError && error.code === 'LOGGING-CONFIG-001';

@@ -137,7 +137,7 @@ test('provenance and coverage register their block endpoints explicitly', async 
   const coverage: AcceptanceCoverageReport = {
     ...EMPTY_COVERAGE,
     acceptancePassed: ['acceptance-1'],
-    blocks: [{ id: 'fixture/basic', coveredBy: ['acceptance-1'] }]
+    blocks: [{ id: 'fixture/basic', declaredAcceptance: ['acceptance-1'], coveredBy: ['acceptance-1'], uncovered: false }]
   };
 
   const graph = await buildExplainGraph(

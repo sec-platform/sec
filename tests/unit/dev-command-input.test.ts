@@ -1,10 +1,12 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { test } from 'bun:test';
-import { captureDevCommandInput, DEV_COMMAND_MAX_DURATION_MS, DEV_COMMAND_MAX_STDIN_BYTES,
-  type DevCommandOptions } from '../../src/development/runner/command-input.ts';
+import {
+  captureDevCommandInput, DEV_COMMAND_MAX_DURATION_MS, DEV_COMMAND_MAX_STDIN_BYTES,
+  type DevCommandOptions
+} from '../../src/development/runner/command-input.ts';
 
 const capture = (options?: DevCommandOptions, args: string[] = [], env: NodeJS.ProcessEnv = {}) =>
   captureDevCommandInput(args, env, options, process.cwd());

@@ -10,6 +10,7 @@ import {
   mkdirSync,
   mkdtempSync,
   openSync,
+  readdirSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -24,7 +25,7 @@ import path from 'node:path';
 import { runRetainedGitWriteTreeProbeV1 } from '../helpers/retained-git-write-tree-probe.ts';
 
 import type { LinuxNoFollowDirectoryCreateRaceActor, LinuxNoFollowDirectoryCreateRacePoint } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { PhysicalNoFollowError, assertRetainedNoFollowCapability, assertSameNoFollowDirectoryIdentity, createExclusiveNoFollowDirectory, createLinuxNoFollowDirectoryCreateRaceActorForTests, createNoFollowDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowDirectoryLeaf, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileDigest, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectory, replaceDurableCanonicalFile, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, retainNoFollowOrdinaryFileForChildProcess, retainNoFollowSealedDirectoryGeneration, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, scanNoFollowDirectoryTreeSelectedForest } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { assertRetainedNoFollowCapability, assertSameNoFollowDirectoryIdentity, createExclusiveNoFollowDirectory, createLinuxNoFollowDirectoryCreateRaceActorForTests, createNoFollowDirectoryChain, createWindowsDurableCanonicalFileReplacementInterruptionActorForTests, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowDirectoryLeaf, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileDigest, inspectNoFollowOrdinaryFileEntry, PhysicalNoFollowError, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, recoverDurableCanonicalFileReplacement, relocateRetainedNoFollowDirectory, replaceDurableCanonicalFile, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, retainNoFollowOrdinaryFileForChildProcess, retainNoFollowSealedDirectoryGeneration, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, scanNoFollowDirectoryTreeSelectedForest } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 import { sealExistingWindowsReadOnlyTreeAuthority } from '../../src/runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
 import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
 
@@ -1136,9 +1137,91 @@ test('durable canonical replacement uses retained-parent publication and exact f
   }
 });
 
+test('Windows durable identity CAS recovers every persisted interruption state before absence is observable', () => {
+  if (process.platform !== 'win32') return;
+  for (const scenario of [
+    { point: 'after-transaction-record' as const, status: 'rolled-back' as const, expected: 'old\n' },
+    { point: 'after-preimage-quarantine' as const, status: 'rolled-back' as const, expected: 'old\n' },
+    { point: 'after-candidate-publication' as const, status: 'completed' as const, expected: 'new\n' }
+  ]) {
+    const root = fixtureRoot();
+    try {
+      const parentPath = path.join(root, 'cas');
+      mkdirSync(parentPath);
+      const finalPath = path.join(parentPath, 'owner.json');
+      writeFileSync(finalPath, 'old\n', 'utf8');
+      const parent = inspectNoFollowDirectoryChain(parentPath, 'CAS recovery parent').target;
+      const current = inspectNoFollowOrdinaryFileEntry(parent, 'owner.json')!;
+      let concurrentRecoveryRejected = false;
+      const actor = createWindowsDurableCanonicalFileReplacementInterruptionActorForTests(
+        scenario.point,
+        scenario.point === 'after-transaction-record'
+          ? () => {
+              try { recoverDurableCanonicalFileReplacement({ parent, name: 'owner.json' }); }
+              catch (error) {
+                concurrentRecoveryRejected = error instanceof PhysicalNoFollowError &&
+                  error.code === 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED';
+              }
+            }
+          : undefined
+      );
+      expectPhysicalCode(() => replaceDurableCanonicalFile({
+        parent,
+        name: 'owner.json',
+        bytes: Buffer.from('new\n', 'utf8'),
+        expectedExisting: { device: current.device, inode: current.inode },
+        validate: () => undefined,
+        windowsInterruptionActor: actor
+      }), 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED');
+      if (scenario.point === 'after-transaction-record') expect(concurrentRecoveryRejected).toBe(true);
+      const recovered = recoverDurableCanonicalFileReplacement({ parent, name: 'owner.json' });
+      expect(recovered.status).toBe(scenario.status);
+      expect(readFileSync(finalPath, 'utf8')).toBe(scenario.expected);
+      expect(recoverDurableCanonicalFileReplacement({ parent, name: 'owner.json' }).status).toBe('none');
+      expect(readdirSync(parentPath).filter(name => name.startsWith('.sec-cas-'))).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('Windows durable CAS rejects a same-byte foreign final by FileId and preserves recovery residue', () => {
+  if (process.platform !== 'win32') return;
+  const root = fixtureRoot();
+  try {
+    const parentPath = path.join(root, 'cas');
+    mkdirSync(parentPath);
+    const finalPath = path.join(parentPath, 'owner.json');
+    writeFileSync(finalPath, 'old\n', 'utf8');
+    const parent = inspectNoFollowDirectoryChain(parentPath, 'CAS foreign parent').target;
+    const current = inspectNoFollowOrdinaryFileEntry(parent, 'owner.json')!;
+    expectPhysicalCode(() => replaceDurableCanonicalFile({
+      parent,
+      name: 'owner.json',
+      bytes: Buffer.from('new\n', 'utf8'),
+      expectedExisting: { device: current.device, inode: current.inode },
+      validate: () => undefined,
+      windowsInterruptionActor: createWindowsDurableCanonicalFileReplacementInterruptionActorForTests(
+        'after-candidate-publication'
+      )
+    }), 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED');
+    renameSync(finalPath, path.join(parentPath, 'displaced-installed.json'));
+    writeFileSync(finalPath, 'new\n', 'utf8');
+    expectPhysicalCode(
+      () => recoverDurableCanonicalFileReplacement({ parent, name: 'owner.json' }),
+      'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
+    );
+    expect(readFileSync(finalPath, 'utf8')).toBe('new\n');
+    expect(readdirSync(parentPath).some(name => name.endsWith('.txn'))).toBe(true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('Windows retained-handle deletion removes authorized file directory and reparse leaf and rejects a replaced parent', () => {
   if (process.platform !== 'win32') return;
   const root = fixtureRoot();
+  let retainedReader: number | null = null;
   try {
     const target = path.join(root, 'target');
     const external = path.join(root, 'external');
@@ -1147,6 +1230,7 @@ test('Windows retained-handle deletion removes authorized file directory and rep
     const authorizedFile = path.join(target, 'authorized-file.txt');
     const survivingReadonlyLink = path.join(external, 'surviving-readonly-link.txt');
     writeFileSync(authorizedFile, 'only-this-file\n', 'utf8');
+    retainedReader = openSync(authorizedFile, 'r');
     linkSync(authorizedFile, survivingReadonlyLink);
     chmodSync(authorizedFile, 0o444);
     expect(lstatSync(survivingReadonlyLink).mode & 0o222).toBe(0);
@@ -1180,6 +1264,11 @@ test('Windows retained-handle deletion removes authorized file directory and rep
         ancestorDirectories: []
       });
       expect(existsSync(path.join(target, name))).toBe(false);
+      if (name === 'authorized-file.txt') {
+        expect(readFileSync(retainedReader!, 'utf8')).toBe('only-this-file\n');
+        closeSync(retainedReader!);
+        retainedReader = null;
+      }
     }
     expect(readFileSync(survivingReadonlyLink, 'utf8')).toBe('only-this-file\n');
     expect(lstatSync(survivingReadonlyLink).mode & 0o222).toBe(0);
@@ -1202,6 +1291,7 @@ test('Windows retained-handle deletion removes authorized file directory and rep
     );
     expect(readFileSync(path.join(old, 'retain.txt'), 'utf8')).toBe('old\n');
   } finally {
+    if (retainedReader !== null) closeSync(retainedReader);
     rmSync(root, { recursive: true, force: true });
   }
 });

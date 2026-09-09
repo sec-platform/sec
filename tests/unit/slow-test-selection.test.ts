@@ -43,6 +43,7 @@ test('unresolved changed-file observation fails closed to the bounded baseline',
     slowTests: [],
     affectedSlowTests: [],
     owners: ['bounded-slow-risk'],
+    unresolvedPaths: [],
     reasons: ['bounded-baseline', 'changed-files-unresolved'],
     resolved: false
   });

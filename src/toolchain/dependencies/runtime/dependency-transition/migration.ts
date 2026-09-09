@@ -17,23 +17,27 @@ import {
 } from '../../../../system-architecture/foundation/contract/failure.ts';
 import {
   canonicalJson,
-  deepFreeze,
-  compareCodeUnits
+  compareCodeUnits,
+  deepFreeze
 } from '../../../../system-architecture/foundation/runtime/canonical.ts';
+import { readonlyMapSnapshot } from '../../../../system-architecture/foundation/runtime/collections.ts';
 import {
   formatJsonFile
 } from '../../../../workspace/files.ts';
 import {
-  runtimeDependencyOperationEffectFence, runtimeDependencyEffectFenceOptions,
-  type RuntimeDependencyEffectFenceOptions, type RuntimeDependencyEffectFenceInput
+  type RuntimeDependencyEffectFenceInput,
+  runtimeDependencyEffectFenceOptions,
+  type RuntimeDependencyEffectFenceOptions,
+  runtimeDependencyOperationEffectFence
 } from '../operation-context.ts';
 import {
-  runtimeDependencyOperationContext, runtimeDependencyOperationControls,
-  runtimeDependencyOperationRemainingMs, assertRuntimeDependencyOperationActive,
+  assertRuntimeDependencyOperationActive,
+  type BoundRuntimeDependencyOperationControls,
+  runtimeDependencyOperationContext,
   type RuntimeDependencyOperationContext, type RuntimeDependencyOperationControlInput,
-  type BoundRuntimeDependencyOperationControls
+  runtimeDependencyOperationControls,
+  runtimeDependencyOperationRemainingMs
 } from '../operation-controls.ts';
-import { readonlyMapSnapshot } from '../../../../system-architecture/foundation/runtime/collections.ts';
 import {
   assertDependencyTransitionRecordBytes,
   dependencyTransitionRecordBytes,
@@ -46,7 +50,6 @@ import {
   DEPENDENCY_TRANSITION_SCHEMA,
   type DependencyTransitionJournal,
   type DependencyTransitionNamespace,
-  type DependencyTransitionSlot,
   generatedStatePhysicalIdentity,
   hasExactObjectKeys,
   isCanonicalAbsolutePath,
@@ -60,7 +63,6 @@ import {
   DEPENDENCY_TRANSITION_RECORD_CAPACITY,
   dependencyTransitionLedgerDigest,
   dependencyTransitionNamespacePaths,
-  type DependencyTransitionRecordSet,
   ensureDependencyTransitionNamespace,
   inspectDependencyTransitionNamespace,
   readDependencyTransitionRecordSet,

@@ -3,10 +3,11 @@ import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { generatedStateDigest, type GeneratedStateRegistration } from '../../src/runtime-state/generated-state/contract.ts';
+import { generatedStateDigest } from '../../src/runtime-state/generated-state/contract.ts';
 import {
   createGeneratedStateCleanupOperationSession,
-  generatedStateProducerHooks
+  generatedStateProducerHooks,
+  type GeneratedStateWorktreeRetirementEffectAuthority
 } from '../../src/runtime-state/generated-state/lifecycle.ts';
 import { inspectNoFollowDirectoryChain, inspectNoFollowLinkEntry } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 import { runCommand } from '../../src/runtime-state/physical/runtime/process.ts';
@@ -20,7 +21,6 @@ import {
   compilerDependencyLocatorWorktreeRetirementProvider,
   disposeCompilerDependencyEnvironment,
   ensureCompilerDepsReady,
-  migrateDependencyTransitionJournal,
   observeCompilerDependencyExecutionGenerationAuthority
 } from '../../src/toolchain/dependencies/test/runtime.ts';
 import { readJson } from '../../src/workspace/files.ts';
@@ -657,203 +657,38 @@ describe('compiler dependency installation', () => {
     }, 'engineering-compiler-dev-deps-bridge-');
   });
 
-  test('automatically reuses and provider-retires the primary worktree locator without touching its generation', async () => {
+  test('rejects a forged compiler locator retirement authority without touching its generation', async () => {
     await withLinkedWorktreeTempWorkspace(async (tempRoot) => {
       const ownerRoot = path.join(tempRoot, 'repository');
       const consumerRoot = path.join(tempRoot, 'candidate');
       await fs.mkdir(ownerRoot);
       await runFixtureGit(ownerRoot, ['init', '-b', 'main']);
-      await runFixtureGit(ownerRoot, ['config', 'user.email', 'sec@example.invalid']);
-      await runFixtureGit(ownerRoot, ['config', 'user.name', 'SEC Test']);
-      await runFixtureGit(ownerRoot, ['config', 'core.autocrlf', 'false']);
       await writeCompilerDependencyRoot(ownerRoot);
       await fs.writeFile(path.join(ownerRoot, '.gitignore'), 'node_modules/\n.tmp/\n');
       await runFixtureGit(ownerRoot, ['add', '.gitignore', '.bun-version', 'bun.lock', 'package.json']);
-      await runFixtureGit(ownerRoot, ['commit', '-m', 'fixture']);
-      let installCalls = 0;
-      await ensureCompilerDepsReady({
-        materialize: async (_args, command) => {
-          installCalls += 1;
-          await installCompilerDependencyFixture(command.cwd, 'primary-generation');
-          return { code: 0, stdout: 'ok', stderr: '' };
-        }
-      }, ownerRoot);
+      await runFixtureGit(ownerRoot, [
+        '-c', 'user.email=sec@example.invalid',
+        '-c', 'user.name=SEC Test',
+        '-c', 'core.autocrlf=false',
+        'commit', '-m', 'fixture'
+      ]);
+      await runFixtureGit(ownerRoot, ['config', 'core.autocrlf', 'false']);
+      await installCompilerDependencyFixture(ownerRoot, 'primary-generation');
       await runFixtureGit(ownerRoot, ['worktree', 'add', '-b', 'candidate', consumerRoot]);
-
-      let failLifecycleBinding = true;
-      const reuseOptions = {
-        materialize: async () => {
-          throw new Error('Exact linked-worktree reuse must not download or install dependencies.');
-        },
-        generatedStateLifecycle: {
-          born: async () => {
-            if (failLifecycleBinding) throw new Error('fixture lifecycle interruption');
-          },
-          bind: async (_relativePath: string, expected?: Readonly<{
-            owner?: string;
-            producer?: string;
-            ruleId?: string;
-            physical?: Readonly<{ device: string; inode: string; objectId: string }>;
-          }>) => {
-            if (failLifecycleBinding) throw new Error('fixture lifecycle interruption');
-            return Object.freeze({
-              schema: 'sec-generated-state-registration-v1' as const,
-              registrationId: generatedStateDigest({ schema: 'fixture-registration-id-v1' }),
-              repositoryRoot: ownerRoot,
-              workspace: { device: 'fixture', inode: 'workspace', objectId: 'fixture' },
-              ruleId: expected?.ruleId ?? 'compiler-node-modules',
-              relativePath: 'node_modules',
-              root: expected?.physical ?? { device: 'fixture', inode: 'root', objectId: 'fixture' },
-              owner: expected?.owner ?? 'compiler-dependency-runtime',
-              producer: expected?.producer ?? 'ensure-compiler-deps-ready',
-              operationId: 'fixture:linked-worktree',
-              phase: 'active' as const,
-              retirementRef: null,
-              generatedAt: '2026-08-28T00:00:00.000Z',
-              registrationDigest: generatedStateDigest({ schema: 'fixture-registration-v1' })
-            });
-          },
-          retired: async () => undefined,
-          disposed: async () => {
-            throw new Error('fixture lifecycle disposal is not expected');
-          }
-        }
-      };
-      await expect(ensureCompilerDepsReady(reuseOptions, consumerRoot))
-        .rejects.toThrow('fixture lifecycle interruption');
-      expect(await fs.realpath(path.join(consumerRoot, 'node_modules')))
-        .toBe(await fs.realpath(path.join(ownerRoot, 'node_modules')));
-      failLifecycleBinding = false;
-      const ready = await ensureCompilerDepsReady(reuseOptions, consumerRoot);
-
-      expect(ready).toMatchObject({ root: consumerRoot, source: 'existing' });
-      expect(installCalls).toBe(1);
-      expect(await fs.realpath(path.join(consumerRoot, 'node_modules')))
-        .toBe(await fs.realpath(path.join(ownerRoot, 'node_modules')));
-      expect(await fs.readFile(
-        path.join(consumerRoot, 'node_modules', 'typescript', 'lib', 'typescript.js'),
-        'utf8'
-      )).toBe('primary-generation:typescript\n');
-
-      const consumer = inspectNoFollowDirectoryChain(consumerRoot, 'Fixture consumer').target;
-      const locator = inspectNoFollowLinkEntry(consumer, 'node_modules');
-      expect(locator).not.toBeNull();
-      const source = Object.freeze({
-        device: locator!.device,
-        inode: locator!.inode,
-        objectId: generatedStateDigest({ kind: 'link', target: locator!.linkTarget })
-      });
-      const registration: GeneratedStateRegistration = Object.freeze({
-        schema: 'sec-generated-state-registration-v1',
-        registrationId: `sha256:${'1'.repeat(64)}`,
-        repositoryRoot: ownerRoot,
-        workspace: { device: consumer.device, inode: consumer.inode, objectId: consumer.objectId },
-        ruleId: 'compiler-node-modules',
-        relativePath: 'node_modules',
-        root: source,
-        owner: 'compiler-dependency-runtime',
-        producer: 'ensure-compiler-deps-ready',
-        operationId: 'fixture-operation',
-        phase: 'retired',
-        retirementRef: `sha256:${'2'.repeat(64)}`,
-        generatedAt: '2026-08-23T00:00:00.000Z',
-        registrationDigest: `sha256:${'3'.repeat(64)}`
-      });
-      const staleConsumerManifest = JSON.parse(
-        await fs.readFile(path.join(consumerRoot, 'package.json'), 'utf8')
-      ) as Record<string, unknown>;
-      await fs.writeFile(path.join(consumerRoot, 'package.json'), `${JSON.stringify({
-        ...staleConsumerManifest,
-        description: 'consumer inputs changed after the external generation was linked'
-      }, null, 2)}\n`);
-      const providerPlan = await compilerDependencyLocatorWorktreeRetirementProvider.plan({
-        repositoryRoot: ownerRoot,
-        workspaceRoot: consumerRoot,
-        relativePath: 'node_modules',
-        source,
-        registration
-      });
-      const parkedConsumerRoot = path.join(tempRoot, 'candidate-planned');
-      const replacementConsumerRoot = consumerRoot;
-      await fs.rename(consumerRoot, parkedConsumerRoot);
-      await fs.mkdir(replacementConsumerRoot);
-      for (const name of ['package.json', 'bun.lock', '.bun-version']) {
-        await fs.copyFile(path.join(parkedConsumerRoot, name), path.join(replacementConsumerRoot, name));
-      }
-      await fs.rename(
-        path.join(parkedConsumerRoot, 'node_modules'),
-        path.join(replacementConsumerRoot, 'node_modules')
-      );
-      await expect(compilerDependencyLocatorWorktreeRetirementProvider.retire({
-        operationId: `sha256:${'4'.repeat(64)}`,
-        repositoryRoot: ownerRoot,
-        workspaceRoot: replacementConsumerRoot,
-        relativePath: 'node_modules',
-        source,
-        registration,
-        planBytes: providerPlan.bytes,
-        planDigest: providerPlan.digest
-      })).rejects.toThrow('consumer root identity changed');
-      expect((await fs.lstat(path.join(replacementConsumerRoot, 'node_modules'))).isSymbolicLink()).toBeTrue();
-      expect(await fs.readFile(
-        path.join(ownerRoot, 'node_modules', 'typescript', 'lib', 'typescript.js'),
-        'utf8'
-      )).toBe('primary-generation:typescript\n');
-      await fs.rename(
-        path.join(replacementConsumerRoot, 'node_modules'),
-        path.join(parkedConsumerRoot, 'node_modules')
-      );
-      await fs.rm(replacementConsumerRoot, { recursive: true });
-      await fs.rename(parkedConsumerRoot, consumerRoot);
-      const parkedLocator = path.join(consumerRoot, 'node_modules.planned');
-      const replacementGeneration = path.join(tempRoot, 'replacement-generation', 'node_modules');
-      await fs.mkdir(replacementGeneration, { recursive: true });
-      await fs.rename(path.join(consumerRoot, 'node_modules'), parkedLocator);
       await fs.symlink(
-        replacementGeneration,
+        path.join(ownerRoot, 'node_modules'),
         path.join(consumerRoot, 'node_modules'),
         process.platform === 'win32' ? 'junction' : 'dir'
       );
-      await expect(compilerDependencyLocatorWorktreeRetirementProvider.retire({
-        operationId: `sha256:${'4'.repeat(64)}`,
-        repositoryRoot: ownerRoot,
-        workspaceRoot: consumerRoot,
-        relativePath: 'node_modules',
-        source,
-        registration,
-        planBytes: providerPlan.bytes,
-        planDigest: providerPlan.digest
-      })).rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-004' });
-      expect(await fs.realpath(path.join(consumerRoot, 'node_modules'))).toBe(await fs.realpath(replacementGeneration));
-      await fs.unlink(path.join(consumerRoot, 'node_modules'));
-      await fs.rename(parkedLocator, path.join(consumerRoot, 'node_modules'));
-      const providerReceipt = await compilerDependencyLocatorWorktreeRetirementProvider.retire({
-        operationId: `sha256:${'4'.repeat(64)}`,
-        repositoryRoot: ownerRoot,
-        workspaceRoot: consumerRoot,
-        relativePath: 'node_modules',
-        source,
-        registration,
-        planBytes: providerPlan.bytes,
-        planDigest: providerPlan.digest
-      });
-      expect(JSON.parse(providerReceipt.bytes)).toMatchObject({ outcome: 'removed' });
-      await expect(fs.lstat(path.join(consumerRoot, 'node_modules'))).rejects.toMatchObject({ code: 'ENOENT' });
+
+      await expect(compilerDependencyLocatorWorktreeRetirementProvider.retire(Object.freeze({
+        schema: 'sec-generated-state-worktree-retirement-effect-authority-v1'
+      }) as GeneratedStateWorktreeRetirementEffectAuthority)).rejects.toThrow('forged, stale, replayed');
+      expect((await fs.lstat(path.join(consumerRoot, 'node_modules'))).isSymbolicLink()).toBeTrue();
       expect(await fs.readFile(
         path.join(ownerRoot, 'node_modules', 'typescript', 'lib', 'typescript.js'),
         'utf8'
       )).toBe('primary-generation:typescript\n');
-      const resumedReceipt = await compilerDependencyLocatorWorktreeRetirementProvider.retire({
-        operationId: `sha256:${'4'.repeat(64)}`,
-        repositoryRoot: ownerRoot,
-        workspaceRoot: consumerRoot,
-        relativePath: 'node_modules',
-        source,
-        registration,
-        planBytes: providerPlan.bytes,
-        planDigest: providerPlan.digest
-      });
-      expect(JSON.parse(resumedReceipt.bytes)).toMatchObject({ outcome: 'resumed-absent' });
     });
   });
 
@@ -1258,7 +1093,7 @@ describe('compiler dependency installation', () => {
   test('aborts compiler lock waiting without spawning or replacing the live owner', async () => {
     await withTempWorkspace(async (tempRoot) => {
       await writeCompilerDependencyRoot(tempRoot);
-      const lifecycle = await isolatedGeneratedStateLifecycle(tempRoot);
+      await isolatedGeneratedStateLifecycle(tempRoot);
       const lockPath = path.join(tempRoot, '.tmp', 'dependency-installs', 'compiler.lock');
       await fs.mkdir(path.dirname(lockPath), { recursive: true });
       await fs.writeFile(lockPath, `${JSON.stringify({

@@ -1,10 +1,10 @@
-import { captureTypecheckInvocation, type TypecheckProjectOptions } from './typecheck-invocation.ts';
 import path from 'node:path';
 import ts from 'typescript';
 import { withProjectDependencyBridge } from '../../toolchain/dependencies/runtime.ts';
 import { pathExists } from '../../workspace/files.ts';
 import { compilerRoot, isPathInside, relativePosixPath, tsconfigRelativePath } from '../../workspace/runtime/paths.ts';
 import { CompilerError } from '../errors.ts';
+import { captureTypecheckInvocation, type TypecheckProjectOptions } from './typecheck-invocation.ts';
 
 function formatDiagnostic(diagnostic: ts.Diagnostic, diagnosticRoot: string): string {
   const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');

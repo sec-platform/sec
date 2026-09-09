@@ -1,7 +1,7 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
-import { resolveManifestGraph } from '../../src/compiler/resolve/manifest-graph.ts';
+import assert from 'node:assert/strict';
 import type { ManifestEntry, ManifestKind } from '../../src/compiler/contract/plan-manifest.ts';
+import { resolveManifestGraph } from '../../src/compiler/resolve/manifest-graph.ts';
 
 function entry(id: string, requires: string[] = [], provides: string[] = [id], kind: ManifestKind = 'capability'): ManifestEntry {
   return { manifest: { id, version: '1.0.0', kind, requires, provides, conflicts: [], stackProfiles: ['test'],

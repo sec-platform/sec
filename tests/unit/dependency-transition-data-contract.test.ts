@@ -1,8 +1,8 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
-import {tmpdir} from 'node:os';
-import {hasExactObjectKeys,isCanonicalGeneratedStatePhysicalIdentity,transitionSlotFromPhysical,sourceGenerationWithPath} from '../../src/toolchain/dependencies/runtime/dependency-transition/contract.ts';
+import { hasExactObjectKeys, isCanonicalGeneratedStatePhysicalIdentity, sourceGenerationWithPath, transitionSlotFromPhysical } from '../../src/toolchain/dependencies/runtime/dependency-transition/contract.ts';
 
 test('field identity is a set, not a delimiter-joined string',()=>{
  assert.equal(hasExactObjectKeys({'a\0b':1},['a','b']),false);
@@ -19,8 +19,8 @@ test('hidden and symbol state cannot pass a persisted JSON contract',()=>{
  assert.equal(hasExactObjectKeys(Object.defineProperty({},'a',{value:1}),['a']),false);
 });
 test('accessors are rejected without executing code',()=>{
- const value={get a(){assert.fail('accessor');}};assert.equal(hasExactObjectKeys(value,['a']),false);
- const physical={get device(){assert.fail('device');},inode:'i',objectId:'o'};assert.equal(isCanonicalGeneratedStatePhysicalIdentity(physical),false);
+ const value={get a(){assert.fail('accessor'); throw new Error('unreachable');}};assert.equal(hasExactObjectKeys(value,['a']),false);
+ const physical={get device(){assert.fail('device'); throw new Error('unreachable');},inode:'i',objectId:'o'};assert.equal(isCanonicalGeneratedStatePhysicalIdentity(physical),false);
 });
 for(const value of [null,undefined,[],0,'object',Object.create(null),Object.create({a:1})])test('nonordinary object is not a record',()=>assert.equal(hasExactObjectKeys(value,['a']),false));
 test('revoked or failing proxies produce false rather than replacing validation failure',()=>{

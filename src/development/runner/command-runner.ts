@@ -22,7 +22,9 @@ import {
 } from '../../runtime-state/physical/runtime/process.ts';
 import { settlePhysicalResources } from '../../runtime-state/physical/runtime/resource-settlement.ts';
 import type { RetainedCommandBoundary } from '../../runtime-state/physical/runtime/retained-command-boundary.ts';
+import { snapshotByteTail } from '../../system-architecture/foundation/runtime/byte-snapshot.ts';
 import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { failureMessage } from '../../system-architecture/foundation/runtime/failure-inspection.ts';
 import { issueSecOperationRequirementBindingContext } from '../../system-architecture/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,
@@ -33,17 +35,17 @@ import {
   type SecOperationDigest
 } from '../../system-architecture/operation/semantic.ts';
 import { compilerRoot } from '../../workspace/runtime/paths.ts';
+import {
+  captureDevCommandInput, DEV_COMMAND_MAX_DURATION_MS, DEV_COMMAND_MAX_STDIN_BYTES,
+  type DevCommandOptions, type ObserveDevCommandOptions
+} from './command-input.ts';
+import { requireCommandExitCode, type DevCommandObservation, type DevCommandTerminalOutcome } from './command-outcome.ts';
 import { DEFAULT_FAST_TEST_MAX_CONCURRENCY } from './fast-test-policy.ts';
 import { applyDefaultFastTestConcurrency } from './test-concurrency-policy.ts';
-import { captureDevCommandInput, DEV_COMMAND_MAX_DURATION_MS, DEV_COMMAND_MAX_STDIN_BYTES,
-  type DevCommandOptions, type ObserveDevCommandOptions } from './command-input.ts';
-import { failureMessage } from '../../system-architecture/foundation/runtime/failure-inspection.ts';
-import { snapshotByteTail } from '../../system-architecture/foundation/runtime/byte-snapshot.ts';
-import { requireCommandExitCode, type DevCommandObservation, type DevCommandTerminalOutcome } from './command-outcome.ts';
-export { devCommandObservationExitCode } from './command-outcome.ts';
-export type { DevCommandObservation, DevCommandObservationIntegrity, DevCommandTerminalOutcome } from './command-outcome.ts';
 export { DEV_COMMAND_MAX_DURATION_MS, DEV_COMMAND_MAX_STDIN_BYTES } from './command-input.ts';
 export type { ExecuteDevCommandOptions, ObserveDevCommandOptions } from './command-input.ts';
+export { devCommandObservationExitCode } from './command-outcome.ts';
+export type { DevCommandObservation, DevCommandObservationIntegrity, DevCommandTerminalOutcome } from './command-outcome.ts';
 
 export const DEV_COMMAND_OUTPUT_TAIL_MAX_BYTES = 8 * 1024;
 export const DEV_COMMAND_MAX_STDOUT_BYTES = 32 * 1024 * 1024;

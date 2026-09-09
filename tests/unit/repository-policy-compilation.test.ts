@@ -1,11 +1,13 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
+import { compileSourceProgramFindingDelta } from '../../src/brownfield/source-program-model/reconciliation-findings.ts';
+import {
+  assertRepositorySourceProgramCompilationReceipt,
+  compileVirtualRepositorySourceProgramCompilation as compile
+} from '../../src/brownfield/source-program-model/repository-compilation.ts';
+import { compileVirtualWorkspaceSourceSnapshot } from '../../src/brownfield/source-program-model/workspace-source-snapshot.ts';
 import { rawSha256, sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
 import { compileSecRepositoryModuleMembershipSnapshot } from '../../src/system-architecture/repository-modules/contract.ts';
-import { compileVirtualWorkspaceSourceSnapshot } from '../../src/brownfield/source-program-model/workspace-source-snapshot.ts';
-import { compileVirtualRepositorySourceProgramCompilation as compile,
-  assertRepositorySourceProgramCompilationReceipt } from '../../src/brownfield/source-program-model/repository-compilation.ts';
-import { compileSourceProgramFindingDelta } from '../../src/brownfield/source-program-model/reconciliation-findings.ts';
 
 // These integration cases require the actual compiler and virtual snapshot
 // issuers. No fixture can stand in for a source model or a compilation receipt.
@@ -26,7 +28,6 @@ function snapshot(label: string) {
     }) }]
   });
   return compileVirtualWorkspaceSourceSnapshot({ files, moduleMembership,
-    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
     subject: { kind: 'virtual-mutation', provenance: { kind: 'source-program-virtual-mutation',
       baseSnapshotDigest: sha256('policy-fixture-base') as `sha256:${string}`,
       mutationDigest: sha256(label) as `sha256:${string}` } }

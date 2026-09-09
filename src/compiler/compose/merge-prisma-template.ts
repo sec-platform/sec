@@ -6,7 +6,7 @@ import { getWorkspacePaths, isPathInside } from '../../workspace/runtime/paths.t
 import { CompilerError } from '../errors.ts';
 import { mergePrismaSchemas } from './prisma-schema.ts';
 
-export { parsePrismaSchema, mergePrismaSchemas, type PrismaBlock } from './prisma-schema.ts';
+export { mergePrismaSchemas, parsePrismaSchema, type PrismaBlock } from './prisma-schema.ts';
 
 function sameBytes(actual: Uint8Array | null, expected: Uint8Array | null): boolean {
   return actual === null ? expected === null : expected !== null && Buffer.from(actual).equals(Buffer.from(expected));

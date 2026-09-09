@@ -9,6 +9,7 @@ import {
   inspectExactNoFollowDirectoryPresence,
   inspectNoFollowDirectoryChain,
   inspectNoFollowDirectoryChild,
+  inspectNoFollowDirectoryLeaf,
   inspectNoFollowLinkEntry,
   inspectNoFollowOrdinaryFileEntry,
   PhysicalNoFollowError,
@@ -25,18 +26,21 @@ import {
   canonicalJson,
   compareCodeUnits
 } from '../../../../system-architecture/foundation/runtime/canonical.ts';
+import { readonlyMapSnapshot } from '../../../../system-architecture/foundation/runtime/collections.ts';
 import {
   formatJsonFile
 } from '../../../../workspace/files.ts';
 import {
-  runtimeDependencyOperationEffectFence,
   runtimeDependencyEffectFenceOptions,
+  runtimeDependencyOperationEffectFence,
   type RuntimeDependencyEffectFenceInput
 } from '../operation-context.ts';
-import { runtimeDependencyOperationControls, runtimeDependencyOperationRemainingMs,
-  assertRuntimeDependencyOperationActive, type RuntimeDependencyOperationContext,
-  type RuntimeDependencyOperationControlInput } from '../operation-controls.ts';
-import { readonlyMapSnapshot } from '../../../../system-architecture/foundation/runtime/collections.ts';
+import {
+  assertRuntimeDependencyOperationActive,
+  runtimeDependencyOperationControls, runtimeDependencyOperationRemainingMs,
+  type RuntimeDependencyOperationContext,
+  type RuntimeDependencyOperationControlInput
+} from '../operation-controls.ts';
 import {
   assertDependencyTransitionPointerBytes,
   DEPENDENCY_TRANSITION_POINTER_SCHEMA,
@@ -153,12 +157,12 @@ export function inspectDependencyTransitionNamespace(
   const paths = dependencyTransitionNamespacePaths(owner.path);
   let parent = owner;
   for (const name of ['.tmp', 'dependency-installs', 'compiler-backups']) {
-    const child = inspectOptionalNoFollowDirectoryChild(parent, name, 'Dependency transition namespace parent');
+    const child = inspectNoFollowDirectoryLeaf(parent, name, 'Dependency transition namespace parent');
     if (child === null) return null;
     parent = child;
   }
   const backupRoot = parent;
-  const journalRoot = inspectOptionalNoFollowDirectoryChild(backupRoot, '.dependency-transition-v2', 'Dependency transition journal root');
+  const journalRoot = inspectNoFollowDirectoryLeaf(backupRoot, '.dependency-transition-v2', 'Dependency transition journal root');
   if (journalRoot === null) return null;
   const recordsRoot = inspectOptionalNoFollowDirectoryChild(journalRoot, 'records', 'Dependency transition records root');
   if (recordsRoot === null) {

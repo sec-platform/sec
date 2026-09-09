@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 
 import type { PassStatus } from '../../src/compiler/contract/pass-status.ts';
 import type { PipelineJournal } from '../../src/compiler/pipeline/journal-types.ts';

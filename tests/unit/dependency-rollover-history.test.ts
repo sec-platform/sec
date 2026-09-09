@@ -1,7 +1,7 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { analyzeRolloverHistory } from '../../src/toolchain/dependencies/runtime/dependency-transition/rollover-history.ts';
-import { isRolloverPhase, rolloverIntentNameMatches, assertRolloverPhaseAdvance } from '../../src/toolchain/dependencies/runtime/dependency-transition/rollover-phase.ts';
+import { assertRolloverPhaseAdvance, isRolloverPhase, rolloverIntentNameMatches } from '../../src/toolchain/dependencies/runtime/dependency-transition/rollover-phase.ts';
 import type { DependencyTransitionRolloverIntent as Intent } from '../../src/toolchain/dependencies/runtime/dependency-transition/rollover.ts';
 
 const id = (n: number) => `sha256:${n.toString(16).padStart(64, '0')}` as const;

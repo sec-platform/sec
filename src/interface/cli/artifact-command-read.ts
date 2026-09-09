@@ -1,6 +1,6 @@
 import path from 'node:path';
-import { getErrorCode } from '../../compiler/errors.ts';
 import type { LockFile } from '../../compiler/contract.ts';
+import { getErrorCode } from '../../compiler/errors.ts';
 import { readLockFile } from '../../compiler/lock.ts';
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import { parseRepairPlanJson, type RepairPlan } from '../../semantic/repair/contract/types.ts';
@@ -9,8 +9,8 @@ import { parseReviewSummaryJson } from '../../verification/review/contract/summa
 import type { ReviewSummary } from '../../verification/review/contract/types.ts';
 import { readJson } from '../../workspace/files.ts';
 import { resolveWorkspaceArtifactPath } from '../../workspace/runtime/paths.ts';
-import { printJsonOrText } from './format-utils.ts';
 import type { JsonOpts } from './command-options.ts';
+import { printJsonOrText } from './format-utils.ts';
 
 export async function readRequiredJson<T>(filePath: string, missingMessage: string): Promise<T> {
   try { return await readJson<T>(filePath); }

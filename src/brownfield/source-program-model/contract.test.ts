@@ -8,6 +8,7 @@ import {
   compileSecRepositoryModuleArchitectureProjection,
   compileSecRepositoryModuleMembershipSnapshot
 } from '../../system-architecture/repository-modules/contract.ts';
+import { createSourceProgramCompilationOperation } from './compilation-operation.ts';
 import { isSourceProgramInputPath, sourceProgramSurfaceForPath } from './contract.ts';
 import {
   buildSourceProgramAggregateImportReductionPatch,
@@ -1325,6 +1326,46 @@ test('unused-symbol provider evidence requires a sealed exact provider receipt',
   )).toThrow('compiler-issued exact provider candidate receipt');
 });
 
+test('graph cut requests compiler syntax only for provider candidates', () => {
+  const fixture = compileGraphCutFixture({
+    'tsconfig.json': `${JSON.stringify({ include: ['src/**/*.ts'] })}\n`,
+    'src/example/contract.ts': 'export const UNUSED = 1;\n',
+    'tests/fixtures/outside-program.ts': 'export const FIXTURE_ONLY = 1;\n'
+  });
+  expect(fixture.typeScriptModel.files.map(({ path }) => path)).not.toContain(
+    'tests/fixtures/outside-program.ts'
+  );
+  const unrelatedOutsideProgram = compileSourceProgramGraphCutReductionPlan(
+    fixture.model,
+    fixture.files,
+    compileGraphCutProviderReceipt(fixture, [{
+      path: 'src/example/contract.ts',
+      name: 'UNUSED'
+    }]),
+    graphCutContext(fixture)
+  );
+  expect(unrelatedOutsideProgram.reductions).toContainEqual(expect.objectContaining({
+    path: 'src/example/contract.ts',
+    name: 'UNUSED'
+  }));
+
+  const outsideCandidate = compileSourceProgramGraphCutReductionPlan(
+    fixture.model,
+    fixture.files,
+    compileGraphCutProviderReceipt(fixture, [{
+      path: 'tests/fixtures/outside-program.ts',
+      name: 'FIXTURE_ONLY'
+    }]),
+    graphCutContext(fixture)
+  );
+  expect(outsideCandidate.reductions).toEqual([expect.objectContaining({
+    path: 'tests/fixtures/outside-program.ts',
+    name: 'FIXTURE_ONLY',
+    status: 'blocked',
+    reason: 'declaration source snapshot is unresolved'
+  })]);
+});
+
 test('graph cut blocks a declaration with same-file type consumers from the canonical Program', () => {
   const fixture = compileGraphCutFixture({
     'src/example/contract.ts': [
@@ -1643,6 +1684,217 @@ test('supersession proves a renamed implementation only through the same owner a
   );
 });
 
+test('supersession keeps same-path test priority before the stable cross-path order', () => {
+  const production = "export function execute(): string { return 'ok'; }\n";
+  const testSource = "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', () => expect(execute()).toBe('ok'));\n";
+  const baseline = compileSupersessionSnapshot({
+    'src/example/operation.ts': production,
+    'tests/example.test.ts': testSource
+  });
+  const current = compileSupersessionSnapshot({
+    'src/example/operation.ts': production,
+    'tests/another.test.ts': testSource,
+    'tests/example.test.ts': testSource
+  });
+
+  const replacement = compileSourceProgramSupersessionReceipt({ baseline, current })
+    .replacements.find(({ kind }) => kind === 'test');
+  expect(replacement).toEqual(expect.objectContaining({
+    baselinePaths: ['tests/example.test.ts'],
+    currentPaths: ['tests/example.test.ts']
+  }));
+});
+
+test('supersession receipt rejects cancellation through the issued compilation operation', () => {
+  const evidence = compileSupersessionSnapshot({
+    'src/example/operation.ts': "export function execute(): string { return 'ok'; }\n",
+    'tests/example.test.ts': "import { test } from 'bun:test';\ntest('executes', () => {});\n"
+  });
+  const controller = new AbortController();
+  const operation = createSourceProgramCompilationOperation({
+    deadlineAtUnixMs: Date.now() + 30_000,
+    signal: controller.signal
+  });
+  controller.abort();
+
+  expect(() => compileSourceProgramSupersessionReceipt({
+    baseline: evidence,
+    current: evidence,
+    operation
+  })).toThrow('source-program-compilation-cancelled:supersession-receipt');
+});
+
+test('supersession separates semantic signatures from source occurrence identity', () => {
+  const repeatedCommand = compileSupersessionSnapshot({
+    'tests/example-command.test.ts': [
+      "import { Command } from 'commander';",
+      'const root = new Command();',
+      "root.command('sample');",
+      "root.command('sample');",
+      ''
+    ].join('\n')
+  });
+  const repeatedUnits = repeatedCommand.entrypointUnits.filter((unit) => (
+    unit.path === 'tests/example-command.test.ts'
+  ));
+  expect(repeatedUnits).toHaveLength(2);
+  expect(new Set(repeatedUnits.map(({ signature }) => signature)).size).toBe(1);
+  expect(new Set(repeatedUnits.map(({ occurrenceId }) => occurrenceId)).size).toBe(2);
+  expect(new Set(repeatedUnits.map(({ id }) => id)).size).toBe(2);
+  expect(compileSourceProgramSupersessionReceipt({
+    baseline: repeatedCommand,
+    current: repeatedCommand
+  }).findings).not.toContainEqual(expect.objectContaining({
+    code: expect.stringMatching(/evidence-invalid/u)
+  }));
+
+  const duplicateProduction = compileSupersessionSnapshot({
+    'src/example/a.ts': 'export function execute(): number { return 1; }\n',
+    'src/example/b.ts': 'export function execute(): number { return 1; }\n'
+  });
+  const productionUnits = duplicateProduction.productionUnits.filter(({ path }) => (
+    path === 'src/example/a.ts' || path === 'src/example/b.ts'
+  ));
+  expect(productionUnits).toHaveLength(2);
+  expect(new Set(productionUnits.map(({ signature }) => signature)).size).toBe(1);
+  expect(new Set(productionUnits.map(({ id }) => id)).size).toBe(2);
+  expect(compileSourceProgramSupersessionReceipt({
+    baseline: duplicateProduction,
+    current: duplicateProduction
+  }).replacements.filter(({ kind }) => kind === 'production')).toHaveLength(2);
+
+  const legacyUnit = Object.fromEntries(Object.entries(repeatedUnits[0]!)
+    .filter(([key]) => key !== 'occurrenceId'));
+  const legacyCanonical = Object.freeze({
+    ...repeatedCommand,
+    entrypointUnits: Object.freeze([legacyUnit, ...repeatedCommand.entrypointUnits.slice(1)])
+  });
+  const { evidenceDigest: _legacyDigest, ...legacyEvidenceWithoutDigest } = legacyCanonical;
+  expect(() => parseSourceProgramSupersessionEvidence(Object.freeze({
+    ...legacyEvidenceWithoutDigest,
+    evidenceDigest: sha256(legacyEvidenceWithoutDigest)
+  }))).toThrow('not canonical');
+});
+
+test('supersession refuses source-order matching for changed duplicate entrypoint occurrences', () => {
+  const baselineFixture = compileSupersessionFixture({
+    'tests/example-command.test.ts': [
+      "import { Command } from 'commander';",
+      'const root = new Command();',
+      "root.command('sample');",
+      ''
+    ].join('\n')
+  });
+  const currentFixture = compileSupersessionFixture({
+    'tests/example-command.test.ts': [
+      "import { Command } from 'commander';",
+      'const root = new Command();',
+      'const unrelated = true;',
+      "root.command('sample');",
+      "if (unrelated) root.command('sample');",
+      ''
+    ].join('\n')
+  });
+  const currentTests = compileSourceProgramTestValue({
+    repositoryRoot: 'C:/synthetic/repository',
+    files: currentFixture.files,
+    model: currentFixture.full.model,
+    baselineTestPaths: ['tests/example-command.test.ts']
+  });
+  const currentEvidence = compileSourceProgramSupersessionEvidence({
+    model: currentFixture.full.model,
+    tests: currentTests,
+    intentEvidence: currentFixture.full.intentEvidence,
+    identity: currentFixture.identity
+  });
+  const ambiguousSupersession = compileSourceProgramSupersessionReceipt({
+    baseline: baselineFixture.evidence,
+    current: currentEvidence
+  });
+  expect(ambiguousSupersession.findings)
+    .toContainEqual(expect.objectContaining({
+      code: 'replacement-ambiguous',
+      baselinePaths: ['tests/example-command.test.ts']
+    }));
+  const retirement = compileSourceProgramTestRetirementReceipt({
+    baseline: baselineFixture.evidence,
+    current: currentEvidence,
+    supersession: ambiguousSupersession,
+    currentModel: currentFixture.full.model,
+    currentTestCompilation: currentTests,
+    baselineFiles: baselineFixture.files,
+    currentFiles: currentFixture.files
+  });
+  expect(retirement.proofs).toContainEqual(expect.objectContaining({
+    path: 'tests/example-command.test.ts',
+    status: 'blocked',
+    unknownEvidence: expect.arrayContaining(['supersession:replacement-ambiguous'])
+  }));
+
+  const twoPathBaseline = compileSupersessionSnapshot({
+    'tests/first-command.test.ts': [
+      "import { Command } from 'commander';",
+      'const root = new Command();',
+      "root.command('sample');",
+      ''
+    ].join('\n'),
+    'tests/second-command.test.ts': [
+      "import { Command } from 'commander';",
+      'const root = new Command();',
+      "root.command('sample');",
+      ''
+    ].join('\n')
+  });
+  const twoPathCurrent = compileSupersessionSnapshot({
+    'tests/first-command.test.ts': [
+      "import { Command } from 'commander';",
+      'const root = new Command();',
+      'const firstShift = true;',
+      "root.command('sample');",
+      ''
+    ].join('\n'),
+    'tests/second-command.test.ts': [
+      "import { Command } from 'commander';",
+      'const root = new Command();',
+      'const secondShift = true;',
+      "root.command('sample');",
+      ''
+    ].join('\n')
+  });
+  const twoPathReceipt = compileSourceProgramSupersessionReceipt({
+    baseline: twoPathBaseline,
+    current: twoPathCurrent
+  });
+  expect(twoPathReceipt.findings).not.toContainEqual(expect.objectContaining({
+    code: 'replacement-ambiguous'
+  }));
+  expect(twoPathReceipt.replacements.filter(({ kind }) => kind === 'entrypoint')).toHaveLength(2);
+
+  const collapsedCurrent = compileSupersessionSnapshot({
+    'tests/example-command.test.ts': [
+      "import { Command } from 'commander';",
+      'const root = new Command();',
+      'const shifted = true;',
+      "if (shifted) root.command('sample');",
+      ''
+    ].join('\n')
+  });
+  const collapsed = compileSourceProgramSupersessionReceipt({
+    baseline: compileSupersessionSnapshot({
+      'tests/example-command.test.ts': [
+        "import { Command } from 'commander';",
+        'const root = new Command();',
+        "root.command('sample');",
+        "root.command('sample');",
+        ''
+      ].join('\n')
+    }),
+    current: collapsedCurrent
+  });
+  expect(collapsed.replacements.filter(({ kind }) => kind === 'entrypoint')).toHaveLength(0);
+  expect(collapsed.findings.filter(({ code }) => code === 'replacement-ambiguous')).toHaveLength(2);
+});
+
 function compileTestRetirementFixture(
   baselineTestSource: string,
   productionSource = "export const value = 'ok';\n"
@@ -1737,15 +1989,20 @@ test('test retirement blocks real consumers, path contracts, dynamic imports, an
       "export const retiredPath = 'tests/obsolete.test.ts';\n"
     ),
     compileTestRetirementFixture(
+      '// test path is consumed through a relative production literal\n',
+      "export const retiredPath = '../../tests/obsolete.test.ts';\n"
+    ),
+    compileTestRetirementFixture(
       "const target = '../src/example/operation.ts';\nvoid import(target);\n"
     ),
     compileTestRetirementFixture('export const malformed = ;\n')
   ];
 
   expect(fixtures.map(({ retirement }) => retirement.proofs[0]?.status))
-    .toEqual(['blocked', 'blocked', 'blocked', 'blocked']);
+    .toEqual(['blocked', 'blocked', 'blocked', 'blocked', 'blocked']);
   expect(fixtures.map(({ retirement }) => retirement.proofs[0]?.reason))
     .toEqual([
+      'consumer-closure-not-empty',
       'consumer-closure-not-empty',
       'consumer-closure-not-empty',
       'consumer-closure-not-empty',

@@ -2871,7 +2871,7 @@ class GhVerificationSessionTransport implements VerificationSessionGitHubTranspo
     }
   }
 
-  private graphPages<T>(query: string, repository: string, prNumber: number, label: string): any[] {
+  private graphPages(query: string, repository: string, prNumber: number, label: string): any[] {
     const { owner, name } = repoParts(repository);
     const source = this.gh([
       'api', 'graphql', '--paginate', '--slurp', '-f', `query=${query}`,

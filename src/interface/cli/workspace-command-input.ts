@@ -1,8 +1,8 @@
+import { decodeBooleanFlag } from './boolean-option.ts';
+import { jsonOpts, usageError } from './command-options.ts';
 import { captureJsonOutputInput } from './json-output-options.ts';
 import { captureCliOptions } from './own-options.ts';
 import { parseVerificationLaneOption } from './verification-lane-option.ts';
-import { decodeBooleanFlag } from './boolean-option.ts';
-import { jsonOpts, usageError } from './command-options.ts';
 
 // Own field spelling and defaults here; command-specific help stays at registration.
 export const COMPOSE_LOCK_OPTION = Object.freeze({

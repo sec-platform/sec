@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { CompilerError, getErrorCode } from '../../src/compiler/errors.ts';
 
 for (const [label, input] of [

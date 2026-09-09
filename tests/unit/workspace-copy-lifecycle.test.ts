@@ -1,8 +1,8 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
-import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { test } from 'bun:test';
+import path from 'node:path';
 import { copyRecursive } from '../../src/workspace/runtime/discovery.ts';
 
 function deferred() {

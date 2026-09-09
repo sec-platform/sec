@@ -1,13 +1,13 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { runtimeDependencyEffectFenceOptions, runtimeDependencyOperationEffectFence } from '../../src/toolchain/dependencies/runtime/operation-context.ts';
 import { runtimeDependencyOperationContext, runtimeDependencyOperationControls, runtimeDependencyOperationRemainingMs } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
 
 test('the effect view neither enumerates nor retains installation and lifecycle fields', () => {
   const raw = new Proxy({ lockTimeoutMs: 100, monotonicNowMs: () => 0,
-    get generatedStateLifecycle() { assert.fail('lifecycle read'); },
-    get installMode() { assert.fail('install mode read'); },
-    get testMaterialization() { assert.fail('test capability read'); }
+    get generatedStateLifecycle() { assert.fail('lifecycle read'); throw new Error('unreachable'); },
+    get installMode() { assert.fail('install mode read'); throw new Error('unreachable'); },
+    get testMaterialization() { assert.fail('test capability read'); throw new Error('unreachable'); }
   }, { ownKeys() { assert.fail('wide options enumerated'); } });
   const value = runtimeDependencyEffectFenceOptions(raw);
   assert.deepEqual(Object.keys(value).sort(), ['deadlineAtUnixMs', 'lockTimeoutMs', 'pollIntervalMs', 'signal']);
@@ -70,7 +70,7 @@ test('all selected control and callback getters are captured only once', async (
   const reads = new Map<string, number>();
   const raw = {};
   for (const [key, value] of Object.entries({ lockTimeoutMs: 100, pollIntervalMs: 2,
-    monotonicNowMs: () => 0, beforeCommit: async () => {} })) {
+    monotonicNowMs: (): number => 0, beforeCommit: async () => {} })) {
     Object.defineProperty(raw, key, { enumerable: true, get() { reads.set(key, (reads.get(key) ?? 0) + 1); return value; } });
   }
   await runtimeDependencyOperationEffectFence(runtimeDependencyEffectFenceOptions(raw), 'getters');

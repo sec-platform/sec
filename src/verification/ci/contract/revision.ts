@@ -1,7 +1,4 @@
 import { createHash } from 'node:crypto';
-import { z } from 'zod';
-
-import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../../action/contract/environment.ts';
 import { VERIFICATION_SESSION_SCHEMA } from '../../session/contract/session.ts';
 
 /** Active trusted hosted lane. */

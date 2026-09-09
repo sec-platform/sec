@@ -1,9 +1,9 @@
-import { isRuntimeDependencyInstallMode } from '../contract/install-request.ts';
 import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
-import { assertRuntimeDependencyTestMaterialization } from './materialization-fixture-capability.ts';
-import { captureRuntimeDependencyBindingGuard, runtimeDependencyOperationControls } from './operation-controls.ts';
-import type { RuntimeDependencyEffectFenceInput, RuntimeDependencyFaultInjectionInput } from './operation-context.ts';
 import type { RuntimeDependencyInstallRequest } from '../contract/install-request.ts';
+import { isRuntimeDependencyInstallMode } from '../contract/install-request.ts';
+import { assertRuntimeDependencyTestMaterialization } from './materialization-fixture-capability.ts';
+import type { RuntimeDependencyEffectFenceInput, RuntimeDependencyFaultInjectionInput } from './operation-context.ts';
+import { captureRuntimeDependencyBindingGuard, runtimeDependencyOperationControls } from './operation-controls.ts';
 
 export type CompilerInstallInvocationInput = RuntimeDependencyEffectFenceInput
   & Readonly<Pick<RuntimeDependencyInstallRequest, 'installMode'>>

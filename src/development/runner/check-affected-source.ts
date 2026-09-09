@@ -51,6 +51,7 @@ export const issueCheckAffectedTestImpactProjection: AffectedTestImpactProjectio
     projection: issueTestImpactProjection({
       workspaceSnapshot,
       projectGeneration: compilation.projectGeneration,
+      repositoryModel: compilation.model,
       typeScriptModel: compilation.typeScriptCompilation.model,
       testObservations: compilation.testObservations
     }),

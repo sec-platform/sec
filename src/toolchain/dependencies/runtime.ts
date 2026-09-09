@@ -1,9 +1,9 @@
 import path from 'node:path';
-import { captureRuntimeDependencyInstallRequest, type RuntimeDependencyInstallRequest } from './contract/install-request.ts';
 import type {
   GeneratedStateDomainOwnerOperation,
   GeneratedStateDomainOwnerPlan
 } from '../../runtime-state/generated-state/operation.ts';
+import { captureRuntimeDependencyInstallRequest, type RuntimeDependencyInstallRequest } from './contract/install-request.ts';
 import * as runtime from './runtime/project-runtime.ts';
 
 export type {

@@ -1,9 +1,8 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { test } from 'bun:test';
-import { parseGitLineReply, parseGitObjectIdReply, parseGitAbsolutePathReply }
-  from '../../src/runtime-state/physical/contract/git-worktree-observation.ts';
-import { inGitProtocolRepository, gitProtocolSuccess } from '../testkit/git-protocol.ts';
+import { parseGitAbsolutePathReply, parseGitLineReply, parseGitObjectIdReply } from '../../src/runtime-state/physical/contract/git-worktree-observation.ts';
+import { gitProtocolSuccess, inGitProtocolRepository } from '../testkit/git-protocol.ts';
 
 test('Git path reply preserves spaces, tabs and CR data instead of applying trim', () => {
   for (const suffix of [' trailing ', 'tail\t', 'tail\r', '名🙂']) {

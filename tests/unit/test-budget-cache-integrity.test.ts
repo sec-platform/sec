@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { deepFreeze, sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
 import {
   compileTestBudgetProjection, isKnownSlowTestSuiteId, slowTestSuiteIds,
@@ -64,7 +64,7 @@ test('a malformed cache value is rebuilt without evaluating its accessor or conv
   const unreadable = new Proxy({}, { get() { assert.fail('read corrupt entry'); },
     ownKeys() { assert.fail('enumerate corrupt entry'); } });
   for (const value of [null, false, 7, 'cached', proxy, unreadable,
-    Object.freeze({ get generationKey() { assert.fail('corrupt getter'); } })]) {
+    Object.freeze({ get generationKey() { assert.fail('corrupt getter'); throw new Error('unreachable'); } })]) {
     poison(cache, first.generationKey, value);
     assert.deepEqual(cache.project(input), first);
   }

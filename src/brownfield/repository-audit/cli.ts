@@ -1,8 +1,7 @@
 #!/usr/bin/env bun
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import {
   DEFAULT_REPOSITORY_AUDIT_REF,
@@ -16,11 +15,6 @@ import {
 } from './cli-contract.ts';
 export { repositoryAuditShouldFail } from './cli-contract.ts';
 
-import {
-  createOptions as createKnipOptions,
-  type Issues as KnipIssues,
-  type MainOptions as KnipMainOptions
-} from 'knip/session';
 import ts from 'typescript';
 
 import {
@@ -40,29 +34,18 @@ import {
 } from '../../control/documentation/document-control-plane-contract.ts';
 import { withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
 import { type GitReadSession, type GitReadSessionCommand } from '../../external-capabilities/git-read/runtime/session.ts';
-import { parseWorktreeStatusPorcelainZ } from '../../runtime-state/physical/contract/git-worktree-observation.ts';
 import {
-  inspectNoFollowDirectoryChain,
-  retainNoFollowDirectoryForChildProcess,
-  retainNoFollowOrdinaryFile,
-  type PhysicalDirectoryIdentity,
-  type RetainedNoFollowChildProcessDirectory,
-  type RetainedNoFollowOrdinaryFile,
+  inspectNoFollowDirectoryChain, retainNoFollowOrdinaryFile, type RetainedNoFollowOrdinaryFile,
   type RetainedNoFollowProvenDirectoryGeneration
 } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
-  assertProcessResourceRunResult,
   openProcessResourceSession,
   type ProcessResourceRunResult,
   type ProcessResourceSession,
   type ProcessResourceSessionReceipt
 } from '../../runtime-state/physical/runtime/process-resource-session.ts';
 import {
-  issueRetainedCommandBoundary,
-  retainCommandAuxiliaryOrdinaryFiles,
-  RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-  RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
-  RetainedCommandTransportError
+  issueRetainedCommandBoundary, RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RetainedCommandTransportError
 } from '../../runtime-state/physical/runtime/process.ts';
 import {
   PhysicalResourceCompositeSettlementError,
@@ -87,9 +70,7 @@ import {
   type SecOperationDigest
 } from '../../system-architecture/operation/semantic.ts';
 import {
-  compileSecRepositoryModuleArchitectureProjection,
-  compileSecRepositoryModuleMembershipSnapshot,
-  compileSecRepositoryModuleTopologyProjection,
+  compileSecRepositoryModuleArchitectureProjection, compileSecRepositoryModuleTopologyProjection,
   type SecRepositoryModuleArchitectureProjection,
   type SecRepositoryModuleGraph,
   type SecRepositoryModuleMembership,
@@ -114,7 +95,7 @@ import {
   createSourceProgramCompilationOperation,
   type SourceProgramCompilationOperation
 } from '../source-program-model/compilation-operation.ts';
-import { SOURCE_PROGRAM_BLOCKING_CANDIDATE_CODES, sourceProgramSurfaceForPath, type SourceProgramCandidate, type SourceProgramFileInput, type SourceProgramModel, type SourceProgramOperationProducerClosure, type SourceProgramOwnerIntentEvidence, type SourceProgramSupersessionReceipt } from '../source-program-model/contract.ts';
+import { SOURCE_PROGRAM_BLOCKING_CANDIDATE_CODES, sourceProgramSurfaceForPath, type SourceProgramCandidate, type SourceProgramFileInput, type SourceProgramModel, type SourceProgramOwnerIntentEvidence, type SourceProgramSupersessionReceipt } from '../source-program-model/contract.ts';
 import {
   compileSourceProgramDeclarationTopology,
   type SourceProgramDeclarationTopology
@@ -125,7 +106,7 @@ import {
   compileSourceProgramArchitectureEvolutionReference,
   compileSourceProgramReconciliationProjection
 } from '../source-program-model/reconciliation-projection.ts';
-import { buildSourceProgramAggregateImportReductionPatch, compileSourceProgramAggregateImportReductionPlan, compileSourceProgramGraphCutReductionPlan, compileSourceProgramSupersessionEvidence, compileSourceProgramSupersessionEvidenceIdentity, compileSourceProgramSupersessionReceipt, compileSourceProgramTestRetirementReceipt, compileSourceProgramUnusedSymbolProviderReceipt, compileSourceProgramVersionSuffixReductionPlan, parseSourceProgramSupersessionEvidence, projectSourceProgramTestRetirementDispositions, renderSourceProgramGraphCutReductionPatch, renderSourceProgramVersionSuffixReductionPatch, type SourceProgramSupersessionEvidence, type SourceProgramSupersessionEvidenceIdentity, type SourceProgramUnusedSymbolEvidence, type SourceProgramUnusedSymbolProviderReceipt } from '../source-program-model/reduction.ts';
+import { buildSourceProgramAggregateImportReductionPatch, compileSourceProgramAggregateImportReductionPlan, compileSourceProgramGraphCutReductionPlan, compileSourceProgramSupersessionEvidence, compileSourceProgramSupersessionEvidenceIdentity, compileSourceProgramSupersessionReceipt, compileSourceProgramTestRetirementReceipt, compileSourceProgramVersionSuffixReductionPlan, parseSourceProgramSupersessionEvidence, projectSourceProgramTestRetirementDispositions, renderSourceProgramGraphCutReductionPatch, renderSourceProgramVersionSuffixReductionPatch, type SourceProgramSupersessionEvidence, type SourceProgramSupersessionEvidenceIdentity } from '../source-program-model/reduction.ts';
 import { compileRepositorySourceProgramCompilation } from '../source-program-model/repository-compilation.ts';
 import { compileSourceProgramOwnerIntentEvidence, summarizeSourceProgramTopology } from '../source-program-model/repository.ts';
 import { compileSourceProgramTestBaselineEvidence, compileSourceProgramTestValue, reconcileSourceProgramTestValueWithSupersession, SOURCE_PROGRAM_BLOCKING_TEST_FINDING_CODES, summarizeSourceProgramTestUnknownDispositionClusters, type SourceProgramTestBaselineEvidence, type SourceProgramTestFinding } from '../source-program-model/test-value.ts';
@@ -141,6 +122,10 @@ import {
   type PhysicalWorkspaceSourceSnapshot,
   type WorkspaceSourceFile
 } from '../source-program-model/workspace-source-snapshot.ts';
+import {
+  executeKnipUnusedSymbolProvider,
+  type KnipProviderResult
+} from './knip-provider.ts';
 import {
   deriveRepositoryAuditImplementationDigest,
   joinRepositoryAuditLoadedImplementationObservation,
@@ -1152,10 +1137,12 @@ async function compileRevisionSupersessionEvidence(
       tests: compileSourceProgramTestValue({
         repositoryRoot: DEFAULT_REPOSITORY_ROOT,
         files,
-        model
+        model,
+        operation
       }),
-      intentEvidence: compileSourceProgramOwnerIntentEvidence(model, membership),
-      identity
+      intentEvidence: compileSourceProgramOwnerIntentEvidence(model, membership, operation),
+      identity,
+      operation
     })
   });
 }
@@ -1210,47 +1197,6 @@ async function compileWorkingTreeModuleTopology(
   );
 }
 
-async function compileKnipUnusedSymbolEvidence(
-  repositoryRoot: string,
-  model: SourceProgramModel,
-  files: readonly SourceProgramFileInput[]
-): Promise<SourceProgramUnusedSymbolProviderReceipt> {
-  const options = await createKnipOptions({
-    cwd: repositoryRoot,
-    includedIssueTypes: ['exports', 'types'],
-    isShowProgress: false
-  });
-  const { main: runKnip } = await import('knip') as unknown as Readonly<{
-    main(options: KnipMainOptions): Promise<Readonly<{ issues: KnipIssues }>>;
-  }>;
-  const result = await runKnip(options);
-  const providerRevision = rawSha256(await readFile(new URL(import.meta.resolve('knip'))));
-  const evidence: SourceProgramUnusedSymbolEvidence[] = [];
-  for (const issueRecords of [result.issues.exports, result.issues.types]) {
-    for (const [rawPath, symbols] of Object.entries(issueRecords)) {
-      const repositoryPath = rawPath.replaceAll('\\', '/');
-      for (const name of Object.keys(symbols)) {
-        evidence.push(Object.freeze({
-          path: repositoryPath,
-          name
-        }));
-      }
-    }
-  }
-  return compileSourceProgramUnusedSymbolProviderReceipt({
-    model,
-    files,
-    providerRevision,
-    configuration: Object.freeze({
-      includedIssueTypes: Object.freeze(['exports', 'types'] as const),
-      isShowProgress: false as const
-    }),
-    settlement: 'completed',
-    candidates: Object.freeze(evidence.sort((left, right) =>
-      compareCodeUnits(left.path, right.path) || compareCodeUnits(left.name, right.name)))
-  });
-}
-
 function compileRepositoryModuleArchitectureAdmission(
   graph: SecRepositoryModuleGraph,
   membership: SecRepositoryModuleMembership,
@@ -1298,7 +1244,8 @@ async function compileWorkingTreeSourceProgram(
   repositoryRoot: string,
   supersessionBaseline: string,
   deadlineAtUnixMs: number,
-  allowSupersessionEvidenceCache: boolean
+  allowSupersessionEvidenceCache: boolean,
+  observeKnip: boolean
 ): Promise<Readonly<{
   cache: 'hit' | 'incremental' | 'miss';
   sourceProgramCompilation: Readonly<{
@@ -1325,6 +1272,9 @@ async function compileWorkingTreeSourceProgram(
   moduleMembership: SecRepositoryModuleMembership;
   reviewedProcessDispatchers: readonly string[];
   sourceFiles: readonly WorkspaceSourceFile[];
+  workspaceSnapshot: PhysicalWorkspaceSourceSnapshot;
+  compilationOperation: SourceProgramCompilationOperation;
+  knipProvider: KnipProviderResult | null;
 }>> {
   const runtime = await import('../../toolchain/dependencies/runtime.ts');
   const authority = await runtime.observeCompilerDependencyExecutionGenerationAuthority(
@@ -1338,7 +1288,7 @@ async function compileWorkingTreeSourceProgram(
     deadlineAtUnixMs
   });
   try {
-    return await withAuthorityGitReadSession(
+    const compilation = await withAuthorityGitReadSession(
       { cwd: repositoryRoot, budget: repositoryAuditGitBudget(deadlineAtUnixMs) },
       async (session) => compileWorkingTreeSourceProgramWithSession(
         session,
@@ -1350,6 +1300,25 @@ async function compileWorkingTreeSourceProgram(
         allowSupersessionEvidenceCache
       )
     );
+    if (!observeKnip) return Object.freeze({ ...compilation, knipProvider: null });
+    const cacheRoot = resolveSecRuntimeCacheRoot({
+      platform: currentSecRuntimePlatform(),
+      environment: secRuntimeStateEnvironment(),
+      repositoryRoot
+    });
+    const generationParentPath = path.join(cacheRoot, 'repository-audit', 'knip-generations');
+    await mkdir(generationParentPath, { recursive: true });
+    const knipProvider = await executeKnipUnusedSymbolProvider({
+      workspaceSnapshot: compilation.workspaceSnapshot,
+      model: compilation.model,
+      dependencyGeneration: retained,
+      generationParent: inspectNoFollowDirectoryChain(
+        generationParentPath,
+        'Knip execution generation parent'
+      ).target,
+      deadlineAtUnixMs
+    });
+    return Object.freeze({ ...compilation, knipProvider });
   } finally {
     await retained.retire();
   }
@@ -1389,6 +1358,8 @@ async function compileWorkingTreeSourceProgramWithSession(
   moduleMembership: SecRepositoryModuleMembership;
   reviewedProcessDispatchers: readonly string[];
   sourceFiles: readonly WorkspaceSourceFile[];
+  workspaceSnapshot: PhysicalWorkspaceSourceSnapshot;
+  compilationOperation: SourceProgramCompilationOperation;
 }>> {
   const compilationOperation = createSourceProgramCompilationOperation({ deadlineAtUnixMs });
   const before = await runGitBytes(session, [
@@ -1399,7 +1370,6 @@ async function compileWorkingTreeSourceProgramWithSession(
     throw new Error('Working-tree Source Program Model requires Git status');
   }
   const workspaceSnapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
-  const repositoryPaths = workspaceSnapshot.files.map(({ path: repositoryPath }) => repositoryPath);
   if (supersessionBaseline.startsWith('-')) {
     throw new Error('--supersession-baseline cannot begin with -');
   }
@@ -1462,7 +1432,6 @@ async function compileWorkingTreeSourceProgramWithSession(
       }))
   ));
   const files = workspaceSnapshot.files;
-  const presentRepositoryPaths = repositoryPaths;
   const unknowns: import('../source-program-model/contract.ts').SourceProgramUnknown[] = [];
   const moduleMembership = workspaceSnapshot.moduleMembership;
   if (moduleMembership.descriptors.length === 0) {
@@ -1516,7 +1485,8 @@ async function compileWorkingTreeSourceProgramWithSession(
     baselineTestPaths,
     baselineModel: baselineReconciliation.compilation.typeScriptCompilation.model,
     candidateModel: incrementalCompilation.model,
-    baselineRevision: baselineTestRevision
+    baselineRevision: baselineTestRevision,
+    operation: compilationOperation
   });
   const declarationTopology = compileSourceProgramDeclarationTopology(compilation);
   const moduleArchitecture = compileRepositoryModuleArchitectureAdmission(
@@ -1553,10 +1523,16 @@ async function compileWorkingTreeSourceProgramWithSession(
       ? baselineSupersessionEvidence
       : null,
     currentSupersessionIdentity,
-    currentIntentEvidence: compileSourceProgramOwnerIntentEvidence(model, moduleMembership),
+    currentIntentEvidence: compileSourceProgramOwnerIntentEvidence(
+      model,
+      moduleMembership,
+      compilationOperation
+    ),
     moduleMembership,
     reviewedProcessDispatchers,
-    sourceFiles: Object.freeze(files)
+    sourceFiles: Object.freeze(files),
+    workspaceSnapshot,
+    compilationOperation
   });
 }
 
@@ -1577,7 +1553,8 @@ async function prepareWorkingTreeSourceProgramAudit(
         DEFAULT_REPOSITORY_ROOT,
         options.supersessionBaseline,
         deadlineAtUnixMs,
-        !options.enforce
+        !options.enforce,
+        options.reductionMode === 'graph-cut'
       );
     } finally {
       releaseTypeScriptSourceProgramWorkspace();
@@ -1588,9 +1565,26 @@ async function prepareWorkingTreeSourceProgramAudit(
     model,
     ownerIntents: worktreeAudit.currentIntentEvidence
   });
+  const knipReceipt = worktreeAudit.knipProvider?.status === 'completed'
+    ? worktreeAudit.knipProvider.receipt
+    : null;
   const reconciliation = compileSourceProgramReconciliationProjection({
     before: worktreeAudit.baselineSourceProgramCompilation,
-    after: worktreeAudit.currentSourceProgramCompilation
+    after: worktreeAudit.currentSourceProgramCompilation,
+    ...(options.reductionMode === 'graph-cut' ? {
+      providerEvidence: [knipReceipt === null
+        ? Object.freeze({
+            provider: 'knip', status: 'unresolved' as const,
+            providerRevision: null, configDigest: null, inputDigest: null, candidateDigest: null
+          })
+        : Object.freeze({
+            provider: 'knip', status: 'observed' as const,
+            providerRevision: knipReceipt.providerRevision,
+            configDigest: knipReceipt.configurationDigest as `sha256:${string}`,
+            inputDigest: knipReceipt.inputDigest as `sha256:${string}`,
+            candidateDigest: knipReceipt.candidateDigest as `sha256:${string}`
+          })]
+    } : {})
   });
   const architectureEvolution = compileSourceProgramArchitectureEvolutionReference({
     reconciliation
@@ -1600,17 +1594,20 @@ async function prepareWorkingTreeSourceProgramAudit(
     files: worktreeAudit.sourceFiles,
     model,
     baselineTestPaths: worktreeAudit.baselineTestPaths,
-    baselineEvidence: worktreeAudit.baselineTestEvidence
+    baselineEvidence: worktreeAudit.baselineTestEvidence,
+    operation: worktreeAudit.compilationOperation
   });
   const currentSupersessionEvidence = compileSourceProgramSupersessionEvidence({
     model,
     tests: testValue,
     intentEvidence: worktreeAudit.currentIntentEvidence,
-    identity: worktreeAudit.currentSupersessionIdentity
+    identity: worktreeAudit.currentSupersessionIdentity,
+    operation: worktreeAudit.compilationOperation
   });
   const supersession = compileSourceProgramSupersessionReceipt({
     baseline: worktreeAudit.baselineSupersessionEvidence,
-    current: currentSupersessionEvidence
+    current: currentSupersessionEvidence,
+    operation: worktreeAudit.compilationOperation
   });
   const observedDisposition = reconcileSourceProgramTestValueWithSupersession(
     testValue,
@@ -1623,7 +1620,8 @@ async function prepareWorkingTreeSourceProgramAudit(
     currentModel: model,
     currentTestCompilation: testValue,
     baselineFiles: worktreeAudit.baselineSourceFiles,
-    currentFiles: worktreeAudit.sourceFiles
+    currentFiles: worktreeAudit.sourceFiles,
+    operation: worktreeAudit.compilationOperation
   });
   const testDisposition = projectSourceProgramTestRetirementDispositions(
     observedDisposition,
@@ -1666,16 +1664,11 @@ async function prepareWorkingTreeSourceProgramAudit(
       ? null
       : buildSourceProgramAggregateImportReductionPatch(plan, worktreeAudit.sourceFiles);
     reduction = Object.freeze({ mode: 'aggregate-import', plan, patch });
-  } else if (options.reductionMode === 'graph-cut') {
-    const provider = await compileKnipUnusedSymbolEvidence(
-      DEFAULT_REPOSITORY_ROOT,
-      model,
-      worktreeAudit.sourceFiles
-    );
+  } else if (options.reductionMode === 'graph-cut' && knipReceipt !== null) {
     const plan = compileSourceProgramGraphCutReductionPlan(
       model,
       worktreeAudit.sourceFiles,
-      provider,
+      knipReceipt,
       reductionCompilerContext
     );
     const patch = plan.reductions.every(({ status }) => status === 'blocked')
@@ -1686,9 +1679,9 @@ async function prepareWorkingTreeSourceProgramAudit(
       plan,
       patch,
       providerEvidence: Object.freeze({
-        provider: provider.provider,
-        receiptDigest: provider.receiptDigest,
-        sourceRevision: provider.sourceRevision
+        provider: knipReceipt.provider,
+        receiptDigest: knipReceipt.receiptDigest,
+        sourceRevision: knipReceipt.sourceRevision
       })
     });
   }
@@ -2053,16 +2046,6 @@ export function projectRepositorySourceGovernance(
     candidates: Object.freeze([...candidates]),
     blockingFindings: Object.freeze([...blockingFindings])
   });
-}
-
-interface DeletedBlobGitFact {
-  oldBlob: string;
-  bytes: number;
-  lineCount: number;
-}
-
-function unknownCount(unknowns: readonly string[], markers: readonly string[]): number {
-  return unknowns.filter((unknown) => markers.some((marker) => unknown.includes(marker))).length;
 }
 
 async function auditControlPlane(

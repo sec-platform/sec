@@ -1,6 +1,6 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { test } from 'bun:test';
 import {
   getWorkspacePaths,
   isPathInside,

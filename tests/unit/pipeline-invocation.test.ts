@@ -1,6 +1,6 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
-import { bindPipelineCompileRequest, selectPipelineStageRange, PIPELINE_DEFAULT_VERIFICATION_LANE } from '../../src/compiler/pipeline/invocation.ts';
+import assert from 'node:assert/strict';
+import { bindPipelineCompileRequest, PIPELINE_DEFAULT_VERIFICATION_LANE, selectPipelineStageRange } from '../../src/compiler/pipeline/invocation.ts';
 import { PIPELINE_STAGE_IDS } from '../../src/compiler/pipeline/stages.ts';
 import { parsePipelineCompileOptions, PIPELINE_COMPILE_DEFAULT_LANE } from '../../src/interface/cli/pipeline-command-input.ts';
 
@@ -52,14 +52,14 @@ test('requests capture owned fields once and never enumerate capabilities or unr
 });
 
 test('ranges without verification do not read a verification-only getter', () => {
-  const result = bindPipelineCompileRequest({ through: 'compose', get verificationLane() { assert.fail('unused lane'); } });
+  const result = bindPipelineCompileRequest({ through: 'compose', get verificationLane(): never { assert.fail('unused lane'); throw new Error('unreachable'); } });
   assert.deepEqual(result.stages, ['resolve', 'semantic', 'compose']);
 });
 
 test('range rejection precedes reading later request fields', () => {
   assert.throws(() => bindPipelineCompileRequest({ from: 'emit', through: 'resolve',
-    get verificationLane() { assert.fail('lane read before range admission'); },
-    get source() { assert.fail('source read before range admission'); } }), code('PIPELINE-USAGE-001'));
+    get verificationLane(): never { assert.fail('lane read before range admission'); throw new Error('unreachable'); },
+    get source(): never { assert.fail('source read before range admission'); throw new Error('unreachable'); } }), code('PIPELINE-USAGE-001'));
 });
 
 test('only selected API verification requests default an absent lane and reject explicit invalid values', () => {

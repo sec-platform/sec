@@ -1,9 +1,9 @@
-import { VERIFICATION_LANE_OPTION } from './verification-lane-option.ts';
 import type { Command } from 'commander';
+import { VERIFICATION_LANE_OPTION } from './verification-lane-option.ts';
 
-import { printJsonOrText } from './format-utils.ts';
 import { addJsonFlags } from './command-options.ts';
-import { parsePipelineCompileOptions, parsePipelineOutputOptions, rejectPipelineOutputIssue, PIPELINE_COMPILE_DEFAULT_LANE } from './pipeline-command-input.ts';
+import { printJsonOrText } from './format-utils.ts';
+import { parsePipelineCompileOptions, parsePipelineOutputOptions, PIPELINE_COMPILE_DEFAULT_LANE, rejectPipelineOutputIssue } from './pipeline-command-input.ts';
 import { formatPipelineCompilation, formatPipelineJournal } from './pipeline-command-presentation.ts';
 
 export function registerPipelineCommands(program: Command): void {

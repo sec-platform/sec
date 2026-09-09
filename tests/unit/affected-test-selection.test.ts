@@ -1,5 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test';
-import { hasTestImpactForFile } from '../../src/verification/test-impact/runtime/impact.ts';
+import {
+  hasTestImpactForFile
+} from '../../src/verification/test-impact/runtime/impact.ts';
 import { CodexDevelopmentCreateTestImpactTransitionObservation } from '../../src/verification/test-impact/runtime/transition.ts';
 import { selectSlowTestRiskClosure } from '../../src/verification/test-impact/slow-risk-selection.ts';
 import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
@@ -24,11 +26,20 @@ describe('affected test selection batch optimization', () => {
     expect(result.suites).toContain('e2e-dry-run-plan');
   });
 
+  test('managed git hooks reuse their Source Program entrypoint and owner consumer closure', () => {
+    const result = selectSlowTestRiskClosure(['.githooks/post-merge'], provider);
+    expect(result.resolved).toBe(true);
+    expect(result.owners).toContain('development.hooks');
+    expect(result.affectedSlowTests).toContain('tests/e2e/install-git-hooks.test.ts');
+    expect(result.suites).toContain('e2e-install-git-hooks');
+  });
+
   test('slow-test risk closure marks unresolved files without test impact', () => {
     // A fixtures path is not a test impact source (classifyTestImpactSource
     // returns null for fixtures/) and matches no declaration/fallback → unresolved.
     const result = selectSlowTestRiskClosure(['fixtures/nonexistent-affected-test.txt'], provider);
     expect(result.resolved).toBe(false);
+    expect(result.unresolvedPaths).toEqual(['fixtures/nonexistent-affected-test.txt']);
   });
 
   test('slow-test risk closure handles multiple files in batch', () => {
@@ -68,6 +79,29 @@ describe('affected test selection batch optimization', () => {
     expect(result.owners.length).toBeGreaterThan(0);
   });
 
+  test('compile-only test project inputs resolve without inventing runtime tests', () => {
+    for (const sourcePath of [
+      'tests/unit/architecture-contracts.typecheck.ts',
+      'tests/unit/workspace-action.typecheck.ts'
+    ]) {
+      const result = selectSlowTestRiskClosure([sourcePath], provider);
+      expect(result.resolved).toBe(true);
+      expect(result.unresolvedPaths).toEqual([]);
+      expect(result.slowTests).toEqual([]);
+    }
+  });
+
+  test('typecheck spelling cannot resolve an arbitrary or absent source', () => {
+    for (const sourcePath of [
+      'src/compiler/foreign.typecheck.ts',
+      'tests/unit/absent.typecheck.ts'
+    ]) {
+      const result = selectSlowTestRiskClosure([sourcePath], provider);
+      expect(result.resolved).toBe(false);
+      expect(result.unresolvedPaths).toEqual([sourcePath]);
+    }
+  });
+
   test('unregistered deleted or renamed slow paths remain typed-unresolved', () => {
     // The e2e naming convention alone does not identify a canonical slow
     // suite. A path that is absent from the immutable suite registry must not
@@ -77,6 +111,7 @@ describe('affected test selection batch optimization', () => {
     expect(result.owners).toContain('bounded-slow-risk');
     expect(result.reasons).toContain('changed-files-unresolved');
     expect(result.slowTests).toEqual(['tests/e2e/deleted-unknown.test.ts']);
+    expect(result.unresolvedPaths).toEqual(['tests/e2e/deleted-unknown.test.ts']);
   });
 
   test('renamed slow paths retain the canonical successor suite without becoming runnable', () => {
@@ -102,5 +137,6 @@ describe('affected test selection batch optimization', () => {
       'tests/e2e/graph.test.ts',
       'tests/e2e/old-graph-name.test.ts'
     ]);
+    expect(result.unresolvedPaths).toEqual([]);
   });
 });

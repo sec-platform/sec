@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { indexEngineeringIR, indexValidatedEngineeringIR } from '../../src/compiler/ir/index-engineering-ir.ts';
 import { projectArchitectureView } from '../../src/compiler/projection/project-architecture-view.ts';
 import type { SemanticEntity } from '../../src/semantic/engineering-ir/contract/entity-types.ts';

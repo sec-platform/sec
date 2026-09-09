@@ -2,13 +2,13 @@ import path from 'node:path';
 
 import type { GeneratedStatePhysicalIdentity } from '../../../runtime-state/generated-state/contract.ts';
 import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
+import { captureRuntimeDependencyLifecycle, type CapturedRuntimeDependencyLifecycle, type RuntimeDependencyLifecycleInput } from './lifecycle-capabilities.ts';
 import {
   runtimeDependencyEffectFenceOptions,
   runtimeDependencyOperationEffectFence,
   type RuntimeDependencyEffectFenceOptions
 } from './operation-context.ts';
 import { runtimeDependencyOperationControls, runtimeDependencyOperationRemainingMs, type BoundRuntimeDependencyOperationControls, type RuntimeDependencyOperationControlInput } from './operation-controls.ts';
-import { captureRuntimeDependencyLifecycle, type CapturedRuntimeDependencyLifecycle, type RuntimeDependencyLifecycleInput } from './lifecycle-capabilities.ts';
 
 export const COMPILER_NODE_MODULES_LIFECYCLE_OWNER = 'compiler-dependency-runtime' as const;
 export const COMPILER_NODE_MODULES_LIFECYCLE_PRODUCER = 'ensure-compiler-deps-ready' as const;

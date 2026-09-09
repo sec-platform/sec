@@ -168,6 +168,14 @@ async function issueWithSession(input: Readonly<{
     session: input.session,
     candidateBase: candidate.preimage
   });
+  if (normalizationResult.admission === null) {
+    const { outcome } = normalizationResult;
+    throw new Error(
+      `Candidate import normalization blocked commit: ${outcome.terminal?.status ?? outcome.state}; `
+      + `action ${outcome.actionKey}; ${outcome.reason}. `
+      + 'Run bun run imports:check --staged to inspect the exact staged candidate.'
+    );
+  }
   const normalization = requireCandidateNormalizationAdmissionReceipt(
     normalizationResult.admission
   );

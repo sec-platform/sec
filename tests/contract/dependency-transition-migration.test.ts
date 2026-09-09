@@ -639,7 +639,7 @@ test('rejects foreign, partial, forked, and digest-invalid legacy sources before
     }
   ];
 
-  for (const { name, prepare } of cases) {
+  for (const { prepare } of cases) {
     const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-transition-invalid-'));
     try {
       await prepare(root);

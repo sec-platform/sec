@@ -99,7 +99,7 @@ Compiler/provider 只发布其能证明的 language facts；SEC 组合唯一 rep
 
 观察世代、内容寻址 fact shard、跨进程复用、父资源账本、Windows retained capability
 以及 cold/warm/delta 的唯一实现合同由
-[实现架构的增量与共享事实章节](implementation-architecture/source-and-generation.md#78-增量共享事实与性能)
+[实现架构的 Source Observation 与增量章节](implementation-architecture/source-observation-and-incrementality.md)
 拥有；Brownfield 只负责签发其中可证明的 language facts 与 unknown frontier。所有
 typecheck、audit、test-impact、architecture 和 Agent 查询必须消费同一
 `SourceObservationGeneration`，各自只取得自己的只读 allocation；不得再建 receipt、

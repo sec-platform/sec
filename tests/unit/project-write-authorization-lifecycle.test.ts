@@ -1,16 +1,18 @@
-import assert from 'node:assert/strict';
-import path from 'node:path';
-import { tmpdir } from 'node:os';
 import { test } from 'bun:test';
-import { currentProjectWriteAuthorization, projectProjectWriteAuthorization, withProjectWriteAuthorization,
-  type ProjectWriteAuthorization } from '../../src/workspace/runtime/project-write-authorization.ts';
+import assert from 'node:assert/strict';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import {
+  currentProjectWriteAuthorization, projectProjectWriteAuthorization, withProjectWriteAuthorization,
+  type ProjectWriteAuthorization
+} from '../../src/workspace/runtime/project-write-authorization.ts';
 const root = path.join(tmpdir(), 'sec-authority-contract');
 const input = () => ({ workspaceRoot: root, operation: 'upgrade.apply', impactPaths: ['src/a.ts'] });
 function deferred() { let resolve!: () => void; const promise = new Promise<void>(yes => { resolve = yes; }); return { resolve, promise }; }
 
 test('the same accepted path data controls validation, digest and live projection', async () => {
   const values = input(); let iterations = 0;
-  values.impactPaths[Symbol.iterator] = function* () { yield ++iterations < 3 ? 'src/a.ts' : '../escape'; };
+  values.impactPaths[Symbol.iterator] = () => [++iterations < 3 ? 'src/a.ts' : '../escape'].values();
   await withProjectWriteAuthorization(values, async authorization => {
     assert.deepEqual(projectProjectWriteAuthorization(root, authorization).impactPaths, ['src/a.ts']);
   });

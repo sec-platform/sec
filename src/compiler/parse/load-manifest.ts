@@ -1,8 +1,8 @@
 import type { Dirent } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { parseYamlValue } from '../../system-architecture/foundation/runtime/yaml.ts';
 import { failureMessage } from '../../system-architecture/foundation/runtime/failure-inspection.ts';
+import { parseYamlValue } from '../../system-architecture/foundation/runtime/yaml.ts';
 
 import { assertSameNoFollowDirectoryIdentity, inspectNoFollowDirectoryChain, PhysicalNoFollowError } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { isCanonicalBlockId, isCanonicalRegistryVersion } from '../../semantic/identity/contract/block.ts';

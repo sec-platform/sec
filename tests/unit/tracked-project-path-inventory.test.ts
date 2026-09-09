@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { decodeTrackedProjectPathInventory, isTrackedProjectRepositoryAbsent } from '../../src/workspace/runtime/tracked-path-inventory.ts';
 const decode = (source: string) => decodeTrackedProjectPathInventory(Buffer.from(source), () => {});
 

@@ -980,7 +980,7 @@ function relocateIsolatedRunnerBundle(
   const relocated = source.replace(
     assignmentPattern,
     (
-      assignment: string,
+      _assignment: string,
       readableDirectory: string | undefined,
       readableFile: string | undefined,
       minifiedDirectory: string | undefined,

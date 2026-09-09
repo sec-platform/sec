@@ -1,6 +1,6 @@
 import { compareCodeUnits, deepFreeze, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { repositoryAnalysisPolicyDigest } from './repository-analysis-policy.ts';
 import type { SourceProgramCandidate } from './contract.ts';
+import { repositoryAnalysisPolicyDigest } from './repository-analysis-policy.ts';
 import type { RepositorySourceProgramCompilationReceipt } from './repository-compilation.ts';
 
 type Digest = `sha256:${string}`;

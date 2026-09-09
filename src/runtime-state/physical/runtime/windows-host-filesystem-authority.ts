@@ -69,7 +69,6 @@ export const WINDOWS_READ_ONLY_TREE_ADMISSION_POLICY = Object.freeze({
   operationLedger: 'shared-monotonic-v1',
   proofBinding: 'physical-object-change-time-acl-digest-v1'
 });
-const WINDOWS_POINTER_BYTES = 8;
 const NAME_SAM_COMPATIBLE = 2;
 const OWNER_SECURITY_INFORMATION = 0x0000_0001;
 const DACL_SECURITY_INFORMATION = 0x0000_0004;

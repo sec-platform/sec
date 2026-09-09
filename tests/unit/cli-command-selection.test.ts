@@ -1,6 +1,6 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
 import { Command } from 'commander';
+import assert from 'node:assert/strict';
 
 import { runWithOptionalSpinner } from '../../src/interface/cli/command-progress.ts';
 import { registerWorkspaceCommands } from '../../src/interface/cli/register-workspace-commands.ts';

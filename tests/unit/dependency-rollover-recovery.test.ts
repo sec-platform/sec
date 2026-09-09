@@ -1,13 +1,13 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { test } from 'bun:test';
-import { createRolloverFixture } from '../helpers/rollover-fixture.ts';
-import { recoverDependencyTransitionRollover, inspectActiveDependencyTransitionRollover } from '../../src/toolchain/dependencies/runtime/dependency-transition/rollover.ts';
-import { runtimeDependencyOperationControls } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
 import { canonicalJson } from '../../src/system-architecture/foundation/runtime/canonical.ts';
-import { formatJsonFile } from '../../src/workspace/files.ts';
 import { dependencyTransitionRecordBytes, transitionRecordName } from '../../src/toolchain/dependencies/runtime/dependency-transition/codec.ts';
+import { inspectActiveDependencyTransitionRollover, recoverDependencyTransitionRollover } from '../../src/toolchain/dependencies/runtime/dependency-transition/rollover.ts';
+import { runtimeDependencyOperationControls } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
+import { formatJsonFile } from '../../src/workspace/files.ts';
+import { createRolloverFixture } from '../helpers/rollover-fixture.ts';
 
 type Fixture = ReturnType<typeof createRolloverFixture>;
 async function using(run: (f: Fixture) => Promise<void>) { const f = createRolloverFixture(); try { await run(f); } finally { f.cleanup(); } }
@@ -21,7 +21,7 @@ async function assertComplete(f: Fixture) {
 }
 async function stopAtRetirement(f: Fixture) {
   const stop = new Error('intentional retirement interruption');
-  await assert.rejects(recoverDependencyTransitionRollover(f.root, { ...f.options, beforeCommit() {
+  await assert.rejects(recoverDependencyTransitionRollover(f.root, { ...f.options, async beforeCommit() {
     if (fs.existsSync(f.receiptPath('retiring'))) throw stop;
   } }), e => e === stop);
   assert.equal(fs.existsSync(f.receiptPath('retiring')), true);
@@ -32,14 +32,14 @@ async function stopAtRetirement(f: Fixture) {
 test('prepared recovery performs one complete rollover and is idempotent', async () => using(async f => {
   await recoverDependencyTransitionRollover(f.root, f.options);
   const before = await assertComplete(f);
-  await recoverDependencyTransitionRollover(f.root, { ...f.options, beforeCommit() { assert.fail('already completed effect'); } });
+  await recoverDependencyTransitionRollover(f.root, { ...f.options, async beforeCommit() { assert.fail('already completed effect'); } });
   assert.deepEqual(await assertComplete(f), before);
 }));
 
 for (let boundary = 1; boundary <= 16; boundary++) {
   test(`an interruption at effect boundary ${boundary} resumes without losing a phase or checkpoint`, async () => using(async f => {
     const stop = Object.freeze({ boundary }); let effects = 0;
-    await assert.rejects(recoverDependencyTransitionRollover(f.root, { ...f.options, beforeCommit() {
+    await assert.rejects(recoverDependencyTransitionRollover(f.root, { ...f.options, async beforeCommit() {
       if (++effects === boundary) throw stop;
     } }), e => e === stop);
     await recoverDependencyTransitionRollover(f.root, f.options);
@@ -73,7 +73,7 @@ test('unknown late-sorting residue vetoes all archive deletions before effects',
   await stopAtRetirement(f);
   fs.writeFileSync(path.join(f.prepared.retiredRecordsPath, 'zz-user-file'), 'keep');
   const before = fs.readdirSync(f.prepared.retiredRecordsPath); let effects = 0;
-  await assert.rejects(recoverDependencyTransitionRollover(f.root, { ...f.options, beforeCommit() { effects++; } }), /foreign residue/);
+  await assert.rejects(recoverDependencyTransitionRollover(f.root, { ...f.options, async beforeCommit() { effects++; } }), /foreign residue/);
   assert.equal(effects, 0); assert.deepEqual(fs.readdirSync(f.prepared.retiredRecordsPath), before);
 }));
 
@@ -89,7 +89,7 @@ test('a record modified in the effect fence is rechecked before deletion', async
   await stopAtRetirement(f);
   const record = fs.readdirSync(f.prepared.retiredRecordsPath).filter(n => n.startsWith('record-')).sort()[0]!;
   let changed = false;
-  await assert.rejects(recoverDependencyTransitionRollover(f.root, { ...f.options, beforeCommit() {
+  await assert.rejects(recoverDependencyTransitionRollover(f.root, { ...f.options, async beforeCommit() {
     if (!changed) { changed = true; fs.writeFileSync(path.join(f.prepared.retiredRecordsPath, record), 'user-change'); }
   } }), /changed after disposal/);
   assert.equal(fs.readFileSync(path.join(f.prepared.retiredRecordsPath, record), 'utf8'), 'user-change');
@@ -97,7 +97,7 @@ test('a record modified in the effect fence is rechecked before deletion', async
 
 test('replacement removed by the commit fence prevents the first archive leaf deletion', async () => using(async f => {
   await stopAtRetirement(f); const before = fs.readdirSync(f.prepared.retiredRecordsPath); let changed = false;
-  await assert.rejects(recoverDependencyTransitionRollover(f.root, { ...f.options, beforeCommit() {
+  await assert.rejects(recoverDependencyTransitionRollover(f.root, { ...f.options, async beforeCommit() {
     if (!changed) { changed = true; fs.unlinkSync(path.join(f.paths.recordsRoot, transitionRecordName(f.checkpoint.recordDigest))); }
   } }), /checkpoint changed/);
   assert.deepEqual(fs.readdirSync(f.prepared.retiredRecordsPath), before);
@@ -112,14 +112,14 @@ test('immutable readback rejects nested caller mutation and preserves the durabl
 }));
 
 test('read-only census never reads effect or installation capabilities', async () => using(async f => {
-  const controls = new Proxy({ ...f.options, get beforeCommit() { return assert.fail('write callback'); },
+  const controls = new Proxy({ ...f.options, get beforeCommit() { assert.fail('write callback'); throw new Error('unreachable'); },
     get generatedStateLifecycle() { return assert.fail('lifecycle'); }, get installMode() { return assert.fail('mode'); }
   }, { ownKeys() { assert.fail('whole input enumeration'); } });
   assert.equal((await inspectActiveDependencyTransitionRollover(f.root, controls))?.active?.phase, 'prepared');
 }));
 
 test('recovery captures its fence once before a callback can replace it', async () => using(async f => {
-  const options = { ...f.options, beforeCommit() { options.beforeCommit = () => assert.fail('replacement fence'); } };
+  const options = { ...f.options, async beforeCommit() { options.beforeCommit = async () => assert.fail('replacement fence'); } };
   await recoverDependencyTransitionRollover(f.root, options); await assertComplete(f);
 }));
 
@@ -127,7 +127,7 @@ test('relative owner root remains fixed while its fence changes process cwd', as
   const previous = process.cwd();
   try {
     process.chdir(f.root);
-    await recoverDependencyTransitionRollover('.', { ...f.options, beforeCommit() { process.chdir(path.dirname(f.root)); } });
+    await recoverDependencyTransitionRollover('.', { ...f.options, async beforeCommit() { process.chdir(path.dirname(f.root)); } });
     await assertComplete(f);
   } finally { process.chdir(previous); }
 }));
@@ -177,7 +177,7 @@ test('phase-specific physical identity substitution is rejected before recovery 
   receipt.publishedRecordsRootPhysical.inode = 'substituted';
   fs.writeFileSync(f.receiptPath('retiring'), formatJsonFile(canonicalJson(receipt)));
   const before = fs.readdirSync(f.prepared.retiredRecordsPath); let effects = 0;
-  await assert.rejects(recoverDependencyTransitionRollover(f.root, { ...f.options, beforeCommit() { effects++; } }), /continuity/);
+  await assert.rejects(recoverDependencyTransitionRollover(f.root, { ...f.options, async beforeCommit() { effects++; } }), /continuity/);
   assert.equal(effects, 0); assert.deepEqual(fs.readdirSync(f.prepared.retiredRecordsPath), before);
 }));
 

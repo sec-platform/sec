@@ -1,7 +1,7 @@
-import { SecError } from '../../../../system-architecture/foundation/contract/failure.ts';
-import { sameGeneratedStateIdentity } from './contract.ts';
 import type { GeneratedStatePhysicalIdentity } from '../../../../runtime-state/generated-state/contract.ts';
+import { SecError } from '../../../../system-architecture/foundation/contract/failure.ts';
 import type { DependencyTransitionJournal } from './contract.ts';
+import { sameGeneratedStateIdentity } from './contract.ts';
 
 /** Ordered protocol decisions, not physical effects. Identity, filename grammar,
  * legal receipt shapes, history prefixes and recovery residue all derive here.

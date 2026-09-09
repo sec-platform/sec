@@ -1,28 +1,44 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
-import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
-import { captureRepositoryAnalysisPolicy as policy } from '../../src/brownfield/source-program-model/repository-analysis-policy.ts';
+import assert from 'node:assert/strict';
 import {
-  compileSourceProgramFindingDelta as compare, sourceProgramFindingDeltaIsUnresolved as unresolved,
-  summarizeSourceProgramFindingDelta as summarize
+  compileSourceProgramFindingDelta as compare,
+  summarizeSourceProgramFindingDelta as summarize,
+  sourceProgramFindingDeltaIsUnresolved as unresolved
 } from '../../src/brownfield/source-program-model/reconciliation-findings.ts';
+import { captureRepositoryAnalysisPolicy as policy } from '../../src/brownfield/source-program-model/repository-analysis-policy.ts';
+import { compileVirtualRepositorySourceProgramCompilation } from '../../src/brownfield/source-program-model/repository-compilation.ts';
+import { compileVirtualWorkspaceSourceSnapshot } from '../../src/brownfield/source-program-model/workspace-source-snapshot.ts';
+import { rawSha256, sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { compileSecRepositoryModuleMembershipSnapshot } from '../../src/system-architecture/repository-modules/contract.ts';
 
 type Snapshot = Parameters<typeof compare>[0];
 const digest = (s: string) => sha256(s) as `sha256:${string}`;
-const reviewed = 'src/a.ts::function-declaration:run::spawn#1';
-function snapshot(hasFinding = false, dispatchers: string[] = []): Snapshot {
-  const files = [{ path: 'src/a.ts', contentDigest: digest('file'), semanticObservationClass: 'observed' }];
-  // Pure observed data, not owner-issued receipts. No execution capability is used.
-  return {
-    analysisPolicy: policy(dispatchers), sourceRevision: digest('source'), moduleMembershipDigest: digest('membership'),
-    projectGeneration: { compilerRevision: digest('compiler'), providerRevision: digest('provider'),
-      compilerConfigDigest: digest('config'), dependencyGenerationDigest: digest('deps'),
-      environmentDigest: digest('env'), projectConfigDigest: digest('project') },
-    workspaceSnapshot: { files }, model: { files, modelDigest: digest('model'), unknowns: [],
-      providers: [{ id: 'typescript', revision: 'fixed' }],
-      candidates: hasFinding ? [{ code: 'production-mirrors-source-path', subject: 'src/a.ts',
-        paths: ['src/a.ts'], reason: 'repeated literal', observationClass: 'derived' }] : [] }
-  } as unknown as Snapshot;
+const reviewed = 'src/example/a.ts::function-declaration:run::spawn#1';
+function snapshot(hasFinding = false, dispatchers: string[] = [], includeFile = true): Snapshot {
+  const source = 'export function run() { return 1; }\n';
+  const files = includeFile ? [{ path: 'src/example/a.ts', source, contentDigest: rawSha256(source) }] : [];
+  const descriptorPath = 'src/example/sec.module.json';
+  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+    repositoryFiles: [...files.map(({ path }) => path), descriptorPath],
+    descriptorSources: [{ descriptorPath, source: JSON.stringify({
+      importGraph: 'runtime', externalEntrypoints: [], capabilityProviders: [], preDependencyBootstrap: false
+    }) }]
+  });
+  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
+    files,
+    moduleMembership,
+    subject: { kind: 'virtual-mutation', provenance: { kind: 'source-program-virtual-mutation',
+      baseSnapshotDigest: digest('policy-context-base'), mutationDigest: digest(includeFile ? 'present' : 'removed') } }
+  });
+  const compilation = compileVirtualRepositorySourceProgramCompilation({ workspaceSnapshot });
+  const candidates = hasFinding ? [{ code: 'production-mirrors-source-path' as const, subject: 'src/example/a.ts',
+    paths: ['src/example/a.ts'], reason: 'repeated literal', observationClass: 'derived' as const }] : [];
+  return Object.freeze({
+    ...compilation,
+    analysisPolicy: policy(dispatchers),
+    model: Object.freeze({ ...compilation.model, candidates: Object.freeze(candidates),
+      modelDigest: digest(JSON.stringify({ base: compilation.model.modelDigest, candidates })) })
+  });
 }
 
 test('a reviewed-dispatcher change cannot turn a disappearing finding into a proved absence', () => {
@@ -82,8 +98,7 @@ test('persistent evidence is not erased or suppressed when the policy changes', 
 });
 
 test('scope retirement remains separate from changing or losing policy context', () => {
-  const after = snapshot(false, [reviewed]);
-  const removed = { ...after, model: { ...after.model, files: [] }, workspaceSnapshot: { files: [] } } as Snapshot;
+  const removed = snapshot(false, [reviewed], false);
   assert.equal(compare(snapshot(true), removed).entries[0]!.status, 'out-of-scope');
   assert.equal(compare(snapshot(true), removed).counts.absent, 0);
 });

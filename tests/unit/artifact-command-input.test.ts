@@ -1,9 +1,9 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
 import { Command } from 'commander';
-import { CI_ARTIFACT_KINDS, isCiArtifactKind } from '../../src/verification/ci-artifacts/contract/types.ts';
-import { parseArtifactCommandInput, ARTIFACT_PATHS_OPTION, ARTIFACT_KIND_OPTION } from '../../src/interface/cli/artifact-command-input.ts';
+import assert from 'node:assert/strict';
+import { ARTIFACT_KIND_OPTION, ARTIFACT_PATHS_OPTION, parseArtifactCommandInput } from '../../src/interface/cli/artifact-command-input.ts';
 import { registerWorkspaceCommands } from '../../src/interface/cli/register-workspace-commands.ts';
+import { CI_ARTIFACT_KINDS, isCiArtifactKind } from '../../src/verification/ci-artifacts/contract/types.ts';
 
 const usage = (error: unknown) => (error as { code: string }).code === 'CLI-USAGE-001';
 
@@ -18,7 +18,7 @@ for (const filter of [undefined, ...CI_ARTIFACT_KINDS]) {
 
 test('manifest inspection does not inspect paths, filter or unrelated fields', () => {
   const input = new Proxy({ json: false, compact: false,
-    get paths() { assert.fail('paths read'); }, get kind() { assert.fail('filter read'); } }, {
+    get paths() { assert.fail('paths read'); throw new Error('unreachable'); }, get kind() { assert.fail('filter read'); throw new Error('unreachable'); } }, {
     ownKeys() { assert.fail('whole options read'); }
   });
   assert.deepEqual(parseArtifactCommandInput('manifest', input), { kind: 'manifest', output: { json: false, compact: false } });
@@ -26,14 +26,14 @@ test('manifest inspection does not inspect paths, filter or unrelated fields', (
 
 test('generation preserves ignored-filter semantics without reading unused getters', () => {
   for (const paths of [undefined, false]) {
-    const input = { paths, get kind() { assert.fail('unused filter read'); } };
+    const input = { paths, get kind() { assert.fail('unused filter read'); throw new Error('unreachable'); } };
     assert.deepEqual(parseArtifactCommandInput(undefined, input), { kind: 'generate', output: { json: false, compact: false } });
   }
 });
 
 test('invalid selected booleans cannot choose a read or write path by truthiness', () => {
   for (const paths of [null, 0, 1, '', 'false', [], {}, new Boolean(true), Symbol('paths')]) {
-    assert.throws(() => parseArtifactCommandInput(undefined, { paths, get kind() { assert.fail('filter read'); } }), usage);
+    assert.throws(() => parseArtifactCommandInput(undefined, { paths, get kind() { assert.fail('filter read'); throw new Error('unreachable'); } }), usage);
   }
 });
 
@@ -48,7 +48,7 @@ test('invalid selected filters reject without conversion or an empty false-succe
 
 test('unsupported inspection modes cannot fall through into manifest generation', () => {
   for (const mode of ['unknown', 'constructor', null, 1, {}]) {
-    assert.throws(() => parseArtifactCommandInput(mode, { get paths() { assert.fail('route selected flags read'); } }), usage);
+    assert.throws(() => parseArtifactCommandInput(mode, { get paths() { assert.fail('route selected flags read'); throw new Error('unreachable'); } }), usage);
   }
 });
 

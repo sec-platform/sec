@@ -1,5 +1,3 @@
-import { observeDependencyEntry, classifyDependencyEnvironment, type DependencyEnvironmentMode, type DependencyEntryStatus } from '../runtime/environment-observation.ts';
-export type { DependencyEntryStatus, DependencyEntryKind, DependencyEnvironmentMode } from '../runtime/environment-observation.ts';
 import { constants as fsConstants } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -7,14 +5,16 @@ import { SecError } from '../../../system-architecture/foundation/contract/failu
 import { isFileNotFoundError, pathExists, removeDir } from '../../../workspace/files.ts';
 import { compilerRoot, getWorkspacePaths, resolveWorkspacePlanPath } from '../../../workspace/runtime/paths.ts';
 import { loadRuntimeDependencySpec } from '../contract/runtime-dependency-spec.ts';
-import type { RuntimeDependencyGeneratedStateLifecycle } from '../runtime/lifecycle-capabilities.ts';
+import { classifyDependencyEnvironment, observeDependencyEntry, type DependencyEntryStatus, type DependencyEnvironmentMode } from '../runtime/environment-observation.ts';
 import { sameHostPath } from '../runtime/host-path.ts';
+import type { RuntimeDependencyGeneratedStateLifecycle } from '../runtime/lifecycle-capabilities.ts';
 import {
   disposeCanonicalSharedDependencies,
   ensureProjectDependencies,
   ensureSharedDepsReady,
   readRuntimeDepsStamp,
 } from '../runtime/project-runtime.ts';
+export type { DependencyEntryKind, DependencyEntryStatus, DependencyEnvironmentMode } from '../runtime/environment-observation.ts';
 
 export type DoctorCheckStatus = 'ok' | 'warn' | 'fail';
 

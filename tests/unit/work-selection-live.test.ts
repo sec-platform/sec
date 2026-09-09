@@ -971,7 +971,6 @@ describe('work-selection live contract', () => {
 
   test('ready-successor count excludes a direct deferred successor', () => {
     const observation = transitionCatalog();
-    const { catalog } = observation;
     const result = receiptForCatalog(observation);
     expect(result.input.candidates.find(({ workId }) => workId === 'issue-312'))
       .toMatchObject({ lifecycle: 'deferred', readiness: 'not-ready' });

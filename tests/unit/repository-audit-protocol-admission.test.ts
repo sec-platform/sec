@@ -1,26 +1,26 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { test } from 'bun:test';
 import {
   assertRepositoryAuditWorkerCandidateBinding,
-  compileRepositoryAuditWorkerHandshakeCandidate as handshakeFor,
-  compileRepositoryAuditWorkerRequest as requestFor,
-  compileRepositoryAuditWorkerResultCandidate as resultFor,
-  encodeRepositoryAuditWorkerCandidateStream as encodeResult,
   encodeRepositoryAuditWorkerRequest as encodeRequest,
-  parseRepositoryAuditWorkerCandidateStream as parseResult,
+  encodeRepositoryAuditWorkerCandidateStream as encodeResult,
+  compileRepositoryAuditWorkerHandshakeCandidate as handshakeFor,
+  REPOSITORY_AUDIT_WORKER_PROTOCOL_LIMITS as limits,
   parseRepositoryAuditWorkerRequestStream as parseRequest,
+  parseRepositoryAuditWorkerCandidateStream as parseResult,
+  RepositoryAuditWorkerProtocolError,
+  compileRepositoryAuditWorkerRequest as requestFor,
   repositoryAuditWorkerRequestPayload as requestPayload,
   requireRepositoryAuditWorkerCandidateStream as requireResult,
-  REPOSITORY_AUDIT_WORKER_PROTOCOL_LIMITS as limits,
-  RepositoryAuditWorkerProtocolError
+  compileRepositoryAuditWorkerResultCandidate as resultFor
 } from '../../src/brownfield/repository-audit/worker-protocol.ts';
 
 const digest = (text: string) => `sha256:${createHash('sha256').update(text).digest('hex')}` as const;
 const budget = { maximumRequestBytes: 16_384, maximumResultBytes: 65_536 };
 function input(payload: Uint8Array = Buffer.from('request')) {
   return { operationIdentityDigest: digest('operation'), boundAttemptDigest: digest('attempt'),
-    generationDigest: digest('generation'), entrypointAddress: 'module-entrypoint:fixture' as const,
+    generationDigest: digest('generation'), entrypointAddress: 'module-entrypoint:fixture#default' as const,
     implementationDigest: digest('implementation'), dependencyGenerationDigest: digest('dependency'),
     subjectDigest: digest('subject'), payload };
 }
@@ -44,7 +44,7 @@ test('only literal true is accepted as the caller EOF observation at either publ
 
 test('unobserved EOF is refused before the stream byte getter runs', () => {
   const f = fixture(); let reads = 0;
-  assert.throws(() => parseResult({ get bytes() { reads++; throw new Error('bytes'); }, eofObserved: 1 as never },
+  assert.throws(() => parseResult({ get bytes(): never { reads++; throw new Error('bytes'); }, eofObserved: 1 as never },
     f.request, budget), code('eof-unobserved'));
   assert.equal(reads, 0);
 });
@@ -62,7 +62,7 @@ test('request stream and its byte budget are each selected once', () => {
   const f = fixture(), bytes = encodeRequest(f.request); let byteReads = 0, budgetReads = 0;
   const parsed = parseRequest({ get bytes() { byteReads++; return bytes; }, eofObserved: true }, {
     get maximumRequestBytes() { budgetReads++; return bytes.byteLength; },
-    get maximumResultBytes() { assert.fail('unused result policy'); }
+    get maximumResultBytes(): never { assert.fail('unused result policy'); throw new Error('unreachable'); }
   });
   assert.deepEqual(parsed, f.request); assert.equal(byteReads, 1); assert.equal(budgetReads, 1);
 });
@@ -164,7 +164,7 @@ test('every binding dimension is checked before a candidate can cross into this 
     ['implementationDigest', 'foreign-implementation'], ['dependencyGenerationDigest', 'foreign-dependency'],
     ['subjectDigest', 'foreign-subject']] as const;
   for (const [key, error] of dimensions) {
-    const request = requestFor({ ...input(), [key]: key === 'entrypointAddress' ? 'module-entrypoint:other' : digest('foreign') });
+    const request = requestFor({ ...input(), [key]: key === 'entrypointAddress' ? 'module-entrypoint:other#default' : digest('foreign') });
     const handshake = handshakeFor(request), result = resultFor(request, handshake, Buffer.from('result'));
     assert.throws(() => parseResult({ bytes: encodeResult(request, handshake, result), eofObserved: true },
       expected.request, budget), code(error));

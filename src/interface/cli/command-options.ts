@@ -1,6 +1,6 @@
 import { Argument, type Command } from 'commander';
 import { CompilerError } from '../../compiler/errors.ts';
-import { JSON_OUTPUT_OPTIONS, parseJsonOutputOptions, type JsonOutputOptions, type JsonOutputIssue } from './json-output-options.ts';
+import { JSON_OUTPUT_OPTIONS, parseJsonOutputOptions, type JsonOutputIssue, type JsonOutputOptions } from './json-output-options.ts';
 
 export type { JsonOutputOptions as JsonOpts } from './json-output-options.ts';
 

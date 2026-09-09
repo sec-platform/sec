@@ -2810,7 +2810,10 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
     fail('trusted runtime operation is already active or its owner liveness is unknown');
   }
   let containerEngineSession: ContainerEngineSession | null = null;
+  let primaryFailure: unknown;
+  let hasPrimaryFailure = false;
   try {
+    operationLease.acknowledgeReclaimedRecovery();
     const operation = bindTrustedRuntimeContainerEngineOperation({
       repositoryRoot,
       repository: repositoryIdentity,
@@ -3064,15 +3067,26 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
       }
       rmSync(temporaryRoot, { recursive: true, force: true });
     }
+  } catch (error) {
+    primaryFailure = error;
+    hasPrimaryFailure = true;
+    throw error;
   } finally {
+    const settlementFailures: unknown[] = [];
+    try { containerEngineSession?.close(); } catch (error) { settlementFailures.push(error); }
+    try { await operationLeaseAuthority.assertCurrent(); } catch (error) { settlementFailures.push(error); }
     try {
-      try {
-        containerEngineSession?.close();
-      } finally {
-        await operationLeaseAuthority.assertCurrent();
-      }
-    } finally {
-      operationLease.release();
+      if (operationLease.recoveryPending) operationLease.restoreReclaimedOwner();
+      else operationLease.release();
+    } catch (error) { settlementFailures.push(error); }
+    if (settlementFailures.length > 0) {
+      if (hasPrimaryFailure) settlementFailures.unshift(primaryFailure);
+      throw settlementFailures.length === 1
+        ? settlementFailures[0]
+        : new AggregateError(
+            settlementFailures,
+            'Trusted Runtime operation and physical lease settlement failed.'
+          );
     }
   }
 }

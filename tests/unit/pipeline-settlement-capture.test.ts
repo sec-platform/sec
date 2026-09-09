@@ -1,6 +1,6 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
-import { settlePipelineFailure, PipelineSettlementFailure } from '../../src/compiler/pipeline/failure.ts';
+import assert from 'node:assert/strict';
+import { PipelineSettlementFailure, settlePipelineFailure } from '../../src/compiler/pipeline/failure.ts';
 
 test('all settlement actions and diagnostic labels are fixed before the first callback', async () => {
   const order: string[] = [], primary = new Error('primary'), secondary = new Error('secondary');
@@ -42,7 +42,7 @@ for (const invalid of [null, [], { operation: '', run: () => {} }, { operation: 
 
 test('a throwing settlement getter stays secondary and cannot replace the original rejection', async () => {
   const primary = undefined, secondary = Object.freeze({ getter: 'failed' });
-  await assert.rejects(settlePipelineFailure(primary, [{ get operation() { throw secondary; }, async run() {} }]), (error: unknown) => {
+  await assert.rejects(settlePipelineFailure(primary, [{ get operation(): never { throw secondary; }, async run() {} }]), (error: unknown) => {
     assert.ok(error instanceof PipelineSettlementFailure); assert.equal(error.cause, primary);
     assert.equal(error.settlementFailures[0]?.reason, secondary); return true;
   });

@@ -4,6 +4,7 @@ export const TEST_IMPACT_SOURCE_KINDS = [
   'semantic-contract',
   'source-model',
   'workflow',
+  'git-hook',
   'active-documentation',
   'agent-skill',
   'repository-config'
@@ -11,7 +12,15 @@ export const TEST_IMPACT_SOURCE_KINDS = [
 
 export type TestImpactSourceKind = (typeof TEST_IMPACT_SOURCE_KINDS)[number];
 
-export type TestImpactRiskPolicy = 'slow-risk-baseline';
+export type TestImpactRiskPolicy = 'slow-risk-baseline' | 'typecheck-only';
+
+/** Compile-only contract sources live in the test namespace but are not Bun
+ * test modules. Physical Source Program membership and the absence of runtime
+ * consumers are validated by the provider before this lexical identity can
+ * satisfy TestImpact ownership. */
+export function isTypecheckOnlyTestPath(file: string): boolean {
+  return /^tests\/.+\.typecheck\.ts$/u.test(file);
+}
 
 export type ResolvedTestOwnership = {
   source: string;
@@ -34,6 +43,7 @@ const TEST_IMPACT_SOURCE_KIND_MODULES: Readonly<
   'semantic-contract': Object.freeze(['product.semantic-model', 'compiler']),
   'source-model': Object.freeze(['product.semantic-model', 'compiler']),
   workflow: Object.freeze(['verification']),
+  'git-hook': Object.freeze(['development.hooks']),
   'repository-config': Object.freeze(['development.runner', 'toolchain', 'compiler'])
 });
 
@@ -45,9 +55,11 @@ export function testImpactModuleIdsForSourceKind(
 
 export function classifyTestImpactSource(
   file: string,
-  activeDocumentationPath: (candidate: string) => boolean
+  activeDocumentationPath: (candidate: string) => boolean,
+  gitHookEntrypointPath: (candidate: string) => boolean = () => false
 ): TestImpactSourceKind | null {
   if (activeDocumentationPath(file)) return 'active-documentation';
+  if (gitHookEntrypointPath(file)) return 'git-hook';
   if (/^\.agents\/skills\/[^/]+\/SKILL\.md$/u.test(file)) return 'agent-skill';
   if (/^docs\//u.test(file)) return null;
   if (/(?:^|\/)contracts\/[^/]+\.ya?ml$/u.test(file)) return 'semantic-contract';

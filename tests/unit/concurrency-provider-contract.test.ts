@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 
 import { createConcurrencyLimit, defaultLimit, getDefaultLimit } from '../../src/system-architecture/foundation/runtime/concurrency.ts';
 

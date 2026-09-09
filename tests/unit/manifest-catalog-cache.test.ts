@@ -1,12 +1,12 @@
-import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, unlinkSync } from 'node:fs';
-import path from 'node:path';
-import { tmpdir } from 'node:os';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import YAML, { type Document } from 'yaml';
+import type { PlanRegistrySource } from '../../src/compiler/contract.ts';
 import { loadAllManifests, loadManifestById } from '../../src/compiler/parse/load-manifest.ts';
 import { manifestCache } from '../../src/compiler/parse/manifest-cache.ts';
-import type { PlanRegistrySource } from '../../src/compiler/contract.ts';
 
 // Native runs use the actual YAML parser, semantic validator and retained reads.
 // The counter wraps the existing Document value-decoding boundary. Both the

@@ -1,6 +1,6 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { test } from 'bun:test';
 import { markdownFacts } from '../../src/control/documentation/doctor/markdown-syntax.ts';
 import {
   extractBacktickFilePaths,
@@ -113,7 +113,7 @@ test('parsed destinations still pass through the original repository containment
   assert.equal(repositoryPathForLink(root, file, outside!).invalid, 'outside-repository');
 });
 
-test('non-string requests fail before loading or invoking a Markdown provider', () => {
+test('non-string requests fail before invoking the Markdown provider', () => {
   for (const value of [null, undefined, 7, false, { toString() { assert.fail('coercion'); } }]) {
     assert.throws(() => markdownFacts(value as never), TypeError);
   }

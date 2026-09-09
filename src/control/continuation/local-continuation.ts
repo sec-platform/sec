@@ -264,7 +264,6 @@ export async function observeLocalContinuation(input: Readonly<{
 
 async function observeManagedLocalState(
   session: GitReadSession,
-  root: string,
   checkpoint: LocalContinuationCheckpoint
 ): Promise<Readonly<{
   state: ContinuationLocalState;
@@ -380,7 +379,7 @@ export async function continueLocalDevelopment(input: Readonly<{
     checkpoint = active;
   }
 
-  const local = await observeManagedLocalState(session, root, checkpoint);
+  const local = await observeManagedLocalState(session, checkpoint);
   const invalidation = compileContinuationInvalidation({
     checkpointDigest: checkpoint.checkpointDigest,
     localState: local.state,

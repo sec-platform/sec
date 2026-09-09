@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 
 import { uniqueSorted } from '../../src/system-architecture/foundation/runtime/canonical.ts';
 import { countMatching, countPositiveValues, mergeCountSummaries, normalizeNewlines, summarizeCounts, uniqueSortedLines } from '../../src/system-architecture/foundation/runtime/collections.ts';

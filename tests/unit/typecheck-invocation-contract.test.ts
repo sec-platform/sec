@@ -1,8 +1,8 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { test } from 'bun:test';
 import { captureTypecheckInvocation } from '../../src/compiler/verify/typecheck-invocation.ts';
 
 for (const isolated of [undefined, false, true]) test(`typecheck captures explicit/default mode ${String(isolated)}`, () => {
@@ -17,7 +17,7 @@ for (const isolated of [null, 0, 1, '', 'false', {}]) test('non-boolean isolatio
 test('each owned selection is read once without enumerating unrelated input', () => {
   let modes = 0, roots = 0;
   const input = new Proxy({ get isolated() { modes++; return true; }, get dependencyProjectRoot() { roots++; return 'dependencies'; },
-    get unowned() { assert.fail('unowned input'); } }, { ownKeys() { assert.fail('enumerated options'); } });
+    get unowned() { assert.fail('unowned input'); throw new Error('unreachable'); } }, { ownKeys() { assert.fail('enumerated options'); } });
   const captured = captureTypecheckInvocation('project', input);
   assert.equal(modes, 1); assert.equal(roots, 1); assert.equal(captured.isolated, true);
   assert.equal(captured.dependencyProjectRoot, path.resolve('dependencies'));

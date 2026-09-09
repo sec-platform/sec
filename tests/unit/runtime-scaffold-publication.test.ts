@@ -1,8 +1,8 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { test } from 'bun:test';
 import { generateRuntimeLibraryScaffold } from '../../src/compiler/compose/generate-runtime-library.ts';
 import { TemplateEngine } from '../../src/compiler/compose/template-engine.ts';
 

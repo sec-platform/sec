@@ -11,11 +11,11 @@ import {
   type ProjectBaselineFile,
   type ProjectBaselinePathInput
 } from '../contract/project-baseline.ts';
-import { captureProjectPathInventory } from '../contract/project-path-inventory.ts';
 import { ProjectIntegrityError } from '../contract/project-integrity.ts';
+import { captureProjectPathInventory } from '../contract/project-path-inventory.ts';
 import { modelRelativePath } from '../contract/types.ts';
-import { ensureDir, formatJsonFile, type CommitFence } from './files.ts';
 import { publishExclusiveCanonicalWorkspaceFile, publishExpectedCanonicalWorkspaceFile } from './file-publication.ts';
+import { ensureDir, formatJsonFile, type CommitFence } from './files.ts';
 import {
   getWorkspacePaths,
   resolvePathInside,

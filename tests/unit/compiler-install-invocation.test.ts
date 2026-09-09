@@ -1,8 +1,8 @@
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
-import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { test } from 'bun:test';
+import path from 'node:path';
 import { runBunInstall } from '../../src/toolchain/dependencies/runtime/compiler-install-process.ts';
 import { issueRuntimeDependencyTestMaterialization } from '../../src/toolchain/dependencies/runtime/materialization-fixture-capability.ts';
 
@@ -18,7 +18,7 @@ test('the actual install entrypoint fixes argv before commit and clock callbacks
   let count = 0;
   const result = await runBunInstall(root, {
     monotonicNowMs: () => { args[0] = 'clock-replaced'; return 0; },
-    beforeCommit: () => { args[1] = 'fence-replaced'; },
+    beforeCommit: async () => { args[1] = 'fence-replaced'; },
     testMaterialization: issueRuntimeDependencyTestMaterialization(async request => {
       count++; assert.deepEqual(request.args, ['install', '--frozen-lockfile']);
       assert.ok(Object.isFrozen(request.args)); return success;
@@ -32,9 +32,9 @@ test('a commit callback cannot retarget the selected materialization capability 
   const options = {
     monotonicNowMs: () => 0,
     testMaterialization: issueRuntimeDependencyTestMaterialization(async () => { calls++; return success; }),
-    beforeCommit() {
+    async beforeCommit() {
       options.testMaterialization = issueRuntimeDependencyTestMaterialization(async () => assert.fail('replacement ran'));
-      options.beforeCommit = () => assert.fail('replacement fence ran');
+      options.beforeCommit = async () => assert.fail('replacement fence ran');
     }
   };
   await runBunInstall(root, options, ['install']); assert.equal(calls, 1);
@@ -55,7 +55,7 @@ test('the materializer receives the remaining budget after the input fence', asy
     testMaterialization: issueRuntimeDependencyTestMaterialization(async request => {
       assert.equal(request.timeoutMs, 75); return success;
     })
-  }, ['install'], undefined, undefined, () => { now = 25; });
+  }, ['install'], undefined, undefined, async () => { now = 25; });
 }));
 
 test('input fence exhaustion prevents any materialization', async () => fixture(async root => {
@@ -63,7 +63,7 @@ test('input fence exhaustion prevents any materialization', async () => fixture(
   await assert.rejects(runBunInstall(root, {
     lockTimeoutMs: 100, monotonicNowMs: () => now,
     testMaterialization: issueRuntimeDependencyTestMaterialization(async () => assert.fail('effect after deadline'))
-  }, ['install'], undefined, undefined, () => { now = 101; }), budgetFailure);
+  }, ['install'], undefined, undefined, async () => { now = 101; }), budgetFailure);
 }));
 
 for (const place of ['commit', 'input'] as const) {
@@ -80,7 +80,7 @@ for (const place of ['commit', 'input'] as const) {
 
 for (const args of [[undefined], [7], ['nul\0arg'], new Array(1)] as unknown[]) {
   test(`invalid argv ${JSON.stringify(args)} is refused before any fence`, async () => fixture(async root => {
-    await assert.rejects(runBunInstall(root, { beforeCommit: () => assert.fail('premature effect') }, args as string[]), budgetFailure);
+    await assert.rejects(runBunInstall(root, { beforeCommit: async () => assert.fail('premature effect') }, args as string[]), budgetFailure);
   }));
 }
 
@@ -96,7 +96,7 @@ test('relative working and cache paths are bound before callbacks change cwd', a
     process.chdir(root);
     await runBunInstall('.', {
       monotonicNowMs: () => 0,
-      beforeCommit: () => { process.chdir(tmpdir()); },
+      beforeCommit: async () => { process.chdir(tmpdir()); },
       testMaterialization: issueRuntimeDependencyTestMaterialization(async request => {
         assert.equal(request.cwd, root); return success;
       })

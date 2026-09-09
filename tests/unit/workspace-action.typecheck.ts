@@ -1,7 +1,7 @@
 import { Command } from 'commander';
-import { registerWorkspaceAction } from '../../src/interface/cli/workspace-action.ts';
-import { commandValue } from '../../src/interface/cli/command-value.ts';
 import { jsonOpts } from '../../src/interface/cli/command-options.ts';
+import { commandValue } from '../../src/interface/cli/command-value.ts';
+import { registerWorkspaceAction } from '../../src/interface/cli/workspace-action.ts';
 
 // Compile-only: transport inputs, admitted requests and executor results are
 // separate types. A projection cannot silently consume a different result.

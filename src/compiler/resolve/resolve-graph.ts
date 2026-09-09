@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { portableLogicalPathCollisionKey } from '../../system-architecture/foundation/contract/logical-path.ts';
 import { uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { mapTaskGroup } from '../../system-architecture/foundation/runtime/concurrency.ts';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import { relativePosixPath } from '../../workspace/runtime/paths.ts';
 import type { PlanFile } from '../contract.ts';
@@ -8,7 +9,6 @@ import { LOCK_FILE_FORMAT_VERSION, type LockFile } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
 import { loadAllManifests, loadManifestById, resolveManifestResource } from '../parse/load-manifest.ts';
 import { PASS_STATUS_PENDING } from '../pipeline/defaults.ts';
-import { mapTaskGroup } from '../../system-architecture/foundation/runtime/concurrency.ts';
 import { resolveManifestGraph } from './manifest-graph.ts';
 
 type InstallOwnership = Readonly<Pick<LockFile['installPlan'][number], 'blockId' | 'action' | 'to'>>;

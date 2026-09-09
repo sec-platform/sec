@@ -54,6 +54,10 @@ Verification复用System Architecture唯一的`RequiredExecutionClosure`与`Exec
 
 Impact只传播可证明关系；unknown edge产生保守 blocker/backstop，不允许假精确。plan/query zero Effect：在dependency preparation、cache write、process/provider start、network/fs mutation前返回selection。
 
+测试读取生产文件或启动本地程序的关系，由同一 exact Source Program 的 observation producer 签发，并与静态 import 共同参与 consumer closure；它们保持独立的关系种类，不伪装成 import。调用绑定必须由现有 Program/TypeChecker 证明，目标必须属于同一 snapshot；动态参数、外部目标和无法证明的绑定保持 unknown。普通测试 helper 继续传播到可执行测试，不能被误当成遍历终点。
+
+仅编译的测试输入必须同时属于 compiler-issued test 集合与 module graph，且没有 runtime consumer 或 entrypoint 义务，才可交给既有 typecheck Gate。文件后缀本身不构成豁免；selection resolved 也不代表 Gate 已执行或通过。未知诊断只报告实际未解析的路径，不能用全部 changed paths 代替精确 frontier。
+
 Gate梯度：
 
 ```text
@@ -119,6 +123,21 @@ stateDiagram-v2
 
 incomplete/stale/duplicate/provider-conflict/unknown → locked。MainHealth是external/default ledger，不是Session cache或candidate baseline。
 
+Publication 的 T1/T2 比较由 MainHealth owner 的同一 stable projection 编译：绑定 exact repository/default branch/main/tree、Runtime authority、本地物理 preimage、hosted health epoch 与 producer provenance，以及 repair/supersession 的语义和持久身份。重新采样产生的时间戳及其派生 byte digest 不改变 publication identity；provider、subject、preimage 或 prepared Effect identity 改变必须使比较失败。测试联合观察复用此投影，test-origin capability 仍不能调用 production publication。
+
+```mermaid
+flowchart LR
+  T1[MainHealth T1 observation] --> S[Owner stable projection]
+  T2[MainHealth T2 observation] --> S
+  S -->|different or unknown| R[Reject publication and refresh]
+  S -->|equal| P[Publish bound routing observation]
+  P --> A[Effect owner revalidates complete current authority]
+  A -->|issuer expiry preimage lease or provider invalid| R
+  A -->|valid single use grant| E[Supersession Effect and durable readback]
+```
+
+Stable equality 只裁决 publication；完整 hosted bytes、有效期、issuer/permission、local preimage、mutation lease 和 prepared intent 仍由原 supersession Effect admission 与 recovery owner验证，不能用 stable digest替代。
+
 ## 8. Failure、retry 与 proof reset
 
 Failure record：
@@ -163,12 +182,26 @@ flowchart LR
   A --> E[Execute]
   E --> T[Terminate all children]
   T --> C[Owner cleanup]
-  C --> R[Independent readback]
+  C -->|retirement failed| F[Preserve lease and live parent authority]
+  F -->|same owner retry| C
+  F -->|owner proven dead| S[Successor checks original generation identity]
+  S -->|reclaim failed or successor dies| D[Retain original durable recovery identity]
+  D --> S
+  S -->|reclaim settled| C
+  C -->|all resources settled| R[Independent readback]
   R --> X[One Gate terminal receipt]
 ```
 
 resource classes：immutable-copyable、rebuildable、identity-bound、process-bound、non-copyable-control-state、external-capability、unknown。unknown 不复制/共享/并行。
 
 effectful-test supervisor绑定 exact Action/child plan、one absolute deadline、aggregate budget和cancellation。primary failure/cancel/deadline 后停止新admission，终止已启动 children，settle streams，cleanup/readback，再发布 terminal。Promise timeout、parent exit、finally log 不足。
+
+test invocation retirement 开始后禁止新 generation；子资源清理失败保留其 recovery lease
+及仍有效的 parent physical authority，已结算资源不在重试中重复删除。只有全部子资源与
+lease 结算成功才释放 parent authority。死 owner 接管消费
+[Workspace physical authority](../runtime-and-distribution.md#11-workspace-physical-authority)
+的持久恢复身份与确认协议。普通异常测试不证明连续进程退出的恢复；必须验证原
+generation 经再次接管仍可按原身份回收，且 foreign/identity-unknown residue 保留。
+恢复失败不是 terminal。
 
 untrusted package/build/test/provider需要 credential-free sandbox、bounded fs/network/process/resources和cleanup Evidence。temp dir、Node VM、browser context或lint不是恶意代码 sandbox。

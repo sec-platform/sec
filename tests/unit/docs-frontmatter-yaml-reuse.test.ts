@@ -1,7 +1,7 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
-import { parseFrontmatter, VALID_STATUS, ACTIVE_POINTER_STATUS } from '../../src/control/documentation/doctor/shared.ts';
-import { FRONTMATTER_MAX_INPUT_BYTES, parseFrontmatter as directParser, VALID_STATUS as directStatuses } from '../../src/control/documentation/doctor/frontmatter.ts';
+import assert from 'node:assert/strict';
+import { parseFrontmatter as directParser, VALID_STATUS as directStatuses, FRONTMATTER_MAX_INPUT_BYTES } from '../../src/control/documentation/doctor/frontmatter.ts';
+import { ACTIVE_POINTER_STATUS, parseFrontmatter, VALID_STATUS } from '../../src/control/documentation/doctor/shared.ts';
 const wrap = (header: string, body = '# Document\n') => `---\n${header}\n---\n${body}`;
 
 test('all existing document lifecycle values still parse with the same projection', () => {

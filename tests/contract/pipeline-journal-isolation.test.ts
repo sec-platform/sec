@@ -3,9 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { readPipelineJournal } from '../../src/compiler/pipeline/journal.ts';
-import { PhysicalNoFollowError } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
-import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function journalPath(workspaceRoot: string): string {

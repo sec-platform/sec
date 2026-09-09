@@ -1,10 +1,10 @@
 import path from 'node:path';
-import { settlePhysicalResources, settlePhysicalResourcesAsync, type PhysicalResourceSettlementFailure } from '../../runtime-state/physical/runtime/resource-settlement.ts';
 import {
   assertProcessResourceSessionReceipt,
   openProcessResourceSession,
   type ProcessResourceSession
 } from '../../runtime-state/physical/runtime/process-resource-session.ts';
+import { settlePhysicalResources, settlePhysicalResourcesAsync, type PhysicalResourceSettlementFailure } from '../../runtime-state/physical/runtime/resource-settlement.ts';
 import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { issueSecOperationRequirementBindingContext } from '../../system-architecture/operation/requirement-binding-context.ts';
 import {

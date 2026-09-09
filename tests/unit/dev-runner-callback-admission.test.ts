@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { runCheckAffectedCommand, type CheckAffectedCommandOperations } from '../../src/development/runner/cli.ts';
 import type { MaterializedOperationDependencyBootstrapResult } from '../../src/development/runner/dependency-bootstrap.ts';
 
@@ -13,9 +13,9 @@ function callbacks(patch: Partial<CheckAffectedCommandOperations> = {}): CheckAf
 
 test('plan-only admission does not inspect unused installation or handoff capabilities', async () => {
   const input = { async runPlan() { return 7; },
-    get ensureDependencies() { assert.fail('installation selected'); },
-    get handoff() { assert.fail('handoff selected'); },
-    get runExecution() { assert.fail('execution selected'); }
+    get ensureDependencies(): never { assert.fail('installation selected'); throw new Error('unreachable'); },
+    get handoff(): never { assert.fail('handoff selected'); throw new Error('unreachable'); },
+    get runExecution(): never { assert.fail('execution selected'); throw new Error('unreachable'); }
   };
   assert.equal(await runCheckAffectedCommand(['--plan'], input), 7);
 });

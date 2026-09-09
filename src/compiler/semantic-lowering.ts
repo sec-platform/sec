@@ -9,12 +9,12 @@ import {
   resolveWorkspaceArtifactPath
 } from '../workspace/runtime/paths.ts';
 import { renderStateTransitionMapSource } from './codegen/state-transition-source.ts';
-export { renderStateTransitionMapSource } from './codegen/state-transition-source.ts';
 import { CompilerError } from './errors.ts';
 import { indexValidatedEngineeringIR } from './ir/index-engineering-ir.ts';
 import type { PipelineSemanticContext } from './pipeline/types.ts';
 import { assertUniqueSemanticOutputPaths } from './semantic-output-paths.ts';
 import { assertStateTransitionFunctions } from './state-transition-plan.ts';
+export { renderStateTransitionMapSource } from './codegen/state-transition-source.ts';
 
 export interface SemanticLoweringResult {
   generatedPaths: string[];

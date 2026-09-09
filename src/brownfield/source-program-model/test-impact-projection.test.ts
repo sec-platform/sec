@@ -35,6 +35,7 @@ function fixture(sources: Readonly<Record<string, string>>) {
   const repositoryCompilation = compileVirtualRepositorySourceProgramCompilation({ workspaceSnapshot });
   const projection = compileVirtualTestImpactProjection({
     workspaceSnapshot,
+    repositoryModel: repositoryCompilation.model,
     typeScriptModel: repositoryCompilation.typeScriptCompilation.model,
     testObservations: repositoryCompilation.testObservations
   });
@@ -65,6 +66,31 @@ test('compact TestImpact projection binds the exact compilation purpose without 
   }));
   expect(Buffer.byteLength(encodeTestImpactProjectionReceipt(projection), 'utf8'))
     .toBeLessThan(fullConsumerPayloadBytes);
+});
+
+test('compact projection retains compiler-observed test consumers as canonical observation edges', () => {
+  const { projection } = fixture({
+    'src/compiler/observed-fixture.ts': 'export const observed = true;',
+    'tests/unit/observed-fixture.test.ts': [
+      "import { readFileSync } from 'node:fs';",
+      "readFileSync('src/compiler/observed-fixture.ts', 'utf8');"
+    ].join('\n')
+  });
+  expect(projection.observedTestConsumers).toEqual([{
+    targetPath: 'src/compiler/observed-fixture.ts',
+    testPath: 'tests/unit/observed-fixture.test.ts'
+  }]);
+
+  const encoded = encodeTestImpactProjectionReceipt(projection);
+  const outsideSnapshot = JSON.parse(encoded) as Record<string, unknown>;
+  outsideSnapshot.observedTestConsumers = [{
+    targetPath: 'src/compiler/absent.ts',
+    testPath: 'tests/unit/observed-fixture.test.ts'
+  }];
+  const { projectionDigest: _discarded, ...unsigned } = outsideSnapshot;
+  outsideSnapshot.projectionDigest = sha256(unsigned);
+  expect(() => parseTestImpactProjectionReceipt(JSON.stringify(outsideSnapshot)))
+    .toThrow('within its snapshot');
 });
 
 test('strict projection codec rejects ambiguity and parsed data cannot acquire process authority', () => {

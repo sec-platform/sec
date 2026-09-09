@@ -1,9 +1,9 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { captureGitScratchIndexDelta } from '../../src/external-capabilities/git-read/runtime/scratch-input.ts';
 
 const empty = () => ({ additions: [], removals: [] });
-const addition = (path: string, bytes = Uint8Array.of(1)) => ({ path, bytes });
+const addition = (path: string, bytes: Uint8Array<ArrayBufferLike> = Uint8Array.of(1)) => ({ path, bytes });
 
 test('noncanonical and administrative index paths are refused for additions and removals', () => {
   for (const path of ['.', 'a/.', 'a/..', 'a//b', 'a/', '.git/config', 'a/.GIT/config',

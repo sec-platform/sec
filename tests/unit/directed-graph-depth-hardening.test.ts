@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
 import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 
 import { compileClosedDirectedGraphStrongComponents as scc, type DirectedGraphEdge } from '../../src/system-architecture/foundation/runtime/directed-graph.ts';
 

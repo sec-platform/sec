@@ -1,5 +1,5 @@
-import type { CommitFence } from '../../../workspace/files.ts';
 import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
+import type { CommitFence } from '../../../workspace/files.ts';
 
 export const RUNTIME_DEPENDENCY_INSTALL_MODES = Object.freeze([
   'allow', 'offline-copy-only', 'prebound-only'

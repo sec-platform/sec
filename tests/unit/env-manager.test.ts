@@ -21,8 +21,7 @@ import {
   TEST_WORKSPACE_BOUND_CHILD_LOCATOR_ENV,
   TEST_WORKSPACE_NAMESPACE_ENV,
   TEST_WORKSPACE_RUN_CHILD_ENV,
-  testWorkspaceCleanupModeForPlatform,
-  testWorkspaceSupervisorLeasePathV1
+  testWorkspaceCleanupModeForPlatform
 } from '../../src/development/runner/env-manager.ts';
 import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 import { compilerRoot } from '../../src/workspace/runtime/paths.ts';
