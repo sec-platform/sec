@@ -1,61 +1,20 @@
 import path from 'node:path';
 
-import type { SemanticGeneratorPlanTask, SemanticGeneratorTask, StateTransitionMapGeneratorPlanTask } from '../semantic/generation/contract/types.ts';
-import { compareCodeUnits, uniqueSorted } from '../system-architecture/foundation/runtime/canonical.ts';
+import type { SemanticGeneratorPlanTask, SemanticGeneratorTask } from '../semantic/generation/contract/types.ts';
+import { uniqueSorted } from '../system-architecture/foundation/runtime/canonical.ts';
 import { writeText, type CommitFence } from '../workspace/files.ts';
 import {
   isCanonicalWorkspaceArtifactPath,
   resolvePathInside,
   resolveWorkspaceArtifactPath
 } from '../workspace/runtime/paths.ts';
-import { CodeBuilder } from './codegen/code-builder.ts';
+import { renderStateTransitionMapSource } from './codegen/state-transition-source.ts';
+export { renderStateTransitionMapSource } from './codegen/state-transition-source.ts';
 import { CompilerError } from './errors.ts';
 import { indexValidatedEngineeringIR } from './ir/index-engineering-ir.ts';
 import type { PipelineSemanticContext } from './pipeline/types.ts';
 import { assertUniqueSemanticOutputPaths } from './semantic-output-paths.ts';
 import { assertStateTransitionFunctions } from './state-transition-plan.ts';
-
-function constantPrefix(stateId: string): string {
-  return stateId.replace(/[^a-zA-Z0-9]+/gu, '_').replace(/^_+|_+$/gu, '').toUpperCase();
-}
-
-export function renderStateTransitionMapSource(
-  task: StateTransitionMapGeneratorPlanTask
-): string {
-  assertStateTransitionFunctions([task]);
-  const prefix = constantPrefix(task.stateId);
-  const boundType = task.typeBinding.name;
-  const nextByValue = new Map(task.transitions.map((transition) => [transition.from, transition.to]));
-  const values = [...task.stateValues].sort(compareCodeUnits);
-  const transitions = [...task.transitions]
-    .map(({ operationEntityId: _operationEntityId, ...transition }) => transition)
-    .sort((left, right) =>
-      compareCodeUnits(left.from, right.from) || compareCodeUnits(left.to, right.to) || compareCodeUnits(left.by, right.by)
-    );
-
-  const valueInitializer = `${JSON.stringify(values)} as const satisfies readonly ${boundType}[]`;
-  const transitionInitializer = `${JSON.stringify(transitions, null, 2)} as const`;
-  const nextEntries = values.map((value) => [value, nextByValue.get(value)!] as const);
-  // Object-literal __proto__ has special semantics. Emit that one property
-  // as computed data; ordinary JSON key ordering and spelling stay unchanged.
-  const nextProperties = Object.entries(Object.fromEntries(nextEntries)).map(([value, next]) =>
-    `  ${value === '__proto__' ? `[${JSON.stringify(value)}]` : JSON.stringify(value)}: ${JSON.stringify(next)}`
-  );
-  const nextLiteral = nextProperties.length === 0 ? '{}' : `{\n${nextProperties.join(',\n')}\n}`;
-  const nextInitializer = `${nextLiteral} as const satisfies Record<${boundType}, ${boundType}>`;
-
-  return new CodeBuilder(task.target)
-    .addFileComment(`@generated semantic-task:${task.id} contract:${task.contractId} state:${task.stateId}`)
-    .addImport({
-      moduleSpecifier: task.typeBinding.importFrom,
-      namedImports: [boundType],
-      isTypeOnly: true
-    })
-    .addVariable({ name: `${prefix}_VALUES`, initializer: valueInitializer, isExported: true })
-    .addVariable({ name: `${prefix}_TRANSITIONS`, initializer: transitionInitializer, isExported: true })
-    .addVariable({ name: `NEXT_${prefix}`, initializer: nextInitializer, isExported: true })
-    .getText();
-}
 
 export interface SemanticLoweringResult {
   generatedPaths: string[];
