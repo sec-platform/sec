@@ -5,6 +5,8 @@ import { compileSourceProgramFindingDelta as compare,
   sourceProgramFindingDeltaIsUnresolved as unresolved, summarizeSourceProgramFindingDelta as summarize
 } from '../../src/brownfield/source-program-model/reconciliation-findings.ts';
 
+import { captureRepositoryAnalysisPolicy } from '../../src/brownfield/source-program-model/repository-analysis-policy.ts';
+
 type Snapshot = Parameters<typeof compare>[0];
 type Candidate = Snapshot['model']['candidates'][number];
 const digest = (value: string) => sha256(value) as `sha256:${string}`;
@@ -15,7 +17,7 @@ function snapshot(candidates: readonly Candidate[] = [], paths = ['src/a.ts']): 
   const files = paths.map(path => ({ path, contentDigest: digest(path), semanticObservationClass: 'observed' as const }));
   // Minimal structural observations for a pure comparison. These are not
   // issued repository receipts and never enter an authority-sensitive owner.
-  return { sourceRevision: digest('source'), moduleMembershipDigest: digest('membership'),
+  return { analysisPolicy: captureRepositoryAnalysisPolicy([]), sourceRevision: digest('source'), moduleMembershipDigest: digest('membership'),
     model: { sourceRevision: digest('source'), modelDigest: digest('model'), files,
       candidates, unknowns: [], providers: [{ id: 'typescript', revision: 'fixed' }] },
     workspaceSnapshot: { files }, projectGeneration: {

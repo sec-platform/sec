@@ -1,10 +1,12 @@
 import { compareCodeUnits, deepFreeze, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { repositoryAnalysisPolicyDigest } from './repository-analysis-policy.ts';
 import type { SourceProgramCandidate } from './contract.ts';
 import type { RepositorySourceProgramCompilationReceipt } from './repository-compilation.ts';
 
 type Digest = `sha256:${string}`;
 type Snapshot = Pick<RepositorySourceProgramCompilationReceipt,
-  'sourceRevision' | 'model' | 'projectGeneration' | 'moduleMembershipDigest' | 'workspaceSnapshot'>;
+  'sourceRevision' | 'model' | 'projectGeneration' | 'moduleMembershipDigest' | 'workspaceSnapshot'>
+  & Partial<Pick<RepositorySourceProgramCompilationReceipt, 'analysisPolicy'>>;
 
 export type SourceProgramFindingDeltaStatus =
   | 'introduced' | 'persistent' | 'changed' | 'absent' | 'out-of-scope' | 'unobserved';
@@ -31,6 +33,7 @@ export type SourceProgramFindingCoverage = Readonly<{
   unexpectedObservedPaths: readonly string[];
   context: Readonly<Record<string, string | null>>;
   contextDigest: Digest;
+  incompleteContextFields: readonly string[];
 }>;
 
 export type SourceProgramFindingDelta = Readonly<{
@@ -75,6 +78,7 @@ function coverage(snapshot: Snapshot): SourceProgramFindingCoverage {
   // This binds only settings represented by the existing compilation receipt;
   // it neither creates an exception grant nor certifies unseen review policies.
   const context = Object.freeze({
+    analysisPolicyDigest: repositoryAnalysisPolicyDigest(snapshot.analysisPolicy),
     compilerRevision: generation.compilerRevision,
     providerRevision: generation.providerRevision,
     compilerConfigDigest: generation.compilerConfigDigest,
@@ -93,6 +97,7 @@ function coverage(snapshot: Snapshot): SourceProgramFindingCoverage {
     unobservedPaths,
     unexpectedObservedPaths: sorted([...observed.keys()].filter(path => !selected.has(path))),
     context,
+    incompleteContextFields: context.analysisPolicyDigest === null ? ['analysisPolicyDigest'] : [],
     contextDigest: sha256(context) as Digest
   });
 }
@@ -139,7 +144,9 @@ export function compileSourceProgramFindingDelta(before: Snapshot, after: Snapsh
   const beforeCoverage = coverage(before), afterCoverage = coverage(after);
   const changedContextFields = sorted(Object.keys(beforeCoverage.context).filter(key =>
     beforeCoverage.context[key] !== afterCoverage.context[key]));
-  const contextComparable = changedContextFields.length === 0;
+  const contextComparable = changedContextFields.length === 0
+    && beforeCoverage.incompleteContextFields.length === 0
+    && afterCoverage.incompleteContextFields.length === 0;
   const beforePaths = new Set(beforeCoverage.selectedPaths), afterPaths = new Set(afterCoverage.selectedPaths);
   const beforeUnknown = new Set(beforeCoverage.unobservedPaths), afterUnknown = new Set(afterCoverage.unobservedPaths);
   const beforeGroups = groups(before.model.candidates), afterGroups = groups(after.model.candidates);
@@ -185,9 +192,11 @@ export function compileSourceProgramFindingDelta(before: Snapshot, after: Snapsh
 export function summarizeSourceProgramFindingDelta(delta: SourceProgramFindingDelta) {
   return deepFreeze({
     before: { sourceRevision: delta.before.sourceRevision, modelDigest: delta.before.modelDigest,
-      selectedFilesDigest: delta.before.selectedFilesDigest, contextDigest: delta.before.contextDigest },
+      selectedFilesDigest: delta.before.selectedFilesDigest, contextDigest: delta.before.contextDigest,
+      incompleteContextFields: delta.before.incompleteContextFields },
     after: { sourceRevision: delta.after.sourceRevision, modelDigest: delta.after.modelDigest,
-      selectedFilesDigest: delta.after.selectedFilesDigest, contextDigest: delta.after.contextDigest },
+      selectedFilesDigest: delta.after.selectedFilesDigest, contextDigest: delta.after.contextDigest,
+      incompleteContextFields: delta.after.incompleteContextFields },
     contextComparable: delta.contextComparable, changedContextFields: delta.changedContextFields,
     scope: delta.scope, counts: delta.counts,
     unobservedPaths: delta.after.unobservedPaths,
@@ -200,6 +209,7 @@ export function summarizeSourceProgramFindingDelta(delta: SourceProgramFindingDe
  * observations on selected input and unjustified disappearance are unresolved;
  * downstream retirement and known-violation policies remain independently active. */
 export function sourceProgramFindingDeltaIsUnresolved(delta: SourceProgramFindingDelta): boolean {
-  return delta.scope.regressedPaths.length > 0 || delta.after.unexpectedObservedPaths.length > 0
+  return delta.before.incompleteContextFields.length > 0 || delta.after.incompleteContextFields.length > 0
+    || delta.scope.regressedPaths.length > 0 || delta.after.unexpectedObservedPaths.length > 0
     || delta.counts.unobserved > 0;
 }

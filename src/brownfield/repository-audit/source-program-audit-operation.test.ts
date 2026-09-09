@@ -17,6 +17,7 @@ import {
 } from './source-program-audit-operation.ts';
 
 import { compileSourceProgramFindingDelta } from '../source-program-model/reconciliation-findings.ts';
+import { captureRepositoryAnalysisPolicy } from '../source-program-model/repository-analysis-policy.ts';
 
 const digest = (value: unknown): `sha256:${string}` => sha256(value) as `sha256:${string}`;
 
@@ -490,6 +491,7 @@ describe('Source Program audit domain operation', () => {
     const facts = input();
     type Snapshot = Parameters<typeof compileSourceProgramFindingDelta>[0];
     const make = (which: 'before' | 'after'): Snapshot => ({
+      analysisPolicy: captureRepositoryAnalysisPolicy([]),
       sourceRevision: facts.reconciliation[which].sourceRevision,
       moduleMembershipDigest: digest('membership'),
       workspaceSnapshot: { files: facts.sourceFileIdentities },
@@ -521,7 +523,8 @@ describe('Source Program audit domain operation', () => {
   test('foreign finding models and an unresolved comparison disguised as resolved are refused', () => {
     const facts = input();
     type Snapshot = Parameters<typeof compileSourceProgramFindingDelta>[0];
-    const base = { sourceRevision: facts.reconciliation.before.sourceRevision,
+    const base = { analysisPolicy: captureRepositoryAnalysisPolicy([]),
+      sourceRevision: facts.reconciliation.before.sourceRevision,
       moduleMembershipDigest: digest('membership'), workspaceSnapshot: { files: facts.sourceFileIdentities },
       projectGeneration: { compilerRevision: digest('compiler'), providerRevision: digest('provider'),
         compilerConfigDigest: digest('configuration'), dependencyGenerationDigest: digest('dependency'),
@@ -545,6 +548,29 @@ describe('Source Program audit domain operation', () => {
     const foreign = { ...delta, after: { ...delta.after, modelDigest: digest('foreign') } };
     assert.throws(() => compileSourceProgramAuditOperationInput({ ...facts,
       reconciliation: { ...facts.reconciliation, status: 'unresolved', findingDelta: foreign } }), /Finding reconciliation/);
+  });
+
+  test('missing review context cannot be supplied as a resolved comparison in either report mode', () => {
+    const facts = input();
+    type Snapshot = Parameters<typeof compileSourceProgramFindingDelta>[0];
+    const make = (which: 'before' | 'after'): Snapshot => ({
+      sourceRevision: facts.reconciliation[which].sourceRevision,
+      moduleMembershipDigest: digest('membership'),
+      workspaceSnapshot: { files: facts.sourceFileIdentities },
+      projectGeneration: { compilerRevision: digest('compiler'), providerRevision: digest('provider'),
+        compilerConfigDigest: digest('configuration'), dependencyGenerationDigest: digest('dependency'),
+        environmentDigest: digest('environment'), projectConfigDigest: null },
+      model: { modelDigest: facts.reconciliation[which].modelDigest, providers: [], unknowns: [], candidates: [],
+        files: facts.sourceFileIdentities.map(file => ({ ...file, semanticObservationClass: 'observed' })) }
+    }) as unknown as Snapshot;
+    const findingDelta = compileSourceProgramFindingDelta(make('before'), make('after'));
+    assert.equal(findingDelta.contextComparable, false);
+    assert.equal(findingDelta.entries.length, 0);
+    for (const full of [false, true]) for (const enforce of [false, true]) {
+      assert.throws(() => compileSourceProgramAuditOperationInput({ ...facts,
+        reconciliation: { ...facts.reconciliation, findingDelta },
+        options: { ...facts.options, full, enforce } }), /Finding reconciliation/);
+    }
   });
 
   test('an input cannot advertise a different decision from the one the worker executes', () => {
