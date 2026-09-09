@@ -179,7 +179,7 @@ jobs:
               throw new Error('Work Package manifest digest is stale.');
             }
 
-            const registryPath = 'platform/verification/trust/contract/ci-trust-root-registry.json';
+            const registryPath = 'src/verification/trust/contract/ci-trust-root-registry.json';
             const registryBlob = await readBlobFromTree(baseTree, registryPath, 'Trusted-base trust-root registry');
             let registry;
             try {
@@ -362,8 +362,8 @@ jobs:
               const importFromTrustedBase = async (repositoryPath) => import(pathToFileURL(
                 path.join(trustedRoot, ...repositoryPath.split("/"))
               ).href);
-              const tcb = await importFromTrustedBase("platform/verification/trust/runtime/closure-lock.ts");
-              const registryContract = await importFromTrustedBase("platform/verification/trust/contract/root.ts");
+              const tcb = await importFromTrustedBase("src/verification/trust/runtime/closure-lock.ts");
+              const registryContract = await importFromTrustedBase("src/verification/trust/contract/root.ts");
               const gitEnvironment = Object.fromEntries(Object.entries(process.env)
                 .filter(([name]) => !name.startsWith("GIT_")));
               gitEnvironment.GIT_NO_REPLACE_OBJECTS = "1";
@@ -406,8 +406,8 @@ jobs:
                 }
               };
               assertExactGitIdentity();
-              const baseSnapshot = tcb.createTcbClosureCandidateSnapshotV1({ candidateRoot: trustedRoot });
-              const candidateSnapshot = tcb.createTcbClosureCandidateSnapshotV1({ candidateRoot });
+              const baseSnapshot = tcb.createTcbClosureCandidateSnapshot({ candidateRoot: trustedRoot });
+              const candidateSnapshot = tcb.createTcbClosureCandidateSnapshot({ candidateRoot });
               const baseSnapshotOptions = { candidateSnapshot: baseSnapshot };
               const candidateSnapshotOptions = { candidateSnapshot };
               const changedPaths = gitBytes(candidateRoot, [
@@ -418,16 +418,16 @@ jobs:
                   repositoryPath.split("/").some((segment) => segment.length === 0 || segment === "." || segment === ".."))) {
                 throw new Error("trusted bootstrap candidate changed-path inventory is not canonical.");
               }
-              const registryPath = registryContract.SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH_V3;
-              const baseRegistryBytes = tcb.readTcbClosureCandidateFileV1(registryPath, baseSnapshotOptions);
-              const candidateRegistryBytes = tcb.readTcbClosureCandidateFileV1(registryPath, candidateSnapshotOptions);
+              const registryPath = registryContract.SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH;
+              const baseRegistryBytes = tcb.readTcbClosureCandidateFile(registryPath, baseSnapshotOptions);
+              const candidateRegistryBytes = tcb.readTcbClosureCandidateFile(registryPath, candidateSnapshotOptions);
               const digest = (bytes) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
               const baseRegistryDigest = digest(baseRegistryBytes);
               const candidateRegistryDigest = digest(candidateRegistryBytes);
               if (baseRegistryDigest !== required("SEC_BOOTSTRAP_REGISTRY_DIGEST")) {
                 throw new Error("trusted bootstrap checker base registry digest drifted.");
               }
-              const baseRegistry = registryContract.parseSecTrustedBootstrapRegistryV3(baseRegistryBytes.toString("utf8"));
+              const baseRegistry = registryContract.parseSecTrustedBootstrapRegistry(baseRegistryBytes.toString("utf8"));
               let pre = null;
               if (phase === "post") {
                 if (required("SEC_PRE_DOWNLOAD_OUTCOME") !== "success") {
@@ -450,8 +450,8 @@ jobs:
               let authorityVerdict;
               let authorityReason;
               if (pre === null) {
-                checkerAction = tcb.compileTcbClosureActionResultV1({
-                  plan: tcb.createTcbClosureActionPlanV1({
+                checkerAction = tcb.compileTcbClosureActionResult({
+                  plan: tcb.createTcbClosureActionPlan({
                     exactTreeSha: expectedBaseTree,
                     registryDigest: baseRegistryDigest,
                     toolchainRevision: `bun@${Bun.version}:typescript`,
@@ -460,11 +460,11 @@ jobs:
                   options: baseSnapshotOptions
                 });
                 checkerLock = checkerAction.identity;
-                const baseTrustRoot = registryContract.createSecTrustedBootstrapTrustRootV3({
+                const baseTrustRoot = registryContract.createSecTrustedBootstrapTrustRoot({
                   registry: baseRegistry,
                   causalRuntimePaths: checkerLock.modules
                 });
-                const candidateDemand = tcb.selectTcbClosureCandidateActionV1({
+                const candidateDemand = tcb.selectTcbClosureCandidateAction({
                   changedPaths,
                   exactTreeSha: expectedTree,
                   registryDigest: baseRegistryDigest,
@@ -482,7 +482,7 @@ jobs:
                   hardFailureReasons.add("trusted-bootstrap-request-does-not-change-trust-root");
                 }
                 try {
-                  registryContract.parseSecTrustedBootstrapRegistryV3(Buffer.from(candidateRegistryBytes).toString("utf8"));
+                  registryContract.parseSecTrustedBootstrapRegistry(Buffer.from(candidateRegistryBytes).toString("utf8"));
                 } catch (error) {
                   manualReasons.add(`candidate-registry-schema-or-policy-change:${error instanceof Error ? error.message : String(error)}`);
                 }
@@ -492,7 +492,7 @@ jobs:
                 candidateAction = null;
                 if (candidateDemand.plan !== null) {
                   try {
-                    candidateAction = tcb.compileTcbClosureActionResultV1({
+                    candidateAction = tcb.compileTcbClosureActionResult({
                       plan: candidateDemand.plan,
                       options: candidateSnapshotOptions,
                       upstreamResults: [checkerAction]
@@ -515,12 +515,12 @@ jobs:
               } else {
                 checkerAction = {
                   actionKey: pre.checkerActionKey,
-                  terminal: { resultDigest: pre.checkerActionResultDigest }
+                  resultDigest: pre.checkerActionResultDigest
                 };
                 checkerLock = { closureDigest: pre.checkerClosureDigest };
                 candidateAction = pre.candidateActionKey === null ? null : {
                   actionKey: pre.candidateActionKey,
-                  terminal: { resultDigest: pre.candidateActionResultDigest },
+                  resultDigest: pre.candidateActionResultDigest,
                   identity: {
                     closureDigest: pre.candidateClosureDigest,
                     trustRevision: pre.candidateTrustRevision,
@@ -620,8 +620,8 @@ jobs:
                   { encoding: "utf8", flag: "wx" }
                 );
               }
-              tcb.finalizeTcbClosureCandidateSnapshotV1(baseSnapshot);
-              tcb.finalizeTcbClosureCandidateSnapshotV1(candidateSnapshot);
+              tcb.finalizeTcbClosureCandidateSnapshot(baseSnapshot);
+              tcb.finalizeTcbClosureCandidateSnapshot(candidateSnapshot);
               assertExactGitIdentity();
               const semantic = {
                 schema: "sec-trusted-bootstrap-checker-receipt-v1",
@@ -633,17 +633,17 @@ jobs:
                 candidateParentSha: expectedBase,
                 registryDigest: baseRegistryDigest,
                 checkerActionKey: checkerAction.actionKey,
-                checkerActionResultDigest: checkerAction.terminal.resultDigest,
+                checkerActionResultDigest: checkerAction.resultDigest,
                 checkerClosureDigest: checkerLock.closureDigest,
                 candidateActionKey: candidateAction?.actionKey ?? null,
-                candidateActionResultDigest: candidateAction?.terminal.resultDigest ?? null,
+                candidateActionResultDigest: candidateAction?.resultDigest ?? null,
                 candidateClosureDigest: candidateAction?.identity.closureDigest ?? null,
                 candidateTrustRevision: candidateAction?.identity.trustRevision ?? null,
                 candidateModuleCount: candidateAction?.identity.moduleCount ?? null,
                 checkerProgramDigest: digest(readFileSync(import.meta.path)),
-                checkerToolBlob: blob(trustedRoot, "platform/verification/trust/runtime/closure-lock.ts"),
+                checkerToolBlob: blob(trustedRoot, "src/verification/trust/runtime/closure-lock.ts"),
                 checkerWorkflowBlob: blob(trustedRoot, ".github/workflows/sec-trusted-bootstrap.yml"),
-                candidateToolBlob: blob(candidateRoot, "platform/verification/trust/runtime/closure-lock.ts"),
+                candidateToolBlob: blob(candidateRoot, "src/verification/trust/runtime/closure-lock.ts"),
                 candidateWorkflowBlob: blob(candidateRoot, ".github/workflows/sec-trusted-bootstrap.yml"),
                 authorityVerdict,
                 authorityReason,
@@ -733,7 +733,7 @@ jobs:
           set -euo pipefail
           unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
           unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
-          bun scripts/ci-verification.ts execute-trusted-bootstrap-sut \
+          bun src/verification/ci/verification.ts execute-trusted-bootstrap-sut \
             --base-root "$GITHUB_WORKSPACE" \
             --candidate-root "$CANDIDATE_ROOT" \
             --output-directory "$SUT_EVIDENCE_ROOT" \

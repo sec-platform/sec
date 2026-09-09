@@ -5,10 +5,23 @@ import { parse as parseYaml } from 'yaml';
 import { CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST, createCiMainHealthRequestOperationId } from '../../src/control/main-health/provider-policy.ts';
 import { buildCiContract, CI_MAIN_HEALTH_COMMANDS, CI_MAIN_HEALTH_JOB_NAME, CI_MAIN_HEALTH_STEP_ORDER } from '../../src/verification/ci/contract/core.ts';
 import { assertCiExpectedHead, buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentBuildVerificationPlan } from '../../src/verification/ci/contract/plan.ts';
-import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST } from '../../src/verification/ci/contract/revision.ts';
 import { slowTestSuiteIds } from '../../src/verification/test-impact/contract/budget.ts';
 import { TCB_TRUST_ROOT } from '../../src/verification/trust/compiler.ts';
-import { matchSecTrustedBootstrapPath, SEC_TCB_CLOSURE_RUNTIME_PATH } from '../../src/verification/trust/contract/root.ts';
+import {
+  createSecTrustedBootstrapTrustRoot,
+  matchSecTrustedBootstrapPath,
+  parseSecTrustedBootstrapRegistry,
+  SEC_TCB_CLOSURE_RUNTIME_PATH,
+  SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH
+} from '../../src/verification/trust/contract/root.ts';
+import {
+  compileTcbClosureActionResult,
+  createTcbClosureActionPlan,
+  createTcbClosureCandidateSnapshot,
+  finalizeTcbClosureCandidateSnapshot,
+  readTcbClosureCandidateFile,
+  selectTcbClosureCandidateAction
+} from '../../src/verification/trust/runtime/closure-lock.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
 
@@ -54,6 +67,20 @@ function step(workflow: Workflow, job: string, name: string): WorkflowStep {
   const found = workflow.jobs[job]?.steps.find((candidate) => candidate.name === name);
   if (!found) throw new Error(`Missing workflow step ${job}/${name}.`);
   return found;
+}
+
+function embeddedTrustedBootstrapChecker(source: string): string {
+  const normalizedSource = source.replaceAll('\r\n', '\n');
+  const startDelimiter = `cat > "$out/checker.mjs" <<'CHECKER'\n`;
+  const start = normalizedSource.indexOf(startDelimiter);
+  if (start < 0) throw new Error('trusted bootstrap workflow checker start delimiter is missing.');
+  const checkerStart = start + startDelimiter.length;
+  const endDelimiter = '\n          CHECKER\n';
+  const end = normalizedSource.indexOf(endDelimiter, checkerStart);
+  if (end < 0) throw new Error('trusted bootstrap workflow checker end delimiter is missing.');
+  return normalizedSource.slice(checkerStart, end).split('\n')
+    .map((line) => line.startsWith('              ') ? line.slice(14) : line)
+    .join('\n');
 }
 
 test('Quick and Full plan topology remains deterministic behind the Action normalizer', () => {
@@ -119,6 +146,22 @@ test('exact-main health policy binds one stable GitHub Actions app and terminal 
 test('trusted base candidate root bootstrap checker is disjoint and candidate remains data', async () => {
   const source = await readCompilerFile('.github/workflows/sec-trusted-bootstrap.yml');
   const workflow = parseYaml(source) as Workflow;
+  const checkerSource = embeddedTrustedBootstrapChecker(source);
+  expect(() => new Bun.Transpiler({ loader: 'js', target: 'bun' }).transformSync(checkerSource))
+    .not.toThrow();
+  expect([
+    createTcbClosureCandidateSnapshot,
+    readTcbClosureCandidateFile,
+    createTcbClosureActionPlan,
+    selectTcbClosureCandidateAction,
+    compileTcbClosureActionResult,
+    finalizeTcbClosureCandidateSnapshot,
+    parseSecTrustedBootstrapRegistry,
+    createSecTrustedBootstrapTrustRoot
+  ].every((contract) => typeof contract === 'function')).toBe(true);
+  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH)
+    .toBe('src/verification/trust/contract/ci-trust-root-registry.json');
+  expect(checkerSource).not.toMatch(/TcbClosure[A-Za-z]+V1|TrustedBootstrap[A-Za-z]+V3|terminal\.resultDigest/u);
   expect(workflow.jobs.resolve?.outputs).toMatchObject({
     base: '${{ steps.resolve.outputs.base }}',
     'base-tree': '${{ steps.resolve.outputs.base-tree }}',
@@ -208,6 +251,8 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
     .toMatchObject({
       SUT_EVIDENCE_ROOT: '${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}'
     });
+  expect(step(workflow, 'candidate-sut', 'Run candidate SUT through trusted private sandbox').run)
+    .toContain('bun src/verification/ci/verification.ts execute-trusted-bootstrap-sut');
   expect(sutSteps.some((candidate) =>
     candidate.name === 'Install candidate SUT dependencies without lifecycle scripts')).toBe(false);
   const postSteps = workflow.jobs['checker-post']?.steps ?? [];
