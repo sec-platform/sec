@@ -41,10 +41,11 @@ import {
 } from '../../system-architecture/operation/semantic.ts';
 import { compilerRoot } from '../../workspace/runtime/paths.ts';
 import {
-  captureDevCommandInput, DEV_COMMAND_MAX_DURATION_MS, DEV_COMMAND_MAX_STDIN_BYTES,
+  captureDevCommandInput,
   type DevCommandOptions, type ObserveDevCommandOptions
 } from './command-input.ts';
 import { requireCommandExitCode, type DevCommandObservation, type DevCommandTerminalOutcome } from './command-outcome.ts';
+import { DEV_COMMAND_MAX_DURATION_MS, DEV_COMMAND_MAX_STDIN_BYTES } from './contract.ts';
 import { DEFAULT_FAST_TEST_MAX_CONCURRENCY } from './fast-test-policy.ts';
 import { applyDefaultFastTestConcurrency } from './test-concurrency-policy.ts';
 import {
@@ -53,7 +54,6 @@ import {
   TEST_SUITE_EXECUTION_OPERATION,
   type TestSuiteExecutionAdmission
 } from './test-execution-policy.ts';
-export { DEV_COMMAND_MAX_DURATION_MS, DEV_COMMAND_MAX_STDIN_BYTES } from './command-input.ts';
 export type { ExecuteDevCommandOptions, ObserveDevCommandOptions } from './command-input.ts';
 export { devCommandObservationExitCode } from './command-outcome.ts';
 export type { DevCommandObservation, DevCommandObservationIntegrity, DevCommandTerminalOutcome } from './command-outcome.ts';

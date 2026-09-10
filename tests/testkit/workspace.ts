@@ -20,7 +20,6 @@ const templateParent = path.join(getTestWorkspaceTemplateRoot(), `run-${process.
 const deferredCleanupDirs = new Set<string>();
 const deferredCleanupConcurrency = createConcurrencyLimit(Math.min(availableParallelism(), 16));
 
-export type { WorkspaceTemplateKind } from './template-preparation.ts';
 export type WorkspaceScenarioKind = WorkspaceTemplateKind;
 
 export type WorkspaceCallbackOptions = {
@@ -201,7 +200,7 @@ async function prepareOwnedWorkspace(
   }
 }
 
-export async function cloneWorkspaceTemplate(kind: WorkspaceTemplateKind, prefix = `engineering-compiler-${kind}-`): Promise<string> {
+async function cloneWorkspaceTemplate(kind: WorkspaceTemplateKind, prefix = `engineering-compiler-${kind}-`): Promise<string> {
   workspaceTemplatePipeline(kind);
   workspaceTemporaryPrefix(workspaceParent, prefix);
   const templateRoot = await ensureTemplate(kind);
@@ -232,10 +231,6 @@ export async function prepareLockedWorkspace(options: WorkspacePipelineFixtureOp
 
 export async function prepareVerifiedWorkspace(options: WorkspacePipelineFixtureOptions = {}): Promise<string> {
   return preparePipelineFixture('verified-fast-default', 'engineering-compiler-verified-', options);
-}
-
-export async function prepareEmptyWorkspace(prefix?: string): Promise<string> {
-  return cloneWorkspaceTemplate('empty-default', prefix === undefined ? 'engineering-compiler-empty-' : prefix);
 }
 
 export async function prepareResolvedWorkspace(options: WorkspacePipelineFixtureOptions = {}): Promise<string> {

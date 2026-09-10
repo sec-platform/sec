@@ -6,6 +6,7 @@ import {
 } from '../../runtime-state/physical/runtime/process-resource-session.ts';
 import { settlePhysicalResourcesAsync, type PhysicalResourceSettlementFailure } from '../../runtime-state/physical/runtime/resource-settlement.ts';
 import {
+  armPreparedWindowsRepositoryChangeObserver,
   armWindowsRepositoryChangeObserver,
   disposePreparedWindowsRepositoryChangeObserver,
   prepareWindowsRepositoryChangeObserver,
@@ -18,11 +19,14 @@ import { observeOptionalDiagnostic } from '../../system-architecture/foundation/
 import { issueSecOperationRequirementBindingContext } from '../../system-architecture/operation/requirement-binding-context.ts';
 import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
 import { compilerRoot } from '../../workspace/runtime/paths.ts';
-import { DEV_COMMAND_MAX_DURATION_MS } from './command-input.ts';
 import { requireCommandExitCode } from './command-outcome.ts';
+import { DEV_COMMAND_MAX_DURATION_MS } from './contract.ts';
 import { RepositoryObservationError, resolveRepositoryObservationRoots } from './repository-observation.ts';
 import {
+  assertIssuedFastTestBatchExecutionAdmission,
   assertIssuedTestSuiteExecutionAdmission,
+  bindFastTestBatchExecutionAdmission,
+  type FastTestBatchExecutionAdmission,
   type TestSuiteExecutionAdmission
 } from './test-execution-policy.ts';
 
@@ -41,6 +45,8 @@ export interface RepositoryMutationFenceOptions {
   readonly retainProcessSession?: boolean;
   /** Exact suite admission whose observer is bound by the child operation. */
   readonly testSuiteAdmission?: TestSuiteExecutionAdmission;
+  /** Exact fast invocation DAG whose operation owns one continuous observer. */
+  readonly fastTestBatchAdmission?: FastTestBatchExecutionAdmission;
 }
 
 export type RepositoryObserverFailureDiagnostic = Readonly<{
@@ -148,7 +154,14 @@ export async function runRepositoryZeroWriteOperation(
   const startedAt = Date.now();
   const { operation: semanticOperation, repositoryRoot: requestedRoot, report: suppliedReport } = options;
   const testSuiteAdmission = options.testSuiteAdmission;
+  const fastTestBatchAdmission = options.fastTestBatchAdmission;
+  if (testSuiteAdmission !== undefined && fastTestBatchAdmission !== undefined) {
+    throw new Error('Repository observation accepts one test execution admission.');
+  }
   if (testSuiteAdmission !== undefined) assertIssuedTestSuiteExecutionAdmission(testSuiteAdmission);
+  if (fastTestBatchAdmission !== undefined) {
+    assertIssuedFastTestBatchExecutionAdmission(fastTestBatchAdmission);
+  }
   if (typeof operation !== 'function' || (suppliedReport !== undefined && typeof suppliedReport !== 'function')) {
     throw new TypeError('Repository observation operation and reporter must be callable');
   }
@@ -170,13 +183,15 @@ export async function runRepositoryZeroWriteOperation(
     && requestedObserverDeadline !== undefined
     ? requestedObserverDeadline
     : parentDeadline;
-  const deadlineAtUnixMs = testSuiteAdmission === undefined
+  const executionDeadlineAtUnixMs = testSuiteAdmission?.logicalDeadlineAtUnixMs
+    ?? fastTestBatchAdmission?.logicalDeadlineAtUnixMs;
+  const deadlineAtUnixMs = executionDeadlineAtUnixMs === undefined
     ? Math.min(
         effectiveObserverParentDeadline,
         requestedObserverDeadline ?? Number.MAX_SAFE_INTEGER,
         startedAt + REPOSITORY_ZERO_WRITE_OBSERVATION_MAX_MS
       )
-    : testSuiteAdmission.logicalDeadlineAtUnixMs;
+    : executionDeadlineAtUnixMs;
   const report = suppliedReport === undefined ? console.error : (message: string) => Reflect.apply(suppliedReport, options, [message]);
   if (deadlineAtUnixMs <= startedAt) {
     observeOptionalDiagnostic(() => report(`${commandId} strict-zero-write-unproven: observation deadline exhausted.`));
@@ -212,7 +227,7 @@ export async function runRepositoryZeroWriteOperation(
   let preparedObserver: PreparedWindowsRepositoryChangeObserver | undefined;
   let observerResolution: Awaited<ReturnType<typeof armWindowsRepositoryChangeObserver>> | undefined;
   try {
-    if (testSuiteAdmission === undefined) {
+    if (testSuiteAdmission === undefined && fastTestBatchAdmission === undefined) {
       observerResolution = await armWindowsRepositoryChangeObserver({ roots, deadlineAtUnixMs });
     } else {
       preparedObserver = prepareWindowsRepositoryChangeObserver({ roots });
@@ -229,7 +244,8 @@ export async function runRepositoryZeroWriteOperation(
     });
     throw new Error('Unreachable repository native observer settlement state.');
   }
-  if (testSuiteAdmission === undefined && observerResolution!.status !== 'ready') {
+  if (testSuiteAdmission === undefined && fastTestBatchAdmission === undefined
+      && observerResolution!.status !== 'ready') {
     if (processSession !== undefined) {
       await settlePhysicalResourcesAsync({
         cleanup: [{
@@ -247,12 +263,66 @@ export async function runRepositoryZeroWriteOperation(
   const readyObserver = observerResolution?.status === 'ready'
     ? observerResolution.observer
     : undefined;
+  if (fastTestBatchAdmission !== undefined) {
+    let batchObserverResolution: Awaited<ReturnType<typeof armPreparedWindowsRepositoryChangeObserver>>;
+    try {
+      const batchOperation = bindFastTestBatchExecutionAdmission(
+        fastTestBatchAdmission,
+        preparedObserver!.providerBinding
+      );
+      const remainingDurationMs = fastTestBatchAdmission.logicalDeadlineAtUnixMs - Date.now();
+      if (!Number.isSafeInteger(remainingDurationMs) || remainingDurationMs < 1) {
+        throw new Error('Fast test batch deadline exhausted before observer arm.');
+      }
+      batchObserverResolution = await armPreparedWindowsRepositoryChangeObserver({
+        prepared: preparedObserver!,
+        operation: batchOperation,
+        requirementBindingContext: issueSecOperationRequirementBindingContext({
+          operation: batchOperation,
+          requirementId: preparedObserver!.providerBinding.requirementId,
+          resourceCeilings: [{ resource: 'duration-ms', maximum: remainingDurationMs }],
+          absoluteDeadlineAtUnixMs: fastTestBatchAdmission.logicalDeadlineAtUnixMs
+        })
+      });
+    } catch (error) {
+      await settlePhysicalResourcesAsync({
+        primary: { label: 'fast-test-batch-observer-admission', error },
+        cleanup: [
+          { label: 'fast-test-batch-prepared-observer', settle: async () => {
+            await settlePreparedWindowsRepositoryChangeObserver(preparedObserver!);
+            disposePreparedWindowsRepositoryChangeObserver(preparedObserver!);
+          } },
+          ...(processSession === undefined ? [] : [{
+            label: 'repository-process-resource-session',
+            settle: () => closeRepositoryProcessResourceSession(processSession!, semanticOperation)
+          }])
+        ]
+      });
+      throw new Error('Unreachable fast test batch observer admission settlement state.');
+    }
+    if (batchObserverResolution.status !== 'ready') {
+      await settlePhysicalResourcesAsync({ cleanup: [
+        { label: 'fast-test-batch-prepared-observer', settle: async () => {
+          await settlePreparedWindowsRepositoryChangeObserver(preparedObserver!);
+          disposePreparedWindowsRepositoryChangeObserver(preparedObserver!);
+        } },
+        ...(processSession === undefined ? [] : [{
+          label: 'repository-process-resource-session',
+          settle: () => closeRepositoryProcessResourceSession(processSession!, semanticOperation)
+        }])
+      ] });
+      observeOptionalDiagnostic(() => report(
+        `${commandId} strict-zero-write-unproven: fast test batch observer is unavailable (${batchObserverResolution.reason}).`
+      ));
+      return 1;
+    }
+  }
   let result: number | undefined;
   let primary: PhysicalResourceSettlementFailure | undefined;
   try {
     result = requireCommandExitCode(await operation(
       processSession,
-      preparedObserver === undefined ? undefined : Object.freeze({
+      preparedObserver === undefined || testSuiteAdmission === undefined ? undefined : Object.freeze({
         testSuiteAdmission: testSuiteAdmission!,
         testSuiteObserver: preparedObserver
       })
@@ -295,4 +365,19 @@ export async function runRepositoryZeroWriteOperation(
     return 1;
   }
   return result!;
+}
+
+/** One canonical boundary for ordinary read-only runner stages. The short Git
+ * root-discovery ledger settles before the stage; the native observer retains
+ * the existing generic five-minute ceiling and cannot be widened by callers. */
+export async function runStandaloneRepositoryZeroWriteOperation(
+  commandId: string,
+  operation: () => Promise<number>
+): Promise<number> {
+  const { compileRepositoryObservationOperation } = await import('./repository-observation.ts');
+  return runRepositoryZeroWriteOperation(commandId, operation, {
+    operation: compileRepositoryObservationOperation(),
+    observerDeadlineAtUnixMs: Date.now() + DEV_COMMAND_MAX_DURATION_MS,
+    retainProcessSession: false
+  });
 }

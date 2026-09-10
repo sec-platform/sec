@@ -4,9 +4,10 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
-  captureDevCommandInput, DEV_COMMAND_MAX_DURATION_MS, DEV_COMMAND_MAX_STDIN_BYTES,
+  captureDevCommandInput,
   type DevCommandOptions
 } from '../../src/development/runner/command-input.ts';
+import { DEV_COMMAND_MAX_DURATION_MS, DEV_COMMAND_MAX_STDIN_BYTES } from '../../src/development/runner/contract.ts';
 
 const capture = (options?: DevCommandOptions, args: string[] = [], env: NodeJS.ProcessEnv = {}) =>
   captureDevCommandInput(args, env, options, process.cwd());

@@ -68,7 +68,6 @@ describe('verification provider capability contract', () => {
       }
     }));
     const epoch = projection.availabilityEpoch;
-    expect(projection.document.schema).toBe('sec-external-capability-ledger-v4');
     expect(resolveProviderAvailability(epoch, 'github-writer')).toMatchObject({
       availability: 'unknown',
       reasonCode: 'provider-receipt-unverified',

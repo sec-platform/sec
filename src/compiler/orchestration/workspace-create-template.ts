@@ -1,4 +1,7 @@
-import { ensureProjectBase } from '../../workspace/application/project-base.ts';
+import {
+  ensureCanonicalWorkspaceArtifactParents,
+  ensureProjectBase
+} from '../../workspace/application/project-base.ts';
 import { ensureDir, type CommitFence } from '../../workspace/files.ts';
 import { getWorkspacePaths, officialRegistryRelativePath, posixPath, privateRegistryRelativePath } from '../../workspace/runtime/paths.ts';
 import type { PlanFile } from '../contract.ts';
@@ -122,4 +125,5 @@ export async function materializeWorkspaceCreateTemplate(
   for (const directory of nativeWorkspaceDirectories) {
     await ensureDir(directory, commitFence);
   }
+  await ensureCanonicalWorkspaceArtifactParents(workspaceRoot, commitFence);
 }

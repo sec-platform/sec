@@ -75,6 +75,16 @@ export type RetainedNoFollowCapabilityRole =
   | 'executable'
   | 'working-directory';
 const retainedNoFollowCapabilityRoles = new WeakMap<object, RetainedNoFollowCapabilityRole>();
+type RetainedNoFollowPosixMetadata = Readonly<{
+  mode: number | null;
+  ownerGroupId: bigint | null;
+  ownerUserId: bigint | null;
+}>;
+const retainedNoFollowOrdinaryFilePosixMetadata = new WeakMap<object, RetainedNoFollowPosixMetadata>();
+const noFollowDirectoryTreeEntryPosixOwnership = new WeakMap<object, Readonly<{
+  ownerGroupId: bigint;
+  ownerUserId: bigint;
+}>>();
 
 function issueRetainedNoFollowCapability<T extends object>(
   capability: T,
@@ -360,13 +370,39 @@ export interface NoFollowDirectoryTreeInventoryEntry {
   readonly size: number;
   readonly contentDigest: `sha256:${string}` | null;
   readonly linkTarget: string | null;
+  /** Opt-in POSIX permission bits. Omitted by default; null on platforms without this projection. */
+  readonly permissionMode?: number | null;
 }
 
 interface InternalNoFollowDirectoryTreeEntry extends NoFollowDirectoryTreeEntry {
   readonly contentDigest: `sha256:${string}` | null;
+  readonly permissionMode?: number | null;
+  readonly ownerGroupId?: bigint;
+  readonly ownerUserId?: bigint;
 }
 
 type NoFollowDirectoryTreeFileMode = 'bounded-bytes' | 'metadata-only' | 'streaming-digest';
+
+function projectedPermissionMode(
+  mode: bigint,
+  kind: NoFollowDirectoryTreeEntryKind,
+  include: boolean,
+  owner?: Readonly<{ gid: bigint; uid: bigint }>
+): Readonly<{
+  permissionMode: number | null;
+  ownerGroupId?: bigint;
+  ownerUserId?: bigint;
+}> | Record<string, never> {
+  if (!include) return Object.freeze({});
+  return Object.freeze({
+    permissionMode: process.platform === 'linux' && kind !== 'link'
+      ? Number(mode & 0o7777n)
+      : null,
+    ...(process.platform === 'linux' && kind !== 'link' && owner !== undefined
+      ? { ownerGroupId: owner.gid, ownerUserId: owner.uid }
+      : {})
+  });
+}
 
 export interface NoFollowDirectoryTreeMetadataOptions {
   /** Monotonic `performance.now()` deadline. */
@@ -375,6 +411,8 @@ export interface NoFollowDirectoryTreeMetadataOptions {
   readonly maximumEntries: number;
   /** Aggregate ordinary-file byte ceiling, checked before every retained read. */
   readonly maximumBytes?: number;
+  /** Include POSIX permission bits without changing the default inventory schema. */
+  readonly includePermissionMode?: boolean;
   /** Operation-scoped cancellation observed throughout retained traversal. */
   readonly signal?: AbortSignal;
 }
@@ -469,6 +507,8 @@ export interface NoFollowDirectoryTreeCopyOptions {
   readonly signal?: AbortSignal;
   /** Optional lexical roots to include; ancestors are retained for traversal. */
   readonly includeRelativePaths?: readonly string[];
+  /** Preserve and verify POSIX permission bits; omitted keeps the historical safe defaults. */
+  readonly preservePermissionMode?: boolean;
 }
 
 function codeOf(error: unknown): string | null {
@@ -4108,6 +4148,8 @@ export function retainNoFollowOrdinaryFile(
         throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} size is outside the safe observation domain.`);
       }
       const initialMode = initial.mode;
+      const initialOwnerGroupId = initial.gid;
+      const initialOwnerUserId = initial.uid;
       const initialSize = initial.size;
       const initialMtimeNs = initial.mtimeNs;
       const initialCtimeNs = initial.ctimeNs;
@@ -4138,6 +4180,7 @@ export function retainNoFollowOrdinaryFile(
         const current = fstatSync(descriptor, { bigint: true });
         if (!current.isFile() || current.dev !== initial.dev || current.ino !== initial.ino ||
             current.mode !== initialMode || current.size !== initialSize ||
+            current.gid !== initialOwnerGroupId || current.uid !== initialOwnerUserId ||
             current.mtimeNs !== initialMtimeNs || current.ctimeNs !== initialCtimeNs) {
           throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} retained identity or metadata changed.`);
         }
@@ -4150,6 +4193,7 @@ export function retainNoFollowOrdinaryFile(
           const leaf = fstatSync(lexicalLeaf, { bigint: true });
           if (!leaf.isFile() || leaf.dev !== initial.dev || leaf.ino !== initial.ino
               || leaf.mode !== initialMode || leaf.size !== initialSize
+              || leaf.gid !== initialOwnerGroupId || leaf.uid !== initialOwnerUserId
               || leaf.mtimeNs !== initialMtimeNs || leaf.ctimeNs !== initialCtimeNs) {
             throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} lexical leaf identity changed.`);
           }
@@ -4237,6 +4281,11 @@ export function retainNoFollowOrdinaryFile(
           if (closeError !== null) throw closeError;
         }
       });
+      retainedNoFollowOrdinaryFilePosixMetadata.set(capability, Object.freeze({
+        mode: Number(initialMode & 0o7777n),
+        ownerGroupId: initialOwnerGroupId,
+        ownerUserId: initialOwnerUserId
+      }));
       return issueRetainedNoFollowCapability(capability, role);
     } catch (error) {
       const descriptors = [
@@ -4376,6 +4425,11 @@ export function retainNoFollowOrdinaryFile(
           if (closeError !== null) throw closeError;
         }
       });
+      retainedNoFollowOrdinaryFilePosixMetadata.set(capability, Object.freeze({
+        mode: null,
+        ownerGroupId: null,
+        ownerUserId: null
+      }));
       return issueRetainedNoFollowCapability(capability, role);
     } catch (error) {
       const handles = handle === null
@@ -4464,6 +4518,7 @@ function scanNoFollowDirectoryTreeInternal(
     deadlineAtMs: metadataOptions.deadlineAtMs ?? Number.POSITIVE_INFINITY,
     maximumEntries: metadataOptions.maximumEntries ?? 100_000,
     maximumBytes: metadataOptions.maximumBytes ?? Number.POSITIVE_INFINITY,
+    includePermissionMode: metadataOptions.includePermissionMode ?? false,
     signal: metadataOptions.signal
   });
   boundedMetadata.signal?.throwIfAborted();
@@ -4476,6 +4531,9 @@ function scanNoFollowDirectoryTreeInternal(
   if (boundedMetadata.maximumBytes !== Number.POSITIVE_INFINITY
       && (!Number.isSafeInteger(boundedMetadata.maximumBytes) || boundedMetadata.maximumBytes < 0)) {
     throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow inventory byte bound is invalid.');
+  }
+  if (typeof boundedMetadata.includePermissionMode !== 'boolean') {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow inventory permission-mode option is invalid.');
   }
   let observedBytes = 0;
   const reserveFileBytes: ReserveNoFollowFileBytes = (size) => {
@@ -4560,7 +4618,8 @@ function scanNoFollowDirectoryTreeInternal(
                 bytes, contentDigest,
                 linkTarget: kind === 'link'
                   ? linuxReadRetainedLinkTarget(retained, 'No-follow scan retained link')
-                  : null
+                  : null,
+                ...projectedPermissionMode(stat.mode, kind, boundedMetadata.includePermissionMode, stat)
               }));
             }
             if (kind === 'directory' && !directChildrenOnly) visitRetained(retained, relativePath);
@@ -4622,7 +4681,8 @@ function scanNoFollowDirectoryTreeInternal(
                 scanned = Object.freeze({
                   ...windowsScanRetainedEntry(childAbsolute, 'No-follow selected forest root', reserveFileBytes),
                   relativePath: childRelativePath,
-                  contentDigest: null
+                  contentDigest: null,
+                  ...(boundedMetadata.includePermissionMode ? { permissionMode: null } : {})
                 });
               } catch (error) {
                 if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') continue;
@@ -4648,7 +4708,11 @@ function scanNoFollowDirectoryTreeInternal(
             : Object.freeze({ ...windowsInventoryRetainedEntry(absolute, 'No-follow inventory entry', reserveFileBytes), bytes: null });
         if (fileMode === 'metadata-only' && scanned.kind === 'file') reserveFileBytes(scanned.size);
         if (!(omitNavigationPrefixes && selectedRole === 'navigation')) {
-          entries.push(Object.freeze({ ...scanned, relativePath }));
+          entries.push(Object.freeze({
+            ...scanned,
+            relativePath,
+            ...(boundedMetadata.includePermissionMode ? { permissionMode: null } : {})
+          }));
         }
         if (scanned.kind === 'directory' && !directChildrenOnly) visit(absolute, relativePath);
         continue;
@@ -4657,7 +4721,11 @@ function scanNoFollowDirectoryTreeInternal(
       const size = Number(metadata.size);
       if (metadata.isSymbolicLink()) {
         const identity = { device: String(metadata.dev), inode: String(metadata.ino) };
-        entries.push(Object.freeze({ relativePath, kind: 'link', ...identity, size, bytes: null, contentDigest: null, linkTarget: readlinkSync(absolute) }));
+        entries.push(Object.freeze({
+          relativePath, kind: 'link', ...identity, size, bytes: null, contentDigest: null,
+          linkTarget: readlinkSync(absolute),
+          ...projectedPermissionMode(metadata.mode, 'link', boundedMetadata.includePermissionMode, metadata)
+        }));
         continue;
       }
       if (metadata.isDirectory()) {
@@ -4666,13 +4734,19 @@ function scanNoFollowDirectoryTreeInternal(
         } catch (error) {
           if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH') {
             const identity = { device: String(metadata.dev), inode: String(metadata.ino) };
-            entries.push(Object.freeze({ relativePath, kind: 'link', ...identity, size, bytes: null, contentDigest: null, linkTarget: null }));
+            entries.push(Object.freeze({
+              relativePath, kind: 'link', ...identity, size, bytes: null, contentDigest: null, linkTarget: null,
+              ...projectedPermissionMode(metadata.mode, 'link', boundedMetadata.includePermissionMode, metadata)
+            }));
             continue;
           }
           throw error;
         }
         const identity = { device: String(metadata.dev), inode: String(metadata.ino) };
-        entries.push(Object.freeze({ relativePath, kind: 'directory', ...identity, size, bytes: null, contentDigest: null, linkTarget: null }));
+        entries.push(Object.freeze({
+          relativePath, kind: 'directory', ...identity, size, bytes: null, contentDigest: null, linkTarget: null,
+          ...projectedPermissionMode(metadata.mode, 'directory', boundedMetadata.includePermissionMode, metadata)
+        }));
         if (!directChildrenOnly) visit(absolute, relativePath);
         continue;
       }
@@ -4681,7 +4755,8 @@ function scanNoFollowDirectoryTreeInternal(
         if (fileMode === 'metadata-only') {
           entries.push(Object.freeze({
             relativePath, kind: 'file', ...identity, size,
-            bytes: null, contentDigest: null, linkTarget: null
+            bytes: null, contentDigest: null, linkTarget: null,
+            ...projectedPermissionMode(metadata.mode, 'file', boundedMetadata.includePermissionMode, metadata)
           }));
           continue;
         }
@@ -4697,13 +4772,15 @@ function scanNoFollowDirectoryTreeInternal(
           if (fileMode === 'bounded-bytes') {
             entries.push(Object.freeze({
               relativePath, kind: 'file', ...identity, size,
-              bytes: readLinuxRetainedFile(fd, 'No-follow scan file'), contentDigest: null, linkTarget: null
+              bytes: readLinuxRetainedFile(fd, 'No-follow scan file'), contentDigest: null, linkTarget: null,
+              ...projectedPermissionMode(retained.mode, 'file', boundedMetadata.includePermissionMode, retained)
             }));
           } else {
             const streamed = digestRetainedOrdinaryFileFd(fd, identity, 'No-follow scan file');
             entries.push(Object.freeze({
               relativePath, kind: 'file', ...identity, size: streamed.size,
-              bytes: null, contentDigest: streamed.contentDigest, linkTarget: null
+              bytes: null, contentDigest: streamed.contentDigest, linkTarget: null,
+              ...projectedPermissionMode(retained.mode, 'file', boundedMetadata.includePermissionMode, retained)
             }));
           }
         } finally {
@@ -4771,19 +4848,35 @@ export function scanNoFollowDirectoryTreeSelectedForest(
  * Bounded-memory physical inventory.  File content is streamed in 64-KiB
  * chunks through the stable canonical digest domain; bytes are never retained.
  */
-export function scanNoFollowDirectoryTreeInventory(
-  root: PhysicalDirectoryIdentity,
-  options: Partial<NoFollowDirectoryTreeMetadataOptions> = {}
-): readonly NoFollowDirectoryTreeInventoryEntry[] {
-  return Object.freeze(scanNoFollowDirectoryTreeInternal(root, 'streaming-digest', options).map((entry) => Object.freeze({
+function projectNoFollowDirectoryTreeInventoryEntry(
+  entry: InternalNoFollowDirectoryTreeEntry,
+  contentDigest: `sha256:${string}` | null
+): NoFollowDirectoryTreeInventoryEntry {
+  const projected = Object.freeze({
     relativePath: entry.relativePath,
     kind: entry.kind,
     device: entry.device,
     inode: entry.inode,
     size: entry.size,
-    contentDigest: entry.contentDigest,
-    linkTarget: entry.linkTarget
-  })));
+    contentDigest,
+    linkTarget: entry.linkTarget,
+    ...('permissionMode' in entry ? { permissionMode: entry.permissionMode } : {})
+  });
+  if (entry.ownerGroupId !== undefined && entry.ownerUserId !== undefined) {
+    noFollowDirectoryTreeEntryPosixOwnership.set(projected, Object.freeze({
+      ownerGroupId: entry.ownerGroupId,
+      ownerUserId: entry.ownerUserId
+    }));
+  }
+  return projected;
+}
+
+export function scanNoFollowDirectoryTreeInventory(
+  root: PhysicalDirectoryIdentity,
+  options: Partial<NoFollowDirectoryTreeMetadataOptions> = {}
+): readonly NoFollowDirectoryTreeInventoryEntry[] {
+  return Object.freeze(scanNoFollowDirectoryTreeInternal(root, 'streaming-digest', options)
+    .map((entry) => projectNoFollowDirectoryTreeInventoryEntry(entry, entry.contentDigest)));
 }
 
 /**
@@ -4795,15 +4888,8 @@ export function scanNoFollowDirectoryTreeMetadata(
   root: PhysicalDirectoryIdentity,
   options: NoFollowDirectoryTreeMetadataOptions
 ): readonly NoFollowDirectoryTreeInventoryEntry[] {
-  return Object.freeze(scanNoFollowDirectoryTreeInternal(root, 'metadata-only', options).map((entry) => Object.freeze({
-    relativePath: entry.relativePath,
-    kind: entry.kind,
-    device: entry.device,
-    inode: entry.inode,
-    size: entry.size,
-    contentDigest: null,
-    linkTarget: entry.linkTarget
-  })));
+  return Object.freeze(scanNoFollowDirectoryTreeInternal(root, 'metadata-only', options)
+    .map((entry) => projectNoFollowDirectoryTreeInventoryEntry(entry, null)));
 }
 
 /**
@@ -4821,15 +4907,7 @@ export function scanNoFollowDirectoryDirectMetadata(
     null,
     false,
     true
-  ).map((entry) => Object.freeze({
-    relativePath: entry.relativePath,
-    kind: entry.kind,
-    device: entry.device,
-    inode: entry.inode,
-    size: entry.size,
-    contentDigest: null,
-    linkTarget: entry.linkTarget
-  })));
+  ).map((entry) => projectNoFollowDirectoryTreeInventoryEntry(entry, null)));
 }
 
 function copyInventoryRelativePathIncluded(
@@ -4857,8 +4935,7 @@ function comparableCopyInventory(
       relativePath,
       skipNestedNodeModules,
       includeRelativePaths
-    ))
-    .map((entry) => Object.freeze({ ...entry })));
+    )));
 }
 
 function sameCopyInventory(
@@ -4870,7 +4947,15 @@ function sameCopyInventory(
     const a = left[index]!;
     const b = right[index]!;
     if (a.relativePath !== b.relativePath || a.kind !== b.kind || a.size !== b.size ||
-        a.contentDigest !== b.contentDigest || a.linkTarget !== b.linkTarget) return false;
+        a.contentDigest !== b.contentDigest || a.linkTarget !== b.linkTarget ||
+        a.permissionMode !== b.permissionMode) return false;
+    if (((a.permissionMode ?? 0) & 0o7000) !== 0) {
+      const aOwnership = noFollowDirectoryTreeEntryPosixOwnership.get(a);
+      const bOwnership = noFollowDirectoryTreeEntryPosixOwnership.get(b);
+      if (aOwnership === undefined || bOwnership === undefined ||
+          aOwnership.ownerUserId !== bOwnership.ownerUserId ||
+          aOwnership.ownerGroupId !== bOwnership.ownerGroupId) return false;
+    }
   }
   return true;
 }
@@ -5267,14 +5352,16 @@ function copyLinuxBulkFile(
   entry: NoFollowDirectoryTreeInventoryEntry,
   name: string,
   assertDeadline: () => void,
-  label: string
+  label: string,
+  preservePermissionMode: boolean
 ): void {
   const sourceFd = linuxOpenReadableLeafAt(sourceParent.fd, name, label);
   let targetFd: number | null = null;
   try {
     const before = fstatSync(sourceFd, { bigint: true });
     if (!before.isFile() || String(before.dev) !== entry.device || String(before.ino) !== entry.inode ||
-        before.size !== BigInt(entry.size)) {
+        before.size !== BigInt(entry.size) || (preservePermissionMode &&
+          Number(before.mode & 0o7777n) !== requiredPermissionMode(entry, label))) {
       throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} source identity changed before copy.`);
     }
     targetFd = linuxCreateBulkFile(targetParent, name, label);
@@ -5292,6 +5379,14 @@ function copyLinuxBulkFile(
     if (entry.contentDigest === null || result.contentDigest !== entry.contentDigest) {
       throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} source content changed during copy.`);
     }
+    if (preservePermissionMode) {
+      fchmodSync(targetFd, permissionModeForCopiedTarget(
+        entry,
+        before,
+        fstatSync(targetFd, { bigint: true }),
+        label
+      ));
+    }
     const after = fstatSync(sourceFd, { bigint: true });
     if (!after.isFile() || after.dev !== before.dev || after.ino !== before.ino || after.size !== before.size ||
         after.mode !== before.mode || after.mtimeNs !== before.mtimeNs || after.ctimeNs !== before.ctimeNs) {
@@ -5302,13 +5397,66 @@ function copyLinuxBulkFile(
       // boundary explicit without treating a truthy return as authority.
     }
     const targetStat = fstatSync(targetFd, { bigint: true });
-    if (!targetStat.isFile() || targetStat.size !== before.size) {
+    const expectedTargetMode = preservePermissionMode
+      ? permissionModeForCopiedTarget(entry, after, targetStat, label)
+      : null;
+    if (!targetStat.isFile() || targetStat.size !== before.size || (preservePermissionMode &&
+        Number(targetStat.mode & 0o7777n) !== expectedTargetMode)) {
       throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${label} target readback differs.`);
     }
   } finally {
     closeSync(sourceFd);
     if (targetFd !== null) closeSync(targetFd);
   }
+}
+
+function requiredPermissionMode(entry: NoFollowDirectoryTreeInventoryEntry, label: string): number {
+  if (!Number.isSafeInteger(entry.permissionMode) || entry.permissionMode! < 0 || entry.permissionMode! > 0o7777) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} permission mode is invalid.`);
+  }
+  return entry.permissionMode!;
+}
+
+function permissionModeForCopiedTarget(
+  sourceEntry: NoFollowDirectoryTreeInventoryEntry,
+  source: Readonly<{ gid: bigint; uid: bigint }>,
+  target: Readonly<{ gid: bigint; mode: bigint; uid: bigint }>,
+  label: string
+): number {
+  const mode = requiredPermissionMode(sourceEntry, label);
+  if ((mode & 0o7000) === 0) return mode;
+  const sourceOwnership = noFollowDirectoryTreeEntryPosixOwnership.get(sourceEntry);
+  const effectiveUserId = typeof process.geteuid === 'function'
+    ? BigInt(process.geteuid())
+    : null;
+  if (sourceOwnership === undefined || effectiveUserId === null ||
+      sourceOwnership.ownerUserId !== source.uid || sourceOwnership.ownerGroupId !== source.gid ||
+      source.uid !== effectiveUserId || target.uid !== effectiveUserId || source.gid !== target.gid) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `${label} cannot preserve special permission bits without same-owner source and target descriptors.`
+    );
+  }
+  return mode;
+}
+
+function permissionModeForCopiedRoot(
+  source: Readonly<{ gid: bigint; mode: bigint; uid: bigint }>,
+  target: Readonly<{ gid: bigint; mode: bigint; uid: bigint }>
+): number {
+  const mode = Number(source.mode & 0o7777n);
+  if ((mode & 0o7000) === 0) return mode;
+  const effectiveUserId = typeof process.geteuid === 'function'
+    ? BigInt(process.geteuid())
+    : null;
+  if (effectiveUserId === null || source.uid !== effectiveUserId || target.uid !== effectiveUserId ||
+      source.gid !== target.gid) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      'No-follow bulk target root cannot preserve special permission bits without same-owner source and target descriptors.'
+    );
+  }
+  return mode;
 }
 
 function copyWindowsBulkFile(
@@ -5392,6 +5540,7 @@ async function copyNoFollowSingleTreeWithRetainedHandles(input: Readonly<{
   readonly sourceInventory: readonly NoFollowDirectoryTreeInventoryEntry[];
   readonly maximumEntries: number;
   readonly assertDeadline: () => void;
+  readonly preservePermissionMode: boolean;
 }>): Promise<void> {
   const entries = [...input.sourceInventory].sort((left, right) => {
     const depth = (value: string): number => value.split('/').length;
@@ -5406,9 +5555,18 @@ async function copyNoFollowSingleTreeWithRetainedHandles(input: Readonly<{
     const targetParentChain = linuxRetainBulkDirectoryChain(input.targetParent, 'No-follow bulk target parent');
     const targetDirectories: LinuxBulkDirectoryHandle[] = [];
     const sourceDirectories = new Map<string, LinuxBulkDirectoryHandle>([['', sourceChain.target]]);
+    const targetDirectoryModes: Array<Readonly<{
+      assertFinalOwnership: (target: Readonly<{ gid: bigint; mode: bigint; uid: bigint }>) => number;
+      directory: LinuxBulkDirectoryHandle;
+      mode: number;
+    }>> = [];
     try {
       sourceChain.assertCurrent();
       targetParentChain.assertCurrent();
+      const sourceRootBefore = fstatSync(sourceChain.target.fd, { bigint: true });
+      if (!sourceRootBefore.isDirectory()) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow bulk source root is no longer a directory.');
+      }
       const targetRoot = linuxCreateBulkDirectory(
         targetParentChain.target,
         path.basename(input.target),
@@ -5416,6 +5574,22 @@ async function copyNoFollowSingleTreeWithRetainedHandles(input: Readonly<{
         'No-follow bulk target root'
       );
       targetDirectories.push(targetRoot);
+      if (input.preservePermissionMode) {
+        targetDirectoryModes.push(Object.freeze({
+          assertFinalOwnership: (target) => {
+            const source = fstatSync(sourceChain.target.fd, { bigint: true });
+            if (source.uid !== sourceRootBefore.uid || source.gid !== sourceRootBefore.gid) {
+              throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow bulk source root ownership changed during copy.');
+            }
+            return permissionModeForCopiedRoot(source, target);
+          },
+          directory: targetRoot,
+          mode: permissionModeForCopiedRoot(
+            sourceRootBefore,
+            fstatSync(targetRoot.fd, { bigint: true })
+          )
+        }));
+      }
       const directoryByPath = new Map<string, LinuxBulkDirectoryHandle>([['', targetRoot]]);
       for (const entry of entries) {
         input.assertDeadline();
@@ -5435,18 +5609,80 @@ async function copyNoFollowSingleTreeWithRetainedHandles(input: Readonly<{
             closeSync(sourceFd);
             throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `No-follow bulk source directory changed for ${entry.relativePath}.`);
           }
+          const sourceStat = fstatSync(sourceFd, { bigint: true });
+          if (input.preservePermissionMode &&
+              Number(sourceStat.mode & 0o7777n) !== requiredPermissionMode(entry, 'No-follow bulk source directory')) {
+            closeSync(sourceFd);
+            throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `No-follow bulk source directory mode changed for ${entry.relativePath}.`);
+          }
           sourceDirectories.set(entry.relativePath, { fd: sourceFd, identity: sourceIdentity });
           const child = linuxCreateBulkDirectory(targetParent, name, path.join(targetParent.identity.path, name), 'No-follow bulk target directory');
           targetDirectories.push(child);
+          if (input.preservePermissionMode) {
+            targetDirectoryModes.push(Object.freeze({
+              assertFinalOwnership: (target) => permissionModeForCopiedTarget(
+                entry,
+                fstatSync(sourceFd, { bigint: true }),
+                target,
+                'No-follow bulk target directory readback'
+              ),
+              directory: child,
+              mode: permissionModeForCopiedTarget(
+                entry,
+                sourceStat,
+                fstatSync(child.fd, { bigint: true }),
+                'No-follow bulk target directory'
+              )
+            }));
+          }
           directoryByPath.set(entry.relativePath, child);
         } else if (entry.kind === 'file') {
-          copyLinuxBulkFile(sourceParent, targetParent, entry, name, input.assertDeadline, 'No-follow bulk file');
+          copyLinuxBulkFile(
+            sourceParent,
+            targetParent,
+            entry,
+            name,
+            input.assertDeadline,
+            'No-follow bulk file',
+            input.preservePermissionMode
+          );
         } else {
           throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `No-follow bulk source contains an unsupported link: ${entry.relativePath}.`);
         }
       }
+      if (input.preservePermissionMode) {
+        for (const target of [...targetDirectoryModes].reverse()) {
+          input.assertDeadline();
+          fchmodSync(target.directory.fd, target.mode);
+          fsyncSync(target.directory.fd);
+          const readback = fstatSync(target.directory.fd, { bigint: true });
+          const expectedMode = target.assertFinalOwnership(readback);
+          if (!readback.isDirectory() || expectedMode !== target.mode ||
+              Number(readback.mode & 0o7777n) !== expectedMode) {
+            throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'No-follow bulk target directory mode readback differs.');
+          }
+        }
+        const sourceRootAfter = fstatSync(sourceChain.target.fd, { bigint: true });
+        if (!sourceRootAfter.isDirectory() || sourceRootAfter.dev !== sourceRootBefore.dev ||
+            sourceRootAfter.ino !== sourceRootBefore.ino || sourceRootAfter.mode !== sourceRootBefore.mode ||
+            sourceRootAfter.uid !== sourceRootBefore.uid || sourceRootAfter.gid !== sourceRootBefore.gid) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow bulk source root mode changed during copy.');
+        }
+      }
       sourceChain.assertCurrent();
       targetParentChain.assertCurrent();
+    } catch (error) {
+      if (input.preservePermissionMode) {
+        // Mode publication is the last copy phase, but it can still fail after
+        // an earlier directory became read-only. Restore owner-created target
+        // directories to the copier's safe mode through their retained
+        // descriptors so the caller's existing retirement path can remove the
+        // incomplete tree without accepting a caller-supplied override.
+        for (const target of targetDirectoryModes) {
+          try { fchmodSync(target.directory.fd, 0o700); } catch { /* retain the primary copy failure */ }
+        }
+      }
+      throw error;
     } finally {
       for (const directory of [...targetDirectories].reverse()) closeSync(directory.fd);
       // Source directory handles are retained for the whole operation so a
@@ -5561,6 +5797,7 @@ export async function copyNoFollowDirectoryTreesBulk(
   const maximumBytes = options.maximumBytes ?? Number.POSITIVE_INFINITY;
   const deadlineAtMs = options.deadlineAtMs ?? Number.POSITIVE_INFINITY;
   const includeRelativePaths = normalizedCopyIncludePaths(options.includeRelativePaths);
+  const preservePermissionMode = options.preservePermissionMode ?? false;
   if (!Number.isSafeInteger(maximumEntries) || maximumEntries < 1) {
     throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow bulk copy entry bound is invalid.');
   }
@@ -5570,6 +5807,9 @@ export async function copyNoFollowDirectoryTreesBulk(
   }
   if (!Number.isFinite(deadlineAtMs) && deadlineAtMs !== Number.POSITIVE_INFINITY) {
     throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow bulk copy deadline is invalid.');
+  }
+  if (typeof preservePermissionMode !== 'boolean') {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow bulk copy permission-mode option is invalid.');
   }
   const assertDeadline = (): void => {
     options.signal?.throwIfAborted();
@@ -5611,6 +5851,7 @@ export async function copyNoFollowDirectoryTreesBulk(
     }
     const inventory = scanNoFollowDirectoryTreeInventory(root, {
       deadlineAtMs,
+      includePermissionMode: preservePermissionMode,
       maximumEntries: remaining,
       maximumBytes: maximumBytes === Number.POSITIVE_INFINITY
         ? Number.POSITIVE_INFINITY
@@ -5718,7 +5959,8 @@ export async function copyNoFollowDirectoryTreesBulk(
       targetParent: snapshot.targetParentChain,
       sourceInventory: snapshot.sourceInventory,
       maximumEntries,
-      assertDeadline
+      assertDeadline,
+      preservePermissionMode
     });
     const target = inspectNoFollowDirectoryChain(snapshot.target, 'No-follow bulk copy target readback').target;
     if (!samePhysicalObject(snapshot.targetParentIdentity, inspectNoFollowDirectoryChain(
@@ -5746,6 +5988,39 @@ export async function copyNoFollowDirectoryTreesBulk(
     );
     if (!sameCopyInventory(snapshot.sourceInventory, sourceAfterInventory)) {
       throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow bulk copy source changed during effect.');
+    }
+    if (preservePermissionMode && process.platform === 'linux') {
+      const retainedSourceRoot = linuxRetainBulkDirectoryChain(
+        sourceAfterChain,
+        'No-follow bulk copy source root mode readback'
+      );
+      const retainedTargetRoot = linuxRetainBulkDirectoryChain(
+        inspectNoFollowDirectoryChain(snapshot.target, 'No-follow bulk copy target root mode readback'),
+        'No-follow bulk copy target root mode readback'
+      );
+      try {
+        retainedSourceRoot.assertCurrent();
+        retainedTargetRoot.assertCurrent();
+        const sourceBefore = fstatSync(retainedSourceRoot.target.fd, { bigint: true });
+        const targetMode = fstatSync(retainedTargetRoot.target.fd, { bigint: true });
+        const sourceAfter = fstatSync(retainedSourceRoot.target.fd, { bigint: true });
+        const expectedTargetMode = permissionModeForCopiedRoot(sourceBefore, targetMode);
+        if (!sourceBefore.isDirectory() || !targetMode.isDirectory() || !sourceAfter.isDirectory() ||
+            sourceBefore.dev !== sourceAfter.dev || sourceBefore.ino !== sourceAfter.ino ||
+            sourceBefore.mode !== sourceAfter.mode || sourceBefore.uid !== sourceAfter.uid ||
+            sourceBefore.gid !== sourceAfter.gid ||
+            expectedTargetMode !== Number(targetMode.mode & 0o7777n)) {
+          throw physicalError(
+            'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+            'No-follow bulk copy root permission-mode readback differs.'
+          );
+        }
+        retainedSourceRoot.assertCurrent();
+        retainedTargetRoot.assertCurrent();
+      } finally {
+        retainedTargetRoot.dispose();
+        retainedSourceRoot.dispose();
+      }
     }
   }
   assertDeadline();
@@ -6756,6 +7031,12 @@ export function publishExclusiveDurableCanonicalFile(input: {
   readonly name: string;
   readonly bytes: Uint8Array;
   readonly validate: (bytes: Uint8Array) => void;
+  /**
+   * Opt-in permission source for rollback snapshots.  The physical owner reads
+   * the mode from this issued, retained file capability; callers cannot turn
+   * a numeric DTO into permission authority.
+   */
+  readonly permissionSource?: RetainedNoFollowOrdinaryFile;
 }): DurableCanonicalFilePublicationReceipt {
   ensureLeafName(input.name);
   const parent = assertSameNoFollowDirectoryIdentity(input.parent, 'Durable publication parent').target;
@@ -6774,6 +7055,54 @@ export function publishExclusiveDurableCanonicalFile(input: {
   };
   validateCanonicalBytes(expected, 'Durable publication input');
   const expectedDigest = bytesDigest(expected);
+  const permissionMetadata = input.permissionSource === undefined
+    ? undefined
+    : (() => {
+        assertRetainedNoFollowCapability(
+          input.permissionSource,
+          'ordinary-file',
+          'Durable publication permission source'
+        );
+        input.permissionSource.assertCurrent();
+        if (!Buffer.from(input.permissionSource.readBytes()).equals(expected)) {
+          throw physicalError(
+            'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+            'Durable publication permission source bytes differ from the canonical input.'
+          );
+        }
+        const metadata = retainedNoFollowOrdinaryFilePosixMetadata.get(input.permissionSource);
+        if (metadata === undefined) {
+          throw physicalError(
+            'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+            'Durable publication permission source has no owner-issued mode projection.'
+          );
+        }
+        input.permissionSource.assertCurrent();
+        return metadata;
+      })();
+  const assertPermissionSourceCurrent = (): void => {
+    input.permissionSource?.assertCurrent();
+  };
+  const permissionModeForTarget = (
+    targetMetadata: RetainedNoFollowPosixMetadata,
+    label: string
+  ): number | null => {
+    if (permissionMetadata === undefined || permissionMetadata.mode === null) return null;
+    if ((permissionMetadata.mode & 0o7000) !== 0) {
+      const effectiveUserId = typeof process.geteuid === 'function'
+        ? BigInt(process.geteuid())
+        : null;
+      if (effectiveUserId === null || permissionMetadata.ownerUserId !== effectiveUserId ||
+          targetMetadata.ownerUserId !== effectiveUserId ||
+          permissionMetadata.ownerGroupId !== targetMetadata.ownerGroupId) {
+        throw physicalError(
+          'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+          `${label} cannot preserve special permission bits without same-owner source and target descriptors.`
+        );
+      }
+    }
+    return permissionMetadata.mode;
+  };
 
   const existing = (): DurableCanonicalFilePublicationReceipt => {
     const current = inspectNoFollowOrdinaryFileEntry(parent, input.name);
@@ -6781,7 +7110,30 @@ export function publishExclusiveDurableCanonicalFile(input: {
     if (!Buffer.from(current.bytes).equals(expected)) {
       throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'Durable publication target conflicts with canonical bytes.');
     }
+    if (permissionMetadata !== undefined) {
+      const chain = inspectNoFollowDirectoryChain(parent.path, 'Durable publication existing parent');
+      const retainedCurrent = retainNoFollowOrdinaryFile(
+        chain,
+        input.name,
+        { device: current.device, inode: current.inode },
+        'Durable publication existing target'
+      );
+      try {
+        retainedCurrent.assertCurrent();
+        const currentMetadata = retainedNoFollowOrdinaryFilePosixMetadata.get(retainedCurrent);
+        if (currentMetadata === undefined ||
+            currentMetadata.mode !== permissionModeForTarget(currentMetadata, 'Durable publication target')) {
+          throw physicalError(
+            'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED',
+            'Durable publication target conflicts with the retained source permission mode.'
+          );
+        }
+      } finally {
+        retainedCurrent.dispose();
+      }
+    }
     validateCanonicalBytes(current.bytes, 'Durable publication target');
+    assertPermissionSourceCurrent();
     // An already-present byte-identical file is not a proof that a previous
     // publication reached the required parent-directory durability boundary.
     syncDirectory(parent);
@@ -6800,10 +7152,31 @@ export function publishExclusiveDurableCanonicalFile(input: {
     let candidateCreated = false;
     try {
       candidateFd = linuxCreateCandidateAt(retained.parentFd, temporaryName, expected, 'Exclusive durable publication');
-      const candidateStat = fstatSync(candidateFd, { bigint: true });
-      candidatePhysical = Object.freeze({ device: String(candidateStat.dev), inode: String(candidateStat.ino) });
       candidateCreated = true;
-      closeSync(candidateFd); candidateFd = null;
+      let candidateStat = fstatSync(candidateFd, { bigint: true });
+      if (permissionMetadata !== undefined) {
+        if (permissionMetadata.mode === null) {
+          throw physicalError(
+            'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+            'Exclusive durable publication has no Linux permission projection.'
+          );
+        }
+        const targetMode = permissionModeForTarget(Object.freeze({
+          mode: Number(candidateStat.mode & 0o7777n),
+          ownerGroupId: candidateStat.gid,
+          ownerUserId: candidateStat.uid
+        }), 'Exclusive durable publication candidate');
+        fchmodSync(candidateFd, targetMode!);
+        fsyncSync(candidateFd);
+        candidateStat = fstatSync(candidateFd, { bigint: true });
+        if (Number(candidateStat.mode & 0o7777n) !== targetMode) {
+          throw physicalError(
+            'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED',
+            'Exclusive durable publication candidate permission readback differs.'
+          );
+        }
+      }
+      candidatePhysical = Object.freeze({ device: String(candidateStat.dev), inode: String(candidateStat.ino) });
       if (requireLinuxLibc().symbols.renameat2(
         retained.parentFd, Buffer.from(`${temporaryName}\0`, 'utf8'),
         retained.parentFd, Buffer.from(`${input.name}\0`, 'utf8'), LINUX_RENAME_NOREPLACE
@@ -6817,7 +7190,24 @@ export function publishExclusiveDurableCanonicalFile(input: {
       }
       const current = readNoFollowOrdinaryFile(parent, input.name);
       if (current === null || !Buffer.from(current).equals(expected)) throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'Exclusive durable publication retained readback differs.');
+      const currentIdentity = inspectNoFollowOrdinaryFileEntry(parent, input.name);
+      if (currentIdentity === null || candidatePhysical === null ||
+          currentIdentity.device !== candidatePhysical.device || currentIdentity.inode !== candidatePhysical.inode) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Exclusive durable publication retained identity readback differs.');
+      }
+      if (permissionMetadata !== undefined) {
+        const publishedStat = fstatSync(candidateFd, { bigint: true });
+        const targetMode = permissionModeForTarget(Object.freeze({
+          mode: Number(publishedStat.mode & 0o7777n),
+          ownerGroupId: publishedStat.gid,
+          ownerUserId: publishedStat.uid
+        }), 'Exclusive durable publication readback');
+        if (Number(publishedStat.mode & 0o7777n) !== targetMode) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'Exclusive durable publication permission readback differs.');
+        }
+      }
       validateCanonicalBytes(current, 'Exclusive durable publication retained readback');
+      assertPermissionSourceCurrent();
       if (candidatePhysical === null) throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'Exclusive durable publication lost candidate identity.');
       return issueDurableCanonicalFileIdentityReceipt(Object.freeze({
         path: finalPath, digest: expectedDigest, created: true, physical: candidatePhysical
@@ -6873,6 +7263,7 @@ export function publishExclusiveDurableCanonicalFile(input: {
       );
       if (existingIdentity === null) throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', 'Durable publication existing target disappeared.');
       try {
+        assertPermissionSourceCurrent();
         return issueDurableCanonicalFileIdentityReceipt(Object.freeze({
           path: finalPath, digest: expectedDigest, created: false, physical: existingIdentity.identity
         }));
@@ -6880,6 +7271,7 @@ export function publishExclusiveDurableCanonicalFile(input: {
     }
     const current = windowsReadRenamedCandidate(candidate, parentHandle, parent, input.name, expected, 'Exclusive durable publication');
     validateCanonicalBytes(current, 'Exclusive durable publication retained readback');
+    assertPermissionSourceCurrent();
     return issueDurableCanonicalFileIdentityReceipt(Object.freeze({
       path: finalPath, digest: expectedDigest, created: true, physical: candidateIdentity
     }));
@@ -8922,6 +9314,136 @@ export function observeNoFollowEntryAccessFailure(
   }
 }
 
+interface LinuxTreeRetirementPermissionRecovery {
+  settle(retired: boolean): void;
+}
+
+function prepareLinuxTreeRetirementPermissionRecovery(
+  expectedRoot: PhysicalDirectoryIdentity,
+  inventory: readonly NoFollowDirectoryTreeInventoryEntry[],
+  assertRecoveryBudget: () => void
+): LinuxTreeRetirementPermissionRecovery {
+  const effectiveUserId = typeof process.geteuid === 'function'
+    ? BigInt(process.geteuid())
+    : null;
+  if (effectiveUserId === null) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      'No-follow tree retirement cannot observe the effective POSIX owner.'
+    );
+  }
+  const retainedRoot = linuxOpenRetainedAbsoluteDirectory(
+    expectedRoot.path,
+    'No-follow tree retirement permission root'
+  );
+  const openedDirectories: number[] = [];
+  const directoryFds = new Map<string, number>([['', retainedRoot.directoryFd]]);
+  const retainedModes: Array<Readonly<{ fd: number; mode: number }>> = [];
+  const closeAll = (): void => {
+    const descriptors = [
+      ...openedDirectories.reverse(),
+      ...(retainedRoot.directoryFd === retainedRoot.filesystemRootFd
+        ? [retainedRoot.directoryFd]
+        : [retainedRoot.directoryFd, retainedRoot.filesystemRootFd])
+    ];
+    const closeError = closeLinuxDescriptorsBestEffort(descriptors, 'No-follow tree retirement permission recovery');
+    if (closeError !== null) throw closeError;
+  };
+  try {
+    assertRecoveryBudget();
+    const rootStat = fstatSync(retainedRoot.directoryFd, { bigint: true });
+    if (!rootStat.isDirectory() || String(rootStat.dev) !== expectedRoot.device ||
+        String(rootStat.ino) !== expectedRoot.inode || rootStat.uid !== effectiveUserId) {
+      throw physicalError(
+        'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+        'No-follow tree retirement permission root identity or owner changed.'
+      );
+    }
+    retainedModes.push(Object.freeze({
+      fd: retainedRoot.directoryFd,
+      mode: Number(rootStat.mode & 0o7777n)
+    }));
+    const orderedDirectories = inventory.filter(({ kind }) => kind === 'directory').sort((left, right) => {
+      const depth = left.relativePath.split('/').length - right.relativePath.split('/').length;
+      return depth || left.relativePath.localeCompare(right.relativePath);
+    });
+    for (const entry of orderedDirectories) {
+      assertRecoveryBudget();
+      const parts = entry.relativePath.split('/');
+      const name = parts.pop()!;
+      const parentFd = directoryFds.get(parts.join('/'));
+      if (parentFd === undefined) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow tree retirement permission inventory is incomplete.');
+      }
+      const fd = linuxOpenAt(parentFd, name, 'No-follow tree retirement permission directory');
+      openedDirectories.push(fd);
+      const current = fstatSync(fd, { bigint: true });
+      const ownership = noFollowDirectoryTreeEntryPosixOwnership.get(entry);
+      if (!current.isDirectory() || String(current.dev) !== entry.device || String(current.ino) !== entry.inode ||
+          !Number.isSafeInteger(entry.permissionMode) || Number(current.mode & 0o7777n) !== entry.permissionMode ||
+          ownership === undefined || ownership.ownerUserId !== current.uid ||
+          ownership.ownerGroupId !== current.gid || current.uid !== effectiveUserId) {
+        throw physicalError(
+          'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+          `No-follow tree retirement permission identity, mode, or owner changed: ${entry.relativePath}.`
+        );
+      }
+      directoryFds.set(entry.relativePath, fd);
+      retainedModes.push(Object.freeze({ fd, mode: entry.permissionMode }));
+    }
+  } catch (error) {
+    try { closeAll(); } catch { /* no permission mutation occurred; retain the admission failure */ }
+    throw error;
+  }
+
+  try {
+    for (const retained of retainedModes) {
+      assertRecoveryBudget();
+      fchmodSync(retained.fd, retained.mode | 0o700);
+      const readback = fstatSync(retained.fd, { bigint: true });
+      if (readback.uid !== effectiveUserId || Number(readback.mode & 0o7777n) !== (retained.mode | 0o700)) {
+        throw physicalError(
+          'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED',
+          'No-follow tree retirement temporary owner permission readback differs.'
+        );
+      }
+    }
+  } catch (error) {
+    for (const retained of [...retainedModes].reverse()) {
+      try { fchmodSync(retained.fd, retained.mode); } catch { /* retain the primary permission failure */ }
+    }
+    try { closeAll(); } catch { /* retain the primary permission failure */ }
+    throw error;
+  }
+
+  let settled = false;
+  return Object.freeze({
+    settle: (retired: boolean): void => {
+      if (settled) return;
+      settled = true;
+      let restoreError: unknown = null;
+      if (!retired) {
+        for (const retained of [...retainedModes].reverse()) {
+          try {
+            fchmodSync(retained.fd, retained.mode);
+            const readback = fstatSync(retained.fd, { bigint: true });
+            if (Number(readback.mode & 0o7777n) !== retained.mode) {
+              throw physicalError(
+                'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED',
+                'No-follow tree retirement permission restoration readback differs.'
+              );
+            }
+          } catch (error) {
+            restoreError ??= error;
+          }
+        }
+      }
+      try { closeAll(); } catch (error) { restoreError ??= error; }
+      if (restoreError !== null) throw restoreError;
+    }
+  });
+}
+
 /**
  * Retires one exact operation-owned directory tree from its retained parent.
  * Every descendant is deleted by its inventoried physical identity and exact
@@ -8932,10 +9454,15 @@ export function retireNoFollowDirectoryTree(input: Readonly<{
   deadlineAtMonotonicMs: number;
   inventory: readonly NoFollowDirectoryTreeInventoryEntry[];
   parent: PhysicalDirectoryIdentity;
+  /** Opt-in retained-fd permission recovery for an operation-owned POSIX snapshot. */
+  restoreOwnerPermissions?: boolean;
   root: PhysicalDirectoryIdentity;
 }>): NoFollowDirectoryTreeRetirementReceipt {
   if (!Number.isFinite(input.deadlineAtMonotonicMs)) {
     throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow tree retirement deadline is invalid.');
+  }
+  if (input.restoreOwnerPermissions !== undefined && typeof input.restoreOwnerPermissions !== 'boolean') {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow tree retirement permission option is invalid.');
   }
   const parent = assertSameNoFollowDirectoryIdentity(input.parent, 'No-follow tree retirement parent').target;
   const root = assertSameNoFollowDirectoryIdentity(input.root, 'No-follow tree retirement root').target;
@@ -8957,42 +9484,51 @@ export function retireNoFollowDirectoryTree(input: Readonly<{
     if (right.kind === 'directory' && left.kind !== 'directory') return -1;
     return right.relativePath.localeCompare(left.relativePath);
   });
-  for (const entry of ordered) {
+  const permissionRecovery = input.restoreOwnerPermissions === true && process.platform === 'linux'
+    ? prepareLinuxTreeRetirementPermissionRecovery(root, input.inventory, assertRecoveryBudget)
+    : null;
+  try {
+    for (const entry of ordered) {
+      assertRecoveryBudget();
+      const parts = entry.relativePath.split('/');
+      parts.pop();
+      const ancestorDirectories = parts.map((_, index) => {
+        const relativePath = parts.slice(0, index + 1).join('/');
+        const ancestor = directories.get(relativePath);
+        if (ancestor === undefined) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow tree retirement inventory is incomplete.');
+        }
+        return Object.freeze({ relativePath, device: ancestor.device, inode: ancestor.inode });
+      });
+      deleteRetainedNoFollowEntry({
+        root,
+        relativePath: entry.relativePath,
+        kind: entry.kind,
+        device: entry.device,
+        inode: entry.inode,
+        ...(entry.linkTarget === null ? {} : { expectedLinkTarget: entry.linkTarget }),
+        ancestorDirectories
+      });
+    }
     assertRecoveryBudget();
-    const parts = entry.relativePath.split('/');
-    parts.pop();
-    const ancestorDirectories = parts.map((_, index) => {
-      const relativePath = parts.slice(0, index + 1).join('/');
-      const ancestor = directories.get(relativePath);
-      if (ancestor === undefined) {
-        throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow tree retirement inventory is incomplete.');
-      }
-      return Object.freeze({ relativePath, device: ancestor.device, inode: ancestor.inode });
-    });
     deleteRetainedNoFollowEntry({
-      root,
-      relativePath: entry.relativePath,
-      kind: entry.kind,
-      device: entry.device,
-      inode: entry.inode,
-      ...(entry.linkTarget === null ? {} : { expectedLinkTarget: entry.linkTarget }),
-      ancestorDirectories
+      root: parent,
+      relativePath: path.basename(root.path),
+      kind: 'directory',
+      device: root.device,
+      inode: root.inode,
+      ancestorDirectories: []
     });
+    assertRecoveryBudget();
+    if (inspectNoFollowDirectoryLeaf(parent, path.basename(root.path), 'No-follow tree retirement root readback') !== null) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'No-follow tree retirement left root residue.');
+    }
+    permissionRecovery?.settle(true);
+    return Object.freeze({ entryCount: ordered.length, root, status: 'physically-absent' as const });
+  } catch (error) {
+    try { permissionRecovery?.settle(false); } catch { /* retain the primary retirement failure */ }
+    throw error;
   }
-  assertRecoveryBudget();
-  deleteRetainedNoFollowEntry({
-    root: parent,
-    relativePath: path.basename(root.path),
-    kind: 'directory',
-    device: root.device,
-    inode: root.inode,
-    ancestorDirectories: []
-  });
-  assertRecoveryBudget();
-  if (inspectNoFollowDirectoryLeaf(parent, path.basename(root.path), 'No-follow tree retirement root readback') !== null) {
-    throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'No-follow tree retirement left root residue.');
-  }
-  return Object.freeze({ entryCount: ordered.length, root, status: 'physically-absent' as const });
 }
 
 /**

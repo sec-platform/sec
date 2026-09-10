@@ -1,15 +1,11 @@
 import path from 'node:path';
 import type { PreparedWindowsRepositoryChangeObserver } from '../../runtime-state/physical/runtime/windows-repository-change-observer.ts';
 import { snapshotByteView } from '../../system-architecture/foundation/runtime/byte-snapshot.ts';
+import { DEV_COMMAND_MAX_DURATION_MS, DEV_COMMAND_MAX_STDIN_BYTES } from './contract.ts';
 import {
   assertIssuedTestSuiteExecutionAdmission,
   type TestSuiteExecutionAdmission
 } from './test-execution-policy.ts';
-
-// Admission belongs to this command family. These values are not shared with
-// unrelated operations simply because their present numerical values agree.
-export const DEV_COMMAND_MAX_DURATION_MS = 5 * 60 * 1000;
-export const DEV_COMMAND_MAX_STDIN_BYTES = 1024 * 1024;
 
 interface DevCommandInputOptions {
   /** Retained ordinary-file inputs; the physical owner still validates them. */

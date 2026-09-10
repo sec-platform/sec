@@ -39,6 +39,7 @@ function compileTrackedProjectPathOperation(workspaceRoot: string): SecBoundSema
     }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: TRACKED_PROJECT_PATH_DURATION_MS },
+      { resource: 'input-bytes', maximum: 0 },
       {
         resource: 'output-bytes',
         maximum: TRACKED_PROJECT_PATH_COMMAND_OUTPUT_MAX_BYTES

@@ -52,20 +52,20 @@ export const SOURCE_PROGRAM_BLOCKING_TEST_FINDING_CODES = Object.freeze([
   'test-asserts-only-version-identity'
 ] as const satisfies readonly SourceProgramTestFindingCode[]);
 
-export type SourceProgramTestDispositionKind =
+type SourceProgramTestDispositionKind =
   | 'keep'
   | 'rewrite'
   | 'merge'
   | 'delete'
   | 'unknown';
 
-export interface SourceProgramTestDispositionCensus {
+interface SourceProgramTestDispositionCensus {
   readonly producerCount: number;
   readonly consumerCount: number;
   readonly externalContractCount: number;
 }
 
-export interface SourceProgramTestDispositionEvidence {
+interface SourceProgramTestDispositionEvidence {
   /** Canonical owner that is accountable for this disposition. */
   readonly owner: string;
   /** Source revision against which the owner made the census. */
@@ -297,7 +297,7 @@ function canonicalBaselinePaths(paths: readonly string[]): readonly string[] {
   return Object.freeze(unique);
 }
 
-export function sourceProgramTestBaselineDigest(
+function sourceProgramTestBaselineDigest(
   baselineTestPaths: readonly string[]
 ): string {
   return sha256(canonicalBaselinePaths(baselineTestPaths));
@@ -376,7 +376,7 @@ function canonicalBaselineEvidence(
   });
 }
 
-export function sourceProgramTestBaselineEvidenceDigest(
+function sourceProgramTestBaselineEvidenceDigest(
   evidence: readonly SourceProgramTestBaselineEvidence[]
 ): string {
   return sha256([...evidence]
@@ -431,7 +431,7 @@ function dispositionFromEvidence(
  * to retirement proof, not retirement authority: even a syntactically empty
  * graph cannot sign DELETE without a Source Program supersession receipt.
  */
-export function deriveSourceProgramTestDispositions(
+function deriveSourceProgramTestDispositions(
   baselineTestPaths: readonly string[],
   baselineEvidence: readonly SourceProgramTestBaselineEvidence[],
   sourceRevision: string,
@@ -577,7 +577,7 @@ export function reconcileSourceProgramTestValueWithSupersession(
  * The parser is intentionally strict: a caller cannot smuggle a second field,
  * a non-canonical path, a foreign source revision, or an unbound replacement.
  */
-export function parseSourceProgramTestDisposition(
+function parseSourceProgramTestDisposition(
   input: unknown,
   baselineTestPaths: readonly string[],
   sourceRevision: string

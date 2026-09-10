@@ -15,6 +15,7 @@ import {
 import {
   withRepositoryFinalStateObservation
 } from '../../src/development/runner/repository-observation.ts';
+import type { FastTestBatchExecutionAdmission } from '../../src/development/runner/test-execution-policy.ts';
 import {
   assertGitObjectId,
   GIT_READ_OPERATION_BUDGET,
@@ -361,6 +362,17 @@ test('repository observer diagnostics preserve non-event failure boundaries with
     expect(diagnostic).not.toHaveProperty('eventCount');
     expect(diagnostic).not.toHaveProperty('observationDigest');
   }
+});
+
+test('repository mutation fence rejects a reconstructed fast batch admission before observer Effect', async () => {
+  await expect(runRepositoryZeroWriteOperation(
+    'test:forged-fast-batch',
+    async () => 0,
+    {
+      operation: compileAffectedTestSelectionSemanticOperation({ purpose: 'check-affected' }),
+      fastTestBatchAdmission: Object.freeze({}) as FastTestBatchExecutionAdmission
+    }
+  )).rejects.toThrow('owner-issued admission');
 });
 
 test('repository mutation fence shares one process ledger with a nested Git admission', async () => {

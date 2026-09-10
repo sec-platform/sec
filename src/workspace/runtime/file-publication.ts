@@ -27,6 +27,45 @@ extends CanonicalWorkspaceFilePublicationInput {
   readonly expectedBytes: Uint8Array;
 }
 
+type CanonicalWorkspacePublicationFailurePhase =
+  | 'before-effect'
+  | 'effect-possible'
+  | 'unknown';
+
+const canonicalWorkspacePublicationFailurePhases =
+  new WeakMap<object, Exclude<CanonicalWorkspacePublicationFailurePhase, 'unknown'>>();
+
+function throwCanonicalWorkspacePublicationFailure(
+  error: unknown,
+  phase: Exclude<CanonicalWorkspacePublicationFailurePhase, 'unknown'>
+): never {
+  if (error !== null && (typeof error === 'object' || typeof error === 'function')) {
+    const existing = canonicalWorkspacePublicationFailurePhases.get(error);
+    canonicalWorkspacePublicationFailurePhases.set(
+      error,
+      existing === 'effect-possible' || phase === 'effect-possible'
+        ? 'effect-possible'
+        : 'before-effect'
+    );
+    throw error;
+  }
+  const wrapped = new Error('Canonical workspace publication failed with a non-object error.', { cause: error });
+  canonicalWorkspacePublicationFailurePhases.set(wrapped, phase);
+  throw wrapped;
+}
+
+/**
+ * Reads only failure-stage evidence issued by this publication owner. Unknown
+ * values and errors from other operations never acquire before-effect proof.
+ */
+export function classifyCanonicalWorkspacePublicationFailure(
+  error: unknown
+): CanonicalWorkspacePublicationFailurePhase {
+  return error !== null && (typeof error === 'object' || typeof error === 'function')
+    ? canonicalWorkspacePublicationFailurePhases.get(error) ?? 'unknown'
+    : 'unknown';
+}
+
 
 // A request is a decision snapshot, not a source of authority. Capture before
 // the first fence and preserve a method's real receiver, not a record clone.
@@ -159,15 +198,23 @@ export async function publishCanonicalWorkspaceFile(
 export async function publishExistingParentCanonicalWorkspaceFile(
   input: CanonicalWorkspaceFilePublicationInput
 ): Promise<void> {
-  input = capturePublication(input);
-  const { parent, leafName } = await retainedExistingPublicationParent(input);
-  await input.commitFence?.();
-  replaceDurableCanonicalFile({
-    parent,
-    name: leafName,
-    bytes: input.bytes,
-    validate: (current) => validateRequestedBytes(input, current)
-  });
+  let phase: Exclude<CanonicalWorkspacePublicationFailurePhase, 'unknown'> = 'before-effect';
+  try {
+    input = capturePublication(input);
+    const { parent, leafName } = await retainedExistingPublicationParent(input);
+    await input.commitFence?.();
+    // No await or caller code may run between this owner-issued transition and
+    // the synchronous physical replacement Effect.
+    phase = 'effect-possible';
+    replaceDurableCanonicalFile({
+      parent,
+      name: leafName,
+      bytes: input.bytes,
+      validate: (current) => validateRequestedBytes(input, current)
+    });
+  } catch (error) {
+    throwCanonicalWorkspacePublicationFailure(error, phase);
+  }
 }
 
 /**

@@ -158,9 +158,9 @@ test('unknown legacy residue blocks before publishing migration authority', asyn
   );
   await expect(hooks.bind(relativePath)).rejects.toThrow('unknown residue');
 
-  // Invalid legacy input is rejected before the v2 namespace is materialized;
-  // only the short-lived owner lease may have existed during admission.
-  await expect(readdir(fixture.registrationsV2Root)).rejects.toMatchObject({ code: 'ENOENT' });
+  // Runtime State admission materializes the namespace, but invalid legacy
+  // input must not publish any durable migration or registration authority.
+  expect(await readdir(fixture.registrationsV2Root)).toEqual([]);
 });
 
 test('a completed migration re-censuses the target before allowing another mutation', async () => {

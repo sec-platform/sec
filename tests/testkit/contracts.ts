@@ -1,5 +1,4 @@
 import { expect } from 'bun:test';
-import { readFile } from 'node:fs/promises';
 
 import type { ErrorProtocolContract } from '../../src/interface/cli/error-protocol-contract.ts';
 import { compareCodeUnits } from '../../src/system-architecture/foundation/runtime/canonical.ts';
@@ -8,7 +7,7 @@ import type { CiContract } from '../../src/verification/ci/contract/core.ts';
 import type { ContractFreezeContract } from '../../src/verification/freeze.ts';
 import type { TestBudgetContract } from '../../src/verification/test-impact/contract/budget.ts';
 
-export function expectSortedUnique(values: readonly string[]): void {
+function expectSortedUnique(values: readonly string[]): void {
   expect(values).toEqual([...values].sort(compareCodeUnits));
   expect(new Set(values).size).toBe(values.length);
 }
@@ -74,13 +73,4 @@ export function expectErrorProtocolSelfConsistent(contract: ErrorProtocolContrac
   expectSortedUnique(contract.issueTypes);
   expectSortedUnique(contract.artifactPaths);
   expect(new Set(contract.examples.flatMap((example) => example.output.suggestedActions)).size).toBe(contract.suggestedActionCount);
-}
-
-/**
- * Verifies a physical snapshot/copy without exposing repository source text to
- * the caller. The capability is deliberately narrower than returning bytes.
- */
-export async function expectExactFileCopy(actualPath: string, expectedPath: string): Promise<void> {
-  const [actual, expected] = await Promise.all([readFile(actualPath), readFile(expectedPath)]);
-  expect(actual).toEqual(expected);
 }

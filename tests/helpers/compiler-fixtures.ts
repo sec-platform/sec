@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -13,14 +12,6 @@ async function readCompilerText(relativePath: string): Promise<string> {
 
   const absolutePath = path.join(compilerRoot, relativePath);
   const content = await fs.readFile(absolutePath, 'utf8');
-  compilerFileCache.set(relativePath, content);
-  return content;
-}
-
-function readCompilerTextSync(relativePath: string): string {
-  const cached = compilerFileCache.get(relativePath);
-  if (cached !== undefined) return cached;
-  const content = readFileSync(path.join(compilerRoot, relativePath), 'utf8');
   compilerFileCache.set(relativePath, content);
   return content;
 }
@@ -49,16 +40,6 @@ export async function readCompilerTypeScriptMutationFixture(
     throw new Error('TypeScript mutation fixture purpose is invalid.');
   }
   return readCompilerText(relativePath);
-}
-
-export function readCompilerTypeScriptMutationFixtureSync(
-  relativePath: `${string}.ts` | `${string}.tsx`,
-  purpose: 'hostile-mutation' | 'tcb-analysis' | 'transpile-input'
-): string {
-  if (purpose !== 'hostile-mutation' && purpose !== 'tcb-analysis' && purpose !== 'transpile-input') {
-    throw new Error('TypeScript mutation fixture purpose is invalid.');
-  }
-  return readCompilerTextSync(relativePath);
 }
 
 interface CompilerPackage {

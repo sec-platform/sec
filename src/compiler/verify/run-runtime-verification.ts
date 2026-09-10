@@ -184,6 +184,22 @@ export async function runRuntimeVerification(
     )
   );
 
+  const lane: RuntimeVerificationLaneReport = {
+    status: 'passed',
+    build: skippedStep(),
+    unit: {
+      status: runtimeUnitFiles.length === 0 ? 'skipped' : 'passed',
+      passed: [],
+      failed: [],
+      command: runtimeUnitFiles.length === 0
+        ? null
+        : RUNTIME_VERIFICATION_INVOCATION_CONTRACT.unit.logicalCommandLabel
+    },
+    acceptance: skippedStep(),
+    logs: { stdout: '', stderr: '' }
+  };
+  if (runtimeUnitFiles.length === 0) return lane;
+
   await withPhase('runtime-dependency-validation', () => ensureProjectDependencies(workspaceRoot, {
     beforeCommit: options.beforeCommit,
     signal: options.signal,
@@ -216,23 +232,7 @@ export async function runRuntimeVerification(
         options.sourceEnvironmentForTests ?? process.env
       )
     : { ...(options.sourceEnvironmentForTests ?? process.env) };
-  const lane: RuntimeVerificationLaneReport = {
-    status: 'passed',
-    build: skippedStep(),
-    unit: {
-      status: runtimeUnitFiles.length === 0 ? 'skipped' : 'passed',
-      passed: [],
-      failed: [],
-      command: runtimeUnitFiles.length === 0
-        ? null
-        : RUNTIME_VERIFICATION_INVOCATION_CONTRACT.unit.logicalCommandLabel
-    },
-    acceptance: skippedStep(),
-    logs: { stdout: '', stderr: '' }
-  };
-
   try {
-    if (runtimeUnitFiles.length === 0) return lane;
     const invocation = runtimeVerificationInvocation(workspaceRoot, isolated, isolatedConfigPath);
     const result = await timed('runtime unit', options.emitTiming ?? true, () =>
       (options.commandRunnerForTests ?? runCommand)(invocation.command, invocation.args, {

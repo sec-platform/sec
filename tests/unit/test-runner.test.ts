@@ -6,11 +6,12 @@ import path from 'node:path';
 import ts from 'typescript';
 
 import { assertWorkspaceTypeScriptProjectGenerationEvidence } from '../../src/brownfield/source-program-model/workspace-source-snapshot.ts';
-import { compileAffectedTestSelectionSemanticOperation } from '../../src/development/runner/affected-plan-contract.ts';
+import { AFFECTED_SELECTION_OPERATION_DURATION_MS, compileAffectedTestSelectionSemanticOperation } from '../../src/development/runner/affected-plan-contract.ts';
 import type {
   DevCommandObservation,
   ObserveDevCommandOptions
 } from '../../src/development/runner/command-runner.ts';
+import { DEV_COMMAND_MAX_DURATION_MS } from '../../src/development/runner/contract.ts';
 import type { OperationDependencyBootstrapResult } from '../../src/development/runner/dependency-bootstrap.ts';
 import * as actualEnvManager from '../../src/development/runner/env-manager.ts';
 import {
@@ -28,16 +29,21 @@ import {
 } from '../../src/development/runner/fast-test-policy.ts';
 import { applyDefaultFastTestConcurrency } from '../../src/development/runner/test-concurrency-policy.ts';
 import {
+  admitFastTestBatchExecutionPolicy,
+  assertIssuedFastTestBatchExecutionAdmission,
   assertIssuedTestSuiteExecutionAdmission,
   compileTestInvocationExecutionPolicy,
   DEFAULT_TEST_TIMEOUT_MS,
+  issueFastTestBatchExecutionPolicy,
+  TEST_SUPERVISOR_SETTLEMENT_MARGIN_MS,
+  type FastTestBatchExecutionAdmission,
   type TestSuiteExecutionAdmission
 } from '../../src/development/runner/test-execution-policy.ts';
 import type { GitReadSession } from '../../src/external-capabilities/git-read/runtime/session.ts';
 import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 import type { PreparedWindowsRepositoryChangeObserver } from '../../src/runtime-state/physical/runtime/windows-repository-change-observer.ts';
 import { isSecRepositoryTestModulePath } from '../../src/system-architecture/repository-modules/test-module-path.ts';
-import { FAST_TEST_PROCESS_POLICY_TEST_FILE, TEST_ARCHITECTURE_POLICY_TEST_FILE } from '../../src/verification/test-impact/contract/budget.ts';
+import { compileTestBudgetProjection, FAST_TEST_PROCESS_POLICY_TEST_FILE, TEST_ARCHITECTURE_POLICY_TEST_FILE } from '../../src/verification/test-impact/contract/budget.ts';
 import { compilerRoot } from '../../src/workspace/runtime/paths.ts';
 import { createExactGitTreeTestRunnerFixture } from '../helpers/test-impact-provider.ts';
 
@@ -219,12 +225,15 @@ mock.module('../../src/external-capabilities/git-read/runtime/session.ts', () =>
 const actualCheckAffectedSource = await import(
   '../../src/development/runner/check-affected-source.ts'
 );
+const testImpactObservationOverrides: Array<typeof testImpactFixture.affectedObservation> = [];
 mock.module('../../src/development/runner/check-affected-source.ts', () => ({
   ...actualCheckAffectedSource,
   // Source authority was already issued from the real fixture Git object.
   // The GitRead session exercised below remains transport/fence-only and its
   // structural test origin can never acquire Source Program authority.
-  issueCheckAffectedTestImpactProjection: async () => testImpactFixture.affectedObservation
+  issueCheckAffectedTestImpactProjection: async () => (
+    testImpactObservationOverrides.shift() ?? testImpactFixture.affectedObservation
+  )
 }));
 
 mock.module('../../src/development/runner/env-manager.ts', () => ({
@@ -402,10 +411,21 @@ mock.module('../../src/development/runner/repository-mutation-fence.ts', () => (
     ) => Promise<number>,
     options: Readonly<{
       retainProcessSession?: boolean;
+      fastTestBatchAdmission?: FastTestBatchExecutionAdmission;
       testSuiteAdmission?: TestSuiteExecutionAdmission;
     }>
   ) => {
-    if (options.retainProcessSession !== false || options.testSuiteAdmission === undefined) {
+    if (options.fastTestBatchAdmission !== undefined) {
+      if (options.retainProcessSession !== false) {
+        throw new Error('Fast test batch requires one settled root-discovery session.');
+      }
+      assertIssuedFastTestBatchExecutionAdmission(options.fastTestBatchAdmission);
+      return operation();
+    }
+    if (options.testSuiteAdmission === undefined) {
+      return operation();
+    }
+    if (options.retainProcessSession !== false) {
       throw new Error('Test runner suite dispatch requires one settled root-discovery session and issued admission.');
     }
     assertIssuedTestSuiteExecutionAdmission(options.testSuiteAdmission);
@@ -618,6 +638,7 @@ beforeEach(() => {
   gitReadSessionDeadlineRequests.length = 0;
   gitReadSessions.length = 0;
   operationEvents.length = 0;
+  testImpactObservationOverrides.length = 0;
   hasTestDependencyBootstrapFailure = false;
   testDependencyBootstrapFailure = undefined;
   cleanupFailure = null;
@@ -928,6 +949,63 @@ test('fast process resource classes uniquely derive limits and isolate productio
 
 test('all canonical test lanes use one bounded default timeout policy', () => {
   expect(DEFAULT_TEST_TIMEOUT_MS).toBe(180_000);
+});
+
+test('fast batch policy derives supervisor ceilings and waves from its canonical planner', () => {
+  const sourceProjection = testImpactFixture.affectedObservation.projection;
+  const budgetProjection = compileTestBudgetProjection(sourceProjection);
+  const selectedFiles = budgetProjection.fastTestFiles.slice(0, 20);
+  const forgedCallerFields = {
+    sourceProjection,
+    budgetProjection,
+    selectedFiles,
+    bunOptions: [],
+    workingDirectory: process.cwd(),
+    supervisorTimeoutMs: Number.MAX_SAFE_INTEGER,
+    executionWaves: [['forged:001']]
+  };
+
+  const policy = issueFastTestBatchExecutionPolicy(forgedCallerFields);
+  const canonicalSupervisorTimeoutMs = DEV_COMMAND_MAX_DURATION_MS;
+  expect(policy.invocations.every(({ supervisorTimeoutMs }) => (
+    supervisorTimeoutMs === canonicalSupervisorTimeoutMs
+  ))).toBe(true);
+  expect(policy.executionWaves).not.toEqual(forgedCallerFields.executionWaves);
+  expect(policy.workingDirectory).toBe(compilerRoot);
+  expect(policy.executionWaves.flat()).toEqual(policy.invocations.map(({ id }) => id));
+  expect(policy.logicalRunTimeoutMs).toBe(
+    AFFECTED_SELECTION_OPERATION_DURATION_MS
+      + policy.executionWaves.length * canonicalSupervisorTimeoutMs
+      + TEST_SUPERVISOR_SETTLEMENT_MARGIN_MS
+  );
+  expect(canonicalSupervisorTimeoutMs - DEFAULT_TEST_TIMEOUT_MS)
+    .toBeGreaterThanOrEqual(TEST_SUPERVISOR_SETTLEMENT_MARGIN_MS);
+
+  const admission = admitFastTestBatchExecutionPolicy(policy);
+  assertIssuedFastTestBatchExecutionAdmission(admission);
+  expect(admission.childDeadlineAtUnixMs).toBe(
+    admission.logicalDeadlineAtUnixMs - TEST_SUPERVISOR_SETTLEMENT_MARGIN_MS
+  );
+  expect(admission.revalidationDeadlineAtUnixMs).toBe(
+    admission.admittedAtUnixMs + AFFECTED_SELECTION_OPERATION_DURATION_MS
+  );
+  expect(() => admitFastTestBatchExecutionPolicy(policy)).toThrow('single-use');
+  expect(() => assertIssuedFastTestBatchExecutionAdmission({ ...admission }))
+    .toThrow('owner-issued admission');
+});
+
+test.serial('direct fast execution revalidates its issued Source Program after observer admission', async () => {
+  testImpactObservationOverrides.push(
+    testImpactFixture.affectedObservation,
+    Object.freeze({
+      ...testImpactFixture.affectedObservation,
+      projection: testImpactFixture.provider.projection
+    })
+  );
+
+  expect(await runFastTests(['tests/unit/path-containment.test.ts'])).toBe(1);
+  expect(devCommandCalls).toEqual([]);
+  expect(operationEvents).toContain('git-read-session');
 });
 
 test('default fast inventory excludes deterministic deep acceptance while complete inventory retains it', () => {
@@ -2529,6 +2607,7 @@ test.serial('resolved affected plan executes only after its final Git revalidati
   // required last-mile fence immediately before child admission.
   const resolutionCommandCount = commandCalls.length;
   const resolutionSessionCount = gitReadSessions.length;
+  const resolutionSessions = new Set(gitReadSessions);
   const resolutionEventCount = operationEvents.length;
   expect(resolutionCommandCount).toBeGreaterThan(0);
   expect(resolutionSessionCount).toBeGreaterThan(0);
@@ -2550,11 +2629,37 @@ test.serial('resolved affected plan executes only after its final Git revalidati
     });
   }
   expect(gitReadSessionDeadlineRequests.length).toBeGreaterThan(resolutionSessionCount);
-  expect(gitReadSessionDeadlineRequests.slice(resolutionSessionCount))
-    .toEqual(expect.arrayContaining([gitReadSessionDeadlineRequests[resolutionSessionCount - 1]]));
+  expect(gitReadSessions.slice(resolutionSessionCount).every((session) => (
+    !resolutionSessions.has(session)
+  ))).toBe(true);
   expect(fastDependencyBootstrapCalls).toBe(1);
   expect(testDependencyBootstrapCalls).toBe(0);
   expect(devCommandCalls).toHaveLength(2);
+});
+
+test.serial('affected execution rejects same-path modified content drift even when Git summaries are unchanged', async () => {
+  changedFiles = ['tests/unit/path-containment.test.ts'];
+  let observationCount = 0;
+  const execution = await resolveAffectedTestExecutionWithIssuer({
+    operation: compileAffectedTestSelectionSemanticOperation({ purpose: 'check-affected' }),
+    verifyAtResolution: false,
+    issueTestImpactProjection: async () => {
+      observationCount += 1;
+      return observationCount === 1
+        ? testImpactFixture.affectedObservation
+        : Object.freeze({
+            ...testImpactFixture.affectedObservation,
+            projection: testImpactFixture.provider.projection
+          });
+    }
+  });
+  expect(execution).not.toBeNull();
+  const initialGitCommandCount = commandCalls.length;
+
+  expect(await execution!.run()).toBe(1);
+  expect(observationCount).toBe(2);
+  expect(commandCalls.length).toBeGreaterThan(initialGitCommandCount);
+  expect(devCommandCalls).toEqual([]);
 });
 
 test('affected execution does not export an arbitrary-plan runner', () => {

@@ -129,9 +129,9 @@ test('buildProvenance consumes only a complete canonical Verification artifact s
       verifiedBy: ['tests/unit/customer-runtime.test.ts']
     });
     expect(provenance.artifacts.map((artifact) => [artifact.path, artifact.generatedByPass])).toEqual([
-      ['control/graph/explain-graph.json', 'explain'],
-      ['control/workflow/repair-plan.json', 'repair'],
-      ['control/workflow/upgrade-plan.json', 'upgrade'],
+      [CI_ARTIFACT_FILES.explainGraph, 'explain'],
+      [CI_ARTIFACT_FILES.repairPlan, 'repair'],
+      [CI_ARTIFACT_FILES.upgradePlan, 'upgrade'],
       ['src/installed/entity/customer-service.ts', 'compose'],
       ['tests/unit/customer-runtime.test.ts', 'compose']
     ]);

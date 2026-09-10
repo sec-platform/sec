@@ -183,7 +183,7 @@ test('process sessions reject structural operation and session clones', async ()
 test('process session admission preserves pre-cancelled classification', () => {
   const controller = new AbortController();
   controller.abort(new Error('cancelled before admission'));
-  const operation = boundOperation({ deadlineAtUnixMs: Date.now() - 1 });
+  const operation = boundOperation();
   expect(() => openProcessResourceSession({
     operation,
     requirementBindingContext: requirementBindingContext(operation),

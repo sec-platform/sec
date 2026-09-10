@@ -10,7 +10,7 @@ import { withAuthorityGitReadSession } from '../../external-capabilities/git-rea
 import { inspectNoFollowDirectoryChain } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   observeCompilerDependencyExecutionGenerationAuthority,
-  retainCompilerDependencyExecutionGeneration
+  retainCompilerDependencyReadGeneration
 } from '../../toolchain/dependencies/runtime.ts';
 import { compileRepositorySourceProgramCompilation } from '../source-program-model/repository-compilation.ts';
 import { acquireWorkingTreeWorkspaceSourceSnapshot } from '../source-program-model/workspace-source-snapshot.ts';
@@ -85,7 +85,7 @@ test('sealed Knip provider binds source, config and dependencies and signs only 
   const deadlineAtUnixMs = Date.now() + 60_000;
   const authority = await observeCompilerDependencyExecutionGenerationAuthority({ deadlineAtUnixMs });
   if (authority === null) throw new Error('Knip test requires the canonical compiler dependency generation');
-  const dependencyGeneration = await retainCompilerDependencyExecutionGeneration(
+  const dependencyGeneration = await retainCompilerDependencyReadGeneration(
     authority,
     { deadlineAtUnixMs }
   );

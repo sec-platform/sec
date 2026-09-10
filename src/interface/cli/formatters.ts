@@ -22,7 +22,7 @@ import { buildE2eMatrix, type E2eMatrix } from '../../verification/review/runtim
 import { toWorkspaceArtifactPath } from '../../workspace/runtime/paths.ts';
 import { formatCountRecord, formatCounts, formatFields, formatList, formatMergedSummaryEntries, formatSummaryEntries, optionalFields } from './format-utils.ts';
 
-export type ArtifactPathUploadGroup = CiArtifactUploadGroup;
+type ArtifactPathUploadGroup = CiArtifactUploadGroup;
 
 export type ArtifactPathKind = CiArtifactKind;
 
@@ -62,7 +62,7 @@ export type PostgresContract = {
   }>;
 };
 
-export type RuntimeStepInspect = {
+type RuntimeStepInspect = {
   id: 'build' | 'unit' | 'acceptance';
   status: RuntimeVerificationLaneReport['status'];
   passedCount: number;
@@ -110,7 +110,7 @@ export function formatCiArtifactManifest(manifest: CiArtifactManifest): string {
   ].join('\n');
 }
 
-export function artifactUploadPathSummary(
+function artifactUploadPathSummary(
   manifest: CiArtifactManifest,
   kind?: ArtifactPathKind
 ): {
@@ -263,7 +263,7 @@ export function formatE2eMatrix(matrix: E2eMatrix): string {
   ].join('\n');
 }
 
-export type ReviewDiagnosticEntry =
+type ReviewDiagnosticEntry =
   | {
     id: string;
     category: 'failure';
@@ -366,7 +366,7 @@ export function formatReviewDiagnosticsInspect(inspect: ReviewDiagnosticsInspect
   ].join('\n');
 }
 
-export function formatUpgradeDiagnosticsDetails(details: unknown): string {
+function formatUpgradeDiagnosticsDetails(details: unknown): string {
   return formatList(upgradeDiagnosticsAttributionParts(details));
 }
 

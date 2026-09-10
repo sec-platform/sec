@@ -27,35 +27,43 @@ async function executeLocalAffectedGate(
   compilerDependencies: MaterializedOperationDependencyBootstrapResult | undefined
 ): Promise<number> {
   if (step.id === 'imports:check') {
-    const { runImportCheck } = await import('./import-organizer.ts');
-    const outcome = await runImportCheck({});
-    if (outcome.status === 'canonical') return 0;
-    console.error(
-      `Imports need transform (needs-import-transform) in ${outcome.files.length} file(s):\n`
-      + `${outcome.files.map((file) => `- ${file}`).join('\n')}\nRun bun run imports:apply.`
-    );
-    return 1;
+    return runObservedReadOnlyStage(step.id, async () => {
+      const { runImportCheck } = await import('./import-organizer.ts');
+      const outcome = await runImportCheck({});
+      if (outcome.status === 'canonical') return 0;
+      console.error(
+        `Imports need transform (needs-import-transform) in ${outcome.files.length} file(s):\n`
+        + `${outcome.files.map((file) => `- ${file}`).join('\n')}\nRun bun run imports:apply.`
+      );
+      return 1;
+    });
   }
   if (step.id === 'audit:static') {
-    const { runDevCommand } = await import('./command-runner.ts');
-    return runDevCommand('bun', ['run', step.id], {});
+    return runObservedReadOnlyStage(step.id, async () => {
+      const { runDevCommand } = await import('./command-runner.ts');
+      return runDevCommand('bun', ['run', step.id], {});
+    });
   }
   if (step.id === 'typecheck') {
     if (compilerDependencies === undefined) {
       console.error('Local affected typecheck requires completed compiler dependency admission.');
       return 1;
     }
-    const { runTypecheckWithDependencyRootAndProjectGenerationEvidence } = await import(
-      './typecheck-runner.ts'
-    );
-    return runTypecheckWithDependencyRootAndProjectGenerationEvidence(
-      compilerDependencies,
-      affectedExecution.projectGenerationEvidence
-    );
+    return runObservedReadOnlyStage(step.id, async () => {
+      const { runTypecheckWithDependencyRootAndProjectGenerationEvidence } = await import(
+        './typecheck-runner.ts'
+      );
+      return runTypecheckWithDependencyRootAndProjectGenerationEvidence(
+        compilerDependencies,
+        affectedExecution.projectGenerationEvidence
+      );
+    });
   }
   if (step.id === 'docs:doctor') {
-    const { runDevCommand } = await import('./command-runner.ts');
-    return runDevCommand('bun', ['src/control/documentation/doctor/cli.ts'], {});
+    return runObservedReadOnlyStage(step.id, async () => {
+      const { runDevCommand } = await import('./command-runner.ts');
+      return runDevCommand('bun', ['src/control/documentation/doctor/cli.ts'], {});
+    });
   }
 
   const { withHeavyVerificationGateLease } = await import('../../verification/gate/state/heavy-lease.ts');
@@ -63,6 +71,14 @@ async function executeLocalAffectedGate(
     'test:affected',
     () => affectedExecution.run(compilerDependencies)
   );
+}
+
+async function runObservedReadOnlyStage(
+  commandId: string,
+  run: () => Promise<number>
+): Promise<number> {
+  const { runStandaloneRepositoryZeroWriteOperation } = await import('./repository-mutation-fence.ts');
+  return runStandaloneRepositoryZeroWriteOperation(commandId, run);
 }
 
 async function assertAffectedExecutionCurrent(
@@ -101,19 +117,29 @@ export async function runLocalAffectedCheck(
     console.error(`Affected ProjectInput dependency generation is unavailable: ${dependencyResolution.reason}`);
     return 1;
   }
-  let affectedExecution: ResolvedAffectedTestExecution | null;
+  let affectedExecution: ResolvedAffectedTestExecution | null = null;
   try {
-    affectedExecution = await resolveAffectedTestExecution({
-      dependencyGeneration: dependencyResolution?.generation,
-      operation: options.operation,
-      processSession: options.processSession,
-      issueTestImpactProjection: issueCheckAffectedTestImpactProjection,
-      // This owner performs the explicit admission immediately before compiler
-      // dependency preparation and before every gate. Plan output keeps the
-      // resolution-time fence; execution avoids an otherwise redundant full
-      // source census before its own adjacent fence.
-      verifyAtResolution: args.length === 1
-    });
+    const resolve = (processSession?: ProcessResourceSession) => resolveAffectedTestExecution({
+        dependencyGeneration: dependencyResolution?.generation,
+        operation: options.operation,
+        processSession,
+        issueTestImpactProjection: issueCheckAffectedTestImpactProjection,
+        verifyAtResolution: args.length === 1
+      });
+    if (options.processSession !== undefined) {
+      affectedExecution = await resolve(options.processSession);
+    } else {
+      const { runRepositoryZeroWriteOperation } = await import('./repository-mutation-fence.ts');
+      const selectionCode = await runRepositoryZeroWriteOperation(
+        'check:affected:selection',
+        async (processSession) => {
+          affectedExecution = await resolve(processSession);
+          return affectedExecution === null ? 1 : 0;
+        },
+        { operation: options.operation }
+      );
+      if (selectionCode !== 0) return selectionCode;
+    }
   } finally {
     if (dependencyResolution?.status === 'ready') {
       await dependencyResolution.generation.retire();
@@ -186,28 +212,36 @@ export async function runFastCheck(options: FastCheckExecutionOptions = {}): Pro
 
   return executeFastCheckStages({
     imports: async () => {
-      const { runImportCheck } = await import('./import-organizer.ts');
-      const outcome = await runImportCheck({});
-      if (outcome.status === 'canonical') return 0;
-      console.error(
-        `Imports need transform (needs-import-transform) in ${outcome.files.length} file(s):\n`
-        + `${outcome.files.map(file => `- ${file}`).join('\n')}\nRun bun run imports:apply.`
-      );
-      return 1;
+      return runObservedReadOnlyStage('check:fast:imports', async () => {
+        const { runImportCheck } = await import('./import-organizer.ts');
+        const outcome = await runImportCheck({});
+        if (outcome.status === 'canonical') return 0;
+        console.error(
+          `Imports need transform (needs-import-transform) in ${outcome.files.length} file(s):\n`
+          + `${outcome.files.map(file => `- ${file}`).join('\n')}\nRun bun run imports:apply.`
+        );
+        return 1;
+      });
     },
     sourceAudit: async () => {
       // The existing enforced audit already includes executable tests and
       // their value/retirement contracts. No parallel test-quality parser.
-      const { runDevCommand } = await import('./command-runner.ts');
-      return runDevCommand('bun', ['run', 'audit:static'], {});
+      return runObservedReadOnlyStage('check:fast:audit:static', async () => {
+        const { runDevCommand } = await import('./command-runner.ts');
+        return runDevCommand('bun', ['run', 'audit:static'], {});
+      });
     },
     documentation: async () => {
-      const { runDevCommand } = await import('./command-runner.ts');
-      return runDevCommand('bun', ['src/control/documentation/doctor/cli.ts'], {});
+      return runObservedReadOnlyStage('check:fast:docs:doctor', async () => {
+        const { runDevCommand } = await import('./command-runner.ts');
+        return runDevCommand('bun', ['src/control/documentation/doctor/cli.ts'], {});
+      });
     },
     types: async () => {
-      const { runTypecheckWithDependencyRoot } = await import('./typecheck-runner.ts');
-      return runTypecheckWithDependencyRoot(compilerDependencies);
+      return runObservedReadOnlyStage('check:fast:typecheck', async () => {
+        const { runTypecheckWithDependencyRoot } = await import('./typecheck-runner.ts');
+        return runTypecheckWithDependencyRoot(compilerDependencies);
+      });
     },
     tests: async () => {
       const { withHeavyVerificationGateLease } = await import('../../verification/gate/state/heavy-lease.ts');

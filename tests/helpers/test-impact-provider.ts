@@ -59,7 +59,7 @@ type SharedExactRepositoryFixtureState = {
 
 const sharedExactRepositoryFixtures = new Map<string, SharedExactRepositoryFixtureState>();
 
-export type ExactRepositoryTestImpactFixturePhase =
+type ExactRepositoryTestImpactFixturePhase =
   | 'admission'
   | 'source-object-read'
   | 'fixture-repository-effect'
@@ -71,7 +71,7 @@ export type ExactRepositoryTestImpactFixturePhase =
   | 'settlement'
   | 'complete';
 
-export type ExactRepositoryTestImpactFixturePhaseEvent = Readonly<{
+type ExactRepositoryTestImpactFixturePhaseEvent = Readonly<{
   phase: ExactRepositoryTestImpactFixturePhase;
   observedAtUnixMs: number;
   remainingMs: number;
@@ -363,7 +363,7 @@ async function createExactRepositoryTestImpactProviderFixture(
         'Exact repository TestImpact fixture requires one admitted compiler dependency generation.'
       );
     }
-    const retainedDependency = await runtime.retainCompilerDependencyExecutionGeneration(
+    const retainedDependency = await runtime.retainCompilerDependencyReadGeneration(
       dependencyAuthority,
       { deadlineAtUnixMs }
     );

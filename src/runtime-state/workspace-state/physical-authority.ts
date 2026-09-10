@@ -25,8 +25,8 @@ export interface SecRuntimeStatePhysicalAuthority {
   readonly directoryChain: (absolutePath: string) => PhysicalDirectoryChain;
   /** Stable root/file-id proof that remains valid across owner-authorized child mutation. */
   readonly assertRootIdentityCurrent: () => void;
-  readonly assertCurrent: () => Promise<void>;
-  readonly release: () => Promise<void>;
+  readonly assertCurrent: (input?: Readonly<{ deadlineAtUnixMs?: number }>) => Promise<void>;
+  readonly release: (input?: Readonly<{ deadlineAtUnixMs?: number }>) => Promise<void>;
 }
 
 export interface SecRuntimeCachePhysicalAuthority {
@@ -36,6 +36,19 @@ export interface SecRuntimeCachePhysicalAuthority {
 }
 
 const issuedSecRuntimeStatePhysicalAuthorities = new WeakSet<object>();
+
+class RuntimeStateAuthorityDeadlineError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RuntimeStateAuthorityDeadlineError';
+  }
+}
+
+function isRequestScopedAuthorityFailure(error: unknown): boolean {
+  return error instanceof RuntimeStateAuthorityDeadlineError
+    || (error instanceof WindowsHostDirectoryAuthorityError
+      && (error.failure === 'deadline-exhausted' || error.failure === 'aborted'));
+}
 
 export function assertSecRuntimeStatePhysicalAuthority(authority: SecRuntimeStatePhysicalAuthority): void {
   if (!issuedSecRuntimeStatePhysicalAuthorities.has(authority)) {
@@ -51,20 +64,24 @@ type WindowsRuntimeStateAuthorityGeneration = {
   readonly directoryChains: Map<string, PhysicalDirectoryChain>;
   authority: Promise<WindowsHostDirectoryAuthority>;
   operationTail: Promise<void>;
+  pendingOperations: number;
   references: number;
-  state: 'active' | 'retired';
+  state: 'active' | 'settling' | 'retired';
   retirement?: Promise<void>;
 };
 
 type WindowsRuntimeStateAuthorityCapability = Readonly<{
-  assertCurrent: () => Promise<void>;
-  admitDirectories: (absolutePaths: readonly string[]) => Promise<
+  assertCurrent: (input?: Readonly<{ deadlineAtUnixMs?: number }>) => Promise<void>;
+  admitDirectories: (
+    absolutePaths: readonly string[],
+    input?: Readonly<{ deadlineAtUnixMs?: number }>
+  ) => Promise<
     Readonly<{
       directories: ReadonlyMap<string, PhysicalDirectoryIdentity>;
       directoryChains: ReadonlyMap<string, PhysicalDirectoryChain>;
     }>
   >;
-  release: () => Promise<void>;
+  release: (input?: Readonly<{ deadlineAtUnixMs?: number }>) => Promise<void>;
 }>;
 
 /**
@@ -96,22 +113,43 @@ function windowsRuntimeStateAuthorityKey(
   }));
 }
 
-async function retireWindowsRuntimeStateAuthorityGeneration(generation: WindowsRuntimeStateAuthorityGeneration): Promise<void> {
-  if (generation.state === 'active') {
+async function settleWindowsRuntimeStateAuthorityGeneration(
+  generation: WindowsRuntimeStateAuthorityGeneration,
+  deadlineAtUnixMs?: number
+): Promise<void> {
+  if (generation.state === 'retired') return;
+  if (deadlineAtUnixMs !== undefined
+      && (!Number.isSafeInteger(deadlineAtUnixMs)
+        || deadlineAtUnixMs <= Date.now()
+        || generation.pendingOperations !== 0)) {
+    throw new RuntimeStateAuthorityDeadlineError('Windows Runtime State authority cannot settle within its bounded deadline.');
+  }
+  if (generation.retirement !== undefined) {
+    await generation.retirement;
+    return;
+  }
+  // The last-reference owner changes state before its first await. Existing
+  // admitted operations may finish; new joins and operations fail closed.
+  generation.state = 'settling';
+  const retirement = (async () => {
+    await generation.operationTail;
+    const authority = await generation.authority;
+    await authority.release();
     generation.state = 'retired';
     if (windowsRuntimeStateAuthorityGenerations.get(generation.key) === generation) {
       windowsRuntimeStateAuthorityGenerations.delete(generation.key);
     }
-    generation.retirement = generation.operationTail.then(async () => {
-      try {
-        const authority = await generation.authority;
-        await authority.release();
-      } catch {
-        // Admission failure has no live native authority to release.
-      }
-    });
+  })();
+  generation.retirement = retirement;
+  try {
+    await retirement;
+  } catch (error) {
+    // Keep the same generation and reference as the only recovery owner.
+    // A retry starts another settlement attempt; no replacement generation
+    // may join while this generation remains settling.
+    if (generation.retirement === retirement) generation.retirement = undefined;
+    throw error;
   }
-  await generation.retirement;
 }
 
 function assertWindowsRuntimeStateAuthorityGenerationActive(generation: WindowsRuntimeStateAuthorityGeneration): void {
@@ -122,8 +160,18 @@ function assertWindowsRuntimeStateAuthorityGenerationActive(generation: WindowsR
 
 async function withWindowsRuntimeStateAuthorityOperation<T>(
   generation: WindowsRuntimeStateAuthorityGeneration,
-  operation: () => Promise<T>
+  operation: () => Promise<T>,
+  deadlineAtUnixMs?: number
 ): Promise<T> {
+  assertWindowsRuntimeStateAuthorityGenerationActive(generation);
+  if (deadlineAtUnixMs !== undefined
+      && (!Number.isSafeInteger(deadlineAtUnixMs) || deadlineAtUnixMs <= Date.now())) {
+    throw new RuntimeStateAuthorityDeadlineError('Windows Runtime State authority operation deadline is invalid or expired.');
+  }
+  if (deadlineAtUnixMs !== undefined && generation.pendingOperations !== 0) {
+    throw new RuntimeStateAuthorityDeadlineError('Windows Runtime State authority has a pending operation at bounded admission.');
+  }
+  generation.pendingOperations += 1;
   const predecessor = generation.operationTail;
   let settle!: () => void;
   generation.operationTail = new Promise<void>((resolve) => {
@@ -131,14 +179,27 @@ async function withWindowsRuntimeStateAuthorityOperation<T>(
   });
   await predecessor;
   try {
-    assertWindowsRuntimeStateAuthorityGenerationActive(generation);
-    return await operation();
+    if (deadlineAtUnixMs !== undefined && Date.now() >= deadlineAtUnixMs) {
+      throw new RuntimeStateAuthorityDeadlineError('Windows Runtime State authority operation deadline expired.');
+    }
+    if (generation.state === 'retired') {
+      throw new WindowsHostDirectoryAuthorityError('session-closed', 'Windows Runtime State authority generation is retired');
+    }
+    const result = await operation();
+    if (deadlineAtUnixMs !== undefined && Date.now() >= deadlineAtUnixMs) {
+      throw new RuntimeStateAuthorityDeadlineError('Windows Runtime State authority operation settled after its deadline.');
+    }
+    return result;
   } finally {
     settle();
+    generation.pendingOperations -= 1;
   }
 }
 
-async function revalidateWindowsRuntimeStateAuthorityGeneration(generation: WindowsRuntimeStateAuthorityGeneration): Promise<void> {
+async function revalidateWindowsRuntimeStateAuthorityGeneration(
+  generation: WindowsRuntimeStateAuthorityGeneration,
+  deadlineAtUnixMs?: number
+): Promise<void> {
   try {
     await withWindowsRuntimeStateAuthorityOperation(generation, async () => {
       assertSameNoFollowDirectoryIdentity(generation.repositoryRoot.target, 'SEC repository stable root identity');
@@ -147,10 +208,13 @@ async function revalidateWindowsRuntimeStateAuthorityGeneration(generation: Wind
       assertPhysicallyDisjoint(generation.repositoryRoot, generation.stateRoot, 'durable state root and repository');
       assertPhysicallyDisjoint(generation.repositoryRoot, generation.cacheRoot, 'cache root and repository');
       assertPhysicallyDisjoint(generation.stateRoot, generation.cacheRoot, 'durable state and cache roots');
-      await (await generation.authority).assertCurrent();
-    });
+      await (await generation.authority).assertCurrent(
+        deadlineAtUnixMs === undefined ? undefined : { deadlineAtMs: deadlineAtUnixMs }
+      );
+    }, deadlineAtUnixMs);
   } catch (error) {
-    await retireWindowsRuntimeStateAuthorityGeneration(generation);
+    if (isRequestScopedAuthorityFailure(error)) throw error;
+    await settleWindowsRuntimeStateAuthorityGeneration(generation);
     throw error;
   }
 }
@@ -162,7 +226,8 @@ async function acquireWindowsRuntimeStateAuthorityCapability(
     repository: PhysicalDirectoryChain;
     state: PhysicalDirectoryChain;
     cache: PhysicalDirectoryChain;
-  }>
+  }>,
+  deadlineAtUnixMs?: number
 ): Promise<WindowsRuntimeStateAuthorityCapability> {
   const key = windowsRuntimeStateAuthorityKey(rootPath, roots);
   let generation = windowsRuntimeStateAuthorityGenerations.get(key);
@@ -176,8 +241,12 @@ async function acquireWindowsRuntimeStateAuthorityCapability(
         [path.resolve(roots.state.target.path), roots.state],
         [path.resolve(roots.cache.target.path), roots.cache]
       ]),
-      authority: hardenExistingWindowsHostDirectoryAuthority(rootPath, { knownNew }),
+      authority: hardenExistingWindowsHostDirectoryAuthority(rootPath, {
+        knownNew,
+        ...(deadlineAtUnixMs === undefined ? {} : { deadlineAtMs: deadlineAtUnixMs })
+      }),
       operationTail: Promise.resolve(),
+      pendingOperations: 0,
       references: 0,
       state: 'active'
     };
@@ -187,7 +256,10 @@ async function acquireWindowsRuntimeStateAuthorityCapability(
       await generation.authority;
     } catch (error) {
       generation.references -= 1;
-      await retireWindowsRuntimeStateAuthorityGeneration(generation);
+      generation.state = 'retired';
+      if (windowsRuntimeStateAuthorityGenerations.get(key) === generation) {
+        windowsRuntimeStateAuthorityGenerations.delete(key);
+      }
       throw error;
     }
   } else {
@@ -201,21 +273,22 @@ async function acquireWindowsRuntimeStateAuthorityCapability(
         'Windows Runtime State repository/state/cache root identity changed during acquisition'
       );
     }
+    assertWindowsRuntimeStateAuthorityGenerationActive(generation);
     generation.references += 1;
   }
   const acquiredGeneration = generation;
-  assertWindowsRuntimeStateAuthorityGenerationActive(acquiredGeneration);
 
   let released = false;
+  let releasing = false;
   return Object.freeze({
-    assertCurrent: async (): Promise<void> => {
-      if (released) {
+    assertCurrent: async (input?: Readonly<{ deadlineAtUnixMs?: number }>): Promise<void> => {
+      if (released || releasing) {
         throw new WindowsHostDirectoryAuthorityError('session-closed', 'Windows Runtime State authority capability is released');
       }
-      await revalidateWindowsRuntimeStateAuthorityGeneration(acquiredGeneration);
+      await revalidateWindowsRuntimeStateAuthorityGeneration(acquiredGeneration, input?.deadlineAtUnixMs);
     },
-    admitDirectories: async (absolutePaths) => {
-      if (released) {
+    admitDirectories: async (absolutePaths, input) => {
+      if (released || releasing) {
         throw new WindowsHostDirectoryAuthorityError('session-closed', 'Windows Runtime State authority capability is released');
       }
       try {
@@ -227,7 +300,9 @@ async function acquireWindowsRuntimeStateAuthorityCapability(
           assertSameNoFollowDirectoryIdentity(acquiredGeneration.stateRoot.target, 'SEC Runtime State root before closure admission');
           assertSameNoFollowDirectoryIdentity(acquiredGeneration.cacheRoot.target, 'SEC Runtime Cache root before closure admission');
           const previousAuthority = await acquiredGeneration.authority;
-          await previousAuthority.assertCurrent();
+          await previousAuthority.assertCurrent(
+            input?.deadlineAtUnixMs === undefined ? undefined : { deadlineAtMs: input.deadlineAtUnixMs }
+          );
           const nextDirectoryChains = new Map(acquiredGeneration.directoryChains);
           let stateMembershipChanged = false;
           const canonicalPaths = [...new Set(absolutePaths.map((entry) => path.resolve(entry)))].sort(
@@ -261,7 +336,8 @@ async function acquireWindowsRuntimeStateAuthorityCapability(
           }
           if (stateMembershipChanged) {
             const replacementAuthority = await hardenExistingWindowsHostDirectoryAuthority(acquiredGeneration.stateRoot.target.path, {
-              knownNew: false
+              knownNew: false,
+              ...(input?.deadlineAtUnixMs === undefined ? {} : { deadlineAtMs: input.deadlineAtUnixMs })
             });
             acquiredGeneration.authority = Promise.resolve(replacementAuthority);
             await previousAuthority.release();
@@ -281,20 +357,38 @@ async function acquireWindowsRuntimeStateAuthorityCapability(
             directories: admittedDirectories,
             directoryChains: admittedDirectoryChains
           });
-        });
+        }, input?.deadlineAtUnixMs);
       } catch (error) {
-        await retireWindowsRuntimeStateAuthorityGeneration(acquiredGeneration);
+        if (isRequestScopedAuthorityFailure(error)) throw error;
+        await settleWindowsRuntimeStateAuthorityGeneration(acquiredGeneration);
         throw error;
       }
     },
-    release: async (): Promise<void> => {
+    release: async (input?: Readonly<{ deadlineAtUnixMs?: number }>): Promise<void> => {
       if (released) return;
-      released = true;
-      const admittedOperations = acquiredGeneration.operationTail;
-      await admittedOperations;
-      acquiredGeneration.references -= 1;
-      if (acquiredGeneration.references === 0) {
-        await retireWindowsRuntimeStateAuthorityGeneration(acquiredGeneration);
+      if (releasing) {
+        throw new WindowsHostDirectoryAuthorityError('session-closed', 'Windows Runtime State authority release is already in progress');
+      }
+      const deadlineAtUnixMs = input?.deadlineAtUnixMs;
+      if (deadlineAtUnixMs !== undefined
+          && (!Number.isSafeInteger(deadlineAtUnixMs) || deadlineAtUnixMs <= Date.now())) {
+        throw new RuntimeStateAuthorityDeadlineError('Windows Runtime State authority settlement deadline is invalid or expired.');
+      }
+      if (deadlineAtUnixMs !== undefined && acquiredGeneration.pendingOperations !== 0) {
+        throw new RuntimeStateAuthorityDeadlineError('Windows Runtime State authority still has operations pending at bounded settlement.');
+      }
+      releasing = true;
+      try {
+        if (acquiredGeneration.references === 1) {
+          await settleWindowsRuntimeStateAuthorityGeneration(acquiredGeneration, deadlineAtUnixMs);
+        } else if (deadlineAtUnixMs === undefined) {
+          const admittedOperations = acquiredGeneration.operationTail;
+          await admittedOperations;
+        }
+        acquiredGeneration.references -= 1;
+        released = true;
+      } finally {
+        releasing = false;
       }
     }
   });
@@ -483,8 +577,13 @@ export async function acquireSecRuntimeStatePhysicalAuthority(
     stateRoot: string;
     cacheRoot: string;
     requiredDirectories: readonly string[];
+    deadlineAtUnixMs?: number;
   }>
 ): Promise<SecRuntimeStatePhysicalAuthority> {
+  if (input.deadlineAtUnixMs !== undefined
+      && (!Number.isSafeInteger(input.deadlineAtUnixMs) || input.deadlineAtUnixMs <= Date.now())) {
+    throw new Error('SEC Runtime State physical authority admission deadline is invalid or expired.');
+  }
   const stateRootWasPresent =
     inspectExactNoFollowDirectoryPresence(path.resolve(input.stateRoot), 'SEC runtime state root before materialization').state ===
     'present';
@@ -524,10 +623,14 @@ export async function acquireSecRuntimeStatePhysicalAuthority(
         await acquireWindowsRuntimeStateAuthorityCapability(
           stateRootPath,
           !stateRootWasPresent,
-          Object.freeze({ repository, state, cache })
+          Object.freeze({ repository, state, cache }),
+          input.deadlineAtUnixMs
         )
       );
-      const admission = await windowsAuthorities[0]!.admitDirectories(requested);
+      const admission = await windowsAuthorities[0]!.admitDirectories(
+        requested,
+        input.deadlineAtUnixMs === undefined ? undefined : { deadlineAtUnixMs: input.deadlineAtUnixMs }
+      );
       for (const [directoryPath, directory] of admission.directories) {
         directories.set(directoryPath, directory);
       }
@@ -560,6 +663,7 @@ export async function acquireSecRuntimeStatePhysicalAuthority(
     assertPhysicallyDisjoint(state, cache, 'durable state and cache roots');
 
     let released = false;
+    let releasing = false;
     const assertRootIdentityCurrent = (): void => {
       if (released) {
         throw new WindowsHostDirectoryAuthorityError('session-closed', 'SEC Runtime State physical authority is released');
@@ -575,18 +679,29 @@ export async function acquireSecRuntimeStatePhysicalAuthority(
       }
     };
 
-    const current = async (): Promise<void> => {
+    const current = async (currentInput?: Readonly<{ deadlineAtUnixMs?: number }>): Promise<void> => {
       assertRootIdentityCurrent();
       for (const authority of windowsAuthorities) {
-        await authority.assertCurrent();
+        await authority.assertCurrent(currentInput);
       }
     };
 
-    const release = async (): Promise<void> => {
+    const release = async (input?: Readonly<{ deadlineAtUnixMs?: number }>): Promise<void> => {
       if (released) return;
-      released = true;
-      for (const authority of windowsAuthorities) {
-        await authority.release();
+      if (releasing) throw new Error('SEC Runtime State physical authority release is already in progress.');
+      const deadlineAtUnixMs = input?.deadlineAtUnixMs;
+      if (deadlineAtUnixMs !== undefined
+          && (!Number.isSafeInteger(deadlineAtUnixMs) || deadlineAtUnixMs <= Date.now())) {
+        throw new Error('SEC Runtime State physical authority settlement deadline is invalid or expired.');
+      }
+      releasing = true;
+      try {
+        for (const authority of windowsAuthorities) {
+          await authority.release(input);
+        }
+        released = true;
+      } finally {
+        releasing = false;
       }
     };
 

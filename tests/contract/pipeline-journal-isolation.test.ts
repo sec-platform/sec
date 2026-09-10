@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { readPipelineJournal } from '../../src/compiler/pipeline/journal.ts';
+import { PhysicalNoFollowError } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -81,7 +82,13 @@ test('Pipeline journal reader rejects a linked local-state ancestor', async () =
       process.platform === 'win32' ? 'junction' : 'dir'
     );
 
-    expect(() => readPipelineJournal(workspaceRoot))
-      .toThrow('retained JSON');
+    let failure: unknown;
+    try {
+      readPipelineJournal(workspaceRoot);
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(PhysicalNoFollowError);
+    expect((failure as PhysicalNoFollowError).code).toBe('PHYSICAL_NO_FOLLOW_UNSAFE_PATH');
   });
 });

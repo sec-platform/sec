@@ -6,6 +6,7 @@ import { defaultInstallRegistry } from '../../src/compiler/compose/install-strat
 import type { PlanFile } from '../../src/compiler/contract.ts';
 import { resolveGraph } from '../../src/compiler/resolve/resolve-graph.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { ensureCanonicalWorkspaceArtifactParents } from '../../src/workspace/application/project-base.ts';
 import { writeJson } from '../../src/workspace/files.ts';
 import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
 import { readYaml, writeYaml } from '../../src/workspace/yaml.ts';
@@ -106,6 +107,7 @@ export async function withBlockUpgradeDryRunFixture<T>(
 }
 
 export async function writeBlockUpgradeFixture(workspaceRoot: string): Promise<void> {
+  await ensureCanonicalWorkspaceArtifactParents(workspaceRoot);
   const paths = getWorkspacePaths(workspaceRoot);
   const blockId = 'private/block-upgrade';
   const blockRoot = path.join(paths.privateRegistryRoot, 'private.block-upgrade');

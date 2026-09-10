@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
+  classifyCanonicalWorkspacePublicationFailure,
   deleteExpectedCanonicalWorkspaceFile,
   publishCanonicalWorkspaceFile,
   publishExclusiveCanonicalWorkspaceFile,
@@ -94,6 +95,48 @@ test('an invalid fence is refused without creating publication parents', async (
     label: 'bad fence', bytes: Buffer.from('x'), commitFence: 'invalid'
   } as unknown as CanonicalWorkspaceFilePublicationInput), TypeError);
   assert.equal(existsSync(path.dirname(target)), false);
+}));
+
+test('existing-parent publication classifies a missing parent as before-effect', async () => fixture(async (root) => {
+  const target = path.join(root, 'missing', 'value.txt');
+  let failure: unknown;
+  try {
+    await publishExistingParentCanonicalWorkspaceFile({
+      workspaceRoot: root,
+      targetPath: target,
+      bytes: Buffer.from('x'),
+      label: 'missing parent'
+    });
+  } catch (error) {
+    failure = error;
+  }
+  assert.ok(failure instanceof Error);
+  assert.equal(classifyCanonicalWorkspacePublicationFailure(failure), 'before-effect');
+  assert.equal(existsSync(target), false);
+  assert.equal(classifyCanonicalWorkspacePublicationFailure(new Error('foreign')), 'unknown');
+}));
+
+test('existing-parent publication keeps the final fence failure before-effect', async () => fixture(async (root, target) => {
+  const expected = new Error('final fence rejected');
+  let calls = 0;
+  let failure: unknown;
+  try {
+    await publishExistingParentCanonicalWorkspaceFile({
+      workspaceRoot: root,
+      targetPath: target,
+      bytes: Buffer.from('x'),
+      label: 'final fence',
+      async commitFence() {
+        calls += 1;
+        if (calls === 2) throw expected;
+      }
+    });
+  } catch (error) {
+    failure = error;
+  }
+  assert.equal(failure, expected);
+  assert.equal(classifyCanonicalWorkspacePublicationFailure(failure), 'before-effect');
+  assert.equal(existsSync(target), false);
 }));
 
 test('relative paths keep the invocation cwd even if an input getter changes it', async () => fixture(async (root, target) => {

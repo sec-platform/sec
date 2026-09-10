@@ -155,7 +155,8 @@ export function registerCommands(
     domain.assertReferenceCheckClean(report);
   });
 
-  addJsonFlags(program.command('benchmark')).action(async (opts: Record<string, unknown>) => {
+  const benchmarkCmd = program.command('benchmark');
+  addJsonFlags(benchmarkCmd.command('suite')).action(async (opts: Record<string, unknown>) => {
     const output = jsonOpts(opts);
     printJsonOrText(buildBenchmarkTaskSuiteContract(), output, formatBenchmarkTaskSuiteContract);
   });

@@ -1,12 +1,35 @@
 /** One default per-test deadline for every canonical test lane. */
 import type { IssuedTestImpactProjection } from '../../brownfield/source-program-model/test-impact-projection.ts';
+import {
+  RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
+  RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID
+} from '../../runtime-state/physical/runtime/windows-repository-change-observer.ts';
 import { deepFreeze, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import {
+  bindSecSemanticOperation,
+  compileSecSemanticOperationPlan,
+  issueSecSemanticOperationAttemptContext,
+  type SecBoundSemanticOperation,
+  type SecCapabilityBinding,
+  type SecOperationDigest,
+  type SecSemanticOperationPlan
+} from '../../system-architecture/operation/semantic.ts';
 import {
   assertTestBudgetExecutionProvenance,
   type TestBudgetProjection
 } from '../../verification/test-impact/contract/budget.ts';
-import { DEFAULT_FAST_TEST_MAX_CONCURRENCY } from './fast-test-policy.ts';
-import { applyDefaultFastTestConcurrency } from './test-concurrency-policy.ts';
+import { compilerRoot } from '../../workspace/runtime/paths.ts';
+import { AFFECTED_SELECTION_OPERATION_DURATION_MS } from './affected-plan-contract.ts';
+import { DEV_COMMAND_MAX_DURATION_MS } from './contract.ts';
+import {
+  DEFAULT_FAST_TEST_CONCURRENCY_BUDGET,
+  DEFAULT_FAST_TEST_MAX_CONCURRENCY,
+  FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER,
+  planFastTestProcesses,
+  resolveManagedFastTestConcurrency,
+  type FastTestProcessResourceClass
+} from './fast-test-policy.ts';
+import { applyDefaultFastTestConcurrency, explicitFastTestMaxConcurrency } from './test-concurrency-policy.ts';
 
 export const DEFAULT_TEST_TIMEOUT_MS = 180_000;
 /** Time reserved after a Bun case deadline for child-tree terminal observation. */
@@ -17,6 +40,7 @@ export const EFFECTFUL_TEST_CASE_SETTLEMENT_GUARD_MS = 1_000;
 export const EFFECTFUL_TEST_SEMANTIC_OPERATION = 'verification.effectful-test' as const;
 export const TEST_SUITE_EXECUTION_OPERATION = 'development.runner.test-suite' as const;
 export const TEST_SUITE_CHILD_REQUIREMENT_ID = 'development.runner.test-suite.bun-child' as const;
+export const FAST_TEST_BATCH_EXECUTION_OPERATION = 'development.runner.fast-test-batch' as const;
 
 export type TestInvocationExecutionPolicy = Readonly<{
   caseTimeoutMs: number;
@@ -45,9 +69,225 @@ export type TestSuiteExecutionAdmission = Readonly<{
   childDeadlineAtUnixMs: number;
 }>;
 
+export type FastTestBatchInvocationPolicy = Readonly<{
+  id: string;
+  queue: 'concurrent-shard' | FastTestProcessResourceClass;
+  files: readonly string[];
+  canonicalArgv: readonly string[];
+  supervisorTimeoutMs: number;
+}>;
+
+export type FastTestBatchExecutionPolicy = Readonly<{
+  schema: 'sec-fast-test-batch-execution-policy-v1';
+  files: readonly string[];
+  sourceProjectionDigest: `sha256:${string}`;
+  budgetProjectionDigest: `sha256:${string}`;
+  invocations: readonly FastTestBatchInvocationPolicy[];
+  executionWaves: readonly (readonly string[])[];
+  concurrentProcessLimit: number;
+  resourceClassOrder: readonly FastTestProcessResourceClass[];
+  resourceLimits: Readonly<Record<FastTestProcessResourceClass, number>>;
+  logicalRunTimeoutMs: number;
+  settlementMarginMs: number;
+  workingDirectory: string;
+  policyDigest: `sha256:${string}`;
+}>;
+
+export type FastTestBatchExecutionAdmission = Readonly<{
+  policy: FastTestBatchExecutionPolicy;
+  admittedAtUnixMs: number;
+  logicalDeadlineAtUnixMs: number;
+  revalidationDeadlineAtUnixMs: number;
+  childDeadlineAtUnixMs: number;
+  operationPlan: SecSemanticOperationPlan;
+}>;
+
 const issuedTestSuiteExecutionPolicies = new WeakSet<object>();
 const consumedTestSuiteExecutionPolicies = new WeakSet<object>();
 const issuedTestSuiteExecutionAdmissions = new WeakSet<object>();
+const issuedFastTestBatchExecutionPolicies = new WeakSet<object>();
+const consumedFastTestBatchExecutionPolicies = new WeakSet<object>();
+const issuedFastTestBatchExecutionAdmissions = new WeakSet<object>();
+const boundFastTestBatchExecutionAdmissions = new WeakSet<object>();
+
+function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length
+    && new Set(left).size === left.length
+    && left.every((value) => right.includes(value));
+}
+
+export function issueFastTestBatchExecutionPolicy(input: Readonly<{
+  sourceProjection: IssuedTestImpactProjection;
+  budgetProjection: TestBudgetProjection;
+  selectedFiles: readonly string[];
+  bunOptions: readonly string[];
+}>): FastTestBatchExecutionPolicy {
+  assertTestBudgetExecutionProvenance(input.budgetProjection, input.sourceProjection);
+  const files = Object.freeze([...input.selectedFiles]);
+  if (files.length === 0 || !sameStringSet(files, files)
+      || files.some((file) => !input.budgetProjection.fastTestFiles.includes(file))) {
+    throw new Error('Fast test batch requires unique current canonical fast test files.');
+  }
+  const bunOptions = canonicalBunTestOptions(input.bunOptions);
+  const managedConcurrency = resolveManagedFastTestConcurrency(
+    DEFAULT_FAST_TEST_CONCURRENCY_BUDGET,
+    explicitFastTestMaxConcurrency(bunOptions)
+  );
+  const processPlan = planFastTestProcesses(files);
+  const invocation = (
+    queue: 'concurrent-shard' | FastTestProcessResourceClass,
+    invocationFiles: readonly string[],
+    index: number
+  ): FastTestBatchInvocationPolicy => {
+    const boundedOptions = explicitFastTestMaxConcurrency(bunOptions) === null
+      ? ['--max-concurrency', String(managedConcurrency.innerConcurrency), ...bunOptions]
+      : bunOptions;
+    const args = ['test', ...invocationFiles, ...withDefaultTestTimeout(boundedOptions)];
+    const executionPolicy = compileTestInvocationExecutionPolicy(args, DEV_COMMAND_MAX_DURATION_MS);
+    return deepFreeze({
+      id: `${queue}:${String(index + 1).padStart(3, '0')}`,
+      queue,
+      files: Object.freeze([...invocationFiles]),
+      canonicalArgv: Object.freeze(['bun', ...args]),
+      supervisorTimeoutMs: executionPolicy.supervisorTimeoutMs
+    });
+  };
+  const concurrentInvocations = processPlan.concurrentShards.map((shard, index) => (
+    invocation('concurrent-shard', shard, index)
+  ));
+  const resourceInvocations = Object.fromEntries(FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER.map(
+    (resourceClass) => [resourceClass, processPlan.resourceQueues[resourceClass].map(
+      (file, index) => invocation(resourceClass, [file], index)
+    )]
+  )) as Record<FastTestProcessResourceClass, FastTestBatchInvocationPolicy[]>;
+  const invocations = Object.freeze([
+    ...concurrentInvocations,
+    ...FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER.flatMap((resourceClass) => resourceInvocations[resourceClass])
+  ]);
+  const wavesFor = (
+    selectedInvocations: readonly FastTestBatchInvocationPolicy[],
+    concurrency: number
+  ): readonly (readonly string[])[] => {
+    const waves: (readonly string[])[] = [];
+    for (let index = 0; index < selectedInvocations.length; index += concurrency) {
+      waves.push(Object.freeze(selectedInvocations.slice(index, index + concurrency).map(({ id }) => id)));
+    }
+    return waves;
+  };
+  const executionWaves = Object.freeze([
+    ...wavesFor(concurrentInvocations, managedConcurrency.outerProcessConcurrency),
+    ...FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER.flatMap((resourceClass) => wavesFor(
+      resourceInvocations[resourceClass],
+      managedConcurrency.resourceClassLimits[resourceClass]
+    ))
+  ]);
+  if (!sameStringSet(files, invocations.flatMap(({ files: invocationFiles }) => invocationFiles))) {
+    throw new Error('Fast test batch planner did not dispatch every selected file exactly once.');
+  }
+  const invocationById = new Map(invocations.map((invocation) => [invocation.id, invocation]));
+  const executionDurationMs = executionWaves.reduce((total, wave) => {
+    const waveDuration = Math.max(...wave.map((id) => invocationById.get(id)!.supervisorTimeoutMs));
+    const next = total + waveDuration;
+    if (!Number.isSafeInteger(next)) throw new Error('Fast test batch duration exceeds the safe integer range.');
+    return next;
+  }, 0);
+  const logicalRunTimeoutMs = AFFECTED_SELECTION_OPERATION_DURATION_MS
+    + executionDurationMs
+    + TEST_SUPERVISOR_SETTLEMENT_MARGIN_MS;
+  if (!Number.isSafeInteger(logicalRunTimeoutMs)) {
+    throw new Error('Fast test batch logical duration exceeds the safe integer range.');
+  }
+  const unsigned = deepFreeze({
+    schema: 'sec-fast-test-batch-execution-policy-v1' as const,
+    files,
+    sourceProjectionDigest: input.sourceProjection.projectionDigest as `sha256:${string}`,
+    budgetProjectionDigest: input.budgetProjection.projectionDigest,
+    invocations,
+    executionWaves,
+    concurrentProcessLimit: managedConcurrency.outerProcessConcurrency,
+    resourceClassOrder: FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER,
+    resourceLimits: managedConcurrency.resourceClassLimits,
+    logicalRunTimeoutMs,
+    settlementMarginMs: TEST_SUPERVISOR_SETTLEMENT_MARGIN_MS,
+    workingDirectory: compilerRoot
+  });
+  const policy = deepFreeze({
+    ...unsigned,
+    policyDigest: sha256(unsigned) as `sha256:${string}`
+  });
+  issuedFastTestBatchExecutionPolicies.add(policy);
+  return policy;
+}
+
+export function assertIssuedFastTestBatchExecutionAdmission(
+  admission: FastTestBatchExecutionAdmission
+): void {
+  if (!issuedFastTestBatchExecutionAdmissions.has(admission)) {
+    throw new Error('Fast test batch execution requires an owner-issued admission.');
+  }
+}
+
+export function admitFastTestBatchExecutionPolicy(
+  policy: FastTestBatchExecutionPolicy
+): FastTestBatchExecutionAdmission {
+  if (!issuedFastTestBatchExecutionPolicies.has(policy)) {
+    throw new Error('Fast test batch execution requires an owner-issued policy.');
+  }
+  if (consumedFastTestBatchExecutionPolicies.has(policy)) {
+    throw new Error('Fast test batch execution policy is single-use.');
+  }
+  const admittedAtUnixMs = Date.now();
+  const logicalDeadlineAtUnixMs = admittedAtUnixMs + policy.logicalRunTimeoutMs;
+  const revalidationDeadlineAtUnixMs = admittedAtUnixMs + AFFECTED_SELECTION_OPERATION_DURATION_MS;
+  const childDeadlineAtUnixMs = logicalDeadlineAtUnixMs - policy.settlementMarginMs;
+  if (!Number.isSafeInteger(logicalDeadlineAtUnixMs)
+      || !Number.isSafeInteger(revalidationDeadlineAtUnixMs)
+      || revalidationDeadlineAtUnixMs > childDeadlineAtUnixMs
+      || childDeadlineAtUnixMs <= admittedAtUnixMs) {
+    throw new Error('Fast test batch execution admission deadline is invalid.');
+  }
+  consumedFastTestBatchExecutionPolicies.add(policy);
+  const operationPlan = compileSecSemanticOperationPlan({
+    operation: FAST_TEST_BATCH_EXECUTION_OPERATION,
+    intentDigest: policy.policyDigest as SecOperationDigest,
+    decisionDigest: policy.policyDigest as SecOperationDigest,
+    deadlineAtUnixMs: logicalDeadlineAtUnixMs,
+    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: policy.policyDigest as SecOperationDigest }),
+    aggregateBudgets: [{ resource: 'duration-ms', maximum: policy.logicalRunTimeoutMs }],
+    requirements: [{
+      id: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID,
+      contractDigest: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
+      effectKinds: ['filesystem'],
+      failureKinds: ['provider.deadline-exhausted', 'provider.unavailable', 'provider.unverified']
+    }]
+  });
+  const admission = deepFreeze({
+    policy,
+    admittedAtUnixMs,
+    logicalDeadlineAtUnixMs,
+    revalidationDeadlineAtUnixMs,
+    childDeadlineAtUnixMs,
+    operationPlan
+  });
+  issuedFastTestBatchExecutionAdmissions.add(admission);
+  return admission;
+}
+
+export function bindFastTestBatchExecutionAdmission(
+  admission: FastTestBatchExecutionAdmission,
+  providerBinding: SecCapabilityBinding
+): SecBoundSemanticOperation {
+  assertIssuedFastTestBatchExecutionAdmission(admission);
+  if (boundFastTestBatchExecutionAdmissions.has(admission)) {
+    throw new Error('Fast test batch execution admission was already bound.');
+  }
+  if (providerBinding.requirementId !== RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID
+      || providerBinding.contractDigest !== RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST) {
+    throw new Error('Fast test batch observer provider binding is invalid.');
+  }
+  boundFastTestBatchExecutionAdmissions.add(admission);
+  return bindSecSemanticOperation(admission.operationPlan, [providerBinding]);
+}
 
 export function issueTestSuiteExecutionPolicy(input: Readonly<{
   sourceProjection: IssuedTestImpactProjection;
@@ -224,17 +464,18 @@ export function compileTestInvocationExecutionPolicy(
   supervisorTimeoutMs: number
 ): TestInvocationExecutionPolicy {
   const caseTimeoutMs = explicitBunTestTimeout(args) ?? DEFAULT_TEST_TIMEOUT_MS;
-  positiveSafeInteger(supervisorTimeoutMs, 'Test supervisor timeout');
-  if (supervisorTimeoutMs <= caseTimeoutMs) {
+  const supervisorTimeout = supervisorTimeoutMs;
+  positiveSafeInteger(supervisorTimeout, 'Test supervisor timeout');
+  if (supervisorTimeout <= caseTimeoutMs) {
     throw new Error('Test supervisor timeout must be strictly greater than the Bun case timeout.');
   }
-  if (supervisorTimeoutMs - caseTimeoutMs < TEST_SUPERVISOR_SETTLEMENT_MARGIN_MS) {
+  if (supervisorTimeout - caseTimeoutMs < TEST_SUPERVISOR_SETTLEMENT_MARGIN_MS) {
     throw new Error(
       `Test supervisor timeout must reserve at least ${TEST_SUPERVISOR_SETTLEMENT_MARGIN_MS}ms `
       + 'for child-tree terminal settlement.'
     );
   }
-  return Object.freeze({ caseTimeoutMs, supervisorTimeoutMs });
+  return Object.freeze({ caseTimeoutMs, supervisorTimeoutMs: supervisorTimeout });
 }
 
 export function compileEffectfulTestExecutionPolicy(input: Readonly<{

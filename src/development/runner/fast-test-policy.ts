@@ -135,6 +135,11 @@ export function isDefaultFastTestFile(file: string): boolean {
 
 const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
   {
+    file: 'tests/contract/benchmark-budget.test.ts',
+    reason: 'repeated-repository-compilation-and-process-global-cli-context',
+    resourceClass: 'independent-process'
+  },
+  {
     file: 'tests/contract/repository-audit.test.ts',
     reason: 'process-global-environment',
     resourceClass: 'independent-process'

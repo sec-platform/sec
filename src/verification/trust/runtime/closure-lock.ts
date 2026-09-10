@@ -182,6 +182,7 @@ export const TCB_PROCESS_SAFE_MEMBERS = new Set([
   'execPath',
   'exit',
   'exitCode',
+  'geteuid',
   'kill',
   'once',
   'pid',

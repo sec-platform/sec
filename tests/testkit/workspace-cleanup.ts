@@ -6,7 +6,7 @@ export type WorkspaceDirectoryRemoveOptions = {
   readonly force: true;
 };
 
-export type WorkspaceCleanupSeam = {
+type WorkspaceCleanupSeam = {
   readonly platform: NodeJS.Platform;
   readonly removeDirectory: (
     directory: string,

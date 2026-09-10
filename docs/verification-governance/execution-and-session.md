@@ -198,7 +198,24 @@ effectful-test supervisor绑定 exact Action/child plan、one absolute deadline�
 
 本地 slow suite 的 `logicalRunTimeoutMs` 由 test-budget owner 拥有，表示一次 admission 至观察器 terminal settlement 的总预算；Bun per-case timeout 不得延长它。依赖准备先由既有 dependency owner 完成。执行 compiler 绑定 owner-issued Source Program projection、对应 budget generation、唯一 suite/files、cwd 与 canonical argv；普通 DTO、缓存 WeakSet 或自写 digest 不能签发成员身份或执行权限。令两个 provider capability acquire/binding 前固定的 admission 时刻为 `A`、总预算为 `L`、既有 settlement margin 为 `M`，则 `Dlogical = A + L`、`Dchild = Dlogical - M`；child requirement context 绑定 `Dchild`，observer context 绑定 `Dlogical`，绝对期限参与同一 opaque context 的 digest。retain、observer arm/ready 与后续耗时均只缩短剩余窗口，不能从后续 acquisition 时刻或 ready barrier 重新计时。observer physical owner 先准备 retained roots 与 binding，绑定 operation 后才启动 worker。
 
-同一 semantic operation 由 retained command provider 与 repository observer physical owner 分别绑定 child 与 observer requirements，收齐 bindings 后才能执行；只准一个 Bun child，沿现有 ProcessResourceSession ledger 结算。runner 保留套件准入与预算来源验证；physical observer 只消费既有 foundation 签发的 single-consumer requirement binding context、exact operation 和自身 retained capability，不能反向导入测试策略。prepared observer 只保留物理 roots/binding，不接受 caller deadline；arm 从 operation 的绝对期限与 context 的 duration ceiling 得到剩余窗口。该 bound contract 的时长由已准入 operation 约束，普通命令和未绑定 observer 仍受五分钟上限约束，caller 数字不能扩大权限。slow/full lane 按唯一 suite registry 逐 suite 消费这一入口；exact slow files 无唯一归属、来源未签发、身份漂移、重复消费、过期或取消均在 Effect 前拒绝。不得保留含义模糊的 suite `timeoutMs` alias、全 slow 文件共用无归属 child 或第二执行器。宿主是否 GitHub Actions 不参与本地执行语义。
+上述 slow-suite semantic operation 由 retained command provider 与 repository observer physical owner 分别绑定 child 与 observer requirements，收齐 bindings 后才能执行；只准一个 Bun child，沿现有 ProcessResourceSession ledger 结算。runner 保留套件准入与预算来源验证；physical observer 只消费既有 foundation 签发的 single-consumer requirement binding context、exact operation 和自身 retained capability，不能反向导入测试策略。prepared observer 只保留物理 roots/binding，不接受 caller deadline；arm 从 operation 的绝对期限与 context 的 duration ceiling 得到剩余窗口。该 bound contract 的时长由已准入 operation 约束，普通命令和未绑定 observer 仍受五分钟上限约束，caller 数字不能扩大权限。slow/full lane 按唯一 suite registry 逐 suite 消费这一入口；exact slow files 无唯一归属、来源未签发、身份漂移、重复消费、过期或取消均在 Effect 前拒绝。不得保留含义模糊的 suite `timeoutMs` alias、全 slow 文件共用无归属 child 或第二执行器。宿主是否 GitHub Actions 不参与本地执行语义。
+
+affected selection 的预算只拥有 source acquisition、selection compilation 与 selection readback，不得借给后续测试执行。fast batch 由同一 test-execution-policy owner 消费 exact issued Source Program/TestBudget、canonical argv/cwd 与实际 dispatch DAG；总预算为既有 bounded source revalidation ceiling、每个并发 wave 的最大 child supervisor ceiling 之和，再加入既有 settlement margin。admission 固定一次绝对期限，不从 observer ready 或后续 child 启动重新计时；未知成员、队列、来源或预算不能以 caller 数字补齐。batch observer 先 arm，随后在其连续观察区间内执行最终 source revalidation、既有 child dispatch 与 settlement。revalidation 使用独立签发的有限 operation，不能复用 selection 已结算的 process session 或延长其原 deadline。selection 到 execution 的衔接依赖 exact generation 的重新验证，不能声称未观察的间隙具有连续性。direct fast、affected 与完整检查的 fast lane 消费同一执行 owner；外围 selection 或普通命令 fence 不能继续包住超出其预算的 batch。
+
+```mermaid
+flowchart LR
+  S[Bounded source selection] --> P[Issued exact test plan and budget]
+  P --> A[Fixed batch admission from dispatch DAG]
+  A --> O[Arm retained repository observer]
+  O --> V{Revalidate exact source generation}
+  V -->|current| E[Existing child dispatch and resource queues]
+  V -->|stale or unknown| R[Reject before child Effect]
+  E --> T[Child and resource settlement]
+  T --> F[Observer terminal and one batch outcome]
+  R --> F
+```
+
+fast batch 的实际 dispatch 直接消费已签发 execution waves，不另行按 concurrency 重建队列。logical budget 是整个 batch 的有限总 allowance，不承诺每个 child 用满自己的 ceiling 后仍无条件完成。所有 process-temp、Runtime State/Cache/TMP cleanup 与 authority release 消费同一 `Dlogical`；尾部 margin 是保留窗口，不是每个 cleanup 可重新领取的时长。cleanup 可使用 batch 未消耗的时间，但不能续窗；过期或尚有在途操作时保留未结算资源与 capability，不能把 observer 到期或 Promise 返回当作 cleanup terminal。外层异常清理只补尚未执行的路径，不以相同输入重试已失败的 cleanup。
 
 test invocation retirement 开始后禁止新 generation；子资源清理失败保留其 recovery lease
 及仍有效的 parent physical authority，已结算资源不在重试中重复删除。只有全部子资源与
@@ -207,5 +224,9 @@ lease 结算成功才释放 parent authority。死 owner 接管消费
 的持久恢复身份与确认协议。普通异常测试不证明连续进程退出的恢复；必须验证原
 generation 经再次接管仍可按原身份回收，且 foreign/identity-unknown residue 保留。
 恢复失败不是 terminal。
+
+同一 workspace 的独立 direct invocation 保持并行隔离，各自拥有唯一 invocation identity；不能用 workspace 单例 key 代替资源回收。恢复发现只消费既有 test-process mutation-lease namespace 的有界直接清单，并由 lease owner 签发 dead-owner reclaim；live owner 不受影响。State、Cache 与 TMP 的恢复逐一消费其原始物理身份，不能从目录名推导删除权限。创建后、身份持久发布前中断的 intent-only residue 保持 typed unknown 和原 recovery lease；当前物理创建能力不提供这一窗口的自动回收保证。
+
+原 TMP parent/container 的恢复记录在 State staging 中发布，其字节摘要与 State 物理身份、invocation、lease owner 一起进入最终 generation binding；解析成功或 JSON 内的 owner 字段不能代替该绑定。恢复消费同一份已验证字节，记录改写或未发布保持 unknown。State 持有该恢复记录，因此只能在 TMP、Cache 完成结算后退役；State 缺失也不能证明 TMP 已结算，必须由对应 lease owner 确认。清理扫描与实际退役共用同一次有限期限，并受原 `Dlogical` 收窄；无父操作的通用清理默认窗口不得再次截断已签发的父操作期限。
 
 untrusted package/build/test/provider需要 credential-free sandbox、bounded fs/network/process/resources和cleanup Evidence。temp dir、Node VM、browser context或lint不是恶意代码 sandbox。

@@ -1890,11 +1890,10 @@ test('supersession refuses source-order matching for changed duplicate entrypoin
     baselineFiles: baselineFixture.files,
     currentFiles: currentFixture.files
   });
-  expect(retirement.proofs).toContainEqual(expect.objectContaining({
-    path: 'tests/example-command.test.ts',
-    status: 'blocked',
-    unknownEvidence: expect.arrayContaining(['supersession:replacement-ambiguous'])
-  }));
+  // This module is retained. Its ambiguous replacement remains a Supersession
+  // failure, not an attempted whole-module retirement.
+  expect(retirement.proofs).toEqual([]);
+  expect(ambiguousSupersession.status).toBe('owner-decision-required');
 
   const twoPathBaseline = compileSupersessionSnapshot({
     'tests/first-command.test.ts': [
@@ -1962,14 +1961,17 @@ test('supersession refuses source-order matching for changed duplicate entrypoin
 
 function compileTestRetirementFixture(
   baselineTestSource: string,
-  productionSource = "export const value = 'ok';\n"
+  productionSource = "export const value = 'ok';\n",
+  currentTestSource?: string,
+  currentTestPath = 'tests/obsolete.test.ts'
 ) {
   const baseline = compileSupersessionFixture({
     'src/example/operation.ts': productionSource,
     'tests/obsolete.test.ts': baselineTestSource
   });
   const current = compileSupersessionFixture({
-    'src/example/operation.ts': productionSource
+    'src/example/operation.ts': productionSource,
+    ...(currentTestSource === undefined ? {} : { [currentTestPath]: currentTestSource })
   });
   const baselineTestPaths = ['tests/obsolete.test.ts'];
   const baselineEvidence = compileSourceProgramTestBaselineEvidence({
@@ -2008,8 +2010,108 @@ function compileTestRetirementFixture(
     baselineFiles: baseline.files,
     currentFiles: current.files
   });
-  return Object.freeze({ observedProjection, retirement });
+  return Object.freeze({
+    baseline,
+    current,
+    currentEvidence,
+    currentTests,
+    observedProjection,
+    retirement,
+    supersession
+  });
 }
+
+test('test retirement does not demand deletion of a retained behavior test', () => {
+  const source = "import { expect, test } from 'bun:test';\nimport { value } from '../src/example/operation.ts';\ntest('public value', () => expect(value).toBe('ok'));\n";
+  const fixture = compileTestRetirementFixture(source, undefined, source);
+  const projection = projectSourceProgramTestRetirementDispositions(
+    fixture.observedProjection,
+    fixture.retirement
+  );
+
+  expect(fixture.retirement.baselineTestPathsDigest).toBe(sha256(['tests/obsolete.test.ts']));
+  expect(fixture.retirement.proofs).toEqual([]);
+  expect(projection.dispositions.some(({ disposition }) => disposition === 'delete')).toBe(false);
+});
+
+test('test retirement preserves an exact supersession merge instead of demanding consumer-zero deletion', () => {
+  const production = "export function execute(invalid = false): string { if (invalid) throw new Error('invalid'); return 'ok'; }\n";
+  const baseline = "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', () => expect(execute()).toBe('ok'));\n";
+  const replacement = "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes and rejects invalid input', () => { expect(execute()).toBe('ok'); expect(() => execute(true)).toThrow('invalid'); });\n";
+  const fixture = compileTestRetirementFixture(
+    baseline, production, replacement, 'tests/replacement.test.ts'
+  );
+  const projection = projectSourceProgramTestRetirementDispositions(
+    fixture.observedProjection,
+    fixture.retirement
+  );
+
+  expect(fixture.supersession.status).toBe('superseded');
+  expect(fixture.observedProjection.dispositions).toContainEqual(expect.objectContaining({
+    path: 'tests/obsolete.test.ts', disposition: 'merge'
+  }));
+  expect(fixture.retirement.proofs).toEqual([]);
+  expect(projection.dispositions).toEqual(fixture.observedProjection.dispositions);
+});
+
+test('test retirement rejects a caller-forged Supersession decision', () => {
+  const production = "export function execute(invalid = false): string { if (invalid) throw new Error('invalid'); return 'ok'; }\n";
+  const baseline = "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', () => expect(execute()).toBe('ok'));\n";
+  const replacement = "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes and rejects invalid input', () => { expect(execute()).toBe('ok'); expect(() => execute(true)).toThrow('invalid'); });\n";
+  const fixture = compileTestRetirementFixture(
+    baseline, production, replacement, 'tests/replacement.test.ts'
+  );
+  const canonicalForged = Object.freeze({
+    ...fixture.supersession,
+    replacements: Object.freeze(fixture.supersession.replacements.map((replacementEvidence) =>
+      replacementEvidence.kind === 'test'
+        ? Object.freeze({ ...replacementEvidence, baselineId: sha256('caller-selected-test') })
+        : replacementEvidence))
+  });
+  const { receiptDigest: _receiptDigest, ...forgedWithoutDigest } = canonicalForged;
+  const forged = Object.freeze({
+    ...forgedWithoutDigest,
+    receiptDigest: sha256(forgedWithoutDigest)
+  });
+
+  expect(() => compileSourceProgramTestRetirementReceipt({
+    baseline: fixture.baseline.evidence,
+    current: fixture.currentEvidence,
+    supersession: forged,
+    currentModel: fixture.current.full.model,
+    currentTestCompilation: fixture.currentTests,
+    baselineFiles: fixture.baseline.files,
+    currentFiles: fixture.current.files
+  })).toThrow('exact Supersession decision recomputed from sealed evidence');
+});
+
+test('test retirement rejects a real Supersession receipt from another intent epoch', () => {
+  const fixture = compileTestRetirementFixture('// obsolete module with no observable contract\n');
+  const foreignBaselineEvidence = compileSourceProgramSupersessionEvidence({
+    ...fixture.baseline.full,
+    intentEvidence: Object.freeze([]),
+    identity: fixture.baseline.identity
+  });
+  const foreignCurrentEvidence = compileSourceProgramSupersessionEvidence({
+    ...fixture.current.full,
+    intentEvidence: Object.freeze([]),
+    identity: fixture.current.identity
+  });
+  const foreignReceipt = compileSourceProgramSupersessionReceipt({
+    baseline: foreignBaselineEvidence,
+    current: foreignCurrentEvidence
+  });
+
+  expect(() => compileSourceProgramTestRetirementReceipt({
+    baseline: fixture.baseline.evidence,
+    current: fixture.currentEvidence,
+    supersession: foreignReceipt,
+    currentModel: fixture.current.full.model,
+    currentTestCompilation: fixture.currentTests,
+    baselineFiles: fixture.baseline.files,
+    currentFiles: fixture.current.files
+  })).toThrow('sealed baseline/current Source Program evidence: supersession-receipt');
+});
 
 test('test retirement derives DELETE only from one compiler-issued consumer-zero receipt', () => {
   const fixture = compileTestRetirementFixture('// obsolete module with no observable contract\n');

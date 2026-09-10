@@ -40,6 +40,7 @@ import {
   isCompiledRepositorySourceProgramModel
 } from './repository.ts';
 import {
+  reconcileSourceProgramTestValueWithSupersession,
   type SourceProgramTestDisposition,
   type SourceProgramTestDispositionProjection,
   type SourceProgramTestRegistration,
@@ -1560,7 +1561,6 @@ export function compileSourceProgramSupersessionReceipt(
 }
 
 export type SourceProgramTestRetirementBlockReason =
-  | 'candidate-test-module-still-present'
   | 'consumer-closure-not-empty'
   | 'observation-obligation-not-empty'
   | 'source-evidence-unresolved';
@@ -1627,9 +1627,11 @@ function supersessionReceiptBindsEvidence(
     && receipt.baseline.sourceRevision === baseline.identity.sourceRevision
     && receipt.baseline.modelDigest === baseline.source.modelDigest
     && receipt.baseline.testCompilationDigest === baseline.source.testCompilationDigest
+    && receipt.baseline.intentEvidenceDigest === baseline.source.intentEvidenceDigest
     && receipt.current.sourceRevision === current.identity.sourceRevision
     && receipt.current.modelDigest === current.source.modelDigest
-    && receipt.current.testCompilationDigest === current.source.testCompilationDigest;
+    && receipt.current.testCompilationDigest === current.source.testCompilationDigest
+    && receipt.current.intentEvidenceDigest === current.source.intentEvidenceDigest;
 }
 
 function sourceProgramTestPathConsumerIndex(
@@ -1678,6 +1680,8 @@ function sourceProgramTestPathConsumerIndex(
  * syntactic zero census is necessary but never sufficient: the canonical
  * model, registration observations, supersession receipt, exact bytes and all
  * unknown frontiers must also close before one per-path proof is retired.
+ * Only removed baseline modules require retirement; retained registrations
+ * remain subject to Test Value and Supersession rather than a deletion proof.
  */
 export function compileSourceProgramTestRetirementReceipt(
   input: CompileSourceProgramTestRetirementReceiptInput
@@ -1709,6 +1713,16 @@ export function compileSourceProgramTestRetirementReceipt(
       `Test retirement requires sealed baseline/current Source Program evidence: ${sealFailures.join(', ')}`
     );
   }
+  const expectedSupersession = compileSourceProgramSupersessionReceipt({
+    baseline: input.baseline,
+    current: input.current,
+    operation
+  });
+  if (expectedSupersession.receiptDigest !== input.supersession.receiptDigest) {
+    throw new Error(
+      'Test retirement requires the exact Supersession decision recomputed from sealed evidence'
+    );
+  }
   const baselineTestPaths = Object.freeze(input.baselineFiles
     .map(({ path }) => path)
     .filter(isSecRepositoryTestModulePath)
@@ -1719,6 +1733,16 @@ export function compileSourceProgramTestRetirementReceipt(
   const currentTestPaths = new Set(input.currentFiles
     .map(({ path }) => path)
     .filter(isSecRepositoryTestModulePath));
+  const supersessionDisposition = reconcileSourceProgramTestValueWithSupersession(
+    input.currentTestCompilation,
+    input.supersession
+  );
+  const mergedTestPaths = new Set(supersessionDisposition.dispositions
+    .filter(({ disposition, evidence }) => disposition === 'merge'
+      && evidence.supersession?.receiptDigest === input.supersession.receiptDigest)
+    .map(({ path }) => path));
+  const removedTestPaths = baselineTestPaths.filter((testPath) =>
+    !currentTestPaths.has(testPath) && !mergedTestPaths.has(testPath));
   const knownPaths = new Set([
     ...input.baselineFiles.map(({ path }) => path),
     ...input.currentFiles.map(({ path }) => path)
@@ -1749,11 +1773,11 @@ export function compileSourceProgramTestRetirementReceipt(
     : Object.freeze([] as string[]);
   const modelConsumersByTestPath = sourceProgramTestPathConsumerIndex(
     input.currentModel,
-    baselineTestPaths,
+    removedTestPaths,
     knownPaths,
     operation
   );
-  const proofs = baselineTestPaths.map((testPath) => {
+  const proofs = removedTestPaths.map((testPath) => {
     sourceProgramCompilationCheckpoint(operation, 'test-retirement');
     const census = censusByPath.get(testPath) ?? Object.freeze({
       producerCount: 0,
@@ -1786,9 +1810,7 @@ export function compileSourceProgramTestRetirementReceipt(
     const censusIsZero = census.producerCount === 0
       && census.consumerCount === 0
       && census.externalContractCount === 0;
-    const reason: SourceProgramTestRetirementBlockReason | null = currentTestPaths.has(testPath)
-      ? 'candidate-test-module-still-present'
-      : !censusIsZero || consumerEvidence.length > 0
+    const reason: SourceProgramTestRetirementBlockReason | null = !censusIsZero || consumerEvidence.length > 0
         ? 'consumer-closure-not-empty'
         : observationClasses.length > 0
           ? 'observation-obligation-not-empty'

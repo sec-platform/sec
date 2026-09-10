@@ -9,7 +9,7 @@ export const JSON_OUTPUT_OPTIONS = Object.freeze([
     defaultValue: false, requires: Object.freeze(['json'] as const) })
 ] as const);
 
-export type JsonOutputOptionName = (typeof JSON_OUTPUT_OPTIONS)[number]['name'];
+type JsonOutputOptionName = (typeof JSON_OUTPUT_OPTIONS)[number]['name'];
 export type JsonOutputOptions = Readonly<Record<JsonOutputOptionName, boolean>>;
 export type JsonOutputIssue = Readonly<{
   kind: 'invalid-boolean' | 'missing-dependency';

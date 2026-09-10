@@ -19,11 +19,12 @@ export type WindowsHostDirectoryAclProof = Readonly<{
 }>;
 
 export type WindowsHostDirectoryAclProbe = (
-  directoryPath: string
+  directoryPath: string,
+  input?: Readonly<{ deadlineAtMs?: number }>
 ) => Promise<WindowsHostDirectoryAclProof>;
 
 export type WindowsHostDirectoryAuthority = Readonly<{
-  assertCurrent: () => Promise<void>;
+  assertCurrent: (input?: Readonly<{ deadlineAtMs?: number }>) => Promise<void>;
   release: () => Promise<void>;
   rootPath: string;
 }>;
@@ -1242,7 +1243,7 @@ async function proveWindowsHostDirectoryAuthority(
   return Object.freeze({
     rootPath: physical.rootPath,
     release: releaseOnce,
-    assertCurrent: async () => {
+    assertCurrent: async (input?: Readonly<{ deadlineAtMs?: number }>) => {
       if (released) {
         throw authorityError(
           'session-closed',
@@ -1251,7 +1252,7 @@ async function proveWindowsHostDirectoryAuthority(
       }
       try {
         const currentPhysical = await physicalWindowsDirectory(physical.rootPath);
-        const currentAcl = await aclProbe(physical.rootPath);
+        const currentAcl = await aclProbe(physical.rootPath, input);
         const currentPhysicalAfterAcl = await physicalWindowsDirectory(physical.rootPath);
         if (!sameDirectoryIdentity(currentPhysical.identity, physical.identity) ||
           !sameDirectoryIdentity(currentPhysicalAfterAcl.identity, physical.identity) ||
@@ -1264,6 +1265,10 @@ async function proveWindowsHostDirectoryAuthority(
           );
         }
       } catch (error) {
+        if (error instanceof WindowsHostDirectoryAuthorityError
+            && (error.failure === 'deadline-exhausted' || error.failure === 'aborted')) {
+          throw error;
+        }
         await releaseOnce();
         if (error instanceof WindowsHostDirectoryAuthorityError) throw error;
         throw authorityError('physical-identity-changed',
@@ -1594,8 +1599,13 @@ export async function hardenExistingWindowsHostDirectoryAuthority(
     }
     return await proveWindowsHostDirectoryAuthority(
       hardened.rootPath,
-      async (targetPath) => session.prove(targetPath, Object.freeze({
-        deadlineAtMonotonicMs: performance.now() + WINDOWS_ACL_PROOF_TIMEOUT_MS,
+      async (targetPath, probeInput) => session.prove(targetPath, Object.freeze({
+        deadlineAtMonotonicMs: performance.now() + Math.max(0, Math.min(
+          WINDOWS_ACL_PROOF_TIMEOUT_MS,
+          probeInput?.deadlineAtMs === undefined
+            ? WINDOWS_ACL_PROOF_TIMEOUT_MS
+            : probeInput.deadlineAtMs - Date.now()
+        )),
         signal: options.signal
       })),
       initialAcl,

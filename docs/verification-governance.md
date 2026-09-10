@@ -120,6 +120,17 @@ flowchart LR
   B[Tracked baseline evidence] --> V[Test Value compiler]
   T --> V
   V --> D{keep / rewrite / merge / delete / unknown}
+  E[Sealed baseline/current source + intent evidence] --> R[Canonical Supersession decision]
+  R --> D
+  E --> A{Baseline module absent in current?}
+  A -->|retained| V
+  A -->|absent| M{Exact Supersession replacement?}
+  R --> M
+  M -->|proved| D
+  M -->|none| C[Consumer/external/observation/unknown census]
+  C -->|closed| P[Compiler-issued retirement proof]
+  C -->|unclosed| U[Blocked retirement]
+  P --> D
   D --> I[Test-impact + Verification plan]
 ```
 
@@ -134,6 +145,10 @@ Test Value 不重解析 source、不签发 production behavior/Effect/owner。�
 | unknown | any missing observation/owner/external/future obligation; blocks destructive deletion |
 
 `AssertionDominance(B,A)` requires B to cover A’s Claim、subject、input/counterexample space、Effect/readback、failure、environment and applicability at no worse required cost. Similar title/path/code is irrelevant.
+
+consumer-zero 整文件退役 proof 的适用集合由同一 sealed baseline/current 文件事实派生，只包含基线存在而当前已移除、且尚无 exact Supersession 替代 disposition 的测试模块；仍保留或已被证明合并覆盖的模块不需要再证明 consumer-zero 退役，也不能因此产生退役阻塞。完整基线身份仍必须绑定 receipt。保留文件中的注册删除、改写或合并继续由 Test Value 与 Supersession 校验，不能通过保留空壳文件绕过观察义务；真正移除且无替代的模块仍须闭合 consumer、外部合同、观察与 unknown，才能签发退役证明。
+
+退役签发前必须从 sealed baseline/current evidence 重算并核对 canonical Supersession decision，绑定两侧 source、model、test compilation 与 intent evidence；可重算的摘要或 caller 提供的 disposition 只表示数据，不能豁免退役义务。替代判断不符时拒绝签发，回到同一 evidence owner 重新编译。
 
 ### 3.4 全仓 test audit
 

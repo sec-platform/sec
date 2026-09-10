@@ -8,7 +8,7 @@ export function entity(id: string, kind: SemanticEntityKind, label = id): Semant
   return { id, kind, label, attributes: [] };
 }
 
-export function assertion(id = 'assertion:0', confidence = 0.75): FactAssertion {
+function assertion(id = 'assertion:0', confidence = 0.75): FactAssertion {
   return {
     id, authority: 'authoritative', confidence,
     provenance: [{ kind: 'contract', sourceId: 'fixture' }],

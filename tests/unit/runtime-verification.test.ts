@@ -6,8 +6,30 @@ import { expect, test } from 'bun:test';
 import {
   createSkippedRuntimeLane,
   normalizeRuntimeVerificationLog,
+  runRuntimeVerification,
   runtimeVerificationInvocation
 } from '../../src/compiler/verify/run-runtime-verification.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
+
+test('runtime verification skips empty inventory without preparing dependencies or launching a process', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const report = await runRuntimeVerification(workspaceRoot, 'full', {
+      beforeCommit: () => {
+        throw new Error('Empty runtime inventory must not prepare dependencies');
+      },
+      commandRunnerForTests: async () => {
+        throw new Error('Empty runtime inventory must not launch a process');
+      }
+    });
+    expect(report).toEqual({
+      status: 'passed',
+      build: { status: 'skipped', passed: [], failed: [], command: null },
+      unit: { status: 'skipped', passed: [], failed: [], command: null },
+      acceptance: { status: 'skipped', passed: [], failed: [], command: null },
+      logs: { stdout: '', stderr: '' }
+    });
+  }, 'runtime-empty-inventory-');
+});
 
 test('runtime verification contract invokes only the generated unit suite', () => {
   expect(runtimeVerificationInvocation(path.resolve('project'))).toEqual({

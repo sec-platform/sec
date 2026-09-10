@@ -4,13 +4,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
-  DEV_COMMAND_MAX_DURATION_MS,
-  DEV_COMMAND_MAX_STDIN_BYTES,
   DEV_COMMAND_OUTPUT_TAIL_MAX_BYTES,
   boundedUtf8TextTail,
   devCommandObservationExitCode,
   runDevCommand
 } from '../../src/development/runner/command-runner.ts';
+import { DEV_COMMAND_MAX_DURATION_MS, DEV_COMMAND_MAX_STDIN_BYTES } from '../../src/development/runner/contract.ts';
 import { compilerRoot } from '../../src/workspace/runtime/paths.ts';
 
 let originalStdoutWrite: typeof process.stdout.write;

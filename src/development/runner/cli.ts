@@ -4,7 +4,6 @@ import { compileSecOperationDemandGraph } from '../../control/operation/demand.t
 import type { ProcessResourceSession } from '../../runtime-state/physical/runtime/process-resource-session.ts';
 import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
 import { WORKSPACE_TRANSITION_DEADLINE_ENV } from '../workspace-transition/contract.ts';
-import { DEV_COMMAND_MAX_DURATION_MS } from './command-input.ts';
 import { requireCommandExitCode } from './command-outcome.ts';
 import { DEV_RUNNER_ENTRYPOINT_PATH } from './contract.ts';
 import {
@@ -167,20 +166,8 @@ async function runStandaloneRepositoryZeroWriteCommand(
   commandId: string,
   operation: () => Promise<number>
 ): Promise<number> {
-  const { compileRepositoryObservationOperation } = await import('./repository-observation.ts');
-  return runRepositoryZeroWriteCommand(
-    commandId,
-    operation,
-    compileRepositoryObservationOperation(),
-    {
-      // Standalone commands own their provider process budgets inside the
-      // callback. Root discovery settles its short Git ledger before the
-      // native observer begins, so slow lanes retain their canonical managed
-      // command window without borrowing a second operation.
-      observerDeadlineAtUnixMs: Date.now() + DEV_COMMAND_MAX_DURATION_MS,
-      retainProcessSession: false
-    }
-  );
+  const { runStandaloneRepositoryZeroWriteOperation } = await import('./repository-mutation-fence.ts');
+  return runStandaloneRepositoryZeroWriteOperation(commandId, operation);
 }
 
 function parseImportOperationArgs(
@@ -310,12 +297,10 @@ async function main(): Promise<void> {
         const operation = compileAffectedTestSelectionSemanticOperation({
           purpose: 'check-affected'
         });
-        return runRepositoryZeroWriteCommand('check:affected', (processSession) =>
-          runLocalAffectedCheck([], {
-            operation,
-            processSession,
-            prepareCompilerDependencies: async () => reuseOperationDependencies(dependencies, demand)
-          }), operation);
+        return runLocalAffectedCheck([], {
+          operation,
+          prepareCompilerDependencies: async () => reuseOperationDependencies(dependencies, demand)
+        });
       }
     });
     return;
@@ -331,10 +316,9 @@ async function main(): Promise<void> {
       return;
     }
     const { runFastCheck } = await import('./check-runner.ts');
-    process.exitCode = await runStandaloneRepositoryZeroWriteCommand('check:fast', () =>
-      runFastCheck({
-        prepareCompilerDependencies: async () => reuseOperationDependencies(dependencies, demand)
-      }));
+    process.exitCode = await runFastCheck({
+      prepareCompilerDependencies: async () => reuseOperationDependencies(dependencies, demand)
+    });
     return;
   }
 
@@ -381,15 +365,11 @@ async function main(): Promise<void> {
       );
       return;
     }
-    process.exitCode = await runRepositoryZeroWriteCommand('test:affected', (processSession) =>
-      withHeavyVerificationGateLease(
-        'test:affected',
-        () => runAffectedTests(issueCheckAffectedTestImpactProjection, args, {
-          operation,
-          processSession
-        }),
-        { namespace: 'test:affected', waitTimeoutMs: 5000 }
-      ), operation);
+    process.exitCode = await withHeavyVerificationGateLease(
+      'test:affected',
+      () => runAffectedTests(issueCheckAffectedTestImpactProjection, args, { operation }),
+      { namespace: 'test:affected', waitTimeoutMs: 5000 }
+    );
     return;
   }
 
@@ -552,24 +532,19 @@ async function main(): Promise<void> {
     return;
   }
   if ((target === 'test' || target === 'test:full') && isSelectorlessTestRunnerSelection(args)) {
-    const fastCode = await runStandaloneRepositoryZeroWriteCommand(
-      `${target}:fast`,
-      () => runTests(args, { omitSlowSuites: true })
-    );
+    const fastCode = await runTests(args, { omitSlowSuites: true });
     process.exitCode = fastCode === 0 ? await runPreparedSlowSuites(args) : fastCode;
     return;
   }
-  process.exitCode = await runStandaloneRepositoryZeroWriteCommand(target, () => (
-    target === 'contract-freeze'
-      ? runContractFreeze()
-      : target === 'test' || target === 'test:full'
-        ? runTests(args)
-        : target === 'test:fast'
-            ? runFastTests(args)
-            : target === 'test:slow'
-              ? runSlowTests(args)
-              : usage()
-  ));
+  process.exitCode = target === 'contract-freeze'
+    ? await runStandaloneRepositoryZeroWriteCommand(target, () => runContractFreeze())
+    : target === 'test' || target === 'test:full'
+      ? await runTests(args)
+      : target === 'test:fast'
+        ? await runFastTests(args)
+        : target === 'test:slow'
+          ? await runSlowTests(args)
+          : usage();
 }
 
 if (import.meta.main) await main();

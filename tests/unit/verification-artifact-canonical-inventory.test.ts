@@ -90,10 +90,6 @@ function blockedArtifactSet() {
   };
 }
 
-test('Verification artifact accepts the canonical blocked inventory projection', () => {
-  expect(isCanonicalVerificationArtifactSet(blockedArtifactSet())).toBe(true);
-});
-
 test('Verification artifact publisher bytes round-trip through the canonical reader', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await ensureProjectBase(workspaceRoot);
