@@ -25,7 +25,7 @@ import {
   ensureCompilerDepsReady
 } from '../runtime/project-runtime.ts';
 
-export interface CompilerDependencyFixturePackage {
+interface CompilerDependencyFixturePackage {
   readonly dependencies?: Readonly<Record<string, string>>;
   readonly main?: string;
   readonly name: string;

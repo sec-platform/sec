@@ -1816,36 +1816,6 @@ async function executeTypecheckWithRetainedProvider(
 }
 
 /**
- * Startup entry for a caller that retained the compiler generation before
- * importing this module. The runner takes ownership of the capability and
- * keeps it live through TypeScript module loading, Source Program observation,
- * checker execution, readback and terminal cleanup.
- */
-export async function runTypecheckWithRetainedDependencyGeneration(
-  dependencies: TypecheckDependencyAdmission,
-  dependencyGeneration: RetainedTypeScriptCompilerDependencyGeneration,
-  args: string[] = [],
-  options: TypecheckOperationOptions = {}
-): Promise<number> {
-  const operation = issueTypecheckOperationContext(options);
-  let transferred = false;
-  try {
-    dependencyGeneration.physicalGeneration.assertCurrent();
-    await dependencyGeneration.physicalGeneration.assertAuthorityCurrent();
-    transferred = true;
-    return executeTypecheckWithRetainedProvider(
-      materializedTypecheckDependencyIdentity(dependencies),
-      dependencyGeneration,
-      null,
-      args,
-      operation
-    );
-  } finally {
-    if (!transferred) await dependencyGeneration.retire();
-  }
-}
-
-/**
  * Canonical CLI path. The opaque dependency generation identity participates
  * in ProjectInput and Action admission; physical retention and checker
  * selection occur only inside the winning VerificationAction executor.

@@ -650,48 +650,6 @@ async function gitChangedFiles(
   }
 }
 
-export async function issueCurrentTestImpactSourceProvider(): Promise<CodexDevelopmentTestImpactSourceProvider> {
-  const operation = compileAffectedTestSelectionSemanticOperation({
-    purpose: 'budget-projection'
-  });
-  const deadlineAtUnixMs = operation.plan.attempt.deadlineAtUnixMs;
-  const resolution = createAuthorityGitReadSession({
-    cwd: compilerRoot,
-    operation,
-    budget: GIT_READ_OPERATION_BUDGET,
-    deadlineAtUnixMs
-  });
-  if (resolution.status !== 'ready') {
-    throw new Error(`Test budget source snapshot is unavailable: ${resolution.kind}`);
-  }
-  const session = resolution.session;
-  const dependencyResolution = await observeOperationDependencyReadGeneration({
-    deadlineAtUnixMs
-  });
-  if (dependencyResolution.status !== 'ready') {
-    await session.close?.();
-    throw new Error(`Test budget dependency generation is unavailable: ${dependencyResolution.reason}`);
-  }
-  try {
-    const observation = await issueCheckAffectedTestImpactProjection({
-      compilationOperation: createSourceProgramCompilationOperation({
-        deadlineAtUnixMs: affectedSelectionSourceCompilationDeadlineAtUnixMs(operation)
-      }),
-      dependencyGeneration: dependencyResolution.generation,
-      repositoryRoot: compilerRoot,
-      session
-    });
-    return createRepositoryTestImpactSourceProvider({
-      projection: observation.projection,
-      testInventory: observation.testInventory,
-      activeDocumentationPaths: currentActiveDocumentationPaths()
-    });
-  } finally {
-    await dependencyResolution.generation.retire();
-    await session.close?.();
-  }
-}
-
 export async function issueCurrentTestBudgetProjection(): Promise<TestBudgetProjection> {
   return (await issueCurrentTestBudgetExecutionSource()).budgetProjection;
 }

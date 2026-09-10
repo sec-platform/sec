@@ -13,26 +13,16 @@ import * as dependencyRuntime from '../runtime/project-runtime.ts';
 export * from '../runtime.ts';
 export {
   assertCompilerDependencyEnvironmentRetirementReceipt,
-  disposeCanonicalSharedDependencies,
   disposeCompilerDependencyEnvironment,
-  readRuntimeDepsStamp,
-  writeRuntimeDepsStamp
+  readRuntimeDepsStamp
 } from '../runtime/project-runtime.ts';
 export type {
-  CompilerDependencyEnvironmentRetirementReceipt,
-  RuntimeDepsStamp
+  CompilerDependencyEnvironmentRetirementReceipt
 } from '../runtime/project-runtime.ts';
 export {
   issueCompilerDependencyFixtureOperation,
-  rematerializeCompilerDependencyFixtureOperation,
   retireCompilerDependencyFixtureOperation,
   settleCompilerDependencyFixtureOperation
-} from './compiler-dependency-fixture.ts';
-export type {
-  CompilerDependencyFixtureDescriptor,
-  CompilerDependencyFixtureOperation,
-  CompilerDependencyFixturePackage,
-  CompilerDependencyFixtureReadyState
 } from './compiler-dependency-fixture.ts';
 
 type TestMaterializationRunner = (
