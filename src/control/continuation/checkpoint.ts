@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { z } from 'zod';
 
 import { encodeVerificationActionData } from '../../verification/action/contract/action.ts';
 
@@ -85,79 +86,46 @@ function hash(value: unknown): LocalContinuationDigest {
     .digest('hex')}`;
 }
 
-function exact(value: unknown, keys: readonly string[], label: string): Record<string, unknown> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    fail(`${label} must be one object.`);
-  }
-  const record = value as Record<string, unknown>;
-  const actual = Object.keys(record).sort();
-  const expected = [...keys].sort();
-  if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
-    fail(`${label} must contain exactly: ${expected.join(', ')}.`);
-  }
-  return record;
-}
-
-function text(value: unknown, label: string): string {
-  if (typeof value !== 'string' || value.length === 0 || value.length > 512
-    || value.trim() !== value || /[\u0000-\u001f\u007f]/u.test(value)) {
-    fail(`${label} must be bounded canonical text.`);
-  }
-  return value;
-}
-
-function sha(value: unknown, label: string): string {
-  const result = text(value, label);
-  if (!/^[0-9a-f]{40}$/u.test(result)) fail(`${label} must be a lowercase Git SHA.`);
-  return result;
-}
-
-function repository(value: unknown): string {
-  const result = text(value, 'repository');
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/u.test(result)) {
-    fail('repository must be owner/name.');
-  }
-  return result;
-}
-
-function branch(value: unknown): string {
-  const result = text(value, 'branch');
+const canonicalText = z.string().min(1).max(512).refine(
+  value => value.trim() === value && !/[\u0000-\u001f\u007f]/u.test(value),
+  'must be bounded canonical text.'
+);
+const gitSha = canonicalText.regex(/^[0-9a-f]{40}$/u, 'must be a lowercase Git SHA.');
+const canonicalBranch = canonicalText.refine(result => {
   const segments = result.split('/');
-  if (result === '@' || result.startsWith('/') || result.endsWith('/') || result.endsWith('.')
+  return !(result === '@' || result.startsWith('/') || result.endsWith('/') || result.endsWith('.')
     || result.includes('..') || result.includes('@{') || result.includes('\\')
     || /[ ~^:?*\[]/u.test(result) || result.includes('//')
-    || segments.some((segment) => segment.length === 0 || segment.startsWith('.') || segment.endsWith('.lock'))) {
-    fail('branch is not a canonical Git branch name.');
-  }
-  return result;
-}
+    || segments.some((segment) => segment.length === 0 || segment.startsWith('.') || segment.endsWith('.lock')));
+}, 'branch is not a canonical Git branch name.');
 
-function positiveInteger(value: unknown, label: string): number {
-  if (!Number.isSafeInteger(value) || (value as number) < 1) fail(`${label} must be positive.`);
-  return value as number;
-}
-
-function manifestPath(value: unknown): string {
-  const result = text(value, 'manifestPath');
-  if (!/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(result)) {
-    fail('manifestPath is not canonical.');
-  }
-  return result;
-}
+const checkpointInput = z.object({
+  repository: canonicalText.regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/u,
+    'repository must be owner/name.'),
+  prNumber: z.int().positive(),
+  branch: canonicalBranch,
+  baseSha: gitSha,
+  baseTreeSha: gitSha,
+  headSha: gitSha,
+  headTreeSha: gitSha,
+  manifestPath: canonicalText.regex(/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u,
+    'manifestPath is not canonical.')
+});
+const checkpointEnvelope = checkpointInput.extend({
+  schema: z.literal(LOCAL_CONTINUATION_CHECKPOINT_SCHEMA),
+  checkpointDigest: z.string()
+}).strict();
 
 export function createLocalContinuationCheckpoint(
   input: LocalContinuationCheckpointInput
 ): LocalContinuationCheckpoint {
+  return sealCheckpoint(checkpointInput.parse(input));
+}
+
+function sealCheckpoint(input: LocalContinuationCheckpointInput): LocalContinuationCheckpoint {
   const semantic = Object.freeze({
     schema: LOCAL_CONTINUATION_CHECKPOINT_SCHEMA,
-    repository: repository(input.repository),
-    prNumber: positiveInteger(input.prNumber, 'prNumber'),
-    branch: branch(input.branch),
-    baseSha: sha(input.baseSha, 'baseSha'),
-    baseTreeSha: sha(input.baseTreeSha, 'baseTreeSha'),
-    headSha: sha(input.headSha, 'headSha'),
-    headTreeSha: sha(input.headTreeSha, 'headTreeSha'),
-    manifestPath: manifestPath(input.manifestPath)
+    ...input
   });
   if (semantic.headSha === semantic.baseSha) {
     fail('headSha must differ from baseSha for one active handoff candidate.');
@@ -172,15 +140,9 @@ export function parseLocalContinuationCheckpoint(source: string): LocalContinuat
   } catch (error) {
     throw new Error('LocalContinuation checkpoint is not JSON.', { cause: error });
   }
-  const value = exact(parsed, [
-    'schema', 'repository', 'prNumber', 'branch', 'baseSha', 'baseTreeSha', 'headSha', 'headTreeSha',
-    'manifestPath', 'checkpointDigest'
-  ], 'checkpoint');
-  if (value.schema !== LOCAL_CONTINUATION_CHECKPOINT_SCHEMA) fail('checkpoint schema mismatch.');
+  const value = checkpointEnvelope.parse(parsed);
   const { schema: _schema, checkpointDigest: _checkpointDigest, ...input } = value;
-  const checkpoint = createLocalContinuationCheckpoint(
-    input as unknown as LocalContinuationCheckpointInput
-  );
+  const checkpoint = sealCheckpoint(input);
   if (checkpoint.checkpointDigest !== value.checkpointDigest) fail('checkpoint digest mismatch.');
   return checkpoint;
 }
