@@ -36,7 +36,7 @@ import {
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 const COMMIT_SHA = /^[0-9a-f]{40,64}$/u;
 const PURPOSE = 'test-impact-selection' as const;
-const SCHEMA = 'sec-source-program-test-impact-projection-v4' as const;
+const SCHEMA = 'sec-source-program-test-impact-projection-v5' as const;
 
 const digestSchema = z.string().regex(DIGEST);
 const repositoryPathSchema = z.string().min(1).refine(
@@ -81,6 +81,10 @@ const fileSchema = z.object({
   path: repositoryPathSchema,
   moduleId: z.string().min(1).nullable(),
   surface: z.enum(['production', 'test', 'fixture', 'workflow', 'resource'])
+}).strict();
+const moduleOwnerSchema = z.object({
+  moduleId: z.string().min(1),
+  root: repositoryPathSchema
 }).strict();
 const moduleReferenceSchema = z.object({
   from: repositoryPathSchema,
@@ -129,6 +133,7 @@ const projectionUnsignedSchema = z.object({
   repositoryModelDigest: digestSchema,
   testObservationDigest: digestSchema,
   files: z.array(fileSchema),
+  moduleOwners: z.array(moduleOwnerSchema),
   entrypoints: z.array(entrypointSchema),
   observedTestConsumers: z.array(observedTestConsumerSchema),
   declarationPaths: z.array(repositoryPathSchema),
@@ -196,6 +201,21 @@ function assertUniqueSorted(values: readonly string[], label: string): void {
 
 function validateCanonicalProjection(value: TestImpactProjectionReceipt): void {
   assertUniqueSorted(value.files.map((file) => file.path), 'Test impact projection files');
+  assertUniqueSorted(
+    value.moduleOwners.map(({ root, moduleId }) => `${root}\0${moduleId}`),
+    'Test impact projection module owners'
+  );
+  const moduleOwnerIds = value.moduleOwners.map(({ moduleId }) => moduleId);
+  if (new Set(moduleOwnerIds).size !== moduleOwnerIds.length) {
+    throw new Error('Test impact projection module owner ids must be unique');
+  }
+  const moduleOwnerIdSet = new Set(moduleOwnerIds);
+  const unknownModuleOwner = value.files.find(({ moduleId }) => (
+    moduleId !== null && !moduleOwnerIdSet.has(moduleId)
+  ));
+  if (unknownModuleOwner !== undefined) {
+    throw new Error(`Test impact projection file has an unknown module owner: ${unknownModuleOwner.path}`);
+  }
   assertUniqueSorted(
     value.entrypoints.map(({ path: entrypointPath, kind }) => `${entrypointPath}\0${kind}`),
     'Test impact projection entrypoints'
@@ -334,6 +354,15 @@ function compileTestImpactProjection(input: Readonly<{
     files: repositoryModel.files
       .map(({ path, moduleId, surface }) => ({ path, moduleId, surface }))
       .sort((left, right) => compareCodeUnits(left.path, right.path)),
+    moduleOwners: workspaceSnapshot.moduleMembership.descriptors
+      .map(({ moduleId, root }) => ({
+        moduleId,
+        root: normalizeSecRepositoryPath(root)
+      }))
+      .sort((left, right) => compareCodeUnits(
+        `${left.root}\0${left.moduleId}`,
+        `${right.root}\0${right.moduleId}`
+      )),
     entrypoints: [...new Map(repositoryModel.entrypoints.map(({ path: entrypointPath, targetPaths, kind }) => [
       `${entrypointPath}\0${kind}`,
       Object.freeze({

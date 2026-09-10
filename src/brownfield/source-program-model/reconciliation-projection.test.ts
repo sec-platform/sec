@@ -187,6 +187,158 @@ test('declaration rename, move, and re-export changes are derived from owner rel
   expect(architectureEvolution(before, before).status).toBe('no-change');
 });
 
+test('export visibility retirement admits only an exact closed internal frontier', () => {
+  const beforeInternal = compileFixture({
+    'src/example/service.ts': [
+      'export function helper(): string { return \'ok\'; }',
+      'export function run(): string { return helper(); }',
+      ''
+    ].join('\n')
+  }, [{ root: 'src/example', source: {} }]);
+  const afterInternal = compileFixture({
+    'src/example/service.ts': [
+      'function helper(): string { return \'ok\'; }',
+      'export function run(): string { return helper(); }',
+      ''
+    ].join('\n')
+  }, [{ root: 'src/example', source: {} }]);
+  const internal = reconcile(beforeInternal, afterInternal);
+  expect(internal.changes).toContainEqual(expect.objectContaining({
+    kind: 'modified',
+    before: expect.objectContaining({ name: 'helper', exported: true }),
+    after: expect.objectContaining({ name: 'helper', exported: false }),
+    beforeConsumerPaths: ['src/example/service.ts'],
+    afterConsumerPaths: ['src/example/service.ts']
+  }));
+  expect(internal.unresolvedReasons).toEqual([]);
+
+  const beforeConsumer = compileFixture({
+    'src/example/service.ts': 'export function helper(): string { return \'ok\'; }\n',
+    'src/consumer/use.ts': "import { helper } from '../example/service.ts';\nexport const value = helper();\n"
+  }, [
+    { root: 'src/example', source: {} },
+    { root: 'src/consumer', source: {} }
+  ]);
+  const afterConsumer = compileFixture({
+    'src/example/service.ts': 'function helper(): string { return \'ok\'; }\n'
+  }, [{ root: 'src/example', source: {} }]);
+  expect(reconcile(beforeConsumer, afterConsumer).unresolvedReasons).toContainEqual(
+    expect.objectContaining({ code: 'retirement-unresolved', subject: 'helper' })
+  );
+
+  const publicDescriptor = {
+    root: 'src/example',
+    source: { externalEntrypoints: ['src/example/service.ts'] }
+  };
+  const beforePublic = compileFixture({
+    'src/example/service.ts': 'export function helper(): string { return \'ok\'; }\n'
+  }, [publicDescriptor]);
+  const afterPublic = compileFixture({
+    'src/example/service.ts': 'function helper(): string { return \'ok\'; }\n'
+  }, [publicDescriptor]);
+  expect(reconcile(beforePublic, afterPublic).unresolvedReasons).toContainEqual(
+    expect.objectContaining({ code: 'retirement-unresolved', subject: 'helper' })
+  );
+
+  const unresolved = Object.freeze({
+    code: 'dynamic-module-unresolved',
+    path: 'src/example/service.ts',
+    detail: 'dynamic target is unresolved',
+    span: null
+  });
+  const beforeUnknown = compileFixture({
+    'src/example/service.ts': 'export function helper(): string { return \'ok\'; }\n'
+  }, [{ root: 'src/example', source: {} }], [unresolved]);
+  const afterUnknown = compileFixture({
+    'src/example/service.ts': 'function helper(): string { return \'ok\'; }\n'
+  }, [{ root: 'src/example', source: {} }], [unresolved]);
+  expect(reconcile(beforeUnknown, afterUnknown).unresolvedReasons).toContainEqual(
+    expect.objectContaining({ code: 'retirement-unresolved', subject: 'helper' })
+  );
+
+  const obligationDescriptor = {
+    root: 'src/example',
+    source: {
+      capabilityProviders: [{
+        capability: 'example.helper',
+        operations: ['helper'],
+        effectKinds: [],
+        ownerInternalOperations: [],
+        operationRoles: []
+      }],
+      operationObligations: [{
+        operation: { kind: 'capability', capability: 'example.helper', operation: 'helper' },
+        consumerSupport: { consumers: [] },
+        effect: { kinds: [], failureKinds: [], recovery: 'not-applicable' },
+        evolution: { migration: 'not-required', retirement: 'replacement-obligations-satisfied' },
+        resources: { aggregateBudgets: [{ resource: 'duration-ms', maximum: 100 }] },
+        futureSupport: { condition: 'semantic-superset-required' }
+      }]
+    }
+  };
+  const beforeObligation = compileFixture({
+    'src/example/service.ts': 'export function helper(): string { return \'ok\'; }\n'
+  }, [obligationDescriptor]);
+  const afterObligation = compileFixture({
+    'src/example/service.ts': 'function helper(): string { return \'ok\'; }\n'
+  }, [obligationDescriptor]);
+  expect(reconcile(beforeObligation, afterObligation).unresolvedReasons).toContainEqual(
+    expect.objectContaining({ code: 'retirement-unresolved', subject: 'helper' })
+  );
+  const afterRemovedObligation = compileFixture({
+    'src/example/service.ts': 'function helper(): string { return \'ok\'; }\n'
+  }, [{ root: 'src/example', source: {} }]);
+  expect(reconcile(beforeObligation, afterRemovedObligation).unresolvedReasons).toContainEqual(
+    expect.objectContaining({ code: 'retirement-unresolved', subject: 'helper' })
+  );
+
+  const internalRelationDescriptor = {
+    root: 'src/example',
+    source: {
+      causalRelations: [{
+        subject: 'example.helper',
+        relation: 'declares',
+        symbol: { path: 'src/example/service.ts', name: 'helper' },
+        operation: null
+      }]
+    }
+  };
+  const beforeInternalRelation = compileFixture({
+    'src/example/service.ts': 'export function helper(): string { return \'ok\'; }\n'
+  }, [internalRelationDescriptor]);
+  const afterInternalRelation = compileFixture({
+    'src/example/service.ts': 'function helper(): string { return \'ok\'; }\n'
+  }, [internalRelationDescriptor]);
+  expect(reconcile(beforeInternalRelation, afterInternalRelation).unresolvedReasons).toEqual([]);
+
+  const beforeOverloads = compileFixture({
+    'src/example/service.ts': [
+      'export function helper(value: string): string;',
+      'export function helper(value: number): number;',
+      'export function helper(value: string | number): string | number { return value; }',
+      ''
+    ].join('\n')
+  }, [{ root: 'src/example', source: {} }]);
+  const afterOverloads = compileFixture({
+    'src/example/service.ts': [
+      'function helper(value: string): string;',
+      'function helper(value: number): number;',
+      'function helper(value: string | number): string | number { return value; }',
+      ''
+    ].join('\n')
+  }, [{ root: 'src/example', source: {} }]);
+  const overloads = reconcile(beforeOverloads, afterOverloads);
+  expect(overloads.changes).not.toContainEqual(expect.objectContaining({
+    kind: 'modified',
+    before: expect.objectContaining({ name: 'helper', exported: true }),
+    after: expect.objectContaining({ name: 'helper', exported: false })
+  }));
+  expect(overloads.unresolvedReasons).toContainEqual(expect.objectContaining({
+    code: 'changed-declaration-owner-relation-unresolved',
+    subject: 'helper'
+  }));
+});
+
 test('duplicate owner and removed consumer frontiers fail closed', () => {
   const before = compileFixture({
     'src/example/service.ts': 'export function run(): string { return \'ok\'; }\n',

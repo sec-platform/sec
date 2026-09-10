@@ -2244,14 +2244,15 @@ function windowsReadRelativeOrdinaryLeaf(
   parentHandle: bigint,
   parent: PhysicalDirectoryIdentity,
   name: string,
-  label: string
+  label: string,
+  maximumBytes?: number
 ): Uint8Array | null {
   const absolutePath = path.join(parent.path, name);
   const handle = windowsOpenRelativeLeaf(parentHandle, parent, name, absolutePath, WINDOWS_GENERIC_READ, WINDOWS_FILE_OPEN, label, true);
   if (handle === null) return null;
   try {
     windowsRetainedLeafIdentity(handle, absolutePath, 'file', label);
-    const bytes = readWindowsRetainedFile(handle, label);
+    const bytes = readWindowsRetainedFile(handle, label, maximumBytes);
     const observedParent = windowsIdentity(parentHandle, parent.path, `${label} parent readback`);
     if (!sameIdentity(parent, observedParent)) throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} parent changed during retained readback.`);
     return bytes;
@@ -2770,7 +2771,24 @@ function digestWindowsRetainedFile(
   return result;
 }
 
-function readWindowsRetainedFile(handle: bigint, label: string): Uint8Array {
+function boundedNoFollowFileReadMaximum(maximumBytes: number | undefined): number {
+  const maximum = maximumBytes ?? NO_FOLLOW_FILE_READ_LIMIT_BYTES;
+  if (!Number.isSafeInteger(maximum) || maximum < 0) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow file read maximum must be one finite non-negative safe integer.');
+  }
+  return maximum;
+}
+
+function readWindowsRetainedFile(
+  handle: bigint,
+  label: string,
+  maximumBytes?: number
+): Uint8Array {
+  const maximum = boundedNoFollowFileReadMaximum(maximumBytes);
+  const initial = windowsRetainedFileSnapshot(handle, label);
+  if (initial.size < 0n || initial.size > BigInt(maximum)) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} exceeds the bounded no-follow read size.`);
+  }
   const library = requireWindowsKernel32();
   const chunks: Buffer[] = [];
   let total = 0;
@@ -2784,7 +2802,7 @@ function readWindowsRetainedFile(handle: bigint, label: string): Uint8Array {
     const count = received.readUInt32LE(0);
     if (count === 0) break;
     total += count;
-    if (total > NO_FOLLOW_FILE_READ_LIMIT_BYTES) {
+    if (total > maximum) {
       throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} exceeds the bounded no-follow read size.`);
     }
     chunks.push(chunk.subarray(0, count));
@@ -2793,10 +2811,11 @@ function readWindowsRetainedFile(handle: bigint, label: string): Uint8Array {
   return Buffer.concat(chunks, total);
 }
 
-function readLinuxRetainedFile(fd: number, label: string): Uint8Array {
+function readLinuxRetainedFile(fd: number, label: string, maximumBytes?: number): Uint8Array {
+  const maximum = boundedNoFollowFileReadMaximum(maximumBytes);
   const initial = fstatSync(fd, { bigint: true });
   if (!initial.isFile()) throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} is not an ordinary file.`);
-  if (initial.size > BigInt(NO_FOLLOW_FILE_READ_LIMIT_BYTES)) {
+  if (initial.size < 0n || initial.size > BigInt(maximum)) {
     throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} exceeds the bounded no-follow read size.`);
   }
   const chunks: Buffer[] = [];
@@ -2806,7 +2825,7 @@ function readLinuxRetainedFile(fd: number, label: string): Uint8Array {
     const count = readSync(fd, chunk, 0, chunk.byteLength, null);
     if (count === 0) break;
     total += count;
-    if (total > NO_FOLLOW_FILE_READ_LIMIT_BYTES) {
+    if (total > maximum) {
       throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} exceeds the bounded no-follow read size.`);
     }
     chunks.push(chunk.subarray(0, count));
@@ -6653,7 +6672,8 @@ function windowsReadRenamedCandidate(
   parent: PhysicalDirectoryIdentity,
   finalName: string,
   expected: Buffer,
-  label: string
+  label: string,
+  maximumBytes?: number
 ): Uint8Array {
   const finalPath = path.join(parent.path, finalName);
   windowsRetainedLeafIdentity(sourceHandle, finalPath, 'file', label);
@@ -6664,7 +6684,7 @@ function windowsReadRenamedCandidate(
     throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${label} renamed file flush failed (Win32 ${requireWindowsKernel32().symbols.GetLastError()}).`);
   }
   windowsRewindRetainedFile(sourceHandle, label);
-  const current = readWindowsRetainedFile(sourceHandle, label);
+  const current = readWindowsRetainedFile(sourceHandle, label, maximumBytes);
   if (!Buffer.from(current).equals(expected)) throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${label} retained final readback differs.`);
   const observedParent = windowsIdentity(parentHandle, parent.path, `${label} parent readback`);
   if (!sameIdentity(parent, observedParent)) throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} parent changed during final readback.`);
@@ -7105,7 +7125,9 @@ export function publishExclusiveDurableCanonicalFile(input: {
   };
 
   const existing = (): DurableCanonicalFilePublicationReceipt => {
-    const current = inspectNoFollowOrdinaryFileEntry(parent, input.name);
+    const current = inspectNoFollowOrdinaryFileEntry(parent, input.name, {
+      maximumBytes: expected.byteLength
+    });
     if (current === null || current.bytes === null) throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', 'Durable publication target disappeared before no-follow readback.');
     if (!Buffer.from(current.bytes).equals(expected)) {
       throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'Durable publication target conflicts with canonical bytes.');
@@ -7188,9 +7210,13 @@ export function publishExclusiveDurableCanonicalFile(input: {
       if (requireLinuxLibc().symbols.fsync(retained.parentFd) !== 0) {
         throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'Exclusive durable publication parent fsync failed.');
       }
-      const current = readNoFollowOrdinaryFile(parent, input.name);
+      const current = readNoFollowOrdinaryFile(parent, input.name, {
+        maximumBytes: expected.byteLength
+      });
       if (current === null || !Buffer.from(current).equals(expected)) throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'Exclusive durable publication retained readback differs.');
-      const currentIdentity = inspectNoFollowOrdinaryFileEntry(parent, input.name);
+      const currentIdentity = inspectNoFollowOrdinaryFileEntry(parent, input.name, {
+        maximumBytes: expected.byteLength
+      });
       if (currentIdentity === null || candidatePhysical === null ||
           currentIdentity.device !== candidatePhysical.device || currentIdentity.inode !== candidatePhysical.inode) {
         throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Exclusive durable publication retained identity readback differs.');
@@ -7254,22 +7280,32 @@ export function publishExclusiveDurableCanonicalFile(input: {
       windowsRenameRetainedOrdinaryFile(candidate, temporaryPath, candidateIdentity, parentHandle, input.name, false, 'Exclusive durable publication');
       renamed = true;
     } catch (error) {
-      const current = windowsReadRelativeOrdinaryLeaf(parentHandle, parent, input.name, 'Exclusive durable publication existing');
+      const current = windowsReadRelativeOrdinaryLeaf(
+        parentHandle, parent, input.name, 'Exclusive durable publication existing', expected.byteLength
+      );
       if (current === null) throw error;
       if (!Buffer.from(current).equals(expected)) throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'Durable publication target conflicts with canonical bytes.', error);
       validateCanonicalBytes(current, 'Durable publication target');
       const existingIdentity = windowsOpenDurableReplacementLeaf(
-        parentHandle, parent, input.name, 'Exclusive durable publication existing identity'
+        parentHandle, parent, input.name, 'Exclusive durable publication existing identity',
+        WINDOWS_SHARE_READ_WRITE_DELETE, expected.byteLength
       );
       if (existingIdentity === null) throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', 'Durable publication existing target disappeared.');
       try {
+        windowsReadRenamedCandidate(
+          existingIdentity.handle, parentHandle, parent, input.name, expected,
+          'Exclusive durable publication existing target', expected.byteLength
+        );
         assertPermissionSourceCurrent();
         return issueDurableCanonicalFileIdentityReceipt(Object.freeze({
           path: finalPath, digest: expectedDigest, created: false, physical: existingIdentity.identity
         }));
       } finally { closeWindowsHandle(existingIdentity.handle); }
     }
-    const current = windowsReadRenamedCandidate(candidate, parentHandle, parent, input.name, expected, 'Exclusive durable publication');
+    const current = windowsReadRenamedCandidate(
+      candidate, parentHandle, parent, input.name, expected,
+      'Exclusive durable publication', expected.byteLength
+    );
     validateCanonicalBytes(current, 'Exclusive durable publication retained readback');
     assertPermissionSourceCurrent();
     return issueDurableCanonicalFileIdentityReceipt(Object.freeze({
@@ -7499,7 +7535,8 @@ function windowsOpenDurableReplacementLeaf(
   parent: PhysicalDirectoryIdentity,
   name: string,
   label: string,
-  shareAccess = WINDOWS_SHARE_READ_WRITE_DELETE
+  shareAccess = WINDOWS_SHARE_READ_WRITE_DELETE,
+  maximumBytes?: number
 ): WindowsDurableReplacementLeaf | null {
   const absolutePath = path.join(parent.path, name);
   const handle = windowsOpenRelativeLeaf(
@@ -7513,7 +7550,7 @@ function windowsOpenDurableReplacementLeaf(
       handle,
       path: absolutePath,
       identity: windowsRetainedLeafIdentity(handle, absolutePath, 'file', label),
-      bytes: readWindowsRetainedFile(handle, label)
+      bytes: readWindowsRetainedFile(handle, label, maximumBytes)
     });
   } catch (error) {
     closeWindowsHandle(handle);
@@ -9537,9 +9574,11 @@ export function retireNoFollowDirectoryTree(input: Readonly<{
  */
 export function inspectNoFollowOrdinaryFileEntry(
   parent: PhysicalDirectoryIdentity,
-  name: string
+  name: string,
+  options: Readonly<{ maximumBytes?: number }> = {}
 ): NoFollowDirectoryTreeEntry | null {
   ensureLeafName(name);
+  const maximumBytes = boundedNoFollowFileReadMaximum(options.maximumBytes);
   const checked = assertSameNoFollowDirectoryIdentity(parent, 'No-follow file parent').target;
   const target = path.join(checked.path, name);
   if (process.platform === 'win32') {
@@ -9555,7 +9594,7 @@ export function inspectNoFollowOrdinaryFileEntry(
       );
       if (leafHandle === null) return null;
       const identity = windowsRetainedLeafIdentity(leafHandle, target, 'file', 'No-follow file');
-      const bytes = readWindowsRetainedFile(leafHandle, 'No-follow file');
+      const bytes = readWindowsRetainedFile(leafHandle, 'No-follow file', maximumBytes);
       if (!sameIdentity(checked, windowsIdentity(parentHandle, checked.path, 'No-follow file retained parent readback'))) {
         throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow file parent changed during retained leaf read.');
       }
@@ -9592,7 +9631,7 @@ export function inspectNoFollowOrdinaryFileEntry(
       }
       const stat = fstatSync(leafFd, { bigint: true });
       if (!stat.isFile()) throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow file is not an ordinary file.');
-      const bytes = readLinuxRetainedFile(leafFd, 'No-follow file');
+      const bytes = readLinuxRetainedFile(leafFd, 'No-follow file', maximumBytes);
       const after = fstatSync(leafFd, { bigint: true });
       if (stat.dev !== after.dev || stat.ino !== after.ino || !after.isFile()) {
         throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow file retained identity changed during read.');
@@ -9865,7 +9904,8 @@ export function inspectExactNoFollowLinkEntry(
 /** Reads one ordinary leaf file below a revalidated no-follow parent, or null only for ENOENT. */
 export function readNoFollowOrdinaryFile(
   parent: PhysicalDirectoryIdentity,
-  name: string
+  name: string,
+  options: Readonly<{ maximumBytes?: number }> = {}
 ): Uint8Array | null {
-  return inspectNoFollowOrdinaryFileEntry(parent, name)?.bytes ?? null;
+  return inspectNoFollowOrdinaryFileEntry(parent, name, options)?.bytes ?? null;
 }

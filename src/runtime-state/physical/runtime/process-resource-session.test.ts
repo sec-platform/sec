@@ -109,7 +109,7 @@ function requirementBindingContext(
   });
 }
 
-function retainTestBoundary(): Readonly<{
+function retainTestBoundary(auxiliaryPath?: string): Readonly<{
   boundary: RetainedCommandBoundary;
   dispose(): void;
 }> {
@@ -127,14 +127,61 @@ function retainTestBoundary(): Readonly<{
     RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
     'session test cwd'
   );
+  const auxiliary = auxiliaryPath === undefined
+    ? null
+    : retainNoFollowOrdinaryFile(
+      inspectNoFollowDirectoryChain(path.dirname(auxiliaryPath), 'session test auxiliary parent'),
+      path.basename(auxiliaryPath),
+      undefined,
+      'session test provider auxiliary',
+      5,
+      'ordinary-file'
+    );
   return Object.freeze({
-    boundary: issueRetainedCommandBoundary({ executable, workingDirectory }),
+    boundary: issueRetainedCommandBoundary({
+      executable,
+      workingDirectory,
+      ...(auxiliary === null ? {} : {
+        auxiliaryInputs: [{ capability: auxiliary, kind: 'ordinary-file' as const }]
+      })
+    }),
     dispose() {
+      auxiliary?.dispose();
       workingDirectory.dispose();
       executable.dispose();
     }
   });
 }
+
+test('independent provider identity binds retained auxiliary provider inputs', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-independent-provider-auxiliary-'));
+  const firstPath = path.join(root, 'provider-a.bin');
+  const secondPath = path.join(root, 'provider-b.bin');
+  await writeFile(firstPath, 'provider-a');
+  await writeFile(secondPath, 'provider-b');
+  const operation = boundOperation({
+    effectKinds: ['process', 'provider'],
+    label: 'auxiliary-provider-identity'
+  });
+  const first = retainTestBoundary(firstPath);
+  const second = retainTestBoundary(secondPath);
+  try {
+    const firstCapability = issueIndependentProviderProcessCapability({
+      boundary: first.boundary,
+      operation
+    });
+    const secondCapability = issueIndependentProviderProcessCapability({
+      boundary: second.boundary,
+      operation
+    });
+    expect(firstCapability.providerPhysicalIdentityDigest)
+      .not.toBe(secondCapability.providerPhysicalIdentityDigest);
+  } finally {
+    second.dispose();
+    first.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test('process sessions reject structural operation and session clones', async () => {
   const operation = boundOperation();

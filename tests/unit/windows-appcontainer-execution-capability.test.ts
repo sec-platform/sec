@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
@@ -27,7 +28,7 @@ function operationDeadline(timeoutMs: number): Readonly<{
 async function withCapabilityWorkspace(
   run: (input: Readonly<{ workspaceRoot: string; stagingRoot: string }>) => Promise<void>
 ): Promise<void> {
-  const workspaceRoot = await mkdtemp(path.join(process.cwd(), '.tmp-appcontainer-capability-'));
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), '.tmp-appcontainer-capability-'));
   const stagingRoot = path.join(workspaceRoot, 'staging');
   await mkdir(stagingRoot);
   try {

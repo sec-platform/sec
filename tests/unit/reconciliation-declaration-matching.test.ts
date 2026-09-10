@@ -70,9 +70,30 @@ test('a move by stable name requires both the old and new unmatched side to be u
   assert.deepEqual(ids(pair([a], [b, c], [], [])), []);
 });
 
-test('module, declaration kind and export status remain part of correspondence', () => {
+test('a unique declaration at one exact address retains identity across visibility changes', () => {
+  const before = declaration('before', 'src/a.ts');
+  const after = { ...declaration('after', 'src/a.ts'), exported: false };
+  assert.deepEqual(ids(pair([before], [after], [], [])), [['before', 'after']]);
+});
+
+test('visibility matching does not absorb overload ambiguity or moves', () => {
+  const before = declaration('before', 'src/a.ts');
+  const moved = { ...declaration('moved', 'src/b.ts'), exported: false };
+  const oldOverloads = [
+    declaration('old-a', 'src/a.ts', 'work', 'a', 0),
+    declaration('old-b', 'src/a.ts', 'work', 'b', 10)
+  ];
+  const newOverloads = oldOverloads.map((item, index) => ({
+    ...declaration(`new-${index}`, 'src/a.ts', 'work', item.declarationDigest, item.span.start),
+    exported: false
+  }));
+  assert.deepEqual(ids(pair([before], [moved], [], [])), []);
+  assert.deepEqual(ids(pair(oldOverloads, newOverloads, [], [])), []);
+});
+
+test('module and declaration kind remain part of correspondence', () => {
   const a = declaration('a', 'src/a.ts'), b = declaration('b', 'src/b.ts');
-  for (const changed of [{ ...b, moduleId: 'other' }, { ...b, kind: 'class' }, { ...b, exported: false }]) {
+  for (const changed of [{ ...b, moduleId: 'other' }, { ...b, kind: 'class' }]) {
     assert.deepEqual(ids(pair([a], [changed], [], [])), []);
   }
 });

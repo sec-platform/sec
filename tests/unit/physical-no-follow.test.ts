@@ -1026,6 +1026,8 @@ test('streaming tree inventory preserves the canonical digest domain beyond the 
     }
     const identity = inspectNoFollowDirectoryChain(target, 'streaming inventory target').target;
     expect(() => scanNoFollowDirectoryTree(identity)).toThrow('exceeds the bounded no-follow read size');
+    expect(() => readNoFollowOrdinaryFile(identity, 'large.bin')).toThrow('exceeds the bounded no-follow read size');
+    expect(readNoFollowOrdinaryFile(identity, 'large.bin', { maximumBytes: largeSize })?.byteLength).toBe(largeSize);
     const first = new Map(scanNoFollowDirectoryTreeInventory(identity).map((entry) => [entry.relativePath, entry]));
     const second = new Map(scanNoFollowDirectoryTreeInventory(identity).map((entry) => [entry.relativePath, entry]));
     expect(first.get('small.txt')?.contentDigest).toBe(

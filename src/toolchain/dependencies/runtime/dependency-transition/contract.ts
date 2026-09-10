@@ -67,6 +67,7 @@ export type DependencyTransitionKind =
   | 'compiler-local-locator'
   | 'compiler-locator'
   | 'compiler-bridge'
+  | 'project-runtime-bridge'
   | 'runtime-projection'
   | 'project-projection';
 

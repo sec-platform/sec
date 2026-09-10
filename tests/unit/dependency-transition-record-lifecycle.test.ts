@@ -137,6 +137,20 @@ test('invalid begin record shape is rejected before creating a ledger namespace'
   assert.equal(effects, 0); assert.equal(existsSync(dependencyTransitionNamespacePaths(f.root).recordsRoot), false);
 }));
 
+test('project runtime bridge records bind a project locator to an external issued source generation', async () => using(async f => {
+  const projectRoot = path.join(f.root, 'project');
+  mkdirSync(projectRoot);
+  const record = await beginDependencyTransition({
+    ...request(f),
+    kind: 'project-runtime-bridge',
+    ownerRoot: projectRoot,
+    destinationPath: path.join(projectRoot, 'node_modules')
+  });
+  assert.equal(record.ownerRoot, projectRoot);
+  assert.equal(record.sourceGeneration.ownerRoot, f.root);
+  assert.deepEqual(parseDependencyTransitionRecord(dependencyTransitionRecordBytes(record)), record);
+}));
+
 test('read-only observation ignores effect capabilities and has no namespace creation side effect', async () => using(async f => {
   const options = new Proxy({ ...f.options, get beforeCommit() { assert.fail('reader acquired write fence'); throw new Error('unreachable'); },
     get generatedStateLifecycle() { assert.fail('reader acquired lifecycle'); throw new Error('unreachable'); } }, { ownKeys() { assert.fail('reader enumerated facade'); } });

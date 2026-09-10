@@ -13,6 +13,7 @@ import {
   selectStagedWorkspaceSourceSnapshot,
   type PhysicalWorkspaceSourceSnapshot
 } from '../../brownfield/source-program-model/workspace-source-snapshot.ts';
+import type { AuthorityGitReadOperation } from '../../external-capabilities/git-read/authority.ts';
 import { CodexDevelopmentListExactGitTreeEntries } from '../../external-capabilities/git-read/exact-blob.ts';
 import type { GitReadSession } from '../../external-capabilities/git-read/runtime/session.ts';
 import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
@@ -37,6 +38,7 @@ import {
   type VerificationActionRunOutcome
 } from '../../verification/action/runner.ts';
 import {
+  CANDIDATE_NORMALIZATION_DURATION_MS,
   compileCandidateNormalizationActionKey,
   compileCandidateNormalizationSubject,
   IMPORT_NORMALIZATION_OPERATION,
@@ -122,14 +124,16 @@ function readBackCandidateNormalizationSnapshot(input: Readonly<{
 async function readBackNormalizationSubject(input: Readonly<{
   repositoryRoot: string;
   subject: CandidateNormalizationSubject;
-  stagedSession?: GitReadSession;
+  stagedOperation?: AuthorityGitReadOperation;
 }>): Promise<CandidateNormalizationDigest> {
   const { snapshot } = requireCandidateNormalizationSnapshot(input.subject);
   if (snapshot.subject.provenance.kind === 'staged-index-observation') {
-    if (input.stagedSession === undefined) {
-      throw new Error('Staged candidate normalization readback requires its original Git session');
+    if (input.stagedOperation === undefined) {
+      throw new Error('Staged candidate normalization readback requires its Git operation');
     }
-    await readBackStagedIndexWorkspaceSourceSnapshot(snapshot, input.stagedSession);
+    await input.stagedOperation.runPhase('normalization-readback', (session) => (
+      readBackStagedIndexWorkspaceSourceSnapshot(snapshot, session)
+    ));
     return input.subject.subjectDigest;
   }
   return readBackCandidateNormalizationSnapshot(input);
@@ -155,9 +159,9 @@ async function settleNormalizationObservation(
     operation: 'development.import-normalization',
     intentDigest: action.actionKey,
     decisionDigest: subject.subjectDigest,
-    deadlineAtUnixMs: Date.now() + 300_000,
+    deadlineAtUnixMs: Date.now() + CANDIDATE_NORMALIZATION_DURATION_MS,
     aggregateBudgets: [
-      { resource: 'duration-ms', maximum: 300_000 },
+      { resource: 'duration-ms', maximum: CANDIDATE_NORMALIZATION_DURATION_MS },
       { resource: 'processes', maximum: 64 },
       { resource: 'records', maximum: Math.max(1, files.length) }
     ],
@@ -252,7 +256,7 @@ async function executeCandidateNormalization(input: Readonly<{
   snapshot: PhysicalWorkspaceSourceSnapshot;
   subject: CandidateNormalizationSubject;
   action: ReturnType<typeof compileCandidateNormalizationActionKey>;
-  stagedSession?: GitReadSession;
+  stagedOperation?: AuthorityGitReadOperation;
 }>): Promise<VerificationActionRunOutcome> {
   const { subject, action } = input;
   const { schema: _schema, actionKey: _actionKey, ...actionInput } = action;
@@ -276,7 +280,7 @@ async function executeCandidateNormalization(input: Readonly<{
       const readbackSubjectDigest = await readBackNormalizationSubject({
         repositoryRoot: input.repositoryRoot,
         subject,
-        stagedSession: input.stagedSession
+        stagedOperation: input.stagedOperation
       });
       return settleNormalizationObservation(
         subject,
@@ -290,23 +294,30 @@ async function executeCandidateNormalization(input: Readonly<{
 }
 
 /**
- * Verifies the exact staged index through the caller's one production
- * GitReadSession. The returned admission is a process-local normalization
+ * Verifies the exact staged index through phases of the caller's Git operation.
+ * Semantic computation does not retain a short-lived read session. The admission is a process-local normalization
  * capability only; it deliberately carries no commit Effect authority.
  */
 export async function verifyStagedCandidateImportNormalization(input: Readonly<{
-  session: GitReadSession;
+  gitOperation: AuthorityGitReadOperation;
   candidateBase?: string;
 }>): Promise<Readonly<{
   outcome: VerificationActionRunOutcome;
   admission: CandidateNormalizationAdmissionReceipt | null;
 }>> {
-  const snapshot = await acquireStagedIndexWorkspaceSourceSnapshot({ session: input.session });
-  const stagedSelection = await selectStagedWorkspaceSourceSnapshot({
-    snapshot,
-    session: input.session,
-    ...(input.candidateBase === undefined ? {} : { candidateBase: input.candidateBase })
-  });
+  const gitOperation = input.gitOperation;
+  const candidateBase = input.candidateBase;
+  const { snapshot, stagedSelection, repositoryRoot } = await gitOperation.runPhase(
+    'normalization-source',
+    async (session) => {
+      const snapshot = await acquireStagedIndexWorkspaceSourceSnapshot({ session });
+      const stagedSelection = await selectStagedWorkspaceSourceSnapshot({
+        snapshot, session,
+        ...(candidateBase === undefined ? {} : { candidateBase })
+      });
+      return { snapshot, stagedSelection, repositoryRoot: session.cwd };
+    }
+  );
   const producerClosure = compileSourceProgramOperationProducerClosureFromWorkspaceSnapshot(
     snapshot,
     IMPORT_NORMALIZATION_OPERATION
@@ -322,13 +333,15 @@ export async function verifyStagedCandidateImportNormalization(input: Readonly<{
   });
   const action = compileCandidateNormalizationActionKey(subject);
   const outcome = await executeCandidateNormalization({
-    repositoryRoot: input.session.cwd,
+    repositoryRoot,
     snapshot,
     subject,
     action,
-    stagedSession: input.session
+    stagedOperation: gitOperation
   });
-  await readBackStagedIndexWorkspaceSourceSnapshot(snapshot, input.session);
+  await gitOperation.runPhase('normalization-final-readback', (session) => (
+    readBackStagedIndexWorkspaceSourceSnapshot(snapshot, session)
+  ));
   return Object.freeze({
     outcome,
     admission: outcome.terminal?.status === 'passed'

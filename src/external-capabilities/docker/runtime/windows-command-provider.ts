@@ -67,10 +67,8 @@ export async function openWindowsDockerCommandProvider(input: Readonly<{
   );
   const retainedOwners: RetainedRuntimeStateDirectory[] = [];
   let executable: ReturnType<typeof retainNoFollowOrdinaryFile> | null = null;
-  let launcherExecutable: ReturnType<typeof retainNoFollowOrdinaryFile> | null = null;
-  let launcherWorkingDirectory:
-    ReturnType<typeof retainNoFollowDirectoryForChildProcess> | null = null;
   const cliPlugins: ReturnType<typeof retainNoFollowOrdinaryFile>[] = [];
+  let wslExecutable: ReturnType<typeof retainNoFollowOrdinaryFile> | null = null;
   let workingDirectory: ReturnType<typeof retainNoFollowDirectoryForChildProcess> | null = null;
   try {
     const installation = await openRetainedWindowsRuntimeStateDirectory({
@@ -81,14 +79,6 @@ export async function openWindowsDockerCommandProvider(input: Readonly<{
       requireHostNamespace: true
     });
     retainedOwners.push(installation);
-    const desktopLauncherInstallation = await openRetainedWindowsRuntimeStateDirectory({
-      childDescriptor: profile.installation.desktopLauncher.directoryChildDescriptor,
-      folder: profile.installation.folder,
-      mode: 'open-existing',
-      segments: profile.installation.desktopLauncher.directorySegments,
-      requireHostNamespace: true
-    });
-    retainedOwners.push(desktopLauncherInstallation);
     const cliPluginDirectory = await openRetainedWindowsRuntimeStateDirectory({
       childDescriptor: profile.installation.cliPluginDirectoryChildDescriptor,
       folder: profile.installation.folder,
@@ -121,6 +111,21 @@ export async function openWindowsDockerCommandProvider(input: Readonly<{
     });
     retainedOwners.push(tempOwner);
     environmentOwners.push(tempOwner);
+    const windowsRoot = await openRetainedWindowsRuntimeStateDirectory({
+      childDescriptor: profile.environment.windows.rootChildDescriptor,
+      folder: profile.environment.windows.folder,
+      mode: 'open-existing',
+      requireHostNamespace: true
+    });
+    retainedOwners.push(windowsRoot);
+    const systemDirectory = await openRetainedWindowsRuntimeStateDirectory({
+      childDescriptor: profile.environment.windows.systemDirectoryChildDescriptor,
+      folder: profile.environment.windows.folder,
+      mode: 'open-existing',
+      segments: profile.environment.windows.systemDirectorySegments,
+      requireHostNamespace: true
+    });
+    retainedOwners.push(systemDirectory);
     const installationChain = inspectNoFollowDirectoryChain(
       installation.path,
       'Windows Docker installation directory'
@@ -147,38 +152,6 @@ export async function openWindowsDockerCommandProvider(input: Readonly<{
       'Windows Docker command provider executable',
       RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
       'executable'
-    );
-    const launcherChain = inspectNoFollowDirectoryChain(
-      desktopLauncherInstallation.path,
-      'Windows Docker Desktop launcher directory'
-    );
-    if (launcherChain.target.device !== desktopLauncherInstallation.directory.device
-        || launcherChain.target.inode !== desktopLauncherInstallation.directory.inode) {
-      throw new DockerCommandProviderUnavailableError(
-        'Windows Docker Desktop launcher directory changed during admission.'
-      );
-    }
-    const launcherEntry = inspectNoFollowOrdinaryFileEntry(
-      desktopLauncherInstallation.directory,
-      profile.installation.desktopLauncher.executableName
-    );
-    if (launcherEntry === null || launcherEntry.kind !== 'file') {
-      throw new DockerCommandProviderUnavailableError(
-        'Canonical Windows Docker Desktop launcher is unavailable.'
-      );
-    }
-    launcherExecutable = retainNoFollowOrdinaryFile(
-      launcherChain,
-      profile.installation.desktopLauncher.executableName,
-      { device: launcherEntry.device, inode: launcherEntry.inode },
-      'Windows Docker Desktop launcher executable',
-      profile.installation.desktopLauncher.executableChildDescriptor,
-      'executable'
-    );
-    launcherWorkingDirectory = retainNoFollowDirectoryForChildProcess(
-      launcherChain,
-      profile.installation.desktopLauncher.workingDirectoryChildDescriptor,
-      'Windows Docker Desktop launcher working directory'
     );
     const cliPluginChain = inspectNoFollowDirectoryChain(
       cliPluginDirectory.path,
@@ -216,6 +189,33 @@ export async function openWindowsDockerCommandProvider(input: Readonly<{
         'ordinary-file'
       ));
     }
+    const systemDirectoryChain = inspectNoFollowDirectoryChain(
+      systemDirectory.path,
+      'Windows system directory'
+    );
+    if (systemDirectoryChain.target.device !== systemDirectory.directory.device
+        || systemDirectoryChain.target.inode !== systemDirectory.directory.inode) {
+      throw new DockerCommandProviderUnavailableError(
+        'Windows system directory changed during admission.'
+      );
+    }
+    const wslEntry = inspectNoFollowOrdinaryFileEntry(
+      systemDirectory.directory,
+      profile.environment.windows.wslExecutableName
+    );
+    if (wslEntry === null || wslEntry.kind !== 'file') {
+      throw new DockerCommandProviderUnavailableError(
+        'Canonical Windows WSL executable is unavailable.'
+      );
+    }
+    wslExecutable = retainNoFollowOrdinaryFile(
+      systemDirectoryChain,
+      profile.environment.windows.wslExecutableName,
+      { device: wslEntry.device, inode: wslEntry.inode },
+      'Windows Docker WSL operating-system input',
+      profile.environment.windows.wslExecutableChildDescriptor,
+      'ordinary-file'
+    );
     const workingDirectoryChain = inspectNoFollowDirectoryChain(
       workingDirectoryPath,
       'Windows Docker command provider working directory'
@@ -230,14 +230,10 @@ export async function openWindowsDockerCommandProvider(input: Readonly<{
       boundary: issueRetainedCommandBoundary({
         executable,
         workingDirectory,
-        auxiliaryInputs: cliPlugins.map((capability) => ({
+        auxiliaryInputs: [...cliPlugins, wslExecutable].map((capability) => ({
           capability,
           kind: 'ordinary-file' as const
         }))
-      }),
-      launcherBoundary: issueRetainedCommandBoundary({
-        executable: launcherExecutable,
-        workingDirectory: launcherWorkingDirectory
       }),
       environment: {
         APPDATA: roamingAppData.path,
@@ -245,13 +241,15 @@ export async function openWindowsDockerCommandProvider(input: Readonly<{
         LANG: 'C',
         LC_ALL: 'C',
         LOCALAPPDATA: localAppData.path,
-        PATH: '',
+        PATH: systemDirectory.path,
         PROGRAMDATA: programData.path,
         PROGRAMFILES: installation.root.path,
+        SYSTEMROOT: windowsRoot.path,
         TEMP: temp.path,
         TMP: temp.path,
         TZ: 'UTC',
-        USERPROFILE: profileOwner.path
+        USERPROFILE: profileOwner.path,
+        WINDIR: windowsRoot.path
       },
       platform: 'win32',
       providerContractDigest,
@@ -261,8 +259,7 @@ export async function openWindowsDockerCommandProvider(input: Readonly<{
   } catch (error) {
     const retainedWorkingDirectory = workingDirectory;
     const retainedExecutable = executable;
-    const retainedLauncherExecutable = launcherExecutable;
-    const retainedLauncherWorkingDirectory = launcherWorkingDirectory;
+    const retainedWslExecutable = wslExecutable;
     try {
       settlePhysicalResources({
         primary: Object.freeze({ label: 'windows-docker-provider-admission', error }),
@@ -275,13 +272,9 @@ export async function openWindowsDockerCommandProvider(input: Readonly<{
             label: 'executable-dispose',
             settle: () => retainedExecutable.dispose()
           }]),
-          ...(retainedLauncherWorkingDirectory === null ? [] : [{
-            label: 'launcher-working-directory-dispose',
-            settle: () => retainedLauncherWorkingDirectory.dispose()
-          }]),
-          ...(retainedLauncherExecutable === null ? [] : [{
-            label: 'launcher-executable-dispose',
-            settle: () => retainedLauncherExecutable.dispose()
+          ...(retainedWslExecutable === null ? [] : [{
+            label: 'wsl-executable-dispose',
+            settle: () => retainedWslExecutable.dispose()
           }]),
           ...[...cliPlugins].reverse().map((plugin, index) => ({
             label: `cli-plugin-dispose-${index}`,

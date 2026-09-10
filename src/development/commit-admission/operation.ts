@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
+import { withAuthorityGitReadOperation, type AuthorityGitReadOperation } from '../../external-capabilities/git-read/authority.ts';
 import {
   bindGitDevelopmentCommitOperation,
   compileGitDevelopmentCommitContractDigest,
@@ -22,6 +22,7 @@ import {
   type SecSemanticOperationIntent
 } from '../../system-architecture/operation/semantic.ts';
 import {
+  CANDIDATE_NORMALIZATION_DURATION_MS,
   IMPORT_NORMALIZATION_OPERATION
 } from '../import-normalization/contract.ts';
 import {
@@ -159,13 +160,15 @@ function compileCommitIntent(input: Readonly<{
   });
 }
 
-async function issueWithSession(input: Readonly<{
+async function issueWithOperation(input: Readonly<{
   request: DevelopmentCommitRequest;
-  session: Parameters<typeof freezeDevelopmentCommitCandidate>[0]['session'];
+  gitOperation: AuthorityGitReadOperation;
 }>): Promise<DevelopmentCommitAdmission> {
-  const candidate = await freezeDevelopmentCommitCandidate(input);
+  const candidate = await input.gitOperation.runPhase('freeze-commit-candidate', (session) => (
+    freezeDevelopmentCommitCandidate({ request: input.request, session })
+  ));
   const normalizationResult = await verifyStagedCandidateImportNormalization({
-    session: input.session,
+    gitOperation: input.gitOperation,
     candidateBase: candidate.preimage
   });
   if (normalizationResult.admission === null) {
@@ -179,11 +182,9 @@ async function issueWithSession(input: Readonly<{
   const normalization = requireCandidateNormalizationAdmissionReceipt(
     normalizationResult.admission
   );
-  const candidateDetails = await assertDevelopmentCommitCandidateCurrent({
-    candidate,
-    request: input.request,
-    session: input.session
-  });
+  const candidateDetails = await input.gitOperation.runPhase('commit-candidate-readback', (session) => (
+    assertDevelopmentCommitCandidateCurrent({ candidate, request: input.request, session })
+  ));
   const contract: GitDevelopmentCommitContract = Object.freeze({
     repositoryRoot: candidate.repositoryRoot,
     worktreeRoot: candidate.repositoryRoot,
@@ -246,10 +247,14 @@ export async function issueDevelopmentCommitAdmission(input:
   const repositoryRoot = path.resolve(
     'request' in input ? input.request.repositoryRoot : input.repositoryRoot
   );
-  return withAuthorityGitReadSession(
-    { cwd: repositoryRoot, budget: GIT_READ_OPERATION_BUDGET },
-    async (session) => {
-      const request = 'request' in input
+  return withAuthorityGitReadOperation(
+    {
+      cwd: repositoryRoot,
+      budget: GIT_READ_OPERATION_BUDGET,
+      deadlineAtUnixMs: Date.now() + CANDIDATE_NORMALIZATION_DURATION_MS
+    },
+    async (gitOperation) => {
+      const request = await gitOperation.runPhase('commit-request', async (session) => ('request' in input
         ? input.request
         : Object.freeze({
             repositoryRoot,
@@ -262,8 +267,8 @@ export async function issueDevelopmentCommitAdmission(input:
               await commandText(session, ['var', 'GIT_COMMITTER_IDENT'], 'resolve committer identity'),
               'committer identity'
             )
-          });
-      const admission = await issueWithSession({ request, session });
+          })));
+      const admission = await issueWithOperation({ request, gitOperation });
       return Object.freeze({ request, admission });
     }
   );

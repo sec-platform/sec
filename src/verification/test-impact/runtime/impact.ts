@@ -10,8 +10,10 @@ import {
 } from '../../../system-architecture/repository-modules/contract.ts';
 import { isSecRepositoryTestModulePath } from '../../../system-architecture/repository-modules/test-module-path.ts';
 import {
+  assertIssuedTestInventoryProjection,
   isFastTestFile,
-  isSlowTestFile
+  isSlowTestFile,
+  type IssuedTestInventoryProjection
 } from '../contract/budget.ts';
 import {
   classifyTestImpactSource,
@@ -20,6 +22,11 @@ import {
   type ResolvedTestOwnership,
   type TestImpactRiskPolicy
 } from '../contract/ownership.ts';
+import {
+  readIssuedAffectedTestImpactBinding,
+  type IssuedAffectedTestImpactSource
+} from './affected-source.ts';
+import type { CodexDevelopmentTestImpactTransitionObservation } from './transition.ts';
 
 export type TestImpactSelection = {
   fast: string[];
@@ -29,6 +36,7 @@ export type TestImpactSelection = {
 
 export type CodexDevelopmentTestImpactSourceProvider = Readonly<{
   projection: IssuedTestImpactProjection;
+  testInventory: IssuedTestInventoryProjection;
   activeDocumentationPaths: readonly string[];
 }>;
 export type RepositoryModuleGraph = SecRepositoryModuleGraph;
@@ -44,12 +52,15 @@ type ReverseImportMap = Readonly<{
 
 let providerReverseImportMapCache = new WeakMap<object, ReverseImportMap>();
 const issuedTestImpactProviders = new WeakSet<object>();
+const providerTransitions = new WeakMap<object, CodexDevelopmentTestImpactTransitionObservation>();
+const providerAffectedBindings = new WeakMap<object, NonNullable<ReturnType<typeof readIssuedAffectedTestImpactBinding>>>();
 type ProviderIndex = Readonly<{
   activeDocumentationPaths: ReadonlySet<string>;
   gitHookEntrypointPaths: ReadonlySet<string>;
   moduleIds: ReadonlyMap<string, string | null>;
   candidateOwners: ReadonlyMap<string, string | null>;
   moduleGraphInputs: ReadonlySet<string>;
+  removedModuleOwners: ReadonlyMap<string, string>;
 }>;
 let providerIndexCache = new WeakMap<object, ProviderIndex>();
 
@@ -89,6 +100,22 @@ function providerIndex(provider: CodexDevelopmentTestImpactSourceProvider): Prov
   for (const [candidate, owners] of ownersByCandidate) {
     candidateOwners.set(candidate, owners.size === 1 ? [...owners][0]! : null);
   }
+  const transition = providerTransitions.get(provider);
+  const descriptorRootsChanged = providerAffectedBindings.get(provider)?.descriptorChangeRoots ?? [];
+  const removedPathSet = new Set(transition?.removedPathBlobs.map(({ path }) => path) ?? []);
+  const removedModuleOwners = new Map<string, string>();
+  for (const removedPath of removedPathSet) {
+    if (descriptorRootsChanged.some((root) => (
+      root === '' || removedPath === root || removedPath.startsWith(`${root}/`)
+    ))) continue;
+    const candidates = provider.projection.moduleOwners
+      .filter(({ root }) => removedPath === root || removedPath.startsWith(`${root}/`))
+      .sort((left, right) => right.root.length - left.root.length);
+    if (candidates.length > 0
+        && (candidates.length === 1 || candidates[0]!.root.length > candidates[1]!.root.length)) {
+      removedModuleOwners.set(removedPath, candidates[0]!.moduleId);
+    }
+  }
   const built: ProviderIndex = Object.freeze({
     activeDocumentationPaths: new Set(provider.activeDocumentationPaths),
     gitHookEntrypointPaths: new Set(provider.projection.entrypoints
@@ -96,7 +123,8 @@ function providerIndex(provider: CodexDevelopmentTestImpactSourceProvider): Prov
       .map(({ path }) => path)),
     moduleIds,
     candidateOwners,
-    moduleGraphInputs
+    moduleGraphInputs,
+    removedModuleOwners
   });
   providerIndexCache.set(provider, built);
   return built;
@@ -122,7 +150,9 @@ function moduleIdForPath(
   const index = providerIndex(provider);
   const direct = index.moduleIds.get(repositoryPath) ?? null;
   if (direct !== null) return direct;
-  return index.candidateOwners.get(repositoryPath) ?? null;
+  return index.candidateOwners.get(repositoryPath)
+    ?? index.removedModuleOwners.get(repositoryPath)
+    ?? null;
 }
 
 function semanticModuleIdsForSource(
@@ -153,6 +183,7 @@ export function isTestImpactSourceFile(
   if (isSecRepositoryTestModulePath(normalized)) return false;
   return isTestImpactModuleGraphInputFile(normalized, provider)
     || buildReverseImportMap(provider).map.has(normalized)
+    || moduleIdForPath(normalized, provider) !== null
     || classifyProviderSource(normalized, provider) !== null;
 }
 
@@ -163,11 +194,46 @@ export function isTestImpactSourceFile(
 export function createRepositoryTestImpactSourceProvider(
   input: Readonly<{
     projection: IssuedTestImpactProjection;
+    testInventory: IssuedTestInventoryProjection;
     activeDocumentationPaths: readonly string[];
+    affectedSource?: IssuedAffectedTestImpactSource;
   }>
 ): CodexDevelopmentTestImpactSourceProvider {
-  const { projection } = input;
+  const {
+    projection,
+    testInventory,
+    affectedSource,
+    activeDocumentationPaths
+  } = input;
   assertIssuedTestImpactProjection(projection);
+  assertIssuedTestInventoryProjection(testInventory);
+  const inventoryTestFiles = new Set(testInventory.testFiles);
+  if (testInventory.workspaceSnapshotIdentityDigest !== projection.workspaceSnapshotIdentityDigest
+      || testInventory.snapshotDigest !== projection.snapshotDigest
+      || projection.testFiles.some((path) => (
+        isSecRepositoryTestModulePath(path) && !inventoryTestFiles.has(path)
+      ))) {
+    throw new SecError('TEST-IMPACT-001', 'Test inventory differs from its Source Program projection.', {
+      kind: 'test-inventory-mismatch'
+    });
+  }
+  if (Object.prototype.hasOwnProperty.call(input, 'transition')) {
+    throw new SecError(
+      'TEST-IMPACT-001',
+      'Test impact transition must come from an owner-issued Git/source composition',
+      { kind: 'transition-unissued' }
+    );
+  }
+  const affectedBinding = affectedSource === undefined
+    ? null
+    : readIssuedAffectedTestImpactBinding(affectedSource);
+  if (affectedSource !== undefined && affectedSource.projection !== projection) {
+    throw new SecError(
+      'TEST-IMPACT-001',
+      'Test impact transition differs from the Source Program projection source',
+      { kind: 'transition-source-mismatch' }
+    );
+  }
   const moduleFileSet = new Set(projection.moduleGraph.files);
   const missingTestPath = projection.testFiles.find((testFile) => !moduleFileSet.has(testFile));
   if (missingTestPath !== undefined) {
@@ -179,11 +245,16 @@ export function createRepositoryTestImpactSourceProvider(
   }
   const provider = Object.freeze({
     projection,
+    testInventory,
     activeDocumentationPaths: Object.freeze(uniqueSorted(
-      input.activeDocumentationPaths.map(normalizeRepoPath)
+      activeDocumentationPaths.map(normalizeRepoPath)
     ))
   });
   issuedTestImpactProviders.add(provider);
+  if (affectedBinding !== null) {
+    providerTransitions.set(provider, affectedBinding.transition);
+    providerAffectedBindings.set(provider, affectedBinding);
+  }
   return provider;
 }
 
@@ -368,7 +439,11 @@ function selectionForSource(
   const semanticTests = sourceKind === 'active-documentation'
     ? []
     : deriveTestsForModuleIds(testImpactModuleIdsForSourceKind(sourceKind), provider);
-  const selected = uniqueSorted([...graphTests, ...semanticTests]);
+  const removedOwner = providerIndex(provider).removedModuleOwners.get(normalizedFile) ?? null;
+  const removedOwnerTests = removedOwner === null
+    ? []
+    : deriveTestsForModuleIds([removedOwner], provider);
+  const selected = uniqueSorted([...graphTests, ...semanticTests, ...removedOwnerTests]);
   const selection = {
     fast: selected.filter(isFastTestFile),
     slow: selected.filter(isSlowTestFile),

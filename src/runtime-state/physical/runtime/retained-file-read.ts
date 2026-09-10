@@ -38,9 +38,10 @@ export function retainOptionalDirectory(
  */
 export function readOptionalRetainedOrdinaryLeaf(
   parent: PhysicalDirectoryIdentity,
-  name: string
+  name: string,
+  options: Readonly<{ maximumBytes?: number }> = {}
 ): Uint8Array | null {
-  return readNoFollowOrdinaryFile(parent, name);
+  return readNoFollowOrdinaryFile(parent, name, options);
 }
 
 /**

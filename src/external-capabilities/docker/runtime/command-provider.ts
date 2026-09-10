@@ -39,7 +39,6 @@ const DOCKER_COMMAND_ENVIRONMENT_KEYS = new Set([
 
 export interface DockerCommandProviderObservation {
   readonly boundary: RetainedCommandBoundary;
-  readonly launcherBoundary?: RetainedCommandBoundary;
   readonly environment: Readonly<NodeJS.ProcessEnv>;
   readonly retainedOwners?: readonly RetainedRuntimeStateDirectory[];
   readonly platform: NodeJS.Platform;
@@ -50,7 +49,6 @@ export interface DockerCommandProviderObservation {
 export interface ClaimedDockerCommandProvider {
   readonly auxiliaryInputs: readonly RetainedCommandAuxiliaryInput[];
   readonly boundary: RetainedCommandBoundary;
-  readonly launcherBoundary?: RetainedCommandBoundary;
   readonly environment: Readonly<NodeJS.ProcessEnv>;
   readonly environmentDigest: SecOperationDigest;
   readonly retainedOwners: readonly RetainedRuntimeStateDirectory[];
@@ -90,16 +88,6 @@ function settleDockerCommandProviderRecord(
         label: 'executable-dispose',
         settle: () => record.boundary.executable.dispose()
       },
-      ...(record.launcherBoundary === undefined ? [] : [
-        {
-          label: 'launcher-working-directory-dispose',
-          settle: () => record.launcherBoundary!.workingDirectory.dispose()
-        },
-        {
-          label: 'launcher-executable-dispose',
-          settle: () => record.launcherBoundary!.executable.dispose()
-        }
-      ])
     ]
   });
 }
@@ -141,18 +129,18 @@ function canonicalEnvironment(
     folded.add(canonicalKey);
     environment[canonicalKey] = value;
   }
-  if (environment.PATH !== '') {
-    providerFailure('Docker command provider PATH must be empty.');
-  }
   const required = platform === 'win32'
     ? ['APPDATA', 'HOME', 'LOCALAPPDATA', 'PATH', 'PROGRAMDATA',
-      'PROGRAMFILES', 'TEMP', 'TMP', 'USERPROFILE']
+      'PROGRAMFILES', 'SYSTEMROOT', 'TEMP', 'TMP', 'USERPROFILE', 'WINDIR']
     : ['HOME', 'PATH', 'TEMP', 'TMP'];
   if (required.some((key) => environment[key] === undefined)) {
     providerFailure('Docker command provider environment is incomplete.');
   }
-  for (const key of required.filter((key) => key !== 'PATH')) {
+  for (const key of required.filter((key) => platform === 'win32' || key !== 'PATH')) {
     environment[key] = canonicalAbsolutePath(environment[key], platform, `environment ${key}`);
+  }
+  if (platform !== 'win32' && environment.PATH !== '') {
+    providerFailure('Docker command provider PATH must be empty.');
   }
   if (environment.TEMP !== environment.TMP) {
     providerFailure('Docker command provider TEMP and TMP must have one owner.');
@@ -161,10 +149,11 @@ function canonicalEnvironment(
     if (environment.HOME !== environment.USERPROFILE) {
       providerFailure('Docker command provider profile has multiple owners.');
     }
-    if ((environment.SYSTEMROOT === undefined) !== (environment.WINDIR === undefined)
-        || (environment.SYSTEMROOT !== undefined
-          && environment.SYSTEMROOT !== environment.WINDIR)) {
+    if (environment.SYSTEMROOT !== environment.WINDIR) {
       providerFailure('Docker command provider Windows root has multiple owners.');
+    }
+    if (environment.PATH !== path.win32.join(environment.SYSTEMROOT!, 'System32')) {
+      providerFailure('Docker command provider PATH is not the retained Windows system directory.');
     }
   }
   return Object.freeze(environment);
@@ -195,8 +184,6 @@ export function issueDockerCommandProviderCapability(
     );
     observation.boundary.executable.assertCurrent();
     observation.boundary.workingDirectory.assertCurrent();
-    observation.launcherBoundary?.executable.assertCurrent();
-    observation.launcherBoundary?.workingDirectory.assertCurrent();
     for (const owner of observation.retainedOwners ?? []) owner.assertCurrent();
   } catch (error) {
     providerFailure('Docker command provider physical observation is unavailable.', error);
@@ -217,12 +204,6 @@ export function issueDockerCommandProviderCapability(
   }
   const environment = canonicalEnvironment(observation.environment, observation.platform);
   const auxiliaryInputs = retainedCommandBoundaryAuxiliaryInputs(observation.boundary);
-  const launcherAuxiliaryInputs = observation.launcherBoundary === undefined
-    ? Object.freeze([])
-    : retainedCommandBoundaryAuxiliaryInputs(observation.launcherBoundary);
-  if (launcherAuxiliaryInputs.length > 0) {
-    providerFailure('Docker Desktop launcher boundary must not contain auxiliary inputs.');
-  }
   const retainedOwners = Object.freeze([...(observation.retainedOwners ?? [])]);
   const environmentDigest = sha256({
     domain: 'sec.docker.command-provider.environment',
@@ -235,7 +216,11 @@ export function issueDockerCommandProviderCapability(
     auxiliaryInputs: auxiliaryInputs.map(({ capability, kind }) => ({
       kind,
       childPath: capability.childPath,
-      ...('digest' in capability ? capability.digest() : {})
+      ...('physical' in capability ? {
+        parent: capability.parent,
+        physical: capability.physical,
+        ...capability.digest()
+      } : {})
     })),
     retainedOwners: retainedOwners.map(({ root, directory }) => ({ root, directory })),
     executable: {
@@ -246,15 +231,7 @@ export function issueDockerCommandProviderCapability(
     },
     platform: observation.platform,
     providerContractDigest: observation.providerContractDigest,
-    workingDirectory: observation.workingDirectory,
-    launcher: observation.launcherBoundary === undefined ? null : {
-      executable: {
-        path: observation.launcherBoundary.executable.path,
-        physical: observation.launcherBoundary.executable.physical,
-        ...observation.launcherBoundary.executable.digest()
-      },
-      workingDirectory: observation.launcherBoundary.workingDirectory.childPath
-    }
+    workingDirectory: observation.workingDirectory
   }) as SecOperationDigest;
   const capability = Object.freeze({
     executable,
@@ -264,9 +241,6 @@ export function issueDockerCommandProviderCapability(
   dockerCommandProviders.set(capability, {
     auxiliaryInputs,
     boundary: observation.boundary,
-    ...(observation.launcherBoundary === undefined ? {} : {
-      launcherBoundary: observation.launcherBoundary
-    }),
     environment,
     environmentDigest,
     retainedOwners,
@@ -311,8 +285,6 @@ export function claimDockerCommandProviderCapability(
   try {
     record.boundary.executable.assertCurrent();
     record.boundary.workingDirectory.assertCurrent();
-    record.launcherBoundary?.executable.assertCurrent();
-    record.launcherBoundary?.workingDirectory.assertCurrent();
     for (const auxiliary of record.auxiliaryInputs) auxiliary.capability.assertCurrent();
     for (const owner of record.retainedOwners) owner.assertCurrent();
   } catch (error) {
@@ -330,9 +302,6 @@ export function claimDockerCommandProviderCapability(
   return Object.freeze({
     auxiliaryInputs: record.auxiliaryInputs,
     boundary: record.boundary,
-    ...(record.launcherBoundary === undefined ? {} : {
-      launcherBoundary: record.launcherBoundary
-    }),
     environment: record.environment,
     environmentDigest: record.environmentDigest,
     retainedOwners: record.retainedOwners,

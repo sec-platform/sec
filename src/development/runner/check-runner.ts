@@ -38,12 +38,6 @@ async function executeLocalAffectedGate(
       return 1;
     });
   }
-  if (step.id === 'audit:static') {
-    return runObservedReadOnlyStage(step.id, async () => {
-      const { runDevCommand } = await import('./command-runner.ts');
-      return runDevCommand('bun', ['run', step.id], {});
-    });
-  }
   if (step.id === 'typecheck') {
     if (compilerDependencies === undefined) {
       console.error('Local affected typecheck requires completed compiler dependency admission.');
@@ -208,7 +202,7 @@ export async function runFastCheck(options: FastCheckExecutionOptions = {}): Pro
 
   const compilerDependencies = await options.prepareCompilerDependencies();
 
-  console.log('Running fast check: imports:check -> audit:static -> docs:doctor + typecheck (parallel) -> test:fast');
+  console.log('Running fast check: imports:check -> docs:doctor + typecheck (parallel) -> test:fast');
 
   return executeFastCheckStages({
     imports: async () => {
@@ -221,14 +215,6 @@ export async function runFastCheck(options: FastCheckExecutionOptions = {}): Pro
           + `${outcome.files.map(file => `- ${file}`).join('\n')}\nRun bun run imports:apply.`
         );
         return 1;
-      });
-    },
-    sourceAudit: async () => {
-      // The existing enforced audit already includes executable tests and
-      // their value/retirement contracts. No parallel test-quality parser.
-      return runObservedReadOnlyStage('check:fast:audit:static', async () => {
-        const { runDevCommand } = await import('./command-runner.ts');
-        return runDevCommand('bun', ['run', 'audit:static'], {});
       });
     },
     documentation: async () => {

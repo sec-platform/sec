@@ -6,7 +6,6 @@ function fixture(overrides: Partial<FastCheckStages> = {}) {
   const events: string[] = [];
   const stages: FastCheckStages = {
     imports: async () => { events.push('imports'); return 0; },
-    sourceAudit: async () => { events.push('audit'); return 0; },
     documentation: async () => { events.push('documentation'); return 0; },
     types: async () => { events.push('types'); return 0; },
     tests: async () => { events.push('tests'); return 0; },
@@ -16,7 +15,7 @@ function fixture(overrides: Partial<FastCheckStages> = {}) {
 }
 
 test('every execution stage rejects values that are not non-negative safe-integer statuses', async () => {
-  const names = ['imports', 'sourceAudit', 'documentation', 'types', 'tests'] as const;
+  const names = ['imports', 'documentation', 'types', 'tests'] as const;
   const invalid = [undefined, null, false, true, '0', NaN, Infinity, -1, 0.5, Number.MAX_SAFE_INTEGER + 1];
   for (const name of names) {
     for (const value of invalid) {
@@ -28,9 +27,9 @@ test('every execution stage rejects values that are not non-negative safe-intege
 });
 
 test('platform exit statuses above 255 are preserved rather than masked to a successful zero', async () => {
-  const { stages, events } = fixture({ sourceAudit: async () => 256 });
+  const { stages, events } = fixture({ imports: async () => 256 });
   assert.equal(await executeFastCheckStages(stages), 256);
-  assert.deepEqual(events, ['imports']);
+  assert.deepEqual(events, []);
 });
 
 test('a rejected documentation check does not hide a nonzero type-check exit', async () => {
@@ -120,7 +119,7 @@ test('ordinary completed failures retain documentation priority and successful r
   assert.equal(failed.events.includes('tests'), false);
   const successful = fixture();
   assert.equal(await executeFastCheckStages(successful.stages), 0);
-  assert.deepEqual(successful.events, ['imports', 'audit', 'documentation', 'types', 'tests']);
+  assert.deepEqual(successful.events, ['imports', 'documentation', 'types', 'tests']);
 });
 
 test('the final test stage must also return a valid outcome and preserve its real failure code', async () => {

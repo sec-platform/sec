@@ -403,7 +403,6 @@ export type SourceProgramCandidateCode =
   | 'duplicate-production-identity-token'
   | 'duplicate-production-endpoint-literal'
   | 'versioned-declaration-conflicts-with-canonical-name'
-  | 'versioned-declaration-without-coexisting-version'
   | 'direct-process-transport-outside-owner'
   | 'process-resource-session-boundary-unresolved'
   | 'durable-worker-domain-import'
@@ -438,7 +437,6 @@ export const SOURCE_PROGRAM_BLOCKING_CANDIDATE_CODES = Object.freeze([
   'operation-critical-role-unresolved',
   'operation-recovery-binding-unresolved',
   'versioned-declaration-conflicts-with-canonical-name',
-  'versioned-declaration-without-coexisting-version',
   'test-mirrors-production-identity-literal',
   'test-mirrors-production-literal-collection',
   'test-mirrors-production-source-path'

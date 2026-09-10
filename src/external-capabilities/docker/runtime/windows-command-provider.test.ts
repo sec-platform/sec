@@ -19,6 +19,7 @@ test.skipIf(process.platform !== 'win32')(
     const original = {
       PATH: process.env.PATH,
       PROGRAMFILES: process.env.PROGRAMFILES,
+      SYSTEMROOT: process.env.SYSTEMROOT,
       TEMP: process.env.TEMP,
       TMP: process.env.TMP
     };
@@ -27,6 +28,7 @@ test.skipIf(process.platform !== 'win32')(
     try {
       process.env.PATH = String.raw`C:\ambient-docker-bin`;
       process.env.PROGRAMFILES = String.raw`C:\ambient-program-files`;
+      process.env.SYSTEMROOT = String.raw`C:\ambient-system-root`;
       process.env.TEMP = String.raw`C:\ambient-temp`;
       process.env.TMP = String.raw`C:\ambient-tmp`;
       try {
@@ -49,6 +51,7 @@ test.skipIf(process.platform !== 'win32')(
         return;
       }
       const programFiles = await resolveWindowsKnownFolderPath('program-files');
+      const windows = await resolveWindowsKnownFolderPath('windows');
       expect(provider.executable).toBe(path.win32.join(
         programFiles,
         ...DOCKER_WINDOWS_INSTALLATION_PROFILE.installation.directorySegments,
@@ -58,9 +61,11 @@ test.skipIf(process.platform !== 'win32')(
       expect(DOCKER_WINDOWS_INSTALLATION_PROFILE_DIGEST).toMatch(/^sha256:[a-f0-9]{64}$/u);
       claimed = claimDockerCommandProviderCapability(provider);
       expect(claimed.environment.PROGRAMFILES).toBe(programFiles);
-      expect(claimed.environment.PATH).toBe('');
+      expect(claimed.environment.SYSTEMROOT).toBe(windows);
+      expect(claimed.environment.WINDIR).toBe(windows);
+      expect(claimed.environment.PATH).toBe(path.win32.join(windows, 'System32'));
       expect(claimed.auxiliaryInputs.map(({ capability }) => path.win32.basename(capability.childPath)))
-        .toEqual(['docker-desktop.exe', 'docker-buildx.exe']);
+        .toEqual(['docker-desktop.exe', 'docker-buildx.exe', 'wsl.exe']);
       for (const auxiliary of claimed.auxiliaryInputs) auxiliary.capability.assertCurrent();
     } finally {
       if (claimed !== undefined) {

@@ -22,13 +22,14 @@ import {
   type SourceProgramModel,
   type SourceProgramReference
 } from './contract.ts';
+import { compileSourceProgramRequiredUnmaterializedObligations } from './implementation-dominance.ts';
+import { compareSourceProgramDeclarations as declarationOrder, pairSourceProgramDeclarations } from './reconciliation-declarations.ts';
+import { compileSourceProgramFindingDelta, type SourceProgramFindingDelta } from './reconciliation-findings.ts';
 import {
   assertRepositorySourceProgramCompilationReceipt,
   type RepositorySourceProgramCompilationReceipt
 } from './repository-compilation.ts';
-
-import { compareSourceProgramDeclarations as declarationOrder, pairSourceProgramDeclarations } from './reconciliation-declarations.ts';
-import { compileSourceProgramFindingDelta, type SourceProgramFindingDelta } from './reconciliation-findings.ts';
+import { compileSourceProgramOwnerIntentEvidence } from './repository.ts';
 
 type SourceProgramReconciliationBinding = Readonly<{
   before: RepositorySourceProgramCompilationReceipt;
@@ -477,7 +478,8 @@ function compileChanges(
         ? 'moved' as const
         : sha256(beforeReexports) !== sha256(afterReexports)
           ? 'reexported' as const
-          : beforeDeclaration.declarationDigest !== afterDeclaration.declarationDigest
+          : beforeDeclaration.exported !== afterDeclaration.exported
+            || beforeDeclaration.declarationDigest !== afterDeclaration.declarationDigest
             || sha256(beforeConsumers) !== sha256(afterConsumers)
             ? 'modified' as const
             : null;
@@ -639,6 +641,100 @@ function reconciliationReason(
   });
 }
 
+const EXPORT_RETIREMENT_UNKNOWN_CODES = new Set([
+  'computed-property-unresolved',
+  'dynamic-module-unresolved',
+  'dynamic-runtime-opaque'
+]);
+
+function exportSurfaceRetirementBlockers(input: Readonly<{
+  before: RepositorySourceProgramCompilationReceipt;
+  after: RepositorySourceProgramCompilationReceipt;
+  beforeIndex: ReconciliationModelIndex;
+  afterIndex: ReconciliationModelIndex;
+  beforeRoles: readonly BoundRole[];
+  afterRoles: readonly BoundRole[];
+  beforeOwnerIntents: ReturnType<typeof compileSourceProgramOwnerIntentEvidence>;
+  afterOwnerIntents: ReturnType<typeof compileSourceProgramOwnerIntentEvidence>;
+  change: SourceProgramReconciliationDeclarationChange;
+}>): readonly string[] {
+  const beforeAddress = input.change.before;
+  const afterAddress = input.change.after;
+  if (beforeAddress?.exported !== true || afterAddress?.exported !== false) return Object.freeze([]);
+  const beforeDeclaration = input.beforeIndex.declarationByObservationId.get(beforeAddress.observationId);
+  const afterDeclaration = input.afterIndex.declarationByObservationId.get(afterAddress.observationId);
+  if (beforeDeclaration === undefined || afterDeclaration === undefined) {
+    return Object.freeze(['compiler-declaration-unresolved']);
+  }
+  const blockers = new Set<string>();
+  const beforeConsumers = consumerPaths(input.beforeIndex, beforeDeclaration);
+  const afterConsumers = consumerPaths(input.afterIndex, afterDeclaration);
+  const crossFileConsumers = sortedUnique([...beforeConsumers, ...afterConsumers]
+    .filter((path) => path !== afterDeclaration.path));
+  if (crossFileConsumers.length > 0) blockers.add('cross-file-consumer');
+
+  const isTargetedEntrypoint = (model: SourceProgramModel): boolean => model.entrypoints.some((entrypoint) => (
+    entrypoint.kind === 'module-entrypoint' && entrypoint.targetPaths.includes(afterDeclaration.path)
+  ));
+  if (isTargetedEntrypoint(input.before.model) || isTargetedEntrypoint(input.after.model)) {
+    blockers.add('module-entrypoint-target');
+  }
+  const relevantPaths = new Set([
+    afterDeclaration.path,
+    ...beforeConsumers,
+    ...afterConsumers
+  ]);
+  const hasRelevantUnknown = (model: SourceProgramModel): boolean => (
+    model.unknowns.some(({ code, path }) => (
+      EXPORT_RETIREMENT_UNKNOWN_CODES.has(code) && relevantPaths.has(path)
+    ))
+    || model.entrypointClosures.some((closure) => (
+      closure.targetPaths.includes(afterDeclaration.path)
+      && (closure.observationClass === 'unknown' || closure.unknownPaths.length > 0)
+    ))
+    || model.references.some((reference) => (
+      reference.targetObservationId === null
+      && reference.path !== afterDeclaration.path
+      && (reference.targetPath === afterDeclaration.path
+        || (reference.targetPath === null && reference.name === afterDeclaration.name))
+    ))
+  );
+  if (hasRelevantUnknown(input.before.model) || hasRelevantUnknown(input.after.model)) {
+    blockers.add('consumer-or-entrypoint-unknown');
+  }
+
+  const roleBound = [...input.beforeRoles, ...input.afterRoles].some(({ declaration }) => (
+    declaration?.observationId === beforeDeclaration.observationId
+    || declaration?.observationId === afterDeclaration.observationId
+  ));
+  if (roleBound) blockers.add('operation-role');
+
+  for (const { label, intents, declaration } of [
+    { label: 'before', intents: input.beforeOwnerIntents, declaration: beforeDeclaration },
+    { label: 'after', intents: input.afterOwnerIntents, declaration: afterDeclaration }
+  ] as const) {
+    const ownerIntent = intents.find(({ owner }) => owner === declaration.moduleId);
+    if (ownerIntent === undefined) blockers.add(`${label}-owner-intent-unresolved`);
+    if (ownerIntent?.publicEntrypointEnvelope.some(({ targetPaths }) => (
+      targetPaths.includes(declaration.path)
+    ))) blockers.add(`${label}-owner-public-entrypoint`);
+    if (ownerIntent?.capabilityEnvelope.some(({ operations }) => (
+      operations.includes(declaration.name)
+    ))) blockers.add(`${label}-owner-capability-operation`);
+    if (ownerIntent?.operationObligations.some(({ obligation }) => (
+      obligation.operation.kind === 'capability'
+        ? obligation.operation.operation === declaration.name
+        : obligation.operation.path === declaration.path
+    ))) blockers.add(`${label}-owner-operation-obligation`);
+    if (compileSourceProgramRequiredUnmaterializedObligations(
+      declaration,
+      intents,
+      false
+    ).length > 0) blockers.add(`${label}-required-unmaterialized-obligation`);
+  }
+  return sortedUnique(blockers);
+}
+
 export function compileSourceProgramReconciliationProjection(
   input: CompileSourceProgramReconciliationProjectionInput
 ): SourceProgramReconciliationProjection {
@@ -656,6 +752,14 @@ export function compileSourceProgramReconciliationProjection(
   const afterRelations = bindRelations(afterModelIndex, afterMembership);
   const beforeRoles = bindRoles(beforeModelIndex, beforeMembership);
   const afterRoles = bindRoles(afterModelIndex, afterMembership);
+  const beforeOwnerIntents = compileSourceProgramOwnerIntentEvidence(
+    input.before.model,
+    beforeMembership
+  );
+  const afterOwnerIntents = compileSourceProgramOwnerIntentEvidence(
+    input.after.model,
+    afterMembership
+  );
   const changes = compileChanges(
     input.before.model,
     input.after.model,
@@ -692,6 +796,30 @@ export function compileSourceProgramReconciliationProjection(
         change.after?.name ?? change.before?.name ?? '<unknown>',
         [change.after?.path ?? change.before?.path ?? '.'],
         change
+      ));
+    }
+    const exportRetirementBlockers = exportSurfaceRetirementBlockers({
+      before: input.before,
+      after: input.after,
+      beforeIndex: beforeModelIndex,
+      afterIndex: afterModelIndex,
+      beforeRoles,
+      afterRoles,
+      beforeOwnerIntents,
+      afterOwnerIntents,
+      change
+    });
+    if (exportRetirementBlockers.length > 0) {
+      reasons.push(reconciliationReason(
+        'retirement-unresolved',
+        change.after?.name ?? change.before?.name ?? '<unknown>',
+        [change.after?.path ?? change.before?.path ?? '.'],
+        {
+          retirementAdmission: 'export-surface-unresolved',
+          blockers: exportRetirementBlockers,
+          before: change.before,
+          after: change.after
+        }
       ));
     }
   }

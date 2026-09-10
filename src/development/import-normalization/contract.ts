@@ -17,6 +17,7 @@ import {
 
 export const CANDIDATE_NORMALIZATION_SUBJECT_SCHEMA =
   'sec-candidate-normalization-snapshot-subject' as const;
+export const CANDIDATE_NORMALIZATION_DURATION_MS = 300_000;
 
 export const IMPORT_NORMALIZATION_OPERATION = Object.freeze({
   capability: 'development.import-normalization',

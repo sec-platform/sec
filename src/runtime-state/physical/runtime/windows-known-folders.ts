@@ -5,7 +5,8 @@ export type WindowsKnownFolder =
   | 'profile'
   | 'program-files'
   | 'program-data'
-  | 'roaming-app-data';
+  | 'roaming-app-data'
+  | 'windows';
 
 export type WindowsKnownFolderFailureReason =
   | 'hresult-failed'
@@ -45,6 +46,10 @@ const WINDOWS_KNOWN_FOLDER_GUID_BYTES = Object.freeze({
   'roaming-app-data': Object.freeze([
     0xdb, 0x85, 0xb6, 0x3e, 0xf9, 0x65, 0xf6, 0x4c,
     0xa0, 0x3a, 0xe3, 0xef, 0x65, 0x72, 0x9f, 0x3d
+  ]),
+  'windows': Object.freeze([
+    0x04, 0xf4, 0x8b, 0xf3, 0x43, 0x1d, 0xf2, 0x42,
+    0x93, 0x05, 0x67, 0xde, 0x0b, 0x28, 0xfc, 0x23
   ])
 } satisfies Readonly<Record<WindowsKnownFolder, readonly number[]>>);
 
@@ -57,7 +62,7 @@ function windowsKnownFolderError(
 }
 
 /**
- * Resolve a user-scoped Windows filesystem root from the operating-system
+ * Resolve a Windows filesystem root from the operating-system
  * Known Folder owner. Environment variables are deliberately not accepted as
  * authority: service, login and isolated process environments may omit or
  * redirect them while the user token still has one canonical folder binding.

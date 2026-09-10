@@ -8,6 +8,7 @@ import {
   symlink,
   writeFile
 } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
@@ -152,7 +153,7 @@ test('runtime materialization scheduler stops before the next batch when its bou
 });
 
 test('runtime launch proof rejects byte, shape, link, reparse, and post-hash identity tamper', async () => {
-  const root = await mkdtemp(path.join(process.cwd(), '.tmp-runtime-launch-proof-'));
+  const root = await mkdtemp(path.join(tmpdir(), '.tmp-runtime-launch-proof-'));
   const compilerRoot = path.join(root, '.isolated-compiler');
   const projectDepsRoot = path.join(root, 'node_modules');
   const target = path.join(compilerRoot, 'runner.bin');

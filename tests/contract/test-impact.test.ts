@@ -8,6 +8,7 @@ import { compileRepositorySourceProgramCompilation } from '../../src/brownfield/
 import { issueTestImpactProjection } from '../../src/brownfield/source-program-model/test-impact-projection.ts';
 import { acquireExactGitTreeWorkspaceSourceSnapshot } from '../../src/brownfield/source-program-model/workspace-source-snapshot.ts';
 import { currentActiveDocumentationPaths } from '../../src/control/documentation/active.ts';
+import { issueTestInventoryProjection } from '../../src/verification/test-impact/contract/budget.ts';
 import { classifyTestImpactSource } from '../../src/verification/test-impact/contract/ownership.ts';
 import { createRepositoryTestImpactSourceProvider, isTestImpactModuleGraphInputFile, isTestImpactSourceFile, readRepositoryModuleGraphV1, resolveTestImpactSelectionTrustBoundary, resolveTestOwnership, selectTestsForSources } from '../../src/verification/test-impact/runtime/impact.ts';
 
@@ -53,6 +54,7 @@ function sourceProvider(sources: Readonly<Record<string, string>>) {
         typeScriptModel: repositoryCompilation.typeScriptCompilation.model,
         testObservations: repositoryCompilation.testObservations
       }),
+      testInventory: issueTestInventoryProjection({ snapshot: workspaceSnapshot }),
       activeDocumentationPaths: currentActiveDocumentationPaths()
     });
   } finally {

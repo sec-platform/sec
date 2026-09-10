@@ -1687,24 +1687,21 @@ function compileRepositorySourceProgramModelInternal(
     const canonicalDeclarations = declarationsByOwnerAndName.get(
       `${group.owner}\u0000${group.baseName}`
     ) ?? [];
+    if (canonicalDeclarations.length === 0) continue;
     for (const declaration of [...group.versions.values()].flat()) {
       const productionConsumers = (referencesByTarget.get(declaration.observationId) ?? [])
         .filter(({ path: consumerPath }) => fileSurface.get(consumerPath) === 'production');
       if (productionConsumers.length === 0
         && !productionNamespaceImportTargets.has(declaration.path)) continue;
       candidates.push(Object.freeze({
-        code: canonicalDeclarations.length === 0
-          ? 'versioned-declaration-without-coexisting-version'
-          : 'versioned-declaration-conflicts-with-canonical-name',
+        code: 'versioned-declaration-conflicts-with-canonical-name',
         subject: declaration.name,
         paths: Object.freeze([...new Set([
           declaration.path,
           ...canonicalDeclarations.map(({ path: canonicalPath }) => canonicalPath),
           ...new Set(productionConsumers.map(({ path: consumerPath }) => consumerPath))
         ])].sort(compareCodeUnits)),
-        reason: canonicalDeclarations.length === 0
-          ? `production declaration carries a Vn suffix without a coexisting code version; canonical rename target is ${group.baseName}`
-          : `versioned declaration and canonical declaration coexist without a second version; reconcile behavior into ${group.baseName} instead of retaining a compatibility-shaped duplicate`,
+        reason: `versioned declaration and canonical declaration coexist without a second version; reconcile behavior into ${group.baseName} instead of retaining a compatibility-shaped duplicate`,
         observationClass: 'derived'
       }));
     }

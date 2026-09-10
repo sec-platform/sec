@@ -73,7 +73,7 @@ export function selectSlowTestRiskClosure(
   if (provider === undefined) {
     throw new Error('Slow-test risk selection requires an owner-issued snapshot projection.');
   }
-  const budgetProjection = compileTestBudgetProjection(provider.projection);
+  const budgetProjection = compileTestBudgetProjection(provider.testInventory);
   if (!files) {
     return {
       suites: [...baselineSlowSuiteIds(budgetProjection)],

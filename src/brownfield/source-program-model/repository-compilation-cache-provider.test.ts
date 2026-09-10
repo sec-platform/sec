@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
 import {
   inspectNoFollowDirectoryChain,
   retainNoFollowDirectoryForChildProcess,
@@ -30,11 +31,16 @@ import {
   type SecOperationDigest
 } from '../../system-architecture/operation/semantic.ts';
 import { compileSecRepositoryModuleMembershipSnapshot } from '../../system-architecture/repository-modules/contract.ts';
+import {
+  createSourceProgramCompilationOperation,
+  SourceProgramCompilationInterruptedError
+} from './compilation-operation.ts';
 import type { SourceProgramFileInput } from './contract.ts';
 import {
   createRepositoryCompilationCacheProvider,
   RepositoryCompilationCacheProviderError
 } from './repository-compilation-cache-provider.ts';
+import { compileRepositorySourceProgramWithCache } from './repository-compilation-cache-session.ts';
 import {
   issueRepositoryCompilationGenerationReceipt,
   type RepositoryCompilationCacheHint,
@@ -53,6 +59,7 @@ import {
   sourceProgramTypeScriptCompilerIdentity
 } from './typescript.ts';
 import {
+  acquireExactGitTreeWorkspaceSourceSnapshotFromSession,
   compileVirtualWorkspaceSourceSnapshot,
   compileWorkspaceTypeScriptProjectInput
 } from './workspace-source-snapshot.ts';
@@ -168,7 +175,53 @@ afterEach(() => {
   }
 });
 
-function fixture(value = 1) {
+test('production cache composition preserves an undefined compiler failure after session settlement', async () => {
+  const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), 'sec-source-program-cache-composition-'));
+  temporaryRoots.push(fixtureRoot);
+  process.env.SEC_CACHE_HOME = path.join(fixtureRoot, 'cache');
+  await withAuthorityGitReadSession({
+    cwd: process.cwd(),
+    budget: { deadlineMs: 120_000 }
+  }, async (gitSession) => {
+    const head = await gitSession.run(['rev-parse', '--verify', 'HEAD^{commit}']);
+    if (head.kind !== 'completed' || head.result.code !== 0) {
+      throw new Error('Cache composition fixture could not resolve HEAD');
+    }
+    const commitSha = new TextDecoder('utf-8', { fatal: true }).decode(head.result.stdout).trim();
+    const workspaceSnapshot = await acquireExactGitTreeWorkspaceSourceSnapshotFromSession({
+      commitSha,
+      session: gitSession
+    });
+    const operation = createSourceProgramCompilationOperation({
+      deadlineAtUnixMs: Date.now() + 120_000
+    });
+    const target = {
+      workspaceSnapshot,
+      operation,
+      repositoryRoot: process.cwd(),
+      reviewedProcessDispatchers: Object.freeze([] as string[])
+    };
+    const input = new Proxy(target, {
+      get: (selected, property, receiver) => {
+        if (property === 'reviewedProcessDispatchers') throw undefined;
+        return Reflect.get(selected, property, receiver);
+      }
+    });
+    let failed = false;
+    try {
+      compileRepositorySourceProgramWithCache(input);
+    } catch (error) {
+      failed = true;
+      expect(error).toBeUndefined();
+    }
+    expect(failed).toBe(true);
+  });
+});
+
+function fixture(
+  value = 1,
+  additionalFiles: readonly Readonly<{ path: string; source: string; contentDigest: `sha256:${string}` }>[] = []
+) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'sec-source-program-generation-'));
   temporaryRoots.push(root);
   const repositoryRoot = path.join(root, 'repository');
@@ -186,7 +239,8 @@ function fixture(value = 1) {
       path: 'tsconfig.json',
       source: projectConfigSource,
       contentDigest: rawSha256(projectConfigSource)
-    })
+    }),
+    ...additionalFiles
   ]);
   const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
     repositoryFiles: [...files.map((file) => file.path), descriptorPath],
@@ -438,6 +492,52 @@ test.serial('one immutable generation stores TypeScript facts while current cont
   expect(files).toContain('manifest.json');
   expect(files.some((file) => file.endsWith('.pack'))).toBe(true);
   expect(files.some((file) => file.endsWith('.projection'))).toBe(false);
+});
+
+test.serial('exact cached facts rebind aliased re-exports by identifier and quoted exported-name spans', () => {
+  const source = "export { value, value as renamedValue, value as 'quoted-value' } from './operation.ts';\n";
+  const value = fixture(1, [Object.freeze({
+    path: 'src/example/reexport.ts',
+    source,
+    contentDigest: rawSha256(source)
+  })]);
+  const cold = compileVirtualRepositorySourceProgramCompilation(value.input);
+  const warm = compileVirtualRepositorySourceProgramCompilation(value.input);
+  const reexportDeclarations = warm.model.declarations.filter(({ path: declarationPath }) => (
+    declarationPath === 'src/example/reexport.ts'
+  ));
+  expect(cold.typeScriptCompilation.mode).toBe('full');
+  expect(warm.typeScriptCompilation.mode).toBe('exact');
+  expect(reexportDeclarations.map(({ name }) => name).sort()).toEqual(['quoted-value', 'renamedValue']);
+  expect(reexportDeclarations.every(({ kind, exported }) => kind === 'ExportSpecifier' && exported)).toBe(true);
+});
+
+test.serial('a completed TypeScript generation remains reusable when a later repository projection is interrupted', () => {
+  const value = fixture();
+  const controller = new AbortController();
+  const operation = createSourceProgramCompilationOperation({
+    deadlineAtUnixMs: Date.now() + 30_000,
+    signal: controller.signal,
+    observePhase: ({ phase, state }) => {
+      if (phase === 'repository-projection' && state === 'start') controller.abort();
+    }
+  });
+  let failure: unknown;
+  try {
+    compileVirtualRepositorySourceProgramCompilation({ ...value.input, operation });
+  } catch (error) {
+    failure = error;
+  }
+  expect(failure).toBeInstanceOf(SourceProgramCompilationInterruptedError);
+  expect(failure).toMatchObject({
+    code: 'source-program-compilation-cancelled',
+    phase: 'repository-projection'
+  });
+
+  const loaded = value.cacheProvider.openContentAddressedHint(storeGeneration(value)).loadExact();
+  expect(loaded.status).toBe('hit');
+  const resumed = compileVirtualRepositorySourceProgramCompilation(value.input);
+  expect(resumed.typeScriptCompilation.mode).toBe('exact');
 });
 
 test.serial('a forged cached return hint cannot suppress the current Program owner-bypass finding', () => {

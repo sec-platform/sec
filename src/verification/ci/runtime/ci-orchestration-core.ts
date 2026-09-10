@@ -38,6 +38,7 @@ import {
 import { uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
 import { issueSecOperationRequirementBindingContext } from '../../../system-architecture/operation/requirement-binding-context.ts';
 import type { SecBoundSemanticOperation } from '../../../system-architecture/operation/semantic.ts';
+import { issueTestInventoryProjection } from '../../test-impact/contract/budget.ts';
 import { createRepositoryTestImpactSourceProvider, type CodexDevelopmentTestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
 import { CodexDevelopmentCreateTestImpactTransitionObservation, gitChangedFileDiffArgs, gitPathBlobBatchArgs, gitWorkingTreeStatusArgs, parseGitChangedRecordsOutput, parseGitPathBlobBatchOutput, type CodexDevelopmentGitChangedRecord, type CodexDevelopmentGitPathBlobEntry, type CodexDevelopmentTestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
 export const CODEX_DEVELOPMENT_FAILURE_TAIL_CHARACTER_LIMIT = 24_000;
@@ -313,6 +314,7 @@ export function CodexDevelopmentTestImpactSourceProviderFromSnapshot(
       typeScriptModel: sourceProgramCompilation.typeScriptCompilation.model,
       testObservations: sourceProgramCompilation.testObservations
     }),
+    testInventory: issueTestInventoryProjection({ snapshot: workspaceSnapshot }),
     activeDocumentationPaths: candidateActiveDocumentationPaths
   });
 }

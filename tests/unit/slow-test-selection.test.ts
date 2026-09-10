@@ -1,10 +1,11 @@
 import { afterAll, expect, test } from 'bun:test';
 
+import { AFFECTED_SELECTION_OPERATION_DURATION_MS } from '../../src/development/runner/affected-plan-contract.ts';
 import {
   admitTestSuiteExecutionPolicy,
   issueTestSuiteExecutionPolicy
 } from '../../src/development/runner/test-execution-policy.ts';
-import { compileTestBudgetProjection, slowTestPrRiskBaselineSuiteIds, TestBudgetProjectionCache, type TestBudgetProjection } from '../../src/verification/test-impact/contract/budget.ts';
+import { compileTestBudgetProjection, slowTestPrRiskBaselineSuiteIds } from '../../src/verification/test-impact/contract/budget.ts';
 import { selectSlowTestRiskClosure as selectSlowTestClosureWithProvider } from '../../src/verification/test-impact/slow-risk-selection.ts';
 import { compilerRoot } from '../../src/workspace/runtime/paths.ts';
 import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
@@ -12,35 +13,12 @@ import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test
 const testImpactFixture = await acquireExactRepositoryTestImpactProviderFixture();
 const provider = testImpactFixture.provider;
 afterAll(() => testImpactFixture.dispose());
-const budgetProjection = compileTestBudgetProjection(provider.projection);
+const testInventory = provider.testInventory;
+const budgetProjection = compileTestBudgetProjection(testInventory);
 const baselineSuites = slowTestPrRiskBaselineSuiteIds(budgetProjection);
 const selectSlowTestRiskClosure = (files: string[] | null) => (
   selectSlowTestClosureWithProvider(files, provider)
 );
-
-test('snapshot budget cache binds generation and rebuilds corrupted entries', () => {
-  const cache = new TestBudgetProjectionCache();
-  const first = cache.project(provider.projection);
-  expect(cache.project(provider.projection)).toBe(first);
-  expect(Object.isFrozen(first)).toBe(true);
-  expect(Object.isFrozen(first.generation)).toBe(true);
-  expect(Object.isFrozen(first.slowSuites)).toBe(true);
-  expect(first.slowSuites.every((suite) => (
-    Object.isFrozen(suite) && Object.isFrozen(suite.files)
-  ))).toBe(true);
-
-  const entries = (cache as unknown as {
-    projections: Map<string, TestBudgetProjection>;
-  }).projections;
-  entries.set(first.generationKey, {
-    ...first,
-    slowTestFiles: []
-  });
-  const rebuilt = cache.project(provider.projection);
-  expect(rebuilt).not.toBe(first);
-  expect(rebuilt).toEqual(first);
-  expect(Object.isFrozen(rebuilt)).toBe(true);
-});
 
 test('unresolved changed-file observation fails closed to the bounded baseline', () => {
   expect(selectSlowTestRiskClosure(null)).toEqual({
@@ -96,20 +74,28 @@ test('repository configuration resolves only through the snapshot-bound owner pr
   }
 });
 
-test('long suite admission retains its exact issued Source Program provenance and one finite deadline', () => {
+test('long suite admission retains its exact issued test inventory and finite revalidation deadline', () => {
   const suite = budgetProjection.slowSuites.find(
     ({ id }) => id === 'contract-document-control-plane-lifecycle'
   )!;
   expect(suite.logicalRunTimeoutMs).toBe(1_200_000);
   const bunOptions = ['--timeout', '180000'];
+  let inventoryReads = 0;
+  let budgetReads = 0;
   const policy = issueTestSuiteExecutionPolicy({
-    sourceProjection: provider.projection,
-    budgetProjection,
+    get testInventory() {
+      return inventoryReads++ === 0 ? testInventory : { ...testInventory, inventoryDigest: 'sha256:forged' as const };
+    },
+    get budgetProjection() {
+      return budgetReads++ === 0 ? budgetProjection : { ...budgetProjection, projectionDigest: 'sha256:forged' as const };
+    },
     suiteId: suite.id,
     selectedFiles: suite.files,
     bunOptions,
     workingDirectory: compilerRoot
   });
+  expect(policy.testInventoryDigest).toBe(testInventory.inventoryDigest);
+  expect(policy.budgetProjectionDigest).toBe(budgetProjection.projectionDigest);
   const beforeAdmission = Date.now();
   const admission = admitTestSuiteExecutionPolicy(policy);
   const afterAdmission = Date.now();
@@ -118,6 +104,9 @@ test('long suite admission retains its exact issued Source Program provenance an
   expect(admission.logicalDeadlineAtUnixMs).toBe(
     admission.admittedAtUnixMs + suite.logicalRunTimeoutMs
   );
+  expect(admission.revalidationDeadlineAtUnixMs).toBe(
+    admission.admittedAtUnixMs + AFFECTED_SELECTION_OPERATION_DURATION_MS
+  );
   expect(admission.childDeadlineAtUnixMs).toBe(
     admission.logicalDeadlineAtUnixMs - policy.settlementMarginMs
   );
@@ -125,16 +114,16 @@ test('long suite admission retains its exact issued Source Program provenance an
 
   const clonedBudget = structuredClone(budgetProjection);
   expect(() => issueTestSuiteExecutionPolicy({
-    sourceProjection: provider.projection,
+    testInventory,
     budgetProjection: clonedBudget,
     suiteId: suite.id,
     selectedFiles: suite.files,
     bunOptions,
     workingDirectory: compilerRoot
-  })).toThrow('exact owner-issued Source Program projection');
+  })).toThrow('exact owner-issued test inventory projection');
 
   expect(() => issueTestSuiteExecutionPolicy({
-    sourceProjection: provider.projection,
+    testInventory,
     budgetProjection,
     suiteId: suite.id,
     selectedFiles: suite.files,
@@ -143,7 +132,7 @@ test('long suite admission retains its exact issued Source Program provenance an
   })).toThrow('extra test selector');
 
   const concurrentPolicy = issueTestSuiteExecutionPolicy({
-    sourceProjection: provider.projection,
+    testInventory,
     budgetProjection,
     suiteId: suite.id,
     selectedFiles: suite.files,

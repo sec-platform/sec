@@ -8,6 +8,7 @@ import {
 } from '../../brownfield/source-program-model/compilation-operation.ts';
 import type { IssuedTestImpactProjection } from '../../brownfield/source-program-model/test-impact-projection.ts';
 import {
+  acquireWorkingTreeWorkspaceSourceSnapshot,
   assertWorkspaceTypeScriptProjectGenerationEvidence,
   type WorkspaceTypeScriptProjectGenerationEvidence
 } from '../../brownfield/source-program-model/workspace-source-snapshot.ts';
@@ -16,7 +17,7 @@ import {
   compileSecOperationDemandGraph,
   type SecOperationKind
 } from '../../control/operation/demand.ts';
-import { createAuthorityGitReadSession, type GitExecutableIdentity, type GitReadProviderIdentity, type GitReadProviderRoute, type GitReadSession, type GitReadSessionCommand } from '../../external-capabilities/git-read/runtime/session.ts';
+import { createAuthorityGitReadSession, type GitReadSession, type GitReadSessionCommand } from '../../external-capabilities/git-read/runtime/session.ts';
 import type { ProcessResourceSession } from '../../runtime-state/physical/runtime/process-resource-session.ts';
 import { settlePhysicalResourcesAsync } from '../../runtime-state/physical/runtime/resource-settlement.ts';
 import { secRuntimeStateEnvironment } from '../../runtime-state/workspace-state/layout.ts';
@@ -34,7 +35,12 @@ import {
   isAffectedSelectionFailClosed,
   projectAffectedSelectionToVerificationGateResult
 } from '../../verification/test-impact/affected.ts';
-import { compileTestBudgetProjection, FAST_TEST_PROCESS_POLICY_TEST_FILE, getFastTestFilesSync, getSlowTestFilesSync, isFastTestFile, isKnownSlowTestSuiteId, isSlowTestFile, slowTestSuiteFiles, slowTestSuiteIds, slowTestSuiteIdsForFile, TEST_ARCHITECTURE_POLICY_TEST_FILE, type TestBudgetProjection } from '../../verification/test-impact/contract/budget.ts';
+import { compileTestBudgetProjection, FAST_TEST_PROCESS_POLICY_TEST_FILE, getFastTestFilesSync, getSlowTestFilesSync, isFastTestFile, isKnownSlowTestSuiteId, isSlowTestFile, issueTestInventoryProjection, slowTestSuiteFiles, slowTestSuiteIds, slowTestSuiteIdsForFile, TEST_ARCHITECTURE_POLICY_TEST_FILE, type IssuedTestInventoryProjection, type TestBudgetProjection } from '../../verification/test-impact/contract/budget.ts';
+import {
+  issueAffectedTestImpactSource,
+  readIssuedAffectedTestImpactBinding,
+  type AffectedGitSelectionObservation
+} from '../../verification/test-impact/runtime/affected-source.ts';
 import { createRepositoryTestImpactSourceProvider, formatSlowImpactNotice, type CodexDevelopmentTestImpactSourceProvider } from '../../verification/test-impact/runtime/impact.ts';
 import { CodexDevelopmentCreateTestImpactTransitionObservation, gitChangedFileDiffArgs, gitIndexChangedFileDiffArgs, gitPathBlobBatchArgs, gitUntrackedFileArgs, gitWorkingTreeStatusArgs, gitWorktreeChangedFileDiffArgs, parseGitChangedRecordsOutput, parseGitPathBlobBatchOutput, parseGitUntrackedFileOutput, type CodexDevelopmentTestImpactTransitionObservation } from '../../verification/test-impact/runtime/transition.ts';
 import { selectSlowTestRiskClosure } from '../../verification/test-impact/slow-risk-selection.ts';
@@ -65,7 +71,8 @@ import {
   type OperationDependencyBootstrapResult
 } from './dependency-bootstrap.ts';
 import {
-  observeOperationDependencyReadGeneration
+  observeOperationDependencyReadGeneration,
+  retainOperationDependencyReadGeneration
 } from './dependency-read-generation.ts';
 import {
   consumeTestWorkspaceSupervisorChallenge,
@@ -293,16 +300,7 @@ function boundedAffectedBaseRef(value: string | undefined): string | null {
   return value;
 }
 
-type GitSelectionGitObservation = Readonly<{
-  baseSha: string | null;
-  headSha: string;
-  indexDigest: `sha256:${string}`;
-  worktreeDigest: `sha256:${string}`;
-  gitExecutable: string;
-  gitExecutableIdentity: GitExecutableIdentity | null;
-  gitProviderRoute: GitReadProviderRoute;
-  gitProviderIdentity: GitReadProviderIdentity;
-}>;
+type GitSelectionGitObservation = AffectedGitSelectionObservation;
 
 function completedGitCommand(
   command: GitReadSessionCommand
@@ -685,6 +683,7 @@ export async function issueCurrentTestImpactSourceProvider(): Promise<CodexDevel
     });
     return createRepositoryTestImpactSourceProvider({
       projection: observation.projection,
+      testInventory: observation.testInventory,
       activeDocumentationPaths: currentActiveDocumentationPaths()
     });
   } finally {
@@ -694,26 +693,25 @@ export async function issueCurrentTestImpactSourceProvider(): Promise<CodexDevel
 }
 
 export async function issueCurrentTestBudgetProjection(): Promise<TestBudgetProjection> {
-  const provider = await issueCurrentTestImpactSourceProvider();
-  return compileTestBudgetProjection(provider.projection);
+  return (await issueCurrentTestBudgetExecutionSource()).budgetProjection;
 }
 
 type TestBudgetExecutionSource = Readonly<{
-  sourceProjection: IssuedTestImpactProjection;
+  testInventory: IssuedTestInventoryProjection;
   budgetProjection: TestBudgetProjection;
+  dependencyGenerationDigest?: `sha256:${string}`;
   reobserve: (deadlineAtUnixMs: number) => Promise<boolean>;
 }>;
 
 async function reobserveTestBudgetExecutionSource(input: Readonly<{
-  expectedSourceProjection: IssuedTestImpactProjection;
+  expectedTestInventory: IssuedTestInventoryProjection;
   expectedBudgetProjection: TestBudgetProjection;
-  issueProjection: AffectedTestImpactProjectionIssuer;
   expectedGitObservation?: GitSelectionGitObservation;
   deadlineAtUnixMs: number;
 }>): Promise<boolean> {
-  let dependencyGeneration: RetainedCompilerDependencyReadGeneration | null = null;
   let session: GitReadSession | null = null;
   let result = false;
+  let primaryPresent = false;
   let primary: unknown;
   try {
     const operation = compileAffectedTestSelectionSemanticOperation({
@@ -728,11 +726,6 @@ async function reobserveTestBudgetExecutionSource(input: Readonly<{
     });
     if (resolution.status !== 'ready') return false;
     session = resolution.session;
-    const dependencyResolution = await observeOperationDependencyReadGeneration({
-      deadlineAtUnixMs: input.deadlineAtUnixMs
-    });
-    if (dependencyResolution.status !== 'ready') return false;
-    dependencyGeneration = dependencyResolution.generation;
     const gitObservation = input.expectedGitObservation === undefined
       ? null
       : await observeGitSelectionState(session, input.expectedGitObservation.baseSha);
@@ -741,51 +734,69 @@ async function reobserveTestBudgetExecutionSource(input: Readonly<{
           || !sameGitSelectionObservation(input.expectedGitObservation, gitObservation))) {
       return false;
     }
-    const observation = await issueAffectedWorkingTreeTestImpactProjection(
-      session,
-      input.issueProjection,
-      dependencyGeneration,
-      createSourceProgramCompilationOperation({ deadlineAtUnixMs: input.deadlineAtUnixMs })
-    );
-    if (observation.status !== 'ready') return false;
-    const currentBudget = compileTestBudgetProjection(observation.projection);
-    result = observation.projection.projectionDigest === input.expectedSourceProjection.projectionDigest
+    const snapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
+    const inventory = issueTestInventoryProjection({ snapshot });
+    const currentBudget = compileTestBudgetProjection(inventory);
+    result = inventory.inventoryDigest === input.expectedTestInventory.inventoryDigest
       && currentBudget.projectionDigest === input.expectedBudgetProjection.projectionDigest
       && currentBudget.generationKey === input.expectedBudgetProjection.generationKey;
   } catch (error) {
+    primaryPresent = true;
     primary = error;
   } finally {
     await settlePhysicalResourcesAsync({
-      ...(primary === undefined ? {} : { primary: { label: 'source-reobservation', error: primary } }),
-      cleanup: [
-        {
-          label: 'compiler-dependency-generation',
-          settle: async () => { await dependencyGeneration?.retire(); }
-        },
-        {
-          label: 'git-read-session',
-          settle: async () => { await session?.close?.(); }
-        }
-      ]
+      ...(primaryPresent ? { primary: { label: 'source-reobservation', error: primary } } : {}),
+      cleanup: [{
+        label: 'git-read-session',
+        settle: async () => { await session?.close?.(); }
+      }]
     });
   }
   return result;
 }
 
 async function issueCurrentTestBudgetExecutionSource(): Promise<TestBudgetExecutionSource> {
-  const provider = await issueCurrentTestImpactSourceProvider();
-  const sourceProjection = provider.projection;
-  const budgetProjection = compileTestBudgetProjection(sourceProjection);
-  return Object.freeze({
-    sourceProjection,
-    budgetProjection,
-    reobserve: (deadlineAtUnixMs) => reobserveTestBudgetExecutionSource({
-      expectedSourceProjection: sourceProjection,
-      expectedBudgetProjection: budgetProjection,
-      issueProjection: issueCheckAffectedTestImpactProjection,
-      deadlineAtUnixMs
-    })
+  const operation = compileAffectedTestSelectionSemanticOperation({ purpose: 'budget-projection' });
+  const deadlineAtUnixMs = operation.plan.attempt.deadlineAtUnixMs;
+  const resolution = createAuthorityGitReadSession({
+    cwd: compilerRoot,
+    operation,
+    budget: GIT_READ_OPERATION_BUDGET,
+    deadlineAtUnixMs
   });
+  if (resolution.status !== 'ready') {
+    throw new Error(`Test budget source snapshot is unavailable: ${resolution.kind}`);
+  }
+  const session = resolution.session;
+  let outcome: TestBudgetExecutionSource | undefined;
+  let primaryPresent = false;
+  let primary: unknown;
+  try {
+    const snapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
+    const testInventory = issueTestInventoryProjection({ snapshot });
+    const budgetProjection = compileTestBudgetProjection(testInventory);
+    outcome = Object.freeze({
+      testInventory,
+      budgetProjection,
+      reobserve: (revalidationDeadlineAtUnixMs) => reobserveTestBudgetExecutionSource({
+        expectedTestInventory: testInventory,
+        expectedBudgetProjection: budgetProjection,
+        deadlineAtUnixMs: revalidationDeadlineAtUnixMs
+      })
+    });
+  } catch (error) {
+    primaryPresent = true;
+    primary = error;
+  } finally {
+    await settlePhysicalResourcesAsync({
+      ...(primaryPresent ? { primary: { label: 'test-budget-source', error: primary } } : {}),
+      cleanup: [{
+        label: 'git-read-session',
+        settle: async () => { await session.close?.(); }
+      }]
+    });
+  }
+  return outcome!;
 }
 
 function sameGitSelectionObservation(
@@ -810,6 +821,7 @@ async function issueAffectedWorkingTreeTestImpactProjection(
   | {
       status: 'ready';
       projection: IssuedTestImpactProjection;
+      testInventory: IssuedTestInventoryProjection;
       projectGenerationEvidence: WorkspaceTypeScriptProjectGenerationEvidence;
     }
   | {
@@ -846,6 +858,7 @@ function allowFullFastFallback(): boolean {
 
 type OperationDependencyContext = {
   binPath: string;
+  dependencies: OperationDependencyBootstrapResult;
 };
 
 async function withOperationDependencies<T>(
@@ -861,7 +874,8 @@ async function withOperationDependencies<T>(
     ? await ensureOperationDependencies(demandGraph)
     : reuseOperationDependencies(prepared, demandGraph);
   return callback({
-    binPath: path.join(dependencies.nodeModulesPath, '.bin')
+    binPath: path.join(dependencies.nodeModulesPath, '.bin'),
+    dependencies
   });
 }
 
@@ -1276,7 +1290,7 @@ function affectedTestPlan(
   gitObservation?: GitSelectionGitObservation,
   observationFailure: 'git' | 'source' | null = null
 ): AffectedTestPlan {
-  const budgetProjection = compileTestBudgetProjection(provider.projection);
+  const budgetProjection = compileTestBudgetProjection(provider.testInventory);
   const risk = selectSlowTestRiskClosure(files, provider, transition);
   const selection = affectedTestSelection(files, budgetProjection, provider);
   const unresolvedPaths = risk.unresolvedPaths;
@@ -1510,8 +1524,29 @@ export async function resolveAffectedTestExecution(options: Readonly<{
   let initialSessionFailure = gitSession.failure;
   let initialSessionClosed = false;
   try {
-    changed = await gitChangedFiles(gitSession);
-    if (changed !== null) {
+    if (options.issueTestImpactProjection === issueCheckAffectedTestImpactProjection) {
+      const rawBaseRef = affectedTestsBaseRef();
+      const baseRef = boundedAffectedBaseRef(rawBaseRef);
+      if (rawBaseRef !== undefined && baseRef === null) return null;
+      const source = await issueAffectedTestImpactSource({
+        dependencyGeneration,
+        compilationOperation,
+        repositoryRoot: compilerRoot,
+        session: gitSession,
+        baseRef
+      });
+      if (source !== null) {
+        const binding = readIssuedAffectedTestImpactBinding(source);
+        changed = {
+          files: [...source.files],
+          gitObservation: source.gitObservation,
+          ...(binding === null ? {} : { transitionObservation: binding.transition })
+        };
+        testImpactObservation = source;
+      }
+    } else {
+      changed = await gitChangedFiles(gitSession);
+      if (changed !== null) {
       const projected = await issueAffectedWorkingTreeTestImpactProjection(
         gitSession,
         options.issueTestImpactProjection,
@@ -1522,6 +1557,7 @@ export async function resolveAffectedTestExecution(options: Readonly<{
         testImpactObservation = projected;
       } else {
         console.error(`Affected Test Impact projection is unavailable: ${projected.reason}`);
+      }
       }
     }
     initialSessionFailure = gitSession.failure;
@@ -1550,21 +1586,28 @@ export async function resolveAffectedTestExecution(options: Readonly<{
   }
   if (testImpactObservation === null) return null;
   const { projection: testImpactProjection, projectGenerationEvidence } = testImpactObservation;
-  const initialBudgetProjection = compileTestBudgetProjection(testImpactProjection);
+  const testInventory = testImpactObservation.testInventory;
+  const initialBudgetProjection = compileTestBudgetProjection(testInventory);
   const executionSource: TestBudgetExecutionSource = Object.freeze({
-    sourceProjection: testImpactProjection,
+    testInventory,
     budgetProjection: initialBudgetProjection,
-    reobserve: (deadlineAtUnixMs) => reobserveTestBudgetExecutionSource({
-      expectedSourceProjection: testImpactProjection,
+    ...(projectGenerationEvidence.projectInput.dependencyGenerationDigest === null
+      ? {}
+      : { dependencyGenerationDigest: projectGenerationEvidence.projectInput.dependencyGenerationDigest }),
+    reobserve: (deadlineAtUnixMs: number) => reobserveTestBudgetExecutionSource({
+      expectedTestInventory: testInventory,
       expectedBudgetProjection: initialBudgetProjection,
-      issueProjection: options.issueTestImpactProjection,
       expectedGitObservation: changed.gitObservation,
       deadlineAtUnixMs
     })
   });
   const sourceObservationProvider = createRepositoryTestImpactSourceProvider({
     projection: testImpactProjection,
-    activeDocumentationPaths: currentActiveDocumentationPaths()
+    testInventory: testImpactObservation.testInventory,
+    activeDocumentationPaths: currentActiveDocumentationPaths(),
+    ...(options.issueTestImpactProjection === issueCheckAffectedTestImpactProjection
+      ? { affectedSource: testImpactObservation as import('../../verification/test-impact/runtime/affected-source.ts').IssuedAffectedTestImpactSource }
+      : {})
   });
   const provider = sourceObservationProvider;
   const broadFallbackEnabled = allowFullFastFallback();
@@ -1723,24 +1766,45 @@ async function runFastTestsForInventory(
   let invocationRuntimeSettlementAttempted = false;
   let workspaceSettled = false;
   let workspaceSettlementAttempted = false;
+  const executionDependency = {
+    generation: null as RetainedCompilerDependencyReadGeneration | null
+  };
+  let executionDependencyGenerationSettled = false;
   let batchSettlementDeadlineAtUnixMs: number | undefined;
   let hasPrimaryFailure = false;
   let primaryFailure: unknown;
   try {
     const source = executionBoundary.source ?? await issueCurrentTestBudgetExecutionSource();
-    const { sourceProjection, budgetProjection } = source;
-    await withOperationDependencies('test-fast', async ({ binPath }) => {
+    const { testInventory, budgetProjection } = source;
+    await withOperationDependencies('test-fast', async ({ binPath, dependencies }) => {
       try {
         const selection = selectFastTestFiles(args, budgetProjection, inventory);
         const env = pathEnv(binPath, workspaceEnv);
         const policy = issueFastTestBatchExecutionPolicy({
-          sourceProjection,
+          testInventory,
           budgetProjection,
           selectedFiles: selection.files,
           bunOptions: selection.options
         });
         const admission = admitFastTestBatchExecutionPolicy(policy);
         batchSettlementDeadlineAtUnixMs = admission.logicalDeadlineAtUnixMs;
+        if (source.dependencyGenerationDigest !== undefined) {
+          if (dependencies.executionGenerationAuthority.generationDigest
+              !== source.dependencyGenerationDigest) {
+            throw new Error('Affected test dependency generation differs from its Source Program observation.');
+          }
+          const retained = await retainOperationDependencyReadGeneration({
+            dependencies,
+            deadlineAtUnixMs: admission.revalidationDeadlineAtUnixMs
+          });
+          if (retained.status !== 'ready') {
+            throw new Error('Affected test dependency generation is unavailable for execution.');
+          }
+          executionDependency.generation = retained.generation;
+          if (executionDependency.generation.generationDigest !== source.dependencyGenerationDigest) {
+            throw new Error('Affected test dependency generation changed before execution.');
+          }
+        }
         if (testInvocationRuntimeIsolationModeForPlatform(process.platform) === 'retained') {
           invocationRuntime = await createTestInvocationRuntimeRoots({
             repositoryRoot: compilerRoot,
@@ -1766,7 +1830,7 @@ async function runFastTestsForInventory(
             let code = 1;
             try {
               if (!(await source.reobserve(admission.revalidationDeadlineAtUnixMs))) {
-                console.error('Fast test budget Source Program observation drifted before child spawn.');
+                console.error('Fast test budget workspace snapshot drifted before child spawn.');
                 return code;
               }
               code = await runFastTestExecutionWaves(
@@ -1847,6 +1911,17 @@ async function runFastTestsForInventory(
     console.error(`Fast test workspace cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
     if (!hasPrimaryFailure && exitCode === 0) exitCode = 1;
   }
+  try {
+    await executionDependency.generation?.retire();
+    executionDependencyGenerationSettled = true;
+  } catch (error) {
+    console.error(`Affected test dependency generation settlement failed: ${error instanceof Error ? error.message : String(error)}`);
+    if (!hasPrimaryFailure && exitCode === 0) exitCode = 1;
+  }
+  if (executionDependency.generation !== null && !executionDependencyGenerationSettled
+      && !hasPrimaryFailure) {
+    exitCode = 1;
+  }
   if (hasPrimaryFailure) throw primaryFailure;
   return exitCode;
 }
@@ -1872,14 +1947,22 @@ export async function runSlowTests(args: string[] = []): Promise<number> {
 
 export type PreparedSlowTestSuiteExecution = Readonly<{
   policy: TestSuiteExecutionPolicy;
-  run: (context: RepositoryMutationFenceExecutionContext) => Promise<number>;
 }>;
+
+const preparedSlowTestExecutions = new WeakMap<
+  TestSuiteExecutionPolicy,
+  Readonly<{
+    reobserve: (deadlineAtUnixMs: number) => Promise<boolean>;
+    run: (context: RepositoryMutationFenceExecutionContext) => Promise<number>;
+  }>
+>();
 
 /** Prepares dependencies once and derives one execution per unique canonical suite. */
 export async function prepareSlowTestSuiteExecutions(
   args: string[] = []
 ): Promise<readonly PreparedSlowTestSuiteExecution[]> {
-  const { sourceProjection, budgetProjection } = await issueCurrentTestBudgetExecutionSource();
+  const source = await issueCurrentTestBudgetExecutionSource();
+  const { testInventory, budgetProjection } = source;
   const { suiteId, bunArgs } = extractSlowTestRunnerArgs(args);
   if (suiteId !== undefined && !isKnownSlowTestSuiteId(suiteId)) {
     throw new Error(`Unknown slow test suite "${suiteId}". Available suites: ${slowTestSuiteIds().join(', ') || 'none'}`);
@@ -1916,7 +1999,7 @@ export async function prepareSlowTestSuiteExecutions(
     const files = filesBySuite.get(suite.id);
     if (files === undefined) return [];
     const policy = issueTestSuiteExecutionPolicy({
-      sourceProjection,
+      testInventory,
       budgetProjection,
       suiteId: suite.id,
       selectedFiles: files,
@@ -1924,15 +2007,16 @@ export async function prepareSlowTestSuiteExecutions(
       workingDirectory: compilerRoot
     });
     const invocationArgs = [...policy.canonicalArgv.slice(1)];
-    return [Object.freeze({
-      policy,
+    preparedSlowTestExecutions.set(policy, Object.freeze({
+      reobserve: source.reobserve,
       run: (context: RepositoryMutationFenceExecutionContext) => runDevCommand(
         'bun', invocationArgs, environment, {
           testSuiteAdmission: context.testSuiteAdmission,
           testSuiteObserver: context.testSuiteObserver
         }
       )
-    })];
+    }));
+    return [Object.freeze({ policy })];
   }));
 }
 
@@ -1947,14 +2031,21 @@ export async function executePreparedSlowTestSuiteExecutions(
   const { compileRepositoryObservationOperation } = await import('./repository-observation.ts');
   const { runRepositoryZeroWriteOperation } = await import('./repository-mutation-fence.ts');
   for (const preparedSuite of preparedSuites) {
+    const execution = preparedSlowTestExecutions.get(preparedSuite.policy);
+    if (execution === undefined) {
+      throw new Error('Slow suite execution requires its owner-issued source reobservation.');
+    }
     const admission = admitTestSuiteExecutionPolicy(preparedSuite.policy);
     const code = await runRepositoryZeroWriteOperation(
       `${commandId}:${preparedSuite.policy.suiteId}`,
-      (_processSession, context) => {
+      async (_processSession, context) => {
         if (context === undefined) {
           throw new Error('Slow suite execution requires its repository observer context.');
         }
-        return preparedSuite.run(context);
+        if (!(await execution.reobserve(admission.revalidationDeadlineAtUnixMs))) {
+          throw new Error('Slow test budget workspace snapshot drifted before child spawn.');
+        }
+        return execution.run(context);
       },
       {
         operation: compileRepositoryObservationOperation(),

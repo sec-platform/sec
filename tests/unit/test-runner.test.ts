@@ -457,7 +457,7 @@ const runAffectedTests = (args: string[] = []) => runAffectedTestsWithIssuer(
 );
 const testBudgetDomain = await import('../../src/verification/test-impact/contract/budget.ts');
 const testBudgetProjection = testBudgetDomain.compileTestBudgetProjection(
-  testImpactFixture.provider.projection
+  testImpactFixture.provider.testInventory
 );
 const getFastTestFilesSync = () => testBudgetDomain.getFastTestFilesSync(testBudgetProjection);
 const slowTestSuiteFiles = (suiteId: string) => (
@@ -952,12 +952,18 @@ test('all canonical test lanes use one bounded default timeout policy', () => {
 });
 
 test('fast batch policy derives supervisor ceilings and waves from its canonical planner', () => {
-  const sourceProjection = testImpactFixture.affectedObservation.projection;
-  const budgetProjection = compileTestBudgetProjection(sourceProjection);
+  const testInventory = testImpactFixture.provider.testInventory;
+  const budgetProjection = compileTestBudgetProjection(testInventory);
   const selectedFiles = budgetProjection.fastTestFiles.slice(0, 20);
+  let inventoryReads = 0;
+  let budgetReads = 0;
   const forgedCallerFields = {
-    sourceProjection,
-    budgetProjection,
+    get testInventory() {
+      return inventoryReads++ === 0 ? testInventory : { ...testInventory, inventoryDigest: 'sha256:forged' as const };
+    },
+    get budgetProjection() {
+      return budgetReads++ === 0 ? budgetProjection : { ...budgetProjection, projectionDigest: 'sha256:forged' as const };
+    },
     selectedFiles,
     bunOptions: [],
     workingDirectory: process.cwd(),
@@ -966,6 +972,8 @@ test('fast batch policy derives supervisor ceilings and waves from its canonical
   };
 
   const policy = issueFastTestBatchExecutionPolicy(forgedCallerFields);
+  expect(policy.testInventoryDigest).toBe(testInventory.inventoryDigest);
+  expect(policy.budgetProjectionDigest).toBe(budgetProjection.projectionDigest);
   const canonicalSupervisorTimeoutMs = DEV_COMMAND_MAX_DURATION_MS;
   expect(policy.invocations.every(({ supervisorTimeoutMs }) => (
     supervisorTimeoutMs === canonicalSupervisorTimeoutMs

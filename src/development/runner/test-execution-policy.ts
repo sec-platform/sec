@@ -1,5 +1,4 @@
 /** One default per-test deadline for every canonical test lane. */
-import type { IssuedTestImpactProjection } from '../../brownfield/source-program-model/test-impact-projection.ts';
 import {
   RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
   RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID
@@ -16,6 +15,7 @@ import {
 } from '../../system-architecture/operation/semantic.ts';
 import {
   assertTestBudgetExecutionProvenance,
+  type IssuedTestInventoryProjection,
   type TestBudgetProjection
 } from '../../verification/test-impact/contract/budget.ts';
 import { compilerRoot } from '../../workspace/runtime/paths.ts';
@@ -52,7 +52,7 @@ export type TestSuiteExecutionPolicy = Readonly<{
   suiteId: string;
   suiteOwner: string;
   files: readonly string[];
-  sourceProjectionDigest: `sha256:${string}`;
+  testInventoryDigest: `sha256:${string}`;
   budgetProjectionDigest: `sha256:${string}`;
   logicalRunTimeoutMs: number;
   settlementMarginMs: number;
@@ -66,6 +66,7 @@ export type TestSuiteExecutionAdmission = Readonly<{
   policy: TestSuiteExecutionPolicy;
   admittedAtUnixMs: number;
   logicalDeadlineAtUnixMs: number;
+  revalidationDeadlineAtUnixMs: number;
   childDeadlineAtUnixMs: number;
 }>;
 
@@ -80,7 +81,7 @@ export type FastTestBatchInvocationPolicy = Readonly<{
 export type FastTestBatchExecutionPolicy = Readonly<{
   schema: 'sec-fast-test-batch-execution-policy-v1';
   files: readonly string[];
-  sourceProjectionDigest: `sha256:${string}`;
+  testInventoryDigest: `sha256:${string}`;
   budgetProjectionDigest: `sha256:${string}`;
   invocations: readonly FastTestBatchInvocationPolicy[];
   executionWaves: readonly (readonly string[])[];
@@ -117,15 +118,17 @@ function sameStringSet(left: readonly string[], right: readonly string[]): boole
 }
 
 export function issueFastTestBatchExecutionPolicy(input: Readonly<{
-  sourceProjection: IssuedTestImpactProjection;
+  testInventory: IssuedTestInventoryProjection;
   budgetProjection: TestBudgetProjection;
   selectedFiles: readonly string[];
   bunOptions: readonly string[];
 }>): FastTestBatchExecutionPolicy {
-  assertTestBudgetExecutionProvenance(input.budgetProjection, input.sourceProjection);
+  const budgetProjection = input.budgetProjection;
+  const testInventory = input.testInventory;
+  assertTestBudgetExecutionProvenance(budgetProjection, testInventory);
   const files = Object.freeze([...input.selectedFiles]);
   if (files.length === 0 || !sameStringSet(files, files)
-      || files.some((file) => !input.budgetProjection.fastTestFiles.includes(file))) {
+      || files.some((file) => !budgetProjection.fastTestFiles.includes(file))) {
     throw new Error('Fast test batch requires unique current canonical fast test files.');
   }
   const bunOptions = canonicalBunTestOptions(input.bunOptions);
@@ -200,8 +203,8 @@ export function issueFastTestBatchExecutionPolicy(input: Readonly<{
   const unsigned = deepFreeze({
     schema: 'sec-fast-test-batch-execution-policy-v1' as const,
     files,
-    sourceProjectionDigest: input.sourceProjection.projectionDigest as `sha256:${string}`,
-    budgetProjectionDigest: input.budgetProjection.projectionDigest,
+    testInventoryDigest: testInventory.inventoryDigest,
+    budgetProjectionDigest: budgetProjection.projectionDigest,
     invocations,
     executionWaves,
     concurrentProcessLimit: managedConcurrency.outerProcessConcurrency,
@@ -290,15 +293,18 @@ export function bindFastTestBatchExecutionAdmission(
 }
 
 export function issueTestSuiteExecutionPolicy(input: Readonly<{
-  sourceProjection: IssuedTestImpactProjection;
+  testInventory: IssuedTestInventoryProjection;
   budgetProjection: TestBudgetProjection;
   suiteId: string;
   selectedFiles: readonly string[];
   bunOptions: readonly string[];
   workingDirectory: string;
 }>): TestSuiteExecutionPolicy {
-  assertTestBudgetExecutionProvenance(input.budgetProjection, input.sourceProjection);
-  const suite = input.budgetProjection.slowSuites.find(({ id }) => id === input.suiteId);
+  const budgetProjection = input.budgetProjection;
+  const testInventory = input.testInventory;
+  const suiteId = input.suiteId;
+  assertTestBudgetExecutionProvenance(budgetProjection, testInventory);
+  const suite = budgetProjection.slowSuites.find(({ id }) => id === suiteId);
   if (suite === undefined || suite.files.length === 0) {
     throw new Error('Test suite execution requires one current canonical slow suite.');
   }
@@ -326,8 +332,8 @@ export function issueTestSuiteExecutionPolicy(input: Readonly<{
     suiteId: suite.id,
     suiteOwner: suite.owner,
     files: selectedFiles,
-    sourceProjectionDigest: input.sourceProjection.projectionDigest as `sha256:${string}`,
-    budgetProjectionDigest: input.budgetProjection.projectionDigest,
+    testInventoryDigest: testInventory.inventoryDigest,
+    budgetProjectionDigest: budgetProjection.projectionDigest,
     logicalRunTimeoutMs: suite.logicalRunTimeoutMs,
     settlementMarginMs: TEST_SUPERVISOR_SETTLEMENT_MARGIN_MS,
     caseTimeoutMs,
@@ -360,8 +366,11 @@ export function admitTestSuiteExecutionPolicy(
   const admittedAtUnixMs = Date.now();
   consumedTestSuiteExecutionPolicies.add(policy);
   const logicalDeadlineAtUnixMs = admittedAtUnixMs + policy.logicalRunTimeoutMs;
+  const revalidationDeadlineAtUnixMs = admittedAtUnixMs + AFFECTED_SELECTION_OPERATION_DURATION_MS;
   const childDeadlineAtUnixMs = logicalDeadlineAtUnixMs - policy.settlementMarginMs;
   if (!Number.isSafeInteger(logicalDeadlineAtUnixMs)
+      || !Number.isSafeInteger(revalidationDeadlineAtUnixMs)
+      || revalidationDeadlineAtUnixMs > childDeadlineAtUnixMs
       || childDeadlineAtUnixMs <= admittedAtUnixMs) {
     throw new Error('Test suite execution admission deadline is invalid.');
   }
@@ -369,6 +378,7 @@ export function admitTestSuiteExecutionPolicy(
     policy,
     admittedAtUnixMs,
     logicalDeadlineAtUnixMs,
+    revalidationDeadlineAtUnixMs,
     childDeadlineAtUnixMs
   });
   issuedTestSuiteExecutionAdmissions.add(admission);

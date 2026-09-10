@@ -1,5 +1,4 @@
 import { expect, test } from 'bun:test';
-import { applyPatch, parsePatch } from 'diff';
 
 import type { BuildEngineeringIRInput } from '../../compiler/ir/build-engineering-ir.ts';
 import { buildValidatedEngineeringIR } from '../../compiler/ir/validate-engineering-ir.ts';
@@ -44,6 +43,7 @@ import {
   observeSourceProgramDurableWorkerInput,
   observeSourceProgramTypeScriptRename,
   observeSourceProgramTypeScriptSyntax,
+  observeTypeScriptSourceProgramPerformanceForTests,
   querySourceProgramModel
 } from './typescript.ts';
 import { compileWorkspaceSourceRevision } from './workspace-source-snapshot.ts';
@@ -103,6 +103,71 @@ test('TypeScript semantic compilation keeps production and test surfaces distinc
     { name: 'productionValue', path: 'src/example.ts' },
     { name: 'mirroredTestValue', path: 'tests/example.test.ts' }
   ]);
+});
+
+test('TypeScript semantic reference lookup skips names outside the canonical declaration and alias census', () => {
+  const moduleMembership = Object.freeze({
+    descriptors: Object.freeze([]),
+    graphRoots: Object.freeze([]),
+    moduleRoots: Object.freeze([]),
+    moduleForPath: () => null
+  });
+  const sources = [
+    {
+      path: 'src/reference-target.ts',
+      source: 'export const target = 1;\nexport default target;\n'
+    },
+    {
+      path: 'src/reference-consumer.ts',
+      source: [
+        "import defaultAlias, { target as renamed } from './reference-target.ts';",
+        "import * as namespaceAlias from './reference-target.ts';",
+        "export { target as exposed } from './reference-target.ts';",
+        'const local = renamed;',
+        'const shorthand = { local };',
+        'function shadow(renamed: number) { return renamed; }',
+        "const quoted = namespaceAlias['target'];",
+        "const computed = namespaceAlias[String('target')];",
+        'export const result = defaultAlias + renamed + namespaceAlias.target',
+        '  + shorthand.local + shadow(1) + quoted + computed + Math.max(1, 2);'
+      ].join('\n')
+    }
+  ];
+  const files = sources.map(({ path, source }) => Object.freeze({
+    path,
+    source,
+    contentDigest: rawSha256(source)
+  }));
+  const before = observeTypeScriptSourceProgramPerformanceForTests();
+  const model = compileTypeScriptSourceProgramModel({
+    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
+    files,
+    moduleMembership
+  });
+  const after = observeTypeScriptSourceProgramPerformanceForTests();
+  const targetReferences = model.references.filter(({ targetPath }) => (
+    targetPath === 'src/reference-target.ts'
+  ));
+
+  expect(targetReferences.map(({ kind, name, moduleSpecifier }) => ({
+    kind,
+    name,
+    moduleSpecifier
+  }))).toEqual([
+    { kind: 'import', name: 'default', moduleSpecifier: './reference-target.ts' },
+    { kind: 'import', name: 'target', moduleSpecifier: './reference-target.ts' },
+    { kind: 'import', name: '*', moduleSpecifier: './reference-target.ts' },
+    { kind: 'reexport', name: 'target', moduleSpecifier: './reference-target.ts' },
+    { kind: 'reference', name: 'renamed', moduleSpecifier: './reference-target.ts' },
+    { kind: 'reference', name: 'defaultAlias', moduleSpecifier: './reference-target.ts' },
+    { kind: 'reference', name: 'renamed', moduleSpecifier: './reference-target.ts' },
+    { kind: 'reference', name: 'target', moduleSpecifier: null },
+    { kind: 'reference', name: 'target', moduleSpecifier: null }
+  ]);
+  expect(after.semanticSymbolLookupOperations - before.semanticSymbolLookupOperations).toBeGreaterThan(0);
+  expect(
+    after.semanticSymbolLookupSkippedIdentifiers - before.semanticSymbolLookupSkippedIdentifiers
+  ).toBeGreaterThan(0);
 });
 
 test('TypeScript rename observations expire with their exact compiler generation', () => {
@@ -632,39 +697,21 @@ test('source program model finds capability producers, consumers, literals, and 
   }));
   expect(versionReductionPlan.reductions).toContainEqual(expect.objectContaining({
     status: 'ready',
-    currentName: 'calculateProjectionV1',
-    proposedName: 'calculateProjection'
-  }));
-  expect(versionReductionPlan.reductions).toContainEqual(expect.objectContaining({
-    status: 'ready',
-    currentName: 'calculatePrivateProjectionV1',
-    proposedName: 'calculatePrivateProjection'
-  }));
-  expect(versionReductionPlan.reductions).toContainEqual(expect.objectContaining({
-    status: 'ready',
     currentName: 'REAL_SCHEMA_V2',
     proposedName: 'REAL_SCHEMA'
   }));
   expect(versionReductionPlan.reductions).not.toContainEqual(expect.objectContaining({
     currentName: 'normalizeInputV1'
   }));
+  expect(versionReductionPlan.reductions).not.toContainEqual(expect.objectContaining({
+    currentName: 'calculateProjectionV1'
+  }));
   expect(model.candidates).toContainEqual(expect.objectContaining({
     code: 'versioned-declaration-conflicts-with-canonical-name',
     subject: 'approvedExternalCapabilityV1'
   }));
-  expect(versionReductionPatch.patch).toContain('--- a/src/example/index.ts');
-  expect(versionReductionPatch.patch).toContain('+++ b/src/example/index.ts');
   expect(versionReductionPatch.patch).toContain('--- a/src/example/alias-consumer.ts');
-  const indexPatch = parsePatch(versionReductionPatch.patch).find(({ oldFileName }) =>
-    oldFileName === 'a/src/example/index.ts');
-  expect(indexPatch).toBeDefined();
-  const reducedSource = applyPatch(
-    sources.get('src/example/index.ts')!,
-    indexPatch!
-  );
-  expect(reducedSource).not.toBe(false);
-  expect(reducedSource).toContain('function calculateProjection()');
-  expect(reducedSource).not.toContain('calculateProjectionV1');
+  expect(versionReductionPatch.patch).not.toContain('--- a/src/example/index.ts');
   const unboundPackageSource = JSON.stringify({ ...packageManifest, source: undefined });
   const unboundFiles = files.map((file) => file.path === 'package.json'
     ? { ...file, source: unboundPackageSource, contentDigest: rawSha256(unboundPackageSource) }
@@ -705,11 +752,7 @@ test('source program model finds capability producers, consumers, literals, and 
     code: 'production-declaration-only-test-consumers',
     subject: lazySchemaName
   }));
-  expect(model.candidates).toContainEqual(expect.objectContaining({
-    code: 'versioned-declaration-without-coexisting-version',
-    subject: 'calculateProjectionV1',
-    paths: ['src/example/index.ts']
-  }));
+  expect(model.candidates.some(({ subject }) => subject === 'calculateProjectionV1')).toBe(false);
   expect(model.candidates).toContainEqual(expect.objectContaining({
     code: 'versioned-declaration-conflicts-with-canonical-name',
     subject: 'normalizeInputV1',

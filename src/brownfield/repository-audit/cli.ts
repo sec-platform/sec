@@ -107,6 +107,7 @@ import {
   compileSourceProgramReconciliationProjection
 } from '../source-program-model/reconciliation-projection.ts';
 import { buildSourceProgramAggregateImportReductionPatch, compileSourceProgramAggregateImportReductionPlan, compileSourceProgramGraphCutReductionPlan, compileSourceProgramSupersessionEvidence, compileSourceProgramSupersessionEvidenceIdentity, compileSourceProgramSupersessionReceipt, compileSourceProgramTestRetirementReceipt, compileSourceProgramVersionSuffixReductionPlan, parseSourceProgramSupersessionEvidence, projectSourceProgramTestRetirementDispositions, renderSourceProgramGraphCutReductionPatch, renderSourceProgramVersionSuffixReductionPatch, type SourceProgramSupersessionEvidence, type SourceProgramSupersessionEvidenceIdentity } from '../source-program-model/reduction.ts';
+import { compileRepositorySourceProgramWithCache } from '../source-program-model/repository-compilation-cache-session.ts';
 import { compileRepositorySourceProgramCompilation } from '../source-program-model/repository-compilation.ts';
 import { compileSourceProgramOwnerIntentEvidence, summarizeSourceProgramTopology } from '../source-program-model/repository.ts';
 import { compileSourceProgramTestBaselineEvidence, compileSourceProgramTestValue, reconcileSourceProgramTestValueWithSupersession, SOURCE_PROGRAM_BLOCKING_TEST_FINDING_CODES, summarizeSourceProgramTestUnknownDispositionClusters, type SourceProgramTestBaselineEvidence, type SourceProgramTestFinding } from '../source-program-model/test-value.ts';
@@ -1120,10 +1121,11 @@ async function compileRevisionSupersessionEvidence(
     tsconfigRelativePath,
     { dependencyGeneration, dependencyGenerationDigest }
   );
-  const compilation = compileRepositorySourceProgramCompilation({
+  const compilation = compileRepositorySourceProgramWithCache({
     workspaceSnapshot,
     projectInput,
     operation,
+    repositoryRoot,
     reviewedProcessDispatchers,
     unknowns: revisionUnknowns
   });
@@ -1470,7 +1472,7 @@ async function compileWorkingTreeSourceProgramWithSession(
     tsconfigRelativePath,
     { dependencyGeneration, dependencyGenerationDigest }
   );
-  const compilation = compileRepositorySourceProgramCompilation({
+  const compilation = compileRepositorySourceProgramWithCache({
     workspaceSnapshot,
     projectInput,
     operation: compilationOperation,

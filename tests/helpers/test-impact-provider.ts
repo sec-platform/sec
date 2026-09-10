@@ -1,8 +1,9 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { createSourceProgramCompilationOperation } from '../../src/brownfield/source-program-model/compilation-operation.ts';
 import { createRepositoryCompilationCacheProvider } from '../../src/brownfield/source-program-model/repository-compilation-cache-provider.ts';
 import { openRepositoryCompilationCacheSession } from '../../src/brownfield/source-program-model/repository-compilation-cache-session.ts';
 import {
@@ -23,10 +24,19 @@ import { withAuthorityGitReadSession } from '../../src/external-capabilities/git
 import { isolatedGitReadEnvironment } from '../../src/external-capabilities/git-read/runtime/session.ts';
 import type { ContentAddressedWorkspaceCacheSession } from '../../src/runtime-state/workspace-state/content-addressed-workspace-cache.ts';
 import { isSecRepositoryTestModulePath } from '../../src/system-architecture/repository-modules/test-module-path.ts';
+import { issueTestInventoryProjection } from '../../src/verification/test-impact/contract/budget.ts';
+import {
+  issueAffectedTestImpactSource,
+  readIssuedAffectedTestImpactBinding
+} from '../../src/verification/test-impact/runtime/affected-source.ts';
 import {
   createRepositoryTestImpactSourceProvider,
   type CodexDevelopmentTestImpactSourceProvider
 } from '../../src/verification/test-impact/runtime/impact.ts';
+import {
+  CodexDevelopmentCreateTestImpactTransitionObservation,
+  type CodexDevelopmentTestImpactTransitionObservation
+} from '../../src/verification/test-impact/runtime/transition.ts';
 import { tsconfigRelativePath } from '../../src/workspace/runtime/paths.ts';
 
 const GIT_OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
@@ -50,6 +60,12 @@ export type ExactGitTreeTestRunnerFixture = ExactGitFixtureBase & Readonly<{
   indexStageOutput: Uint8Array;
   deletedTrackedOutput: Uint8Array;
   affectedObservation: Awaited<ReturnType<AffectedTestImpactProjectionIssuer>>;
+}>;
+
+export type RemovedDocumentationTestImpactFixture = Readonly<{
+  provider: CodexDevelopmentTestImpactSourceProvider;
+  transition: CodexDevelopmentTestImpactTransitionObservation;
+  dispose(): void;
 }>;
 
 type SharedExactRepositoryFixtureState = {
@@ -207,6 +223,102 @@ function writeRunnerProgram(repositoryRoot: string, testPaths: readonly string[]
   })}\n`, 'utf8');
 }
 
+export async function createRemovedDocumentationTestImpactFixture(
+  descriptorChanged = false,
+  includeConsumer = true,
+  sourceRepositoryRoot = process.cwd()
+): Promise<RemovedDocumentationTestImpactFixture> {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), FIXTURE_ROOT_PREFIX));
+  const repositoryRoot = path.join(fixtureRoot, 'repository');
+  const dispose = guardedFixtureDisposer(fixtureRoot);
+  const documentationPath = 'src/external-capabilities/docker/README.md';
+  const descriptorPath = 'src/external-capabilities/docker/sec.module.json';
+  try {
+    initializeFixtureRepository(repositoryRoot);
+    const sources = new Map<string, string>([
+      [descriptorPath, readFileSync(path.join(sourceRepositoryRoot, ...descriptorPath.split('/')), 'utf8')],
+      ['src/external-capabilities/docker/runtime/fixture.ts', 'export const dockerFixture = true;\n'],
+      [documentationPath, '# Docker fixture\n']
+    ]);
+    if (includeConsumer) {
+      sources.set('tests/unit/trusted-runtime-container.test.ts', [
+        "import { test } from 'bun:test';",
+        "import { dockerFixture } from '../../src/external-capabilities/docker/runtime/fixture.ts';",
+        "test('docker owner', () => { if (!dockerFixture) throw new Error(); });",
+        ''
+      ].join('\n'));
+    }
+    for (const [repositoryPath, source] of sources) {
+      const target = path.join(repositoryRoot, ...repositoryPath.split('/'));
+      mkdirSync(path.dirname(target), { recursive: true });
+      writeFileSync(target, source, 'utf8');
+    }
+    writeFileSync(path.join(repositoryRoot, 'tsconfig.json'), `${JSON.stringify({
+      compilerOptions: { noEmit: true, strict: true },
+      include: ['src/**/*.ts', 'tests/**/*.ts']
+    })}\n`, 'utf8');
+    git(repositoryRoot, ['add', '--all']);
+    git(repositoryRoot, ['commit', '--quiet', '-m', 'TestImpact documentation base'], fixtureIdentityEnvironment());
+    const baseSha = exactObjectId(git(repositoryRoot, ['rev-parse', 'HEAD']), 'documentation base');
+    const baseBlobSha = exactObjectId(
+      git(repositoryRoot, ['rev-parse', `${baseSha}:${documentationPath}`]),
+      'documentation blob'
+    );
+    unlinkSync(path.join(repositoryRoot, ...documentationPath.split('/')));
+    git(repositoryRoot, ['add', '--all']);
+    git(repositoryRoot, ['commit', '--quiet', '-m', 'Remove TestImpact documentation'], fixtureIdentityEnvironment());
+    const headSha = exactObjectId(git(repositoryRoot, ['rev-parse', 'HEAD']), 'documentation head');
+    if (descriptorChanged) {
+      writeFileSync(
+        path.join(repositoryRoot, ...descriptorPath.split('/')),
+        `${sources.get(descriptorPath)!}\n`,
+        'utf8'
+      );
+      git(repositoryRoot, ['add', '--', descriptorPath]);
+    }
+    const records = Object.freeze([{ status: 'removed' as const, path: documentationPath }]);
+    const transition = CodexDevelopmentCreateTestImpactTransitionObservation({
+      baseSha,
+      headSha,
+      records,
+      readPathBlob: (revision, repositoryPath) => (
+        revision === baseSha && repositoryPath === documentationPath
+          ? { mode: '100644', blobSha: baseBlobSha }
+          : null
+      )
+    });
+    const affectedSource = await withAuthorityGitReadSession({
+      cwd: repositoryRoot,
+      budget: { deadlineMs: 120_000 }
+    }, async (session) => {
+      return issueAffectedTestImpactSource({
+        compilationOperation: createSourceProgramCompilationOperation({
+          deadlineAtUnixMs: Date.now() + 120_000
+        }),
+        repositoryRoot,
+        session,
+        baseRef: baseSha
+      });
+    });
+    if (affectedSource === null) throw new Error('Removed documentation TestImpact source was unavailable.');
+    const binding = readIssuedAffectedTestImpactBinding(affectedSource);
+    if (binding === null) throw new Error('Removed documentation TestImpact binding was unavailable.');
+    if (JSON.stringify(binding.transition) !== JSON.stringify(transition)) {
+      throw new Error('Removed documentation transition differs from its Git/source binding.');
+    }
+    const provider = createRepositoryTestImpactSourceProvider({
+      projection: affectedSource.projection,
+      testInventory: affectedSource.testInventory,
+      activeDocumentationPaths: [],
+      affectedSource
+    });
+    return Object.freeze({ provider, transition: binding.transition, dispose });
+  } catch (error) {
+    dispose();
+    throw error;
+  }
+}
+
 /**
  * Runner-only fixture. Its immutable synthetic tree models test membership and
  * a clean Git index; it does not claim the repository's production source graph.
@@ -255,6 +367,7 @@ export async function createExactGitTreeTestRunnerFixture(
         typeScriptModel: exactCompilation.typeScriptCompilation.model,
         testObservations: exactCompilation.testObservations
       }),
+      testInventory: issueTestInventoryProjection({ snapshot: exactSnapshot }),
       activeDocumentationPaths: currentActiveDocumentationPaths()
     });
     const previousWorkingDirectory = process.cwd();
@@ -283,6 +396,7 @@ export async function createExactGitTreeTestRunnerFixture(
             typeScriptModel: compilation.typeScriptCompilation.model,
             testObservations: compilation.testObservations
           }),
+          testInventory: issueTestInventoryProjection({ snapshot: workspaceSnapshot }),
           projectGenerationEvidence: issueWorkspaceTypeScriptProjectGenerationEvidence(
             workspaceSnapshot,
             projectInput
@@ -405,6 +519,7 @@ async function createExactRepositoryTestImpactProviderFixture(
         typeScriptModel: compilation.typeScriptCompilation.model,
         testObservations: compilation.testObservations
       }),
+      testInventory: issueTestInventoryProjection({ snapshot: workspaceSnapshot }),
       activeDocumentationPaths: currentActiveDocumentationPaths()
     });
     const fixture = Object.freeze({

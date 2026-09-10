@@ -1,16 +1,19 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
+import { compileVirtualWorkspaceSourceSnapshot } from '../../src/brownfield/source-program-model/workspace-source-snapshot.ts';
 import {
   assertFastTestProcessPolicyInventory, assertUniqueFastTestProcessIsolationDefinitions,
   DEFAULT_FAST_TEST_EXCLUDED_FILES, FAST_TEST_PROCESS_ISOLATION_REGISTRY,
   isDefaultFastTestFile, partitionFastTestFiles, planFastTestProcesses,
   resolveFastTestConcurrencyBudget, resolveManagedFastTestConcurrency
 } from '../../src/development/runner/fast-test-policy.ts';
+import { rawSha256, sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
 import { isSecRepositoryTestModulePath } from '../../src/system-architecture/repository-modules/test-module-path.ts';
 import {
+  type IssuedTestInventoryProjection,
   compileTestBudgetProjection,
-  slowTestSuiteIdsForFile,
-  TestBudgetProjectionCache
+  issueTestInventoryProjection,
+  slowTestSuiteIdsForFile
 } from '../../src/verification/test-impact/contract/budget.ts';
 
 const spellings = (file: string) => [file, `./${file}`, file.replaceAll('/', '\\'), `.\\${file.replaceAll('/', '\\')}`];
@@ -19,10 +22,19 @@ const shared = 'tests/unit/windows-appcontainer-executor.test.ts';
 
 // These are data fixtures for the public pure budget projection, not issued
 // source receipts used to authorize an effect. No process/provider is mocked.
+function snapshot(files: string[], generation = 'a') {
+  const digest = `sha256:${generation.repeat(64)}` as `sha256:${string}`;
+  const sources = Object.fromEntries(files.map((path) => [path, 'export {};\n']));
+  return compileVirtualWorkspaceSourceSnapshot({
+    subject: { kind: 'virtual-mutation', provenance: { kind: 'source-program-virtual-mutation',
+      baseSnapshotDigest: digest, mutationDigest: sha256(sources) as `sha256:${string}` } },
+    files: Object.entries(sources).map(([path, text]) => ({ path, source: text, contentDigest: rawSha256(text) })),
+    moduleMembership: { descriptors: [], graphRoots: [], moduleRoots: [], moduleForPath: () => null }
+  });
+}
+
 function source(files: string[], generation = 'a'): Parameters<typeof compileTestBudgetProjection>[0] {
-  const digest = `sha256:${generation.repeat(64)}`;
-  return { testFiles: files, workspaceSnapshotIdentityDigest: digest,
-    testObservationDigest: digest, projectionDigest: digest } as Parameters<typeof compileTestBudgetProjection>[0];
+  return issueTestInventoryProjection({ snapshot: snapshot(files, generation) });
 }
 
 test('recognized portable spellings retain the same isolated resource queue', () => {
@@ -97,10 +109,9 @@ test('slow-suite lookup uses the same spelling key as test recognition', () => {
   assert.deepEqual(slowTestSuiteIdsForFile('tests/unit/unregistered.test.ts'), []);
 });
 
-test('budget projection emits one selected file and canonical slow-suite membership for path aliases', () => {
+test('budget projection emits canonical fast and slow suite membership from issued snapshot paths', () => {
   const result = compileTestBudgetProjection(source([
-    './tests/unit/plain.test.ts', 'tests/unit/plain.test.ts', '.\\tests\\e2e\\graph.test.ts',
-    'tests/e2e/graph.test.ts', 'tests/testkit/helper.ts'
+    'tests/unit/plain.test.ts', 'tests/e2e/graph.test.ts', 'tests/testkit/helper.ts'
   ]));
   assert.deepEqual(result.testFiles, ['tests/e2e/graph.test.ts', 'tests/unit/plain.test.ts']);
   assert.deepEqual(result.fastTestFiles, ['tests/unit/plain.test.ts']);
@@ -109,13 +120,42 @@ test('budget projection emits one selected file and canonical slow-suite members
   assert.deepEqual(result.slowSuites[0]!.files, ['tests/e2e/graph.test.ts']);
 });
 
-test('equivalent spellings share a cached projection while changed membership invalidates it', () => {
-  const cache = new TestBudgetProjectionCache();
-  const first = cache.project(source(['tests/unit/a.test.ts']));
-  assert.equal(cache.project(source(['./tests/unit/a.test.ts', 'tests\\unit\\a.test.ts'])), first);
-  const changed = cache.project(source(['tests/unit/b.test.ts']));
-  assert.notEqual(changed, first); assert.deepEqual(changed.testFiles, ['tests/unit/b.test.ts']);
-  assert.notEqual(cache.project(source(['tests/unit/b.test.ts'], 'b')), changed);
+test('test inventory follows runnable snapshot paths without treating TypeScript project membership as runtime authority', () => {
+  const inventory = source([
+    'tests/unit/tsconfig-excluded.test.ts',
+    'src/colocated.test.ts',
+    'tests/fixtures/runtime-fixture.test.ts',
+    'tests/testkit/helper.ts',
+    'tests/unit/compile-only.typecheck.ts',
+    'tsconfig.json'
+  ]);
+  assert.deepEqual(inventory.testFiles, [
+    'src/colocated.test.ts',
+    'tests/unit/tsconfig-excluded.test.ts'
+  ]);
+});
+
+test('test budget rejects caller-authored inventory and an unissued workspace snapshot', () => {
+  const issued = source(['tests/unit/plain.test.ts']);
+  assert.throws(
+    () => compileTestBudgetProjection({ ...issued } as IssuedTestInventoryProjection),
+    /owner-issued workspace snapshot projection/
+  );
+  const issuedSnapshot = snapshot(['tests/unit/plain.test.ts']);
+  let snapshotReads = 0;
+  const captured = issueTestInventoryProjection({
+    get snapshot() {
+      snapshotReads += 1;
+      if (snapshotReads > 1) throw new Error('snapshot getter was read more than once');
+      return issuedSnapshot;
+    }
+  });
+  assert.equal(snapshotReads, 1);
+  assert.deepEqual(captured.testFiles, ['tests/unit/plain.test.ts']);
+  assert.throws(
+    () => issueTestInventoryProjection({ snapshot: { ...issuedSnapshot } }),
+    /not issued by the Source Program owner/
+  );
 });
 
 test('known suite completeness and unowned slow-file rejection remain unchanged', () => {

@@ -7,6 +7,7 @@ import path from 'node:path';
 import { compileRepositorySourceProgramCompilation } from '../../../brownfield/source-program-model/repository-compilation.ts';
 import { issueTestImpactProjection } from '../../../brownfield/source-program-model/test-impact-projection.ts';
 import { acquireExactGitTreeWorkspaceSourceSnapshot } from '../../../brownfield/source-program-model/workspace-source-snapshot.ts';
+import { issueTestInventoryProjection } from '../contract/budget.ts';
 import { createRepositoryTestImpactSourceProvider, selectTestsForSources } from './impact.ts';
 
 function git(repositoryRoot: string, args: readonly string[]): string {
@@ -33,6 +34,7 @@ test('observed local program edges continue through test helpers to runnable tes
       'src/value.ts': 'export const value = 1;\n',
       'src/value.json': '{"value":1}\n',
       'tests/helpers/value-child.ts': "import '../../src/value.ts';\n",
+      'tests/unit/tsconfig-excluded.test.ts': 'test("excluded from type project", () => {});\n',
       'tests/unit/value.test.ts': [
         "import { spawnSync } from 'node:child_process';",
         "import process from 'node:process';",
@@ -48,7 +50,7 @@ test('observed local program edges continue through test helpers to runnable tes
         "spawnSync(process.execPath, ['tests/helpers/value-child.ts']);",
         ''
       ].join('\n'),
-      'tsconfig.json': '{"compilerOptions":{"noEmit":true},"include":["src/**/*.ts","tests/**/*.ts"]}\n'
+      'tsconfig.json': '{"compilerOptions":{"noEmit":true},"files":["src/value.ts","tests/helpers/value-child.ts","tests/unit/value.test.ts"]}\n'
     } as const;
     for (const [repositoryPath, source] of Object.entries(sources)) {
       const absolutePath = path.join(repositoryRoot, ...repositoryPath.split('/'));
@@ -68,8 +70,38 @@ test('observed local program edges continue through test helpers to runnable tes
         typeScriptModel: compilation.typeScriptCompilation.model,
         testObservations: compilation.testObservations
       }),
+      testInventory: issueTestInventoryProjection({ snapshot: workspaceSnapshot }),
       activeDocumentationPaths: []
     });
+
+    const capturedInputs = { projection: 0, testInventory: 0, affectedSource: 0, activeDocumentationPaths: 0 };
+    const captureOnceProvider = createRepositoryTestImpactSourceProvider({
+      get projection() {
+        capturedInputs.projection += 1;
+        if (capturedInputs.projection > 1) throw new Error('projection getter was read more than once');
+        return provider.projection;
+      },
+      get testInventory() {
+        capturedInputs.testInventory += 1;
+        if (capturedInputs.testInventory > 1) throw new Error('inventory getter was read more than once');
+        return provider.testInventory;
+      },
+      get affectedSource() {
+        capturedInputs.affectedSource += 1;
+        if (capturedInputs.affectedSource > 1) throw new Error('affected source getter was read more than once');
+        return undefined;
+      },
+      get activeDocumentationPaths() {
+        capturedInputs.activeDocumentationPaths += 1;
+        if (capturedInputs.activeDocumentationPaths > 1) throw new Error('documentation getter was read more than once');
+        return [];
+      }
+    });
+    expect(captureOnceProvider.projection).toBe(provider.projection);
+    expect(capturedInputs).toEqual({
+      projection: 1, testInventory: 1, affectedSource: 1, activeDocumentationPaths: 1
+    });
+    expect(provider.testInventory.testFiles).toContain('tests/unit/tsconfig-excluded.test.ts');
 
     const selection = selectTestsForSources(['src/value.ts'], provider);
     expect(selection.fast).toEqual(['tests/unit/value.test.ts']);

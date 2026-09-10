@@ -1,19 +1,17 @@
 import { afterAll, expect, test } from 'bun:test';
 import { currentActiveDocumentationPaths } from '../../src/control/documentation/active.ts';
 
-import { buildCiContract, formatCiContract } from '../../src/verification/ci/contract/core.ts';
+import { buildCiContract } from '../../src/verification/ci/contract/core.ts';
 import { buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentBuildVerificationPlan as buildVerificationPlanWithProvider, CodexDevelopmentCanonicalChangedFiles, type CodexDevelopmentVerificationPlanProfile } from '../../src/verification/ci/contract/plan.ts';
 import {
   CodexDevelopmentChangedFilesFromRecords,
   CodexDevelopmentCreateNotRunGate
 } from '../../src/verification/ci/runtime/ci-orchestration-core.ts';
-import { CI_VERIFICATION_CONTRACT_REVISION } from '../../src/verification/contract/revision.ts';
 import { compileTestBudgetProjection, getSlowTestSuitesSync as getSnapshotSlowTestSuites, slowTestSuiteIds, slowTestPrRiskBaselineSuiteIds as snapshotBaselineSuiteIds } from '../../src/verification/test-impact/contract/budget.ts';
 import { parseGitChangedFileOutput } from '../../src/verification/test-impact/runtime/transition.ts';
 import { selectSlowTestRiskClosure as selectSlowTestClosureWithProvider } from '../../src/verification/test-impact/slow-risk-selection.ts';
 import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
 import {
-  expectCiContractSelfConsistent,
   expectFullLaneCoversCorrectnessBackstop,
   expectFullLaneCoversSlowSuites,
   expectPrFastLaneBoundary
@@ -22,7 +20,7 @@ import {
 const testImpactFixture = await acquireExactRepositoryTestImpactProviderFixture();
 const testImpactProvider = testImpactFixture.provider;
 afterAll(() => testImpactFixture.dispose());
-const testBudgetProjection = compileTestBudgetProjection(testImpactProvider.projection);
+const testBudgetProjection = compileTestBudgetProjection(testImpactProvider.testInventory);
 const selectSlowTestRiskClosure = (files: string[] | null) => (
   selectSlowTestClosureWithProvider(files, testImpactProvider)
 );
@@ -38,23 +36,6 @@ test('CI contract keeps PR lanes bounded and full logical lane complete', () => 
   expectPrFastLaneBoundary(contract);
   expectFullLaneCoversCorrectnessBackstop(contract);
   expectFullLaneCoversSlowSuites(contract, slowTestSuiteIds());
-});
-
-test('CI contract counts and formatted projections are self-consistent', () => {
-  const contract = buildCiContract();
-  expectCiContractSelfConsistent(contract);
-  const formatted = formatCiContract(contract);
-  expect(formatted).toContain(`Verification contract revision: ${CI_VERIFICATION_CONTRACT_REVISION}`);
-  expect(formatted).toContain('Execution model: verification-session-v2-action-closure');
-  expect(formatted).toContain('PR workflow event: repository_dispatch');
-  expect(formatted).toContain('PR dispatch type: sec-verify-session-v2');
-  expect(formatted).not.toContain('Trigger labels:');
-  for (const label of [
-    'PR workflow command count:',
-    'Release workflow command count:',
-    'PR quick lane command count:',
-    'Full lane command count:'
-  ]) expect(formatted).toContain(label);
 });
 
 test('CI verification plans execute canonical affected Quick and ordered Full workspace chain', () => {

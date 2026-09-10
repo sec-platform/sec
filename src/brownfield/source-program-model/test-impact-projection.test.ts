@@ -58,11 +58,16 @@ test('compact TestImpact projection binds the exact compilation purpose without 
   expect(projection.moduleGraphDigest).toBe(repositoryCompilation.moduleGraphDigest);
   expect(projection.testObservationDigest).toBe(repositoryCompilation.testObservations.observationDigest);
   expect(projection.files.every((file) => !('source' in file))).toBeTrue();
+  expect(projection.moduleOwners).toContainEqual({
+    moduleId: 'compiler',
+    root: 'src/compiler'
+  });
   expect('registrations' in projection).toBeFalse();
   const fullConsumerPayloadBytes = Buffer.byteLength(JSON.stringify({
     model: repositoryCompilation.typeScriptCompilation.model,
     testObservations: repositoryCompilation.testObservations,
-    moduleGraph: repositoryCompilation.workspaceSnapshot.moduleGraph
+    moduleGraph: repositoryCompilation.workspaceSnapshot.moduleGraph,
+    moduleMembership: repositoryCompilation.workspaceSnapshot.moduleMembership.descriptors
   }));
   expect(Buffer.byteLength(encodeTestImpactProjectionReceipt(projection), 'utf8'))
     .toBeLessThan(fullConsumerPayloadBytes);

@@ -188,7 +188,8 @@ jobs:
               throw new Error('Trusted-base trust-root registry is not strict UTF-8 JSON.');
             }
             const registryKeys = [
-              'reviewedBoundaryEdges', 'reviewedSutEdges', 'runtimeEntrypoints', 'schema',
+              'reviewedBoundaryEdges', 'reviewedExternalImports', 'reviewedSutEdges',
+              'runtimeEntrypoints', 'schema',
               'staticDirectoryPaths', 'staticExactPaths', 'staticPrefixes'
             ];
             if (
@@ -198,7 +199,7 @@ jobs:
             ) throw new Error('Trusted-base trust-root registry schema is invalid.');
             for (const key of [
               'staticExactPaths', 'staticDirectoryPaths', 'staticPrefixes', 'runtimeEntrypoints',
-              'reviewedSutEdges', 'reviewedBoundaryEdges'
+              'reviewedSutEdges', 'reviewedBoundaryEdges', 'reviewedExternalImports'
             ]) {
               if (!Array.isArray(registry[key]) || registry[key].some((entry) => typeof entry !== 'string')) {
                 throw new Error(`Trusted-base trust-root registry ${key} is invalid.`);

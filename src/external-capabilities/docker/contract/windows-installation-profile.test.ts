@@ -23,6 +23,16 @@ test('Docker Windows installation profile rejects unknown state and descriptor a
   })).toThrow('child descriptors must be unique');
   expect(() => parseDockerWindowsInstallationProfile({
     ...DOCKER_WINDOWS_INSTALLATION_PROFILE,
+    environment: {
+      ...DOCKER_WINDOWS_INSTALLATION_PROFILE.environment,
+      windows: {
+        ...DOCKER_WINDOWS_INSTALLATION_PROFILE.environment.windows,
+        systemDirectorySegments: ['Sysnative']
+      }
+    }
+  })).toThrow();
+  expect(() => parseDockerWindowsInstallationProfile({
+    ...DOCKER_WINDOWS_INSTALLATION_PROFILE,
     installation: {
       ...DOCKER_WINDOWS_INSTALLATION_PROFILE.installation,
       cliPlugins: DOCKER_WINDOWS_INSTALLATION_PROFILE.installation.cliPlugins.map((plugin) => (
@@ -32,4 +42,11 @@ test('Docker Windows installation profile rejects unknown state and descriptor a
       ))
     }
   })).toThrow('CLI plugins are noncanonical');
+  expect(() => parseDockerWindowsInstallationProfile({
+    ...DOCKER_WINDOWS_INSTALLATION_PROFILE,
+    installation: {
+      ...DOCKER_WINDOWS_INSTALLATION_PROFILE.installation,
+      desktopLauncher: {}
+    }
+  })).toThrow();
 });

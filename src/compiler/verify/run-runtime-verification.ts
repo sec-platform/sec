@@ -6,7 +6,8 @@ import { defaultLogger } from '../../system-architecture/foundation/logger.ts';
 import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
 import {
   dependencyAuthorityPaths,
-  ensureProjectDependencies
+  ensureProjectDependencies,
+  withProjectDependencyBridge
 } from '../../toolchain/dependencies/runtime.ts';
 import type { RuntimeVerificationLaneReport, VerificationStatus, VerificationStepReport } from '../../verification/contract/types.ts';
 import type { CommitFence } from '../../workspace/files.ts';
@@ -200,12 +201,14 @@ export async function runRuntimeVerification(
   };
   if (runtimeUnitFiles.length === 0) return lane;
 
-  await withPhase('runtime-dependency-validation', () => ensureProjectDependencies(workspaceRoot, {
-    beforeCommit: options.beforeCommit,
-    signal: options.signal,
-    skipSharedDepsWarmup: true,
-    ...(isolated ? { installMode: 'prebound-only' as const } : {})
-  }));
+  if (isolated) {
+    await withPhase('runtime-dependency-validation', () => ensureProjectDependencies(workspaceRoot, {
+      beforeCommit: options.beforeCommit,
+      signal: options.signal,
+      skipSharedDepsWarmup: true,
+      installMode: 'prebound-only'
+    }));
+  }
 
   const isolatedRuntimeRoot = isolated
     ? path.join(options.stagingWorkspaceRoot!, '.isolated-process', 'runtime')
@@ -234,7 +237,7 @@ export async function runRuntimeVerification(
     : { ...(options.sourceEnvironmentForTests ?? process.env) };
   try {
     const invocation = runtimeVerificationInvocation(workspaceRoot, isolated, isolatedConfigPath);
-    const result = await timed('runtime unit', options.emitTiming ?? true, () =>
+    const executeRuntimeUnit = () => timed('runtime unit', options.emitTiming ?? true, () =>
       (options.commandRunnerForTests ?? runCommand)(invocation.command, invocation.args, {
         beforeSpawn: isolated ? options.beforeCommit : undefined,
         cwd: workspaceRoot,
@@ -243,6 +246,13 @@ export async function runRuntimeVerification(
         ...(isolated ? { envMode: 'replace' as const } : {})
       })
     );
+    const result = isolated
+      ? await executeRuntimeUnit()
+      : await withPhase('runtime-dependency-validation', () => withProjectDependencyBridge(
+          workspaceRoot,
+          executeRuntimeUnit,
+          { beforeCommit: options.beforeCommit, signal: options.signal }
+        ));
     const status = normalizeStatus(result.code);
     lane.status = status;
     lane.unit = {

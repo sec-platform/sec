@@ -1934,28 +1934,6 @@ function spanFor(sourceFile: ts.SourceFile, start: number, end: number): SourceP
   });
 }
 
-function declarationNamePosition(
-  sourceFile: ts.SourceFile,
-  name: string,
-  declarationSpan: SourceProgramSpan
-): number | null {
-  let position: number | null = null;
-  const visit = (node: ts.Node): void => {
-    if (position !== null || node.getStart(sourceFile, false) > declarationSpan.end
-      || node.getEnd() < declarationSpan.start) return;
-    const named = node as ts.NamedDeclaration;
-    if (named.name && ts.isIdentifier(named.name) && named.name.text === name
-      && node.getStart(sourceFile, false) === declarationSpan.start
-      && node.getEnd() === declarationSpan.end) {
-      position = named.name.getStart(sourceFile, false);
-      return;
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-  return position;
-}
-
 function bindingNames(name: ts.BindingName): readonly string[] {
   if (ts.isIdentifier(name)) return [name.text];
   return name.elements.flatMap((element) => ts.isOmittedExpression(element)
@@ -2737,13 +2715,6 @@ export function compileSourceProgramVersionSuffixReductionPlan(
     }
     sourceFileByPath.set(path, sourceFile);
   }
-  const renameCandidates = model.candidates.filter(({ code }) =>
-    code === 'versioned-declaration-without-coexisting-version');
-  const candidateKeys = new Set(renameCandidates.flatMap((candidate) =>
-    model.declarations
-      .filter((declaration) => declaration.name === candidate.subject
-        && candidate.paths.includes(declaration.path))
-      .map((declaration) => `${declaration.path}\u0000${declaration.name}`)));
   const reductions: SourceProgramVersionSuffixReduction[] = [];
   const processedSymbols = new Set<string>();
   // A local import alias such as `import { canonical as canonicalV1 }` is not
@@ -2797,67 +2768,6 @@ export function compileSourceProgramVersionSuffixReductionPlan(
       ts.forEachChild(node, visitImportAlias);
     };
     visitImportAlias(sourceFile);
-  }
-  for (const declaration of model.declarations) {
-    sourceProgramCompilationCheckpoint(operation, 'reduction-plan');
-    const candidateKey = `${declaration.path}\u0000${declaration.name}`;
-    if (!candidateKeys.has(candidateKey) || processedSymbols.has(candidateKey)) continue;
-    const match = VERSIONED_DECLARATION_NAME.exec(declaration.name);
-    const proposedName = match?.[1] ?? '';
-    const sourceFile = sourceFileByPath.get(declaration.path);
-    const position = sourceFile === undefined
-      ? null
-      : declarationNamePosition(sourceFile, declaration.name, declaration.span);
-    if (proposedName.length === 0 || sourceFile === undefined || position === null) {
-      reductions.push(Object.freeze({
-        status: 'blocked',
-        currentName: declaration.name,
-        proposedName,
-        declarationPaths: Object.freeze([declaration.path]),
-        locations: Object.freeze([]),
-        reason: 'declaration name position is unresolved'
-      }));
-      processedSymbols.add(candidateKey);
-      continue;
-    }
-    const renameObservation = observeSourceProgramTypeScriptRename(
-      typeScriptModel,
-      declaration.path,
-      position
-    );
-    const locations = Object.freeze(renameObservation.status === 'resolved'
-      ? [...renameObservation.locations]
-      : []);
-    const declarationPaths = [...new Set(locations
-      .filter(({ path, span }) => model.declarations.some((candidate) =>
-        candidate.path === path
-        && candidate.name === declaration.name
-        && span.start >= candidate.span.start
-        && span.end <= candidate.span.end))
-      .map(({ path }) => path))].sort(compareCodeUnits);
-    const ready = renameObservation.status === 'resolved'
-      && renameObservation.canRename
-      && locations.length > 0
-      && declarationPaths.length > 0;
-    reductions.push(Object.freeze({
-      status: ready ? 'ready' : 'blocked',
-      currentName: declaration.name,
-      proposedName,
-      declarationPaths: Object.freeze(declarationPaths.length > 0
-        ? declarationPaths
-        : [declaration.path]),
-      locations: Object.freeze(locations),
-      reason: ready
-        ? null
-        : renameObservation.status === 'unresolved'
-          ? `rename generation is unresolved: ${renameObservation.reason}`
-          : renameObservation.canRename
-            ? 'rename locations are incomplete'
-            : renameObservation.rejectionReason
-    }));
-    for (const declarationPath of declarationPaths.length > 0 ? declarationPaths : [declaration.path]) {
-      processedSymbols.add(`${declarationPath}\u0000${declaration.name}`);
-    }
   }
   reductions.sort((left, right) => compareCodeUnits(left.declarationPaths[0] ?? '', right.declarationPaths[0] ?? '')
     || compareCodeUnits(left.currentName, right.currentName));

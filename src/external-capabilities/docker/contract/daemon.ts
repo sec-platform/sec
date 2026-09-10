@@ -96,8 +96,8 @@ export class DockerDaemonAvailabilityFailure extends Error {
     reason: DockerDaemonAvailabilityFailureReason;
     phase?: DockerDaemonAvailabilityFailurePhase;
     providerEvidence?: string;
-  }>) {
-    super(`Docker daemon is unavailable: ${input.reason}`);
+  }>, options?: ErrorOptions) {
+    super(`Docker daemon is unavailable: ${input.reason}`, options);
     this.name = 'DockerDaemonAvailabilityFailure';
     this.endpointHost = boundedIdentityText(input.endpointHost, 'endpoint host');
     this.reason = input.reason;

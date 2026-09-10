@@ -1,8 +1,8 @@
+import { sourceProgramSurfaceForPath } from '../../../brownfield/source-program-model/contract.ts';
 import {
-  assertIssuedTestImpactProjection,
-  type IssuedTestImpactProjection,
-  type TestImpactProjectionReceipt
-} from '../../../brownfield/source-program-model/test-impact-projection.ts';
+  assertWorkspaceSourceSnapshot,
+  type WorkspaceSourceSnapshot
+} from '../../../brownfield/source-program-model/workspace-source-snapshot.ts';
 import { platformCommand } from '../../../interface/cli/contract/command.ts';
 import {
   compareCodeUnits,
@@ -32,8 +32,15 @@ export type SlowTestSuite = {
 
 export type TestBudgetSnapshotGeneration = Readonly<{
   workspaceSnapshotIdentityDigest: `sha256:${string}`;
-  testObservationDigest: `sha256:${string}`;
-  sourceProjectionDigest: `sha256:${string}`;
+  testInventoryDigest: `sha256:${string}`;
+}>;
+
+export type IssuedTestInventoryProjection = Readonly<{
+  schema: 'sec-test-inventory-projection-v1';
+  workspaceSnapshotIdentityDigest: `sha256:${string}`;
+  snapshotDigest: `sha256:${string}`;
+  testFiles: readonly string[];
+  inventoryDigest: `sha256:${string}`;
 }>;
 
 export type TestBudgetProjection = Readonly<{
@@ -274,13 +281,54 @@ function buildSlowTestSuites(slowFiles: readonly string[]): readonly SlowTestSui
     return suites;
 }
 
-function projectionGeneration(
-  source: TestImpactProjectionReceipt
-): TestBudgetSnapshotGeneration {
+const issuedTestInventories = new WeakSet<object>();
+
+function testFilesFromSnapshotFiles(files: readonly { path: string }[]): readonly string[] {
+  return uniqueSorted(files.map(({ path }) => path).filter((path) => (
+    sourceProgramSurfaceForPath(path) === 'test'
+      && isSecRepositoryTestModulePath(path)
+  )));
+}
+
+function issueTestInventory(input: Omit<IssuedTestInventoryProjection, 'schema' | 'inventoryDigest'>): IssuedTestInventoryProjection {
+  const unsigned = deepFreeze({
+    schema: 'sec-test-inventory-projection-v1' as const,
+    workspaceSnapshotIdentityDigest: input.workspaceSnapshotIdentityDigest,
+    snapshotDigest: input.snapshotDigest,
+    testFiles: uniqueSorted([...input.testFiles])
+  });
+  const inventory = deepFreeze({
+    ...unsigned,
+    inventoryDigest: sha256(unsigned) as `sha256:${string}`
+  });
+  issuedTestInventories.add(inventory);
+  return inventory;
+}
+
+export function issueTestInventoryProjection(input: Readonly<{
+  snapshot: WorkspaceSourceSnapshot;
+}>): IssuedTestInventoryProjection {
+  const snapshot = input.snapshot;
+  assertWorkspaceSourceSnapshot(snapshot);
+  return issueTestInventory({
+    workspaceSnapshotIdentityDigest: snapshot.identityDigest,
+    snapshotDigest: snapshot.snapshotDigest,
+    testFiles: testFilesFromSnapshotFiles(snapshot.files)
+  });
+}
+
+export function assertIssuedTestInventoryProjection(
+  inventory: IssuedTestInventoryProjection
+): void {
+  if (!issuedTestInventories.has(inventory)) {
+    throw new Error('Test inventory requires its owner-issued workspace snapshot projection.');
+  }
+}
+
+function projectionGeneration(source: IssuedTestInventoryProjection): TestBudgetSnapshotGeneration {
   return Object.freeze({
     workspaceSnapshotIdentityDigest: source.workspaceSnapshotIdentityDigest as `sha256:${string}`,
-    testObservationDigest: source.testObservationDigest as `sha256:${string}`,
-    sourceProjectionDigest: source.projectionDigest as `sha256:${string}`
+    testInventoryDigest: source.inventoryDigest
   });
 }
 
@@ -302,7 +350,8 @@ type CapturedTestBudgetInput = Readonly<{
   testFiles: ReadonlySet<string>;
 }>;
 
-function captureTestBudgetInput(source: TestImpactProjectionReceipt): CapturedTestBudgetInput {
+function captureTestBudgetInput(source: IssuedTestInventoryProjection): CapturedTestBudgetInput {
+  assertIssuedTestInventoryProjection(source);
   const generation = projectionGeneration(source);
   return {
     generation,
@@ -312,27 +361,12 @@ function captureTestBudgetInput(source: TestImpactProjectionReceipt): CapturedTe
   };
 }
 
-// A cache is disposable storage, not a second compiler. Only exact immutable
-// results constructed here may be reused; a recomputed public digest cannot
-// certify a forged partition or suite assignment. This is local derivation
-// provenance, not Source Program membership or execution authority.
 const compiledTestBudgetProjections = new WeakSet<TestBudgetProjection>();
-const issuedTestBudgetSources = new WeakMap<TestBudgetProjection, IssuedTestImpactProjection>();
-
-function issuedSourceOrNull(
-  source: TestImpactProjectionReceipt
-): IssuedTestImpactProjection | null {
-  try {
-    assertIssuedTestImpactProjection(source);
-    return source;
-  } catch {
-    return null;
-  }
-}
+const issuedTestBudgetSources = new WeakMap<TestBudgetProjection, IssuedTestInventoryProjection>();
 
 function compileExactTestBudgetProjection(
   input: CapturedTestBudgetInput,
-  issuedSource: IssuedTestImpactProjection | null
+  issuedSource: IssuedTestInventoryProjection
 ): TestBudgetProjection {
   const { generation, generationKey } = input;
   const testFiles = uniqueSorted([...input.testFiles]);
@@ -352,77 +386,38 @@ function compileExactTestBudgetProjection(
     projectionDigest: budgetProjectionDigest(unsigned)
   });
   compiledTestBudgetProjections.add(compiled);
-  if (issuedSource !== null) issuedTestBudgetSources.set(compiled, issuedSource);
+  issuedTestBudgetSources.set(compiled, issuedSource);
   return compiled;
 }
 
-function isCurrentCachedProjection(
-  cached: TestBudgetProjection,
-  input: CapturedTestBudgetInput
-): boolean {
-  // Reject unknown entries before invoking any property, even on an unreadable
-  // proxy. Rebuild through the same compiler instead of validating a caller's
-  // self-authored digest. Issued results are deeply frozen and need no repeated
-  // whole-projection hash, classification, or suite-frozenness scan on a hit.
-  if (!compiledTestBudgetProjections.has(cached)) return false;
-  return cached.generationKey === input.generationKey
-    && cached.generation.sourceProjectionDigest === input.generation.sourceProjectionDigest
-    && cached.generation.testObservationDigest === input.generation.testObservationDigest
-    && cached.generation.workspaceSnapshotIdentityDigest === input.generation.workspaceSnapshotIdentityDigest
-    && cached.testFiles.length === input.testFiles.size
-    && cached.testFiles.every((file) => input.testFiles.has(file));
-}
-
-/**
- * Invocation-owned cache. Its key is the complete Source Snapshot/Test
- * Observation generation; cached values never become membership authority.
- */
-export class TestBudgetProjectionCache {
-  private readonly projections = new Map<`sha256:${string}`, TestBudgetProjection>();
-
-  project(source: TestImpactProjectionReceipt): TestBudgetProjection {
-    // Capture once: the cache key, membership check and miss compilation must
-    // consume the same generation and selected file set.
-    const input = captureTestBudgetInput(source);
-    const cached = this.projections.get(input.generationKey);
-    if (cached !== undefined && isCurrentCachedProjection(cached, input)) {
-      const issuedSource = issuedSourceOrNull(source);
-      if (issuedSource !== null) issuedTestBudgetSources.set(cached, issuedSource);
-      return cached;
-    }
-    const exact = compileExactTestBudgetProjection(input, issuedSourceOrNull(source));
-    this.projections.set(input.generationKey, exact);
-    return exact;
-  }
-}
-
 export function compileTestBudgetProjection(
-  source: TestImpactProjectionReceipt
+  source: IssuedTestInventoryProjection
 ): TestBudgetProjection {
-  return compileExactTestBudgetProjection(captureTestBudgetInput(source), issuedSourceOrNull(source));
+  return compileExactTestBudgetProjection(
+    captureTestBudgetInput(source), source
+  );
 }
 
 /**
  * Execution provenance is stronger than derivation provenance: the exact
- * budget instance must retain the owner-issued Source Program projection from
+ * budget instance must retain the owner-issued test inventory projection from
  * which it was compiled. A DTO that reproduces the same bytes cannot acquire
  * this association.
  */
 export function assertTestBudgetExecutionProvenance(
   projection: TestBudgetProjection,
-  source: IssuedTestImpactProjection
+  source: IssuedTestInventoryProjection
 ): void {
-  assertIssuedTestImpactProjection(source);
+  assertIssuedTestInventoryProjection(source);
   if (!compiledTestBudgetProjections.has(projection)
       || issuedTestBudgetSources.get(projection) !== source) {
-    throw new Error('Test budget execution requires its exact owner-issued Source Program projection.');
+    throw new Error('Test budget execution requires its exact owner-issued test inventory projection.');
   }
   const generation = projectionGeneration(source);
   if (projection.generationKey !== projectionGenerationKey(generation)
       || projection.generation.workspaceSnapshotIdentityDigest !== generation.workspaceSnapshotIdentityDigest
-      || projection.generation.testObservationDigest !== generation.testObservationDigest
-      || projection.generation.sourceProjectionDigest !== generation.sourceProjectionDigest) {
-    throw new Error('Test budget generation differs from its issued Source Program projection.');
+      || projection.generation.testInventoryDigest !== generation.testInventoryDigest) {
+    throw new Error('Test budget generation differs from its issued test inventory projection.');
   }
 }
 

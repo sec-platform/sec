@@ -1,5 +1,5 @@
 import type { SourceProgramCompilationOperation } from '../../brownfield/source-program-model/compilation-operation.ts';
-import { compileRepositorySourceProgramCompilation } from '../../brownfield/source-program-model/repository-compilation.ts';
+import { compileRepositorySourceProgramWithCache } from '../../brownfield/source-program-model/repository-compilation-cache-session.ts';
 import {
   issueTestImpactProjection,
   type IssuedTestImpactProjection
@@ -12,6 +12,7 @@ import {
 } from '../../brownfield/source-program-model/workspace-source-snapshot.ts';
 import type { GitReadSession } from '../../external-capabilities/git-read/runtime/session.ts';
 import type { RetainedCompilerDependencyReadGeneration } from '../../toolchain/dependencies/runtime.ts';
+import { issueTestInventoryProjection, type IssuedTestInventoryProjection } from '../../verification/test-impact/contract/budget.ts';
 import { tsconfigRelativePath } from '../../workspace/runtime/paths.ts';
 
 export type AffectedTestImpactProjectionIssuer = (
@@ -23,6 +24,7 @@ export type AffectedTestImpactProjectionIssuer = (
   }>
 ) => Promise<Readonly<{
   projection: IssuedTestImpactProjection;
+  testInventory: IssuedTestInventoryProjection;
   projectGenerationEvidence: WorkspaceTypeScriptProjectGenerationEvidence;
 }>>;
 
@@ -41,7 +43,7 @@ export const issueCheckAffectedTestImpactProjection: AffectedTestImpactProjectio
       dependencyGenerationDigest: input.dependencyGeneration.generationDigest
     }
   );
-  const compilation = compileRepositorySourceProgramCompilation({
+  const compilation = compileRepositorySourceProgramWithCache({
     workspaceSnapshot,
     operation: input.compilationOperation,
     projectInput,
@@ -55,6 +57,7 @@ export const issueCheckAffectedTestImpactProjection: AffectedTestImpactProjectio
       typeScriptModel: compilation.typeScriptCompilation.model,
       testObservations: compilation.testObservations
     }),
+    testInventory: issueTestInventoryProjection({ snapshot: workspaceSnapshot }),
     projectGenerationEvidence: issueWorkspaceTypeScriptProjectGenerationEvidence(
       workspaceSnapshot,
       projectInput

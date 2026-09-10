@@ -35,6 +35,10 @@ function addressKey(declaration: SourceProgramDeclaration): string {
   return JSON.stringify([declaration.moduleId, declaration.path, declaration.name, declaration.kind, declaration.exported]);
 }
 
+function visibilityAddressKey(declaration: SourceProgramDeclaration): string {
+  return JSON.stringify([declaration.moduleId, declaration.path, declaration.name, declaration.kind]);
+}
+
 /** Derive a one-to-one correspondence, not a supersession/retirement proof.
  * Relations may suggest a rename/move only when both ends are unambiguous.
  * Many-to-one merges and one-to-many splits remain explicit removals/additions
@@ -97,6 +101,23 @@ export function pairSourceProgramDeclarations(
       if (current === undefined) break;
       pair(old, current);
     }
+  }
+
+  const oldVisibilityAddresses = new Map<string, SourceProgramDeclaration[]>();
+  const newVisibilityAddresses = new Map<string, SourceProgramDeclaration[]>();
+  for (const old of before) {
+    if (!pairs.has(old.observationId)) append(oldVisibilityAddresses, visibilityAddressKey(old), old);
+  }
+  for (const current of after) {
+    if (!pairedAfter.has(current.observationId)) {
+      append(newVisibilityAddresses, visibilityAddressKey(current), current);
+    }
+  }
+  for (const [key, oldGroup] of oldVisibilityAddresses) {
+    const newGroup = newVisibilityAddresses.get(key);
+    if (oldGroup.length !== 1 || newGroup?.length !== 1
+        || oldGroup[0]!.exported === newGroup[0]!.exported) continue;
+    pair(oldGroup[0]!, newGroup[0]!);
   }
 
   const oldStable = new Map<string, SourceProgramDeclaration[]>(), newStable = new Map<string, SourceProgramDeclaration[]>();

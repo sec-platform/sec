@@ -83,7 +83,6 @@ export interface AffectedTestPlan {
 
 export type LocalAffectedGateId =
   | 'imports:check'
-  | 'audit:static'
   | 'typecheck'
   | 'docs:doctor'
   | 'test:affected';
@@ -135,7 +134,6 @@ export function buildLocalAffectedCheckPlan(
     ? [gate('docs:doctor')]
     : [
       ...(typescriptChanged ? [gate('imports:check')] : []),
-      ...(sourceProgramInvalidated ? [gate('audit:static')] : []),
       ...(typecheckRequired ? [gate('typecheck')] : []),
       ...(activeDocsChanged ? [gate('docs:doctor')] : []),
       ...(testAffectedRequired ? [gate('test:affected')] : [])

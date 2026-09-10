@@ -15,10 +15,11 @@ import {
 import {
   acquireExactGitTreeWorkspaceSourceSnapshot
 } from '../../brownfield/source-program-model/workspace-source-snapshot.ts';
-import { withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
+import { withAuthorityGitReadOperation, withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
 import { rawSha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { GIT_READ_OPERATION_BUDGET } from '../tooling/git/git-read.ts';
 import {
+  CANDIDATE_NORMALIZATION_DURATION_MS,
   compileCandidateNormalizationActionKey,
   compileCandidateNormalizationSubject,
   IMPORT_NORMALIZATION_OPERATION,
@@ -378,16 +379,17 @@ test('staged candidate terminal issues an opaque normalization-only admission', 
     const baseCommit = await commitFixture(root, 'export function normalize(): void {}\n', 'staged-base');
     await writeFile(path.join(root, 'note.txt'), 'staged candidate\n');
     git(root, ['add', 'note.txt']);
-    await withAuthorityGitReadSession({
+    await withAuthorityGitReadOperation({
       cwd: root,
-      budget: GIT_READ_OPERATION_BUDGET
-    }, async (session) => {
+      budget: GIT_READ_OPERATION_BUDGET,
+      deadlineAtUnixMs: Date.now() + CANDIDATE_NORMALIZATION_DURATION_MS
+    }, async (gitOperation) => {
       const {
         requireCandidateNormalizationAdmissionReceipt,
         verifyStagedCandidateImportNormalization
       } = await import('./runtime.ts');
       const result = await verifyStagedCandidateImportNormalization({
-        session,
+        gitOperation,
         candidateBase: baseCommit
       });
       if (result.outcome.terminal === null) {

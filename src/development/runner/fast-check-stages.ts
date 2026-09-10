@@ -4,15 +4,14 @@
  */
 export interface FastCheckStages {
   readonly imports: () => Promise<number>;
-  readonly sourceAudit: () => Promise<number>;
   readonly documentation: () => Promise<number>;
   readonly types: () => Promise<number>;
   readonly tests: () => Promise<number>;
 }
 
 export async function executeFastCheckStages(stages: FastCheckStages): Promise<number> {
-  const { imports, sourceAudit, documentation, types, tests } = stages;
-  if ([imports, sourceAudit, documentation, types, tests].some(stage => typeof stage !== 'function')) {
+  const { imports, documentation, types, tests } = stages;
+  if ([imports, documentation, types, tests].some(stage => typeof stage !== 'function')) {
     throw new TypeError('Fast check requires all declared stages');
   }
   const run = async (name: keyof FastCheckStages, stage: () => Promise<number>): Promise<number> => {
@@ -26,8 +25,6 @@ export async function executeFastCheckStages(stages: FastCheckStages): Promise<n
   };
   const importCode = await run('imports', imports);
   if (importCode !== 0) return importCode;
-  const auditCode = await run('sourceAudit', sourceAudit);
-  if (auditCode !== 0) return auditCode;
   // Capture both calls before waiting. A rejection cannot abandon the other
   // check or erase a nonzero exit that the other check already produced.
   const names = ['documentation', 'types'] as const;

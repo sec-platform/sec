@@ -260,6 +260,24 @@ function compileRepositorySourceProgramCompilationCore(
     throw new Error('Repository compilation lacks one exact TypeScript API requirement closure');
   }
   const incrementalExactMs = performance.now() - incrementalExactStarted;
+  // TypeScript fact shards are already complete, generation-bound and
+  // validated here. Persist this consumer-independent acceleration hint before
+  // later TestObservation/Repository projections so their interruption cannot
+  // discard a finished compiler generation.
+  if (cacheHint !== null && exactLoaded?.status !== 'hit') {
+    sourceProgramCompilationCheckpoint(operation, 'cache-publish', 'start');
+    try {
+      const published = cacheHint.publish(typeScriptCompilation.state.factShards);
+      if (published.status === 'hit') {
+        assertExactRepositoryCompilationCacheLoad(published, projectGeneration);
+        cacheReceipt = published.cacheReceipt;
+      }
+    } catch {
+      // A failed cache publication cannot change the canonical compilation
+      // result. The next operation may rebuild or retire the disposable bytes.
+    }
+    sourceProgramCompilationCheckpoint(operation, 'cache-publish', 'complete');
+  }
   const testObservationInput = Object.freeze({
     productionModel: typeScriptCompilation.model,
     files: workspaceSnapshot.files,
@@ -289,20 +307,6 @@ function compileRepositorySourceProgramCompilationCore(
   const model = compileRepositorySourceProgramModelFromWorkspaceSnapshot(repositoryInput, workspaceSnapshot);
   const repositoryProjectionMs = performance.now() - repositoryProjectionStarted;
   sourceProgramCompilationCheckpoint(operation, 'repository-projection', 'complete');
-  if (cacheHint !== null && exactLoaded?.status !== 'hit') {
-    sourceProgramCompilationCheckpoint(operation, 'cache-publish', 'start');
-    try {
-      const published = cacheHint.publish(typeScriptCompilation.state.factShards);
-      if (published.status === 'hit') {
-        assertExactRepositoryCompilationCacheLoad(published, projectGeneration);
-        cacheReceipt = published.cacheReceipt;
-      }
-    } catch {
-      // A failed cache publication cannot change the canonical compilation
-      // result. The next operation may rebuild or retire the disposable bytes.
-    }
-    sourceProgramCompilationCheckpoint(operation, 'cache-publish', 'complete');
-  }
   sourceProgramCompilationCheckpoint(operation, 'settlement', 'start');
   const canonical = Object.freeze({
     schema: 'sec-repository-source-program-compilation-receipt-v1',

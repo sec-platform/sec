@@ -1,4 +1,4 @@
-import { mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -49,12 +49,13 @@ async function retainedProviderFixture() {
     RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
     'Docker provider fixture cwd'
   );
+  const systemDirectory = path.join(root, 'System32');
   const environment = process.platform === 'win32'
     ? {
       APPDATA: root,
       HOME: root,
       LOCALAPPDATA: root,
-      PATH: '',
+      PATH: systemDirectory,
       PROGRAMDATA: root,
       PROGRAMFILES: root,
       SYSTEMROOT: root,
@@ -72,6 +73,75 @@ async function retainedProviderFixture() {
     workingDirectory: directory.target
   });
   return { capability, executablePath, root };
+}
+
+function issueProviderWithAuxiliary(
+  root: string,
+  executablePath: string,
+  auxiliaryPath: string
+) {
+  const directory = inspectNoFollowDirectoryChain(root, 'Docker provider auxiliary fixture root');
+  const executableEntry = inspectNoFollowOrdinaryFileEntry(
+    directory.target,
+    path.basename(executablePath)
+  );
+  const auxiliaryEntry = inspectNoFollowOrdinaryFileEntry(
+    directory.target,
+    path.basename(auxiliaryPath)
+  );
+  if (executableEntry === null || executableEntry.kind !== 'file'
+      || auxiliaryEntry === null || auxiliaryEntry.kind !== 'file') {
+    throw new Error('Docker provider auxiliary fixture files are unavailable.');
+  }
+  const executable = retainNoFollowOrdinaryFile(
+    directory,
+    path.basename(executablePath),
+    { device: executableEntry.device, inode: executableEntry.inode },
+    'Docker provider auxiliary fixture executable',
+    RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+    'executable'
+  );
+  const auxiliary = retainNoFollowOrdinaryFile(
+    directory,
+    path.basename(auxiliaryPath),
+    { device: auxiliaryEntry.device, inode: auxiliaryEntry.inode },
+    'Docker provider auxiliary fixture input',
+    52,
+    'ordinary-file'
+  );
+  const workingDirectory = retainNoFollowDirectoryForChildProcess(
+    directory,
+    RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+    'Docker provider auxiliary fixture cwd'
+  );
+  const systemDirectory = path.join(root, 'System32');
+  const environment = process.platform === 'win32'
+    ? {
+      APPDATA: root,
+      HOME: root,
+      LOCALAPPDATA: root,
+      PATH: systemDirectory,
+      PROGRAMDATA: root,
+      PROGRAMFILES: root,
+      SYSTEMROOT: root,
+      TEMP: root,
+      TMP: root,
+      USERPROFILE: root,
+      WINDIR: root
+    }
+    : { HOME: root, PATH: '', TEMP: root, TMP: root };
+  const capability = issueDockerCommandProviderCapability({
+    boundary: issueRetainedCommandBoundary({
+      executable,
+      workingDirectory,
+      auxiliaryInputs: [{ capability: auxiliary, kind: 'ordinary-file' }]
+    }),
+    environment,
+    platform: process.platform,
+    providerContractDigest: rawSha256('sec.docker.command-provider.auxiliary-fixture'),
+    workingDirectory: directory.target
+  });
+  return { auxiliary, capability };
 }
 
 test('Docker command provider ignores ambient command and directory redirection', async () => {
@@ -92,7 +162,9 @@ test('Docker command provider ignores ambient command and directory redirection'
     claimed = claimDockerCommandProviderCapability(fixture.capability);
     expect('loginStart' in claimed).toBe(false);
     expect(claimed.executable).toBe(fixture.executablePath);
-    expect(claimed.environment.PATH).toBe('');
+    expect(claimed.environment.PATH).toBe(
+      process.platform === 'win32' ? path.join(fixture.root, 'System32') : ''
+    );
     expect(claimed.environment.TEMP).toBe(fixture.root);
     expect(claimed.environment.PROGRAMFILES).toBe(fixture.root);
   } finally {
@@ -145,6 +217,34 @@ test('Docker command provider retains executable identity through replacement at
     claimed.boundary.executable.dispose();
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('Docker command provider identity binds same-byte auxiliary file identity', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'sec-docker-command-provider-auxiliary-'));
+  const executablePath = path.join(root, process.platform === 'win32' ? 'docker.exe' : 'docker');
+  const auxiliaryPath = path.join(root, process.platform === 'win32' ? 'wsl.exe' : 'wsl');
+  const replacementPath = path.join(root, 'replacement-auxiliary');
+  const bytes = Buffer.from('same-auxiliary-bytes');
+  await writeFile(executablePath, Buffer.from('provider-bytes'));
+  await writeFile(auxiliaryPath, bytes);
+  const first = issueProviderWithAuxiliary(root, executablePath, auxiliaryPath);
+  let second: ReturnType<typeof issueProviderWithAuxiliary> | undefined;
+  try {
+    const firstPhysical = first.auxiliary.physical;
+    first.auxiliary.dispose();
+    await writeFile(replacementPath, bytes);
+    await unlink(auxiliaryPath);
+    await rename(replacementPath, auxiliaryPath);
+    second = issueProviderWithAuxiliary(root, executablePath, auxiliaryPath);
+    expect(() => claimDockerCommandProviderCapability(first.capability))
+      .toThrow('changed before admission');
+    expect(second.auxiliary.physical).not.toEqual(firstPhysical);
+    expect(second.capability.providerIdentityDigest)
+      .not.toBe(first.capability.providerIdentityDigest);
+  } finally {
+    if (second !== undefined) disposeUnclaimedDockerCommandProviderCapability(second.capability);
+    await rm(root, { recursive: true, force: true });
   }
 });
 

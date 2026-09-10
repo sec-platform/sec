@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { assertWindowsAppContainerExecutionCapability } from '../../src/runtime-state/physical/contract/windows-appcontainer-execution-capability.ts';
@@ -154,7 +155,7 @@ function processIsAlive(processId: number): boolean {
 test.serial('Windows AppContainer sentinel proves no outside read/write, no network, Job fence, and recovery', async () => {
   if (process.platform !== 'win32') return;
 
-  const probeRoot = await mkdtemp(path.join(process.cwd(), '.tmp-appcontainer-probe-'));
+  const probeRoot = await mkdtemp(path.join(tmpdir(), '.tmp-appcontainer-probe-'));
   const stagingRoot = path.join(probeRoot, 'staging');
   await mkdir(stagingRoot);
   const lease = await acquireWorkspaceWriteLease(probeRoot);
@@ -240,7 +241,7 @@ test.serial('Windows AppContainer sentinel proves no outside read/write, no netw
 test.serial('Windows AppContainer pins attribute payloads, isolates stdio, and executes its provider-issued conformance asset', async () => {
   if (process.platform !== 'win32') return;
 
-  const workspaceRoot = await mkdtemp(path.join(process.cwd(), '.tmp-appcontainer-bundled-compiler-'));
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), '.tmp-appcontainer-bundled-compiler-'));
   const transactionDigest = 'e'.repeat(64);
   const stagingRoot = path.join(
     workspaceRoot,
