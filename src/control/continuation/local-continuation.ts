@@ -14,6 +14,7 @@
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { parseArgs as parseNativeArgs } from 'node:util';
 
 import { withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
 import {
@@ -300,44 +301,33 @@ function usage(): never {
 
 function parseArgs(argv: readonly string[]): ContinueOptions {
   if (argv[0] !== 'continue') usage();
-  let handoffPath: string | null = null;
-  let boundary: ContinuationExternalBoundary = 'none';
-  let externalChanged = false;
-  let terminal = false;
-  let json = false;
-  for (let index = 1; index < argv.length; index += 1) {
-    const argument = argv[index]!;
-    if (argument === '--json') {
-      if (json) usage();
-      json = true;
-      continue;
-    }
-    if (argument === '--external-changed') {
-      if (externalChanged) usage();
-      externalChanged = true;
-      continue;
-    }
-    if (argument === '--terminal') {
-      if (terminal) usage();
-      terminal = true;
-      continue;
-    }
-    if (argument === '--handoff') {
-      if (handoffPath !== null) usage();
-      const value = argv[++index];
-      if (value === undefined || value.length === 0 || value.includes('\0')) usage();
-      handoffPath = path.resolve(value);
-      continue;
-    }
-    if (argument === '--boundary') {
-      const value = argv[++index];
-      if (value !== 'none' && value !== 'review' && value !== 'main-health'
-          && value !== 'authorization' && value !== 'merge' && value !== 'closeout') usage();
-      boundary = value;
-      continue;
-    }
-    usage();
+  let parsed;
+  try {
+    parsed = parseNativeArgs({
+      args: argv.slice(1), strict: true, allowPositionals: false, tokens: true,
+      options: {
+        handoff: { type: 'string' }, boundary: { type: 'string' },
+        'external-changed': { type: 'boolean' },
+        terminal: { type: 'boolean' }, json: { type: 'boolean' }
+      }
+    });
+  } catch { usage(); }
+  const seen = new Set<string>();
+  for (const token of parsed.tokens) {
+    if (token.kind !== 'option' || token.inlineValue) usage();
+    if (token.name !== 'boundary' && seen.has(token.name)) usage();
+    seen.add(token.name);
+    if (token.name === 'boundary' && token.value !== 'none' && token.value !== 'review'
+        && token.value !== 'main-health' && token.value !== 'authorization'
+        && token.value !== 'merge' && token.value !== 'closeout') usage();
   }
+  const handoff = parsed.values.handoff;
+  if (handoff !== undefined && (handoff.length === 0 || handoff.includes('\0'))) usage();
+  const handoffPath = handoff === undefined ? null : path.resolve(handoff);
+  const boundary = (parsed.values.boundary ?? 'none') as ContinuationExternalBoundary;
+  const externalChanged = parsed.values['external-changed'] ?? false;
+  const terminal = parsed.values.terminal ?? false;
+  const json = parsed.values.json ?? false;
   if (terminal && boundary !== 'none') usage();
   return Object.freeze({ handoffPath, boundary, externalChanged, terminal, json });
 }
