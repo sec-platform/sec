@@ -2,6 +2,7 @@
 
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { parseArgs as parseNativeArgs } from 'node:util';
 
 import { GIT_READ_OPERATION_BUDGET, gitReadText } from '../../development/tooling/git/git-read.ts';
 import { withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
@@ -145,38 +146,40 @@ type TrustedRuntimeOperatorArgs =
   | Readonly<{ mode: 'runtime-canary'; repository: string; dependencies: boolean }>;
 
 function parseArgs(argv: readonly string[]): TrustedRuntimeOperatorArgs {
-  const mainHealthCount = argv.filter((argument) => argument === '--main-health').length;
-  const runtimeCanaryCount = argv.filter((argument) => argument === '--runtime-canary').length;
-  const dependenciesCount = argv.filter((argument) => argument === '--dependencies').length;
-  if (mainHealthCount > 1 || runtimeCanaryCount > 1
-      || dependenciesCount > 1 || mainHealthCount + runtimeCanaryCount > 1
-      || (dependenciesCount === 1 && runtimeCanaryCount !== 1)) {
-    fail('trusted runtime operator mode must appear exactly once');
-  }
-  const normalized = argv.filter((argument) =>
-    argument !== '--main-health' && argument !== '--runtime-canary' && argument !== '--dependencies');
-  const values = new Map<string, string>();
-  for (let index = 0; index < normalized.length; index += 2) {
-    const key = normalized[index];
-    const value = normalized[index + 1];
-    if (key === undefined || value === undefined || !key.startsWith('--') || values.has(key)) {
+  const { values, tokens } = parseNativeArgs({
+    args: [...argv],
+    strict: true,
+    allowPositionals: false,
+    tokens: true,
+    options: {
+      'main-health': { type: 'boolean' },
+      'runtime-canary': { type: 'boolean' },
+      dependencies: { type: 'boolean' },
+      pr: { type: 'string' },
+      repository: { type: 'string' }
+    }
+  });
+  const seen = new Set<string>();
+  for (const token of tokens) {
+    if (token.kind !== 'option' || token.inlineValue || seen.has(token.name)) {
       fail('arguments must be unique --key value pairs');
     }
-    values.set(key, value);
+    seen.add(token.name);
   }
-  if ([...values.keys()].some((key) => key !== '--pr' && key !== '--repository')) {
-    fail('usage: bun run sec:closeout -- --pr <n> [--repository owner/name] | bun run sec:main-health | bun run sec:runtime-canary [-- --dependencies]');
+  if ((values['main-health'] && values['runtime-canary'])
+      || (values.dependencies && !values['runtime-canary'])) {
+    fail('trusted runtime operator mode must appear exactly once');
   }
-  const rawPr = values.get('--pr');
-  const repository = values.get('--repository') ?? 'sec-platform/sec';
+  const rawPr = values.pr;
+  const repository = values.repository ?? 'sec-platform/sec';
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(repository)) fail('--repository is invalid');
-  if (mainHealthCount === 1) {
+  if (values['main-health']) {
     if (rawPr !== undefined) fail('standalone trusted runtime mode cannot be combined with --pr');
     return Object.freeze({ mode: 'main-health', repository });
   }
-  if (runtimeCanaryCount === 1) {
+  if (values['runtime-canary']) {
     if (rawPr !== undefined) fail('standalone trusted runtime mode cannot be combined with --pr');
-    return Object.freeze({ mode: 'runtime-canary', repository, dependencies: dependenciesCount === 1 });
+    return Object.freeze({ mode: 'runtime-canary', repository, dependencies: values.dependencies === true });
   }
   if (rawPr === undefined || !/^[1-9][0-9]*$/u.test(rawPr)) fail('--pr must be positive');
   return Object.freeze({ mode: 'closeout', repository, prNumber: Number(rawPr) });
