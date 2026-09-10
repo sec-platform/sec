@@ -77,7 +77,7 @@ const DEPENDENCY_BOOTSTRAP_SEMANTIC_CONTRACT = Object.freeze({
   authority: 'compiler-dependency-runtime-owner',
   input: 'manifest-and-runtime-executable-identity',
   settlement: 'verification-action-machine-global-owner-terminal-readback',
-  recovery: 'legacy-conflict-quarantine-no-reuse',
+  recovery: 'current-readback-invalidation-with-successor-action-lineage',
   output: 'compiler-dependency-ready-state-with-execution-generation-authority'
 });
 const DEPENDENCY_BOOTSTRAP_ACTION_REVISION = actionDigest(
@@ -412,11 +412,7 @@ async function materializeCompilerDependenciesSingleFlight(
         ownerToken: `dependency-bootstrap:${process.pid}:${randomUUID()}`,
         leaseDurationMs: maximumDurationMs,
         executor: async ({ action: ownedAction }) => {
-          const recoveredReady = recoveryPredecessorActionKeys.length > 0
-              && options.ensureCompilerDeps === undefined
-            ? await readback()
-            : null;
-          const ready = recoveredReady ?? await ensure();
+          const ready = await ensure();
           const currentInput = await dependencyRuntime
             .observeCompilerDependencyMaterializationInput(repositoryRoot);
           if (currentInput.projectionDigest !== materializationInput.projectionDigest) {
@@ -439,7 +435,13 @@ async function materializeCompilerDependenciesSingleFlight(
         if (ownedReady !== null) return ownedReady;
         const current = await readback();
         if (current === null) {
-          throw new Error('Dependency bootstrap terminal has no current dependency generation readback.');
+          if (recoveryPredecessorActionKeys.includes(action.actionKey)) {
+            throw new Error('Dependency bootstrap recovery repeated an unavailable generation Action.');
+          }
+          runner.invalidate(repositoryRoot, action,
+            'Dependency bootstrap terminal has no compatible current generation readback.');
+          recoveryPredecessorActionKeys.push(action.actionKey);
+          continue;
         }
         return current;
       }
@@ -451,7 +453,9 @@ async function materializeCompilerDependenciesSingleFlight(
               .test(outcome.reason)
             || outcome.reason.startsWith('action is already cancelled;')
           );
-        if (recoverableCancellation
+        const recoverableInvalidation = outcome.disposition === 'blocked'
+          && outcome.state === 'invalidated';
+        if ((recoverableCancellation || recoverableInvalidation)
             && !recoveryPredecessorActionKeys.includes(action.actionKey)) {
           recoveryPredecessorActionKeys.push(action.actionKey);
           continue;

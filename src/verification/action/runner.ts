@@ -65,11 +65,10 @@ import {
   type VerificationActionPlan,
   type VerificationActionTerminal
 } from './contract/action.ts';
-import {
-  parseCiVerificationActionPlanClosure,
-  type CiVerificationActionPlanClosure,
-  type CiVerificationExecutionEnvironment,
-  type CiVerificationNormalizedOperation
+import type {
+  CiVerificationActionPlanClosure,
+  CiVerificationExecutionEnvironment,
+  CiVerificationNormalizedOperation
 } from './contract/ci.ts';
 import {
   acquireVerificationActionClaim,
@@ -1343,6 +1342,7 @@ export async function executeLocalVerificationActionDag(
   }
   const authorityRoot = realpathSync.native(path.resolve(input.authorityRoot));
   const candidateRoot = path.resolve(input.candidateRoot);
+  const { parseCiVerificationActionPlanClosure } = await import('./contract/ci.ts');
   const closure = parseCiVerificationActionPlanClosure(
     encodeVerificationActionData(input.actionPlanClosure)
   );
