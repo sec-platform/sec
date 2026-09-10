@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { lstatSync, realpathSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { setTimeout as sleepMs } from 'node:timers/promises';
 import { generatedStateDigest, generatedStateDomainProviderMaterialDigest, type GeneratedStateCleanupProfile, type GeneratedStateInventory, type GeneratedStatePhysicalIdentity, type GeneratedStateRegistration } from '../../../runtime-state/generated-state/contract.ts';
 import { consumeGeneratedStateWorktreeRetirementEffectAuthority, type GeneratedStateWorktreeRetirementProvider } from '../../../runtime-state/generated-state/lifecycle.ts';
 import { assertPhysicalGenerationRetirementReceipt, assertSameNoFollowDirectoryIdentity, copyNoFollowDirectoryTreesBulk, createExclusiveNoFollowDirectory, createExclusiveNoFollowRandomDirectory, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectExactNoFollowLinkEntry, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowDirectoryLeaf, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileEntry, materializeRetainedNoFollowProvenDirectoryGeneration, openWindowsLegacySealedDirectoryRelocation, PhysicalNoFollowError, prepareWindowsLegacySealedDirectoryRelocation, publishExclusiveDurableCanonicalFile, publishExclusiveNoFollowLink, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectoryAcrossParents, relocateRetainedNoFollowLinkAcrossParents, relocateWindowsLegacySealedDirectory, reopenRetainedNoFollowProvenDirectoryGeneration, replaceDurableCanonicalFile, retainNoFollowOrdinaryFile, retireNoFollowDirectoryTree, retireNoFollowProvenDirectoryGeneration, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryChain, type PhysicalDirectoryIdentity, type PhysicalGenerationRetirementReceipt, type RetainedNoFollowOrdinaryFile, type RetainedNoFollowProvenDirectoryGeneration, type WindowsLegacySealedDirectoryRelocationCapability } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
@@ -1021,12 +1022,6 @@ async function compilerRuntimeMaterializationBinding(
       lockSha256: identity.lockSha256,
       platform: identity.platform
     }
-  });
-}
-
-function sleepMs(delayMs: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, delayMs);
   });
 }
 

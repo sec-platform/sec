@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import {
   assertSecOperationDemandGraph,
@@ -340,21 +341,15 @@ async function waitForDependencyBootstrapJoin(
   signal: AbortSignal | undefined
 ): Promise<void> {
   assertDependencyBootstrapLive(deadlineAtUnixMs, signal);
-  await new Promise<void>((resolve, reject) => {
-    const complete = () => {
-      signal?.removeEventListener('abort', abort);
-      resolve();
-    };
-    const timeout = setTimeout(complete, Math.min(
+  try {
+    await delay(Math.min(
       DEPENDENCY_BOOTSTRAP_JOIN_POLL_MS,
       Math.max(1, deadlineAtUnixMs - Date.now())
-    ));
-    function abort(): void {
-      clearTimeout(timeout);
-      reject(new Error('Dependency bootstrap operation was cancelled.'));
-    }
-    signal?.addEventListener('abort', abort, { once: true });
-  });
+    ), undefined, { signal });
+  } catch (error) {
+    if (signal?.aborted === true) throw new Error('Dependency bootstrap operation was cancelled.');
+    throw error;
+  }
 }
 
 async function materializeCompilerDependenciesSingleFlight(
