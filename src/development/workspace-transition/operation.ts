@@ -1,4 +1,5 @@
 import { withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
+import { GIT_READ_EXACT_TREE_OPERATION_BUDGET } from '../../external-capabilities/git-read/runtime/budget.ts';
 import type {
   GitReadSession,
   GitReadSessionCommand
@@ -164,7 +165,10 @@ async function withWorkspaceGitSession<T>(
     processSession,
     budget: {
       ...WORKSPACE_TRANSITION_GIT_BUDGET,
-      deadlineMs: remainingMs(deadlineAtUnixMs)
+      deadlineMs: Math.min(
+        remainingMs(deadlineAtUnixMs),
+        GIT_READ_EXACT_TREE_OPERATION_BUDGET.deadlineMs
+      )
     }
   }, callback);
 }
