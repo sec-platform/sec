@@ -1161,10 +1161,29 @@ export function CodexDevelopmentAssertPriorFreezeProjection(input: {
   );
   const expectedTopology = immutableTopology.activePackageId === packageId
     ? immutableTopology
-    : CodexDevelopmentParseRollingPlan(CodexDevelopmentPromoteRollingPlan({
-        source: input.immutableRollingPlanSource,
-        packageId
-      }));
+    : (() => {
+        const immutableMachine = CodexDevelopmentParseRollingMachineProjection(
+          input.immutableRollingPlanSource
+        );
+        if (immutableMachine === null) {
+          return CodexDevelopmentParseRollingPlan(CodexDevelopmentPromoteRollingPlan({
+            source: input.immutableRollingPlanSource,
+            packageId
+          }));
+        }
+        const canonicalTopology = rollingTopologyFromMachineProjection(immutableMachine);
+        if (!canonicalTopology.candidatePackageIds.includes(packageId)) {
+          throw new Error(
+            'Prior projection target must be the immutable active package or one canonical candidate.'
+          );
+        }
+        return Object.freeze({
+          activePackageId: packageId,
+          candidatePackageIds: Object.freeze(
+            canonicalTopology.candidatePackageIds.filter((candidate) => candidate !== packageId)
+          )
+        });
+      })();
   const observedTopology = CodexDevelopmentParseRollingPlan(input.rollingPlanSource);
   if (observedTopology.activePackageId !== expectedTopology.activePackageId
       || JSON.stringify(observedTopology.candidatePackageIds)

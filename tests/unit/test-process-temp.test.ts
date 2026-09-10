@@ -7,6 +7,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   renameSync,
   rmSync,
   symlinkSync,
@@ -15,6 +16,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import type { FastTestBatchExecutionAdmission } from '../../src/development/runner/test-execution-policy.ts';
 import {
   consumeTestProcessTempAssignmentV1,
   createTestInvocationRuntimeRoots,
@@ -23,6 +25,7 @@ import {
   testInvocationRuntimeIsolationModeForPlatform,
   TestProcessTempLifecycleError
 } from '../../src/development/runner/test-process-temp.ts';
+import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 
 function generation(prefix: string): string {
   return mkdtempSync(path.join(tmpdir(), prefix));
@@ -32,6 +35,28 @@ test('test invocation runtime advertises only platforms with retained physical a
   expect(testInvocationRuntimeIsolationModeForPlatform('win32')).toBe('retained');
   expect(testInvocationRuntimeIsolationModeForPlatform('linux')).toBe('retained');
   expect(testInvocationRuntimeIsolationModeForPlatform('darwin')).toBe('unavailable');
+});
+
+test('test invocation runtime rejects a reconstructed fast-batch deadline before physical effects', async () => {
+  const root = generation('sec-invocation-runtime-forged-budget-');
+  const repositoryRoot = path.join(root, 'repository');
+  const hostTempRoot = path.join(root, 'host-temp');
+  const stateRoot = path.join(root, 'state');
+  const cacheRoot = path.join(root, 'cache');
+  mkdirSync(repositoryRoot);
+  mkdirSync(hostTempRoot);
+  try {
+    await expect(createTestInvocationRuntimeRoots({
+      repositoryRoot,
+      hostTempRoot,
+      environment: { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot },
+      fastTestBatchAdmission: Object.freeze({}) as FastTestBatchExecutionAdmission
+    })).rejects.toThrow('owner-issued admission');
+    expect(existsSync(stateRoot)).toBe(false);
+    expect(existsSync(cacheRoot)).toBe(false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('direct test runtime temp supports a native child-process working directory', () => {
@@ -146,7 +171,6 @@ test('test invocation runtime owns private roots, rejects aliases, and surfaces 
       environment: { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot }
     });
     expect(owned.stateRoot).not.toBe(owned.cacheRoot);
-    expect(path.basename(owned.stateRoot)).toBe(path.basename(owned.cacheRoot));
     if (process.platform === 'linux') {
       expect(lstatSync(owned.stateRoot).mode & 0o077).toBe(0);
       expect(lstatSync(owned.cacheRoot).mode & 0o077).toBe(0);
@@ -173,7 +197,12 @@ test('test invocation runtime owns private roots, rejects aliases, and surfaces 
     const displaced = `${replaced.stateRoot}.displaced`;
     renameSync(replaced.stateRoot, displaced);
     mkdirSync(replaced.stateRoot);
-    await expect(replaced.cleanup()).rejects.toThrow('runtime cleanup failed');
+    await expect(replaced.cleanup()).rejects.toMatchObject({
+      code: 'TEST_PROCESS_TEMP_CLEANUP_FAILED',
+      pendingRecovery: {
+        ownerDigest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u)
+      }
+    });
     expect(existsSync(replaced.stateRoot)).toBe(true);
     expect(existsSync(displaced)).toBe(true);
     expect(existsSync(replaced.cacheRoot)).toBe(false);
@@ -343,10 +372,12 @@ test('successor supervisor reclaims a timed-out child generation only after exac
   const root = generation('sec-process-temp-lost-handle-');
   const repositoryRoot = path.join(root, 'repository');
   const hostTempRoot = path.join(root, 'host-temp');
+  const successorTempRoot = path.join(root, 'successor-temp');
   const stateRoot = path.join(root, 'state');
   const cacheRoot = path.join(root, 'cache');
   mkdirSync(repositoryRoot);
   mkdirSync(hostTempRoot);
+  mkdirSync(successorTempRoot);
   const abandonedOwnerPid = 41_001;
   const invocationKey = '10000000-0000-4000-8000-000000000001';
   const abandoned = await createTestInvocationRuntimeRoots({
@@ -359,10 +390,12 @@ test('successor supervisor reclaims a timed-out child generation only after exac
     testOnlyProcessNonce: '20000000-0000-4000-8000-000000000001'
   });
   const lostHandle = abandoned.prepareProcessTemp({});
+  const abandonedStateRoot = abandoned.stateRoot;
+  const abandonedCacheRoot = abandoned.cacheRoot;
   writeFileSync(path.join(lostHandle.tempRoot, 'timeout-residue.txt'), 'residue');
   const successor = await createTestInvocationRuntimeRoots({
     repositoryRoot,
-    hostTempRoot,
+    hostTempRoot: successorTempRoot,
     environment: { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot },
     invocationKey,
     testOnlyOwnerPid: 41_002,
@@ -371,11 +404,182 @@ test('successor supervisor reclaims a timed-out child generation only after exac
   });
   try {
     expect(existsSync(lostHandle.processRoot)).toBe(false);
+    expect(existsSync(path.dirname(lostHandle.processRoot))).toBe(false);
+    expect(existsSync(abandonedStateRoot)).toBe(false);
+    expect(existsSync(abandonedCacheRoot)).toBe(false);
+    expect(existsSync(successor.stateRoot)).toBe(true);
+    expect(existsSync(successor.cacheRoot)).toBe(true);
   } finally {
     await successor.cleanup();
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('failed temp retirement retains the invocation identity for dead-owner recovery', async () => {
+  const root = generation('sec-temp-failed-retirement-');
+  const repositoryRoot = path.join(root, 'repository');
+  const hostTempRoot = path.join(root, 'host-temp');
+  mkdirSync(repositoryRoot);
+  mkdirSync(hostTempRoot);
+  const input = {
+    repositoryRoot,
+    hostTempRoot,
+    environment: { SEC_STATE_HOME: path.join(root, 'state'), SEC_CACHE_HOME: path.join(root, 'cache') },
+    invocationKey: '10000000-0000-4000-8000-000000000002'
+  };
+  let successor: Awaited<ReturnType<typeof createTestInvocationRuntimeRoots>> | undefined;
+  try {
+    const abandoned = await createTestInvocationRuntimeRoots({
+      ...input,
+      testOnlyOwnerPid: 41_003,
+      testOnlyProcessAlive: () => 'alive',
+      testOnlyProcessNonce: '20000000-0000-4000-8000-000000000003'
+    });
+    const owned = abandoned.prepareProcessTemp({});
+    const displaced = `${owned.processRoot}.displaced`;
+    renameSync(owned.processRoot, displaced);
+    mkdirSync(owned.processRoot);
+    await expect(abandoned.cleanup()).rejects.toMatchObject({ code: 'TEST_PROCESS_TEMP_CLEANUP_FAILED' });
+    expect(existsSync(displaced)).toBe(true);
+    rmSync(owned.processRoot, { recursive: true });
+    renameSync(displaced, owned.processRoot);
+    successor = await createTestInvocationRuntimeRoots({
+      ...input,
+      testOnlyOwnerPid: 41_004,
+      testOnlyProcessAlive: pid => pid === 41_003 ? 'dead' : 'alive',
+      testOnlyProcessNonce: '20000000-0000-4000-8000-000000000004'
+    });
+    expect(existsSync(owned.processRoot)).toBe(false);
+    const next = successor.prepareProcessTemp({});
+    const nextDisplaced = `${next.processRoot}.displaced`;
+    renameSync(next.processRoot, nextDisplaced);
+    mkdirSync(next.processRoot);
+    await expect(successor.cleanup()).rejects.toMatchObject({ code: 'TEST_PROCESS_TEMP_CLEANUP_FAILED' });
+    expect(() => successor!.prepareProcessTemp({})).toThrow();
+    rmSync(next.processRoot, { recursive: true });
+    renameSync(nextDisplaced, next.processRoot);
+    await successor.cleanup();
+    expect(existsSync(next.processRoot)).toBe(false);
+  } finally {
+    await successor?.cleanup();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('failed successor reclaim restores the original owner for a later successor', async () => {
+  const root = generation('sec-temp-failed-successor-reclaim-');
+  const repositoryRoot = path.join(root, 'repository');
+  const hostTempRoot = path.join(root, 'host-temp');
+  mkdirSync(repositoryRoot);
+  mkdirSync(hostTempRoot);
+  const input = {
+    repositoryRoot,
+    hostTempRoot,
+    environment: { SEC_STATE_HOME: path.join(root, 'state'), SEC_CACHE_HOME: path.join(root, 'cache') },
+    invocationKey: '10000000-0000-4000-8000-000000000003'
+  };
+  try {
+    const abandoned = await createTestInvocationRuntimeRoots({
+      ...input,
+      testOnlyOwnerPid: 41_005,
+      testOnlyProcessAlive: () => 'alive',
+      testOnlyProcessNonce: '20000000-0000-4000-8000-000000000005'
+    });
+    const owned = abandoned.prepareProcessTemp({});
+    const displaced = `${owned.processRoot}.displaced`;
+    renameSync(owned.processRoot, displaced);
+    mkdirSync(owned.processRoot);
+
+    await expect(createTestInvocationRuntimeRoots({
+      ...input,
+      testOnlyOwnerPid: 41_006,
+      testOnlyProcessAlive: pid => pid === 41_005 ? 'dead' : 'alive',
+      testOnlyProcessNonce: '20000000-0000-4000-8000-000000000006'
+    })).rejects.toMatchObject({ code: 'TEST_PROCESS_TEMP_RESIDUE_UNKNOWN' });
+
+    rmSync(owned.processRoot, { recursive: true });
+    renameSync(displaced, owned.processRoot);
+    const successor = await createTestInvocationRuntimeRoots({
+      ...input,
+      testOnlyOwnerPid: 41_007,
+      testOnlyProcessAlive: pid => pid === 41_005 ? 'dead' : 'alive',
+      testOnlyProcessNonce: '20000000-0000-4000-8000-000000000007'
+    });
+    try {
+      expect(existsSync(owned.processRoot)).toBe(false);
+    } finally {
+      await successor.cleanup();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test.each(['missing-state', 'changed-binding'] as const)(
+  'runtime recovery preserves its original owner after %s', async (fault) => {
+    const root = generation('sec-runtime-recovery-binding-');
+    const repositoryRoot = path.join(root, 'repository');
+    const hostTempRoot = path.join(root, 'host-temp');
+    mkdirSync(repositoryRoot);
+    mkdirSync(hostTempRoot);
+    const input = {
+      repositoryRoot,
+      hostTempRoot,
+      environment: { SEC_STATE_HOME: path.join(root, 'state'), SEC_CACHE_HOME: path.join(root, 'cache') }
+    };
+    try {
+      const abandoned = await createTestInvocationRuntimeRoots({
+        ...input,
+        testOnlyOwnerPid: 41_011,
+        testOnlyProcessAlive: () => 'alive',
+        testOnlyProcessNonce: '20000000-0000-4000-8000-000000000011'
+      });
+      const owned = abandoned.prepareProcessTemp({});
+      const bindingPath = path.join(abandoned.stateRoot, 'temp-parent-binding.json');
+      const original = readFileSync(bindingPath);
+      const foreignParent = path.join(root, 'foreign-temp');
+      const foreignContainer = path.join(foreignParent, path.basename(path.dirname(owned.processRoot)));
+      mkdirSync(foreignContainer, { recursive: true });
+      if (fault === 'missing-state') {
+        renameSync(abandoned.stateRoot, path.join(root, 'displaced-state'));
+        renameSync(abandoned.cacheRoot, path.join(root, 'displaced-cache'));
+      } else {
+        const binding = JSON.parse(original.toString('utf8'));
+        binding.hostTemp = inspectNoFollowDirectoryChain(foreignParent, 'foreign recovery parent').target;
+        binding.container = inspectNoFollowDirectoryChain(foreignContainer, 'foreign recovery container').target;
+        writeFileSync(bindingPath, `${JSON.stringify(binding)}\n`);
+      }
+      const recovery = {
+        ...input,
+        testOnlyProcessAlive: (pid: number) => pid === 41_011 ? 'dead' as const : 'alive' as const
+      };
+      await expect(createTestInvocationRuntimeRoots({
+        ...recovery,
+        testOnlyOwnerPid: 41_012,
+        testOnlyProcessNonce: '20000000-0000-4000-8000-000000000012'
+      })).rejects.toMatchObject({ code: 'TEST_PROCESS_TEMP_RESIDUE_UNKNOWN' });
+      expect(existsSync(owned.processRoot)).toBe(true);
+      expect(existsSync(foreignContainer)).toBe(true);
+      if (fault === 'missing-state') {
+        renameSync(path.join(root, 'displaced-state'), abandoned.stateRoot);
+        renameSync(path.join(root, 'displaced-cache'), abandoned.cacheRoot);
+      } else writeFileSync(bindingPath, original);
+      const successor = await createTestInvocationRuntimeRoots({
+        ...recovery,
+        testOnlyOwnerPid: 41_013,
+        testOnlyProcessNonce: '20000000-0000-4000-8000-000000000013'
+      });
+      try {
+        expect(existsSync(owned.processRoot)).toBe(false);
+        expect(existsSync(foreignContainer)).toBe(true);
+      } finally {
+        await successor.cleanup();
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+);
 
 test('test process temp lease and generations are isolated by exact workspace identity', async () => {
   const root = generation('sec-process-temp-workspace-isolation-');

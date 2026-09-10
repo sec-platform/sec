@@ -1,14 +1,11 @@
 import { expect, test } from 'bun:test';
 import { Buffer } from 'node:buffer';
-import fs, { readFile, rm, writeFile } from 'node:fs/promises';
-import path from 'node:path';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 
-import { upgradeWorkspace } from '../../src/change-management/upgrade/orchestration.ts';
 import { buildProvenanceSummary } from '../../src/compiler/emit/write-review-summary.ts';
 import {
   addBlock,
   compileWorkspace,
-  explainWorkspace,
   initWorkspace
 } from '../../src/compiler/orchestration/cli.ts';
 import {
@@ -26,19 +23,8 @@ import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/
 import type { ReviewSummary } from '../../src/verification/review/contract/types.ts';
 import { formatJsonFile, readJson } from '../../src/workspace/files.ts';
 import { acquireWorkspaceWriteLease } from '../../src/workspace/lease.ts';
-import {
-  getWorkspacePaths,
-  resolveWorkspaceArtifactPath
-} from '../../src/workspace/runtime/paths.ts';
-import {
-  expectGraphEdge,
-  expectReviewConflictHint,
-  expectReviewRegressionRisk
-} from '../helpers/graph-assertions.ts';
-import {
-  prepareLockedWorkspace,
-  withTempWorkspace
-} from '../testkit/workspace.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 const staleRevision = `sha256:${'0'.repeat(64)}`;
 

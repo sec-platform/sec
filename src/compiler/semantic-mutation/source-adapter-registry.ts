@@ -1,7 +1,7 @@
 import type { LoadedSemanticContract } from '../../semantic/contracts/contract/types.ts';
 import type { FactDeltaEndpointContext } from '../../semantic/engineering-ir/contract/delta-types.ts';
 import type { FactProvenance } from '../../semantic/engineering-ir/contract/fact-types.ts';
-import { SEMANTIC_CONTRACT_YAML_ADAPTER_ID, SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION, SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION, type NormalizedSemanticMutationRequest, type SemanticMutationAuthorizationContext, type SemanticMutationDiagnostic, type SemanticMutationLoadedSourceCandidate, type SemanticMutationOperation, type SemanticMutationSourceKind } from '../../semantic/mutation/contract/types.ts';
+import { SEMANTIC_CONTRACT_YAML_ADAPTER_ID, SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION, type NormalizedSemanticMutationRequest, type SemanticMutationAuthorizationContext, type SemanticMutationDiagnostic, type SemanticMutationLoadedSourceCandidate, type SemanticMutationOperation, type SemanticMutationSourceKind } from '../../semantic/mutation/contract/types.ts';
 import {
   AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH,
   semanticContractSourceRevision

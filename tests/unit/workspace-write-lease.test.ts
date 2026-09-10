@@ -509,7 +509,7 @@ test('protocol alias recovery rejects external, noncanonical, multiple, and iden
   const scenarios = [
     {
       name: 'external',
-      prepare: async (fixedLease: string, holders: string, marker: string): Promise<readonly string[]> => {
+      prepare: async (fixedLease: string, _holders: string, marker: string): Promise<readonly string[]> => {
         const alias = path.join(path.dirname(fixedLease), immutableCandidateName('protocol', 'external'));
         await writeDurableProtocolCandidate(alias);
         await link(alias, marker);

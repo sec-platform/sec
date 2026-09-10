@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { existsSync, mkdtempSync, readdirSync, renameSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -12,6 +12,7 @@ import {
   type SecBoundSemanticOperation,
   type SecOperationEffectKind
 } from '../../system-architecture/operation/semantic.ts';
+import { acquirePhysicalMutationLease } from '../physical/runtime/mutation-lease.ts';
 import { inspectNoFollowDirectoryChain } from '../physical/runtime/physical-no-follow.ts';
 import {
   ExternalProviderCoordinationLeaseError,
@@ -188,6 +189,73 @@ test.skipIf(process.platform !== 'win32')(
 );
 
 test.skipIf(process.platform !== 'win32')(
+  'acknowledgement failure settles retained resources and preserves the primary failure',
+  async () => {
+    const rootPath = mkdtempSync(path.join(tmpdir(), 'sec-provider-ack-failure-'));
+    try {
+      const root = inspectNoFollowDirectoryChain(rootPath, 'test acknowledgement failure owner');
+      await withExternalProviderCoordinationLeaseAtOwnerIssuedRoot({
+        coordination: coordination(), issuer: testIssuer, root,
+        operation: async () => 'initialize'
+      });
+      const coordinationDirectory = inspectNoFollowDirectoryChain(
+        secUserExternalProviderCoordinationPath({
+          localAppData: rootPath,
+          repositoryRoot: process.cwd()
+        }),
+        'test acknowledgement failure coordination directory'
+      ).target;
+      const abandoned = acquirePhysicalMutationLease(
+        coordinationDirectory,
+        externalProviderCoordinationLeaseName(coordination()),
+        { ownerPid: 2_147_483_000 }
+      );
+      expect(abandoned).not.toBeNull();
+      let operationCalled = false;
+      await expect(withExternalProviderCoordinationLeaseAtOwnerIssuedRoot({
+        coordination: coordination(),
+        issuer: testIssuer,
+        root,
+        testOnlyBeforeRecoveryAcknowledgement: (leasePath) => {
+          writeFileSync(leasePath, 'faulted acknowledgement bytes\n', 'utf8');
+        },
+        operation: async () => {
+          operationCalled = true;
+          return 'unreachable';
+        }
+      })).rejects.toMatchObject({
+        reason: 'settlement-unknown',
+        cause: expect.any(AggregateError)
+      });
+      expect(operationCalled).toBe(false);
+    } finally {
+      rmSync(rootPath, { recursive: true, force: true });
+    }
+  }
+);
+
+test.skipIf(process.platform !== 'win32')(
+  'external-provider coordination accepts a canonical copied semantic projection',
+  async () => {
+    const rootPath = mkdtempSync(path.join(tmpdir(), 'sec-provider-projection-'));
+    try {
+      const root = inspectNoFollowDirectoryChain(rootPath, 'test projection coordination owner');
+      const projectedOperation = {
+        ...providerOperation()
+      } as SecBoundSemanticOperation;
+      await expect(withExternalProviderCoordinationLeaseAtOwnerIssuedRoot({
+        coordination: coordination(projectedOperation),
+        issuer: testIssuer,
+        root,
+        operation: async () => 'projection-accepted'
+      })).resolves.toBe('projection-accepted');
+    } finally {
+      rmSync(rootPath, { recursive: true, force: true });
+    }
+  }
+);
+
+test.skipIf(process.platform !== 'win32')(
   'external-provider coordination rejects expired and structurally forged capabilities',
   async () => {
     const rootPath = mkdtempSync(path.join(tmpdir(), 'sec-provider-invalid-'));
@@ -207,8 +275,10 @@ test.skipIf(process.platform !== 'win32')(
         providerEpochDigest: digest('a'),
         providerId: 'docker.desktop'
       })).toThrow('not owner-issued');
+      const providerOperationForForgery = providerOperation();
       const structurallyForgedOperation = {
-        ...providerOperation()
+        ...providerOperationForForgery,
+        plan: { ...providerOperationForForgery.plan }
       } as SecBoundSemanticOperation;
       await expect(withExternalProviderCoordinationLeaseAtOwnerIssuedRoot({
         coordination: coordination(structurallyForgedOperation),

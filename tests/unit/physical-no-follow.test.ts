@@ -10,9 +10,11 @@ import {
   mkdirSync,
   mkdtempSync,
   openSync,
+  readdirSync,
   readFileSync,
   renameSync,
   rmSync,
+  statSync,
   symlinkSync,
   truncateSync,
   writeFileSync,
@@ -24,7 +26,7 @@ import path from 'node:path';
 import { runRetainedGitWriteTreeProbeV1 } from '../helpers/retained-git-write-tree-probe.ts';
 
 import type { LinuxNoFollowDirectoryCreateRaceActor, LinuxNoFollowDirectoryCreateRacePoint } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { PhysicalNoFollowError, assertRetainedNoFollowCapability, assertSameNoFollowDirectoryIdentity, createExclusiveNoFollowDirectory, createLinuxNoFollowDirectoryCreateRaceActorForTests, createNoFollowDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowDirectoryLeaf, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileDigest, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectory, replaceDurableCanonicalFile, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, retainNoFollowOrdinaryFileForChildProcess, retainNoFollowSealedDirectoryGeneration, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, scanNoFollowDirectoryTreeSelectedForest } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { assertRetainedNoFollowCapability, assertSameNoFollowDirectoryIdentity, copyNoFollowDirectoryTreesBulk, createExclusiveNoFollowDirectory, createLinuxNoFollowDirectoryCreateRaceActorForTests, createNoFollowDirectoryChain, createWindowsDurableCanonicalFileReplacementInterruptionActorForTests, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowDirectoryLeaf, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileDigest, inspectNoFollowOrdinaryFileEntry, PhysicalNoFollowError, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, recoverDurableCanonicalFileReplacement, relocateRetainedNoFollowDirectory, replaceDurableCanonicalFile, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, retainNoFollowOrdinaryFileForChildProcess, retainNoFollowSealedDirectoryGeneration, retireNoFollowDirectoryTree, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, scanNoFollowDirectoryTreeSelectedForest } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 import { sealExistingWindowsReadOnlyTreeAuthority } from '../../src/runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
 import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
 
@@ -825,6 +827,185 @@ test.skipIf(process.platform !== 'linux')('Linux tree inventory returns exact re
   }
 });
 
+test('permission-mode inventory is opt-in and Windows projects an explicit unavailable value', () => {
+  if (process.platform !== 'linux' && process.platform !== 'win32') return;
+  const root = fixtureRoot();
+  try {
+    const target = path.join(root, 'target');
+    mkdirSync(target);
+    writeFileSync(path.join(target, 'ordinary.txt'), 'ordinary\n', 'utf8');
+    const identity = inspectNoFollowDirectoryChain(target, 'permission inventory target').target;
+    const defaultEntry = scanNoFollowDirectoryTreeInventory(identity)[0]!;
+    expect('permissionMode' in defaultEntry).toBe(false);
+
+    const projectedEntry = scanNoFollowDirectoryTreeInventory(identity, {
+      includePermissionMode: true
+    })[0]!;
+    if (process.platform === 'win32') {
+      expect(projectedEntry.permissionMode).toBeNull();
+    } else {
+      expect(projectedEntry.permissionMode).toBe(statSync(path.join(target, 'ordinary.txt')).mode & 0o7777);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(process.platform !== 'linux')(
+  'Linux bulk copy preserves descriptor-observed file and directory modes only when opted in',
+  async () => {
+    const root = fixtureRoot();
+    try {
+      const sourcePath = path.join(root, 'source');
+      const childPath = path.join(sourcePath, 'child');
+      const executablePath = path.join(childPath, 'tool.sh');
+      mkdirSync(childPath, { recursive: true });
+      writeFileSync(executablePath, '#!/bin/sh\nexit 0\n', 'utf8');
+      chmodSync(executablePath, 0o4755);
+      chmodSync(childPath, 0o2750);
+      chmodSync(sourcePath, 0o1750);
+      const source = inspectNoFollowDirectoryChain(sourcePath, 'permission copy source').target;
+
+      const defaultTarget = path.join(root, 'default-copy');
+      await copyNoFollowDirectoryTreesBulk([{ source, target: defaultTarget }], {
+        deadlineAtMs: performance.now() + 10_000,
+        maximumEntries: 32,
+        maximumBytes: 8192
+      });
+      expect(statSync(defaultTarget).mode & 0o7777).toBe(0o700);
+      expect(statSync(path.join(defaultTarget, 'child')).mode & 0o7777).toBe(0o700);
+      expect(statSync(path.join(defaultTarget, 'child', 'tool.sh')).mode & 0o7777).toBe(0o600);
+
+      const preservedTarget = path.join(root, 'preserved-copy');
+      await copyNoFollowDirectoryTreesBulk([{ source, target: preservedTarget }], {
+        deadlineAtMs: performance.now() + 10_000,
+        maximumEntries: 32,
+        maximumBytes: 8192,
+        preservePermissionMode: true
+      });
+      expect(statSync(preservedTarget).mode & 0o7777).toBe(0o1750);
+      expect(statSync(path.join(preservedTarget, 'child')).mode & 0o7777).toBe(0o2750);
+      expect(statSync(path.join(preservedTarget, 'child', 'tool.sh')).mode & 0o7777).toBe(0o4755);
+    } finally {
+      chmodSync(root, 0o700);
+      for (const directory of [
+        path.join(root, 'source'),
+        path.join(root, 'source', 'child'),
+        path.join(root, 'preserved-copy'),
+        path.join(root, 'preserved-copy', 'child')
+      ]) {
+        try { chmodSync(directory, 0o700); } catch { /* best-effort fixture cleanup */ }
+      }
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+);
+
+test.skipIf(process.platform !== 'linux')(
+  'Linux exact tree retirement temporarily restores owner access and restores mode after a primary failure',
+  async () => {
+    const root = fixtureRoot();
+    try {
+      const sourcePath = path.join(root, 'source');
+      mkdirSync(path.join(sourcePath, 'child'), { recursive: true });
+      writeFileSync(path.join(sourcePath, 'child', 'value.txt'), 'value\n', 'utf8');
+      chmodSync(path.join(sourcePath, 'child'), 0o555);
+      chmodSync(sourcePath, 0o555);
+      const source = inspectNoFollowDirectoryChain(sourcePath, 'retirement copy source').target;
+      const parent = inspectNoFollowDirectoryChain(root, 'retirement target parent').target;
+
+      const successfulPath = path.join(root, 'successful-retirement');
+      await copyNoFollowDirectoryTreesBulk([{ source, target: successfulPath }], {
+        deadlineAtMs: performance.now() + 10_000,
+        maximumEntries: 32,
+        maximumBytes: 8192,
+        preservePermissionMode: true
+      });
+      const successful = inspectNoFollowDirectoryChain(successfulPath, 'successful retirement root').target;
+      const successfulInventory = scanNoFollowDirectoryTreeInventory(successful, {
+        includePermissionMode: true
+      });
+      const unissuedInventory = successfulInventory.map((entry) => Object.freeze({ ...entry }));
+      expectPhysicalCode(() => retireNoFollowDirectoryTree({
+        deadlineAtMonotonicMs: performance.now() + 10_000,
+        inventory: unissuedInventory,
+        parent,
+        restoreOwnerPermissions: true,
+        root: successful
+      }), 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED');
+      expect(statSync(successfulPath).mode & 0o7777).toBe(0o555);
+      expect(statSync(path.join(successfulPath, 'child')).mode & 0o7777).toBe(0o555);
+      expect(retireNoFollowDirectoryTree({
+        deadlineAtMonotonicMs: performance.now() + 10_000,
+        inventory: successfulInventory,
+        parent,
+        restoreOwnerPermissions: true,
+        root: successful
+      }).status).toBe('physically-absent');
+      expect(existsSync(successfulPath)).toBe(false);
+
+      const failingPath = path.join(root, 'failing-retirement');
+      await copyNoFollowDirectoryTreesBulk([{ source, target: failingPath }], {
+        deadlineAtMs: performance.now() + 10_000,
+        maximumEntries: 32,
+        maximumBytes: 8192,
+        preservePermissionMode: true
+      });
+      const failing = inspectNoFollowDirectoryChain(failingPath, 'failing retirement root').target;
+      const failingInventory = scanNoFollowDirectoryTreeInventory(failing, {
+        includePermissionMode: true
+      });
+      chmodSync(failingPath, 0o755);
+      writeFileSync(path.join(failingPath, 'untracked.txt'), 'blocks exact root removal\n', 'utf8');
+      chmodSync(failingPath, 0o555);
+      expect(() => retireNoFollowDirectoryTree({
+        deadlineAtMonotonicMs: performance.now() + 10_000,
+        inventory: failingInventory,
+        parent,
+        restoreOwnerPermissions: true,
+        root: failing
+      })).toThrow();
+      expect(statSync(failingPath).mode & 0o7777).toBe(0o555);
+    } finally {
+      for (const directory of [
+        path.join(root, 'source'),
+        path.join(root, 'source', 'child'),
+        path.join(root, 'failing-retirement')
+      ]) {
+        try { chmodSync(directory, 0o700); } catch { /* best-effort fixture cleanup */ }
+      }
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+);
+
+test.skipIf(process.platform !== 'linux' || process.geteuid?.() === 0)(
+  'Linux permission-aware retirement rejects an unreadable root before mutation',
+  () => {
+    const root = fixtureRoot();
+    try {
+      const targetPath = path.join(root, 'unreadable');
+      mkdirSync(targetPath);
+      writeFileSync(path.join(targetPath, 'value.txt'), 'value\n', 'utf8');
+      const parent = inspectNoFollowDirectoryChain(root, 'unreadable retirement parent').target;
+      const target = inspectNoFollowDirectoryChain(targetPath, 'unreadable retirement root').target;
+      const inventory = scanNoFollowDirectoryTreeInventory(target, { includePermissionMode: true });
+      chmodSync(targetPath, 0o000);
+      expect(() => retireNoFollowDirectoryTree({
+        deadlineAtMonotonicMs: performance.now() + 10_000,
+        inventory,
+        parent,
+        restoreOwnerPermissions: true,
+        root: target
+      })).toThrow(PhysicalNoFollowError);
+      expect(statSync(targetPath).mode & 0o7777).toBe(0o000);
+    } finally {
+      try { chmodSync(path.join(root, 'unreadable'), 0o700); } catch { /* best-effort fixture cleanup */ }
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+);
+
 test('streaming tree inventory preserves the canonical digest domain beyond the bounded byte reader', () => {
   const root = fixtureRoot();
   try {
@@ -845,6 +1026,8 @@ test('streaming tree inventory preserves the canonical digest domain beyond the 
     }
     const identity = inspectNoFollowDirectoryChain(target, 'streaming inventory target').target;
     expect(() => scanNoFollowDirectoryTree(identity)).toThrow('exceeds the bounded no-follow read size');
+    expect(() => readNoFollowOrdinaryFile(identity, 'large.bin')).toThrow('exceeds the bounded no-follow read size');
+    expect(readNoFollowOrdinaryFile(identity, 'large.bin', { maximumBytes: largeSize })?.byteLength).toBe(largeSize);
     const first = new Map(scanNoFollowDirectoryTreeInventory(identity).map((entry) => [entry.relativePath, entry]));
     const second = new Map(scanNoFollowDirectoryTreeInventory(identity).map((entry) => [entry.relativePath, entry]));
     expect(first.get('small.txt')?.contentDigest).toBe(
@@ -1084,15 +1267,38 @@ test('metadata inventory does not read sparse file bytes and enforces entry and 
 
 test('exclusive durable canonical publication is idempotent and refuses a conflicting existing value', () => {
   const root = fixtureRoot();
+  let permissionSource: ReturnType<typeof retainNoFollowOrdinaryFile> | undefined;
   try {
     const parentPath = path.join(root, 'durable');
     mkdirSync(parentPath);
+    const permissionSourcePath = path.join(parentPath, 'permission-source.txt');
+    writeFileSync(permissionSourcePath, 'permission source\n', 'utf8');
     const parent = inspectNoFollowDirectoryChain(parentPath, 'durable parent').target;
     const bytes = Buffer.from('{"schema":"test-v1"}\n', 'utf8');
     const validate = (value: Uint8Array): void => {
       const parsed = JSON.parse(Buffer.from(value).toString('utf8')) as { schema?: unknown };
       if (parsed.schema !== 'test-v1') throw new Error('invalid test canonical bytes');
     };
+    permissionSource = retainNoFollowOrdinaryFile(
+      inspectNoFollowDirectoryChain(parentPath, 'durable permission source parent'),
+      'permission-source.txt',
+      undefined,
+      'durable permission source'
+    );
+    expectPhysicalCode(() => publishExclusiveDurableCanonicalFile({
+      parent,
+      name: 'forged-permission.json',
+      bytes: Buffer.from('permission source\n', 'utf8'),
+      validate: () => undefined,
+      permissionSource: { ...permissionSource! }
+    }), 'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE');
+    expectPhysicalCode(() => publishExclusiveDurableCanonicalFile({
+      parent,
+      name: 'mismatched-permission.json',
+      bytes,
+      validate,
+      permissionSource
+    }), 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED');
     const publish = () => publishExclusiveDurableCanonicalFile({ parent, name: 'authorization.json', bytes, validate });
     const first = publish();
     expect(first.created).toBe(true);
@@ -1113,9 +1319,74 @@ test('exclusive durable canonical publication is idempotent and refuses a confli
     );
     expect(existsSync(path.join(parentPath, '.authorization.json.candidate'))).toBe(false);
   } finally {
+    permissionSource?.dispose();
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test.skipIf(process.platform !== 'linux')(
+  'Linux exclusive publication preserves only an issued same-byte source mode and detects source drift',
+  () => {
+    const root = fixtureRoot();
+    let permissionSource: ReturnType<typeof retainNoFollowOrdinaryFile> | undefined;
+    try {
+      const sourceParentPath = path.join(root, 'source');
+      const targetParentPath = path.join(root, 'target');
+      mkdirSync(sourceParentPath);
+      mkdirSync(targetParentPath);
+      const bytes = Buffer.from('retained publication bytes\n', 'utf8');
+      const sourcePath = path.join(sourceParentPath, 'tool.sh');
+      writeFileSync(sourcePath, bytes);
+      chmodSync(sourcePath, 0o4755);
+      permissionSource = retainNoFollowOrdinaryFile(
+        inspectNoFollowDirectoryChain(sourceParentPath, 'permission publication source parent'),
+        'tool.sh',
+        undefined,
+        'permission publication source'
+      );
+      const parent = inspectNoFollowDirectoryChain(targetParentPath, 'permission publication target parent').target;
+      const validate = (value: Uint8Array): void => {
+        if (!Buffer.from(value).equals(bytes)) throw new Error('unexpected publication bytes');
+      };
+
+      const first = publishExclusiveDurableCanonicalFile({
+        parent,
+        name: 'tool.sh',
+        bytes,
+        validate,
+        permissionSource
+      });
+      expect(statSync(first.path).mode & 0o7777).toBe(0o4755);
+      publishExclusiveDurableCanonicalFile({
+        parent,
+        name: 'tool.sh',
+        bytes,
+        validate,
+        permissionSource
+      });
+      chmodSync(first.path, 0o755);
+      expectPhysicalCode(() => publishExclusiveDurableCanonicalFile({
+        parent,
+        name: 'tool.sh',
+        bytes,
+        validate,
+        permissionSource
+      }), 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED');
+
+      chmodSync(sourcePath, 0o755);
+      expectPhysicalCode(() => publishExclusiveDurableCanonicalFile({
+        parent,
+        name: 'drifted.sh',
+        bytes,
+        validate,
+        permissionSource
+      }), 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED');
+    } finally {
+      permissionSource?.dispose();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+);
 
 test('durable canonical replacement uses retained-parent publication and exact final readback', () => {
   const root = fixtureRoot();
@@ -1136,9 +1407,91 @@ test('durable canonical replacement uses retained-parent publication and exact f
   }
 });
 
+test('Windows durable identity CAS recovers every persisted interruption state before absence is observable', () => {
+  if (process.platform !== 'win32') return;
+  for (const scenario of [
+    { point: 'after-transaction-record' as const, status: 'rolled-back' as const, expected: 'old\n' },
+    { point: 'after-preimage-quarantine' as const, status: 'rolled-back' as const, expected: 'old\n' },
+    { point: 'after-candidate-publication' as const, status: 'completed' as const, expected: 'new\n' }
+  ]) {
+    const root = fixtureRoot();
+    try {
+      const parentPath = path.join(root, 'cas');
+      mkdirSync(parentPath);
+      const finalPath = path.join(parentPath, 'owner.json');
+      writeFileSync(finalPath, 'old\n', 'utf8');
+      const parent = inspectNoFollowDirectoryChain(parentPath, 'CAS recovery parent').target;
+      const current = inspectNoFollowOrdinaryFileEntry(parent, 'owner.json')!;
+      let concurrentRecoveryRejected = false;
+      const actor = createWindowsDurableCanonicalFileReplacementInterruptionActorForTests(
+        scenario.point,
+        scenario.point === 'after-transaction-record'
+          ? () => {
+              try { recoverDurableCanonicalFileReplacement({ parent, name: 'owner.json' }); }
+              catch (error) {
+                concurrentRecoveryRejected = error instanceof PhysicalNoFollowError &&
+                  error.code === 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED';
+              }
+            }
+          : undefined
+      );
+      expectPhysicalCode(() => replaceDurableCanonicalFile({
+        parent,
+        name: 'owner.json',
+        bytes: Buffer.from('new\n', 'utf8'),
+        expectedExisting: { device: current.device, inode: current.inode },
+        validate: () => undefined,
+        windowsInterruptionActor: actor
+      }), 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED');
+      if (scenario.point === 'after-transaction-record') expect(concurrentRecoveryRejected).toBe(true);
+      const recovered = recoverDurableCanonicalFileReplacement({ parent, name: 'owner.json' });
+      expect(recovered.status).toBe(scenario.status);
+      expect(readFileSync(finalPath, 'utf8')).toBe(scenario.expected);
+      expect(recoverDurableCanonicalFileReplacement({ parent, name: 'owner.json' }).status).toBe('none');
+      expect(readdirSync(parentPath).filter(name => name.startsWith('.sec-cas-'))).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('Windows durable CAS rejects a same-byte foreign final by FileId and preserves recovery residue', () => {
+  if (process.platform !== 'win32') return;
+  const root = fixtureRoot();
+  try {
+    const parentPath = path.join(root, 'cas');
+    mkdirSync(parentPath);
+    const finalPath = path.join(parentPath, 'owner.json');
+    writeFileSync(finalPath, 'old\n', 'utf8');
+    const parent = inspectNoFollowDirectoryChain(parentPath, 'CAS foreign parent').target;
+    const current = inspectNoFollowOrdinaryFileEntry(parent, 'owner.json')!;
+    expectPhysicalCode(() => replaceDurableCanonicalFile({
+      parent,
+      name: 'owner.json',
+      bytes: Buffer.from('new\n', 'utf8'),
+      expectedExisting: { device: current.device, inode: current.inode },
+      validate: () => undefined,
+      windowsInterruptionActor: createWindowsDurableCanonicalFileReplacementInterruptionActorForTests(
+        'after-candidate-publication'
+      )
+    }), 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED');
+    renameSync(finalPath, path.join(parentPath, 'displaced-installed.json'));
+    writeFileSync(finalPath, 'new\n', 'utf8');
+    expectPhysicalCode(
+      () => recoverDurableCanonicalFileReplacement({ parent, name: 'owner.json' }),
+      'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
+    );
+    expect(readFileSync(finalPath, 'utf8')).toBe('new\n');
+    expect(readdirSync(parentPath).some(name => name.endsWith('.txn'))).toBe(true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('Windows retained-handle deletion removes authorized file directory and reparse leaf and rejects a replaced parent', () => {
   if (process.platform !== 'win32') return;
   const root = fixtureRoot();
+  let retainedReader: number | null = null;
   try {
     const target = path.join(root, 'target');
     const external = path.join(root, 'external');
@@ -1147,6 +1500,7 @@ test('Windows retained-handle deletion removes authorized file directory and rep
     const authorizedFile = path.join(target, 'authorized-file.txt');
     const survivingReadonlyLink = path.join(external, 'surviving-readonly-link.txt');
     writeFileSync(authorizedFile, 'only-this-file\n', 'utf8');
+    retainedReader = openSync(authorizedFile, 'r');
     linkSync(authorizedFile, survivingReadonlyLink);
     chmodSync(authorizedFile, 0o444);
     expect(lstatSync(survivingReadonlyLink).mode & 0o222).toBe(0);
@@ -1180,6 +1534,11 @@ test('Windows retained-handle deletion removes authorized file directory and rep
         ancestorDirectories: []
       });
       expect(existsSync(path.join(target, name))).toBe(false);
+      if (name === 'authorized-file.txt') {
+        expect(readFileSync(retainedReader!, 'utf8')).toBe('only-this-file\n');
+        closeSync(retainedReader!);
+        retainedReader = null;
+      }
     }
     expect(readFileSync(survivingReadonlyLink, 'utf8')).toBe('only-this-file\n');
     expect(lstatSync(survivingReadonlyLink).mode & 0o222).toBe(0);
@@ -1202,6 +1561,7 @@ test('Windows retained-handle deletion removes authorized file directory and rep
     );
     expect(readFileSync(path.join(old, 'retain.txt'), 'utf8')).toBe('old\n');
   } finally {
+    if (retainedReader !== null) closeSync(retainedReader);
     rmSync(root, { recursive: true, force: true });
   }
 });

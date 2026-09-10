@@ -1,8 +1,10 @@
 import path from 'node:path';
 
 import { compileSecOperationDemandGraph } from '../../control/operation/demand.ts';
+import type { ProcessResourceSession } from '../../runtime-state/physical/runtime/process-resource-session.ts';
 import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
 import { WORKSPACE_TRANSITION_DEADLINE_ENV } from '../workspace-transition/contract.ts';
+import { requireCommandExitCode } from './command-outcome.ts';
 import { DEV_RUNNER_ENTRYPOINT_PATH } from './contract.ts';
 import {
   assertMaterializedOperationDependencyBootstrapResult,
@@ -12,6 +14,10 @@ import {
   reuseOperationDependencies,
   type MaterializedOperationDependencyBootstrapResult
 } from './dependency-bootstrap.ts';
+import type {
+  RepositoryMutationFenceExecutionContext,
+  RepositoryMutationFenceOptions
+} from './repository-mutation-fence.ts';
 
 export function shouldReportDevRunnerSuccess(
   environment: Readonly<Record<string, string | undefined>> = process.env
@@ -79,14 +85,23 @@ export async function runCheckAffectedCommand(
   if (args.length > 0 && (args.length !== 1 || args[0] !== '--plan')) {
     throw new Error('check:affected accepts only --plan');
   }
-  if (args.length === 1) return operations.runPlan();
+  if (args.length === 1) {
+    const runPlan = operations.runPlan;
+    if (typeof runPlan !== 'function') throw new TypeError('Affected plan callback must be callable');
+    return requireCommandExitCode(await Reflect.apply(runPlan, operations, []), 'Affected plan');
+  }
+  const { ensureDependencies, handoff, runExecution } = operations;
+  if ([ensureDependencies, handoff, runExecution].some(action => typeof action !== 'function')) {
+    throw new TypeError('Affected execution requires its dependency, handoff and execution callbacks');
+  }
   const demand = compileSecOperationDemandGraph({
     operation: 'check-affected',
     terminalWorkIds: []
   });
-  const dependencies = await operations.ensureDependencies(demand);
-  const handoffExitCode = await operations.handoff(dependencies);
-  return handoffExitCode ?? operations.runExecution(dependencies, demand);
+  const dependencies = await Reflect.apply(ensureDependencies, operations, [demand]);
+  const handoffExitCode = await Reflect.apply(handoff, operations, [dependencies]);
+  if (handoffExitCode !== null) return requireCommandExitCode(handoffExitCode, 'Affected dependency handoff');
+  return requireCommandExitCode(await Reflect.apply(runExecution, operations, [dependencies, demand]), 'Affected execution');
 }
 
 /**
@@ -96,6 +111,7 @@ export async function runCheckAffectedCommand(
  * the runner unchanged; the runner may not bootstrap a second generation.
  */
 export async function runTypecheckCommand(args: readonly string[]): Promise<number> {
+  const selectedArgs = [...args];
   const demand = compileSecOperationDemandGraph({
     operation: 'typecheck',
     terminalWorkIds: []
@@ -103,7 +119,7 @@ export async function runTypecheckCommand(args: readonly string[]): Promise<numb
   const dependencies = await ensureOperationDependencies(demand);
   const admittedDependencies = reuseOperationDependencies(dependencies, demand);
   const { runTypecheckWithDependencyAuthority } = await import('./typecheck-runner.ts');
-  return runTypecheckWithDependencyAuthority(admittedDependencies, [...args]);
+  return requireCommandExitCode(await runTypecheckWithDependencyAuthority(admittedDependencies, selectedArgs), 'Typecheck command');
 }
 
 function usage(): never {
@@ -120,8 +136,12 @@ type ParsedImportOperationArgs = Readonly<{
 
 async function runRepositoryZeroWriteCommand(
   commandId: string,
-  operation: () => Promise<number>,
-  semanticOperation?: SecBoundSemanticOperation
+  operation: (
+    processSession?: ProcessResourceSession,
+    executionContext?: RepositoryMutationFenceExecutionContext
+  ) => Promise<number>,
+  semanticOperation: SecBoundSemanticOperation,
+  fenceOptions: Omit<RepositoryMutationFenceOptions, 'operation'> = {}
 ): Promise<number> {
   if (semanticOperation === undefined) {
     console.error(`${commandId} strict-zero-write-unproven: semantic operation authority is unavailable.`);
@@ -130,7 +150,24 @@ async function runRepositoryZeroWriteCommand(
   const { runRepositoryZeroWriteOperation: runRepositoryZeroWriteOperationV1 } = await import(
     './repository-mutation-fence.ts'
   );
-  return runRepositoryZeroWriteOperationV1(commandId, operation, { operation: semanticOperation });
+  return runRepositoryZeroWriteOperationV1(commandId, operation, {
+    ...fenceOptions,
+    operation: semanticOperation
+  });
+}
+
+
+/** Standalone checks have no enclosing affected-selection operation to borrow.
+ * Their repository owner compiles the missing read-only observation binding;
+ * the command's own providers and the native zero-write observer still admit
+ * their respective effects. This is not a fallback that skips an authority.
+ */
+async function runStandaloneRepositoryZeroWriteCommand(
+  commandId: string,
+  operation: () => Promise<number>
+): Promise<number> {
+  const { runStandaloneRepositoryZeroWriteOperation } = await import('./repository-mutation-fence.ts');
+  return runStandaloneRepositoryZeroWriteOperation(commandId, operation);
 }
 
 function parseImportOperationArgs(
@@ -160,7 +197,7 @@ function parseImportOperationArgs(
     }
     if (argument === '--candidate-base') {
       const value = args[index + 1];
-      if (value === undefined || !/^[0-9a-f]{40,64}$/u.test(value)) usage();
+      if (value === undefined || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(value)) usage();
       candidateBase = value;
       index += 1;
       continue;
@@ -248,7 +285,7 @@ async function main(): Promise<void> {
         });
         return runRepositoryZeroWriteCommand(
           'check:affected',
-          () => runLocalAffectedCheck(['--plan'], { operation }),
+          (processSession) => runLocalAffectedCheck(['--plan'], { operation, processSession }),
           operation
         );
       },
@@ -260,11 +297,10 @@ async function main(): Promise<void> {
         const operation = compileAffectedTestSelectionSemanticOperation({
           purpose: 'check-affected'
         });
-        return runRepositoryZeroWriteCommand('check:affected', () =>
-          runLocalAffectedCheck([], {
-            operation,
-            prepareCompilerDependencies: async () => reuseOperationDependencies(dependencies, demand)
-          }), operation);
+        return runLocalAffectedCheck([], {
+          operation,
+          prepareCompilerDependencies: async () => reuseOperationDependencies(dependencies, demand)
+        });
       }
     });
     return;
@@ -280,10 +316,9 @@ async function main(): Promise<void> {
       return;
     }
     const { runFastCheck } = await import('./check-runner.ts');
-    process.exitCode = await runRepositoryZeroWriteCommand('check:fast', () =>
-      runFastCheck({
-        prepareCompilerDependencies: async () => reuseOperationDependencies(dependencies, demand)
-      }));
+    process.exitCode = await runFastCheck({
+      prepareCompilerDependencies: async () => reuseOperationDependencies(dependencies, demand)
+    });
     return;
   }
 
@@ -293,22 +328,48 @@ async function main(): Promise<void> {
       process.exitCode = 1;
       return;
     }
-    const { runAffectedTests } = await import('./test-runner.ts');
+    const {
+      isExactSlowTestRunnerSelection,
+      isSelectorlessTestRunnerSelection,
+      runAffectedTests
+    } = await import('./test-runner.ts');
     const { issueCheckAffectedTestImpactProjection } = await import('./check-affected-source.ts');
+    const { compileAffectedTestSelectionSemanticOperation } = await import('./affected-plan-contract.ts');
+    const operation = compileAffectedTestSelectionSemanticOperation({
+      purpose: 'check-affected'
+    });
     if (args.length === 1 && args[0] === '--plan') {
       process.exitCode = await runRepositoryZeroWriteCommand(
         'test:affected',
-        () => runAffectedTests(issueCheckAffectedTestImpactProjection, args)
+        (processSession) => runAffectedTests(issueCheckAffectedTestImpactProjection, args, {
+          operation,
+          processSession
+        }),
+        operation
       );
       return;
     }
     const { withHeavyVerificationGateLease } = await import('../../verification/gate/state/heavy-lease.ts');
-    process.exitCode = await runRepositoryZeroWriteCommand('test:affected', () =>
-      withHeavyVerificationGateLease(
+    if (args.length > 0 && isSelectorlessTestRunnerSelection(args)) {
+      console.error('test:affected option-only execution is unsupported because it cannot prove a fast-only or slow-only test selection.');
+      process.exitCode = 1;
+      return;
+    }
+    if (isExactSlowTestRunnerSelection(args)) {
+      process.exitCode = await withHeavyVerificationGateLease(
         'test:affected',
-        () => runAffectedTests(issueCheckAffectedTestImpactProjection, args),
+        () => runAffectedTests(issueCheckAffectedTestImpactProjection, args, {
+          operation
+        }),
         { namespace: 'test:affected', waitTimeoutMs: 5000 }
-      ));
+      );
+      return;
+    }
+    process.exitCode = await withHeavyVerificationGateLease(
+      'test:affected',
+      () => runAffectedTests(issueCheckAffectedTestImpactProjection, args, { operation }),
+      { namespace: 'test:affected', waitTimeoutMs: 5000 }
+    );
     return;
   }
 
@@ -327,6 +388,11 @@ async function main(): Promise<void> {
   if (
     target === 'imports:check' || target === 'imports:apply' || target === 'imports:freeze'
   ) {
+    // Input rejection precedes dependency installation and process handoff.
+    // Imports:freeze accepts no options; check/apply use the existing grammar.
+    if (target === 'imports:freeze' && args.length !== 0) usage();
+    const selectedImport = target === 'imports:freeze'
+      ? undefined : parseImportOperationArgs(args, { allowStaged: true });
     const dependencies = await ensureOperationDependencies(compileSecOperationDemandGraph({
       operation: target === 'imports:check'
         ? 'imports-check'
@@ -357,7 +423,6 @@ async function main(): Promise<void> {
       }));
     };
     if (target === 'imports:freeze') {
-      if (args.length !== 0) usage();
       const outcome = await checkStagedImports(process.env.SEC_CHANGED_BASE);
       if (outcome.status === 'canonical') {
         if (shouldReportDevRunnerSuccess()) {
@@ -380,7 +445,7 @@ async function main(): Promise<void> {
       runSynchronizedStagedImportOrganizer
     } = await import('./import-organizer.ts');
     if (target === 'imports:check' || target === 'imports:apply') {
-      const operation = parseImportOperationArgs(args, { allowStaged: true });
+      const operation = selectedImport!;
       if (operation.staged) {
         const selection = operation.candidateBase === undefined
           ? {}
@@ -444,23 +509,42 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (!['contract-freeze', 'test', 'test:full', 'test:fast', 'test:slow'].includes(target)) usage();
+
   const {
+    executePreparedSlowTestSuiteExecutions,
+    isExactSlowTestRunnerSelection,
+    isSelectorlessTestRunnerSelection,
+    prepareSlowTestSuiteExecutions,
     runContractFreeze,
     runFastTests,
     runSlowTests,
     runTests
   } = await import('./test-runner.ts');
-  process.exitCode = await runRepositoryZeroWriteCommand(target, () => (
-    target === 'contract-freeze'
-      ? runContractFreeze()
-      : target === 'test'
-        ? runTests(args)
-        : target === 'test:fast'
-            ? runFastTests(args)
-            : target === 'test:slow'
-              ? runSlowTests(args)
-              : usage()
-  ));
+  const runPreparedSlowSuites = async (slowArgs: string[]): Promise<number> => {
+    const preparedSuites = await prepareSlowTestSuiteExecutions(slowArgs);
+    return executePreparedSlowTestSuiteExecutions(preparedSuites, target);
+  };
+  if (target === 'test:slow' || (
+    (target === 'test' || target === 'test:full') && isExactSlowTestRunnerSelection(args)
+  )) {
+    process.exitCode = await runPreparedSlowSuites(args);
+    return;
+  }
+  if ((target === 'test' || target === 'test:full') && isSelectorlessTestRunnerSelection(args)) {
+    const fastCode = await runTests(args, { omitSlowSuites: true });
+    process.exitCode = fastCode === 0 ? await runPreparedSlowSuites(args) : fastCode;
+    return;
+  }
+  process.exitCode = target === 'contract-freeze'
+    ? await runStandaloneRepositoryZeroWriteCommand(target, () => runContractFreeze())
+    : target === 'test' || target === 'test:full'
+      ? await runTests(args)
+      : target === 'test:fast'
+        ? await runFastTests(args)
+        : target === 'test:slow'
+          ? await runSlowTests(args)
+          : usage();
 }
 
 if (import.meta.main) await main();

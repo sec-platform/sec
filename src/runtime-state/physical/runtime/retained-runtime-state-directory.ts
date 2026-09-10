@@ -1,11 +1,14 @@
 import path from 'node:path';
 
 import {
+  assertRetainedWindowsHostNamespaceDirectory,
   createNoFollowOrdinaryDirectoryChain,
   inspectNoFollowDirectoryChain,
   retainNoFollowDirectoryForChildProcess,
+  retainWindowsHostNamespaceDirectoryById,
   type PhysicalDirectoryChain,
-  type PhysicalDirectoryIdentity
+  type PhysicalDirectoryIdentity,
+  type RetainedWindowsHostNamespaceDirectory
 } from './physical-no-follow.ts';
 import {
   resolveWindowsKnownFolderPath,
@@ -51,7 +54,12 @@ export interface RetainedRuntimeStateDirectory {
   close(): RetainedRuntimeStateDirectoryCloseReceipt;
 }
 
-const ISSUED_RETAINED_RUNTIME_STATE_DIRECTORIES = new WeakSet<object>();
+interface RetainedRuntimeStateDirectoryRecord {
+  readonly requireHostNamespace: boolean;
+}
+
+const ISSUED_RETAINED_RUNTIME_STATE_DIRECTORIES =
+  new WeakMap<object, RetainedRuntimeStateDirectoryRecord>();
 
 export function assertRetainedRuntimeStateDirectory(
   value: unknown
@@ -63,6 +71,13 @@ export function assertRetainedRuntimeStateDirectory(
       'Runtime-state directory was not issued by the retained physical owner.'
     );
   }
+}
+
+export function retainedRuntimeStateDirectoryRequiresHostNamespace(
+  value: RetainedRuntimeStateDirectory
+): boolean {
+  assertRetainedRuntimeStateDirectory(value);
+  return ISSUED_RETAINED_RUNTIME_STATE_DIRECTORIES.get(value)!.requireHostNamespace;
 }
 
 export type RuntimeStateDirectoryOpenMode = 'create-or-open' | 'open-existing';
@@ -105,9 +120,26 @@ export function openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot(input: Readon
   mode: RuntimeStateDirectoryOpenMode;
   root: PhysicalDirectoryChain;
   segments?: readonly string[];
+  requireHostNamespace?: boolean;
+  owner?: RetainedRuntimeStateDirectory;
 }>): RetainedRuntimeStateDirectory {
   const segments = validateSegments(input.segments ?? []);
+  if (input.owner !== undefined) {
+    assertRetainedRuntimeStateDirectory(input.owner);
+    input.owner.assertCurrent();
+    if (!samePhysicalIdentity(input.owner.root, input.root.target)) {
+      throw new RetainedRuntimeStateDirectoryError(
+        'RETAINED_RUNTIME_STATE_DIRECTORY_INVALID_INPUT',
+        'Retained runtime-state child root is not the exact issued owner root.'
+      );
+    }
+  }
+  const requireHostNamespace = input.owner === undefined
+    ? input.requireHostNamespace === true
+    : retainedRuntimeStateDirectoryRequiresHostNamespace(input.owner);
   let retained: ReturnType<typeof retainNoFollowDirectoryForChildProcess> | null = null;
+  let retainedHostRoot: RetainedWindowsHostNamespaceDirectory | null = null;
+  let retainedHostDirectory: RetainedWindowsHostNamespaceDirectory | null = null;
   try {
     const currentRoot = inspectNoFollowDirectoryChain(
       input.root.target.path,
@@ -115,6 +147,13 @@ export function openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot(input: Readon
     );
     if (!samePhysicalIdentity(input.root.target, currentRoot.target)) {
       throw new Error('Retained runtime-state owner root identity changed before open.');
+    }
+    if (requireHostNamespace) {
+      retainedHostRoot = retainWindowsHostNamespaceDirectoryById(
+        currentRoot.target,
+        'Retained runtime-state host owner root'
+      );
+      retainedHostRoot.assertCurrent();
     }
     const expectedDirectory = input.mode === 'create-or-open'
       ? createNoFollowOrdinaryDirectoryChain(currentRoot.target, segments)
@@ -128,6 +167,14 @@ export function openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot(input: Readon
     );
     if (!samePhysicalIdentity(expectedDirectory, directoryChain.target)) {
       throw new Error('Retained runtime-state directory identity changed before retention.');
+    }
+    if (requireHostNamespace) {
+      retainedHostRoot!.assertCurrent();
+      retainedHostDirectory = retainWindowsHostNamespaceDirectoryById(
+        directoryChain.target,
+        'Retained runtime-state host directory'
+      );
+      retainedHostDirectory.assertCurrent();
     }
     retained = retainNoFollowDirectoryForChildProcess(
       directoryChain,
@@ -147,6 +194,18 @@ export function openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot(input: Readon
             'Retained runtime-state directory is closed.'
           );
         }
+        if (retainedHostRoot !== null) {
+          assertRetainedWindowsHostNamespaceDirectory(
+            retainedHostRoot,
+            'Retained runtime-state host owner root'
+          );
+        }
+        if (retainedHostDirectory !== null) {
+          assertRetainedWindowsHostNamespaceDirectory(
+            retainedHostDirectory,
+            'Retained runtime-state host directory'
+          );
+        }
         retained!.assertCurrent();
       },
       close(): RetainedRuntimeStateDirectoryCloseReceipt {
@@ -154,10 +213,14 @@ export function openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot(input: Readon
         if (closeReceipt !== null) return closeReceipt;
         const failures: unknown[] = [];
         try { retained!.assertCurrent(); } catch (error) { failures.push(error); }
+        try { retainedHostDirectory?.assertCurrent(); } catch (error) { failures.push(error); }
+        try { retainedHostRoot?.assertCurrent(); } catch (error) { failures.push(error); }
         // Disposal is unconditional: identity drift revokes successful
         // readback, but it must never retain the handle or suppress closure of
         // sibling runtime roots.
         try { retained!.dispose(); } catch (error) { failures.push(error); }
+        try { retainedHostDirectory?.dispose(); } catch (error) { failures.push(error); }
+        try { retainedHostRoot?.dispose(); } catch (error) { failures.push(error); }
         try {
           if (failures.length > 0) {
             throw failures.length === 1
@@ -184,10 +247,14 @@ export function openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot(input: Readon
         }
       }
     });
-    ISSUED_RETAINED_RUNTIME_STATE_DIRECTORIES.add(capability);
+    ISSUED_RETAINED_RUNTIME_STATE_DIRECTORIES.set(capability, Object.freeze({
+      requireHostNamespace
+    }));
     return capability;
   } catch (error) {
     try { retained?.dispose(); } catch { /* retain the typed open failure */ }
+    try { retainedHostDirectory?.dispose(); } catch { /* retain the typed open failure */ }
+    try { retainedHostRoot?.dispose(); } catch { /* retain the typed open failure */ }
     if (error instanceof RetainedRuntimeStateDirectoryError) throw error;
     throw new RetainedRuntimeStateDirectoryError(
       'RETAINED_RUNTIME_STATE_DIRECTORY_OPEN_FAILED',
@@ -203,6 +270,7 @@ export async function openRetainedWindowsRuntimeStateDirectory(input: Readonly<{
   folder: WindowsKnownFolder;
   mode?: RuntimeStateDirectoryOpenMode;
   segments?: readonly string[];
+  requireHostNamespace?: boolean;
 }>): Promise<RetainedRuntimeStateDirectory> {
   try {
     const ownerPath = await resolveWindowsKnownFolderPath(input.folder);
@@ -214,6 +282,7 @@ export async function openRetainedWindowsRuntimeStateDirectory(input: Readonly<{
       childDescriptor: input.childDescriptor,
       mode: input.mode ?? 'open-existing',
       root,
+      requireHostNamespace: input.requireHostNamespace === true,
       ...(input.segments === undefined ? {} : { segments: input.segments })
     });
   } catch (error) {

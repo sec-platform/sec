@@ -26,21 +26,24 @@ const issuedRuntimeDependencyTestMaterializations = new WeakMap<
 export function issueRuntimeDependencyTestMaterialization(
   materialize: RuntimeDependencyTestMaterializer
 ): RuntimeDependencyTestMaterializationCapability {
+  if (typeof materialize !== 'function') throw new TypeError('Test materializer must be callable');
   const capability = Object.freeze({});
   issuedRuntimeDependencyTestMaterializations.set(capability, materialize);
   return capability as unknown as RuntimeDependencyTestMaterializationCapability;
+}
+
+/** Admission only; never invokes the test provider or materializes anything. */
+export function assertRuntimeDependencyTestMaterialization(capability: unknown): asserts capability is RuntimeDependencyTestMaterializationCapability {
+  if (typeof capability !== 'object' || capability === null || !issuedRuntimeDependencyTestMaterializations.has(capability)) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency test materialization requires an owner-issued capability');
+  }
 }
 
 export async function consumeRuntimeDependencyTestMaterialization(
   capability: RuntimeDependencyTestMaterializationCapability,
   request: RuntimeDependencyTestMaterializationRequest
 ): Promise<CommandResult> {
-  const materialize = issuedRuntimeDependencyTestMaterializations.get(capability);
-  if (materialize === undefined) {
-    throw new SecError(
-      'RUNTIME-DEPS-004',
-      'Compiler dependency test materialization requires an owner-issued capability'
-    );
-  }
+  assertRuntimeDependencyTestMaterialization(capability);
+  const materialize = issuedRuntimeDependencyTestMaterializations.get(capability)!;
   return materialize(request);
 }

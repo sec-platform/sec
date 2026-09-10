@@ -225,6 +225,66 @@ test('lightweight test observations retain filesystem and repository-provider ef
   }));
 });
 
+test('compiler observations bind current-Bun local TypeScript program argv', () => {
+  const projection = compileFixture({
+    'tests/local-program.test.ts': [
+      "import { spawnSync as launch } from 'node:child_process';",
+      "import process from 'node:process';",
+      "import * as Bun from 'bun';",
+      "import path from 'node:path';",
+      "const program = path.resolve(process.cwd(), 'src/example/operation.ts');",
+      "const helper = path.resolve(process.cwd(), 'tests/helper-program.ts');",
+      "launch(process.execPath, [program, '--check']);",
+      "launch(process.execPath, [helper]);",
+      "Bun.spawnSync([process.execPath, helper]);",
+      "Bun.spawn({ cmd: [process.execPath, '--no-env-file', program], stdout: 'pipe' });"
+    ].join('\n'),
+    'tests/helper-program.ts': 'export const helper = true;'
+  });
+
+  expect(projection.localProgramInvocations.map(({ path, target }) => ({ path, target })))
+    .toEqual([
+      { path: 'tests/local-program.test.ts', target: 'src/example/operation.ts' },
+      { path: 'tests/local-program.test.ts', target: 'tests/helper-program.ts' },
+      { path: 'tests/local-program.test.ts', target: 'tests/helper-program.ts' },
+      { path: 'tests/local-program.test.ts', target: 'src/example/operation.ts' }
+    ]);
+  expect(projection.unknowns).not.toContainEqual(expect.objectContaining({
+    code: 'test-local-program-invocation-unresolved'
+  }));
+});
+
+test('local program observations reject shadowed, dynamic, external, and foreign executables', () => {
+  const projection = compileFixture({
+    'tests/local-program-negative.test.ts': [
+      "import { spawnSync as runChild } from 'node:child_process';",
+      "import { exec as spawnSync } from 'node:child_process';",
+      "import process from 'node:process';",
+      "import * as Bun from 'bun';",
+      "const dynamicProgram = process.env.SEC_DYNAMIC_PROGRAM;",
+      "runChild(process.execPath, [dynamicProgram]);",
+      "runChild(process.execPath, ['../outside.ts']);",
+      "runChild('bun', ['src/example/operation.ts']);",
+      "spawnSync(process.execPath, ['src/example/operation.ts']);",
+      "function shadowProcess(process: { execPath: string }) {",
+      "  runChild(process.execPath, ['src/example/operation.ts']);",
+      "}",
+      "function shadowBun(Bun: { spawnSync(command: string[]): void }) {",
+      "  Bun.spawnSync([process.execPath, 'src/example/operation.ts']);",
+      "}",
+      "const options = { cmd: [process.execPath, 'src/example/operation.ts'] };",
+      "Bun.spawnSync({ cmd: [process.execPath, 'src/example/operation.ts'], ...options });",
+      "Bun.spawnSync({ cmd: [process.execPath, 'src/example/operation.ts'], cmd: [process.execPath, 'src/example/operation.ts'] });",
+      "void shadowProcess; void shadowBun;"
+    ].join('\n')
+  });
+
+  expect(projection.localProgramInvocations).toEqual([]);
+  expect(projection.unknowns.filter(({ code }) => (
+    code === 'test-local-program-invocation-unresolved'
+  ))).toHaveLength(4);
+});
+
 test('lightweight test observations bind reexports through the canonical module graph', () => {
   const projection = compileFixture({
     'tests/reexport.test.ts': "export { execute as publicExecute } from '../src/example/operation.ts';\n"

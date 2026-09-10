@@ -11,7 +11,8 @@ import {
 } from '../../src/toolchain/dependencies/environment.ts';
 import {
   dependencyAuthorityPaths,
-  disposeCanonicalSharedDependencies
+  disposeCanonicalSharedDependencies,
+  migrateDependencyTransitionJournal
 } from '../../src/toolchain/dependencies/runtime/project-runtime.ts';
 import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
@@ -127,8 +128,10 @@ test('unregistered legacy shared dependencies remain physically intact with a ty
 test('registered shared dependencies retire through one profile-bound durable owner receipt', async () => {
   await withDependencyRetirementFixture(async ({ lifecycle, repositoryRoot, sharedDepsRoot }) => {
     await lifecycle.born('.shared-deps', 'shared-dependency-retirement-fixture');
+    const options = { generatedStateLifecycle: lifecycle, lockTimeoutMs: 5_000 };
+    await migrateDependencyTransitionJournal(repositoryRoot, options);
     expect(await disposeCanonicalSharedDependencies(
-      { generatedStateLifecycle: lifecycle, lockTimeoutMs: 5_000 },
+      options,
       'registered-shared-dependency-retirement',
       repositoryRoot
     )).toBe(true);
@@ -136,7 +139,7 @@ test('registered shared dependencies retire through one profile-bound durable ow
     expect((await lifecycle.observeRetirement('.shared-deps')).status)
       .toBe('retired-domain-settled');
     expect(await disposeCanonicalSharedDependencies(
-      { generatedStateLifecycle: lifecycle, lockTimeoutMs: 5_000 },
+      options,
       'registered-shared-dependency-retirement-repeat',
       repositoryRoot
     )).toBe(false);

@@ -1,7 +1,8 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { expect, test } from 'bun:test';
 
@@ -48,19 +49,43 @@ test('tracked hooks bind deterministic staged normalization and candidate freeze
   expect(prePush).toContain('bun run imports:freeze');
   expect(prePush).toContain('git diff --cached --quiet HEAD');
   expect(prePush).not.toContain('\r');
-  for (const [hook, event] of [
-    [postCheckout, 'post-checkout'],
-    [postMerge, 'post-merge'],
-    [postRewrite, 'post-rewrite']
-  ] as const) {
-    expect(hook).toContain(
-      `exec bun ./src/development/runner/cli.ts workspace-transition ${event} "$@"`
-    );
-    expect(hook).not.toContain('bun run postinstall');
-    expect(hook).not.toContain('bun run deps:ensure');
-  }
   expect(postCheckout).not.toContain('\r');
   expect(attributes).toContain('/.githooks/* text eol=lf');
+});
+
+test('transition hooks supply canonical package identity and preserve Git arguments and stdin', async () => {
+  const repoRoot = path.resolve(import.meta.dir, '../..');
+  const root = await mkdtemp(path.join(tmpdir(), 'sec hook package '));
+  try {
+    const authority = pathToFileURL(path.join(repoRoot, 'src/toolchain/runtime/bun-version.ts')).href;
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({
+      type: 'module',
+      scripts: { dev: '"$npm_execpath" ./runner.ts' }
+    }));
+    await writeFile(path.join(root, 'runner.ts'), `
+import { assertCanonicalBunPackageRunner } from ${JSON.stringify(authority)};
+assertCanonicalBunPackageRunner(${JSON.stringify(process.versions.bun)}, undefined, process.cwd());
+console.log(JSON.stringify({ args: process.argv.slice(2), active: process.env.SEC_GIT_HOOK_ACTIVE,
+  stdin: await Bun.stdin.text() }));
+`);
+    for (const event of ['post-checkout', 'post-merge', 'post-rewrite']) {
+      const executed = spawnSync('sh', [path.join(repoRoot, '.githooks', event), 'first argument', '0'], {
+        cwd: root,
+        input: 'old new\n',
+        encoding: 'utf8',
+        env: { ...process.env, PATH: `${path.dirname(process.execPath)}${path.delimiter}${process.env.PATH ?? ''}` },
+        windowsHide: true
+      });
+      expect({ status: executed.status, error: executed.error }).toEqual({ status: 0, error: undefined });
+      expect(JSON.parse(executed.stdout)).toEqual({
+        args: ['workspace-transition', event, 'first argument', '0'],
+        active: '1',
+        stdin: 'old new\n'
+      });
+    }
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
 });
 
 test('hook installer keeps Windows provider admission separate from host executable execution', async () => {

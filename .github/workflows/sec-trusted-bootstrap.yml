@@ -179,7 +179,7 @@ jobs:
               throw new Error('Work Package manifest digest is stale.');
             }
 
-            const registryPath = 'platform/verification/trust/contract/ci-trust-root-registry.json';
+            const registryPath = 'src/verification/trust/contract/ci-trust-root-registry.json';
             const registryBlob = await readBlobFromTree(baseTree, registryPath, 'Trusted-base trust-root registry');
             let registry;
             try {
@@ -188,7 +188,8 @@ jobs:
               throw new Error('Trusted-base trust-root registry is not strict UTF-8 JSON.');
             }
             const registryKeys = [
-              'reviewedBoundaryEdges', 'reviewedSutEdges', 'runtimeEntrypoints', 'schema',
+              'reviewedBoundaryEdges', 'reviewedExternalImports', 'reviewedSutEdges',
+              'runtimeEntrypoints', 'schema',
               'staticDirectoryPaths', 'staticExactPaths', 'staticPrefixes'
             ];
             if (
@@ -198,7 +199,7 @@ jobs:
             ) throw new Error('Trusted-base trust-root registry schema is invalid.');
             for (const key of [
               'staticExactPaths', 'staticDirectoryPaths', 'staticPrefixes', 'runtimeEntrypoints',
-              'reviewedSutEdges', 'reviewedBoundaryEdges'
+              'reviewedSutEdges', 'reviewedBoundaryEdges', 'reviewedExternalImports'
             ]) {
               if (!Array.isArray(registry[key]) || registry[key].some((entry) => typeof entry !== 'string')) {
                 throw new Error(`Trusted-base trust-root registry ${key} is invalid.`);
@@ -228,6 +229,11 @@ jobs:
     runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-trusted-v1]
     timeout-minutes: 30
     steps:
+      - name: Setup trusted-base Bun runtime
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ needs.resolve.outputs.bun-version }}
+
       - name: Checkout exact trusted base checker
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
@@ -254,7 +260,7 @@ jobs:
           set -euo pipefail
           unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
           unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
-          node <<'NODE'
+          bun --no-env-file - <<'BUN'
             const { lstatSync, realpathSync } = require("node:fs");
             const path = require("node:path");
             const { spawnSync } = require("node:child_process");
@@ -297,12 +303,7 @@ jobs:
                 git(["status", "--porcelain=v1", "--untracked-files=all"]).byteLength !== 0) {
               throw new Error("trusted-base workflow-owned identity, tree, root, or cleanliness preflight failed.");
             }
-          NODE
-
-      - name: Setup trusted-base Bun runtime
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: ${{ needs.resolve.outputs.bun-version }}
+          BUN
 
       - name: Install trusted-base checker dependencies without lifecycle scripts
         shell: bash
@@ -362,8 +363,8 @@ jobs:
               const importFromTrustedBase = async (repositoryPath) => import(pathToFileURL(
                 path.join(trustedRoot, ...repositoryPath.split("/"))
               ).href);
-              const tcb = await importFromTrustedBase("platform/verification/trust/runtime/closure-lock.ts");
-              const registryContract = await importFromTrustedBase("platform/verification/trust/contract/root.ts");
+              const tcb = await importFromTrustedBase("src/verification/trust/runtime/closure-lock.ts");
+              const registryContract = await importFromTrustedBase("src/verification/trust/contract/root.ts");
               const gitEnvironment = Object.fromEntries(Object.entries(process.env)
                 .filter(([name]) => !name.startsWith("GIT_")));
               gitEnvironment.GIT_NO_REPLACE_OBJECTS = "1";
@@ -406,8 +407,8 @@ jobs:
                 }
               };
               assertExactGitIdentity();
-              const baseSnapshot = tcb.createTcbClosureCandidateSnapshotV1({ candidateRoot: trustedRoot });
-              const candidateSnapshot = tcb.createTcbClosureCandidateSnapshotV1({ candidateRoot });
+              const baseSnapshot = tcb.createTcbClosureCandidateSnapshot({ candidateRoot: trustedRoot });
+              const candidateSnapshot = tcb.createTcbClosureCandidateSnapshot({ candidateRoot });
               const baseSnapshotOptions = { candidateSnapshot: baseSnapshot };
               const candidateSnapshotOptions = { candidateSnapshot };
               const changedPaths = gitBytes(candidateRoot, [
@@ -418,16 +419,16 @@ jobs:
                   repositoryPath.split("/").some((segment) => segment.length === 0 || segment === "." || segment === ".."))) {
                 throw new Error("trusted bootstrap candidate changed-path inventory is not canonical.");
               }
-              const registryPath = registryContract.SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH_V3;
-              const baseRegistryBytes = tcb.readTcbClosureCandidateFileV1(registryPath, baseSnapshotOptions);
-              const candidateRegistryBytes = tcb.readTcbClosureCandidateFileV1(registryPath, candidateSnapshotOptions);
+              const registryPath = registryContract.SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH;
+              const baseRegistryBytes = tcb.readTcbClosureCandidateFile(registryPath, baseSnapshotOptions);
+              const candidateRegistryBytes = tcb.readTcbClosureCandidateFile(registryPath, candidateSnapshotOptions);
               const digest = (bytes) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
               const baseRegistryDigest = digest(baseRegistryBytes);
               const candidateRegistryDigest = digest(candidateRegistryBytes);
               if (baseRegistryDigest !== required("SEC_BOOTSTRAP_REGISTRY_DIGEST")) {
                 throw new Error("trusted bootstrap checker base registry digest drifted.");
               }
-              const baseRegistry = registryContract.parseSecTrustedBootstrapRegistryV3(baseRegistryBytes.toString("utf8"));
+              const baseRegistry = registryContract.parseSecTrustedBootstrapRegistry(baseRegistryBytes.toString("utf8"));
               let pre = null;
               if (phase === "post") {
                 if (required("SEC_PRE_DOWNLOAD_OUTCOME") !== "success") {
@@ -450,8 +451,8 @@ jobs:
               let authorityVerdict;
               let authorityReason;
               if (pre === null) {
-                checkerAction = tcb.compileTcbClosureActionResultV1({
-                  plan: tcb.createTcbClosureActionPlanV1({
+                checkerAction = tcb.compileTcbClosureActionResult({
+                  plan: tcb.createTcbClosureActionPlan({
                     exactTreeSha: expectedBaseTree,
                     registryDigest: baseRegistryDigest,
                     toolchainRevision: `bun@${Bun.version}:typescript`,
@@ -460,11 +461,11 @@ jobs:
                   options: baseSnapshotOptions
                 });
                 checkerLock = checkerAction.identity;
-                const baseTrustRoot = registryContract.createSecTrustedBootstrapTrustRootV3({
+                const baseTrustRoot = registryContract.createSecTrustedBootstrapTrustRoot({
                   registry: baseRegistry,
                   causalRuntimePaths: checkerLock.modules
                 });
-                const candidateDemand = tcb.selectTcbClosureCandidateActionV1({
+                const candidateDemand = tcb.selectTcbClosureCandidateAction({
                   changedPaths,
                   exactTreeSha: expectedTree,
                   registryDigest: baseRegistryDigest,
@@ -482,7 +483,7 @@ jobs:
                   hardFailureReasons.add("trusted-bootstrap-request-does-not-change-trust-root");
                 }
                 try {
-                  registryContract.parseSecTrustedBootstrapRegistryV3(Buffer.from(candidateRegistryBytes).toString("utf8"));
+                  registryContract.parseSecTrustedBootstrapRegistry(Buffer.from(candidateRegistryBytes).toString("utf8"));
                 } catch (error) {
                   manualReasons.add(`candidate-registry-schema-or-policy-change:${error instanceof Error ? error.message : String(error)}`);
                 }
@@ -492,7 +493,7 @@ jobs:
                 candidateAction = null;
                 if (candidateDemand.plan !== null) {
                   try {
-                    candidateAction = tcb.compileTcbClosureActionResultV1({
+                    candidateAction = tcb.compileTcbClosureActionResult({
                       plan: candidateDemand.plan,
                       options: candidateSnapshotOptions,
                       upstreamResults: [checkerAction]
@@ -515,12 +516,12 @@ jobs:
               } else {
                 checkerAction = {
                   actionKey: pre.checkerActionKey,
-                  terminal: { resultDigest: pre.checkerActionResultDigest }
+                  resultDigest: pre.checkerActionResultDigest
                 };
                 checkerLock = { closureDigest: pre.checkerClosureDigest };
                 candidateAction = pre.candidateActionKey === null ? null : {
                   actionKey: pre.candidateActionKey,
-                  terminal: { resultDigest: pre.candidateActionResultDigest },
+                  resultDigest: pre.candidateActionResultDigest,
                   identity: {
                     closureDigest: pre.candidateClosureDigest,
                     trustRevision: pre.candidateTrustRevision,
@@ -620,8 +621,8 @@ jobs:
                   { encoding: "utf8", flag: "wx" }
                 );
               }
-              tcb.finalizeTcbClosureCandidateSnapshotV1(baseSnapshot);
-              tcb.finalizeTcbClosureCandidateSnapshotV1(candidateSnapshot);
+              tcb.finalizeTcbClosureCandidateSnapshot(baseSnapshot);
+              tcb.finalizeTcbClosureCandidateSnapshot(candidateSnapshot);
               assertExactGitIdentity();
               const semantic = {
                 schema: "sec-trusted-bootstrap-checker-receipt-v1",
@@ -633,17 +634,17 @@ jobs:
                 candidateParentSha: expectedBase,
                 registryDigest: baseRegistryDigest,
                 checkerActionKey: checkerAction.actionKey,
-                checkerActionResultDigest: checkerAction.terminal.resultDigest,
+                checkerActionResultDigest: checkerAction.resultDigest,
                 checkerClosureDigest: checkerLock.closureDigest,
                 candidateActionKey: candidateAction?.actionKey ?? null,
-                candidateActionResultDigest: candidateAction?.terminal.resultDigest ?? null,
+                candidateActionResultDigest: candidateAction?.resultDigest ?? null,
                 candidateClosureDigest: candidateAction?.identity.closureDigest ?? null,
                 candidateTrustRevision: candidateAction?.identity.trustRevision ?? null,
                 candidateModuleCount: candidateAction?.identity.moduleCount ?? null,
                 checkerProgramDigest: digest(readFileSync(import.meta.path)),
-                checkerToolBlob: blob(trustedRoot, "platform/verification/trust/runtime/closure-lock.ts"),
+                checkerToolBlob: blob(trustedRoot, "src/verification/trust/runtime/closure-lock.ts"),
                 checkerWorkflowBlob: blob(trustedRoot, ".github/workflows/sec-trusted-bootstrap.yml"),
-                candidateToolBlob: blob(candidateRoot, "platform/verification/trust/runtime/closure-lock.ts"),
+                candidateToolBlob: blob(candidateRoot, "src/verification/trust/runtime/closure-lock.ts"),
                 candidateWorkflowBlob: blob(candidateRoot, ".github/workflows/sec-trusted-bootstrap.yml"),
                 authorityVerdict,
                 authorityReason,
@@ -733,7 +734,7 @@ jobs:
           set -euo pipefail
           unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
           unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
-          bun scripts/ci-verification.ts execute-trusted-bootstrap-sut \
+          bun src/verification/ci/verification.ts execute-trusted-bootstrap-sut \
             --base-root "$GITHUB_WORKSPACE" \
             --candidate-root "$CANDIDATE_ROOT" \
             --output-directory "$SUT_EVIDENCE_ROOT" \
@@ -772,6 +773,11 @@ jobs:
     runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-trusted-v1]
     timeout-minutes: 30
     steps:
+      - name: Setup trusted-base Bun runtime for reducer
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ needs.resolve.outputs.bun-version }}
+
       - name: Initialize fail-closed final evidence envelope
         shell: bash
         env:
@@ -787,7 +793,7 @@ jobs:
           unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
           unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
           mkdir -p "$FINAL_EVIDENCE_ROOT"
-          node <<'NODE'
+          bun --no-env-file - <<'BUN'
             const { createHash } = require("node:crypto");
             const { renameSync, writeFileSync } = require("node:fs");
             const path = require("node:path");
@@ -818,7 +824,7 @@ jobs:
             const temporary = path.join(root, "final-envelope.json.tmp");
             writeFileSync(temporary, `${JSON.stringify({ ...semantic, receiptDigest }, null, 2)}\n`, { flag: "wx" });
             renameSync(temporary, path.join(root, "final-envelope.json"));
-          NODE
+          BUN
           (cd "$FINAL_EVIDENCE_ROOT" && sha256sum final-envelope.json > SHA256SUMS.tmp && mv SHA256SUMS.tmp SHA256SUMS)
 
       - name: Checkout exact trusted base reducer
@@ -847,7 +853,7 @@ jobs:
           set -euo pipefail
           unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
           unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
-          node <<'NODE'
+          bun --no-env-file - <<'BUN'
             const { lstatSync, realpathSync } = require("node:fs");
             const path = require("node:path");
             const { spawnSync } = require("node:child_process");
@@ -890,12 +896,7 @@ jobs:
                 git(["status", "--porcelain=v1", "--untracked-files=all"]).byteLength !== 0) {
               throw new Error("trusted-base workflow-owned identity, tree, root, or cleanliness preflight failed.");
             }
-          NODE
-
-      - name: Setup trusted-base Bun runtime for reducer
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: ${{ needs.resolve.outputs.bun-version }}
+          BUN
 
       - name: Install trusted-base reducer dependencies without lifecycle scripts
         shell: bash
@@ -969,7 +970,7 @@ jobs:
             printf 'git=%s\n' "$(git --version)"
             printf 'os=%s\n' "$(uname -a)"
           } > "$FINAL_EVIDENCE_ROOT/environment.txt"
-          node <<'NODE'
+          bun --no-env-file - <<'BUN'
             const { createHash } = require("node:crypto");
             const { readFileSync, renameSync, writeFileSync } = require("node:fs");
             const path = require("node:path");
@@ -1028,11 +1029,11 @@ jobs:
             const temporary = path.join(root, "final-envelope.json.tmp");
             writeFileSync(temporary, `${JSON.stringify(upgraded, null, 2)}\n`, { flag: "wx" });
             renameSync(temporary, envelopePath);
-          NODE
+          BUN
           (cd "$FINAL_EVIDENCE_ROOT" && \
             sha256sum environment.txt final-envelope.json post-receipt.json pre-receipt.json sut-diagnostic.json > SHA256SUMS.tmp && \
             mv SHA256SUMS.tmp SHA256SUMS)
-          test "$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).status' "$FINAL_EVIDENCE_ROOT/final-envelope.json")" = passed
+          test "$(bun --no-env-file -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).status' "$FINAL_EVIDENCE_ROOT/final-envelope.json")" = passed
 
       - name: Upload final canonical trusted bootstrap evidence
         if: always()

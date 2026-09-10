@@ -21,6 +21,10 @@ function viewReferenceKey(reference: ViewReference): string {
   return `${reference.kind}:${reference.ref}`;
 }
 
+function graphEdgeKey(from: string, type: ExplainEdgeType, to: string): string {
+  return JSON.stringify([from, type, to]);
+}
+
 function mergeViewReferences(
   target: Map<string, ViewReference>,
   references: readonly ViewReference[]
@@ -40,8 +44,18 @@ class GraphBuilder {
   private readonly edgeReferences = new Map<string, Map<string, ViewReference>>();
 
   node(id: string, type: ExplainNodeType, label: string, references: readonly ViewReference[] = []): this {
-    if (!this.nodes.has(id)) {
+    const existing = this.nodes.get(id);
+    if (existing === undefined) {
       this.nodes.set(id, { id, type, label });
+    } else if (existing.type !== type || existing.label !== label) {
+      throw new CompilerError(
+        'EXPLAIN-GRAPH-001',
+        `Explain graph node identity "${id}" has conflicting definitions`,
+        {
+          existing: { type: existing.type, label: existing.label },
+          incoming: { type, label }
+        }
+      );
     }
     if (references.length > 0) {
       const merged = this.nodeReferences.get(id) ?? new Map<string, ViewReference>();
@@ -52,7 +66,7 @@ class GraphBuilder {
   }
 
   edge(from: string, to: string, type: ExplainEdgeType, references: readonly ViewReference[] = []): this {
-    const key = `${from}:${type}:${to}`;
+    const key = graphEdgeKey(from, type, to);
     if (!this.edges.has(key)) {
       this.edges.set(key, { from, to, type });
     }
@@ -71,6 +85,20 @@ class GraphBuilder {
   }
 
   build(semanticViews: SemanticViewSet, overlays: ExplainGraph['overlays']): ExplainGraph {
+    for (const edge of this.edges.values()) {
+      const missingEndpoints = [
+        ...(this.nodes.has(edge.from) ? [] : ['from']),
+        ...(this.nodes.has(edge.to) ? [] : ['to'])
+      ];
+      if (missingEndpoints.length > 0) {
+        throw new CompilerError(
+          'EXPLAIN-GRAPH-002',
+          'Explain graph contains an edge with an unregistered endpoint',
+          { edge, missingEndpoints }
+        );
+      }
+    }
+
     const nodes = [...this.nodes].map(([id, node]) => {
       const references = this.nodeReferences.get(id);
       return references && references.size > 0
@@ -83,7 +111,10 @@ class GraphBuilder {
         ? { ...edge, references: sortedViewReferences(references) }
         : edge;
     }).sort((left, right) =>
-      compareCodeUnits(`${left.from}:${left.type}:${left.to}`, `${right.from}:${right.type}:${right.to}`));
+      compareCodeUnits(
+        graphEdgeKey(left.from, left.type, left.to),
+        graphEdgeKey(right.from, right.type, right.to)
+      ));
 
     return {
       semanticViews,
@@ -167,11 +198,17 @@ export async function buildExplainGraph(
     const originId = artifact.originType === 'block' ? `block:${artifact.originId}`
       : artifact.originType === 'override' ? `override:${artifact.originId}`
       : appId;
+    if (artifact.originType === 'block') g.node(originId, 'block', artifact.originId);
     if (artifact.originType === 'override') g.node(originId, 'override', artifact.originId);
     g.edge(fileId, originId, 'originates_from');
 
     const attribution = runtimeAttributions.get(artifact.path);
-    if (attribution) for (const blockId of attribution.relatedBlocks) g.edge(`block:${blockId}`, fileId, 'writes_to');
+    if (attribution) {
+      for (const blockId of attribution.relatedBlocks) {
+        g.node(`block:${blockId}`, 'block', blockId);
+        g.edge(`block:${blockId}`, fileId, 'writes_to');
+      }
+    }
   }
 
   if (policyReport) {
@@ -243,6 +280,7 @@ export async function buildExplainGraph(
     g.node(`acceptance:${acceptanceId}`, 'acceptance', acceptanceId);
   }
   for (const blockCoverage of coverage.blocks) {
+    g.node(`block:${blockCoverage.id}`, 'block', blockCoverage.id);
     for (const acceptanceId of blockCoverage.coveredBy) {
       g.edge(`block:${blockCoverage.id}`, `acceptance:${acceptanceId}`, 'verified_by');
     }

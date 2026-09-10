@@ -18,17 +18,21 @@ import {
 } from '../../../../system-architecture/foundation/contract/failure.ts';
 import {
   canonicalJson,
-  compareCodeUnits
+  compareCodeUnits,
+  deepFreeze
 } from '../../../../system-architecture/foundation/runtime/canonical.ts';
 import {
   formatJsonFile
 } from '../../../../workspace/files.ts';
 import {
+  type RuntimeDependencyEffectFenceInput,
+  runtimeDependencyEffectFenceOptions,
+  type RuntimeDependencyEffectFenceOptions,
   runtimeDependencyOperationContext,
   runtimeDependencyOperationEffectFence,
-  type RuntimeDependencyOperationOptions,
   runtimeDependencyOperationRemainingMs
 } from '../operation-context.ts';
+import { type RuntimeDependencyOperationControlInput, runtimeDependencyOperationControls } from '../operation-controls.ts';
 import {
   assertDependencyTransitionRecordBytes,
   dependencyTransitionDigestWithoutRecord,
@@ -41,17 +45,23 @@ import {
   type DependencyTransitionJournal,
   type DependencyTransitionLedger,
   type DependencyTransitionNamespace,
-  type DependencyTransitionSlot,
   type DependencyTransitionUnsigned,
   generatedStatePhysicalIdentity,
   hasExactObjectKeys,
   isCanonicalAbsolutePath,
   isCanonicalGeneratedStatePhysicalIdentity,
   isSha256Digest,
-  type RuntimeDependencySourceGeneration,
   sameGeneratedStateIdentity,
   transitionSlotMatches
 } from './contract.ts';
+import { analyzeRolloverHistory } from './rollover-history.ts';
+import {
+  assertRolloverPhaseAdvance,
+  DEPENDENCY_TRANSITION_ROLLOVER_SCHEMA, type DependencyTransitionRolloverIntent,
+  type DependencyTransitionRolloverPhase,
+  isRolloverPhase, matchesRolloverPhaseState,
+  rolloverIntentNameMatches
+} from './rollover-phase.ts';
 import {
   DEPENDENCY_TRANSITION_RECORD_CAPACITY,
   dependencyTransitionLedgerDigest,
@@ -70,38 +80,7 @@ export const DEPENDENCY_TRANSITION_ROLLOVER_TRIGGER = 9_000;
 
 const DEPENDENCY_TRANSITION_ROLLOVER_NAMESPACE_CAPACITY = 4_096;
 
-const DEPENDENCY_TRANSITION_ROLLOVER_SCHEMA = 'sec-dependency-transition-rollover-v1' as const;
-
-type DependencyTransitionRolloverPhase =
-  | 'prepared'
-  | 'staged'
-  | 'backed-up'
-  | 'published'
-  | 'retiring'
-  | 'retired'
-  | 'complete';
-
-export interface DependencyTransitionRolloverIntent {
-  readonly schema: typeof DEPENDENCY_TRANSITION_ROLLOVER_SCHEMA;
-  readonly intentDigest: `sha256:${string}`;
-  readonly previousIntentDigest: `sha256:${string}` | null;
-  readonly sequence: number;
-  readonly phase: DependencyTransitionRolloverPhase;
-  readonly ownerRoot: string;
-  readonly ownerRootPhysical: Readonly<GeneratedStatePhysicalIdentity>;
-  readonly recordsRootPath: string;
-  readonly sourceRecordsRootPhysical: Readonly<GeneratedStatePhysicalIdentity>;
-  readonly retiredRecordsPath: string;
-  readonly retiredRecordsPhysical: Readonly<GeneratedStatePhysicalIdentity> | null;
-  readonly retiredRecordsDisposed: boolean;
-  readonly nextRecordsPath: string;
-  readonly nextRecordsPhysical: Readonly<GeneratedStatePhysicalIdentity> | null;
-  readonly publishedRecordsRootPhysical: Readonly<GeneratedStatePhysicalIdentity> | null;
-  readonly terminalRecordDigest: `sha256:${string}`;
-  readonly ledgerDigest: `sha256:${string}`;
-  readonly recordCount: number;
-  readonly checkpoint: DependencyTransitionJournal;
-}
+export type { DependencyTransitionRolloverIntent } from './rollover-phase.ts';
 
 /**
  * A rollover checkpoint is a compact successor for an already authenticated
@@ -143,7 +122,7 @@ function dependencyTransitionTerminalCheckpoint(
     durability: terminal.durability,
     failure: terminal.failure
   });
-  return Object.freeze({
+  return deepFreeze({
     ...unsigned,
     recordDigest: dependencyTransitionDigestWithoutRecord(unsigned)
   }) as DependencyTransitionJournal;
@@ -226,7 +205,7 @@ function parseDependencyTransitionRolloverIntent(
       !isSha256Digest(intent.intentDigest) ||
       (intent.previousIntentDigest !== null && !isSha256Digest(intent.previousIntentDigest)) ||
       !Number.isSafeInteger(intent.sequence) || intent.sequence < 1 ||
-      !(['prepared', 'staged', 'backed-up', 'published', 'retiring', 'retired', 'complete'] as readonly string[]).includes(intent.phase) ||
+      !isRolloverPhase(intent.phase) ||
       !isCanonicalAbsolutePath(intent.ownerRoot) ||
       !isCanonicalGeneratedStatePhysicalIdentity(intent.ownerRootPhysical) ||
       !isCanonicalAbsolutePath(intent.recordsRootPath) ||
@@ -260,46 +239,17 @@ function parseDependencyTransitionRolloverIntent(
       intent.checkpoint.sequence !== 1 ||
       intent.checkpoint.previousRecordDigest !== null ||
       intent.checkpoint.ownerRoot !== intent.ownerRoot ||
-      (intent.phase === 'prepared' && (
-        intent.retiredRecordsPhysical !== null ||
-        intent.nextRecordsPhysical !== null ||
-        intent.publishedRecordsRootPhysical !== null ||
-        intent.retiredRecordsDisposed
-      )) ||
-      (intent.phase === 'staged' && (
-        intent.retiredRecordsPhysical !== null ||
-        intent.nextRecordsPhysical === null ||
-        intent.publishedRecordsRootPhysical !== null ||
-        intent.retiredRecordsDisposed
-      )) ||
-      (intent.phase === 'backed-up' && (
-        intent.retiredRecordsPhysical === null ||
-        intent.nextRecordsPhysical === null ||
-        intent.publishedRecordsRootPhysical !== null ||
-        intent.retiredRecordsDisposed
-      )) ||
-      ((intent.phase === 'published' || intent.phase === 'retiring') && (
-        intent.retiredRecordsPhysical === null ||
-        intent.nextRecordsPhysical !== null ||
-        intent.publishedRecordsRootPhysical === null ||
-        intent.retiredRecordsDisposed
-      )) ||
-      ((intent.phase === 'retired' || intent.phase === 'complete') && (
-        intent.retiredRecordsPhysical !== null ||
-        intent.nextRecordsPhysical !== null ||
-        intent.publishedRecordsRootPhysical === null ||
-        !intent.retiredRecordsDisposed
-      )) ||
+      !matchesRolloverPhaseState(intent) ||
       rolloverIntentStableDigest(intent) !== intent.intentDigest) {
     throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover intent topology or digest is invalid');
   }
   if (expectedName !== undefined && expectedName !== rolloverIntentFileName(intent.intentDigest, intent.phase)) {
     throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover intent filename does not match its digest');
   }
-  if (formatJsonFile(canonicalJson(intent)) !== Buffer.from(bytes).toString('utf8')) {
+  if (!Buffer.from(formatJsonFile(canonicalJson(intent)), 'utf8').equals(Buffer.from(bytes))) {
     throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover intent bytes are not canonical');
   }
-  return Object.freeze(intent);
+  return deepFreeze(intent);
 }
 
 function assertDependencyTransitionRolloverIntentBytes(bytes: Uint8Array): void {
@@ -386,7 +336,7 @@ function makeDependencyTransitionRolloverIntent(input: Readonly<{
     checkpoint: input.checkpoint
   });
   const intentDigest = rolloverIntentStableDigest(stableInput);
-  return Object.freeze({
+  return deepFreeze({
     schema: DEPENDENCY_TRANSITION_ROLLOVER_SCHEMA,
     intentDigest,
     previousIntentDigest: stableInput.previousIntentDigest,
@@ -416,7 +366,8 @@ function advanceDependencyTransitionRolloverIntent(
     'retiredRecordsPhysical' | 'retiredRecordsDisposed' | 'nextRecordsPhysical' |
     'publishedRecordsRootPhysical'>>>
 ): DependencyTransitionRolloverIntent {
-  const next = Object.freeze({ ...previous, phase, ...patch });
+  const next = deepFreeze({ ...previous, phase, ...patch });
+  assertRolloverPhaseAdvance(previous, next);
   if (rolloverIntentStableDigest(next) !== previous.intentDigest) {
     throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover identity changed between phases');
   }
@@ -426,7 +377,7 @@ function advanceDependencyTransitionRolloverIntent(
 async function assertDependencyTransitionRolloverCheckpoint(
   recordsRoot: PhysicalDirectoryIdentity,
   intent: DependencyTransitionRolloverIntent,
-  options: RuntimeDependencyOperationOptions
+  options: RuntimeDependencyOperationControlInput
 ): Promise<void> {
   const expectedName = transitionRecordName(intent.checkpoint.recordDigest);
   const names = await readNoFollowDirectNames(
@@ -563,10 +514,13 @@ function rolloverDisposalInventoryStableDigest(
   return generatedStateDigest(Object.freeze({
     schema: inventory.schema,
     intentDigest: inventory.intentDigest,
-    archivePhysical: inventory.archivePhysical,
+    archivePhysical: canonicalJson(inventory.archivePhysical),
     ledgerDigest: inventory.ledgerDigest,
     recordCount: inventory.recordCount,
-    entries: inventory.entries
+    // Preserve the v1 digest projection while matching the nested key order
+    // of its canonical persisted bytes. Hashing the construction-order entries
+    // made a freshly published inventory fail its own readback parser.
+    entries: canonicalJson(inventory.entries)
   }));
 }
 
@@ -617,16 +571,16 @@ function parseDependencyTransitionRolloverDisposalInventory(
       inventory.recordCount !== intent.recordCount || inventory.ledgerDigest !== intent.ledgerDigest ||
       rolloverDisposalInventoryStableDigest(inventory) !== inventory.inventoryDigest ||
       expectedName !== rolloverDisposalInventoryName(intent) ||
-      formatJsonFile(canonicalJson(inventory)) !== Buffer.from(bytes).toString('utf8')) {
+      !Buffer.from(formatJsonFile(canonicalJson(inventory)), 'utf8').equals(Buffer.from(bytes))) {
     throw new SecError('RUNTIME-DEPS-004', 'Dependency rollover disposal inventory binding is invalid');
   }
-  return Object.freeze({ ...inventory, entries: Object.freeze(entries) });
+  return deepFreeze({ ...inventory, entries });
 }
 
 async function inspectDependencyTransitionRolloverArchive(
   archive: PhysicalDirectoryIdentity,
   intent: DependencyTransitionRolloverIntent,
-  options: RuntimeDependencyOperationOptions
+  options: RuntimeDependencyOperationControlInput
 ): Promise<readonly DependencyTransitionRolloverArchiveEntry[]> {
   const names = await readNoFollowDirectNames(
     archive,
@@ -639,6 +593,7 @@ async function inspectDependencyTransitionRolloverArchive(
   const inventoryName = rolloverDisposalInventoryName(intent);
   let inventory: DependencyTransitionRolloverDisposalInventory | null = null;
   for (const name of names) {
+    runtimeDependencyOperationRemainingMs(options, 'Dependency transition archive entry observation');
     if (name === inventoryName) {
       const inventoryEntry = inspectNoFollowOrdinaryFileEntry(archive, name);
       if (inventoryEntry === null || inventoryEntry.bytes === null || inventoryEntry.kind !== 'file') {
@@ -685,15 +640,16 @@ async function inspectDependencyTransitionRolloverArchive(
       terminalRecordDigest: intent.terminalRecordDigest
     });
   }
-  if (inventory !== null && (
-    inventory.entries.length !== entries.length ||
-    inventory.entries.some((expected, index) => {
-      const actual = entries.find((entry) => entry.relativePath === expected.relativePath);
+  if (inventory !== null) {
+    const entriesByName = new Map(entries.map(entry => [entry.relativePath, entry]));
+    if (inventory.entries.length !== entries.length || inventory.entries.some(expected => {
+      runtimeDependencyOperationRemainingMs(options, 'Dependency transition archive inventory validation');
+      const actual = entriesByName.get(expected.relativePath);
       return actual === undefined || actual.device !== expected.device || actual.inode !== expected.inode ||
         actual.recordDigest !== expected.recordDigest || actual.bytesDigest !== expected.bytesDigest;
-    })
-  )) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency rollover disposal inventory does not match its untouched archive');
+    })) {
+      throw new SecError('RUNTIME-DEPS-004', 'Dependency rollover disposal inventory does not match its untouched archive');
+    }
   }
   return Object.freeze(entries.sort((left, right) => compareCodeUnits(left.relativePath, right.relativePath)));
 }
@@ -701,7 +657,7 @@ async function inspectDependencyTransitionRolloverArchive(
 async function ensureDependencyTransitionRolloverDisposalInventory(
   archive: PhysicalDirectoryIdentity,
   intent: DependencyTransitionRolloverIntent,
-  options: RuntimeDependencyOperationOptions
+  options: RuntimeDependencyEffectFenceOptions
 ): Promise<DependencyTransitionRolloverDisposalInventory> {
   const inventoryName = rolloverDisposalInventoryName(intent);
   const existing = inspectNoFollowOrdinaryFileEntry(archive, inventoryName);
@@ -743,7 +699,7 @@ async function ensureDependencyTransitionRolloverDisposalInventory(
     archive,
     inventoryName,
     bytes,
-    (candidate) => parseDependencyTransitionRolloverDisposalInventory(
+    (candidate: Uint8Array) => parseDependencyTransitionRolloverDisposalInventory(
       candidate,
       inventoryName,
       intent,
@@ -767,7 +723,7 @@ async function assertDependencyTransitionRolloverArchiveSubset(
   archive: PhysicalDirectoryIdentity,
   inventory: DependencyTransitionRolloverDisposalInventory,
   inventoryName: string,
-  options: RuntimeDependencyOperationOptions
+  options: RuntimeDependencyOperationControlInput
 ): Promise<void> {
   const names = await readNoFollowDirectNames(
     archive,
@@ -777,6 +733,7 @@ async function assertDependencyTransitionRolloverArchiveSubset(
   );
   const expectedByName = new Map(inventory.entries.map((entry) => [entry.relativePath, entry]));
   for (const name of names) {
+    runtimeDependencyOperationRemainingMs(options, 'Dependency transition archive entry observation');
     if (name === inventoryName) continue;
     const expected = expectedByName.get(name);
     if (expected === undefined) {
@@ -807,119 +764,130 @@ async function assertDependencyTransitionRolloverArchiveSubset(
   }
 }
 
+/** An archive record is accepted against its captured disposal inventory,
+ * never only its name or inode. Recheck after the caller's effect fence too.
+ */
+function assertRolloverArchiveEntry(
+  archive: PhysicalDirectoryIdentity,
+  expected: DependencyTransitionRolloverArchiveEntry
+): void {
+  const entry = inspectNoFollowOrdinaryFileEntry(archive, expected.relativePath);
+  if (entry === null || entry.bytes === null || entry.kind !== 'file' ||
+      entry.device !== expected.device || entry.inode !== expected.inode ||
+      rolloverDisposalInventoryBytesDigest(entry.bytes) !== expected.bytesDigest) {
+    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition retired record changed after disposal inventory publication',
+      { name: expected.relativePath });
+  }
+}
+
+/** The replacement checkpoint must remain available before destroying any old
+ * evidence, including restart recovery. A durable retiring marker is not proof
+ * that the replacement still exists after a failed or intervening operation.
+ */
+function assertPublishedRolloverCheckpointCurrent(
+  namespace: DependencyTransitionRolloverNamespace,
+  intent: DependencyTransitionRolloverIntent,
+  expectedBytes: Uint8Array
+): void {
+  const canonical = assertDependencyTransitionRolloverDirectory(
+    inspectOptionalNoFollowDirectoryChild(namespace.journalRoot, path.basename(namespace.recordsRootPath),
+      'Dependency rollover checkpoint before archive disposal'),
+    intent.publishedRecordsRootPhysical, 'Dependency rollover checkpoint before archive disposal');
+  const entry = inspectNoFollowOrdinaryFileEntry(canonical, transitionRecordName(intent.checkpoint.recordDigest));
+  if (entry === null || entry.bytes === null || entry.kind !== 'file' || !Buffer.from(entry.bytes).equals(expectedBytes)) {
+    throw new SecError('RUNTIME-DEPS-004', 'Dependency rollover replacement checkpoint changed; archive is preserved');
+  }
+}
+
 async function disposeDependencyTransitionRolloverArchive(
   namespace: DependencyTransitionRolloverNamespace,
   intent: DependencyTransitionRolloverIntent,
-  options: RuntimeDependencyOperationOptions
+  options: RuntimeDependencyEffectFenceOptions
 ): Promise<void> {
+  if (intent.phase !== 'retiring') throw new SecError('RUNTIME-DEPS-004', 'Archive disposal requires a retiring receipt');
   const archiveName = path.basename(intent.retiredRecordsPath);
-  const archive = inspectOptionalNoFollowDirectoryChild(
-    namespace.rolloversRoot,
-    archiveName,
-    'Dependency transition retired records archive'
-  );
+  const archive = inspectOptionalNoFollowDirectoryChild(namespace.rolloversRoot, archiveName,
+    'Dependency transition retired records archive');
   if (archive === null) return;
-  if (intent.retiredRecordsPhysical === null ||
-      !sameGeneratedStateIdentity(generatedStatePhysicalIdentity(archive), intent.retiredRecordsPhysical)) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition retired records archive identity changed and is preserved');
-  }
+  assertDependencyTransitionRolloverDirectory(archive, intent.retiredRecordsPhysical,
+    'Dependency transition retired records archive');
+  const checkpointBytes = dependencyTransitionRecordBytes(intent.checkpoint);
+  assertPublishedRolloverCheckpointCurrent(namespace, intent, checkpointBytes);
   const inventoryName = rolloverDisposalInventoryName(intent);
   const inventoryEntry = inspectNoFollowOrdinaryFileEntry(archive, inventoryName);
-  if (inventoryEntry === null || inventoryEntry.bytes === null || inventoryEntry.kind !== 'file') {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency rollover disposal inventory is absent; archive is preserved');
-  }
-  const inventory = parseDependencyTransitionRolloverDisposalInventory(
-    inventoryEntry.bytes,
-    inventoryName,
-    intent,
-    generatedStatePhysicalIdentity(archive)
-  );
-  const names = await readNoFollowDirectNames(
-    archive,
-    'Dependency transition retired records archive disposal',
-    intent.recordCount + 2,
-    options
-  );
-  const expectedByName = new Map(inventory.entries.map((entry) => [entry.relativePath, entry]));
-  for (const name of names) {
-    if (name === inventoryName) continue;
-    const expected = expectedByName.get(name);
-    if (expected === undefined) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition retired records contain foreign residue during disposal', { name });
+  const names = await readNoFollowDirectNames(archive, 'Dependency transition retired records archive disposal',
+    intent.recordCount + 2, options);
+  if (inventoryEntry === null) {
+    // The old implementation can crash between deleting the last inventory
+    // and removing its now-empty directory. The authenticated retiring receipt
+    // already binds this exact root. Resume ONLY empty-root disposal; a missing
+    // inventory never authorizes touching any surviving or foreign leaf.
+    if (names.length !== 0) throw new SecError('RUNTIME-DEPS-004', 'Dependency rollover disposal inventory is absent; archive is preserved');
+  } else {
+    if (inventoryEntry.bytes === null || inventoryEntry.kind !== 'file') {
+      throw new SecError('RUNTIME-DEPS-004', 'Dependency rollover disposal inventory is foreign; archive is preserved');
     }
-    const entry = inspectNoFollowOrdinaryFileEntry(archive, name);
-    if (entry === null || entry.bytes === null || entry.kind !== 'file' ||
-        entry.device !== expected.device || entry.inode !== expected.inode ||
-        rolloverDisposalInventoryBytesDigest(entry.bytes) !== expected.bytesDigest) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition retired record changed after disposal inventory publication', { name });
+    const inventory = parseDependencyTransitionRolloverDisposalInventory(inventoryEntry.bytes, inventoryName,
+      intent, generatedStatePhysicalIdentity(archive));
+    const expectedByName = new Map(inventory.entries.map(entry => [entry.relativePath, entry]));
+    const selected: DependencyTransitionRolloverArchiveEntry[] = [];
+    // Preflight the entire remaining subset before the first deletion. Finding
+    // unknown residue late must not mean earlier leaves have already gone.
+    for (const name of names) {
+      runtimeDependencyOperationRemainingMs(options, 'Dependency rollover disposal selection');
+      if (name === inventoryName) continue;
+      const expected = expectedByName.get(name);
+      if (expected === undefined) throw new SecError('RUNTIME-DEPS-004', 'Dependency transition retired records contain foreign residue during disposal', { name });
+      assertRolloverArchiveEntry(archive, expected);
+      selected.push(expected);
     }
-    await runtimeDependencyOperationEffectFence(options, 'Dependency transition retired record disposal');
-    deleteRetainedNoFollowEntry({
-      root: archive,
-      relativePath: name,
-      kind: 'file',
-      device: expected.device,
-      inode: expected.inode,
-      ancestorDirectories: Object.freeze([])
-    });
-  }
-  const remainingNames = await readNoFollowDirectNames(
-    archive,
-    'Dependency transition retired records archive disposal readback',
-    intent.recordCount + 2,
-    options
-  );
-  if (remainingNames.length !== 1 || remainingNames[0] !== inventoryName) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition retired archive contains unexpected residue after record disposal', {
-      remainingNames
-    });
-  }
-  const inventoryAfter = inspectNoFollowOrdinaryFileEntry(archive, inventoryName);
-  if (inventoryAfter === null || inventoryAfter.bytes === null || inventoryAfter.kind !== 'file' ||
-      !Buffer.from(inventoryAfter.bytes).equals(Buffer.from(inventoryEntry.bytes))) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency rollover disposal inventory changed before archive retirement');
-  }
-  await runtimeDependencyOperationEffectFence(options, 'Dependency transition rollover inventory disposal');
-  deleteRetainedNoFollowEntry({
-    root: archive,
-    relativePath: inventoryName,
-    kind: 'file',
-    device: inventoryEntry.device,
-    inode: inventoryEntry.inode,
-    ancestorDirectories: Object.freeze([])
-  });
-  const archiveAfter = inspectOptionalNoFollowDirectoryChild(
-    namespace.rolloversRoot,
-    archiveName,
-    'Dependency transition retired records archive after descendant disposal'
-  );
-  if (archiveAfter === null || !sameGeneratedStateIdentity(
-    generatedStatePhysicalIdentity(archiveAfter),
-    intent.retiredRecordsPhysical
-  )) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition retired records archive disappeared before root disposal');
+    for (const expected of selected) {
+      await runtimeDependencyOperationEffectFence(options, 'Dependency transition retired record disposal');
+      assertPublishedRolloverCheckpointCurrent(namespace, intent, checkpointBytes);
+      assertRolloverArchiveEntry(archive, expected);
+      deleteRetainedNoFollowEntry({ root: archive, relativePath: expected.relativePath, kind: 'file',
+        device: expected.device, inode: expected.inode, ancestorDirectories: Object.freeze([]) });
+    }
+    const remaining = await readNoFollowDirectNames(archive, 'Dependency transition retired records archive disposal readback',
+      intent.recordCount + 2, options);
+    if (remaining.length !== 1 || remaining[0] !== inventoryName) {
+      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition retired archive contains unexpected residue after record disposal', { remainingNames: remaining });
+    }
+    await runtimeDependencyOperationEffectFence(options, 'Dependency transition rollover inventory disposal');
+    assertPublishedRolloverCheckpointCurrent(namespace, intent, checkpointBytes);
+    const inventoryAfter = inspectNoFollowOrdinaryFileEntry(archive, inventoryName);
+    if (inventoryAfter === null || inventoryAfter.bytes === null || inventoryAfter.kind !== 'file' ||
+        inventoryAfter.device !== inventoryEntry.device || inventoryAfter.inode !== inventoryEntry.inode ||
+        !Buffer.from(inventoryAfter.bytes).equals(inventoryEntry.bytes)) {
+      throw new SecError('RUNTIME-DEPS-004', 'Dependency rollover disposal inventory changed before archive retirement');
+    }
+    deleteRetainedNoFollowEntry({ root: archive, relativePath: inventoryName, kind: 'file',
+      device: inventoryEntry.device, inode: inventoryEntry.inode, ancestorDirectories: Object.freeze([]) });
   }
   await runtimeDependencyOperationEffectFence(options, 'Dependency transition rollover archive disposal');
-  deleteRetainedNoFollowEntry({
-    root: namespace.rolloversRoot,
-    relativePath: archiveName,
-    kind: 'directory',
-    device: intent.retiredRecordsPhysical.device,
-    inode: intent.retiredRecordsPhysical.inode,
-    ancestorDirectories: Object.freeze([])
-  });
-  if (inspectOptionalNoFollowDirectoryChild(
-    namespace.rolloversRoot,
-    archiveName,
-    'Dependency transition retired records archive final readback'
-  ) !== null) {
+  const finalNames = await readNoFollowDirectNames(archive, 'Dependency transition empty archive final check', 1, options);
+  if (finalNames.length !== 0) throw new SecError('RUNTIME-DEPS-004', 'Dependency rollover archive is not empty; residue is preserved');
+  runtimeDependencyOperationRemainingMs(options, 'Dependency transition empty archive disposal admission');
+  // Recheck after every caller clock/fence and await. The retained empty-rmdir
+  // remains responsible for rejecting a new entry or a replaced physical root.
+  assertPublishedRolloverCheckpointCurrent(namespace, intent, checkpointBytes);
+  assertDependencyTransitionRolloverDirectory(
+    inspectOptionalNoFollowDirectoryChild(namespace.rolloversRoot, archiveName,
+      'Dependency transition retired archive final disposal'), intent.retiredRecordsPhysical,
+    'Dependency transition retired archive final disposal');
+  deleteRetainedNoFollowEntry({ root: namespace.rolloversRoot, relativePath: archiveName, kind: 'directory',
+    device: intent.retiredRecordsPhysical!.device, inode: intent.retiredRecordsPhysical!.inode,
+    ancestorDirectories: Object.freeze([]) });
+  if (inspectOptionalNoFollowDirectoryChild(namespace.rolloversRoot, archiveName,
+    'Dependency transition retired records archive final readback') !== null) {
     throw new SecError('RUNTIME-DEPS-004', 'Dependency transition retired records archive remains after disposal');
   }
+  runtimeDependencyOperationRemainingMs(options, 'Dependency transition archive disposal readback');
 }
 
 async function assertDependencyTransitionTerminalReadback(
   terminal: DependencyTransitionJournal,
-  options: RuntimeDependencyOperationOptions
+  options: RuntimeDependencyOperationControlInput
 ): Promise<void> {
   runtimeDependencyOperationRemainingMs(options, 'Dependency transition terminal readback admission');
   const destination = await observeDependencyTransitionSlot(
@@ -929,7 +897,9 @@ async function assertDependencyTransitionTerminalReadback(
   if (!transitionSlotMatches(destination, terminal.destination)) {
     throw new SecError('RUNTIME-DEPS-004', 'Terminal dependency transition destination or binding readback drifted');
   }
+  runtimeDependencyOperationRemainingMs(options, 'Dependency transition terminal destination readback');
   const source = await observeDependencyTransitionSlot(terminal.sourceGeneration.sourcePath);
+  runtimeDependencyOperationRemainingMs(options, 'Dependency transition terminal source readback');
   if (source.kind !== 'directory' || source.physical === null ||
       !sameGeneratedStateIdentity(source.physical, terminal.sourceGeneration.physical)) {
     throw new SecError('RUNTIME-DEPS-004', 'Terminal dependency transition source generation readback drifted');
@@ -939,10 +909,11 @@ async function assertDependencyTransitionTerminalReadback(
 async function writeDependencyTransitionRolloverIntentPhase(
   namespace: DependencyTransitionRolloverNamespace,
   intent: DependencyTransitionRolloverIntent,
-  options: RuntimeDependencyOperationOptions
+  options: RuntimeDependencyEffectFenceOptions
 ): Promise<void> {
-  await runtimeDependencyOperationEffectFence(options, `Dependency transition rollover ${intent.phase} receipt publication`);
   const bytes = Buffer.from(formatJsonFile(canonicalJson(intent)), 'utf8');
+  intent = parseDependencyTransitionRolloverIntent(bytes, rolloverIntentFileName(intent.intentDigest, intent.phase));
+  await runtimeDependencyOperationEffectFence(options, `Dependency transition rollover ${intent.phase} receipt publication`);
   writeDurableTransitionFile(
     namespace.rolloversRoot,
     rolloverIntentFileName(intent.intentDigest, intent.phase),
@@ -959,170 +930,49 @@ export type DependencyTransitionRolloverObservation = Readonly<{
   latestComplete: DependencyTransitionRolloverIntent | null;
 }>;
 
-const DEPENDENCY_TRANSITION_ROLLOVER_PHASE_ORDER: Readonly<Record<DependencyTransitionRolloverPhase, number>> =
-  Object.freeze({
-    prepared: 0,
-    staged: 1,
-    'backed-up': 2,
-    published: 3,
-    retiring: 4,
-    retired: 5,
-    complete: 6
-  });
-
 export async function inspectActiveDependencyTransitionRollover(
   ownerRoot: string,
-  options: RuntimeDependencyOperationOptions
+  inputOptions: RuntimeDependencyOperationControlInput
 ): Promise<DependencyTransitionRolloverObservation | null> {
-  runtimeDependencyOperationRemainingMs(options, 'Dependency transition rollover census admission');
+  ownerRoot = path.resolve(ownerRoot);
+  const options = runtimeDependencyOperationControls(inputOptions);
+  const active = () => { runtimeDependencyOperationRemainingMs(options, 'Dependency transition rollover census'); };
+  active();
   const namespace = inspectDependencyTransitionRolloverNamespace(ownerRoot);
+  active();
   if (namespace === null) return null;
-  const names = await readNoFollowDirectNames(
-    namespace.rolloversRoot,
-    'Dependency transition rollover namespace',
-    DEPENDENCY_TRANSITION_ROLLOVER_NAMESPACE_CAPACITY,
-    options
-  );
-  const phasePattern = /^rollover-[0-9a-f]{64}-(prepared|staged|backed-up|published|retiring|retired|complete)\.json$/u;
-  const residuePattern = /^records-(?:retired|next)-[0-9a-f]{48}$/u;
-  const grouped = new Map<string, Map<DependencyTransitionRolloverPhase, DependencyTransitionRolloverIntent>>();
-  const referencedResidue = new Set<string>();
+  const names = await readNoFollowDirectNames(namespace.rolloversRoot,
+    'Dependency transition rollover namespace', DEPENDENCY_TRANSITION_ROLLOVER_NAMESPACE_CAPACITY, options);
+  const receipts: DependencyTransitionRolloverIntent[] = [];
+  const residue: string[] = [];
   for (const name of names) {
-    if (residuePattern.test(name)) {
-      referencedResidue.add(name);
-      continue;
-    }
-    if (!phasePattern.test(name)) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover namespace contains unknown residue', {
-        name
-      });
+    active();
+    if (/^records-(?:retired|next)-[0-9a-f]{48}$/u.test(name)) { residue.push(name); continue; }
+    if (!rolloverIntentNameMatches(name)) {
+      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover namespace contains unknown residue', { name });
     }
     const entry = inspectNoFollowOrdinaryFileEntry(namespace.rolloversRoot, name);
-    if (entry === null || entry.bytes === null) {
+    if (entry === null || entry.bytes === null || entry.kind !== 'file') {
       throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover intent disappeared during census', { name });
     }
     const intent = parseDependencyTransitionRolloverIntent(entry.bytes, name);
-    if (intent.ownerRoot !== namespace.ownerRoot.path || intent.recordsRootPath !== namespace.recordsRootPath) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover intent belongs to a foreign topology', { name });
-    }
-    const phases = grouped.get(intent.intentDigest) ?? new Map<DependencyTransitionRolloverPhase, DependencyTransitionRolloverIntent>();
-    if (phases.has(intent.phase)) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover phase is duplicated', {
-        intentDigest: intent.intentDigest,
-        phase: intent.phase
-      });
-    }
-    phases.set(intent.phase, intent);
-    grouped.set(intent.intentDigest, phases);
+    assertDependencyTransitionRolloverOwner(namespace, intent);
+    receipts.push(intent);
   }
-
-  let active: DependencyTransitionRolloverIntent | null = null;
-  const latestIntents: DependencyTransitionRolloverIntent[] = [];
-  const referencedNames = new Set<string>();
-  for (const phases of grouped.values()) {
-    const ordered = [...phases.values()].sort((left, right) =>
-      DEPENDENCY_TRANSITION_ROLLOVER_PHASE_ORDER[left.phase] -
-      DEPENDENCY_TRANSITION_ROLLOVER_PHASE_ORDER[right.phase]
-    );
-    if (ordered[0]?.phase !== 'prepared') {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover chain has no prepared phase');
-    }
-    for (let index = 0; index < ordered.length; index += 1) {
-      if (DEPENDENCY_TRANSITION_ROLLOVER_PHASE_ORDER[ordered[index]!.phase] !== index) {
-        throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover chain skips a phase');
-      }
-      if (index > 0 && ordered[index]!.intentDigest !== ordered[index - 1]!.intentDigest) {
-        throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover chain changed intent identity');
-      }
-    }
-    const latest = ordered.at(-1)!;
-    latestIntents.push(latest);
-    if (!latest.retiredRecordsDisposed) {
-      referencedNames.add(path.basename(latest.retiredRecordsPath));
-    }
-    if (latest.nextRecordsPhysical !== null) {
-      referencedNames.add(path.basename(latest.nextRecordsPath));
-    }
-  }
-  for (const name of referencedResidue) {
-    if (!referencedNames.has(name)) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover residue is foreign and preserved', { name });
-    }
-  }
-  if (latestIntents.length === 0) {
-    return Object.freeze({ namespace, active: null, latestComplete: null });
-  }
-  const intentByDigest = new Map(latestIntents.map((intent) => [intent.intentDigest, intent]));
-  const childByPredecessor = new Map<`sha256:${string}`, `sha256:${string}`>();
-  const roots: DependencyTransitionRolloverIntent[] = [];
-  for (const intent of latestIntents) {
-    if (intent.previousIntentDigest === null) {
-      if (intent.sequence !== 1) {
-        throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover root sequence is not one');
-      }
-      roots.push(intent);
-      continue;
-    }
-    const predecessor = intentByDigest.get(intent.previousIntentDigest);
-    if (predecessor === undefined || predecessor.sequence !== intent.sequence - 1) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover predecessor is missing or has an invalid sequence');
-    }
-    const existingChild = childByPredecessor.get(intent.previousIntentDigest);
-    if (existingChild !== undefined && existingChild !== intent.intentDigest) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover predecessor has a forked child');
-    }
-    childByPredecessor.set(intent.previousIntentDigest, intent.intentDigest);
-  }
-  if (roots.length !== 1) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover receipts contain multiple roots');
-  }
-  const visited = new Set<`sha256:${string}`>();
-  let cursor: DependencyTransitionRolloverIntent | undefined = roots[0];
-  while (cursor !== undefined) {
-    if (visited.has(cursor.intentDigest)) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover receipts contain a cycle');
-    }
-    visited.add(cursor.intentDigest);
-    const childDigest = childByPredecessor.get(cursor.intentDigest);
-    cursor = childDigest === undefined ? undefined : intentByDigest.get(childDigest);
-    if (childDigest !== undefined && cursor === undefined) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover child disappeared during census');
-    }
-  }
-  if (visited.size !== latestIntents.length) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover receipts contain a disconnected epoch');
-  }
-  const tips = latestIntents.filter((intent) => !childByPredecessor.has(intent.intentDigest));
-  if (tips.length !== 1) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover receipts do not have one maximal tip');
-  }
-  const tip = tips[0]!;
-  if (tip.phase !== 'complete') {
-    active = tip;
-  }
-  for (const intent of latestIntents) {
-    if (intent.phase !== 'complete' && intent.intentDigest !== tip.intentDigest) {
-      throw new SecError('RUNTIME-DEPS-004', 'Multiple incomplete dependency transition rollovers require owner recovery');
-    }
-  }
-  const completeIntents = latestIntents.filter((intent) => intent.phase === 'complete');
-  let latestComplete: DependencyTransitionRolloverIntent | null = null;
-  for (const intent of completeIntents) {
-    if (latestComplete !== null && latestComplete.sequence === intent.sequence) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover complete receipts fork at one sequence');
-    }
-    if (latestComplete === null || intent.sequence > latestComplete.sequence) latestComplete = intent;
-  }
-  runtimeDependencyOperationRemainingMs(options, 'Dependency transition rollover census readback');
-  return Object.freeze({ namespace, active, latestComplete });
+  const history = analyzeRolloverHistory(receipts, residue, active);
+  active();
+  return Object.freeze({ namespace, active: history.active, latestComplete: history.latestComplete });
 }
 
 export async function recoverDependencyTransitionRollover(
   ownerRoot: string,
-  options: RuntimeDependencyOperationOptions
+  inputOptions: RuntimeDependencyEffectFenceInput
 ): Promise<void> {
+  ownerRoot = path.resolve(ownerRoot);
+  const options = runtimeDependencyEffectFenceOptions(inputOptions);
   runtimeDependencyOperationRemainingMs(options, 'Dependency transition rollover recovery admission');
   const observation = await inspectActiveDependencyTransitionRollover(ownerRoot, options);
+  runtimeDependencyOperationRemainingMs(options, 'Dependency transition recovery observation readback');
   if (observation === null || observation.active === null) return;
   const { namespace } = observation;
   let intent = observation.active;
@@ -1457,6 +1307,11 @@ export async function recoverDependencyTransitionRollover(
   }
 
   if (intent.phase === 'retiring') {
+    const replacement = assertDependencyTransitionRolloverDirectory(
+      inspectOptionalNoFollowDirectoryChild(journalRoot, path.basename(namespace.recordsRootPath),
+        'Dependency transition replacement checkpoint pre-disposal'),
+      intent.publishedRecordsRootPhysical, 'Dependency transition replacement checkpoint pre-disposal');
+    await assertDependencyTransitionRolloverCheckpoint(replacement, intent, options);
     const retired = inspectOptionalNoFollowDirectoryChild(
       rolloversRoot,
       retiredName,
@@ -1556,23 +1411,31 @@ export async function rolloverDependencyTransitionLedger(
   ownerRoot: string,
   ledger: DependencyTransitionLedger,
   terminal: DependencyTransitionJournal,
-  options: RuntimeDependencyOperationOptions
+  inputOptions: RuntimeDependencyEffectFenceInput
 ): Promise<DependencyTransitionJournal> {
-  runtimeDependencyOperationRemainingMs(options, 'Dependency transition rollover admission');
-  assertDependencyTransitionTerminalRolloverReady(terminal, ledger.namespace);
-  if (ledger.tip?.recordDigest !== terminal.recordDigest ||
-      ledger.records.size < DEPENDENCY_TRANSITION_ROLLOVER_TRIGGER ||
-      ledger.records.size > DEPENDENCY_TRANSITION_RECORD_CAPACITY ||
-      ledger.ledgerDigest !== dependencyTransitionLedgerDigest(ledger.records)) {
+  ownerRoot = path.resolve(ownerRoot);
+  // Fix the caller's terminal and ledger decision before the first provider/clock.
+  terminal = parseDependencyTransitionRecord(dependencyTransitionRecordBytes(terminal));
+  const { namespace: observedNamespace, ledgerDigest, tip, records } = ledger;
+  const recordCount = records.size;
+  const observedLedgerDigest = dependencyTransitionLedgerDigest(records);
+  const observedRecordsPhysical = generatedStatePhysicalIdentity(observedNamespace.recordsRoot);
+  assertDependencyTransitionTerminalRolloverReady(terminal, observedNamespace);
+  if (tip?.recordDigest !== terminal.recordDigest ||
+      recordCount < DEPENDENCY_TRANSITION_ROLLOVER_TRIGGER ||
+      recordCount > DEPENDENCY_TRANSITION_RECORD_CAPACITY ||
+      ledgerDigest !== observedLedgerDigest) {
     throw new SecError('RUNTIME-DEPS-004', 'Dependency transition ledger rollover predecessor receipt is invalid');
   }
+  const options = runtimeDependencyEffectFenceOptions(inputOptions);
+  runtimeDependencyOperationRemainingMs(options, 'Dependency transition rollover admission');
   // The new root is a receipt for the already authenticated terminal ledger,
   // never a caller-supplied prepared operation.  This derivation must happen
   // before the durable intent so a crash cannot turn arbitrary caller fields
   // into recovery authority.
   const checkpoint = dependencyTransitionTerminalCheckpoint(
     terminal,
-    ledger.ledgerDigest
+    ledgerDigest
   );
   await assertDependencyTransitionTerminalReadback(terminal, options);
   for (const slot of [terminal.stage, terminal.stageRoot, terminal.backup]) {
@@ -1590,12 +1453,12 @@ export async function rolloverDependencyTransitionLedger(
       ) ||
       !sameGeneratedStateIdentity(
         generatedStatePhysicalIdentity(namespace.recordsRoot),
-        generatedStatePhysicalIdentity(ledger.namespace.recordsRoot)
+        observedRecordsPhysical
       )) {
     throw new SecError('RUNTIME-DEPS-004', 'Dependency transition ledger namespace changed before rollover');
   }
   const priorRollover = await inspectActiveDependencyTransitionRollover(ownerRoot, options);
-  if (priorRollover?.active !== null) {
+  if (priorRollover !== null && priorRollover.active !== null) {
     throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover already has an active recovery intent');
   }
   const previousIntentDigest = priorRollover?.latestComplete?.intentDigest ?? null;
@@ -1608,8 +1471,8 @@ export async function rolloverDependencyTransitionLedger(
     sequence,
     ownerRoot: namespace.ownerRoot.path,
     terminalRecordDigest: terminal.recordDigest,
-    ledgerDigest: ledger.ledgerDigest,
-    recordCount: ledger.records.size,
+    ledgerDigest,
+    recordCount,
     checkpoint
   });
   const nextName = `records-next-${stem}`;
@@ -1635,8 +1498,8 @@ export async function rolloverDependencyTransitionLedger(
     terminal,
     previousIntentDigest,
     sequence,
-    ledgerDigest: ledger.ledgerDigest,
-    recordCount: ledger.records.size,
+    ledgerDigest,
+    recordCount,
     checkpoint,
     nextRecordsPhysical: null
   });
@@ -1650,37 +1513,9 @@ export async function rolloverDependencyTransitionLedger(
     intent,
     options
   );
-  // The prepared intent is the durable owner receipt before any new records
-  // root exists.  Recovery can therefore finish a crash after namespace
-  // creation without treating an unreferenced `records-next-*` directory as
-  // a foreign cleanup candidate.
-  await runtimeDependencyOperationEffectFence(options, 'Dependency transition rollover next-root creation');
-  const next = createExclusiveNoFollowDirectory(namespace.rolloversRoot, nextName);
-  const staged = advanceDependencyTransitionRolloverIntent(intent, 'staged', {
-    retiredRecordsPhysical: null,
-    retiredRecordsDisposed: false,
-    nextRecordsPhysical: generatedStatePhysicalIdentity(next),
-    publishedRecordsRootPhysical: null
-  });
-  await writeDependencyTransitionRolloverIntentPhase(
-    Object.freeze({
-      ownerRoot: namespace.ownerRoot,
-      journalRoot: namespace.journalRoot,
-      rolloversRoot: namespace.rolloversRoot,
-      recordsRootPath: namespace.recordsRoot.path
-    }),
-    staged,
-    options
-  );
-  await runtimeDependencyOperationEffectFence(options, 'Dependency transition rollover checkpoint publication');
-  writeDurableTransitionFile(
-    next,
-    transitionRecordName(checkpoint.recordDigest),
-    dependencyTransitionRecordBytes(checkpoint),
-    assertDependencyTransitionRecordBytes,
-    true
-  );
-  await assertDependencyTransitionRolloverCheckpoint(next, staged, options);
+  // Normal completion and restart recovery use exactly the same phase executor.
+  // The prepared receipt owns the deterministic next-root path even when a
+  // crash occurs after directory creation but before its staged receipt.
   await recoverDependencyTransitionRollover(ownerRoot, options);
   const afterNamespace = inspectDependencyTransitionNamespace(ownerRoot);
   const afterRollover = await inspectActiveDependencyTransitionRollover(ownerRoot, options);
@@ -1713,5 +1548,6 @@ export async function rolloverDependencyTransitionLedger(
   ) {
     throw new SecError('RUNTIME-DEPS-004', 'Dependency transition ledger rollover did not publish its checkpoint');
   }
+  runtimeDependencyOperationRemainingMs(options, 'Dependency transition rollover final readback');
   return after.tip;
 }

@@ -12,7 +12,6 @@ import {
 import {
   evaluateSecSkillApplicability,
   isSecSkillQuarantinePath,
-  SEC_SKILL_APPLICABILITY_SCHEMA,
   SEC_SKILL_QUARANTINE_EXACT_PATHS,
   type SecAgentRole,
   type SecAgentSkillId,
@@ -45,12 +44,6 @@ function gitOutput(args: readonly string[]): string {
   });
   if (result.status !== 0) throw new Error(result.stderr);
   return result.stdout.trim();
-}
-
-function trackedQuarantinePaths(): string[] {
-  return gitOutput(['ls-files', '-z'])
-    .split('\0')
-    .filter((repositoryPath) => repositoryPath.length > 0 && isSecSkillQuarantinePath(repositoryPath));
 }
 
 function gitOutputOrNull(args: readonly string[]): string | null {

@@ -22,19 +22,13 @@ declare module '../../runtime/database.ts' {
 }
 
 function getAgentsTable(db: Database): AIAgentRecord[] {
-  const d = db as any;
-  if (!d.agents) {
-    d.agents = [];
-  }
-  return d.agents;
+  return db.agents ??= [];
 }
 
 function useNextAgentId(db: Database): number {
-  const d = db as any;
-  if (d.nextAgentId === undefined) {
-    d.nextAgentId = 1;
-  }
-  return d.nextAgentId++;
+  const nextId = db.nextAgentId ?? 1;
+  db.nextAgentId = nextId + 1;
+  return nextId;
 }
 
 export function registerAgent(db: Database, session: Session, input: AIAgentInput): AIAgentRecord {
@@ -57,16 +51,16 @@ export function registerAgent(db: Database, session: Session, input: AIAgentInpu
 
 export function listAgents(db: Database, session: Session): AIAgentRecord[] {
   const tenantId = currentTenant(session);
-  return getAgentsTable(db).filter((a) => a.tenantId === tenantId);
+  return getAgentsTable(db).filter((agent) => agent.tenantId === tenantId);
 }
 
 export function verifyAgentZonePermission(db: Database, session: Session, agentId: number, zone: string): boolean {
   const tenantId = currentTenant(session);
-  const agents = getAgentsTable(db);
-  const agent = agents.find((a) => a.id === agentId && a.tenantId === tenantId);
-  if (!agent || !agent.isActive) {
-    return false;
-  }
-  const zones = agent.allowedZones.split(',').map((z) => z.trim());
+  const agent = getAgentsTable(db).find(
+    (candidate) => candidate.id === agentId && candidate.tenantId === tenantId
+  );
+  if (!agent?.isActive) return false;
+
+  const zones = agent.allowedZones.split(',').map((entry) => entry.trim());
   return zones.includes(zone) || zones.includes('*');
 }

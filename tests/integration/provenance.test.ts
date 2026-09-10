@@ -6,7 +6,6 @@ import { buildProvenance } from '../../src/compiler/emit/write-provenance.ts';
 import type { PolicyReport } from '../../src/compiler/policies/contract/types.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../src/verification/contract/types.ts';
-import { buildExpectedProductVerificationClaimSummary } from '../../src/verification/profile/contract/product.ts';
 import { writeJson } from '../../src/workspace/files.ts';
 import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
 import { buildOfficialCopyInstallStep } from '../helpers/lock-fixtures.ts';
@@ -130,9 +129,9 @@ test('buildProvenance consumes only a complete canonical Verification artifact s
       verifiedBy: ['tests/unit/customer-runtime.test.ts']
     });
     expect(provenance.artifacts.map((artifact) => [artifact.path, artifact.generatedByPass])).toEqual([
-      ['control/graph/explain-graph.json', 'explain'],
-      ['control/workflow/repair-plan.json', 'repair'],
-      ['control/workflow/upgrade-plan.json', 'upgrade'],
+      [CI_ARTIFACT_FILES.explainGraph, 'explain'],
+      [CI_ARTIFACT_FILES.repairPlan, 'repair'],
+      [CI_ARTIFACT_FILES.upgradePlan, 'upgrade'],
       ['src/installed/entity/customer-service.ts', 'compose'],
       ['tests/unit/customer-runtime.test.ts', 'compose']
     ]);

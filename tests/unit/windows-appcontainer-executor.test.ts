@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -592,7 +593,7 @@ test('Windows AppContainer exact native-helper production entry builds without A
 });
 
 test('Windows AppContainer exact native-helper bundle self-boots its finite Worker role', async () => {
-  const root = await mkdtemp(path.join(process.cwd(), '.tmp-appcontainer-helper-worker-'));
+  const root = await mkdtemp(path.join(tmpdir(), '.tmp-appcontainer-helper-worker-'));
   let worker: Worker | undefined;
   try {
     const helperPath = path.join(root, 'native-helper.mjs');
@@ -622,7 +623,7 @@ test('Windows AppContainer exact native-helper bundle self-boots its finite Work
 });
 
 test('Windows AppContainer owner pending publication recovers before rename and after rename', async () => {
-  const root = await mkdtemp(path.join(process.cwd(), '.tmp-appcontainer-owner-publication-'));
+  const root = await mkdtemp(path.join(tmpdir(), '.tmp-appcontainer-owner-publication-'));
   const ownerName = '.semantic-mutation-appcontainer-provisional-owner-v1.json';
   const pendingName = `${ownerName}.pending-v1`;
   try {

@@ -17,17 +17,17 @@ export function compileClosedDirectedGraphStrongComponents<NodeId extends string
   edges: readonly DirectedGraphEdge<NodeId>[]
 ): readonly (readonly NodeId[])[] {
   const orderedNodeIds = [...new Set(nodeIds)].sort(directedGraphTextOrder);
-  const nodeSet = new Set(orderedNodeIds);
   const targetsByNodeId = new Map<NodeId, Set<NodeId>>(
     orderedNodeIds.map((nodeId) => [nodeId, new Set<NodeId>()])
   );
   for (const edge of edges) {
-    if (!nodeSet.has(edge.from) || !nodeSet.has(edge.to)) {
+    const { from, to } = edge;
+    if (!targetsByNodeId.has(from) || !targetsByNodeId.has(to)) {
       throw new Error(
-        `[directed-graph-unknown-endpoint] ${JSON.stringify(edge.from)} -> ${JSON.stringify(edge.to)}`
+        `[directed-graph-unknown-endpoint] ${JSON.stringify(from)} -> ${JSON.stringify(to)}`
       );
     }
-    targetsByNodeId.get(edge.from)!.add(edge.to);
+    targetsByNodeId.get(from)!.add(to);
   }
 
   const indexByNodeId = new Map<NodeId, number>();
@@ -36,40 +36,61 @@ export function compileClosedDirectedGraphStrongComponents<NodeId extends string
   const onStack = new Set<NodeId>();
   const components: NodeId[][] = [];
   let nextIndex = 0;
-  const visit = (nodeId: NodeId): void => {
+  type VisitFrame = {
+    readonly nodeId: NodeId;
+    readonly targets: Iterator<NodeId>;
+  };
+  const frames: VisitFrame[] = [];
+  const enter = (nodeId: NodeId): void => {
     indexByNodeId.set(nodeId, nextIndex);
     lowLinkByNodeId.set(nodeId, nextIndex);
     nextIndex += 1;
     stack.push(nodeId);
     onStack.add(nodeId);
-    const orderedTargets = [...targetsByNodeId.get(nodeId)!].sort(directedGraphTextOrder);
-    for (const target of orderedTargets) {
-      if (!indexByNodeId.has(target)) {
-        visit(target);
+    // SCC membership is independent of DFS edge order. Canonicalize the
+    // returned partition below, not every adjacency list on the hot path.
+    frames.push({ nodeId, targets: targetsByNodeId.get(nodeId)!.values() });
+  };
+
+  for (const root of orderedNodeIds) {
+    if (indexByNodeId.has(root)) continue;
+    enter(root);
+    while (frames.length > 0) {
+      const frame = frames[frames.length - 1]!;
+      const { nodeId } = frame;
+      const next = frame.targets.next();
+      if (!next.done) {
+        const target = next.value;
+        if (!indexByNodeId.has(target)) {
+          enter(target);
+        } else if (onStack.has(target)) {
+          lowLinkByNodeId.set(
+            nodeId,
+            Math.min(lowLinkByNodeId.get(nodeId)!, indexByNodeId.get(target)!)
+          );
+        }
+        continue;
+      }
+
+      frames.pop();
+      if (lowLinkByNodeId.get(nodeId) === indexByNodeId.get(nodeId)) {
+        const component: NodeId[] = [];
+        for (;;) {
+          const member = stack.pop()!;
+          onStack.delete(member);
+          component.push(member);
+          if (member === nodeId) break;
+        }
+        components.push(component.sort(directedGraphTextOrder));
+      }
+      const parent = frames[frames.length - 1];
+      if (parent !== undefined) {
         lowLinkByNodeId.set(
-          nodeId,
-          Math.min(lowLinkByNodeId.get(nodeId)!, lowLinkByNodeId.get(target)!)
-        );
-      } else if (onStack.has(target)) {
-        lowLinkByNodeId.set(
-          nodeId,
-          Math.min(lowLinkByNodeId.get(nodeId)!, indexByNodeId.get(target)!)
+          parent.nodeId,
+          Math.min(lowLinkByNodeId.get(parent.nodeId)!, lowLinkByNodeId.get(nodeId)!)
         );
       }
     }
-    if (lowLinkByNodeId.get(nodeId) !== indexByNodeId.get(nodeId)) return;
-    const component: NodeId[] = [];
-    for (;;) {
-      const member = stack.pop()!;
-      onStack.delete(member);
-      component.push(member);
-      if (member === nodeId) break;
-    }
-    components.push(component.sort(directedGraphTextOrder));
-  };
-
-  for (const nodeId of orderedNodeIds) {
-    if (!indexByNodeId.has(nodeId)) visit(nodeId);
   }
   return Object.freeze(components
     .sort((left, right) => directedGraphTextOrder(left[0]!, right[0]!))

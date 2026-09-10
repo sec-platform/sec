@@ -129,6 +129,8 @@ SemanticCheckActionKey = digest(
 
 相同ActionKey可复用terminal；输入变化只失效反向可达shards。Final frozen tree/environment只需一次full Evidence；editing循环使用editing service或affected closure，不反复裸跑full checker。SEC self-hosting所选的具体语言/checker与性能绑定只由 [Runtime and Distribution](../runtime-and-distribution.md) 的toolchain profile拥有，本片段不复制。
 
+跨revision的compact semantic unit必须分离语义相等与source occurrence身份：`signature`只描述可比较的semantic shape，`occurrenceId`绑定compiler观察到的精确path或source span，`id`再绑定kind、path、occurrence与signature。同一path出现多个同形entrypoint时必须保留每个compiler occurrence；匹配先保留唯一exact occurrence，再保留两侧各自唯一的同path候选，最后才允许两侧各自唯一的跨path候选。任何剩余多候选都返回typed ambiguity，不能按数组顺序、last-write或去重选择。该strict字段集合属于Evidence schema；schema变化必须改变ActionKey并使旧cache失效，不能用optional默认把旧Evidence解释为新观察。
+
 ## 6. Performance model
 
 目标不是常驻daemon，而是消除重复Observation与不可验证的cold setup：
@@ -162,6 +164,8 @@ IncrementalCorrect =
 ## 7. Resource and failure boundary
 
 Observation、frontend、attach与consumer projection共享一个operation allocation：entries、bytes、depth、memory、CPU/time、open handles/processes与output。不得每层重置deadline/counter，也不得为算bytes预扫整棵树后再扫描。
+
+同一约束覆盖启动受监督子进程之前的同步准备：baseline census、Test Value、owner intent 与 supersession Evidence 都继承父 operation，并在实际迭代中检查取消和截止时间。只限制后续子进程或只在大循环前后检查，不能证明准备阶段有界。候选文件、导出等共享索引按 immutable model identity 构造一次并在 batch 内复用；索引只降低成本，不改变观察结果或取得新的 authority。
 
 Frontend优先single-pass streaming inventory并在同一次读取中计算content digest、byte consumption与facts；若协议要求readback，再以明确的第二阶段budget执行。Abort/deadline/permission/unsafe path/parser failure保留typed原因，不能catch为`false/null/absent`。
 

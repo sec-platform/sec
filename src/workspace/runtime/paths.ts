@@ -67,7 +67,13 @@ export function isPathInside(root: string, targetPath: string): boolean {
   const resolvedRoot = path.resolve(root);
   const resolvedTarget = path.resolve(targetPath);
   const relative = path.relative(resolvedRoot, resolvedTarget);
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+  // This is lexical containment, not symlink/reparse-point admission. Only
+  // a complete parent segment escapes; a child named '..cache' does not.
+  return relative === '' || (
+    relative !== '..' &&
+    !relative.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relative)
+  );
 }
 
 export function resolvePathInside(root: string, relativePath: string, options: { allowEmpty?: boolean } = {}): string | null {

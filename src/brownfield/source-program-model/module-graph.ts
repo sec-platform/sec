@@ -2,9 +2,7 @@ import nodePath from 'node:path';
 
 import { assertCanonicalPortableLogicalPath } from '../../system-architecture/foundation/contract/logical-path.ts';
 import type {
-  SecRepositoryModuleGraph,
-  SecRepositoryModuleGraphImport,
-  SecRepositoryModuleGraphImportObservation,
+  SecRepositoryModuleGraph, SecRepositoryModuleGraphImportObservation,
   SecRepositoryModuleGraphReference
 } from '../../system-architecture/repository-modules/contract.ts';
 import {
@@ -77,7 +75,7 @@ export function assembleSecRepositoryModuleGraph(
     (input.unresolvedFiles ?? []).map(canonicalRepositoryPath)
   );
   const references: SecRepositoryModuleGraphReference[] = [];
-  const reverseConsumers = new Map<string, string[]>();
+  const reverseConsumers = new Map<string, Set<string>>();
   const forwardDependencies = new Map<string, Set<string>>();
   const runtimeForwardDependencies = new Map<string, Set<string>>();
 
@@ -93,7 +91,13 @@ export function assembleSecRepositoryModuleGraph(
     const imports = importsByFile.get(moduleFile) ?? Object.freeze([]);
     const uniqueImports = new Map<string, SecRepositoryModuleGraphImportObservation>();
     for (const reference of imports) {
-      uniqueImports.set(`${reference.kind}\0${reference.specifier}`, reference);
+      const key = `${reference.kind}\0${reference.specifier}`;
+      const previous = uniqueImports.get(key);
+      // Runtime membership is a union: a later type-only import must not erase
+      // a value import of the same target. The result is input-order independent.
+      if (previous === undefined || (previous.typeOnly && !reference.typeOnly)) {
+        uniqueImports.set(key, reference);
+      }
     }
     for (const reference of uniqueImports.values()) {
       const candidates = resolveSecRepositoryModuleImportCandidates(moduleFile, reference.specifier);
@@ -128,13 +132,19 @@ export function assembleSecRepositoryModuleGraph(
         }
       }
       for (const candidate of candidates) {
-        const consumers = reverseConsumers.get(candidate) ?? [];
-        if (!consumers.includes(moduleFile)) consumers.push(moduleFile);
+        const consumers = reverseConsumers.get(candidate) ?? new Set<string>();
+        consumers.add(moduleFile);
         reverseConsumers.set(candidate, consumers);
       }
     }
   }
-  for (const consumers of reverseConsumers.values()) consumers.sort(textOrder);
+  // Build canonical adjacency once. Repeated graph queries only copy the
+  // frozen result; they no longer sort the same dependency sets every time.
+  const sortedAdjacency = (index: ReadonlyMap<string, ReadonlySet<string>>) =>
+    new Map([...index].map(([key, values]) => [key, Object.freeze([...values].sort(textOrder))] as const));
+  const consumersByPath = sortedAdjacency(reverseConsumers);
+  const dependenciesByPath = sortedAdjacency(forwardDependencies);
+  const runtimeDependenciesByPath = sortedAdjacency(runtimeForwardDependencies);
   references.sort((left, right) => (
     textOrder(left.from, right.from)
     || textOrder(left.specifier, right.specifier)
@@ -145,13 +155,13 @@ export function assembleSecRepositoryModuleGraph(
     references: Object.freeze(references),
     unresolvedFiles: Object.freeze([...unresolvedFiles].sort(textOrder)),
     directConsumers: (modulePath) => Object.freeze([
-      ...(reverseConsumers.get(canonicalRepositoryPath(modulePath)) ?? [])
+      ...(consumersByPath.get(canonicalRepositoryPath(modulePath)) ?? [])
     ]),
     directDependencies: (modulePath) => Object.freeze([
-      ...(forwardDependencies.get(canonicalRepositoryPath(modulePath)) ?? [])
-    ].sort(textOrder)),
+      ...(dependenciesByPath.get(canonicalRepositoryPath(modulePath)) ?? [])
+    ]),
     directRuntimeDependencies: (modulePath) => Object.freeze([
-      ...(runtimeForwardDependencies.get(canonicalRepositoryPath(modulePath)) ?? [])
-    ].sort(textOrder))
+      ...(runtimeDependenciesByPath.get(canonicalRepositoryPath(modulePath)) ?? [])
+    ])
   });
 }

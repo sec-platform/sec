@@ -1,15 +1,18 @@
-import { lstat, mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { lstat, mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
 import { settlePhysicalResourcesAsync } from '../../../runtime-state/physical/runtime/resource-settlement.ts';
+import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
 import { digest } from '../../../system-architecture/foundation/runtime/canonical.ts';
 
 import {
   assertCompilerDependencyExecutionRetirementReceipt,
   assertCompilerDependencyReadGenerationRetirementReceipt,
+  assertRetainedCompilerDependencyReadGeneration,
   observeCompilerDependencyExecutionGenerationAuthority,
   retainCompilerDependencyExecutionGeneration,
   retainCompilerDependencyReadGeneration,
@@ -59,8 +62,15 @@ function fixtureDescriptor(dependencyRootPath: string) {
   } as const;
 }
 
+async function removeFixtureRuntimeState(dependencyRoot: string): Promise<void> {
+  if (!existsSync(dependencyRoot)) return;
+  const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: dependencyRoot });
+  await rm(runtimeRoots.workspaceStateRoot, { recursive: true, force: true });
+}
+
 test('dependency fixture operation owns lifecycle-backed publication and retirement', async () => {
   const ownerRoot = await mkdtemp(path.join(tmpdir(), 'sec-dependency-fixture-owner-'));
+  const dependencyRoot = path.join(ownerRoot, 'dependencies');
   let retainedGeneration: RetainedCompilerDependencyExecutionGeneration | null = null;
   let operation: Awaited<ReturnType<typeof issueCompilerDependencyFixtureOperation>> | null = null;
   let operationRetirementAttempted = false;
@@ -68,29 +78,29 @@ test('dependency fixture operation owns lifecycle-backed publication and retirem
   let primary: Readonly<{ label: string; error: unknown }> | undefined;
   try {
     operation = await issueCompilerDependencyFixtureOperation(
-      fixtureDescriptor(path.join(ownerRoot, 'dependencies'))
+      fixtureDescriptor(dependencyRoot)
     );
     await expect(settleCompilerDependencyFixtureOperation({ ...operation }))
       .rejects.toThrow('was not issued by the dependency test owner');
 
     expect(await observeCompilerDependencyExecutionGenerationAuthority(
       { deadlineAtUnixMs: Date.now() + 30_000 },
-      path.join(ownerRoot, 'dependencies')
+      dependencyRoot
     )).toBeNull();
-    await expect(lstat(path.join(ownerRoot, 'dependencies', '.tmp')))
+    await expect(lstat(path.join(dependencyRoot, '.tmp')))
       .rejects.toMatchObject({ code: 'ENOENT' });
-    const foreignNodeModules = path.join(ownerRoot, 'dependencies', 'node_modules');
+    const foreignNodeModules = path.join(dependencyRoot, 'node_modules');
     await mkdir(foreignNodeModules);
     await expect(observeCompilerDependencyExecutionGenerationAuthority(
       { deadlineAtUnixMs: Date.now() + 30_000 },
-      path.join(ownerRoot, 'dependencies')
+      dependencyRoot
     )).rejects.toThrow('present without an exact owner binding');
     await rm(foreignNodeModules, { recursive: true });
 
     const first = await settleCompilerDependencyFixtureOperation(operation);
     const observedAuthority = await observeCompilerDependencyExecutionGenerationAuthority(
       { deadlineAtUnixMs: Date.now() + 30_000 },
-      path.join(ownerRoot, 'dependencies')
+      dependencyRoot
     );
     expect(observedAuthority).not.toBeNull();
     const firstGeneration = await retainCompilerDependencyExecutionGeneration(
@@ -103,16 +113,13 @@ test('dependency fixture operation owns lifecycle-backed publication and retirem
       { deadlineAtUnixMs: Date.now() + 30_000 }
     );
     expect(readGeneration.generationDigest).toBe(observedAuthority!.generationDigest);
-    const readRetirement = await readGeneration.retire();
-    expect(await readGeneration.retire()).toBe(readRetirement);
-    assertCompilerDependencyReadGenerationRetirementReceipt(
-      readRetirement,
-      observedAuthority!.generationDigest
-    );
-    expect(() => assertCompilerDependencyReadGenerationRetirementReceipt(
-      { ...readRetirement },
-      observedAuthority!.generationDigest
-    )).toThrow('was not issued for the expected generation');
+    expect(() => assertRetainedCompilerDependencyReadGeneration(readGeneration)).not.toThrow();
+    expect(() => assertRetainedCompilerDependencyReadGeneration({ ...readGeneration }))
+      .toThrow('not owner-issued');
+    expect(() => assertRetainedCompilerDependencyReadGeneration({
+      ...readGeneration,
+      generationDigest: `sha256:${digest(Buffer.from('foreign-generation'))}`
+    })).toThrow('not owner-issued');
     expect(firstGeneration.directRootResolution).toEqual({
       entries: [{
         declaredName: '@types/bun',
@@ -151,7 +158,25 @@ test('dependency fixture operation owns lifecycle-backed publication and retirem
     assertCompilerDependencyExecutionRetirementReceipt(retirement);
     expect(() => assertCompilerDependencyExecutionRetirementReceipt({ ...retirement }))
       .toThrow('was not issued by its owner');
-    await expect(lstat(firstGenerationPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect((await lstat(firstGenerationPath)).isDirectory()).toBeTrue();
+
+    const readRetirement = await readGeneration.retire();
+    expect(await readGeneration.retire()).toBe(readRetirement);
+    assertCompilerDependencyReadGenerationRetirementReceipt(
+      readRetirement,
+      observedAuthority!.generationDigest
+    );
+    expect(() => assertCompilerDependencyReadGenerationRetirementReceipt(
+      { ...readRetirement },
+      observedAuthority!.generationDigest
+    )).toThrow('was not issued for the expected generation');
+    const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: dependencyRoot });
+    expect(await readdir(path.join(
+      runtimeRoots.workspaceStateRoot,
+      'compiler-dependency-coordination',
+      'v1',
+      'consumers'
+    ))).toEqual([]);
 
     const repeated = await settleCompilerDependencyFixtureOperation(operation);
     expect(repeated.nodeModulesPath).toBe(second.nodeModulesPath);
@@ -184,6 +209,12 @@ test('dependency fixture operation owns lifecycle-backed publication and retirem
           operationRetired = true;
         }
       }, {
+        label: 'compiler-dependency-fixture-runtime-state',
+        settle: async () => {
+          if (operation !== null && !operationRetired) return;
+          await removeFixtureRuntimeState(dependencyRoot);
+        }
+      }, {
         label: 'compiler-dependency-fixture-owner-root',
         settle: async () => {
           if (operation !== null && !operationRetired) return;
@@ -213,6 +244,7 @@ test('dependency fixture finally retires generated state without replacing its p
   expect(observed).toBe(primary);
   await expect(lstat(path.join(dependencyRoot, 'node_modules')))
     .rejects.toMatchObject({ code: 'ENOENT' });
+  await removeFixtureRuntimeState(dependencyRoot);
   await rm(ownerRoot, { recursive: true, force: true });
 }, 90_000);
 

@@ -7,10 +7,6 @@ export function expectGraphNode(graph: Pick<ExplainGraph, 'nodes'>, expected: Pa
   expect(graph.nodes).toContainEqual(expect.objectContaining(expected));
 }
 
-export function expectNoGraphNode(graph: Pick<ExplainGraph, 'nodes'>, expected: Partial<ExplainGraphNode>): void {
-  expect(graph.nodes).not.toContainEqual(expect.objectContaining(expected));
-}
-
 export function expectGraphEdge(graph: Pick<ExplainGraph, 'edges'>, expected: Partial<ExplainGraphEdge>): void {
   expect(graph.edges).toContainEqual(expect.objectContaining(expected));
 }

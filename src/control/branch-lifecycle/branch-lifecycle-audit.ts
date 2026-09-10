@@ -83,6 +83,8 @@ export interface BranchLifecycleSelectionProjection {
   readonly activeBranch: string | null;
   readonly activeHeadSha: string | null;
   readonly activeLegality: 'not-applicable' | 'legal' | 'invalid';
+  readonly preservedPullRequests: readonly BranchLifecycleSelectionPullRequest[];
+  readonly inventoryObservationDigest: `sha256:${string}`;
   readonly closeoutState: 'none' | 'required';
   readonly blockerRefs: readonly `sha256:${string}`[];
   readonly projectionDigest: `sha256:${string}`;
@@ -165,12 +167,36 @@ function normalizeSelectionWorktrees(
   return Object.freeze(normalized);
 }
 
+function normalizeSelectionPullRequests(
+  entries: readonly BranchLifecycleSelectionPullRequest[],
+  label: string
+): readonly BranchLifecycleSelectionPullRequest[] {
+  const normalized = entries.map((pullRequest, index) => {
+    if (!Number.isSafeInteger(pullRequest.number) || pullRequest.number < 1) {
+      throw new Error(`${label}[${index}].number must be positive.`);
+    }
+    assertGitBranchName(pullRequest.headBranch, `${label}[${index}].headBranch`);
+    assertGitSha(pullRequest.headSha, `${label}[${index}].headSha`);
+    assertGitBranchName(pullRequest.baseBranch, `${label}[${index}].baseBranch`);
+    assertGitSha(pullRequest.baseSha, `${label}[${index}].baseSha`);
+    return Object.freeze({ ...pullRequest });
+  }).sort((left, right) => left.number - right.number);
+  if (new Set(normalized.map(({ number }) => number)).size !== normalized.length) {
+    throw new Error(`${label} contains a duplicate pull-request number.`);
+  }
+  if (new Set(normalized.map(({ headBranch }) => headBranch)).size !== normalized.length) {
+    throw new Error(`${label} contains a duplicate pull-request branch.`);
+  }
+  return Object.freeze(normalized);
+}
+
 /**
  * Bounded #313 projection for Work Selection. The caller observes only the
- * non-default ref/worktree namespace and at most one OPEN pull request; this owner
- * validates the exact prospective or active transport and decides whether any
- * remaining physical subject requires closeout. It deliberately does not scan
- * historical PRs, comments, or artifacts and does not authorize mutation.
+ * complete non-default ref/worktree namespace, one selected OPEN pull request,
+ * and every unselected OPEN pull request. This owner validates the exact active,
+ * preserved, and prospective transports and decides whether any remaining
+ * physical subject requires closeout. It deliberately does not scan historical
+ * PRs, comments, or artifacts and does not authorize mutation.
  */
 export function projectBranchLifecycleForWorkSelection(input: Readonly<{
   exactMain: string;
@@ -179,6 +205,7 @@ export function projectBranchLifecycleForWorkSelection(input: Readonly<{
   remoteRefs: readonly BranchLifecycleSelectionRef[];
   worktrees: readonly BranchLifecycleSelectionWorktree[];
   openPullRequests: readonly BranchLifecycleSelectionPullRequest[];
+  preservedOpenPullRequests: readonly BranchLifecycleSelectionPullRequest[];
   prospectiveTransport: BranchLifecycleProspectiveTransport | null;
 }>): BranchLifecycleSelectionProjection {
   assertGitSha(input.exactMain, 'Work-selection lifecycle exactMain');
@@ -189,16 +216,25 @@ export function projectBranchLifecycleForWorkSelection(input: Readonly<{
   if (input.openPullRequests.length > 1) {
     throw new Error('Work-selection lifecycle projection accepts at most one OPEN pull request.');
   }
-  const openPullRequests = Object.freeze(input.openPullRequests.map((pullRequest, index) => {
-    if (!Number.isSafeInteger(pullRequest.number) || pullRequest.number < 1) {
-      throw new Error(`openPullRequests[${index}].number must be positive.`);
-    }
-    assertGitBranchName(pullRequest.headBranch, `openPullRequests[${index}].headBranch`);
-    assertGitSha(pullRequest.headSha, `openPullRequests[${index}].headSha`);
-    assertGitBranchName(pullRequest.baseBranch, `openPullRequests[${index}].baseBranch`);
-    assertGitSha(pullRequest.baseSha, `openPullRequests[${index}].baseSha`);
-    return Object.freeze({ ...pullRequest });
-  }));
+  const openPullRequests = normalizeSelectionPullRequests(input.openPullRequests, 'openPullRequests');
+  const preservedOpenPullRequests = normalizeSelectionPullRequests(
+    input.preservedOpenPullRequests,
+    'preservedOpenPullRequests'
+  );
+  const completePullRequests = [...openPullRequests, ...preservedOpenPullRequests];
+  if (new Set(completePullRequests.map(({ number }) => number)).size !== completePullRequests.length) {
+    throw new Error('Selected and preserved pull requests contain a duplicate number.');
+  }
+  if (new Set(completePullRequests.map(({ headBranch }) => headBranch)).size !== completePullRequests.length) {
+    throw new Error('Selected and preserved pull requests contain a conflicting branch.');
+  }
+  const inventoryObservationDigest = branchLifecycleDigest({
+    localRefs,
+    remoteRefs,
+    worktrees,
+    openPullRequests,
+    preservedOpenPullRequests
+  });
   const prospectiveTransport = input.prospectiveTransport === null
     ? null
     : (() => {
@@ -256,7 +292,37 @@ export function projectBranchLifecycleForWorkSelection(input: Readonly<{
     });
   }
 
+  const preservedPullRequests: BranchLifecycleSelectionPullRequest[] = [];
+  const preservationBlockers: `sha256:${string}`[] = [];
+  for (const pullRequest of preservedOpenPullRequests) {
+    const local = localRefs.find(({ branch }) => branch === pullRequest.headBranch);
+    const remote = remoteRefs.find(({ branch }) => branch === pullRequest.headBranch);
+    const boundWorktrees = worktrees.filter(({ branch }) => branch === pullRequest.headBranch);
+    const legal = pullRequest.headBranch !== input.defaultBranch
+      && pullRequest.baseBranch === input.defaultBranch
+      && pullRequest.baseSha === input.exactMain
+      && remote?.sha === pullRequest.headSha
+      && (local === undefined || local.sha === pullRequest.headSha)
+      && boundWorktrees.every(({ headSha }) => headSha === pullRequest.headSha);
+    if (!legal) {
+      preservationBlockers.push(branchLifecycleDigest({
+        kind: 'invalid-preservation-candidate',
+        pullRequest
+      }));
+      continue;
+    }
+    preservedPullRequests.push(pullRequest);
+    allowedBranches.set(pullRequest.headBranch, pullRequest.headSha);
+    for (const worktree of boundWorktrees) {
+      allowedWorktrees.set(worktree.worktreeRef, {
+        branch: pullRequest.headBranch,
+        headSha: pullRequest.headSha
+      });
+    }
+  }
+
   const unexpected = [
+    ...preservationBlockers,
     ...localRefs.filter(({ branch, sha }) => allowedBranches.get(branch) !== sha)
       .map((entry) => branchLifecycleDigest({ kind: 'local-ref', ...entry })),
     ...remoteRefs.filter(({ branch, sha }) => allowedBranches.get(branch) !== sha)
@@ -274,6 +340,8 @@ export function projectBranchLifecycleForWorkSelection(input: Readonly<{
     activeBranch: active?.headBranch ?? null,
     activeHeadSha: active?.headSha ?? null,
     activeLegality,
+    preservedPullRequests: Object.freeze(preservedPullRequests),
+    inventoryObservationDigest,
     closeoutState: unexpected.length === 0 ? 'none' as const : 'required' as const,
     blockerRefs: Object.freeze(unexpected)
   });

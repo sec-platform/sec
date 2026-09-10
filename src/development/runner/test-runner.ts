@@ -8,6 +8,7 @@ import {
 } from '../../brownfield/source-program-model/compilation-operation.ts';
 import type { IssuedTestImpactProjection } from '../../brownfield/source-program-model/test-impact-projection.ts';
 import {
+  acquireWorkingTreeWorkspaceSourceSnapshot,
   assertWorkspaceTypeScriptProjectGenerationEvidence,
   type WorkspaceTypeScriptProjectGenerationEvidence
 } from '../../brownfield/source-program-model/workspace-source-snapshot.ts';
@@ -16,12 +17,14 @@ import {
   compileSecOperationDemandGraph,
   type SecOperationKind
 } from '../../control/operation/demand.ts';
-import { createAuthorityGitReadSession, type GitExecutableIdentity, type GitReadProviderIdentity, type GitReadProviderRoute, type GitReadSession, type GitReadSessionCommand } from '../../external-capabilities/git-read/runtime/session.ts';
+import { createAuthorityGitReadSession, type GitReadSession, type GitReadSessionCommand } from '../../external-capabilities/git-read/runtime/session.ts';
+import type { ProcessResourceSession } from '../../runtime-state/physical/runtime/process-resource-session.ts';
+import { settlePhysicalResourcesAsync } from '../../runtime-state/physical/runtime/resource-settlement.ts';
 import { secRuntimeStateEnvironment } from '../../runtime-state/workspace-state/layout.ts';
-import { deepFreeze, rawSha256, sha256, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { deepFreeze, rawSha256, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { uniqueSortedLines } from '../../system-architecture/foundation/runtime/collections.ts';
 import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
-import { isSecRepositoryTestModulePath } from '../../system-architecture/repository-modules/test-module-path.ts';
+import { isSecRepositoryTestModulePath, normalizeSecRepositoryTestModulePath } from '../../system-architecture/repository-modules/test-module-path.ts';
 import type { RetainedCompilerDependencyReadGeneration } from '../../toolchain/dependencies/runtime.ts';
 import { buildContractFreezeRunnerInvocations, type ContractFreezeTarget } from '../../verification/freeze.ts';
 import {
@@ -32,7 +35,12 @@ import {
   isAffectedSelectionFailClosed,
   projectAffectedSelectionToVerificationGateResult
 } from '../../verification/test-impact/affected.ts';
-import { compileTestBudgetProjection, FAST_TEST_PROCESS_POLICY_TEST_FILE, getFastTestFilesSync, getSlowTestFilesSync, isFastTestFile, isKnownSlowTestSuiteId, isSlowTestFile, slowTestSuiteFiles, slowTestSuiteIds, TEST_ARCHITECTURE_POLICY_TEST_FILE, type TestBudgetProjection } from '../../verification/test-impact/contract/budget.ts';
+import { compileTestBudgetProjection, FAST_TEST_PROCESS_POLICY_TEST_FILE, getFastTestFilesSync, getSlowTestFilesSync, isFastTestFile, isKnownSlowTestSuiteId, isSlowTestFile, issueTestInventoryProjection, slowTestSuiteFiles, slowTestSuiteIds, slowTestSuiteIdsForFile, TEST_ARCHITECTURE_POLICY_TEST_FILE, type IssuedTestInventoryProjection, type TestBudgetProjection } from '../../verification/test-impact/contract/budget.ts';
+import {
+  issueAffectedTestImpactSource,
+  readIssuedAffectedTestImpactBinding,
+  type AffectedGitSelectionObservation
+} from '../../verification/test-impact/runtime/affected-source.ts';
 import { createRepositoryTestImpactSourceProvider, formatSlowImpactNotice, type CodexDevelopmentTestImpactSourceProvider } from '../../verification/test-impact/runtime/impact.ts';
 import { CodexDevelopmentCreateTestImpactTransitionObservation, gitChangedFileDiffArgs, gitIndexChangedFileDiffArgs, gitPathBlobBatchArgs, gitUntrackedFileArgs, gitWorkingTreeStatusArgs, gitWorktreeChangedFileDiffArgs, parseGitChangedRecordsOutput, parseGitPathBlobBatchOutput, parseGitUntrackedFileOutput, type CodexDevelopmentTestImpactTransitionObservation } from '../../verification/test-impact/runtime/transition.ts';
 import { selectSlowTestRiskClosure } from '../../verification/test-impact/slow-risk-selection.ts';
@@ -43,7 +51,6 @@ import {
   affectedSelectionSourceCompilationDeadlineAtUnixMs,
   affectedTestPlanExitCode,
   compileAffectedTestSelectionSemanticOperation,
-  type AffectedPlanIdentity,
   type AffectedTestPlan,
   type AffectedTestSelection
 } from './affected-plan-contract.ts';
@@ -53,11 +60,11 @@ import {
 } from './check-affected-source.ts';
 import {
   boundedUtf8TextTail,
-  DEV_COMMAND_MAX_DURATION_MS,
   devCommandObservationExitCode,
   runDevCommand,
   type DevCommandObservation
 } from './command-runner.ts';
+import { DEV_COMMAND_MAX_DURATION_MS } from './contract.ts';
 import {
   ensureOperationDependencies,
   reuseOperationDependencies,
@@ -83,22 +90,23 @@ import {
 } from './env-manager.ts';
 import {
   assertFastTestProcessPolicyInventory,
-  DEFAULT_FAST_TEST_CONCURRENCY_BUDGET,
-  FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER,
   isDefaultFastTestFile,
-  planFastTestProcesses,
-  resolveManagedFastTestConcurrency,
-  type FastTestProcessResourceClass,
-  type FastTestResourceClassLimits
+  type FastTestProcessResourceClass
 } from './fast-test-policy.ts';
-import { explicitFastTestMaxConcurrency } from './test-concurrency-policy.ts';
+import type { RepositoryMutationFenceExecutionContext } from './repository-mutation-fence.ts';
 import {
+  admitFastTestBatchExecutionPolicy,
+  admitTestSuiteExecutionPolicy,
   compileTestInvocationExecutionPolicy,
-  withDefaultTestTimeout
+  issueFastTestBatchExecutionPolicy,
+  issueTestSuiteExecutionPolicy,
+  withDefaultTestTimeout,
+  type TestSuiteExecutionPolicy
 } from './test-execution-policy.ts';
 import {
   createTestInvocationRuntimeRoots,
   testInvocationRuntimeIsolationModeForPlatform,
+  TestProcessTempLifecycleError,
   type TestInvocationRuntimeRoots
 } from './test-process-temp.ts';
 
@@ -180,16 +188,6 @@ function selectMatchingTestFiles(availableFiles: string[], selectors: string[], 
   return selected;
 }
 
-function fastTestArgs(files: string[], options: string[], innerConcurrency: number): string[] {
-  // Process shards are the concurrency boundary. Ordinary Bun tests keep their
-  // declared sequential semantics; only explicit test.concurrent cases consume
-  // the bounded inner concurrency budget.
-  const boundedOptions = explicitFastTestMaxConcurrency(options) === null
-    ? ['--max-concurrency', String(innerConcurrency), ...options]
-    : options;
-  return ['test', ...files, ...withDefaultTestTimeout(boundedOptions)];
-}
-
 function managedBunTestArgs(args: readonly string[]): string[] {
   if (args[0] !== 'test') throw new Error('Managed Bun test invocation must begin with "test".');
   return ['test', ...withDefaultTestTimeout(args.slice(1))];
@@ -199,7 +197,7 @@ function testSupervisorTimeoutMs(args: readonly string[]): number {
   return compileTestInvocationExecutionPolicy(args, DEV_COMMAND_MAX_DURATION_MS).supervisorTimeoutMs;
 }
 
-export type FastTestInvocationQueue = 'concurrent-shard' | FastTestProcessResourceClass;
+export type FastTestInvocationQueue = 'parallel' | FastTestProcessResourceClass;
 
 export type FastTestInvocation = {
   readonly id: string;
@@ -207,23 +205,11 @@ export type FastTestInvocation = {
   readonly args: string[];
 };
 
-type FastTestInvocationPlan = {
-  readonly concurrentShards: FastTestInvocation[];
-  readonly concurrentProcessLimit: number;
-  readonly resourceClassOrder: typeof FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER;
-  readonly resourceQueues: Record<FastTestProcessResourceClass, FastTestInvocation[]>;
-  readonly resourceLimits: FastTestResourceClassLimits;
-};
-
-function fastTestInvocationId(queue: FastTestInvocationQueue, index: number): string {
-  return `${queue}:${String(index + 1).padStart(3, '0')}`;
-}
-
-function fastTestInvocations(
+function selectFastTestFiles(
   args: string[],
   budgetProjection: TestBudgetProjection,
   inventory: 'default' | 'complete' = 'default'
-): FastTestInvocationPlan {
+): Readonly<{ files: readonly string[]; options: readonly string[] }> {
   const { options, selectors } = partitionBunTestArgs(args);
   const slowSelectors = selectors.filter(isSlowTestFile);
   if (slowSelectors.length > 0) {
@@ -236,33 +222,7 @@ function fastTestInvocations(
     ? completeFastFiles.filter(isDefaultFastTestFile)
     : completeFastFiles;
   const selectedFiles = selectMatchingTestFiles(availableFiles, selectors, 'fast');
-  const plan = planFastTestProcesses(selectedFiles);
-  const managedConcurrency = resolveManagedFastTestConcurrency(
-    DEFAULT_FAST_TEST_CONCURRENCY_BUDGET,
-    explicitFastTestMaxConcurrency(options)
-  );
-  const resourceQueues = Object.fromEntries(
-    plan.resourceClassOrder.map((resourceClass) => [
-      resourceClass,
-      plan.resourceQueues[resourceClass].map((file, index) => ({
-        id: fastTestInvocationId(resourceClass, index),
-        queue: resourceClass,
-        args: fastTestArgs([file], options, managedConcurrency.innerConcurrency)
-      }))
-    ])
-  ) as Record<FastTestProcessResourceClass, FastTestInvocation[]>;
-
-  return {
-    concurrentShards: plan.concurrentShards.map((shard, index) => ({
-      id: fastTestInvocationId('concurrent-shard', index),
-      queue: 'concurrent-shard',
-      args: fastTestArgs(shard, options, managedConcurrency.innerConcurrency)
-    })),
-    concurrentProcessLimit: managedConcurrency.outerProcessConcurrency,
-    resourceClassOrder: plan.resourceClassOrder,
-    resourceQueues,
-    resourceLimits: managedConcurrency.resourceClassLimits
-  };
+  return Object.freeze({ files: Object.freeze(selectedFiles), options: Object.freeze(options) });
 }
 
 type SlowTestRunnerArgs = {
@@ -308,63 +268,6 @@ function extractSlowTestRunnerArgs(args: string[]): SlowTestRunnerArgs {
   return { suiteId, bunArgs };
 }
 
-type SlowTestArgSelection =
-  | { kind: 'run'; args: string[] }
-  | { kind: 'skip'; message: string };
-
-function slowTestArgSelection(
-  args: string[],
-  budgetProjection: TestBudgetProjection
-): SlowTestArgSelection {
-  const { suiteId, bunArgs } = extractSlowTestRunnerArgs(args);
-  if (suiteId && !isKnownSlowTestSuiteId(suiteId)) {
-    throw new Error(`Unknown slow test suite "${suiteId}". Available suites: ${slowTestSuiteIds().join(', ') || 'none'}`);
-  }
-
-  const availableFiles = suiteId
-    ? slowTestSuiteFiles(budgetProjection, suiteId)
-    : getSlowTestFilesSync(budgetProjection);
-  if (availableFiles.length === 0) {
-    return { kind: 'skip', message: suiteId ? `No slow files for suite ${suiteId}` : 'No slow test files detected.' };
-  }
-
-  const { options, selectors } = partitionBunTestArgs(bunArgs);
-  const fastSelectors = selectors.filter(isFastTestFile);
-  if (fastSelectors.length > 0) {
-    throw new Error(`Slow test runner cannot run fast test files: ${fastSelectors.join(', ')}`);
-  }
-
-  const label = suiteId ? `slow suite ${suiteId}` : 'slow';
-  return {
-    kind: 'run',
-    args: [
-      'test',
-      ...selectMatchingTestFiles([...availableFiles], selectors, label),
-      ...withDefaultTestTimeout(options)
-    ]
-  };
-}
-
-type FullTestInvocation = Readonly<{
-  kind: 'fast' | 'slow';
-  id: string;
-  args: string[];
-}>;
-
-function fullTestInvocations(budgetProjection: TestBudgetProjection): FullTestInvocation[] {
-  const slowSelection = slowTestArgSelection([], budgetProjection);
-  const fast = fastTestInvocations([], budgetProjection, 'complete');
-  return [
-    ...fast.concurrentShards.map(({ id, args }) => ({ kind: 'fast' as const, id, args })),
-    ...fast.resourceClassOrder.flatMap((resourceClass) => (
-      fast.resourceQueues[resourceClass].map(({ id, args }) => ({ kind: 'fast' as const, id, args }))
-    )),
-    ...(slowSelection.kind === 'run'
-      ? [{ kind: 'slow' as const, id: 'slow:001', args: slowSelection.args }]
-      : [])
-  ];
-}
-
 function affectedTestsBaseRef(): string | undefined {
   return process.env.SEC_AFFECTED_TESTS_BASE ?? process.env.SEC_CHANGED_BASE;
 }
@@ -397,16 +300,7 @@ function boundedAffectedBaseRef(value: string | undefined): string | null {
   return value;
 }
 
-type GitSelectionGitObservation = Readonly<{
-  baseSha: string | null;
-  headSha: string;
-  indexDigest: `sha256:${string}`;
-  worktreeDigest: `sha256:${string}`;
-  gitExecutable: string;
-  gitExecutableIdentity: GitExecutableIdentity | null;
-  gitProviderRoute: GitReadProviderRoute;
-  gitProviderIdentity: GitReadProviderIdentity;
-}>;
+type GitSelectionGitObservation = AffectedGitSelectionObservation;
 
 function completedGitCommand(
   command: GitReadSessionCommand
@@ -471,6 +365,7 @@ async function observeGitSelectionState(
 
 type AffectedGitRevalidationLedger = {
   readonly operation: SecBoundSemanticOperation;
+  readonly processSession?: ProcessResourceSession;
   /** Absolute parent wall deadline shared by every revalidation session. */
   readonly deadlineAt: number;
   readonly maxProcesses: number;
@@ -494,25 +389,22 @@ type AffectedGitRevalidationLedger = {
   executableBytes: number;
 };
 
-function createAffectedGitRevalidationLedger(
-  operation: SecBoundSemanticOperation,
-  initialSession: GitReadSession,
-  initialIdentity: GitExecutableIdentity | null
-): AffectedGitRevalidationLedger {
+function createAffectedGitRevalidationLedger(): AffectedGitRevalidationLedger {
+  const operation = compileAffectedTestSelectionSemanticOperation({ purpose: 'check-affected' });
   return {
     operation,
     deadlineAt: operation.plan.attempt.deadlineAtUnixMs,
     ...AFFECTED_GIT_REVALIDATION_AGGREGATE_CEILING,
     revalidationCount: 0,
-    processCount: initialSession.processCount,
-    argumentBytes: initialSession.argumentBytes ?? 0,
-    stdoutBytes: initialSession.stdoutBytes,
-    stderrBytes: initialSession.stderrBytes,
-    recordCount: initialSession.recordCount,
-    rootObservedBytes: initialSession.rootObservedBytes ?? 0,
-    reopenRefreshes: initialSession.reopenRefreshes ?? 0,
-    settlementAttempts: initialSession.settlementAttempts ?? 0,
-    executableBytes: initialSession.executableBytes ?? initialIdentity?.size ?? 0
+    processCount: 0,
+    argumentBytes: 0,
+    stdoutBytes: 0,
+    stderrBytes: 0,
+    recordCount: 0,
+    rootObservedBytes: 0,
+    reopenRefreshes: 0,
+    settlementAttempts: 0,
+    executableBytes: 0
   };
 }
 
@@ -520,7 +412,8 @@ function accountAffectedGitRevalidationSession(
   ledger: AffectedGitRevalidationLedger,
   session: GitReadSession
 ): boolean {
-  ledger.processCount += session.processCount;
+  if (ledger.processSession === undefined) ledger.processCount += session.processCount;
+  else ledger.processCount = ledger.processSession.processCount;
   ledger.argumentBytes += session.argumentBytes ?? 0;
   ledger.stdoutBytes += session.stdoutBytes;
   ledger.stderrBytes += session.stderrBytes;
@@ -564,6 +457,7 @@ async function reobserveAffectedGitSelectionState(
   const resolution = createAuthorityGitReadSession({
     cwd: compilerRoot,
     operation: ledger.operation,
+    ...(ledger.processSession === undefined ? {} : { processSession: ledger.processSession }),
     budget: {
       // Each fresh provider session consumes the same parent absolute
       // deadline. The relative value only narrows the transport request; it
@@ -789,6 +683,7 @@ export async function issueCurrentTestImpactSourceProvider(): Promise<CodexDevel
     });
     return createRepositoryTestImpactSourceProvider({
       projection: observation.projection,
+      testInventory: observation.testInventory,
       activeDocumentationPaths: currentActiveDocumentationPaths()
     });
   } finally {
@@ -798,8 +693,110 @@ export async function issueCurrentTestImpactSourceProvider(): Promise<CodexDevel
 }
 
 export async function issueCurrentTestBudgetProjection(): Promise<TestBudgetProjection> {
-  const provider = await issueCurrentTestImpactSourceProvider();
-  return compileTestBudgetProjection(provider.projection);
+  return (await issueCurrentTestBudgetExecutionSource()).budgetProjection;
+}
+
+type TestBudgetExecutionSource = Readonly<{
+  testInventory: IssuedTestInventoryProjection;
+  budgetProjection: TestBudgetProjection;
+  dependencyGenerationDigest?: `sha256:${string}`;
+  reobserve: (deadlineAtUnixMs: number) => Promise<boolean>;
+}>;
+
+async function reobserveTestBudgetExecutionSource(input: Readonly<{
+  expectedTestInventory: IssuedTestInventoryProjection;
+  expectedBudgetProjection: TestBudgetProjection;
+  expectedGitObservation?: GitSelectionGitObservation;
+  deadlineAtUnixMs: number;
+}>): Promise<boolean> {
+  let session: GitReadSession | null = null;
+  let result = false;
+  let primaryPresent = false;
+  let primary: unknown;
+  try {
+    const operation = compileAffectedTestSelectionSemanticOperation({
+      purpose: 'budget-projection',
+      deadlineAtUnixMs: input.deadlineAtUnixMs
+    });
+    const resolution = createAuthorityGitReadSession({
+      cwd: compilerRoot,
+      operation,
+      budget: GIT_READ_OPERATION_BUDGET,
+      deadlineAtUnixMs: input.deadlineAtUnixMs
+    });
+    if (resolution.status !== 'ready') return false;
+    session = resolution.session;
+    const gitObservation = input.expectedGitObservation === undefined
+      ? null
+      : await observeGitSelectionState(session, input.expectedGitObservation.baseSha);
+    if (input.expectedGitObservation !== undefined
+        && (gitObservation === null
+          || !sameGitSelectionObservation(input.expectedGitObservation, gitObservation))) {
+      return false;
+    }
+    const snapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
+    const inventory = issueTestInventoryProjection({ snapshot });
+    const currentBudget = compileTestBudgetProjection(inventory);
+    result = inventory.inventoryDigest === input.expectedTestInventory.inventoryDigest
+      && currentBudget.projectionDigest === input.expectedBudgetProjection.projectionDigest
+      && currentBudget.generationKey === input.expectedBudgetProjection.generationKey;
+  } catch (error) {
+    primaryPresent = true;
+    primary = error;
+  } finally {
+    await settlePhysicalResourcesAsync({
+      ...(primaryPresent ? { primary: { label: 'source-reobservation', error: primary } } : {}),
+      cleanup: [{
+        label: 'git-read-session',
+        settle: async () => { await session?.close?.(); }
+      }]
+    });
+  }
+  return result;
+}
+
+async function issueCurrentTestBudgetExecutionSource(): Promise<TestBudgetExecutionSource> {
+  const operation = compileAffectedTestSelectionSemanticOperation({ purpose: 'budget-projection' });
+  const deadlineAtUnixMs = operation.plan.attempt.deadlineAtUnixMs;
+  const resolution = createAuthorityGitReadSession({
+    cwd: compilerRoot,
+    operation,
+    budget: GIT_READ_OPERATION_BUDGET,
+    deadlineAtUnixMs
+  });
+  if (resolution.status !== 'ready') {
+    throw new Error(`Test budget source snapshot is unavailable: ${resolution.kind}`);
+  }
+  const session = resolution.session;
+  let outcome: TestBudgetExecutionSource | undefined;
+  let primaryPresent = false;
+  let primary: unknown;
+  try {
+    const snapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
+    const testInventory = issueTestInventoryProjection({ snapshot });
+    const budgetProjection = compileTestBudgetProjection(testInventory);
+    outcome = Object.freeze({
+      testInventory,
+      budgetProjection,
+      reobserve: (revalidationDeadlineAtUnixMs) => reobserveTestBudgetExecutionSource({
+        expectedTestInventory: testInventory,
+        expectedBudgetProjection: budgetProjection,
+        deadlineAtUnixMs: revalidationDeadlineAtUnixMs
+      })
+    });
+  } catch (error) {
+    primaryPresent = true;
+    primary = error;
+  } finally {
+    await settlePhysicalResourcesAsync({
+      ...(primaryPresent ? { primary: { label: 'test-budget-source', error: primary } } : {}),
+      cleanup: [{
+        label: 'git-read-session',
+        settle: async () => { await session.close?.(); }
+      }]
+    });
+  }
+  return outcome!;
 }
 
 function sameGitSelectionObservation(
@@ -824,6 +821,7 @@ async function issueAffectedWorkingTreeTestImpactProjection(
   | {
       status: 'ready';
       projection: IssuedTestImpactProjection;
+      testInventory: IssuedTestInventoryProjection;
       projectGenerationEvidence: WorkspaceTypeScriptProjectGenerationEvidence;
     }
   | {
@@ -860,6 +858,7 @@ function allowFullFastFallback(): boolean {
 
 type OperationDependencyContext = {
   binPath: string;
+  dependencies: OperationDependencyBootstrapResult;
 };
 
 async function withOperationDependencies<T>(
@@ -875,7 +874,8 @@ async function withOperationDependencies<T>(
     ? await ensureOperationDependencies(demandGraph)
     : reuseOperationDependencies(prepared, demandGraph);
   return callback({
-    binPath: path.join(dependencies.nodeModulesPath, '.bin')
+    binPath: path.join(dependencies.nodeModulesPath, '.bin'),
+    dependencies
   });
 }
 
@@ -973,7 +973,7 @@ function receiptArgv(argv: readonly string[]): { argv: string[]; truncated: bool
 }
 
 function invocationTestFiles(invocation: FastTestInvocation): string[] {
-  return invocation.args.filter(isTestFileSelector);
+  return invocation.args.filter(isTestFileSelector).map(normalizeSecRepositoryTestModulePath);
 }
 
 function emitFastTestFailureReceipt(
@@ -1042,70 +1042,42 @@ function emitFastTestFailureReceipt(
   console.error(`${FAST_TEST_FAILURE_RECEIPT_PREFIX}${JSON.stringify(receipt)}`);
 }
 
-export type FastTestInvocationBatchResult<TResult> = {
-  readonly batchIndex: number;
-  readonly invocations: readonly FastTestInvocation[];
-  readonly outcomes: readonly PromiseSettledResult<TResult>[];
-};
-
-export async function scheduleBoundedFastTestInvocations<TResult>(
-  invocations: readonly FastTestInvocation[],
-  concurrency: number,
-  dispatch: (invocation: FastTestInvocation) => Promise<TResult>,
-  isFailure: (result: TResult, invocation: FastTestInvocation) => boolean
-): Promise<FastTestInvocationBatchResult<TResult> | null> {
-  if (!Number.isSafeInteger(concurrency) || concurrency < 1) {
-    throw new Error('Fast-test invocation concurrency must be a positive safe integer.');
-  }
-  for (let index = 0; index < invocations.length; index += concurrency) {
-    const batch = invocations.slice(index, index + concurrency);
-    const pending: Promise<TResult>[] = [];
-    for (const invocation of batch) {
-      try {
-        pending.push(dispatch(invocation));
-      } catch (error) {
-        pending.push(Promise.reject(error));
-      }
-    }
-    const outcomes = await Promise.allSettled(pending);
-    if (outcomes.some((outcome, outcomeIndex) => (
-      outcome.status === 'rejected' || isFailure(outcome.value, batch[outcomeIndex]!)
-    ))) {
-      return {
-        batchIndex: Math.floor(index / concurrency),
-        invocations: batch,
-        outcomes
-      };
-    }
-  }
-  return null;
-}
-
-async function runBoundedFastTestInvocations(
-  invocations: readonly FastTestInvocation[],
+async function runFastTestExecutionWaves(
+  executionWaves: readonly (readonly string[])[],
+  invocationById: ReadonlyMap<string, FastTestInvocation>,
   env: NodeJS.ProcessEnv,
-  concurrency: number,
-  invocationRuntime: TestInvocationRuntimeRoots | null
+  invocationRuntime: TestInvocationRuntimeRoots | null,
+  childDeadlineAtUnixMs: number,
+  supervisorTimeoutByInvocationId: ReadonlyMap<string, number>
 ): Promise<number> {
-  const failedBatch = await scheduleBoundedFastTestInvocations(
-    invocations,
-    concurrency,
-    (invocation) => {
+  const dispatch = (invocation: FastTestInvocation) => {
       const args = managedBunTestArgs(invocation.args);
+      const supervisorTimeoutMs = supervisorTimeoutByInvocationId.get(invocation.id);
+      if (supervisorTimeoutMs === undefined) {
+        throw new Error(`Fast test invocation has no admitted supervisor budget: ${invocation.id}`);
+      }
       return runWithParentOwnedProcessTemp(invocationRuntime, env, invocation.id, (prepared) =>
         runDevCommand('bun', args, prepared, {
             observe: true,
-            timeoutMs: testSupervisorTimeoutMs(args)
+            timeoutMs: supervisorTimeoutMs,
+            deadlineAtUnixMs: childDeadlineAtUnixMs
           })
       );
-    },
-    (observation) => devCommandObservationExitCode(observation) !== 0
-  );
-  if (!failedBatch) return 0;
+  };
+  for (let waveIndex = 0; waveIndex < executionWaves.length; waveIndex += 1) {
+    const wave = executionWaves[waveIndex]!;
+    const invocations = wave.map((id) => {
+      const invocation = invocationById.get(id);
+      if (invocation === undefined) throw new Error(`Fast test execution wave references an unknown invocation: ${id}`);
+      return invocation;
+    });
+    const outcomes = await Promise.allSettled(invocations.map(dispatch));
+    if (!outcomes.some((outcome) => outcome.status === 'rejected'
+        || devCommandObservationExitCode(outcome.value) !== 0)) continue;
 
-  const failures = failedBatch.outcomes.flatMap(
+  const failures = outcomes.flatMap(
     (outcome, outcomeIndex): FastTestInvocationFailure[] => {
-      const invocation = failedBatch.invocations[outcomeIndex]!;
+      const invocation = invocations[outcomeIndex]!;
       if (outcome.status === 'rejected') {
         return [{
           kind: 'observer-rejected',
@@ -1119,14 +1091,16 @@ async function runBoundedFastTestInvocations(
     }
   );
   emitFastTestFailureReceipt(
-    failedBatch.invocations[0]!.queue,
-    failedBatch.batchIndex,
+    invocations[0]!.queue,
+    waveIndex,
     failures
   );
   const firstFailure = failures[0]!;
   return firstFailure.kind === 'observer-rejected'
     ? 1
     : devCommandObservationExitCode(firstFailure.observation);
+  }
+  return 0;
 }
 
 function fastInvocationEnvironment(
@@ -1206,8 +1180,7 @@ async function runWithTestInvocationRuntime(
 function affectedTestSelection(
   files: string[],
   budgetProjection: TestBudgetProjection,
-  provider: CodexDevelopmentTestImpactSourceProvider,
-  transition?: CodexDevelopmentTestImpactTransitionObservation
+  provider: CodexDevelopmentTestImpactSourceProvider
 ): AffectedTestSelection {
   const currentFastFiles = [...getFastTestFilesSync(budgetProjection)];
   assertFastTestProcessPolicyInventory(currentFastFiles);
@@ -1217,8 +1190,7 @@ function affectedTestSelection(
   ]);
   const inventory = CodexDevelopmentBuildAffectedTestInventory(
     CodexDevelopmentAffectedInventoryInputs(files, (file) => currentTestFiles.has(file)),
-    provider,
-    transition
+    provider
   );
   // A changed fast-test source can introduce or remove a process-global
   // hazard without changing the scheduler itself. Always select the one
@@ -1253,18 +1225,6 @@ function unionTestFiles(...groups: string[][]): string[] {
   return uniqueSortedLines(groups.flat().join('\n'));
 }
 
-function unresolvedRiskPaths(
-  files: readonly string[],
-  closure: ReturnType<typeof selectSlowTestRiskClosure>
-): string[] {
-  // `selectSlowTestRiskClosure` already performs one batch inventory. Re-running
-  // it once per changed path rebuilt the same graph and source observation for
-  // large deltas. When the aggregate resolution is false, retain the complete
-  // changed-path frontier; callers get a conservative typed diagnostic and no
-  // path can be authorized from a partial per-file approximation.
-  return closure.resolved ? [] : uniqueSorted([...files]);
-}
-
 export interface ResolvedAffectedTestExecution {
   readonly plan: AffectedTestPlan;
   /**
@@ -1291,10 +1251,10 @@ function affectedTestPlan(
   gitObservation?: GitSelectionGitObservation,
   observationFailure: 'git' | 'source' | null = null
 ): AffectedTestPlan {
-  const budgetProjection = compileTestBudgetProjection(provider.projection);
+  const budgetProjection = compileTestBudgetProjection(provider.testInventory);
   const risk = selectSlowTestRiskClosure(files, provider, transition);
-  const selection = affectedTestSelection(files, budgetProjection, provider, transition);
-  const unresolvedPaths = unresolvedRiskPaths(files, risk);
+  const selection = affectedTestSelection(files, budgetProjection, provider);
+  const unresolvedPaths = risk.unresolvedPaths;
   const sourceObservationUnresolved = provider.projection.moduleGraph.unresolvedFiles;
   const observedSelection: AffectedTestSelection = observationFailure === 'source'
     ? {
@@ -1405,7 +1365,8 @@ function freezeAffectedTestPlan(plan: AffectedTestPlan): AffectedTestPlan {
 
 async function runAffectedTestPlan(
   plan: AffectedTestPlan,
-  preparedDependencies?: OperationDependencyBootstrapResult
+  preparedDependencies?: OperationDependencyBootstrapResult,
+  executionSource?: TestBudgetExecutionSource
 ): Promise<number> {
   if (!plan.resolved) {
     console.error(`Affected test ownership is unresolved for changed paths: ${plan.unresolvedPaths.join(', ')}`);
@@ -1433,7 +1394,10 @@ async function runAffectedTestPlan(
     if (selection.affectedTests.length > 0) {
       console.log(`Running changed and affected fast tests for ${selection.affectedOwners.join(', ') || 'changed sources'}: ${selectedFastTests.join(', ')}`);
     }
-    const code = await runFastTests(selectedFastTests, preparedDependencies);
+    const code = await runFastTestsForInventory(selectedFastTests, preparedDependencies, 'default', {
+      commandId: 'test:affected:fast',
+      ...(executionSource === undefined ? {} : { source: executionSource })
+    });
     if (selection.affectedSlowTests.length > 0) {
       console.log(formatSlowImpactNotice({
         fast: selectedFastTests,
@@ -1462,7 +1426,10 @@ async function runAffectedTestPlan(
     }
 
     console.log('No affected fast tests matched source changes; running the fast test suite because SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1.');
-    const code = await runFastTests([], preparedDependencies);
+    const code = await runFastTestsForInventory([], preparedDependencies, 'default', {
+      commandId: 'test:affected:fast',
+      ...(executionSource === undefined ? {} : { source: executionSource })
+    });
     if (selection.affectedSlowTests.length > 0) {
       console.log(formatSlowImpactNotice({
         fast: [],
@@ -1479,6 +1446,8 @@ async function runAffectedTestPlan(
 export async function resolveAffectedTestExecution(options: Readonly<{
   dependencyGeneration?: RetainedCompilerDependencyReadGeneration;
   operation: SecBoundSemanticOperation;
+  /** Borrowed process ledger owned by the surrounding repository fence. */
+  processSession?: ProcessResourceSession;
   issueTestImpactProjection: AffectedTestImpactProjectionIssuer;
   /** Callers with an explicit pre-effect fence may defer this first recheck. */
   verifyAtResolution?: boolean;
@@ -1500,23 +1469,45 @@ export async function resolveAffectedTestExecution(options: Readonly<{
   const gitResolution = createAuthorityGitReadSession({
     cwd: compilerRoot,
     operation: options.operation,
+    ...(options.processSession === undefined ? {} : { processSession: options.processSession }),
     budget: GIT_READ_OPERATION_BUDGET
   });
   if (gitResolution.status !== 'ready') {
     if (ownedDependencyResolution?.status === 'ready') {
       await ownedDependencyResolution.generation.retire();
     }
+    console.error('Affected Git provider admission failed:', gitResolution);
     return null;
   }
   const gitSession = gitResolution.session;
   let changed: GitChangedFilesResult | null = null;
   let testImpactObservation: Awaited<ReturnType<AffectedTestImpactProjectionIssuer>> | null = null;
-  let gitRevalidationLedger: AffectedGitRevalidationLedger | null = null;
   let initialSessionFailure = gitSession.failure;
   let initialSessionClosed = false;
   try {
-    changed = await gitChangedFiles(gitSession);
-    if (changed !== null) {
+    if (options.issueTestImpactProjection === issueCheckAffectedTestImpactProjection) {
+      const rawBaseRef = affectedTestsBaseRef();
+      const baseRef = boundedAffectedBaseRef(rawBaseRef);
+      if (rawBaseRef !== undefined && baseRef === null) return null;
+      const source = await issueAffectedTestImpactSource({
+        dependencyGeneration,
+        compilationOperation,
+        repositoryRoot: compilerRoot,
+        session: gitSession,
+        baseRef
+      });
+      if (source !== null) {
+        const binding = readIssuedAffectedTestImpactBinding(source);
+        changed = {
+          files: [...source.files],
+          gitObservation: source.gitObservation,
+          ...(binding === null ? {} : { transitionObservation: binding.transition })
+        };
+        testImpactObservation = source;
+      }
+    } else {
+      changed = await gitChangedFiles(gitSession);
+      if (changed !== null) {
       const projected = await issueAffectedWorkingTreeTestImpactProjection(
         gitSession,
         options.issueTestImpactProjection,
@@ -1528,6 +1519,7 @@ export async function resolveAffectedTestExecution(options: Readonly<{
       } else {
         console.error(`Affected Test Impact projection is unavailable: ${projected.reason}`);
       }
+      }
     }
     initialSessionFailure = gitSession.failure;
   } finally {
@@ -1536,7 +1528,8 @@ export async function resolveAffectedTestExecution(options: Readonly<{
     try {
       await gitSession.close?.();
       initialSessionClosed = true;
-    } catch {
+    } catch (error) {
+      console.error('Affected Git observation settlement failed:', error);
       initialSessionClosed = false;
     }
     initialSessionFailure = gitSession.failure;
@@ -1544,18 +1537,38 @@ export async function resolveAffectedTestExecution(options: Readonly<{
       await ownedDependencyResolution.generation.retire();
     }
   }
-  if (!initialSessionClosed || initialSessionFailure !== null || changed === null) return null;
-  gitRevalidationLedger = createAffectedGitRevalidationLedger(
-    options.operation,
-    gitSession,
-    changed.gitObservation.gitExecutableIdentity
-  );
-  const revalidationLedger = gitRevalidationLedger;
+  if (!initialSessionClosed || initialSessionFailure !== null || changed === null) {
+    console.error('Affected Git observation is unavailable:', {
+      settled: initialSessionClosed,
+      failure: initialSessionFailure,
+      changedFilesObserved: changed !== null
+    });
+    return null;
+  }
   if (testImpactObservation === null) return null;
   const { projection: testImpactProjection, projectGenerationEvidence } = testImpactObservation;
+  const testInventory = testImpactObservation.testInventory;
+  const initialBudgetProjection = compileTestBudgetProjection(testInventory);
+  const executionSource: TestBudgetExecutionSource = Object.freeze({
+    testInventory,
+    budgetProjection: initialBudgetProjection,
+    ...(projectGenerationEvidence.projectInput.dependencyGenerationDigest === null
+      ? {}
+      : { dependencyGenerationDigest: projectGenerationEvidence.projectInput.dependencyGenerationDigest }),
+    reobserve: (deadlineAtUnixMs: number) => reobserveTestBudgetExecutionSource({
+      expectedTestInventory: testInventory,
+      expectedBudgetProjection: initialBudgetProjection,
+      expectedGitObservation: changed.gitObservation,
+      deadlineAtUnixMs
+    })
+  });
   const sourceObservationProvider = createRepositoryTestImpactSourceProvider({
     projection: testImpactProjection,
-    activeDocumentationPaths: currentActiveDocumentationPaths()
+    testInventory: testImpactObservation.testInventory,
+    activeDocumentationPaths: currentActiveDocumentationPaths(),
+    ...(options.issueTestImpactProjection === issueCheckAffectedTestImpactProjection
+      ? { affectedSource: testImpactObservation as import('../../verification/test-impact/runtime/affected-source.ts').IssuedAffectedTestImpactSource }
+      : {})
   });
   const provider = sourceObservationProvider;
   const broadFallbackEnabled = allowFullFastFallback();
@@ -1571,7 +1584,7 @@ export async function resolveAffectedTestExecution(options: Readonly<{
     try {
       const finalGitObservation = await reobserveAffectedGitSelectionState(
         changed.gitObservation,
-        revalidationLedger
+        createAffectedGitRevalidationLedger()
       );
       return finalGitObservation !== null
         && sameGitSelectionObservation(changed.gitObservation, finalGitObservation);
@@ -1610,21 +1623,20 @@ export async function resolveAffectedTestExecution(options: Readonly<{
       if (!plan.resolved || isAffectedSelectionFailClosed(plan.selectionTrustBoundary)) {
         return runAffectedTestPlan(plan, preparedDependencies);
       }
-      // Last-mile fence: callers may hold a resolved plan while another
-      // process edits source/index/worktree. Never spawn a selected child
-      // from a stale plan, even if the caller skipped the outer gate owner.
-      if (!(await assertCurrent())) {
-        console.error('Affected plan observation drifted before test child spawn; execution is blocked.');
-        return 1;
-      }
-      return runAffectedTestPlan(plan, preparedDependencies);
+      // The fast-batch owner arms continuous repository observation before it
+      // performs this last revalidation and before any child Effect.
+      return runAffectedTestPlan(plan, preparedDependencies, executionSource);
     }
   });
 }
 
 export async function runAffectedTests(
   issueTestImpactProjection: AffectedTestImpactProjectionIssuer,
-  args: string[] = []
+  args: string[] = [],
+  options: Readonly<{
+    operation?: SecBoundSemanticOperation;
+    processSession?: ProcessResourceSession;
+  }> = {}
 ): Promise<number> {
   if (args.includes('--plan') && !(args.length === 1 && args[0] === '--plan')) {
     console.error('test:affected --plan cannot be combined with execution arguments.');
@@ -1633,18 +1645,32 @@ export async function runAffectedTests(
   if (args.length > 0 && !(args.length === 1 && args[0] === '--plan')) {
     return runTests(args);
   }
-  const operation = compileAffectedTestSelectionSemanticOperation({
+  const operation = options.operation ?? compileAffectedTestSelectionSemanticOperation({
     purpose: 'check-affected'
   });
-  const execution = await resolveAffectedTestExecution({
+  let execution: ResolvedAffectedTestExecution | null = null;
+  const resolve = (processSession?: ProcessResourceSession) => resolveAffectedTestExecution({
     operation,
+    processSession,
     issueTestImpactProjection,
-    // The execution object retains the same frozen plan identity and performs
-    // its own last-mile fence immediately before dependency/test effects. A
-    // plan query still verifies at resolution; this removes a redundant full
-    // source census from the direct execution path without weakening admission.
+    // Execution revalidates only after the fast-batch observer is active.
+    // A plan query has no later Effect boundary, so it verifies here.
     verifyAtResolution: args.length === 1
   });
+  if (options.processSession !== undefined) {
+    execution = await resolve(options.processSession);
+  } else {
+    const { runRepositoryZeroWriteOperation } = await import('./repository-mutation-fence.ts');
+    const selectionCode = await runRepositoryZeroWriteOperation(
+      'test:affected:selection',
+      async (processSession) => {
+        execution = await resolve(processSession);
+        return execution === null ? 1 : 0;
+      },
+      { operation }
+    );
+    if (selectionCode !== 0) return selectionCode;
+  }
   if (!execution) {
     console.error('Failed to detect affected test files.');
     return 1;
@@ -1659,110 +1685,157 @@ export async function runAffectedTests(
   return execution.run();
 }
 
-export async function runTests(args: string[] = []): Promise<number> {
-  let exitCode = 1;
-  let selectors: string[] = [];
-  if (args.length > 0) {
-    ({ selectors } = partitionBunTestArgs(args));
-    if (selectors.length > 0 && selectors.every(isFastTestFile)) {
-      await withOperationDependencies('test-direct-fast', async ({ binPath }) => {
-        const environment = pathEnv(binPath);
-        const invocationArgs = managedBunTestArgs(['test', ...args]);
-        exitCode = await runWithTestInvocationRuntime(environment, (runtime) =>
-          runWithParentOwnedProcessTemp(runtime, environment, 'direct:001', (prepared) =>
-            runDevCommand('bun', invocationArgs, prepared, {
-              timeoutMs: testSupervisorTimeoutMs(invocationArgs)
-            })));
-      });
-      return exitCode;
-    }
+export async function runTests(
+  args: string[] = [],
+  options: Readonly<{ omitSlowSuites?: boolean }> = {}
+): Promise<number> {
+  const { selectors } = partitionBunTestArgs(args);
+  if (selectors.length > 0) {
+    if (selectors.every(isFastTestFile)) return runFastTests(args);
+    if (selectors.every(isSlowTestFile)) return runSlowTests(args);
+    console.error('Direct test selection must resolve entirely to exact fast or exact slow test files.');
+    return 1;
   }
-  const directOperation = args.length === 0
-    ? 'test-full'
-    : selectors.length > 0 && selectors.every(isSlowTestFile)
-      ? 'test-direct-slow'
-      : 'test-direct-ambiguous';
-  const budgetProjection = args.length === 0
-    ? await issueCurrentTestBudgetProjection()
-    : null;
-  await withOperationDependencies(directOperation, async ({ binPath }) => {
-    const environment = pathEnv(binPath);
-    if (args.length > 0) {
-      // Only an exact slow-file selection proves that Bun cannot discover a
-      // fast test. Option-only, mixed and pattern/directory selections share
-      // the same invocation runtime boundary as every other fast-capable
-      // entrypoint.
-      const isProvenSlowOnly = selectors.length > 0 && selectors.every(isSlowTestFile);
-      const invocationArgs = managedBunTestArgs(['test', ...args]);
-      exitCode = isProvenSlowOnly
-        ? await runDevCommand('bun', invocationArgs, environment, {
-            timeoutMs: testSupervisorTimeoutMs(invocationArgs)
-          })
-        : await runWithTestInvocationRuntime(environment, (runtime) =>
-            runWithParentOwnedProcessTemp(runtime, environment, 'direct:001', (prepared) =>
-              runDevCommand('bun', invocationArgs, prepared, {
-                timeoutMs: testSupervisorTimeoutMs(invocationArgs)
-              })));
-      return;
-    }
-    exitCode = await runWithTestInvocationRuntime(environment, async (runtime) => {
-      for (const invocation of fullTestInvocations(budgetProjection!)) {
-        const invocationArgs = managedBunTestArgs(invocation.args);
-        const code = invocation.kind === 'fast'
-          ? await runWithParentOwnedProcessTemp(runtime, environment, invocation.id, (prepared) =>
-              runDevCommand('bun', invocationArgs, prepared, {
-                timeoutMs: testSupervisorTimeoutMs(invocationArgs)
-              }))
-          : await runDevCommand('bun', invocationArgs, environment, {
-              timeoutMs: testSupervisorTimeoutMs(invocationArgs)
-            });
-        if (code !== 0) return code;
-      }
-      return 0;
-    });
-  });
-  return exitCode;
+  const fastExitCode = await runFastTestsForInventory(args, undefined, 'complete');
+  if (fastExitCode !== 0 || options.omitSlowSuites) return fastExitCode;
+  return runSlowTests(args);
 }
 
-export async function runFastTests(
+export function isExactSlowTestRunnerSelection(args: string[]): boolean {
+  const { selectors } = partitionBunTestArgs(args);
+  return selectors.length > 0 && selectors.every(isSlowTestFile);
+}
+
+export function isSelectorlessTestRunnerSelection(args: string[]): boolean {
+  return partitionBunTestArgs(args).selectors.length === 0;
+}
+
+async function runFastTestsForInventory(
   args: string[] = [],
-  preparedDependencies?: OperationDependencyBootstrapResult
+  preparedDependencies?: OperationDependencyBootstrapResult,
+  inventory: 'default' | 'complete' = 'default',
+  executionBoundary: Readonly<{
+    commandId: string;
+    source?: TestBudgetExecutionSource;
+  }> = { commandId: 'test:fast' }
 ): Promise<number> {
   let exitCode = 1;
-  const budgetProjection = await issueCurrentTestBudgetProjection();
   const workspace = await prepareFastTestWorkspaceRun();
   const workspaceEnv = workspace.env;
   let invocationRuntime: TestInvocationRuntimeRoots | null = null;
+  let invocationRuntimeSettled = false;
+  let invocationRuntimeSettlementAttempted = false;
+  let workspaceSettled = false;
+  let workspaceSettlementAttempted = false;
+  const executionDependency = {
+    generation: null as RetainedCompilerDependencyReadGeneration | null
+  };
+  let executionDependencyGenerationSettled = false;
+  let batchSettlementDeadlineAtUnixMs: number | undefined;
   let hasPrimaryFailure = false;
   let primaryFailure: unknown;
   try {
-    if (testInvocationRuntimeIsolationModeForPlatform(process.platform) === 'retained') {
-      invocationRuntime = await createTestInvocationRuntimeRoots({
-        repositoryRoot: compilerRoot,
-        hostTempRoot: tmpdir(),
-        environment: { ...secRuntimeStateEnvironment(), ...workspaceEnv }
-      });
-    }
-    await withOperationDependencies('test-fast', async ({ binPath }) => {
+    const source = executionBoundary.source ?? await issueCurrentTestBudgetExecutionSource();
+    const { testInventory, budgetProjection } = source;
+    await withOperationDependencies('test-fast', async ({ binPath, dependencies }) => {
       try {
-        const plan = fastTestInvocations(args, budgetProjection);
+        const selection = selectFastTestFiles(args, budgetProjection, inventory);
         const env = pathEnv(binPath, workspaceEnv);
-        exitCode = await runBoundedFastTestInvocations(
-          plan.concurrentShards,
-          env,
-          plan.concurrentProcessLimit,
-          invocationRuntime
-        );
-        if (exitCode !== 0) return;
-        for (const resourceClass of plan.resourceClassOrder) {
-          exitCode = await runBoundedFastTestInvocations(
-            plan.resourceQueues[resourceClass],
-            env,
-            plan.resourceLimits[resourceClass],
-            invocationRuntime
-          );
-          if (exitCode !== 0) return;
+        const policy = issueFastTestBatchExecutionPolicy({
+          testInventory,
+          budgetProjection,
+          selectedFiles: selection.files,
+          bunOptions: selection.options
+        });
+        const admission = admitFastTestBatchExecutionPolicy(policy);
+        batchSettlementDeadlineAtUnixMs = admission.logicalDeadlineAtUnixMs;
+        if (source.dependencyGenerationDigest !== undefined) {
+          if (dependencies.executionGenerationAuthority.generationDigest
+              !== source.dependencyGenerationDigest) {
+            throw new Error('Affected test dependency generation differs from its Source Program observation.');
+          }
+          const retained = await retainOperationDependencyReadGeneration({
+            dependencies,
+            deadlineAtUnixMs: admission.revalidationDeadlineAtUnixMs
+          });
+          if (retained.status !== 'ready') {
+            throw new Error('Affected test dependency generation is unavailable for execution.');
+          }
+          executionDependency.generation = retained.generation;
+          if (executionDependency.generation.generationDigest !== source.dependencyGenerationDigest) {
+            throw new Error('Affected test dependency generation changed before execution.');
+          }
         }
+        if (testInvocationRuntimeIsolationModeForPlatform(process.platform) === 'retained') {
+          invocationRuntime = await createTestInvocationRuntimeRoots({
+            repositoryRoot: compilerRoot,
+            hostTempRoot: tmpdir(),
+            environment: { ...secRuntimeStateEnvironment(), ...workspaceEnv },
+            fastTestBatchAdmission: admission
+          });
+        }
+        const invocations = policy.invocations.map((invocation): FastTestInvocation => ({
+          id: invocation.id,
+          queue: invocation.queue,
+          args: [...invocation.canonicalArgv.slice(1)]
+        }));
+        const supervisorTimeoutByInvocationId = new Map(
+          policy.invocations.map(({ id, supervisorTimeoutMs }) => [id, supervisorTimeoutMs])
+        );
+        const invocationById = new Map(invocations.map((invocation) => [invocation.id, invocation]));
+        const { compileRepositoryObservationOperation } = await import('./repository-observation.ts');
+        const { runRepositoryZeroWriteOperation } = await import('./repository-mutation-fence.ts');
+        exitCode = await runRepositoryZeroWriteOperation(
+          executionBoundary.commandId,
+          async () => {
+            let code = 1;
+            try {
+              if (!(await source.reobserve(admission.revalidationDeadlineAtUnixMs))) {
+                console.error('Fast test budget workspace snapshot drifted before child spawn.');
+                return code;
+              }
+              code = await runFastTestExecutionWaves(
+                policy.executionWaves,
+                invocationById,
+                env,
+                invocationRuntime,
+                admission.childDeadlineAtUnixMs,
+                supervisorTimeoutByInvocationId
+              );
+            } finally {
+              try {
+                invocationRuntimeSettlementAttempted = true;
+                await invocationRuntime?.cleanup();
+                invocationRuntimeSettled = true;
+              } catch (error) {
+                console.error(`Fast test invocation runtime cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+                if (error instanceof TestProcessTempLifecycleError) console.error(error);
+                if (code === 0) code = 1;
+              }
+              try {
+                workspaceSettlementAttempted = true;
+                if (Date.now() >= admission.logicalDeadlineAtUnixMs) {
+                  throw new Error('Fast test workspace settlement deadline expired.');
+                }
+                settlePreparedTestWorkspaceRun(workspace.cleanup);
+                if (Date.now() >= admission.logicalDeadlineAtUnixMs) {
+                  throw new Error('Fast test workspace settled after its deadline.');
+                }
+                workspaceSettled = true;
+              } catch (error) {
+                console.error(`Fast test workspace cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+                if (code === 0) code = 1;
+              }
+            }
+            return code;
+          },
+          {
+            operation: compileRepositoryObservationOperation(),
+            observerDeadlineAtUnixMs: admission.logicalDeadlineAtUnixMs,
+            retainProcessSession: false,
+            fastTestBatchAdmission: admission
+          }
+        );
       } catch (error) {
         console.error(error instanceof Error ? error.message : String(error));
         exitCode = 1;
@@ -1773,47 +1846,178 @@ export async function runFastTests(
     primaryFailure = error;
   }
   try {
-    await invocationRuntime?.cleanup();
+    if (!invocationRuntimeSettled && !invocationRuntimeSettlementAttempted) {
+      invocationRuntimeSettlementAttempted = true;
+      await (invocationRuntime as TestInvocationRuntimeRoots | null)?.cleanup();
+    }
   } catch (error) {
     console.error(`Fast test invocation runtime cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+    if (error instanceof TestProcessTempLifecycleError) console.error(error);
     if (!hasPrimaryFailure && exitCode === 0) exitCode = 1;
   }
   try {
-    settlePreparedTestWorkspaceRun(workspace.cleanup);
+    if (!workspaceSettled && !workspaceSettlementAttempted) {
+      workspaceSettlementAttempted = true;
+      if (batchSettlementDeadlineAtUnixMs !== undefined
+          && Date.now() >= batchSettlementDeadlineAtUnixMs) {
+        throw new Error('Fast test workspace settlement deadline expired.');
+      }
+      settlePreparedTestWorkspaceRun(workspace.cleanup);
+      if (batchSettlementDeadlineAtUnixMs !== undefined
+          && Date.now() >= batchSettlementDeadlineAtUnixMs) {
+        throw new Error('Fast test workspace settled after its deadline.');
+      }
+    }
   } catch (error) {
     console.error(`Fast test workspace cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
     if (!hasPrimaryFailure && exitCode === 0) exitCode = 1;
+  }
+  try {
+    await executionDependency.generation?.retire();
+    executionDependencyGenerationSettled = true;
+  } catch (error) {
+    console.error(`Affected test dependency generation settlement failed: ${error instanceof Error ? error.message : String(error)}`);
+    if (!hasPrimaryFailure && exitCode === 0) exitCode = 1;
+  }
+  if (executionDependency.generation !== null && !executionDependencyGenerationSettled
+      && !hasPrimaryFailure) {
+    exitCode = 1;
   }
   if (hasPrimaryFailure) throw primaryFailure;
   return exitCode;
 }
 
+export async function runFastTests(
+  args: string[] = [],
+  preparedDependencies?: OperationDependencyBootstrapResult
+): Promise<number> {
+  return runFastTestsForInventory(args, preparedDependencies);
+}
+
 export async function runSlowTests(args: string[] = []): Promise<number> {
-  let exitCode = 1;
-  let selection: SlowTestArgSelection;
   try {
-    const budgetProjection = await issueCurrentTestBudgetProjection();
-    selection = slowTestArgSelection(args, budgetProjection);
+    return executePreparedSlowTestSuiteExecutions(
+      await prepareSlowTestSuiteExecutions(args),
+      'test:slow'
+    );
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     return 1;
   }
-  if (selection.kind === 'skip') {
-    console.log(selection.message);
+}
+
+export type PreparedSlowTestSuiteExecution = Readonly<{
+  policy: TestSuiteExecutionPolicy;
+}>;
+
+const preparedSlowTestExecutions = new WeakMap<
+  TestSuiteExecutionPolicy,
+  Readonly<{
+    reobserve: (deadlineAtUnixMs: number) => Promise<boolean>;
+    run: (context: RepositoryMutationFenceExecutionContext) => Promise<number>;
+  }>
+>();
+
+/** Prepares dependencies once and derives one execution per unique canonical suite. */
+export async function prepareSlowTestSuiteExecutions(
+  args: string[] = []
+): Promise<readonly PreparedSlowTestSuiteExecution[]> {
+  const source = await issueCurrentTestBudgetExecutionSource();
+  const { testInventory, budgetProjection } = source;
+  const { suiteId, bunArgs } = extractSlowTestRunnerArgs(args);
+  if (suiteId !== undefined && !isKnownSlowTestSuiteId(suiteId)) {
+    throw new Error(`Unknown slow test suite "${suiteId}". Available suites: ${slowTestSuiteIds().join(', ') || 'none'}`);
+  }
+  const { options, selectors } = partitionBunTestArgs(bunArgs);
+  const fastSelectors = selectors.filter(isFastTestFile);
+  if (fastSelectors.length > 0) {
+    throw new Error(`Slow test runner cannot run fast test files: ${fastSelectors.join(', ')}`);
+  }
+  const availableFiles = suiteId === undefined
+    ? getSlowTestFilesSync(budgetProjection)
+    : slowTestSuiteFiles(budgetProjection, suiteId);
+  if (availableFiles.length === 0) return Object.freeze([]);
+  const selectedFiles = selectMatchingTestFiles(
+    [...availableFiles], selectors, suiteId === undefined ? 'slow' : `slow suite ${suiteId}`
+  );
+  const filesBySuite = new Map<string, string[]>();
+  for (const file of selectedFiles) {
+    const owners = slowTestSuiteIdsForFile(file);
+    const selectedOwner = suiteId === undefined ? owners : owners.filter((id) => id === suiteId);
+    if (selectedOwner.length !== 1) {
+      throw new Error(`Slow test file has no unique canonical suite: ${file}`);
+    }
+    const files = filesBySuite.get(selectedOwner[0]!) ?? [];
+    files.push(file);
+    filesBySuite.set(selectedOwner[0]!, files);
+  }
+  const dependencies = await ensureOperationDependencies(compileSecOperationDemandGraph({
+    operation: 'test-slow',
+    terminalWorkIds: []
+  }));
+  const environment = pathEnv(path.join(dependencies.nodeModulesPath, '.bin'));
+  return Object.freeze(budgetProjection.slowSuites.flatMap((suite) => {
+    const files = filesBySuite.get(suite.id);
+    if (files === undefined) return [];
+    const policy = issueTestSuiteExecutionPolicy({
+      testInventory,
+      budgetProjection,
+      suiteId: suite.id,
+      selectedFiles: files,
+      bunOptions: withDefaultTestTimeout(options),
+      workingDirectory: compilerRoot
+    });
+    const invocationArgs = [...policy.canonicalArgv.slice(1)];
+    preparedSlowTestExecutions.set(policy, Object.freeze({
+      reobserve: source.reobserve,
+      run: (context: RepositoryMutationFenceExecutionContext) => runDevCommand(
+        'bun', invocationArgs, environment, {
+          testSuiteAdmission: context.testSuiteAdmission,
+          testSuiteObserver: context.testSuiteObserver
+        }
+      )
+    }));
+    return [Object.freeze({ policy })];
+  }));
+}
+
+export async function executePreparedSlowTestSuiteExecutions(
+  preparedSuites: readonly PreparedSlowTestSuiteExecution[],
+  commandId: string
+): Promise<number> {
+  if (preparedSuites.length === 0) {
+    console.log('No slow test files detected.');
     return 0;
   }
-  await withOperationDependencies('test-slow', async ({ binPath }) => {
-    try {
-      const invocationArgs = managedBunTestArgs(selection.args);
-      exitCode = await runDevCommand('bun', invocationArgs, pathEnv(binPath), {
-        timeoutMs: testSupervisorTimeoutMs(invocationArgs)
-      });
-    } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error));
-      exitCode = 1;
+  const { compileRepositoryObservationOperation } = await import('./repository-observation.ts');
+  const { runRepositoryZeroWriteOperation } = await import('./repository-mutation-fence.ts');
+  for (const preparedSuite of preparedSuites) {
+    const execution = preparedSlowTestExecutions.get(preparedSuite.policy);
+    if (execution === undefined) {
+      throw new Error('Slow suite execution requires its owner-issued source reobservation.');
     }
-  });
-  return exitCode;
+    const admission = admitTestSuiteExecutionPolicy(preparedSuite.policy);
+    const code = await runRepositoryZeroWriteOperation(
+      `${commandId}:${preparedSuite.policy.suiteId}`,
+      async (_processSession, context) => {
+        if (context === undefined) {
+          throw new Error('Slow suite execution requires its repository observer context.');
+        }
+        if (!(await execution.reobserve(admission.revalidationDeadlineAtUnixMs))) {
+          throw new Error('Slow test budget workspace snapshot drifted before child spawn.');
+        }
+        return execution.run(context);
+      },
+      {
+        operation: compileRepositoryObservationOperation(),
+        observerDeadlineAtUnixMs: admission.logicalDeadlineAtUnixMs,
+        retainProcessSession: false,
+        testSuiteAdmission: admission
+      }
+    );
+    if (code !== 0) return code;
+  }
+  return 0;
 }
 
 export async function runContractFreeze(targets?: ContractFreezeTarget[]): Promise<number> {

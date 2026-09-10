@@ -120,6 +120,66 @@ test.skipIf(process.platform !== 'win32')(
 );
 
 test.skipIf(process.platform !== 'win32')(
+  'Windows host directory authority passes the parent absolute deadline to its ACL probe',
+  async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-host-authority-deadline-'));
+    const authorityRoot = path.join(root, 'local-app-data');
+    await mkdir(authorityRoot);
+    const observedDeadlines: Array<number | undefined> = [];
+    try {
+      const authority = await proveWindowsHostDirectoryAuthorityForTests(
+        authorityRoot,
+        async (_targetPath, input) => {
+          observedDeadlines.push(input?.deadlineAtMs);
+          return {
+            aclDigest: `sha256:${'a'.repeat(64)}`,
+            ownerSid: 'S-1-5-21-1000'
+          };
+        }
+      );
+      const deadlineAtMs = Date.now() + 10_000;
+      await authority.assertCurrent({ deadlineAtMs });
+      expect(observedDeadlines).toEqual([undefined, deadlineAtMs]);
+      await authority.release();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+);
+
+test.skipIf(process.platform !== 'win32')(
+  'Windows host directory authority preserves its session after one probe deadline failure',
+  async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-host-authority-probe-deadline-'));
+    const authorityRoot = path.join(root, 'local-app-data');
+    await mkdir(authorityRoot);
+    let probeCount = 0;
+    try {
+      const authority = await proveWindowsHostDirectoryAuthorityForTests(
+        authorityRoot,
+        async () => {
+          probeCount += 1;
+          if (probeCount === 2) {
+            throw new WindowsHostDirectoryAuthorityError('deadline-exhausted', 'test probe deadline exhausted');
+          }
+          return {
+            aclDigest: `sha256:${'a'.repeat(64)}`,
+            ownerSid: 'S-1-5-21-1000'
+          };
+        }
+      );
+      await expect(authority.assertCurrent({ deadlineAtMs: Date.now() + 10_000 }))
+        .rejects.toMatchObject({ failure: 'deadline-exhausted' });
+      await expect(authority.assertCurrent()).resolves.toBeUndefined();
+      expect(probeCount).toBe(3);
+      await authority.release();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+);
+
+test.skipIf(process.platform !== 'win32')(
   'Windows read-only tree reuses its physically-bound ACL proof on warm readback',
   async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-tree-proof-reuse-'));
@@ -282,6 +342,12 @@ test.skipIf(process.platform !== 'win32')(
       );
       await authority.assertCurrent();
       expect(authority.rootPath).toBe(path.resolve(authorityRoot));
+      const operationRoot = path.join(authorityRoot, 'operation');
+      await mkdir(operationRoot);
+      await authority.assertCurrent();
+      await writeFile(path.join(operationRoot, 'record.json'), '{}');
+      await rm(operationRoot, { recursive: true });
+      await authority.assertCurrent();
       await authority.release();
       await expect(authority.assertCurrent()).rejects.toMatchObject({
         failure: 'session-closed'

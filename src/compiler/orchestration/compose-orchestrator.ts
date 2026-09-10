@@ -1,5 +1,10 @@
 import { createWorkspaceWriteCommitFence } from '../../workspace/lease.ts';
 import { composeProject } from '../compose/compose-project.ts';
+import {
+  opaqueModuleMaterializationEnvironment,
+  resolveOpaqueModuleMaterializationMode,
+  type OpaqueModuleMaterializationMode
+} from '../compose/opaque-module-materialization.ts';
 import type {
   LockFile,
   PlanFile
@@ -11,6 +16,12 @@ import { executePipelineStage, withPipelineTransaction } from '../pipeline/kerne
 import { requirePipelineSemanticContext } from '../pipeline/semantic-context.ts';
 import type { PipelineExecutionContext, PipelineSemanticContext } from '../pipeline/types.ts';
 import { runWorkspaceSemanticFrontend } from './semantic-orchestrator.ts';
+
+export type ComposeWorkspaceOptions = Readonly<{
+  lock?: boolean;
+  signal?: AbortSignal;
+  opaqueModuleMaterializationMode?: OpaqueModuleMaterializationMode;
+}>;
 
 function readRequiredComposeLock(workspaceRoot: string): LockFile {
   try {
@@ -25,7 +36,8 @@ function readRequiredComposeLock(workspaceRoot: string): LockFile {
   }
 }
 
-function assertComposeOptions(options?: { lock?: boolean; signal?: AbortSignal }): void {
+function assertComposeOptions(options?: ComposeWorkspaceOptions): void {
+  options?.signal?.throwIfAborted();
   if (options?.lock) {
     throw new CompilerError(
       'COMPOSE-LOCK-001',
@@ -34,30 +46,42 @@ function assertComposeOptions(options?: { lock?: boolean; signal?: AbortSignal }
   }
 }
 
+function resolveComposeMaterializationMode(
+  options?: ComposeWorkspaceOptions
+): OpaqueModuleMaterializationMode {
+  return resolveOpaqueModuleMaterializationMode(
+    options?.opaqueModuleMaterializationMode,
+    opaqueModuleMaterializationEnvironment(process.env)
+  );
+}
+
 async function composeWorkspaceCore(
   workspaceRoot: string,
   semanticContext: PipelineSemanticContext,
   context: PipelineExecutionContext,
-  options?: { lock?: boolean; signal?: AbortSignal }
+  materializationMode: OpaqueModuleMaterializationMode,
+  options?: ComposeWorkspaceOptions
 ): Promise<{ plan: PlanFile; lock: LockFile }> {
   const plan = loadWorkspacePlan(workspaceRoot);
   const lock = readRequiredComposeLock(workspaceRoot);
   const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, context.workspaceWriteLease);
   await composeProject(workspaceRoot, lock, semanticContext, {
     commitFence,
-    signal: options?.signal
+    signal: options?.signal,
+    opaqueModuleMaterializationMode: materializationMode
   });
   return { plan, lock };
 }
 
 export async function composeWorkspace(
   workspaceRoot = process.cwd(),
-  options?: { lock?: boolean; signal?: AbortSignal },
+  options?: ComposeWorkspaceOptions,
   context?: PipelineExecutionContext
 ): Promise<{ plan: PlanFile; lock: LockFile }> {
-  // Validate effect capabilities before opening a Pipeline transaction. An
-  // unsupported option must be zero-effect, not "fail after semantic writes".
+  // Validate and resolve all ambient inputs before opening a Pipeline
+  // transaction. Unsupported or conflicting inputs must remain zero-effect.
   assertComposeOptions(options);
+  const materializationMode = resolveComposeMaterializationMode(options);
   if (!context) {
     return withPipelineTransaction(
       workspaceRoot,
@@ -66,7 +90,11 @@ export async function composeWorkspace(
       undefined,
       async (transaction) => {
         await runWorkspaceSemanticFrontend(workspaceRoot, transaction);
-        return composeWorkspace(workspaceRoot, options, transaction);
+        return composeWorkspace(
+          workspaceRoot,
+          { ...options, opaqueModuleMaterializationMode: materializationMode },
+          transaction
+        );
       }
     );
   }
@@ -78,6 +106,7 @@ export async function composeWorkspace(
       workspaceRoot,
       requirePipelineSemanticContext(stageContext),
       stageContext,
+      materializationMode,
       options
     ),
     { extractLock: (result) => result.lock }

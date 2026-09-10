@@ -17,12 +17,20 @@ import {
   parseDockerEndpointIdentity,
   type DockerEndpointIdentity
 } from '../../external-capabilities/docker/contract/daemon.ts';
+import { disposeUnclaimedDockerCommandProviderCapability } from '../../external-capabilities/docker/runtime/command-provider.ts';
 import {
   openContainerEngineSession
 } from '../../external-capabilities/docker/runtime/container-engine-session.ts';
 import {
   openWindowsDockerCommandProvider
 } from '../../external-capabilities/docker/runtime/windows-command-provider.ts';
+import {
+  assertGitCandidateBundleReceipt,
+  closeGitCandidateBundle,
+  createGitCandidateBundle,
+  type GitCandidateBundle
+} from '../../external-capabilities/git-bundle/runtime.ts';
+import { withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
 import { isolatedGitChildEnvironment } from '../../external-capabilities/git-read/runtime/session.ts';
 import {
   SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY,
@@ -30,9 +38,13 @@ import {
   SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH,
   SEC_LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH
 } from '../../external-capabilities/linux-verification/contract.ts';
+import {
+  parseGitLineReply,
+  parseGitObjectIdReply
+} from '../../runtime-state/physical/contract/git-worktree-observation.ts';
 import { acquirePhysicalMutationLease } from '../../runtime-state/physical/runtime/mutation-lease.ts';
 import { type NoFollowDirectoryTreeEntry } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { runCommand } from '../../runtime-state/physical/runtime/process.ts';
+import { settlePhysicalResourcesAsync } from '../../runtime-state/physical/runtime/resource-settlement.ts';
 import { resolveSecRuntimeStateForRepository } from '../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeStatePhysicalAuthority } from '../../runtime-state/workspace-state/physical-authority.ts';
 import {
@@ -1080,41 +1092,6 @@ export function createTrustedRuntimeHostCommandEnvironment(
   return isolatedGitChildEnvironment(result);
 }
 
-async function observeCommandResult(
-  executable: 'git',
-  args: readonly string[],
-  cwd: string,
-  timeoutMs = 120_000
-): Promise<Awaited<ReturnType<typeof runCommand>>> {
-  return await runCommand(executable, [...args], {
-    cwd,
-    envMode: 'replace',
-    env: createTrustedRuntimeHostCommandEnvironment(executable),
-    timeoutMs,
-    maxStdoutBytes: 32 * 1024 * 1024,
-    maxStderrBytes: 32 * 1024 * 1024
-  });
-}
-
-async function commandResult(
-  executable: 'git',
-  args: readonly string[],
-  cwd: string,
-  timeoutMs = 120_000
-): Promise<Awaited<ReturnType<typeof runCommand>>> {
-  const result = await observeCommandResult(
-    executable,
-    args,
-    cwd,
-    timeoutMs
-  );
-  if (result.code !== 0) {
-    const detail = renderTrustedRuntimeCommandFailureDetail(result);
-    fail(`${executable} ${args[0] ?? '<missing>'} failed (${result.code}): ${detail}`);
-  }
-  return result;
-}
-
 export function renderTrustedRuntimeCommandFailureDetail(input: Readonly<{
   stdout: string;
   stderr: string;
@@ -1127,15 +1104,6 @@ export function renderTrustedRuntimeCommandFailureDetail(input: Readonly<{
     return tail.length === 0 ? [] : [`${label}:\n${tail}`];
   });
   return sections.length === 0 ? '<no captured output>' : sections.join('\n');
-}
-
-async function command(
-  executable: 'git',
-  args: readonly string[],
-  cwd: string,
-  timeoutMs = 120_000
-): Promise<string> {
-  return (await commandResult(executable, args, cwd, timeoutMs)).stdout.trim();
 }
 
 async function observeContainerEngineOperation(
@@ -1179,6 +1147,7 @@ export interface TrustedRuntimeContainerIdentity {
   readonly labels: Readonly<Record<string, string>>;
   readonly readOnlyRootfs: true;
   readonly readOnlyCandidateBundle: true;
+  readonly candidateBundleSource: string;
   readonly initProcess: true;
   readonly executableTestTmpfs: true;
   readonly nonExecutableMutableTmpfs: true;
@@ -1273,7 +1242,8 @@ export function parseTrustedRuntimeContainerIdentity(
     && (entry as Record<string, unknown>).Destination === TRUSTED_RUNTIME_CANDIDATE_BUNDLE);
   if (candidateBundleMounts.length !== 1
       || (candidateBundleMounts[0] as Record<string, unknown>).Type !== 'bind'
-      || (candidateBundleMounts[0] as Record<string, unknown>).RW !== false) {
+      || (candidateBundleMounts[0] as Record<string, unknown>).RW !== false
+      || typeof (candidateBundleMounts[0] as Record<string, unknown>).Source !== 'string') {
     fail('Docker candidate bundle must be one read-only bind mount');
   }
   const dependencyCacheMounts = mounts.filter((entry) => entry !== null
@@ -1310,6 +1280,7 @@ export function parseTrustedRuntimeContainerIdentity(
     labels: Object.freeze(labels),
     readOnlyRootfs: true,
     readOnlyCandidateBundle: true,
+    candidateBundleSource: (candidateBundleMounts[0] as Record<string, unknown>).Source as string,
     initProcess: true,
     executableTestTmpfs: true,
     nonExecutableMutableTmpfs: true,
@@ -1324,6 +1295,7 @@ function sameContainerIdentity(
   return left.id === right.id && left.imageId === right.imageId && left.name === right.name
     && left.readOnlyRootfs === right.readOnlyRootfs
     && left.readOnlyCandidateBundle === right.readOnlyCandidateBundle
+    && left.candidateBundleSource === right.candidateBundleSource
     && left.initProcess === right.initProcess
     && left.executableTestTmpfs === right.executableTestTmpfs
     && left.nonExecutableMutableTmpfs === right.nonExecutableMutableTmpfs
@@ -1602,28 +1574,6 @@ async function ensureTrustedRuntimeDependencyCacheVolume(input: Readonly<{
   });
 }
 
-async function createCandidateBundle(input: Readonly<{
-  repositoryRoot: string;
-  temporaryRoot: string;
-  baseSha: string;
-  headSha: string;
-}>): Promise<string> {
-  const bare = path.join(input.temporaryRoot, 'bundle-source.git');
-  const bundle = path.join(input.temporaryRoot, 'candidate.bundle');
-  await command('git', ['init', '--bare', bare], input.temporaryRoot);
-  await command('git', [
-    '-c', 'protocol.file.allow=always',
-    '-C', bare,
-    'fetch', '--no-tags', '--no-write-fetch-head', input.repositoryRoot,
-    `${input.baseSha}:refs/sec/base`, `${input.headSha}:refs/sec/head`
-  ], input.temporaryRoot);
-  await command('git', [
-    '-C', bare, 'bundle', 'create', bundle, 'refs/sec/base', 'refs/sec/head'
-  ], input.temporaryRoot);
-  await command('git', ['-C', bare, 'bundle', 'verify', bundle], input.temporaryRoot);
-  return bundle;
-}
-
 const PUBLISH_DEPENDENCY_CACHE_MARKER_SCRIPT = [
   'set -euo pipefail',
   'expected="$1"',
@@ -1652,6 +1602,19 @@ const READ_DEPENDENCY_CACHE_MARKER_DIGEST_SCRIPT = [
   '[ -f "$marker" ] && [ ! -L "$marker" ]',
   'actual="$(sha256sum "$marker")"',
   'actual="${actual%% *}"',
+  'printf \'sha256:%s\\n\' "$actual"'
+].join('\n');
+
+const READ_CANDIDATE_BUNDLE_IDENTITY_SCRIPT = [
+  'set -euo pipefail',
+  'expected_size="$1"',
+  'expected_digest="$2"',
+  `bundle="${TRUSTED_RUNTIME_CANDIDATE_BUNDLE}"`,
+  '[ -f "$bundle" ] && [ ! -L "$bundle" ]',
+  '[ "$(stat -c %s "$bundle")" = "$expected_size" ]',
+  'actual="$(sha256sum "$bundle")"',
+  'actual="${actual%% *}"',
+  '[ "sha256:$actual" = "$expected_digest" ]',
   'printf \'sha256:%s\\n\' "$actual"'
 ].join('\n');
 
@@ -2778,9 +2741,9 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
   execute: (workspace: TrustedRuntimeWorkspace) => Promise<T>;
 }>): Promise<T> {
   const repositoryRoot = path.resolve(input.repositoryRoot);
-  const commandProvider = await openWindowsDockerCommandProvider({
-    workingDirectory: repositoryRoot
-  });
+  if (!path.isAbsolute(input.repositoryRoot) || repositoryRoot !== input.repositoryRoot) {
+    fail('workspace repository root is noncanonical');
+  }
   const repositoryIdentity = repository(input.repository);
   const baseSha = sha(input.baseSha, 'workspace baseSha');
   const headSha = sha(input.headSha, 'workspace headSha');
@@ -2796,21 +2759,65 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
     'trusted-runtime-container-leases',
     'v1'
   );
-  const operationLeaseAuthority = await acquireSecRuntimeStatePhysicalAuthority({
-    repositoryRoot,
-    stateRoot: runtimeLayout.stateRoot,
-    cacheRoot: runtimeLayout.cacheRoot,
-    requiredDirectories: [operationLeaseRoot]
-  });
-  const operationLease = acquirePhysicalMutationLease(
-    operationLeaseAuthority.directory(operationLeaseRoot),
-    `container-${input.operationKey}.lock`
-  );
-  if (operationLease === null) {
-    fail('trusted runtime operation is already active or its owner liveness is unknown');
-  }
+  let operationLeaseAuthority:
+    Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | null = null;
+  let operationLease: ReturnType<typeof acquirePhysicalMutationLease> = null;
+  let commandProvider: Awaited<ReturnType<typeof openWindowsDockerCommandProvider>> | null = null;
+  let commandProviderTransferred = false;
   let containerEngineSession: ContainerEngineSession | null = null;
+  let primaryFailure: unknown;
+  let hasPrimaryFailure = false;
   try {
+    operationLeaseAuthority = await acquireSecRuntimeStatePhysicalAuthority({
+      repositoryRoot,
+      stateRoot: runtimeLayout.stateRoot,
+      cacheRoot: runtimeLayout.cacheRoot,
+      requiredDirectories: [operationLeaseRoot]
+    });
+    operationLease = acquirePhysicalMutationLease(
+      operationLeaseAuthority.directory(operationLeaseRoot),
+      `container-${input.operationKey}.lock`
+    );
+    if (operationLease === null) {
+      fail('trusted runtime operation is already active or its owner liveness is unknown');
+    }
+    operationLease.acknowledgeReclaimedRecovery();
+    const bunLockBlobSha = input.setupMode === 'lifecycle-canary'
+      ? null
+      : await withAuthorityGitReadSession({
+          cwd: repositoryRoot,
+          source: process.env,
+          budget: {
+            deadlineMs: 30_000,
+            maxProcesses: 1,
+            maxTotalArgumentBytes: 2 * 1024,
+            maxStdinBytes: 1,
+            maxStdoutBytes: 16 * 1024,
+            maxStderrBytes: 16 * 1024,
+            maxRecords: 2,
+            maxRootObservedBytes: 128 * 1024 * 1024,
+            maxReopenRefreshes: 2,
+            maxSettlementAttempts: 3,
+            maxCommandStdoutBytes: 8 * 1024,
+            maxCommandStderrBytes: 8 * 1024,
+            maxExecutableBytes: 64 * 1024 * 1024
+          }
+        }, async (git) => {
+          const observed = await git.run([
+            'rev-parse', '--verify', '--quiet', '--end-of-options', `${baseSha}:bun.lock`
+          ]);
+          const objectId = observed.kind === 'completed' && observed.result.code === 0
+            ? parseGitObjectIdReply(
+                observed.result.stdout,
+                baseSha.length === 40 ? 'sha1' : 'sha256'
+              )
+            : null;
+          if (objectId === null) fail('trusted runtime bun.lock blob observation is invalid');
+          return objectId;
+        });
+    commandProvider = await openWindowsDockerCommandProvider({
+      workingDirectory: repositoryRoot
+    });
     const operation = bindTrustedRuntimeContainerEngineOperation({
       repositoryRoot,
       repository: repositoryIdentity,
@@ -2820,12 +2827,14 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
       setupMode: input.setupMode,
       providerIdentityDigest: commandProvider.providerIdentityDigest
     });
-    containerEngineSession = await openContainerEngineSession({
+    const openingSession = openContainerEngineSession({
       operation,
       provider: commandProvider,
       cwd: repositoryRoot,
       availability: 'ensure-started'
     });
+    commandProviderTransferred = true;
+    containerEngineSession = await openingSession;
     const session = containerEngineSession;
     const dockerEndpoint = session.endpoint;
     const setupOperation = bindTrustedRuntimeContainerEngineOperation({
@@ -2845,13 +2854,11 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
     let setupSettled = false;
     const image = await ensureImage(repositoryRoot, session);
     const endpointDigest = digestValue(dockerEndpoint);
-    const dependencyCacheMarker = input.setupMode === 'lifecycle-canary'
+    const dependencyCacheMarker = bunLockBlobSha === null
       ? null
       : createTrustedRuntimeDependencyCacheMarker({
           repository: repositoryIdentity,
-          bunLockBlobSha: await command(
-            'git', ['rev-parse', `${baseSha}:bun.lock`], repositoryRoot
-          ),
+          bunLockBlobSha,
           imageId: image.imageId
         });
     const dependencyCacheVolume = dependencyCacheMarker === null
@@ -2895,8 +2902,15 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
     const temporaryRoot = mkdtempSync(path.join(tmpdir(), 'sec-trusted-runtime-'));
     let containerCreated = false;
     let containerId: string | null = null;
+    let candidateBundle: GitCandidateBundle | null = null;
+    let workspacePrimary: Readonly<{ label: string; error: unknown }> | undefined;
     try {
-      const bundle = await createCandidateBundle({ repositoryRoot, temporaryRoot, baseSha, headSha });
+      candidateBundle = await createGitCandidateBundle({
+        sourceRoot: repositoryRoot,
+        temporaryRoot,
+        baseSha,
+        headSha
+      });
       const dependencyCacheMarkerBytes = dependencyCacheMarker === null
         ? null
         : canonicalDependencyCacheMarkerBytes(dependencyCacheMarker);
@@ -2915,7 +2929,7 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
         '--memory', `${ENVIRONMENT.runtime.resources.trusted.memoryGiB}g`,
         '--tmpfs', TRUSTED_RUNTIME_TEST_TMPFS_SPEC,
         '--tmpfs', TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC,
-        '--mount', `type=bind,source=${path.resolve(bundle)},target=${TRUSTED_RUNTIME_CANDIDATE_BUNDLE},readonly`,
+        '--mount', `type=bind,source=${candidateBundle.bundlePath},target=${TRUSTED_RUNTIME_CANDIDATE_BUNDLE},readonly`,
         ...(dependencyCacheVolume === null ? [] : [
           '--mount', `type=volume,source=${dependencyCacheVolume.spec.name},target=${TRUSTED_RUNTIME_DEPENDENCY_CACHE_CONTAINER_PATH}`
         ]),
@@ -2935,6 +2949,7 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
           || createdIdentity.imageId !== image.imageId
           || createdIdentity.readOnlyRootfs !== true
           || createdIdentity.readOnlyCandidateBundle !== true
+          || createdIdentity.candidateBundleSource !== candidateBundle.bundlePath
           || createdIdentity.initProcess !== true
           || createdIdentity.executableTestTmpfs !== true
           || createdIdentity.nonExecutableMutableTmpfs !== true
@@ -2947,6 +2962,14 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
       await containerEngineOutput(session, {
         kind: 'container-start', arguments: [containerTarget]
       });
+      const mountedBundleDigest = digest(await containerEngineOutput(session, {
+        kind: 'container-exec', arguments: [containerTarget, '/bin/bash', '-ceu',
+        READ_CANDIDATE_BUNDLE_IDENTITY_SCRIPT, '--',
+        String(candidateBundle.bundleSize), candidateBundle.bundleDigest]
+      }), 'mounted candidate bundle digest');
+      if (mountedBundleDigest !== candidateBundle.bundleDigest) {
+        fail('mounted candidate bundle identity differs from its retained capability');
+      }
       if (dependencyCacheMarkerBytes !== null && dependencyCacheMarkerFileDigest !== null) {
         const publishedMarkerDigest = digest(await containerEngineOutput(session, {
           kind: 'container-exec', arguments: [containerTarget, '/bin/bash', '-ceu',
@@ -3014,66 +3037,123 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
         dockerEndpoint,
         dependencyCacheKey: dependencyCacheMarker?.cacheKey ?? null
       }));
+    } catch (error) {
+      workspacePrimary = Object.freeze({ label: 'trusted-runtime-workspace', error });
+      throw error;
     } finally {
-      if (!setupSettled) {
-        await settleTrustedRuntimeContainerEngineOperation({
-          session,
-          operation: setupOperation,
-          scope: setupScope,
-          ownerTerminalReference: Object.freeze({
-            phase: 'setup-failure',
-            operationKey: input.operationKey
-          })
-        });
-      }
-      if (containerCreated) {
-        const cleanupOperation = bindTrustedRuntimeContainerEngineOperation({
-          repositoryRoot,
-          repository: repositoryIdentity,
-          baseSha,
-          headSha,
-          operationKey: `${input.operationKey}-cleanup`,
-          setupMode: input.setupMode,
-          providerIdentityDigest: session.providerIdentityDigest,
-          deadlineAtUnixMs: session.deadlineAtUnixMs
-        });
-        const cleanupScope = session.openOperationScope({
-          operation: cleanupOperation,
-          requirementId: 'external.container-engine-process'
-        });
-        let removed: Awaited<ReturnType<typeof observeContainerEngineOperation>> | null = null;
-        try {
-          removed = await observeContainerEngineOperation(session, {
-            kind: 'container-remove', arguments: ['--force', containerId ?? containerName]
-          }, { acceptAnyExitCode: true });
-        } finally {
+      await settlePhysicalResourcesAsync({
+        primary: workspacePrimary,
+        cleanup: [{
+          label: 'trusted-runtime-container-setup-operation',
+          settle: async () => {
+            if (setupSettled) return;
           await settleTrustedRuntimeContainerEngineOperation({
             session,
-            operation: cleanupOperation,
-            scope: cleanupScope,
+            operation: setupOperation,
+            scope: setupScope,
             ownerTerminalReference: Object.freeze({
-              phase: 'cleanup',
-              operationKey: input.operationKey,
-              containerName: containerId ?? containerName
+              phase: 'setup-failure',
+              operationKey: input.operationKey
             })
           });
-        }
-        if (removed === null || removed.code !== 0) {
-          fail(`container cleanup failed and ${containerName} was retained`);
-        }
-      }
-      rmSync(temporaryRoot, { recursive: true, force: true });
+          }
+        }, {
+          label: 'trusted-runtime-container-removal',
+          settle: async () => {
+            if (!containerCreated) return;
+            const cleanupOperation = bindTrustedRuntimeContainerEngineOperation({
+              repositoryRoot,
+              repository: repositoryIdentity,
+              baseSha,
+              headSha,
+              operationKey: `${input.operationKey}-cleanup`,
+              setupMode: input.setupMode,
+              providerIdentityDigest: session.providerIdentityDigest,
+              deadlineAtUnixMs: session.deadlineAtUnixMs
+            });
+            const cleanupScope = session.openOperationScope({
+              operation: cleanupOperation,
+              requirementId: 'external.container-engine-process'
+            });
+            let removalPrimary: Readonly<{ label: string; error: unknown }> | undefined;
+            try {
+              const removed = await observeContainerEngineOperation(session, {
+                kind: 'container-remove', arguments: ['--force', containerId ?? containerName]
+              }, { acceptAnyExitCode: true });
+              if (removed.code !== 0) {
+                fail(`container cleanup failed and ${containerName} was retained`);
+              }
+            } catch (error) {
+              removalPrimary = Object.freeze({ label: 'trusted-runtime-container-remove-effect', error });
+            }
+            await settlePhysicalResourcesAsync({
+              primary: removalPrimary,
+              cleanup: [{
+                label: 'trusted-runtime-container-cleanup-operation',
+                settle: async () => {
+                  await settleTrustedRuntimeContainerEngineOperation({
+                  session,
+                  operation: cleanupOperation,
+                  scope: cleanupScope,
+                  ownerTerminalReference: Object.freeze({
+                    phase: 'cleanup',
+                    operationKey: input.operationKey,
+                    containerName: containerId ?? containerName
+                  })
+                  });
+                }
+              }]
+            });
+          }
+        }, {
+          label: 'git-candidate-bundle-capability',
+          settle: () => {
+            if (candidateBundle === null) return;
+            assertGitCandidateBundleReceipt(
+              closeGitCandidateBundle(candidateBundle),
+              candidateBundle
+            );
+          }
+        }, {
+          label: 'trusted-runtime-temporary-root',
+          settle: () => rmSync(temporaryRoot, { recursive: true, force: true })
+        }]
+      });
     }
+  } catch (error) {
+    primaryFailure = error;
+    hasPrimaryFailure = true;
+    throw error;
   } finally {
-    try {
-      try {
-        containerEngineSession?.close();
-      } finally {
-        await operationLeaseAuthority.assertCurrent();
-      }
-    } finally {
-      operationLease.release();
-    }
+    await settlePhysicalResourcesAsync({
+      ...(hasPrimaryFailure ? {
+        primary: { label: 'trusted-runtime-operation', error: primaryFailure }
+      } : {}),
+      cleanup: [{
+        label: 'trusted-runtime-container-engine-session',
+        settle: () => { containerEngineSession?.close(); }
+      }, {
+        label: 'trusted-runtime-unclaimed-command-provider',
+        settle: () => {
+          if (commandProvider !== null && !commandProviderTransferred) {
+            disposeUnclaimedDockerCommandProviderCapability(commandProvider);
+          }
+        }
+      }, {
+        label: 'trusted-runtime-operation-lease-current',
+        settle: async () => { await operationLeaseAuthority?.assertCurrent(); }
+      }, {
+        label: 'trusted-runtime-operation-lease',
+        settle: () => {
+          if (operationLease === null) return;
+          if (operationLease.recoveryPending) operationLease.restoreReclaimedOwner();
+          else operationLease.release();
+        }
+      }, {
+        label: 'trusted-runtime-state-physical-authority',
+        settle: async () => { await operationLeaseAuthority?.release(); }
+      }]
+    });
   }
 }
 
@@ -3181,13 +3261,46 @@ export async function executeTrustedRuntimeMainHealth(input: Readonly<{
   const mainSha = sha(input.mainSha, 'MainHealth mainSha');
   const mainTreeSha = sha(input.mainTreeSha, 'MainHealth mainTreeSha');
   const repositoryIdentity = repository(input.repository);
-  const parentLine = await command('git', ['rev-list', '--parents', '-n', '1', mainSha], repositoryRoot);
-  const parentSha = parentLine.split(' ')[1] ?? '';
+  const baselineIdentity = await withAuthorityGitReadSession({
+    cwd: repositoryRoot,
+    source: process.env,
+    budget: {
+      deadlineMs: 30_000,
+      maxProcesses: 2,
+      maxTotalArgumentBytes: 4 * 1024,
+      maxStdinBytes: 1,
+      maxStdoutBytes: 64 * 1024,
+      maxStderrBytes: 64 * 1024,
+      maxRecords: 4,
+      maxRootObservedBytes: 128 * 1024 * 1024,
+      maxReopenRefreshes: 2,
+      maxSettlementAttempts: 3,
+      maxCommandStdoutBytes: 16 * 1024,
+      maxCommandStderrBytes: 16 * 1024,
+      maxExecutableBytes: 64 * 1024 * 1024
+    }
+  }, async (git) => {
+    const parentCommand = await git.run(['rev-list', '--parents', '-n', '1', mainSha]);
+    const parentLine = parentCommand.kind === 'completed' && parentCommand.result.code === 0
+      ? parseGitLineReply(parentCommand.result.stdout)?.[0]
+      : undefined;
+    const fields = parentLine?.split(' ');
+    if (parentLine === undefined || fields?.length !== 2 || fields[0] !== mainSha) {
+      fail('MainHealth main parent observation is invalid');
+    }
+    const parentSha = sha(fields[1] ?? '', 'MainHealth parentSha');
+    const treeCommand = await git.run(['rev-parse', '--verify', '--quiet', '--end-of-options', `${parentSha}^{tree}`]);
+    const parentTreeSha = treeCommand.kind === 'completed' && treeCommand.result.code === 0
+      ? parseGitObjectIdReply(treeCommand.result.stdout, parentSha.length === 40 ? 'sha1' : 'sha256')
+      : null;
+    if (parentTreeSha === null) fail('MainHealth parent tree observation is invalid');
+    return Object.freeze({ parentLine, parentTreeSha });
+  });
   const baseline = createTrustedRuntimeMainHealthBaselineObservation({
     mainSha,
     mainTreeSha,
-    parentLine,
-    parentTreeSha: await command('git', ['rev-parse', `${parentSha}^{tree}`], repositoryRoot)
+    parentLine: baselineIdentity.parentLine,
+    parentTreeSha: baselineIdentity.parentTreeSha
   });
   return await withTrustedRuntimeWorkspace({
     repositoryRoot,

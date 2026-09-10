@@ -20,7 +20,6 @@ function compareCodeUnits(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-const WINDOWS_WAIT_FAILED = 0xffff_ffff;
 const WINDOWS_CREATE_SUSPENDED = 0x0000_0004;
 const WINDOWS_CREATE_UNICODE_ENVIRONMENT = 0x0000_0400;
 const WINDOWS_EXTENDED_STARTUPINFO_PRESENT = 0x0008_0000;

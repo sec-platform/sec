@@ -6,6 +6,7 @@ import {
 } from '../../../system-architecture/operation/semantic.ts';
 import {
   assertRetainedCommandBoundaryCurrent,
+  retainedCommandBoundaryAuxiliaryInputs,
   type RetainedCommandBoundary
 } from './retained-command-boundary.ts';
 
@@ -49,6 +50,18 @@ export function issueIndependentProviderProcessCapability(
     throw new Error('Independent provider process requires bound process and provider Effects.');
   }
   const executable = input.boundary.executable.digest();
+  const auxiliaryInputs = retainedCommandBoundaryAuxiliaryInputs(input.boundary).map(
+    ({ capability, kind }) => ({
+      kind,
+      childPath: capability.childPath,
+      ...(kind === 'ordinary-file' && 'digest' in capability ? {
+        path: capability.path,
+        parent: capability.parent,
+        physical: capability.physical,
+        ...capability.digest()
+      } : {})
+    })
+  );
   const providerPhysicalIdentityDigest = sha256({
     domain: 'sec.independent-provider-process.retained-boundary',
     executable: {
@@ -58,7 +71,8 @@ export function issueIndependentProviderProcessCapability(
     },
     workingDirectory: {
       childPath: input.boundary.workingDirectory.childPath
-    }
+    },
+    auxiliaryInputs
   }) as SecOperationDigest;
   const capability: IndependentProviderProcessCapability = Object.freeze({
     providerPhysicalIdentityDigest

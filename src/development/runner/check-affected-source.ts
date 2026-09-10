@@ -1,5 +1,5 @@
 import type { SourceProgramCompilationOperation } from '../../brownfield/source-program-model/compilation-operation.ts';
-import { compileRepositorySourceProgramCompilation } from '../../brownfield/source-program-model/repository-compilation.ts';
+import { compileRepositorySourceProgramWithCache } from '../../brownfield/source-program-model/repository-compilation-cache-session.ts';
 import {
   issueTestImpactProjection,
   type IssuedTestImpactProjection
@@ -11,7 +11,8 @@ import {
   type WorkspaceTypeScriptProjectGenerationEvidence
 } from '../../brownfield/source-program-model/workspace-source-snapshot.ts';
 import type { GitReadSession } from '../../external-capabilities/git-read/runtime/session.ts';
-import type { RetainedCompilerDependencyReadGeneration } from '../../toolchain/dependencies/runtime.ts';
+import { assertRetainedCompilerDependencyReadGeneration, type RetainedCompilerDependencyReadGeneration } from '../../toolchain/dependencies/runtime.ts';
+import { issueTestInventoryProjection, type IssuedTestInventoryProjection } from '../../verification/test-impact/contract/budget.ts';
 import { tsconfigRelativePath } from '../../workspace/runtime/paths.ts';
 
 export type AffectedTestImpactProjectionIssuer = (
@@ -23,6 +24,7 @@ export type AffectedTestImpactProjectionIssuer = (
   }>
 ) => Promise<Readonly<{
   projection: IssuedTestImpactProjection;
+  testInventory: IssuedTestInventoryProjection;
   projectGenerationEvidence: WorkspaceTypeScriptProjectGenerationEvidence;
 }>>;
 
@@ -30,6 +32,8 @@ export type AffectedTestImpactProjectionIssuer = (
 export const issueCheckAffectedTestImpactProjection: AffectedTestImpactProjectionIssuer = async (
   input
 ) => {
+  const dependencyGeneration = input.dependencyGeneration;
+  assertRetainedCompilerDependencyReadGeneration(dependencyGeneration);
   const workspaceSnapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({
     session: input.session
   });
@@ -37,11 +41,11 @@ export const issueCheckAffectedTestImpactProjection: AffectedTestImpactProjectio
     workspaceSnapshot,
     tsconfigRelativePath,
     {
-      dependencyGeneration: input.dependencyGeneration.physicalGeneration,
-      dependencyGenerationDigest: input.dependencyGeneration.generationDigest
+      dependencyGeneration: dependencyGeneration.physicalGeneration,
+      dependencyGenerationDigest: dependencyGeneration.generationDigest
     }
   );
-  const compilation = compileRepositorySourceProgramCompilation({
+  const compilation = compileRepositorySourceProgramWithCache({
     workspaceSnapshot,
     operation: input.compilationOperation,
     projectInput,
@@ -51,9 +55,11 @@ export const issueCheckAffectedTestImpactProjection: AffectedTestImpactProjectio
     projection: issueTestImpactProjection({
       workspaceSnapshot,
       projectGeneration: compilation.projectGeneration,
+      repositoryModel: compilation.model,
       typeScriptModel: compilation.typeScriptCompilation.model,
       testObservations: compilation.testObservations
     }),
+    testInventory: issueTestInventoryProjection({ snapshot: workspaceSnapshot }),
     projectGenerationEvidence: issueWorkspaceTypeScriptProjectGenerationEvidence(
       workspaceSnapshot,
       projectInput

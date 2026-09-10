@@ -1,5 +1,4 @@
 import type { LockFile } from '../../src/compiler/contract.ts';
-import { SUPPORTED_STACK } from '../../src/compiler/contract.ts';
 
 const officialRegistryMetadata = {
   registrySourceId: 'official',
@@ -7,15 +6,6 @@ const officialRegistryMetadata = {
   registryLocation: 'compiler',
   registryPath: 'catalog/registry/official'
 } as const;
-
-export function buildSingleTenantLockApp(options: Partial<LockFile['app']> = {}): LockFile['app'] {
-  return {
-    id: options.id ?? 'customer-admin',
-    name: options.name ?? 'customer-admin',
-    stack: options.stack ?? SUPPORTED_STACK,
-    mode: options.mode ?? 'single-tenant'
-  };
-}
 
 export function buildOfficialResolvedBlock(options: {
   id: string;
@@ -40,7 +30,7 @@ type OfficialInstallStepOptions = Omit<
 
 type OfficialCopyInstallStepOptions = Omit<OfficialInstallStepOptions, 'action'>;
 
-export function buildOfficialInstallStep(options: OfficialInstallStepOptions): LockFile['installPlan'][number] {
+function buildOfficialInstallStep(options: OfficialInstallStepOptions): LockFile['installPlan'][number] {
   return {
     ...officialRegistryMetadata,
     ...options

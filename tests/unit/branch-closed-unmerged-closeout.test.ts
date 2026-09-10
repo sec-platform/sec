@@ -231,7 +231,7 @@ function providerHarness(initial: BranchLifecycleInventory): ProviderHarness {
   };
 }
 
-function evidenceClose(before: BranchLifecycleInventory) {
+function evidenceClose(_before: BranchLifecycleInventory) {
   return createEvidenceCloseDispositionEvidence({
     repository: REPOSITORY,
     pullRequestNumber: PR_NUMBER,

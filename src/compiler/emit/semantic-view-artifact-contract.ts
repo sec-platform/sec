@@ -1,133 +1,35 @@
 import type { ExplainGraph } from '../../semantic/projection/contract/explain.ts';
-import { SEMANTIC_VIEW_FORMAT_VERSION, SEMANTIC_VIEW_SET_FORMAT_VERSION, type SemanticViewSet } from '../../semantic/projection/contract/types.ts';
+import type { SemanticViewSet } from '../../semantic/projection/contract/types.ts';
 import type { LockFile } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isReferenceArray(value: unknown): boolean {
-  return Array.isArray(value) && value.every((reference) =>
-    isRecord(reference) && typeof reference.kind === 'string' && typeof reference.ref === 'string'
-  );
-}
+import { requireSemanticViewSetSchema } from '../lock.ts';
 
 function invalidSemanticViews(message: string, details: Record<string, unknown> = {}): never {
   throw new CompilerError('EXPLAIN-BLOCKED-005', message, details);
 }
 
-function assertSemanticViewSetShape(value: SemanticViewSet | undefined): asserts value is SemanticViewSet {
-  if (!isRecord(value)) {
-    invalidSemanticViews('SemanticViewSet is missing or malformed');
-  }
-  const semanticViews = value as unknown as Partial<SemanticViewSet>;
-  if (semanticViews.formatVersion !== SEMANTIC_VIEW_SET_FORMAT_VERSION) {
-    invalidSemanticViews('SemanticViewSet formatVersion is not supported', {
-      expected: SEMANTIC_VIEW_SET_FORMAT_VERSION,
-      actual: semanticViews.formatVersion
-    });
-  }
-  if (
-    typeof semanticViews.inputRevision !== 'string' ||
-    !semanticViews.inputRevision.trim() ||
-    typeof semanticViews.semanticRevision !== 'string' ||
-    !semanticViews.semanticRevision.trim()
-  ) {
-    invalidSemanticViews('SemanticViewSet revisions must be non-empty', {
-      inputRevision: semanticViews.inputRevision,
-      semanticRevision: semanticViews.semanticRevision
-    });
-  }
-  if (!Array.isArray(semanticViews.views)) {
-    invalidSemanticViews('SemanticViewSet views must be an array');
-  }
-  for (const [viewIndex, rawView] of semanticViews.views.entries()) {
-    if (!isRecord(rawView)) {
-      invalidSemanticViews('SemanticViewSet contains a malformed semantic view', { viewIndex });
-    }
-    const view = rawView as Record<string, unknown>;
-    if (
-      view.formatVersion !== SEMANTIC_VIEW_FORMAT_VERSION ||
-      !['architecture', 'scenario', 'state'].includes(String(view.viewKind))
-    ) {
-      invalidSemanticViews('Semantic view identity or formatVersion is not supported', {
-        viewIndex,
-        formatVersion: view.formatVersion,
-        viewKind: view.viewKind
-      });
-    }
-    for (const collection of ['nodes', 'edges', 'inspector', 'overlays'] as const) {
-      if (!Array.isArray(view[collection])) {
-        invalidSemanticViews(`Semantic view ${collection} must be an array`, {
-          viewIndex,
-          viewKind: view.viewKind
-        });
-      }
-    }
-    for (const [nodeIndex, rawNode] of (view.nodes as unknown[]).entries()) {
-      if (
-        !isRecord(rawNode) ||
-        typeof rawNode.id !== 'string' ||
-        typeof rawNode.entityKind !== 'string' ||
-        typeof rawNode.label !== 'string' ||
-        !isReferenceArray(rawNode.references)
-      ) {
-        invalidSemanticViews('Semantic view contains a malformed node', { viewIndex, nodeIndex });
-      }
-    }
-    for (const [edgeIndex, rawEdge] of (view.edges as unknown[]).entries()) {
-      const hasTarget = isRecord(rawEdge) && typeof rawEdge.target === 'string';
-      const hasValue = isRecord(rawEdge) && rawEdge.value !== undefined;
-      if (
-        !isRecord(rawEdge) ||
-        typeof rawEdge.id !== 'string' ||
-        typeof rawEdge.source !== 'string' ||
-        typeof rawEdge.relation !== 'string' ||
-        typeof rawEdge.label !== 'string' ||
-        !isReferenceArray(rawEdge.references) ||
-        hasTarget === hasValue
-      ) {
-        invalidSemanticViews('Semantic view contains a malformed edge', { viewIndex, edgeIndex });
-      }
-    }
-    for (const [sectionIndex, rawSection] of (view.inspector as unknown[]).entries()) {
-      if (!isRecord(rawSection) || !Array.isArray(rawSection.items)) {
-        invalidSemanticViews('Semantic view contains a malformed inspector section', { viewIndex, sectionIndex });
-      }
-      const items = rawSection.items as unknown[];
-      if (items.some((item) => !isRecord(item) || !isReferenceArray(item.references))) {
-        invalidSemanticViews('Semantic view contains a malformed inspector item', { viewIndex, sectionIndex });
-      }
-    }
-    for (const [overlayIndex, rawOverlay] of (view.overlays as unknown[]).entries()) {
-      if (!isRecord(rawOverlay) || !Array.isArray(rawOverlay.entries)) {
-        invalidSemanticViews('Semantic view contains a malformed overlay', { viewIndex, overlayIndex });
-      }
-      const entries = rawOverlay.entries as unknown[];
-      if (entries.some((entry) =>
-        !isRecord(entry) ||
-        !Array.isArray(entry.factIds) ||
-        entry.factIds.some((factId) => typeof factId !== 'string')
-      )) {
-        invalidSemanticViews('Semantic view contains a malformed overlay entry', { viewIndex, overlayIndex });
-      }
-    }
-  }
-  const architectureViews = semanticViews.views.filter((view) => view.viewKind === 'architecture');
-  if (architectureViews.length !== 1) {
-    invalidSemanticViews('SemanticViewSet must contain exactly one architecture view', {
-      architectureViewCount: architectureViews.length
-    });
+function requireCanonicalSemanticViewSet(
+  value: unknown,
+  source: string
+): SemanticViewSet {
+  try {
+    return requireSemanticViewSetSchema(value, source);
+  } catch (error) {
+    invalidSemanticViews(
+      `SemanticViewSet from ${source} does not match the canonical runtime schema`,
+      { cause: error instanceof Error ? error.message : String(error) }
+    );
   }
 }
 
 export function requireLockSemanticViews(lock: LockFile): SemanticViewSet {
-  const semanticViews = lock.semanticViews;
-  if (!semanticViews) {
+  if (lock.semanticViews === undefined) {
     invalidSemanticViews('graph.lock.json is missing canonical semanticViews');
   }
-  assertSemanticViewSetShape(semanticViews);
+  const semanticViews = requireCanonicalSemanticViewSet(
+    lock.semanticViews,
+    'graph.lock.json'
+  );
 
   const staleTask = (lock.semanticLoweringTasks ?? []).find((task) =>
     task.inputRevision !== semanticViews.inputRevision ||
@@ -148,9 +50,12 @@ export function requireLockSemanticViews(lock: LockFile): SemanticViewSet {
 export function semanticViewArtifactsAreCurrent(lock: LockFile, graph: ExplainGraph): boolean {
   try {
     const lockViews = requireLockSemanticViews(lock);
-    assertSemanticViewSetShape(graph.semanticViews);
-    return graph.semanticViews.inputRevision === lockViews.inputRevision &&
-      graph.semanticViews.semanticRevision === lockViews.semanticRevision;
+    const graphViews = requireCanonicalSemanticViewSet(
+      graph.semanticViews,
+      'ExplainGraph'
+    );
+    return graphViews.inputRevision === lockViews.inputRevision &&
+      graphViews.semanticRevision === lockViews.semanticRevision;
   } catch (error) {
     if (error instanceof CompilerError && error.code === 'EXPLAIN-BLOCKED-005') return false;
     throw error;

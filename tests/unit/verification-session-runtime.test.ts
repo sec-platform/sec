@@ -221,7 +221,8 @@ test('hosted integration router separates first effect, merged recovery, and blo
     isCrossRepository: false, authorNodeId: 'AUTHOR', baseBranch: 'main', baseSha: BASE,
     baseTreeSha: BASE, headBranch: 'feat/example', headSha: HEAD, headTreeSha: HEAD,
     title: 'Safe candidate', body: 'Issue-Disposition: progress-only',
-    mergeCommitSha: null, mergeCommitTreeSha: null, mergeCommitMessage: null
+    mergeCommitSha: null, mergeCommitTreeSha: null, mergeCommitMessage: null,
+    mergeCommitParentShas: null
   };
   const open = routeHostedIntegration({ repository: 'sec-platform/sec', session, candidate,
     priorEffectStarted: false, authorizationPublicationCount: 0 });
@@ -250,7 +251,8 @@ test('hosted integration router separates first effect, merged recovery, and blo
   const mergedCandidate = { ...candidate, state: 'MERGED' as const,
     baseSha: '8'.repeat(40), baseTreeSha: '7'.repeat(40),
     mergeCommitSha: '9'.repeat(40), mergeCommitTreeSha: HEAD,
-    mergeCommitMessage: 'marker-bound merge' };
+    mergeCommitMessage: 'marker-bound merge',
+    mergeCommitParentShas: Object.freeze(['8'.repeat(40)]) };
   const merged = routeHostedIntegration({ repository: 'sec-platform/sec', session,
     candidate: mergedCandidate, priorEffectStarted: true, authorizationPublicationCount: 1 });
   expect(merged).toMatchObject({ lane: 'merged-recovery', mergeCommitSha: '9'.repeat(40),
@@ -522,7 +524,8 @@ class FakeTransport implements VerificationSessionReviewObservationTransaction,
       isCrossRepository: false, authorNodeId: 'AUTHOR', baseBranch: 'main', baseSha: BASE,
       baseTreeSha: BASE, headBranch: 'feat/example', headSha: HEAD, headTreeSha: HEAD,
       title: 'Safe candidate', body: 'Issue-Disposition: progress-only',
-      mergeCommitSha: null, mergeCommitTreeSha: null, mergeCommitMessage: null
+      mergeCommitSha: null, mergeCommitTreeSha: null, mergeCommitMessage: null,
+      mergeCommitParentShas: null
     };
   }
   private at<T>(pages: T[][], after: string | null, digestCharacter: string): GitHubPage<T> {
@@ -582,14 +585,11 @@ class ReducerTransport extends FakeTransport {
       state: 'MERGED',
       mergeCommitSha: '9'.repeat(40),
       mergeCommitTreeSha: this.mergedTreeSha,
+      mergeCommitParentShas: Object.freeze([this.observation.baseSha]),
       mergeCommitMessage: `Verified integration ${sessionRevision.slice(7, 19)}\n\n${markers.join('\n')}\n${
         renderIndependentReviewTrailer(reviewReceipt)}`
     };
   }
-}
-
-function botComment(body = `Codex Review: Didn't find any major issues. Bravo.\n\n**Reviewed commit:** \`${HEAD.slice(0, 10)}\``): GitHubAppReviewCommentObservation {
-  return { id: 'C1', authorNodeId: BOT, appId: 1144995, body, createdAt: '2026-08-09T14:00:00.000Z' };
 }
 
 function botIssueComment(body = `Codex Review: Didn't find any major issues. Bravo.\n\n**Reviewed commit:** \`${HEAD.slice(0, 10)}\``,
@@ -756,6 +756,48 @@ process.exit(1);
       excludedPrincipalNodeIds: new Set(['AUTHOR', 'INTEGRATOR']),
       observedAt
     });
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    if (previousRunner === undefined) delete process.env.SEC_VERIFICATION_SESSION_TEST_GH_RUNNER;
+    else process.env.SEC_VERIFICATION_SESSION_TEST_GH_RUNNER = previousRunner;
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function observePrivateMergedCandidate(parentShas: readonly string[]): GitHubCandidateObservation {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-merged-candidate-gh-'));
+  const runner = path.join(root, 'gh-merged-candidate.mjs');
+  const mergeCommitSha = '9'.repeat(40);
+  writeFileSync(runner, `
+const args = process.argv.slice(2);
+const base = ${JSON.stringify(BASE)};
+const head = ${JSON.stringify(HEAD)};
+const mergeCommitSha = ${JSON.stringify(mergeCommitSha)};
+const parentShas = ${JSON.stringify(parentShas)};
+const out = (value) => { process.stdout.write(typeof value === 'string' ? value : JSON.stringify(value)); process.exit(0); };
+const endpoint = args[0] === 'api' ? args[1] : '';
+if (args[0] === 'pr' && args[1] === 'view') out({
+  number: 42, state: 'MERGED', isDraft: false, isCrossRepository: false,
+  author: { id: 'AUTHOR' }, baseRefName: 'main', baseRefOid: base,
+  headRefName: 'feature/provider-shape', headRefOid: head,
+  title: 'Merged candidate', body: '', mergeCommit: { oid: mergeCommitSha }
+});
+if (endpoint.endsWith('/' + base)) out(base + '\\n');
+if (endpoint.endsWith('/' + head)) out(head + '\\n');
+if (endpoint.endsWith('/' + mergeCommitSha)) out({ sha: mergeCommitSha,
+  tree: { sha: head }, message: 'provider-observed merge',
+  parents: parentShas.map((sha) => ({ sha })) });
+process.stderr.write('unsupported private merged candidate command: ' + args.join(' '));
+process.exit(1);
+`, 'utf8');
+  const proxyRoot = privateGhProxyRoot();
+  const previousPath = process.env.PATH;
+  const previousRunner = process.env.SEC_VERIFICATION_SESSION_TEST_GH_RUNNER;
+  process.env.PATH = `${proxyRoot}${path.delimiter}${previousPath ?? ''}`;
+  process.env.SEC_VERIFICATION_SESSION_TEST_GH_RUNNER = runner;
+  try {
+    return createVerificationSessionGitHubClient(root).observeCandidate('sec-platform/sec', 42);
   } finally {
     if (previousPath === undefined) delete process.env.PATH;
     else process.env.PATH = previousPath;
@@ -1367,6 +1409,14 @@ test('production Review authority adapter cannot have its private transport refl
   expect(Object.getOwnPropertyNames(client)).not.toContain('transport');
 });
 
+test('private GitHub candidate projects immutable parents from the existing merge commit response', () => {
+  const parentShas = Object.freeze([BASE, '8'.repeat(40)]);
+  const candidate = observePrivateMergedCandidate(parentShas);
+  expect(candidate.mergeCommitParentShas).toEqual(parentShas);
+  expect(Object.isFrozen(candidate.mergeCommitParentShas)).toBe(true);
+  expect(Object.isFrozen(candidate)).toBe(true);
+});
+
 const privateGhProviderBoundaryCases = [
   ['candidate', 'not-a-candidate-tree-one\\n', 'not-a-candidate-tree-two\\n'],
   ['permission', 'unsupported-permission-one\\n', 'unsupported-permission-two\\n'],
@@ -1409,8 +1459,8 @@ test('V9 final Review semantics filter marker quotes, resolve formal App identit
   ]];
   expect(observe(quotedMarker).status).toBe('clear');
 
-  const malformedTrustedMarker = new FakeTransport();
-  malformedTrustedMarker.issueComments = [[botIssueComment(reviewRequestMarker, {
+  const retiredTrustedMarker = new FakeTransport();
+  retiredTrustedMarker.issueComments = [[botIssueComment(reviewRequestMarker, {
     authorLogin: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.login,
     authorId: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.id,
     authorNodeId: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.nodeId,
@@ -1421,7 +1471,8 @@ test('V9 final Review semantics filter marker quotes, resolve formal App identit
       slug: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app.slug
     }
   })]];
-  expectTypedProviderSchemaUnsupported(observe(malformedTrustedMarker));
+  expect(observe(retiredTrustedMarker)).toMatchObject({ status: 'waiting',
+    reason: 'exact-head-independent-review-missing' });
 
   const graphQlPage = (author: Record<string, unknown>) => [{ data: { repository: { pullRequest: {
     reviews: {
@@ -1537,6 +1588,34 @@ test('review observation rejects unknown state and detects provider head drift',
   const drift = new DriftingTransport();
   drift.issueComments = [[botIssueComment()]];
   expect(observe(drift)).toMatchObject({ status: 'blocked', reason: 'review-observation-head-drift' });
+});
+
+test('candidate merge-parent observation rejects partial or malformed identity without imposing squash policy', () => {
+  class CandidateTransport extends FakeTransport {
+    constructor(readonly observation: GitHubCandidateObservation) { super(); }
+    override candidate(): GitHubCandidateObservation { return this.observation; }
+  }
+  const open = new FakeTransport().candidate();
+  const merged = Object.freeze({
+    ...open,
+    state: 'MERGED' as const,
+    mergeCommitSha: '9'.repeat(40),
+    mergeCommitTreeSha: HEAD,
+    mergeCommitMessage: 'provider-observed merge',
+    mergeCommitParentShas: Object.freeze([BASE, '8'.repeat(40)])
+  });
+  expect(() => observe(new CandidateTransport(merged))).not.toThrow();
+
+  for (const mergeCommitParentShas of [
+    null,
+    Object.freeze([BASE, BASE]),
+    Object.freeze(['A'.repeat(40)])
+  ] as const) {
+    expectTypedProviderSchemaUnsupported(observe(new CandidateTransport({
+      ...merged,
+      mergeCommitParentShas
+    })));
+  }
 });
 
 test('same-principal same-timestamp conflicting reviews fail closed instead of opaque-id ordering', () => {
@@ -2110,7 +2189,8 @@ test('trusted-main proposal and hosted sole issuer reconstruct the same stable S
 test('VerificationSession binds the exact deletion transition through Scope, Action, Session, and hosted reconstruction', () => {
   const baseSha = '9ed0291a0b51b4f3f6769ab317c4cc1a2753cb4b';
   const headSha = 'b'.repeat(40);
-  const retiredPath =
+  const retiredPath = 'src/verification/ci/runtime/verification-session-github.ts';
+  const unownedRetiredPath =
     'docs/evidence/v0-4-semantic-mutation-single-job-owner-production-pass-2026-07-18.json';
   const changedPaths = [retiredPath, 'src/verification/ci/runtime/verification-session.ts'];
   const records = [
@@ -2156,6 +2236,27 @@ test('VerificationSession binds the exact deletion transition through Scope, Act
     workflowRef: `${CI_MAIN_HEALTH_POLICY.producer.workflowPath}@${baseSha}`
   })];
   const manifestDigest = `sha256:${'e'.repeat(64)}` as const;
+  const unownedTransition = CodexDevelopmentCreateTestImpactTransitionObservation({
+    baseSha,
+    headSha,
+    records: [{ status: 'removed', path: unownedRetiredPath }],
+    readPathBlob: (revision, repositoryPath) => (
+      revision === baseSha && repositoryPath === unownedRetiredPath
+        ? { mode: '100644', blobSha: '4'.repeat(40) }
+        : null
+    )
+  });
+  expect(() => prepareTrustedMainVerificationSession({
+    repository: candidate.repository, candidate,
+    manifestPath: 'docs/work-packages/example.md', manifestDigest,
+    changedPaths: [unownedRetiredPath], testImpactTransition: unownedTransition,
+    testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
+    profile: 'quick',
+    integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR',
+    sourceRunId: 'unowned-deletion-prepare', sourceRef: `refs/heads/main@${baseSha}`,
+    observedAt: VERIFIED_AT, reviewBarrier: barrier, mainHealthChecks,
+    dependencyBlobs: actionDependencyBlobs()
+  })).toThrow(/verification plan is unresolved/i);
   const prepared = prepareTrustedMainVerificationSession({
     repository: candidate.repository, candidate,
     manifestPath: 'docs/work-packages/example.md', manifestDigest,
@@ -2388,7 +2489,7 @@ test('synchronous hosted merge rejects queued effects and requires exact physica
       sourceTransport: 'github-graphql', sourceRunId: 'run-1', sourceRef: 'pull/42',
       sourceDigest: reviewSnapshot.snapshotDigest }, snapshot: reviewSnapshot,
     reviewedAt: '2026-08-09T00:00:00.000Z', expiresAt: '2026-08-09T01:00:00.000Z' });
-  const closure = { markers, reviewReceipt, expectedTitle } as const;
+  const closure = { markers, reviewReceipt, expectedTitle, expectedBaseSha: BASE } as const;
   const mergeCommitSha = '9'.repeat(40);
   const provider = parseHostedSynchronousSquashMergeResponse(JSON.stringify({
     sha: mergeCommitSha, merged: true, message: 'Pull Request successfully merged'
@@ -2407,7 +2508,8 @@ test('synchronous hosted merge rejects queued effects and requires exact physica
     isCrossRepository: false, authorNodeId: 'AUTHOR', baseBranch: 'main', baseSha: BASE,
     baseTreeSha: BASE, headBranch: 'feat/example', headSha: HEAD, headTreeSha: HEAD,
     title: 'Safe candidate', body: 'Issue-Disposition: progress-only',
-    mergeCommitSha: null, mergeCommitTreeSha: null, mergeCommitMessage: null
+    mergeCommitSha: null, mergeCommitTreeSha: null, mergeCommitMessage: null,
+    mergeCommitParentShas: null
   };
   expect(() => assertHostedSquashMergeCompletion({ candidate: queued,
     expectedHeadSha: HEAD, expectedHeadTreeSha: HEAD, ...closure,
@@ -2415,6 +2517,7 @@ test('synchronous hosted merge rejects queued effects and requires exact physica
     .toThrow(/merge-queue enqueue is not integration success/);
   const merged = { ...queued, state: 'MERGED' as const,
     mergeCommitSha, mergeCommitTreeSha: HEAD,
+    mergeCommitParentShas: Object.freeze([BASE]),
     mergeCommitMessage: `${expectedTitle}\n\n${markers.join('\n')}\n${renderIndependentReviewTrailer(reviewReceipt)}` };
   expect(() => assertHostedSquashMergeCompletion({ candidate: merged,
     expectedHeadSha: HEAD, expectedHeadTreeSha: HEAD, ...closure,
@@ -2422,6 +2525,28 @@ test('synchronous hosted merge rejects queued effects and requires exact physica
   expect(() => assertHostedSquashMergeCompletion({ candidate: merged,
     expectedHeadSha: HEAD, expectedHeadTreeSha: HEAD, ...closure,
     providerMergeCommitSha: null })).not.toThrow();
+  for (const mergeCommitParentShas of [
+    null,
+    Object.freeze([]),
+    Object.freeze([BASE, '8'.repeat(40)]),
+    Object.freeze(['8'.repeat(40)])
+  ] as const) {
+    expect(() => assertHostedSquashMergeCompletion({
+      candidate: { ...merged, mergeCommitParentShas },
+      expectedHeadSha: HEAD,
+      expectedHeadTreeSha: HEAD,
+      ...closure,
+      providerMergeCommitSha: provider.sha
+    })).toThrow(/squash merge parent does not equal the verified base/i);
+  }
+  expect(() => assertHostedSquashMergeCompletion({
+    candidate: { ...merged, baseSha: '8'.repeat(40),
+      mergeCommitParentShas: Object.freeze(['8'.repeat(40)]) },
+    expectedHeadSha: HEAD,
+    expectedHeadTreeSha: HEAD,
+    ...closure,
+    providerMergeCommitSha: provider.sha
+  })).toThrow(/squash merge parent does not equal the verified base/i);
   expect(() => assertHostedSquashMergeCompletion({ candidate: queued,
     expectedHeadSha: HEAD, expectedHeadTreeSha: HEAD, ...closure,
     providerMergeCommitSha: null })).toThrow(/not physically complete/i);

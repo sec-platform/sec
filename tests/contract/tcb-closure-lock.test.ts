@@ -127,11 +127,38 @@ test('TCB candidate root rejects aliases, traversal, and non-regular candidate l
   }
 });
 
-test('TCB closure explicitly models direct OS parent-process identity without opening computed process access', () => {
+test('Markdown parser approval is limited to its static consumer edge', () => {
+  const owner = 'src/control/documentation/doctor/markdown-syntax.ts';
+  const source = "import { parsers } from 'prettier/plugins/markdown';";
+  const reviewed = new Set<string>();
+  expect(runtimeRelativeImportsFromSource(owner, source, new Set(), reviewed)).toEqual([]);
+  expect([...reviewed]).toEqual([`${owner} -> prettier/plugins/markdown`]);
+  expect(() => runtimeRelativeImportsFromSource('unreviewed-consumer.ts', source))
+    .toThrow('outside the approved relative/external policy');
+  expect(() => runtimeRelativeImportsFromSource(owner, "import prettier from 'prettier';"))
+    .toThrow('outside the approved relative/external policy');
+  expect(() => runtimeRelativeImportsFromSource(owner,
+    "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);"))
+    .toThrow('outside the relative ESM closure model');
+});
+
+test('TCB closure models direct OS identity reads without admitting identity mutation or computed process access', () => {
   expect(() => runtimeRelativeImportsFromSource(
     'synthetic-parent-process.ts',
     'export const issuerProcessId = process.ppid;'
   )).not.toThrow();
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-effective-user.ts',
+    "export const effectiveUserId = typeof process.geteuid === 'function' ? process.geteuid() : undefined;"
+  )).not.toThrow();
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-effective-user.ts',
+    'process.seteuid(0);'
+  )).toThrow('unclassified process member seteuid');
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-effective-user.ts',
+    "export const effectiveUserId = process['geteuid']();"
+  )).toThrow('computed process member');
   expect(() => runtimeRelativeImportsFromSource(
     'synthetic-parent-process.ts',
     'export const issuerProcessId = process.parentPid;'

@@ -144,10 +144,6 @@ export type WindowsControlCliEnvironmentProjection = Readonly<{
   readonly executableBindings: readonly WindowsControlCliExecutableBindingProjection[];
 }>;
 
-type WindowsControlCliEnvironmentInputV1 =
-  | WindowsControlCliEnvironmentAuthority
-  | WindowsControlCliEnvironmentSpec;
-
 function fail(message: string): never {
   throw new Error(`SEC Windows control CLI environment authority: ${message}`);
 }

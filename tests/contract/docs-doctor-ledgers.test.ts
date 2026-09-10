@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -50,10 +49,6 @@ function windowsControlCliProvider(): Record<string, unknown> {
     forbiddenAuthority: [...FORBIDDEN_AUTHORITY],
     unresolved: [SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON]
   };
-}
-
-function sha256(value: string): string {
-  return `sha256:${createHash('sha256').update(value).digest('hex')}`;
 }
 
 function executionTopology(): Record<string, unknown> {

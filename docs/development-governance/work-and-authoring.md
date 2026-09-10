@@ -23,6 +23,10 @@ terminal user outcome
 
 ordinary 才做 WorkDecision；repair 只消费 owner-issued repair decision；locked 停止。Issue catalog、roadmap、PR prose 和 chat 不在 MainHealth 前抢占 routing。
 
+当前 checkout 的候选选择消费完整 open PR inventory，并以同一 canonical Git observation 的 current branch/HEAD 与 PR head branch/SHA、default base branch/exact main 唯一匹配。多个独立 PR 本身不构成歧义；零匹配、重复匹配或后续身份漂移保持 unresolved。registry 继续保留并验证所有 PR，current lifecycle 只绑定选中 PR 的 exact number/base/head entry；不得通过关闭、隐藏其他 PR 或 caller hint 制造唯一性。detached/default checkout 不由该规则推定候选，仍消费对应生命周期路由。
+
+选择当前候选不得裁剪完整 non-default local/remote refs 与 worktree census。branch-lifecycle owner 显式区分 active transport、与其他 exact open PR 对应的 preserved transports 和其余 closeout obligations；preservation 必须绑定实际 PR/branch/head/base 与一致的物理 ref/worktree 身份，并进入同一 projection digest。未映射、重复、漂移或 orphan subject 保留 blocker，不能以 registry 中存在另一 PR 代替物理责任，也不能在 caller 过滤掉这些对象后宣称 closeout 为 none。
+
 ### 7.2 Records
 
 | Record | Owns | Does not own |

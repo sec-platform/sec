@@ -69,7 +69,7 @@ function detachedMarker(headSha: string): string { return `${DETACHED_BRANCH_PRE
 
 /** Opaque same-process capability; raw JSON can never mint this token. */
 export class WorktreePhysicalCloseoutConsumptionToken {
-  readonly #brand = 'sec-worktree-physical-closeout-consumption-token-v1';
+  declare private readonly brand: 'sec-worktree-physical-closeout-consumption-token-v1';
 }
 
 interface TrustedConsumptionIssuance {

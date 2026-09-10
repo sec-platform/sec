@@ -1,131 +1,20 @@
+import path from 'node:path';
 import { portableLogicalPathCollisionKey } from '../../system-architecture/foundation/contract/logical-path.ts';
 import { uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { mapTaskGroup } from '../../system-architecture/foundation/runtime/concurrency.ts';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import { relativePosixPath } from '../../workspace/runtime/paths.ts';
-import type { ManifestEntry, PlanFile } from '../contract.ts';
+import type { PlanFile } from '../contract.ts';
 import { LOCK_FILE_FORMAT_VERSION, type LockFile } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
 import { loadAllManifests, loadManifestById, resolveManifestResource } from '../parse/load-manifest.ts';
 import { PASS_STATUS_PENDING } from '../pipeline/defaults.ts';
-import { KIND_PRIORITY } from '../registry/kind-priority.ts';
+import { resolveManifestGraph } from './manifest-graph.ts';
 
-function buildCapabilityProviders(entries: readonly ManifestEntry[]): Map<string, ManifestEntry[]> {
-  const providers = new Map<string, ManifestEntry[]>();
-  for (const entry of entries) {
-    for (const capability of entry.manifest.provides) {
-      const list = providers.get(capability) ?? [];
-      list.push(entry);
-      providers.set(capability, list);
-    }
-  }
-  return providers;
-}
+type InstallOwnership = Readonly<Pick<LockFile['installPlan'][number], 'blockId' | 'action' | 'to'>>;
 
-function detectConflicts(entries: readonly ManifestEntry[], capabilityProviders: Map<string, ManifestEntry[]>): void {
-  const ids = new Set(entries.map((entry) => entry.manifest.id));
-  for (const entry of entries) {
-    for (const conflict of entry.manifest.conflicts) {
-      if (ids.has(conflict)) {
-        throw new CompilerError(
-          'RESOLVE-CONFLICT-002',
-          `Block "${entry.manifest.id}" conflicts with "${conflict}"`
-        );
-      }
-      const providers = capabilityProviders.get(conflict);
-      if (providers?.length) {
-        throw new CompilerError(
-          'RESOLVE-CONFLICT-003',
-          `Block "${entry.manifest.id}" conflicts with provided capability "${conflict}"`
-        );
-      }
-    }
-  }
-}
-
-function topologicalSort(entries: readonly ManifestEntry[], providerMap: Map<string, ManifestEntry[]>): ManifestEntry[] {
-  const adjacency = new Map<string, Set<string>>(entries.map((entry) => [entry.manifest.id, new Set<string>()]));
-  const indegree = new Map<string, number>(entries.map((entry) => [entry.manifest.id, 0]));
-  const entryMap = new Map<string, ManifestEntry>(entries.map((entry) => [entry.manifest.id, entry]));
-
-  for (const entry of entries) {
-    for (const requirement of entry.manifest.requires) {
-      const providers = providerMap.get(requirement) ?? [];
-      for (const provider of providers) {
-        if (provider.manifest.id === entry.manifest.id) continue;
-        const providerAdjacency = adjacency.get(provider.manifest.id);
-        if (!providerAdjacency) {
-          throw new CompilerError('RESOLVE-INTERNAL-001', `Missing adjacency for "${provider.manifest.id}"`);
-        }
-        if (!providerAdjacency.has(entry.manifest.id)) {
-          providerAdjacency.add(entry.manifest.id);
-          indegree.set(entry.manifest.id, (indegree.get(entry.manifest.id) ?? 0) + 1);
-        }
-      }
-    }
-  }
-
-  type PriorityBucket = Map<string, ManifestEntry>;
-  const buckets = new Map<number, PriorityBucket>();
-  const bucketPriorities: number[] = [];
-  let totalCount = 0;
-
-  function bucketAdd(entry: ManifestEntry): void {
-    const priority = KIND_PRIORITY[entry.manifest.kind] ?? 99;
-    let bucket = buckets.get(priority);
-    if (!bucket) {
-      bucket = new Map();
-      buckets.set(priority, bucket);
-      bucketPriorities.push(priority);
-      bucketPriorities.sort((a, b) => a - b);
-    }
-    bucket.set(entry.manifest.id, entry);
-    totalCount += 1;
-  }
-
-  function bucketShift(): ManifestEntry | null {
-    if (totalCount === 0) return null;
-    for (const priority of bucketPriorities) {
-      const bucket = buckets.get(priority);
-      if (bucket && bucket.size > 0) {
-        const sortedIds = [...bucket.keys()].sort();
-        const firstId = sortedIds[0];
-        const item = bucket.get(firstId)!;
-        bucket.delete(firstId);
-        totalCount -= 1;
-        return item;
-      }
-    }
-    return null;
-  }
-
-  for (const entry of entries) {
-    if (indegree.get(entry.manifest.id) === 0) bucketAdd(entry);
-  }
-
-  const result: ManifestEntry[] = [];
-  while (totalCount > 0) {
-    const current = bucketShift();
-    if (!current) break;
-    result.push(current);
-    const dependents = adjacency.get(current.manifest.id) ?? new Set<string>();
-    for (const dependentId of dependents) {
-      const newIndegree = (indegree.get(dependentId) ?? 0) - 1;
-      indegree.set(dependentId, newIndegree);
-      if (newIndegree === 0) {
-        const dependent = entryMap.get(dependentId);
-        if (dependent) bucketAdd(dependent);
-      }
-    }
-  }
-
-  if (result.length !== entries.length) {
-    throw new CompilerError('RESOLVE-CYCLE-003', 'Dependency cycle detected');
-  }
-  return result;
-}
-
-function assertInstallTargetOwnership(installPlan: readonly LockFile['installPlan'][number][]): void {
-  const byTarget = new Map<string, LockFile['installPlan']>();
+function assertInstallTargetOwnership(installPlan: readonly InstallOwnership[]): void {
+  const byTarget = new Map<string, InstallOwnership[]>();
   for (const step of installPlan) {
     const identity = portableLogicalPathCollisionKey(step.to, 'Install target');
     const group = byTarget.get(identity) ?? [];
@@ -149,53 +38,32 @@ function assertInstallTargetOwnership(installPlan: readonly LockFile['installPla
   }
 }
 
+/** Capture only the request decisions this resolver consumes; source validation
+ * and provider admission remain in the manifest loader. All observations and
+ * the resulting lock use this same invocation, even if the caller edits its
+ * plan while manifest IO is pending. */
+function captureResolvePlan(plan: PlanFile) {
+  const { app, blocks, registry, acceptance } = plan;
+  const selectedApp = Object.freeze({ id: app.id, name: app.name, stack: app.stack, mode: app.mode });
+  const selectedBlocks = blocks.map(({ id, version }) => Object.freeze({ id, version }));
+  const sources = registry.sources.map(({ id, kind, location, path }) => Object.freeze({ id, kind, location, path }));
+  const acceptanceIds = acceptance.map(entry => entry.id);
+  Object.freeze(selectedBlocks); Object.freeze(sources); Object.freeze(acceptanceIds);
+  return Object.freeze({ app: selectedApp, blocks: selectedBlocks, sources, acceptanceIds });
+}
+
 export async function resolveGraph(workspaceRoot: string, plan: PlanFile): Promise<LockFile> {
-  const explicitEntries = await Promise.all(
-    plan.blocks.map((block) =>
-      loadManifestById(block.id, {
-        workspaceRoot,
-        version: block.version,
-        registrySources: plan.registry.sources
-      })
-    )
-  );
-
-  const allEntries = await loadAllManifests({
-    workspaceRoot,
-    registrySources: plan.registry.sources
-  });
-  const allProviderMap = buildCapabilityProviders(allEntries);
-  const manifestMap = new Map<string, ManifestEntry>(explicitEntries.map((entry) => [entry.manifest.id, entry]));
-  const selectedCapabilities = new Set(explicitEntries.flatMap((entry) => entry.manifest.provides));
-  const closureQueue = [...explicitEntries];
-
-  for (let index = 0; index < closureQueue.length; index += 1) {
-    const entry = closureQueue[index]!;
-    for (const requirement of entry.manifest.requires) {
-      if (selectedCapabilities.has(requirement)) continue;
-      const providers = allProviderMap.get(requirement) ?? [];
-      if (providers.length === 0) {
-        throw new CompilerError('RESOLVE-MISSING-001', `Missing provider for capability "${requirement}"`);
-      }
-      if (providers.length > 1) {
-        throw new CompilerError(
-          'RESOLVE-CONFLICT-004',
-          `Ambiguous providers for capability "${requirement}": ${providers.map((provider) => provider.manifest.id).join(', ')}`
-        );
-      }
-      const provider = providers[0]!;
-      if (!manifestMap.has(provider.manifest.id)) {
-        manifestMap.set(provider.manifest.id, provider);
-        closureQueue.push(provider);
-        for (const capability of provider.manifest.provides) selectedCapabilities.add(capability);
-      }
-    }
-  }
-
-  const resolvedEntries = [...manifestMap.values()];
-  const providerMap = buildCapabilityProviders(resolvedEntries);
-  detectConflicts(resolvedEntries, providerMap);
-  const sortedEntries = topologicalSort(resolvedEntries, providerMap);
+  workspaceRoot = path.resolve(workspaceRoot);
+  const input = captureResolvePlan(plan);
+  // Retained explicit lookup is synchronous: Promise.all cannot parallelize it.
+  // Keep the original complete catalog validation rather than silently omitting
+  // errors in unselected sources as a cache shortcut.
+  const explicitEntries = input.blocks.map(block => loadManifestById(block.id, {
+    workspaceRoot, version: block.version, registrySources: input.sources
+  }));
+  const allEntries = await loadAllManifests({ workspaceRoot, registrySources: input.sources });
+  const graph = resolveManifestGraph(explicitEntries, allEntries);
+  const sortedEntries = graph.entries;
 
   const resolvedBlocks = sortedEntries.map((entry, index) => ({
     id: entry.manifest.id,
@@ -209,43 +77,37 @@ export async function resolveGraph(workspaceRoot: string, plan: PlanFile): Promi
     registryPath: entry.registryPath
   }));
 
-  const installDescriptors = sortedEntries.flatMap((block) =>
-    block.manifest.installs.map((install) => ({ block, install }))
+  const installDescriptors = sortedEntries.flatMap(block =>
+    block.manifest.installs.map(install => ({ block, blockId: block.manifest.id,
+      action: install.kind, from: install.from, to: install.to }))
   );
-  const installPlan: LockFile['installPlan'] = await Promise.all(
-    installDescriptors.map(async ({ block, install }, index) => {
-      const resource = await resolveManifestResource(block, install.from);
+  // Ownership is known before resolving any resource. Reject the whole invalid
+  // plan without starting a partial batch of resource lookups.
+  assertInstallTargetOwnership(installDescriptors);
+  const installPlan: LockFile['installPlan'] = await mapTaskGroup(
+    installDescriptors, async ({ block, blockId, action, from, to }, index) => {
+      const resource = await resolveManifestResource(block, from);
       return {
-        stepId: `${block.manifest.id}:${index + 1}`,
-        blockId: block.manifest.id,
+        stepId: `${blockId}:${index + 1}`, blockId,
         registrySourceId: block.registrySourceId,
         registryKind: block.registryKind,
         registryLocation: block.registryLocation,
         registryPath: block.registryPath,
-        sourceRoot: relativePosixPath(block.registryRoot, resource.root),
-        action: install.kind,
-        from: install.from,
-        to: install.to
+        sourceRoot: relativePosixPath(block.registryRoot, resource.root), action, from, to
       };
-    })
+    }
   );
-  assertInstallTargetOwnership(installPlan);
   return {
     formatVersion: LOCK_FILE_FORMAT_VERSION,
-    app: {
-      id: plan.app.id,
-      name: plan.app.name,
-      stack: plan.app.stack,
-      mode: plan.app.mode
-    },
+    app: { ...input.app },
     resolvedBlocks,
-    resolvedCapabilities: uniqueSorted([...providerMap.keys()]),
+    resolvedCapabilities: [...graph.capabilities],
     installPlan,
     generatedPaths: uniqueSorted([
       CI_ARTIFACT_FILES.blockUsageMap,
       CI_ARTIFACT_FILES.installManifest
     ]),
-    acceptancePlan: uniqueSorted(plan.acceptance.map((entry) => entry.id)),
+    acceptancePlan: uniqueSorted(input.acceptanceIds),
     passStatus: {
       ...PASS_STATUS_PENDING,
       parse: 'succeeded',

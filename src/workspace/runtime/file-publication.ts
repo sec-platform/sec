@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { snapshotByteView } from '../../system-architecture/foundation/runtime/byte-snapshot.ts';
 
 import {
   createNoFollowDirectoryChain,
@@ -24,6 +25,73 @@ export interface CanonicalWorkspaceFilePublicationInput {
 export interface ExpectedCanonicalWorkspaceFilePublicationInput
 extends CanonicalWorkspaceFilePublicationInput {
   readonly expectedBytes: Uint8Array;
+}
+
+type CanonicalWorkspacePublicationFailurePhase =
+  | 'before-effect'
+  | 'effect-possible'
+  | 'unknown';
+
+const canonicalWorkspacePublicationFailurePhases =
+  new WeakMap<object, Exclude<CanonicalWorkspacePublicationFailurePhase, 'unknown'>>();
+
+function throwCanonicalWorkspacePublicationFailure(
+  error: unknown,
+  phase: Exclude<CanonicalWorkspacePublicationFailurePhase, 'unknown'>
+): never {
+  if (error !== null && (typeof error === 'object' || typeof error === 'function')) {
+    const existing = canonicalWorkspacePublicationFailurePhases.get(error);
+    canonicalWorkspacePublicationFailurePhases.set(
+      error,
+      existing === 'effect-possible' || phase === 'effect-possible'
+        ? 'effect-possible'
+        : 'before-effect'
+    );
+    throw error;
+  }
+  const wrapped = new Error('Canonical workspace publication failed with a non-object error.', { cause: error });
+  canonicalWorkspacePublicationFailurePhases.set(wrapped, phase);
+  throw wrapped;
+}
+
+/**
+ * Reads only failure-stage evidence issued by this publication owner. Unknown
+ * values and errors from other operations never acquire before-effect proof.
+ */
+export function classifyCanonicalWorkspacePublicationFailure(
+  error: unknown
+): CanonicalWorkspacePublicationFailurePhase {
+  return error !== null && (typeof error === 'object' || typeof error === 'function')
+    ? canonicalWorkspacePublicationFailurePhases.get(error) ?? 'unknown'
+    : 'unknown';
+}
+
+
+// A request is a decision snapshot, not a source of authority. Capture before
+// the first fence and preserve a method's real receiver, not a record clone.
+type PublicationTarget = Pick<CanonicalWorkspaceFilePublicationInput,
+  'workspaceRoot' | 'targetPath' | 'label' | 'commitFence'>;
+function captureTarget(input: PublicationTarget): PublicationTarget {
+  const cwd = process.cwd();
+  const { workspaceRoot, targetPath, label, commitFence } = input;
+  if (typeof label !== 'string') throw new TypeError('Publication label must be text');
+  if (commitFence !== undefined && typeof commitFence !== 'function') {
+    throw new TypeError('Publication commit fence must be callable');
+  }
+  return Object.freeze({
+    workspaceRoot: path.resolve(cwd, workspaceRoot), targetPath: path.resolve(cwd, targetPath), label,
+    commitFence: commitFence === undefined ? undefined : () => Reflect.apply(commitFence, input, [])
+  });
+}
+
+function capturePublication(input: CanonicalWorkspaceFilePublicationInput): CanonicalWorkspaceFilePublicationInput {
+  const target = captureTarget(input);
+  return Object.freeze({ ...target, bytes: snapshotByteView(input.bytes, `${target.label} bytes`) });
+}
+
+function captureExpectedPublication(input: ExpectedCanonicalWorkspaceFilePublicationInput): ExpectedCanonicalWorkspaceFilePublicationInput {
+  const publication = capturePublication(input);
+  return Object.freeze({ ...publication, expectedBytes: snapshotByteView(input.expectedBytes, `${publication.label} preimage`) });
 }
 
 function workspaceRelativeSegments(workspaceRoot: string, targetPath: string): string[] {
@@ -59,7 +127,7 @@ function creatableWorkspaceRelativeSegments(workspaceRoot: string, targetPath: s
 }
 
 async function retainedCreatablePublicationParent(
-  input: CanonicalWorkspaceFilePublicationInput
+  input: PublicationTarget
 ): Promise<Readonly<{ parent: PhysicalDirectoryIdentity; leafName: string }>> {
   const rootPath = path.resolve(input.workspaceRoot);
   const segments = creatableWorkspaceRelativeSegments(rootPath, input.targetPath);
@@ -78,7 +146,7 @@ async function retainedCreatablePublicationParent(
 }
 
 async function retainedExistingPublicationParent(
-  input: CanonicalWorkspaceFilePublicationInput
+  input: PublicationTarget
 ): Promise<Readonly<{ parent: PhysicalDirectoryIdentity; leafName: string }>> {
   const rootPath = path.resolve(input.workspaceRoot);
   const segments = workspaceRelativeSegments(rootPath, input.targetPath);
@@ -111,6 +179,7 @@ function validateRequestedBytes(input: CanonicalWorkspaceFilePublicationInput, c
 export async function publishCanonicalWorkspaceFile(
   input: CanonicalWorkspaceFilePublicationInput
 ): Promise<void> {
+  input = capturePublication(input);
   const { parent, leafName } = await retainedCreatablePublicationParent(input);
   await input.commitFence?.();
   replaceDurableCanonicalFile({
@@ -129,14 +198,23 @@ export async function publishCanonicalWorkspaceFile(
 export async function publishExistingParentCanonicalWorkspaceFile(
   input: CanonicalWorkspaceFilePublicationInput
 ): Promise<void> {
-  const { parent, leafName } = await retainedExistingPublicationParent(input);
-  await input.commitFence?.();
-  replaceDurableCanonicalFile({
-    parent,
-    name: leafName,
-    bytes: input.bytes,
-    validate: (current) => validateRequestedBytes(input, current)
-  });
+  let phase: Exclude<CanonicalWorkspacePublicationFailurePhase, 'unknown'> = 'before-effect';
+  try {
+    input = capturePublication(input);
+    const { parent, leafName } = await retainedExistingPublicationParent(input);
+    await input.commitFence?.();
+    // No await or caller code may run between this owner-issued transition and
+    // the synchronous physical replacement Effect.
+    phase = 'effect-possible';
+    replaceDurableCanonicalFile({
+      parent,
+      name: leafName,
+      bytes: input.bytes,
+      validate: (current) => validateRequestedBytes(input, current)
+    });
+  } catch (error) {
+    throwCanonicalWorkspacePublicationFailure(error, phase);
+  }
 }
 
 /**
@@ -148,6 +226,7 @@ export async function publishExistingParentCanonicalWorkspaceFile(
 export async function publishExpectedCanonicalWorkspaceFile(
   input: ExpectedCanonicalWorkspaceFilePublicationInput
 ): Promise<void> {
+  input = captureExpectedPublication(input);
   const { parent, leafName } = await retainedExistingPublicationParent(input);
   await input.commitFence?.();
   const current = readNoFollowOrdinaryFile(parent, leafName);
@@ -171,6 +250,7 @@ export async function publishExpectedCanonicalWorkspaceFile(
 export async function publishExclusiveCanonicalWorkspaceFile(
   input: CanonicalWorkspaceFilePublicationInput
 ): Promise<Readonly<{ created: boolean }>> {
+  input = capturePublication(input);
   const { parent, leafName } = await retainedCreatablePublicationParent(input);
   await input.commitFence?.();
   const result = publishExclusiveDurableCanonicalFile({
@@ -191,16 +271,19 @@ export async function publishExclusiveCanonicalWorkspaceFile(
 export async function deleteExpectedCanonicalWorkspaceFile(
   input: ExpectedCanonicalWorkspaceFilePublicationInput
 ): Promise<void> {
-  const { parent, leafName } = await retainedExistingPublicationParent(input);
-  await input.commitFence?.();
+  const target = captureTarget(input);
+  // Deletion consumes only its observed preimage, never input.bytes.
+  const expectedBytes = snapshotByteView(input.expectedBytes, `${target.label} preimage`);
+  const { parent, leafName } = await retainedExistingPublicationParent(target);
+  await target.commitFence?.();
   const current = inspectNoFollowOrdinaryFileEntry(parent, leafName);
   if (
     current === null
     || current.kind !== 'file'
     || current.bytes === null
-    || !Buffer.from(current.bytes).equals(Buffer.from(input.expectedBytes))
+    || !Buffer.from(current.bytes).equals(Buffer.from(expectedBytes))
   ) {
-    throw new Error(`${input.label} rollback preimage changed before deletion`);
+    throw new Error(`${target.label} rollback preimage changed before deletion`);
   }
   deleteRetainedNoFollowEntry({
     root: parent,

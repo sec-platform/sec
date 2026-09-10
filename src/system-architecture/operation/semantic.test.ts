@@ -53,15 +53,6 @@ function plan(
   });
 }
 
-function bound(deadlineAtUnixMs = 1_900_000_000_000) {
-  const operationPlan = plan(deadlineAtUnixMs);
-  return bindSecSemanticOperation(operationPlan, [compileSecCapabilityBinding({
-    requirementId: 'typescript.project-check',
-    contractDigest: operationPlan.execution.requirements[0]!.contractDigest,
-    providerIdentityDigest: digest('native-checker')
-  })]);
-}
-
 function multiPlan(
   attempt = issueSecSemanticOperationAttemptContext({
     authorityGrantDigest: digest('repository-publish-authority-grant')

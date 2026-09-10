@@ -1,9 +1,9 @@
+import path from 'node:path';
 import type {
   GeneratedStateDomainOwnerOperation,
   GeneratedStateDomainOwnerPlan
 } from '../../runtime-state/generated-state/operation.ts';
-import type { CommitFence } from '../../workspace/files.ts';
-import type { RuntimeDependencyInstallOptions as RuntimeDependencyInternalOptions } from './runtime/operation-context.ts';
+import { captureRuntimeDependencyInstallRequest, type RuntimeDependencyInstallRequest } from './contract/install-request.ts';
 import * as runtime from './runtime/project-runtime.ts';
 
 export type {
@@ -18,7 +18,7 @@ export type {
 
 export {
   assertCompilerDependencyExecutionGenerationAuthority,
-  assertCompilerDependencyExecutionRetirementReceipt, assertCompilerDependencyReadGenerationRetirementReceipt, COMPILER_DEPENDENCY_EXECUTION_RETENTION_POLICY,
+  assertCompilerDependencyExecutionRetirementReceipt, assertCompilerDependencyReadGenerationRetirementReceipt, assertRetainedCompilerDependencyReadGeneration, COMPILER_DEPENDENCY_EXECUTION_RETENTION_POLICY,
   projectCompilerDepsReadyState, retainCompilerDependencyExecutionGeneration, retainCompilerDependencyReadGeneration
 } from './runtime/project-runtime.ts';
 
@@ -29,36 +29,16 @@ export { SHARED_DEPENDENCY_FORBIDDEN_AUTHORITY_FILES } from './runtime/project-r
  * its process transport, lifecycle owner, clock, sleep, filesystem effects or
  * canonical shared root. Fault injection lives under dependencies/test/**.
  */
-export interface RuntimeDependencyInstallOptions {
-  readonly beforeCommit?: CommitFence;
-  readonly deadlineAtUnixMs?: number;
-  readonly installMode?: 'allow' | 'offline-copy-only' | 'prebound-only';
-  readonly lockTimeoutMs?: number;
-  readonly rematerialize?: boolean;
-  readonly signal?: AbortSignal;
-  readonly skipSharedDepsWarmup?: boolean;
-}
+export interface RuntimeDependencyInstallOptions extends Readonly<RuntimeDependencyInstallRequest> {}
 
-function dependencyInstallOptions(
-  options: RuntimeDependencyInstallOptions
-): RuntimeDependencyInternalOptions {
-  return {
-    beforeCommit: options.beforeCommit,
-    deadlineAtUnixMs: options.deadlineAtUnixMs,
-    installMode: options.installMode,
-    lockTimeoutMs: options.lockTimeoutMs,
-    rematerialize: options.rematerialize,
-    signal: options.signal,
-    skipSharedDepsWarmup: options.skipSharedDepsWarmup
-  };
-}
 
 export async function observeCompilerDependencyExecutionGenerationAuthority(
   options: RuntimeDependencyInstallOptions = {},
   compilerDependencyRoot?: string
 ): Promise<runtime.CompilerDependencyExecutionGenerationAuthority | null> {
+  compilerDependencyRoot = compilerDependencyRoot === undefined ? undefined : path.resolve(compilerDependencyRoot);
   return runtime.observeCompilerDependencyExecutionGenerationAuthority(
-    dependencyInstallOptions(options),
+    captureRuntimeDependencyInstallRequest(options),
     compilerDependencyRoot
   );
 }
@@ -101,9 +81,10 @@ export async function migrateDependencyTransitionJournal(
   ownerRoot: string,
   options: RuntimeDependencyInstallOptions = {}
 ): Promise<void> {
+  ownerRoot = path.resolve(ownerRoot);
   return runtime.migrateDependencyTransitionJournal(
     ownerRoot,
-    dependencyInstallOptions(options)
+    captureRuntimeDependencyInstallRequest(options)
   );
 }
 
@@ -112,7 +93,9 @@ export async function withProjectDependencyBridge<T>(
   callback: () => Promise<T>,
   options: RuntimeDependencyInstallOptions = {}
 ): Promise<T> {
-  return runtime.withProjectDependencyBridge(projectRoot, callback, dependencyInstallOptions(options));
+  projectRoot = path.resolve(projectRoot);
+  if (typeof callback !== 'function') throw new TypeError('Dependency bridge callback must be callable');
+  return runtime.withProjectDependencyBridge(projectRoot, callback, captureRuntimeDependencyInstallRequest(options));
 }
 
 /** Pure dependency-owner observation; performs no dependency materialization Effect. */
@@ -126,18 +109,20 @@ export async function ensureCompilerDepsReady(
   options: RuntimeDependencyInstallOptions = {},
   compilerDependencyRoot?: string
 ): Promise<runtime.CompilerDepsReadyState> {
-  return runtime.ensureCompilerDepsReady(dependencyInstallOptions(options), compilerDependencyRoot);
+  compilerDependencyRoot = compilerDependencyRoot === undefined ? undefined : path.resolve(compilerDependencyRoot);
+  return runtime.ensureCompilerDepsReady(captureRuntimeDependencyInstallRequest(options), compilerDependencyRoot);
 }
 
 export async function ensureSharedDepsReady(
   options: RuntimeDependencyInstallOptions = {}
 ): Promise<runtime.SharedDepsReadyState> {
-  return runtime.ensureSharedDepsReady(dependencyInstallOptions(options));
+  return runtime.ensureSharedDepsReady(captureRuntimeDependencyInstallRequest(options));
 }
 
 export async function ensureProjectDependencies(
   projectRoot: string,
   options: RuntimeDependencyInstallOptions = {}
 ): Promise<void> {
-  return runtime.ensureProjectDependencies(projectRoot, dependencyInstallOptions(options));
+  projectRoot = path.resolve(projectRoot);
+  return runtime.ensureProjectDependencies(projectRoot, captureRuntimeDependencyInstallRequest(options));
 }

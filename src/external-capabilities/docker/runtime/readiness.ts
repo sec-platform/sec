@@ -38,6 +38,7 @@ import {
 import type { DockerDesktopLoginStart } from '../contract/login-start.ts';
 import { disposeUnclaimedDockerCommandProviderCapability } from './command-provider.ts';
 import { openContainerEngineSession } from './container-engine-session.ts';
+import type { DockerDaemonLauncherResult } from './daemon-algorithm.ts';
 import { openWindowsDockerCommandProvider } from './windows-command-provider.ts';
 import {
   observeWindowsDockerDesktopLoginStart,
@@ -63,8 +64,8 @@ export type LocalContainerEngineReadiness =
     status: 'unavailable';
     mode: LocalContainerEngineReadinessMode;
     loginStart: DockerDesktopLoginStart;
-    reason: DockerDaemonAvailabilityFailureReason | 'command-provider-unavailable' | 'invalid-input' | 'session-unavailable';
-    phase: DockerDaemonAvailabilityFailurePhase | 'provider-admission' | 'session-settlement';
+    reason: DockerDaemonAvailabilityFailureReason | 'command-provider-unavailable' | 'invalid-input';
+    phase: DockerDaemonAvailabilityFailurePhase | 'provider-admission';
     detailDigest: SecOperationDigest;
   }>;
 
@@ -75,7 +76,7 @@ function bindReadinessOperation(input: Readonly<{
   mode: LocalContainerEngineReadinessMode;
   providerIdentityDigest: SecOperationDigest;
   authorityGrantDigest?: SecOperationDigest;
-  deadlineAtUnixMs?: number;
+  operationEpochDigest?: SecOperationDigest;
   resumeEpochDigest?: SecOperationDigest | null;
   runIdDigest?: SecOperationDigest | null;
 }>) {
@@ -99,14 +100,16 @@ function bindReadinessOperation(input: Readonly<{
         ? {}
         : { resumeEpochDigest: input.resumeEpochDigest })
     }),
-    deadlineAtUnixMs: input.deadlineAtUnixMs ?? Date.now() + DURATION_BUDGET_MS,
+    deadlineAtUnixMs: Date.now() + DURATION_BUDGET_MS,
     decisionDigest: sha256({
       domain: 'sec.local-container-engine-readiness.decision',
-      mode: input.mode
+      mode: input.mode,
+      operationEpochDigest: input.operationEpochDigest ?? null
     }) as SecOperationDigest,
     intentDigest: sha256({
       domain: 'sec.local-container-engine-readiness.intent',
-      mode: input.mode
+      mode: input.mode,
+      operationEpochDigest: input.operationEpochDigest ?? null
     }) as SecOperationDigest,
     operation: 'external.container-engine-readiness',
     requirements: [{
@@ -166,12 +169,9 @@ async function observeWithOwnedProvider(input: Readonly<{
   cwd: string;
   availability: LocalContainerEngineReadinessMode;
   beforeDesktopLaunch?: () => Promise<void> | void;
-  observeDesktopLaunchSettlement?: (input: Readonly<{
-    code: number;
-    stdout: string;
-    stderr: string;
-    physicalDisposition: 'settled' | 'unknown';
-  }>) => Promise<void> | void;
+  observeDesktopLaunchSettlement?: (
+    input: DockerDaemonLauncherResult
+  ) => Promise<void> | void;
 }>): Promise<ReadySessionObservation> {
   let session: Awaited<ReturnType<typeof openContainerEngineSession>> | null = null;
   try {
@@ -230,6 +230,42 @@ function durableWriter(input: Readonly<{
   });
 }
 
+/** @internal Shared by the readiness owner and its settlement counterexamples. */
+export async function settleLocalContainerEngineReadinessCompletion<T>(input: Readonly<{
+  completion: Promise<T>;
+  release: () => Promise<void>;
+}>): Promise<T> {
+  let completionPresent = false;
+  let completionValue: T | undefined;
+  let primaryPresent = false;
+  let primary: unknown;
+  try {
+    completionValue = await input.completion;
+    completionPresent = true;
+  } catch (error) {
+    primaryPresent = true;
+    primary = error;
+  }
+  let releasePresent = false;
+  let releaseFailure: unknown;
+  try {
+    await input.release();
+  } catch (error) {
+    releasePresent = true;
+    releaseFailure = error;
+  }
+  if (primaryPresent && releasePresent) {
+    throw new AggregateError(
+      [primary, releaseFailure],
+      'Local Container Engine readiness and journal authority settlement failed.'
+    );
+  }
+  if (primaryPresent) throw primary;
+  if (releasePresent) throw releaseFailure;
+  if (!completionPresent) throw new Error('Local Container Engine readiness did not complete.');
+  return completionValue as T;
+}
+
 /**
  * Observes or starts only the local Container Engine. It deliberately has no
  * Git, candidate, MainHealth, Verification, registry-login, or network scope.
@@ -272,7 +308,8 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
     providerIdentityDigest: provider.providerIdentityDigest
   });
   let journalAuthority: Awaited<ReturnType<typeof acquireSecRuntimeJournalAuthority>> | null = null;
-  try {
+  const completion = (async (): Promise<LocalContainerEngineReadiness> => {
+    try {
     let writer: SecDurableExecutionWriter | null = null;
     let retryAlreadyClaimed = false;
     if (mode === 'ensure-started') {
@@ -290,7 +327,6 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
           mode,
           providerIdentityDigest: provider.providerIdentityDigest,
           authorityGrantDigest: operation.plan.attempt.authorityGrantDigest,
-          deadlineAtUnixMs: predecessor.deadlineAtUnixMs,
           resumeEpochDigest: recoveryEpoch,
           runIdDigest: sha256({
             domain: 'sec.docker.readiness.recovery-run',
@@ -354,36 +390,57 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
               ownerTerminalReferenceDigest: error.detailDigest
             });
             writer.appendOwnerTerminalResolution(recovery, terminal);
-            throw error;
-          }
-          const retryAdmission = issueSecRecoveredRetryAdmission(recovery, recoveredReadback);
-          const successorProvider = await openWindowsDockerCommandProvider({ workingDirectory: cwd });
-          if (successorProvider.providerIdentityDigest !== provider.providerIdentityDigest) {
-            disposeUnclaimedDockerCommandProviderCapability(successorProvider);
-            throw new DockerCommandProviderUnavailableError(
-              'Docker command provider identity changed during durable recovery.'
+            const successorProvider = await openWindowsDockerCommandProvider({ workingDirectory: cwd });
+            if (successorProvider.providerIdentityDigest !== provider.providerIdentityDigest) {
+              disposeUnclaimedDockerCommandProviderCapability(successorProvider);
+              throw new DockerCommandProviderUnavailableError(
+                'Docker command provider identity changed after predecessor terminal recovery.'
+              );
+            }
+            provider = successorProvider;
+            operation = bindReadinessOperation({
+              mode,
+              providerIdentityDigest: provider.providerIdentityDigest,
+              operationEpochDigest: terminal.joinReceiptDigest,
+              runIdDigest: sha256({
+                domain: 'sec.docker.readiness.post-terminal-run',
+                terminalJoinReceiptDigest: terminal.joinReceiptDigest
+              }) as SecOperationDigest
+            });
+            // The expired predecessor is terminal and never retried. The
+            // explicit ensure-started invocation continues once as a new
+            // normal operation whose identity is derived from that terminal
+            // receipt and whose attempt receives the current canonical budget.
+            retryAlreadyClaimed = false;
+          } else {
+            const retryAdmission = issueSecRecoveredRetryAdmission(recovery, recoveredReadback);
+            const successorProvider = await openWindowsDockerCommandProvider({ workingDirectory: cwd });
+            if (successorProvider.providerIdentityDigest !== provider.providerIdentityDigest) {
+              disposeUnclaimedDockerCommandProviderCapability(successorProvider);
+              throw new DockerCommandProviderUnavailableError(
+                'Docker command provider identity changed during durable recovery.'
+              );
+            }
+            provider = successorProvider;
+            operation = bindReadinessOperation({
+              mode,
+              providerIdentityDigest: provider.providerIdentityDigest,
+              authorityGrantDigest: recovery.plan.attempt.authorityGrantDigest,
+              resumeEpochDigest: recovery.plan.attempt.resumeEpochDigest,
+              runIdDigest: sha256({
+                domain: 'sec.docker.readiness.successor-run',
+                retryAdmissionDigest: retryAdmission.retryAdmissionDigest
+              }) as SecOperationDigest
+            });
+            writer.appendRecoveredRetryAttemptStart(
+              recovery,
+              operation,
+              sha256('sec.docker.desktop-launcher-worker') as SecDurableExecutionDigest,
+              retryAdmission,
+              currentPhysicalEpochDigest
             );
+            retryAlreadyClaimed = true;
           }
-          provider = successorProvider;
-          operation = bindReadinessOperation({
-            mode,
-            providerIdentityDigest: provider.providerIdentityDigest,
-            authorityGrantDigest: recovery.plan.attempt.authorityGrantDigest,
-            deadlineAtUnixMs: predecessor.deadlineAtUnixMs,
-            resumeEpochDigest: recovery.plan.attempt.resumeEpochDigest,
-            runIdDigest: sha256({
-              domain: 'sec.docker.readiness.successor-run',
-              retryAdmissionDigest: retryAdmission.retryAdmissionDigest
-            }) as SecOperationDigest
-          });
-          writer.appendRecoveredRetryAttemptStart(
-            recovery,
-            operation,
-            sha256('sec.docker.desktop-launcher-worker') as SecDurableExecutionDigest,
-            retryAdmission,
-            currentPhysicalEpochDigest
-          );
-          retryAlreadyClaimed = true;
         }
       } else if (prior !== null) {
         const currentReady = await observeWithOwnedProvider({
@@ -429,7 +486,8 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
               code: settlement.code,
               stdout: settlement.stdout,
               stderr: settlement.stderr,
-              physicalDisposition: settlement.physicalDisposition
+              physicalDisposition: settlement.physicalDisposition,
+              transportFailureStatus: settlement.transportFailureStatus ?? null
             }) as SecOperationDigest
           });
           writer!.appendProviderSettlement(operation, launcherSettlement);
@@ -488,26 +546,27 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
       loginStart,
       providerIdentityDigest: ready.providerIdentityDigest
     });
-  } catch (error) {
-    if (error instanceof DockerDaemonAvailabilityFailure) {
-      return Object.freeze({
-        schema: LOCAL_CONTAINER_ENGINE_READINESS_SCHEMA,
-        status: 'unavailable',
-        mode,
-        loginStart,
-        reason: error.reason,
-        phase: error.phase,
-        detailDigest: error.detailDigest
-      });
+    } catch (error) {
+      if (error instanceof DockerDaemonAvailabilityFailure) {
+        return Object.freeze({
+          schema: LOCAL_CONTAINER_ENGINE_READINESS_SCHEMA,
+          status: 'unavailable',
+          mode,
+          loginStart,
+          reason: error.reason,
+          phase: error.phase,
+          detailDigest: error.detailDigest
+        });
+      }
+      // Only domain-classified availability failures can be projected as a
+      // stable readiness result. An unknown journal/session failure retains its
+      // original typed error and cause graph instead of being mislabeled as a
+      // provider-admission blocker whose digest cannot be diagnosed.
+      throw error;
     }
-    return unavailable({
-      mode,
-      reason: 'session-unavailable',
-      phase: 'provider-admission',
-      detail: error,
-      loginStart
-    });
-  } finally {
-    await journalAuthority?.release();
-  }
+  })();
+  return settleLocalContainerEngineReadinessCompletion({
+    completion,
+    release: async () => { await journalAuthority?.release(); }
+  });
 }

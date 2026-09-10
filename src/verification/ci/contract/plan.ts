@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto';
 import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../system-architecture/foundation/contract/repository-path.ts';
 import { uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
 import type { CiVerificationGatePhase, CiVerificationGateStep } from '../../action/contract/ci.ts';
-import { CI_VERIFICATION_CONTRACT_REVISION } from '../../contract/revision.ts';
 import { isKnownSlowTestSuiteId, isSlowTestFile, slowTestSuiteIds, slowTestSuiteIdsForFile } from '../../test-impact/contract/budget.ts';
 import type { CodexDevelopmentTestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
 import type { CodexDevelopmentTestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';

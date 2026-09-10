@@ -65,11 +65,6 @@ function uniqueCanonicalSurfaceIds(value: unknown, label: string): string[] {
   });
 }
 
-function nullableNonNegativeSafeInteger(value: unknown, label: string): number | null {
-  if (value === null) return null;
-  return nonNegativeSafeInteger(value, label);
-}
-
 function exactKeys(
   value: Record<string, unknown>,
   requiredKeys: readonly string[],
@@ -83,13 +78,6 @@ function exactKeys(
     (key) => !Object.prototype.hasOwnProperty.call(value, key)
   );
   if (missingKey) throw new Error(`${label}.${missingKey} is required.`);
-}
-
-function exactGitObjectId(value: unknown, label: string): string {
-  if (typeof value !== 'string' || !/^[0-9a-f]{40}$/u.test(value)) {
-    throw new Error(`${label} must be an exact lowercase 40-character Git object ID.`);
-  }
-  return value;
 }
 
 const EXTERNAL_PROVIDER_STATE_MACHINE: Readonly<Record<string, readonly string[]>> = {

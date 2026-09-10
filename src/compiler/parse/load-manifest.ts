@@ -1,7 +1,8 @@
 import type { Dirent } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import YAML from 'yaml';
+import { failureMessage } from '../../system-architecture/foundation/runtime/failure-inspection.ts';
+import { parseYamlValue } from '../../system-architecture/foundation/runtime/yaml.ts';
 
 import { assertSameNoFollowDirectoryIdentity, inspectNoFollowDirectoryChain, PhysicalNoFollowError } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { isCanonicalBlockId, isCanonicalRegistryVersion } from '../../semantic/identity/contract/block.ts';
@@ -28,6 +29,9 @@ interface ManifestLoadOptions {
   version?: string;
   registrySources?: PlanRegistrySource[];
 }
+
+export const MANIFEST_YAML_MAX_INPUT_BYTES = 1024 * 1024;
+export const MANIFEST_YAML_MAX_ALIAS_COUNT = 100;
 
 const MANIFEST_ROOT_FIELDS = new Set<keyof BlockManifest>([
   'id',
@@ -59,6 +63,7 @@ function rootManifestPath(registryRoot: string, blockId: string): string {
 }
 
 interface ManifestSourceBytes {
+  readonly path: string;
   readonly raw: string;
   readonly digest: `sha256:${string}`;
 }
@@ -67,11 +72,19 @@ function tryReadManifestSource(manifestPath: string): ManifestSourceBytes | null
   const bytes = readOptionalAuthorityBytes(manifestPath, 'Manifest source');
   if (bytes === null) return null;
   const raw = decodeExactAuthorityUtf8(bytes, `Manifest source ${path.resolve(manifestPath)}`);
-  return { raw, digest: rawSha256(raw) };
+  return { path: path.resolve(manifestPath), raw, digest: rawSha256(raw) };
 }
 
 function parseManifestSource(source: ManifestSourceBytes): BlockManifest {
-  return YAML.parse(source.raw) as BlockManifest;
+  try {
+    return parseYamlValue(source.raw, { label: `Manifest ${source.path}`,
+      maximumInputBytes: MANIFEST_YAML_MAX_INPUT_BYTES,
+      stringKeys: true, maximumAliasCount: MANIFEST_YAML_MAX_ALIAS_COUNT }) as BlockManifest;
+  } catch (error) {
+    throw new CompilerError('MANIFEST-SCHEMA-001',
+      `Manifest YAML is invalid: ${source.path}: ${failureMessage(error)}`,
+      { manifestPath: source.path }, { cause: error });
+  }
 }
 
 function mergedManifestSourceDigest(
@@ -418,10 +431,23 @@ export async function loadAllManifests(options: ManifestLoadOptions = {}): Promi
           `Registry "${registrySource.id}" directory "${entry.name}" is missing block.manifest.yaml`
         );
       }
+      const cached = manifestCache.getByObservedSource({ workspaceRoot,
+        registrySourceId: registrySource.id, registryKind: registrySource.kind,
+        registryLocation: registrySource.location, registryPath: registrySource.path,
+        manifestPath, sourceDigest: source.digest });
+      if (cached !== undefined) {
+        assertRegistryDirectoryIdentity(registrySource, entry.name, cached.manifest, manifestPath);
+        // Catalog callers historically receive mutable independent entries.
+        // Reuse validated parse work without exposing the cache's shared object.
+        return structuredClone(cached);
+      }
       const manifest = parseManifestSource(source);
       validateManifest(manifest);
       assertRegistryDirectoryIdentity(registrySource, entry.name, manifest, manifestPath);
-      return manifestEntryFromPath(registrySource, manifest, manifestPath);
+      const parsed = manifestEntryFromPath(registrySource, manifest, manifestPath);
+      manifestCache.set(manifestCacheKey(workspaceRoot, registrySource, manifest.id, undefined, source.digest),
+        structuredClone(parsed));
+      return parsed;
     });
 
     assertSameNoFollowDirectoryIdentity(registryRoot, `Registry ${registrySource.id} root`);

@@ -2,8 +2,11 @@ import { expect, test } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
+import { writeProvenance } from '../../src/compiler/emit/write-provenance.ts';
+import { readLockFile } from '../../src/compiler/lock.ts';
 import { initWorkspace } from '../../src/compiler/orchestration/workspace-orchestrator.ts';
 import { loadPlan } from '../../src/compiler/parse/load-plan.ts';
+import { readOptionalProvenanceFile } from '../../src/semantic/provenance/authority.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import {
   acquireWorkspaceWriteLease,
@@ -24,6 +27,16 @@ test('init creates the minimal workspace on an empty root', async () => {
   expect(plan.acceptance).toEqual([]);
   expect(await fs.readFile(result.lockPath, 'utf8')).not.toContain('customer-admin');
   await expect(fs.lstat(paths.srcRoot)).resolves.toMatchObject({});
+  // The initial pending report is intentionally not a complete Verification
+  // artifact set. Remove that optional observation so this assertion reaches
+  // the first real provenance publication without fabricating Verification.
+  await fs.rm(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport));
+  const provenance = await writeProvenance(workspaceRoot, readLockFile(workspaceRoot));
+  const persisted = readOptionalProvenanceFile(
+    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance),
+    'Minimal workspace provenance readback'
+  );
+  expect(persisted).toEqual(provenance);
 });
 
 test('reference Customer scaffold requires an explicit create template', async () => {

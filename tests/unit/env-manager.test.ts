@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
   acquireTestWorkspaceSupervisorChallengeServerV1,
@@ -21,11 +21,10 @@ import {
   TEST_WORKSPACE_BOUND_CHILD_LOCATOR_ENV,
   TEST_WORKSPACE_NAMESPACE_ENV,
   TEST_WORKSPACE_RUN_CHILD_ENV,
-  testWorkspaceCleanupModeForPlatform,
-  testWorkspaceSupervisorLeasePathV1
+  testWorkspaceCleanupModeForPlatform
 } from '../../src/development/runner/env-manager.ts';
 import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { compilerRoot } from '../../src/workspace/runtime/paths.ts';
+import { compilerRoot, getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
 
 const isolatedTestWorkspaceEnvironment = {
   [TEST_WORKSPACE_NAMESPACE_ENV]: undefined,
@@ -185,9 +184,12 @@ test('a real execution-snapshot consumer must spend the live supervisor challeng
   let server: Awaited<ReturnType<typeof acquireTestWorkspaceSupervisorChallengeServerV1>> | null = null;
   try {
     await fs.mkdir(executionSnapshotRoot, { recursive: true });
-    await fs.cp(path.join(compilerRoot, 'platform'), path.join(executionSnapshotRoot, 'platform'), {
+    const compilerPaths = getWorkspacePaths(compilerRoot);
+    const sourceRoot = compilerPaths.srcRoot;
+    await fs.cp(sourceRoot, path.join(executionSnapshotRoot, path.relative(compilerRoot, sourceRoot)), {
       recursive: true
     });
+    await fs.copyFile(compilerPaths.packageJsonPath, getWorkspacePaths(executionSnapshotRoot).packageJsonPath);
     await fs.mkdir(path.dirname(leasePath), { recursive: true });
     const lease = createTestWorkspaceSupervisorLeaseV1({
       namespace,
@@ -251,25 +253,23 @@ test('a real execution-snapshot consumer must spend the live supervisor challeng
     expect(() => server!.authorize(assignment)).toThrow('invalid or duplicated');
     const moduleUrl = pathToFileURL(path.join(
       executionSnapshotRoot,
-      'platform',
-      'dev-runner',
-      'env-manager.ts'
+      path.relative(compilerRoot, fileURLToPath(new URL('../../src/development/runner/env-manager.ts', import.meta.url)))
     )).href;
     const source = `
       import path from 'node:path';
       import {
-        consumeTestWorkspaceSupervisorChallengeV1,
+        consumeTestWorkspaceSupervisorChallenge,
         getTestWorkspaceTempRoot,
-        parseTestWorkspaceRunChildAssignmentV1,
-        prepareTestWorkspaceRunV1,
-        settlePreparedTestWorkspaceRunV1,
+        parseTestWorkspaceRunChildAssignment,
+        prepareTestWorkspaceRun,
+        settlePreparedTestWorkspaceRun,
         TEST_WORKSPACE_BOUND_CHILD_LOCATOR_ENV,
         TEST_WORKSPACE_NAMESPACE_ENV,
         TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV,
         TEST_WORKSPACE_RUN_CHILD_ENV
       } from ${JSON.stringify(moduleUrl)};
       const assignment = JSON.parse(Buffer.from(process.argv[1], 'base64').toString('utf8'));
-      const parsed = parseTestWorkspaceRunChildAssignmentV1(
+      const parsed = parseTestWorkspaceRunChildAssignment(
         JSON.stringify(assignment),
         process.argv[2],
         assignment.name
@@ -279,7 +279,7 @@ test('a real execution-snapshot consumer must spend the live supervisor challeng
         [TEST_WORKSPACE_RUN_CHILD_ENV]: assignment.name
       });
       if (unboundRoot.startsWith(process.cwd())) process.exit(12);
-      const authority = await consumeTestWorkspaceSupervisorChallengeV1(parsed);
+      const authority = await consumeTestWorkspaceSupervisorChallenge(parsed);
       const env = {
         ...process.env,
         [TEST_WORKSPACE_NAMESPACE_ENV]: process.argv[2],
@@ -295,8 +295,8 @@ test('a real execution-snapshot consumer must spend the live supervisor challeng
         assignment.name
       );
       if (getTestWorkspaceTempRoot(env) !== expectedRoot) process.exit(13);
-      const cleanup = prepareTestWorkspaceRunV1(env, authority);
-      settlePreparedTestWorkspaceRunV1(cleanup);
+      const cleanup = prepareTestWorkspaceRun(env, authority);
+      settlePreparedTestWorkspaceRun(cleanup);
     `;
     const encoded = Buffer.from(JSON.stringify(assignment), 'utf8').toString('base64');
     const first = Bun.spawn([process.execPath, '-e', source, encoded, namespace], {

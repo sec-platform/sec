@@ -86,8 +86,7 @@ test('canonical bounded GitHub credential helper is deterministic', () => {
 
 test('canonical Git child environment removes ambient askpass and SSH command authority', () => {
   const environment = createBranchLifecycleGitChildEnvironment({
-    Path: 'trusted-path',
-    PATH: 'duplicate-path',
+    PATH: 'trusted-path',
     HOME: 'trusted-home',
     gh_prompt_disabled: '0',
     SSH_AUTH_SOCK: 'trusted-agent-channel',
@@ -106,7 +105,7 @@ test('canonical Git child environment removes ambient askpass and SSH command au
   });
 
   expect(Object.keys(environment).filter((name) => name.toUpperCase() === 'PATH'))
-    .toEqual(['Path']);
+    .toEqual(['PATH']);
   expect(environment.HOME).toBe('trusted-home');
   expect(environment.SSH_AUTH_SOCK).toBe('trusted-agent-channel');
   for (const name of Object.keys(environment)) {
@@ -345,6 +344,7 @@ test('bounded selection lifecycle admits one exact prospective transport', () =>
     remoteRefs: [],
     worktrees: [{ worktreeRef: WORKTREE_REF, branch: 'codex/next', headSha: MAIN_SHA }],
     openPullRequests: [],
+    preservedOpenPullRequests: [],
     prospectiveTransport: {
       branch: 'codex/next',
       headSha: MAIN_SHA,
@@ -367,6 +367,7 @@ test('bounded selection lifecycle retains extra transport residue as closeout au
     remoteRefs: [{ branch: 'feat/stale', sha: HEAD_SHA }],
     worktrees: [{ worktreeRef: WORKTREE_REF, branch: 'codex/next', headSha: MAIN_SHA }],
     openPullRequests: [],
+    preservedOpenPullRequests: [],
     prospectiveTransport: {
       branch: 'codex/next',
       headSha: MAIN_SHA,
@@ -391,6 +392,7 @@ test('bounded selection lifecycle validates one exact open pull-request transpor
       baseBranch: 'main',
       baseSha: MAIN_SHA
     }],
+    preservedOpenPullRequests: [],
     prospectiveTransport: null
   });
   expect(projection).toMatchObject({
@@ -400,6 +402,96 @@ test('bounded selection lifecycle validates one exact open pull-request transpor
     activeLegality: 'legal',
     closeoutState: 'none'
   });
+});
+
+test('bounded selection lifecycle preserves exact other PR transports and blocks their drift', () => {
+  const preservedWorktreeRef = `sha256:${'b'.repeat(64)}` as const;
+  const input = {
+    exactMain: MAIN_SHA,
+    defaultBranch: 'main',
+    localRefs: [
+      { branch: 'codex/active', sha: HEAD_SHA },
+      { branch: 'codex/preserved', sha: RACE_SHA }
+    ],
+    remoteRefs: [
+      { branch: 'codex/active', sha: HEAD_SHA },
+      { branch: 'codex/preserved', sha: RACE_SHA }
+    ],
+    worktrees: [
+      { worktreeRef: WORKTREE_REF, branch: 'codex/active', headSha: HEAD_SHA },
+      { worktreeRef: preservedWorktreeRef, branch: 'codex/preserved', headSha: RACE_SHA }
+    ],
+    openPullRequests: [{
+      number: 42,
+      headBranch: 'codex/active',
+      headSha: HEAD_SHA,
+      baseBranch: 'main',
+      baseSha: MAIN_SHA
+    }],
+    preservedOpenPullRequests: [{
+      number: 43,
+      headBranch: 'codex/preserved',
+      headSha: RACE_SHA,
+      baseBranch: 'main',
+      baseSha: MAIN_SHA
+    }],
+    prospectiveTransport: null
+  } as const;
+  const projection = projectBranchLifecycleForWorkSelection(input);
+  expect(projection).toMatchObject({
+    activeLegality: 'legal',
+    closeoutState: 'none',
+    preservedPullRequests: [{ number: 43, headBranch: 'codex/preserved', headSha: RACE_SHA }]
+  });
+
+  const driftedHead = projectBranchLifecycleForWorkSelection({
+    ...input,
+    remoteRefs: [
+      { branch: 'codex/active', sha: HEAD_SHA },
+      { branch: 'codex/preserved', sha: HEAD_SHA }
+    ]
+  });
+  expect(driftedHead.closeoutState).toBe('required');
+  expect(driftedHead.projectionDigest).not.toBe(projection.projectionDigest);
+  expect(driftedHead.inventoryObservationDigest).not.toBe(projection.inventoryObservationDigest);
+
+  const driftedWorktree = projectBranchLifecycleForWorkSelection({
+    ...input,
+    worktrees: [
+      { worktreeRef: WORKTREE_REF, branch: 'codex/active', headSha: HEAD_SHA },
+      { worktreeRef: preservedWorktreeRef, branch: 'codex/preserved', headSha: HEAD_SHA }
+    ]
+  });
+  expect(driftedWorktree.closeoutState).toBe('required');
+  expect(driftedWorktree.projectionDigest).not.toBe(projection.projectionDigest);
+  expect(driftedWorktree.inventoryObservationDigest).not.toBe(projection.inventoryObservationDigest);
+});
+
+test('bounded selection lifecycle rejects duplicate active and preserved PR identities', () => {
+  const active = {
+    number: 42,
+    headBranch: 'codex/active',
+    headSha: HEAD_SHA,
+    baseBranch: 'main',
+    baseSha: MAIN_SHA
+  } as const;
+  const input = {
+    exactMain: MAIN_SHA,
+    defaultBranch: 'main',
+    localRefs: [],
+    remoteRefs: [{ branch: 'codex/active', sha: HEAD_SHA }],
+    worktrees: [],
+    openPullRequests: [active],
+    prospectiveTransport: null
+  } as const;
+  expect(() => projectBranchLifecycleForWorkSelection({
+    ...input,
+    preservedOpenPullRequests: [{ ...active, headBranch: 'codex/other' }]
+  })).toThrow('duplicate number');
+  expect(() => projectBranchLifecycleForWorkSelection({
+    ...input,
+    preservedOpenPullRequests: [{ ...active, number: 43 }]
+  })).toThrow('conflicting branch');
 });
 
 test('bounded selection lifecycle rejects a pull request targeting another branch', () => {
@@ -416,6 +508,7 @@ test('bounded selection lifecycle rejects a pull request targeting another branc
       baseBranch: 'release',
       baseSha: MAIN_SHA
     }],
+    preservedOpenPullRequests: [],
     prospectiveTransport: null
   });
   expect(projection.activeLegality).toBe('invalid');
@@ -435,6 +528,7 @@ test('bounded selection lifecycle binds transport identity without treating a br
       baseBranch: 'main',
       baseSha: MAIN_SHA
     }],
+    preservedOpenPullRequests: [],
     prospectiveTransport: null
   });
   expect(projection).toMatchObject({
@@ -454,6 +548,7 @@ test('bounded selection lifecycle rejects the default branch as a prospective tr
     remoteRefs: [],
     worktrees: [{ worktreeRef: WORKTREE_REF, branch: 'main', headSha: MAIN_SHA }],
     openPullRequests: [],
+    preservedOpenPullRequests: [],
     prospectiveTransport: {
       branch: 'main',
       headSha: MAIN_SHA,
@@ -470,6 +565,7 @@ test('bounded selection lifecycle rejects a self-asserted prospective transport'
     remoteRefs: [],
     worktrees: [],
     openPullRequests: [],
+    preservedOpenPullRequests: [],
     prospectiveTransport: {
       branch: 'codex/next',
       headSha: MAIN_SHA,

@@ -1,5 +1,4 @@
 import { expect, test } from 'bun:test';
-import { applyPatch, parsePatch } from 'diff';
 
 import type { BuildEngineeringIRInput } from '../../compiler/ir/build-engineering-ir.ts';
 import { buildValidatedEngineeringIR } from '../../compiler/ir/validate-engineering-ir.ts';
@@ -8,6 +7,7 @@ import {
   compileSecRepositoryModuleArchitectureProjection,
   compileSecRepositoryModuleMembershipSnapshot
 } from '../../system-architecture/repository-modules/contract.ts';
+import { createSourceProgramCompilationOperation } from './compilation-operation.ts';
 import { isSourceProgramInputPath, sourceProgramSurfaceForPath } from './contract.ts';
 import {
   buildSourceProgramAggregateImportReductionPatch,
@@ -43,6 +43,7 @@ import {
   observeSourceProgramDurableWorkerInput,
   observeSourceProgramTypeScriptRename,
   observeSourceProgramTypeScriptSyntax,
+  observeTypeScriptSourceProgramPerformanceForTests,
   querySourceProgramModel
 } from './typescript.ts';
 import { compileWorkspaceSourceRevision } from './workspace-source-snapshot.ts';
@@ -102,6 +103,71 @@ test('TypeScript semantic compilation keeps production and test surfaces distinc
     { name: 'productionValue', path: 'src/example.ts' },
     { name: 'mirroredTestValue', path: 'tests/example.test.ts' }
   ]);
+});
+
+test('TypeScript semantic reference lookup skips names outside the canonical declaration and alias census', () => {
+  const moduleMembership = Object.freeze({
+    descriptors: Object.freeze([]),
+    graphRoots: Object.freeze([]),
+    moduleRoots: Object.freeze([]),
+    moduleForPath: () => null
+  });
+  const sources = [
+    {
+      path: 'src/reference-target.ts',
+      source: 'export const target = 1;\nexport default target;\n'
+    },
+    {
+      path: 'src/reference-consumer.ts',
+      source: [
+        "import defaultAlias, { target as renamed } from './reference-target.ts';",
+        "import * as namespaceAlias from './reference-target.ts';",
+        "export { target as exposed } from './reference-target.ts';",
+        'const local = renamed;',
+        'const shorthand = { local };',
+        'function shadow(renamed: number) { return renamed; }',
+        "const quoted = namespaceAlias['target'];",
+        "const computed = namespaceAlias[String('target')];",
+        'export const result = defaultAlias + renamed + namespaceAlias.target',
+        '  + shorthand.local + shadow(1) + quoted + computed + Math.max(1, 2);'
+      ].join('\n')
+    }
+  ];
+  const files = sources.map(({ path, source }) => Object.freeze({
+    path,
+    source,
+    contentDigest: rawSha256(source)
+  }));
+  const before = observeTypeScriptSourceProgramPerformanceForTests();
+  const model = compileTypeScriptSourceProgramModel({
+    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
+    files,
+    moduleMembership
+  });
+  const after = observeTypeScriptSourceProgramPerformanceForTests();
+  const targetReferences = model.references.filter(({ targetPath }) => (
+    targetPath === 'src/reference-target.ts'
+  ));
+
+  expect(targetReferences.map(({ kind, name, moduleSpecifier }) => ({
+    kind,
+    name,
+    moduleSpecifier
+  }))).toEqual([
+    { kind: 'import', name: 'default', moduleSpecifier: './reference-target.ts' },
+    { kind: 'import', name: 'target', moduleSpecifier: './reference-target.ts' },
+    { kind: 'import', name: '*', moduleSpecifier: './reference-target.ts' },
+    { kind: 'reexport', name: 'target', moduleSpecifier: './reference-target.ts' },
+    { kind: 'reference', name: 'renamed', moduleSpecifier: './reference-target.ts' },
+    { kind: 'reference', name: 'defaultAlias', moduleSpecifier: './reference-target.ts' },
+    { kind: 'reference', name: 'renamed', moduleSpecifier: './reference-target.ts' },
+    { kind: 'reference', name: 'target', moduleSpecifier: null },
+    { kind: 'reference', name: 'target', moduleSpecifier: null }
+  ]);
+  expect(after.semanticSymbolLookupOperations - before.semanticSymbolLookupOperations).toBeGreaterThan(0);
+  expect(
+    after.semanticSymbolLookupSkippedIdentifiers - before.semanticSymbolLookupSkippedIdentifiers
+  ).toBeGreaterThan(0);
 });
 
 test('TypeScript rename observations expire with their exact compiler generation', () => {
@@ -597,6 +663,26 @@ test('source program model finds capability producers, consumers, literals, and 
     moduleMembership,
     reviewedProcessDispatchers: []
   });
+  const cancelled = new AbortController();
+  const cancelledOperation = createSourceProgramCompilationOperation({
+    deadlineAtUnixMs: Date.now() + 30_000,
+    signal: cancelled.signal
+  });
+  cancelled.abort();
+  expect(() => compileSourceProgramVersionSuffixReductionPlan(model, files, {
+    typeScriptModel,
+    moduleMembership,
+    reviewedProcessDispatchers: [],
+    operation: cancelledOperation
+  })).toThrow('source-program-compilation-cancelled:reduction-plan');
+  expect(() => compileSourceProgramVersionSuffixReductionPlan(model, files, {
+    typeScriptModel,
+    moduleMembership,
+    reviewedProcessDispatchers: [],
+    operation: createSourceProgramCompilationOperation({
+      deadlineAtUnixMs: Date.now() - 1
+    })
+  })).toThrow('source-program-compilation-deadline-exhausted:reduction-plan');
   const versionReductionPatch = renderSourceProgramVersionSuffixReductionPatch(
     versionReductionPlan,
     files
@@ -611,39 +697,21 @@ test('source program model finds capability producers, consumers, literals, and 
   }));
   expect(versionReductionPlan.reductions).toContainEqual(expect.objectContaining({
     status: 'ready',
-    currentName: 'calculateProjectionV1',
-    proposedName: 'calculateProjection'
-  }));
-  expect(versionReductionPlan.reductions).toContainEqual(expect.objectContaining({
-    status: 'ready',
-    currentName: 'calculatePrivateProjectionV1',
-    proposedName: 'calculatePrivateProjection'
-  }));
-  expect(versionReductionPlan.reductions).toContainEqual(expect.objectContaining({
-    status: 'ready',
     currentName: 'REAL_SCHEMA_V2',
     proposedName: 'REAL_SCHEMA'
   }));
   expect(versionReductionPlan.reductions).not.toContainEqual(expect.objectContaining({
     currentName: 'normalizeInputV1'
   }));
+  expect(versionReductionPlan.reductions).not.toContainEqual(expect.objectContaining({
+    currentName: 'calculateProjectionV1'
+  }));
   expect(model.candidates).toContainEqual(expect.objectContaining({
     code: 'versioned-declaration-conflicts-with-canonical-name',
     subject: 'approvedExternalCapabilityV1'
   }));
-  expect(versionReductionPatch.patch).toContain('--- a/src/example/index.ts');
-  expect(versionReductionPatch.patch).toContain('+++ b/src/example/index.ts');
   expect(versionReductionPatch.patch).toContain('--- a/src/example/alias-consumer.ts');
-  const indexPatch = parsePatch(versionReductionPatch.patch).find(({ oldFileName }) =>
-    oldFileName === 'a/src/example/index.ts');
-  expect(indexPatch).toBeDefined();
-  const reducedSource = applyPatch(
-    sources.get('src/example/index.ts')!,
-    indexPatch!
-  );
-  expect(reducedSource).not.toBe(false);
-  expect(reducedSource).toContain('function calculateProjection()');
-  expect(reducedSource).not.toContain('calculateProjectionV1');
+  expect(versionReductionPatch.patch).not.toContain('--- a/src/example/index.ts');
   const unboundPackageSource = JSON.stringify({ ...packageManifest, source: undefined });
   const unboundFiles = files.map((file) => file.path === 'package.json'
     ? { ...file, source: unboundPackageSource, contentDigest: rawSha256(unboundPackageSource) }
@@ -684,11 +752,7 @@ test('source program model finds capability producers, consumers, literals, and 
     code: 'production-declaration-only-test-consumers',
     subject: lazySchemaName
   }));
-  expect(model.candidates).toContainEqual(expect.objectContaining({
-    code: 'versioned-declaration-without-coexisting-version',
-    subject: 'calculateProjectionV1',
-    paths: ['src/example/index.ts']
-  }));
+  expect(model.candidates.some(({ subject }) => subject === 'calculateProjectionV1')).toBe(false);
   expect(model.candidates).toContainEqual(expect.objectContaining({
     code: 'versioned-declaration-conflicts-with-canonical-name',
     subject: 'normalizeInputV1',
@@ -1323,6 +1387,61 @@ test('unused-symbol provider evidence requires a sealed exact provider receipt',
     { ...receipt },
     graphCutContext(fixture)
   )).toThrow('compiler-issued exact provider candidate receipt');
+
+  const controller = new AbortController();
+  const operation = createSourceProgramCompilationOperation({
+    deadlineAtUnixMs: Date.now() + 30_000,
+    signal: controller.signal,
+    observePhase: ({ phase, state }) => {
+      if (phase === 'reduction-plan' && state === 'start') controller.abort();
+    }
+  });
+  expect(() => compileSourceProgramGraphCutReductionPlan(
+    fixture.model,
+    fixture.files,
+    receipt,
+    { ...graphCutContext(fixture), operation }
+  )).toThrow('source-program-compilation-cancelled:owner-intent');
+});
+
+test('graph cut requests compiler syntax only for provider candidates', () => {
+  const fixture = compileGraphCutFixture({
+    'tsconfig.json': `${JSON.stringify({ include: ['src/**/*.ts'] })}\n`,
+    'src/example/contract.ts': 'export const UNUSED = 1;\n',
+    'tests/fixtures/outside-program.ts': 'export const FIXTURE_ONLY = 1;\n'
+  });
+  expect(fixture.typeScriptModel.files.map(({ path }) => path)).not.toContain(
+    'tests/fixtures/outside-program.ts'
+  );
+  const unrelatedOutsideProgram = compileSourceProgramGraphCutReductionPlan(
+    fixture.model,
+    fixture.files,
+    compileGraphCutProviderReceipt(fixture, [{
+      path: 'src/example/contract.ts',
+      name: 'UNUSED'
+    }]),
+    graphCutContext(fixture)
+  );
+  expect(unrelatedOutsideProgram.reductions).toContainEqual(expect.objectContaining({
+    path: 'src/example/contract.ts',
+    name: 'UNUSED'
+  }));
+
+  const outsideCandidate = compileSourceProgramGraphCutReductionPlan(
+    fixture.model,
+    fixture.files,
+    compileGraphCutProviderReceipt(fixture, [{
+      path: 'tests/fixtures/outside-program.ts',
+      name: 'FIXTURE_ONLY'
+    }]),
+    graphCutContext(fixture)
+  );
+  expect(outsideCandidate.reductions).toEqual([expect.objectContaining({
+    path: 'tests/fixtures/outside-program.ts',
+    name: 'FIXTURE_ONLY',
+    status: 'blocked',
+    reason: 'declaration source snapshot is unresolved'
+  })]);
 });
 
 test('graph cut blocks a declaration with same-file type consumers from the canonical Program', () => {
@@ -1600,6 +1719,36 @@ function compileSupersessionSnapshot(
   return compileSupersessionFixture(sources, declareIntent, declareObligation).evidence;
 }
 
+test('test-surface command observations do not become product duplicate-command candidates', () => {
+  const testOnly = compileSupersessionFixture({
+    'tests/example-command.test.ts': [
+      "import { Command } from 'commander';",
+      'const root = new Command();',
+      "root.command('sample');",
+      "root.command('sample');",
+      ''
+    ].join('\n')
+  }).full.model;
+  expect(testOnly.entrypoints.filter(({ kind }) => kind === 'cli-command')).toHaveLength(2);
+  expect(testOnly.candidates).not.toContainEqual(expect.objectContaining({
+    code: 'duplicate-entrypoint-command'
+  }));
+
+  const productDuplicate = compileSupersessionFixture({
+    'src/example/cli.ts': [
+      "import { Command } from 'commander';",
+      'const root = new Command();',
+      "root.command('sample');",
+      "root.command('sample');",
+      ''
+    ].join('\n')
+  }).full.model;
+  expect(productDuplicate.candidates).toContainEqual(expect.objectContaining({
+    code: 'duplicate-entrypoint-command',
+    subject: 'sample'
+  }));
+});
+
 test('supersession evidence preserves a zero input admission ceiling and rejects negative budgets', () => {
   const sources = {
     'src/example/operation.ts': "export function execute(): string { return 'ok'; }\n"
@@ -1643,16 +1792,229 @@ test('supersession proves a renamed implementation only through the same owner a
   );
 });
 
+test('supersession keeps same-path test priority before the stable cross-path order', () => {
+  const production = "export function execute(): string { return 'ok'; }\n";
+  const testSource = "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', () => expect(execute()).toBe('ok'));\n";
+  const baseline = compileSupersessionSnapshot({
+    'src/example/operation.ts': production,
+    'tests/example.test.ts': testSource
+  });
+  const current = compileSupersessionSnapshot({
+    'src/example/operation.ts': production,
+    'tests/another.test.ts': testSource,
+    'tests/example.test.ts': testSource
+  });
+
+  const replacement = compileSourceProgramSupersessionReceipt({ baseline, current })
+    .replacements.find(({ kind }) => kind === 'test');
+  expect(replacement).toEqual(expect.objectContaining({
+    baselinePaths: ['tests/example.test.ts'],
+    currentPaths: ['tests/example.test.ts']
+  }));
+});
+
+test('supersession receipt rejects cancellation through the issued compilation operation', () => {
+  const evidence = compileSupersessionSnapshot({
+    'src/example/operation.ts': "export function execute(): string { return 'ok'; }\n",
+    'tests/example.test.ts': "import { test } from 'bun:test';\ntest('executes', () => {});\n"
+  });
+  const controller = new AbortController();
+  const operation = createSourceProgramCompilationOperation({
+    deadlineAtUnixMs: Date.now() + 30_000,
+    signal: controller.signal
+  });
+  controller.abort();
+
+  expect(() => compileSourceProgramSupersessionReceipt({
+    baseline: evidence,
+    current: evidence,
+    operation
+  })).toThrow('source-program-compilation-cancelled:supersession-receipt');
+});
+
+test('supersession separates semantic signatures from source occurrence identity', () => {
+  const repeatedCommand = compileSupersessionSnapshot({
+    'tests/example-command.test.ts': [
+      "import { Command } from 'commander';",
+      'const root = new Command();',
+      "root.command('sample');",
+      "root.command('sample');",
+      ''
+    ].join('\n')
+  });
+  const repeatedUnits = repeatedCommand.entrypointUnits.filter((unit) => (
+    unit.path === 'tests/example-command.test.ts'
+  ));
+  expect(repeatedUnits).toHaveLength(2);
+  expect(new Set(repeatedUnits.map(({ signature }) => signature)).size).toBe(1);
+  expect(new Set(repeatedUnits.map(({ occurrenceId }) => occurrenceId)).size).toBe(2);
+  expect(new Set(repeatedUnits.map(({ id }) => id)).size).toBe(2);
+  expect(compileSourceProgramSupersessionReceipt({
+    baseline: repeatedCommand,
+    current: repeatedCommand
+  }).findings).not.toContainEqual(expect.objectContaining({
+    code: expect.stringMatching(/evidence-invalid/u)
+  }));
+
+  const duplicateProduction = compileSupersessionSnapshot({
+    'src/example/a.ts': 'export function execute(): number { return 1; }\n',
+    'src/example/b.ts': 'export function execute(): number { return 1; }\n'
+  });
+  const productionUnits = duplicateProduction.productionUnits.filter(({ path }) => (
+    path === 'src/example/a.ts' || path === 'src/example/b.ts'
+  ));
+  expect(productionUnits).toHaveLength(2);
+  expect(new Set(productionUnits.map(({ signature }) => signature)).size).toBe(1);
+  expect(new Set(productionUnits.map(({ id }) => id)).size).toBe(2);
+  expect(compileSourceProgramSupersessionReceipt({
+    baseline: duplicateProduction,
+    current: duplicateProduction
+  }).replacements.filter(({ kind }) => kind === 'production')).toHaveLength(2);
+
+  const legacyUnit = Object.fromEntries(Object.entries(repeatedUnits[0]!)
+    .filter(([key]) => key !== 'occurrenceId'));
+  const legacyCanonical = Object.freeze({
+    ...repeatedCommand,
+    entrypointUnits: Object.freeze([legacyUnit, ...repeatedCommand.entrypointUnits.slice(1)])
+  });
+  const { evidenceDigest: _legacyDigest, ...legacyEvidenceWithoutDigest } = legacyCanonical;
+  expect(() => parseSourceProgramSupersessionEvidence(Object.freeze({
+    ...legacyEvidenceWithoutDigest,
+    evidenceDigest: sha256(legacyEvidenceWithoutDigest)
+  }))).toThrow('not canonical');
+});
+
+test('supersession refuses source-order matching for changed duplicate entrypoint occurrences', () => {
+  const baselineFixture = compileSupersessionFixture({
+    'tests/example-command.test.ts': [
+      "import { Command } from 'commander';",
+      'const root = new Command();',
+      "root.command('sample');",
+      ''
+    ].join('\n')
+  });
+  const currentFixture = compileSupersessionFixture({
+    'tests/example-command.test.ts': [
+      "import { Command } from 'commander';",
+      'const root = new Command();',
+      'const unrelated = true;',
+      "root.command('sample');",
+      "if (unrelated) root.command('sample');",
+      ''
+    ].join('\n')
+  });
+  const currentTests = compileSourceProgramTestValue({
+    repositoryRoot: 'C:/synthetic/repository',
+    files: currentFixture.files,
+    model: currentFixture.full.model,
+    baselineTestPaths: ['tests/example-command.test.ts']
+  });
+  const currentEvidence = compileSourceProgramSupersessionEvidence({
+    model: currentFixture.full.model,
+    tests: currentTests,
+    intentEvidence: currentFixture.full.intentEvidence,
+    identity: currentFixture.identity
+  });
+  const ambiguousSupersession = compileSourceProgramSupersessionReceipt({
+    baseline: baselineFixture.evidence,
+    current: currentEvidence
+  });
+  expect(ambiguousSupersession.findings)
+    .toContainEqual(expect.objectContaining({
+      code: 'replacement-ambiguous',
+      baselinePaths: ['tests/example-command.test.ts']
+    }));
+  const retirement = compileSourceProgramTestRetirementReceipt({
+    baseline: baselineFixture.evidence,
+    current: currentEvidence,
+    supersession: ambiguousSupersession,
+    currentModel: currentFixture.full.model,
+    currentTestCompilation: currentTests,
+    baselineFiles: baselineFixture.files,
+    currentFiles: currentFixture.files
+  });
+  // This module is retained. Its ambiguous replacement remains a Supersession
+  // failure, not an attempted whole-module retirement.
+  expect(retirement.proofs).toEqual([]);
+  expect(ambiguousSupersession.status).toBe('owner-decision-required');
+
+  const twoPathBaseline = compileSupersessionSnapshot({
+    'tests/first-command.test.ts': [
+      "import { Command } from 'commander';",
+      'const root = new Command();',
+      "root.command('sample');",
+      ''
+    ].join('\n'),
+    'tests/second-command.test.ts': [
+      "import { Command } from 'commander';",
+      'const root = new Command();',
+      "root.command('sample');",
+      ''
+    ].join('\n')
+  });
+  const twoPathCurrent = compileSupersessionSnapshot({
+    'tests/first-command.test.ts': [
+      "import { Command } from 'commander';",
+      'const root = new Command();',
+      'const firstShift = true;',
+      "root.command('sample');",
+      ''
+    ].join('\n'),
+    'tests/second-command.test.ts': [
+      "import { Command } from 'commander';",
+      'const root = new Command();',
+      'const secondShift = true;',
+      "root.command('sample');",
+      ''
+    ].join('\n')
+  });
+  const twoPathReceipt = compileSourceProgramSupersessionReceipt({
+    baseline: twoPathBaseline,
+    current: twoPathCurrent
+  });
+  expect(twoPathReceipt.findings).not.toContainEqual(expect.objectContaining({
+    code: 'replacement-ambiguous'
+  }));
+  expect(twoPathReceipt.replacements.filter(({ kind }) => kind === 'entrypoint')).toHaveLength(2);
+
+  const collapsedCurrent = compileSupersessionSnapshot({
+    'tests/example-command.test.ts': [
+      "import { Command } from 'commander';",
+      'const root = new Command();',
+      'const shifted = true;',
+      "if (shifted) root.command('sample');",
+      ''
+    ].join('\n')
+  });
+  const collapsed = compileSourceProgramSupersessionReceipt({
+    baseline: compileSupersessionSnapshot({
+      'tests/example-command.test.ts': [
+        "import { Command } from 'commander';",
+        'const root = new Command();',
+        "root.command('sample');",
+        "root.command('sample');",
+        ''
+      ].join('\n')
+    }),
+    current: collapsedCurrent
+  });
+  expect(collapsed.replacements.filter(({ kind }) => kind === 'entrypoint')).toHaveLength(0);
+  expect(collapsed.findings.filter(({ code }) => code === 'replacement-ambiguous')).toHaveLength(2);
+});
+
 function compileTestRetirementFixture(
   baselineTestSource: string,
-  productionSource = "export const value = 'ok';\n"
+  productionSource = "export const value = 'ok';\n",
+  currentTestSource?: string,
+  currentTestPath = 'tests/obsolete.test.ts'
 ) {
   const baseline = compileSupersessionFixture({
     'src/example/operation.ts': productionSource,
     'tests/obsolete.test.ts': baselineTestSource
   });
   const current = compileSupersessionFixture({
-    'src/example/operation.ts': productionSource
+    'src/example/operation.ts': productionSource,
+    ...(currentTestSource === undefined ? {} : { [currentTestPath]: currentTestSource })
   });
   const baselineTestPaths = ['tests/obsolete.test.ts'];
   const baselineEvidence = compileSourceProgramTestBaselineEvidence({
@@ -1691,8 +2053,108 @@ function compileTestRetirementFixture(
     baselineFiles: baseline.files,
     currentFiles: current.files
   });
-  return Object.freeze({ observedProjection, retirement });
+  return Object.freeze({
+    baseline,
+    current,
+    currentEvidence,
+    currentTests,
+    observedProjection,
+    retirement,
+    supersession
+  });
 }
+
+test('test retirement does not demand deletion of a retained behavior test', () => {
+  const source = "import { expect, test } from 'bun:test';\nimport { value } from '../src/example/operation.ts';\ntest('public value', () => expect(value).toBe('ok'));\n";
+  const fixture = compileTestRetirementFixture(source, undefined, source);
+  const projection = projectSourceProgramTestRetirementDispositions(
+    fixture.observedProjection,
+    fixture.retirement
+  );
+
+  expect(fixture.retirement.baselineTestPathsDigest).toBe(sha256(['tests/obsolete.test.ts']));
+  expect(fixture.retirement.proofs).toEqual([]);
+  expect(projection.dispositions.some(({ disposition }) => disposition === 'delete')).toBe(false);
+});
+
+test('test retirement preserves an exact supersession merge instead of demanding consumer-zero deletion', () => {
+  const production = "export function execute(invalid = false): string { if (invalid) throw new Error('invalid'); return 'ok'; }\n";
+  const baseline = "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', () => expect(execute()).toBe('ok'));\n";
+  const replacement = "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes and rejects invalid input', () => { expect(execute()).toBe('ok'); expect(() => execute(true)).toThrow('invalid'); });\n";
+  const fixture = compileTestRetirementFixture(
+    baseline, production, replacement, 'tests/replacement.test.ts'
+  );
+  const projection = projectSourceProgramTestRetirementDispositions(
+    fixture.observedProjection,
+    fixture.retirement
+  );
+
+  expect(fixture.supersession.status).toBe('superseded');
+  expect(fixture.observedProjection.dispositions).toContainEqual(expect.objectContaining({
+    path: 'tests/obsolete.test.ts', disposition: 'merge'
+  }));
+  expect(fixture.retirement.proofs).toEqual([]);
+  expect(projection.dispositions).toEqual(fixture.observedProjection.dispositions);
+});
+
+test('test retirement rejects a caller-forged Supersession decision', () => {
+  const production = "export function execute(invalid = false): string { if (invalid) throw new Error('invalid'); return 'ok'; }\n";
+  const baseline = "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', () => expect(execute()).toBe('ok'));\n";
+  const replacement = "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes and rejects invalid input', () => { expect(execute()).toBe('ok'); expect(() => execute(true)).toThrow('invalid'); });\n";
+  const fixture = compileTestRetirementFixture(
+    baseline, production, replacement, 'tests/replacement.test.ts'
+  );
+  const canonicalForged = Object.freeze({
+    ...fixture.supersession,
+    replacements: Object.freeze(fixture.supersession.replacements.map((replacementEvidence) =>
+      replacementEvidence.kind === 'test'
+        ? Object.freeze({ ...replacementEvidence, baselineId: sha256('caller-selected-test') })
+        : replacementEvidence))
+  });
+  const { receiptDigest: _receiptDigest, ...forgedWithoutDigest } = canonicalForged;
+  const forged = Object.freeze({
+    ...forgedWithoutDigest,
+    receiptDigest: sha256(forgedWithoutDigest)
+  });
+
+  expect(() => compileSourceProgramTestRetirementReceipt({
+    baseline: fixture.baseline.evidence,
+    current: fixture.currentEvidence,
+    supersession: forged,
+    currentModel: fixture.current.full.model,
+    currentTestCompilation: fixture.currentTests,
+    baselineFiles: fixture.baseline.files,
+    currentFiles: fixture.current.files
+  })).toThrow('exact Supersession decision recomputed from sealed evidence');
+});
+
+test('test retirement rejects a real Supersession receipt from another intent epoch', () => {
+  const fixture = compileTestRetirementFixture('// obsolete module with no observable contract\n');
+  const foreignBaselineEvidence = compileSourceProgramSupersessionEvidence({
+    ...fixture.baseline.full,
+    intentEvidence: Object.freeze([]),
+    identity: fixture.baseline.identity
+  });
+  const foreignCurrentEvidence = compileSourceProgramSupersessionEvidence({
+    ...fixture.current.full,
+    intentEvidence: Object.freeze([]),
+    identity: fixture.current.identity
+  });
+  const foreignReceipt = compileSourceProgramSupersessionReceipt({
+    baseline: foreignBaselineEvidence,
+    current: foreignCurrentEvidence
+  });
+
+  expect(() => compileSourceProgramTestRetirementReceipt({
+    baseline: fixture.baseline.evidence,
+    current: fixture.currentEvidence,
+    supersession: foreignReceipt,
+    currentModel: fixture.current.full.model,
+    currentTestCompilation: fixture.currentTests,
+    baselineFiles: fixture.baseline.files,
+    currentFiles: fixture.current.files
+  })).toThrow('sealed baseline/current Source Program evidence: supersession-receipt');
+});
 
 test('test retirement derives DELETE only from one compiler-issued consumer-zero receipt', () => {
   const fixture = compileTestRetirementFixture('// obsolete module with no observable contract\n');
@@ -1737,15 +2199,20 @@ test('test retirement blocks real consumers, path contracts, dynamic imports, an
       "export const retiredPath = 'tests/obsolete.test.ts';\n"
     ),
     compileTestRetirementFixture(
+      '// test path is consumed through a relative production literal\n',
+      "export const retiredPath = '../../tests/obsolete.test.ts';\n"
+    ),
+    compileTestRetirementFixture(
       "const target = '../src/example/operation.ts';\nvoid import(target);\n"
     ),
     compileTestRetirementFixture('export const malformed = ;\n')
   ];
 
   expect(fixtures.map(({ retirement }) => retirement.proofs[0]?.status))
-    .toEqual(['blocked', 'blocked', 'blocked', 'blocked']);
+    .toEqual(['blocked', 'blocked', 'blocked', 'blocked', 'blocked']);
   expect(fixtures.map(({ retirement }) => retirement.proofs[0]?.reason))
     .toEqual([
+      'consumer-closure-not-empty',
       'consumer-closure-not-empty',
       'consumer-closure-not-empty',
       'consumer-closure-not-empty',
@@ -2229,6 +2696,136 @@ test('source program keeps an effectful public operation without an exact domain
   }));
 });
 
+test('source program accepts a terminal issuer only through its unique same-capability semantic domain owner', () => {
+  const operationObligation = (capability: string, operation: string) => ({
+    operation: { kind: 'capability', capability, operation },
+    consumerSupport: { consumers: [] },
+    effect: {
+      kinds: ['process'],
+      failureKinds: ['example.failed'],
+      recovery: 'owner-intervention'
+    },
+    evolution: {
+      migration: 'not-required',
+      retirement: 'replacement-obligations-satisfied'
+    },
+    resources: {
+      aggregateBudgets: [
+        { resource: 'duration-ms', maximum: 1_000 },
+        { resource: 'input-bytes', maximum: 0 },
+        { resource: 'output-bytes', maximum: 1 },
+        { resource: 'processes', maximum: 1 }
+      ]
+    },
+    futureSupport: { condition: 'semantic-superset-required' }
+  });
+  const compile = (capabilityProviders: readonly Readonly<{
+    capability: string;
+    operations: readonly string[];
+    effectKinds: readonly string[];
+    operationRoles: readonly Readonly<{
+      operation: string;
+      role: string;
+      semanticOperation: string;
+      requirementId: string | null;
+      recovery: null;
+    }>[];
+  }>[]) => compileIssuerRoleFixture({
+    sources: {
+      'src/lifecycle/operation.ts': [
+        'export function create(): void {}',
+        'export function createOther(): void {}',
+        'export function close(): void {}'
+      ].join('\n')
+    },
+    operationObligations: {
+      'src/lifecycle': [operationObligation('example.lifecycle', 'close')]
+    },
+    descriptors: { 'src/lifecycle': capabilityProviders }
+  });
+  const terminalRole = {
+    operation: 'close',
+    role: 'terminal-issuer',
+    semanticOperation: 'example.lifecycle.run',
+    requirementId: null,
+    recovery: null
+  } as const;
+  const domainRole = {
+    operation: 'create',
+    role: 'domain-owner',
+    semanticOperation: 'example.lifecycle.run',
+    requirementId: null,
+    recovery: null
+  } as const;
+  type OperationRoleFixture = Readonly<{
+    operation: string;
+    role: string;
+    semanticOperation: string;
+    requirementId: string | null;
+    recovery: null;
+  }>;
+  const provider = (operationRoles: readonly OperationRoleFixture[]) => ({
+    capability: 'example.lifecycle',
+    operations: ['create', 'createOther', 'close'],
+    effectKinds: [],
+    operationRoles
+  });
+
+  const accepted = compile([provider([domainRole, terminalRole])]);
+  expect(accepted.candidates).not.toContainEqual(expect.objectContaining({
+    code: 'operation-critical-role-unresolved',
+    subject: 'example.lifecycle:close'
+  }));
+
+  const isolated = compile([provider([terminalRole])]);
+  expect(isolated.candidates).toContainEqual(expect.objectContaining({
+    code: 'operation-critical-role-unresolved',
+    subject: 'example.lifecycle:close'
+  }));
+
+  const crossCapability = compile([
+    provider([terminalRole]),
+    {
+      capability: 'example.other-lifecycle',
+      operations: ['create'],
+      effectKinds: [],
+      operationRoles: [domainRole]
+    }
+  ]);
+  expect(crossCapability.candidates).toContainEqual(expect.objectContaining({
+    code: 'operation-critical-role-unresolved',
+    subject: 'example.lifecycle:close'
+  }));
+
+  const crossSemanticOperation = compile([provider([
+    { ...domainRole, semanticOperation: 'example.lifecycle.other-run' },
+    terminalRole
+  ])]);
+  expect(crossSemanticOperation.candidates).toContainEqual(expect.objectContaining({
+    code: 'operation-critical-role-unresolved',
+    subject: 'example.lifecycle:close'
+  }));
+
+  const requirementBoundClose = compile([provider([
+    domainRole,
+    {
+      ...terminalRole,
+      role: 'provider-settlement-issuer',
+      requirementId: 'example.lifecycle.provider'
+    }
+  ])]);
+  expect(requirementBoundClose.candidates).toContainEqual(expect.objectContaining({
+    code: 'operation-critical-role-unresolved',
+    subject: 'example.lifecycle:close'
+  }));
+
+  expect(() => compile([provider([
+    domainRole,
+    { ...domainRole, operation: 'createOther' },
+    terminalRole
+  ])])).toThrow('repository snapshot descriptor is invalid');
+});
+
 test('source program keeps an unresolved durable input contract blocking', () => {
   const model = compileIssuerRoleFixture({
     sources: {
@@ -2343,6 +2940,32 @@ test('causal relation projection rejects generic persisted reads and accepts the
     code: 'causal-relation-owner-bypass',
     subject: 'semantic.repair-plan:parser/readback',
     observationClass: 'derived'
+  }));
+});
+
+test('causal readback provenance preserves a terminal parser return across a fail-only guard', () => {
+  const guarded = compileCausalReaderFixture([
+    "import { parseRepairPlanJson, type RepairPlan } from '../../semantic/repair/contract/types.ts';",
+    'function bytesOrNull(): string | null { return null; }',
+    'function readRequiredRepairPlan(_path: string): RepairPlan {',
+    '  const bytes = bytesOrNull();',
+    "  if (bytes === null) throw new Error('missing');",
+    '  return parseRepairPlanJson(bytes);',
+    '}'
+  ].join('\n'));
+  expect(guarded.candidates).not.toContainEqual(expect.objectContaining({
+    code: 'causal-relation-owner-bypass'
+  }));
+
+  const mutatingBranch = compileCausalReaderFixture([
+    "import { parseRepairPlanJson, type RepairPlan } from '../../semantic/repair/contract/types.ts';",
+    'function readRequiredRepairPlan(source: string): RepairPlan {',
+    "  if (source.length === 0) source = '{}';",
+    '  return parseRepairPlanJson(source);',
+    '}'
+  ].join('\n'));
+  expect(mutatingBranch.candidates).toContainEqual(expect.objectContaining({
+    code: 'causal-relation-owner-bypass'
   }));
 });
 

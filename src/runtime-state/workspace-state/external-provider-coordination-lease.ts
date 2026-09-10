@@ -50,6 +50,7 @@ export interface ExternalProviderCoordinationLease {
 
 export interface ExternalProviderCoordinationLeaseInput {
   readonly endpointIdentity: string;
+  /** Correlation/budget projection only; Runtime State owns lease Effect admission. */
   readonly operation: SecBoundSemanticOperation;
   readonly providerId: string;
   readonly requirementId: string;
@@ -111,7 +112,7 @@ function validateInput(
   } catch (error) {
     throw new ExternalProviderCoordinationLeaseError(
       'invalid-input',
-      'External-provider coordination requires an owner-issued semantic operation.',
+      'External-provider coordination requires a canonical semantic operation projection.',
       { cause: error }
     );
   }
@@ -225,7 +226,8 @@ export function secUserExternalProviderCoordinationPath(input: Readonly<{
 async function withRetainedCoordinationDirectory<T>(
   retained: RetainedRuntimeStateDirectory,
   input: ReturnType<typeof validateInput>,
-  operation: (lease: ExternalProviderCoordinationLease) => Promise<T>
+  operation: (lease: ExternalProviderCoordinationLease) => Promise<T>,
+  testOnlyBeforeRecoveryAcknowledgement?: (leasePath: string) => void
 ): Promise<T | null> {
   const canonical = input;
   const coordinationDigest = sha256({
@@ -284,36 +286,47 @@ async function withRetainedCoordinationDirectory<T>(
     }
     return null;
   }
-  const lease = Object.freeze({
-    coordinationDigest,
-    deadlineAtUnixMs: canonical.deadlineAtUnixMs,
-    endpointIdentity: canonical.endpointIdentity,
-    operationIdentityDigest: canonical.operationIdentityDigest,
-    providerEpochDigest: canonical.providerEpochDigest,
-    providerId: canonical.providerId
-  });
-  issuedExternalProviderCoordinationLeases.add(lease);
-
   let value: T | undefined;
   let operationFailure: unknown;
+  let operationFailed = false;
   try {
+    // Coordination owns exclusion only; provider state has its own durable identity.
+    testOnlyBeforeRecoveryAcknowledgement?.(path.join(
+      retained.path,
+      externalProviderCoordinationLeaseName(canonical)
+    ));
+    physicalLease.acknowledgeReclaimedRecovery();
+    const lease = Object.freeze({
+      coordinationDigest,
+      deadlineAtUnixMs: canonical.deadlineAtUnixMs,
+      endpointIdentity: canonical.endpointIdentity,
+      operationIdentityDigest: canonical.operationIdentityDigest,
+      providerEpochDigest: canonical.providerEpochDigest,
+      providerId: canonical.providerId
+    });
+    issuedExternalProviderCoordinationLeases.add(lease);
     value = await operation(lease);
   } catch (error) {
     operationFailure = error;
+    operationFailed = true;
   }
-  if (operationFailure === undefined && Date.now() > canonical.deadlineAtUnixMs) {
+  if (!operationFailed && Date.now() > canonical.deadlineAtUnixMs) {
     operationFailure = new ExternalProviderCoordinationLeaseError(
       'deadline-exhausted',
       'External-provider coordination operation exceeded its canonical deadline.'
     );
+    operationFailed = true;
   }
 
   const settlementFailures: unknown[] = [];
-  try { physicalLease.release(); } catch (error) { settlementFailures.push(error); }
+  try {
+    if (physicalLease.recoveryPending) physicalLease.restoreReclaimedOwner();
+    else physicalLease.release();
+  } catch (error) { settlementFailures.push(error); }
   try { retained.assertCurrent(); } catch (error) { settlementFailures.push(error); }
   try { retained.close(); } catch (error) { settlementFailures.push(error); }
   if (settlementFailures.length > 0) {
-    if (operationFailure !== undefined) settlementFailures.unshift(operationFailure);
+    if (operationFailed) settlementFailures.unshift(operationFailure);
     throw new ExternalProviderCoordinationLeaseError(
       'settlement-unknown',
       'External-provider coordination lease did not settle with exact physical identity.',
@@ -324,7 +337,7 @@ async function withRetainedCoordinationDirectory<T>(
       }
     );
   }
-  if (operationFailure !== undefined) throw operationFailure;
+  if (operationFailed) throw operationFailure;
   return value as T;
 }
 
@@ -334,6 +347,7 @@ export async function withExternalProviderCoordinationLeaseAtOwnerIssuedRoot<T>(
   issuer: ExternalProviderCoordinationLeaseTestIssuer;
   operation: (lease: ExternalProviderCoordinationLease) => Promise<T>;
   root: PhysicalDirectoryChain;
+  testOnlyBeforeRecoveryAcknowledgement?: (leasePath: string) => void;
 }>): Promise<T | null> {
   if (!issuedExternalProviderCoordinationLeaseTestIssuers.has(input.issuer)) {
     throw new ExternalProviderCoordinationLeaseError(
@@ -364,7 +378,8 @@ export async function withExternalProviderCoordinationLeaseAtOwnerIssuedRoot<T>(
   return await withRetainedCoordinationDirectory(
     retained,
     coordination,
-    input.operation
+    input.operation,
+    input.testOnlyBeforeRecoveryAcknowledgement
   );
 }
 

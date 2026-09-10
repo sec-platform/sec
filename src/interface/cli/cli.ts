@@ -2,8 +2,7 @@
 import { Command } from 'commander';
 import packageMetadata from '../../../package.json' with { type: 'json' };
 import { buildErrorProtocol } from '../../compiler/error-protocol.ts';
-import type { CompilerErrorDetails } from '../../compiler/errors.ts';
-import { formatJson } from './format-utils.ts';
+import { reportCliFailure } from './cli-failure.ts';
 import { registerCommands } from './register-commands.ts';
 import { registerPipelineCommands } from './register-pipeline-commands.ts';
 import { cli } from './runtime/output.ts';
@@ -22,19 +21,13 @@ program.action(() => {
 });
 
 program.parseAsync().catch((error: unknown) => {
-  const failure = error as { code?: string; message?: string; details?: CompilerErrorDetails };
-  const protocol = buildErrorProtocol(failure);
-  console.error(cli.error(`${protocol.code} ${protocol.message}`));
-  console.error(cli.dim(formatJson({
-    code: protocol.code,
-    message: protocol.message,
-    recoverable: protocol.recoverable,
-    issueType: protocol.issueType,
-    suggestedActions: protocol.suggestedActions,
-    artifactPaths: protocol.artifactPaths
-  }, { compact: true })));
-  if (protocol.details) {
-    console.error(cli.dim(formatJson(protocol.details, { compact: false })));
+  try {
+    reportCliFailure(error, buildErrorProtocol, {
+      write: (line) => console.error(line),
+      error: (line) => cli.error(line),
+      dim: (line) => cli.dim(line)
+    });
+  } finally {
+    process.exit(1);
   }
-  process.exit(1);
 });

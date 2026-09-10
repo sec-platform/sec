@@ -19,8 +19,6 @@ import {
 import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
-const staleRevision = `sha256:${'0'.repeat(64)}`;
-
 function legacyAdaptJournal(overrides?: Readonly<{
   status?: 'running' | 'failed';
   active?: boolean;

@@ -1,13 +1,15 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import type { DocsDoctorFrontmatter } from './frontmatter.ts';
+import { markdownFacts } from './markdown-syntax.ts';
+export { ACTIVE_POINTER_STATUS, parseFrontmatter, VALID_STATUS } from './frontmatter.ts';
+export type { DocsDoctorFrontmatter } from './frontmatter.ts';
 
 import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../system-architecture/foundation/contract/repository-path.ts';
 import type { DocumentationAuthorityRecord } from '../authority.ts';
 
 export const DOCUMENT_AUTHORITY_REGISTRY_PATH = 'docs/authority.json';
 
-export const VALID_STATUS = new Set(['stable', 'active', 'draft', 'historical', 'archive']);
-export const ACTIVE_POINTER_STATUS = new Set([...VALID_STATUS, 'conditional']);
 export const EXCLUDED_DOC_PREFIXES = [
   'docs/archive/',
   'docs/evidence/',
@@ -73,14 +75,6 @@ export interface DocsDoctorScanOptions {
   changedDocumentPaths?: ReadonlySet<string> | null;
 }
 
-export interface DocsDoctorFrontmatter {
-  ok: boolean;
-  status?: string;
-  domain?: string;
-  generatedFrom?: string;
-  reason?: string;
-}
-
 export function posixRelative(root: string, file: string): string {
   return path.relative(root, file).split(path.sep).join('/');
 }
@@ -127,49 +121,8 @@ export async function* walk(dir: string, root = dir): AsyncGenerator<string> {
   }
 }
 
-export function parseFrontmatter(
-  content: string,
-  validStatus = VALID_STATUS
-): DocsDoctorFrontmatter {
-  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u);
-  if (!match) {
-    return {
-      ok: false,
-      reason: content.startsWith('---') ? 'unterminated frontmatter' : 'missing frontmatter'
-    };
-  }
-  const value = (name: string): string | undefined => {
-    const field = match[1]!.match(new RegExp(`^${name}:\\s*([^\\s#]+)\\s*(?:#.*)?$`, 'mu'));
-    return field?.[1]?.replace(/^['"]|['"]$/gu, '');
-  };
-  const status = value('status');
-  if (!status) return { ok: false, reason: 'missing status' };
-  if (!validStatus.has(status)) return { ok: false, reason: `invalid status "${status}"` };
-  return {
-    ok: true,
-    status,
-    domain: value('domain'),
-    generatedFrom: value('generated-from')
-  };
-}
-
 export function extractH1Headings(content: string): string[] {
-  const headings: string[] = [];
-  let fence: { character: '`' | '~'; length: number } | undefined;
-  for (const line of content.split(/\r?\n/u)) {
-    const fenceMatch = line.match(/^\s{0,3}(`{3,}|~{3,})/u);
-    if (fenceMatch) {
-      const marker = fenceMatch[1]!;
-      const character = marker[0] as '`' | '~';
-      if (!fence) fence = { character, length: marker.length };
-      else if (fence.character === character && marker.length >= fence.length) fence = undefined;
-      continue;
-    }
-    if (fence) continue;
-    const heading = line.match(/^#\s+(.+?)\s*$/u);
-    if (heading) headings.push(heading[1]!.trim());
-  }
-  return headings;
+  return [...markdownFacts(content).headings];
 }
 
 export function extractFileLinks(content: string): string[] {
@@ -183,21 +136,14 @@ export function extractFileLinks(content: string): string[] {
 }
 
 export function extractBacktickFilePaths(content: string): string[] {
-  const paths: string[] = [];
-  for (const match of content.matchAll(/(?<!`)`([^`\r\n]+)`(?!`)/gu)) {
-    const value = match[1]!.trim();
-    if (
-      !/[*{}<>]/u.test(value)
-      && /(?:^|\/)[^/]+\.[A-Za-z0-9_-]{1,12}$/u.test(value.replace(/\\/gu, '/'))
-    ) paths.push(value);
-  }
-  return paths;
+  return markdownFacts(content).inlineCode.map(value => value.trim()).filter(value =>
+    !/[*{}<>]/u.test(value)
+    && /(?:^|\/)[^/]+\.[A-Za-z0-9_-]{1,12}$/u.test(value.replace(/\\/gu, '/'))
+  );
 }
 
 export function extractMarkdownLinks(content: string): string[] {
-  return [...content.matchAll(
-    /!?\[[^\]\r\n]*\]\(\s*(<[^>\r\n]+>|[^)\s\r\n]+)(?:\s+["'][^"']*["'])?\s*\)/gu
-  )].map((match) => match[1]!);
+  return [...markdownFacts(content).links];
 }
 
 export function repositoryPathForLink(

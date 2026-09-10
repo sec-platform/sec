@@ -6,7 +6,6 @@ import {
   SEC_TASK_CAPSULE_AUTHORITY_STATUS,
   SEC_TASK_CAPSULE_INPUT_SCHEMA,
   SEC_TASK_CAPSULE_REVISION,
-  SEC_TASK_CAPSULE_SCHEMA,
   type SecDigest,
   type SecTaskCapsuleInputV1,
   type SecTaskCapsulePlanningContext

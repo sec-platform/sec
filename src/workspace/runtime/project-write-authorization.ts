@@ -1,8 +1,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
 
-import { isCanonicalPortableLogicalPath } from '../../system-architecture/foundation/contract/logical-path.ts';
-import { sha256, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { captureProjectPathInventory } from '../contract/project-path-inventory.ts';
 
 const PROJECT_WRITE_AUTHORIZATION = Symbol('project-write-authorization');
 
@@ -42,7 +42,10 @@ interface ProjectWriteAuthorizationPayload extends ProjectWriteAuthorizationProj
   active: boolean;
 }
 
-const authorizationContext = new AsyncLocalStorage<ProjectWriteAuthorization>();
+// Reservation prevents a preparation callback from starting a nested scope,
+// without making an authorization available before the owner fence admits it.
+const PREPARING_AUTHORIZATION = Symbol('preparing-project-write-authorization');
+const authorizationContext = new AsyncLocalStorage<ProjectWriteAuthorization | typeof PREPARING_AUTHORIZATION>();
 const authorizationPayloads = new WeakMap<ProjectWriteAuthorization, ProjectWriteAuthorizationPayload>();
 
 function canonicalWorkspaceRoot(workspaceRoot: string): string {
@@ -50,7 +53,7 @@ function canonicalWorkspaceRoot(workspaceRoot: string): string {
 }
 
 function canonicalOperation(operation: string): string {
-  if (!/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/u.test(operation)) {
+  if (typeof operation !== 'string' || !/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/u.test(operation)) {
     throw new ProjectWriteAuthorizationError(
       'invalid-operation',
       'Project write authorization operation must be one canonical semantic identity'
@@ -60,21 +63,14 @@ function canonicalOperation(operation: string): string {
 }
 
 function canonicalImpactPaths(impactPaths: readonly string[]): readonly string[] {
-  for (const impactPath of impactPaths) {
-    if (!isCanonicalPortableLogicalPath(impactPath)) {
-      throw new ProjectWriteAuthorizationError(
-        'invalid-path',
-        'Project write authorization contains a noncanonical impact path'
-      );
-    }
-  }
-  if (new Set(impactPaths).size !== impactPaths.length) {
+  try {
+    return captureProjectPathInventory(impactPaths, 'reject', 'Project write authorization scope');
+  } catch {
     throw new ProjectWriteAuthorizationError(
       'invalid-path',
-      'Project write authorization impact paths must be unique'
+      'Project write authorization needs unique canonical non-aliasing path data'
     );
   }
-  return Object.freeze(uniqueSorted(impactPaths));
 }
 
 /**
@@ -96,34 +92,40 @@ export async function withProjectWriteAuthorization<Result>(input: {
     );
   }
 
-  const workspaceRoot = canonicalWorkspaceRoot(input.workspaceRoot);
-  const operation = canonicalOperation(input.operation);
-  const impactPaths = canonicalImpactPaths(input.impactPaths);
-  await input.beforeCommit?.();
+  if (typeof execute !== 'function') throw new TypeError('Project write executor must be callable');
+  const cwd = process.cwd();
+  return authorizationContext.run(PREPARING_AUTHORIZATION, async () => {
+    const { workspaceRoot: requestedRoot, operation: requestedOperation, impactPaths: requestedPaths, beforeCommit } = input;
+    const workspaceRoot = path.resolve(cwd, requestedRoot);
+    const operation = canonicalOperation(requestedOperation);
+    const impactPaths = canonicalImpactPaths(requestedPaths);
+    if (beforeCommit !== undefined && typeof beforeCommit !== 'function') {
+      throw new TypeError('Project write admission fence must be callable');
+    }
+    if (beforeCommit !== undefined) await Reflect.apply(beforeCommit, input, []);
 
-  const authorization = Object.freeze({ [PROJECT_WRITE_AUTHORIZATION]: true as const });
-  const projection = Object.freeze({
-    operation,
-    scopeDigest: sha256({ operation, impactPaths }) as `sha256:${string}`,
-    impactPaths,
-    expires: 'callback-settlement' as const
+    const authorization = Object.freeze({ [PROJECT_WRITE_AUTHORIZATION]: true as const });
+    const payload: ProjectWriteAuthorizationPayload = {
+      workspaceRoot,
+      operation,
+      scopeDigest: sha256({ operation, impactPaths }) as `sha256:${string}`,
+      impactPaths,
+      expires: 'callback-settlement',
+      active: true
+    };
+    authorizationPayloads.set(authorization, payload);
+    try {
+      return await authorizationContext.run(authorization, () => execute(authorization));
+    } finally {
+      payload.active = false;
+    }
   });
-  const payload: ProjectWriteAuthorizationPayload = {
-    workspaceRoot,
-    ...projection,
-    active: true
-  };
-  authorizationPayloads.set(authorization, payload);
-
-  try {
-    return await authorizationContext.run(authorization, () => execute(authorization));
-  } finally {
-    payload.active = false;
-  }
 }
 
 export function currentProjectWriteAuthorization(): ProjectWriteAuthorization | null {
-  return authorizationContext.getStore() ?? null;
+  const authorization = authorizationContext.getStore();
+  return authorization !== undefined && authorization !== PREPARING_AUTHORIZATION
+    && authorizationPayloads.get(authorization)?.active === true ? authorization : null;
 }
 
 export function projectProjectWriteAuthorization(

@@ -52,7 +52,6 @@ import {
   observeWindowsAppContainerProbeReportForTests,
   windowsAppContainerProbeReportIsIsolatedForTests,
   type WindowsAppContainerNestedChildDiagnostic,
-  type WindowsAppContainerProbeCapability,
   type WindowsAppContainerProbeConformanceServerLease
 } from './probe-conformance.ts';
 

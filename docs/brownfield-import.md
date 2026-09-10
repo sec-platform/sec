@@ -82,6 +82,8 @@ flowchart TD
 
 同一 exact source snapshot 只编译一个 canonical Source Program。CLI、hook、workflow、test、Impact、Architecture 与 audit 只消费 bounded projections，不各自创建 AST、Language Service、resolver、path census、entrypoint list 或 cache。
 
+审计阻塞详情由既有 enforcement 所消费的同一 finding records 投影，绑定 source identity 与结果 digest；无需裁决的 topology edges、units 和 replacement graphs 保持 count/digest。详情选择属于唯一 audit operation 合同，并继续受原有输入、输出和执行预算约束；超限必须返回 typed failure，不能靠增大通用预算、第二 parser 或重复传递完整模型获得可达性。compact counts 不足以裁决具体整改，完整图也不能成为读取少量 blocking records 的必要前置。
+
 ~~~text
 SourceClosure =
   entrypoint
@@ -99,7 +101,7 @@ Compiler/provider 只发布其能证明的 language facts；SEC 组合唯一 rep
 
 观察世代、内容寻址 fact shard、跨进程复用、父资源账本、Windows retained capability
 以及 cold/warm/delta 的唯一实现合同由
-[实现架构的增量与共享事实章节](implementation-architecture/source-and-generation.md#78-增量共享事实与性能)
+[实现架构的 Source Observation 与增量章节](implementation-architecture/source-observation-and-incrementality.md)
 拥有；Brownfield 只负责签发其中可证明的 language facts 与 unknown frontier。所有
 typecheck、audit、test-impact、architecture 和 Agent 查询必须消费同一
 `SourceObservationGeneration`，各自只取得自己的只读 allocation；不得再建 receipt、

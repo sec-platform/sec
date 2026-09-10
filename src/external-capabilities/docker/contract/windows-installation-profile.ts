@@ -11,27 +11,21 @@ const knownFolder = z.enum([
   'profile',
   'program-data',
   'program-files',
-  'roaming-app-data'
+  'roaming-app-data',
+  'windows'
 ]);
 const retainedFolder = z.object({
   folder: knownFolder,
   childDescriptor
 }).strict();
 const profileSchema = z.object({
-  schema: z.literal('sec-docker-windows-installation-profile-v1'),
+  schema: z.literal('sec-docker-windows-installation-profile-v3'),
   platform: z.literal('win32'),
   installation: z.object({
     folder: z.literal('program-files'),
     directorySegments: z.array(segment).min(1).max(16),
     executableName: z.literal('docker.exe'),
     directoryChildDescriptor: childDescriptor,
-    desktopLauncher: z.object({
-      directorySegments: z.array(segment).min(1).max(16),
-      executableName: z.literal('Docker Desktop.exe'),
-      directoryChildDescriptor: childDescriptor,
-      executableChildDescriptor: childDescriptor,
-      workingDirectoryChildDescriptor: childDescriptor
-    }).strict(),
     cliPluginDirectorySegments: z.array(segment).min(1).max(16),
     cliPluginDirectoryChildDescriptor: childDescriptor,
     cliPlugins: z.array(z.object({
@@ -41,6 +35,14 @@ const profileSchema = z.object({
     }).strict()).length(2)
   }).strict(),
   environment: z.object({
+    windows: z.object({
+      folder: z.literal('windows'),
+      rootChildDescriptor: childDescriptor,
+      systemDirectorySegments: z.tuple([z.literal('System32')]),
+      systemDirectoryChildDescriptor: childDescriptor,
+      wslExecutableName: z.literal('wsl.exe'),
+      wslExecutableChildDescriptor: childDescriptor
+    }).strict(),
     profile: retainedFolder,
     localAppData: retainedFolder,
     roamingAppData: retainedFolder,
@@ -54,16 +56,16 @@ const profileSchema = z.object({
 }).strict().superRefine((value, context) => {
   const descriptors = [
     value.installation.directoryChildDescriptor,
-    value.installation.desktopLauncher.directoryChildDescriptor,
-    value.installation.desktopLauncher.executableChildDescriptor,
-    value.installation.desktopLauncher.workingDirectoryChildDescriptor,
     value.installation.cliPluginDirectoryChildDescriptor,
     ...value.installation.cliPlugins.map(({ childDescriptor: descriptor }) => descriptor),
     value.environment.profile.childDescriptor,
     value.environment.localAppData.childDescriptor,
     value.environment.roamingAppData.childDescriptor,
     value.environment.programData.childDescriptor,
-    value.environment.temp.childDescriptor
+    value.environment.temp.childDescriptor,
+    value.environment.windows.rootChildDescriptor,
+    value.environment.windows.systemDirectoryChildDescriptor,
+    value.environment.windows.wslExecutableChildDescriptor
   ];
   if (new Set(descriptors).size !== descriptors.length) {
     context.addIssue({

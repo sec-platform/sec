@@ -124,7 +124,6 @@ const RUNTIME_BUILTIN_MODULE = /^(?:node:|bun(?::|$))/u;
 export function isSourceProgramRuntimeBuiltinModuleSpecifier(specifier: string): boolean {
   return RUNTIME_BUILTIN_MODULE.test(specifier);
 }
-const VERSIONED_IDENTIFIER = /(?:_?V[1-9][0-9]*)$/u;
 const compiledTypeScriptModels = new WeakSet<object>();
 const factShardsByModel = new WeakMap<object, readonly TypeScriptSourceProgramFactShard[]>();
 const repositoryCompilationDigestByModel = new WeakMap<object, `sha256:${string}`>();
@@ -137,7 +136,9 @@ const typeScriptSourceProgramPerformance = {
   dependencyReferenceVisits: 0,
   rawSourceHashBytes: 0,
   rawSourceHashOperations: 0,
-  semanticScopeParseOperations: 0
+  semanticScopeParseOperations: 0,
+  semanticSymbolLookupOperations: 0,
+  semanticSymbolLookupSkippedIdentifiers: 0
 };
 
 export interface TypeScriptSourceProgramPerformanceObservation {
@@ -146,6 +147,8 @@ export interface TypeScriptSourceProgramPerformanceObservation {
   readonly rawSourceHashBytes: number;
   readonly rawSourceHashOperations: number;
   readonly semanticScopeParseOperations: number;
+  readonly semanticSymbolLookupOperations: number;
+  readonly semanticSymbolLookupSkippedIdentifiers: number;
 }
 
 /** Monotonic process-local diagnostics for focused performance tests only. */
@@ -1355,6 +1358,71 @@ export function sourceProgramTypeScriptSourceFile(
   return exactFactGenerationByModel.get(model)?.sourceFiles.get(repositoryPath) ?? null;
 }
 
+function exactGenerationIdentifier(
+  model: SourceProgramModel,
+  repositoryPath: string,
+  node: ts.Identifier,
+  expectedName: string
+): Readonly<{ generation: TypeScriptExactFactGenerationReceipt; sourceFile: ts.SourceFile }> | null {
+  const generation = exactFactGenerationByModel.get(model);
+  const sourceFile = generation?.sourceFiles.get(repositoryPath);
+  if (generation === undefined || sourceFile === undefined
+      || node.text !== expectedName || node.getSourceFile() !== sourceFile) return null;
+  return Object.freeze({ generation, sourceFile });
+}
+
+/** Resolve an intrinsic global through the retained exact Program generation. */
+export function sourceProgramTypeScriptIdentifierIsAmbientGlobal(
+  model: SourceProgramModel,
+  repositoryPath: string,
+  node: ts.Identifier,
+  expectedName: string
+): boolean {
+  const exact = exactGenerationIdentifier(model, repositoryPath, node, expectedName);
+  if (exact === null) return false;
+  const symbol = exact.generation.checker.getSymbolAtLocation(node);
+  const declarations = symbol?.declarations ?? [];
+  const repositorySourceFiles = new Set(exact.generation.sourceFiles.values());
+  return declarations.length > 0 && declarations.every((declaration) => {
+    const declarationFile = declaration.getSourceFile();
+    return declarationFile.isDeclarationFile && !repositorySourceFiles.has(declarationFile);
+  });
+}
+
+/** Resolve an imported call owner through the retained exact Program generation. */
+export function sourceProgramTypeScriptIdentifierResolvesToImport(
+  model: SourceProgramModel,
+  repositoryPath: string,
+  node: ts.Identifier,
+  moduleSpecifier: string,
+  expectedExportName: string
+): boolean {
+  const exact = exactGenerationIdentifier(model, repositoryPath, node, node.text);
+  if (exact === null) return false;
+  const symbol = exact.generation.checker.getSymbolAtLocation(node);
+  if (symbol === undefined || (symbol.flags & ts.SymbolFlags.Alias) === 0) return false;
+  return (symbol.declarations ?? []).some((declaration) => {
+    const importedExportName = ts.isImportSpecifier(declaration)
+      ? (declaration.propertyName ?? declaration.name).text
+      : ts.isNamespaceImport(declaration)
+        ? '*'
+        : ts.isImportClause(declaration) && declaration.name !== undefined
+          ? 'default'
+          : null;
+    if (importedExportName !== expectedExportName) return false;
+    let current: ts.Node | undefined = declaration;
+    while (current !== undefined && !ts.isSourceFile(current)) {
+      if (ts.isImportDeclaration(current)) {
+        return current.getSourceFile() === exact.sourceFile
+          && ts.isStringLiteralLike(current.moduleSpecifier)
+          && current.moduleSpecifier.text === moduleSpecifier;
+      }
+      current = current.parent;
+    }
+    return false;
+  });
+}
+
 /** Syntax validity is projected from the exact compiler generation; consumers do not reparse source. */
 export function observeSourceProgramTypeScriptSyntax(
   model: SourceProgramModel,
@@ -1708,6 +1776,14 @@ function unwrapReturnProvenanceExpression(expression: ts.Expression): ts.Express
   return current;
 }
 
+function isFailOnlyReturnProvenanceGuard(statement: ts.Statement): boolean {
+  if (!ts.isIfStatement(statement) || statement.elseStatement !== undefined) return false;
+  const branch = statement.thenStatement;
+  return ts.isThrowStatement(branch)
+    || (ts.isBlock(branch) && branch.statements.length === 1
+      && ts.isThrowStatement(branch.statements[0]!));
+}
+
 function compileSourceProgramReturnProvenance(input: Readonly<{
   checker: ts.TypeChecker;
   declaration: SourceProgramDeclaration;
@@ -1816,14 +1892,16 @@ function compileSourceProgramReturnProvenance(input: Readonly<{
   } else {
     const terminal = body.statements.at(-1);
     const prefix = body.statements.slice(0, -1);
-    const prefixIsConstOnly = prefix.every((statement) => (
-      ts.isVariableStatement(statement)
-      && (statement.declarationList.flags & ts.NodeFlags.Const) !== 0
-      && statement.declarationList.declarations.every((declaration) => (
-        ts.isIdentifier(declaration.name) && declaration.initializer !== undefined
-      ))
+    const prefixPreservesReturnProvenance = prefix.every((statement) => (
+      isFailOnlyReturnProvenanceGuard(statement)
+      || (ts.isVariableStatement(statement)
+        && (statement.declarationList.flags & ts.NodeFlags.Const) !== 0
+        && statement.declarationList.declarations.every((declaration) => (
+          ts.isIdentifier(declaration.name) && declaration.initializer !== undefined
+        )))
     ));
-    normalReturns = prefixIsConstOnly && terminal !== undefined && ts.isReturnStatement(terminal)
+    normalReturns = prefixPreservesReturnProvenance
+      && terminal !== undefined && ts.isReturnStatement(terminal)
       ? terminal.expression === undefined
         ? Object.freeze([LITERAL_RETURN_PROVENANCE])
         : expressionValues(terminal.expression)
@@ -2043,19 +2121,27 @@ function compileExactFactGenerationForCachedModel(
       const start = node.getStart(sourceFile, false);
       const expected = expectedByPathAndStart.get(`${sourcePath}\0${start}`) ?? [];
       for (const declaration of expected) {
+        // Aliased re-exports are declarations of the ExportSpecifier, while
+        // their stable public span is deliberately the exported name token.
+        // Rebind that token to its semantic declaration node without widening
+        // any other child token into a declaration candidate.
+        const declarationNode = node.parent !== undefined && ts.isExportSpecifier(node.parent)
+          && node.parent.name === node
+          ? node.parent
+          : node;
         const span = spanFor(sourceFile, node);
-        const name = declarationName(node) ?? (
-          ts.isExportSpecifier(node)
-            ? node.name.text
-            : sourceSurface === 'test' && ts.isFunctionLike(node)
+        const name = declarationName(declarationNode) ?? (
+          ts.isExportSpecifier(declarationNode)
+            ? declarationNode.name.text
+            : sourceSurface === 'test' && ts.isFunctionLike(declarationNode)
               ? executionScopeName(span)
               : null
         );
-        if (name !== declaration.name || ts.SyntaxKind[node.kind] !== declaration.kind) continue;
+        if (name !== declaration.name || ts.SyntaxKind[declarationNode.kind] !== declaration.kind) continue;
         const declarationDigest = sha256({
-          kind: ts.SyntaxKind[node.kind],
+          kind: ts.SyntaxKind[declarationNode.kind],
           name,
-          source: semanticDeclarationText(sourceFile, node)
+          source: semanticDeclarationText(sourceFile, declarationNode)
         });
         if (span.end !== declaration.span.end
             || declarationDigest !== declaration.declarationDigest
@@ -2065,8 +2151,8 @@ function compileExactFactGenerationForCachedModel(
         if (declarationNodeByObservationId.has(declaration.observationId)) {
           throw new Error(`Cached TypeScript declaration is ambiguous: ${declaration.observationId}`);
         }
-        declarationByNode.set(node, declaration);
-        declarationNodeByObservationId.set(declaration.observationId, node);
+        declarationByNode.set(declarationNode, declaration);
+        declarationNodeByObservationId.set(declaration.observationId, declarationNode);
       }
       ts.forEachChild(node, visit);
     };
@@ -2567,6 +2653,11 @@ function compileTypeScriptSourceProgramModelInternal(
   sourceProgramCompilationCheckpoint(input.operation, 'file-semantics', 'complete');
 
   sourceProgramCompilationCheckpoint(input.operation, 'declaration-index', 'start');
+  // A semantic reference can resolve only to an addressable declaration or
+  // through an import/re-export alias. Keep one conservative name superset so
+  // unrelated identifiers never force TypeChecker flow analysis merely to
+  // prove that their symbols cannot map into declarationByNode.
+  const semanticDeclarationCandidateNames = new Set<string>();
   for (const sourceFile of sourceFiles) {
     sourceProgramCompilationCheckpoint(input.operation, 'declaration-index');
     const sourcePath = semanticProgram.repositoryPath(sourceFile);
@@ -2576,6 +2667,21 @@ function compileTypeScriptSourceProgramModelInternal(
     const visit = (node: ts.Node): void => {
       if ((visitedDeclarationNodes++ & 1023) === 0) {
         sourceProgramCompilationCheckpoint(input.operation, 'declaration-index');
+      }
+      if (ts.isImportClause(node) && node.name !== undefined) {
+        semanticDeclarationCandidateNames.add(node.name.text);
+      } else if (ts.isImportSpecifier(node)) {
+        semanticDeclarationCandidateNames.add(node.name.text);
+        if (node.propertyName !== undefined) {
+          semanticDeclarationCandidateNames.add(node.propertyName.text);
+        }
+      } else if (ts.isNamespaceImport(node)) {
+        semanticDeclarationCandidateNames.add(node.name.text);
+      } else if (ts.isExportSpecifier(node)) {
+        semanticDeclarationCandidateNames.add(node.name.text);
+        if (node.propertyName !== undefined) {
+          semanticDeclarationCandidateNames.add(node.propertyName.text);
+        }
       }
       const declarationSpan = spanFor(sourceFile, node);
       const name = declarationName(node) ?? (
@@ -2621,6 +2727,7 @@ function compileTypeScriptSourceProgramModelInternal(
               ) ?? false),
           span
         });
+        semanticDeclarationCandidateNames.add(name);
         declarations.push(declaration);
         declarationByNode.set(node, declaration);
         declarationNodeByObservationId.set(declaration.observationId, node);
@@ -2657,6 +2764,7 @@ function compileTypeScriptSourceProgramModelInternal(
           exported: true,
           span
         });
+        semanticDeclarationCandidateNames.add(name);
         declarations.push(declaration);
         declarationByNode.set(element, declaration);
         declarationNodeByObservationId.set(declaration.observationId, element);
@@ -2666,7 +2774,21 @@ function compileTypeScriptSourceProgramModelInternal(
   sourceProgramCompilationCheckpoint(input.operation, 'declaration-index', 'complete');
 
   const declarationBySymbol = new Map<ts.Symbol, SourceProgramDeclaration | null>();
+  const declarationBySemanticNode = new WeakMap<ts.Node, SourceProgramDeclaration | null>();
   const semanticDeclarationAt = (node: ts.Node): SourceProgramDeclaration | null => {
+    const nodeCached = declarationBySemanticNode.get(node);
+    if (nodeCached !== undefined || declarationBySemanticNode.has(node)) return nodeCached ?? null;
+    const propertyAccessName = ts.isIdentifier(node)
+      && ts.isPropertyAccessExpression(node.parent)
+      && node.parent.name === node;
+    if (ts.isIdentifier(node)
+        && !propertyAccessName
+        && !semanticDeclarationCandidateNames.has(node.text)) {
+      typeScriptSourceProgramPerformance.semanticSymbolLookupSkippedIdentifiers += 1;
+      declarationBySemanticNode.set(node, null);
+      return null;
+    }
+    typeScriptSourceProgramPerformance.semanticSymbolLookupOperations += 1;
     let symbol = checker.getSymbolAtLocation(node);
     if (symbol === undefined
       && ts.isIdentifier(node)
@@ -2674,9 +2796,15 @@ function compileTypeScriptSourceProgramModelInternal(
       && node.parent.name === node) {
       symbol = checker.getTypeAtLocation(node.parent.expression).getProperty(node.text);
     }
-    if (symbol === undefined) return null;
+    if (symbol === undefined) {
+      declarationBySemanticNode.set(node, null);
+      return null;
+    }
     const cached = declarationBySymbol.get(symbol);
-    if (cached !== undefined || declarationBySymbol.has(symbol)) return cached ?? null;
+    if (cached !== undefined || declarationBySymbol.has(symbol)) {
+      declarationBySemanticNode.set(node, cached ?? null);
+      return cached ?? null;
+    }
     const unresolvedSymbol = symbol;
     if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
       symbol = checker.getAliasedSymbol(symbol);
@@ -2684,6 +2812,7 @@ function compileTypeScriptSourceProgramModelInternal(
     const resolvedCached = declarationBySymbol.get(symbol);
     if (resolvedCached !== undefined || declarationBySymbol.has(symbol)) {
       declarationBySymbol.set(unresolvedSymbol, resolvedCached ?? null);
+      declarationBySemanticNode.set(node, resolvedCached ?? null);
       return resolvedCached ?? null;
     }
     const candidates = new Map<string, SourceProgramDeclaration>();
@@ -2694,6 +2823,7 @@ function compileTypeScriptSourceProgramModelInternal(
     const declaration = candidates.size === 1 ? candidates.values().next().value ?? null : null;
     declarationBySymbol.set(symbol, declaration);
     declarationBySymbol.set(unresolvedSymbol, declaration);
+    declarationBySemanticNode.set(node, declaration);
     return declaration;
   };
 

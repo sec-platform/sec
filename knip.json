@@ -1,19 +1,58 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "entry": [
+    "src/brownfield/repository-audit/cli.ts!",
+    "src/brownfield/repository-audit/worker.ts!",
+    "src/brownfield/source-program-model/producer-closure.ts!",
     "src/compiler/orchestration/cli.ts!",
     "src/compiler/orchestration/semantic-mutation-isolated-verification-runner.ts!",
     "src/control/agent/operation-read-plan.ts!",
     "src/control/agent/skill-applicability.ts!",
     "src/control/agent/task-capsule-host.ts!",
-    "tests/unit/worktree-physical-closeout-crash-fixture.ts!"
+    "src/control/branch-lifecycle/closed-unmerged-closeout-cli.ts!",
+    "src/control/composition/trusted-runtime-closeout.ts!",
+    "src/control/continuation/local-continuation.ts!",
+    "src/control/documentation/doctor/cli.ts!",
+    "src/control/documentation/document-control-plane.ts!",
+    "src/control/documentation/migration-cli.ts!",
+    "src/control/work-selection/runtime.ts!",
+    "src/development/hooks/install.ts!",
+    "src/development/import-normalization/kernel.ts!",
+    "src/development/import-normalization/runtime.ts!",
+    "src/development/runner/cli.ts!",
+    "src/development/workspace-transition/operation.ts!",
+    "src/interface/cli/cli.ts!",
+    "src/reference/compile-workspace.ts!",
+    "src/reference/demo.ts!",
+    "src/release/build.ts!",
+    "src/toolchain/dependencies/runtime.ts!",
+    "src/toolchain/runtime/package-source-launcher.ts!",
+    "src/toolchain/typescript/canary.ts!",
+    "src/verification/ci/runtime/verification-session.ts!",
+    "tests/fixtures/typecheck-command-startup.ts",
+    "tests/helpers/fail-if-main-health-gh-runs.ts",
+    "tests/helpers/hook-runtime-runner.ts",
+    "tests/helpers/trusted-runtime-main-health-child.ts",
+    "tests/unit/worktree-physical-closeout-crash-fixture.ts"
   ],
   "project": [
-    "src/**/*.ts!",
-    "tests/**/*.ts!"
+    "src/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}!",
+    "!src/**/*{.test,.spec,_test,_spec}.{ts,tsx,mts,cts,js,jsx,mjs,cjs}!",
+    "!src/**/*.d.{ts,mts,cts}",
+    "tests/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}"
   ],
   "bun": {
-    "entry": ["src/**/*.{test,spec}.ts!", "tests/**/*.{test,spec}.ts!"]
+    "entry": [
+      "src/**/*{.test,.spec,_test,_spec}.{ts,tsx,mts,cts,js,jsx,mjs,cjs}",
+      "tests/**/*{.test,.spec,_test,_spec}.{ts,tsx,mts,cts,js,jsx,mjs,cjs}"
+    ]
   },
+  "ignoreFiles": [
+    "tests/**/*.typecheck.ts"
+  ],
+  "ignoreDependencies": [
+    "@typescript/native",
+    "jscpd"
+  ],
   "includeEntryExports": false
 }

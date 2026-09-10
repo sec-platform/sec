@@ -55,7 +55,8 @@ function readOverrideSource(
     throw new CompilerError(
       'OVERRIDE-APPLY-001',
       `Override "${entry.id}" source is not exact UTF-8`,
-      { cause: error instanceof Error ? error.message : String(error) }
+      {},
+      { cause: error }
     );
   }
   const targetPreimage = readOptionalRetainedOrdinaryFile(
@@ -96,36 +97,51 @@ function assertPreparedOverrideInputsCurrent(prepared: readonly PreparedOverride
   }
 }
 
+type OverrideRollbackFailure = Readonly<{ overrideId: string; targetPath: string; reason: unknown }>;
+
 async function rollbackPublishedOverrides(
   workspaceRoot: string,
   published: readonly PreparedOverride[]
-): Promise<void> {
-  for (const override of [...published].reverse()) {
+): Promise<readonly OverrideRollbackFailure[]> {
+  const failures: OverrideRollbackFailure[] = [];
+  // Every confirmed publication gets its compensation attempt. Conditional
+  // publishers still refuse a substituted target; one refusal must not strand
+  // other independent outputs or discard their failure evidence.
+  for (let index = published.length - 1; index >= 0; index -= 1) {
+    const override = published[index]!;
     const input = {
       workspaceRoot,
       targetPath: override.targetPath,
       expectedBytes: override.sourceBytes,
       label: `Override ${override.entry.id} rollback`
     };
-    if (override.targetPreimage === null) {
-      await deleteExpectedCanonicalWorkspaceFile({ ...input, bytes: override.sourceBytes });
-    } else {
-      await publishExpectedCanonicalWorkspaceFile({ ...input, bytes: override.targetPreimage });
+    try {
+      if (override.targetPreimage === null) {
+        await deleteExpectedCanonicalWorkspaceFile({ ...input, bytes: override.sourceBytes });
+      } else {
+        await publishExpectedCanonicalWorkspaceFile({ ...input, bytes: override.targetPreimage });
+      }
+    } catch (reason) {
+      failures.push(Object.freeze({ overrideId: override.entry.id, targetPath: override.targetPath, reason }));
     }
   }
+  return Object.freeze(failures);
 }
 
 export async function applyOverrides(
   workspaceRoot: string,
   commitFence?: CommitFence
 ): Promise<void> {
+  workspaceRoot = path.resolve(workspaceRoot);
+  if (commitFence !== undefined && typeof commitFence !== 'function') throw new TypeError('Override commit fence must be callable');
   const manifest = await loadOverrideManifest(workspaceRoot);
+  const entries = manifest.overrides.map(entry => Object.freeze({ ...entry }));
   const overrideManifestPath = await resolveOverrideManifestPath(workspaceRoot);
   const overrideRoot = path.dirname(overrideManifestPath);
 
   // Freeze every applicable source before the first project effect so the
   // batch is planned against one exact source/target preimage.
-  const prepared = manifest.overrides
+  const prepared = entries
     .map((entry) => readOverrideSource(overrideRoot, workspaceRoot, entry));
 
   await commitFence?.();
@@ -151,17 +167,23 @@ export async function applyOverrides(
       if (override.targetPreimage !== null
           && Buffer.from(override.targetPreimage).equals(Buffer.from(override.sourceBytes))) {
         await publicationFence();
+        const current = readOptionalRetainedOrdinaryFile(override.targetPath, `Override target ${override.entry.id} no-op readback`);
+        if (!sameOptionalBytes(current, override.sourceBytes)) {
+          throw new CompilerError('OVERRIDE-APPLY-001', `Override "${override.entry.id}" target changed before no-op completion`);
+        }
         continue;
       }
       if (override.targetPreimage === null) {
-        await publishExclusiveCanonicalWorkspaceFile({
+        const receipt = await publishExclusiveCanonicalWorkspaceFile({
           workspaceRoot,
           targetPath: override.targetPath,
           bytes: override.sourceBytes,
           label: `Override ${override.entry.id}`,
           commitFence: publicationFence
         });
-        published.push(override);
+        // Equal bytes may have been published by another actor after planning.
+        // Successful adoption does not authorize deletion of that actor's file.
+        if (receipt.created) published.push(override);
         continue;
       }
       await publishExpectedCanonicalWorkspaceFile({
@@ -175,20 +197,16 @@ export async function applyOverrides(
       published.push(override);
     }
   } catch (error) {
-    try {
-      // Forward authorization may remain failed after an interrupted batch.
-      // Compensation is instead bounded by the exact bytes and retained
-      // physical identity published by this operation; a substituted target
-      // becomes typed residue rather than being overwritten.
-      await rollbackPublishedOverrides(workspaceRoot, published);
-    } catch (rollbackError) {
+    // Failed publication itself may have an uncertain physical outcome. Only
+    // confirmed prior outputs are compensated; no force-write guesses ownership.
+    const failures = await rollbackPublishedOverrides(workspaceRoot, published);
+    if (failures.length > 0) {
       throw new CompilerError(
         'OVERRIDE-APPLY-002',
         'Override publication failed and exact rollback could not be proven',
-        {
-          publicationError: error instanceof Error ? error.message : String(error),
-          rollbackError: rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
-        }
+        { rollbackFailures: failures.map(({ overrideId, targetPath }) => ({ overrideId, targetPath })) },
+        { cause: new AggregateError([error, ...failures.map(({ reason }) => reason)],
+          'Override publication and compensation failures', { cause: error }) }
       );
     }
     throw error;

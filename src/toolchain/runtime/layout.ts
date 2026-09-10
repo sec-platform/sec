@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { SecError } from '../../system-architecture/foundation/contract/failure.ts';
+import { isCanonicalPortableLogicalPath } from '../../system-architecture/foundation/contract/logical-path.ts';
 
 export const SOURCE_RUNTIME_MODULE_RELATIVE_PATH = path.join(
   'src',
@@ -77,10 +78,7 @@ function entrypointRelativePath(value: unknown, field: string): string {
     return runtimeLayoutError(`SEC package ${field} must be one explicit package-relative path`);
   }
   const relativePath = value.slice(2).replaceAll('\\', '/');
-  if (relativePath.length === 0
-    || path.posix.normalize(relativePath) !== relativePath
-    || relativePath.startsWith('../')
-    || path.posix.isAbsolute(relativePath)) {
+  if (!isCanonicalPortableLogicalPath(relativePath)) {
     return runtimeLayoutError(`SEC package ${field} is not one canonical relative path`, { value });
   }
   return relativePath;

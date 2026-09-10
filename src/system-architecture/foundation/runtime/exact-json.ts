@@ -1,6 +1,13 @@
 import { SecError } from '../contract/failure.ts';
 import { isPlainObject } from './canonical.ts';
 
+// BufferSource instances can shadow these public properties. Resource
+// admission must read native view slots, not caller-selected accessors.
+const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
+const typedArrayByteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, 'byteLength')!.get!;
+const typedArrayByteOffset = Object.getOwnPropertyDescriptor(typedArrayPrototype, 'byteOffset')!.get!;
+const typedArrayBuffer = Object.getOwnPropertyDescriptor(typedArrayPrototype, 'buffer')!.get!;
+
 export type ExactJsonFailureKind =
   | 'depth-limit'
   | 'duplicate-key'
@@ -92,21 +99,26 @@ export function parseExactJson(
       return fail('invalid-json', `has an invalid object key at offset ${tokenOffset}`, error);
     }
   };
-  const readValue = (containerDepth: number): void => {
+  type ContainerFrame = {
+    readonly kind: 'object';
+    readonly keys: Set<string>;
+    state: 'first' | 'next' | 'after';
+  } | {
+    readonly kind: 'array';
+    state: 'first' | 'next' | 'after';
+  };
+  const frames: ContainerFrame[] = [];
+  const readValue = (): void => {
     skipWhitespace();
     const character = source[offset];
-    if (character === '{') {
-      if (maximumDepth !== undefined && containerDepth >= maximumDepth) {
+    if (character === '{' || character === '[') {
+      if (maximumDepth !== undefined && frames.length >= maximumDepth) {
         fail('depth-limit', `exceeds its maximum container depth of ${maximumDepth}`);
       }
-      readObject(containerDepth + 1);
-      return;
-    }
-    if (character === '[') {
-      if (maximumDepth !== undefined && containerDepth >= maximumDepth) {
-        fail('depth-limit', `exceeds its maximum container depth of ${maximumDepth}`);
-      }
-      readArray(containerDepth + 1);
+      offset += 1;
+      frames.push(character === '{'
+        ? { kind: 'object', keys: new Set<string>(), state: 'first' }
+        : { kind: 'array', state: 'first' });
       return;
     }
     if (character === '"') {
@@ -118,60 +130,50 @@ export function parseExactJson(
     while (offset < source.length && !/[\u0009\u000A\u000D\u0020,\]}]/u.test(source[offset]!)) offset += 1;
     if (start === offset) fail('invalid-json', `expected a value at offset ${offset}`);
   };
-  const readObject = (containerDepth: number): void => {
-    offset += 1;
+
+  // The owner chooses maximumDepth. A valid large bound must not turn into
+  // an unrelated JavaScript call-stack failure before that bound is reached.
+  readValue();
+  while (frames.length > 0) {
+    const frame = frames[frames.length - 1]!;
+    const end = frame.kind === 'object' ? '}' : ']';
     skipWhitespace();
-    const keys = new Set<string>();
-    if (source[offset] === '}') {
-      offset += 1;
-      return;
+    if (offset >= source.length && frame.state !== 'after') {
+      fail('invalid-json', `has an unterminated ${frame.kind}`);
     }
-    while (offset < source.length) {
+    if (frame.state === 'after') {
+      if (source[offset] === end) {
+        offset += 1;
+        frames.pop();
+        continue;
+      }
+      if (source[offset] !== ',') {
+        fail('invalid-json', `expected ',' or '${end}' at offset ${offset}`);
+      }
+      offset += 1;
       skipWhitespace();
+      if (source[offset] === end) fail('invalid-json', `contains a trailing comma at offset ${offset}`);
+      frame.state = 'next';
+      continue;
+    }
+    if (frame.state === 'first' && source[offset] === end) {
+      offset += 1;
+      frames.pop();
+      continue;
+    }
+    if (frame.kind === 'object') {
       const tokenOffset = offset;
       const token = readStringToken();
       const key = parseObjectKey(token, tokenOffset);
-      if (keys.has(key)) fail('duplicate-key', `contains duplicate key ${JSON.stringify(key)}`);
-      keys.add(key);
+      if (frame.keys.has(key)) fail('duplicate-key', `contains duplicate key ${JSON.stringify(key)}`);
+      frame.keys.add(key);
       skipWhitespace();
       if (source[offset] !== ':') fail('invalid-json', `expected ':' at offset ${offset}`);
       offset += 1;
-      readValue(containerDepth);
-      skipWhitespace();
-      if (source[offset] === '}') {
-        offset += 1;
-        return;
-      }
-      if (source[offset] !== ',') fail('invalid-json', `expected ',' or '}' at offset ${offset}`);
-      offset += 1;
-      skipWhitespace();
-      if (source[offset] === '}') fail('invalid-json', `contains a trailing comma at offset ${offset}`);
     }
-    fail('invalid-json', 'has an unterminated object');
-  };
-  const readArray = (containerDepth: number): void => {
-    offset += 1;
-    skipWhitespace();
-    if (source[offset] === ']') {
-      offset += 1;
-      return;
-    }
-    while (offset < source.length) {
-      readValue(containerDepth);
-      skipWhitespace();
-      if (source[offset] === ']') {
-        offset += 1;
-        return;
-      }
-      if (source[offset] !== ',') fail('invalid-json', `expected ',' or ']' at offset ${offset}`);
-      offset += 1;
-      skipWhitespace();
-      if (source[offset] === ']') fail('invalid-json', `contains a trailing comma at offset ${offset}`);
-    }
-    fail('invalid-json', 'has an unterminated array');
-  };
-
-  readValue(0);
+    frame.state = 'after';
+    readValue();
+  }
   skipWhitespace();
   if (offset !== source.length) fail('invalid-json', `contains trailing data at offset ${offset}`);
   let value: unknown;
@@ -216,19 +218,22 @@ export function parseExactJsonBytes(
   admission: ExactJsonBytesAdmission,
   contract?: ExactJsonContract
 ): unknown {
-  if (!(bytes instanceof Uint8Array)) {
+  if (!(bytes instanceof Uint8Array) || !ArrayBuffer.isView(bytes)) {
     throw new TypeError(`${label} bytes must be one Uint8Array`);
   }
-  if (!Number.isSafeInteger(admission.maximumInputBytes) || admission.maximumInputBytes <= 0) {
+  const maximumInputBytes = admission.maximumInputBytes;
+  if (!Number.isSafeInteger(maximumInputBytes) || maximumInputBytes <= 0) {
     throw new TypeError(`${label} maximumInputBytes must be one positive safe integer`);
   }
-  if (!Number.isSafeInteger(admission.maximumDepth) || admission.maximumDepth <= 0) {
+  const maximumDepth = admission.maximumDepth;
+  if (!Number.isSafeInteger(maximumDepth) || maximumDepth <= 0) {
     throw new TypeError(`${label} maximumDepth must be one positive safe integer`);
   }
-  if (bytes.byteLength > admission.maximumInputBytes) {
+  const byteLength: number = typedArrayByteLength.call(bytes);
+  if (byteLength > maximumInputBytes) {
     throw new ExactJsonError(
       'input-too-large',
-      `${label} exceeds its maximum input size of ${admission.maximumInputBytes} bytes`,
+      `${label} exceeds its maximum input size of ${maximumInputBytes} bytes`,
       0
     );
   }
@@ -236,7 +241,11 @@ export function parseExactJsonBytes(
   let source: string;
   try {
     // Preserve a leading BOM in the decoded source so JSON syntax rejects it.
-    source = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+    // Fix the admitted view length even for a growable backing buffer.
+    const admittedBytes = new Uint8Array(
+      typedArrayBuffer.call(bytes), typedArrayByteOffset.call(bytes), byteLength
+    );
+    source = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(admittedBytes);
   } catch (error) {
     throw new ExactJsonError(
       'invalid-utf8',
@@ -245,5 +254,5 @@ export function parseExactJsonBytes(
       { cause: error }
     );
   }
-  return parseExactJson(source, label, contract, admission.maximumDepth);
+  return parseExactJson(source, label, contract, maximumDepth);
 }

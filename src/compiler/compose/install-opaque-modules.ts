@@ -12,6 +12,7 @@ import { isYamlParseFailure, parseYamlValue } from '../../system-architecture/fo
 import { ensureDir, isFileNotFoundError, pathEntryExists, pathExists, writeJson, type CommitFence } from '../../workspace/files.ts';
 import { getWorkspacePaths } from '../../workspace/runtime/paths.ts';
 import { CompilerError } from '../errors.ts';
+import type { OpaqueModuleMaterializationMode } from './opaque-module-materialization.ts';
 
 const OPAQUE_MODULE_ID = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/u;
 const OPAQUE_SOURCE_INVENTORY_MAX_ENTRIES = 8192;
@@ -43,19 +44,10 @@ type OpaqueModuleTreeEntry = Readonly<{
   contentDigest: `sha256:${string}` | null;
 }>;
 
-export type InstallOpaqueModulesOptions = {
-  buildMode?: boolean;
+export type InstallOpaqueModulesOptions = Readonly<{
+  materializationMode: OpaqueModuleMaterializationMode;
   commitFence?: CommitFence;
-};
-
-function resolveBuildMode(options?: InstallOpaqueModulesOptions): boolean {
-  if (options?.buildMode !== undefined) return options.buildMode;
-  return (
-    process.env.NODE_ENV === 'production' ||
-    process.env.SEC_BUILD_MODE === 'true' ||
-    process.env.BUILD_MODE === 'true'
-  );
-}
+}>;
 
 function inventoryOpaqueModuleYamlPaths(opaqueRoot: string): string[] {
   const presence = inspectExactNoFollowDirectoryPresence(opaqueRoot, 'Opaque module root');
@@ -259,10 +251,10 @@ function generatedOpaqueModulePaths(
 
 export async function installOpaqueModules(
   workspaceRoot: string,
-  options?: InstallOpaqueModulesOptions,
+  options: InstallOpaqueModulesOptions
 ): Promise<string[]> {
   const paths = getWorkspacePaths(workspaceRoot);
-  const commitFence = options?.commitFence;
+  const commitFence = options.commitFence;
   const opaqueRoot = path.join(paths.srcRoot, 'opaque');
 
   const moduleEntries = loadOpaqueModuleEntries(opaqueRoot);
@@ -274,7 +266,7 @@ export async function installOpaqueModules(
 
   if (moduleEntries.length === 0) return [];
 
-  const isBuildMode = resolveBuildMode(options);
+  const isBuildMode = options.materializationMode === 'build-copy';
   // Dependency projection is one deterministic semantic write. Physical module
   // installation remains parallel but workers never share this mutable owner.
   projectOpaqueDependencies(moduleEntries, workspaceRoot, paths.srcRoot, isBuildMode, packageJson.dependencies);

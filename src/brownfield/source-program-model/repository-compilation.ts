@@ -1,4 +1,4 @@
-import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { deepFreeze, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import {
   resolveSourceProgramCompilationOperation,
   sourceProgramCompilationCheckpoint,
@@ -8,6 +8,11 @@ import {
   type SourceProgramCompilationPhaseEvent
 } from './compilation-operation.ts';
 import type { SourceProgramModel, SourceProgramUnknown } from './contract.ts';
+import {
+  captureRepositoryAnalysisPolicy,
+  repositoryAnalysisPolicyDigest,
+  type RepositoryAnalysisPolicy
+} from './repository-analysis-policy.ts';
 import type {
   RepositoryCompilationCacheDiagnostics,
   RepositoryCompilationCacheHint,
@@ -72,6 +77,8 @@ export interface RepositorySourceProgramCompilationReceipt {
   readonly moduleGraphDigest: `sha256:${string}`;
   readonly workspaceSnapshotIdentityDigest: `sha256:${string}`;
   readonly semanticSourceDigests: Readonly<Record<string, `sha256:${string}`>>;
+  /** Exact captured analysis input, separate from reusable TypeScript syntax facts. */
+  readonly analysisPolicy: RepositoryAnalysisPolicy;
   readonly projectGeneration: RepositoryCompilationGenerationReceipt;
   readonly cacheReceipt: RepositoryCompilationCacheReceipt | null;
   readonly moduleGraphCompilationCount: 1;
@@ -102,7 +109,8 @@ export function assertRepositorySourceProgramCompilationReceipt(
     throw new Error('Source Program placement requires one compiler-issued compilation receipt');
   }
   assertWorkspaceSourceSnapshot(receipt.workspaceSnapshot);
-  if (receipt.model.sourceRevision !== receipt.sourceRevision
+  if (repositoryAnalysisPolicyDigest(receipt.analysisPolicy) === null
+      || receipt.model.sourceRevision !== receipt.sourceRevision
       || receipt.workspaceSnapshot.identityDigest !== receipt.workspaceSnapshotIdentityDigest
       || receipt.workspaceSnapshot.snapshotDigest !== receipt.snapshotDigest
       || receipt.workspaceSnapshot.moduleGraphDigest !== receipt.moduleGraphDigest
@@ -137,22 +145,37 @@ function loadedTypeScriptState(
 }
 
 function compileRepositorySourceProgramCompilationCore(
-  input: CompileRepositorySourceProgramCompilationInput | CompileVirtualRepositorySourceProgramCompilationInput
+  input: CompileRepositorySourceProgramCompilationInput | CompileVirtualRepositorySourceProgramCompilationInput,
+  snapshotKind: 'physical' | 'virtual'
 ): RepositorySourceProgramCompilationReceipt {
-  const operation = resolveSourceProgramCompilationOperation(input.operation);
-  sourceProgramCompilationCheckpoint(operation, 'admission', 'start');
+  // Capture request data before checkpoints, cache callbacks or compiler
+  // observers can change it. Opaque snapshot/provider/operation identities are
+  // retained, not cloned; additional unknown observations are plain owned data.
   const workspaceSnapshot = input.workspaceSnapshot;
-  assertWorkspaceSourceSnapshot(workspaceSnapshot);
-  if (input.projectInput !== undefined) {
-    assertWorkspaceTypeScriptProjectInputMatchesSnapshot(input.projectInput, workspaceSnapshot);
+  if (snapshotKind === 'physical') {
+    assertPhysicalWorkspaceSourceSnapshot(workspaceSnapshot);
+  } else {
+    assertWorkspaceSourceSnapshot(workspaceSnapshot);
+    if (workspaceSnapshot.subject.kind !== 'virtual-mutation') {
+      throw new Error('Virtual Source Program compilation requires a virtual workspace snapshot');
+    }
+  }
+  const { projectInput, cacheProvider, repositoryRoot, reviewedProcessDispatchers,
+    unknowns: requestedUnknowns, operation: requestedOperation } = input;
+  const analysisPolicy = captureRepositoryAnalysisPolicy(reviewedProcessDispatchers);
+  const unknowns = requestedUnknowns === undefined ? undefined : deepFreeze(structuredClone(requestedUnknowns));
+  const operation = resolveSourceProgramCompilationOperation(requestedOperation);
+  sourceProgramCompilationCheckpoint(operation, 'admission', 'start');
+  if (projectInput !== undefined) {
+    assertWorkspaceTypeScriptProjectInputMatchesSnapshot(projectInput, workspaceSnapshot);
   }
   sourceProgramCompilationCheckpoint(operation, 'admission', 'complete');
   const compiler = sourceProgramTypeScriptCompilerIdentity();
   const projectGeneration = issueRepositoryCompilationGenerationReceipt({
-    projectInputDigest: input.projectInput?.projectInputDigest ?? null,
-    projectConfigDigest: input.projectInput?.projectConfigDigest ?? null,
+    projectInputDigest: projectInput?.projectInputDigest ?? null,
+    projectConfigDigest: projectInput?.projectConfigDigest ?? null,
     workspaceSnapshotIdentityDigest: workspaceSnapshot.identityDigest,
-    orderedSourceFactsDigest: input.projectInput?.orderedSourceFactsDigest
+    orderedSourceFactsDigest: projectInput?.orderedSourceFactsDigest
       ?? (sha256(workspaceSnapshot.files.map(({ path, contentDigest }) => ({ path, contentDigest }))) as `sha256:${string}`),
     snapshotDigest: workspaceSnapshot.snapshotDigest,
     moduleMembershipDigest: workspaceSnapshot.moduleMembershipDigest,
@@ -164,9 +187,9 @@ function compileRepositorySourceProgramCompilationCore(
   let loaded: RepositoryCompilationCacheLoad | null = null;
   let cacheReceipt: RepositoryCompilationCacheReceipt | null = null;
   sourceProgramCompilationCheckpoint(operation, 'cache-read', 'start');
-  if (input.cacheProvider !== undefined && input.projectInput !== undefined) {
+  if (cacheProvider !== undefined && projectInput !== undefined) {
     try {
-      cacheHint = input.cacheProvider.openContentAddressedHint(projectGeneration);
+      cacheHint = cacheProvider.openContentAddressedHint(projectGeneration);
       if (cacheHint.keyDigest !== projectGeneration.generationDigest) {
         throw new Error('Runtime Cache returned a foreign content-addressed hint');
       }
@@ -237,12 +260,30 @@ function compileRepositorySourceProgramCompilationCore(
     throw new Error('Repository compilation lacks one exact TypeScript API requirement closure');
   }
   const incrementalExactMs = performance.now() - incrementalExactStarted;
+  // TypeScript fact shards are already complete, generation-bound and
+  // validated here. Persist this consumer-independent acceleration hint before
+  // later TestObservation/Repository projections so their interruption cannot
+  // discard a finished compiler generation.
+  if (cacheHint !== null && exactLoaded?.status !== 'hit') {
+    sourceProgramCompilationCheckpoint(operation, 'cache-publish', 'start');
+    try {
+      const published = cacheHint.publish(typeScriptCompilation.state.factShards);
+      if (published.status === 'hit') {
+        assertExactRepositoryCompilationCacheLoad(published, projectGeneration);
+        cacheReceipt = published.cacheReceipt;
+      }
+    } catch {
+      // A failed cache publication cannot change the canonical compilation
+      // result. The next operation may rebuild or retire the disposable bytes.
+    }
+    sourceProgramCompilationCheckpoint(operation, 'cache-publish', 'complete');
+  }
   const testObservationInput = Object.freeze({
     productionModel: typeScriptCompilation.model,
     files: workspaceSnapshot.files,
     moduleMembership: workspaceSnapshot.moduleMembership,
     operation,
-    ...(input.repositoryRoot === undefined ? {} : { repositoryRoot: input.repositoryRoot })
+    ...(repositoryRoot === undefined ? {} : { repositoryRoot: repositoryRoot })
   });
   sourceProgramCompilationCheckpoint(operation, 'test-observations', 'start');
   const testObservationsStarted = performance.now();
@@ -258,30 +299,14 @@ function compileRepositorySourceProgramCompilationCore(
     moduleMembership: workspaceSnapshot.moduleMembership,
     typescriptModel: typeScriptCompilation.model,
     testObservations,
-    ...(input.reviewedProcessDispatchers === undefined
-      ? {}
-      : { reviewedProcessDispatchers: input.reviewedProcessDispatchers }),
-    ...(input.unknowns === undefined ? {} : { unknowns: input.unknowns })
+    reviewedProcessDispatchers: analysisPolicy.reviewedProcessDispatchers,
+    ...(unknowns === undefined ? {} : { unknowns })
   });
   sourceProgramCompilationCheckpoint(operation, 'repository-projection', 'start');
   const repositoryProjectionStarted = performance.now();
   const model = compileRepositorySourceProgramModelFromWorkspaceSnapshot(repositoryInput, workspaceSnapshot);
   const repositoryProjectionMs = performance.now() - repositoryProjectionStarted;
   sourceProgramCompilationCheckpoint(operation, 'repository-projection', 'complete');
-  if (cacheHint !== null && exactLoaded?.status !== 'hit') {
-    sourceProgramCompilationCheckpoint(operation, 'cache-publish', 'start');
-    try {
-      const published = cacheHint.publish(typeScriptCompilation.state.factShards);
-      if (published.status === 'hit') {
-        assertExactRepositoryCompilationCacheLoad(published, projectGeneration);
-        cacheReceipt = published.cacheReceipt;
-      }
-    } catch {
-      // A failed cache publication cannot change the canonical compilation
-      // result. The next operation may rebuild or retire the disposable bytes.
-    }
-    sourceProgramCompilationCheckpoint(operation, 'cache-publish', 'complete');
-  }
   sourceProgramCompilationCheckpoint(operation, 'settlement', 'start');
   const canonical = Object.freeze({
     schema: 'sec-repository-source-program-compilation-receipt-v1',
@@ -296,7 +321,8 @@ function compileRepositorySourceProgramCompilationCore(
     typeScriptModelDigest: typeScriptCompilation.model.modelDigest,
     typeScriptRequiredApiClosureDigest: typeScriptRequiredApiClosure.closureDigest,
     testObservationDigest: testObservations.observationDigest,
-    repositoryModelDigest: model.modelDigest
+    repositoryModelDigest: model.modelDigest,
+    analysisPolicyDigest: analysisPolicy.policyDigest
   });
   const receipt: RepositorySourceProgramCompilationReceipt = Object.freeze({
     subject: workspaceSnapshot.subject,
@@ -307,6 +333,7 @@ function compileRepositorySourceProgramCompilationCore(
     moduleGraphDigest: workspaceSnapshot.moduleGraphDigest,
     workspaceSnapshotIdentityDigest: workspaceSnapshot.identityDigest,
     semanticSourceDigests: typeScriptCompilation.state.semanticSourceDigests,
+    analysisPolicy,
     projectGeneration,
     cacheReceipt,
     moduleGraphCompilationCount: workspaceSnapshot.moduleGraphCompilationCount,
@@ -335,17 +362,12 @@ function compileRepositorySourceProgramCompilationCore(
 export function compileRepositorySourceProgramCompilation(
   input: CompileRepositorySourceProgramCompilationInput
 ): RepositorySourceProgramCompilationReceipt {
-  assertPhysicalWorkspaceSourceSnapshot(input.workspaceSnapshot);
-  return compileRepositorySourceProgramCompilationCore(input);
+  return compileRepositorySourceProgramCompilationCore(input, 'physical');
 }
 
 /** Pure/unbound compiler for virtual reductions and synthetic algorithm tests. */
 export function compileVirtualRepositorySourceProgramCompilation(
   input: CompileVirtualRepositorySourceProgramCompilationInput
 ): RepositorySourceProgramCompilationReceipt {
-  assertWorkspaceSourceSnapshot(input.workspaceSnapshot);
-  if (input.workspaceSnapshot.subject.kind !== 'virtual-mutation') {
-    throw new Error('Virtual Source Program compilation requires a virtual workspace snapshot');
-  }
-  return compileRepositorySourceProgramCompilationCore(input);
+  return compileRepositorySourceProgramCompilationCore(input, 'virtual');
 }

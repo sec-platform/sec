@@ -17,7 +17,6 @@ import {
   type ReleaseBuilderIdentity
 } from '../../src/release/release-source-materialization.ts';
 import { PACKAGE_SOURCE_LAUNCHER_SCRIPT } from '../../src/toolchain/runtime.ts';
-import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 
 const FIXTURE_ENTRYPOINT = Object.freeze({
   artifact: 'dist/index.js',

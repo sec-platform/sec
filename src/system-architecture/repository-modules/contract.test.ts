@@ -16,10 +16,6 @@ import {
   type SecModuleOperationRoleBinding
 } from './contract.ts';
 
-function productionGraphFiles(paths: readonly string[]) {
-  return paths.map((path) => ({ path, surface: 'production' as const }));
-}
-
 function repositoryModuleTestDescriptor(
   root: string
 ): ReturnType<typeof parseSecModuleDescriptor> {

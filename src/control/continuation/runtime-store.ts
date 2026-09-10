@@ -4,6 +4,9 @@ import {
   statSync
 } from 'node:fs';
 import path from 'node:path';
+import { decodeExactUtf8 } from '../../runtime-state/physical/runtime/retained-file-read.ts';
+import { parseExactJson } from '../../system-architecture/foundation/runtime/exact-json.ts';
+import { waitForHeavyVerificationGateLease, withAcquiredHeavyVerificationGateLease } from '../../verification/gate/state/heavy-lease-lifecycle.ts';
 
 import { deleteRetainedNoFollowEntry, inspectNoFollowDirectoryChild, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, replaceDurableCanonicalFile, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import type { SecRuntimeStateLayout } from '../../runtime-state/workspace-state/layout.ts';
@@ -38,6 +41,27 @@ interface WorkspaceRuntimeLocator {
   readonly repositoryKey: Digest;
   readonly workspaceKey: Digest;
   readonly locatorDigest: Digest;
+}
+
+interface ContinuationLocationInput {
+  readonly repositoryRoot: string;
+  readonly environment?: NodeJS.ProcessEnv;
+  readonly layout?: SecRuntimeStateLayout;
+}
+function captureContinuationLocation(input: ContinuationLocationInput & { readonly layout: SecRuntimeStateLayout }): Readonly<{
+  repositoryRoot: string; environment: NodeJS.ProcessEnv; layout: SecRuntimeStateLayout;
+}>;
+function captureContinuationLocation(input: ContinuationLocationInput): Readonly<{
+  repositoryRoot: string; environment: NodeJS.ProcessEnv; layout?: SecRuntimeStateLayout;
+}>;
+function captureContinuationLocation(input: ContinuationLocationInput) {
+  // Only this owner's location fields are captured. Do not enumerate unrelated
+  // checkpoint/GC inputs or retain process.env across authority acquisition.
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const environment = input.environment;
+  const layout = input.layout;
+  return Object.freeze({ repositoryRoot, environment: Object.freeze({ ...(environment ?? process.env) }),
+    ...(layout === undefined ? {} : { layout: Object.freeze({ ...layout }) }) });
 }
 
 function hash(value: unknown): Digest {
@@ -86,7 +110,7 @@ function createPointer(layout: SecRuntimeStateLayout, checkpointDigest: Digest):
 
 function parsePointerRecord(source: string): ActiveContinuationPointer {
   let value: unknown;
-  try { value = JSON.parse(source) as unknown; } catch (error) {
+  try { value = parseExactJson(source, 'SEC runtime continuation pointer'); } catch (error) {
     throw new Error('SEC runtime continuation pointer is invalid JSON.', { cause: error });
   }
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
@@ -195,21 +219,9 @@ async function acquireWorkspaceLocatorAuthority(input: Readonly<{
 
 async function acquireContinuationMutationLease(stateRoot: string) {
   const lockPath = path.join(continuationMutationLeaseRoot(stateRoot), 'continuation-v1');
-  const deadline = Date.now() + CONTINUATION_MUTATION_LEASE_WAIT_MS;
-  for (;;) {
-    try {
-      return await acquireHeavyVerificationGateLease({
-        gateId: 'runtime-state:continuation',
-        lockPath
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '';
-      if (Date.now() >= deadline || !/(already active|still initializing)/iu.test(message)) {
-        throw error;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
-  }
+  return waitForHeavyVerificationGateLease(() => acquireHeavyVerificationGateLease({
+    gateId: 'runtime-state:continuation', lockPath, waitTimeoutMs: 0
+  }), CONTINUATION_MUTATION_LEASE_WAIT_MS);
 }
 
 async function withContinuationMutationAuthority<T>(input: Readonly<{
@@ -219,18 +231,17 @@ async function withContinuationMutationAuthority<T>(input: Readonly<{
 }>, operation: (authority: SecRuntimeStatePhysicalAuthority) => T | Promise<T>): Promise<T> {
   const authority = await acquireContinuationAuthority(input);
   const lease = await acquireContinuationMutationLease(input.layout.stateRoot);
-  try {
+  return withAcquiredHeavyVerificationGateLease(lease, async () => {
+    await authority.assertCurrent();
     const result = await operation(authority);
     await authority.assertCurrent();
     return result;
-  } finally {
-    await lease.release();
-  }
+  });
 }
 
 function readText(parent: PhysicalDirectoryIdentity, filePath: string): string | null {
   const bytes = readNoFollowOrdinaryFile(parent, path.basename(filePath));
-  return bytes === null ? null : Buffer.from(bytes).toString('utf8');
+  return bytes === null ? null : decodeExactUtf8(bytes, 'SEC continuation state');
 }
 
 function deleteFileIfPresent(parent: PhysicalDirectoryIdentity, filePath: string): boolean {
@@ -269,7 +280,7 @@ function parseLocator(
   source: NodeJS.ProcessEnv
 ): WorkspaceRuntimeLocator {
   let value: unknown;
-  try { value = JSON.parse(sourceText) as unknown; } catch (error) {
+  try { value = parseExactJson(sourceText, 'SEC workspace runtime locator'); } catch (error) {
     throw new Error('SEC workspace runtime locator is invalid JSON.', { cause: error });
   }
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
@@ -306,20 +317,21 @@ export async function resolveSecRuntimeStateFromWorkspaceLocator(input: Readonly
   repositoryRoot: string;
   environment?: NodeJS.ProcessEnv;
 }>): Promise<Readonly<{ repository: string; layout: SecRuntimeStateLayout }> | null> {
-  const source = input.environment ?? process.env;
-  const filePath = locatorPath(input.repositoryRoot, source);
+  const location = captureContinuationLocation(input);
+  const source = location.environment ?? process.env;
+  const filePath = locatorPath(location.repositoryRoot, source);
   const authority = await acquireWorkspaceLocatorAuthority({
-    repositoryRoot: input.repositoryRoot,
+    repositoryRoot: location.repositoryRoot,
     environment: source
   });
   const locatorSource = readText(authority.directory(path.dirname(filePath)), filePath);
   if (locatorSource === null) return null;
-  const locator = parseLocator(locatorSource, input.repositoryRoot, source);
+  const locator = parseLocator(locatorSource, location.repositoryRoot, source);
   return Object.freeze({
     repository: locator.repository,
     layout: resolveSecRuntimeStateForRepository({
       repository: locator.repository,
-      repositoryRoot: input.repositoryRoot,
+      repositoryRoot: location.repositoryRoot,
       environment: source
     })
   });
@@ -331,16 +343,17 @@ export async function persistActiveContinuationCheckpoint(input: Readonly<{
   checkpoint: LocalContinuationCheckpoint;
   environment?: NodeJS.ProcessEnv;
 }>): Promise<ActiveContinuationPointer> {
+  const location = captureContinuationLocation(input);
   const checkpoint = parseLocalContinuationCheckpoint(encodeVerificationActionData(input.checkpoint));
   const canonical = `${encodeVerificationActionData(checkpoint)}\n`;
-  const objectPath = continuationObjectPath(input.layout, checkpoint.checkpointDigest);
-  const environment = input.environment ?? process.env;
+  const objectPath = continuationObjectPath(location.layout, checkpoint.checkpointDigest);
+  const environment = location.environment ?? process.env;
   return withContinuationMutationAuthority({
-    layout: input.layout,
-    repositoryRoot: input.repositoryRoot,
+    layout: location.layout,
+    repositoryRoot: location.repositoryRoot,
     environment
   }, (authority) => {
-    const objectParent = authority.directory(input.layout.continuationObjectRoot);
+    const objectParent = authority.directory(location.layout.continuationObjectRoot);
     const objectBytes = Buffer.from(canonical, 'utf8');
     try {
       publishExclusiveDurableCanonicalFile({
@@ -354,17 +367,17 @@ export async function persistActiveContinuationCheckpoint(input: Readonly<{
         cause: error
       });
     }
-    const pointer = createPointer(input.layout, checkpoint.checkpointDigest);
+    const pointer = createPointer(location.layout, checkpoint.checkpointDigest);
     writeAtomicDurable(
-      authority.directory(path.dirname(input.layout.continuationPointerPath)),
-      input.layout.continuationPointerPath,
+      authority.directory(path.dirname(location.layout.continuationPointerPath)),
+      location.layout.continuationPointerPath,
       `${encodeVerificationActionData(pointer)}\n`
     );
     persistLocator(
       authority,
-      input.layout,
+      location.layout,
       checkpoint.repository,
-      input.repositoryRoot,
+      location.repositoryRoot,
       environment
     );
     // The mutation lease makes pointer publication and GC linearizable. This
@@ -382,28 +395,30 @@ export async function loadActiveContinuationCheckpoint(input: Readonly<{
   repositoryRoot: string;
   environment?: NodeJS.ProcessEnv;
 }>): Promise<LocalContinuationCheckpoint | null> {
-  const environment = input.environment ?? process.env;
-  const authority = await acquireContinuationAuthority({
-    layout: input.layout,
-    repositoryRoot: input.repositoryRoot,
+  const location = captureContinuationLocation(input);
+  const environment = location.environment ?? process.env;
+  return withContinuationMutationAuthority({
+    layout: location.layout,
+    repositoryRoot: location.repositoryRoot,
     environment
+  }, (authority) => {
+    const pointerSource = readText(
+      authority.directory(path.dirname(location.layout.continuationPointerPath)),
+      location.layout.continuationPointerPath
+    );
+    if (pointerSource === null) return null;
+    const pointer = parsePointer(pointerSource, location.layout);
+    const objectPath = continuationObjectPath(location.layout, pointer.checkpointDigest);
+    const objectSource = readText(authority.directory(location.layout.continuationObjectRoot), objectPath);
+    if (objectSource === null) {
+      throw new Error('SEC runtime continuation pointer references a missing CAS object.');
+    }
+    const checkpoint = parseLocalContinuationCheckpoint(objectSource);
+    if (checkpoint.checkpointDigest !== pointer.checkpointDigest) {
+      throw new Error('SEC runtime continuation pointer/object digest mismatch.');
+    }
+    return checkpoint;
   });
-  const pointerSource = readText(
-    authority.directory(path.dirname(input.layout.continuationPointerPath)),
-    input.layout.continuationPointerPath
-  );
-  if (pointerSource === null) return null;
-  const pointer = parsePointer(pointerSource, input.layout);
-  const objectPath = continuationObjectPath(input.layout, pointer.checkpointDigest);
-  const objectSource = readText(authority.directory(input.layout.continuationObjectRoot), objectPath);
-  if (objectSource === null) {
-    throw new Error('SEC runtime continuation pointer references a missing CAS object.');
-  }
-  const checkpoint = parseLocalContinuationCheckpoint(objectSource);
-  if (checkpoint.checkpointDigest !== pointer.checkpointDigest) {
-    throw new Error('SEC runtime continuation pointer/object digest mismatch.');
-  }
-  return checkpoint;
 }
 
 export async function clearActiveContinuation(input: Readonly<{
@@ -411,17 +426,18 @@ export async function clearActiveContinuation(input: Readonly<{
   repositoryRoot: string;
   environment?: NodeJS.ProcessEnv;
 }>): Promise<void> {
-  const environment = input.environment ?? process.env;
+  const location = captureContinuationLocation(input);
+  const environment = location.environment ?? process.env;
   await withContinuationMutationAuthority({
-    layout: input.layout,
-    repositoryRoot: input.repositoryRoot,
+    layout: location.layout,
+    repositoryRoot: location.repositoryRoot,
     environment
   }, (authority) => {
     deleteFileIfPresent(
-      authority.directory(path.dirname(input.layout.continuationPointerPath)),
-      input.layout.continuationPointerPath
+      authority.directory(path.dirname(location.layout.continuationPointerPath)),
+      location.layout.continuationPointerPath
     );
-    const filePath = locatorPath(input.repositoryRoot, environment);
+    const filePath = locatorPath(location.repositoryRoot, environment);
     deleteFileIfPresent(authority.directory(path.dirname(filePath)), filePath);
   });
 }
@@ -449,7 +465,7 @@ function activeContinuationDigests(
         'active-continuation-v1.json'
       );
       if (pointerSource === null) continue;
-      const pointer = parsePointerRecord(Buffer.from(pointerSource).toString('utf8'));
+      const pointer = parsePointerRecord(decodeExactUtf8(pointerSource, 'SEC continuation pointer'));
       result.add(pointer.checkpointDigest.slice(7));
     } catch {
       // Corrupt active pointers retain all objects rather than causing unsafe GC.
@@ -466,51 +482,49 @@ export async function gcContinuationObjects(input: Readonly<{
   nowMs?: number;
   retentionMs?: number;
 }>): Promise<Readonly<{ scanned: number; removed: number; retained: number }>> {
+  const location = captureContinuationLocation(input);
   const nowMs = input.nowMs ?? Date.now();
   const retentionMs = input.retentionMs ?? DEFAULT_CONTINUATION_GC_RETENTION_MS;
   if (!Number.isFinite(nowMs) || !Number.isSafeInteger(retentionMs) || retentionMs < 0
       || retentionMs > 365 * 24 * 60 * 60 * 1000) {
     throw new Error('SEC runtime continuation GC timing input is invalid.');
   }
-  const environment = input.environment ?? process.env;
+  const environment = location.environment ?? process.env;
   return withContinuationMutationAuthority({
-    layout: input.layout,
-    repositoryRoot: input.repositoryRoot,
+    layout: location.layout,
+    repositoryRoot: location.repositoryRoot,
     environment
   }, (authority) => {
-    const objectRoot = authority.directory(input.layout.continuationObjectRoot);
-    const reachable = activeContinuationDigests(authority, input.layout.stateRoot);
+    const objectRoot = authority.directory(location.layout.continuationObjectRoot);
+    const reachable = activeContinuationDigests(authority, location.layout.stateRoot);
     let scanned = 0;
     let removed = 0;
     let retained = 0;
+    const candidates: Array<{ name: string; digest: string; age: number; device: string; inode: string }> = [];
     for (const directoryEntry of readdirSync(objectRoot.path, { withFileTypes: true })) {
       if (!directoryEntry.isFile() || !/^[0-9a-f]{64}\.json$/u.test(directoryEntry.name)) {
-        reachable.add('*');
-        continue;
+        reachable.add('*'); continue;
       }
       const entry = inspectNoFollowOrdinaryFileEntry(objectRoot, directoryEntry.name);
       if (entry === null) continue;
       scanned += 1;
-      const digest = directoryEntry.name.slice(0, 64);
-      const filePath = path.join(objectRoot.path, directoryEntry.name);
-      const age = Math.max(0, nowMs - statSync(filePath).mtimeMs);
-      const retainCurrent = reachable.has('*') || reachable.has(digest) || age < retentionMs;
-      if (retainCurrent) {
-        retained += 1;
-        continue;
+      if (entry.kind !== 'file') { reachable.add('*'); retained += 1; continue; }
+      const age = Math.max(0, nowMs - statSync(path.join(objectRoot.path, directoryEntry.name)).mtimeMs);
+      candidates.push({ name: directoryEntry.name, digest: directoryEntry.name.slice(0, 64), age,
+        device: entry.device, inode: entry.inode });
+    }
+    // An unknown entry or failed observation discovered late must veto every
+    // deletion, not only entries visited after it. No effects occur above.
+    for (const candidate of candidates) {
+      if (reachable.has('*') || reachable.has(candidate.digest) || candidate.age < retentionMs) {
+        retained += 1; continue;
       }
-      const current = inspectNoFollowOrdinaryFileEntry(objectRoot, directoryEntry.name);
-      if (current === null || current.device !== entry.device || current.inode !== entry.inode) {
+      const current = inspectNoFollowOrdinaryFileEntry(objectRoot, candidate.name);
+      if (current === null || current.kind !== 'file' || current.device !== candidate.device || current.inode !== candidate.inode) {
         throw new Error('SEC runtime continuation object changed during GC selection.');
       }
-      deleteRetainedNoFollowEntry({
-        root: objectRoot,
-        relativePath: current.relativePath,
-        kind: 'file',
-        device: current.device,
-        inode: current.inode,
-        ancestorDirectories: []
-      });
+      deleteRetainedNoFollowEntry({ root: objectRoot, relativePath: current.relativePath, kind: 'file',
+        device: current.device, inode: current.inode, ancestorDirectories: [] });
       removed += 1;
     }
     return Object.freeze({ scanned, removed, retained });

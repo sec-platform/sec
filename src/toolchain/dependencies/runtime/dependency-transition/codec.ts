@@ -6,7 +6,8 @@ import {
   SecError
 } from '../../../../system-architecture/foundation/contract/failure.ts';
 import {
-  canonicalJson
+  canonicalJson,
+  deepFreeze
 } from '../../../../system-architecture/foundation/runtime/canonical.ts';
 import {
   formatJsonFile
@@ -119,7 +120,7 @@ export function parseDependencyTransitionRecord(
       !isSha256Digest(record.previousRecordDigest) && record.previousRecordDigest !== null ||
       !Number.isSafeInteger(record.sequence) || record.sequence < 1 ||
       !isSha256Digest(record.operationKey) || typeof record.attemptNonce !== 'string' ||
-      record.attemptNonce.length === 0 || !(['compiler-generation', 'compiler-local-locator', 'compiler-locator', 'compiler-bridge', 'runtime-projection', 'project-projection'] as readonly string[]).includes(record.kind) ||
+      record.attemptNonce.length === 0 || !(['compiler-generation', 'compiler-local-locator', 'compiler-locator', 'compiler-bridge', 'project-runtime-bridge', 'runtime-projection', 'project-projection'] as readonly string[]).includes(record.kind) ||
       !isCanonicalAbsolutePath(record.ownerRoot) ||
       !isCanonicalGeneratedStatePhysicalIdentity(record.ownerRootPhysical) ||
       !isCanonicalDependencyTransitionSlot(record.destination) ||
@@ -157,6 +158,22 @@ export function parseDependencyTransitionRecord(
   )) {
     throw new SecError('RUNTIME-DEPS-002', 'Compiler bridge transition journal topology is noncanonical');
   }
+  if (record.kind === 'project-runtime-bridge' && (
+    record.preimage.kind !== 'absent' ||
+    record.stage !== null ||
+    record.stageRoot !== null ||
+    record.backup !== null ||
+    path.dirname(record.destination.path) !== record.ownerRoot ||
+    path.basename(record.destination.path) !== 'node_modules' ||
+    record.sourceGeneration.ownerRoot === record.ownerRoot ||
+    !isCanonicalDescendantPath(
+      record.sourceGeneration.ownerRoot,
+      record.sourceGeneration.sourcePath
+    ) ||
+    path.resolve(record.destination.path) === path.resolve(record.sourceGeneration.sourcePath)
+  )) {
+    throw new SecError('RUNTIME-DEPS-002', 'Project runtime bridge transition journal topology is noncanonical');
+  }
   if (expectedName !== undefined && expectedName !== transitionRecordName(record.recordDigest)) {
     throw new SecError('RUNTIME-DEPS-002', 'Dependency transition journal filename does not match its digest');
   }
@@ -167,7 +184,7 @@ export function parseDependencyTransitionRecord(
   if (formatJsonFile(canonicalJson(record)) !== Buffer.from(bytes).toString('utf8')) {
     throw new SecError('RUNTIME-DEPS-002', 'Dependency transition journal record bytes are not canonical');
   }
-  return Object.freeze(record);
+  return deepFreeze(record);
 }
 
 export function assertDependencyTransitionRecordBytes(bytes: Uint8Array): void {

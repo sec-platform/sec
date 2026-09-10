@@ -15,10 +15,11 @@ import {
 import {
   acquireExactGitTreeWorkspaceSourceSnapshot
 } from '../../brownfield/source-program-model/workspace-source-snapshot.ts';
-import { withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
+import { withAuthorityGitReadOperation, withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
 import { rawSha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { GIT_READ_OPERATION_BUDGET } from '../tooling/git/git-read.ts';
 import {
+  CANDIDATE_NORMALIZATION_DURATION_MS,
   compileCandidateNormalizationActionKey,
   compileCandidateNormalizationSubject,
   IMPORT_NORMALIZATION_OPERATION,
@@ -238,6 +239,39 @@ test('noncanonical candidate fails with a clean index', async () => {
   }
 });
 
+test('staged normalization shares the Source Program input boundary for template files', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'sec-import-normalization-template-'));
+  try {
+    git(root, ['init', '--quiet']);
+    git(root, ['config', 'user.email', 'tests@example.com']);
+    git(root, ['config', 'user.name', 'SEC Tests']);
+    const candidateBase = await commitFixture(root,
+      'export function normalize(): void {}\n', 'template-base');
+    const templatePath = 'catalog/registry/official/example/files/src/template.ts';
+    await mkdir(path.dirname(path.join(root, templatePath)), { recursive: true });
+    await writeFile(path.join(root, templatePath),
+      "import z from 'z';\nimport a from 'a';\nexport const template = [z, a];\n");
+    git(root, ['add', '--', templatePath]);
+    const before = git(root, ['write-tree']);
+    const { checkStagedCandidateImportNormalization } = await import('./runtime.ts');
+    const observe = () => withAuthorityGitReadSession({
+      cwd: root, budget: GIT_READ_OPERATION_BUDGET
+    }, session => checkStagedCandidateImportNormalization({ session, candidateBase }));
+    expect((await observe()).status).toBe('canonical');
+    expect(git(root, ['write-tree'])).toBe(before);
+
+    const sourcePath = 'src/development/import-normalization/kernel.ts';
+    await writeFile(path.join(root, sourcePath),
+      "import path from 'node:path';\nimport fs from 'node:fs';\nexport function normalize(): void { void fs; void path; }\n");
+    git(root, ['add', '--', sourcePath]);
+    const failure = await observe();
+    expect(failure.status).toBe('needs-import-transform');
+    expect(failure.files).toEqual([sourcePath]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('canonical immutable candidate receives an owner terminal', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-import-normalization-terminal-'));
   try {
@@ -345,16 +379,17 @@ test('staged candidate terminal issues an opaque normalization-only admission', 
     const baseCommit = await commitFixture(root, 'export function normalize(): void {}\n', 'staged-base');
     await writeFile(path.join(root, 'note.txt'), 'staged candidate\n');
     git(root, ['add', 'note.txt']);
-    await withAuthorityGitReadSession({
+    await withAuthorityGitReadOperation({
       cwd: root,
-      budget: GIT_READ_OPERATION_BUDGET
-    }, async (session) => {
+      budget: GIT_READ_OPERATION_BUDGET,
+      deadlineAtUnixMs: Date.now() + CANDIDATE_NORMALIZATION_DURATION_MS
+    }, async (gitOperation) => {
       const {
         requireCandidateNormalizationAdmissionReceipt,
         verifyStagedCandidateImportNormalization
       } = await import('./runtime.ts');
       const result = await verifyStagedCandidateImportNormalization({
-        session,
+        gitOperation,
         candidateBase: baseCommit
       });
       if (result.outcome.terminal === null) {

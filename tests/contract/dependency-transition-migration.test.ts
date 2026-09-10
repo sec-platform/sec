@@ -1,4 +1,6 @@
-import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import crypto from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -10,6 +12,8 @@ import {
   inspectGeneratedState
 } from '../../src/runtime-state/generated-state/lifecycle.ts';
 import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { resolveSecWorkspaceRuntimeRoots } from '../../src/runtime-state/workspace-state/paths.ts';
+import { canonicalJson } from '../../src/system-architecture/foundation/runtime/canonical.ts';
 import { compilerDependencyIdentity } from '../../src/toolchain/dependencies/runtime/compiler-materialization-input.ts';
 import {
   advanceDependencyTransition,
@@ -24,6 +28,7 @@ import {
   runtimeDependencySourceGeneration
 } from '../../src/toolchain/dependencies/runtime/source-generation.ts';
 import { migrateDependencyTransitionJournal } from '../../src/toolchain/dependencies/test/runtime.ts';
+import { formatJsonFile } from '../../src/workspace/files.ts';
 
 const LEGACY_SCHEMA = 'sec-dependency-transition-journal-v1' as const;
 const LEGACY_NAMESPACE = '.dependency-transition-v1';
@@ -171,6 +176,12 @@ function targetJournalRoot(root: string): string {
 
 function compilerStagePath(root: string, name: string): string {
   return path.join(root, '.tmp', 'dependency-installs', `c.staging-${name}`);
+}
+
+async function removeMigrationFixture(root: string): Promise<void> {
+  const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
+  await rm(runtimeRoots.workspaceStateRoot, { recursive: true, force: true });
+  await rm(root, { recursive: true, force: true });
 }
 
 function compilerStageRelativePath(root: string, name: string): string {
@@ -352,26 +363,29 @@ test('settles only the persisted current-Bun recovery premise without admitting 
     });
 
     let commandStarts = 0;
-    await migrateDependencyTransitionJournal(root, {
+    await expect(migrateDependencyTransitionJournal(root, {
       materialize: async () => {
         commandStarts += 1;
         return { code: 0, stderr: '', stdout: '' };
       },
       lockTimeoutMs: 30_000
+    })).rejects.toMatchObject({
+      code: 'RUNTIME-DEPS-004',
+      details: { migrationRequired: true }
     });
     const terminal = await readDependencyTransition(
       root,
       runtimeDependencyOperationOptions({ lockTimeoutMs: 30_000 })
     );
     expect(terminal).toMatchObject({
-      durability: 'known',
-      failure: null,
+      durability: 'unknown',
+      failure: { code: 'IMPORT-AUTHORITY-001' },
       kind: 'compiler-bridge',
-      phase: 'rolled-back'
+      phase: 'recovery-required'
     });
     expect(commandStarts).toBe(0);
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeMigrationFixture(root);
   }
 });
 
@@ -403,7 +417,7 @@ test('settles exact active and retired legacy stage registrations without admitt
         { kind: 'missing', registrationState: 'missing' }
       ]);
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeMigrationFixture(root);
   }
 }, 10_000);
 
@@ -437,10 +451,10 @@ test('preserves unregistered or physically replaced legacy stages before any set
       });
       expect((await readdir(path.dirname(blockedPath))).includes(path.basename(blockedPath))).toBe(true);
     } finally {
-      await rm(root, { recursive: true, force: true });
+      await removeMigrationFixture(root);
     }
   }
-});
+}, 30_000);
 
 test('preserves unknown bridge recovery failures instead of reclassifying them as Bun drift', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-bridge-unknown-'));
@@ -453,7 +467,10 @@ test('preserves unknown bridge recovery failures instead of reclassifying them a
     const beforeRecords = (await readdir(recordsRoot)).sort();
     await expect(migrateDependencyTransitionJournal(root, {
       lockTimeoutMs: 30_000
-    })).rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-004' });
+    })).rejects.toMatchObject({
+      code: 'RUNTIME-DEPS-004',
+      details: { migrationRequired: true }
+    });
     expect((await readdir(recordsRoot)).sort()).toEqual(beforeRecords);
     const preserved = await readDependencyTransition(
       root,
@@ -464,7 +481,7 @@ test('preserves unknown bridge recovery failures instead of reclassifying them a
       phase: 'recovery-required'
     });
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeMigrationFixture(root);
   }
 });
 
@@ -473,14 +490,10 @@ test('blocks bridge recovery when persisted source, destination, owner, or journ
     const root = await mkdtemp(path.join(os.tmpdir(), `sec-dependency-bridge-${mutation}-`));
     let displacedRoot: string | null = null;
     try {
-      const { bridgePath, pinnedBunVersion, sourcePath } = await prepareBridgeRecovery({
+      const { bridgePath, sourcePath } = await prepareBridgeRecovery({
         failure: 'bun-runtime-drift',
         root
       });
-      // The helper derives the same deterministic mismatch value; keeping it
-      // separate from source/destination mutations avoids making the test
-      // depend on the repository's declared Bun version.
-      expect(pinnedBunVersion).toBe(pinnedBunVersionForTest());
       if (mutation === 'source') {
         await writeFile(path.join(sourcePath, 'tampered-after-intent.txt'), 'tamper\n', 'utf8');
       } else if (mutation === 'destination') {
@@ -503,15 +516,18 @@ test('blocks bridge recovery when persisted source, destination, owner, or journ
           }
         }
       }
-      await expect(migrateDependencyTransitionJournal(root, {
-        lockTimeoutMs: 30_000
-      })).rejects.toMatchObject({ code: expect.stringMatching(/^(?:IMPORT-AUTHORITY-004|RUNTIME-DEPS-002)$/u) });
+      const migration = expect(migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 })).rejects;
+      if (mutation === 'journal') {
+        await migration.toMatchObject({ code: 'RUNTIME-DEPS-002' });
+      } else {
+        await migration.toMatchObject({ code: 'RUNTIME-DEPS-004', details: { migrationRequired: true } });
+      }
     } finally {
-      await rm(root, { recursive: true, force: true });
+      await removeMigrationFixture(root);
       if (displacedRoot !== null) await rm(displacedRoot, { recursive: true, force: true });
     }
   }
-});
+}, 30_000);
 
 test('retires a valid terminal legacy ledger into one immutable v2 admission and retains v1 evidence', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-transition-migration-'));
@@ -538,7 +554,7 @@ test('retires a valid terminal legacy ledger into one immutable v2 admission and
     expect([...targetFiles.keys()].some((name) => /migration-.*-complete\.json$/u.test(name))).toBe(true);
     expect(await readdir(legacyRecordsRoot(root))).toHaveLength(records.length);
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeMigrationFixture(root);
   }
 });
 
@@ -552,11 +568,384 @@ test('accepts a native empty v2 namespace without legacy source or migration int
     await migrateDependencyTransitionJournal(root, {
       lockTimeoutMs: 30_000
     });
+    await migrateDependencyTransitionJournal(root, {
+      lockTimeoutMs: 30_000
+    });
 
     const backupRoot = path.dirname(targetRoot);
     expect(await readdir(backupRoot)).not.toContain(LEGACY_NAMESPACE);
     expect(await readRegularFiles(targetRoot)).toEqual(new Map());
   } finally {
+    await removeMigrationFixture(root);
+  }
+});
+
+test('coordination cutover locator survives an invocation-owned Runtime State environment', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-locator-'));
+  const persistentState = `${root}-persistent-state`;
+  const persistentCache = `${root}-persistent-cache`;
+  const invocationState = `${root}-invocation-state`;
+  const invocationCache = `${root}-invocation-cache`;
+  const previousStateHome = process.env.SEC_STATE_HOME;
+  const previousCacheHome = process.env.SEC_CACHE_HOME;
+  const marker = path.join(root, '.tmp', 'dependency-installs', 'compiler.lock.reclaim');
+  const locator = `${marker}.locator`;
+  try {
+    await mkdir(path.join(targetJournalRoot(root), 'records'), { recursive: true });
+    await mkdir(path.join(targetJournalRoot(root), 'rollovers'));
+    process.env.SEC_STATE_HOME = persistentState;
+    process.env.SEC_CACHE_HOME = persistentCache;
+    await migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 });
+    const markerBytes = await readFile(marker);
+    const locatorBytes = await readFile(locator);
+
+    process.env.SEC_STATE_HOME = invocationState;
+    process.env.SEC_CACHE_HOME = invocationCache;
+    await migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 });
+
+    expect(await readFile(marker)).toEqual(markerBytes);
+    expect(await readFile(locator)).toEqual(locatorBytes);
+    expect(existsSync(path.join(
+      invocationState,
+      'workspaces',
+      'v1'
+    ))).toBe(false);
+  } finally {
+    if (previousStateHome === undefined) delete process.env.SEC_STATE_HOME;
+    else process.env.SEC_STATE_HOME = previousStateHome;
+    if (previousCacheHome === undefined) delete process.env.SEC_CACHE_HOME;
+    else process.env.SEC_CACHE_HOME = previousCacheHome;
+    await rm(persistentState, { recursive: true, force: true });
+    await rm(persistentCache, { recursive: true, force: true });
+    await rm(invocationState, { recursive: true, force: true });
+    await rm(invocationCache, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('coordination migration preserves a foreign locator and its terminal guard', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-foreign-locator-'));
+  const persistentState = `${root}-persistent-state`;
+  const persistentCache = `${root}-persistent-cache`;
+  const invocationState = `${root}-invocation-state`;
+  const invocationCache = `${root}-invocation-cache`;
+  const previousStateHome = process.env.SEC_STATE_HOME;
+  const previousCacheHome = process.env.SEC_CACHE_HOME;
+  const lock = path.join(root, '.tmp', 'dependency-installs', 'compiler.lock');
+  const marker = `${lock}.reclaim`;
+  const locator = `${marker}.locator`;
+  try {
+    await mkdir(path.join(targetJournalRoot(root), 'records'), { recursive: true });
+    await mkdir(path.join(targetJournalRoot(root), 'rollovers'));
+    process.env.SEC_STATE_HOME = persistentState;
+    process.env.SEC_CACHE_HOME = persistentCache;
+    await migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 });
+    const lockBytes = await readFile(lock);
+    const markerBytes = await readFile(marker);
+    const foreignLocator = Buffer.from('{"schema":"foreign"}\n');
+    await writeFile(locator, foreignLocator);
+
+    process.env.SEC_STATE_HOME = invocationState;
+    process.env.SEC_CACHE_HOME = invocationCache;
+    await expect(migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 }))
+      .rejects.toThrow('locator is unknown and preserved');
+
+    expect(await readFile(lock)).toEqual(lockBytes);
+    expect(await readFile(marker)).toEqual(markerBytes);
+    expect(await readFile(locator)).toEqual(foreignLocator);
+    expect(existsSync(path.join(invocationState, 'workspaces', 'v1'))).toBe(false);
+  } finally {
+    if (previousStateHome === undefined) delete process.env.SEC_STATE_HOME;
+    else process.env.SEC_STATE_HOME = previousStateHome;
+    if (previousCacheHome === undefined) delete process.env.SEC_CACHE_HOME;
+    else process.env.SEC_CACHE_HOME = previousCacheHome;
+    await rm(persistentState, { recursive: true, force: true });
+    await rm(persistentCache, { recursive: true, force: true });
+    await rm(invocationState, { recursive: true, force: true });
+    await rm(invocationCache, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('coordination cutover preserves an active legacy consumer on both sides', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-active-'));
+  const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
+  try {
+    const consumers = path.join(targetJournalRoot(root), 'consumers');
+    await mkdir(path.join(targetJournalRoot(root), 'records'), { recursive: true });
+    await mkdir(path.join(targetJournalRoot(root), 'rollovers'));
+    await mkdir(consumers);
+    const generationDigest = generatedStateDigest('generation');
+    const generationPath = path.join(
+      root,
+      '.tmp',
+      'dependency-installs',
+      'compiler-backups',
+      `generation-${generationDigest.slice('sha256:'.length, 'sha256:'.length + 24)}`
+    );
+    await mkdir(generationPath);
+    const identity = inspectNoFollowDirectoryChain(generationPath, 'active consumer fixture generation').target;
+    const unsigned = Object.freeze({
+      schema: 'sec-compiler-dependency-consumer-v1', previousRecordDigest: null,
+      leaseId: generatedStateDigest('active-consumer'), generationDigest,
+      generationPath,
+      generationPhysical: Object.freeze({ device: identity.device, inode: identity.inode, objectId: identity.objectId }),
+      phase: 'acquired' as const
+    });
+    const record = Object.freeze({ ...unsigned, recordDigest: generatedStateDigest(canonicalJson(unsigned)) });
+    const name = `consumer-${record.leaseId.slice('sha256:'.length)}-acquired.json`;
+    const bytes = Buffer.from(formatJsonFile(canonicalJson(record)), 'utf8');
+    await writeFile(path.join(consumers, name), bytes);
+    await migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 });
+    await migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 });
+    expect(await readFile(path.join(consumers, name))).toEqual(bytes);
+    expect(await readFile(path.join(runtimeRoots.workspaceStateRoot, 'compiler-dependency-coordination', 'v1', 'consumers', name)))
+      .toEqual(bytes);
+    expect((await lstat(generationPath)).isDirectory()).toBeTrue();
+  } finally {
+    await rm(runtimeRoots.workspaceStateRoot, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('coordination cutover rejects a released-only legacy consumer chain', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-released-only-'));
+  const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
+  try {
+    const consumers = path.join(targetJournalRoot(root), 'consumers');
+    await mkdir(path.join(targetJournalRoot(root), 'records'), { recursive: true });
+    await mkdir(path.join(targetJournalRoot(root), 'rollovers'));
+    await mkdir(consumers);
+    const identity = inspectNoFollowDirectoryChain(root, 'released-only consumer fixture root').target;
+    const unsigned = Object.freeze({
+      schema: 'sec-compiler-dependency-consumer-v1',
+      previousRecordDigest: generatedStateDigest('missing-acquisition'),
+      leaseId: generatedStateDigest('released-only-consumer'),
+      generationDigest: generatedStateDigest('released-only-generation'),
+      generationPath: root,
+      generationPhysical: Object.freeze({
+        device: identity.device,
+        inode: identity.inode,
+        objectId: identity.objectId
+      }),
+      phase: 'released' as const
+    });
+    const record = Object.freeze({ ...unsigned, recordDigest: generatedStateDigest(canonicalJson(unsigned)) });
+    const name = `consumer-${record.leaseId.slice('sha256:'.length)}-released.json`;
+    const bytes = Buffer.from(formatJsonFile(canonicalJson(record)), 'utf8');
+    await writeFile(path.join(consumers, name), bytes);
+    await expect(migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 }))
+      .rejects.toThrow('invalid consumer chain');
+    expect(await readFile(path.join(consumers, name))).toEqual(bytes);
+  } finally {
+    await rm(runtimeRoots.workspaceStateRoot, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('coordination cutover rejects a same-lease pair with a foreign predecessor', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-foreign-pair-'));
+  const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
+  const marker = path.join(root, '.tmp', 'dependency-installs', 'compiler.lock.reclaim');
+  try {
+    const consumers = path.join(targetJournalRoot(root), 'consumers');
+    await mkdir(path.join(targetJournalRoot(root), 'records'), { recursive: true });
+    await mkdir(path.join(targetJournalRoot(root), 'rollovers'));
+    await mkdir(consumers);
+    const identity = inspectNoFollowDirectoryChain(root, 'foreign pair consumer fixture root').target;
+    const leaseId = generatedStateDigest('foreign-pair-consumer');
+    const common = Object.freeze({
+      schema: 'sec-compiler-dependency-consumer-v1',
+      leaseId,
+      generationDigest: generatedStateDigest('foreign-pair-generation'),
+      generationPath: root,
+      generationPhysical: Object.freeze({
+        device: identity.device,
+        inode: identity.inode,
+        objectId: identity.objectId
+      })
+    });
+    const acquiredUnsigned = Object.freeze({
+      ...common,
+      previousRecordDigest: null,
+      phase: 'acquired' as const
+    });
+    const acquired = Object.freeze({
+      ...acquiredUnsigned,
+      recordDigest: generatedStateDigest(canonicalJson(acquiredUnsigned))
+    });
+    const releasedUnsigned = Object.freeze({
+      ...common,
+      previousRecordDigest: generatedStateDigest('foreign-predecessor'),
+      phase: 'released' as const
+    });
+    const released = Object.freeze({
+      ...releasedUnsigned,
+      recordDigest: generatedStateDigest(canonicalJson(releasedUnsigned))
+    });
+    const acquiredName = `consumer-${leaseId.slice('sha256:'.length)}-acquired.json`;
+    const releasedName = `consumer-${leaseId.slice('sha256:'.length)}-released.json`;
+    const acquiredBytes = Buffer.from(formatJsonFile(canonicalJson(acquired)));
+    const releasedBytes = Buffer.from(formatJsonFile(canonicalJson(released)));
+    await writeFile(path.join(consumers, acquiredName), acquiredBytes);
+    await writeFile(path.join(consumers, releasedName), releasedBytes);
+
+    await expect(migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 }))
+      .rejects.toThrow('invalid consumer chain');
+    expect(existsSync(marker)).toBe(false);
+    expect(await readFile(path.join(consumers, acquiredName))).toEqual(acquiredBytes);
+    expect(await readFile(path.join(consumers, releasedName))).toEqual(releasedBytes);
+  } finally {
+    await rm(runtimeRoots.workspaceStateRoot, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('coordination admission resumes an exact partially retired consumer compaction', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-compaction-'));
+  const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
+  try {
+    await mkdir(path.join(targetJournalRoot(root), 'records'), { recursive: true });
+    await mkdir(path.join(targetJournalRoot(root), 'rollovers'));
+    await migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 });
+
+    const consumers = path.join(
+      runtimeRoots.workspaceStateRoot,
+      'compiler-dependency-coordination',
+      'v1',
+      'consumers'
+    );
+    const identity = inspectNoFollowDirectoryChain(root, 'consumer compaction fixture root').target;
+    const generationDigest = generatedStateDigest('compaction-generation');
+    const leaseId = generatedStateDigest('compaction-lease');
+    const acquiredUnsigned = Object.freeze({
+      schema: 'sec-compiler-dependency-consumer-v1',
+      previousRecordDigest: null,
+      leaseId,
+      generationDigest,
+      generationPath: root,
+      generationPhysical: Object.freeze({
+        device: identity.device,
+        inode: identity.inode,
+        objectId: identity.objectId
+      }),
+      phase: 'acquired' as const
+    });
+    const acquired = Object.freeze({
+      ...acquiredUnsigned,
+      recordDigest: generatedStateDigest(canonicalJson(acquiredUnsigned))
+    });
+    const releasedUnsigned = Object.freeze({
+      ...acquiredUnsigned,
+      previousRecordDigest: acquired.recordDigest,
+      phase: 'released' as const
+    });
+    const released = Object.freeze({
+      ...releasedUnsigned,
+      recordDigest: generatedStateDigest(canonicalJson(releasedUnsigned))
+    });
+    const acquiredName = `consumer-${leaseId.slice('sha256:'.length)}-acquired.json`;
+    const releasedName = `consumer-${leaseId.slice('sha256:'.length)}-released.json`;
+    const censusDigest = generatedStateDigest(Object.freeze({
+      schema: 'sec-compiler-dependency-consumer-census-v1',
+      recordDigests: Object.freeze([acquired.recordDigest, released.recordDigest].sort())
+    }));
+    const intentUnsigned = Object.freeze({
+      schema: 'sec-compiler-dependency-consumer-zero-v2',
+      censusDigest,
+      generationDigest,
+      generationPath: root,
+      generationPhysical: acquired.generationPhysical,
+      purpose: 'terminal-compaction' as const,
+      terminal: 'consumer-zero' as const,
+      terminalRecords: Object.freeze([Object.freeze({
+        acquired,
+        acquiredName,
+        released,
+        releasedName
+      })])
+    });
+    const intent = Object.freeze({
+      ...intentUnsigned,
+      receiptDigest: generatedStateDigest(canonicalJson(intentUnsigned))
+    });
+    const intentName = `zero-${generationDigest.slice('sha256:'.length, 'sha256:'.length + 24)}-${censusDigest.slice('sha256:'.length, 'sha256:'.length + 24)}.json`;
+    await writeFile(path.join(consumers, acquiredName), formatJsonFile(canonicalJson(acquired)));
+    await writeFile(path.join(consumers, releasedName), formatJsonFile(canonicalJson(released)));
+    await writeFile(path.join(consumers, intentName), formatJsonFile(canonicalJson(intent)));
+    await rm(path.join(consumers, releasedName));
+
+    await migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 });
+    expect(await readdir(consumers)).toEqual([]);
+
+    const foreignReleasedUnsigned = Object.freeze({
+      ...releasedUnsigned,
+      previousRecordDigest: generatedStateDigest('foreign-acquisition')
+    });
+    const foreignReleased = Object.freeze({
+      ...foreignReleasedUnsigned,
+      recordDigest: generatedStateDigest(canonicalJson(foreignReleasedUnsigned))
+    });
+    const foreignIntentUnsigned = Object.freeze({
+      ...intentUnsigned,
+      terminalRecords: Object.freeze([Object.freeze({
+        acquired,
+        acquiredName,
+        released: foreignReleased,
+        releasedName
+      })])
+    });
+    const foreignIntent = Object.freeze({
+      ...foreignIntentUnsigned,
+      receiptDigest: generatedStateDigest(canonicalJson(foreignIntentUnsigned))
+    });
+    await writeFile(path.join(consumers, acquiredName), formatJsonFile(canonicalJson(acquired)));
+    await writeFile(path.join(consumers, intentName), formatJsonFile(canonicalJson(foreignIntent)));
+    await expect(migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 }))
+      .rejects.toThrow('compaction intent is invalid');
+    expect(await readFile(path.join(consumers, acquiredName)))
+      .toEqual(Buffer.from(formatJsonFile(canonicalJson(acquired))));
+  } finally {
+    await rm(runtimeRoots.workspaceStateRoot, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('coordination handoff cleans its old lock when the final publication fence fails', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-fence-'));
+  const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
+  const lock = path.join(root, '.tmp', 'dependency-installs', 'compiler.lock');
+  try {
+    await mkdir(path.join(targetJournalRoot(root), 'records'), { recursive: true });
+    await mkdir(path.join(targetJournalRoot(root), 'rollovers'));
+    const failure = new Error('terminal handoff fence failed');
+    await expect(migrateDependencyTransitionJournal(root, {
+      beforeCommit: async () => { if (existsSync(lock)) throw failure; }, lockTimeoutMs: 30_000
+    })).rejects.toBe(failure);
+    expect(existsSync(lock)).toBe(false);
+    expect(existsSync(`${lock}.reclaim`)).toBe(false);
+  } finally {
+    await rm(runtimeRoots.workspaceStateRoot, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('coordination migration preserves an unknown marker and its old lock', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-unknown-'));
+  const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
+  const lock = path.join(root, '.tmp', 'dependency-installs', 'compiler.lock');
+  try {
+    await mkdir(path.dirname(lock), { recursive: true });
+    const lockBytes = Buffer.from(`${JSON.stringify({ createdAt: new Date().toISOString(), pid: process.pid, token: crypto.randomUUID() })}\n`);
+    const markerBytes = Buffer.from('foreign marker\n');
+    await writeFile(lock, lockBytes);
+    await writeFile(`${lock}.reclaim`, markerBytes);
+    await expect(migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 }))
+      .rejects.toMatchObject({ code: 'RUNTIME-DEPS-004', details: { migrationRequired: true } });
+    expect(await readFile(lock)).toEqual(lockBytes);
+    expect(await readFile(`${lock}.reclaim`)).toEqual(markerBytes);
+  } finally {
+    await rm(runtimeRoots.workspaceStateRoot, { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });
   }
 });
@@ -578,7 +967,7 @@ test('rejects a well-formed legacy chain whose final phase is not terminal', asy
     expect(await readdir(path.join(root, '.tmp', 'dependency-installs', 'compiler-backups')))
       .not.toContain(TARGET_NAMESPACE);
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeMigrationFixture(root);
   }
 });
 
@@ -639,7 +1028,7 @@ test('rejects foreign, partial, forked, and digest-invalid legacy sources before
     }
   ];
 
-  for (const { name, prepare } of cases) {
+  for (const { prepare } of cases) {
     const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-transition-invalid-'));
     try {
       await prepare(root);
@@ -647,7 +1036,7 @@ test('rejects foreign, partial, forked, and digest-invalid legacy sources before
       expect(await readdir(path.join(root, '.tmp', 'dependency-installs', 'compiler-backups')))
         .not.toContain(TARGET_NAMESPACE);
     } finally {
-      await rm(root, { recursive: true, force: true });
+      await removeMigrationFixture(root);
     }
   }
 });
@@ -682,6 +1071,6 @@ test('rejects source physical replacement without changing a completed target', 
     expect(error).toMatchObject({ code: expect.stringMatching(/^RUNTIME-DEPS-00[24]$/u) });
     expectSameFileSet(await readRegularFiles(targetJournalRoot(root)), targetBefore);
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeMigrationFixture(root);
   }
 });

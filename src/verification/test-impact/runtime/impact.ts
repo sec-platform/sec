@@ -10,15 +10,23 @@ import {
 } from '../../../system-architecture/repository-modules/contract.ts';
 import { isSecRepositoryTestModulePath } from '../../../system-architecture/repository-modules/test-module-path.ts';
 import {
+  assertIssuedTestInventoryProjection,
   isFastTestFile,
-  isSlowTestFile
+  isSlowTestFile,
+  type IssuedTestInventoryProjection
 } from '../contract/budget.ts';
 import {
   classifyTestImpactSource,
+  isTypecheckOnlyTestPath,
   testImpactModuleIdsForSourceKind,
   type ResolvedTestOwnership,
   type TestImpactRiskPolicy
 } from '../contract/ownership.ts';
+import {
+  readIssuedAffectedTestImpactBinding,
+  type IssuedAffectedTestImpactSource
+} from './affected-source.ts';
+import type { CodexDevelopmentTestImpactTransitionObservation } from './transition.ts';
 
 export type TestImpactSelection = {
   fast: string[];
@@ -28,6 +36,7 @@ export type TestImpactSelection = {
 
 export type CodexDevelopmentTestImpactSourceProvider = Readonly<{
   projection: IssuedTestImpactProjection;
+  testInventory: IssuedTestInventoryProjection;
   activeDocumentationPaths: readonly string[];
 }>;
 export type RepositoryModuleGraph = SecRepositoryModuleGraph;
@@ -43,11 +52,15 @@ type ReverseImportMap = Readonly<{
 
 let providerReverseImportMapCache = new WeakMap<object, ReverseImportMap>();
 const issuedTestImpactProviders = new WeakSet<object>();
+const providerTransitions = new WeakMap<object, CodexDevelopmentTestImpactTransitionObservation>();
+const providerAffectedBindings = new WeakMap<object, NonNullable<ReturnType<typeof readIssuedAffectedTestImpactBinding>>>();
 type ProviderIndex = Readonly<{
   activeDocumentationPaths: ReadonlySet<string>;
+  gitHookEntrypointPaths: ReadonlySet<string>;
   moduleIds: ReadonlyMap<string, string | null>;
   candidateOwners: ReadonlyMap<string, string | null>;
   moduleGraphInputs: ReadonlySet<string>;
+  removedModuleOwners: ReadonlyMap<string, string>;
 }>;
 let providerIndexCache = new WeakMap<object, ProviderIndex>();
 
@@ -87,11 +100,31 @@ function providerIndex(provider: CodexDevelopmentTestImpactSourceProvider): Prov
   for (const [candidate, owners] of ownersByCandidate) {
     candidateOwners.set(candidate, owners.size === 1 ? [...owners][0]! : null);
   }
+  const transition = providerTransitions.get(provider);
+  const descriptorRootsChanged = providerAffectedBindings.get(provider)?.descriptorChangeRoots ?? [];
+  const removedPathSet = new Set(transition?.removedPathBlobs.map(({ path }) => path) ?? []);
+  const removedModuleOwners = new Map<string, string>();
+  for (const removedPath of removedPathSet) {
+    if (descriptorRootsChanged.some((root) => (
+      root === '' || removedPath === root || removedPath.startsWith(`${root}/`)
+    ))) continue;
+    const candidates = provider.projection.moduleOwners
+      .filter(({ root }) => removedPath === root || removedPath.startsWith(`${root}/`))
+      .sort((left, right) => right.root.length - left.root.length);
+    if (candidates.length > 0
+        && (candidates.length === 1 || candidates[0]!.root.length > candidates[1]!.root.length)) {
+      removedModuleOwners.set(removedPath, candidates[0]!.moduleId);
+    }
+  }
   const built: ProviderIndex = Object.freeze({
     activeDocumentationPaths: new Set(provider.activeDocumentationPaths),
+    gitHookEntrypointPaths: new Set(provider.projection.entrypoints
+      .filter(({ kind }) => kind === 'git-hook')
+      .map(({ path }) => path)),
     moduleIds,
     candidateOwners,
-    moduleGraphInputs
+    moduleGraphInputs,
+    removedModuleOwners
   });
   providerIndexCache.set(provider, built);
   return built;
@@ -102,7 +135,11 @@ function classifyProviderSource(
   provider: CodexDevelopmentTestImpactSourceProvider
 ) {
   const index = providerIndex(provider);
-  return classifyTestImpactSource(file, (candidate) => index.activeDocumentationPaths.has(candidate));
+  return classifyTestImpactSource(
+    file,
+    (candidate) => index.activeDocumentationPaths.has(candidate),
+    (candidate) => index.gitHookEntrypointPaths.has(candidate)
+  );
 }
 
 function moduleIdForPath(
@@ -113,7 +150,9 @@ function moduleIdForPath(
   const index = providerIndex(provider);
   const direct = index.moduleIds.get(repositoryPath) ?? null;
   if (direct !== null) return direct;
-  return index.candidateOwners.get(repositoryPath) ?? null;
+  return index.candidateOwners.get(repositoryPath)
+    ?? index.removedModuleOwners.get(repositoryPath)
+    ?? null;
 }
 
 function semanticModuleIdsForSource(
@@ -143,6 +182,8 @@ export function isTestImpactSourceFile(
   const normalized = normalizeRepoPath(file);
   if (isSecRepositoryTestModulePath(normalized)) return false;
   return isTestImpactModuleGraphInputFile(normalized, provider)
+    || buildReverseImportMap(provider).map.has(normalized)
+    || moduleIdForPath(normalized, provider) !== null
     || classifyProviderSource(normalized, provider) !== null;
 }
 
@@ -153,11 +194,46 @@ export function isTestImpactSourceFile(
 export function createRepositoryTestImpactSourceProvider(
   input: Readonly<{
     projection: IssuedTestImpactProjection;
+    testInventory: IssuedTestInventoryProjection;
     activeDocumentationPaths: readonly string[];
+    affectedSource?: IssuedAffectedTestImpactSource;
   }>
 ): CodexDevelopmentTestImpactSourceProvider {
-  const { projection } = input;
+  const {
+    projection,
+    testInventory,
+    affectedSource,
+    activeDocumentationPaths
+  } = input;
   assertIssuedTestImpactProjection(projection);
+  assertIssuedTestInventoryProjection(testInventory);
+  const inventoryTestFiles = new Set(testInventory.testFiles);
+  if (testInventory.workspaceSnapshotIdentityDigest !== projection.workspaceSnapshotIdentityDigest
+      || testInventory.snapshotDigest !== projection.snapshotDigest
+      || projection.testFiles.some((path) => (
+        isSecRepositoryTestModulePath(path) && !inventoryTestFiles.has(path)
+      ))) {
+    throw new SecError('TEST-IMPACT-001', 'Test inventory differs from its Source Program projection.', {
+      kind: 'test-inventory-mismatch'
+    });
+  }
+  if (Object.prototype.hasOwnProperty.call(input, 'transition')) {
+    throw new SecError(
+      'TEST-IMPACT-001',
+      'Test impact transition must come from an owner-issued Git/source composition',
+      { kind: 'transition-unissued' }
+    );
+  }
+  const affectedBinding = affectedSource === undefined
+    ? null
+    : readIssuedAffectedTestImpactBinding(affectedSource);
+  if (affectedSource !== undefined && affectedSource.projection !== projection) {
+    throw new SecError(
+      'TEST-IMPACT-001',
+      'Test impact transition differs from the Source Program projection source',
+      { kind: 'transition-source-mismatch' }
+    );
+  }
   const moduleFileSet = new Set(projection.moduleGraph.files);
   const missingTestPath = projection.testFiles.find((testFile) => !moduleFileSet.has(testFile));
   if (missingTestPath !== undefined) {
@@ -169,11 +245,16 @@ export function createRepositoryTestImpactSourceProvider(
   }
   const provider = Object.freeze({
     projection,
+    testInventory,
     activeDocumentationPaths: Object.freeze(uniqueSorted(
-      input.activeDocumentationPaths.map(normalizeRepoPath)
+      activeDocumentationPaths.map(normalizeRepoPath)
     ))
   });
   issuedTestImpactProviders.add(provider);
+  if (affectedBinding !== null) {
+    providerTransitions.set(provider, affectedBinding.transition);
+    providerAffectedBindings.set(provider, affectedBinding);
+  }
   return provider;
 }
 
@@ -211,6 +292,12 @@ function buildReverseImportMap(provider: CodexDevelopmentTestImpactSourceProvide
     if (reference.targetPath === null
         || reference.targetPath === reference.path) continue;
     addConsumer(map, reference.targetPath, reference.path);
+  }
+  for (const consumer of provider.projection.observedTestConsumers) {
+    if (consumer.targetPath !== consumer.testPath) {
+      addConsumer(map, consumer.targetPath, consumer.testPath);
+      addConsumer(structuralMap, consumer.targetPath, consumer.testPath);
+    }
   }
   for (const [key, references] of referencesByImport) {
     if (references.length > 0 && references.every((reference) => (
@@ -292,7 +379,9 @@ export function deriveTestsForSources(
   provider: CodexDevelopmentTestImpactSourceProvider
 ): string[] {
   const { declarationPaths, map, structuralMap } = buildReverseImportMap(provider);
-  const testFiles = new Set(provider.projection.testFiles.map(normalizeRepoPath));
+  const runnableTestFiles = new Set(provider.projection.testFiles
+    .map(normalizeRepoPath)
+    .filter((testPath) => isFastTestFile(testPath) || isSlowTestFile(testPath)));
   const matchedTests = new Set<string>();
   const visited = new Set<string>();
   const queue = files.map((file) => {
@@ -310,7 +399,7 @@ export function deriveTestsForSources(
       ? structuralMap.get(current.path) ?? []
       : map.get(current.path) ?? [];
     for (const consumer of consumers) {
-      if (testFiles.has(consumer)) matchedTests.add(consumer);
+      if (runnableTestFiles.has(consumer)) matchedTests.add(consumer);
       else if (!visited.has(consumer)) queue.push(Object.freeze({ path: consumer, structural: false }));
     }
   }
@@ -343,13 +432,18 @@ function selectionForSource(
   const cached = reverseGraph.selectionCache.get(normalizedFile);
   if (cached !== undefined) return cached;
   const graphTests = isTestImpactModuleGraphInputFile(normalizedFile, provider)
+      || reverseGraph.map.has(normalizedFile)
     ? deriveTestsForSources([normalizedFile], provider)
     : [];
   const sourceKind = classifyProviderSource(normalizedFile, provider);
   const semanticTests = sourceKind === 'active-documentation'
     ? []
     : deriveTestsForModuleIds(testImpactModuleIdsForSourceKind(sourceKind), provider);
-  const selected = uniqueSorted([...graphTests, ...semanticTests]);
+  const removedOwner = providerIndex(provider).removedModuleOwners.get(normalizedFile) ?? null;
+  const removedOwnerTests = removedOwner === null
+    ? []
+    : deriveTestsForModuleIds([removedOwner], provider);
+  const selected = uniqueSorted([...graphTests, ...semanticTests, ...removedOwnerTests]);
   const selection = {
     fast: selected.filter(isFastTestFile),
     slow: selected.filter(isSlowTestFile),
@@ -373,7 +467,7 @@ export function resolveTestImpactForFiles(
 ): ReadonlySet<string> {
   return new Set(files.filter((file) => (
     hasTestImpactForFile(file, provider)
-    || resolveTestImpactRiskPolicies([file]).length > 0
+    || resolveTestImpactRiskPolicies([file], provider).length > 0
   )));
 }
 
@@ -388,10 +482,32 @@ export function resolveTestOwnership(
   })));
 }
 
-export function resolveTestImpactRiskPolicies(files: readonly string[]): TestImpactRiskPolicy[] {
-  return files.some((file) => file.startsWith('tests/setup/'))
-    ? ['slow-risk-baseline']
-    : [];
+export function resolveTestImpactRiskPolicies(
+  files: readonly string[],
+  provider: CodexDevelopmentTestImpactSourceProvider
+): TestImpactRiskPolicy[] {
+  const index = providerIndex(provider);
+  const graph = readRepositoryModuleGraphV1(provider);
+  const reverseConsumers = buildReverseImportMap(provider).map;
+  const compilerTestInputs = new Set(provider.projection.testFiles);
+  return uniqueSorted([
+    ...(files.some((file) => file.startsWith('tests/setup/'))
+      ? ['slow-risk-baseline' as const]
+      : []),
+    ...(files.some((file) => {
+      const normalized = normalizeRepoPath(file);
+      const projected = provider.projection.files.find(({ path }) => path === normalized);
+      return isTypecheckOnlyTestPath(normalized)
+        && projected?.surface === 'test'
+        && compilerTestInputs.has(normalized)
+        && index.moduleGraphInputs.has(normalized)
+        && graph.directConsumers(normalized).length === 0
+        && (reverseConsumers.get(normalized)?.length ?? 0) === 0
+        && !provider.projection.entrypoints.some(({ path, targetPaths }) => (
+          path === normalized || targetPaths.includes(normalized)
+        ));
+    }) ? ['typecheck-only' as const] : [])
+  ]);
 }
 
 export function selectTestsForSources(

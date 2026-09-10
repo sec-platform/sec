@@ -32,6 +32,12 @@ function graphWithRevision(inputRevision: string, semanticRevision: string): Exp
   };
 }
 
+function expectInvalidSemanticViews(value: unknown): void {
+  expect(() => requireLockSemanticViews(buildReviewLock({
+    semanticViews: value as ReturnType<typeof buildSemanticViewFixture>
+  }))).toThrow('canonical runtime schema');
+}
+
 test('ReviewSummary preserves the complete canonical Fact identity set', () => {
   const view: SemanticView = {
     ...buildSemanticViewFixture().views[0]!,
@@ -77,35 +83,29 @@ test('canonical projection rejects missing and lowering-task-stale Lock revision
     buildReviewLock({ semanticViews: buildSemanticViewFixture() }),
     { nodes: [], edges: [], overlays: { provenance: [], coverage: { blocks: [] } } } as unknown as ExplainGraph
   )).toBe(false);
-  expect(() => requireLockSemanticViews(buildReviewLock({
-    semanticViews: {
-      ...buildSemanticViewFixture(),
-      views: [null]
-    } as unknown as ReturnType<typeof buildSemanticViewFixture>
-  }))).toThrow('malformed semantic view');
-  expect(() => requireLockSemanticViews(buildReviewLock({
-    semanticViews: {
-      ...buildSemanticViewFixture(),
-      views: [{ formatVersion: '1', viewKind: 'architecture' }]
-    } as unknown as ReturnType<typeof buildSemanticViewFixture>
-  }))).toThrow('nodes must be an array');
-  expect(() => requireLockSemanticViews(buildReviewLock({
-    semanticViews: {
-      ...buildSemanticViewFixture(),
-      views: [{
-        ...buildSemanticViewFixture().views[0]!,
-        edges: [{
-          id: 'edge:invalid',
-          source: 'app:fixture',
-          target: 'app:target',
-          value: 'also-a-value',
-          relation: 'CONTAINS',
-          label: 'invalid',
-          references: []
-        }]
+  expectInvalidSemanticViews({
+    ...buildSemanticViewFixture(),
+    views: [null]
+  });
+  expectInvalidSemanticViews({
+    ...buildSemanticViewFixture(),
+    views: [{ formatVersion: '1', viewKind: 'architecture' }]
+  });
+  expectInvalidSemanticViews({
+    ...buildSemanticViewFixture(),
+    views: [{
+      ...buildSemanticViewFixture().views[0]!,
+      edges: [{
+        id: 'edge:invalid',
+        source: 'app:fixture',
+        target: 'app:target',
+        value: 'also-a-value',
+        relation: 'CONTAINS',
+        label: 'invalid',
+        references: []
       }]
-    }
-  }))).toThrow('malformed edge');
+    }]
+  });
 
   const semanticViews = buildSemanticViewFixture('sha256:input-a', 'sha256:semantic-a');
   const lock = buildReviewLock({
@@ -141,6 +141,79 @@ test('canonical projection rejects missing and lowering-task-stale Lock revision
   });
 
   expect(() => requireLockSemanticViews(lock)).toThrow('does not match SemanticViewSet');
+});
+
+test('all in-memory SemanticViewSet consumers enforce the exact Lock schema', () => {
+  const base = buildSemanticViewFixture();
+  const architecture = base.views[0]!;
+  const canonicalNode = {
+    id: 'app:fixture',
+    entityId: 'app:fixture',
+    entityKind: 'app',
+    label: 'fixture',
+    badges: [],
+    references: []
+  };
+
+  expectInvalidSemanticViews({
+    ...base,
+    views: [{ ...architecture, nodes: [{ ...canonicalNode, entityId: undefined }] }]
+  });
+  expectInvalidSemanticViews({
+    ...base,
+    views: [{ ...architecture, nodes: [{ ...canonicalNode, entityKind: 'unknown-kind' }] }]
+  });
+  expectInvalidSemanticViews({
+    ...base,
+    views: [{
+      ...architecture,
+      nodes: [{
+        ...canonicalNode,
+        references: [{ kind: 'unknown-reference', ref: 'fact:fixture' }]
+      }]
+    }]
+  });
+  expectInvalidSemanticViews({
+    ...base,
+    views: [{
+      ...architecture,
+      nodes: [canonicalNode],
+      edges: [{
+        id: 'edge:invalid-relation',
+        source: canonicalNode.id,
+        target: canonicalNode.id,
+        relation: 'UNKNOWN_RELATION',
+        label: 'invalid',
+        references: []
+      }]
+    }]
+  });
+  expectInvalidSemanticViews({
+    ...base,
+    views: [architecture, structuredClone(architecture)]
+  });
+  expectInvalidSemanticViews({
+    ...base,
+    views: [{
+      ...architecture,
+      overlays: [{
+        kind: 'provenance-authority',
+        entries: [{
+          targetId: canonicalNode.id,
+          factIds: [],
+          status: 'unknown-status',
+          authorities: ['authoritative'],
+          hasInferred: false,
+          hasConflict: false,
+          confidence: { min: 1, max: 1 },
+          provenanceKinds: ['contract'],
+          evidenceRefs: []
+        }]
+      }]
+    }]
+  });
+
+  expect(requireLockSemanticViews(buildReviewLock({ semanticViews: base }))).toEqual(base);
 });
 
 test('A to B semantic refresh blocks stale machine projection publication', async () => {

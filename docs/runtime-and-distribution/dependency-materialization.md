@@ -173,6 +173,10 @@ consumer只获得opaque retained generation或projection receipt，不获得“�
 
 consumer同时声明`ConsumerAccessContract = direct-read | immutable-locator | copy-on-write-projection | isolated-materialization`及write/relocatability要求。包含absolute path、consumer-specific native output或会写dependency tree的工具不能绑定read-only shared projection；Implementation Resolution必须选择隔离projection/materialization或typed unavailable，不能让consumer修改immutable generation。
 
+只在一次 callback 内消费依赖的 runtime verification 使用临时 consumer projection，retained source generation 必须覆盖 locator 发布、真实进程执行、最终 readback 与退休；不能在准备 projection 后释放 generation，再把裸路径交给 consumer。该 projection 的 journal、互斥与恢复归 consumer workspace。generation 的 read-only access 允许在仓库外、由 Runtime State 物理 workspace identity 定位的唯一 coordination owner 中取得和释放 durable consumer hold；它不得触发 compiler 安装、publisher recovery、source transition 写入或 GC。publisher 与 consumer admission 必须共享同一 coordination mutex，GC 必须消费同一 durable hold set；目录句柄和事后 drift 检查不能替代 pathname consumer 的跨进程存活保证。持久 project projection 仍由其原有 lifecycle 拥有；旧 nonterminal bridge、旧 coordination state 与 foreign locator 不能由 normal reader 迁移或收养。coordination cutover 必须由显式维护操作持有旧 writer 互斥、完成精确状态复制与新 owner readback，并持久隔离旧 writer 后才能交接。旧 acquired-only hold 可以原样迁移并继续阻止 GC；旧 source records 保留，不得伪造 released/zero、推断进程死亡或要求未知 hold 先变成 terminal 才允许迁移。released-only、foreign 或不一致的链仍拒绝。不能仅改锁路径就声称旧版本 writer 已被隔离。
+
+coordination 的 source locator 属于同一次 cutover，必须绑定原 guard、旧锁与 Runtime State 目录的物理身份；consumer invocation 的环境变量不得重新选择 source coordination。跨宿主命名空间使用既有 physical owner 保留的实际路径并重新验证目录身份，不搜索默认目录或猜测替代路径。已有 guard 的定位扩展只由显式维护发布，旧 writer fence 始终保留；普通 reader 缺少有效 locator 时返回 typed unavailable，不补写、不重放迁移。不可达、foreign 或不完整的定位信息必须保全，不能据此收养另一套状态。
+
 ### 13.3 Store 与 capability 分工
 
 | Concern | Store / capability | 可删除条件 | 不能承担 |

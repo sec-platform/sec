@@ -244,11 +244,21 @@ stateDiagram-v2
   Compensation --> Verify
   ForwardRecovery --> Verify
   RestoreBackup --> Verify
+  TransactionRollback --> RecoveryRequired: recovery fence or restore fails
   Verify --> Complete: target and residue readback
   Verify --> RecoveryRequired: incomplete / unknown
+  RecoveryRequired --> OperatorRequired: no issued recovery authority
 ```
 
 Artifact rollback 从 accepted canonical revision + validated Binding 重新生成；旧 output copy 不是 authority。Compensation 改变当前状态但不改写历史。越过 irreversible point 后只允许 forward recovery/operator path。
+
+恢复 fence 失效必须阻止无权限的恢复写入，同时保留原始 apply failure 与 fence/recovery failure。terminal、diagnostics、provenance 或 cleanup 的二次失败不能覆盖原始失败，也不能被忽略为发布或清理成功。只有 apply 已安全完成或 rollback 已完整验证后，备份才具备清理前提；`recovery-required` 时保留仍可能用于恢复的备份，不能在无条件 `finally` 中删除。备份路径只是 locator；缺少 retained identity、durable recovery owner 或 adoption authority 时保持 operator-required，不得从路径或错误详情自行签发恢复权限。
+
+Workspace upgrade 的备份与恢复消费同一 ordinary-tree preimage。排除项只作用于 workspace 直接子项；嵌套同名目录仍属于 preimage。既有 physical owner 负责 no-follow census、retained copy、精确内容 readback 和 identity-bound retirement；upgrade owner 只编排这些能力，并在复制前拒绝不支持的 entry、超出资源上限或无法证明的 source generation。备份物理 inventory 绑定原对象身份，恢复内容 projection 绑定路径、普通文件字节与目录结构，二者用途不能互换。snapshot 与 restore 各在 admission 固定独立有限 deadline，内部多个 copy 不重置窗口；扫描次数只能按实际操作推导，不能扩大已准入的内容规模。备份完成后重新验证 source，恢复后与同一 preimage 比较，均不能用 copy Promise 已完成代替。
+
+Linux upgrade preimage 同时绑定普通文件与目录的 permission mode，包括可执行位；权限来自 retained source handle，不能由 caller 数字签发。特殊权限位还要求 source/target UID、GID 的物理等价，不能用同一 mode 数字替代 principal identity，也不自动执行 chown。只读目录的退役仍属于既有 exact-tree retirement：权限调整只能作用于已准入的 retained directory identity，并在失败时保留原权限或显式报告恢复失败。该能力必须显式选择，不能改变其他 physical copy 或 sealed generation 的安全默认。Windows 的此字段为 null，不签发 POSIX mode、ACL、alternate data stream 或其他未捕获 metadata 的恢复声明；跨进程 restart adoption 仍需要独立 durable recovery owner。
+
+Applied terminal 的 durable publication 是提交边界。发布抛错不等于没有 Effect：canonical leaf 的 retained readback 与预期字节完全相同说明结果已可见，禁止相反回滚，但字节观察不能补齐缺失的 durability evidence 或允许备份退役。已证明 absent 且 publication owner 证明失败发生在 Effect 前才允许原事务回滚；调用方不能根据 fence 调用次数或异常类型猜测阶段，重复使用异常对象也不能把 effect-possible 降级。foreign、unreadable 或无法判定则保留当前 workspace 与备份进入 recovery-required。已提交后的 provenance 或 cleanup 失败只报告 post-commit failure，不能回滚 workspace 或以相反 settlement 覆盖同一 attempt 的 terminal。
 
 ## 12. Deprecation 与 Retirement
 

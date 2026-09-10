@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import pLimit from 'p-limit';
 
-import { loadAllManifests, loadManifestById } from '../../src/compiler/parse/load-manifest.ts';
+import { loadAllManifests } from '../../src/compiler/parse/load-manifest.ts';
 import { resolveGraph } from '../../src/compiler/resolve/resolve-graph.ts';
 import { validateResolvedTemplates } from '../../src/compiler/verify/validate-resolved-templates.ts';
 import { buildManifestValidationPlan } from '../helpers/plan-fixtures.ts';

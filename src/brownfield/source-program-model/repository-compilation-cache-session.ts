@@ -1,6 +1,7 @@
 import {
   inspectNoFollowDirectoryChain
 } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { settlePhysicalResources } from '../../runtime-state/physical/runtime/resource-settlement.ts';
 import {
   openContentAddressedWorkspaceCacheSession,
   type ContentAddressedWorkspaceCacheSession
@@ -13,6 +14,13 @@ import {
   issueSecSemanticOperationAttemptContext,
   type SecOperationDigest
 } from '../../system-architecture/operation/semantic.ts';
+import type { SourceProgramCompilationOperation } from './compilation-operation.ts';
+import { createRepositoryCompilationCacheProvider } from './repository-compilation-cache-provider.ts';
+import {
+  compileRepositorySourceProgramCompilation,
+  type CompileRepositorySourceProgramCompilationInput,
+  type RepositorySourceProgramCompilationReceipt
+} from './repository-compilation.ts';
 import {
   assertPhysicalWorkspaceSourceSnapshot,
   type PhysicalWorkspaceSourceSnapshot
@@ -108,4 +116,68 @@ export function openRepositoryCompilationCacheSession(input: Readonly<{
     requirementId: REPOSITORY_COMPILATION_CACHE_REQUIREMENT,
     repository
   });
+}
+
+export type CompileRepositorySourceProgramWithCacheInput = Omit<
+  CompileRepositorySourceProgramCompilationInput,
+  'cacheProvider' | 'operation'
+> & Readonly<{
+  operation: SourceProgramCompilationOperation;
+  repositoryRoot: string;
+}>;
+
+/**
+ * The sole production composition for a physical Source Program compilation.
+ * Runtime Cache remains a disposable hint: admission failure falls back to
+ * the canonical compiler, while every opened session is settled and can never
+ * replace or certify the compiler's semantic result.
+ */
+export function compileRepositorySourceProgramWithCache(
+  input: CompileRepositorySourceProgramWithCacheInput
+): RepositorySourceProgramCompilationReceipt {
+  assertPhysicalWorkspaceSourceSnapshot(input.workspaceSnapshot);
+  const deadlineAtUnixMs = input.operation.deadlineAtUnixMs;
+  if (!Number.isSafeInteger(deadlineAtUnixMs) || (deadlineAtUnixMs as number) <= Date.now()) {
+    throw new Error('Repository compilation cache composition requires one live finite compilation operation.');
+  }
+  let session: ContentAddressedWorkspaceCacheSession | null = null;
+  let cacheProvider: ReturnType<typeof createRepositoryCompilationCacheProvider> | undefined;
+  try {
+    session = openRepositoryCompilationCacheSession({
+      repositoryRoot: input.repositoryRoot,
+      deadlineAtUnixMs: deadlineAtUnixMs as number,
+      workspaceSnapshot: input.workspaceSnapshot
+    });
+    cacheProvider = createRepositoryCompilationCacheProvider({ session });
+  } catch {
+    if (session !== null) {
+      settlePhysicalResources({
+        cleanup: [{ label: 'repository-compilation-cache-session', settle: () => { session!.close(); } }]
+      });
+      session = null;
+    }
+  }
+
+  let compilation: RepositorySourceProgramCompilationReceipt | undefined;
+  let compilationFailed = false;
+  let primary: unknown;
+  try {
+    compilation = compileRepositorySourceProgramCompilation({
+      ...input,
+      ...(cacheProvider === undefined ? {} : { cacheProvider })
+    });
+  } catch (error) {
+    compilationFailed = true;
+    primary = error;
+  }
+  settlePhysicalResources({
+    ...(!compilationFailed ? {} : {
+      primary: { label: 'repository-source-program-compilation', error: primary }
+    }),
+    cleanup: session === null ? [] : [{
+      label: 'repository-compilation-cache-session',
+      settle: () => { session!.close(); }
+    }]
+  });
+  return compilation!;
 }

@@ -1,6 +1,4 @@
 import { expect, test } from 'bun:test';
-import path from 'node:path';
-
 import { parseGitHubPullRequestClosingFactsPage } from '../../src/control/issues/disposition.ts';
 import {
   parseGitHubIssueObservation,

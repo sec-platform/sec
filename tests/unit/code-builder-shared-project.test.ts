@@ -1,4 +1,5 @@
-import { expect, test } from 'bun:test';
+import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import ts from 'typescript';
 
 import { CodeBuilder } from '../../src/compiler/codegen/code-builder.ts';
@@ -23,8 +24,8 @@ test('independent builders retain declaration ownership without shared mutable c
     .filter(ts.isVariableStatement)
     .flatMap((statement) => statement.declarationList.declarations)
     .map((declaration) => declaration.name.getText());
-  expect(names(builderA.getText())).toEqual(['aValue']);
-  expect(names(builderB.getText())).toEqual(['bValue']);
+  assert.deepEqual(names(builderA.getText()), ['aValue']);
+  assert.deepEqual(names(builderB.getText()), ['bValue']);
 });
 
 test('builder preserves comment/import/declaration order and deduplicates named imports', () => {
@@ -40,16 +41,16 @@ test('builder preserves comment/import/declaration order and deduplicates named 
     .getText();
   const sourceFile = parsed(source);
 
-  expect(source.startsWith('// @generated owner:semantic-lowering\n')).toBe(true);
-  expect(sourceFile.statements.map((statement) => statement.kind)).toEqual([
+  assert.equal(source.startsWith('// @generated owner:semantic-lowering\n'), true);
+  assert.deepEqual(sourceFile.statements.map((statement) => statement.kind), [
     ts.SyntaxKind.ImportDeclaration,
     ts.SyntaxKind.VariableStatement,
     ts.SyntaxKind.VariableStatement
   ]);
   const declaration = sourceFile.statements[0];
-  expect(declaration && ts.isImportDeclaration(declaration)
+  assert.equal(declaration && ts.isImportDeclaration(declaration)
     ? declaration.importClause?.namedBindings?.getText()
-    : null).toBe('{ Ticket }');
+    : null, '{ Ticket }');
 });
 
 test('builder emits optional parameters, access modifiers, interfaces and export assignments', () => {
@@ -71,26 +72,26 @@ test('builder emits optional parameters, access modifiers, interfaces and export
     .getText();
   const sourceFile = parsed(source);
 
-  expect(sourceFile.statements.some(ts.isInterfaceDeclaration)).toBe(true);
-  expect(sourceFile.statements.some(ts.isClassDeclaration)).toBe(true);
-  expect(sourceFile.statements.some(ts.isExportAssignment)).toBe(true);
+  assert.equal(sourceFile.statements.some(ts.isInterfaceDeclaration), true);
+  assert.equal(sourceFile.statements.some(ts.isClassDeclaration), true);
+  assert.equal(sourceFile.statements.some(ts.isExportAssignment), true);
   const classDeclaration = sourceFile.statements.find(ts.isClassDeclaration)!;
   const method = classDeclaration.members.find(ts.isMethodDeclaration)!;
-  expect(method.parameters[0]?.questionToken).toBeDefined();
+  assert.notEqual(method.parameters[0]?.questionToken, undefined);
 });
 
 test('builder rejects malformed fragments before exposing generated source', () => {
-  expect(() => new CodeBuilder().addFunction({
+  assert.throws(() => new CodeBuilder().addFunction({
     name: 'broken',
     body: 'return {'
-  })).toThrow('Function broken body is not valid TypeScript');
-  expect(() => new CodeBuilder().addVariable({
+  }), /Function broken body is not valid TypeScript/);
+  assert.throws(() => new CodeBuilder().addVariable({
     name: 'broken',
     initializer: 'value +'
-  })).toThrow('Variable broken initializer is not valid TypeScript');
-  expect(() => new CodeBuilder().addImport({
+  }), /Variable broken initializer is not valid TypeScript/);
+  assert.throws(() => new CodeBuilder().addImport({
     moduleSpecifier: './contract.ts',
     namedImports: ['Named'],
     namespaceImport: 'contract'
-  })).toThrow('cannot combine namespaceImport with namedImports');
+  }), /cannot combine namespaceImport with namedImports/);
 });

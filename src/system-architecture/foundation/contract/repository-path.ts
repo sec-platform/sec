@@ -6,7 +6,7 @@ export function CodexDevelopmentIsCanonicalRepositoryPath(
     typeof value !== 'string'
     || value.length === 0
     || value !== value.normalize('NFC')
-    || value.includes('\0')
+    || /[\0\p{Surrogate}]/u.test(value)
     || value.includes('\\')
     || value.includes(':')
     || value.startsWith('/')

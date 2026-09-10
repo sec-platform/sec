@@ -1,10 +1,8 @@
 import { availableParallelism } from 'node:os';
 
-import { isSecRepositoryTestModulePath } from '../../system-architecture/repository-modules/test-module-path.ts';
+import { isSecRepositoryTestModulePath, normalizeSecRepositoryTestModulePath } from '../../system-architecture/repository-modules/test-module-path.ts';
 import { FAST_TEST_PROCESS_POLICY_TEST_FILE } from '../../verification/test-impact/contract/budget.ts';
 
-export const DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE = 16;
-export const MAX_FAST_TEST_PROCESS_SHARD_SIZE = 16;
 export const MAX_FAST_TEST_GLOBAL_RESOURCE_BUDGET = 16;
 export const MAX_FAST_TEST_PROCESS_CONCURRENCY = 8;
 
@@ -125,13 +123,25 @@ export const DEFAULT_FAST_TEST_EXCLUSION_REGISTRY = [
 
 export const DEFAULT_FAST_TEST_EXCLUDED_FILES = DEFAULT_FAST_TEST_EXCLUSION_REGISTRY
   .map(({ file }) => file);
-const defaultFastTestExcludedFileSet = new Set<string>(DEFAULT_FAST_TEST_EXCLUDED_FILES);
+const defaultFastTestExcludedFileSet = new Set<string>(
+  DEFAULT_FAST_TEST_EXCLUDED_FILES.map(normalizeSecRepositoryTestModulePath)
+);
 
 export function isDefaultFastTestFile(file: string): boolean {
-  return !defaultFastTestExcludedFileSet.has(file);
+  return !defaultFastTestExcludedFileSet.has(normalizeSecRepositoryTestModulePath(file));
 }
 
 const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
+  {
+    file: 'tests/unit/formatter-publication-lifecycle.test.ts',
+    reason: 'process-global-mocks',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/contract/benchmark-budget.test.ts',
+    reason: 'repeated-repository-compilation-and-process-global-cli-context',
+    resourceClass: 'independent-process'
+  },
   {
     file: 'tests/contract/repository-audit.test.ts',
     reason: 'process-global-environment',
@@ -140,6 +150,11 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
   {
     file: 'tests/integration/pipeline-kernel.test.ts',
     reason: 'workspace-mutation',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/integration/compiler-dependency-installation.test.ts',
+    reason: 'process-global-environment-and-isolated-physical-lifecycle',
     resourceClass: 'independent-process'
   },
   {
@@ -272,6 +287,66 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     reason: 'workspace-lease-process-state',
     resourceClass: 'independent-process'
   },
+  {
+    file: 'src/external-capabilities/docker/runtime/windows-command-provider.test.ts',
+    reason: 'process-global-environment-and-host-identity-readback',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'src/external-capabilities/docker/runtime/launcher-lock.test.ts',
+    reason: 'process-global-environment-and-isolated-provider-lease',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'src/external-capabilities/docker/runtime/command-provider.test.ts',
+    reason: 'process-global-environment-and-isolated-provider-capability',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'src/brownfield/source-program-model/repository-compilation-cache-provider.test.ts',
+    reason: 'module-global-compilation-cache-and-process-environment',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'src/development/workspace-transition/operation.test.ts',
+    reason: 'process-global-mocks-and-environment',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'src/runtime-state/workspace-state/external-provider-coordination-lease.test.ts',
+    reason: 'process-global-environment-and-isolated-provider-lease',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'src/runtime-state/workspace-state/content-addressed-workspace-cache.test.ts',
+    reason: 'module-global-runtime-cache-and-process-environment',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'src/runtime-state/physical/runtime/windows-known-folders.test.ts',
+    reason: 'process-global-environment-and-host-identity-readback',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/dev-command-input.test.ts',
+    reason: 'process-global-environment',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/github-api-credential.test.ts',
+    reason: 'process-global-environment-and-child-process',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/local-github-actions-runner.test.ts',
+    reason: 'process-global-environment-and-child-process',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/template-validation-lifecycle.test.ts',
+    reason: 'process-global-environment',
+    resourceClass: 'independent-process'
+  },
 ] as const satisfies readonly FastTestProcessIsolationDefinition[];
 
 export function assertUniqueFastTestProcessIsolationDefinitions(
@@ -280,10 +355,11 @@ export function assertUniqueFastTestProcessIsolationDefinitions(
   const seen = new Set<string>();
   const resourceClasses = new Set<string>(FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER);
   for (const definition of definitions) {
-    if (!isSecRepositoryTestModulePath(definition.file)) {
+    const file = normalizeSecRepositoryTestModulePath(definition.file);
+    if (!isSecRepositoryTestModulePath(file)) {
       throw new Error(`Fast-test process isolation path is invalid: ${definition.file}`);
     }
-    if (seen.has(definition.file)) {
+    if (seen.has(file)) {
       throw new Error(`Fast-test process isolation registration is duplicated: ${definition.file}`);
     }
     if (definition.reason.trim().length === 0) {
@@ -292,7 +368,7 @@ export function assertUniqueFastTestProcessIsolationDefinitions(
     if (!resourceClasses.has(definition.resourceClass)) {
       throw new Error(`Fast-test process isolation resource class is invalid: ${definition.file}`);
     }
-    seen.add(definition.file);
+    seen.add(file);
   }
 }
 
@@ -308,28 +384,31 @@ export function assertFastTestProcessPolicyInventory(
   currentFastFiles: readonly string[]
 ): void {
   const current = new Set<string>();
-  for (const file of currentFastFiles) {
+  for (const requestedFile of currentFastFiles) {
+    const file = normalizeSecRepositoryTestModulePath(requestedFile);
     if (current.has(file)) throw new Error(`Current fast-test inventory is duplicated: ${file}`);
     current.add(file);
   }
-  if (!current.has(FAST_TEST_PROCESS_POLICY_TEST_FILE)) {
+  if (!current.has(normalizeSecRepositoryTestModulePath(FAST_TEST_PROCESS_POLICY_TEST_FILE))) {
     throw new Error(`Fast-test process policy test is absent: ${FAST_TEST_PROCESS_POLICY_TEST_FILE}`);
   }
 
   const excluded = new Set<string>();
   for (const entry of DEFAULT_FAST_TEST_EXCLUSION_REGISTRY) {
-    if (excluded.has(entry.file)) {
+    const file = normalizeSecRepositoryTestModulePath(entry.file);
+    if (excluded.has(file)) {
       throw new Error(`Default fast-test exclusion is duplicated: ${entry.file}`);
     }
-    if (!current.has(entry.file)) {
+    if (!current.has(file)) {
       throw new Error(`Default fast-test exclusion is stale: ${entry.file}`);
     }
-    excluded.add(entry.file);
+    excluded.add(file);
   }
 
   assertUniqueFastTestProcessIsolationDefinitions(FAST_TEST_PROCESS_ISOLATION_DEFINITIONS);
   for (const entry of FAST_TEST_PROCESS_ISOLATION_REGISTRY) {
-    if (!current.has(entry.file)) {
+    const file = normalizeSecRepositoryTestModulePath(entry.file);
+    if (!current.has(file)) {
       throw new Error(`Fast-test process isolation registration is stale: ${entry.file}`);
     }
     if (entry.processLimit !== DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS[entry.resourceClass]) {
@@ -339,7 +418,7 @@ export function assertFastTestProcessPolicyInventory(
 }
 
 const resourceClassByFastTestFile = new Map<string, FastTestProcessResourceClass>(
-  FAST_TEST_PROCESS_ISOLATION_REGISTRY.map(({ file, resourceClass }) => [file, resourceClass])
+  FAST_TEST_PROCESS_ISOLATION_REGISTRY.map(({ file, resourceClass }) => [normalizeSecRepositoryTestModulePath(file), resourceClass])
 );
 
 export interface FastTestFilePartition {
@@ -348,7 +427,7 @@ export interface FastTestFilePartition {
 }
 
 export interface FastTestProcessPlan {
-  readonly concurrentShards: string[][];
+  readonly parallelFiles: string[];
   readonly resourceClassOrder: typeof FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER;
   readonly resourceQueues: Record<FastTestProcessResourceClass, string[]>;
   readonly resourceLimits: FastTestResourceClassLimits;
@@ -367,7 +446,11 @@ export function partitionFastTestFiles(files: readonly string[]): FastTestFilePa
   const concurrent: string[] = [];
   const resourceQueues = emptyFastTestResourceQueues();
 
-  for (const file of files) {
+  const seen = new Set<string>();
+  for (const requestedFile of files) {
+    const file = normalizeSecRepositoryTestModulePath(requestedFile);
+    if (seen.has(file)) throw new Error('Fast test process planning requires unique files.');
+    seen.add(file);
     const resourceClass = resourceClassByFastTestFile.get(file);
     if (resourceClass) resourceQueues[resourceClass].push(file);
     else concurrent.push(file);
@@ -377,30 +460,11 @@ export function partitionFastTestFiles(files: readonly string[]): FastTestFilePa
 }
 
 export function planFastTestProcesses(
-  files: readonly string[],
-  concurrentShardSize = DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE
+  files: readonly string[]
 ): FastTestProcessPlan {
-  if (
-    !Number.isSafeInteger(concurrentShardSize) ||
-    concurrentShardSize < 1 ||
-    concurrentShardSize > MAX_FAST_TEST_PROCESS_SHARD_SIZE
-  ) {
-    throw new Error(
-      `Fast test process shard size must be an integer between 1 and ${MAX_FAST_TEST_PROCESS_SHARD_SIZE}.`
-    );
-  }
-  if (new Set(files).size !== files.length) {
-    throw new Error('Fast test process planning requires unique files.');
-  }
-
   const partition = partitionFastTestFiles(files);
-  const concurrentShards: string[][] = [];
-  for (let index = 0; index < partition.concurrent.length; index += concurrentShardSize) {
-    concurrentShards.push(partition.concurrent.slice(index, index + concurrentShardSize));
-  }
-
   return {
-    concurrentShards,
+    parallelFiles: partition.concurrent,
     resourceClassOrder: FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER,
     resourceQueues: partition.resourceQueues,
     resourceLimits: DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS

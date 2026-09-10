@@ -11,7 +11,7 @@ import { semanticMutationRequiredVerificationDigest } from '../../src/compiler/s
 import type { FactDeltaEndpointContext } from '../../src/semantic/engineering-ir/contract/delta-types.ts';
 import type { EngineeringIR } from '../../src/semantic/engineering-ir/contract/root-types.ts';
 import type { ValidatedEngineeringIRSnapshot } from '../../src/semantic/engineering-ir/contract/validated-types.ts';
-import { SEMANTIC_MUTATION_EXPECTATION_REVISION, type SemanticMutationAuthorizationContext, type SemanticMutationInput, type SemanticMutationPlan, type SemanticMutationRequest } from '../../src/semantic/mutation/contract/types.ts';
+import { type SemanticMutationAuthorizationContext, type SemanticMutationInput, type SemanticMutationPlan, type SemanticMutationRequest } from '../../src/semantic/mutation/contract/types.ts';
 import type { SemanticViewSet } from '../../src/semantic/projection/contract/types.ts';
 import type { CiArtifactManifest } from '../../src/verification/ci-artifacts/contract/types.ts';
 import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION, type VerificationReport } from '../../src/verification/contract/types.ts';

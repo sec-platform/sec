@@ -11,7 +11,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 
-import { canonicalEquals, sha256 as canonicalSha256, digest } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalEquals, sha256 as canonicalSha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
 import {
   CodexDevelopmentReduceHostedSutObservation,
   type CodexDevelopmentHostedSutExecutionProof
@@ -27,9 +27,9 @@ import {
   parseScopeAuthorization,
   type ScopeAuthorization
 } from '../../../control/scope/authorization.ts';
-import { createVerificationActionTerminal, encodeVerificationActionData, parseVerificationActionKey, parseVerificationActionPlan, type VerificationActionKey, type VerificationActionPlan, type VerificationActionTerminal } from '../../action/contract/action.ts';
+import { encodeVerificationActionData, parseVerificationActionKey, parseVerificationActionPlan, type VerificationActionKey, type VerificationActionPlan } from '../../action/contract/action.ts';
 import { assertCiVerificationActionPlanClosureEqual, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, parseCiVerificationActionPlanClosure, parseCiVerificationNormalizedOperation, type CiVerificationActionPlanClosure, type CiVerificationExecutionEnvironment, type CiVerificationNormalizedOperation } from '../../action/contract/ci.ts';
-import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, CI_VERIFICATION_ACTION_ARTIFACT_SCHEMA, VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_FILE, verificationActionProviderTerminalArtifactName, type VerificationActionProviderOrigin } from '../../action/contract/provider.ts';
+import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, CI_VERIFICATION_ACTION_ARTIFACT_SCHEMA, VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_FILE, type VerificationActionProviderOrigin } from '../../action/contract/provider.ts';
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../../contract/revision.ts';
 import { CodexDevelopmentAssertVerificationGateResult, type VerificationGateResult, type VerificationResultStatus } from '../../result/contract/result.ts';
 import { assertReviewStabilityReceiptCurrent, parseReviewStabilityReceipt, REVIEW_OBSERVER_PRODUCER_IDENTITY, type ReviewStabilityReceipt } from '../../review/contract/stability.ts';

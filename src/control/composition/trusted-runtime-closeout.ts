@@ -3,6 +3,8 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
+import { GIT_READ_OPERATION_BUDGET, gitReadText } from '../../development/tooling/git/git-read.ts';
+import { withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
 import {
   executeGitHubApiOperation,
   inspectGitHubApiCapability,
@@ -11,7 +13,6 @@ import {
   type GitHubApiCapability
 } from '../../external-capabilities/github-api/operation-session.ts';
 import { publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { runCommand } from '../../runtime-state/physical/runtime/process.ts';
 import { resolveSecRuntimeStateForRepository } from '../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeStatePhysicalAuthority, type SecRuntimeStatePhysicalAuthority } from '../../runtime-state/workspace-state/physical-authority.ts';
 import { encodeVerificationActionData } from '../../verification/action/contract/action.ts';
@@ -41,7 +42,7 @@ import {
   readExactCommitMarker
 } from '../../verification/ci/runtime/verification-session.ts';
 import { renderIndependentReviewTrailer } from '../../verification/review/contract/stability.ts';
-import { createTrustedRuntimeHostCommandEnvironment, createTrustedRuntimeMainHealthBaselineObservation, createTrustedRuntimeMainHealthReceipt, executeTrustedRuntimeContainerVerification, executeTrustedRuntimeMainHealth, executeTrustedRuntimeWorkspaceCanary, parseTrustedRuntimeContainerReceipt, parseTrustedRuntimeMainHealthReceipt, TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT, TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST, trustedRuntimeMainHealthCarryForwardBaselineMatches, type TrustedRuntimeContainerReceipt, type TrustedRuntimeMainHealthReceipt } from '../../verification/trusted-runtime/trusted-runtime-container.ts';
+import { createTrustedRuntimeMainHealthBaselineObservation, createTrustedRuntimeMainHealthReceipt, executeTrustedRuntimeContainerVerification, executeTrustedRuntimeMainHealth, executeTrustedRuntimeWorkspaceCanary, parseTrustedRuntimeContainerReceipt, parseTrustedRuntimeMainHealthReceipt, TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT, TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST, trustedRuntimeMainHealthCarryForwardBaselineMatches, type TrustedRuntimeContainerReceipt, type TrustedRuntimeMainHealthReceipt } from '../../verification/trusted-runtime/trusted-runtime-container.ts';
 import {
   integrationAuthorizationStatusMergeMarkers,
   parseIntegrationAuthorizationStatusPublication,
@@ -114,40 +115,6 @@ function fail(message: string): never {
   throw new Error(`Trusted runtime closeout: ${message}`);
 }
 
-export class TrustedRuntimeControlCliUnavailableError extends Error {
-  readonly code = 'trusted-runtime-control-cli-unavailable' as const;
-
-  constructor(
-    readonly providerStatus: 'unavailable',
-    readonly providerReason: string,
-    readonly providerDetailDigest: `sha256:${string}`
-  ) {
-    super(
-      `Trusted runtime Windows control CLI is ${providerStatus}: ${providerReason} `
-      + `(${providerDetailDigest})`
-    );
-    this.name = 'TrustedRuntimeControlCliUnavailableError';
-  }
-}
-
-/**
- * Trusted closeout already owns hosted GitHub semantics, but its local Git
- * observations/effects have not yet been moved into one opaque Git operation.
- * Physical executable adoption cannot authorize those operations, so Windows
- * remains typed unavailable before any raw or nested CLI client can start.
- */
-function assertTrustedRuntimeWindowsControlCliAdmission(repositoryRoot: string): void {
-  if (process.platform !== 'win32') return;
-  throw new TrustedRuntimeControlCliUnavailableError(
-    'unavailable',
-    'semantic-session-unavailable',
-    hash({
-      boundary: 'trusted-runtime-closeout-windows-semantic-session',
-      repositoryRoot: path.resolve(repositoryRoot)
-    })
-  );
-}
-
 function hash(value: unknown): Digest {
   return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
 }
@@ -215,39 +182,13 @@ function parseArgs(argv: readonly string[]): TrustedRuntimeOperatorArgs {
   return Object.freeze({ mode: 'closeout', repository, prNumber: Number(rawPr) });
 }
 
-async function tool(
-  executable: 'gh' | 'git',
-  args: readonly string[],
-  cwd: string,
-  secret = false
-): Promise<string> {
-  assertTrustedRuntimeWindowsControlCliAdmission(cwd);
-  const result = await runCommand(executable, [...args], {
-    cwd,
-    ...(executable === 'git'
-      ? {
-          envMode: 'replace' as const,
-          env: createTrustedRuntimeHostCommandEnvironment('git')
-        }
-      : {}),
-    timeoutMs: 120_000,
-    maxStdoutBytes: secret ? 16 * 1024 : 16 * 1024 * 1024,
-    maxStderrBytes: 4 * 1024 * 1024
-  });
-  if (result.code !== 0) fail(`${executable} ${args[0] ?? '<missing>'} failed: ${result.stderr.trim().slice(-4096)}`);
-  return result.stdout.trim();
-}
-
 async function assertTrustedBaseRuntime(
   repositoryRoot: string,
   candidate: GitHubCandidateObservation
 ): Promise<void> {
-  const [branch, head, tree, status] = await Promise.all([
-    tool('git', ['branch', '--show-current'], repositoryRoot),
-    tool('git', ['rev-parse', 'HEAD'], repositoryRoot),
-    tool('git', ['rev-parse', 'HEAD^{tree}'], repositoryRoot),
-    tool('git', ['status', '--porcelain=v1', '--untracked-files=all'], repositoryRoot)
-  ]);
+  const { branch, headSha: head, treeSha: tree, status, originUrl } =
+    await observeTrustedRuntimeGitFence(repositoryRoot);
+  assertOriginMatchesRepository(originUrl, candidate.repository);
   if (branch !== 'main' || head !== candidate.baseSha || tree !== candidate.baseTreeSha || status !== '') {
     fail('command must execute from the clean exact live-base main worktree');
   }
@@ -261,12 +202,9 @@ async function assertTrustedMergedRecoveryRuntime(
       || candidate.mergeCommitTreeSha === null) {
     fail('merged recovery requires one exact merged candidate identity');
   }
-  const [branch, head, tree, status] = await Promise.all([
-    tool('git', ['branch', '--show-current'], repositoryRoot),
-    tool('git', ['rev-parse', 'HEAD'], repositoryRoot),
-    tool('git', ['rev-parse', 'HEAD^{tree}'], repositoryRoot),
-    tool('git', ['status', '--porcelain=v1', '--untracked-files=all'], repositoryRoot)
-  ]);
+  const { branch, headSha: head, treeSha: tree, status, originUrl } =
+    await observeTrustedRuntimeGitFence(repositoryRoot);
+  assertOriginMatchesRepository(originUrl, candidate.repository);
   const retainedBase = head === candidate.baseSha && tree === candidate.baseTreeSha;
   const synchronizedMain = head === candidate.mergeCommitSha
     && tree === candidate.mergeCommitTreeSha;
@@ -500,7 +438,6 @@ export async function ensureCurrentTrustedRuntimeMainHealth(input: Readonly<{
   defaultBranch: string;
 }>): Promise<TrustedRuntimeMainHealthPublication> {
   const repositoryRoot = path.resolve(input.repositoryRoot);
-  assertTrustedRuntimeWindowsControlCliAdmission(repositoryRoot);
   if (input.defaultBranch !== 'main') {
     fail('standalone MainHealth requires the canonical main default branch');
   }
@@ -509,17 +446,15 @@ export async function ensureCurrentTrustedRuntimeMainHealth(input: Readonly<{
     repository: input.repository,
     defaultBranch: input.defaultBranch
   });
-  const [branch, headSha, mainTreeSha, status, originUrl, liveDefaultSha] = await Promise.all([
-    tool('git', ['branch', '--show-current'], repositoryRoot),
-    tool('git', ['rev-parse', 'HEAD'], repositoryRoot),
-    tool('git', ['rev-parse', 'HEAD^{tree}'], repositoryRoot),
-    tool('git', ['status', '--porcelain=v1', '--untracked-files=all'], repositoryRoot),
-    tool('git', ['remote', 'get-url', 'origin'], repositoryRoot),
-    liveDefaultBranchSha()
-  ]);
+  const { branch, headSha, treeSha: mainTreeSha, status, originUrl } =
+    await observeTrustedRuntimeGitFence(repositoryRoot);
   assertOriginMatchesRepository(originUrl, input.repository);
-  if (branch !== input.defaultBranch || status !== '' || !/^[0-9a-f]{40}$/u.test(liveDefaultSha)
-      || liveDefaultSha !== headSha) {
+  if (branch !== input.defaultBranch || status !== '' || !/^[0-9a-f]{40}$/u.test(headSha)
+      || !/^[0-9a-f]{40}$/u.test(mainTreeSha)) {
+    fail('standalone MainHealth must execute from the clean exact default-branch worktree');
+  }
+  const liveDefaultSha = await liveDefaultBranchSha();
+  if (!/^[0-9a-f]{40}$/u.test(liveDefaultSha) || liveDefaultSha !== headSha) {
     fail('standalone MainHealth must execute from the clean exact default-branch worktree');
   }
   const ensured = await ensureTrustedRuntimeMainHealthReceipt({
@@ -566,15 +501,9 @@ export async function ensureCurrentTrustedRuntimeMainHealth(input: Readonly<{
     fail('durable local MainHealth receipt changed during publication readback');
   }
   await ensured.authority.assertCurrent();
-  const [finalBranch, finalHeadSha, finalTreeSha, finalStatus, finalOriginUrl, finalLiveDefaultSha] =
-    await Promise.all([
-      tool('git', ['branch', '--show-current'], repositoryRoot),
-      tool('git', ['rev-parse', 'HEAD'], repositoryRoot),
-      tool('git', ['rev-parse', 'HEAD^{tree}'], repositoryRoot),
-      tool('git', ['status', '--porcelain=v1', '--untracked-files=all'], repositoryRoot),
-      tool('git', ['remote', 'get-url', 'origin'], repositoryRoot),
-      liveDefaultBranchSha()
-    ]);
+  const { branch: finalBranch, headSha: finalHeadSha, treeSha: finalTreeSha,
+    status: finalStatus, originUrl: finalOriginUrl } = await observeTrustedRuntimeGitFence(repositoryRoot);
+  const finalLiveDefaultSha = await liveDefaultBranchSha();
   assertOriginMatchesRepository(finalOriginUrl, input.repository);
   if (finalBranch !== 'main' || finalHeadSha !== headSha || finalTreeSha !== mainTreeSha
       || finalStatus !== '' || finalLiveDefaultSha !== headSha) {
@@ -667,6 +596,21 @@ export async function ensureCurrentTrustedRuntimeMainHealth(input: Readonly<{
   return Object.freeze({ ...semantic, publicationDigest: hash(publicationSemantic) });
 }
 
+async function observeTrustedRuntimeGitFence(repositoryRoot: string) {
+  return withAuthorityGitReadSession({ cwd: repositoryRoot, budget: GIT_READ_OPERATION_BUDGET }, async (session) => {
+    // A retained GitRead session is single-flight. The whole fence settles
+    // before its observations can enter publication or hosted admission.
+    // Initial and final fences each own one bounded observation; no read
+    // session stays retained across container verification or publication.
+    const branch = (await gitReadText(session, ['branch', '--show-current'])).trim();
+    const headSha = (await gitReadText(session, ['rev-parse', 'HEAD'])).trim();
+    const treeSha = (await gitReadText(session, ['rev-parse', 'HEAD^{tree}'])).trim();
+    const status = await gitReadText(session, ['status', '--porcelain=v1', '--untracked-files=all']);
+    const originUrl = (await gitReadText(session, ['remote', 'get-url', 'origin'])).trim();
+    return Object.freeze({ branch, headSha, treeSha, status, originUrl });
+  });
+}
+
 function assertOriginMatchesRepository(originUrl: string, repository: string): void {
   const escapedRepository = repository.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
   if (!new RegExp(
@@ -683,14 +627,8 @@ export async function runCurrentTrustedRuntimeWorkspaceCanary(input: Readonly<{
   dependencies?: boolean;
 }>): Promise<Awaited<ReturnType<typeof executeTrustedRuntimeWorkspaceCanary>>> {
   const repositoryRoot = path.resolve(input.repositoryRoot);
-  assertTrustedRuntimeWindowsControlCliAdmission(repositoryRoot);
-  const [branch, headSha, headTreeSha, status, originUrl] = await Promise.all([
-    tool('git', ['branch', '--show-current'], repositoryRoot),
-    tool('git', ['rev-parse', 'HEAD'], repositoryRoot),
-    tool('git', ['rev-parse', 'HEAD^{tree}'], repositoryRoot),
-    tool('git', ['status', '--porcelain=v1', '--untracked-files=all'], repositoryRoot),
-    tool('git', ['remote', 'get-url', 'origin'], repositoryRoot)
-  ]);
+  const { branch, headSha, treeSha: headTreeSha, status, originUrl } =
+    await observeTrustedRuntimeGitFence(repositoryRoot);
   assertOriginMatchesRepository(originUrl, input.repository);
   if (branch === '' || status !== '' || !/^[0-9a-f]{40}$/u.test(headSha)
       || !/^[0-9a-f]{40}$/u.test(headTreeSha)) {
@@ -703,43 +641,6 @@ export async function runCurrentTrustedRuntimeWorkspaceCanary(input: Readonly<{
     headTreeSha,
     dependencies: input.dependencies === true
   });
-}
-
-async function postReviewWakeup(input: Readonly<{
-  repositoryRoot: string;
-  repository: string;
-  prNumber: number;
-  sessionRevision: Digest;
-  requestOperationId: Digest;
-  headSha: string;
-  headTreeSha: string;
-  publisherLogin: string;
-  publisherNodeId: string;
-}>): Promise<Readonly<{ status: 'published' | 'reused'; commentId: string }>> {
-  const github = createVerificationSessionGitHubClient(input.repositoryRoot);
-  const operationId = hash(Object.freeze({
-    schema: 'sec-trusted-runtime-review-wakeup-operation-v1',
-    sessionRevision: input.sessionRevision,
-    headSha: input.headSha
-  }));
-  const identity = { ...input, operationId };
-  let observation = github.observeMaintainerReviewWakeup(identity);
-  if (observation.status === 'absent') {
-    const response = JSON.parse(await tool('gh', [
-      'api', '-X', 'POST', `/repos/${input.repository}/issues/${input.prNumber}/comments`,
-      '-f', `body=${observation.body}`
-    ], input.repositoryRoot)) as Record<string, unknown>;
-    if (!Number.isSafeInteger(response.id) || Number(response.id) < 1) {
-      fail('Review wake-up POST response has no comment id');
-    }
-    observation = github.observeMaintainerReviewWakeup(identity);
-    if (observation.status !== 'reused' || observation.commentId !== String(response.id)) {
-      fail('Review wake-up exact readback is ambiguous');
-    }
-    return Object.freeze({ status: 'published', commentId: observation.commentId });
-  }
-  if (observation.commentId === null) fail('Review wake-up reuse has no comment id');
-  return Object.freeze({ status: 'reused', commentId: observation.commentId });
 }
 
 async function mergeExactHead(input: Readonly<{
@@ -825,6 +726,7 @@ async function finalizeMergedTrustedRuntime(input: Readonly<{
   const title = `Verified integration ${artifact.session.sessionRevision.slice(7, 19)}`;
   assertHostedSquashMergeCompletion({
     candidate,
+    expectedBaseSha: artifact.session.baseSha,
     expectedHeadSha: artifact.session.headSha,
     expectedHeadTreeSha: artifact.session.headTreeSha,
     markers: mergeMarkers,
@@ -843,35 +745,24 @@ async function finalizeMergedTrustedRuntime(input: Readonly<{
     )}`);
   }
 
-  const remoteMain = await tool('git', [
-    'ls-remote', '--heads', 'origin', 'refs/heads/main'
-  ], input.repositoryRoot);
-  const remoteMainMatch = /^([0-9a-f]{40})\trefs\/heads\/main$/u.exec(remoteMain);
-  if (remoteMainMatch?.[1] !== candidate.mergeCommitSha) {
+  const remoteMain = await observeMainHealthGitHubDefaultBranchSha({
+    repositoryRoot: input.repositoryRoot,
+    repository: input.repository,
+    defaultBranch: 'main'
+  });
+  if (remoteMain !== candidate.mergeCommitSha) {
     fail('remote main does not equal the physical merge commit');
   }
-  await tool('git', [
-    'fetch', '--no-tags', 'origin',
-    '+refs/heads/main:refs/remotes/origin/main'
-  ], input.repositoryRoot);
-  const remoteMainTree = await tool('git', [
-    'rev-parse', 'refs/remotes/origin/main^{tree}'
-  ], input.repositoryRoot);
-  if (remoteMainTree !== candidate.headTreeSha
-      || remoteMainTree !== candidate.mergeCommitTreeSha) {
+  if (candidate.mergeCommitTreeSha !== candidate.headTreeSha) {
     fail('remote main tree does not equal the verified candidate tree');
   }
-  const mergedParentLine = await tool('git', [
-    'rev-list', '--parents', '-n', '1', 'refs/remotes/origin/main'
-  ], input.repositoryRoot);
-  const mergedParentSha = mergedParentLine.split(' ')[1] ?? '';
   const mergedBaseline = createTrustedRuntimeMainHealthBaselineObservation({
     mainSha: candidate.mergeCommitSha,
     mainTreeSha: candidate.mergeCommitTreeSha,
-    parentLine: mergedParentLine,
-    parentTreeSha: await tool('git', [
-      'rev-parse', `${mergedParentSha}^{tree}`
-    ], input.repositoryRoot)
+    // The shared squash completion owner already verified the observed
+    // merge parent tuple against this independently observed base identity.
+    parentLine: `${candidate.mergeCommitSha} ${candidate.baseSha}`,
+    parentTreeSha: candidate.baseTreeSha
   });
   const requiredMainHealthActions = ['imports', 'typecheck', 'docs-doctor', 'affected-tests'] as const;
   if (artifact.evidence.profile !== 'full' || artifact.evidence.status !== 'passed') {
@@ -1041,7 +932,6 @@ export async function closeoutWithTrustedRuntime(input: Readonly<{
   prNumber: number;
 }>): Promise<unknown> {
   const repositoryRoot = path.resolve(input.repositoryRoot);
-  assertTrustedRuntimeWindowsControlCliAdmission(repositoryRoot);
   const github = createVerificationSessionGitHubClient(repositoryRoot);
   const candidate = github.observeCandidate(input.repository, input.prNumber);
   if (candidate.state === 'MERGED') {
@@ -1167,23 +1057,11 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
   } as const;
   const planning = prepareTrustedMainVerificationSession(preparationInput);
   if (reviewBarrier.status !== 'clear') {
-    const wakeup = await postReviewWakeup({
-      repositoryRoot,
-      repository: input.repository,
-      prNumber: input.prNumber,
-      sessionRevision: planning.sessionRevision,
-      requestOperationId: planning.request.requestOperationId,
-      headSha: candidate.headSha,
-      headTreeSha: candidate.headTreeSha,
-      publisherLogin: principal.login,
-      publisherNodeId: principal.nodeId
-    });
     return Object.freeze({
       kind: 'waiting' as const,
       value: Object.freeze({
         status: 'WAITING_REVIEW',
         sessionRevision: planning.sessionRevision,
-        reviewWakeup: wakeup,
         reason: reviewBarrier.status === 'provider-schema-unsupported'
           ? reviewBarrier.reasonCode
           : reviewBarrier.reason
