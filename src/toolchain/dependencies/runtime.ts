@@ -18,7 +18,7 @@ export type {
 
 export {
   assertCompilerDependencyExecutionGenerationAuthority,
-  assertCompilerDependencyExecutionRetirementReceipt, assertCompilerDependencyReadGenerationRetirementReceipt, COMPILER_DEPENDENCY_EXECUTION_RETENTION_POLICY,
+  assertCompilerDependencyExecutionRetirementReceipt, assertCompilerDependencyReadGenerationRetirementReceipt, assertRetainedCompilerDependencyReadGeneration, COMPILER_DEPENDENCY_EXECUTION_RETENTION_POLICY,
   projectCompilerDepsReadyState, retainCompilerDependencyExecutionGeneration, retainCompilerDependencyReadGeneration
 } from './runtime/project-runtime.ts';
 

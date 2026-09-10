@@ -12,6 +12,7 @@ import { digest } from '../../../system-architecture/foundation/runtime/canonica
 import {
   assertCompilerDependencyExecutionRetirementReceipt,
   assertCompilerDependencyReadGenerationRetirementReceipt,
+  assertRetainedCompilerDependencyReadGeneration,
   observeCompilerDependencyExecutionGenerationAuthority,
   retainCompilerDependencyExecutionGeneration,
   retainCompilerDependencyReadGeneration,
@@ -112,6 +113,13 @@ test('dependency fixture operation owns lifecycle-backed publication and retirem
       { deadlineAtUnixMs: Date.now() + 30_000 }
     );
     expect(readGeneration.generationDigest).toBe(observedAuthority!.generationDigest);
+    expect(() => assertRetainedCompilerDependencyReadGeneration(readGeneration)).not.toThrow();
+    expect(() => assertRetainedCompilerDependencyReadGeneration({ ...readGeneration }))
+      .toThrow('not owner-issued');
+    expect(() => assertRetainedCompilerDependencyReadGeneration({
+      ...readGeneration,
+      generationDigest: `sha256:${digest(Buffer.from('foreign-generation'))}`
+    })).toThrow('not owner-issued');
     expect(firstGeneration.directRootResolution).toEqual({
       entries: [{
         declaredName: '@types/bun',

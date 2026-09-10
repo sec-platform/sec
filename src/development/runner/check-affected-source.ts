@@ -11,7 +11,7 @@ import {
   type WorkspaceTypeScriptProjectGenerationEvidence
 } from '../../brownfield/source-program-model/workspace-source-snapshot.ts';
 import type { GitReadSession } from '../../external-capabilities/git-read/runtime/session.ts';
-import type { RetainedCompilerDependencyReadGeneration } from '../../toolchain/dependencies/runtime.ts';
+import { assertRetainedCompilerDependencyReadGeneration, type RetainedCompilerDependencyReadGeneration } from '../../toolchain/dependencies/runtime.ts';
 import { issueTestInventoryProjection, type IssuedTestInventoryProjection } from '../../verification/test-impact/contract/budget.ts';
 import { tsconfigRelativePath } from '../../workspace/runtime/paths.ts';
 
@@ -32,6 +32,8 @@ export type AffectedTestImpactProjectionIssuer = (
 export const issueCheckAffectedTestImpactProjection: AffectedTestImpactProjectionIssuer = async (
   input
 ) => {
+  const dependencyGeneration = input.dependencyGeneration;
+  assertRetainedCompilerDependencyReadGeneration(dependencyGeneration);
   const workspaceSnapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({
     session: input.session
   });
@@ -39,8 +41,8 @@ export const issueCheckAffectedTestImpactProjection: AffectedTestImpactProjectio
     workspaceSnapshot,
     tsconfigRelativePath,
     {
-      dependencyGeneration: input.dependencyGeneration.physicalGeneration,
-      dependencyGenerationDigest: input.dependencyGeneration.generationDigest
+      dependencyGeneration: dependencyGeneration.physicalGeneration,
+      dependencyGenerationDigest: dependencyGeneration.generationDigest
     }
   );
   const compilation = compileRepositorySourceProgramWithCache({

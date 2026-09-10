@@ -12,7 +12,7 @@ import {
 } from '../../../brownfield/source-program-model/workspace-source-snapshot.ts';
 import type { GitReadSession } from '../../../external-capabilities/git-read/runtime/session.ts';
 import { rawSha256, sha256, uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
-import type { RetainedCompilerDependencyReadGeneration } from '../../../toolchain/dependencies/runtime.ts';
+import { assertRetainedCompilerDependencyReadGeneration, type RetainedCompilerDependencyReadGeneration } from '../../../toolchain/dependencies/runtime.ts';
 import { tsconfigRelativePath } from '../../../workspace/runtime/paths.ts';
 import { issueTestInventoryProjection, type IssuedTestInventoryProjection } from '../contract/budget.ts';
 import {
@@ -87,7 +87,8 @@ export async function issueAffectedTestImpactSource(input: Readonly<{
   session: GitReadSession;
   baseRef: string | null;
 }>): Promise<IssuedAffectedTestImpactSource | null> {
-  const { session } = input;
+  const { session, dependencyGeneration } = input;
+  if (dependencyGeneration !== undefined) assertRetainedCompilerDependencyReadGeneration(dependencyGeneration);
   let baseSha: string | null = null;
   if (input.baseRef !== null) {
     const result = completed(await session.run(['--no-pager', '-c', 'core.fsmonitor=false', '-c',
@@ -144,9 +145,9 @@ export async function issueAffectedTestImpactSource(input: Readonly<{
   const projectInput = compileWorkspaceTypeScriptProjectInput(
     workspaceSnapshot,
     tsconfigRelativePath,
-    input.dependencyGeneration === undefined ? undefined : {
-      dependencyGeneration: input.dependencyGeneration.physicalGeneration,
-      dependencyGenerationDigest: input.dependencyGeneration.generationDigest
+    dependencyGeneration === undefined ? undefined : {
+      dependencyGeneration: dependencyGeneration.physicalGeneration,
+      dependencyGenerationDigest: dependencyGeneration.generationDigest
     }
   );
   const compilation = compileRepositorySourceProgramWithCache({

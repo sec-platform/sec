@@ -212,6 +212,17 @@ export interface RetainedCompilerDependencyReadGeneration {
   readonly retire: () => Promise<CompilerDependencyReadGenerationRetirementReceipt>;
 }
 
+const issuedCompilerDependencyReadGenerations = new WeakSet<object>();
+
+export function assertRetainedCompilerDependencyReadGeneration(
+  generation: RetainedCompilerDependencyReadGeneration
+): void {
+  if (!issuedCompilerDependencyReadGenerations.has(generation)) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency read generation is not owner-issued');
+  }
+  generation.physicalGeneration.assertCurrent();
+}
+
 /**
  * Process-local terminal for a read-generation lease.  This is deliberately
  * not a serialized schema: only the dependency owner can issue the object and
@@ -3154,7 +3165,9 @@ function observeNoFollowOwnedFile(
   filePath: string,
   label: string
 ): NoFollowOwnedFileObservation | null {
-  const parent = inspectNoFollowDirectoryChain(path.dirname(filePath), `${label} parent`).target;
+  const presence = inspectExactNoFollowDirectoryPresence(path.dirname(filePath), `${label} parent`);
+  if (presence.state === 'absent') return null;
+  const parent = presence.directory.target;
   const name = path.basename(filePath);
   const entry = inspectNoFollowOrdinaryFileEntry(parent, name);
   if (entry === null) return null;
@@ -10672,7 +10685,7 @@ export async function retainCompilerDependencyReadGeneration(
   let durableRelease: CompilerDependencyConsumerRecord | null = null;
   let terminalRetirement: CompilerDependencyReadGenerationRetirementReceipt | null = null;
   let retirementAttempt: Promise<CompilerDependencyReadGenerationRetirementReceipt> | null = null;
-  return Object.freeze({
+  const retained: RetainedCompilerDependencyReadGeneration = Object.freeze({
     assertAuthorityCurrent: async () => {
       await admitted.generation.assertAuthorityCurrent();
       await assertOwnerAuthorityCurrent(
@@ -10713,6 +10726,8 @@ export async function retainCompilerDependencyReadGeneration(
       return retirementAttempt;
     }
   });
+  issuedCompilerDependencyReadGenerations.add(retained);
+  return retained;
 }
 
 function createCompilerDepsReadyState(input: Readonly<{
