@@ -63,6 +63,7 @@
     "src/brownfield/source-program-model/test-impact-projection.ts -> zod",
     "src/control/documentation/doctor/frontmatter.ts -> zod",
     "src/control/documentation/doctor/markdown-syntax.ts -> prettier/plugins/markdown",
+    "src/control/scope/authorization.ts -> zod",
     "src/development/runner/env-manager.ts -> node:net",
     "src/external-capabilities/docker/contract/windows-installation-profile.ts -> zod",
     "src/external-capabilities/linux-verification/contract.ts -> zod",
