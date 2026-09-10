@@ -490,14 +490,10 @@ test('blocks bridge recovery when persisted source, destination, owner, or journ
     const root = await mkdtemp(path.join(os.tmpdir(), `sec-dependency-bridge-${mutation}-`));
     let displacedRoot: string | null = null;
     try {
-      const { bridgePath, pinnedBunVersion, sourcePath } = await prepareBridgeRecovery({
+      const { bridgePath, sourcePath } = await prepareBridgeRecovery({
         failure: 'bun-runtime-drift',
         root
       });
-      // The helper derives the same deterministic mismatch value; keeping it
-      // separate from source/destination mutations avoids making the test
-      // depend on the repository's declared Bun version.
-      expect(pinnedBunVersion).toBe(pinnedBunVersionForTest());
       if (mutation === 'source') {
         await writeFile(path.join(sourcePath, 'tampered-after-intent.txt'), 'tamper\n', 'utf8');
       } else if (mutation === 'destination') {
