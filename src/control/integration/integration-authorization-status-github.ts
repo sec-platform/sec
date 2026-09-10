@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
+import { parseArgs as parseNativeArgs } from 'node:util';
 
 import {
   assertGitHubApiCapability,
@@ -488,28 +489,33 @@ function parseArgs(argv: readonly string[]): Readonly<{
   creatorLogin: string;
   creatorId: number;
 }> {
-  const values = new Map<string, string>();
-  for (let index = 0; index < argv.length; index += 2) {
-    const key = argv[index];
-    const value = argv[index + 1];
-    if (key === undefined || value === undefined || !key.startsWith('--') || values.has(key)) {
+  const options = {
+    input: { type: 'string' }, output: { type: 'string' },
+    'target-url': { type: 'string' }, 'creator-login': { type: 'string' },
+    'creator-id': { type: 'string' }
+  } as const;
+  const { values, tokens } = parseNativeArgs({
+    args: [...argv], options, strict: true, allowPositionals: false, tokens: true
+  });
+  const supplied = new Set<string>();
+  for (const token of tokens) {
+    if (token.kind !== 'option' || token.inlineValue || supplied.has(token.name)) {
       fail('CLI arguments must be unique --key value pairs.');
     }
-    values.set(key, value);
+    supplied.add(token.name);
   }
-  const allowed = new Set(['--input', '--output', '--target-url', '--creator-login', '--creator-id']);
-  if (values.size !== allowed.size || [...values.keys()].some((key) => !allowed.has(key))) {
+  if (supplied.size !== Object.keys(options).length) {
     fail('Usage: bun src/control/integration/integration-authorization-status-github.ts --input <merge-gate.json> --output <receipt.json> --target-url <https://github.com/...> --creator-login <bot> --creator-id <id>');
   }
-  const rawCreatorId = values.get('--creator-id')!;
+  const rawCreatorId = values['creator-id']!;
   if (!/^[1-9][0-9]*$/u.test(rawCreatorId)) fail('--creator-id must be canonical positive decimal text.');
   const creatorId = Number(rawCreatorId);
   positiveInteger(creatorId, '--creator-id');
   return Object.freeze({
-    input: bounded(values.get('--input'), '--input'),
-    output: bounded(values.get('--output'), '--output'),
-    targetUrl: bounded(values.get('--target-url'), '--target-url'),
-    creatorLogin: bounded(values.get('--creator-login'), '--creator-login'),
+    input: bounded(values.input, '--input'),
+    output: bounded(values.output, '--output'),
+    targetUrl: bounded(values['target-url'], '--target-url'),
+    creatorLogin: bounded(values['creator-login'], '--creator-login'),
     creatorId
   });
 }
