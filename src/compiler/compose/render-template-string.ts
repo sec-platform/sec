@@ -26,16 +26,6 @@ function assertInputBound(content: string): void {
   }
 }
 
-function assertOutputBound(content: string): void {
-  const outputBytes = Buffer.byteLength(content, 'utf8');
-  if (outputBytes > TEMPLATE_MAX_OUTPUT_BYTES) {
-    fail('COMPOSE-TEMPLATE-009', 'Rendered template exceeds the canonical byte limit', {
-      outputBytes,
-      maximumBytes: TEMPLATE_MAX_OUTPUT_BYTES
-    });
-  }
-}
-
 function normalizeContext(context: Readonly<Record<string, unknown>>): TemplateContext {
   if (context === null || typeof context !== 'object' || Array.isArray(context)) {
     fail('COMPOSE-TEMPLATE-007', 'Template context must be a record of data values');
@@ -149,7 +139,6 @@ function renderConditionals(content: string, context: TemplateContext): string {
   if (parentActivity.length > 0) {
     fail('COMPOSE-TEMPLATE-003', 'Malformed template: missing /*#ENDIF*/');
   }
-  assertOutputBound(output);
   return output;
 }
 
