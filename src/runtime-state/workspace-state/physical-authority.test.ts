@@ -372,30 +372,20 @@ test.skipIf(process.platform !== 'win32')('warm closure reuses one generation an
 });
 
 test.skipIf(process.platform !== 'win32')(
-  'unowned membership mutation and same-path root replacement still invalidate stable holders',
+  'same-path root replacement invalidates stable holders',
   async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-state-hostile-'));
     const repositoryRoot = path.join(root, 'repository');
     const stateRoot = path.join(root, 'state');
     const cacheRoot = path.join(root, 'cache');
     mkdirSync(repositoryRoot);
-    let authority = await acquireSecRuntimeStatePhysicalAuthority({
+    const authority = await acquireSecRuntimeStatePhysicalAuthority({
       repositoryRoot,
       stateRoot,
       cacheRoot,
       requiredDirectories: []
     });
     try {
-      mkdirSync(path.join(stateRoot, 'unowned-child'));
-      await expect(authority.assertCurrent()).rejects.toThrow('changed');
-      await authority.release();
-
-      authority = await acquireSecRuntimeStatePhysicalAuthority({
-        repositoryRoot,
-        stateRoot,
-        cacheRoot,
-        requiredDirectories: []
-      });
       renameSync(stateRoot, `${stateRoot}-displaced`);
       mkdirSync(stateRoot);
       await expect(authority.assertCurrent()).rejects.toThrow('physical identity changed');

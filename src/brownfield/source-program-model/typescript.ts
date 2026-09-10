@@ -2125,7 +2125,7 @@ function compileExactFactGenerationForCachedModel(
         // their stable public span is deliberately the exported name token.
         // Rebind that token to its semantic declaration node without widening
         // any other child token into a declaration candidate.
-        const declarationNode = ts.isExportSpecifier(node.parent)
+        const declarationNode = node.parent !== undefined && ts.isExportSpecifier(node.parent)
           && node.parent.name === node
           ? node.parent
           : node;
