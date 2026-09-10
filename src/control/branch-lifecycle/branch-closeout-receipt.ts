@@ -1380,50 +1380,6 @@ export function parseBranchCloseoutOperationPublicationComment(
   return publication;
 }
 
-function operationPublicationInComments(
-  repositoryRoot: string,
-  repository: string,
-  comments: readonly IssueCommentRecord[],
-  publication: BranchCloseoutOperationPublication
-): { exact: IssueCommentRecord | null; failure: string | null } {
-  const sameOperation: Array<{ comment: IssueCommentRecord; publication: BranchCloseoutOperationPublication }> = [];
-  for (const comment of comments) {
-    if (!comment.body.includes(BRANCH_CLOSEOUT_OPERATION_RECEIPT_COMMENT_MARKER)) continue;
-    if (!hostedPublisherMatches(comment)) return { exact: null,
-      failure: `operation receipt comment ${comment.id} has the wrong app provenance` };
-    try {
-      const parsed = parseBranchCloseoutOperationPublicationComment(comment.body);
-      if (parsed?.closeoutOperationId === publication.closeoutOperationId) {
-        assertHostedCommentProvenanceLive(repositoryRoot, repository, comment, parsed.provenance);
-        sameOperation.push({ comment, publication: parsed });
-      }
-    } catch (error) {
-      return {
-        exact: null,
-        failure: `operation receipt comment ${comment.id} is invalid: ${error instanceof Error ? error.message : String(error)}`
-      };
-    }
-  }
-  if (sameOperation.some(({ publication: observed }) => (
-    observed.publicationDigest !== publication.publicationDigest
-  ))) {
-    return { exact: null, failure: 'same closeout operation has a different published payload' };
-  }
-  if (sameOperation.length > 1) {
-    return { exact: null, failure: 'duplicate comments exist for one closeout operation' };
-  }
-  if (sameOperation[0] !== undefined) {
-    try {
-      assertEffectStartReferenceInComments(repositoryRoot, repository, comments,
-        sameOperation[0].publication);
-    } catch (error) {
-      return { exact: null,
-        failure: error instanceof Error ? error.message : String(error) };
-    }
-  }
-  return { exact: sameOperation[0]?.comment ?? null, failure: null };
-}
-
 function assertEffectStartReferenceInComments(
   repositoryRoot: string,
   repository: string,

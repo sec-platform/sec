@@ -16,11 +16,12 @@ import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../
 import {
   classifyTrustedLocalMainHealthObservationFailure,
   issueTrustedRuntimeMainHealthAuthorityV2,
+  observeCanonicalMainHealthForDocumentControlTestingV2,
+  observeCanonicalMainHealthForPublication,
   observeCanonicalMainHealthForRepairTestingV2,
   observeCanonicalMainHealthForRepairV1,
   observeCanonicalMainHealthForWorkSelectionTestingV2,
   observeMainHealthGitHubDefaultBranchSha,
-  reconcileCanonicalMainHealthProviderConflict,
   reconcileCanonicalMainHealthProviderConflictTestingV2,
   resolveWorkSelectionMainHealthProviders,
 } from '../../src/control/main-health/work-selection-main-health.ts';
@@ -103,6 +104,7 @@ test('production MainHealth entrypoints consume exact local evidence when hosted
     let mutateStatusPage2OnRead: number | null = null;
     const requestLog: string[] = [];
     const runId = '33109458351';
+    let hostedRunId = runId;
     const operationId = createCiMainHealthRequestOperationId(MAIN);
     const workflowRun = {
       id: Number(runId),
@@ -116,12 +118,12 @@ test('production MainHealth entrypoints consume exact local evidence when hosted
       requestLog.push(`${init?.method ?? 'GET'} ${url}`);
       if (url.includes(`/commits/${MAIN}/check-runs?`)) {
         const matchingCheck: Record<string, unknown> = {
-          id: Number(runId),
+          id: Number(hostedRunId),
           name: CI_MAIN_HEALTH_POLICY.context,
           status: 'completed',
           conclusion: hostedConclusion,
           head_sha: MAIN,
-          details_url: `https://github.com/sec-platform/sec/actions/runs/${runId}`,
+          details_url: `https://github.com/sec-platform/sec/actions/runs/${hostedRunId}`,
           app: {
             id: CI_MAIN_HEALTH_POLICY.app.id,
             node_id: CI_MAIN_HEALTH_POLICY.app.nodeId,
@@ -129,7 +131,7 @@ test('production MainHealth entrypoints consume exact local evidence when hosted
           }
         };
         const noiseChecks: Record<string, unknown>[] = Array.from({ length: 100 }, (_, index) => ({
-          id: Number(runId) + index + 1,
+          id: Number(hostedRunId) + index + 1,
           name: 'unrelated-check',
           status: 'completed',
           conclusion: 'success',
@@ -155,7 +157,9 @@ test('production MainHealth entrypoints consume exact local evidence when hosted
           check_runs: pageChecks
         });
       }
-      if (url.includes(`/actions/runs/${runId}`)) return Response.json(workflowRun);
+      if (url.includes(`/actions/runs/${hostedRunId}`)) {
+        return Response.json({ ...workflowRun, id: Number(hostedRunId) });
+      }
       if (url.includes('/git/ref/heads/main')) {
         return Response.json({ object: { sha: MAIN } });
       }
@@ -245,6 +249,10 @@ test('production MainHealth entrypoints consume exact local evidence when hosted
     })).rejects.toThrow('not bound to this repository/effect');
     await expect(withGitHubApiTestSession({
       capability: readCapability,
+      operation: () => observeCanonicalMainHealthForPublication(input)
+    })).rejects.toThrow('not bound to this repository/effect');
+    await expect(withGitHubApiTestSession({
+      capability: readCapability,
       operation: () => observeMainHealthGitHubDefaultBranchSha({
         repositoryRoot,
         repository: 'sec-platform/sec',
@@ -275,7 +283,41 @@ test('production MainHealth entrypoints consume exact local evidence when hosted
     expect(await observeWith(input, () =>
       observeCanonicalMainHealthForRepairTestingV2(input)))
       .toMatchObject({ status: 'blocked', routingState: 'ordinary-only' });
+    const jointWorkflowReadsBefore = requestLog
+      .filter((entry) => entry.includes(`/actions/runs/${runId}`)).length;
+    const documentControlObservation = await observeWith(input, () =>
+      observeCanonicalMainHealthForDocumentControlTestingV2(input));
+    const jointWorkflowReadsAfter = requestLog
+      .filter((entry) => entry.includes(`/actions/runs/${runId}`)).length;
+    expect(documentControlObservation).toMatchObject({
+      projection: { state: 'healthy' },
+      repairDecision: {
+        status: 'blocked',
+        routingState: 'ordinary-only',
+        reasonCode: 'repair-lane-ineligible'
+      }
+    });
+    expect(documentControlObservation.stableDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+    expect(jointWorkflowReadsAfter - jointWorkflowReadsBefore).toBe(2);
+    const secondDocumentControlObservation = await observeWith(input, () =>
+      observeCanonicalMainHealthForDocumentControlTestingV2(input));
+    expect(secondDocumentControlObservation.stableDigest)
+      .toBe(documentControlObservation.stableDigest);
+
+    hostedRunId = '33109458352';
+    const changedProvenanceObservation = await observeWith(input, () =>
+      observeCanonicalMainHealthForDocumentControlTestingV2(input));
+    expect(changedProvenanceObservation.projection)
+      .toEqual(secondDocumentControlObservation.projection);
+    expect(changedProvenanceObservation.stableDigest)
+      .not.toBe(secondDocumentControlObservation.stableDigest);
+    hostedRunId = runId;
+
     hostedConclusion = 'failure';
+    const changedHealthObservation = await observeWith(input, () =>
+      observeCanonicalMainHealthForDocumentControlTestingV2(input));
+    expect(changedHealthObservation.stableDigest)
+      .not.toBe(secondDocumentControlObservation.stableDigest);
     expect((await observeWith(input, () =>
       observeCanonicalMainHealthForWorkSelectionTestingV2(input))).state).toBe('unresolved');
     expect(await observeWith(input, () =>

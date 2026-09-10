@@ -69,6 +69,7 @@ function compileWorkspaceGitStatusOperation(input: Readonly<{
     }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: WORKSPACE_GIT_STATUS_DURATION_MS },
+      { resource: 'input-bytes', maximum: 0 },
       {
         resource: 'output-bytes',
         maximum: WORKSPACE_GIT_STATUS_STDOUT_MAX_BYTES + WORKSPACE_GIT_STATUS_STDERR_MAX_BYTES

@@ -4,9 +4,9 @@ import { uniqueSorted } from '../../system-architecture/foundation/runtime/canon
 import { srcRelativePath } from '../../workspace/runtime/paths.ts';
 import { platformCommand } from './contract/command.ts';
 
-export const ERROR_PROTOCOL_CONTRACT_STATUS_ACTIVE = 'active' as const;
+const ERROR_PROTOCOL_CONTRACT_STATUS_ACTIVE = 'active' as const;
 
-export type ErrorProtocolExample = {
+type ErrorProtocolExample = {
   id: string;
   input: {
     code?: string;

@@ -10,11 +10,16 @@ import {
 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { parseExactJson } from '../../system-architecture/foundation/runtime/exact-json.ts';
 import { normalizeSecRepositoryPath } from '../../system-architecture/repository-modules/contract.ts';
-import type { SourceProgramModel, SourceProgramReference } from './contract.ts';
+import type {
+  SourceProgramEntrypointKind,
+  SourceProgramModel,
+  SourceProgramReference
+} from './contract.ts';
 import {
   assertRepositoryCompilationGenerationReceipt,
   type RepositoryCompilationGenerationReceipt
 } from './repository-compilation-cache.ts';
+import { isCompiledRepositorySourceProgramModel } from './repository.ts';
 import {
   workspaceSourceSnapshotIdentityForTestObservations,
   type SourceProgramTestObservations
@@ -31,7 +36,7 @@ import {
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 const COMMIT_SHA = /^[0-9a-f]{40,64}$/u;
 const PURPOSE = 'test-impact-selection' as const;
-const SCHEMA = 'sec-source-program-test-impact-projection-v2' as const;
+const SCHEMA = 'sec-source-program-test-impact-projection-v5' as const;
 
 const digestSchema = z.string().regex(DIGEST);
 const repositoryPathSchema = z.string().min(1).refine(
@@ -77,6 +82,10 @@ const fileSchema = z.object({
   moduleId: z.string().min(1).nullable(),
   surface: z.enum(['production', 'test', 'fixture', 'workflow', 'resource'])
 }).strict();
+const moduleOwnerSchema = z.object({
+  moduleId: z.string().min(1),
+  root: repositoryPathSchema
+}).strict();
 const moduleReferenceSchema = z.object({
   from: repositoryPathSchema,
   kind: z.enum(['static', 'dynamic', 'require']),
@@ -90,6 +99,22 @@ const semanticReferenceSchema = z.object({
   moduleSpecifier: z.string().nullable(),
   targetPath: repositoryPathSchema.nullable(),
   precise: z.boolean()
+}).strict();
+const entrypointSchema = z.object({
+  path: repositoryPathSchema,
+  targetPaths: z.array(repositoryPathSchema),
+  kind: z.enum([
+    'package-script',
+    'package-bin',
+    'cli-command',
+    'module-entrypoint',
+    'git-hook',
+    'workflow'
+  ] satisfies readonly SourceProgramEntrypointKind[])
+}).strict();
+const observedTestConsumerSchema = z.object({
+  targetPath: repositoryPathSchema,
+  testPath: repositoryPathSchema
 }).strict();
 
 const projectionUnsignedSchema = z.object({
@@ -105,8 +130,12 @@ const projectionUnsignedSchema = z.object({
   projectGenerationDigest: digestSchema.nullable(),
   projectGenerationReceiptDigest: digestSchema.nullable(),
   productionModelDigest: digestSchema,
+  repositoryModelDigest: digestSchema,
   testObservationDigest: digestSchema,
   files: z.array(fileSchema),
+  moduleOwners: z.array(moduleOwnerSchema),
+  entrypoints: z.array(entrypointSchema),
+  observedTestConsumers: z.array(observedTestConsumerSchema),
   declarationPaths: z.array(repositoryPathSchema),
   moduleGraph: z.object({
     files: z.array(repositoryPathSchema),
@@ -156,6 +185,12 @@ function semanticReferenceKey(reference: z.infer<typeof semanticReferenceSchema>
   return `${reference.path}\0${reference.moduleSpecifier ?? ''}\0${reference.targetPath ?? ''}\0${reference.precise}`;
 }
 
+function observedTestConsumerKey(
+  consumer: z.infer<typeof observedTestConsumerSchema>
+): string {
+  return `${consumer.targetPath}\0${consumer.testPath}`;
+}
+
 function assertUniqueSorted(values: readonly string[], label: string): void {
   for (let index = 1; index < values.length; index += 1) {
     if (compareCodeUnits(values[index - 1]!, values[index]!) >= 0) {
@@ -166,10 +201,50 @@ function assertUniqueSorted(values: readonly string[], label: string): void {
 
 function validateCanonicalProjection(value: TestImpactProjectionReceipt): void {
   assertUniqueSorted(value.files.map((file) => file.path), 'Test impact projection files');
+  assertUniqueSorted(
+    value.moduleOwners.map(({ root, moduleId }) => `${root}\0${moduleId}`),
+    'Test impact projection module owners'
+  );
+  const moduleOwnerIds = value.moduleOwners.map(({ moduleId }) => moduleId);
+  if (new Set(moduleOwnerIds).size !== moduleOwnerIds.length) {
+    throw new Error('Test impact projection module owner ids must be unique');
+  }
+  const moduleOwnerIdSet = new Set(moduleOwnerIds);
+  const unknownModuleOwner = value.files.find(({ moduleId }) => (
+    moduleId !== null && !moduleOwnerIdSet.has(moduleId)
+  ));
+  if (unknownModuleOwner !== undefined) {
+    throw new Error(`Test impact projection file has an unknown module owner: ${unknownModuleOwner.path}`);
+  }
+  assertUniqueSorted(
+    value.entrypoints.map(({ path: entrypointPath, kind }) => `${entrypointPath}\0${kind}`),
+    'Test impact projection entrypoints'
+  );
+  for (const entrypoint of value.entrypoints) {
+    assertUniqueSorted(entrypoint.targetPaths, 'Test impact entrypoint targets');
+  }
+  assertUniqueSorted(
+    value.observedTestConsumers.map(observedTestConsumerKey),
+    'Test impact observed test consumers'
+  );
   assertUniqueSorted(value.declarationPaths, 'Test impact declaration paths');
   assertUniqueSorted(value.moduleGraph.files, 'Test impact module graph files');
   assertUniqueSorted(value.moduleGraph.unresolvedFiles, 'Test impact unresolved module files');
   assertUniqueSorted(value.testFiles, 'Test impact test files');
+  const projectedPaths = new Set(value.files.map(({ path: projectedPath }) => projectedPath));
+  const projectedTestPaths = new Set(value.testFiles);
+  for (const entrypoint of value.entrypoints) {
+    const outsideTarget = entrypoint.targetPaths.find((targetPath) => !projectedPaths.has(targetPath));
+    if (outsideTarget !== undefined) {
+      throw new Error(`Test impact entrypoint target must stay within its snapshot: ${outsideTarget}`);
+    }
+  }
+  for (const consumer of value.observedTestConsumers) {
+    if (!projectedPaths.has(consumer.targetPath)
+        || !projectedTestPaths.has(consumer.testPath)) {
+      throw new Error('Test impact observed consumer must stay within its snapshot');
+    }
+  }
   for (const reference of value.moduleGraph.references) {
     assertUniqueSorted(reference.candidateTargets, 'Test impact reference candidate targets');
   }
@@ -183,14 +258,17 @@ function validateCanonicalProjection(value: TestImpactProjectionReceipt): void {
 
 function assertProjectionInputsIssued(input: Readonly<{
   workspaceSnapshot: WorkspaceSourceSnapshot;
+  repositoryModel: SourceProgramModel;
   typeScriptModel: SourceProgramModel;
   testObservations: SourceProgramTestObservations;
   projectGeneration?: RepositoryCompilationGenerationReceipt;
 }>): void {
-  const { workspaceSnapshot, typeScriptModel, testObservations, projectGeneration } = input;
+  const { workspaceSnapshot, repositoryModel, typeScriptModel, testObservations, projectGeneration } = input;
   assertWorkspaceSourceSnapshot(workspaceSnapshot);
   if (projectGeneration !== undefined) assertRepositoryCompilationGenerationReceipt(projectGeneration);
   if (workspaceSnapshot.moduleGraphCompilationCount !== 1
+      || !isCompiledRepositorySourceProgramModel(repositoryModel)
+      || repositoryModel.sourceRevision !== workspaceSnapshot.sourceRevision
       || typeScriptModel.sourceRevision !== workspaceSnapshot.sourceRevision
       || testObservations.sourceRevision !== workspaceSnapshot.sourceRevision
       || testObservations.productionModelDigest !== typeScriptModel.modelDigest
@@ -211,20 +289,52 @@ function assertProjectionInputsIssued(input: Readonly<{
 
 function compileTestImpactProjection(input: Readonly<{
   workspaceSnapshot: WorkspaceSourceSnapshot;
+  repositoryModel: SourceProgramModel;
   typeScriptModel: SourceProgramModel;
   testObservations: SourceProgramTestObservations;
   projectGeneration?: RepositoryCompilationGenerationReceipt;
 }>): TestImpactProjectionReceipt {
   assertProjectionInputsIssued(input);
-  const { workspaceSnapshot, typeScriptModel, testObservations } = input;
+  const { workspaceSnapshot, repositoryModel, typeScriptModel, testObservations } = input;
   const moduleGraph = workspaceSnapshot.moduleGraph;
+  const repositoryFilePaths = new Set(repositoryModel.files.map(({ path: repositoryPath }) => repositoryPath));
   const semanticReferenceMap = new Map<string, z.infer<typeof semanticReferenceSchema>>();
   for (const reference of [
-    ...typeScriptModel.references,
+    ...repositoryModel.references,
     ...testObservations.references
   ].sort(referenceOrder)) {
     const compact = compactReference(reference);
     semanticReferenceMap.set(semanticReferenceKey(compact), compact);
+  }
+  const observedTestConsumerMap = new Map<
+    string,
+    z.infer<typeof observedTestConsumerSchema>
+  >();
+  for (const { path: testPath, target: targetPath } of [
+    ...testObservations.productionSourceReads,
+    ...testObservations.resourceReads
+  ]) {
+    const consumer = Object.freeze({
+      targetPath: normalizeSecRepositoryPath(targetPath),
+      testPath: normalizeSecRepositoryPath(testPath)
+    });
+    observedTestConsumerMap.set(observedTestConsumerKey(consumer), consumer);
+  }
+  for (const { path: testPath, target: targetPath } of testObservations.localProgramInvocations) {
+    const consumer = Object.freeze({
+      targetPath: normalizeSecRepositoryPath(targetPath),
+      testPath: normalizeSecRepositoryPath(testPath)
+    });
+    observedTestConsumerMap.set(observedTestConsumerKey(consumer), consumer);
+  }
+  for (const registration of testObservations.registrations) {
+    for (const targetPath of registration.observedProductionPaths) {
+      const consumer = Object.freeze({
+        targetPath: normalizeSecRepositoryPath(targetPath),
+        testPath: normalizeSecRepositoryPath(registration.path)
+      });
+      observedTestConsumerMap.set(observedTestConsumerKey(consumer), consumer);
+    }
   }
   const unsigned: TestImpactProjectionUnsigned = {
     schema: SCHEMA,
@@ -239,11 +349,37 @@ function compileTestImpactProjection(input: Readonly<{
     projectGenerationDigest: input.projectGeneration?.generationDigest ?? null,
     projectGenerationReceiptDigest: input.projectGeneration?.receiptDigest ?? null,
     productionModelDigest: typeScriptModel.modelDigest as `sha256:${string}`,
+    repositoryModelDigest: repositoryModel.modelDigest as `sha256:${string}`,
     testObservationDigest: testObservations.observationDigest as `sha256:${string}`,
-    files: typeScriptModel.files
+    files: repositoryModel.files
       .map(({ path, moduleId, surface }) => ({ path, moduleId, surface }))
       .sort((left, right) => compareCodeUnits(left.path, right.path)),
-    declarationPaths: uniqueSorted(typeScriptModel.declarations.map(({ path }) => path)),
+    moduleOwners: workspaceSnapshot.moduleMembership.descriptors
+      .map(({ moduleId, root }) => ({
+        moduleId,
+        root: normalizeSecRepositoryPath(root)
+      }))
+      .sort((left, right) => compareCodeUnits(
+        `${left.root}\0${left.moduleId}`,
+        `${right.root}\0${right.moduleId}`
+      )),
+    entrypoints: [...new Map(repositoryModel.entrypoints.map(({ path: entrypointPath, targetPaths, kind }) => [
+      `${entrypointPath}\0${kind}`,
+      Object.freeze({
+        path: entrypointPath,
+        targetPaths: uniqueSorted(targetPaths.filter((targetPath) => repositoryFilePaths.has(targetPath))),
+        kind
+      })
+    ])).values()].sort((left, right) => compareCodeUnits(
+      `${left.path}\0${left.kind}`,
+      `${right.path}\0${right.kind}`
+    )),
+    observedTestConsumers: [...observedTestConsumerMap.values()]
+      .sort((left, right) => compareCodeUnits(
+        observedTestConsumerKey(left),
+        observedTestConsumerKey(right)
+      )),
+    declarationPaths: uniqueSorted(repositoryModel.declarations.map(({ path }) => path)),
     moduleGraph: {
       files: uniqueSorted(moduleGraph.files.map(normalizeSecRepositoryPath)),
       references: moduleGraph.references.map((reference) => ({
@@ -273,6 +409,7 @@ function compileTestImpactProjection(input: Readonly<{
 
 export function issueTestImpactProjection(input: Readonly<{
   workspaceSnapshot: PhysicalWorkspaceSourceSnapshot;
+  repositoryModel: SourceProgramModel;
   typeScriptModel: SourceProgramModel;
   testObservations: SourceProgramTestObservations;
   projectGeneration?: RepositoryCompilationGenerationReceipt;
@@ -286,6 +423,7 @@ export function issueTestImpactProjection(input: Readonly<{
 /** Unbound projection for codec and algorithm tests; never accepted by production providers. */
 export function compileVirtualTestImpactProjection(input: Readonly<{
   workspaceSnapshot: VirtualWorkspaceSourceSnapshot;
+  repositoryModel: SourceProgramModel;
   typeScriptModel: SourceProgramModel;
   testObservations: SourceProgramTestObservations;
   projectGeneration?: RepositoryCompilationGenerationReceipt;

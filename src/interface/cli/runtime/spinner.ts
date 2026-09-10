@@ -1,17 +1,10 @@
 import ora, { type Ora } from 'ora';
+import { withProgressLifecycle } from './progress-lifecycle.ts';
 
-export function createSpinner(text: string): Ora {
-  return ora({ text, spinner: 'dots' }).start();
+function unstartedSpinner(text: string): Ora {
+  return ora({ text, spinner: 'dots' });
 }
 
 export async function withSpinner<T>(text: string, fn: () => Promise<T>): Promise<T> {
-  const spinner = createSpinner(text);
-  try {
-    const result = await fn();
-    spinner.succeed(text);
-    return result;
-  } catch (error) {
-    spinner.fail(text);
-    throw error;
-  }
+  return withProgressLifecycle(text, () => unstartedSpinner(text), fn);
 }

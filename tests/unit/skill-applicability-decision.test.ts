@@ -6,7 +6,6 @@ import {
   isSecOperationKind,
   SEC_AGENT_SKILL_IDS,
   SEC_AGENT_SKILL_METADATA,
-  SEC_SKILL_APPLICABILITY_SCHEMA,
   type SecSkillApplicabilityEnvelope
 } from '../../src/control/agent/skill.ts';
 import { SEC_TASK_CAPSULE_REVISION } from '../../src/control/agent/task-capsule.ts';

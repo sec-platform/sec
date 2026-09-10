@@ -5,6 +5,7 @@ import {
   rawSha256,
   sha256
 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { parseExactJson } from '../../system-architecture/foundation/runtime/exact-json.ts';
 
 import {
   documentationRecordById,
@@ -189,16 +190,13 @@ function sortedUnique(values: readonly string[], label: string): readonly string
 function parseDirective(source: string, label: string): ClauseDirective {
   let raw: unknown;
   try {
-    raw = JSON.parse(source);
+    raw = parseExactJson(source, label, { rootObjectKeys: ['blocker', 'kind'] });
   } catch (error) {
     fail(`${label} must contain strict JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
-  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) fail(`${label} must be one object.`);
+  // The shared decoder owns exact JSON and the root shape. Clause meaning,
+  // blocker requirements and identity remain this compiler's decisions.
   const record = raw as Record<string, unknown>;
-  const keys = Object.keys(record).sort(compareCodeUnits);
-  if (keys.length !== 2 || keys[0] !== 'blocker' || keys[1] !== 'kind') {
-    fail(`${label} keys must be exactly blocker and kind.`);
-  }
   if (record.kind !== 'stable-decision'
       && record.kind !== 'temporary-safety-denial'
       && record.kind !== 'non-normative-explanation') {
@@ -423,7 +421,6 @@ export function compileDocumentationSemanticGraph(
   const sourceIds = input.sources.map(({ documentId }) => documentId);
   const expectedIds = records.map(({ id }) => id);
   if (new Set(sourceIds).size !== sourceIds.length
-      || sourceIds.some((id, index) => id !== [...sourceIds].sort(compareCodeUnits)[index])
       || sourceIds.length !== expectedIds.length
       || sourceIds.some((id, index) => id !== expectedIds[index])) {
     fail('sources must exactly match stable owning documents in canonical id order.');
@@ -485,6 +482,44 @@ export function compileDocumentationSemanticGraph(
   });
 }
 
+
+interface DocumentationGraphIndex {
+  readonly clausesById: ReadonlyMap<string, Readonly<{ clause: DocumentationClause; ordinal: number }>>;
+  readonly clausesByDocument: ReadonlyMap<string, readonly DocumentationClause[]>;
+  readonly factsByOwner: ReadonlyMap<string, readonly DocumentationAdmissionFact[]>;
+  readonly documentSelections: Map<string, DocumentationClauseSelectionReference>;
+}
+
+// Only immutable, owner-issued graphs acquire a derived index. Weak ownership
+// lets a retired graph and its index retire together. Maps never escape and do
+// not become another source of truth, issuer or caller-selected cache key.
+const documentationGraphIndexes = new WeakMap<DocumentationSemanticGraph, DocumentationGraphIndex>();
+
+function documentationGraphIndex(graph: DocumentationSemanticGraph): DocumentationGraphIndex {
+  assertIssuedDocumentationSemanticGraph(graph);
+  const existing = documentationGraphIndexes.get(graph);
+  if (existing !== undefined) return existing;
+  const clausesById = new Map<string, Readonly<{ clause: DocumentationClause; ordinal: number }>>();
+  const clausesByDocument = new Map<string, DocumentationClause[]>();
+  const factsByOwner = new Map<string, DocumentationAdmissionFact[]>();
+  for (const [ordinal, clause] of graph.clauses.entries()) {
+    clausesById.set(clause.id, { clause, ordinal });
+    const siblings = clausesByDocument.get(clause.documentId);
+    if (siblings === undefined) clausesByDocument.set(clause.documentId, [clause]);
+    else siblings.push(clause);
+  }
+  for (const fact of graph.admissionFacts) {
+    const siblings = factsByOwner.get(fact.ownerDocumentId);
+    if (siblings === undefined) factsByOwner.set(fact.ownerDocumentId, [fact]);
+    else siblings.push(fact);
+  }
+  const index: DocumentationGraphIndex = {
+    clausesById, clausesByDocument, factsByOwner, documentSelections: new Map()
+  };
+  documentationGraphIndexes.set(graph, index);
+  return index;
+}
+
 function canonicalSelection(selection: DocumentationViewSelection): DocumentationViewSelection {
   const kind = selection.kind;
   if (!['compact-agent', 'full-human', 'admission-obligation'].includes(kind)) {
@@ -506,36 +541,39 @@ export function compileDocumentationView(
   graph: DocumentationSemanticGraph,
   selectionInput: DocumentationViewSelection
 ): DocumentationView {
+  // Check the existing issuer before reading selection callbacks or using any
+  // graph data. A copied or deserialized graph is not an issued graph.
+  const index = documentationGraphIndex(graph);
   const selection = canonicalSelection(selectionInput);
-  const byId = new Map(graph.clauses.map((clause) => [clause.id, clause] as const));
   for (const clauseId of selection.clauseIds) {
-    if (!byId.has(clauseId as `clause:${string}`)) fail(`selection references unknown clause ${clauseId}.`);
+    if (!index.clausesById.has(clauseId)) fail(`selection references unknown clause ${clauseId}.`);
   }
   const selected = new Set<string>();
-  const addWithAncestors = (clause: DocumentationClause): void => {
-    selected.add(clause.id);
-    let parent = clause.parentClauseId === null ? undefined : byId.get(clause.parentClauseId);
-    while (parent !== undefined) {
-      selected.add(parent.id);
-      parent = parent.parentClauseId === null ? undefined : byId.get(parent.parentClauseId);
-    }
-  };
-  if (selection.kind === 'full-human') {
-    for (const clause of graph.clauses) selected.add(clause.id);
-  } else if (selection.kind === 'compact-agent') {
+  if (selection.kind === 'compact-agent') {
     for (const clauseId of selection.clauseIds) {
-      const clause = byId.get(clauseId as `clause:${string}`)!;
+      let clause: DocumentationClause | undefined = index.clausesById.get(clauseId)!.clause;
       if (clause.kind === 'untyped-observation') {
         fail(`compact-agent selection cannot include untyped clause ${clauseId}.`);
       }
-      addWithAncestors(clause);
+      // An already selected ancestor brings its complete ancestor chain; stop
+      // instead of revisiting it for every sibling in a large selection.
+      while (clause !== undefined && !selected.has(clause.id)) {
+        selected.add(clause.id);
+        clause = clause.parentClauseId === null
+          ? undefined : index.clausesById.get(clause.parentClauseId)!.clause;
+      }
     }
   }
-  const clauses = Object.freeze(graph.clauses.filter(({ id }) => selected.has(id)));
-  const ownerSet = new Set(selection.ownerDocumentIds);
-  const admissionFacts = Object.freeze(selection.kind === 'full-human'
-    ? [...graph.admissionFacts]
-    : graph.admissionFacts.filter(({ ownerDocumentId }) => ownerSet.has(ownerDocumentId)));
+  const clauses = selection.kind === 'full-human' ? graph.clauses : Object.freeze([...selected]
+    .map(id => index.clausesById.get(id)!)
+    .sort((left, right) => left.ordinal - right.ordinal)
+    .map(({ clause }) => clause));
+  // Graph clauses use source order, while admission facts use canonical id
+  // order. Selecting by an index must preserve both, not substitute Map order.
+  const admissionFacts = selection.kind === 'full-human' ? graph.admissionFacts : Object.freeze(
+    selection.ownerDocumentIds.flatMap(id => index.factsByOwner.get(id) ?? [])
+      .sort((left, right) => compareCodeUnits(left.id, right.id))
+  );
   const selectionDigest = sha256(selection) as `sha256:${string}`;
   const withoutBytesDigest = {
     schema: DOCUMENTATION_VIEW_SCHEMA,
@@ -560,9 +598,13 @@ export function projectDocumentationClauseSelection(
   graph: DocumentationSemanticGraph,
   documentIdInput: string
 ): DocumentationClauseSelectionReference {
+  const index = documentationGraphIndex(graph);
   const documentId = token(documentIdInput, 'documentId');
-  const clauses = Object.freeze(graph.clauses
-    .filter((clause) => clause.documentId === documentId && clause.kind !== 'untyped-observation')
+  const previous = index.documentSelections.get(documentId);
+  if (previous !== undefined) return previous;
+  const documentClauses = index.clausesByDocument.get(documentId) ?? [];
+  const clauses = Object.freeze(documentClauses
+    .filter((clause) => clause.kind !== 'untyped-observation')
     .map((clause) => Object.freeze({
       clauseId: clause.id,
       contentDigest: clause.contentDigest,
@@ -570,7 +612,7 @@ export function projectDocumentationClauseSelection(
       lineEnd: clause.lineEnd
     })));
   if (clauses.length === 0) fail(`document ${documentId} has no compiled clauses.`);
-  const sourceDigest = graph.clauses.find((clause) => clause.documentId === documentId)!.sourceDigest;
+  const sourceDigest = documentClauses[0]!.sourceDigest;
   const withoutSelectionDigest = {
     kind: 'markdown-clauses' as const,
     compilerInputDigest: graph.compilerInputDigest,
@@ -578,8 +620,12 @@ export function projectDocumentationClauseSelection(
     sourceDigest,
     clauses
   };
-  return deepFreeze({
+  const result = deepFreeze({
     ...withoutSelectionDigest,
     selectionDigest: sha256(withoutSelectionDigest) as `sha256:${string}`
   });
+  // Successful document selections only: capacity is bounded by documents in
+  // this graph, never by arbitrary caller strings or query combinations.
+  index.documentSelections.set(documentId, result);
+  return result;
 }

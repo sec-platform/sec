@@ -35,24 +35,30 @@ afterEach(() => {
   }
 });
 
-function fixture() {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'sec-content-cache-'));
-  temporaryRoots.push(root);
+function fixture(input: Readonly<{
+  deadlineMs?: number;
+  inputBytes?: number;
+  outputBytes?: number;
+  root?: string;
+}> = {}) {
+  const root = input.root ?? mkdtempSync(path.join(os.tmpdir(), 'sec-content-cache-'));
+  if (input.root === undefined) temporaryRoots.push(root);
   const repositoryRoot = path.join(root, 'repository');
-  mkdirSync(repositoryRoot);
+  if (input.root === undefined) mkdirSync(repositoryRoot);
   process.env.SEC_CACHE_HOME = path.join(root, 'cache');
   const requirementId = 'runtime-state.cache.fixture';
   const contractDigest = sha256({ requirementId }) as SecOperationDigest;
+  const deadlineMs = input.deadlineMs ?? 30_000;
   const operation = bindSecSemanticOperation(compileSecSemanticOperationPlan({
     operation: 'runtime-state.content-addressed-cache.fixture',
     intentDigest: sha256({ repositoryRoot }) as SecOperationDigest,
     decisionDigest: contractDigest,
-    deadlineAtUnixMs: Date.now() + 30_000,
+    deadlineAtUnixMs: Date.now() + deadlineMs,
     attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest }),
     aggregateBudgets: [
-      { resource: 'duration-ms', maximum: 30_000 },
-      { resource: 'input-bytes', maximum: 1024 },
-      { resource: 'output-bytes', maximum: 1024 },
+      { resource: 'duration-ms', maximum: deadlineMs },
+      { resource: 'input-bytes', maximum: input.inputBytes ?? 1024 },
+      { resource: 'output-bytes', maximum: input.outputBytes ?? 1024 },
       { resource: 'records', maximum: 32 }
     ],
     requirements: [{
@@ -79,6 +85,47 @@ function fixture() {
   });
   return { namespace, root, session };
 }
+
+test.serial('cache reads consume their admitted byte budget beyond the physical default leaf ceiling', () => {
+  const byteLength = 64 * 1024 * 1024 + 4096;
+  const value = fixture({
+    deadlineMs: 120_000,
+    inputBytes: byteLength + 1024,
+    outputBytes: byteLength * 2 + 2048
+  });
+  const bytes = Buffer.alloc(byteLength);
+  bytes[0] = 0x51;
+  bytes[bytes.length - 1] = 0x7a;
+  const key = sha256('large-cache-generation') as `sha256:${string}`;
+  const hint = value.namespace.open(key);
+  const publication = Object.freeze({
+    entries: [Object.freeze({ name: 'large.bin', bytes, digest: rawSha256(bytes) })],
+    predecessorToken: new Uint8Array()
+  });
+  expect(hint.publish(publication).status).toBe('hit');
+  const loaded = hint.loadExact();
+  expect(loaded.status).toBe('hit');
+  if (loaded.status !== 'hit') throw new Error('Expected exact large cache hit');
+  expect(loaded.entries[0]!.bytes.byteLength).toBe(byteLength);
+  expect(loaded.entries[0]!.digest).toBe(publication.entries[0]!.digest);
+});
+
+test.serial('cache rejects an exact generation larger than its read budget as corrupt cache', () => {
+  const value = fixture({ inputBytes: 4096, outputBytes: 4096 });
+  const key = sha256('over-budget-cache-generation') as `sha256:${string}`;
+  const hint = value.namespace.open(key);
+  hint.publish({ entries: [entry('payload.bin', 'x'.repeat(2048))], predecessorToken: new Uint8Array() });
+  value.session.close();
+  sessions.splice(sessions.indexOf(value.session), 1);
+  const constrained = fixture({ root: value.root }).namespace.open(key);
+  try {
+    constrained.loadExact();
+    throw new Error('Expected exact cache read budget rejection');
+  } catch (error) {
+    expect(error).toBeInstanceOf(ContentAddressedWorkspaceCacheError);
+    expect((error as ContentAddressedWorkspaceCacheError).kind).toBe('corrupt-cache');
+  }
+});
 
 function entry(name: string, source: string) {
   const bytes = new TextEncoder().encode(source);

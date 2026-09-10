@@ -1,6 +1,5 @@
 import type { SemanticAttribute, SemanticAttributeValue } from '../../semantic/engineering-ir/contract/entity-types.ts';
 import type { EvidenceReference, FactProvenance, SemanticFactObject, SemanticValue } from '../../semantic/engineering-ir/contract/fact-types.ts';
-import type { ScenarioDefinition } from '../../semantic/engineering-ir/contract/scenario-types.ts';
 import { compareCodeUnits, uniqueSorted, uniqueSortedByKey } from '../../system-architecture/foundation/runtime/canonical.ts';
 
 export { uniqueSorted };

@@ -9,7 +9,6 @@ import {
   selectTestsForSources,
   type CodexDevelopmentTestImpactSourceProvider
 } from './runtime/impact.ts';
-import type { CodexDevelopmentTestImpactTransitionObservation } from './runtime/transition.ts';
 
 export type CodexDevelopmentAffectedTestInventory = {
   changedFastTests: string[];
@@ -47,8 +46,7 @@ export function CodexDevelopmentAffectedInventoryInputs(
 
 export function CodexDevelopmentBuildAffectedTestInventory(
   files: readonly string[],
-  provider: CodexDevelopmentTestImpactSourceProvider,
-  transition?: CodexDevelopmentTestImpactTransitionObservation
+  provider: CodexDevelopmentTestImpactSourceProvider
 ): CodexDevelopmentAffectedTestInventory {
   const changedFastTests = uniqueSorted(files.filter(isFastTestFile));
   const changedSlowTests = uniqueSorted(files.filter(isSlowTestFile));

@@ -39,3 +39,24 @@ export function uniqueSortedLines(value: string): string[] {
 export function normalizeNewlines(value: string): string {
   return value.replace(/\r\n/g, '\n');
 }
+
+/** Own a stable map snapshot without exporting any mutator or its backing Map.
+ * Keys/values retain their identity; their immutability belongs to their owner.
+ */
+export function readonlyMapSnapshot<K, V>(source: Iterable<readonly [K, V]>): ReadonlyMap<K, V> {
+  const entries = new Map<K, V>(source);
+  const view: ReadonlyMap<K, V> = Object.freeze({
+    size: entries.size,
+    get: (key: K) => entries.get(key),
+    has: (key: K) => entries.has(key),
+    keys: () => entries.keys(),
+    values: () => entries.values(),
+    entries: () => entries.entries(),
+    [Symbol.iterator]: () => entries[Symbol.iterator](),
+    forEach: (callback: (value: V, key: K, map: ReadonlyMap<K, V>) => void, thisArg?: unknown) => {
+      if (typeof callback !== 'function') throw new TypeError('Readonly map callback must be callable');
+      entries.forEach((value, key) => Reflect.apply(callback, thisArg, [value, key, view]));
+    }
+  });
+  return view;
+}

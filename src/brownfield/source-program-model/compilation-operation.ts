@@ -9,6 +9,13 @@ export type SourceProgramCompilationPhase =
   | 'semantic-observations'
   | 'fact-shard-assembly'
   | 'test-observations'
+  | 'baseline-test-evidence'
+  | 'test-value'
+  | 'owner-intent'
+  | 'supersession-evidence'
+  | 'supersession-receipt'
+  | 'test-retirement'
+  | 'reduction-plan'
   | 'repository-projection'
   | 'cache-publish'
   | 'settlement';

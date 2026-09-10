@@ -1,12 +1,14 @@
 import { Buffer } from 'node:buffer';
 import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { pipelineStageBoundary } from '../pipeline/execution-boundaries.ts';
 
 import type { ExplainGraph } from '../../semantic/projection/contract/explain.ts';
 import type { ProvenanceFile } from '../../semantic/provenance/contract/types.ts';
-import { compareCodeUnits, rawSha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { rawSha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { assertCanonicalVerificationArtifactSet } from '../../verification/artifact/contract/artifact.ts';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
-import type { VerificationLane, VerificationReport } from '../../verification/contract/types.ts';
+import type { VerificationReport } from '../../verification/contract/types.ts';
 import { validateReviewSummary } from '../../verification/review/contract/summary.ts';
 import { type ReviewSummary } from '../../verification/review/contract/types.ts';
 import { formatJsonFile } from '../../workspace/files.ts';
@@ -26,9 +28,12 @@ import {
   buildSemanticViewSummary
 } from '../emit/write-review-summary.ts';
 import { readLockFile } from '../lock.ts';
+import { bindPipelineCompileRequest, type PipelineCompileRequest } from '../pipeline/invocation.ts';
 import { emitPipelineExecutionBoundary } from '../pipeline/journal.ts';
 import { withPipelineTransaction } from '../pipeline/kernel.ts';
+import { withLeaseObservationMonitor } from '../pipeline/lease-monitor.ts';
 import { getPipelineStageDefinition } from '../pipeline/pass-registry.ts';
+import { capturePipelineProofRecord, samePipelineSequence } from '../pipeline/proof-data.ts';
 import { requirePipelineSemanticContext } from '../pipeline/semantic-context.ts';
 import {
   PIPELINE_COMPLETION_PROOF_REVISION,
@@ -37,7 +42,6 @@ import {
   type PipelineCompletionProof,
   type PipelineEventHandler,
   type PipelineSemanticContext,
-  type PipelineSource,
   type PipelineStageId
 } from '../pipeline/types.ts';
 import { buildAcceptanceCoverage } from '../verify/build-acceptance-coverage.ts';
@@ -55,14 +59,9 @@ import {
   type StagedVerificationProof
 } from './verify-orchestrator.ts';
 
-const PIPELINE_LEASE_MONITOR_INTERVAL_MS = 250;
 const PIPELINE_PENDING_TRANSACTION_ID = 'tx:pending';
 
-export interface CompileWorkspaceOptions {
-  source?: PipelineSource;
-  from?: PipelineStageId;
-  through?: PipelineStageId;
-  verificationLane?: VerificationLane;
+export interface CompileWorkspaceOptions extends PipelineCompileRequest {
   onEvent?: PipelineEventHandler;
   isolatedVerificationCapability?: IsolatedVerificationCapability;
   stagedVerificationProof?: StagedVerificationProof;
@@ -74,34 +73,10 @@ export async function withMonitoredWorkspaceWriteLease<T>(
   workspaceWriteLease: WorkspaceWriteLeaseToken,
   callback: (signal: AbortSignal) => Promise<T>
 ): Promise<T> {
-  const controller = new AbortController();
-  let checkingLease = false;
-  let leaseFailure: unknown;
-  const checkLease = (): void => {
-    if (checkingLease || leaseFailure !== undefined) return;
-    checkingLease = true;
-    void assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease)
-      .catch((error: unknown) => {
-        leaseFailure = error;
-        controller.abort();
-      })
-      .finally(() => {
-        checkingLease = false;
-      });
-  };
-  const monitor = setInterval(checkLease, PIPELINE_LEASE_MONITOR_INTERVAL_MS);
-  try {
-    await assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease);
-    const result = await callback(controller.signal);
-    await assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease);
-    if (leaseFailure !== undefined) throw leaseFailure;
-    return result;
-  } catch (error) {
-    if (leaseFailure !== undefined) throw leaseFailure;
-    throw error;
-  } finally {
-    clearInterval(monitor);
-  }
+  const root = path.resolve(workspaceRoot);
+  return withLeaseObservationMonitor(
+    () => assertWorkspaceWriteLease(root, workspaceWriteLease), callback
+  );
 }
 
 export interface CompileWorkspaceResult {
@@ -211,9 +186,6 @@ function assertExactArtifactBytes(label: string, actual: Uint8Array, expectedTex
   }
 }
 
-function sameOrderedValues(left: readonly unknown[], right: readonly unknown[]): boolean {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
-}
 
 function completionPassClosure(): PassId[] {
   const seen = new Set<PassId>();
@@ -224,20 +196,6 @@ function completionPassClosure(): PassId[] {
   });
 }
 
-function assertExactKeys(
-  value: unknown,
-  expected: readonly string[],
-  label: string
-): asserts value is Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(`${label} must be an object with the exact schema`);
-  }
-  const actualKeys = Object.keys(value).sort(compareCodeUnits);
-  const expectedKeys = [...expected].sort(compareCodeUnits);
-  if (!sameOrderedValues(actualKeys, expectedKeys)) {
-    throw new Error(`${label} does not match the exact schema`);
-  }
-}
 
 function assertNonEmptyString(value: unknown, label: string): asserts value is string {
   if (typeof value !== 'string' || value.length === 0) {
@@ -282,7 +240,7 @@ function assertSemanticBindings(proof: PipelineCompletionProof, evidence: Pipeli
   ) {
     throw new Error('Pipeline completion proof does not bind the completed semantic transaction');
   }
-  if (!sameOrderedValues(evidence.completedStages, PIPELINE_STAGE_IDS)) {
+  if (!samePipelineSequence(evidence.completedStages, PIPELINE_STAGE_IDS)) {
     throw new Error('Pipeline completion evidence does not contain the registry-owned stage closure');
   }
   if (
@@ -292,13 +250,24 @@ function assertSemanticBindings(proof: PipelineCompletionProof, evidence: Pipeli
     throw new Error('Pipeline completion Lock does not bind the completed semantic views');
   }
 
+  type LoweringTask = NonNullable<LockFile['semanticLoweringTasks']>[number];
+  const loweringById = new Map<string, Map<string, { record: LoweringTask; count: number }>>();
+  for (const record of evidence.lock.semanticLoweringTasks ?? []) {
+    let byTarget = loweringById.get(record.id);
+    if (!byTarget) { byTarget = new Map(); loweringById.set(record.id, byTarget); }
+    const found = byTarget.get(record.target);
+    if (found) found.count++;
+    else byTarget.set(record.target, { record, count: 1 });
+  }
   for (const task of semantic.generatorPlan.tasks) {
     if (task.inputRevision !== proof.inputRevision || task.semanticRevision !== proof.semanticRevision) {
       throw new Error(`Semantic Generator task "${task.id}" has stale proof revisions`);
     }
-    const lockTask = evidence.lock.semanticLoweringTasks?.find(
-      (candidate) => candidate.id === task.id && candidate.target === task.target
-    );
+    const matched = loweringById.get(task.id)?.get(task.target);
+    if (matched !== undefined && matched.count !== 1) {
+      throw new Error(`Semantic Generator task "${task.id}" has ambiguous Lock bindings`);
+    }
+    const lockTask = matched?.record;
     const binding = lockTask?.artifactBinding;
     if (
       !lockTask ||
@@ -340,8 +309,19 @@ function assertDerivativeBindings(proof: PipelineCompletionProof, evidence: Pipe
       throw new Error(`Provenance artifact "${artifact.path}" has a stale semantic revision`);
     }
   }
+  type Artifact = ProvenanceFile['artifacts'][number];
+  const artifactsByPath = new Map<string, { record: Artifact; count: number }>();
+  for (const record of evidence.provenance.artifacts) {
+    const found = artifactsByPath.get(record.path);
+    if (found) found.count++;
+    else artifactsByPath.set(record.path, { record, count: 1 });
+  }
   for (const task of evidence.semanticContext.generatorPlan.tasks) {
-    const artifact = evidence.provenance.artifacts.find((candidate) => candidate.path === task.target);
+    const matched = artifactsByPath.get(task.target);
+    if (matched !== undefined && matched.count !== 1) {
+      throw new Error(`Provenance artifact for Semantic Generator task "${task.id}" is ambiguous`);
+    }
+    const artifact = matched?.record;
     if (
       !artifact ||
       artifact.generatorTaskId !== task.id ||
@@ -382,8 +362,7 @@ export function assertPipelineCompletionProofInvariant(
   value: unknown,
   evidence?: PipelineCompletionProofEvidence
 ): asserts value is PipelineCompletionProof {
-  assertExactKeys(value, PIPELINE_COMPLETION_PROOF_KEYS, 'Pipeline completion proof');
-  const proof = value as unknown as PipelineCompletionProof;
+  const proof = capturePipelineProofRecord(value, PIPELINE_COMPLETION_PROOF_KEYS, 'Pipeline completion proof') as unknown as PipelineCompletionProof;
   if (proof.formatRevision !== PIPELINE_COMPLETION_PROOF_REVISION) {
     throw new Error('Pipeline completion proof has an unsupported format revision');
   }
@@ -397,10 +376,10 @@ export function assertPipelineCompletionProofInvariant(
   assertDigest(proof.proofRevision, 'Pipeline completion proofRevision');
 
   const expectedPasses = completionPassClosure();
-  if (!Array.isArray(proof.completedStages) || !sameOrderedValues(proof.completedStages, PIPELINE_STAGE_IDS)) {
+  if (!Array.isArray(proof.completedStages) || !samePipelineSequence(proof.completedStages, PIPELINE_STAGE_IDS)) {
     throw new Error('Pipeline completion proof does not contain the registry-owned stage closure');
   }
-  if (!Array.isArray(proof.completedPasses) || !sameOrderedValues(proof.completedPasses, expectedPasses)) {
+  if (!Array.isArray(proof.completedPasses) || !samePipelineSequence(proof.completedPasses, expectedPasses)) {
     throw new Error('Pipeline completion proof does not contain the registry-owned pass closure');
   }
   const expectedProofRevision = proofJsonDigest({
@@ -449,7 +428,7 @@ export async function buildPipelineCompletionProof(
   workspaceRoot: string,
   stageEvidence: PipelineCompletionProofStageEvidence
 ): Promise<PipelineCompletionProof | undefined> {
-  if (!sameOrderedValues(stageEvidence.completedStages, PIPELINE_STAGE_IDS)) return undefined;
+  if (!samePipelineSequence(stageEvidence.completedStages, PIPELINE_STAGE_IDS)) return undefined;
   const {
     semanticContext,
     lock: stageLock,
@@ -564,50 +543,45 @@ export async function buildPipelineCompletionProof(
   });
 }
 
-function selectStages(options: CompileWorkspaceOptions): PipelineStageId[] {
-  const fromIndex = options.from ? PIPELINE_STAGE_IDS.indexOf(options.from) : 0;
-  const throughIndex = options.through
-    ? PIPELINE_STAGE_IDS.indexOf(options.through)
-    : PIPELINE_STAGE_IDS.length - 1;
-
-  if (fromIndex < 0 || throughIndex < 0 || fromIndex > throughIndex) {
-    throw new Error(`Invalid pipeline stage range: ${options.from ?? PIPELINE_STAGE_IDS[0]} -> ${options.through ?? PIPELINE_STAGE_IDS.at(-1)}`);
-  }
-  const selected = PIPELINE_STAGE_IDS.slice(fromIndex, throughIndex + 1);
-  const semanticIndex = PIPELINE_STAGE_IDS.indexOf('semantic');
-  return fromIndex > semanticIndex ? ['semantic', ...selected] : selected;
-}
-
 export async function compileWorkspace(
   workspaceRoot = process.cwd(),
   options: CompileWorkspaceOptions = {}
 ): Promise<CompileWorkspaceResult> {
-  const stages = selectStages(options);
-  if (options.isolatedVerificationCapability) {
-    assertIsolatedVerificationCapability(workspaceRoot, options.isolatedVerificationCapability);
+  workspaceRoot = path.resolve(workspaceRoot);
+  const request = bindPipelineCompileRequest(options);
+  const { onEvent, isolatedVerificationCapability, stagedVerificationProof, workspaceWriteLease: requestedLease } = options;
+  if (onEvent !== undefined && typeof onEvent !== 'function') {
+    throw new TypeError('Pipeline event handler must be callable');
+  }
+  // Capture capability identities before any callback or await. This snapshot
+  // grants nothing: existing capability, lease and proof owners still validate.
+  const bindings = Object.freeze({ onEvent, isolatedVerificationCapability, stagedVerificationProof, requestedLease });
+  const { stages } = request;
+  if (bindings.isolatedVerificationCapability) {
+    assertIsolatedVerificationCapability(workspaceRoot, bindings.isolatedVerificationCapability);
   }
   await emitPipelineExecutionBoundary(
-    options.onEvent,
+    bindings.onEvent,
     PIPELINE_PENDING_TRANSACTION_ID,
     'pipeline-lease-bind'
   );
-  return withWorkspaceWriteLease(workspaceRoot, options.workspaceWriteLease, async (workspaceWriteLease) => {
+  return withWorkspaceWriteLease(workspaceRoot, bindings.requestedLease, async (workspaceWriteLease) => {
     await emitPipelineExecutionBoundary(
-      options.onEvent,
+      bindings.onEvent,
       PIPELINE_PENDING_TRANSACTION_ID,
       'pipeline-lease-bound'
     );
     return withMonitoredWorkspaceWriteLease(workspaceRoot, workspaceWriteLease, async (leaseSignal) => {
       await emitPipelineExecutionBoundary(
-        options.onEvent,
+        bindings.onEvent,
         PIPELINE_PENDING_TRANSACTION_ID,
         'pipeline-transaction-bootstrap'
       );
       return withPipelineTransaction(
       workspaceRoot,
-      options.source ?? 'api',
+      request.source,
       stages,
-      options.onEvent,
+      bindings.onEvent,
       async (context) => {
         let plan: PlanFile | undefined;
         let verificationReport: VerificationReport | undefined;
@@ -618,43 +592,42 @@ export async function compileWorkspace(
         let semanticContext: PipelineSemanticContext | undefined;
         const completedStages: PipelineStageId[] = [];
 
-        for (const stage of stages) {
-          await assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease);
-          await emitPipelineExecutionBoundary(
-            context.onEvent,
-            context.transactionId,
-            `pipeline-${stage}`
-          );
-          if (stage === 'resolve') {
+        const executeStage: Readonly<Record<PipelineStageId, () => Promise<void>>> = Object.freeze({
+          resolve: async () => {
             const result = await resolveWorkspace(workspaceRoot, context);
             plan = result.plan;
-          } else if (stage === 'semantic') {
+          },
+          semantic: async () => {
             semanticContext = await runWorkspaceSemanticFrontend(workspaceRoot, context);
-          } else if (stage === 'compose') {
+          },
+          compose: async () => {
             requirePipelineSemanticContext(context);
             const result = await composeWorkspace(workspaceRoot, { signal: leaseSignal }, context);
             plan = result.plan;
-          } else if (stage === 'verify') {
+          },
+          verify: async () => {
             requirePipelineSemanticContext(context);
             const result = await verifyWorkspace(
               workspaceRoot,
               {
-                lane: options.verificationLane ?? 'all',
+                lane: request.verificationLane,
                 signal: leaseSignal,
-                ...(options.stagedVerificationProof
-                  ? { stagedVerificationProof: options.stagedVerificationProof }
+                ...(bindings.stagedVerificationProof
+                  ? { stagedVerificationProof: bindings.stagedVerificationProof }
                   : {}),
-                ...(options.isolatedVerificationCapability
-                  ? { isolatedVerificationCapability: options.isolatedVerificationCapability }
+                ...(bindings.isolatedVerificationCapability
+                  ? { isolatedVerificationCapability: bindings.isolatedVerificationCapability }
                   : {})
               },
               context
             );
             verificationReport = result.report;
-          } else if (stage === 'lock') {
+          },
+          lock: async () => {
             requirePipelineSemanticContext(context);
             await lockWorkspace(workspaceRoot, context);
-          } else if (stage === 'emit') {
+          },
+          emit: async () => {
             requirePipelineSemanticContext(context);
             const result = await explainWorkspace(workspaceRoot, context);
             emittedLock = result.lock;
@@ -662,6 +635,11 @@ export async function compileWorkspace(
             explainGraph = result.graph;
             reviewSummary = result.reviewSummary;
           }
+        });
+        for (const stage of stages) {
+          await assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease);
+          await emitPipelineExecutionBoundary(context.onEvent, context.transactionId, pipelineStageBoundary(stage));
+          await executeStage[stage]();
           completedStages.push(stage);
         }
 
@@ -679,7 +657,7 @@ export async function compileWorkspace(
             reviewSummary
           }
         );
-        if (options.stagedVerificationProof) {
+        if (bindings.stagedVerificationProof) {
           await assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease);
           const verificationArtifacts = {
             verificationReport: await readCanonicalJsonArtifact<unknown>(
@@ -704,7 +682,7 @@ export async function compileWorkspace(
             workspaceRoot,
             lock,
             verificationArtifacts,
-            options.stagedVerificationProof
+            bindings.stagedVerificationProof
           );
           await assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease);
         }

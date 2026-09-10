@@ -1,29 +1,34 @@
-import { access } from 'node:fs/promises';
 import path from 'node:path';
+import { z } from 'zod';
 
 import type { LoadedSemanticContract, SemanticContract } from '../../semantic/contracts/contract/types.ts';
 import type { SemanticMutationLoadedSourceCandidate, SemanticMutationSourceKind } from '../../semantic/mutation/contract/types.ts';
-import { compareCodeUnits, digest } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { compareCodeUnits, deepFreeze, digest } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { mapTaskGroup } from '../../system-architecture/foundation/runtime/concurrency.ts';
+import { getErrorCode } from '../../system-architecture/foundation/runtime/failure-inspection.ts';
 import { modelRelativePath } from '../../workspace/contract/types.ts';
 import { isSafeRelativePath, posixPath, resolvePathInside } from '../../workspace/runtime/paths.ts';
 import { readYaml } from '../../workspace/yaml.ts';
 import { CompilerError } from '../errors.ts';
-import { normalizeSemanticContract } from './load-semantic-contract.ts';
+import { normalizeSemanticContract, SEMANTIC_CONTRACT_YAML_MAX_ALIAS_COUNT, SEMANTIC_CONTRACT_YAML_MAX_INPUT_BYTES } from './load-semantic-contract.ts';
 
 export const AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH =
   `${modelRelativePath}/semantic-contracts.yaml` as const;
 export const AUTHORING_SEMANTIC_CONTRACT_INDEX_REVISION =
   'authoring-semantic-contract-index-v1' as const;
 
-interface AuthoringSemanticContractIndexEntry {
-  readonly blockId: string;
-  readonly path: string;
-}
+export const AUTHORING_SEMANTIC_CONTRACT_INDEX_MAX_INPUT_BYTES = 1024 * 1024;
+export const AUTHORING_SEMANTIC_CONTRACT_INDEX_MAX_ALIAS_COUNT = 100;
 
-interface AuthoringSemanticContractIndex {
-  readonly formatRevision: typeof AUTHORING_SEMANTIC_CONTRACT_INDEX_REVISION;
-  readonly contracts: readonly AuthoringSemanticContractIndexEntry[];
-}
+// Private structure with one consumer: keep it here instead of creating another
+// cross-domain registry. Resolved Block membership and source paths remain the
+// existing semantic checks, not decisions made by a shape decoder.
+const indexEntrySchema = z.object({ blockId: z.string(), path: z.string() }).strict();
+const indexSchema = z.object({
+  formatRevision: z.literal(AUTHORING_SEMANTIC_CONTRACT_INDEX_REVISION),
+  contracts: z.array(indexEntrySchema)
+}).strict();
+type AuthoringSemanticContractIndexEntry = z.infer<typeof indexEntrySchema>;
 
 export function semanticContractSourceRevision(
   sourceKind: SemanticMutationSourceKind,
@@ -43,43 +48,31 @@ export function buildSemanticContractSourceCandidate(
   sourceKind: SemanticMutationSourceKind,
   loadedContract: LoadedSemanticContract
 ): SemanticMutationLoadedSourceCandidate {
-  const candidate = {
+  const captured = structuredClone(loadedContract);
+  // Fingerprint the same snapshot we return, not a second read of the caller.
+  // The existing digest format and field order are deliberately unchanged.
+  return deepFreeze({
     sourceKind,
-    loadedContract: structuredClone(loadedContract),
-    sourceRevision: semanticContractSourceRevision(sourceKind, loadedContract)
-  };
-  const freeze = (value: unknown): void => {
-    if (value === null || typeof value !== 'object' || Object.isFrozen(value)) return;
-    for (const nested of Object.values(value as Record<string, unknown>)) freeze(nested);
-    Object.freeze(value);
-  };
-  freeze(candidate);
-  return candidate;
+    loadedContract: captured,
+    sourceRevision: semanticContractSourceRevision(sourceKind, captured)
+  });
 }
 
 function validateIndex(
   value: unknown,
   resolvedBlockIds: ReadonlySet<string>
 ): AuthoringSemanticContractIndexEntry[] {
-  const exactKeys = (entry: unknown, keys: readonly string[]): entry is Record<string, unknown> =>
-    entry !== null && typeof entry === 'object' && !Array.isArray(entry) &&
-    Object.keys(entry).length === keys.length && keys.every((key) => Object.hasOwn(entry, key));
-  if (!exactKeys(value, ['formatRevision', 'contracts']) ||
-    value.formatRevision !== AUTHORING_SEMANTIC_CONTRACT_INDEX_REVISION || !Array.isArray(value.contracts)) {
-    throw new CompilerError(
-      'CONTRACT-SEMANTIC-019',
-      `Authoring semantic contract index must use ${AUTHORING_SEMANTIC_CONTRACT_INDEX_REVISION}`
-    );
+  const decoded = indexSchema.safeParse(value);
+  if (!decoded.success) {
+    const issue = decoded.error.issues[0]!;
+    const entryFailure = issue.path[0] === 'contracts' && typeof issue.path[1] === 'number';
+    throw new CompilerError(entryFailure ? 'CONTRACT-SEMANTIC-020' : 'CONTRACT-SEMANTIC-019',
+      entryFailure ? 'Every authoring semantic contract index entry requires only blockId and path'
+        : `Authoring semantic contract index must use ${AUTHORING_SEMANTIC_CONTRACT_INDEX_REVISION}`,
+      {}, { cause: decoded.error });
   }
   const seenPaths = new Set<string>();
-  return value.contracts.map((entry) => {
-    if (!exactKeys(entry, ['blockId', 'path']) || typeof entry.blockId !== 'string' ||
-      typeof entry.path !== 'string') {
-      throw new CompilerError(
-        'CONTRACT-SEMANTIC-020',
-        'Every authoring semantic contract index entry requires only blockId and path'
-      );
-    }
+  return decoded.data.contracts.map((entry) => {
     const contractPath = posixPath(entry.path);
     if (!entry.blockId.trim() || !resolvedBlockIds.has(entry.blockId)) {
       throw new CompilerError(
@@ -110,15 +103,24 @@ export async function loadAuthoringSemanticContractSources(
   workspaceRoot: string,
   resolvedBlockIds: ReadonlySet<string>
 ): Promise<SemanticMutationLoadedSourceCandidate[]> {
+  workspaceRoot = path.resolve(workspaceRoot);
+  const selectedBlockIds = new Set(resolvedBlockIds);
   const indexPath = path.resolve(workspaceRoot, ...AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH.split('/'));
+  let raw: unknown;
   try {
-    await access(indexPath);
+    // Observe optional absence once. A separate access check cannot prove the
+    // later read still exists, and all non-absence failures must propagate.
+    raw = await readYaml(indexPath, {
+      maximumInputBytes: AUTHORING_SEMANTIC_CONTRACT_INDEX_MAX_INPUT_BYTES,
+      maximumAliasCount: AUTHORING_SEMANTIC_CONTRACT_INDEX_MAX_ALIAS_COUNT,
+      stringKeys: true
+    });
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    if (getErrorCode(error) === 'ENOENT') return [];
     throw error;
   }
-  const index = validateIndex(await readYaml<AuthoringSemanticContractIndex>(indexPath), resolvedBlockIds);
-  return Promise.all(index.map(async (entry) => {
+  const index = validateIndex(raw, selectedBlockIds);
+  return mapTaskGroup(index, async (entry) => {
     const absolutePath = resolvePathInside(workspaceRoot, entry.path);
     if (!absolutePath) {
       throw new CompilerError(
@@ -129,8 +131,12 @@ export async function loadAuthoringSemanticContractSources(
     const loadedContract: LoadedSemanticContract = {
       blockId: entry.blockId,
       contractPath: entry.path,
-      contract: normalizeSemanticContract(await readYaml<SemanticContract>(absolutePath))
+      contract: normalizeSemanticContract(await readYaml<SemanticContract>(absolutePath, {
+        maximumInputBytes: SEMANTIC_CONTRACT_YAML_MAX_INPUT_BYTES,
+        maximumAliasCount: SEMANTIC_CONTRACT_YAML_MAX_ALIAS_COUNT,
+        stringKeys: true
+      }))
     };
     return buildSemanticContractSourceCandidate('workspace-authoring', loadedContract);
-  }));
+  });
 }

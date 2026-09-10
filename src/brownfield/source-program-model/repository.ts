@@ -4,8 +4,13 @@ import ts from 'typescript';
 import { SEMANTIC_RESPONSIBILITY_TARGET_KINDS, type SemanticResponsibilityTargetKind } from '../../semantic/contracts/contract/types.ts';
 import type { SemanticEntity } from '../../semantic/engineering-ir/contract/entity-types.ts';
 import type { ValidatedEngineeringIRSnapshot } from '../../semantic/engineering-ir/contract/validated-types.ts';
-import { compareCodeUnits, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { compareCodeUnits, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import type { SecRepositoryModuleMembership } from '../../system-architecture/repository-modules/contract.ts';
+import {
+  resolveSourceProgramCompilationOperation,
+  sourceProgramCompilationCheckpoint,
+  type SourceProgramCompilationOperation
+} from './compilation-operation.ts';
 import type {
   SourceProgramCandidate,
   SourceProgramCapabilityAuthorityClass,
@@ -33,6 +38,8 @@ import {
   observeSourceProgramEmbeddedTypeScriptLiteral,
   sourceProgramModuleImports
 } from './embedded-programs.ts';
+import { indexOwnerIntentInputs } from './owner-intent-index.ts';
+import { indexResponsibilityEvidenceInputs } from './responsibility-evidence-index.ts';
 import {
   compileSourceProgramTestObservations,
   compileSourceProgramTestObservationsFromWorkspaceSnapshot,
@@ -110,62 +117,41 @@ export function compileSourceProgramResponsibilityEvidence(
   const bindingEntities = snapshot.ir.entities
     .filter((entity) => entity.kind === 'responsibility-binding')
     .sort((left, right) => compareCodeUnits(left.id, right.id));
-  const bindingClaims = new Map(bindingEntities.map((binding) => {
-    const facts = snapshot.ir.facts.filter((fact) => (
-      fact.predicate === 'CONTAINS'
-      && fact.object.kind === 'entity'
-      && fact.object.entityId === binding.id
-      && fact.assertions.some((assertion) => (
-        assertion.authority === 'authoritative'
-        && assertion.validFromRevision === snapshot.ir.semanticRevision
-        && assertion.provenance.some(({ kind }) => kind === 'contract')
-      ))
-    ));
-    return [binding.id, facts] as const;
-  }));
-  const declarationClaimCounts = new Map<string, number>();
-  for (const binding of bindingEntities) {
-    const declarationPath = exactStringAttribute(binding, 'declarationPath');
-    const exportName = exactStringAttribute(binding, 'declarationExportName');
-    if (declarationPath === null || exportName === null) continue;
-    const key = `${declarationPath}\u0000${exportName}`;
-    declarationClaimCounts.set(key, (declarationClaimCounts.get(key) ?? 0) + 1);
-  }
+  if (bindingEntities.length === 0) return Object.freeze([]);
+  const indexed = indexResponsibilityEvidenceInputs(
+    bindingEntities.map((binding) => ({
+      binding,
+      declarationPath: exactStringAttribute(binding, 'declarationPath'),
+      exportName: exactStringAttribute(binding, 'declarationExportName')
+    })),
+    snapshot.ir.facts,
+    model.declarations,
+    snapshot.ir.semanticRevision
+  );
 
-  return Object.freeze(bindingEntities.map((binding): SourceProgramResponsibilityEvidence => {
-    const claims = bindingClaims.get(binding.id) ?? [];
+  return Object.freeze(indexed.map(({
+    binding, containment, declaration, conflictingDeclarationClaim, declarationPath, exportName
+  }): SourceProgramResponsibilityEvidence => {
     const targetKind = responsibilityTargetKind(exactStringAttribute(binding, 'targetKind'));
     const targetId = exactStringAttribute(binding, 'targetId');
-    const declarationPath = exactStringAttribute(binding, 'declarationPath');
-    const exportName = exactStringAttribute(binding, 'declarationExportName');
-    const responsibilityId = claims.length === 1 ? claims[0]!.subject : `unresolved:${binding.id}`;
+    const responsibilityId = containment.status === 'unique' ? containment.value : `unresolved:${binding.id}`;
     const targetPrefix = targetKind === null ? null : `${targetKind}:`;
-    const structurallyValid = claims.length === 1
+    const structurallyValid = containment.status === 'unique'
       && targetKind !== null
       && targetId !== null
       && targetId.startsWith(targetPrefix!)
       && declarationPath !== null
       && exportName !== null;
-    const declarationKey = declarationPath === null || exportName === null
-      ? null
-      : `${declarationPath}\u0000${exportName}`;
-    const matches = structurallyValid
-      ? model.declarations.filter((declaration) => (
-        declaration.exported
-        && declaration.path === declarationPath
-        && declaration.name === exportName
-      ))
-      : [];
     const reason = !structurallyValid
       ? 'semantic-binding-invalid' as const
-      : declarationClaimCounts.get(declarationKey!)! > 1
+      : conflictingDeclarationClaim
         ? 'declaration-binding-conflict' as const
-        : matches.length === 0
+        : declaration.status === 'absent'
           ? 'exported-declaration-missing' as const
-          : matches.length > 1
+          : declaration.status === 'ambiguous'
             ? 'exported-declaration-ambiguous' as const
             : 'validated' as const;
-    const match = reason === 'validated' ? matches[0]! : null;
+    const match = reason === 'validated' && declaration.status === 'unique' ? declaration.value : null;
     const canonical = {
       bindingId: binding.id,
       responsibilityId,
@@ -197,99 +183,96 @@ export function compileSourceProgramResponsibilityEvidence(
  */
 export function compileSourceProgramOwnerIntentEvidence(
   model: SourceProgramModel,
-  membership: SecRepositoryModuleMembership
+  membership: SecRepositoryModuleMembership,
+  requestedOperation?: SourceProgramCompilationOperation
 ): readonly SourceProgramOwnerIntentEvidence[] {
-  const closureByEntrypoint = new Map(model.entrypointClosures.map((closure) =>
-    [closure.entrypointObservationId, closure] as const));
-  return Object.freeze(membership.descriptors.map((descriptor) => {
+  const operation = resolveSourceProgramCompilationOperation(requestedOperation);
+  sourceProgramCompilationCheckpoint(operation, 'owner-intent', 'start');
+  if (membership.descriptors.length === 0) {
+    sourceProgramCompilationCheckpoint(operation, 'owner-intent', 'complete');
+    return Object.freeze([]);
+  }
+  const index = indexOwnerIntentInputs(model);
+  const knownOwnerIds = new Set(membership.descriptors.map(({ moduleId }) => moduleId));
+  // Reuse membership.moduleForPath: membership already owns its lookup cache.
+  // Only the missing relation indexes belong to this projection.
+  const evidence = Object.freeze(membership.descriptors.map((descriptor) => {
+    sourceProgramCompilationCheckpoint(operation, 'owner-intent');
     const capabilityEnvelope = Object.freeze(descriptor.capabilityProviders
       .map(({ capability, operations }) => Object.freeze({
         capability,
         operations: Object.freeze([...operations].sort(compareCodeUnits))
       }))
       .sort((left, right) => compareCodeUnits(left.capability, right.capability)));
-    const publicEntrypointEnvelope = Object.freeze(model.entrypoints.flatMap((entrypoint) => {
-      const closure = closureByEntrypoint.get(entrypoint.observationId);
-      if (closure === undefined || !closure.handlerModuleIds.includes(descriptor.moduleId)) return [];
-      return [Object.freeze({
+    const publicEntrypointEnvelope = Object.freeze(index.entrypointsForOwner(descriptor.moduleId)
+      .map(({ entrypoint, closure }) => Object.freeze({
         kind: entrypoint.kind,
         name: entrypoint.name,
         targetPackages: Object.freeze([...entrypoint.targetPackages].sort(compareCodeUnits)),
         targetPaths: Object.freeze([...entrypoint.targetPaths].sort(compareCodeUnits)),
         transports: Object.freeze([...closure.transports].sort(compareCodeUnits))
-      })];
-    }).sort((left, right) => compareCodeUnits(left.kind, right.kind)
+      })).sort((left, right) => compareCodeUnits(left.kind, right.kind)
       || compareCodeUnits(left.name, right.name)));
-    const productionPaths = new Set(model.files
-      .filter(({ surface }) => surface === 'production')
-      .map(({ path }) => path));
+    const publicEntrypointTargets = new Set(publicEntrypointEnvelope.flatMap(({ targetPaths }) => targetPaths));
+    const capabilityOperations = new Map<string, Set<string>>();
+    for (const { capability, operations } of capabilityEnvelope) {
+      let names = capabilityOperations.get(capability);
+      if (names === undefined) { names = new Set(); capabilityOperations.set(capability, names); }
+      for (const operation of operations) names.add(operation);
+    }
     const operationObligations = Object.freeze(descriptor.operationObligations.map((obligation) => {
-      const operation = obligation.operation;
+      sourceProgramCompilationCheckpoint(operation, 'owner-intent');
+      const operationIdentity = obligation.operation;
       let operationDeclarations: readonly SourceProgramDeclaration[];
-      switch (operation.kind) {
+      switch (operationIdentity.kind) {
         case 'capability':
-          operationDeclarations = model.declarations.filter(({ exported, moduleId, name }) => (
-            exported && moduleId === descriptor.moduleId && name === operation.operation
-          ));
+          operationDeclarations = index.declarationsForCapability(
+            descriptor.moduleId,
+            operationIdentity.operation
+          );
           break;
         case 'public-entrypoint':
-          operationDeclarations = model.declarations.filter(({ path }) => path === operation.path);
+          operationDeclarations = index.declarationsForPath(operationIdentity.path);
           break;
         default:
-          return unreachableModuleOperationIdentity(operation);
+          return unreachableModuleOperationIdentity(operationIdentity);
       }
       const operationObservationIds = new Set(operationDeclarations.map(({ observationId }) => observationId));
       const operationPaths = new Set(operationDeclarations.map(({ path }) => path));
-      if (operation.kind === 'public-entrypoint') {
-        for (const entrypoint of model.entrypoints.filter(({ targetPaths }) => (
-          targetPaths.includes(operation.path)
-        ))) {
-          const closure = model.entrypointClosures.find(({ entrypointObservationId }) => (
-            entrypointObservationId === entrypoint.observationId
-          ));
+      if (operationIdentity.kind === 'public-entrypoint') {
+        for (const entrypoint of index.entrypointsForTarget(operationIdentity.path)) {
+          const closure = index.firstClosureForEntrypoint(entrypoint.observationId);
           for (const path of closure?.reachablePaths ?? []) operationPaths.add(path);
           for (const path of closure?.capabilityPaths ?? []) operationPaths.add(path);
         }
       }
-      const operationCapabilityFacts = model.capabilities.filter((capability) => (
-        capability.surface === 'production' && operationPaths.has(capability.path)
-      ));
-      const effectKinds = Object.freeze([...new Set(operationCapabilityFacts
-        .filter(({ observationClass }) => observationClass !== 'unknown')
-        .map(({ capability }) => capability))].sort(compareCodeUnits));
-      const actualConsumerModuleIds = Object.freeze([...new Set(model.references.flatMap((reference) => {
-        if (reference.observationClass === 'unknown'
-            || !productionPaths.has(reference.path)
-            || (reference.targetObservationId === null
-              ? reference.targetPath === null || !operationPaths.has(reference.targetPath)
-              : !operationObservationIds.has(reference.targetObservationId))) return [];
-        const sourceOwner = membership.moduleForPath(reference.path)?.moduleId ?? null;
-        return sourceOwner !== null && sourceOwner !== descriptor.moduleId ? [sourceOwner] : [];
-      }))].sort(compareCodeUnits));
+      const capabilitySummary = index.capabilitySummaryForPaths(operationPaths);
+      const effectKinds = Object.freeze([...capabilitySummary.observedKinds].sort(compareCodeUnits));
+      const actualConsumerModuleIds = Object.freeze([...new Set(
+        [...index.consumerPaths(operationObservationIds, operationPaths)].flatMap((path) => {
+          const sourceOwner = membership.moduleForPath(path)?.moduleId ?? null;
+          return sourceOwner !== null && sourceOwner !== descriptor.moduleId ? [sourceOwner] : [];
+        })
+      )].sort(compareCodeUnits));
+      const actualConsumerSet = new Set(actualConsumerModuleIds);
       const identityVerified = (() => {
-        switch (operation.kind) {
+        switch (operationIdentity.kind) {
           case 'capability':
-            return capabilityEnvelope.some(({ capability, operations }) => (
-              capability === operation.capability
-              && operations.includes(operation.operation)
-            ))
+            return capabilityOperations.get(operationIdentity.capability)
+              ?.has(operationIdentity.operation) === true
               && operationDeclarations.length === 1;
           case 'public-entrypoint':
-            return publicEntrypointEnvelope.some(({ targetPaths }) => (
-              targetPaths.includes(operation.path)
-            ));
+            return publicEntrypointTargets.has(operationIdentity.path);
           default:
-            return unreachableModuleOperationIdentity(operation);
+            return unreachableModuleOperationIdentity(operationIdentity);
         }
       })();
       const consumersVerified = obligation.consumerSupport.consumers.length === actualConsumerModuleIds.length
         && obligation.consumerSupport.consumers.every((consumer) => (
-          actualConsumerModuleIds.includes(consumer)
-          && membership.descriptors.some(({ moduleId }) => moduleId === consumer)
+          actualConsumerSet.has(consumer) && knownOwnerIds.has(consumer)
         ));
-      const effectVerified = operationCapabilityFacts.every(({ observationClass, transport }) => (
-        observationClass !== 'unknown' && transport !== 'unknown'
-      )) && effectKinds.every((kind) => obligation.effect.kinds.includes(kind));
+      const effectVerified = !capabilitySummary.hasUnknown
+        && effectKinds.every((kind) => obligation.effect.kinds.includes(kind));
       const reason = !identityVerified
         ? 'identity-unresolved' as const
         : !consumersVerified
@@ -323,6 +306,8 @@ export function compileSourceProgramOwnerIntentEvidence(
       evidenceDigest: sha256(canonical)
     });
   }).sort((left, right) => compareCodeUnits(left.owner, right.owner)));
+  sourceProgramCompilationCheckpoint(operation, 'owner-intent', 'complete');
+  return evidence;
 }
 
 type JsonRecord = Record<string, unknown>;
@@ -424,7 +409,7 @@ function executableSourceLiteralPaths(
       return observation.executable
         ? [Object.freeze({ ownerPath: path, digest: observation.contentDigest })]
         : [];
-    }));
+  }));
 }
 
 export function compileSourceProgramCausalRelationEvidence(
@@ -775,7 +760,9 @@ function compileRepositorySourceProgramModelInternal(
       packages.push(Object.freeze({
         manifestPath: file.path,
         name: packageName,
-        version: typeof manifest.version === 'string' ? manifest.version : null,
+        version: typeof manifest.version === 'string'
+          ? manifest.version
+          : null,
         private: typeof manifest.private === 'boolean' ? manifest.private : null
       }));
 
@@ -1374,11 +1361,30 @@ function compileRepositorySourceProgramModelInternal(
         && binding.requirementId === null
       ));
       if (exactDomainOwner !== undefined) continue;
+      const exactTerminalIssuers = roleBindings.filter(({ descriptor: owner, provider, binding }) => (
+        owner.moduleId === descriptor.moduleId
+        && provider.capability === operation.capability
+        && binding.operation === operation.operation
+        && binding.role === 'terminal-issuer'
+        && binding.requirementId === null
+      ));
+      const terminalDomainOwners = exactTerminalIssuers.length === 1
+        ? roleBindings.filter(({ descriptor: owner, provider, binding }) => (
+            owner.moduleId === descriptor.moduleId
+            && provider.capability === operation.capability
+            && binding.role === 'domain-owner'
+            && binding.semanticOperation === exactTerminalIssuers[0]!.binding.semanticOperation
+            && binding.requirementId === null
+          ))
+        : [];
+      if (terminalDomainOwners.length === 1) continue;
       candidates.push(Object.freeze({
         code: 'operation-critical-role-unresolved',
         subject: `${operation.capability}:${operation.operation}`,
         paths: Object.freeze([`${descriptor.root}/sec.module.json`]),
-        reason: 'effectful public semantic operation has no exact domain-owner role bound to its declared requirement provider operation',
+        reason: exactTerminalIssuers.length === 1
+          ? 'effectful terminal operation has no unique domain owner in the same module, capability, and semantic operation'
+          : 'effectful public semantic operation has no exact domain-owner role bound to its declared requirement provider operation',
         observationClass: 'unknown'
       }));
     }
@@ -1585,6 +1591,8 @@ function compileRepositorySourceProgramModelInternal(
   const entrypointsByCommand = new Map<string, SourceProgramEntrypoint[]>();
   for (const entrypoint of entrypoints) {
     if (entrypoint.command === null) continue;
+    if (entrypoint.kind === 'cli-command'
+        && sourceProgramSurfaceForPath(entrypoint.path) === 'test') continue;
     const group = entrypointsByCommand.get(entrypoint.command) ?? [];
     group.push(entrypoint);
     entrypointsByCommand.set(entrypoint.command, group);
@@ -1679,24 +1687,21 @@ function compileRepositorySourceProgramModelInternal(
     const canonicalDeclarations = declarationsByOwnerAndName.get(
       `${group.owner}\u0000${group.baseName}`
     ) ?? [];
+    if (canonicalDeclarations.length === 0) continue;
     for (const declaration of [...group.versions.values()].flat()) {
       const productionConsumers = (referencesByTarget.get(declaration.observationId) ?? [])
         .filter(({ path: consumerPath }) => fileSurface.get(consumerPath) === 'production');
       if (productionConsumers.length === 0
         && !productionNamespaceImportTargets.has(declaration.path)) continue;
       candidates.push(Object.freeze({
-        code: canonicalDeclarations.length === 0
-          ? 'versioned-declaration-without-coexisting-version'
-          : 'versioned-declaration-conflicts-with-canonical-name',
+        code: 'versioned-declaration-conflicts-with-canonical-name',
         subject: declaration.name,
         paths: Object.freeze([...new Set([
           declaration.path,
           ...canonicalDeclarations.map(({ path: canonicalPath }) => canonicalPath),
           ...new Set(productionConsumers.map(({ path: consumerPath }) => consumerPath))
         ])].sort(compareCodeUnits)),
-        reason: canonicalDeclarations.length === 0
-          ? `production declaration carries a Vn suffix without a coexisting code version; canonical rename target is ${group.baseName}`
-          : `versioned declaration and canonical declaration coexist without a second version; reconcile behavior into ${group.baseName} instead of retaining a compatibility-shaped duplicate`,
+        reason: `versioned declaration and canonical declaration coexist without a second version; reconcile behavior into ${group.baseName} instead of retaining a compatibility-shaped duplicate`,
         observationClass: 'derived'
       }));
     }

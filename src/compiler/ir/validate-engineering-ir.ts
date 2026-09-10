@@ -3,7 +3,7 @@ import { FACT_PROVENANCE_KINDS, SEMANTIC_AUTHORITIES, SEMANTIC_PREDICATES, type 
 import { ENGINEERING_IR_FORMAT_VERSION, type EngineeringIR } from '../../semantic/engineering-ir/contract/root-types.ts';
 import { type ValidatedEngineeringIRSnapshot } from '../../semantic/engineering-ir/contract/validated-types.ts';
 import { cloneAndDeepFreeze, compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { CompilerError, fail } from '../errors.ts';
+import { fail } from '../errors.ts';
 import {
   buildEngineeringIR,
   type BuildEngineeringIRInput

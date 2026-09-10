@@ -74,7 +74,6 @@ import {
   CodexDevelopmentParseVerificationActionTerminalArtifact,
   CodexDevelopmentPrepareVerificationEvidenceTarget,
   CodexDevelopmentVerificationActionCandidateBytesDigest,
-  CodexDevelopmentVerificationArtifactRetentionDays,
   CodexDevelopmentVerificationDigest,
   CodexDevelopmentWriteVerificationActionTerminalArtifactV2Atomic,
   CodexDevelopmentWriteVerificationEvidenceV4Atomic,
@@ -117,7 +116,6 @@ import {
   CODEX_DEVELOPMENT_GATE_STDERR_BYTE_LIMIT,
   CODEX_DEVELOPMENT_GATE_STDOUT_BYTE_LIMIT,
   CodexDevelopmentChangedFilesFromRecords,
-  CodexDevelopmentCreateNotRunGate,
   CodexDevelopmentDefaultChangedPaths,
   CodexDevelopmentDefaultGitRevision,
   CodexDevelopmentDefaultTrackedTreeIsClean,
@@ -127,7 +125,6 @@ import {
   CodexDevelopmentRunGateProcess,
   CodexDevelopmentTestImpactSourceProviderFromSnapshot,
   type CodexDevelopmentChangedPathSnapshot,
-  type CodexDevelopmentGateExecutionObservation,
   type CodexDevelopmentGateProcessResult,
   type CodexDevelopmentGateProcessSettlement
 } from './runtime/ci-orchestration-core.ts';
@@ -4182,13 +4179,6 @@ function parseProfile(argv: string[]): { profile: CodexDevelopmentVerificationPl
   return { profile, expectedHead };
 }
 
-function notRunGate(step: CiVerificationGateStep): CodexDevelopmentGateExecutionObservation {
-  return CodexDevelopmentCreateNotRunGate({
-    id: step.id,
-    argv: ['bun', ...step.args]
-  });
-}
-
 type ManifestBinding = {
   manifestPath: string | null;
   manifestDigest: string | null;
@@ -4220,12 +4210,6 @@ function manifestBinding(
   };
 }
 
-function afterRetention(date: Date): string {
-  return new Date(
-    date.getTime() + CodexDevelopmentVerificationArtifactRetentionDays * 24 * 60 * 60 * 1000
-  ).toISOString();
-}
-
 async function runCodexDevelopmentCiVerification(
   options: CodexDevelopmentCiVerificationTestOptions,
   gitOperation: AuthorityGitReadOperation
@@ -4255,9 +4239,7 @@ async function runCodexDevelopmentCiVerification(
   let cleanAfter: boolean | null = null;
   let profile: CodexDevelopmentVerificationPlanProfile = 'quick';
   let files: string[] | null = null;
-  let selectionResolved = false;
   let steps: CiVerificationGateStep[] = [];
-  let gates: CodexDevelopmentGateExecutionObservation[] = [];
   let actionPlan: CiVerificationActionPlanClosure | null = null;
   let actionCandidate: CiVerificationActionCandidate | null = null;
   let actionGates: readonly CodexDevelopmentVerificationGateEvidenceV4[] = [];
@@ -4473,9 +4455,7 @@ async function runCodexDevelopmentCiVerification(
       );
     })();
     files = plan.changedFiles;
-    selectionResolved = plan.selectionResolved;
     steps = plan.gates;
-    gates = steps.map(notRunGate);
     if (steps.some((step) => step.phase === 'risk')) {
       console.log(`CI verification: risk gate required; reasons=[${plan.selectionReasons.join(', ')}]; owners=[${plan.affectedOwners.join(', ')}]`);
     } else {

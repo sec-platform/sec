@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 
 import {
   CodexDevelopmentActivateMainHealthRepairRollingPlan,
+  CodexDevelopmentAssertPriorFreezeProjection,
   CodexDevelopmentAssertRollingMachineBaseBinding,
   CodexDevelopmentCreateFreezeProjection,
   CodexDevelopmentParseActivePointer,
@@ -9,6 +10,7 @@ import {
   CodexDevelopmentParseRollingMachineProjection,
   CodexDevelopmentParseRollingPlan,
   CodexDevelopmentPromoteRollingPlan,
+  CodexDevelopmentRenderActivePointer,
   CodexDevelopmentRenderCommittedCandidateReplanRollingPlan,
   CodexDevelopmentRequiresCommittedCandidateProjectionRefresh
 } from '../../src/control/documentation/document-control-plane-contract.ts';
@@ -109,6 +111,127 @@ test('a digest-bound topology cannot be promoted by Markdown surgery', () => {
     source,
     packageId: candidates[0]
   })).toThrow('require the canonical WorkDecision or transition renderer');
+});
+
+test('prior freeze validation derives a machine successor without legacy Markdown promotion', () => {
+  const targetPackageId = candidates[0];
+  const immutableCandidates = [...candidates, 'candidate-four-v1'] as const;
+  const targetManifestPath = `docs/work-packages/${targetPackageId}.md`;
+  const targetManifest = Buffer.from(`---
+schema: codex-development-work-package-v1
+id: ${targetPackageId}
+tracking: issue-2
+base: '${exactMain}'
+manifestState: frozen
+requiredProfile: quick
+ciRevision: ci-verification-v19
+tasks:
+  - id: projection
+    owner: projection-owner
+    ownedPaths:
+      - ${targetManifestPath}
+forbiddenPaths:
+  - public-docs/
+acceptance:
+  - "Prior machine projection remains exact."
+tests:
+  - tests/unit/document-control-plane-projection.test.ts
+---
+
+# Prior machine projection
+`, 'utf8');
+  const spec = CodexDevelopmentParseCurrentStateSpec(`schema: sec-current-state-live-v1
+resolver:
+  command: bun src/control/documentation/document-control-plane.ts status --json
+  repository: sec-platform/sec
+  remote: origin
+  defaultBranch: main
+  defaultRef: refs/remotes/origin/main
+  requireRemoteMatch: true
+stableFacts:
+  workSelection:
+    catalog: docs/roadmap.md#sec-work-selection-roadmap-catalog-v1
+    projection: sec-work-selection-live-v1-required
+`);
+  const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(
+    targetManifest
+  ) as `sha256:${string}`;
+  const pointerSource = CodexDevelopmentRenderActivePointer({
+    spec,
+    manifestPath: targetManifestPath,
+    manifestDigest,
+    reviewedOn: '2026-08-21'
+  });
+  const authority = {
+    kind: 'committed-candidate-replan' as const,
+    sourceHead: 'c'.repeat(40),
+    sourceTree: 'd'.repeat(40),
+    sourceManifestDigest: rawSha256('source-manifest'),
+    sourcePointerRevision: rawSha256('source-pointer'),
+    sourceRollingRevision: rawSha256('source-rolling')
+  };
+  const immutable = renderSecWorkRollingTransitionPlan({
+    projection: compileSecWorkRollingTransitionProjection({
+      exactMain,
+      exactMainTree,
+      authority,
+      active: {
+        packageId: activePackageId,
+        tracking: 'issue-1',
+        manifestPath: `docs/work-packages/${activePackageId}.md`,
+        manifestDigest: rawSha256('active-manifest')
+      },
+      candidates: immutableCandidates
+    }),
+    reviewedOn: '2026-08-21'
+  });
+  const successor = renderSecWorkRollingTransitionPlan({
+    projection: compileSecWorkRollingTransitionProjection({
+      exactMain,
+      exactMainTree,
+      authority,
+      active: {
+        packageId: targetPackageId,
+        tracking: 'issue-2',
+        manifestPath: targetManifestPath,
+        manifestDigest
+      },
+      candidates: [candidates[1], immutableCandidates[2]]
+    }),
+    reviewedOn: '2026-08-21'
+  });
+  expect(() => CodexDevelopmentAssertPriorFreezeProjection({
+    spec,
+    immutableRollingPlanSource: immutable,
+    pointerSource,
+    rollingPlanSource: successor,
+    manifestPath: targetManifestPath,
+    manifestBytes: targetManifest
+  })).not.toThrow();
+
+  const reordered = renderSecWorkRollingTransitionPlan({
+    projection: compileSecWorkRollingTransitionProjection({
+      exactMain,
+      exactMainTree,
+      authority,
+      active: {
+        packageId: targetPackageId,
+        tracking: 'issue-2',
+        manifestPath: targetManifestPath,
+        manifestDigest
+      },
+      candidates: [immutableCandidates[2], candidates[1]]
+    }),
+    reviewedOn: '2026-08-21'
+  });
+  expect(() => CodexDevelopmentAssertPriorFreezeProjection({
+    spec,
+    immutableRollingPlanSource: immutable,
+    pointerSource,
+    rollingPlanSource: reordered,
+    manifestPath: targetManifestPath,
+    manifestBytes: targetManifest
+  })).toThrow('preserve immutable active and ordered candidate topology');
 });
 
 test('committed replan binds immutable source bytes and emits one canonical full document', () => {

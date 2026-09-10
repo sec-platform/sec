@@ -1,7 +1,6 @@
 import { expect, test } from 'bun:test';
 
 import {
-  INTEGRATION_AUTHORIZATION_SCHEMA,
   assertIntegrationAuthorizationUsable,
   createIntegrationAuthorization,
   parseIntegrationAuthorization,

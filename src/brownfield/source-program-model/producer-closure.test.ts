@@ -4,8 +4,7 @@ import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/
 import { compileSecRepositoryModuleMembershipSnapshot } from '../../system-architecture/repository-modules/contract.ts';
 import {
   compileSourceProgramOperationProducerClosure,
-  requireSourceProgramOperationProducerClosure,
-  SourceProgramOperationProducerClosureError
+  requireSourceProgramOperationProducerClosure
 } from './producer-closure.ts';
 import { compileVirtualRepositorySourceProgramCompilation } from './repository-compilation.ts';
 import { compileVirtualWorkspaceSourceSnapshot } from './workspace-source-snapshot.ts';

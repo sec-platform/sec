@@ -97,6 +97,25 @@ function semanticTargetResponsibility(kind: string): SecRepositoryNodeResponsibi
   return 'workflow';
 }
 
+function semanticEvidenceDeclarationKey(input: Readonly<{
+  path: string;
+  name: string;
+  observationId: string | null | undefined;
+  declarationDigest: string | null | undefined;
+  moduleId: string | null | undefined;
+}>): string {
+  const exact = (value: string | null | undefined): readonly [string, string?] => (
+    value === undefined ? ['undefined'] : value === null ? ['null'] : ['value', value]
+  );
+  return JSON.stringify([
+    input.path,
+    input.name,
+    exact(input.observationId),
+    exact(input.declarationDigest),
+    exact(input.moduleId)
+  ]);
+}
+
 const CONTRACT_DECLARATION_KINDS = new Set([
   'EnumDeclaration',
   'InterfaceDeclaration',
@@ -120,12 +139,6 @@ function compileSecRepositoryDeclarationResponsibilityFrontier(
     .filter(({ path }) => productionPaths.has(path))
     .sort((left, right) => textOrder(left.path, right.path)
       || textOrder(left.observationId ?? '', right.observationId ?? ''));
-  const declarationsByPath = new Map<string, typeof declarations>();
-  for (const declaration of declarations) {
-    const values = declarationsByPath.get(declaration.path) ?? [];
-    values.push(declaration);
-    declarationsByPath.set(declaration.path, values);
-  }
   const fileFacts = new Map(facts.files.map((file) => (
     [normalizeSecRepositoryPath(file.path), file] as const
   )));
@@ -141,28 +154,91 @@ function compileSecRepositoryDeclarationResponsibilityFrontier(
     }
   }
 
+  const observedConsumerOwnersByTarget = new Map<
+    string | null | undefined,
+    Set<string | undefined>
+  >();
+  for (const reference of facts.references ?? []) {
+    if (reference.observationClass === 'unknown') continue;
+    const targetObservationId = reference.targetObservationId;
+    let owners = observedConsumerOwnersByTarget.get(targetObservationId);
+    if (owners === undefined) {
+      owners = new Set();
+      observedConsumerOwnersByTarget.set(targetObservationId, owners);
+    }
+    owners.add(membership.moduleForPath(
+      normalizeSecRepositoryPath(reference.path)
+    )?.moduleId);
+  }
+
+  type ResponsibilityEvidence = NonNullable<PlacementFacts['responsibilityEvidence']>[number];
+  const semanticEvidenceByDeclaration = new Map<string, ResponsibilityEvidence[]>();
+  for (const evidence of facts.responsibilityEvidence ?? []) {
+    if (evidence.observationClass !== 'observed'
+        || evidence.reason !== 'validated'
+        || evidence.sourceRevision !== facts.sourceRevision
+        || evidence.semanticRevision !== facts.semanticRevision) continue;
+    const key = semanticEvidenceDeclarationKey({
+      path: evidence.declaration.path,
+      name: evidence.declaration.exportName,
+      observationId: evidence.declaration.observationId,
+      declarationDigest: evidence.declaration.declarationDigest,
+      moduleId: evidence.declaration.moduleId
+    });
+    const values = semanticEvidenceByDeclaration.get(key) ?? [];
+    values.push(evidence);
+    semanticEvidenceByDeclaration.set(key, values);
+  }
+
+  const productionCapabilitiesByDeclaration = new Map<string | null | undefined, number>();
+  for (const capability of facts.capabilities ?? []) {
+    if (capability.surface !== 'production') continue;
+    const identity = capability.owningDeclarationObservationId;
+    productionCapabilitiesByDeclaration.set(
+      identity,
+      (productionCapabilitiesByDeclaration.get(identity) ?? 0) + 1
+    );
+  }
+
+  type EntrypointFact = PlacementFacts['entrypoints'][number];
+  const entrypointsByTargetPath = new Map<string, EntrypointFact[]>();
+  for (const entrypoint of facts.entrypoints) {
+    if (entrypoint.observationClass === 'unknown') continue;
+    const uniqueTargetPaths = new Set((entrypoint.targetPaths ?? [])
+      .map((path) => normalizeSecRepositoryPath(path)));
+    for (const targetPath of uniqueTargetPaths) {
+      const values = entrypointsByTargetPath.get(targetPath) ?? [];
+      values.push(entrypoint);
+      entrypointsByTargetPath.set(targetPath, values);
+    }
+  }
+  const exportedDeclarationCountByPath = new Map<string, number>();
+  for (const declaration of declarations) {
+    if (!declaration.exported) continue;
+    exportedDeclarationCountByPath.set(
+      declaration.path,
+      (exportedDeclarationCountByPath.get(declaration.path) ?? 0) + 1
+    );
+  }
+
   return Object.freeze(declarations.map((declaration) => {
     const owner = membership.moduleForPath(declaration.path);
     const candidates: ResponsibilityCandidate[] = [];
     const criticality = new Set<'authority-mint' | 'effect' | 'public'>();
-    const crossOwnerConsumers = (facts.references ?? []).filter((reference) => (
-      reference.targetObservationId === declaration.observationId
-      && reference.observationClass !== 'unknown'
-      && membership.moduleForPath(normalizeSecRepositoryPath(reference.path))?.moduleId !== owner?.moduleId
-    ));
-    if (declaration.exported && crossOwnerConsumers.length > 0) criticality.add('public');
+    const consumerOwners = observedConsumerOwnersByTarget.get(declaration.observationId);
+    const hasCrossOwnerConsumer = consumerOwners !== undefined
+      && (consumerOwners.size > 1 || !consumerOwners.has(owner?.moduleId));
+    if (declaration.exported && hasCrossOwnerConsumer) criticality.add('public');
 
-    const exactSemanticEvidence = (facts.responsibilityEvidence ?? []).filter((evidence) => (
-      evidence.observationClass === 'observed'
-      && evidence.reason === 'validated'
-      && evidence.sourceRevision === facts.sourceRevision
-      && evidence.semanticRevision === facts.semanticRevision
-      && evidence.declaration.path === declaration.path
-      && evidence.declaration.exportName === declaration.name
-      && evidence.declaration.observationId === declaration.observationId
-      && evidence.declaration.declarationDigest === declaration.declarationDigest
-      && evidence.declaration.moduleId === owner?.moduleId
-    ));
+    const exactSemanticEvidence = semanticEvidenceByDeclaration.get(
+      semanticEvidenceDeclarationKey({
+        path: declaration.path,
+        name: declaration.name,
+        observationId: declaration.observationId,
+        declarationDigest: declaration.declarationDigest,
+        moduleId: owner?.moduleId
+      })
+    ) ?? [];
     for (const evidence of exactSemanticEvidence) {
       candidates.push(Object.freeze({
         responsibility: semanticTargetResponsibility(evidence.target.kind),
@@ -201,20 +277,15 @@ function compileSecRepositoryDeclarationResponsibilityFrontier(
       }));
     }
 
-    const capabilityFacts = (facts.capabilities ?? []).filter((capability) => (
-      capability.surface === 'production'
-      && capability.owningDeclarationObservationId === declaration.observationId
-    ));
-    if (capabilityFacts.length > 0) criticality.add('effect');
+    const capabilityFactCount = productionCapabilitiesByDeclaration.get(
+      declaration.observationId
+    ) ?? 0;
+    if (capabilityFactCount > 0) criticality.add('effect');
 
-    const entrypointFacts = facts.entrypoints.filter((entrypoint) => (
-      entrypoint.observationClass !== 'unknown'
-      && (entrypoint.targetPaths ?? []).some((path) => normalizeSecRepositoryPath(path) === declaration.path)
-    ));
+    const entrypointFacts = entrypointsByTargetPath.get(declaration.path) ?? [];
     if (entrypointFacts.length > 0) criticality.add('public');
-    const declarationsAtPath = declarationsByPath.get(declaration.path) ?? [];
     if (entrypointFacts.length > 0 && declaration.exported
-        && declarationsAtPath.filter(({ exported }) => exported).length === 1) {
+        && exportedDeclarationCountByPath.get(declaration.path) === 1) {
       candidates.push(Object.freeze({
         responsibility: 'interface',
         reason: 'compiler-observed-entrypoint',
@@ -228,7 +299,7 @@ function compileSecRepositoryDeclarationResponsibilityFrontier(
         reason: 'compiler-observed-contract-declaration',
         evidence: declaration.kind
       }));
-    } else if (!declaration.exported && capabilityFacts.length === 0
+    } else if (!declaration.exported && capabilityFactCount === 0
         && !unknownPaths.has(declaration.path)) {
       candidates.push(Object.freeze({
         responsibility: 'computation',

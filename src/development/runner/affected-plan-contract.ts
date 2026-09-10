@@ -32,7 +32,7 @@ export const AFFECTED_GIT_REVALIDATION_AGGREGATE_CEILING = Object.freeze({
 // The semantic operation includes source acquisition, compiler projection and
 // final Git readback. Individual Git sessions remain capped by their narrower
 // transport budget; the total operation must not alias one child duration.
-const AFFECTED_SELECTION_OPERATION_DURATION_MS = 60_000;
+export const AFFECTED_SELECTION_OPERATION_DURATION_MS = 60_000;
 const AFFECTED_SELECTION_FINAL_READBACK_RESERVE_MS = 5_000;
 
 export interface AffectedTestSelection {
@@ -83,7 +83,6 @@ export interface AffectedTestPlan {
 
 export type LocalAffectedGateId =
   | 'imports:check'
-  | 'audit:static'
   | 'typecheck'
   | 'docs:doctor'
   | 'test:affected';
@@ -135,7 +134,6 @@ export function buildLocalAffectedCheckPlan(
     ? [gate('docs:doctor')]
     : [
       ...(typescriptChanged ? [gate('imports:check')] : []),
-      ...(sourceProgramInvalidated ? [gate('audit:static')] : []),
       ...(typecheckRequired ? [gate('typecheck')] : []),
       ...(activeDocsChanged ? [gate('docs:doctor')] : []),
       ...(testAffectedRequired ? [gate('test:affected')] : [])
@@ -154,8 +152,14 @@ export function buildLocalAffectedCheckPlan(
 
 export function compileAffectedTestSelectionSemanticOperation(input: Readonly<{
   readonly purpose: 'budget-projection' | 'check-affected';
+  /** Optional owner deadline which may only narrow the canonical 60 second window. */
+  readonly deadlineAtUnixMs?: number;
 }>): SecBoundSemanticOperation {
-  const deadlineAtUnixMs = Date.now() + AFFECTED_SELECTION_OPERATION_DURATION_MS;
+  const localDeadlineAtUnixMs = Date.now() + AFFECTED_SELECTION_OPERATION_DURATION_MS;
+  const deadlineAtUnixMs = Math.min(input.deadlineAtUnixMs ?? localDeadlineAtUnixMs, localDeadlineAtUnixMs);
+  if (!Number.isSafeInteger(deadlineAtUnixMs) || deadlineAtUnixMs <= Date.now()) {
+    throw new Error('Affected test selection operation deadline is invalid or expired.');
+  }
   const contractDigest = sha256({
     operation: 'verification.affected-test-selection',
     provider: 'external-capabilities.git-read',

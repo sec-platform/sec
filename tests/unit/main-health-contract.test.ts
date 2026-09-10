@@ -1,7 +1,6 @@
 import { expect, test } from 'bun:test';
 
 import {
-  MAIN_HEALTH_LEDGER_SCHEMA,
   createMainHealthLedger,
   createMainHealthRepairWorkPackagePath,
   createMainHealthRevision,

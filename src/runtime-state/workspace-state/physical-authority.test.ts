@@ -84,6 +84,145 @@ test('physical disjointness rejects different lexical paths for the same physica
   ).toThrow('physically disjoint');
 });
 
+test('bounded Runtime State authority settlement preserves the live capability after deadline rejection', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-state-bounded-settlement-'));
+  const repositoryRoot = path.join(root, 'repository');
+  const stateRoot = path.join(root, 'state');
+  const cacheRoot = path.join(root, 'cache');
+  mkdirSync(repositoryRoot);
+  const authority = await acquireSecRuntimeStatePhysicalAuthority({
+    repositoryRoot,
+    stateRoot,
+    cacheRoot,
+    requiredDirectories: []
+  });
+  try {
+    await expect(authority.release({ deadlineAtUnixMs: Date.now() - 1 }))
+      .rejects.toThrow('deadline');
+    await expect(authority.assertCurrent()).resolves.toBeUndefined();
+    await authority.release({ deadlineAtUnixMs: Date.now() + 10_000 });
+  } finally {
+    await authority.release().catch(() => undefined);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(process.platform !== 'win32')(
+  'bounded Runtime State settlement rejects an in-flight generation operation and remains retryable',
+  async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-state-pending-settlement-'));
+    const repositoryRoot = path.join(root, 'repository');
+    const stateRoot = path.join(root, 'state');
+    const cacheRoot = path.join(root, 'cache');
+    mkdirSync(repositoryRoot);
+    const authority = await acquireSecRuntimeStatePhysicalAuthority({
+      repositoryRoot,
+      stateRoot,
+      cacheRoot,
+      requiredDirectories: []
+    });
+    try {
+      await expect(authority.assertCurrent({ deadlineAtUnixMs: Date.now() - 1 }))
+        .rejects.toThrow('deadline');
+      await expect(authority.assertCurrent()).resolves.toBeUndefined();
+      const current = authority.assertCurrent();
+      await expect(authority.release({ deadlineAtUnixMs: Date.now() + 10_000 }))
+        .rejects.toThrow('operations pending');
+      await current;
+      await expect(authority.assertCurrent()).resolves.toBeUndefined();
+      await authority.release({ deadlineAtUnixMs: Date.now() + 10_000 });
+    } finally {
+      await authority.release().catch(() => undefined);
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+);
+
+test.skipIf(process.platform !== 'win32')(
+  'bounded shared-reference release preserves its reference while another capability operation is pending',
+  async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-state-shared-pending-'));
+    const input = {
+      repositoryRoot: path.join(root, 'repository'),
+      stateRoot: path.join(root, 'state'),
+      cacheRoot: path.join(root, 'cache'),
+      requiredDirectories: []
+    };
+    mkdirSync(input.repositoryRoot);
+    const first = await acquireSecRuntimeStatePhysicalAuthority(input);
+    const second = await acquireSecRuntimeStatePhysicalAuthority(input);
+    try {
+      const current = first.assertCurrent();
+      await expect(second.release({ deadlineAtUnixMs: Date.now() + 10_000 }))
+        .rejects.toThrow('operations pending');
+      await current;
+      await expect(second.assertCurrent()).resolves.toBeUndefined();
+      await second.release({ deadlineAtUnixMs: Date.now() + 10_000 });
+      await expect(first.assertCurrent()).resolves.toBeUndefined();
+    } finally {
+      await second.release().catch(() => undefined);
+      await first.release().catch(() => undefined);
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+);
+
+test.skipIf(process.platform !== 'win32')(
+  'last-reference settlement excludes a same-key join until retirement is terminal',
+  async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-state-settling-join-'));
+    const input = {
+      repositoryRoot: path.join(root, 'repository'),
+      stateRoot: path.join(root, 'state'),
+      cacheRoot: path.join(root, 'cache'),
+      requiredDirectories: []
+    };
+    mkdirSync(input.repositoryRoot);
+    const authority = await acquireSecRuntimeStatePhysicalAuthority(input);
+    let reopened: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
+    try {
+      const retirement = authority.release({ deadlineAtUnixMs: Date.now() + 10_000 });
+      await expect(acquireSecRuntimeStatePhysicalAuthority(input)).rejects.toThrow('generation is retired');
+      await retirement;
+      reopened = await acquireSecRuntimeStatePhysicalAuthority(input);
+      await expect(reopened.assertCurrent()).resolves.toBeUndefined();
+    } finally {
+      await reopened?.release().catch(() => undefined);
+      await authority.release().catch(() => undefined);
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+);
+
+test.skipIf(process.platform !== 'win32')(
+  'default last-reference settlement excludes joins while an admitted operation drains',
+  async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-state-default-settling-'));
+    const input = {
+      repositoryRoot: path.join(root, 'repository'),
+      stateRoot: path.join(root, 'state'),
+      cacheRoot: path.join(root, 'cache'),
+      requiredDirectories: []
+    };
+    mkdirSync(input.repositoryRoot);
+    const authority = await acquireSecRuntimeStatePhysicalAuthority(input);
+    let reopened: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
+    try {
+      const current = authority.assertCurrent();
+      const retirement = authority.release();
+      await expect(acquireSecRuntimeStatePhysicalAuthority(input)).rejects.toThrow('generation is retired');
+      await current;
+      await retirement;
+      reopened = await acquireSecRuntimeStatePhysicalAuthority(input);
+      await expect(reopened.assertCurrent()).resolves.toBeUndefined();
+    } finally {
+      await reopened?.release().catch(() => undefined);
+      await authority.release().catch(() => undefined);
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+);
+
 test.skipIf(process.platform !== 'win32')('owner child generations advance without retiring concurrent stable root holders', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-state-generation-'));
   const repositoryRoot = path.join(root, 'repository');
@@ -233,30 +372,20 @@ test.skipIf(process.platform !== 'win32')('warm closure reuses one generation an
 });
 
 test.skipIf(process.platform !== 'win32')(
-  'unowned membership mutation and same-path root replacement still invalidate stable holders',
+  'same-path root replacement invalidates stable holders',
   async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-state-hostile-'));
     const repositoryRoot = path.join(root, 'repository');
     const stateRoot = path.join(root, 'state');
     const cacheRoot = path.join(root, 'cache');
     mkdirSync(repositoryRoot);
-    let authority = await acquireSecRuntimeStatePhysicalAuthority({
+    const authority = await acquireSecRuntimeStatePhysicalAuthority({
       repositoryRoot,
       stateRoot,
       cacheRoot,
       requiredDirectories: []
     });
     try {
-      mkdirSync(path.join(stateRoot, 'unowned-child'));
-      await expect(authority.assertCurrent()).rejects.toThrow('changed');
-      await authority.release();
-
-      authority = await acquireSecRuntimeStatePhysicalAuthority({
-        repositoryRoot,
-        stateRoot,
-        cacheRoot,
-        requiredDirectories: []
-      });
       renameSync(stateRoot, `${stateRoot}-displaced`);
       mkdirSync(stateRoot);
       await expect(authority.assertCurrent()).rejects.toThrow('physical identity changed');

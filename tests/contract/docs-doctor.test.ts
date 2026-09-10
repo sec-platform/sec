@@ -507,15 +507,20 @@ test('production docs-doctor ignores ambient index redirection and captures the 
       env: environment
     });
     expect(update.status).toBe(0);
-    const longCacheRoot = path.join(
-      temporaryRoot,
-      `cache-segment-${'x'.repeat(80)}`
-    );
+    const baseCacheRoot = path.join(temporaryRoot, 'c');
+    let longCacheRoot = baseCacheRoot;
     if (process.platform === 'win32') {
-      expect(path.join(
-        longCacheRoot,
-        'docs-doctor', 'index-snapshots', 'v1', `snapshot-${'0'.repeat(36)}`, 'index.lock'
-      ).length).toBeGreaterThan(259);
+      const baseLayout = compileDocsDoctorIndexSnapshotLayout({
+        cacheRoot: baseCacheRoot,
+        objectFormat: 'sha1',
+        platform: process.platform,
+        snapshotToken: '0'.repeat(
+          DOCS_DOCTOR_INDEX_SNAPSHOT_LAYOUT.snapshotTokenHexLength
+        )
+      });
+      const padding = DOCS_DOCTOR_INDEX_SNAPSHOT_LAYOUT.windowsLegacyChildPathMax
+        - baseLayout.childProcessPathBudget.longestPathLength;
+      longCacheRoot = `${baseCacheRoot}${'x'.repeat(padding)}`;
       const layout = compileDocsDoctorIndexSnapshotLayout({
         cacheRoot: longCacheRoot,
         objectFormat: 'sha1',
@@ -589,10 +594,10 @@ test('captured-tree reader validates complete batch framing and reads a deep con
   const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'sec-docs-doctor-batch-'));
   const deepRepositoryRoot = path.join(
     temporaryRoot,
-    'captured-tree-workspace-0001',
-    'captured-tree-workspace-0002',
-    'captured-tree-workspace-0003',
-    'captured-tree-workspace-0004'
+    'r',
+    'a',
+    'b',
+    'c'
   );
   try {
     await mkdir(path.dirname(path.join(deepRepositoryRoot, repositoryPath)), { recursive: true });

@@ -5,8 +5,48 @@ import path from 'node:path';
 
 import {
   LOCAL_CONTAINER_ENGINE_READINESS_SCHEMA,
-  observeLocalContainerEngineReadiness
+  observeLocalContainerEngineReadiness,
+  settleLocalContainerEngineReadinessCompletion
 } from './readiness.ts';
+
+test('readiness settlement preserves primary presence and release failure ordering', async () => {
+  const primary = new Error('primary readiness failure');
+  const release = new Error('journal release failure');
+  let dual: unknown;
+  try {
+    await settleLocalContainerEngineReadinessCompletion({
+      completion: Promise.reject(primary),
+      release: async () => { throw release; }
+    });
+  } catch (error) {
+    dual = error;
+  }
+  expect(dual).toBeInstanceOf(AggregateError);
+  expect((dual as AggregateError).errors).toEqual([primary, release]);
+
+  let undefinedPrimaryObserved = false;
+  try {
+    await settleLocalContainerEngineReadinessCompletion({
+      completion: Promise.reject(undefined),
+      release: async () => {}
+    });
+  } catch (error) {
+    undefinedPrimaryObserved = true;
+    expect(error).toBeUndefined();
+  }
+  expect(undefinedPrimaryObserved).toBe(true);
+
+  let releaseOnly: unknown;
+  try {
+    await settleLocalContainerEngineReadinessCompletion({
+      completion: Promise.resolve('ready'),
+      release: async () => { throw release; }
+    });
+  } catch (error) {
+    releaseOnly = error;
+  }
+  expect(releaseOnly).toBe(release);
+});
 
 test('local Container Engine readiness rejects caller path and mode ambiguity before provider Effects', async () => {
   const relative = await observeLocalContainerEngineReadiness({ cwd: '.' });

@@ -2,6 +2,10 @@ import { expect, test } from 'bun:test';
 
 import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { isSecRepositoryTestModulePath } from '../../system-architecture/repository-modules/test-module-path.ts';
+import {
+  createSourceProgramCompilationOperation,
+  SourceProgramCompilationInterruptedError
+} from './compilation-operation.ts';
 import type { SourceProgramSupersessionReceipt } from './contract.ts';
 import { compileRepositorySourceProgramModel } from './repository.ts';
 import {
@@ -328,12 +332,46 @@ test('baseline Git census stays UNKNOWN without Source Program retirement proof'
       source,
       contentDigest: rawSha256(source)
     }));
+  const baselineModel = compileExactTypeScriptModel(baselineSources);
+  const candidateModel = compileExactTypeScriptModel(candidateSourceFiles);
   const baselineEvidence = compileSourceProgramTestBaselineEvidence({
     baselineTestPaths: baselinePaths,
-    baselineModel: compileExactTypeScriptModel(baselineSources),
-    candidateModel: compileExactTypeScriptModel(candidateSourceFiles),
+    baselineModel,
+    candidateModel,
     baselineRevision
   });
+  expect(compileSourceProgramTestBaselineEvidence({
+    baselineTestPaths: baselinePaths,
+    baselineModel,
+    candidateModel,
+    baselineRevision
+  })).toEqual(baselineEvidence);
+
+  const controller = new AbortController();
+  const operation = createSourceProgramCompilationOperation({
+    deadlineAtUnixMs: Date.now() + 30_000,
+    signal: controller.signal,
+    observePhase: ({ phase, state }) => {
+      if (phase === 'baseline-test-evidence' && state === 'start') controller.abort();
+    }
+  });
+  let interrupted: unknown;
+  try {
+    compileSourceProgramTestBaselineEvidence({
+      baselineTestPaths: baselinePaths,
+      baselineModel,
+      candidateModel,
+      baselineRevision,
+      operation
+    });
+  } catch (error) {
+    interrupted = error;
+  }
+  expect(interrupted).toBeInstanceOf(SourceProgramCompilationInterruptedError);
+  expect(interrupted).toEqual(expect.objectContaining({
+    code: 'source-program-compilation-cancelled',
+    phase: 'baseline-test-evidence'
+  }));
   expect(baselineEvidence.map(({ observationStatus, observationReason }) => ({
     observationStatus,
     observationReason

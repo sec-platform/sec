@@ -21,7 +21,19 @@ import type {
   SourceProgramTestValueCompilation
 } from '../source-program-model/test-value.ts';
 
+import {
+  sourceProgramFindingDeltaIsUnresolved, summarizeSourceProgramFindingDelta,
+  type SourceProgramFindingDelta
+} from '../source-program-model/reconciliation-findings.ts';
+
+import { compileSourceProgramMechanismReview, type SourceProgramMechanismReview } from './mechanism-review.ts';
+import { REPOSITORY_AUDIT_WORKER_PROTOCOL_LIMITS } from './worker-protocol.ts';
+
 const REDUCTION_MODES = new Set<string>(['none', 'version', 'graph-cut', 'aggregate-import']);
+const BLOCKING_DETAIL_DOMAINS = new Set<string>([
+  'priority', 'source-program', 'declaration-topology', 'test-retirement',
+  'implementation-dominance', 'test-value', 'supersession', 'module-architecture'
+]);
 const OPERATION_INPUT_KEYS = Object.freeze([
   'binding',
   'blockingReasons',
@@ -72,6 +84,8 @@ export type SourceProgramAuditReconciliationProjection = Readonly<{
     readonly compilationReceiptDigest: Digest;
   }>;
   readonly changes: readonly unknown[];
+  /** Absent only on older parent projections; never implied to have been checked. */
+  readonly findingDelta?: SourceProgramFindingDelta;
   readonly frontiers: readonly unknown[];
   readonly providerEvidence: readonly unknown[];
   readonly unresolvedReasons: readonly unknown[];
@@ -219,7 +233,12 @@ export interface CompileSourceProgramAuditOperationInput {
     readonly modelDigest: string;
     readonly sourceFileSetDigest: string;
     readonly candidateDigests: readonly string[];
+    readonly unknownDigests: readonly string[];
+    readonly unknownsDigest: string;
+    /** Nonblocking diagnostic view; older in-process projections may omit it. */
+    readonly mechanismReview?: SourceProgramMechanismReview;
     readonly candidates: readonly SourceProgramCandidate[];
+    readonly unknowns: SourceProgramModel['unknowns'];
     readonly counts: Readonly<{
       readonly capabilities: number;
       readonly candidates: number;
@@ -252,7 +271,7 @@ export interface CompileSourceProgramAuditOperationInput {
     readonly modelDigest: string;
     readonly declarations: readonly unknown[];
     readonly edges: readonly unknown[];
-    readonly strongComponents: readonly Readonly<{ readonly declarationObservationIds: readonly string[] }>[];
+    readonly strongComponents: readonly Readonly<{ readonly declarationObservationIds: readonly string[] }> [];
     readonly unknowns: readonly unknown[];
     readonly topologyDigest: Digest;
   }>;
@@ -290,6 +309,11 @@ export interface CompileSourceProgramAuditOperationInput {
   /** Reduction compilers and provider receipts remain in the parent boundary. */
   readonly reduction: SourceProgramAuditReduction;
   readonly options: Readonly<{
+    readonly blockingDetails: boolean;
+    readonly blockingDetailsDomain: 'priority' | 'source-program' | 'declaration-topology'
+      | 'test-retirement' | 'implementation-dominance' | 'test-value'
+      | 'supersession' | 'module-architecture';
+    readonly blockingDetailsPage: number;
     readonly full: boolean;
     readonly enforce: boolean;
     readonly includeCandidates: boolean;
@@ -359,6 +383,100 @@ function compactRecordSet<T>(records: readonly T[]): Readonly<{
   return Object.freeze({ count: records.length, digest: sha256(records) });
 }
 
+export const BLOCKING_DETAILS_PAGE_MAXIMUM_BYTES =
+  REPOSITORY_AUDIT_WORKER_PROTOCOL_LIMITS.maximumOperationInputBytes / 8;
+
+export class SourceProgramAuditBlockingDetailError extends Error {
+  readonly code = 'blocking-detail-record-too-large';
+  constructor(
+    readonly domain: string,
+    readonly index: number,
+    readonly recordDigest: string,
+    readonly recordBytes: number
+  ) {
+    super(
+      `Repository Audit blocking-detail record exceeds its page budget: ${domain}:${index}:${recordDigest}:${recordBytes}`
+    );
+    this.name = 'SourceProgramAuditBlockingDetailError';
+  }
+}
+
+function pagedRecordSet<T>(
+  domain: string,
+  records: readonly T[],
+  page: number
+): Readonly<{
+  count: number;
+  digest: string;
+  page: number;
+  pageCount: number;
+  pageMaximumBytes: number;
+  records: readonly T[];
+}> {
+  const selected: T[] = [];
+  let currentPage = 0;
+  let currentRecordCount = 0;
+  let currentBytes = 2;
+  for (const [index, record] of records.entries()) {
+    const recordBytes = canonicalWireBytes(record).byteLength;
+    if (recordBytes + 2 > BLOCKING_DETAILS_PAGE_MAXIMUM_BYTES) {
+      throw new SourceProgramAuditBlockingDetailError(
+        domain, index, sha256(record), recordBytes
+      );
+    }
+    const nextBytes = currentBytes + recordBytes + (currentRecordCount === 0 ? 0 : 1);
+    if (currentRecordCount > 0 && nextBytes > BLOCKING_DETAILS_PAGE_MAXIMUM_BYTES) {
+      currentPage++;
+      currentRecordCount = 0;
+      currentBytes = 2;
+    }
+    if (currentPage === page) selected.push(record);
+    currentBytes += recordBytes + (currentRecordCount === 0 ? 0 : 1);
+    currentRecordCount++;
+  }
+  return Object.freeze({
+    count: records.length,
+    digest: sha256(records),
+    page,
+    pageCount: records.length === 0 ? 0 : currentPage + 1,
+    pageMaximumBytes: BLOCKING_DETAILS_PAGE_MAXIMUM_BYTES,
+    records: Object.freeze(selected)
+  });
+}
+
+type BlockingDetailRecord = Readonly<{ readonly category: string; readonly record: unknown }>;
+
+function blockingDetailRecords(
+  input: CompileSourceProgramAuditOperationInput,
+  domain: CompileSourceProgramAuditOperationInput['options']['blockingDetailsDomain']
+): readonly BlockingDetailRecord[] {
+  const tagged = (category: string, records: readonly unknown[]): readonly BlockingDetailRecord[] =>
+    Object.freeze(records.map((record) => Object.freeze({ category, record })));
+  switch (domain) {
+    case 'priority':
+      return Object.freeze([
+        ...tagged('blocking-candidate', input.blockingCandidates),
+        ...tagged('blocking-test-finding', input.blockingTestFindings)
+      ]);
+    case 'source-program': return tagged('source-program-unknown', input.sourceProgram.unknowns);
+    case 'declaration-topology':
+      return tagged('declaration-topology-unknown', input.declarationTopology.unknowns);
+    case 'test-retirement':
+      return tagged('blocked-test-retirement-proof', input.testRetirement.proofs
+        .filter(({ status }) => status === 'blocked'));
+    case 'implementation-dominance':
+      return tagged('implementation-dominance-finding', input.implementationDominance.findings);
+    case 'test-value':
+      return Object.freeze([
+        ...tagged('blocking-test-finding', input.blockingTestFindings),
+        ...tagged('unknown-test-disposition', input.unknownDispositionClusters)
+      ]);
+    case 'supersession': return tagged('supersession-finding', input.supersession.findings);
+    case 'module-architecture':
+      return tagged('module-architecture-violation', input.moduleArchitecture.violations);
+  }
+}
+
 function assertSourceFileIdentities(
   files: readonly Readonly<{ readonly path: string; readonly contentDigest: string }>[]
 ): void {
@@ -388,7 +506,8 @@ function assertReductionPatch(
 export function compileSourceProgramAuditSourceProgramProjection(
   model: SourceProgramModel,
   sourceFileIdentities: readonly Readonly<{ readonly path: string; readonly contentDigest: string }>[],
-  includeCandidates: boolean
+  includeCandidates: boolean,
+  includeUnknowns = false
 ): CompileSourceProgramAuditOperationInput['sourceProgram'] {
   assertSourceFileIdentities(sourceFileIdentities);
   const modelFileDigestByPath = new Map(model.files.map(({ path, contentDigest }) =>
@@ -402,8 +521,12 @@ export function compileSourceProgramAuditSourceProgramProjection(
     sourceRevision: model.sourceRevision,
     modelDigest: model.modelDigest,
     sourceFileSetDigest: sha256(sourceFileIdentities),
+    mechanismReview: compileSourceProgramMechanismReview(model),
     candidateDigests: Object.freeze(model.candidates.map((candidate) => sha256(candidate))),
+    unknownDigests: Object.freeze(model.unknowns.map((unknown) => sha256(unknown))),
+    unknownsDigest: sha256(model.unknowns),
     candidates: includeCandidates ? model.candidates : Object.freeze([]),
+    unknowns: includeUnknowns ? model.unknowns : Object.freeze([]),
     counts: Object.freeze({
       capabilities: model.capabilities.length,
       candidates: model.candidates.length,
@@ -457,10 +580,19 @@ function assertFacts(input: CompileSourceProgramAuditOperationInput): void {
   if (input.sourceProgram.sourceFileSetDigest !== sha256(input.sourceFileIdentities)
       || input.sourceProgram.counts.files !== input.sourceFileIdentities.length
       || input.sourceProgram.candidateDigests.length !== input.sourceProgram.counts.candidates
+      || input.sourceProgram.unknownDigests.length !== input.sourceProgram.counts.unknowns
       || input.sourceProgram.candidates.length !== (
         input.options.includeCandidates ? input.sourceProgram.counts.candidates : 0
       )) {
     throw new Error('Source Program projection is not bound to its exact fact set');
+  }
+  const mechanisms = input.sourceProgram.mechanismReview;
+  if (mechanisms !== undefined && (
+    mechanisms.sourceRevision !== input.sourceProgram.sourceRevision
+    || mechanisms.modelDigest !== input.sourceProgram.modelDigest
+    || mechanisms.coverage.files !== input.sourceProgram.counts.files
+  )) {
+    throw new Error('Mechanism review is not bound to the Source Program projection');
   }
   if (input.implementationDominance.sourceRevision !== input.sourceProgram.sourceRevision
       || input.implementationDominance.sourceProgramModelDigest !== input.sourceProgram.modelDigest) {
@@ -479,6 +611,16 @@ function assertFacts(input: CompileSourceProgramAuditOperationInput): void {
       || input.architectureEvolution.reconciliationProjectionDigest
         !== input.reconciliation.projectionDigest) {
     throw new Error('Architecture projections are not bound to the Source Program model');
+  }
+  const delta = input.reconciliation.findingDelta;
+  if (delta !== undefined && (
+    delta.before.sourceRevision !== input.reconciliation.before.sourceRevision
+    || delta.before.modelDigest !== input.reconciliation.before.modelDigest
+    || delta.after.sourceRevision !== input.reconciliation.after.sourceRevision
+    || delta.after.modelDigest !== input.reconciliation.after.modelDigest
+    || (sourceProgramFindingDeltaIsUnresolved(delta) && input.reconciliation.status !== 'unresolved')
+  )) {
+    throw new Error('Finding reconciliation is not bound to the compared models or unresolved state');
   }
   const testBindingFailures = [
     ...(input.testValue.sourceRevision === input.sourceProgram.sourceRevision ? [] : ['test-value-source']),
@@ -514,6 +656,15 @@ function assertFacts(input: CompileSourceProgramAuditOperationInput): void {
   const candidateDigests = new Set(input.sourceProgram.candidateDigests);
   if (input.blockingCandidates.some((candidate) => !candidateDigests.has(sha256(candidate)))) {
     throw new Error('Blocking candidate projection is not a subset of the Source Program model');
+  }
+  const unknownDigests = new Set(input.sourceProgram.unknownDigests);
+  if (input.options.blockingDetails
+      && input.options.blockingDetailsDomain === 'source-program' && (
+    input.sourceProgram.unknowns.length !== input.sourceProgram.counts.unknowns
+    || sha256(input.sourceProgram.unknowns) !== input.sourceProgram.unknownsDigest
+    || input.sourceProgram.unknowns.some((unknown) => !unknownDigests.has(sha256(unknown)))
+  )) {
+    throw new Error('Blocking-detail unknown projection is not the exact Source Program unknown set');
   }
   const findingDigests = new Set(input.testDisposition.findings.map((finding) => sha256(finding)));
   if (input.blockingTestFindings.some((finding) => !findingDigests.has(sha256(finding)))) {
@@ -572,6 +723,37 @@ export function parseSourceProgramAuditOperationInput(
   return input;
 }
 
+function operationExitCode(enforce: boolean, reasons: readonly string[]): 0 | 1 {
+  return enforce && reasons.length > 0 ? 1 : 0;
+}
+
+function readEnforcement(projection: Readonly<Record<string, unknown>>): Readonly<{
+  requested: boolean; blockingReasons: readonly string[];
+}> {
+  const enforcement = projection.enforcement;
+  if (!isPlainObject(enforcement) || typeof enforcement.requested !== 'boolean'
+      || !Array.isArray(enforcement.blockingReasons)) {
+    throw new Error('Repository Audit report is missing an explicit enforcement decision');
+  }
+  const reasons = enforcement.blockingReasons as unknown[];
+  for (const reason of reasons) {
+    if (typeof reason !== 'string' || reason.length === 0 || reason.trim() !== reason) {
+      throw new Error('Repository Audit report has invalid blocking reasons');
+    }
+  }
+  if (new Set(reasons).size !== reasons.length) {
+    throw new Error('Repository Audit report repeats a blocking reason');
+  }
+  return enforcement as { requested: boolean; blockingReasons: readonly string[] };
+}
+
+function assertResultDecision(projection: Readonly<Record<string, unknown>>, exitCode: number): void {
+  const enforcement = readEnforcement(projection);
+  if (exitCode !== operationExitCode(enforcement.requested, enforcement.blockingReasons)) {
+    throw new Error('Repository Audit result exit code contradicts its reported enforcement decision');
+  }
+}
+
 function assertOperationInput(input: SourceProgramAuditOperationInput): void {
   if (!isPlainObject(input.binding)
       || !/^sha256:[0-9a-f]{64}$/u.test(input.binding.sourceRevision)
@@ -588,6 +770,12 @@ function assertOperationInput(input: SourceProgramAuditOperationInput): void {
       || input.projection.modelDigest !== input.binding.modelDigest
       || (input.reductionPatch !== null && !isPlainObject(input.reductionPatch))) {
     throw new Error('Repository Audit Source Program operation input is inconsistent');
+  }
+  const enforcement = readEnforcement(input.projection);
+  if (enforcement.requested !== input.enforce
+      || enforcement.blockingReasons.length !== input.blockingReasons.length
+      || enforcement.blockingReasons.some((reason, index) => reason !== input.blockingReasons[index])) {
+    throw new Error('Repository Audit input contradicts its reported enforcement decision');
   }
   if (input.reductionPatch !== null
       && input.reductionPatch.sourceRevision !== input.binding.sourceRevision) {
@@ -607,6 +795,7 @@ export function encodeSourceProgramAuditOperationResult(
       })) {
     throw new Error('Repository Audit Source Program operation result is inconsistent');
   }
+  assertResultDecision(result.projection, result.exitCode);
   return canonicalWireBytes({
     exitCode: result.exitCode,
     projection: result.projection,
@@ -638,6 +827,7 @@ export function parseSourceProgramAuditOperationResult(
   })) {
     throw new Error('Repository Audit Source Program operation result digest differs');
   }
+  assertResultDecision(result.projection, result.exitCode);
   return result;
 }
 
@@ -710,8 +900,39 @@ function reductionProjection(
 export function compileSourceProgramAuditOperationInput(
   input: CompileSourceProgramAuditOperationInput
 ): SourceProgramAuditOperationInput {
+  if (!Number.isSafeInteger(input.options.blockingDetailsPage)
+      || input.options.blockingDetailsPage < 0) {
+    throw new Error('Repository Audit blocking-detail page must be a non-negative safe integer');
+  }
+  if (!BLOCKING_DETAIL_DOMAINS.has(input.options.blockingDetailsDomain)) {
+    throw new Error(`Unsupported Repository Audit blocking-detail domain: ${input.options.blockingDetailsDomain}`);
+  }
+  if (!input.options.blockingDetails && (
+    input.options.blockingDetailsPage !== 0 || input.options.blockingDetailsDomain !== 'priority'
+  )) {
+    throw new Error('Repository Audit blocking-detail selectors require blocking details');
+  }
+  if (input.options.blockingDetails && input.options.full) {
+    throw new Error('Repository Audit blocking details cannot be combined with the full projection');
+  }
+  if (!Number.isSafeInteger(input.sourceProgram.counts.unknowns)
+      || input.sourceProgram.counts.unknowns < 0) {
+    throw new Error('Source Program unknown observation count is invalid');
+  }
   assertFacts(input);
   const full = input.options.full;
+  const blockingDetails = input.options.blockingDetails;
+  const blockingDetailsPage = input.options.blockingDetailsPage;
+  const blockingDetailsDomain = input.options.blockingDetailsDomain;
+  const detailsFor = (...domains: readonly typeof blockingDetailsDomain[]): boolean =>
+    blockingDetails && domains.includes(blockingDetailsDomain);
+  const blockingDetailsProjection = blockingDetails
+    ? pagedRecordSet(
+        blockingDetailsDomain,
+        blockingDetailRecords(input, blockingDetailsDomain),
+        blockingDetailsPage
+      )
+    : null;
   const candidates = input.blockingCandidates;
   const testFindings = input.blockingTestFindings;
   const unknownDispositionClusters = input.unknownDispositionClusters;
@@ -721,7 +942,13 @@ export function compileSourceProgramAuditOperationInput(
     disposition !== 'unknown');
   const compactFindings = input.testDisposition.findings.filter(({ disposition }) =>
     disposition?.disposition !== 'unknown');
+  // An enforced audit needs coverage, not just an empty known-finding list.
+  // Mechanism-review heuristics remain nonblocking review leads.
   const blockingReasons = Object.freeze([
+    ...(input.sourceProgram.counts.unknowns > 0 ? ['source-program-incomplete'] : []),
+    ...(input.declarationTopology.unknowns.length > 0 ? ['declaration-topology-incomplete'] : []),
+    ...(input.testRetirement.proofs.some(({ status }) => status === 'blocked')
+      ? ['test-retirement-blocked'] : []),
     ...(candidates.length > 0 ? ['source-program-candidates'] : []),
     ...(input.implementationDominance.findings.length > 0
       ? ['implementation-dominance'] : []),
@@ -753,6 +980,25 @@ export function compileSourceProgramAuditOperationInput(
     modelDigest: input.sourceProgram.modelDigest,
     sourceRevision: input.sourceProgram.sourceRevision,
     sourceProgramCompilation: input.sourceProgramCompilation,
+    // Both presentation modes expose the exact reasons consumed by the exit
+    // decision. This is not an independent success or authority declaration.
+    enforcement: Object.freeze({
+      requested: input.options.enforce,
+      blockingReasons
+    }),
+    // Mechanism findings are review leads, never new blocking reasons or
+    // rewrite authority. Compact output retains coverage and its full digest.
+    ...(input.sourceProgram.mechanismReview === undefined ? {} : {
+      mechanisms: full ? input.sourceProgram.mechanismReview : Object.freeze({
+        authority: input.sourceProgram.mechanismReview.authority,
+        sourceRevision: input.sourceProgram.mechanismReview.sourceRevision,
+        modelDigest: input.sourceProgram.mechanismReview.modelDigest,
+        reviewDigest: input.sourceProgram.mechanismReview.reviewDigest,
+        coverage: input.sourceProgram.mechanismReview.coverage,
+        counts: input.sourceProgram.mechanismReview.counts
+      })
+    }),
+
     declarationTopology: full ? input.declarationTopology : Object.freeze({
       compilationReceiptDigest: input.declarationTopology.compilationReceiptDigest,
       topologyDigest: input.declarationTopology.topologyDigest,
@@ -792,7 +1038,10 @@ export function compileSourceProgramAuditOperationInput(
       changes: input.reconciliation.changes.length,
       frontiers: input.reconciliation.frontiers.length,
       providerEvidence: input.reconciliation.providerEvidence,
-      unresolvedReasons: compactRecordSet(input.reconciliation.unresolvedReasons)
+      unresolvedReasons: compactRecordSet(input.reconciliation.unresolvedReasons),
+      ...(input.reconciliation.findingDelta === undefined ? {} : {
+        findingDelta: summarizeSourceProgramFindingDelta(input.reconciliation.findingDelta)
+      })
     }),
     architectureEvolution: full ? input.architectureEvolution : Object.freeze({
       status: input.architectureEvolution.status,
@@ -808,6 +1057,10 @@ export function compileSourceProgramAuditOperationInput(
         ([name, values]) => [name, values.length]
       )),
       blockers: compactRecordSet(input.architectureEvolution.blockers)
+    }),
+    sourceProgramUnknowns: Object.freeze({
+      count: input.sourceProgram.counts.unknowns,
+      digest: input.sourceProgram.unknownsDigest
     }),
     blockingCandidates: full ? candidates : compactRecordSet(candidates),
     blockingTestFindings: full
@@ -837,6 +1090,9 @@ export function compileSourceProgramAuditOperationInput(
       proofsDigest: sha256(input.testRetirement.proofs)
     }),
     topology: input.topology,
+    ...(blockingDetailsProjection === null ? {} : {
+      blockingDetails: blockingDetailsProjection
+    }),
     testValue: Object.freeze({
       baselineDigest: input.testValue.baselineDigest,
       baselineEvidenceDigest: input.testValue.baselineEvidenceDigest,
@@ -870,7 +1126,14 @@ export function compileSourceProgramAuditOperationInput(
       architectureEvolutionDirection: input.architectureEvolution.direction,
       architectureEvolutionBlockers: input.architectureEvolution.blockers.length,
       blockingTestFindings: testFindings.length,
-      reportedBlockingTestFindings: (full ? testFindings : compactBlockingTestFindings).length,
+      reportedBlockingTestFindings: full
+        ? testFindings.length
+        : compactBlockingTestFindings.length + (detailsFor('priority', 'test-value')
+          ? blockingDetailsProjection!.records.filter(({ category, record }) =>
+              category === 'blocking-test-finding'
+              && (record as SourceProgramTestFinding).disposition?.disposition === 'unknown'
+            ).length
+          : 0),
       unknownDispositionClusters: unknownDispositionClusters.length,
       unknownDispositions: input.testDisposition.dispositions.filter(({ disposition }) =>
         disposition === 'unknown').length,
@@ -921,7 +1184,7 @@ export function compileSourceProgramAuditOperation(
   input: SourceProgramAuditOperationInput
 ): SourceProgramAuditOperationResult {
   assertOperationInput(input);
-  const exitCode = input.enforce && input.blockingReasons.length > 0 ? 1 as const : 0 as const;
+  const exitCode = operationExitCode(input.enforce, input.blockingReasons);
   const projection = input.projection;
   const reductionPatch = input.reductionPatch;
   const resultDigest = sha256({ projection, reductionPatch, exitCode }) as Digest;

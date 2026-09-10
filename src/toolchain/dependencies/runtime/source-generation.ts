@@ -19,10 +19,11 @@ import {
 } from './dependency-transition/contract.ts';
 import {
   runtimeDependencyOperationContext,
-  runtimeDependencyOperationOptions,
+  runtimeDependencyOperationControls,
   runtimeDependencyOperationRemainingMs,
-  type RuntimeDependencyOperationOptions
-} from './operation-context.ts';
+  type BoundRuntimeDependencyOperationControls,
+  type RuntimeDependencyOperationControlInput
+} from './operation-controls.ts';
 import { measureRuntimeDependencyOperationPhase } from './operation-telemetry.ts';
 
 export const RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES = 100_000;
@@ -35,9 +36,17 @@ export interface RuntimeDependencySourceGenerationBounds {
 
 export type RuntimeDependencySourceGenerationInput = Readonly<{
   binding: unknown;
-  options: RuntimeDependencyOperationOptions;
+  options: RuntimeDependencyOperationControlInput;
   ownerRoot: string;
   sourcePath: string;
+}>;
+
+/** Private observation decision: no installation, lifecycle or test capabilities. */
+type BoundSourceGenerationInput = Readonly<{
+  options: BoundRuntimeDependencyOperationControls;
+  ownerRoot: string;
+  sourcePath: string;
+  bindingDigest: `sha256:${string}`;
 }>;
 
 type RuntimeDependencySourceGenerationInFlight = Readonly<{
@@ -91,8 +100,12 @@ export function issuedRuntimeDependencySourceGenerationWithPath(
 function runtimeDependencySourceGenerationBounds(
   requested: Partial<RuntimeDependencySourceGenerationBounds> | undefined
 ): RuntimeDependencySourceGenerationBounds {
-  const maximumBytes = requested?.maximumBytes ?? RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES;
-  const maximumEntries = requested?.maximumEntries ?? RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES;
+  if (requested !== undefined && (requested === null || typeof requested !== 'object')) {
+    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency source-generation bounds must be an object');
+  }
+  const { maximumBytes: requestedBytes, maximumEntries: requestedEntries } = requested ?? {};
+  const maximumBytes = requestedBytes === undefined ? RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES : requestedBytes;
+  const maximumEntries = requestedEntries === undefined ? RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES : requestedEntries;
   if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 0 ||
       maximumBytes > RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES ||
       !Number.isSafeInteger(maximumEntries) || maximumEntries < 1 ||
@@ -140,32 +153,22 @@ export function runtimeDependencyTreeIdentity(
   });
 }
 
-function runtimeDependencySourceGenerationKey(
-  input: RuntimeDependencySourceGenerationInput
-): string {
+function runtimeDependencySourceGenerationKey(input: BoundSourceGenerationInput): string {
   return JSON.stringify([
-    path.resolve(input.ownerRoot),
-    path.resolve(input.sourcePath),
-    generatedStateDigest(input.binding),
+    input.ownerRoot,
+    input.sourcePath,
+    input.bindingDigest,
     runtimeDependencyOperationContext(input.options).operationId
   ]);
 }
 
 async function runtimeDependencySourceGenerationInternal(
-  input: RuntimeDependencySourceGenerationInput,
+  input: BoundSourceGenerationInput,
   bounds: RuntimeDependencySourceGenerationBounds
 ): Promise<RuntimeDependencySourceGeneration> {
-  const options = runtimeDependencyOperationOptions(input.options);
+  const { options, ownerRoot, sourcePath, bindingDigest } = input;
   const context = runtimeDependencyOperationContext(options);
   runtimeDependencyOperationRemainingMs(options, 'Runtime dependency source generation admission');
-  const ownerRoot = path.resolve(input.ownerRoot);
-  const sourcePath = path.resolve(input.sourcePath);
-  if (!sourcePathIsWithinOwner(ownerRoot, sourcePath)) {
-    throw new SecError(
-      'RUNTIME-DEPS-004',
-      'Runtime dependency source generation is outside its owner topology'
-    );
-  }
   const owner = inspectNoFollowDirectoryChain(
     ownerRoot,
     'Runtime dependency source owner root'
@@ -183,7 +186,6 @@ async function runtimeDependencySourceGenerationInternal(
     );
   }
   const physical = generatedStatePhysicalIdentity(source.target);
-  const bindingDigest = generatedStateDigest(input.binding);
   const treeInventory = measureRuntimeDependencyOperationPhase(options, 'source-scan', () =>
     scanNoFollowDirectoryTreeInventory(source.target, {
       deadlineAtMs: context.deadlineAtMonotonicMs,
@@ -245,13 +247,27 @@ export async function runtimeDependencySourceGeneration(
   input: RuntimeDependencySourceGenerationInput,
   requestedBounds?: Partial<RuntimeDependencySourceGenerationBounds>
 ): Promise<RuntimeDependencySourceGeneration> {
-  const options = runtimeDependencyOperationOptions(input.options);
-  const context = runtimeDependencyOperationContext(options);
-  runtimeDependencyOperationRemainingMs(options, 'Runtime dependency source generation caller admission');
+  // Fix all decision inputs before the first clock callback or asynchronous
+  // scan. The in-flight key, scan and issued result must describe this same
+  // observation; never re-spread the caller after publishing the key.
+  const cwd = process.cwd();
+  const { ownerRoot: rawOwnerRoot, sourcePath: rawSourcePath, binding, options: rawOptions } = input;
+  const ownerRoot = path.resolve(cwd, rawOwnerRoot);
+  const sourcePath = path.resolve(cwd, rawSourcePath);
+  if (!sourcePathIsWithinOwner(ownerRoot, sourcePath)) {
+    throw new SecError('RUNTIME-DEPS-004', 'Runtime dependency source generation is outside its owner topology');
+  }
   const bounds = requestedBounds === undefined
     ? canonicalRuntimeDependencySourceGenerationBounds
     : runtimeDependencySourceGenerationBounds(requestedBounds);
-  const key = runtimeDependencySourceGenerationKey({ ...input, options });
+  const bindingDigest = generatedStateDigest(binding);
+  // The scan needs controls only. Do not enumerate the install compatibility
+  // facade or transport lifecycle/test capabilities through a read operation.
+  const options = runtimeDependencyOperationControls(rawOptions);
+  const captured: BoundSourceGenerationInput = Object.freeze({ ownerRoot, sourcePath, bindingDigest, options });
+  const context = runtimeDependencyOperationContext(options);
+  runtimeDependencyOperationRemainingMs(options, 'Runtime dependency source generation caller admission');
+  const key = runtimeDependencySourceGenerationKey(captured);
   const existing = runtimeDependencySourceGenerationInFlight.get(key);
   if (existing !== undefined) {
     if (existing.deadlineAtMonotonicMs !== context.deadlineAtMonotonicMs ||
@@ -270,7 +286,7 @@ export async function runtimeDependencySourceGeneration(
   // record. Calls admitted in the same turn can then share one exact
   // operation observation instead of starting a second full traversal.
   const pending = Promise.resolve().then(() => runtimeDependencySourceGenerationInternal(
-    { ...input, options },
+    captured,
     bounds
   ));
   runtimeDependencySourceGenerationInFlight.set(key, Object.freeze({

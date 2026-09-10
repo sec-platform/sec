@@ -24,7 +24,7 @@ export const DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT = Object.freeze({
     Object.freeze({
       id: 'secrets-engine',
       folder: 'local-app-data' as WindowsKnownFolder,
-      segments: Object.freeze(['Docker', 'docker-secrets-engine'] as const),
+      segments: Object.freeze(['docker-secrets-engine'] as const),
       childDescriptor: 56
     })
   ]),

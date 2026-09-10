@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { lstatSync, renameSync, rmSync } from 'node:fs';
+import { lstatSync, renameSync } from 'node:fs';
 import path from 'node:path';
 
 import type {
@@ -2335,7 +2335,6 @@ async function inspectRunnerOciCache(cwd: string): Promise<LocalGitHubActionsRun
 
 async function projectRunnerOciLayout(
   cache: LocalGitHubActionsRunnerOciCache,
-  cwd: string,
   session: ContainerEngineSession
 ): Promise<void> {
   const progress = createBuildxRawJsonProgressAdmission();
@@ -2460,12 +2459,14 @@ function acquireRunnerOciMaterializationLease(
         owner: lease.reclaimedOwner
       });
     }
+    lease.acknowledgeReclaimedRecovery();
     return Object.freeze({
       lease,
       binding: createLocalGitHubActionsRunnerOciCandidateBinding(specDigest, lease.owner)
     });
   } catch (error) {
-    lease.release();
+    if (lease.recoveryPending) lease.restoreReclaimedOwner();
+    else lease.release();
     throw error;
   }
 }
@@ -2508,7 +2509,7 @@ async function ensureImage(cwd: string, session: ContainerEngineSession): Promis
       fail(`environment materialization is blocked: ${plan.reason}`);
     }
     if (plan.disposition === 'restore-local') {
-      await projectRunnerOciLayout(cache!, cwd, session);
+      await projectRunnerOciLayout(cache!, session);
       present = await inspectImage(session);
     }
     if (plan.disposition === 'materialize') {
@@ -2532,7 +2533,7 @@ async function ensureImage(cwd: string, session: ContainerEngineSession): Promis
       });
       const publishedCache = await inspectRunnerOciCache(cwd);
       if (publishedCache.state !== 'matching') fail('published OCI cache has no exact readback');
-      await projectRunnerOciLayout(publishedCache, cwd, session);
+      await projectRunnerOciLayout(publishedCache, session);
       present = await inspectImage(session);
       if (present === null) fail('runner image build has no exact readback');
     }

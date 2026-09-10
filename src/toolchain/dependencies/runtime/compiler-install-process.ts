@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { bindCompilerInstallInvocation, type CompilerInstallInvocationInput } from './install-invocation.ts';
 
 import { generatedStateDigest } from '../../../runtime-state/generated-state/contract.ts';
 import {
@@ -8,7 +9,6 @@ import {
   retainNoFollowOrdinaryFile
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
-  assertProcessResourceSessionReceipt,
   openProcessResourceSession
 } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
 import {
@@ -36,14 +36,14 @@ import {
 } from './compiler-materialization-input.ts';
 import { DEPENDENCY_COMMAND_OUTPUT_BYTES_CAPACITY } from './dependency-transition/store.ts';
 import { sameHostPath } from './host-path.ts';
+import { withCompilerInstallResources } from './install-resource-scope.ts';
 import { consumeRuntimeDependencyTestMaterialization } from './materialization-fixture-capability.ts';
 import {
   runtimeDependencyOperationContext,
-  runtimeDependencyOperationOptions,
-  runtimeDependencyOperationRemainingMs,
-  type RuntimeDependencyInstallOptions,
-  type RuntimeDependencyOperationOptions
+  runtimeDependencyOperationEffectFence,
+  runtimeDependencyOperationRemainingMs
 } from './operation-context.ts';
+import { type BoundRuntimeDependencyOperationControls } from './operation-controls.ts';
 import { measureRuntimeDependencyOperationPhaseAsync } from './operation-telemetry.ts';
 
 function buildDependencyInstallEnvironment(
@@ -60,11 +60,53 @@ function buildDependencyInstallEnvironment(
 const COMPILER_DEPENDENCY_INSTALL_PROCESS_REQUIREMENT =
   'compiler-dependency.install-process' as const;
 
+// Stream capacities are the physical limits; the aggregate is their sum, not
+// another independently maintained number. Both plan and session use this shape.
+const COMPILER_INSTALL_OUTPUT_LIMITS = Object.freeze({
+  maxStderrBytes: DEPENDENCY_COMMAND_OUTPUT_BYTES_CAPACITY,
+  maxStdoutBytes: DEPENDENCY_COMMAND_OUTPUT_BYTES_CAPACITY
+});
+
+function compilerInstallResourceCeilings(durationMs: number) {
+  return Object.freeze([
+    Object.freeze({ resource: 'duration-ms' as const, maximum: durationMs }),
+    Object.freeze({ resource: 'input-bytes' as const, maximum: 0 }),
+    Object.freeze({ resource: 'output-bytes' as const,
+      maximum: COMPILER_INSTALL_OUTPUT_LIMITS.maxStderrBytes + COMPILER_INSTALL_OUTPUT_LIMITS.maxStdoutBytes }),
+    Object.freeze({ resource: 'processes' as const, maximum: 1 })
+  ]);
+}
+
+function captureInstallArguments(input: readonly string[]): string[] {
+  if (!Array.isArray(input)) throw new SecError('RUNTIME-DEPS-003', 'Bun arguments must be a dense string array');
+  const length = input.length;
+  const args: string[] = [];
+  for (let index = 0; index < length; index += 1) {
+    const slot = Object.getOwnPropertyDescriptor(input, index);
+    if (!slot || !('value' in slot) || typeof slot.value !== 'string' || slot.value.includes('\0')) {
+      throw new SecError('RUNTIME-DEPS-003', 'Bun arguments must be own string data without NUL bytes');
+    }
+    args.push(slot.value);
+  }
+  return args;
+}
+
+function captureExpectedExecutable(input: RuntimeExecutableIdentity): RuntimeExecutableIdentity {
+  const { path: executablePath, sha256, signature } = input;
+  return Object.freeze({ path: path.resolve(executablePath), sha256, signature });
+}
+
+function requireSuccessfulInstall(result: CommandResult, workingDirectory: string): CommandResult {
+  if (result.code !== 0) throw new SecError('RUNTIME-DEPS-001',
+    `Failed to install runtime dependencies in ${workingDirectory}`, { bunResult: result });
+  return result;
+}
+
 function compilerDependencyInstallProcessOperation(input: Readonly<{
   args: readonly string[];
   environment: NodeJS.ProcessEnv;
   executable: RuntimeExecutableIdentity;
-  options: RuntimeDependencyOperationOptions;
+  options: BoundRuntimeDependencyOperationControls;
   workingDirectory: string;
 }>): SecBoundSemanticOperation {
   const context = runtimeDependencyOperationContext(input.options);
@@ -98,15 +140,7 @@ function compilerDependencyInstallProcessOperation(input: Readonly<{
       authorityGrantDigest: contractDigest,
       runIdDigest: generatedStateDigest(Object.freeze({ operationId: context.operationId }))
     }),
-    aggregateBudgets: Object.freeze([
-      Object.freeze({ resource: 'duration-ms' as const, maximum: remainingDurationMs }),
-      Object.freeze({ resource: 'input-bytes' as const, maximum: 0 }),
-      Object.freeze({
-        resource: 'output-bytes' as const,
-        maximum: DEPENDENCY_COMMAND_OUTPUT_BYTES_CAPACITY * 2
-      }),
-      Object.freeze({ resource: 'processes' as const, maximum: 1 })
-    ]),
+    aggregateBudgets: compilerInstallResourceCeilings(remainingDurationMs),
     requirements: Object.freeze([Object.freeze({
       id: COMPILER_DEPENDENCY_INSTALL_PROCESS_REQUIREMENT,
       contractDigest,
@@ -135,74 +169,86 @@ function compilerDependencyInstallProcessOperation(input: Readonly<{
 
 export async function runBunInstall(
   workingDirectory: string,
-  options: RuntimeDependencyInstallOptions,
-  bunArgs: string[],
+  options: CompilerInstallInvocationInput,
+  bunArgs: readonly string[],
   cacheDir?: string,
   expectedExecutable?: Readonly<RuntimeExecutableIdentity>,
   inputFence?: CommitFence
 ): Promise<{ packageManager: 'bun'; result: CommandResult }> {
-  const operationOptions = runtimeDependencyOperationOptions(options);
-  const isolated = options.installMode === 'offline-copy-only';
+  // Capture paths, arguments and supplied executable identity before any clock,
+  // fence or provider callback can mutate the invocation or process cwd.
+  workingDirectory = path.resolve(workingDirectory);
+  cacheDir = cacheDir === undefined ? undefined : path.resolve(cacheDir);
+  const capturedArgs = captureInstallArguments(bunArgs);
+  const capturedExecutable = expectedExecutable === undefined ? undefined : captureExpectedExecutable(expectedExecutable);
+  if (inputFence !== undefined && typeof inputFence !== 'function') {
+    throw new SecError('RUNTIME-DEPS-003', 'Compiler dependency input fence must be callable');
+  }
+  const { controls, isolated, materialization, beforeCommit } = bindCompilerInstallInvocation(options);
+  const effectOptions = Object.freeze({ ...controls, beforeCommit });
+  const effectFence = () => runtimeDependencyOperationEffectFence(effectOptions, 'Compiler dependency install');
+  const spawnFence = async () => {
+    await effectFence();
+    if (inputFence !== undefined) {
+      await runtimeDependencyOperationEffectFence({ ...controls, beforeCommit: () => inputFence() },
+        'Compiler dependency input');
+    }
+    runtimeDependencyOperationRemainingMs(controls, 'Compiler dependency command effect admission');
+  };
   const isolatedWritableRoot = isolated
     ? path.join(workingDirectory, '.isolated-process', 'dependency-install')
     : path.join(cacheDir ?? path.dirname(workingDirectory), '.process-runtime');
-  await ensureIsolatedProcessDirectories(isolatedWritableRoot, options.beforeCommit);
+  await ensureIsolatedProcessDirectories(isolatedWritableRoot, effectFence);
   const isolatedConfigPath = path.join(isolatedWritableRoot, 'bunfig.toml');
-  if (isolated) await writeText(isolatedConfigPath, '# isolated runtime\n', options.beforeCommit);
-  await options.beforeCommit?.();
+  if (isolated) await writeText(isolatedConfigPath, '# isolated runtime\n', effectFence);
+  await effectFence();
   const commandArgs = isolated
-    ? ['--no-env-file', `--config=${isolatedConfigPath}`, ...bunArgs]
-    : bunArgs;
+    ? ['--no-env-file', `--config=${isolatedConfigPath}`, ...capturedArgs]
+    : capturedArgs;
+  Object.freeze(commandArgs);
   const runOptions = {
-    beforeSpawn: async () => {
-      runtimeDependencyOperationRemainingMs(options, 'Compiler dependency command pre-spawn');
-      await options.beforeCommit?.();
-      await inputFence?.();
-      runtimeDependencyOperationRemainingMs(options, 'Compiler dependency command effect admission');
-    },
+    beforeSpawn: spawnFence,
     cwd: workingDirectory,
-    env: buildDependencyInstallEnvironment(isolatedWritableRoot, cacheDir, isolated),
+    env: Object.freeze(buildDependencyInstallEnvironment(isolatedWritableRoot, cacheDir, isolated)),
     envMode: 'replace' as const
   };
   const bunResult = await measureRuntimeDependencyOperationPhaseAsync(
-    operationOptions,
+    controls,
     'install',
     async () => {
-      if (options.testMaterialization !== undefined) {
-        const timeoutMs = Math.max(1, Math.floor(runtimeDependencyOperationRemainingMs(
-          operationOptions,
-          'Compiler dependency test materialization admission'
-        )));
+      if (materialization !== undefined) {
         await runOptions.beforeSpawn();
-        return consumeRuntimeDependencyTestMaterialization(options.testMaterialization, {
-          args: commandArgs,
-          cwd: workingDirectory,
-          timeoutMs
+        const timeoutMs = Math.max(1, Math.floor(runtimeDependencyOperationRemainingMs(
+          controls, 'Compiler dependency test materialization admission'
+        )));
+        const result = await consumeRuntimeDependencyTestMaterialization(materialization, {
+          args: commandArgs, cwd: workingDirectory, timeoutMs
         });
+        return requireSuccessfulInstall(result, workingDirectory);
       }
-      const expected = expectedExecutable ?? await currentRuntimeExecutableIdentity(true);
-      const executableParent = inspectNoFollowDirectoryChain(
-        path.dirname(expected.path),
-        'Bun executable retained parent'
-      );
-      const executable = retainNoFollowOrdinaryFile(
-        executableParent,
-        path.basename(expected.path),
-        undefined,
-        'Bun executable retained capability',
-        RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-        'executable'
-      );
-      const workingDirectoryChain = inspectNoFollowDirectoryChain(
-        workingDirectory,
-        'Bun retained working directory'
-      );
-      const retainedWorkingDirectory = retainNoFollowDirectoryForChildProcess(
-        workingDirectoryChain,
-        RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
-        'Bun retained working directory capability'
-      );
-      try {
+      const expected = capturedExecutable ?? captureExpectedExecutable(await currentRuntimeExecutableIdentity(true));
+      return withCompilerInstallResources(async resources => {
+        const executableParent = inspectNoFollowDirectoryChain(
+          path.dirname(expected.path),
+          'Bun executable retained parent'
+        );
+        const executable = resources.executable(retainNoFollowOrdinaryFile(
+          executableParent,
+          path.basename(expected.path),
+          undefined,
+          'Bun executable retained capability',
+          RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+          'executable'
+        ));
+        const workingDirectoryChain = inspectNoFollowDirectoryChain(
+          workingDirectory,
+          'Bun retained working directory'
+        );
+        const retainedWorkingDirectory = resources.workingDirectory(retainNoFollowDirectoryForChildProcess(
+          workingDirectoryChain,
+          RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+          'Bun retained working directory capability'
+        ));
         assertRetainedNoFollowCapability(executable, 'executable', 'Bun executable capability');
         assertRetainedNoFollowCapability(
           retainedWorkingDirectory,
@@ -238,77 +284,43 @@ export async function runBunInstall(
           args: commandArgs,
           environment: runOptions.env,
           executable: expected,
-          options: operationOptions,
+          options: controls,
           workingDirectory
         });
-        const processSession = openProcessResourceSession({
+        const processSession = resources.processSession(openProcessResourceSession({
           operation: processOperation,
           requirementBindingContext: issueSecOperationRequirementBindingContext({
             operation: processOperation,
             requirementId: COMPILER_DEPENDENCY_INSTALL_PROCESS_REQUIREMENT,
-            resourceCeilings: [
-              {
-                resource: 'duration-ms',
-                maximum: Math.max(1, Math.floor(runtimeDependencyOperationRemainingMs(
-                  operationOptions,
-                  'Compiler dependency process session admission',
-                  2
-                )))
-              },
-              { resource: 'input-bytes', maximum: 0 },
-              {
-                resource: 'output-bytes',
-                maximum: DEPENDENCY_COMMAND_OUTPUT_BYTES_CAPACITY * 2
-              },
-              { resource: 'processes', maximum: 1 }
-            ]
+            resourceCeilings: compilerInstallResourceCeilings(Math.max(1, Math.floor(
+              runtimeDependencyOperationRemainingMs(controls, 'Compiler dependency process session admission', 2)
+            )))
           }),
-          signal: runtimeDependencyOperationContext(operationOptions).signal
+          signal: runtimeDependencyOperationContext(controls).signal
+        }), {
+          operationIdentityDigest: processOperation.plan.identity.identityDigest,
+          boundAttemptDigest: processOperation.boundAttemptDigest,
+          requirementId: COMPILER_DEPENDENCY_INSTALL_PROCESS_REQUIREMENT
         });
-        try {
-          const executed = await processSession.run(retainedCommandBoundary, commandArgs, {
-            ...retainedRunOptions,
-            maxStderrBytes: DEPENDENCY_COMMAND_OUTPUT_BYTES_CAPACITY,
-            maxStdoutBytes: DEPENDENCY_COMMAND_OUTPUT_BYTES_CAPACITY,
-            beforeSpawn: async () => {
-              await options.beforeCommit?.();
-              await inputFence?.();
-              assertRetainedExecutableCurrent();
-              retainedWorkingDirectory.assertCurrent();
-            }
-          });
-          assertRetainedExecutableCurrent();
-          retainedWorkingDirectory.assertCurrent();
-          return Object.freeze({
-            code: executed.result.code,
-            stderr: executed.result.stderr,
-            stdout: Buffer.from(executed.result.stdout).toString('utf8')
-          });
-        } finally {
-          const receipt = processSession.close();
-          assertProcessResourceSessionReceipt(receipt, {
-            operationIdentityDigest: processOperation.plan.identity.identityDigest,
-            boundAttemptDigest: processOperation.boundAttemptDigest,
-            requirementId: COMPILER_DEPENDENCY_INSTALL_PROCESS_REQUIREMENT
-          });
-        }
-      } finally {
-        retainedWorkingDirectory.dispose();
-        executable.dispose();
-      }
+        const executed = await processSession.run(retainedCommandBoundary, commandArgs, {
+          ...retainedRunOptions,
+          ...COMPILER_INSTALL_OUTPUT_LIMITS,
+          beforeSpawn: async () => {
+            await spawnFence();
+            assertRetainedExecutableCurrent();
+            retainedWorkingDirectory.assertCurrent();
+          }
+        });
+        assertRetainedExecutableCurrent();
+        retainedWorkingDirectory.assertCurrent();
+        return requireSuccessfulInstall(Object.freeze({
+          code: executed.result.code,
+          stderr: executed.result.stderr,
+          stdout: Buffer.from(executed.result.stdout).toString('utf8')
+        }), workingDirectory);
+      });
     }
   );
-  runtimeDependencyOperationRemainingMs(options, 'Compiler dependency command settlement');
-  await options.beforeCommit?.();
-  runtimeDependencyOperationRemainingMs(options, 'Compiler dependency command final fence');
-
-  if (bunResult.code === 0) {
-    return { packageManager: 'bun', result: bunResult };
-  }
-
-  throw new SecError(
-    'RUNTIME-DEPS-001',
-    `Failed to install runtime dependencies in ${workingDirectory}`,
-    { bunResult }
-  );
+  await effectFence();
+  return { packageManager: 'bun', result: bunResult };
 }

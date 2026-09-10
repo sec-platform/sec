@@ -64,7 +64,7 @@ test('an exhausted parent deadline blocks cleanup before Git child admission', a
     });
     expect(result.workingState).toMatchObject({
       status: 'unresolved',
-      reason: 'git-operation-admission-unavailable'
+      reason: 'git-session-deadline-exhausted'
     });
     expect(result.cleanupDigest).toBeNull();
     expect(result.blockers).toContain('git-working-state-unresolved');

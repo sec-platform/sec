@@ -81,6 +81,7 @@
           "development.runner",
           "development.tooling",
           "development.workspace-transition",
+          "external-capabilities.git-bundle",
           "reference",
           "release",
           "runtime-state.generated-state",

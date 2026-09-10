@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { AcceptanceCoverageReport } from '../../semantic/acceptance/contract/types.ts';
 import { validateAcceptanceCoverageReport } from '../../verification/acceptance/runtime/coverage-authority.ts';
 import { assertCanonicalVerificationArtifactSet, type VerificationArtifactSet } from '../../verification/artifact/contract/artifact.ts';
@@ -61,21 +62,14 @@ function snapshotPublicationArtifacts(
   return artifacts;
 }
 
-async function publishJson(
-  workspaceRoot: string,
-  targetPath: string,
-  value: unknown,
-  label: string,
-  commitFence?: CommitFence
-): Promise<void> {
-  await publishExistingParentCanonicalWorkspaceFile({
-    workspaceRoot,
-    targetPath,
-    bytes: Buffer.from(formatJsonFile(value), 'utf8'),
-    label,
-    commitFence
-  });
-}
+// Ordering is a publication contract, not an alphabetical enumeration: the
+// summary depends on the three reports, and graph lock is always the last write.
+const VERIFICATION_PUBLICATION_ORDER = Object.freeze([
+  Object.freeze({ key: 'runtimeReport', label: 'Verification Runtime report' }),
+  Object.freeze({ key: 'policyReport', label: 'Verification Policy report' }),
+  Object.freeze({ key: 'acceptanceCoverage', label: 'Verification Acceptance Coverage report' }),
+  Object.freeze({ key: 'verificationReport', label: 'Verification report' })
+] as const);
 
 /**
  * Publishes one already-computed Verification artifact set in a fixed,
@@ -92,38 +86,25 @@ async function publishJson(
 export async function publishVerificationArtifactSet(
   input: VerificationArtifactPublicationInput
 ): Promise<VerificationArtifactPublicationArtifacts> {
-  const artifacts = snapshotPublicationArtifacts(input.artifacts);
-  const lock = structuredClone(input.lock);
-
-  await input.commitFence?.();
-  await publishJson(
-    input.workspaceRoot,
-    resolveWorkspaceArtifactPath(input.workspaceRoot, CI_ARTIFACT_FILES.runtimeReport),
-    artifacts.runtimeReport,
-    'Verification Runtime report',
-    input.commitFence
-  );
-  await publishJson(
-    input.workspaceRoot,
-    resolveWorkspaceArtifactPath(input.workspaceRoot, CI_ARTIFACT_FILES.policyReport),
-    artifacts.policyReport,
-    'Verification Policy report',
-    input.commitFence
-  );
-  await publishJson(
-    input.workspaceRoot,
-    resolveWorkspaceArtifactPath(input.workspaceRoot, CI_ARTIFACT_FILES.acceptanceCoverage),
-    artifacts.acceptanceCoverage,
-    'Verification Acceptance Coverage report',
-    input.commitFence
-  );
-  await publishJson(
-    input.workspaceRoot,
-    resolveWorkspaceArtifactPath(input.workspaceRoot, CI_ARTIFACT_FILES.verificationReport),
-    artifacts.verificationReport,
-    'Verification report',
-    input.commitFence
-  );
-  await saveLock(input.workspaceRoot, lock, input.commitFence);
+  const cwd = process.cwd();
+  const { workspaceRoot: requestedRoot, artifacts: requestedArtifacts, lock: requestedLock, commitFence: providerFence } = input;
+  const workspaceRoot = path.resolve(cwd, requestedRoot);
+  if (providerFence !== undefined && typeof providerFence !== 'function') throw new TypeError('Verification publication fence must be callable');
+  const commitFence = providerFence === undefined ? undefined : () => Reflect.apply(providerFence, input, []);
+  const lock = structuredClone(requestedLock);
+  const artifacts = snapshotPublicationArtifacts(requestedArtifacts);
+  // Resolve every destination and encode every artifact before the first fence
+  // or file effect. A later input mutation cannot split one set across roots,
+  // replace its admission callback, or change a later serialization decision.
+  const publications = VERIFICATION_PUBLICATION_ORDER.map(({ key, label }) => Object.freeze({
+    workspaceRoot,
+    targetPath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES[key]),
+    bytes: Buffer.from(formatJsonFile(artifacts[key]), 'utf8'),
+    label,
+    commitFence
+  }));
+  await commitFence?.();
+  for (const publication of publications) await publishExistingParentCanonicalWorkspaceFile(publication);
+  await saveLock(workspaceRoot, lock, commitFence);
   return artifacts;
 }

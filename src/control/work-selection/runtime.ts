@@ -10,7 +10,6 @@ import {
 import { parseVerificationRegistryProjection } from '../../verification/session/contract/session.ts';
 import { projectBranchLifecycleForWorkSelection } from '../branch-lifecycle/branch-lifecycle-audit.ts';
 import {
-  createBranchLifecycleGitChildEnvironment,
   createBranchLifecycleGitHubRemoteObservation
 } from '../branch-lifecycle/branch-lifecycle-command.ts';
 import {
@@ -668,6 +667,20 @@ export function isExactWorkSelectionActiveIdentity(input: Readonly<{
     && input.registryBaseSha === input.pullRequestBaseSha;
 }
 
+async function observeCurrentCheckoutIdentity(
+  run: CommandRunner,
+  root: string
+): Promise<Readonly<{ branch: string; headSha: string }>> {
+  const branch = decodeUtf8(await requireCommand(run, 'git', [
+    'branch', '--show-current'
+  ], root, 'current-candidate-branch-unresolved'), 'current-candidate-branch-invalid-utf8').trim();
+  const headSha = gitSha(decodeUtf8(await requireCommand(run, 'git', [
+    'rev-parse', 'HEAD'
+  ], root, 'current-candidate-head-unresolved'), 'current-candidate-head-invalid-utf8'),
+  'current-candidate-head-invalid');
+  return Object.freeze({ branch, headSha });
+}
+
 async function observeCanonicalBranchLifecycle(input: {
   run: CommandRunner;
   hosted: WorkSelectionHostedProvider;
@@ -686,13 +699,34 @@ async function observeCanonicalBranchLifecycle(input: {
   const worktrees = parseWorktrees(decodeUtf8(await requireCommand(input.run, 'git', [
     'worktree', 'list', '--porcelain'
   ], input.root, 'worktree-inventory-unresolved'), 'worktree-inventory-invalid-utf8'));
-  const currentBranch = decodeUtf8(await requireCommand(input.run, 'git', [
-    'branch', '--show-current'
-  ], input.root, 'current-candidate-branch-unresolved'), 'current-candidate-branch-invalid-utf8').trim();
-  const currentHead = gitSha(decodeUtf8(await requireCommand(input.run, 'git', [
-    'rev-parse', 'HEAD'
-  ], input.root, 'current-candidate-head-unresolved'), 'current-candidate-head-invalid-utf8'),
-  'current-candidate-head-invalid');
+  const currentCheckout = await observeCurrentCheckoutIdentity(input.run, input.root);
+  const currentBranch = currentCheckout.branch;
+  const currentHead = currentCheckout.headSha;
+  const candidateCheckout = currentBranch.length > 0 && currentBranch !== input.defaultBranch;
+  const exactCurrentMatches = candidateCheckout
+    ? input.openPullRequests.filter((pullRequest) => (
+        pullRequest.headBranch === currentBranch
+        && pullRequest.headSha === currentHead
+        && pullRequest.baseBranch === input.defaultBranch
+        && pullRequest.baseSha === input.exactMain
+      ))
+    : [];
+  if (candidateCheckout && input.openPullRequests.length > 0 && exactCurrentMatches.length !== 1) {
+    throw new LiveObservationFailure(
+      'current-open-pr-match-unresolved',
+      JSON.stringify({
+        currentBranch,
+        currentHead,
+        exactMain: input.exactMain,
+        matches: exactCurrentMatches.map(({ number }) => number)
+      })
+    );
+  }
+  const selectedPullRequest = candidateCheckout
+    ? exactCurrentMatches[0] ?? null
+    : input.openPullRequests.length === 1
+      ? input.openPullRequests[0]!
+      : null;
   const currentTransportBranch = isWorkSelectionProspectiveTransport({
     currentBranch,
     currentHead,
@@ -702,7 +736,7 @@ async function observeCanonicalBranchLifecycle(input: {
     ? currentBranch
     : null;
   const currentWorktreeRef = rawSha256(normalizePhysicalPath(input.root));
-  return projectBranchLifecycleForWorkSelection({
+  const projection = projectBranchLifecycleForWorkSelection({
     exactMain: input.exactMain,
     defaultBranch: input.defaultBranch,
     localRefs: local,
@@ -713,7 +747,7 @@ async function observeCanonicalBranchLifecycle(input: {
         branch,
         headSha
       })),
-    openPullRequests: input.openPullRequests.map(({
+    openPullRequests: (selectedPullRequest === null ? [] : [selectedPullRequest]).map(({
       number,
       headBranch,
       headSha,
@@ -726,12 +760,22 @@ async function observeCanonicalBranchLifecycle(input: {
       baseBranch,
       baseSha
     })),
+    preservedOpenPullRequests: input.openPullRequests
+      .filter(({ number }) => number !== selectedPullRequest?.number)
+      .map(({ number, headBranch, headSha, baseBranch, baseSha }) => ({
+        number,
+        headBranch,
+        headSha,
+        baseBranch,
+        baseSha
+      })),
     prospectiveTransport: currentTransportBranch === null ? null : {
       branch: currentTransportBranch,
       headSha: currentHead,
       worktreeRef: currentWorktreeRef
     }
   });
+  return Object.freeze({ projection, selectedPullRequest, currentCheckout });
 }
 
 function observeCanonicalControl(input: {
@@ -773,6 +817,7 @@ function currentLifecycle(input: {
   catalogItems: readonly SecRoadmapWorkCatalogItem[];
   openPullRequests: ReturnType<typeof parseOpenPullRequestList>;
   branchLifecycle: ReturnType<typeof projectBranchLifecycleForWorkSelection>;
+  selectedPullRequest: ReturnType<typeof parseOpenPullRequestList>[number] | null;
   mainHealth: WorkSelectionMainHealthProjection;
   control: ReturnType<typeof observeCanonicalControl>;
   terminalCandidate: SecRoadmapTerminalCompactionCandidate | null;
@@ -780,7 +825,14 @@ function currentLifecycle(input: {
   if (input.terminalCandidate !== null) {
     const pullRequest = input.openPullRequests.find(
       ({ number }) => number === input.terminalCandidate!.prNumber
-    )!;
+    );
+    if (pullRequest === undefined
+        || input.selectedPullRequest?.number !== pullRequest.number) {
+      throw new LiveObservationFailure(
+        'terminal-current-pr-match-unresolved',
+        String(input.terminalCandidate.prNumber)
+      );
+    }
     const exactActiveIdentity = isExactWorkSelectionActiveIdentity({
       activeState: input.branchLifecycle.activeState,
       activeBranch: input.branchLifecycle.activeBranch,
@@ -809,8 +861,11 @@ function currentLifecycle(input: {
     };
   }
   const openEntries = input.registry.entries.filter(({ source }) => source === 'open-pr');
-  if (input.openPullRequests.length > 0) {
-    const entry = openEntries.length === 1 ? openEntries[0] : undefined;
+  if (input.selectedPullRequest !== null) {
+    const selectedEntries = openEntries.filter(
+      ({ prNumber }) => prNumber === input.selectedPullRequest!.number
+    );
+    const entry = selectedEntries.length === 1 ? selectedEntries[0] : undefined;
     const packageId = entry?.manifestPath.slice('docs/work-packages/'.length, -'.md'.length);
     const item = packageId === undefined
       ? undefined
@@ -825,8 +880,8 @@ function currentLifecycle(input: {
       })),
       openEntries
     }) as SecWorkDigest;
-    if (input.openPullRequests.length === 1 && entry !== undefined && item !== undefined) {
-      const pullRequest = input.openPullRequests[0]!;
+    if (entry !== undefined && item !== undefined) {
+      const pullRequest = input.selectedPullRequest;
       const exactActiveIdentity = isExactWorkSelectionActiveIdentity({
         activeState: input.branchLifecycle.activeState,
         activeBranch: input.branchLifecycle.activeBranch,
@@ -851,6 +906,26 @@ function currentLifecycle(input: {
         controlRef: input.control.ref
       };
     }
+    return {
+      activeWorkId: 'unmapped-open-pr',
+      activeRef,
+      activeState: 'unresolved',
+      activeLegality: 'unresolved',
+      mainHealthState: input.mainHealth.state,
+      mainHealthRef: input.mainHealth.ref,
+      closeoutState: 'unresolved',
+      closeoutRef: input.branchLifecycle.projectionDigest,
+      controlState: 'unresolved',
+      controlRef: input.control.ref
+    };
+  }
+  if (input.openPullRequests.length > 0) {
+    const activeRef = sha256({
+      openPullRequests: input.openPullRequests.map(({ number, headBranch, headSha, baseBranch, baseSha }) => ({
+        number, headBranch, headSha, baseBranch, baseSha
+      })),
+      openEntries
+    }) as SecWorkDigest;
     return {
       activeWorkId: 'unmapped-open-pr',
       activeRef,
@@ -972,18 +1047,15 @@ async function observeSecWorkSelectionWithinHostedSession(
       repository: state.resolver.repository,
       defaultBranch: state.resolver.defaultBranch
     });
-    if (openPullRequests.length > 1) {
-      throw new LiveObservationFailure(
-        'multiple-open-prs-unresolved',
-        JSON.stringify(openPullRequests.map((pullRequest) => ({
-          number: pullRequest.number,
-          headBranch: pullRequest.headBranch,
-          headSha: pullRequest.headSha,
-          baseBranch: pullRequest.baseBranch,
-          baseSha: pullRequest.baseSha
-        })))
-      );
-    }
+    const branchObservation = await observeCanonicalBranchLifecycle({
+      run,
+      hosted,
+      root,
+      repository: state.resolver.repository,
+      defaultBranch: state.resolver.defaultBranch,
+      exactMain,
+      openPullRequests
+    });
     const terminalObservation = await observeSecRoadmapTerminalCompactionCandidate({
       run,
       root,
@@ -992,7 +1064,9 @@ async function observeSecWorkSelectionWithinHostedSession(
       exactMain,
       roadmapSource,
       terminalCompaction,
-      openPullRequests
+      openPullRequests: branchObservation.selectedPullRequest === null
+        ? []
+        : [branchObservation.selectedPullRequest]
     });
     if (terminalObservation.status === 'unresolved') {
       return unresolvedSecWorkSelectionLiveResult({
@@ -1011,15 +1085,17 @@ async function observeSecWorkSelectionWithinHostedSession(
         ? openPullRequests
         : openPullRequests.filter(({ number }) => number !== terminalCandidate.prNumber)
     });
-    const branchLifecycle = await observeCanonicalBranchLifecycle({
-      run,
-      hosted,
-      root,
-      repository: state.resolver.repository,
-      defaultBranch: state.resolver.defaultBranch,
-      exactMain,
-      openPullRequests
-    });
+    const currentCheckoutReadback = await observeCurrentCheckoutIdentity(run, root);
+    if (currentCheckoutReadback.branch !== branchObservation.currentCheckout.branch
+        || currentCheckoutReadback.headSha !== branchObservation.currentCheckout.headSha) {
+      throw new LiveObservationFailure(
+        'current-checkout-drift-unresolved',
+        JSON.stringify({
+          before: branchObservation.currentCheckout,
+          after: currentCheckoutReadback
+        })
+      );
+    }
     const pointerBytes = await readGitBlob(run, root, `${exactMain}:docs/work/active-work-package.md`,
       'active-pointer-unresolved');
     const pointerSource = decodeUtf8(pointerBytes, 'active-pointer-invalid-utf8');
@@ -1047,7 +1123,8 @@ async function observeSecWorkSelectionWithinHostedSession(
       registry,
       catalogItems: catalog.items,
       openPullRequests,
-      branchLifecycle,
+      branchLifecycle: branchObservation.projection,
+      selectedPullRequest: branchObservation.selectedPullRequest,
       mainHealth,
       control,
       terminalCandidate

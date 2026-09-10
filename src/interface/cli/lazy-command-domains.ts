@@ -33,7 +33,6 @@ function lazyFunction<Module extends object, Key extends FunctionKey<Module>>(
 const loadBlockOrchestrator = memoizedModule(() => import('../../compiler/orchestration/block-orchestrator.ts'));
 const loadComposeOrchestrator = memoizedModule(() => import('../../compiler/orchestration/compose-orchestrator.ts'));
 const loadEmitOrchestrator = memoizedModule(() => import('../../compiler/orchestration/emit-orchestrator.ts'));
-const loadPipelineOrchestrator = memoizedModule(() => import('../../compiler/orchestration/pipeline-orchestrator.ts'));
 const loadRepairOrchestrator = memoizedModule(() => import('../../compiler/orchestration/repair-orchestrator.ts'));
 const loadUpgradeOrchestrator = memoizedModule(() => import('../../change-management/upgrade/orchestration.ts'));
 const loadVerifyOrchestrator = memoizedModule(() => import('../../compiler/orchestration/verify-orchestrator.ts'));
@@ -62,7 +61,6 @@ export const explainWorkspace = lazyFunction(loadEmitOrchestrator, 'explainWorks
 export const lockWorkspace = lazyFunction(loadEmitOrchestrator, 'lockWorkspace');
 export const observeWorkspaceArtifacts = lazyFunction(loadEmitOrchestrator, 'observeWorkspaceArtifacts');
 export const writeWorkspaceArtifacts = lazyFunction(loadEmitOrchestrator, 'writeWorkspaceArtifacts');
-export const compileWorkspace = lazyFunction(loadPipelineOrchestrator, 'compileWorkspace');
 export const repairWorkspace = lazyFunction(loadRepairOrchestrator, 'repairWorkspace');
 export const upgradeWorkspace = lazyFunction(loadUpgradeOrchestrator, 'upgradeWorkspace');
 export const verifyWorkspace = lazyFunction(loadVerifyOrchestrator, 'verifyWorkspace');

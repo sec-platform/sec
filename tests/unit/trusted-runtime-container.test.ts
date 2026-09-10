@@ -263,11 +263,17 @@ describe('provider-neutral trusted runtime container', () => {
           '/sec-runtime': TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC.slice('/sec-runtime:'.length)
         }
       },
-      Mounts: [{ Destination: '/candidate.bundle', Type: 'bind', RW: false }]
+      Mounts: [{
+        Destination: '/candidate.bundle',
+        Source: 'C:\\sec\\candidate.bundle',
+        Type: 'bind',
+        RW: false
+      }]
     };
     expect(parseTrustedRuntimeContainerIdentity(JSON.stringify([container])))
       .toMatchObject({
         initProcess: true,
+        candidateBundleSource: 'C:\\sec\\candidate.bundle',
         executableTestTmpfs: true,
         nonExecutableMutableTmpfs: true
       });
@@ -275,6 +281,10 @@ describe('provider-neutral trusted runtime container', () => {
       ...container,
       HostConfig: { ...container.HostConfig, Init: false }
     }]))).toThrow('container identity is invalid');
+    expect(() => parseTrustedRuntimeContainerIdentity(JSON.stringify([{
+      ...container,
+      Mounts: [{ Destination: '/candidate.bundle', Type: 'bind', RW: false }]
+    }]))).toThrow('read-only bind mount');
     expect(() => parseTrustedRuntimeContainerIdentity(JSON.stringify([{
       ...container,
       HostConfig: {
@@ -427,6 +437,7 @@ describe('provider-neutral trusted runtime container', () => {
       name: `sec-trusted-runtime-${operationKey}-${ownerNonce}`,
       readOnlyRootfs: true as const,
       readOnlyCandidateBundle: true as const,
+      candidateBundleSource: 'C:\\sec\\candidate.bundle',
       initProcess: true as const,
       executableTestTmpfs: true as const,
       nonExecutableMutableTmpfs: true as const,
@@ -471,6 +482,12 @@ describe('provider-neutral trusted runtime container', () => {
     expect(() => authorizeTrustedRuntimeContainerRecovery({
       first: identity,
       confirmed: { ...identity, id: '5'.repeat(64) },
+      expected,
+      observeProcessLiveness: () => 'dead'
+    })).toThrow(/identity or owner liveness changed/);
+    expect(() => authorizeTrustedRuntimeContainerRecovery({
+      first: identity,
+      confirmed: { ...identity, candidateBundleSource: 'C:\\foreign\\candidate.bundle' },
       expected,
       observeProcessLiveness: () => 'dead'
     })).toThrow(/identity or owner liveness changed/);

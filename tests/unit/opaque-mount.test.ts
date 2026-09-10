@@ -2,10 +2,49 @@ import { describe, expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { installOpaqueModules } from '../../src/compiler/compose/install-opaque-modules.ts';
+import { resolveOpaqueModuleMaterializationMode } from '../../src/compiler/compose/opaque-module-materialization.ts';
 import { pathExists, readJson, writeJson } from '../../src/workspace/files.ts';
 import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
 import { writeYaml } from '../../src/workspace/yaml.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
+
+describe('resolveOpaqueModuleMaterializationMode', () => {
+  test('defaults to workspace linking when no source makes a build decision', () => {
+    expect(resolveOpaqueModuleMaterializationMode(undefined, {})).toBe('workspace-link');
+  });
+
+  test('admits each retained legacy build source through one canonical resolver', () => {
+    expect(resolveOpaqueModuleMaterializationMode(undefined, { NODE_ENV: 'production' }))
+      .toBe('build-copy');
+    expect(resolveOpaqueModuleMaterializationMode(undefined, { SEC_BUILD_MODE: 'true' }))
+      .toBe('build-copy');
+    expect(resolveOpaqueModuleMaterializationMode(undefined, { BUILD_MODE: 'true' }))
+      .toBe('build-copy');
+    expect(resolveOpaqueModuleMaterializationMode(undefined, { SEC_BUILD_MODE: 'false' }))
+      .toBe('workspace-link');
+  });
+
+  test('explicit typed input owns the decision over legacy environment candidates', () => {
+    expect(resolveOpaqueModuleMaterializationMode('workspace-link', {
+      NODE_ENV: 'production',
+      SEC_BUILD_MODE: 'true',
+      BUILD_MODE: 'true'
+    })).toBe('workspace-link');
+  });
+
+  test('conflicting legacy candidates fail closed instead of being combined with boolean OR', () => {
+    expect(() => resolveOpaqueModuleMaterializationMode(undefined, {
+      NODE_ENV: 'production',
+      SEC_BUILD_MODE: 'false'
+    })).toThrow(/materialization inputs conflict/);
+  });
+
+  test('invalid legacy boolean syntax is rejected instead of silently becoming false', () => {
+    expect(() => resolveOpaqueModuleMaterializationMode(undefined, {
+      SEC_BUILD_MODE: '1'
+    })).toThrow(/must be exactly "true" or "false"/);
+  });
+});
 
 describe('installOpaqueModules', () => {
   test('returns empty if opaque directory does not exist', async () => {
@@ -13,7 +52,9 @@ describe('installOpaqueModules', () => {
       const { packageJsonPath } = getWorkspacePaths(workspaceRoot);
       await writeJson(packageJsonPath, { dependencies: {} });
 
-      expect(await installOpaqueModules(workspaceRoot)).toEqual([]);
+      expect(await installOpaqueModules(workspaceRoot, {
+        materializationMode: 'workspace-link'
+      })).toEqual([]);
     });
   });
 
@@ -27,7 +68,9 @@ describe('installOpaqueModules', () => {
       await writeYaml(path.join(moduleDir, 'module.yaml'), { id: 'test-mod' });
       await fs.writeFile(path.join(moduleDir, 'index.ts'), 'export const hello = "world";', 'utf8');
 
-      expect(await installOpaqueModules(workspaceRoot, { buildMode: false })).toEqual([]);
+      expect(await installOpaqueModules(workspaceRoot, {
+        materializationMode: 'workspace-link'
+      })).toEqual([]);
 
       const packageJson = await readJson<any>(packageJsonPath);
       expect(packageJson.dependencies['opaque-test-mod']).toBeDefined();
@@ -45,8 +88,12 @@ describe('installOpaqueModules', () => {
       await writeYaml(path.join(moduleDir, 'module.yaml'), { id: 'test-mod' });
       await fs.writeFile(path.join(moduleDir, 'index.ts'), 'export const hello = "world";', 'utf8');
 
-      const result = await installOpaqueModules(workspaceRoot, { buildMode: true });
-      const repeated = await installOpaqueModules(workspaceRoot, { buildMode: true });
+      const result = await installOpaqueModules(workspaceRoot, {
+        materializationMode: 'build-copy'
+      });
+      const repeated = await installOpaqueModules(workspaceRoot, {
+        materializationMode: 'build-copy'
+      });
 
       expect(result).toContain('src/installed/opaque-test-mod/index.ts');
       expect(result).toContain('src/installed/opaque-test-mod/module.yaml');
@@ -77,8 +124,9 @@ describe('installOpaqueModules', () => {
       await fs.mkdir(targetDir, { recursive: true });
       await fs.writeFile(path.join(targetDir, 'index.ts'), 'external bytes\n', 'utf8');
 
-      await expect(installOpaqueModules(workspaceRoot, { buildMode: true }))
-        .rejects.toThrow(/differs from the exact opaque module source snapshot/);
+      await expect(installOpaqueModules(workspaceRoot, {
+        materializationMode: 'build-copy'
+      })).rejects.toThrow(/differs from the exact opaque module source snapshot/);
       expect(await fs.readFile(path.join(targetDir, 'index.ts'), 'utf8')).toBe('external bytes\n');
     });
   });
@@ -104,7 +152,9 @@ describe('installOpaqueModules', () => {
       await writeYaml(path.join(fastModule, 'module.yaml'), { id: 'z-fast' });
       await fs.writeFile(path.join(fastModule, 'index.ts'), 'export const fast = true;\n', 'utf8');
 
-      await installOpaqueModules(workspaceRoot, { buildMode: true });
+      await installOpaqueModules(workspaceRoot, {
+        materializationMode: 'build-copy'
+      });
 
       const packageBytes = await fs.readFile(packageJsonPath, 'utf8');
       const slowDependencyOffset = packageBytes.indexOf('"opaque-a-slow"');
@@ -124,9 +174,9 @@ describe('installOpaqueModules', () => {
         }
       });
 
-      await expect(installOpaqueModules(workspaceRoot)).rejects.toThrow(
-        /requires generated-state ownership proof/
-      );
+      await expect(installOpaqueModules(workspaceRoot, {
+        materializationMode: 'workspace-link'
+      })).rejects.toThrow(/requires generated-state ownership proof/);
 
       const packageJson = await readJson<any>(packageJsonPath);
       expect(packageJson.dependencies['opaque-old-mod']).toBe(
@@ -146,9 +196,9 @@ describe('installOpaqueModules', () => {
         entry: 'ghost-entry.ts'
       });
 
-      await expect(installOpaqueModules(workspaceRoot)).rejects.toThrow(
-        /violates the exact schema/
-      );
+      await expect(installOpaqueModules(workspaceRoot, {
+        materializationMode: 'workspace-link'
+      })).rejects.toThrow(/violates the exact schema/);
       expect(await readJson<any>(packageJsonPath)).toEqual({ dependencies: { stable: '1.0.0' } });
     });
   });
@@ -163,9 +213,9 @@ describe('installOpaqueModules', () => {
         await writeYaml(path.join(moduleDir, 'module.yaml'), { id: 'same-module' });
       }
 
-      await expect(installOpaqueModules(workspaceRoot)).rejects.toThrow(
-        /declared more than once/
-      );
+      await expect(installOpaqueModules(workspaceRoot, {
+        materializationMode: 'workspace-link'
+      })).rejects.toThrow(/declared more than once/);
     });
   });
 });

@@ -177,6 +177,7 @@ export interface GeneratedStateLifecycleOptions {
 
 export interface GeneratedStateWorktreeRetirementProvider {
   readonly id: string;
+  /** Pure admission: accepts the exact active or already-retired registration and makes no Effect. */
   plan(input: Readonly<{
     repositoryRoot: string;
     workspaceRoot: string;
@@ -187,19 +188,88 @@ export interface GeneratedStateWorktreeRetirementProvider {
     bytes: string;
     digest: `sha256:${string}`;
   }>>;
-  retire(input: Readonly<{
-    operationId: `sha256:${string}`;
-    repositoryRoot: string;
-    workspaceRoot: string;
-    relativePath: string;
-    source: GeneratedStatePhysicalIdentity;
-    registration: GeneratedStateRegistration;
-    planBytes: string;
-    planDigest: `sha256:${string}`;
-  }>): Promise<Readonly<{
+  /** Effect boundary: lifecycle always supplies the exact retired registration bound to the durable plan. */
+  retire(authority: GeneratedStateWorktreeRetirementEffectAuthority): Promise<Readonly<{
     bytes: string;
     digest: `sha256:${string}`;
   }>>;
+}
+
+export interface GeneratedStateWorktreeRetirementEffectAuthority {
+  readonly schema: 'sec-generated-state-worktree-retirement-effect-authority-v1';
+}
+
+type GeneratedStateWorktreeRetirementEffectInput = Readonly<{
+  operationId: `sha256:${string}`;
+  repositoryRoot: string;
+  workspaceRoot: string;
+  relativePath: string;
+  source: GeneratedStatePhysicalIdentity;
+  registration: GeneratedStateRegistration;
+  planBytes: string;
+  planDigest: `sha256:${string}`;
+}>;
+
+type GeneratedStateWorktreeRetirementEffectAuthorityState = {
+  readonly providerId: string;
+  readonly input: GeneratedStateWorktreeRetirementEffectInput;
+  consumed: boolean;
+};
+
+const generatedStateWorktreeRetirementEffectAuthorities =
+  new WeakMap<object, GeneratedStateWorktreeRetirementEffectAuthorityState>();
+
+function issueGeneratedStateWorktreeRetirementEffectAuthority(
+  providerId: string,
+  input: GeneratedStateWorktreeRetirementEffectInput
+): GeneratedStateWorktreeRetirementEffectAuthority {
+  const authority = Object.freeze({
+    schema: 'sec-generated-state-worktree-retirement-effect-authority-v1' as const
+  });
+  generatedStateWorktreeRetirementEffectAuthorities.set(authority, {
+    providerId,
+    input: Object.freeze({
+      ...input,
+      source: Object.freeze({ ...input.source }),
+      registration: Object.freeze({
+        ...input.registration,
+        workspace: Object.freeze({ ...input.registration.workspace }),
+        root: Object.freeze({ ...input.registration.root })
+      })
+    }),
+    consumed: false
+  });
+  return authority;
+}
+
+export function consumeGeneratedStateWorktreeRetirementEffectAuthority(
+  authority: GeneratedStateWorktreeRetirementEffectAuthority,
+  providerId: string
+): GeneratedStateWorktreeRetirementEffectInput {
+  const state = generatedStateWorktreeRetirementEffectAuthorities.get(authority);
+  if (state === undefined || state.consumed || state.providerId !== providerId) {
+    throw new GeneratedStateWorktreeRetirementBlockedError(
+      'Generated-state worktree retirement Effect authority is forged, stale, replayed, or belongs to another provider.'
+    );
+  }
+  state.consumed = true;
+  return state.input;
+}
+
+function revokeGeneratedStateWorktreeRetirementEffectAuthority(
+  authority: GeneratedStateWorktreeRetirementEffectAuthority
+): void {
+  generatedStateWorktreeRetirementEffectAuthorities.delete(authority);
+}
+
+function assertGeneratedStateWorktreeRetirementEffectAuthorityConsumed(
+  authority: GeneratedStateWorktreeRetirementEffectAuthority
+): void {
+  if (generatedStateWorktreeRetirementEffectAuthorities.get(authority)?.consumed !== true) {
+    throw new GeneratedStateWorktreeRetirementBlockedError(
+      'Generated-state worktree retirement provider did not consume its owner-issued Effect authority.'
+    );
+  }
 }
 
 interface GeneratedStateRuntimeStore {
@@ -720,10 +790,6 @@ function registrationLedgerName(
   recordDigest: `sha256:${string}`
 ): string {
   return `registration-ledger-${registrationKey(relativePath)}-${recordDigest.slice('sha256:'.length)}.json`;
-}
-
-function registrationBytesDigest(bytes: string): `sha256:${string}` {
-  return generatedStateDigest(Object.freeze({ encoding: 'base64', bytes }));
 }
 
 function registrationLedgerStableDigest(
@@ -1701,7 +1767,12 @@ async function withGeneratedStateMutationLease<Value>(
       'Generated-state registration mutation lease is unavailable; registration bytes are preserved.'
     );
   }
+  let value: Value | undefined;
+  let primaryFailed = false;
+  let primaryFailure: unknown;
   try {
+    // Registration recovery uses its durable ledger, not predecessor lease identity.
+    lease.acknowledgeReclaimedRecovery();
     await store.assertCurrent();
     // Validate the legacy source before materializing the new namespace.  A
     // malformed/foreign source must leave no target directory behind; the
@@ -1724,12 +1795,30 @@ async function withGeneratedStateMutationLease<Value>(
       issueGeneratedStateRegistrationMigrationAdmission()
     );
     await store.assertCurrent();
-    const value = await execute(store);
+    value = await execute(store);
     await store.assertCurrent();
-    return value;
-  } finally {
-    await lease.release();
+  } catch (error) {
+    primaryFailed = true;
+    primaryFailure = error;
   }
+  let settlementFailed = false;
+  let settlementFailure: unknown;
+  try {
+    if (lease.recoveryPending) lease.restoreReclaimedOwner();
+    else await lease.release();
+  } catch (error) {
+    settlementFailed = true;
+    settlementFailure = error;
+  }
+  if (primaryFailed && settlementFailed) {
+    throw new AggregateError(
+      [primaryFailure, settlementFailure],
+      'Generated-state registration mutation and lease settlement both failed.'
+    );
+  }
+  if (primaryFailed) throw primaryFailure;
+  if (settlementFailed) throw settlementFailure;
+  return value as Value;
 }
 
 async function ensureGeneratedStateRegistrationLedger(input: Readonly<{
@@ -1823,6 +1912,42 @@ function generatedStateOwnerRetirementRef(
   }));
 }
 
+async function retireGeneratedStateInStore(store: GeneratedStateRuntimeStore, input: Readonly<{
+  repositoryRoot: string;
+  workspaceRoot?: string;
+  relativePath: string;
+  expectedRegistrationDigest: `sha256:${string}`;
+  outcome: string;
+}>, options: GeneratedStateLifecycleOptions): Promise<GeneratedStateRegistration> {
+  const relativePath = normalizeGeneratedStateRelativePath(input.relativePath);
+  const pointer = inspectRegistrationPointer(store, relativePath);
+  const currentObservation = readRegistrationLedgerObservation(store, relativePath);
+  const current = currentObservation.registration;
+  if (current === null) throw new Error('Generated-state retirement has no birth registration.');
+  if (current.registrationDigest !== input.expectedRegistrationDigest) {
+    throw new Error('Generated-state retirement is not bound to the producer session registration.');
+  }
+  const outcome = input.outcome.trim();
+  if (outcome.length === 0) throw new Error('Generated-state retirement outcome is empty.');
+  const retirementRef = generatedStateOwnerRetirementRef(current, outcome);
+  if (current.phase === 'retired') {
+    if (current.retirementRef === retirementRef) return current;
+    throw new Error('Generated-state registration was retired by a different authority.');
+  }
+  const retired = retireGeneratedStateRegistration(current, retirementRef, {
+    clock: options.clock
+  });
+  const previousRecordDigest = currentObservation.tip?.recordDigest ?? null;
+  if (previousRecordDigest === null) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state retirement has no immutable predecessor ledger: ${relativePath}.`
+    );
+  }
+  persistRegistration(store, retired, pointer.snapshot, previousRecordDigest);
+  await store.assertCurrent();
+  return retired;
+}
+
 async function retireGeneratedState(input: Readonly<{
   repositoryRoot: string;
   workspaceRoot?: string;
@@ -1831,35 +1956,8 @@ async function retireGeneratedState(input: Readonly<{
   outcome: string;
 }>, options: GeneratedStateLifecycleOptions = {}): Promise<GeneratedStateRegistration> {
   const workspaceRoot = path.resolve(input.workspaceRoot ?? input.repositoryRoot);
-  const relativePath = normalizeGeneratedStateRelativePath(input.relativePath);
-  return withGeneratedStateMutationLease(workspaceRoot, options, async (store) => {
-    const pointer = inspectRegistrationPointer(store, relativePath);
-    const currentObservation = readRegistrationLedgerObservation(store, relativePath);
-    const current = currentObservation.registration;
-    if (current === null) throw new Error('Generated-state retirement has no birth registration.');
-    if (current.registrationDigest !== input.expectedRegistrationDigest) {
-      throw new Error('Generated-state retirement is not bound to the producer session registration.');
-    }
-    const outcome = input.outcome.trim();
-    if (outcome.length === 0) throw new Error('Generated-state retirement outcome is empty.');
-    const retirementRef = generatedStateOwnerRetirementRef(current, outcome);
-    if (current.phase === 'retired') {
-      if (current.retirementRef === retirementRef) return current;
-      throw new Error('Generated-state registration was retired by a different authority.');
-    }
-    const retired = retireGeneratedStateRegistration(current, retirementRef, {
-      clock: options.clock
-    });
-    const previousRecordDigest = currentObservation.tip?.recordDigest ?? null;
-    if (previousRecordDigest === null) {
-      throw new GeneratedStateProducerBindingBlockedError(
-        `Generated-state retirement has no immutable predecessor ledger: ${relativePath}.`
-      );
-    }
-    persistRegistration(store, retired, pointer.snapshot, previousRecordDigest);
-    await store.assertCurrent();
-    return retired;
-  });
+  return withGeneratedStateMutationLease(workspaceRoot, options, (store) =>
+    retireGeneratedStateInStore(store, input, options));
 }
 
 /**
@@ -2215,7 +2313,7 @@ async function disposeRetiredGeneratedStateDomain(input: Readonly<{
         );
       }
       await store.assertCurrent();
-      const receipt = await provider.retire({
+      const effectInput = Object.freeze({
         operationId: generatedStateDigest(Object.freeze({
           schema: 'sec-generated-state-domain-disposal-operation-v1',
           registrationDigest: registration.registrationDigest,
@@ -2230,6 +2328,14 @@ async function disposeRetiredGeneratedStateDomain(input: Readonly<{
         planBytes: plan.bytes,
         planDigest: plan.digest
       });
+      const authority = issueGeneratedStateWorktreeRetirementEffectAuthority(provider.id, effectInput);
+      let receipt: Awaited<ReturnType<GeneratedStateWorktreeRetirementProvider['retire']>>;
+      try {
+        receipt = await provider.retire(authority);
+        assertGeneratedStateWorktreeRetirementEffectAuthorityConsumed(authority);
+      } finally {
+        revokeGeneratedStateWorktreeRetirementEffectAuthority(authority);
+      }
       if (receipt.digest !== generatedStateDomainProviderMaterialDigest(provider.id, 'receipt', receipt.bytes) ||
           observeRoot(workspaceRoot, relativePath).kind !== 'missing') {
         throw new GeneratedStateProducerBindingBlockedError(
@@ -2747,10 +2853,10 @@ async function exactIgnoredRootPlan(
   if (directForm?.worktreeRetirement.mode === 'domain-retire') {
     const providerId = directForm.worktreeRetirement.providerId;
     const registration = loadRegistration(store, relativePath);
-    if (registration === null || registration.phase !== 'retired' ||
+    if (registration === null ||
         registration.ruleId !== directOwners[0]!.id || !sameIdentity(registration.root, source)) {
       throw new GeneratedStateWorktreeRetirementBlockedError(
-        `Generated-state worktree retirement lacks one exact retired domain registration: ${relativePath}.`
+        `Generated-state worktree retirement lacks one exact domain registration: ${relativePath}.`
       );
     }
     const providers = options.worktreeRetirementProviders?.filter(({ id }) =>
@@ -2791,6 +2897,64 @@ async function exactIgnoredRootPlan(
     inventoryDigest: generatedStateDigest({ relativePath, source, inventory }),
     ruleIds: Object.freeze([...coveredRules].sort())
   });
+}
+
+async function worktreeRetirementDomainRegistration(
+  intent: GeneratedStateWorktreeRetirementIntent,
+  entry: Extract<GeneratedStateWorktreeRetirementIntent['entries'][number], { action: 'domain-retire' }>,
+  store: GeneratedStateRuntimeStore,
+  options: GeneratedStateLifecycleOptions
+): Promise<GeneratedStateRegistration> {
+  const planned = entry.registration;
+  const outcome = `worktree-retirement:${intent.operationId}`;
+  let observation = readRegistrationLedgerObservation(store, entry.relativePath);
+  let registration = observation.registration;
+  if (planned.phase === 'active') {
+    if (registration?.phase === 'active' &&
+        registration.registrationDigest === planned.registrationDigest) {
+      registration = await retireGeneratedStateInStore(store, {
+        repositoryRoot: intent.repositoryRoot,
+        workspaceRoot: intent.workspacePath,
+        relativePath: entry.relativePath,
+        expectedRegistrationDigest: planned.registrationDigest,
+        outcome
+      }, options);
+      observation = readRegistrationLedgerObservation(store, entry.relativePath);
+    }
+    const expectedRetirementRef = generatedStateOwnerRetirementRef(planned, outcome);
+    if (registration?.phase !== 'retired' ||
+        registration.retirementRef !== expectedRetirementRef ||
+        observation.previousRegistration?.registrationDigest !== planned.registrationDigest) {
+      throw new Error(
+        `Generated-state worktree retirement registration transition changed: ${entry.relativePath}.`
+      );
+    }
+  } else if (registration?.phase !== 'retired' ||
+      registration.registrationDigest !== planned.registrationDigest) {
+    throw new Error(
+      `Generated-state worktree retirement retired registration changed: ${entry.relativePath}.`
+    );
+  }
+  if (!samePhysicalIdentity(registration.root, entry.source) ||
+      path.resolve(registration.repositoryRoot) !== intent.repositoryRoot ||
+      !sameIdentity(registration.workspace, intent.workspace) ||
+      registration.relativePath !== planned.relativePath ||
+      registration.ruleId !== planned.ruleId ||
+      registration.owner !== planned.owner ||
+      registration.producer !== planned.producer) {
+    throw new Error(
+      `Generated-state worktree retirement registration authority differs: ${entry.relativePath}.`
+    );
+  }
+  const finalObservation = readRegistrationLedgerObservation(store, entry.relativePath);
+  if (finalObservation.registration?.registrationDigest !== registration.registrationDigest ||
+      finalObservation.tip?.registrationDigest !== registration.registrationDigest) {
+    throw new Error(
+      `Generated-state worktree retirement registration tip changed: ${entry.relativePath}.`
+    );
+  }
+  await store.assertCurrent();
+  return registration;
 }
 
 async function worktreeRetirementGit(options: GeneratedStateLifecycleOptions, cwd: string, args: string[]): Promise<ByteCommandResult> {
@@ -3070,6 +3234,14 @@ export async function settleGeneratedStateForWorktreeRetirement(
         entries
       });
       store.fs.replaceFsync(activePath, canonicalBytes(intent));
+      const publishedIntent = parseWorktreeRetirementIntent(
+        JSON.parse(store.fs.readText(activePath)) as unknown
+      );
+      if (publishedIntent.intentDigest !== intent.intentDigest) {
+        throw new Error('Generated-state worktree retirement intent changed after publication.');
+      }
+      intent = publishedIntent;
+      await store.assertCurrent();
     }
     if (
       intent.repositoryRoot !== repositoryRoot ||
@@ -3117,27 +3289,52 @@ export async function settleGeneratedStateForWorktreeRetirement(
           );
         }
         const provider = providers[0]!;
-        const providerReceipt = await provider.retire({
-          operationId: intent.operationId,
-          repositoryRoot,
+        const providerReceipt = await withGeneratedStateMutationLease(
           workspaceRoot,
-          relativePath: entry.relativePath,
-          source: entry.source,
-          registration: entry.registration,
-          planBytes: entry.providerPlanBytes,
-          planDigest: entry.providerPlanDigest
-        });
-        await options.afterWorktreeRetirementProviderEffect?.(entry.relativePath);
-        if (providerReceipt.digest !== generatedStateDomainProviderMaterialDigest(
-          provider.id,
-          'receipt',
-          providerReceipt.bytes
-        )) {
-          throw new Error(`Generated-state worktree retirement provider receipt digest is invalid: ${provider.id}.`);
-        }
-        if (observeRoot(workspaceRoot, entry.relativePath).kind !== 'missing') {
-          throw new Error(`Generated-state worktree retirement provider left source present: ${entry.relativePath}.`);
-        }
+          options,
+          async (mutationStore) => {
+            const registration = await worktreeRetirementDomainRegistration(
+              intent,
+              entry,
+              mutationStore,
+              options
+            );
+            const effectInput = Object.freeze({
+              operationId: intent.operationId,
+              repositoryRoot,
+              workspaceRoot,
+              relativePath: entry.relativePath,
+              source: entry.source,
+              registration,
+              planBytes: entry.providerPlanBytes,
+              planDigest: entry.providerPlanDigest
+            });
+            const authority = issueGeneratedStateWorktreeRetirementEffectAuthority(
+              provider.id,
+              effectInput
+            );
+            let receipt: Awaited<ReturnType<GeneratedStateWorktreeRetirementProvider['retire']>>;
+            try {
+              receipt = await provider.retire(authority);
+              assertGeneratedStateWorktreeRetirementEffectAuthorityConsumed(authority);
+            } finally {
+              revokeGeneratedStateWorktreeRetirementEffectAuthority(authority);
+            }
+            await options.afterWorktreeRetirementProviderEffect?.(entry.relativePath);
+            if (receipt.digest !== generatedStateDomainProviderMaterialDigest(
+              provider.id,
+              'receipt',
+              receipt.bytes
+            )) {
+              throw new Error(`Generated-state worktree retirement provider receipt digest is invalid: ${provider.id}.`);
+            }
+            if (observeRoot(workspaceRoot, entry.relativePath).kind !== 'missing') {
+              throw new Error(`Generated-state worktree retirement provider left source present: ${entry.relativePath}.`);
+            }
+            await worktreeRetirementDomainRegistration(intent, entry, mutationStore, options);
+            return receipt;
+          }
+        );
         retainedEntries.push(Object.freeze({
           relativePath: entry.relativePath,
           source: entry.source,

@@ -273,6 +273,61 @@ describe('dependency bridge', () => {
       await expect(fs.stat(bridgePath)).rejects.toMatchObject({ code: 'ENOENT' });
     }, 'engineering-compiler-runtime-bridge-');
   });
+
+  test('settles a failed consumer before a later consumer reuses the bridge', async () => {
+    await withTempWorkspace(async (workspaceRoot) => {
+      const bridgePath = path.join(workspaceRoot, 'node_modules');
+      const failure = new Error('runtime consumer failed');
+
+      await ensureProjectBase(workspaceRoot);
+      await expect(withProjectDependencyBridge(workspaceRoot, async () => {
+        await expect(fs.stat(path.join(bridgePath, 'yaml', 'package.json'))).resolves.toBeDefined();
+        throw failure;
+      })).rejects.toBe(failure);
+      await expect(fs.lstat(bridgePath)).rejects.toMatchObject({ code: 'ENOENT' });
+
+      await withProjectDependencyBridge(workspaceRoot, async () => {
+        await expect(fs.stat(path.join(bridgePath, 'yaml', 'package.json'))).resolves.toBeDefined();
+      });
+      await expect(fs.lstat(bridgePath)).rejects.toMatchObject({ code: 'ENOENT' });
+    }, 'engineering-compiler-runtime-bridge-failure-');
+  });
+
+  test('serializes consumers of the same project locator', async () => {
+    await withTempWorkspace(async (workspaceRoot) => {
+      await ensureProjectBase(workspaceRoot);
+      let releaseFirst!: () => void;
+      const firstMayFinish = new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      let firstEntered!: () => void;
+      const firstDidEnter = new Promise<void>((resolve) => {
+        firstEntered = resolve;
+      });
+      let activeConsumers = 0;
+      let maximumActiveConsumers = 0;
+
+      const first = withProjectDependencyBridge(workspaceRoot, async () => {
+        activeConsumers += 1;
+        maximumActiveConsumers = Math.max(maximumActiveConsumers, activeConsumers);
+        firstEntered();
+        await firstMayFinish;
+        activeConsumers -= 1;
+      });
+      await firstDidEnter;
+      const second = withProjectDependencyBridge(workspaceRoot, async () => {
+        activeConsumers += 1;
+        maximumActiveConsumers = Math.max(maximumActiveConsumers, activeConsumers);
+        activeConsumers -= 1;
+      });
+      await Promise.resolve();
+      expect(maximumActiveConsumers).toBe(1);
+      releaseFirst();
+      await Promise.all([first, second]);
+      expect(maximumActiveConsumers).toBe(1);
+      await expect(fs.lstat(path.join(workspaceRoot, 'node_modules'))).rejects.toMatchObject({ code: 'ENOENT' });
+    }, 'engineering-compiler-runtime-bridge-serialization-');
+  });
 });
 
 describe('ensureProjectDependencies', () => {

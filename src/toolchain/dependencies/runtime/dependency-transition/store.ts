@@ -9,6 +9,7 @@ import {
   inspectExactNoFollowDirectoryPresence,
   inspectNoFollowDirectoryChain,
   inspectNoFollowDirectoryChild,
+  inspectNoFollowDirectoryLeaf,
   inspectNoFollowLinkEntry,
   inspectNoFollowOrdinaryFileEntry,
   PhysicalNoFollowError,
@@ -25,15 +26,21 @@ import {
   canonicalJson,
   compareCodeUnits
 } from '../../../../system-architecture/foundation/runtime/canonical.ts';
+import { readonlyMapSnapshot } from '../../../../system-architecture/foundation/runtime/collections.ts';
 import {
   formatJsonFile
 } from '../../../../workspace/files.ts';
 import {
+  runtimeDependencyEffectFenceOptions,
   runtimeDependencyOperationEffectFence,
-  runtimeDependencyOperationRemainingMs,
-  type RuntimeDependencyOperationContext,
-  type RuntimeDependencyOperationOptions
+  type RuntimeDependencyEffectFenceInput
 } from '../operation-context.ts';
+import {
+  assertRuntimeDependencyOperationActive,
+  runtimeDependencyOperationControls, runtimeDependencyOperationRemainingMs,
+  type RuntimeDependencyOperationContext,
+  type RuntimeDependencyOperationControlInput
+} from '../operation-controls.ts';
 import {
   assertDependencyTransitionPointerBytes,
   DEPENDENCY_TRANSITION_POINTER_SCHEMA,
@@ -58,7 +65,8 @@ export const DEPENDENCY_TRANSITION_RECORD_CAPACITY = 10_000;
 // inventory path and never enter this budget.
 export const DEPENDENCY_TRANSITION_RECORD_BYTES_CAPACITY = 64 * 1024 * 1024;
 
-export const DEPENDENCY_COMMAND_OUTPUT_BYTES_CAPACITY = DEPENDENCY_TRANSITION_RECORD_BYTES_CAPACITY;
+// Process output and ledger census capacities are independent policies.
+export const DEPENDENCY_COMMAND_OUTPUT_BYTES_CAPACITY = 64 * 1024 * 1024;
 
 export function dependencyTransitionNamespacePaths(ownerRoot: string): Readonly<{
   backupRoot: string;
@@ -111,8 +119,10 @@ export function writeDurableTransitionFile(
 
 export async function ensureDependencyTransitionNamespace(
   ownerRoot: string,
-  options: RuntimeDependencyOperationOptions
+  input: RuntimeDependencyEffectFenceInput
 ): Promise<DependencyTransitionNamespace> {
+  ownerRoot = path.resolve(ownerRoot);
+  const options = runtimeDependencyEffectFenceOptions(input);
   await runtimeDependencyOperationEffectFence(options, 'Dependency transition namespace creation');
   const owner = inspectNoFollowDirectoryChain(ownerRoot, 'Dependency transition owner root').target;
   const paths = dependencyTransitionNamespacePaths(owner.path);
@@ -137,52 +147,59 @@ export async function ensureDependencyTransitionNamespace(
 export function inspectDependencyTransitionNamespace(
   ownerRoot: string
 ): DependencyTransitionNamespace | null {
+  let owner: PhysicalDirectoryIdentity;
   try {
-    const owner = inspectNoFollowDirectoryChain(ownerRoot, 'Dependency transition owner root').target;
-    const paths = dependencyTransitionNamespacePaths(owner.path);
-    const backupRoot = inspectNoFollowDirectoryChain(paths.backupRoot, 'Dependency transition backup root').target;
-    const journalRoot = inspectNoFollowDirectoryChain(paths.journalRoot, 'Dependency transition journal root').target;
-    const recordsRoot = inspectNoFollowDirectoryChain(paths.recordsRoot, 'Dependency transition records root').target;
-    let rolloversRoot: PhysicalDirectoryIdentity | null;
-    try {
-      rolloversRoot = inspectNoFollowDirectoryChain(paths.rolloversRoot, 'Dependency transition rollovers root').target;
-    } catch (error) {
-      if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') {
-        // Older journals predate bounded ledger rollover.  The writer creates
-        // this optional owner-local namespace before its first rollover; a
-        // read-only inspection must remain effect-free.
-        rolloversRoot = null;
-      } else {
-        throw error;
-      }
-    }
-    if (paths.backupRoot !== backupRoot.path || paths.journalRoot !== journalRoot.path ||
-        paths.recordsRoot !== recordsRoot.path ||
-        (rolloversRoot !== null && paths.rolloversRoot !== rolloversRoot.path)) {
-      throw new SecError('RUNTIME-DEPS-002', 'Dependency transition namespace path normalization changed');
-    }
-    return Object.freeze({ ownerRoot: owner, backupRoot, journalRoot, recordsRoot, rolloversRoot });
+    owner = inspectNoFollowDirectoryChain(ownerRoot, 'Dependency transition owner root').target;
   } catch (error) {
     if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') return null;
     throw error;
   }
+  const paths = dependencyTransitionNamespacePaths(owner.path);
+  let parent = owner;
+  for (const name of ['.tmp', 'dependency-installs', 'compiler-backups']) {
+    const child = inspectNoFollowDirectoryLeaf(parent, name, 'Dependency transition namespace parent');
+    if (child === null) return null;
+    parent = child;
+  }
+  const backupRoot = parent;
+  const journalRoot = inspectNoFollowDirectoryLeaf(backupRoot, '.dependency-transition-v2', 'Dependency transition journal root');
+  if (journalRoot === null) return null;
+  const recordsRoot = inspectOptionalNoFollowDirectoryChild(journalRoot, 'records', 'Dependency transition records root');
+  if (recordsRoot === null) {
+    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition journal is present without its records root; owner recovery is required');
+  }
+  // Older journals legitimately predate the optional rollover namespace.
+  const rolloversRoot = inspectOptionalNoFollowDirectoryChild(journalRoot, 'rollovers', 'Dependency transition rollovers root');
+  if (paths.backupRoot !== backupRoot.path || paths.journalRoot !== journalRoot.path ||
+      paths.recordsRoot !== recordsRoot.path || (rolloversRoot !== null && paths.rolloversRoot !== rolloversRoot.path)) {
+    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition namespace path normalization changed');
+  }
+  return Object.freeze({ ownerRoot: owner, backupRoot, journalRoot, recordsRoot, rolloversRoot });
 }
 export async function readNoFollowDirectNames(
   directory: PhysicalDirectoryIdentity,
   label: string,
   maximumEntries: number,
-  options: RuntimeDependencyOperationOptions
+  input: RuntimeDependencyOperationControlInput
 ): Promise<readonly string[]> {
+  if (!Number.isSafeInteger(maximumEntries) || maximumEntries < 0) {
+    throw new SecError('RUNTIME-DEPS-004', `${label} entry capacity is invalid`);
+  }
+  const options = runtimeDependencyOperationControls(input);
   runtimeDependencyOperationRemainingMs(options, `${label} admission`);
   const before = assertSameNoFollowDirectoryIdentity(directory, `${label} before read`).target;
-  const names = await fs.readdir(before.path, 'utf8');
-  runtimeDependencyOperationRemainingMs(options, `${label} readback`);
-  if (names.length > maximumEntries) {
-    throw new SecError('RUNTIME-DEPS-004', `${label} entry capacity exceeded`, {
-      maximumEntries,
-      observedEntries: names.length
-    });
+  const names: string[] = [];
+  // The native async iterator closes its directory on completion or rejection.
+  for await (const entry of await fs.opendir(before.path)) {
+    runtimeDependencyOperationRemainingMs(options, `${label} enumeration`);
+    if (names.length === maximumEntries) {
+      throw new SecError('RUNTIME-DEPS-004', `${label} entry capacity exceeded`, {
+        maximumEntries, observedEntries: names.length + 1
+      });
+    }
+    names.push(entry.name);
   }
+  runtimeDependencyOperationRemainingMs(options, `${label} readback`);
   const after = assertSameNoFollowDirectoryIdentity(directory, `${label} after read`).target;
   if (!sameGeneratedStateIdentity(
     generatedStatePhysicalIdentity(before),
@@ -236,6 +253,7 @@ export function readDependencyTransitionRecordSet(
   operation: RuntimeDependencyOperationContext,
   label: string
 ): DependencyTransitionRecordSet {
+  assertRuntimeDependencyOperationActive(operation, `${label} census admission`);
   const before = assertSameNoFollowDirectoryIdentity(recordsRoot, `${label} before census`).target;
   // Records are bounded canonical control bytes.  Keep one retained
   // no-follow traversal and parse the bytes it already read instead of doing
@@ -249,12 +267,7 @@ export function readDependencyTransitionRecordSet(
   });
   const records = new Map<`sha256:${string}`, DependencyTransitionJournal>();
   for (const entry of census) {
-    if (operation.monotonicNowMs() > operation.deadlineAtMonotonicMs) {
-      throw new SecError('RUNTIME-DEPS-004', `${label} exceeded its read deadline`, {
-        deadlineAtMs: operation.deadlineAtMonotonicMs,
-        observedEntries: records.size
-      });
-    }
+    assertRuntimeDependencyOperationActive(operation, `${label} read deadline`);
     if (entry.kind !== 'file' || !/^record-[0-9a-f]{64}\.json$/u.test(entry.relativePath)) {
       throw new SecError('RUNTIME-DEPS-002', `${label} contains an unknown physical entry`);
     }
@@ -270,12 +283,7 @@ export function readDependencyTransitionRecordSet(
     }
     records.set(record.recordDigest, record);
   }
-  if (operation.monotonicNowMs() > operation.deadlineAtMonotonicMs) {
-    throw new SecError('RUNTIME-DEPS-004', `${label} exceeded its read deadline after record validation`, {
-      deadlineAtMs: operation.deadlineAtMonotonicMs,
-      observedEntries: records.size
-    });
-  }
+  assertRuntimeDependencyOperationActive(operation, `${label} read deadline after record validation`);
   const after = assertSameNoFollowDirectoryIdentity(recordsRoot, `${label} after census`).target;
   if (!sameGeneratedStateIdentity(
     generatedStatePhysicalIdentity(before),
@@ -284,11 +292,10 @@ export function readDependencyTransitionRecordSet(
     throw new SecError('RUNTIME-DEPS-002', `${label} identity changed during census`);
   }
   if (records.size === 0) {
-    return Object.freeze({
-      records,
-      ledgerDigest: dependencyTransitionLedgerDigest(records),
-      tip: null
-    });
+    const result = Object.freeze({ records: readonlyMapSnapshot(records),
+      ledgerDigest: dependencyTransitionLedgerDigest(records), tip: null });
+    assertRuntimeDependencyOperationActive(operation, `${label} empty census readback`);
+    return result;
   }
 
   // The immutable ledger is a single predecessor chain.  A mutable pointer
@@ -296,12 +303,7 @@ export function readDependencyTransitionRecordSet(
   const children = new Map<`sha256:${string}`, `sha256:${string}`>();
   const roots: DependencyTransitionJournal[] = [];
   for (const record of records.values()) {
-    if (operation.monotonicNowMs() > operation.deadlineAtMonotonicMs) {
-      throw new SecError('RUNTIME-DEPS-004', `${label} exceeded its graph-validation deadline`, {
-        deadlineAtMs: operation.deadlineAtMonotonicMs,
-        observedEntries: records.size
-      });
-    }
+    assertRuntimeDependencyOperationActive(operation, `${label} graph-validation deadline`);
     if (record.previousRecordDigest === null) {
       if (record.sequence !== 1) {
         throw new SecError('RUNTIME-DEPS-002', `${label} root record sequence is not one`);
@@ -325,12 +327,7 @@ export function readDependencyTransitionRecordSet(
   const visited = new Set<`sha256:${string}`>();
   let cursor: DependencyTransitionJournal | undefined = roots[0];
   while (cursor !== undefined) {
-    if (operation.monotonicNowMs() > operation.deadlineAtMonotonicMs) {
-      throw new SecError('RUNTIME-DEPS-004', `${label} exceeded its chain-validation deadline`, {
-        deadlineAtMs: operation.deadlineAtMonotonicMs,
-        observedEntries: records.size
-      });
-    }
+    assertRuntimeDependencyOperationActive(operation, `${label} chain-validation deadline`);
     if (visited.has(cursor.recordDigest)) {
       throw new SecError('RUNTIME-DEPS-002', `${label} chain contains a cycle`);
     }
@@ -348,17 +345,11 @@ export function readDependencyTransitionRecordSet(
   if (tips.length !== 1) {
     throw new SecError('RUNTIME-DEPS-002', `${label} does not have one maximal immutable tip`);
   }
-  if (operation.monotonicNowMs() > operation.deadlineAtMonotonicMs) {
-    throw new SecError('RUNTIME-DEPS-004', `${label} exceeded its final read deadline`, {
-      deadlineAtMs: operation.deadlineAtMonotonicMs,
-      observedEntries: records.size
-    });
-  }
-  return Object.freeze({
-    records,
-    ledgerDigest: dependencyTransitionLedgerDigest(records),
-    tip: tips[0]!
-  });
+  assertRuntimeDependencyOperationActive(operation, `${label} final read deadline`);
+  const result = Object.freeze({ records: readonlyMapSnapshot(records),
+    ledgerDigest: dependencyTransitionLedgerDigest(records), tip: tips[0]! });
+  assertRuntimeDependencyOperationActive(operation, `${label} result readback`);
+  return result;
 }
 
 export function writeDependencyTransitionPointerCache(

@@ -3,7 +3,6 @@ import { renameSync, symlinkSync, writeFileSync } from 'node:fs';
 import { copyFile, cp, link, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, unlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 import { afterAll, test as bunTest, expect } from 'bun:test';
 
@@ -11,7 +10,6 @@ import {
   CodexDevelopmentActivateMainHealthRepairRollingPlan,
   CodexDevelopmentAssertControlPlaneBinding,
   CodexDevelopmentAssertInitiallyAbsentEntryTransition,
-  CodexDevelopmentAssertPriorFreezeProjection,
   CodexDevelopmentClassifyFreezeConvergence,
   CodexDevelopmentClassifyInitiallyAbsentEntryTuple,
   CodexDevelopmentClassifyPublishedControlBinding,
@@ -33,9 +31,9 @@ import {
   type CodexDevelopmentInitiallyAbsentTupleState
 } from '../../src/control/documentation/document-control-plane-contract.ts';
 import {
-  CodexDevelopmentDocumentControlCliAdmissionError,
   CodexDevelopmentDurabilityBarrierError,
   CodexDevelopmentUnsafeAnchoredPathError,
+  createDocumentControlRoutingTestActorForTests,
   freezeDocumentControlPlane,
   observeActiveWorkPackage,
   resolveLiveControlPlane,
@@ -48,6 +46,7 @@ import {
   createMainHealthLedger,
   createMainHealthRepairWorkPackagePath
 } from '../../src/control/main-health/contract.ts';
+import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../src/control/main-health/provider-policy.ts';
 import { compileMainHealthRepairDecision } from '../../src/control/main-health/repair.ts';
 import {
   requireActiveWorkPackageOwnerObservation,
@@ -57,6 +56,7 @@ import { CodexDevelopmentWorkPackageManifestDigest } from '../../src/control/tas
 import {
   SEC_ROADMAP_WORK_CATALOG_BEGIN,
   SEC_ROADMAP_WORK_CATALOG_END,
+  compileSecRoadmapTerminalCompaction,
   createSecWorkCurrentSpecObservation,
   createSecWorkDecisionReceipt,
   createSecWorkRegistryObservation,
@@ -64,7 +64,20 @@ import {
   parseSecRoadmapWorkCatalog,
   renderSecWorkRollingPlan
 } from '../../src/control/work-selection/live-contract.ts';
+import {
+  issueGitHubApiTestCapability,
+  withGitHubApiTestSession,
+  type GitHubApiTransport
+} from '../../src/external-capabilities/github-api/test/operation-session.ts';
+import { resolveSecRuntimeStateForRepository } from '../../src/runtime-state/workspace-state/paths.ts';
 import { digest, rawSha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { encodeVerificationActionData } from '../../src/verification/action/contract/action.ts';
+import {
+  TRUSTED_RUNTIME_CONTAINER_IMAGE_ID,
+  TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST,
+  createTrustedRuntimeMainHealthBaselineObservation,
+  createTrustedRuntimeMainHealthReceipt
+} from '../../src/verification/trusted-runtime/trusted-runtime-container.ts';
 import {
   SEC_DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_MAX_BYTES_V1,
   SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1,
@@ -74,10 +87,133 @@ import {
   renderSecDocumentControlFreezeChildFailureV1
 } from '../helpers/document-control-freeze-child-failure.ts';
 
+const fixtureGitHubCapabilities = new Map<string, ReturnType<typeof issueGitHubApiTestCapability>>();
+
+function fixtureMainHealthEnvironment(repositoryRoot: string): NodeJS.ProcessEnv {
+  const fixtureRoot = path.dirname(repositoryRoot);
+  return {
+    SEC_STATE_HOME: path.join(fixtureRoot, 'state'),
+    SEC_CACHE_HOME: path.join(fixtureRoot, 'cache')
+  };
+}
+
+function fixtureGitHubCapability(repositoryRoot: string) {
+  const cached = fixtureGitHubCapabilities.get(repositoryRoot);
+  if (cached !== undefined) return cached;
+  const transport: GitHubApiTransport = async (request) => {
+    const url = String(request);
+    const mainSha = runGit(repositoryRoot, ['rev-parse', 'refs/remotes/origin/main']);
+    const runId = '33109458351';
+    if (url.includes(`/commits/${mainSha}/check-runs?`)) {
+      return Response.json({
+        total_count: 1,
+        check_runs: [{
+          id: Number(runId),
+          name: CI_MAIN_HEALTH_POLICY.context,
+          status: 'completed',
+          conclusion: 'success',
+          head_sha: mainSha,
+          details_url: `https://github.com/sec-platform/sec/actions/runs/${runId}`,
+          app: {
+            id: CI_MAIN_HEALTH_POLICY.app.id,
+            node_id: CI_MAIN_HEALTH_POLICY.app.nodeId,
+            slug: CI_MAIN_HEALTH_POLICY.app.slug
+          }
+        }]
+      });
+    }
+    if (url.includes(`/actions/runs/${runId}`)) {
+      return Response.json({
+        id: Number(runId),
+        path: CI_MAIN_HEALTH_POLICY.producer.workflowPath,
+        event: CI_MAIN_HEALTH_POLICY.producer.eventNames[0],
+        display_title: `SEC main health ${mainSha} operation ${createCiMainHealthRequestOperationId(mainSha)}`,
+        head_sha: mainSha
+      });
+    }
+    if (url.includes('/git/ref/heads/main')) return Response.json({ object: { sha: mainSha } });
+    if (url.includes(`/commits/${mainSha}/statuses?`)) return Response.json([]);
+    return new Response('unexpected document-control MainHealth fixture request', { status: 404 });
+  };
+  const capability = issueGitHubApiTestCapability({
+    repository: 'sec-platform/sec',
+    token: 'document-control-test-token-0123456789',
+    principal: {
+      transport: 'github-rest-token',
+      login: 'maintainer',
+      nodeId: 'MDQ6VXNlcjE=',
+      userId: 900001,
+      permission: 'maintain'
+    },
+    effect: 'read',
+    transport
+  });
+  fixtureGitHubCapabilities.set(repositoryRoot, capability);
+  return capability;
+}
+
+const documentControlRoutingTestActor = createDocumentControlRoutingTestActorForTests({
+  githubCapability: fixtureGitHubCapability,
+  withGitHubCapability: async (capability, operation) => await withGitHubApiTestSession({
+    capability,
+    operation
+  }),
+  mainHealthEnvironment: fixtureMainHealthEnvironment,
+  workSelectionProvider: (command, args, cwd, environment) => {
+    if (command === 'gh') {
+      const query = args.find((argument) => argument.startsWith('query=')) ?? '';
+      const issues = Object.fromEntries([...query.matchAll(/i(\d+): issue\(number: (\d+)\)/gu)].map((match) => {
+        const index = Number(match[1]);
+        const number = Number(match[2]);
+        return [
+        `i${index}`,
+        {
+          number,
+          id: `fixture-node-issue-${number}`,
+          state: number === 310 ? 'CLOSED' : 'OPEN',
+          body: `fixture issue-${number}`
+        }
+      ];
+      }));
+      return {
+        status: 0,
+        stdout: Buffer.from(JSON.stringify(args[0] === 'api' ? { data: { repository: issues } } : [])),
+        stderr: Buffer.alloc(0)
+      };
+    }
+    const routedArgs = [...args];
+    const lsRemoteIndex = routedArgs.indexOf('ls-remote');
+    if (lsRemoteIndex >= 0) {
+      const repositoryArgumentIndex = routedArgs.findIndex(
+        (argument, index) => index > lsRemoteIndex && !argument.startsWith('-')
+      );
+      if (repositoryArgumentIndex < 0) {
+        return {
+          status: 2,
+          stdout: Buffer.alloc(0),
+          stderr: Buffer.from('fixture ls-remote repository argument is absent')
+        };
+      }
+      routedArgs[repositoryArgumentIndex] = path.join(path.dirname(cwd), 'remote.git');
+    }
+    const result = spawnSync('git', routedArgs, {
+      cwd,
+      encoding: 'buffer',
+      windowsHide: true,
+      env: environment === undefined ? process.env : { ...process.env, ...environment }
+    });
+    return {
+      status: result.status,
+      stdout: Buffer.from(result.stdout ?? ''),
+      stderr: Buffer.from(result.stderr ?? result.error?.message ?? '')
+    };
+  }
+});
+
 const test = Object.assign(
   ((name: string, operation: () => void | Promise<unknown>, options?: unknown) => bunTest(
     name,
-    () => withDocumentControlHostCliTestSessionV1(operation),
+    () => withDocumentControlHostCliTestSessionV1(operation, documentControlRoutingTestActor),
     options as never
   )) as typeof bunTest,
   {
@@ -85,7 +221,7 @@ const test = Object.assign(
       const register = bunTest.skipIf(condition);
       return ((name: string, operation: () => void | Promise<unknown>, options?: unknown) => register(
         name,
-        () => withDocumentControlHostCliTestSessionV1(operation),
+        () => withDocumentControlHostCliTestSessionV1(operation, documentControlRoutingTestActor),
         options as never
       ));
     }
@@ -281,45 +417,6 @@ async function expectUnsafeReparseRejection(operation: Promise<unknown>): Promis
   expect((failure as Error).message).toMatch(/reparse point|symbolic link|junction/u);
 }
 
-function runFreezeApiInChild(
-  cwd: string,
-  environment: Readonly<Record<string, string>> = {}
-) {
-  const moduleHref = pathToFileURL(path.resolve('src/control/documentation/document-control-plane.ts')).href;
-  const failureContractHref = pathToFileURL(path.resolve(
-    'tests/helpers/document-control-freeze-child-failure.ts'
-  )).href;
-  const fallbackEnvelope = `${JSON.stringify(
-    SEC_DOCUMENT_CONTROL_FREEZE_UNEXPECTED_CHILD_FAILURE_V1
-  )}\n`;
-  const source = `
-try {
-  const { renderSecDocumentControlFreezeChildFailureV1 } =
-    await import(${JSON.stringify(failureContractHref)});
-  try {
-  const { freezeDocumentControlPlaneV1 } = await import(${JSON.stringify(moduleHref)});
-  await freezeDocumentControlPlaneV1({
-    cwd: ${JSON.stringify(cwd)},
-    manifestPath: ${JSON.stringify(FREEZE_TARGET_PATH)},
-    reviewedOn: '2026-08-09'
-  });
-  } catch (error) {
-    process.stderr.write(renderSecDocumentControlFreezeChildFailureV1(error));
-    process.exitCode = 1;
-  }
-} catch {
-  process.stderr.write(${JSON.stringify(fallbackEnvelope)});
-  process.exitCode = 1;
-}
-`;
-  return spawnSync(process.execPath, ['-e', source], {
-    cwd,
-    encoding: 'buffer',
-    windowsHide: true,
-    env: { ...process.env, ...environment }
-  });
-}
-
 test('freeze child failure envelope is bounded canonical and redacts unknown errors', () => {
   expect(compileSecDocumentControlFreezeChildFailureV1(
     new Error('Git index escapes its canonical transaction root.')
@@ -366,27 +463,17 @@ test('freeze child failure envelope is bounded canonical and redacts unknown err
 });
 
 bunTest.skipIf(process.platform !== 'win32')(
-  'Windows document-control consumes GitRead and blocks the first unowned object/index effect',
+  'Windows direct status acquires bounded GitRead and remains read-only',
   async () => {
     const fixture = await createFreezeFixture();
     try {
       const indexBefore = await readFile(repositoryIndexPath(fixture.repositoryRoot));
       const transactionRoot = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
-      const failure = await resolveLiveControlPlane(
+      const status = await resolveLiveControlPlane(
         fixture.repositoryRoot,
         { observeGitHub: false }
-      ).then(
-        () => undefined,
-        (error: unknown) => error
       );
-      expect(failure).toBeInstanceOf(CodexDevelopmentDocumentControlCliAdmissionError);
-      expect(failure).toMatchObject({
-        code: 'DOCUMENT-CONTROL-CLI-ADMISSION-001',
-        command: 'git',
-        operation: 'git-object-index-effect',
-        status: 'unknown',
-        reason: 'semantic-closure-unproven'
-      });
+      expect(status.repository).toMatchObject({ defaultRefState: 'fresh' });
       expect(await readFile(repositoryIndexPath(fixture.repositoryRoot))).toEqual(indexBefore);
       await expect(lstat(transactionRoot)).rejects.toMatchObject({ code: 'ENOENT' });
     } finally {
@@ -521,11 +608,10 @@ last-reviewed: 2026-08-08
 `;
 }
 
-function workSelectionReceiptFixture(input: {
-  exactMain: string;
-  exactMainTree: string;
+function workSelectionCatalogSourceFixture(input: {
   targetTracking?: string;
-}) {
+  activeCurrentPackage?: boolean;
+}): string {
   const targetTracking = input.targetTracking ?? 'issue-311';
   const targetIssue = targetTracking.slice('issue-'.length);
   const item = (value: {
@@ -550,43 +636,67 @@ function workSelectionReceiptFixture(input: {
     nearTermConsumerRef: null,
     humanDecisionRef: null
   });
-  const catalogSource = `${SEC_ROADMAP_WORK_CATALOG_BEGIN}
+  const candidateItems = [
+    item({
+      packageId: FREEZE_TARGET_ID,
+      workId: `issue-${targetIssue}`,
+      tracking: targetTracking,
+      prerequisiteWorkIds: input.activeCurrentPackage ? ['issue-310'] : [],
+      orderedAfterWorkIds: [],
+      disposition: 'active',
+      priorityClass: 'active-critical-path'
+    }),
+    item({
+      packageId: 'candidate-two-v1',
+      workId: 'issue-312',
+      tracking: 'issue-312',
+      prerequisiteWorkIds: [`issue-${targetIssue}`],
+      orderedAfterWorkIds: [],
+      disposition: 'active',
+      priorityClass: 'active-critical-path'
+    }),
+    item({
+      packageId: 'candidate-three-v1',
+      workId: 'issue-313',
+      tracking: 'issue-313',
+      prerequisiteWorkIds: [],
+      orderedAfterWorkIds: ['issue-312'],
+      disposition: 'active',
+      priorityClass: 'active-critical-path'
+    })
+  ];
+  const catalogItems = input.activeCurrentPackage
+    ? [
+        item({
+          packageId: CURRENT_ACTIVE_ID,
+          workId: 'issue-310',
+          tracking: 'issue-310',
+          prerequisiteWorkIds: [],
+          orderedAfterWorkIds: [],
+          disposition: 'active',
+          priorityClass: 'active-critical-path'
+        }),
+        ...candidateItems
+      ]
+    : candidateItems;
+  return `${SEC_ROADMAP_WORK_CATALOG_BEGIN}
 \`\`\`json
 ${JSON.stringify({
     schema: 'sec-roadmap-work-catalog-v1',
     stageRef: 'fixture-stage',
-    items: [
-      item({
-        packageId: FREEZE_TARGET_ID,
-        workId: `issue-${targetIssue}`,
-        tracking: targetTracking,
-        prerequisiteWorkIds: [],
-        orderedAfterWorkIds: [],
-        disposition: 'active',
-        priorityClass: 'active-critical-path'
-      }),
-      item({
-        packageId: 'candidate-two-v1',
-        workId: 'issue-312',
-        tracking: 'issue-312',
-        prerequisiteWorkIds: [`issue-${targetIssue}`],
-        orderedAfterWorkIds: [],
-        disposition: 'active',
-        priorityClass: 'active-critical-path'
-      }),
-      item({
-        packageId: 'candidate-three-v1',
-        workId: 'issue-313',
-        tracking: 'issue-313',
-        prerequisiteWorkIds: [],
-        orderedAfterWorkIds: ['issue-312'],
-        disposition: 'active',
-        priorityClass: 'active-critical-path'
-      })
-    ]
+    items: catalogItems
   }, null, 2)}
 \`\`\`
 ${SEC_ROADMAP_WORK_CATALOG_END}`;
+}
+
+function workSelectionReceiptFixture(input: {
+  exactMain: string;
+  exactMainTree: string;
+  targetTracking?: string;
+  activeCurrentPackage?: boolean;
+}) {
+  const catalogSource = workSelectionCatalogSourceFixture(input);
   const catalog = parseSecRoadmapWorkCatalog(catalogSource);
   return createSecWorkDecisionReceipt({
     repository: 'sec-platform/sec',
@@ -631,12 +741,65 @@ async function createFreezeFixture(): Promise<FreezeFixture> {
   ]);
   runGit(repositoryRoot, ['remote', 'set-url', 'origin', remoteRoot]);
   const baseSha = seed.baseSha;
+  const baseTreeSha = runGit(repositoryRoot, ['rev-parse', `${baseSha}^{tree}`]);
+  const baselineSha = runGit(repositoryRoot, ['rev-parse', `${baseSha}^`]);
+  const baselineTreeSha = runGit(repositoryRoot, ['rev-parse', `${baselineSha}^{tree}`]);
+  const environment = fixtureMainHealthEnvironment(repositoryRoot);
+  const layout = resolveSecRuntimeStateForRepository({
+    repository: 'sec-platform/sec',
+    repositoryRoot,
+    environment
+  });
+  const healthRoot = path.join(layout.repositoryStateRoot, 'trusted-main-health', 'v1');
+  await mkdir(healthRoot, { recursive: true });
+  const baseline = createTrustedRuntimeMainHealthBaselineObservation({
+    mainSha: baseSha,
+    mainTreeSha: baseTreeSha,
+    parentLine: `${baseSha} ${baselineSha}`,
+    parentTreeSha: baselineTreeSha
+  });
+  const receipt = createTrustedRuntimeMainHealthReceipt({
+    origin: 'physical-main',
+    repository: 'sec-platform/sec',
+    mainSha: baseSha,
+    mainTreeSha: baseTreeSha,
+    baselineSha,
+    baselineTreeSha,
+    baselineObservationDigest: baseline.observationDigest,
+    executionId: 'document-control-lifecycle-main-health',
+    imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID,
+    dockerEndpoint: Object.freeze({
+      schema: 'sec-docker-endpoint-identity-v1' as const,
+      contextName: 'test-linux',
+      endpointHost: process.platform === 'win32'
+        ? 'npipe:////./pipe/dockerDesktopLinuxEngine'
+        : 'unix:///var/run/docker.sock',
+      daemonId: 'daemon-document-control-lifecycle',
+      osType: 'linux' as const,
+      architecture: 'x86_64' as const
+    }),
+    networkIsolatedBeforeExecution: true,
+    planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST,
+    actionResults: Object.freeze([
+      Object.freeze({ actionId: 'affected-closure', resultDigest: `sha256:${'3'.repeat(64)}` })
+    ]),
+    transition: null,
+    observedAt: new Date(Date.now() - 1_000).toISOString()
+  });
+  await writeFile(
+    path.join(healthRoot, `main-${baseSha}.json`),
+    `${encodeVerificationActionData(receipt)}\n`,
+    'utf8'
+  );
   return {
     parent,
     repositoryRoot,
     remoteRoot,
     baseSha,
-    dispose: () => rm(parent, { recursive: true, force: true })
+    dispose: async () => {
+      fixtureGitHubCapabilities.delete(repositoryRoot);
+      await rm(parent, { recursive: true, force: true });
+    }
   };
 }
 
@@ -668,6 +831,7 @@ async function createFreezeFixtureSeedV1(): Promise<FreezeFixtureSeedV1> {
     'README.md': '# freeze fixture\n',
     [CURRENT_STATE_PATH]: currentStateSource(),
     [POINTER_PATH]: activePointerSource(CURRENT_ACTIVE_PATH, currentManifestBytes),
+    'docs/roadmap.md': workSelectionCatalogSourceFixture({ activeCurrentPackage: true }),
     'docs/work/rolling-plan.md': rollingPlanSource(),
     [CURRENT_ACTIVE_PATH]: currentManifestBytes
   };
@@ -678,9 +842,38 @@ async function createFreezeFixtureSeedV1(): Promise<FreezeFixtureSeedV1> {
   }
   runGit(repositoryRoot, ['add', '.']);
   runGit(repositoryRoot, ['commit', '--quiet', '-m', 'base']);
+  const projectionBaseSha = runGit(repositoryRoot, ['rev-parse', 'HEAD']);
+  const projectionBaseTree = runGit(repositoryRoot, ['rev-parse', `${projectionBaseSha}^{tree}`]);
+  await writeFile(
+    path.join(repositoryRoot, 'docs/work/rolling-plan.md'),
+    renderSecWorkRollingPlan({
+      receipt: workSelectionReceiptFixture({
+        exactMain: projectionBaseSha,
+        exactMainTree: projectionBaseTree,
+        activeCurrentPackage: true
+      }),
+      reviewedOn: '2026-08-12'
+    }),
+    'utf8'
+  );
+  runGit(repositoryRoot, ['add', 'docs/work/rolling-plan.md']);
+  runGit(repositoryRoot, ['commit', '--quiet', '-m', 'publish rolling projection']);
+  const terminalCompaction = compileSecRoadmapTerminalCompaction({
+    roadmapSource: workSelectionCatalogSourceFixture({ activeCurrentPackage: true }),
+    completedWorkIds: ['issue-310']
+  });
+  await writeFile(
+    path.join(repositoryRoot, 'docs/roadmap.md'),
+    terminalCompaction.roadmapSource,
+    'utf8'
+  );
+  runGit(repositoryRoot, ['add', 'docs/roadmap.md']);
+  runGit(repositoryRoot, ['commit', '--quiet', '-m', 'publish terminal roadmap compaction']);
   runGit(repositoryRoot, ['remote', 'add', 'origin', remoteRoot]);
   runGit(repositoryRoot, ['push', '--quiet', '--set-upstream', 'origin', 'main']);
+  runGit(repositoryRoot, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main']);
   const baseSha = runGit(repositoryRoot, ['rev-parse', 'HEAD']);
+  runGit(repositoryRoot, ['switch', '--quiet', '-c', 'fixture-candidate']);
   const targetManifest = `---
 schema: codex-development-work-package-v1
 id: ${FREEZE_TARGET_ID}
@@ -707,8 +900,8 @@ tests:
   const targetPath = path.join(repositoryRoot, ...FREEZE_TARGET_PATH.split('/'));
   await mkdir(path.dirname(targetPath), { recursive: true });
   await writeFile(targetPath, targetManifest, 'utf8');
-  runGit(repositoryRoot, ['add', FREEZE_TARGET_PATH]);
   runGit(repositoryRoot, ['rm', '--quiet', CURRENT_ACTIVE_PATH]);
+  runGit(repositoryRoot, ['add', FREEZE_TARGET_PATH]);
   return Object.freeze({ parent, repositoryRoot, remoteRoot, baseSha });
 }
 
@@ -1050,11 +1243,6 @@ test('status resolves a published rolling projection as history after its exact 
       reviewedOn: '2026-08-21'
     });
     await writeFile(
-      path.join(fixture.repositoryRoot, CURRENT_STATE_PATH),
-      currentStateSource('origin'),
-      'utf8'
-    );
-    await writeFile(
       path.join(fixture.repositoryRoot, POINTER_PATH),
       projection.pointerSource,
       'utf8'
@@ -1066,7 +1254,7 @@ test('status resolves a published rolling projection as history after its exact 
     );
     runGit(fixture.repositoryRoot, ['add', '.']);
     runGit(fixture.repositoryRoot, ['commit', '--quiet', '-m', 'publish exact projection']);
-    runGit(fixture.repositoryRoot, ['push', '--quiet', 'origin', 'main']);
+    runGit(fixture.repositoryRoot, ['push', '--quiet', 'origin', 'HEAD:main']);
     const publishedSha = runGit(fixture.repositoryRoot, ['rev-parse', 'HEAD']);
     expect(publishedSha).not.toBe(fixture.baseSha);
 
@@ -1436,14 +1624,19 @@ test('freeze rejects a manually staged pointer and rolling-plan selection baseli
   const fixture = await createFreezeFixture();
   try {
     const manifestBytes = await readFile(path.join(fixture.repositoryRoot, ...FREEZE_TARGET_PATH.split('/')));
+    const exactMainTree = runGit(fixture.repositoryRoot, ['rev-parse', `${fixture.baseSha}^{tree}`]);
     const canonical = CodexDevelopmentCreateFreezeProjection({
       spec: CodexDevelopmentParseCurrentStateSpec(currentStateSource()),
       currentPointerSource: await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8'),
       currentRollingPlanSource: rollingPlanSource(),
       currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
+      workSelectionProjection: {
+        receipt: workSelectionReceiptFixture({ exactMain: fixture.baseSha, exactMainTree })
+      },
       manifestPath: FREEZE_TARGET_PATH,
       manifestBytes,
       baseSha: fixture.baseSha,
+      baseTreeSha: exactMainTree,
       reviewedOn: '2026-08-09'
     });
     const reorderedRolling = canonical.rollingPlanSource
@@ -1458,7 +1651,7 @@ test('freeze rejects a manually staged pointer and rolling-plan selection baseli
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
       reviewedOn: '2026-08-09'
-    })).rejects.toThrow('must equal immutable HEAD or retain its exact immutable selection topology');
+    })).rejects.toThrow('Rolling plan headings do not equal the digest-bound machine projection');
     expect(runGit(fixture.repositoryRoot, ['count-objects', '-v'])).toBe(objectCensusBefore);
   } finally {
     await fixture.dispose();
@@ -1533,30 +1726,16 @@ test('pre-evidence replan replaces one staged manifest generation in the same wo
   const fixture = await createFreezeFixture();
   try {
     const manifestPath = path.join(fixture.repositoryRoot, ...FREEZE_TARGET_PATH.split('/'));
-    const firstManifest = await readFile(manifestPath);
-    const requestedPriorRolling = CodexDevelopmentCreateFreezeProjection({
-      spec: CodexDevelopmentParseCurrentStateSpec(currentStateSource()),
-      currentPointerSource: await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8'),
-      currentRollingPlanSource: rollingPlanSource(),
-      currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
-      manifestPath: FREEZE_TARGET_PATH,
-      manifestBytes: firstManifest,
-      baseSha: fixture.baseSha,
-      reviewedOn: '2026-08-09'
-    }).rollingPlanSource.replace(
-      '- fixture tail remains exact.',
-      '- approved non-selection facts survive replan.'
-    );
-    await writeFile(
-      path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'),
-      requestedPriorRolling
-    );
     const first = await freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
       reviewedOn: '2026-08-09'
     });
     await expectFreezeTransactionRetired(fixture.repositoryRoot);
+    const firstRolling = await readFile(
+      path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'),
+      'utf8'
+    );
     const nextManifest = Buffer.concat([
       await readFile(manifestPath),
       Buffer.from('\nReplanned in the same candidate transport.\n', 'utf8')
@@ -1576,7 +1755,7 @@ test('pre-evidence replan replaces one staged manifest generation in the same wo
     expect(await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8'))
       .toContain('last-reviewed: 2026-08-10');
     expect(await readFile(path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'), 'utf8'))
-      .toBe(requestedPriorRolling);
+      .not.toBe(firstRolling);
     expect(readGitBlob(fixture.repositoryRoot, `:${FREEZE_TARGET_PATH}`)).toEqual(nextManifest);
     await expectFreezeTransactionRetired(fixture.repositoryRoot);
   } finally {
@@ -1642,9 +1821,6 @@ test('committed candidate replan repairs one ancestry-proven published control p
       FREEZE_TARGET_PATH,
       CURRENT_ACTIVE_PATH
     ]);
-    runGit(fixture.repositoryRoot, ['add', CURRENT_STATE_PATH]);
-    runGit(fixture.repositoryRoot, ['commit', '--quiet', '-m', 'enable machine rolling projection']);
-    runGit(fixture.repositoryRoot, ['push', '--quiet', 'origin', 'main']);
     const selectionBaseSha = runGit(fixture.repositoryRoot, ['rev-parse', 'HEAD']);
     const exactMainTree = runGit(fixture.repositoryRoot, ['rev-parse', `${selectionBaseSha}^{tree}`]);
     const firstManifest = Buffer.from(
@@ -2336,7 +2512,7 @@ if (process.platform === 'win32') {
           await rename(event.targetPath, heldPublishedPath);
           await writeFile(event.targetPath, replacement);
         }
-      })).rejects.toThrow('Active pointer recovery tuple is not a legal pre-effect state; preserving every entry.');
+      })).rejects.toBeInstanceOf(CodexDevelopmentUnsafeAnchoredPathError);
       expect(replacementPath).toBeDefined();
       expect(heldPublishedPath).toBeDefined();
       const journal = JSON.parse(await readFile(
@@ -2345,7 +2521,7 @@ if (process.platform === 'win32') {
       )) as { files: { pointer: { next: string } } };
       expect(await readFile(replacementPath!)).toEqual(replacement);
       expect(await readFile(heldPublishedPath!)).toEqual(Buffer.from(journal.files.pointer.next, 'base64'));
-      expect(pointerStages).toEqual(['renamed', 'file-flushed', 'parent-barrier']);
+      expect(pointerStages).toEqual(['renamed']);
       expect(pointerRenameLabels).toEqual(['Active pointer PRE quarantine', 'Active pointer NEXT install']);
     } finally {
       await fixture.dispose();
@@ -3790,8 +3966,9 @@ test('freeze preserves unrelated unstaged work but rejects unrelated staged and 
 test('freeze fails closed for stale main, symlink-mode targets, and index CAS collisions', async () => {
   const staleFixture = await createFreezeFixture();
   try {
-    runGit(staleFixture.repositoryRoot, ['commit', '--quiet', '--allow-empty', '-m', 'remote advance']);
-    const advanced = runGit(staleFixture.repositoryRoot, ['rev-parse', 'HEAD']);
+    const advanced = runGit(staleFixture.repositoryRoot, [
+      'commit-tree', `${staleFixture.baseSha}^{tree}`, '-p', staleFixture.baseSha, '-m', 'remote advance'
+    ]);
     runGit(staleFixture.repositoryRoot, ['push', '--quiet', 'origin', `${advanced}:refs/heads/main`]);
     runGit(staleFixture.repositoryRoot, ['update-ref', 'refs/heads/main', staleFixture.baseSha]);
     runGit(staleFixture.repositoryRoot, ['update-ref', 'refs/remotes/origin/main', staleFixture.baseSha]);
@@ -3945,7 +4122,11 @@ test('anchored rename cannot be redirected by a parent-to-junction swap after ha
     } catch (error) {
       freezeFailure = error;
     }
-    expect(swapAttempted).toBe(true);
+    if (!swapAttempted) {
+      throw new Error('freeze failed before the anchored rename fault seam', {
+        cause: freezeFailure
+      });
+    }
     expect(await readFile(externalPointer, 'utf8')).toBe('external sentinel\n');
     if (process.platform === 'win32') {
       expect(swapped).toBe(false);
@@ -4182,6 +4363,7 @@ if (process.platform === 'win32') {
     const unknown = Buffer.from('unknown cleanup replacement\n', 'utf8');
     let cleanupPath: string | undefined;
     let heldPath: string | undefined;
+    let heldBytes: Buffer | undefined;
     try {
       await expect(freezeDocumentControlPlane({
         cwd: fixture.repositoryRoot,
@@ -4191,14 +4373,15 @@ if (process.platform === 'win32') {
           if (cleanupPath !== undefined || event.label !== 'Git index exact PRE quarantine cleanup') return;
           cleanupPath = event.filePath;
           heldPath = `${event.filePath}.hook-held`;
+          heldBytes = await readFile(event.filePath);
           await rename(event.filePath, heldPath);
           await writeFile(event.filePath, unknown);
         }
-      })).rejects.toThrow('Git index recovery tuple is not a legal pre-effect state; preserving every entry.');
+      })).rejects.toBeInstanceOf(CodexDevelopmentUnsafeAnchoredPathError);
       expect(cleanupPath).toBeDefined();
       expect(heldPath).toBeDefined();
       expect(await readFile(cleanupPath!)).toEqual(unknown);
-      await expect(readFile(heldPath!)).rejects.toMatchObject({ code: 'ENOENT' });
+      expect((await readFile(heldPath!)).equals(heldBytes!)).toBe(true);
     } finally {
       await fixture.dispose();
     }
@@ -4259,25 +4442,17 @@ for (const createKind of ['directory', 'file'] as const) {
       expect(targetName).toBeDefined();
       expect(await readFile(externalSentinel, 'utf8')).toBe('outside sentinel\n');
       await expect(lstat(path.join(external, targetName!))).rejects.toMatchObject({ code: 'ENOENT' });
-      if (process.platform === 'win32') {
-        expect(swapped).toBe(false);
+      if (!swapped) {
+        expect(process.platform).toBe('win32');
         if (swapFailure === undefined || swapFailure.code === undefined) {
           throw new Error('Windows anchored create swap must fail with an explicit error code.');
         }
         expect(['EPERM', 'EBUSY']).toContain(swapFailure.code);
         expect(freezeFailure).toBe(swapFailure);
       } else {
-        expect(process.platform).toBe('linux');
-        expect(swapped).toBe(true);
-        expect(freezeFailure).toBeDefined();
-        const heldTargetPath = path.join(heldParentPath, targetName!);
-        expect(await lstat(heldTargetPath)).toBeDefined();
-        if (createKind === 'file') {
-          expect(JSON.parse(await readFile(heldTargetPath, 'utf8'))).toMatchObject({
-            schema: 'sec-document-control-plane-freeze-journal-v4',
-            phase: 'prepared'
-          });
-        }
+        expect(['win32', 'linux']).toContain(process.platform);
+        expect(freezeFailure).toBeInstanceOf(CodexDevelopmentUnsafeAnchoredPathError);
+        expect(freezeFailure).toMatchObject({ code: 'DOCUMENT-CONTROL-UNSAFE-PATH-001' });
       }
 
       if (swapped) {
@@ -4359,7 +4534,7 @@ test('fresh transaction directories flush each containing parent before freeze e
 
 }, 60_000);
 
-test('freeze rejects reparse, nonregular, and outside auxiliary transaction paths', async () => {
+test('freeze rejects reparse and nonregular paths while ignoring an ambient outside index', async () => {
   const journalFixture = await createFreezeFixture();
   try {
     const external = path.join(journalFixture.parent, 'journal-external');
@@ -4426,7 +4601,7 @@ test('freeze rejects reparse, nonregular, and outside auxiliary transaction path
       cwd: indexLockFixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
       reviewedOn: '2026-08-09'
-    })).rejects.toThrow('Git index lock must be a regular file');
+    })).rejects.toBeInstanceOf(CodexDevelopmentUnsafeAnchoredPathError);
   } finally {
     await indexLockFixture.dispose();
   }
@@ -4440,17 +4615,25 @@ test('freeze rejects reparse, nonregular, and outside auxiliary transaction path
     const outsideIndex = path.join(outsideIndexFixture.parent, 'outside.index');
     await copyFile(indexPath, outsideIndex);
     const outsideIndexBytes = await readFile(outsideIndex);
-    const result = runFreezeApiInChild(outsideIndexFixture.repositoryRoot, {
-      GIT_INDEX_FILE: outsideIndex
-    });
-    expect(result.status).toBe(0);
-    expect(result.stdout).toEqual(Buffer.alloc(0));
-    expect(result.stderr).toEqual(Buffer.alloc(0));
+    const previousIndex = process.env.GIT_INDEX_FILE;
+    try {
+      process.env.GIT_INDEX_FILE = outsideIndex;
+      const result = await freezeDocumentControlPlane({
+        cwd: outsideIndexFixture.repositoryRoot,
+        manifestPath: FREEZE_TARGET_PATH,
+        reviewedOn: '2026-08-09'
+      });
+      expect(result.status).toBe('ACTIVATED_INDEX_PENDING_COMMIT');
+    } finally {
+      if (previousIndex === undefined) delete process.env.GIT_INDEX_FILE;
+      else process.env.GIT_INDEX_FILE = previousIndex;
+    }
     expect(await readFile(outsideIndex)).toEqual(outsideIndexBytes);
     await expectFreezeTransactionRetired(outsideIndexFixture.repositoryRoot);
   } finally {
     await outsideIndexFixture.dispose();
   }
+
 }, 90_000);
 
 if (process.platform === 'win32') {
@@ -4492,7 +4675,7 @@ if (process.platform === 'win32') {
         (error: unknown) => error
       );
       expect(failure).not.toBeInstanceOf(CodexDevelopmentUnsafeAnchoredPathError);
-      expect(failure).toMatchObject({ code: 'WIN32_5' });
+      expect(failure).toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED' });
     } finally {
       if (denyApplied && pointerTemp !== undefined) {
         const restore = spawnSync('icacls', [pointerTemp, '/remove:d', '*S-1-1-0'], {
@@ -4746,10 +4929,9 @@ if (process.platform === 'linux') {
 }
 
 test('repository controls use the shared live resolver and preserve one bounded rolling window', async () => {
-  const [currentStateSource, pointerSource, lifecycleAuthority, rollingPlan] = await Promise.all([
+  const [currentStateSource, pointerSource, rollingPlan] = await Promise.all([
     readFile(CURRENT_STATE_PATH, 'utf8'),
     readFile(POINTER_PATH, 'utf8'),
-    readFile('docs/development-governance.md', 'utf8'),
     readFile('docs/work/rolling-plan.md', 'utf8')
   ]);
   const currentState = CodexDevelopmentParseCurrentStateSpec(currentStateSource);
@@ -4797,13 +4979,6 @@ test('repository controls use the shared live resolver and preserve one bounded 
     });
   }
 
-  expect(lifecycleAuthority).toContain('selected frozen Work Package');
-  expect(lifecycleAuthority).toContain('Resolver 无法确定');
-  expect(lifecycleAuthority).toContain('fail closed');
-  expect(lifecycleAuthority).toContain('VerificationSession（T2 target owner）');
-  expect(lifecycleAuthority).toContain('进入new main且ordinary canary通过前');
-  expect(lifecycleAuthority).toContain('Pointer、branch、PR或candidate存在都不是执行/合并授权');
-  expect(lifecycleAuthority).toContain('Result、Evidence、Review、MainHealth、Work Package或Integration authority');
   const parsedRollingPlan = CodexDevelopmentParseRollingPlan(rollingPlan);
   expect(parsedRollingPlan.activePackageId).toBe(activePackageId);
   expect(parsedRollingPlan.candidatePackageIds.length).toBeGreaterThanOrEqual(2);

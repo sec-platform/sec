@@ -84,6 +84,7 @@
       "consumerSupport": {
         "consumers": [
           "control.branch-lifecycle",
+          "external-capabilities.git-bundle",
           "external-capabilities.git-read"
         ]
       },
@@ -122,6 +123,7 @@
       "consumerSupport": {
         "consumers": [
           "control.branch-lifecycle",
+          "external-capabilities.git-bundle",
           "external-capabilities.git-read"
         ]
       },

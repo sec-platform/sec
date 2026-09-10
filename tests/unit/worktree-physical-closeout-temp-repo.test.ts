@@ -36,7 +36,12 @@ import {
   detailDigest
 } from '../../src/runtime-state/worktree-closeout-contract.ts';
 import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
-import { ensureCompilerDepsReady } from '../../src/toolchain/dependencies/test/runtime.ts';
+import {
+  assertCompilerDependencyEnvironmentRetirementReceipt,
+  compilerDependencyLocatorWorktreeRetirementProvider,
+  disposeCompilerDependencyEnvironment,
+  ensureCompilerDepsReady
+} from '../../src/toolchain/dependencies/test/runtime.ts';
 import { acquireWorkspaceWriteLease, recoverWorkspaceWriteLeaseRetirement } from '../../src/workspace/lease.ts';
 
 function git(cwd: string, args: readonly string[]): string {
@@ -274,16 +279,32 @@ test('authorized externally unregistered worktree converges physical residue wit
 
 test('closeout composes provider retirement for an automatically reused dependency locator', async () => {
   const value = fixture({ compilerDependencies: true });
+  const previousCacheHome = process.env.SEC_CACHE_HOME;
+  const previousStateHome = process.env.SEC_STATE_HOME;
+  process.env.SEC_CACHE_HOME = path.join(value.root, 'runtime-cache');
+  process.env.SEC_STATE_HOME = path.join(value.root, 'runtime-state');
+  const lifecycleEnvironment = { ...process.env };
+  const repositoryLifecycle = generatedStateProducerHooks({
+    repositoryRoot: value.repository,
+    workspaceRoot: value.repository
+  }, {
+    environment: lifecycleEnvironment,
+    worktreeRetirementProviders: [compilerDependencyLocatorWorktreeRetirementProvider]
+  });
   try {
     await ensureCompilerDepsReady({
       materialize: async (_args, command) => {
         materializeCompilerDependencyFixtureV1(command.cwd);
         return { code: 0, stdout: 'ok', stderr: '' };
-      }
+      },
+      generatedStateLifecycle: repositoryLifecycle
     }, value.repository);
     const lifecycle = generatedStateProducerHooks({
       repositoryRoot: value.repository,
       workspaceRoot: value.target
+    }, {
+      environment: lifecycleEnvironment,
+      worktreeRetirementProviders: [compilerDependencyLocatorWorktreeRetirementProvider]
     });
     const ready = await ensureCompilerDepsReady({
       materialize: async () => {
@@ -294,7 +315,6 @@ test('closeout composes provider retirement for an automatically reused dependen
     expect(ready.source).toBe('existing');
     expect(path.resolve(realpathSync(path.join(value.target, 'node_modules'))))
       .toBe(path.resolve(realpathSync(path.join(value.repository, 'node_modules'))));
-
     const authorization = await prepareWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
       targetPath: value.target,
@@ -333,7 +353,20 @@ test('closeout composes provider retirement for an automatically reused dependen
       'utf8'
     )).toBe('primary:typescript\n');
   } finally {
-    rmSync(value.root, { recursive: true, force: true });
+    try {
+      const retirement = await disposeCompilerDependencyEnvironment(
+        value.repository,
+        { generatedStateLifecycle: repositoryLifecycle },
+        'worktree-physical-closeout-fixture-complete'
+      );
+      assertCompilerDependencyEnvironmentRetirementReceipt(retirement, value.repository);
+      rmSync(value.root, { recursive: true });
+    } finally {
+      if (previousCacheHome === undefined) delete process.env.SEC_CACHE_HOME;
+      else process.env.SEC_CACHE_HOME = previousCacheHome;
+      if (previousStateHome === undefined) delete process.env.SEC_STATE_HOME;
+      else process.env.SEC_STATE_HOME = previousStateHome;
+    }
   }
 }, 20_000);
 

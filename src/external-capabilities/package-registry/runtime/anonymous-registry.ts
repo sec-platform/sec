@@ -188,7 +188,7 @@ export function issueAnonymousPackageRegistryTestCapability(
 ): AnonymousPackageRegistryTestCapability {
   const candidate = parseAnonymousPackageRegistryProfile({
     ...profile as object,
-    origin: 'https://registry.npmjs.org'
+    origin: ANONYMOUS_PACKAGE_REGISTRY_PROFILE.origin
   });
   const origin = z.string().url().parse((profile as { origin?: unknown }).origin);
   const url = new URL(origin);

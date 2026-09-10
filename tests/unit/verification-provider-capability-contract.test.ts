@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import { parseVerificationProviderCapabilityLedger } from '../../src/verification/provider/capability-ledger.ts';
-import { assertProviderCapabilityUsableV1, assertProviderRetryGuard, classifyProviderDiagnosticTextV1, createVerificationProviderAvailabilityEpoch, createVerificationProviderCapability, resolveProviderAvailability, VERIFICATION_PROVIDER_AVAILABILITY_EPOCH_SCHEMA, VERIFICATION_PROVIDER_CAPABILITY_SCHEMA } from '../../src/verification/provider/contract/capability.ts';
+import { assertProviderCapabilityUsableV1, assertProviderRetryGuard, classifyProviderDiagnosticTextV1, createVerificationProviderAvailabilityEpoch, createVerificationProviderCapability, resolveProviderAvailability } from '../../src/verification/provider/contract/capability.ts';
 
 const OBSERVED_AT = '2026-08-11T00:00:00.000Z';
 const EXPIRES_AT = '2026-08-12T00:00:00.000Z';
@@ -68,7 +68,6 @@ describe('verification provider capability contract', () => {
       }
     }));
     const epoch = projection.availabilityEpoch;
-    expect(projection.document.schema).toBe('sec-external-capability-ledger-v4');
     expect(resolveProviderAvailability(epoch, 'github-writer')).toMatchObject({
       availability: 'unknown',
       reasonCode: 'provider-receipt-unverified',

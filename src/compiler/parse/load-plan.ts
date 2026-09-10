@@ -1,5 +1,7 @@
 import path from 'node:path';
-import YAML from 'yaml';
+import { failureMessage } from '../../system-architecture/foundation/runtime/failure-inspection.ts';
+import { parseYamlValue } from '../../system-architecture/foundation/runtime/yaml.ts';
+import { AppModeSchema, PackageManagerSchema, PlanInputSchema, PlanRegistrySourceSchema, type PlanRegistrySourceInput } from '../contract/plan-schema.ts';
 
 import { isCanonicalAcceptanceId } from '../../semantic/acceptance/contract/identity.ts';
 import { isCanonicalBlockId, isCanonicalRegistryVersion } from '../../semantic/identity/contract/block.ts';
@@ -9,6 +11,11 @@ import type { PlanFile, PlanRegistry, PlanRegistrySource } from '../contract.ts'
 import { SUPPORTED_STACK } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
 import { readOptionalAuthorityBytes } from './read-authority-source.ts';
+
+// Independent domain admission limits; do not couple a plan's policy to the
+// current semantic-contract or manifest limit merely because their values match.
+export const PLAN_YAML_MAX_INPUT_BYTES = 1024 * 1024;
+export const PLAN_YAML_MAX_ALIAS_COUNT = 100;
 
 function defaultRegistry(): PlanRegistry {
   return {
@@ -29,55 +36,25 @@ function defaultRegistry(): PlanRegistry {
   };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+function parsePlanInput(value: unknown) {
+  const parsed = PlanInputSchema.safeParse(value);
+  if (parsed.success) return parsed.data;
+  const issue = parsed.error.issues[0]!;
+  const [root, field] = issue.path;
+  const code = root === 'registry'
+    ? issue.path.at(-1) === 'kind' ? 'PLAN-VALIDATION-017'
+      : issue.path.at(-1) === 'location' ? 'PLAN-VALIDATION-018' : 'PLAN-VALIDATION-009'
+    : root === 'blocks' ? issue.path.at(-1) === 'version' ? 'PLAN-VALIDATION-019' : 'PLAN-VALIDATION-004'
+    : root === 'acceptance' ? 'PLAN-VALIDATION-021'
+    : root === 'app' && field === 'packageManager' ? 'PLAN-VALIDATION-015'
+    : root === 'app' && field === 'mode' ? 'PLAN-VALIDATION-016'
+    : 'PLAN-VALIDATION-022';
+  throw new CompilerError(code,
+    `Plan structure is invalid at ${issue.path.join('.') || '<root>'}: ${issue.message}`,
+    {}, { cause: parsed.error });
 }
 
-const PLAN_ROOT_FIELDS = new Set<keyof PlanFile>([
-  'app',
-  'registry',
-  'blocks',
-  'acceptance'
-]);
-
-function assertRawPlanShape(value: unknown): asserts value is Partial<PlanFile> {
-  if (!isRecord(value)) {
-    throw new CompilerError('PLAN-VALIDATION-022', 'Plan root must be one object');
-  }
-  const unknownFields = Object.keys(value).filter((field) => !PLAN_ROOT_FIELDS.has(field as keyof PlanFile));
-  if (unknownFields.length > 0) {
-    throw new CompilerError(
-      'PLAN-VALIDATION-022',
-      `Plan root has unsupported fields: ${unknownFields.sort().join(', ')}`
-    );
-  }
-  if (value.app !== undefined && !isRecord(value.app)) {
-    throw new CompilerError('PLAN-VALIDATION-022', 'app must be one object');
-  }
-  if (value.registry !== undefined) {
-    if (!isRecord(value.registry)) {
-      throw new CompilerError('PLAN-VALIDATION-009', 'registry must be one object');
-    }
-    if (value.registry.sources !== undefined) {
-      if (!Array.isArray(value.registry.sources)) {
-        throw new CompilerError('PLAN-VALIDATION-009', 'registry.sources must be an array');
-      }
-      if (value.registry.sources.some((source) => !isRecord(source))) {
-        throw new CompilerError('PLAN-VALIDATION-009', 'Every registry source must be one object');
-      }
-    }
-  }
-  for (const [field, code] of [
-    ['blocks', 'PLAN-VALIDATION-004'],
-    ['acceptance', 'PLAN-VALIDATION-021']
-  ] as const) {
-    if (value[field] !== undefined && !Array.isArray(value[field])) {
-      throw new CompilerError(code, `${field} must be an array`);
-    }
-  }
-}
-
-function normalizeRegistrySource(source: Partial<PlanRegistrySource>): PlanRegistrySource {
+function normalizeRegistrySource(source: PlanRegistrySourceInput): PlanRegistrySource {
   const kind = source.kind ?? 'private';
   return {
     id: source.id ?? '',
@@ -87,9 +64,8 @@ function normalizeRegistrySource(source: Partial<PlanRegistrySource>): PlanRegis
   };
 }
 
-export function normalizePlan(plan: PlanFile): PlanFile {
-  assertRawPlanShape(plan as unknown);
-  const normalized = structuredClone(plan as Partial<PlanFile>);
+export function normalizePlan(plan: unknown): PlanFile {
+  const normalized = parsePlanInput(structuredClone(plan));
   return {
     app: {
       id: normalized.app?.id ?? '',
@@ -103,18 +79,18 @@ export function normalizePlan(plan: PlanFile): PlanFile {
         .map((source) => normalizeRegistrySource(source))
     },
     blocks: normalized.blocks ?? [],
-    acceptance: normalized.acceptance ?? []
+    acceptance: (normalized.acceptance ?? []) as PlanFile['acceptance']
   };
 }
 
 export function validatePlan(plan: PlanFile): void {
-  if (!plan?.app?.id?.trim()) {
+  if (typeof plan?.app?.id !== 'string' || !plan.app.id.trim()) {
     throw new CompilerError('PLAN-VALIDATION-014', 'Missing app.id');
   }
-  if (!plan?.app?.name) {
+  if (typeof plan?.app?.name !== 'string' || !plan.app.name) {
     throw new CompilerError('PLAN-VALIDATION-001', 'Missing app.name');
   }
-  if (!plan?.app?.stack) {
+  if (typeof plan?.app?.stack !== 'string' || !plan.app.stack) {
     throw new CompilerError('PLAN-VALIDATION-002', 'Missing app.stack');
   }
   if (plan.app.stack !== SUPPORTED_STACK) {
@@ -123,13 +99,13 @@ export function validatePlan(plan: PlanFile): void {
       `Unsupported stack "${plan.app.stack}", expected "${SUPPORTED_STACK}"`
     );
   }
-  if (!['pnpm', 'npm', 'yarn'].includes(plan.app.packageManager)) {
+  if (!PackageManagerSchema.safeParse(plan.app.packageManager).success) {
     throw new CompilerError(
       'PLAN-VALIDATION-015',
       `Unsupported packageManager "${String(plan.app.packageManager)}"`
     );
   }
-  if (plan.app.mode !== 'single-tenant' && plan.app.mode !== 'multi-tenant') {
+  if (!AppModeSchema.safeParse(plan.app.mode).success) {
     throw new CompilerError(
       'PLAN-VALIDATION-016',
       `Unsupported app mode "${String(plan.app.mode)}"`
@@ -140,21 +116,17 @@ export function validatePlan(plan: PlanFile): void {
     throw new CompilerError('PLAN-VALIDATION-009', 'registry.sources must be an array');
   }
   const registryIds = new Set<string>();
-  for (const source of plan.registry.sources) {
-    if (!source || typeof source !== 'object' || !source.id || !source.kind || !source.location || !source.path) {
+  for (const candidate of plan.registry.sources) {
+    const decoded = PlanRegistrySourceSchema.safeParse(candidate);
+    if (!decoded.success) {
+      const field = decoded.error.issues[0]?.path[0];
+      throw new CompilerError(field === 'kind' ? 'PLAN-VALIDATION-017'
+        : field === 'location' ? 'PLAN-VALIDATION-018' : 'PLAN-VALIDATION-009',
+        'Registry source requires string id/path and a supported kind/location', {}, { cause: decoded.error });
+    }
+    const source = decoded.data;
+    if (!source.id || !source.path) {
       throw new CompilerError('PLAN-VALIDATION-009', 'Every registry source requires id/kind/location/path');
-    }
-    if (source.kind !== 'official' && source.kind !== 'private' && source.kind !== 'community') {
-      throw new CompilerError(
-        'PLAN-VALIDATION-017',
-        `Registry source "${source.id}" has unsupported kind "${String(source.kind)}"`
-      );
-    }
-    if (source.location !== 'compiler' && source.location !== 'workspace') {
-      throw new CompilerError(
-        'PLAN-VALIDATION-018',
-        `Registry source "${source.id}" has unsupported location "${String(source.location)}"`
-      );
     }
     if (registryIds.has(source.id)) {
       throw new CompilerError('PLAN-VALIDATION-010', `Duplicate registry source id "${source.id}"`);
@@ -222,7 +194,8 @@ function decodePlanUtf8(bytes: Uint8Array, planPath: string): string {
     throw new CompilerError(
       'PLAN-VALIDATION-023',
       `Plan at "${planPath}" is not exact UTF-8`,
-      { cause: error instanceof Error ? error.message : String(error) }
+      { cause: failureMessage(error) },
+      { cause: error }
     );
   }
 }
@@ -235,14 +208,16 @@ function readPlanSourceNoFollow(planPath: string): string | null {
 function parsePlanSource(raw: string): PlanFile {
   let parsed: unknown;
   try {
-    parsed = YAML.parse(raw) as unknown;
+    parsed = parseYamlValue(raw, { label: 'Plan',
+      maximumInputBytes: PLAN_YAML_MAX_INPUT_BYTES,
+      stringKeys: true, maximumAliasCount: PLAN_YAML_MAX_ALIAS_COUNT });
   } catch (error) {
     throw new CompilerError(
       'PLAN-VALIDATION-022',
-      `Plan YAML is invalid: ${error instanceof Error ? error.message : String(error)}`
+      `Plan YAML is invalid: ${failureMessage(error)}`, {}, { cause: error }
     );
   }
-  const plan = normalizePlan(parsed as PlanFile);
+  const plan = normalizePlan(parsed);
   validatePlan(plan);
   return plan;
 }

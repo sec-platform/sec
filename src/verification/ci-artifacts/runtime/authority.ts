@@ -8,7 +8,6 @@ import {
   countCiArtifactMissingReasonTypes,
   isCanonicalCiArtifactPath,
   isCiContractArtifactPath,
-  normalizeCiArtifactPath,
   uniqueSortedCiArtifactPaths
 } from '../contract/manifest.ts';
 import {

@@ -3,8 +3,10 @@ import { lstatSync, realpathSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { generatedStateDigest, generatedStateDomainProviderMaterialDigest, type GeneratedStateCleanupProfile, type GeneratedStateInventory, type GeneratedStatePhysicalIdentity, type GeneratedStateRegistration } from '../../../runtime-state/generated-state/contract.ts';
-import type { GeneratedStateWorktreeRetirementProvider } from '../../../runtime-state/generated-state/lifecycle.ts';
-import { assertPhysicalGenerationRetirementReceipt, assertRetainedNoFollowCapability, assertSameNoFollowDirectoryIdentity, copyNoFollowDirectoryTreesBulk, createExclusiveNoFollowDirectory, createExclusiveNoFollowRandomDirectory, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectExactNoFollowLinkEntry, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowDirectoryLeaf, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileEntry, materializeRetainedNoFollowProvenDirectoryGeneration, openWindowsLegacySealedDirectoryRelocation, PhysicalNoFollowError, prepareWindowsLegacySealedDirectoryRelocation, publishExclusiveDurableCanonicalFile, publishExclusiveNoFollowLink, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectoryAcrossParents, relocateRetainedNoFollowLinkAcrossParents, relocateWindowsLegacySealedDirectory, reopenRetainedNoFollowProvenDirectoryGeneration, replaceDurableCanonicalFile, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, retireNoFollowDirectoryTree, retireNoFollowProvenDirectoryGeneration, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryChain, type PhysicalDirectoryIdentity, type PhysicalGenerationRetirementReceipt, type RetainedNoFollowOrdinaryFile, type RetainedNoFollowProvenDirectoryGeneration, type WindowsLegacySealedDirectoryRelocationCapability } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { consumeGeneratedStateWorktreeRetirementEffectAuthority, type GeneratedStateWorktreeRetirementProvider } from '../../../runtime-state/generated-state/lifecycle.ts';
+import { assertPhysicalGenerationRetirementReceipt, assertSameNoFollowDirectoryIdentity, copyNoFollowDirectoryTreesBulk, createExclusiveNoFollowDirectory, createExclusiveNoFollowRandomDirectory, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectExactNoFollowLinkEntry, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowDirectoryLeaf, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileEntry, materializeRetainedNoFollowProvenDirectoryGeneration, openWindowsLegacySealedDirectoryRelocation, PhysicalNoFollowError, prepareWindowsLegacySealedDirectoryRelocation, publishExclusiveDurableCanonicalFile, publishExclusiveNoFollowLink, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectoryAcrossParents, relocateRetainedNoFollowLinkAcrossParents, relocateWindowsLegacySealedDirectory, reopenRetainedNoFollowProvenDirectoryGeneration, replaceDurableCanonicalFile, retainNoFollowOrdinaryFile, retireNoFollowDirectoryTree, retireNoFollowProvenDirectoryGeneration, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryChain, type PhysicalDirectoryIdentity, type PhysicalGenerationRetirementReceipt, type RetainedNoFollowOrdinaryFile, type RetainedNoFollowProvenDirectoryGeneration, type WindowsLegacySealedDirectoryRelocationCapability } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
+import { acquireSecRuntimeStatePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
 import {
   parseGitWorktreeAdminLocator,
   parseGitWorktreeAdminPath
@@ -19,7 +21,7 @@ import {
   issueSecSemanticOperationAttemptContext,
   type SecBoundSemanticOperation
 } from '../../../system-architecture/operation/semantic.ts';
-import { ensureDir, formatJsonFile, isFileNotFoundError, pathExists, readJson, writeJson, writeText, type CommitFence } from '../../../workspace/files.ts';
+import { formatJsonFile, isFileNotFoundError, readJson, type CommitFence } from '../../../workspace/files.ts';
 import { compilerRoot, isPathInside } from '../../../workspace/runtime/paths.ts';
 import { loadCanonicalBunRuntimeVersion } from '../../runtime.ts';
 import type { DependencyFreshnessLockObservation } from '../contract/dependency-freshness.ts';
@@ -89,7 +91,6 @@ import {
   recoverDependencyTransitionRollover
 } from './dependency-transition/rollover.ts';
 import {
-  DEPENDENCY_COMMAND_OUTPUT_BYTES_CAPACITY,
   dependencyTransitionNamespacePaths,
   ensureDependencyTransitionNamespace,
   inspectDependencyTransitionNamespace,
@@ -109,14 +110,12 @@ import {
   COMPILER_STAGING_LIFECYCLE_OWNER,
   COMPILER_STAGING_LIFECYCLE_PRODUCER,
   COMPILER_STAGING_LIFECYCLE_RULE,
-  compilerDependencyGenerationLifecycleExpectation,
   compilerDependencyStagingLifecycleExpectation,
   ensureCompilerDependencyPreimageRetiredForRecovery,
   settleRetiredCompilerDependencyGeneration,
   sharedDependencyLifecycleExpectation
 } from './lifecycle-registration.ts';
 import {
-  COMPILER_DEPENDENCY_EXECUTION_RETENTION_POLICY,
   MAX_DEPENDENCY_OPERATION_TIMEOUT_MS,
   runtimeDependencyOperationContext,
   runtimeDependencyOperationDeadlineAt,
@@ -207,9 +206,21 @@ export interface CompilerDependencyExecutionRetirementReceipt {
 }
 
 export interface RetainedCompilerDependencyReadGeneration {
+  readonly assertAuthorityCurrent: () => Promise<void>;
   readonly generationDigest: `sha256:${string}`;
   readonly physicalGeneration: RetainedNoFollowProvenDirectoryGeneration;
   readonly retire: () => Promise<CompilerDependencyReadGenerationRetirementReceipt>;
+}
+
+const issuedCompilerDependencyReadGenerations = new WeakSet<object>();
+
+export function assertRetainedCompilerDependencyReadGeneration(
+  generation: RetainedCompilerDependencyReadGeneration
+): void {
+  if (!issuedCompilerDependencyReadGenerations.has(generation)) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency read generation is not owner-issued');
+  }
+  generation.physicalGeneration.assertCurrent();
 }
 
 /**
@@ -2902,7 +2913,6 @@ async function publishRuntimeDependencyProjection(input: Readonly<{
     bindingDigest: generatedStateDigest(input.binding),
     options: publishOptions
   });
-  let activeBackedUp = false;
   try {
     if (transition.preimage.kind !== 'absent') {
       if (transition.preimage.kind !== 'directory') {
@@ -2913,7 +2923,6 @@ async function publishRuntimeDependencyProjection(input: Readonly<{
         backupPath,
         publishOptions
       );
-      activeBackedUp = true;
       transition = await advanceDependencyTransition(transition, {
         destination: transitionAbsentSlot(input.activeNodeModulesPath),
         backup: await observeDependencyTransitionSlot(backupPath),
@@ -3081,6 +3090,20 @@ interface InstallLockOwner {
   token: string;
 }
 
+type InstallLockTerminalHandoffRequest = Readonly<{
+  compilerRootPhysical: GeneratedStatePhysicalIdentity;
+  coordinationRootPhysical: GeneratedStatePhysicalIdentity;
+  workspaceLocatorKey: `sha256:${string}`;
+}>;
+const installLockTerminalHandoffRequests = new WeakMap<object, InstallLockTerminalHandoffRequest>();
+function issueInstallLockTerminalHandoffRequest(
+  input: InstallLockTerminalHandoffRequest
+): InstallLockTerminalHandoffRequest {
+  const request = Object.freeze({ ...input });
+  installLockTerminalHandoffRequests.set(request, request);
+  return request;
+}
+
 const INSTALL_LOCK_RECLAIM_SCHEMA =
   'sec-runtime-dependency-install-lock-reclaim-v1' as const;
 
@@ -3142,7 +3165,9 @@ function observeNoFollowOwnedFile(
   filePath: string,
   label: string
 ): NoFollowOwnedFileObservation | null {
-  const parent = inspectNoFollowDirectoryChain(path.dirname(filePath), `${label} parent`).target;
+  const presence = inspectExactNoFollowDirectoryPresence(path.dirname(filePath), `${label} parent`);
+  if (presence.state === 'absent') return null;
+  const parent = presence.directory.target;
   const name = path.basename(filePath);
   const entry = inspectNoFollowOrdinaryFileEntry(parent, name);
   if (entry === null) return null;
@@ -3711,8 +3736,59 @@ async function withInstallLock<T>(
     fenceFailure = error;
   }
   let cleanupFailure: unknown;
+  let terminalHandoff = false;
   try {
     if (owner !== null && ownerObservation !== null) {
+      const terminalHandoffRequest = typeof callbackResult === 'object' && callbackResult !== null
+        ? installLockTerminalHandoffRequests.get(callbackResult)
+        : undefined;
+      if (!callbackFailed && fenceFailure === undefined && terminalHandoffRequest !== undefined) {
+        const request = terminalHandoffRequest;
+        const ownerBytes = Buffer.from(formatJsonFile(owner), 'utf8');
+        const unsigned = Object.freeze({
+          schema: COMPILER_DEPENDENCY_COORDINATION_CUTOVER_SCHEMA,
+          compilerRootPhysical: request.compilerRootPhysical,
+          coordinationRootPhysical: request.coordinationRootPhysical,
+          lock: Object.freeze({
+            device: ownerObservation.device,
+            inode: ownerObservation.inode,
+            size: ownerObservation.size
+          }),
+          lockOwnerBytesDigest: generatedStateDigest([...ownerBytes]),
+          lockOwnerToken: owner.token,
+          workspaceLocatorKey: request.workspaceLocatorKey
+        });
+        const marker = Object.freeze({
+          ...unsigned,
+          cutoverDigest: generatedStateDigest(canonicalJson(unsigned))
+        });
+        const markerBytes = Buffer.from(formatJsonFile(canonicalJson(marker)), 'utf8');
+        const markerPath = `${lockPath}.reclaim`;
+        publishExclusiveDurableCanonicalFile({
+          parent: inspectNoFollowDirectoryChain(path.dirname(markerPath), 'Install lock terminal handoff parent').target,
+          name: path.basename(markerPath),
+          bytes: markerBytes,
+          validate: (candidate) => { parseCompilerDependencyCoordinationCutover(candidate); }
+        });
+        const readback = observeNoFollowOwnedFile(markerPath, 'Install lock terminal handoff readback');
+        if (readback === null || !readNoFollowOwnedFileBytes(readback, 'Install lock terminal handoff readback')
+          .equals(markerBytes)) {
+          throw new SecError('RUNTIME-DEPS-003', 'Install lock terminal handoff failed exact readback');
+        }
+        const finalLock = observeNoFollowOwnedFile(lockPath, 'Install lock terminal handoff lock readback');
+        if (finalLock === null || !sameNoFollowOwnedFileObservation(finalLock, ownerObservation) ||
+            !readNoFollowOwnedFileBytes(finalLock, 'Install lock terminal handoff lock readback')
+              .equals(ownerBytes)) {
+          throw new SecError(
+            'RUNTIME-DEPS-003',
+            'Install lock terminal handoff changed its retained legacy lock and is preserved'
+          );
+        }
+        terminalHandoff = true;
+      }
+      if (terminalHandoff) {
+        installLockTerminalHandoffRequests.delete(callbackResult as object);
+      } else {
       const current = observeNoFollowOwnedFile(lockPath, 'Install lock owner cleanup');
       if (current === null) {
         throw new SecError(
@@ -3748,6 +3824,7 @@ async function withInstallLock<T>(
         label: 'Install lock owner',
         options: operationOptions
       });
+      }
     }
   } catch (error) {
     cleanupFailure = error;
@@ -3772,6 +3849,593 @@ async function withInstallLock<T>(
   return callbackResult;
 }
 
+type CompilerDependencyCoordinationSession = Readonly<{
+  consumers: PhysicalDirectoryIdentity;
+}>;
+
+const COMPILER_DEPENDENCY_COORDINATION_CUTOVER_SCHEMA =
+  'sec-compiler-dependency-coordination-cutover-v1' as const;
+const COMPILER_DEPENDENCY_COORDINATION_LOCATOR_SCHEMA =
+  'sec-compiler-dependency-coordination-locator-v1' as const;
+const COMPILER_DEPENDENCY_COORDINATION_CUTOVER_KEYS = Object.freeze([
+  'compilerRootPhysical', 'coordinationRootPhysical', 'cutoverDigest',
+  'lock', 'lockOwnerBytesDigest', 'lockOwnerToken', 'schema', 'workspaceLocatorKey'
+]);
+
+type CompilerDependencyCoordinationCutover = Readonly<{
+  schema: typeof COMPILER_DEPENDENCY_COORDINATION_CUTOVER_SCHEMA;
+  compilerRootPhysical: GeneratedStatePhysicalIdentity;
+  coordinationRootPhysical: GeneratedStatePhysicalIdentity;
+  cutoverDigest: `sha256:${string}`;
+  lock: Readonly<{ device: string; inode: string; size: number }>;
+  lockOwnerBytesDigest: `sha256:${string}`;
+  lockOwnerToken: string;
+  workspaceLocatorKey: `sha256:${string}`;
+}>;
+
+const COMPILER_DEPENDENCY_COORDINATION_LOCATOR_KEYS = Object.freeze([
+  'cutoverDigest', 'locatorDigest', 'schema', 'stateRoot', 'stateRootPhysical'
+]);
+
+type CompilerDependencyCoordinationLocator = Readonly<{
+  schema: typeof COMPILER_DEPENDENCY_COORDINATION_LOCATOR_SCHEMA;
+  cutoverDigest: `sha256:${string}`;
+  locatorDigest: `sha256:${string}`;
+  stateRoot: string;
+  stateRootPhysical: GeneratedStatePhysicalIdentity;
+}>;
+
+function parseCompilerDependencyCoordinationCutover(
+  bytes: Uint8Array
+): CompilerDependencyCoordinationCutover {
+  const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  const value = JSON.parse(text) as unknown;
+  if (!hasExactObjectKeys(value, COMPILER_DEPENDENCY_COORDINATION_CUTOVER_KEYS)) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency coordination cutover has noncanonical keys');
+  }
+  const cutover = value as CompilerDependencyCoordinationCutover;
+  if (cutover.schema !== COMPILER_DEPENDENCY_COORDINATION_CUTOVER_SCHEMA ||
+      !isCanonicalGeneratedStatePhysicalIdentity(cutover.compilerRootPhysical) ||
+      !isCanonicalGeneratedStatePhysicalIdentity(cutover.coordinationRootPhysical) ||
+      !isSha256Digest(cutover.cutoverDigest) || !isSha256Digest(cutover.lockOwnerBytesDigest) ||
+      !isSha256Digest(cutover.workspaceLocatorKey) || typeof cutover.lockOwnerToken !== 'string' ||
+      cutover.lockOwnerToken.length === 0 || typeof cutover.lock !== 'object' || cutover.lock === null ||
+      typeof cutover.lock.device !== 'string' || typeof cutover.lock.inode !== 'string' ||
+      !Number.isSafeInteger(cutover.lock.size) || cutover.lock.size < 1) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency coordination cutover fields are invalid');
+  }
+  const { cutoverDigest: _cutoverDigest, ...unsigned } = cutover;
+  if (generatedStateDigest(canonicalJson(unsigned)) !== cutover.cutoverDigest ||
+      formatJsonFile(canonicalJson(cutover)) !== text) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency coordination cutover digest or bytes changed');
+  }
+  return Object.freeze(cutover);
+}
+
+function parseCompilerDependencyCoordinationLocator(
+  bytes: Uint8Array
+): CompilerDependencyCoordinationLocator {
+  const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  const value = JSON.parse(text) as unknown;
+  if (!hasExactObjectKeys(value, COMPILER_DEPENDENCY_COORDINATION_LOCATOR_KEYS)) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency coordination locator has noncanonical keys');
+  }
+  const locator = value as CompilerDependencyCoordinationLocator;
+  if (locator.schema !== COMPILER_DEPENDENCY_COORDINATION_LOCATOR_SCHEMA ||
+      !isCanonicalAbsolutePath(locator.stateRoot) ||
+      !isCanonicalGeneratedStatePhysicalIdentity(locator.stateRootPhysical) ||
+      !isSha256Digest(locator.cutoverDigest) || !isSha256Digest(locator.locatorDigest)) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency coordination locator fields are invalid');
+  }
+  const { locatorDigest: _locatorDigest, ...unsigned } = locator;
+  if (generatedStateDigest(canonicalJson(unsigned)) !== locator.locatorDigest ||
+      formatJsonFile(canonicalJson(locator)) !== text) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency coordination locator digest or bytes changed');
+  }
+  return Object.freeze(locator);
+}
+
+function compilerDependencyCoordinationMarkerPath(compilerDependencyRoot: string): string {
+  return path.join(compilerDependencyRoot, '.tmp', 'dependency-installs', 'compiler.lock.reclaim');
+}
+
+function compilerDependencyCoordinationLocatorPath(compilerDependencyRoot: string): string {
+  return `${compilerDependencyCoordinationMarkerPath(compilerDependencyRoot)}.locator`;
+}
+
+function readCompilerDependencyCoordinationCutover(
+  compilerDependencyRoot: string
+): CompilerDependencyCoordinationCutover {
+  const legacyLockPath = path.join(
+    compilerDependencyRoot,
+    '.tmp',
+    'dependency-installs',
+    'compiler.lock'
+  );
+  const marker = observeNoFollowOwnedFile(
+    compilerDependencyCoordinationMarkerPath(compilerDependencyRoot),
+    'Compiler dependency coordination cutover'
+  );
+  const legacyLock = observeNoFollowOwnedFile(legacyLockPath, 'Compiler dependency coordination legacy lock');
+  const migrationRequired = (message: string): never => {
+    throw new SecError('RUNTIME-DEPS-004', message, { migrationRequired: true });
+  };
+  if (marker === null || legacyLock === null) {
+    return migrationRequired('Compiler dependency coordination requires an explicit architecture migration');
+  }
+  let cutover: CompilerDependencyCoordinationCutover;
+  try {
+    cutover = parseCompilerDependencyCoordinationCutover(
+      readNoFollowOwnedFileBytes(marker, 'Compiler dependency coordination cutover')
+    );
+  } catch {
+    return migrationRequired('Compiler dependency coordination cutover is unknown and preserved');
+  }
+  const lockBytes = readNoFollowOwnedFileBytes(
+    legacyLock,
+    'Compiler dependency coordination legacy lock'
+  );
+  const lockOwner = (() => {
+    try {
+      return parseInstallLockOwner(JSON.parse(lockBytes.toString('utf8')) as unknown);
+    } catch {
+      return null;
+    }
+  })();
+  const compilerRootPhysical = generatedStatePhysicalIdentity(inspectNoFollowDirectoryChain(
+    compilerDependencyRoot,
+    'Compiler dependency coordination compiler root'
+  ).target);
+  if (lockOwner === null || lockOwner.token !== cutover.lockOwnerToken ||
+      generatedStateDigest([...lockBytes]) !== cutover.lockOwnerBytesDigest ||
+      legacyLock.device !== cutover.lock.device || legacyLock.inode !== cutover.lock.inode ||
+      legacyLock.size !== cutover.lock.size ||
+      !sameGeneratedStateIdentity(compilerRootPhysical, cutover.compilerRootPhysical)) {
+    return migrationRequired('Compiler dependency coordination cutover binding changed and is preserved');
+  }
+  return cutover;
+}
+
+function readCompilerDependencyCoordinationLocator(
+  compilerDependencyRoot: string,
+  cutover: CompilerDependencyCoordinationCutover
+): CompilerDependencyCoordinationLocator {
+  const migrationRequired = (message: string): never => {
+    throw new SecError('RUNTIME-DEPS-004', message, { migrationRequired: true });
+  };
+  const observation = observeNoFollowOwnedFile(
+    compilerDependencyCoordinationLocatorPath(compilerDependencyRoot),
+    'Compiler dependency coordination locator'
+  );
+  if (observation === null) {
+    return migrationRequired('Compiler dependency coordination locator requires an explicit architecture migration');
+  }
+  let locator: CompilerDependencyCoordinationLocator;
+  try {
+    locator = parseCompilerDependencyCoordinationLocator(
+      readNoFollowOwnedFileBytes(observation, 'Compiler dependency coordination locator')
+    );
+  } catch {
+    return migrationRequired('Compiler dependency coordination locator is unknown and preserved');
+  }
+  if (locator.cutoverDigest !== cutover.cutoverDigest) {
+    return migrationRequired('Compiler dependency coordination locator binding changed and is preserved');
+  }
+  return locator;
+}
+
+function assertCompilerDependencyCoordinationCutover(input: Readonly<{
+  compilerDependencyRoot: string;
+  coordinationRoot: PhysicalDirectoryIdentity;
+  workspaceLocatorKey: `sha256:${string}`;
+}>): void {
+  const cutover = readCompilerDependencyCoordinationCutover(input.compilerDependencyRoot);
+  const migrationRequired = (message: string): never => {
+    throw new SecError('RUNTIME-DEPS-004', message, { migrationRequired: true });
+  };
+  if (input.workspaceLocatorKey !== cutover.workspaceLocatorKey ||
+      !sameGeneratedStateIdentity(
+        generatedStatePhysicalIdentity(input.coordinationRoot),
+        cutover.coordinationRootPhysical
+      )) {
+    return migrationRequired('Compiler dependency coordination cutover binding changed and is preserved');
+  }
+}
+
+function compilerDependencyCoordinationLocatorRecord(input: Readonly<{
+  cutover: CompilerDependencyCoordinationCutover;
+  stateRoot: PhysicalDirectoryIdentity;
+}>): CompilerDependencyCoordinationLocator {
+  const unsigned = Object.freeze({
+    schema: COMPILER_DEPENDENCY_COORDINATION_LOCATOR_SCHEMA,
+    stateRoot: input.stateRoot.finalPath,
+    stateRootPhysical: generatedStatePhysicalIdentity(input.stateRoot),
+    cutoverDigest: input.cutover.cutoverDigest
+  });
+  return Object.freeze({
+    ...unsigned,
+    locatorDigest: generatedStateDigest(canonicalJson(unsigned))
+  });
+}
+
+function publishCompilerDependencyCoordinationLocator(input: Readonly<{
+  compilerDependencyRoot: string;
+  cutover: CompilerDependencyCoordinationCutover;
+  stateRoot: PhysicalDirectoryIdentity;
+}>): CompilerDependencyCoordinationLocator {
+  const locator = compilerDependencyCoordinationLocatorRecord(input);
+  const bytes = Buffer.from(formatJsonFile(canonicalJson(locator)), 'utf8');
+  const locatorPath = compilerDependencyCoordinationLocatorPath(input.compilerDependencyRoot);
+  const parent = inspectNoFollowDirectoryChain(
+    path.dirname(locatorPath),
+    'Compiler dependency coordination locator parent'
+  ).target;
+  publishExclusiveDurableCanonicalFile({
+    parent,
+    name: path.basename(locatorPath),
+    bytes,
+    validate: (candidate) => { parseCompilerDependencyCoordinationLocator(candidate); }
+  });
+  const readback = observeNoFollowOwnedFile(locatorPath, 'Compiler dependency coordination locator readback');
+  if (readback === null || !readNoFollowOwnedFileBytes(
+    readback,
+    'Compiler dependency coordination locator readback'
+  ).equals(bytes)) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency coordination locator failed exact readback');
+  }
+  return locator;
+}
+
+function resolveCompilerDependencyCoordinationRoots(compilerDependencyRoot: string): Readonly<{
+  cutover: CompilerDependencyCoordinationCutover;
+  locator: CompilerDependencyCoordinationLocator;
+  roots: ReturnType<typeof resolveSecWorkspaceRuntimeRoots>;
+}> {
+  const cutover = readCompilerDependencyCoordinationCutover(compilerDependencyRoot);
+  const locator = readCompilerDependencyCoordinationLocator(compilerDependencyRoot, cutover);
+  const roots = resolveSecWorkspaceRuntimeRoots({
+    repositoryRoot: compilerDependencyRoot,
+    environment: Object.freeze({ ...process.env, SEC_STATE_HOME: locator.stateRoot })
+  });
+  const coordinationRoot = path.join(
+    roots.workspaceStateRoot,
+    'compiler-dependency-coordination',
+    'v1'
+  );
+  let stateRoot: PhysicalDirectoryIdentity;
+  let coordination: PhysicalDirectoryIdentity;
+  try {
+    stateRoot = inspectNoFollowDirectoryChain(
+      roots.stateRoot,
+      'Compiler dependency coordination located Runtime State root'
+    ).target;
+    inspectNoFollowDirectoryChain(
+      roots.workspaceStateRoot,
+      'Compiler dependency coordination located workspace State root'
+    );
+    coordination = inspectNoFollowDirectoryChain(
+      coordinationRoot,
+      'Compiler dependency coordination located root'
+    ).target;
+    inspectNoFollowDirectoryChain(
+      path.join(coordinationRoot, 'consumers'),
+      'Compiler dependency coordination existing consumers'
+    );
+  } catch {
+    throw new SecError(
+      'RUNTIME-DEPS-004',
+      'Compiler dependency coordination locator is unavailable and is preserved',
+      { migrationRequired: true }
+    );
+  }
+  if (roots.workspaceLocatorKey !== cutover.workspaceLocatorKey ||
+      !sameHostPath(roots.stateRoot, locator.stateRoot) ||
+      !sameGeneratedStateIdentity(generatedStatePhysicalIdentity(stateRoot), locator.stateRootPhysical) ||
+      !sameGeneratedStateIdentity(
+        generatedStatePhysicalIdentity(coordination),
+        cutover.coordinationRootPhysical
+      )) {
+    throw new SecError(
+      'RUNTIME-DEPS-004',
+      'Compiler dependency coordination locator does not resolve its bound Runtime State layout',
+      { migrationRequired: true }
+    );
+  }
+  return Object.freeze({ cutover, locator, roots });
+}
+
+const compilerDependencyCoordinationSessions = new WeakMap<object, CompilerDependencyCoordinationSession>();
+
+async function withCompilerDependencyCoordinationLease<T>(
+  compilerDependencyRoot: string,
+  options: RuntimeDependencyInstallOptions,
+  callback: (operationOptions: RuntimeDependencyOperationOptions) => Promise<T>
+): Promise<T> {
+  const operationOptions = runtimeDependencyOperationOptions(options);
+  const root = path.resolve(compilerDependencyRoot);
+  const resolved = resolveCompilerDependencyCoordinationRoots(root);
+  const roots = resolved.roots;
+  const coordinationRoot = path.join(
+    roots.workspaceStateRoot,
+    'compiler-dependency-coordination',
+    'v1'
+  );
+  const consumersRoot = path.join(coordinationRoot, 'consumers');
+  const context = runtimeDependencyOperationContext(operationOptions);
+  const authority = await acquireSecRuntimeStatePhysicalAuthority({
+    repositoryRoot: root,
+    stateRoot: roots.stateRoot,
+    cacheRoot: roots.cacheRoot,
+    requiredDirectories: [roots.workspaceStateRoot, coordinationRoot, consumersRoot],
+    deadlineAtUnixMs: context.deadlineAtUnixMs
+  });
+  let result: { value: T } | undefined;
+  let primary: { error: unknown } | undefined;
+  try {
+    result = { value: await withInstallLock(
+      path.join(coordinationRoot, 'compiler.lock'),
+      operationOptions,
+      async () => {
+        authority.assertRootIdentityCurrent();
+        const current = resolveCompilerDependencyCoordinationRoots(root);
+        if (current.cutover.cutoverDigest !== resolved.cutover.cutoverDigest ||
+            current.locator.locatorDigest !== resolved.locator.locatorDigest ||
+            !sameGeneratedStateIdentity(
+              generatedStatePhysicalIdentity(authority.stateRoot),
+              current.locator.stateRootPhysical
+            ) || !sameGeneratedStateIdentity(
+              generatedStatePhysicalIdentity(authority.directory(coordinationRoot)),
+              current.cutover.coordinationRootPhysical
+            )) {
+          throw new SecError(
+            'RUNTIME-DEPS-004',
+            'Compiler dependency coordination binding changed during admission',
+            { migrationRequired: true }
+          );
+        }
+        const session = Object.freeze({ consumers: authority.directory(consumersRoot) });
+        compilerDependencyCoordinationSessions.set(operationOptions, session);
+        try {
+          await settleCompilerDependencyConsumerCompactionIntents(session.consumers, operationOptions);
+          return await callback(operationOptions);
+        } finally {
+          compilerDependencyCoordinationSessions.delete(operationOptions);
+        }
+      }
+    ) };
+  } catch (error) {
+    primary = { error };
+  }
+  let releaseFailure: { error: unknown } | undefined;
+  try {
+    await authority.release();
+  } catch (error) {
+    releaseFailure = { error };
+  }
+  if (primary !== undefined) {
+    if (releaseFailure !== undefined) {
+      throw new AggregateError(
+        [primary.error, releaseFailure.error],
+        'Compiler dependency coordination operation and Runtime State authority settlement both failed'
+      );
+    }
+    throw primary.error;
+  }
+  if (releaseFailure !== undefined) throw releaseFailure.error;
+  return result!.value;
+}
+
+function compilerDependencyCoordinationSession(
+  options: RuntimeDependencyOperationOptions
+): CompilerDependencyCoordinationSession {
+  const session = compilerDependencyCoordinationSessions.get(options);
+  if (session === undefined) {
+    throw new SecError(
+      'RUNTIME-DEPS-004',
+      'Compiler dependency consumer operation has no Runtime State coordination lease'
+    );
+  }
+  return session;
+}
+
+async function migrateCompilerDependencyCoordination(
+  compilerDependencyRoot: string,
+  options: RuntimeDependencyInstallOptions = {}
+): Promise<boolean> {
+  const operationOptions = runtimeDependencyOperationOptions(options);
+  const root = path.resolve(compilerDependencyRoot);
+  const ambientRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
+  const existingMarker = observeNoFollowOwnedFile(
+    compilerDependencyCoordinationMarkerPath(root),
+    'Compiler dependency coordination migration marker'
+  );
+  const existingLocator = observeNoFollowOwnedFile(
+    compilerDependencyCoordinationLocatorPath(root),
+    'Compiler dependency coordination migration locator'
+  );
+  if (existingMarker === null && existingLocator !== null) {
+    throw new SecError(
+      'RUNTIME-DEPS-004',
+      'Compiler dependency coordination locator exists without its cutover and is preserved',
+      { migrationRequired: true }
+    );
+  }
+  const roots = existingMarker !== null && existingLocator !== null
+    ? resolveCompilerDependencyCoordinationRoots(root).roots
+    : ambientRoots;
+  const coordinationRootPath = path.join(roots.workspaceStateRoot, 'compiler-dependency-coordination', 'v1');
+  const consumersRootPath = path.join(coordinationRootPath, 'consumers');
+  if (existingMarker !== null && existingLocator === null) {
+    const cutover = readCompilerDependencyCoordinationCutover(root);
+    const coordination = inspectNoFollowDirectoryChain(
+      coordinationRootPath,
+      'Compiler dependency coordination existing migration root'
+    ).target;
+    if (roots.workspaceLocatorKey !== cutover.workspaceLocatorKey ||
+        !sameGeneratedStateIdentity(generatedStatePhysicalIdentity(coordination), cutover.coordinationRootPhysical)) {
+      throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency coordination migration binding changed', {
+        migrationRequired: true
+      });
+    }
+    inspectNoFollowDirectoryChain(consumersRootPath, 'Compiler dependency coordination existing migration consumers');
+  }
+  const authority = await acquireSecRuntimeStatePhysicalAuthority({
+    repositoryRoot: root,
+    stateRoot: roots.stateRoot,
+    cacheRoot: roots.cacheRoot,
+    requiredDirectories: [roots.workspaceStateRoot, coordinationRootPath, consumersRootPath],
+    deadlineAtUnixMs: runtimeDependencyOperationContext(operationOptions).deadlineAtUnixMs
+  });
+  let primary: { error: unknown } | undefined;
+  try {
+    const compilerRootIdentity = inspectNoFollowDirectoryChain(
+      root,
+      'Compiler dependency coordination migration compiler root'
+    ).target;
+    createNoFollowOrdinaryDirectoryChain(compilerRootIdentity, ['.tmp', 'dependency-installs']);
+    const coordinationRoot = authority.directory(coordinationRootPath);
+    try {
+      assertCompilerDependencyCoordinationCutover({
+        compilerDependencyRoot: root,
+        coordinationRoot,
+        workspaceLocatorKey: roots.workspaceLocatorKey
+      });
+      const cutover = readCompilerDependencyCoordinationCutover(root);
+      publishCompilerDependencyCoordinationLocator({
+        compilerDependencyRoot: root,
+        cutover,
+        stateRoot: authority.stateRoot
+      });
+      readCompilerDependencyCoordinationLocator(root, cutover);
+      return true;
+    } catch (error) {
+      const migrationRequired = error instanceof SecError && typeof error.details === 'object' &&
+        error.details !== null && !Array.isArray(error.details) &&
+        error.details.migrationRequired === true;
+      if (!migrationRequired ||
+          observeNoFollowOwnedFile(path.join(root, '.tmp', 'dependency-installs', 'compiler.lock.reclaim'),
+            'Compiler dependency coordination migration marker') !== null) throw error;
+    }
+    const legacyLockPath = path.join(root, '.tmp', 'dependency-installs', 'compiler.lock');
+    const request = await withInstallLock(legacyLockPath, operationOptions, async () => {
+      await settleCompilerDependencyRecoveryUnderLease(root, operationOptions);
+      const pending = await readDependencyTransition(root, operationOptions);
+      if (pending !== null && pending.phase !== 'complete' && pending.phase !== 'rolled-back') {
+        throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency coordination migration found nonterminal transition');
+      }
+      const namespace = inspectDependencyTransitionNamespace(root);
+      const legacyConsumers = namespace === null ? null : inspectNoFollowDirectoryChild(namespace.journalRoot, 'consumers');
+      const targetConsumers = authority.directory(consumersRootPath);
+      const phases = new Map<string, Partial<Record<
+        'acquired' | 'released',
+        CompilerDependencyConsumerRecord
+      >>>();
+      const migratedRecords = new Map<string, Buffer>();
+      if (legacyConsumers !== null) {
+        const inventory = scanNoFollowDirectoryTreeInventory(legacyConsumers, {
+          deadlineAtMs: runtimeDependencyOperationContext(operationOptions).deadlineAtMonotonicMs,
+          maximumBytes: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
+          maximumEntries: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES,
+          signal: runtimeDependencyOperationContext(operationOptions).signal
+        });
+        for (const entry of inventory) {
+          if (entry.kind !== 'file' || entry.relativePath.includes('/')) {
+            throw new SecError('RUNTIME-DEPS-004', 'Legacy compiler consumer namespace contains unknown residue');
+          }
+          const bytes = readNoFollowOrdinaryFile(legacyConsumers, entry.relativePath);
+          if (bytes === null) throw new SecError('RUNTIME-DEPS-004', 'Legacy compiler consumer record disappeared');
+          migratedRecords.set(entry.relativePath, Buffer.from(bytes));
+          if (entry.relativePath.startsWith('zero-')) {
+            parseCompilerDependencyConsumerZeroReceipt(bytes, entry.relativePath);
+          } else {
+            const record = parseCompilerDependencyConsumerRecord(bytes, entry.relativePath);
+            const chain = phases.get(record.leaseId) ?? {};
+            if (chain[record.phase] !== undefined) {
+              throw new SecError('RUNTIME-DEPS-004', 'Legacy compiler consumer chain has a duplicate phase');
+            }
+            chain[record.phase] = record;
+            phases.set(record.leaseId, chain);
+          }
+          const existing = readNoFollowOrdinaryFile(targetConsumers, entry.relativePath);
+          if (existing !== null) {
+            if (!Buffer.from(existing).equals(Buffer.from(bytes))) {
+              throw new SecError('RUNTIME-DEPS-004', 'Runtime State compiler consumer migration found foreign bytes');
+            }
+            continue;
+          }
+          publishExclusiveDurableCanonicalFile({
+            parent: targetConsumers,
+            name: entry.relativePath,
+            bytes: Buffer.from(bytes),
+            validate: (candidate) => {
+              if (!Buffer.from(candidate).equals(Buffer.from(bytes))) throw new Error('Migrated consumer bytes changed');
+            }
+          });
+        }
+      }
+      const targetInventory = scanNoFollowDirectoryTreeInventory(targetConsumers, {
+        deadlineAtMs: runtimeDependencyOperationContext(operationOptions).deadlineAtMonotonicMs,
+        maximumBytes: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
+        maximumEntries: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES,
+        signal: runtimeDependencyOperationContext(operationOptions).signal
+      });
+      if (targetInventory.length !== migratedRecords.size) {
+        throw new SecError('RUNTIME-DEPS-004', 'Runtime State compiler consumer migration has foreign residue');
+      }
+      for (const entry of targetInventory) {
+        const expectedBytes = migratedRecords.get(entry.relativePath);
+        const actualBytes = entry.kind === 'file' && !entry.relativePath.includes('/')
+          ? readNoFollowOrdinaryFile(targetConsumers, entry.relativePath)
+          : null;
+        if (expectedBytes === undefined || actualBytes === null ||
+            !Buffer.from(actualBytes).equals(expectedBytes)) {
+          throw new SecError('RUNTIME-DEPS-004', 'Runtime State compiler consumer migration readback changed');
+        }
+      }
+      if ([...phases.values()].some((chain) => {
+        const acquired = chain.acquired;
+        const released = chain.released;
+        return acquired === undefined || (released !== undefined &&
+          (released.previousRecordDigest !== acquired.recordDigest ||
+            released.generationDigest !== acquired.generationDigest ||
+            !sameHostPath(released.generationPath, acquired.generationPath) ||
+            !sameGeneratedStateIdentity(released.generationPhysical, acquired.generationPhysical)));
+      })) {
+        throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency coordination migration found an invalid consumer chain');
+      }
+      return issueInstallLockTerminalHandoffRequest({
+        compilerRootPhysical: generatedStatePhysicalIdentity(inspectNoFollowDirectoryChain(
+          root,
+          'Compiler dependency coordination migration root'
+        ).target),
+        coordinationRootPhysical: generatedStatePhysicalIdentity(coordinationRoot),
+        workspaceLocatorKey: roots.workspaceLocatorKey
+      });
+    });
+    installLockTerminalHandoffRequests.delete(request);
+    const cutover = readCompilerDependencyCoordinationCutover(root);
+    publishCompilerDependencyCoordinationLocator({
+      compilerDependencyRoot: root,
+      cutover,
+      stateRoot: authority.stateRoot
+    });
+    readCompilerDependencyCoordinationLocator(root, cutover);
+  } catch (error) {
+    primary = { error };
+  } finally {
+    try {
+      await authority.release();
+    } catch (error) {
+      if (primary !== undefined) {
+        throw new AggregateError([primary.error, error], 'Compiler coordination migration and authority settlement failed');
+      }
+      throw error;
+    }
+  }
+  if (primary !== undefined) throw primary.error;
+  return false;
+}
+
 /**
  * One owner-local lease serializes every dependency transition that can
  * mutate a compiler generation or one of its projections.  It is deliberately
@@ -3794,22 +4458,19 @@ async function withCompilerDependencyTransitionLease<T>(
   // canonical lock namespace.  withInstallLock itself remains inspect-only;
   // this keeps every read/recovery path from creating directories while still
   // allowing a first compiler install to acquire its owner-local lease.
-  runtimeDependencyOperationRemainingMs(operationOptions, 'Compiler dependency lease namespace admission');
-  await operationOptions.beforeCommit?.();
-  runtimeDependencyOperationRemainingMs(operationOptions, 'Compiler dependency lease namespace effect');
-  const compilerRootIdentity = inspectNoFollowDirectoryChain(
-    root,
-    'Compiler dependency transition root'
-  ).target;
-  createNoFollowOrdinaryDirectoryChain(
-    compilerRootIdentity,
-    ['.tmp', 'dependency-installs']
-  );
-  await operationOptions.beforeCommit?.();
-  runtimeDependencyOperationRemainingMs(operationOptions, 'Compiler dependency lease namespace readback');
-  const leasePath = path.join(root, '.tmp', 'dependency-installs', 'compiler.lock');
-  return withInstallLock(leasePath, operationOptions, async () => {
-    await measureRuntimeDependencyOperationPhaseAsync(operationOptions, 'recovery', async () => {
+  return withCompilerDependencyCoordinationLease(root, operationOptions, async () => {
+    await settleCompilerDependencyRecoveryUnderLease(root, operationOptions);
+    const result = await callback(operationOptions);
+    await collectReleasedCompilerDependencyGenerations(root, operationOptions);
+    return result;
+  });
+}
+
+async function settleCompilerDependencyRecoveryUnderLease(
+  root: string,
+  operationOptions: RuntimeDependencyOperationOptions
+): Promise<void> {
+  await measureRuntimeDependencyOperationPhaseAsync(operationOptions, 'recovery', async () => {
     // Compiler staging is born before package installation and therefore has
     // its own durable recovery intent. Recover that owner-local effect before
     // reading publication transitions; the latter deliberately begins only
@@ -3833,10 +4494,10 @@ async function withCompilerDependencyTransitionLease<T>(
           operationOptions
         );
       } else if (pending.kind === 'compiler-bridge') {
-        await recoverCompilerDependencyBridgeTransition(
-          root,
-          path.dirname(pending.destination.path),
-          operationOptions
+        throw new SecError(
+          'RUNTIME-DEPS-004',
+          'Legacy compiler-root project bridge requires an explicit architecture migration',
+          { transitionDigest: pending.recordDigest, migrationRequired: true }
         );
       }
     }
@@ -3845,14 +4506,6 @@ async function withCompilerDependencyTransitionLease<T>(
     // legacy. Reversing this order can retire a live journal input or let an
     // unrelated unknown sibling prevent the journal's zero-effect rollback.
     await migrateRegisteredLegacyCompilerDependencyStages(root, operationOptions);
-    });
-    const result = await callback(operationOptions);
-    // Consumer release is durable before reclamation.  Collection runs under
-    // this same compiler-root lease, so a generation can be physically
-    // retired only after the exact consumer census is terminal and the
-    // active locator no longer selects it.
-    await collectReleasedCompilerDependencyGenerations(root, operationOptions);
-    return result;
   });
 }
 
@@ -3870,11 +4523,10 @@ export async function migrateDependencyTransitionJournal(
     runtimeDependencyOperationOptions(options),
     ownerRoot
   );
-  await withCompilerDependencyTransitionLease(
-    ownerRoot,
-    operationOptions,
-    async () => undefined
-  );
+  const alreadyCutOver = await migrateCompilerDependencyCoordination(ownerRoot, operationOptions);
+  if (alreadyCutOver) {
+    await withCompilerDependencyTransitionLease(ownerRoot, operationOptions, async () => undefined);
+  }
 }
 
 const COMPILER_DEPENDENCY_GENERATED_STATE_PLAN_SCHEMA =
@@ -4859,11 +5511,6 @@ async function recoverProjectDependencyTransition(
   }
 }
 
-async function resolveProjectDependencyBridgeTarget(): Promise<string> {
-  const target = dependencyAuthorityPaths().compilerModulesRoot;
-  return path.resolve(await fs.realpath(target));
-}
-
 type CompilerDependencyBridgeSourceObservation = Readonly<{
   binding: Readonly<CompilerDepsBinding>;
   ownerRoot: string;
@@ -5069,18 +5716,20 @@ function isCurrentBunIdentityOnlyRecoveryFailure(
 function assertCompilerDependencyBridgeTransitionTopology(
   transition: DependencyTransitionJournal,
   compilerDependencyRoot: string,
+  bridgeConsumerRoot: string,
   bridgePath: string
 ): void {
-  const ownerRoot = path.resolve(compilerDependencyRoot);
+  const ownerRoot = path.resolve(bridgeConsumerRoot);
+  const sourceOwnerRoot = path.resolve(compilerDependencyRoot);
   const destination = path.resolve(bridgePath);
-  if (transition.kind !== 'compiler-bridge' ||
+  if (transition.kind !== 'project-runtime-bridge' ||
       transition.ownerRoot !== ownerRoot ||
       transition.destination.path !== destination ||
       transition.preimage.path !== destination ||
       transition.preimage.kind !== 'absent' ||
       transition.stage !== null || transition.stageRoot !== null || transition.backup !== null ||
-      transition.sourceGeneration.ownerRoot !== ownerRoot ||
-      !isPathInside(ownerRoot, transition.sourceGeneration.sourcePath) ||
+      transition.sourceGeneration.ownerRoot !== sourceOwnerRoot ||
+      !isPathInside(sourceOwnerRoot, transition.sourceGeneration.sourcePath) ||
       path.resolve(destination) === path.resolve(transition.sourceGeneration.sourcePath)) {
     throw new SecError(
       'IMPORT-AUTHORITY-004',
@@ -5125,12 +5774,12 @@ async function recoverCompilerDependencyBridgeTransition(
   bridgeConsumerRoot: string,
   options: RuntimeDependencyOperationOptions
 ): Promise<void> {
-  const ownerRoot = path.resolve(compilerDependencyRoot);
-  const bridgePath = path.join(path.resolve(bridgeConsumerRoot), 'node_modules');
+  const ownerRoot = path.resolve(bridgeConsumerRoot);
+  const bridgePath = path.join(ownerRoot, 'node_modules');
   const initialLedger = await readDependencyTransitionLedger(ownerRoot, options);
   const initial = initialLedger?.tip ?? null;
   if (initial === null || initial.phase === 'complete' || initial.phase === 'rolled-back') return;
-  if (initial.kind !== 'compiler-bridge') {
+  if (initial.kind !== 'project-runtime-bridge') {
     throw new SecError(
       'RUNTIME-DEPS-004',
       'Compiler bridge recovery found another active compiler transition; residue is preserved'
@@ -5157,7 +5806,12 @@ async function recoverCompilerDependencyBridgeTransition(
   };
 
   try {
-    assertCompilerDependencyBridgeTransitionTopology(transition, ownerRoot, bridgePath);
+    assertCompilerDependencyBridgeTransitionTopology(
+      transition,
+      compilerDependencyRoot,
+      ownerRoot,
+      bridgePath
+    );
     const ownerIdentity = inspectNoFollowDirectoryChain(
       ownerRoot,
       'Compiler dependency bridge owner root recovery'
@@ -5172,7 +5826,7 @@ async function recoverCompilerDependencyBridgeTransition(
       ));
     }
     const source = await compilerDependencyBridgeRecoverySourceObservation(
-      ownerRoot,
+      compilerDependencyRoot,
       transition.sourceGeneration,
       options
     ).catch((error) => failRecovery(error));
@@ -5277,6 +5931,43 @@ async function recoverCompilerDependencyBridgeTransition(
   }
 }
 
+async function assertNoLegacyCompilerBridgeRecovery(
+  compilerDependencyRoot: string,
+  bridgePath: string,
+  options: RuntimeDependencyOperationOptions
+): Promise<void> {
+  const legacy = (await readDependencyTransitionLedger(
+    compilerDependencyRoot,
+    options
+  ))?.tip ?? null;
+  if (legacy !== null && legacy.kind === 'compiler-bridge' &&
+      legacy.phase !== 'complete' && legacy.phase !== 'rolled-back' &&
+      path.resolve(legacy.destination.path) === path.resolve(bridgePath)) {
+    throw new SecError(
+      'RUNTIME-DEPS-004',
+      'Legacy compiler-root project bridge requires an explicit architecture migration',
+      { transitionDigest: legacy.recordDigest, migrationRequired: true }
+    );
+  }
+}
+
+async function withProjectDependencyBridgeLease<T>(
+  projectRoot: string,
+  options: RuntimeDependencyOperationOptions,
+  callback: (lockedOptions: RuntimeDependencyOperationOptions) => Promise<T>
+): Promise<T> {
+  const root = path.resolve(projectRoot);
+  await runtimeDependencyOperationEffectFence(options, 'Project runtime bridge lease namespace admission');
+  const owner = inspectNoFollowDirectoryChain(root, 'Project runtime bridge owner root').target;
+  createNoFollowOrdinaryDirectoryChain(owner, ['.tmp', 'dependency-installs']);
+  await runtimeDependencyOperationEffectFence(options, 'Project runtime bridge lease namespace readback');
+  return withInstallLock(
+    path.join(root, '.tmp', 'dependency-installs', 'project-runtime.lock'),
+    options,
+    () => callback(options)
+  );
+}
+
 export async function withProjectDependencyBridge<T>(
   projectRoot: string,
   callback: () => Promise<T>,
@@ -5285,48 +5976,68 @@ export async function withProjectDependencyBridge<T>(
   const operationOptions = runtimeDependencyOperationOptions(options);
   const consumerRoot = path.resolve(projectRoot);
   const bridgePath = path.join(consumerRoot, 'node_modules');
-  const sourcePath = await resolveProjectDependencyBridgeTarget();
-  // The bridge's source is allowed to be a physical projection outside this
-  // worktree (for example, a junction-backed shared node_modules tree), but
-  // its transition journal and lease belong to the canonical lexical
-  // compiler root.  Using dirname(sourcePath) here would silently move the
-  // owner into that physical projection and mutate a different repository's
-  // .tmp/dependency-installs namespace.
   const compilerDependencyRoot = path.resolve(compilerRoot);
-  return withCompilerDependencyTransitionLease(compilerDependencyRoot, operationOptions, async () => {
-    // The lease admits recovery before this call observes the bridge.  A
-    // prepared/published bridge left by a crashed process is therefore never
-    // silently adopted by a later callback.
+  await assertNoLegacyCompilerBridgeRecovery(compilerDependencyRoot, bridgePath, operationOptions);
+  const authority = await observeCompilerDependencyExecutionGenerationAuthority(
+    operationOptions,
+    compilerDependencyRoot
+  );
+  if (authority === null) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency bridge source is unavailable');
+  }
+  const authorityRecord = compilerDependencyExecutionGenerationAuthorities.get(authority)!;
+  const retained = await retainCompilerDependencyReadGeneration(authority, {
+    deadlineAtUnixMs: runtimeDependencyOperationContext(operationOptions).deadlineAtUnixMs,
+    signal: runtimeDependencyOperationContext(operationOptions).signal
+  });
+  let outcome: { value: T } | undefined;
+  let primary: { error: unknown } | undefined;
+  try {
+    const source = await compilerDependencyBridgeSourceObservation(
+      authorityRecord.root,
+      authorityRecord.sourceGeneration.sourcePath,
+      operationOptions,
+      authorityRecord.sourceGeneration
+    );
+    outcome = { value: await withProjectDependencyBridgeLease(consumerRoot, operationOptions, async (lockedOptions) => {
     await recoverCompilerDependencyBridgeTransition(
       compilerDependencyRoot,
       consumerRoot,
-      operationOptions
+      lockedOptions
     );
-    const source = await compilerDependencyBridgeSourceObservation(
-      compilerDependencyRoot,
-      sourcePath,
-      operationOptions
-    );
+    await retained.physicalGeneration.assertAuthorityCurrent();
     const existing = await observeDependencyTransitionSlot(
       bridgePath,
       generatedStateDigest(source.binding)
     );
     if (existing.kind !== 'absent') {
-      if (existing.kind !== 'link' || !compilerDependencyBridgeLinkMatches(bridgePath, source, existing)) {
+      const runtimeBinding = source.binding.runtimeMaterialization;
+      if (runtimeBinding == null) {
         throw new SecError(
           'IMPORT-AUTHORITY-004',
-          'Existing project dependency bridge is foreign and preserved'
+          'Existing project dependency projection has no runtime materialization binding'
         );
       }
-      runtimeDependencyOperationRemainingMs(operationOptions, 'Project dependency bridge callback admission');
+      const runtimeSourceGeneration = await runtimeDependencySourceGeneration({
+        binding: runtimeBinding,
+        options: lockedOptions,
+        ownerRoot: source.ownerRoot,
+        sourcePath: source.sourcePath
+      });
+      await assertProjectProjectionPreimage({
+        current: existing,
+        expectedBinding: runtimeBinding,
+        expectedLinkTarget: source.sourcePath,
+        expectedSourceGeneration: runtimeSourceGeneration,
+        options: lockedOptions,
+        projectRoot: consumerRoot,
+        runtimeSpec: await loadRuntimeDependencySpec(),
+        targetPath: bridgePath
+      });
+      runtimeDependencyOperationRemainingMs(lockedOptions, 'Project dependency bridge callback admission');
       const result = await callback();
-      runtimeDependencyOperationRemainingMs(operationOptions, 'Project dependency bridge callback settlement');
-      await compilerDependencyBridgeSourceObservation(
-        compilerDependencyRoot,
-        source.sourcePath,
-        operationOptions,
-        source.sourceGeneration
-      );
+      runtimeDependencyOperationRemainingMs(lockedOptions, 'Project dependency bridge callback settlement');
+      await retained.assertAuthorityCurrent();
       const after = await observeDependencyTransitionSlot(bridgePath);
       if (after.kind !== 'link' || !compilerDependencyBridgeLinkMatches(bridgePath, source, after)) {
         throw new SecError(
@@ -5338,22 +6049,23 @@ export async function withProjectDependencyBridge<T>(
     }
 
     let transition = await beginDependencyTransition({
-      kind: 'compiler-bridge',
-      ownerRoot: compilerDependencyRoot,
+      kind: 'project-runtime-bridge',
+      ownerRoot: consumerRoot,
       destinationPath: bridgePath,
       stagePath: null,
       stageRootPath: null,
       backupPath: null,
       sourceGeneration: source.sourceGeneration,
       bindingDigest: generatedStateDigest(source.binding),
-      options: operationOptions
+      options: lockedOptions
     });
     try {
+      await retained.physicalGeneration.assertAuthorityCurrent();
       await createCompilerDependencyLocator(
         bridgePath,
         source.sourcePath,
         source.sourceGeneration.physical,
-        operationOptions
+        lockedOptions
       );
       const published = await observeDependencyTransitionSlot(
         bridgePath,
@@ -5370,31 +6082,46 @@ export async function withProjectDependencyBridge<T>(
         phase: 'published',
         durability: 'known',
         failure: null
-      }, operationOptions);
-      runtimeDependencyOperationRemainingMs(operationOptions, 'Project dependency bridge callback admission');
+      }, lockedOptions);
+      runtimeDependencyOperationRemainingMs(lockedOptions, 'Project dependency bridge callback admission');
       const result = await callback();
-      runtimeDependencyOperationRemainingMs(operationOptions, 'Project dependency bridge callback settlement');
-      await compilerDependencyBridgeSourceObservation(
-        compilerDependencyRoot,
-        source.sourcePath,
-        operationOptions,
-        source.sourceGeneration
-      );
-      await removeCompilerDependencyBridge(consumerRoot, source, transition, operationOptions);
+      runtimeDependencyOperationRemainingMs(lockedOptions, 'Project dependency bridge callback settlement');
+      await retained.assertAuthorityCurrent();
+      await removeCompilerDependencyBridge(consumerRoot, source, transition, lockedOptions);
       return result;
     } catch (error) {
       try {
-        await removeCompilerDependencyBridge(consumerRoot, source, transition, operationOptions);
+        await retained.assertAuthorityCurrent();
+        await removeCompilerDependencyBridge(consumerRoot, source, transition, lockedOptions);
       } catch (cleanupError) {
-        throw new SecError('IMPORT-AUTHORITY-004', 'Compiler dependency bridge residue is preserved for recovery', {
-          cause: error instanceof Error ? error.message : String(error),
-          cleanup: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
-          transitionDigest: transition.recordDigest
-        });
+        throw new AggregateError(
+          [error, cleanupError],
+          `Compiler dependency bridge callback failed and transition ${transition.recordDigest} residue is preserved for recovery`
+        );
       }
       throw error;
     }
-  });
+    }) };
+  } catch (error) {
+    primary = { error };
+  }
+  let retirementFailure: { error: unknown } | undefined;
+  try {
+    await retained.retire();
+  } catch (error) {
+    retirementFailure = { error };
+  }
+  if (primary !== undefined) {
+    if (retirementFailure !== undefined) {
+      throw new AggregateError(
+        [primary.error, retirementFailure.error],
+        'Project dependency bridge consumer and retained generation settlement both failed'
+      );
+    }
+    throw primary.error;
+  }
+  if (retirementFailure !== undefined) throw retirementFailure.error;
+  return outcome!.value;
 }
 
 async function removeCompilerDependencyBridge(
@@ -5404,16 +6131,9 @@ async function removeCompilerDependencyBridge(
   options: RuntimeDependencyOperationOptions
 ): Promise<void> {
   if (transition.phase === 'rolled-back' || transition.phase === 'complete') return;
-  // A link is operation-owned only while the compiler generation it names is
-  // the exact source generation admitted in the journal.  Re-prove that fact
-  // before cleanup as well as before publication; otherwise a callback error
-  // could turn a source-path drift into an implicit delete authority.
-  await compilerDependencyBridgeSourceObservation(
-    transition.ownerRoot,
-    source.sourcePath,
-    options,
-    source.sourceGeneration
-  );
+  // The caller retains and revalidates the exact source generation before
+  // entering this cleanup effect. The transition still binds the destination
+  // to that source so a changed locator is preserved rather than adopted.
   const bridgePath = path.join(path.resolve(consumerRoot), 'node_modules');
   const current = await observeDependencyTransitionSlot(bridgePath);
   if (current.kind === 'absent') {
@@ -5893,198 +6613,6 @@ async function renameDependencyLocator(
       target,
       targetAfter
     });
-  }
-}
-
-async function publishCompilerDependencyGeneration(
-  root: string,
-  activeNodeModulesPath: string,
-  stagingRoot: string,
-  stageIntent: CompilerDependencyStageIntent,
-  identity: CompilerDependencyIdentity,
-  options: RuntimeDependencyOperationOptions
-): Promise<void> {
-  const stagingNodeModulesPath = path.join(stagingRoot, 'node_modules');
-  const namespace = await ensureDependencyTransitionNamespace(root, options);
-  const stagedBinding = await compilerDependencyGenerationBinding(
-    root,
-    stagingNodeModulesPath,
-    path.join(stagingNodeModulesPath, COMPILER_DEPS_BINDING_FILE),
-    identity
-  );
-  if (stagedBinding === null) {
-    throw new SecError('IMPORT-AUTHORITY-002', 'Staged compiler dependency generation has no valid binding');
-  }
-  const bindingDigest = generatedStateDigest(stagedBinding);
-  const sourceGeneration = await runtimeDependencySourceGeneration({
-    binding: stagedBinding,
-    options,
-    ownerRoot: root,
-    sourcePath: stagingNodeModulesPath
-  });
-  const backupPath = path.join(
-    namespace.backupRoot.path,
-    `node_modules-${sourceGeneration.epoch.slice('sha256:'.length, 'sha256:'.length + 24)}`
-  );
-  const activePreimage = await observeDependencyTransitionSlot(activeNodeModulesPath);
-  const preimageAuthority = activePreimage.kind === 'directory'
-    ? await compilerDependencyGeneratedPreimageAuthority(root, activeNodeModulesPath, options)
-    : null;
-  let transition = await beginDependencyTransition({
-    kind: 'compiler-generation',
-    ownerRoot: root,
-    destinationPath: activeNodeModulesPath,
-    stagePath: stagingNodeModulesPath,
-    stageRootPath: stagingRoot,
-    backupPath,
-    sourceGeneration,
-    bindingDigest,
-    preimageBindingDigest: preimageAuthority?.authorityDigest ?? null,
-    options
-  });
-  let activeBackedUp = false;
-  let published = false;
-  let preserveStageForRecovery = false;
-  let retiredPreimageRegistrationDigest: `sha256:${string}` | null = null;
-  try {
-    if (transition.preimage.kind !== 'absent') {
-      if (transition.preimage.kind !== 'directory') {
-        throw new SecError('IMPORT-AUTHORITY-004', 'Existing compiler dependency target is foreign and preserved');
-      }
-      const currentPreimageAuthority = await compilerDependencyGeneratedPreimageAuthority(
-        root,
-        activeNodeModulesPath,
-        options
-      );
-      if (currentPreimageAuthority.authorityDigest !== transition.preimage.bindingDigest) {
-        throw new SecError('IMPORT-AUTHORITY-004', 'Compiler dependency preimage authority changed before quarantine');
-      }
-      await retireCompilerDependencyExecutionProofIfPresent(root, activeNodeModulesPath, options);
-      retiredPreimageRegistrationDigest = await bindAndRetireCompilerDependencyPreimage(
-        options,
-        transition.preimage.physical!,
-        'generation-superseded'
-      );
-      await renameCompilerDependencyDirectory(activeNodeModulesPath, backupPath, options);
-      activeBackedUp = true;
-      transition = await advanceDependencyTransition(transition, {
-        destination: transitionAbsentSlot(activeNodeModulesPath),
-        backup: await observeDependencyTransitionSlot(backupPath, transition.preimage.bindingDigest),
-        phase: 'backed-up',
-        durability: 'known',
-        failure: null
-      }, options);
-      await options.testCompilerPublishHook?.('active-backed-up');
-    }
-    await settleRetiredCompilerDependencyGeneration(
-      options,
-      transition.preimage.kind === 'directory'
-        ? transition.preimage.physical ?? undefined
-        : undefined
-    );
-    await renameCompilerDependencyDirectory(stagingNodeModulesPath, activeNodeModulesPath, options);
-    published = true;
-    transition = await advanceDependencyTransition(transition, {
-      destination: await observeDependencyTransitionSlot(activeNodeModulesPath, bindingDigest),
-      stage: transitionAbsentSlot(stagingNodeModulesPath),
-      sourceGeneration: sourceGenerationWithPath(sourceGeneration, activeNodeModulesPath),
-      phase: 'published',
-      durability: 'known',
-      failure: null
-    }, options);
-    if (transition.destination.physical === null) {
-      throw new SecError(
-        'IMPORT-AUTHORITY-004',
-        'Published compiler dependency target has no physical lifecycle identity'
-      );
-    }
-    await birthAndBindCompilerDependencyGeneration(
-      options,
-      stagingRoot,
-      transition.destination.physical
-    );
-    await settleCompilerDependencyStageIntent(root, stageIntent, 'generation-published', options);
-    transition = await advanceDependencyTransition(transition, {
-      stageRoot: transitionAbsentSlot(stagingRoot),
-      phase: 'binding-validated',
-      durability: 'known',
-      failure: null
-    }, options);
-    const final = await observeDependencyTransitionSlot(activeNodeModulesPath, bindingDigest);
-    if (!transitionSlotMatches(final, transition.destination)) {
-      throw new SecError('IMPORT-AUTHORITY-004', 'Published compiler dependency target identity changed');
-    }
-    await advanceDependencyTransition(transition, {
-      destination: final,
-      stageRoot: transitionAbsentSlot(stagingRoot),
-      phase: 'complete',
-      durability: 'known',
-      failure: null
-    }, options);
-  } catch (error) {
-    let rollbackFailure: unknown;
-    const activeNow = await observeDependencyTransitionSlot(activeNodeModulesPath).catch(() => null);
-    const backupNow = await observeDependencyTransitionSlot(backupPath).catch(() => null);
-    const stageNow = await observeDependencyTransitionSlot(stagingNodeModulesPath).catch(() => null);
-    const topologyRequiresRecovery = activeNow !== null && backupNow !== null && stageNow !== null &&
-      (activeNow.kind === 'absent' || backupNow.kind === 'directory' || stageNow.kind === 'directory');
-    if (activeBackedUp && activeNow?.kind === 'absent' && backupNow?.kind === 'directory') {
-      try {
-        await renameCompilerDependencyDirectory(backupPath, activeNodeModulesPath, options);
-        const lifecycle = options.generatedStateLifecycle;
-        if (lifecycle?.restore === undefined || retiredPreimageRegistrationDigest === null) {
-          throw new SecError(
-            'IMPORT-AUTHORITY-004',
-            'Compiler dependency rollback has no exact retired registration predecessor; recovery backup is preserved'
-          );
-        }
-        const restoredTarget = await observeDependencyTransitionSlot(activeNodeModulesPath);
-        if (restoredTarget.kind !== 'directory' || restoredTarget.physical === null ||
-            transition.preimage.physical === null ||
-            !sameGeneratedStateIdentity(restoredTarget.physical, transition.preimage.physical)) {
-          throw new SecError(
-            'IMPORT-AUTHORITY-004',
-            'Compiler dependency rollback target identity changed before lifecycle restore'
-          );
-        }
-        await runtimeDependencyOperationEffectFence(options, 'Compiler dependency lifecycle restore');
-        await lifecycle.restore(
-          'node_modules',
-          retiredPreimageRegistrationDigest,
-          restoredTarget.physical,
-          'compiler-dependency-preimage-restored'
-        );
-        await advanceDependencyTransition(transition, {
-          destination: restoredTarget,
-          backup: transitionAbsentSlot(backupPath),
-          phase: 'rolled-back',
-          durability: 'known',
-          failure: transitionFailure(error)
-        }, options);
-      } catch (rollbackError) {
-        rollbackFailure = rollbackError;
-      }
-    } else if (topologyRequiresRecovery) {
-      try {
-        await markDependencyTransitionFailure(transition, error, options);
-        preserveStageForRecovery = true;
-      } catch (journalError) {
-        rollbackFailure = journalError;
-      }
-    }
-    throw new SecError('IMPORT-AUTHORITY-004', 'Compiler dependency generation publish failed', {
-      cause: error instanceof Error ? error.message : String(error),
-      rollbackFailure: rollbackFailure instanceof Error ? rollbackFailure.message : rollbackFailure,
-      recoveryRequired: topologyRequiresRecovery && rollbackFailure === undefined,
-      transitionDigest: transition.recordDigest
-    });
-  } finally {
-    if (!published && !preserveStageForRecovery) {
-      // Only the operation-created staging tree may be converged here. The
-      // exact no-follow inventory refuses a substituted/foreign tree and
-      // reports a typed residue blocker instead of deleting a replacement.
-      await settleCompilerDependencyStageIntent(root, stageIntent, 'generation-publish-failed', options);
-    }
   }
 }
 
@@ -7176,15 +7704,30 @@ class CompilerDependencyBridgeIncompatibleError extends SecError {
   }
 }
 
+function canonicalCompilerDependencyGenerationOwnerRoot(
+  generationPath: string
+): string | null {
+  const resolvedGeneration = path.resolve(generationPath);
+  if (!/^generation-[0-9a-f]{24}$/u.test(path.basename(resolvedGeneration))) return null;
+  const generationParent = path.dirname(resolvedGeneration);
+  let candidateOwner = generationParent;
+  while (true) {
+    if (sameHostPath(
+      dependencyTransitionNamespacePaths(candidateOwner).backupRoot,
+      generationParent
+    )) return candidateOwner;
+    const parent = path.dirname(candidateOwner);
+    if (parent === candidateOwner) return null;
+    candidateOwner = parent;
+  }
+}
+
 function isCanonicalLocalCompilerDependencyGeneration(
   consumerRoot: string,
   generationPath: string
 ): boolean {
-  const resolvedRoot = path.resolve(consumerRoot);
-  const resolvedGeneration = path.resolve(generationPath);
-  const backupRoot = dependencyTransitionNamespacePaths(resolvedRoot).backupRoot;
-  return path.dirname(resolvedGeneration) === backupRoot &&
-    /^generation-[0-9a-f]{24}$/u.test(path.basename(resolvedGeneration));
+  const ownerRoot = canonicalCompilerDependencyGenerationOwnerRoot(generationPath);
+  return ownerRoot !== null && sameHostPath(ownerRoot, consumerRoot);
 }
 
 async function compilerDependencyConsumerBridgeBinding(
@@ -7202,14 +7745,14 @@ async function compilerDependencyConsumerBridgeBinding(
   try {
     const generationPath = path.resolve(await fs.realpath(bridgePath));
     const generationMetadata = await fs.lstat(generationPath, { bigint: true });
-    const localGeneration = isCanonicalLocalCompilerDependencyGeneration(
-      consumerRoot,
-      generationPath
-    );
-    const ownerRoot = localGeneration ? path.resolve(consumerRoot) : path.dirname(generationPath);
+    const canonicalGenerationOwner = canonicalCompilerDependencyGenerationOwnerRoot(generationPath);
+    const localGeneration = canonicalGenerationOwner !== null &&
+      sameHostPath(canonicalGenerationOwner, consumerRoot);
+    const ownerRoot = canonicalGenerationOwner ?? path.dirname(generationPath);
     if (!generationMetadata.isDirectory() || generationMetadata.isSymbolicLink() ||
-      (!localGeneration && path.basename(generationPath).toLocaleLowerCase('en-US') !== 'node_modules') ||
-      (!localGeneration && sameHostPath(ownerRoot, consumerRoot))) {
+      (canonicalGenerationOwner === null &&
+        path.basename(generationPath).toLocaleLowerCase('en-US') !== 'node_modules') ||
+      (canonicalGenerationOwner === null && sameHostPath(ownerRoot, consumerRoot))) {
       throw new Error('Dependency consumer bridge target is not one external physical generation.');
     }
     const ownerIdentity = await compilerDependencyIdentity(ownerRoot);
@@ -7482,9 +8025,9 @@ export const compilerDependencyLocatorWorktreeRetirementProvider:
 GeneratedStateWorktreeRetirementProvider = Object.freeze<GeneratedStateWorktreeRetirementProvider>({
   id: COMPILER_DEPENDENCY_LOCATOR_PROVIDER_ID,
   async plan(input) {
-    if (input.relativePath !== 'node_modules' || input.registration.phase !== 'retired' ||
+    if (input.relativePath !== 'node_modules' ||
       !sameGeneratedStatePhysicalIdentity(input.registration.root, input.source)) {
-      throw new Error('Compiler dependency locator provider requires one exact retired registration.');
+      throw new Error('Compiler dependency locator provider requires one exact registration.');
     }
     const consumerRoot = path.resolve(input.workspaceRoot);
     const consumer = compilerDependencyConsumerIdentity(consumerRoot);
@@ -7512,20 +8055,24 @@ GeneratedStateWorktreeRetirementProvider = Object.freeze<GeneratedStateWorktreeR
       digest: generatedStateDomainProviderMaterialDigest(COMPILER_DEPENDENCY_LOCATOR_PROVIDER_ID, 'plan', bytes)
     });
   },
-  async retire(input) {
-    if (input.relativePath !== 'node_modules' || input.registration.phase !== 'retired' ||
-        input.planDigest !== generatedStateDomainProviderMaterialDigest(
+  async retire(authority) {
+    const authorized = consumeGeneratedStateWorktreeRetirementEffectAuthority(
+      authority,
+      COMPILER_DEPENDENCY_LOCATOR_PROVIDER_ID
+    );
+    if (authorized.relativePath !== 'node_modules' || authorized.registration.phase !== 'retired' ||
+        authorized.planDigest !== generatedStateDomainProviderMaterialDigest(
           COMPILER_DEPENDENCY_LOCATOR_PROVIDER_ID,
           'plan',
-          input.planBytes
+          authorized.planBytes
         )) {
       throw new Error('Compiler dependency locator provider retirement authority is invalid.');
     }
-    const plan = parseCompilerDependencyLocatorRetirementPlan(input.planBytes);
-    if (path.resolve(input.workspaceRoot) !== plan.consumerRoot ||
-      !sameGeneratedStatePhysicalIdentity(input.source, plan.source) ||
-      !sameGeneratedStatePhysicalIdentity(input.registration.root, plan.source) ||
-      !sameGeneratedStatePhysicalIdentity(input.registration.workspace, plan.consumer)) {
+    const plan = parseCompilerDependencyLocatorRetirementPlan(authorized.planBytes);
+    if (path.resolve(authorized.workspaceRoot) !== plan.consumerRoot ||
+      !sameGeneratedStatePhysicalIdentity(authorized.source, plan.source) ||
+      !sameGeneratedStatePhysicalIdentity(authorized.registration.root, plan.source) ||
+      !sameGeneratedStatePhysicalIdentity(authorized.registration.workspace, plan.consumer)) {
       throw new Error('Compiler dependency locator provider retirement binding changed.');
     }
     const validateRetirementPlan = async (requireLocator: boolean) => {
@@ -7544,6 +8091,16 @@ GeneratedStateWorktreeRetirementProvider = Object.freeze<GeneratedStateWorktreeR
     const locator = compilerDependencyLocatorObservation(plan.consumerRoot, plan.relativePath);
     let outcome: 'removed' | 'resumed-absent';
     if (locator === null) {
+      if (inspectExactNoFollowDirectoryPresence(
+        path.join(plan.consumerRoot, plan.relativePath),
+        'Compiler dependency locator retirement absence readback'
+      ).state !== 'absent') {
+        throw new SecError(
+          'IMPORT-AUTHORITY-004',
+          'Compiler dependency locator retirement found an occupied non-locator path.',
+          { consumerRoot: plan.consumerRoot, relativePath: plan.relativePath }
+        );
+      }
       await validateRetirementPlan(false);
       outcome = 'resumed-absent';
     } else {
@@ -7557,7 +8114,10 @@ GeneratedStateWorktreeRetirementProvider = Object.freeze<GeneratedStateWorktreeR
         expectedLinkTarget: locator.linkTarget,
         ancestorDirectories: Object.freeze([])
       });
-      if (compilerDependencyLocatorObservation(plan.consumerRoot, plan.relativePath) !== null) {
+      if (inspectExactNoFollowDirectoryPresence(
+        path.join(plan.consumerRoot, plan.relativePath),
+        'Compiler dependency locator retirement terminal absence readback'
+      ).state !== 'absent') {
         throw new Error('Compiler dependency locator provider locator remains after retirement.');
       }
       await validateRetirementPlan(false);
@@ -7565,8 +8125,8 @@ GeneratedStateWorktreeRetirementProvider = Object.freeze<GeneratedStateWorktreeR
     }
     const bytes = canonicalProviderBytes(Object.freeze({
       schema: COMPILER_DEPENDENCY_LOCATOR_RECEIPT_SCHEMA,
-      operationId: input.operationId,
-      planDigest: input.planDigest,
+      operationId: authorized.operationId,
+      planDigest: authorized.planDigest,
       outcome,
       locator: plan.source,
       generation: plan.generation
@@ -8754,20 +9314,17 @@ function parseCompilerDependencyConsumerRecord(
 }
 
 async function compilerDependencyConsumerRoot(
-  root: string,
   options: RuntimeDependencyOperationOptions
 ): Promise<PhysicalDirectoryIdentity> {
-  const namespace = await ensureDependencyTransitionNamespace(root, options);
-  await runtimeDependencyOperationEffectFence(options, 'Compiler dependency consumer namespace publication');
-  return createNoFollowOrdinaryDirectoryChain(namespace.journalRoot, ['consumers']);
+  runtimeDependencyOperationRemainingMs(options, 'Compiler dependency consumer namespace admission');
+  return compilerDependencyCoordinationSession(options).consumers;
 }
 
 async function acquireCompilerDependencyConsumer(
-  root: string,
   sourceGeneration: RuntimeDependencySourceGeneration,
   options: RuntimeDependencyOperationOptions
 ): Promise<CompilerDependencyConsumerRecord> {
-  const consumers = await compilerDependencyConsumerRoot(root, options);
+  const consumers = await compilerDependencyConsumerRoot(options);
   const leaseId = generatedStateDigest(Object.freeze({
     schema: 'sec-compiler-dependency-consumer-lease-id-v1',
     generationDigest: sourceGeneration.epoch,
@@ -8784,11 +9341,12 @@ async function acquireCompilerDependencyConsumer(
     phase: 'acquired'
   });
   const name = `consumer-${leaseId.slice('sha256:'.length)}-acquired.json`;
+  const recordBytes = Buffer.from(formatJsonFile(canonicalJson(record)), 'utf8');
   await runtimeDependencyOperationEffectFence(options, 'Compiler dependency consumer acquisition');
   publishExclusiveDurableCanonicalFile({
     parent: consumers,
     name,
-    bytes: Buffer.from(formatJsonFile(canonicalJson(record)), 'utf8'),
+    bytes: recordBytes,
     validate: (candidate) => { parseCompilerDependencyConsumerRecord(candidate, name); }
   });
   const readback = inspectNoFollowOrdinaryFileEntry(consumers, name);
@@ -8800,7 +9358,6 @@ async function acquireCompilerDependencyConsumer(
 }
 
 async function releaseCompilerDependencyConsumerUnderLease(
-  root: string,
   acquired: CompilerDependencyConsumerRecord,
   retirement: PhysicalGenerationRetirementReceipt,
   options: RuntimeDependencyOperationOptions
@@ -8812,7 +9369,14 @@ async function releaseCompilerDependencyConsumerUnderLease(
       retirement.root.objectId !== acquired.generationPhysical.objectId) {
     throw new SecError('RUNTIME-DEPS-004', 'Physical retirement receipt does not bind the acquired dependency consumer');
   }
-  const consumers = await compilerDependencyConsumerRoot(root, options);
+  return publishCompilerDependencyConsumerReleaseUnderLease(acquired, options);
+}
+
+async function publishCompilerDependencyConsumerReleaseUnderLease(
+  acquired: CompilerDependencyConsumerRecord,
+  options: RuntimeDependencyOperationOptions
+): Promise<CompilerDependencyConsumerRecord> {
+  const consumers = await compilerDependencyConsumerRoot(options);
   const released = compilerDependencyConsumerRecord({
     schema: COMPILER_DEPENDENCY_CONSUMER_SCHEMA,
     previousRecordDigest: acquired.recordDigest,
@@ -8829,52 +9393,93 @@ async function releaseCompilerDependencyConsumerUnderLease(
     if (parsed.recordDigest !== released.recordDigest) {
       throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer release receipt is foreign');
     }
-    return parsed;
+  } else {
+    await runtimeDependencyOperationEffectFence(options, 'Compiler dependency consumer release');
+    publishExclusiveDurableCanonicalFile({
+      parent: consumers,
+      name,
+      bytes: Buffer.from(formatJsonFile(canonicalJson(released)), 'utf8'),
+      validate: (candidate) => { parseCompilerDependencyConsumerRecord(candidate, name); }
+    });
   }
-  await runtimeDependencyOperationEffectFence(options, 'Compiler dependency consumer release');
-  publishExclusiveDurableCanonicalFile({
-    parent: consumers,
-    name,
-    bytes: Buffer.from(formatJsonFile(canonicalJson(released)), 'utf8'),
-    validate: (candidate) => { parseCompilerDependencyConsumerRecord(candidate, name); }
-  });
   const readback = inspectNoFollowOrdinaryFileEntry(consumers, name);
   if (readback === null || readback.bytes === null ||
       parseCompilerDependencyConsumerRecord(readback.bytes, name).recordDigest !== released.recordDigest) {
     throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer release failed readback');
   }
+  const census = readCompilerDependencyConsumerCensus(consumers, {
+    epoch: acquired.generationDigest,
+    physical: acquired.generationPhysical,
+    sourcePath: acquired.generationPath
+  }, options);
+  if (census.active.length !== 0) return released;
+  await publishCompilerDependencyConsumerZeroReceipt(
+    consumers,
+    {
+      epoch: acquired.generationDigest,
+      physical: acquired.generationPhysical,
+      sourcePath: acquired.generationPath
+    },
+    census.censusDigest,
+    census.terminalRecords,
+    'terminal-compaction',
+    options
+  );
   return released;
 }
 
 async function releaseCompilerDependencyConsumer(
   root: string,
   acquired: CompilerDependencyConsumerRecord,
-  retirement: PhysicalGenerationRetirementReceipt
+  retirement: PhysicalGenerationRetirementReceipt,
+  onTerminal?: (released: CompilerDependencyConsumerRecord) => void
 ): Promise<CompilerDependencyConsumerRecord> {
-  return withCompilerDependencyTransitionLease(
+  return withCompilerDependencyCoordinationLease(
     root,
     { lockTimeoutMs: 30_000 },
     async (options) => {
-      return releaseCompilerDependencyConsumerUnderLease(root, acquired, retirement, options);
+      const released = await releaseCompilerDependencyConsumerUnderLease(acquired, retirement, options);
+      onTerminal?.(released);
+      await settleCompilerDependencyConsumerCompactionIntents(
+        compilerDependencyCoordinationSession(options).consumers,
+        options
+      );
+      return released;
     }
   );
 }
 
 const COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA =
   'sec-compiler-dependency-consumer-zero-v1' as const;
+const COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA_V2 =
+  'sec-compiler-dependency-consumer-zero-v2' as const;
 const COMPILER_DEPENDENCY_CONSUMER_ZERO_KEYS = Object.freeze([
   'censusDigest', 'generationDigest', 'generationPath', 'generationPhysical',
   'receiptDigest', 'schema', 'terminal'
 ]);
+const COMPILER_DEPENDENCY_CONSUMER_ZERO_KEYS_V2 = Object.freeze([
+  ...COMPILER_DEPENDENCY_CONSUMER_ZERO_KEYS,
+  'purpose', 'terminalRecords'
+]);
+
+type CompilerDependencyConsumerCompactionEntry = Readonly<{
+  acquired: CompilerDependencyConsumerRecord;
+  acquiredName: string;
+  released: CompilerDependencyConsumerRecord;
+  releasedName: string;
+}>;
 
 interface CompilerDependencyConsumerZeroReceipt {
-  readonly schema: typeof COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA;
+  readonly schema: typeof COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA |
+    typeof COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA_V2;
   readonly censusDigest: `sha256:${string}`;
   readonly generationDigest: `sha256:${string}`;
   readonly generationPath: string;
   readonly generationPhysical: GeneratedStatePhysicalIdentity;
   readonly receiptDigest: `sha256:${string}`;
   readonly terminal: 'consumer-zero';
+  readonly purpose?: 'generation-retirement' | 'terminal-compaction';
+  readonly terminalRecords?: readonly CompilerDependencyConsumerCompactionEntry[];
 }
 
 function compilerDependencyConsumerZeroReceipt(input: Omit<
@@ -8900,16 +9505,67 @@ function parseCompilerDependencyConsumerZeroReceipt(
       cause: error instanceof Error ? error.message : String(error)
     });
   }
-  if (!hasExactObjectKeys(value, COMPILER_DEPENDENCY_CONSUMER_ZERO_KEYS)) {
+  const isV1 = hasExactObjectKeys(value, COMPILER_DEPENDENCY_CONSUMER_ZERO_KEYS);
+  const isV2 = hasExactObjectKeys(value, COMPILER_DEPENDENCY_CONSUMER_ZERO_KEYS_V2);
+  if (!isV1 && !isV2) {
     throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer-zero receipt has noncanonical keys');
   }
   const receipt = value as unknown as CompilerDependencyConsumerZeroReceipt;
-  if (receipt.schema !== COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA ||
+  const embeddedRecordIsCanonical = (
+    record: CompilerDependencyConsumerRecord,
+    name: string
+  ): boolean => {
+    try {
+      return parseCompilerDependencyConsumerRecord(
+        Buffer.from(formatJsonFile(canonicalJson(record)), 'utf8'),
+        name
+      ).recordDigest === record.recordDigest;
+    } catch {
+      return false;
+    }
+  };
+  const compactionEntryIsCanonical = (
+    raw: unknown,
+    index: number,
+    entries: readonly unknown[]
+  ): boolean => {
+    if (!hasExactObjectKeys(raw, ['acquired', 'acquiredName', 'released', 'releasedName'])) return false;
+    const entry = raw as unknown as CompilerDependencyConsumerCompactionEntry;
+    const previous = index === 0
+      ? null
+      : entries[index - 1] as CompilerDependencyConsumerCompactionEntry;
+    return typeof entry.acquiredName === 'string' && typeof entry.releasedName === 'string' &&
+      /^consumer-[0-9a-f]{64}-acquired\.json$/u.test(entry.acquiredName) &&
+      /^consumer-[0-9a-f]{64}-released\.json$/u.test(entry.releasedName) &&
+      embeddedRecordIsCanonical(entry.acquired, entry.acquiredName) &&
+      embeddedRecordIsCanonical(entry.released, entry.releasedName) &&
+      entry.acquiredName === `consumer-${entry.acquired.leaseId.slice('sha256:'.length)}-acquired.json` &&
+      entry.releasedName === `consumer-${entry.released.leaseId.slice('sha256:'.length)}-released.json` &&
+      entry.acquired.phase === 'acquired' && entry.released.phase === 'released' &&
+      entry.acquired.leaseId === entry.released.leaseId &&
+      entry.released.previousRecordDigest === entry.acquired.recordDigest &&
+      entry.acquired.generationDigest === receipt.generationDigest &&
+      entry.released.generationDigest === receipt.generationDigest &&
+      sameHostPath(entry.acquired.generationPath, receipt.generationPath) &&
+      sameHostPath(entry.released.generationPath, receipt.generationPath) &&
+      sameGeneratedStateIdentity(entry.acquired.generationPhysical, receipt.generationPhysical) &&
+      sameGeneratedStateIdentity(entry.released.generationPhysical, receipt.generationPhysical) &&
+      (previous === null || compareCodeUnits(previous.acquiredName, entry.acquiredName) < 0);
+  };
+  if ((isV1 && receipt.schema !== COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA) ||
+      (isV2 && receipt.schema !== COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA_V2) ||
       !isSha256Digest(receipt.censusDigest) || !isSha256Digest(receipt.generationDigest) ||
       !isSha256Digest(receipt.receiptDigest) || !isCanonicalAbsolutePath(receipt.generationPath) ||
       !isCanonicalGeneratedStatePhysicalIdentity(receipt.generationPhysical) ||
       receipt.terminal !== 'consumer-zero') {
     throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer-zero receipt fields are invalid');
+  }
+  if (receipt.schema === COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA_V2 &&
+      ((receipt.purpose !== 'generation-retirement' && receipt.purpose !== 'terminal-compaction') ||
+        !Array.isArray(receipt.terminalRecords) || receipt.terminalRecords.some(
+          (entry, index, entries) => !compactionEntryIsCanonical(entry, index, entries)
+        ))) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer-zero compaction intent is invalid');
   }
   const { receiptDigest: _receiptDigest, ...unsigned } = receipt;
   if (generatedStateDigest(canonicalJson(unsigned)) !== receipt.receiptDigest ||
@@ -8923,9 +9579,84 @@ function parseCompilerDependencyConsumerZeroReceipt(
   return Object.freeze(receipt);
 }
 
+async function settleCompilerDependencyConsumerCompactionIntents(
+  consumers: PhysicalDirectoryIdentity,
+  options: RuntimeDependencyOperationOptions
+): Promise<void> {
+  const inventory = scanNoFollowDirectoryTreeInventory(consumers, {
+    deadlineAtMs: runtimeDependencyOperationContext(options).deadlineAtMonotonicMs,
+    maximumBytes: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
+    maximumEntries: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES,
+    signal: runtimeDependencyOperationContext(options).signal
+  });
+  for (const entry of inventory) {
+    if (entry.kind !== 'file' || entry.relativePath.includes('/') ||
+        !entry.relativePath.startsWith('zero-')) continue;
+    const intentObservation = observeNoFollowOwnedFile(
+      path.join(consumers.path, entry.relativePath),
+      'Compiler dependency consumer compaction intent'
+    );
+    if (intentObservation === null) continue;
+    const intent = parseCompilerDependencyConsumerZeroReceipt(
+      readNoFollowOwnedFileBytes(intentObservation, 'Compiler dependency consumer compaction intent'),
+      entry.relativePath
+    );
+    if (intent.schema !== COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA_V2) continue;
+    for (const terminal of intent.terminalRecords ?? []) {
+      for (const candidate of [
+        Object.freeze({ digest: terminal.released.recordDigest, name: terminal.releasedName }),
+        Object.freeze({ digest: terminal.acquired.recordDigest, name: terminal.acquiredName })
+      ]) {
+        const candidatePath = path.join(consumers.path, candidate.name);
+        const observation = observeNoFollowOwnedFile(
+          candidatePath,
+          'Compiler dependency consumer compaction record'
+        );
+        if (observation === null) continue;
+        const parsed = parseCompilerDependencyConsumerRecord(
+          readNoFollowOwnedFileBytes(observation, 'Compiler dependency consumer compaction record'),
+          candidate.name
+        );
+        if (parsed.recordDigest !== candidate.digest) {
+          throw new SecError(
+            'RUNTIME-DEPS-004',
+            'Compiler dependency consumer compaction record is foreign and preserved'
+          );
+        }
+        await runtimeDependencyOperationEffectFence(
+          options,
+          'Compiler dependency consumer compaction record retirement'
+        );
+        deleteNoFollowOwnedFile(
+          candidatePath,
+          observation,
+          'Compiler dependency consumer compaction record'
+        );
+      }
+    }
+    if (intent.purpose === 'terminal-compaction') {
+      await runtimeDependencyOperationEffectFence(
+        options,
+        'Compiler dependency consumer compaction intent retirement'
+      );
+      deleteNoFollowOwnedFile(
+        path.join(consumers.path, entry.relativePath),
+        intentObservation,
+        'Compiler dependency consumer compaction intent'
+      );
+    }
+  }
+}
+
 type CompilerDependencyConsumerCensus = Readonly<{
   active: readonly CompilerDependencyConsumerRecord[];
   censusDigest: `sha256:${string}`;
+  terminalRecords: readonly Readonly<{
+    acquired: CompilerDependencyConsumerRecord;
+    acquiredName: string;
+    released: CompilerDependencyConsumerRecord;
+    releasedName: string;
+  }>[];
 }>;
 
 function readCompilerDependencyConsumerCensus(
@@ -8968,6 +9699,7 @@ function readCompilerDependencyConsumerCensus(
     recordDigests.push(record.recordDigest);
   }
   const active: CompilerDependencyConsumerRecord[] = [];
+  const terminalRecords: Array<CompilerDependencyConsumerCensus['terminalRecords'][number]> = [];
   for (const [leaseId, phases] of records) {
     const acquired = phases.acquired;
     const released = phases.released;
@@ -8984,12 +9716,23 @@ function readCompilerDependencyConsumerCensus(
         sameHostPath(acquired.generationPath, generation.sourcePath) &&
         sameGeneratedStateIdentity(acquired.generationPhysical, generation.physical)) {
       active.push(acquired);
+    } else if (released !== undefined && acquired.generationDigest === generation.epoch &&
+        sameHostPath(acquired.generationPath, generation.sourcePath) &&
+        sameGeneratedStateIdentity(acquired.generationPhysical, generation.physical)) {
+      terminalRecords.push(Object.freeze({
+        acquired,
+        acquiredName: `consumer-${leaseId.slice('sha256:'.length)}-acquired.json`,
+        released,
+        releasedName: `consumer-${leaseId.slice('sha256:'.length)}-released.json`
+      }));
     }
   }
   recordDigests.sort(compareCodeUnits);
   active.sort((left, right) => compareCodeUnits(left.leaseId, right.leaseId));
+  terminalRecords.sort((left, right) => compareCodeUnits(left.acquiredName, right.acquiredName));
   return Object.freeze({
     active: Object.freeze(active),
+    terminalRecords: Object.freeze(terminalRecords),
     censusDigest: generatedStateDigest(Object.freeze({
       schema: 'sec-compiler-dependency-consumer-census-v1',
       recordDigests: Object.freeze(recordDigests)
@@ -8999,16 +9742,24 @@ function readCompilerDependencyConsumerCensus(
 
 async function publishCompilerDependencyConsumerZeroReceipt(
   consumers: PhysicalDirectoryIdentity,
-  generation: RuntimeDependencySourceGeneration,
+  generation: Readonly<{
+    epoch: `sha256:${string}`;
+    physical: GeneratedStatePhysicalIdentity;
+    sourcePath: string;
+  }>,
   censusDigest: `sha256:${string}`,
+  terminalRecords: CompilerDependencyConsumerCensus['terminalRecords'],
+  purpose: 'generation-retirement' | 'terminal-compaction',
   options: RuntimeDependencyOperationOptions
 ): Promise<CompilerDependencyConsumerZeroReceipt> {
   const receipt = compilerDependencyConsumerZeroReceipt({
-    schema: COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA,
+    schema: COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA_V2,
     censusDigest,
     generationDigest: generation.epoch,
     generationPath: path.resolve(generation.sourcePath),
     generationPhysical: generation.physical,
+    purpose,
+    terminalRecords,
     terminal: 'consumer-zero'
   });
   const name = `zero-${generation.epoch.slice('sha256:'.length, 'sha256:'.length + 24)}-${censusDigest.slice('sha256:'.length, 'sha256:'.length + 24)}.json`;
@@ -9067,7 +9818,7 @@ async function collectReleasedCompilerDependencyGenerations(
     });
     uniqueGenerations.set(generationKey(candidate.generationDigest, candidate.generationPath), candidate);
   }
-  let consumers = inspectNoFollowDirectoryChild(namespace.journalRoot, 'consumers');
+  const consumers = compilerDependencyCoordinationSession(options).consumers;
   const consumerRecords: CompilerDependencyConsumerRecord[] = [];
   const consumerZeroReceipts: CompilerDependencyConsumerZeroReceipt[] = [];
   if (consumers !== null) {
@@ -9243,7 +9994,6 @@ async function collectReleasedCompilerDependencyGenerations(
   const candidates = [...uniqueGenerations.values()].filter((candidate) =>
     activeGenerationPath === null || !sameHostPath(activeGenerationPath, candidate.generationPath));
   if (candidates.length === 0) return;
-  consumers ??= await compilerDependencyConsumerRoot(root, options);
   for (const acquired of candidates) {
     const releasedLegacyPhysical = releasedLegacyGenerations.get(generationKey(
       acquired.generationDigest,
@@ -9317,7 +10067,15 @@ async function collectReleasedCompilerDependencyGenerations(
         'Compiler dependency released generation has no owner-issued pre-mutation authority'
       );
     }
-    await publishCompilerDependencyConsumerZeroReceipt(consumers, generation, census.censusDigest, options);
+    await publishCompilerDependencyConsumerZeroReceipt(
+      consumers,
+      generation,
+      census.censusDigest,
+      census.terminalRecords,
+      'generation-retirement',
+      options
+    );
+    await settleCompilerDependencyConsumerCompactionIntents(consumers, options);
     // The persisted proof is the only authority that may restore publisher
     // write/delete access.  Reopen the exact child only after that terminal
     // ACL/mode readback; attempting a deletion-capable parent-relative open
@@ -9691,7 +10449,8 @@ export async function retainCompilerDependencyExecutionGeneration(
     MAX_DEPENDENCY_OPERATION_TIMEOUT_MS,
     input.deadlineAtUnixMs - Date.now()
   ));
-  const admitted = await withCompilerDependencyTransitionLease(
+  let pendingGeneration: RetainedNoFollowProvenDirectoryGeneration | undefined;
+  const admitted = await withCompilerDependencyCoordinationLease(
     record.root,
     { deadlineAtUnixMs: input.deadlineAtUnixMs, lockTimeoutMs, signal: input.signal },
     async (options) => {
@@ -9701,33 +10460,43 @@ export async function retainCompilerDependencyExecutionGeneration(
         record.sourceGeneration,
         options
       );
+      const currentRoot = assertSameNoFollowDirectoryIdentity(
+        sealed.sourceRoot,
+        'Compiler dependency execution generation retained root'
+      ).target;
+      const materialized = await materializeRetainedNoFollowProvenDirectoryGeneration({
+        binding: {
+          generationDigest: record.sourceGeneration.epoch,
+          treeDigest: record.sourceGeneration.treeDigest,
+          treeEntryCount: record.sourceGeneration.treeEntryCount
+        },
+        deadlineAtUnixMs: input.deadlineAtUnixMs,
+        proofText: sealed.proofText,
+        root: currentRoot,
+        signal: input.signal
+      });
+      pendingGeneration = materialized.generation;
+      await materialized.generation.assertAuthorityCurrent();
       const acquired = await acquireCompilerDependencyConsumer(
-        record.root,
         record.sourceGeneration,
         options
       );
-      return Object.freeze({
-        acquired,
-        proofText: sealed.proofText,
-        sourceRoot: sealed.sourceRoot
-      });
+      return Object.freeze({ acquired, generation: materialized.generation });
     }
-  );
-  const currentRoot = assertSameNoFollowDirectoryIdentity(
-    admitted.sourceRoot,
-    'Compiler dependency execution generation post-lease root'
-  ).target;
-  const materialized = await materializeRetainedNoFollowProvenDirectoryGeneration({
-    binding: {
-      generationDigest: record.sourceGeneration.epoch,
-      treeDigest: record.sourceGeneration.treeDigest,
-      treeEntryCount: record.sourceGeneration.treeEntryCount
-    },
-    deadlineAtUnixMs: input.deadlineAtUnixMs,
-    proofText: admitted.proofText,
-    root: currentRoot,
-    signal: input.signal
+  ).catch(async (error) => {
+    if (pendingGeneration === undefined) throw error;
+    try {
+      await pendingGeneration.retire();
+    } catch (retirementError) {
+      throw new AggregateError(
+        [error, retirementError],
+        'Compiler dependency execution generation admission and physical settlement both failed'
+      );
+    }
+    throw error;
   });
+  const materialized = Object.freeze({ generation: admitted.generation });
+  pendingGeneration = undefined;
   try {
     await materialized.generation.assertAuthorityCurrent();
   } catch (error) {
@@ -9737,21 +10506,33 @@ export async function retainCompilerDependencyExecutionGeneration(
     } catch { /* durable acquisition residue preserves the authority failure */ }
     throw error;
   }
-  let retirement: Promise<CompilerDependencyExecutionRetirementReceipt> | null = null;
+  let physicalRetirement: PhysicalGenerationRetirementReceipt | null = null;
+  let durableRelease: CompilerDependencyConsumerRecord | null = null;
+  let terminalRetirement: CompilerDependencyExecutionRetirementReceipt | null = null;
+  let retirementAttempt: Promise<CompilerDependencyExecutionRetirementReceipt> | null = null;
   return Object.freeze({
     directRootResolution: record.directRootResolution,
     generationDigest: record.sourceGeneration.epoch,
     physicalGeneration: materialized.generation,
     retire: () => {
-      if (retirement !== null) return retirement;
-      retirement = (async () => {
-        const physicalReceipt = await materialized.generation.retire();
+      if (terminalRetirement !== null) return Promise.resolve(terminalRetirement);
+      if (retirementAttempt !== null) return retirementAttempt;
+      retirementAttempt = (async () => {
+        const physicalReceipt = physicalRetirement ?? await materialized.generation.retire();
         assertPhysicalGenerationRetirementReceipt(physicalReceipt);
-        const released = await releaseCompilerDependencyConsumer(
-          record.root,
-          admitted.acquired,
-          physicalReceipt
-        );
+        physicalRetirement = physicalReceipt;
+        let released: CompilerDependencyConsumerRecord;
+        if (durableRelease === null) {
+          released = await releaseCompilerDependencyConsumer(
+            record.root,
+            admitted.acquired,
+            physicalReceipt,
+            (terminal) => { durableRelease = terminal; }
+          );
+        } else {
+          await withCompilerDependencyCoordinationLease(record.root, { lockTimeoutMs: 30_000 }, async () => {});
+          released = durableRelease;
+        }
         const receipt: CompilerDependencyExecutionRetirementReceipt = Object.freeze({
           schema: 'sec-compiler-dependency-execution-retirement-v1' as const,
           generationDigest: admitted.acquired.generationDigest,
@@ -9761,9 +10542,12 @@ export async function retainCompilerDependencyExecutionGeneration(
           terminal: 'released' as const
         });
         issuedCompilerDependencyExecutionRetirementReceipts.add(receipt);
+        terminalRetirement = receipt;
         return receipt;
-      })();
-      return retirement;
+      })().finally(() => {
+        if (terminalRetirement === null) retirementAttempt = null;
+      });
+      return retirementAttempt;
     }
   });
 }
@@ -9780,8 +10564,8 @@ export async function retainCompilerDependencyReadGeneration(
   input: Readonly<{ deadlineAtUnixMs: number; signal?: AbortSignal }>
 ): Promise<RetainedCompilerDependencyReadGeneration> {
   assertCompilerDependencyExecutionGenerationAuthority(authority);
-  if (!Number.isSafeInteger(input.deadlineAtUnixMs) || input.deadlineAtUnixMs <= Date.now()
-      || input.signal?.aborted === true) {
+  if (!Number.isSafeInteger(input.deadlineAtUnixMs) || input.deadlineAtUnixMs <= Date.now() ||
+      input.signal?.aborted === true) {
     throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency read generation admission expired');
   }
   const expected = compilerDependencyExecutionGenerationAuthorities.get(authority)!;
@@ -9789,108 +10573,161 @@ export async function retainCompilerDependencyReadGeneration(
     deadlineAtUnixMs: input.deadlineAtUnixMs,
     signal: input.signal
   });
-  const sourceRoot = inspectNoFollowDirectoryChain(
-    expected.sourceGeneration.sourcePath,
-    'Compiler dependency read generation root'
-  ).target;
-  if (!sameGeneratedStateIdentity(
-    generatedStatePhysicalIdentity(sourceRoot),
-    expected.sourceGeneration.physical
-  )) {
-    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency read generation root changed');
-  }
-  const assertOwnerAuthorityCurrent = async (boundary: string): Promise<void> => {
+  const assertOwnerAuthorityCurrent = async (
+    sourceRoot: PhysicalDirectoryIdentity,
+    boundary: string
+  ): Promise<void> => {
     runtimeDependencyOperationRemainingMs(operationOptions, boundary);
     assertCompilerDependencyInputsCurrent(expected.root, expected.identity);
     const [currentGenerationPath, currentBinding] = await Promise.all([
       fs.realpath(expected.nodeModulesPath).then((value) => path.resolve(value)),
-      readCompilerDepsBinding(path.join(
-        expected.sourceGeneration.sourcePath,
-        COMPILER_DEPS_BINDING_FILE
-      ))
+      readCompilerDepsBinding(path.join(expected.sourceGeneration.sourcePath, COMPILER_DEPS_BINDING_FILE))
     ]);
-    const currentRoot = assertSameNoFollowDirectoryIdentity(
-      sourceRoot,
-      boundary
-    ).target;
-    if (!sameHostPath(currentGenerationPath, expected.sourceGeneration.sourcePath)
-        || currentBinding === null
-        || !canonicalEquals(currentBinding, expected.binding)
-        || !sameGeneratedStateIdentity(
+    const currentRoot = assertSameNoFollowDirectoryIdentity(sourceRoot, boundary).target;
+    if (!sameHostPath(currentGenerationPath, expected.sourceGeneration.sourcePath) ||
+        currentBinding === null || !canonicalEquals(currentBinding, expected.binding) ||
+        !sameGeneratedStateIdentity(
           generatedStatePhysicalIdentity(currentRoot),
           expected.sourceGeneration.physical
         )) {
       throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency read generation authority changed');
     }
   };
-  await assertOwnerAuthorityCurrent('Compiler dependency read generation authority admission');
-  const namespace = inspectDependencyTransitionNamespace(expected.root);
-  if (namespace === null) {
-    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency read generation proof is unavailable');
-  }
-  const proofRoot = inspectNoFollowDirectoryChild(
-    namespace.backupRoot,
-    'read-only-generations',
-    'Compiler dependency read generation proof root'
-  );
-  if (proofRoot === null) {
-    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency read generation proof is unavailable');
-  }
-  const proofName = `${expected.sourceGeneration.epoch.slice('sha256:'.length)}.json`;
-  const proofBytes = readNoFollowOrdinaryFile(proofRoot, proofName);
-  if (proofBytes === null) {
-    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency read generation proof is unavailable');
-  }
-  let proofText: string;
+  let pendingGeneration: RetainedNoFollowProvenDirectoryGeneration | undefined;
+  let admitted: Readonly<{
+    acquired: CompilerDependencyConsumerRecord;
+    generation: RetainedNoFollowProvenDirectoryGeneration;
+    sourceRoot: PhysicalDirectoryIdentity;
+  }>;
   try {
-    proofText = new TextDecoder('utf-8', { fatal: true }).decode(proofBytes);
+    admitted = await withCompilerDependencyCoordinationLease(
+      expected.root,
+      operationOptions,
+      async (lockedOptions) => {
+        const sourceRoot = inspectNoFollowDirectoryChain(
+          expected.sourceGeneration.sourcePath,
+          'Compiler dependency read generation root'
+        ).target;
+        if (!sameGeneratedStateIdentity(
+          generatedStatePhysicalIdentity(sourceRoot),
+          expected.sourceGeneration.physical
+        )) {
+          throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency read generation root changed');
+        }
+        await assertOwnerAuthorityCurrent(
+          sourceRoot,
+          'Compiler dependency read generation authority admission'
+        );
+        const namespace = inspectDependencyTransitionNamespace(expected.root);
+        const proofRoot = namespace === null ? null : inspectNoFollowDirectoryChild(
+          namespace.backupRoot,
+          'read-only-generations',
+          'Compiler dependency read generation proof root'
+        );
+        if (proofRoot === null) {
+          throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency read generation proof is unavailable');
+        }
+        const proofName = `${expected.sourceGeneration.epoch.slice('sha256:'.length)}.json`;
+        const proofBytes = readNoFollowOrdinaryFile(proofRoot, proofName);
+        if (proofBytes === null) {
+          throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency read generation proof is unavailable');
+        }
+        let proofText: string;
+        try {
+          proofText = new TextDecoder('utf-8', { fatal: true }).decode(proofBytes);
+        } catch (error) {
+          throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency read generation proof is not exact UTF-8', {
+            cause: error instanceof Error ? error.message : String(error)
+          });
+        }
+        const reopened = await reopenRetainedNoFollowProvenDirectoryGeneration({
+          deadlineAtUnixMs: input.deadlineAtUnixMs,
+          proofText,
+          root: sourceRoot,
+          signal: input.signal
+        });
+        pendingGeneration = reopened.generation;
+        if (reopened.binding.generationDigest !== expected.sourceGeneration.epoch ||
+            reopened.binding.treeDigest !== expected.sourceGeneration.treeDigest ||
+            reopened.binding.treeEntryCount !== expected.sourceGeneration.treeEntryCount) {
+          throw new SecError(
+            'RUNTIME-DEPS-004',
+            'Compiler dependency read generation proof differs from its owner authority'
+          );
+        }
+        await reopened.generation.assertAuthorityCurrent();
+        await assertOwnerAuthorityCurrent(
+          sourceRoot,
+          'Compiler dependency read generation authority readback'
+        );
+        const acquired = await acquireCompilerDependencyConsumer(
+          expected.sourceGeneration,
+          lockedOptions
+        );
+        return Object.freeze({ acquired, generation: reopened.generation, sourceRoot });
+      }
+    );
+    pendingGeneration = undefined;
   } catch (error) {
-    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency read generation proof is not exact UTF-8', {
-      cause: error instanceof Error ? error.message : String(error)
-    });
-  }
-  const reopened = await reopenRetainedNoFollowProvenDirectoryGeneration({
-    deadlineAtUnixMs: input.deadlineAtUnixMs,
-    proofText,
-    root: sourceRoot,
-    signal: input.signal
-  });
-  try {
-    if (reopened.binding.generationDigest !== expected.sourceGeneration.epoch
-        || reopened.binding.treeDigest !== expected.sourceGeneration.treeDigest
-        || reopened.binding.treeEntryCount !== expected.sourceGeneration.treeEntryCount) {
-      throw new SecError(
-        'RUNTIME-DEPS-004',
-        'Compiler dependency read generation proof differs from its owner authority'
-      );
+    if (pendingGeneration !== undefined) {
+      try {
+        await pendingGeneration.retire();
+      } catch (retirementError) {
+        throw new AggregateError(
+          [error, retirementError],
+          'Compiler dependency read generation admission and physical settlement both failed'
+        );
+      }
     }
-    await reopened.generation.assertAuthorityCurrent();
-    await assertOwnerAuthorityCurrent('Compiler dependency read generation authority readback');
-  } catch (error) {
-    const retirement = await reopened.generation.retire();
-    assertPhysicalGenerationRetirementReceipt(retirement);
     throw error;
   }
-  let retirement: Promise<CompilerDependencyReadGenerationRetirementReceipt> | null = null;
-  return Object.freeze({
+  let physicalRetirement: PhysicalGenerationRetirementReceipt | null = null;
+  let durableRelease: CompilerDependencyConsumerRecord | null = null;
+  let terminalRetirement: CompilerDependencyReadGenerationRetirementReceipt | null = null;
+  let retirementAttempt: Promise<CompilerDependencyReadGenerationRetirementReceipt> | null = null;
+  const retained: RetainedCompilerDependencyReadGeneration = Object.freeze({
+    assertAuthorityCurrent: async () => {
+      await admitted.generation.assertAuthorityCurrent();
+      await assertOwnerAuthorityCurrent(
+        admitted.sourceRoot,
+        'Compiler dependency read generation consumer readback'
+      );
+    },
     generationDigest: expected.sourceGeneration.epoch,
-    physicalGeneration: reopened.generation,
+    physicalGeneration: admitted.generation,
     retire: () => {
-      if (retirement !== null) return retirement;
-      retirement = (async () => {
-        const physicalReceipt = await reopened.generation.retire();
+      if (terminalRetirement !== null) return Promise.resolve(terminalRetirement);
+      if (retirementAttempt !== null) return retirementAttempt;
+      retirementAttempt = (async () => {
+        const physicalReceipt = physicalRetirement ?? await admitted.generation.retire();
         assertPhysicalGenerationRetirementReceipt(physicalReceipt);
+        physicalRetirement = physicalReceipt;
+        if (durableRelease === null) {
+          await releaseCompilerDependencyConsumer(
+            expected.root,
+            admitted.acquired,
+            physicalReceipt,
+            (terminal) => { durableRelease = terminal; }
+          );
+        } else {
+          await withCompilerDependencyCoordinationLease(expected.root, { lockTimeoutMs: 30_000 }, async () => {});
+        }
         const receipt: CompilerDependencyReadGenerationRetirementReceipt = Object.freeze({
           generationDigest: expected.sourceGeneration.epoch,
           physicalRoot: physicalReceipt.root,
           terminal: 'released' as const
         });
         issuedCompilerDependencyReadGenerationRetirementReceipts.add(receipt);
+        terminalRetirement = receipt;
         return receipt;
-      })();
-      return retirement;
+      })().finally(() => {
+        if (terminalRetirement === null) retirementAttempt = null;
+      });
+      return retirementAttempt;
     }
   });
+  issuedCompilerDependencyReadGenerations.add(retained);
+  return retained;
 }
 
 function createCompilerDepsReadyState(input: Readonly<{
@@ -9951,9 +10788,8 @@ async function observeCompilerDependencyReady(
   if (bridge.status === 'ready') {
     const bridgeBinding = bridge.binding;
     const generationPath = path.resolve(await fs.realpath(nodeModulesPath));
-    const ownerRoot = isCanonicalLocalCompilerDependencyGeneration(root, generationPath)
-      ? path.resolve(root)
-      : path.dirname(generationPath);
+    const ownerRoot = canonicalCompilerDependencyGenerationOwnerRoot(generationPath) ??
+      path.dirname(generationPath);
     const sourceGeneration = await runtimeDependencySourceGeneration({
       binding: bridgeBinding,
       options,
@@ -10216,6 +11052,7 @@ async function ensureCompilerDepsReadyInternal(
   const operationOptions = runtimeDependencyOperationOptions(options);
   const root = path.resolve(compilerDependencyRoot);
   const lifecycleOptions = await bindCanonicalGeneratedStateLifecycle(operationOptions, root);
+  await migrateCompilerDependencyCoordination(root, lifecycleOptions);
   const nodeModulesPath = dependencyAuthorityPaths(root).compilerModulesRoot;
   const bindingPath = path.join(nodeModulesPath, COMPILER_DEPS_BINDING_FILE);
 
@@ -10355,6 +11192,9 @@ async function ensureCompilerDepsReadyInternal(
     );
     if (lockedBridge !== null) {
       await bindExistingCompilerDependencyLocator(root, identity, lockedBridge, lockedOptions);
+      const generationPath = path.resolve(await fs.realpath(nodeModulesPath));
+      const generationOwnerRoot = canonicalCompilerDependencyGenerationOwnerRoot(generationPath) ??
+        path.dirname(generationPath);
       return createCompilerDepsReadyState({
         binding: lockedBridge,
         identity,
@@ -10364,8 +11204,8 @@ async function ensureCompilerDepsReadyInternal(
         sourceGeneration: await runtimeDependencySourceGeneration({
           binding: lockedBridge,
           options: lockedOptions,
-          ownerRoot: path.dirname(path.resolve(await fs.realpath(nodeModulesPath))),
-          sourcePath: path.resolve(await fs.realpath(nodeModulesPath))
+          ownerRoot: generationOwnerRoot,
+          sourcePath: generationPath
         }),
         source: 'existing'
       });
@@ -11102,51 +11942,57 @@ export async function ensureProjectDependencies(
     compilerDependencyRoot,
     operationOptions,
     async (lockedOptions) => {
-      const lockedTransitionInput: ProjectProjectionTransitionInput = Object.freeze({
-        ...projectTransitionInput,
-        options: lockedOptions
-      });
-      await recoverProjectDependencyTransition(lockedTransitionInput);
-      await runtimeDependencyOperationEffectFence(lockedOptions, 'Project dependency cache admission');
-      const currentStamp = await readRuntimeDepsStamp(stampPath);
-      const currentTarget = await runtimeDependencyTargetIdentity(nodeModulesPath);
-      let sourceStillCurrent: boolean;
-      try {
-        const current = await runtimeDependencySourceGeneration({
-          binding,
-          options: lockedOptions,
-          ownerRoot: sourceGeneration.ownerRoot,
-          sourcePath: sourceGeneration.sourcePath
-        });
-        sourceStillCurrent = current.epoch === sourceGeneration.epoch &&
-          sameRuntimeDependencySourceGenerationContent(current, sourceGeneration) &&
-          sameGeneratedStateIdentity(current.physical, sourceGeneration.physical);
-      } catch (error) {
-        if (!isFileNotFoundError(error)) throw error;
-        sourceStillCurrent = false;
-      }
-      const cacheReady = !lockedOptions.rematerialize &&
-        sourceStillCurrent &&
-        currentStamp?.binding.revision === binding.revision &&
-        canonicalEquals(currentStamp.binding, binding) &&
-        currentStamp.sourceGeneration.epoch === sourceGeneration.epoch &&
-        sameRuntimeDependencySourceGenerationContent(currentStamp.sourceGeneration, sourceGeneration) &&
-        sameGeneratedStateIdentity(currentStamp.sourceGeneration.physical, sourceGeneration.physical) &&
-        currentTarget !== null &&
-        currentTarget.kind === currentStamp.target.kind &&
-        currentTarget.linkTarget === currentStamp.target.linkTarget &&
-        sameGeneratedStateIdentity(currentTarget.physical, currentStamp.target.physical) &&
-        (isolated
-          ? await runtimeDependencyTreeMatchesBinding({
-            expected: binding,
-            nodeModulesPath,
-            root: compilerDependencyRoot,
-            runtimeSpec
-          })
-          : await dependencyBridgeTargets(nodeModulesPath, sourceNodeModulesPath));
-      await runtimeDependencyOperationEffectFence(lockedOptions, 'Project dependency ready-state settlement');
-      if (cacheReady) return;
-      await publishProjectDependencyProjection(lockedTransitionInput);
+      await withProjectDependencyBridgeLease(
+        projectRootPath,
+        lockedOptions,
+        async (projectLockedOptions) => {
+          const lockedTransitionInput: ProjectProjectionTransitionInput = Object.freeze({
+            ...projectTransitionInput,
+            options: projectLockedOptions
+          });
+          await recoverProjectDependencyTransition(lockedTransitionInput);
+          await runtimeDependencyOperationEffectFence(projectLockedOptions, 'Project dependency cache admission');
+          const currentStamp = await readRuntimeDepsStamp(stampPath);
+          const currentTarget = await runtimeDependencyTargetIdentity(nodeModulesPath);
+          let sourceStillCurrent: boolean;
+          try {
+            const current = await runtimeDependencySourceGeneration({
+              binding,
+              options: projectLockedOptions,
+              ownerRoot: sourceGeneration.ownerRoot,
+              sourcePath: sourceGeneration.sourcePath
+            });
+            sourceStillCurrent = current.epoch === sourceGeneration.epoch &&
+              sameRuntimeDependencySourceGenerationContent(current, sourceGeneration) &&
+              sameGeneratedStateIdentity(current.physical, sourceGeneration.physical);
+          } catch (error) {
+            if (!isFileNotFoundError(error)) throw error;
+            sourceStillCurrent = false;
+          }
+          const cacheReady = !projectLockedOptions.rematerialize &&
+            sourceStillCurrent &&
+            currentStamp?.binding.revision === binding.revision &&
+            canonicalEquals(currentStamp.binding, binding) &&
+            currentStamp.sourceGeneration.epoch === sourceGeneration.epoch &&
+            sameRuntimeDependencySourceGenerationContent(currentStamp.sourceGeneration, sourceGeneration) &&
+            sameGeneratedStateIdentity(currentStamp.sourceGeneration.physical, sourceGeneration.physical) &&
+            currentTarget !== null &&
+            currentTarget.kind === currentStamp.target.kind &&
+            currentTarget.linkTarget === currentStamp.target.linkTarget &&
+            sameGeneratedStateIdentity(currentTarget.physical, currentStamp.target.physical) &&
+            (isolated
+              ? await runtimeDependencyTreeMatchesBinding({
+                expected: binding,
+                nodeModulesPath,
+                root: compilerDependencyRoot,
+                runtimeSpec
+              })
+              : await dependencyBridgeTargets(nodeModulesPath, sourceNodeModulesPath));
+          await runtimeDependencyOperationEffectFence(projectLockedOptions, 'Project dependency ready-state settlement');
+          if (cacheReady) return;
+          await publishProjectDependencyProjection(lockedTransitionInput);
+        }
+      );
     }
   );
 }

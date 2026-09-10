@@ -52,6 +52,7 @@ function compileReferenceDriftOperation(root: string): SecBoundSemanticOperation
     }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: REFERENCE_GIT_DURATION_MS },
+      { resource: 'input-bytes', maximum: 0 },
       {
         resource: 'output-bytes',
         maximum: REFERENCE_GIT_PROCESS_MAXIMUM * (

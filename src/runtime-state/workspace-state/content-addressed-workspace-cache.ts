@@ -244,7 +244,6 @@ function loadGeneration(input: Readonly<{
   const inventory = scanNoFollowDirectoryTreeMetadata(input.directory, {
     deadlineAtMs: input.operation.deadlineAtMonotonicMs,
     maximumEntries: Math.min(input.maximumEntries, input.operation.remainingRecords()),
-    maximumBytes: input.operation.remainingReadBytes(),
     signal: input.operation.signal
   });
   if (inventory.length === 0) return Object.freeze({ status: 'miss', keyDigest: input.keyDigest });
@@ -259,10 +258,12 @@ function loadGeneration(input: Readonly<{
     }
     exactLeafName(item.relativePath, 'Content-addressed cache entry');
     totalBytes += item.size;
-    if (totalBytes > input.operation.remainingReadBytes()) {
+    if (!Number.isSafeInteger(totalBytes) || totalBytes > input.operation.remainingReadBytes()) {
       throw new ContentAddressedWorkspaceCacheError('corrupt-cache', 'Content-addressed cache byte budget was exceeded');
     }
-    const bytes = readOptionalRetainedOrdinaryLeaf(input.directory, item.relativePath);
+    const bytes = readOptionalRetainedOrdinaryLeaf(input.directory, item.relativePath, {
+      maximumBytes: item.size
+    });
     if (bytes === null) throw new Error(`Content-addressed cache entry disappeared: ${item.relativePath}`);
     entries.push(Object.freeze({
       name: item.relativePath,
@@ -339,7 +340,9 @@ function createContentAddressedWorkspaceCacheNamespace(input: Readonly<{
           try {
             input.operation.assertLive();
             authority.assertCurrent();
-            const pointerBytes = readOptionalRetainedOrdinaryLeaf(namespaceDirectory, POINTER_NAME);
+            const pointerBytes = readOptionalRetainedOrdinaryLeaf(namespaceDirectory, POINTER_NAME, {
+              maximumBytes: input.operation.remainingReadBytes()
+            });
             if (pointerBytes === null) return Object.freeze({ status: 'miss' as const, keyDigest });
             input.operation.consumeRead(pointerBytes.byteLength, 1);
             const pointer = parsePointer(pointerBytes, namespaceDigest);
@@ -359,7 +362,9 @@ function createContentAddressedWorkspaceCacheNamespace(input: Readonly<{
             });
             if (loaded.status === 'miss') return Object.freeze({ status: 'miss' as const, keyDigest });
             authority.assertCurrent();
-            const readback = readOptionalRetainedOrdinaryLeaf(namespaceDirectory, POINTER_NAME);
+            const readback = readOptionalRetainedOrdinaryLeaf(namespaceDirectory, POINTER_NAME, {
+              maximumBytes: pointerBytes.byteLength
+            });
             if (readback === null || rawSha256(readback) !== rawSha256(pointerBytes)) {
               return Object.freeze({ status: 'miss' as const, keyDigest });
             }
@@ -401,7 +406,6 @@ function createContentAddressedWorkspaceCacheNamespace(input: Readonly<{
           const existing = scanNoFollowDirectoryTreeMetadata(directory, {
             deadlineAtMs: input.operation.deadlineAtMonotonicMs,
             maximumEntries: Math.min(input.maximumEntries, input.operation.remainingRecords()),
-            maximumBytes: input.operation.remainingReadBytes(),
             signal: input.operation.signal
           });
           const foreign = existing.find(({ relativePath, kind }) => (

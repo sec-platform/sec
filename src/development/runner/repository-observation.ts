@@ -1,27 +1,47 @@
 import { lstatSync, readlinkSync } from 'node:fs';
 import path from 'node:path';
 
-import { GitReadAuthorityError, withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
+import { GitReadAuthorityError, issueGitReadAuthorityOperation, withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
+import { GIT_READ_EXACT_TREE_OPERATION_BUDGET } from '../../external-capabilities/git-read/runtime/budget.ts';
 import type { GitReadSession } from '../../external-capabilities/git-read/runtime/session.ts';
+import { parseGitAbsolutePathReply, parseGitObjectIdReply, parseWorktreeStatusPorcelainZ } from '../../runtime-state/physical/contract/git-worktree-observation.ts';
 import {
   inspectNoFollowDirectoryChain,
   PhysicalNoFollowError,
   retainNoFollowOrdinaryFile,
   type PhysicalDirectoryChain
 } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
+import type { ProcessResourceSession } from '../../runtime-state/physical/runtime/process-resource-session.ts';
+import { settlePhysicalResources, settlePhysicalResourcesAsync, type PhysicalResourceSettlementFailure } from '../../runtime-state/physical/runtime/resource-settlement.ts';
 import { SecError } from '../../system-architecture/foundation/contract/failure.ts';
-import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../system-architecture/foundation/contract/repository-path.ts';
 import { rawSha256, sha256, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
 import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
 
-const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+import { compilerRoot } from '../../workspace/runtime/paths.ts';
+
 const OBSERVATION_BUDGET = Object.freeze({
-  deadlineMs: 30_000,
+  // GitRead remains inside its canonical provider ceiling. A standalone
+  // command's longer native observation window is owned by the fence, after
+  // this short root-discovery ledger is settled.
+  deadlineMs: GIT_READ_EXACT_TREE_OPERATION_BUDGET.deadlineMs,
   maxProcesses: 8,
   maxStdoutBytes: 32 * 1024 * 1024,
   maxStderrBytes: 512 * 1024,
   maxRecords: 250_000
 });
+/** Bind the standalone runner's existing repository discovery contract.
+ * The root, environment and per-session budget match the real read consumer
+ * below. This does not authorize the command body or prove zero writes; those
+ * remain with its original provider and native change-observer owners.
+ */
+export function compileRepositoryObservationOperation(): SecBoundSemanticOperation {
+  return issueGitReadAuthorityOperation({
+    cwd: compilerRoot,
+    environment: { LANG: 'C', LC_ALL: 'C' },
+    budget: OBSERVATION_BUDGET
+  });
+}
+
 const receiptBrand: unique symbol = Symbol('repository-observation-receipt');
 
 export type RepositoryObservationFailureKind =
@@ -33,9 +53,9 @@ export type RepositoryObservationFailureKind =
 export class RepositoryObservationError extends SecError {
   readonly kind: RepositoryObservationFailureKind;
 
-  constructor(kind: RepositoryObservationFailureKind, message: string, cause?: unknown) {
+  constructor(kind: RepositoryObservationFailureKind, message: string, ...cause: [] | [unknown]) {
     super('DEVELOPMENT-REPOSITORY-OBSERVATION-001', message, { kind },
-      cause === undefined ? undefined : { cause });
+      cause.length === 0 ? undefined : { cause: cause[0] });
     this.name = 'RepositoryObservationError';
     this.kind = kind;
   }
@@ -114,25 +134,26 @@ const liveObservations = new WeakMap<object, LiveObservation>();
  */
 export async function resolveRepositoryObservationRoots(
   repositoryRoot: string,
-  operation: SecBoundSemanticOperation
+  operation: SecBoundSemanticOperation,
+  processSession?: ProcessResourceSession
 ): Promise<readonly string[]> {
   const exactRoot = path.resolve(repositoryRoot);
   return withAuthorityGitReadSession({
     cwd: exactRoot,
     environment: { LANG: 'C', LC_ALL: 'C' },
     operation,
+    ...(processSession === undefined ? {} : { processSession }),
     budget: OBSERVATION_BUDGET
   }, async (session) => {
     requireSessionIdentity(session);
     const commonDirectory = parseDirectoryPath(await gitBytes(session, [
       'rev-parse', '--path-format=absolute', '--git-common-dir'
-    ], 'resolve the common Git directory for continuous observation'), exactRoot,
+    ], 'resolve the common Git directory for continuous observation'),
     'Repository common Git directory');
-    session.verifyExecutable();
-    if (session.verifyWorkingDirectory?.() !== true) {
+    if (!session.verifyExecutable() || session.verifyWorkingDirectory?.() !== true) {
       throw new RepositoryObservationError(
         'authority-unavailable',
-        'Repository observation root discovery lost its retained working directory'
+        'Repository observation root discovery lost its retained provider or working directory'
       );
     }
     const rootKey = process.platform === 'win32' ? exactRoot.toLowerCase() : exactRoot;
@@ -161,51 +182,25 @@ async function gitBytes(session: GitReadSession, args: readonly string[], label:
   return command.result.stdout;
 }
 
-function exactUtf8(bytes: Uint8Array, label: string): string {
-  try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-  } catch (error) {
-    throw new RepositoryObservationError('authority-unavailable', `${label} is not exact UTF-8`, error);
-  }
-}
-
-function exactRepositoryPath(value: string, label: string): string {
-  if (!CodexDevelopmentIsCanonicalRepositoryPath(value)) {
-    throw new RepositoryObservationError('authority-unavailable', `${label} is not canonical`);
-  }
-  return value;
-}
-
 function statusPaths(bytes: Uint8Array): Readonly<{
   changedPaths: readonly string[];
   untrackedPaths: readonly string[];
 }> {
-  if (bytes.byteLength === 0) {
-    return Object.freeze({ changedPaths: Object.freeze([]), untrackedPaths: Object.freeze([]) });
+  let records: ReturnType<typeof parseWorktreeStatusPorcelainZ>;
+  try {
+    // This command requests --untracked-files=all and --ignored=no; a directory
+    // summary is not a file observation. Reuse the protocol owner, not a second
+    // NUL/rename parser that silently coalesces malformed statuses.
+    records = parseWorktreeStatusPorcelainZ(bytes, { allowDirectoryEntries: false });
+  } catch (error) {
+    throw new RepositoryObservationError('authority-unavailable', 'Repository status record is malformed', error);
   }
-  const source = exactUtf8(bytes, 'Repository status');
-  if (!source.endsWith('\0')) {
-    throw new RepositoryObservationError('authority-unavailable', 'Repository status is not NUL terminated');
-  }
-  const records = source.slice(0, -1).split('\0');
   const changedPaths: string[] = [];
   const untrackedPaths: string[] = [];
-  for (let index = 0; index < records.length; index += 1) {
-    const record = records[index]!;
-    if (record.length < 4 || record[2] !== ' ') {
-      throw new RepositoryObservationError('authority-unavailable', 'Repository status record is malformed');
-    }
-    const repositoryPath = exactRepositoryPath(record.slice(3), 'Repository status path');
-    changedPaths.push(repositoryPath);
-    if (record.slice(0, 2) === '??') untrackedPaths.push(repositoryPath);
-    if (record[0] === 'R' || record[0] === 'C' || record[1] === 'R' || record[1] === 'C') {
-      const previousPath = records[index + 1];
-      if (previousPath === undefined) {
-        throw new RepositoryObservationError('authority-unavailable', 'Repository rename status is incomplete');
-      }
-      changedPaths.push(exactRepositoryPath(previousPath, 'Repository prior path'));
-      index += 1;
-    }
+  for (const record of records) {
+    changedPaths.push(record.path);
+    if (record.originalPath !== null) changedPaths.push(record.originalPath);
+    if (record.index === '?' && record.worktree === '?') untrackedPaths.push(record.path);
   }
   return Object.freeze({
     changedPaths: Object.freeze(uniqueSorted(changedPaths)),
@@ -338,8 +333,9 @@ function absolutePathFact(
   if (!metadata.isFile()) {
     throw new RepositoryObservationError('physical-unresolved', `Repository path is not an ordinary file: ${repositoryPath}`);
   }
-  let retained;
-  let primaryFailure: unknown;
+  let retained: ReturnType<typeof retainNoFollowOrdinaryFile> | undefined;
+  let result: RepositoryPathFact | undefined;
+  let primary: PhysicalResourceSettlementFailure | undefined;
   try {
     retained = retainNoFollowOrdinaryFile(
       parent,
@@ -349,7 +345,7 @@ function absolutePathFact(
     );
     const digest = retained.digest();
     retained.assertCurrent();
-    return Object.freeze({
+    result = Object.freeze({
       path: repositoryPath,
       kind: 'file',
       device: retained.physical.device,
@@ -360,20 +356,22 @@ function absolutePathFact(
       absenceWitnessDigest: null
     });
   } catch (error) {
-    primaryFailure = error;
-    if (error instanceof RepositoryObservationError) throw error;
-    throw new RepositoryObservationError('physical-unresolved', `Repository file observation failed: ${repositoryPath}`, error);
-  } finally {
-    try { retained?.dispose(); } catch (error) {
-      if (primaryFailure === undefined) {
-        throw new RepositoryObservationError(
-          'physical-unresolved',
-          `Repository file observation did not settle: ${repositoryPath}`,
-          error
-        );
+    let recognized = false;
+    try { recognized = error instanceof RepositoryObservationError; } catch { /* Preserve the thrown value. */ }
+    primary = { label: `repository-file:${repositoryPath}`, error: recognized ? error :
+      new RepositoryObservationError('physical-unresolved', `Repository file observation failed: ${repositoryPath}`, error) };
+  }
+  settlePhysicalResources({ primary, cleanup: retained === undefined ? [] : [{
+    label: `repository-file-release:${repositoryPath}`,
+    settle: () => {
+      try { retained!.dispose(); }
+      catch (error) {
+        throw new RepositoryObservationError('physical-unresolved',
+          `Repository file observation did not settle: ${repositoryPath}`, error);
       }
     }
-  }
+  }] });
+  return result!;
 }
 
 function pathFact(
@@ -394,27 +392,19 @@ function pathFacts(repositoryRoot: string, paths: readonly string[]): readonly R
 }
 
 function parseHead(bytes: Uint8Array): string {
-  const head = exactUtf8(bytes, 'Repository HEAD').trim();
-  if (!OBJECT_ID.test(head)) {
+  const head = parseGitObjectIdReply(bytes);
+  if (head === null) {
     throw new RepositoryObservationError('authority-unavailable', 'Repository HEAD is not one exact object id');
   }
   return head;
 }
 
-function parseIndexPath(bytes: Uint8Array, repositoryRoot: string): string {
-  const observed = exactUtf8(bytes, 'Repository index path').trim();
-  if (observed.length === 0) {
-    throw new RepositoryObservationError('authority-unavailable', 'Repository index path is empty');
+function parseDirectoryPath(bytes: Uint8Array, label: string): string {
+  const observed = parseGitAbsolutePathReply(bytes);
+  if (observed === null) {
+    throw new RepositoryObservationError('authority-unavailable', `${label} is not one exact absolute path`);
   }
-  return path.isAbsolute(observed) ? path.resolve(observed) : path.resolve(repositoryRoot, observed);
-}
-
-function parseDirectoryPath(bytes: Uint8Array, repositoryRoot: string, label: string): string {
-  const observed = exactUtf8(bytes, label).trim();
-  if (observed.length === 0) {
-    throw new RepositoryObservationError('authority-unavailable', `${label} is empty`);
-  }
-  return path.isAbsolute(observed) ? path.resolve(observed) : path.resolve(repositoryRoot, observed);
+  return observed;
 }
 
 function requireSessionIdentity(session: GitReadSession): Readonly<{
@@ -443,12 +433,12 @@ async function observeBaseline(
     '-c', 'core.quotepath=false', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false',
     'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=no'
   ], 'observe status');
-  const indexPath = parseIndexPath(await gitBytes(session, [
+  const indexPath = parseDirectoryPath(await gitBytes(session, [
     'rev-parse', '--path-format=absolute', '--git-path', 'index'
-  ], 'resolve the index'), repositoryRoot);
+  ], 'resolve the index'), 'Repository index path');
   const commonDirectoryPath = parseDirectoryPath(await gitBytes(session, [
     'rev-parse', '--path-format=absolute', '--git-common-dir'
-  ], 'resolve the common Git directory'), repositoryRoot, 'Repository common Git directory');
+  ], 'resolve the common Git directory'), 'Repository common Git directory');
   const commonDirectoryIdentity = inspectNoFollowDirectoryChain(
     commonDirectoryPath,
     'Repository common Git directory'
@@ -522,6 +512,7 @@ export async function withRepositoryFinalStateObservation<Value>(
   semanticOperation: SecBoundSemanticOperation,
   operation: () => Promise<Value>
 ): Promise<RepositoryObservedOperation<Value>> {
+  if (typeof operation !== 'function') throw new TypeError('Repository observed operation must be callable');
   const exactRoot = path.resolve(repositoryRoot);
   return withAuthorityGitReadSession({
     cwd: exactRoot,
@@ -540,15 +531,27 @@ export async function withRepositoryFinalStateObservation<Value>(
     liveObservations.set(receipt, live);
     try {
       let value: Value | undefined;
-      let primaryFailure: unknown;
+      let primary: PhysicalResourceSettlementFailure | undefined;
       try {
         value = await operation();
       } catch (error) {
-        primaryFailure = error;
+        primary = { label: 'repository-observed-operation', error };
       }
-      const verification = await verifyRepositoryObservationCurrent(receipt, session);
-      if (primaryFailure !== undefined) throw primaryFailure;
-      return Object.freeze({ value: value!, receipt, verification });
+      let verification: RepositoryObservationVerification | undefined;
+      await settlePhysicalResourcesAsync({ primary, cleanup: [{
+        label: 'repository-final-state-readback',
+        settle: async () => {
+          verification = await verifyRepositoryObservationCurrent(receipt, session);
+          // Preserve an independent changed-state observation when the body also
+          // failed. A successful body still returns this non-authoritative view;
+          // it does not become a proof of strict zero writes or permission to undo.
+          if (primary !== undefined && verification.status === 'changed') {
+            throw new RepositoryObservationError('physical-unresolved',
+              'Repository final state changed while the observed operation failed', verification);
+          }
+        }
+      }] });
+      return Object.freeze({ value: value!, receipt, verification: verification! });
     } finally {
       live.closed = true;
       liveObservations.delete(receipt);

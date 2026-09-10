@@ -4311,6 +4311,7 @@ function applyConfigTransition(input: {
     worktreeConfigPath: input.worktreeConfigPath,
     lease: input.operationLease
   });
+  input.operationLease.acknowledgeReclaimedRecovery();
   const durableReceipts: (ConfigTransitionReceipt | null)[] = transition.intent.steps.map((step) => (
     readConfigTransitionStep(transition, step.index)
   ));
@@ -4974,7 +4975,6 @@ function leaseDigest(
 
 async function acquireOperationLease(
   commonRoot: PhysicalDirectoryChain,
-  digest: string,
   options: {
     readonly ownerHost?: string;
     readonly ownerPid?: number;
@@ -5007,7 +5007,8 @@ async function acquireOperationLease(
 
 function releaseOperationLease(lease: OperationLease): void {
   try {
-    lease.handle.release();
+    if (lease.handle.recoveryPending) lease.handle.restoreReclaimedOwner();
+    else lease.handle.release();
   } catch (error) {
     throw asTransition(error);
   }
@@ -5440,7 +5441,7 @@ async function installGitHooksInternalWithBudget(options: {
         });
       }
       if (transitionNamespaces.length > 0) {
-        const fastLease = await acquireOperationLease(existingCommonRoot, operationDigest);
+        const fastLease = await acquireOperationLease(existingCommonRoot);
         if (fastLease === null) {
           return stoppedResult(
             'An equivalent managed Git hook cleanup already holds the operation lease; exact transition settlement was not yet ready.',
@@ -5474,6 +5475,7 @@ async function installGitHooksInternalWithBudget(options: {
             });
           }
           assertKnownConfigTransitionNamespaces(existingCommonRoot, transitionName);
+          fastLease.handle.acknowledgeReclaimedRecovery();
         } finally {
           releaseOperationLease(fastLease);
         }
@@ -5572,7 +5574,7 @@ async function installGitHooksInternalWithBudget(options: {
     bootstrapMarkerRoot
   );
   const transitionName = transitionDirectoryName(operationDigest);
-  const lease = await acquireOperationLease(commonRoot, operationDigest, {
+  const lease = await acquireOperationLease(commonRoot, {
     ownerHost: options.testOnlyLeaseOwnerHost,
     ownerPid: options.testOnlyLeaseOwnerPid
   });

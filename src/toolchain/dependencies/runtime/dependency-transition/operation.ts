@@ -5,8 +5,7 @@ import {
 } from '../../../../runtime-state/generated-state/contract.ts';
 import {
   inspectNoFollowDirectoryChain,
-  inspectNoFollowOrdinaryFileEntry,
-  PhysicalNoFollowError
+  inspectNoFollowOrdinaryFileEntry
 } from '../../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   SecError
@@ -14,12 +13,15 @@ import {
 import {
   canonicalJson
 } from '../../../../system-architecture/foundation/runtime/canonical.ts';
+import { failureMessage, getErrorCode } from '../../../../system-architecture/foundation/runtime/failure-inspection.ts';
 import {
+  type RuntimeDependencyEffectFenceInput,
+  runtimeDependencyEffectFenceOptions,
   runtimeDependencyOperationContext,
   runtimeDependencyOperationEffectFence,
-  type RuntimeDependencyOperationOptions,
   runtimeDependencyOperationRemainingMs
 } from '../operation-context.ts';
+import { type RuntimeDependencyOperationControlInput, runtimeDependencyOperationControls } from '../operation-controls.ts';
 import {
   assertRuntimeDependencySourceGenerationIssued
 } from '../source-generation.ts';
@@ -35,7 +37,6 @@ import {
   type DependencyTransitionJournal,
   type DependencyTransitionKind,
   type DependencyTransitionLedger,
-  type DependencyTransitionNamespace,
   type DependencyTransitionPhase,
   type DependencyTransitionSlot,
   type DependencyTransitionUnsigned,
@@ -48,21 +49,17 @@ import {
   assertDependencyTransitionMigrationTargetBinding,
   DEPENDENCY_TRANSITION_LEGACY_SCHEMA,
   type DependencyTransitionMigrationIntent,
-  type DependencyTransitionMigrationIntents,
   inspectLegacyDependencyTransitionNamespace,
   readDependencyTransitionMigrationIntents
 } from './migration.ts';
 import {
   DEPENDENCY_TRANSITION_ROLLOVER_TRIGGER,
-  type DependencyTransitionRolloverIntent,
-  type DependencyTransitionRolloverObservation,
   inspectActiveDependencyTransitionRollover,
   rolloverDependencyTransitionLedger
 } from './rollover.ts';
 import {
   DEPENDENCY_TRANSITION_RECORD_CAPACITY,
   dependencyTransitionNamespacePaths,
-  type DependencyTransitionRecordSet,
   ensureDependencyTransitionNamespace,
   inspectDependencyTransitionNamespace,
   observeDependencyTransitionSlot,
@@ -100,13 +97,16 @@ function assertDependencyTransitionRecordAdmitted(record: DependencyTransitionJo
 
 export async function readDependencyTransitionLedger(
   ownerRoot: string,
-  options: RuntimeDependencyOperationOptions
+  inputOptions: RuntimeDependencyOperationControlInput
 ): Promise<DependencyTransitionLedger | null> {
+  ownerRoot = path.resolve(ownerRoot);
+  const options = runtimeDependencyOperationControls(inputOptions);
   runtimeDependencyOperationRemainingMs(options, 'Dependency transition ledger admission');
   // Read-only admission must not create `.tmp/dependency-installs` or a
   // journal namespace. The writer/recovery effect boundary is the only route
   // allowed to create those directories.
   const activeRollover = await inspectActiveDependencyTransitionRollover(ownerRoot, options);
+  runtimeDependencyOperationRemainingMs(options, 'Dependency transition rollover observation readback');
   if (activeRollover !== null && activeRollover.active !== null) {
     throw new SecError('RUNTIME-DEPS-004', 'Dependency transition ledger rollover requires owner recovery', {
       intentDigest: activeRollover.active.intentDigest,
@@ -127,6 +127,7 @@ export async function readDependencyTransitionLedger(
     return null;
   }
   const migrationIntents = await readDependencyTransitionMigrationIntents(namespace, options);
+  runtimeDependencyOperationRemainingMs(options, 'Dependency transition migration observation readback');
   if (legacyNamespace !== null) {
     if (migrationIntents.complete === null) {
       throw new SecError('RUNTIME-DEPS-004', 'Dependency transition schema migration is incomplete; target is preserved', {
@@ -183,7 +184,7 @@ export async function readDependencyTransitionLedger(
 
 export async function readDependencyTransition(
   ownerRoot: string,
-  options: RuntimeDependencyOperationOptions
+  options: RuntimeDependencyOperationControlInput
 ): Promise<DependencyTransitionJournal | null> {
   return (await readDependencyTransitionLedger(ownerRoot, options))?.tip ?? null;
 }
@@ -191,11 +192,21 @@ export async function readDependencyTransition(
 async function writeDependencyTransition(
   ownerRoot: string,
   unsigned: DependencyTransitionUnsigned,
-  options: RuntimeDependencyOperationOptions,
+  options: RuntimeDependencyEffectFenceInput,
   expectedCurrentRecordDigest: `sha256:${string}` | null = null
 ): Promise<DependencyTransitionJournal> {
-  const namespace = await ensureDependencyTransitionNamespace(ownerRoot, options);
-  const currentLedger = await readDependencyTransitionLedger(ownerRoot, options);
+  ownerRoot = path.resolve(ownerRoot);
+  const recordDigest = dependencyTransitionDigestWithoutRecord(unsigned);
+  const recordBytes = dependencyTransitionRecordBytes({ ...unsigned, recordDigest });
+  // Use the existing durable record contract before any namespace effect. The
+  // returned immutable record and published bytes must describe one snapshot.
+  const record = parseDependencyTransitionRecord(recordBytes, transitionRecordName(recordDigest));
+  assertTransitionOperationKey(record);
+  const { recordDigest: _capturedDigest, ...capturedUnsigned } = record;
+  unsigned = capturedUnsigned;
+  const effect = runtimeDependencyEffectFenceOptions(options);
+  const namespace = await ensureDependencyTransitionNamespace(ownerRoot, effect);
+  const currentLedger = await readDependencyTransitionLedger(ownerRoot, effect);
   if (expectedCurrentRecordDigest === null) {
     // A new immutable epoch may only start from an empty ledger.  The
     // immutable census, rather than current.json, is the expected-current CAS
@@ -227,7 +238,7 @@ async function writeDependencyTransition(
         ownerRoot,
         currentLedger,
         currentLedger.tip,
-        options
+        effect
       );
       // Rollover publishes only the authenticated terminal checkpoint.  The
       // caller's operation is a normal child of that checkpoint and is
@@ -240,7 +251,7 @@ async function writeDependencyTransition(
       return writeDependencyTransition(
         ownerRoot,
         childUnsigned,
-        options,
+        effect,
         checkpoint.recordDigest
       );
     }
@@ -265,12 +276,7 @@ async function writeDependencyTransition(
       });
     }
   }
-  const recordDigest = dependencyTransitionDigestWithoutRecord(unsigned);
-  const record = admitDependencyTransitionRecord(
-    Object.freeze({ ...unsigned, recordDigest }) as DependencyTransitionJournal
-  );
-  const recordBytes = dependencyTransitionRecordBytes(record);
-  await runtimeDependencyOperationEffectFence(options, 'Dependency transition immutable record publication');
+  await runtimeDependencyOperationEffectFence(effect, 'Dependency transition immutable record publication');
   writeDurableTransitionFile(
     namespace.recordsRoot,
     transitionRecordName(recordDigest),
@@ -286,18 +292,13 @@ async function writeDependencyTransition(
   // ledger after every record: that would turn one operation into a repeated
   // full-root fence on the Windows path.  The pointer update below is only a
   // non-authoritative cache hint.
-  runtimeDependencyOperationRemainingMs(options, 'Dependency transition immutable record readback');
+  runtimeDependencyOperationRemainingMs(effect, 'Dependency transition immutable record readback');
   writeDependencyTransitionPointerCache(namespace, recordDigest);
-  return record;
+  return admitDependencyTransitionRecord(record);
 }
 
 export function transitionFailure(error: unknown): Readonly<{ code: string; message: string }> {
-  return Object.freeze({
-    code: error instanceof SecError ? error.code :
-      error instanceof PhysicalNoFollowError ? error.code :
-        (error as NodeJS.ErrnoException).code ?? 'UNKNOWN',
-    message: error instanceof Error ? error.message : String(error)
-  });
+  return Object.freeze({ code: getErrorCode(error) || 'UNKNOWN', message: failureMessage(error) || 'Unspecified dependency transition failure' });
 }
 
 function transitionOperationKey(input: Readonly<{
@@ -351,10 +352,23 @@ export async function beginDependencyTransition(input: Readonly<{
   sourceGeneration: RuntimeDependencySourceGeneration;
   bindingDigest: `sha256:${string}` | null;
   preimageBindingDigest?: `sha256:${string}` | null;
-  options: RuntimeDependencyOperationOptions;
+  options: RuntimeDependencyEffectFenceInput;
 }>): Promise<DependencyTransitionJournal> {
+  const cwd = process.cwd();
+  const { kind, ownerRoot: requestedOwnerRoot, destinationPath, stagePath, stageRootPath,
+    backupPath, sourceGeneration, bindingDigest, preimageBindingDigest, options } = input;
+  assertRuntimeDependencySourceGenerationIssued(sourceGeneration);
+  const absoluteOwner = path.resolve(cwd, requestedOwnerRoot);
+  const absoluteDestination = path.resolve(cwd, destinationPath);
+  const absoluteStage = stagePath === null ? null : path.resolve(cwd, stagePath);
+  const absoluteStageRoot = stageRootPath === undefined || stageRootPath === null ? null : path.resolve(cwd, stageRootPath);
+  const absoluteBackup = backupPath === null ? null : path.resolve(cwd, backupPath);
+  // No original request object is consulted after provider observation starts.
+  input = Object.freeze({ kind, ownerRoot: absoluteOwner, destinationPath: absoluteDestination,
+    stagePath: absoluteStage, stageRootPath: absoluteStageRoot, backupPath: absoluteBackup,
+    sourceGeneration, bindingDigest, preimageBindingDigest,
+    options: runtimeDependencyEffectFenceOptions(options) });
   runtimeDependencyOperationRemainingMs(input.options, 'Dependency transition begin admission');
-  assertRuntimeDependencySourceGenerationIssued(input.sourceGeneration);
   const ownerRoot = inspectNoFollowDirectoryChain(
     input.ownerRoot,
     'Dependency transition owner root'
@@ -363,16 +377,20 @@ export async function beginDependencyTransition(input: Readonly<{
     input.destinationPath,
     input.preimageBindingDigest ?? input.bindingDigest
   );
+  runtimeDependencyOperationRemainingMs(input.options, 'Dependency transition destination readback');
   const preimage = destination;
   const stage = input.stagePath === null
     ? null
     : await observeDependencyTransitionSlot(input.stagePath, input.bindingDigest);
+  runtimeDependencyOperationRemainingMs(input.options, 'Dependency transition stage readback');
   const stageRoot = input.stageRootPath === undefined || input.stageRootPath === null
     ? null
     : await observeDependencyTransitionSlot(input.stageRootPath, input.bindingDigest);
+  runtimeDependencyOperationRemainingMs(input.options, 'Dependency transition staging-root readback');
   const backup = input.backupPath === null
     ? null
     : await observeDependencyTransitionSlot(input.backupPath, input.bindingDigest);
+  runtimeDependencyOperationRemainingMs(input.options, 'Dependency transition backup readback');
   if (input.backupPath !== null) {
     const expectedBackupPath = input.kind === 'compiler-generation'
       ? compilerTransitionBackupPath(ownerRoot.path, 'node_modules', input.sourceGeneration)
@@ -498,21 +516,44 @@ export async function beginDependencyTransition(input: Readonly<{
   }, input.options, current?.recordDigest ?? null);
 }
 
+const DEPENDENCY_TRANSITION_UPDATE_FIELDS = Object.freeze([
+  'destination', 'stage', 'stageRoot', 'backup', 'sourceGeneration', 'phase', 'durability', 'failure'
+] as const);
+type DependencyTransitionUpdate = Readonly<Partial<Pick<DependencyTransitionJournal,
+  (typeof DEPENDENCY_TRANSITION_UPDATE_FIELDS)[number]>>>;
+
+function captureTransitionUpdate(patch: DependencyTransitionUpdate): DependencyTransitionUpdate {
+  if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) {
+    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition update must be an object');
+  }
+  const selected: Record<string, unknown> = {};
+  for (const key of Reflect.ownKeys(patch)) {
+    const descriptor = Object.getOwnPropertyDescriptor(patch, key);
+    if (typeof key !== 'string' || !DEPENDENCY_TRANSITION_UPDATE_FIELDS.includes(key as never)
+        || descriptor === undefined || !descriptor.enumerable || !('value' in descriptor)) {
+      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition update cannot change immutable fields or use accessors');
+    }
+    selected[key] = descriptor.value;
+  }
+  return Object.freeze(selected) as DependencyTransitionUpdate;
+}
+
 export async function advanceDependencyTransition(
   previous: DependencyTransitionJournal,
-  patch: Readonly<Partial<Pick<DependencyTransitionJournal, 'destination' | 'stage' | 'stageRoot' | 'backup' | 'sourceGeneration' | 'phase' | 'durability' | 'failure'>>>,
-  options: RuntimeDependencyOperationOptions
+  patch: DependencyTransitionUpdate,
+  options: RuntimeDependencyEffectFenceInput
 ): Promise<DependencyTransitionJournal> {
   assertDependencyTransitionRecordAdmitted(previous);
   // A malformed or foreign predecessor must never be allowed to publish a
   // successor and thereby postpone the topology failure until recovery.
   assertTransitionOperationKey(previous);
+  const update = captureTransitionUpdate(patch);
   const { recordDigest: _recordDigest, ...withoutDigest } = previous;
   const successor = Object.freeze({
     ...withoutDigest,
     previousRecordDigest: previous.recordDigest,
     sequence: previous.sequence + 1,
-    ...patch
+    ...update
   });
   const successorOperationKey = transitionOperationKey({
     kind: successor.kind,
@@ -546,7 +587,7 @@ export async function advanceDependencyTransition(
 export async function markDependencyTransitionFailure(
   record: DependencyTransitionJournal,
   error: unknown,
-  options: RuntimeDependencyOperationOptions,
+  options: RuntimeDependencyEffectFenceInput,
   phase: DependencyTransitionPhase = 'recovery-required'
 ): Promise<DependencyTransitionJournal> {
   return advanceDependencyTransition(record, {

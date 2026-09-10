@@ -1,4 +1,4 @@
-import { SEMANTIC_ENTITY_KINDS, type SemanticEntityKind } from '../../engineering-ir/contract/entity-types.ts';
+import type { SemanticEntityKind } from '../../engineering-ir/contract/entity-types.ts';
 import { type SemanticPredicate } from '../../engineering-ir/contract/fact-types.ts';
 import type { ProvenanceArtifact } from '../../provenance/contract/types.ts';
 import type { SemanticViewSet, ViewReference } from './types.ts';

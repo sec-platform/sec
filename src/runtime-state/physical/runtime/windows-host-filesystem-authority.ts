@@ -19,11 +19,12 @@ export type WindowsHostDirectoryAclProof = Readonly<{
 }>;
 
 export type WindowsHostDirectoryAclProbe = (
-  directoryPath: string
+  directoryPath: string,
+  input?: Readonly<{ deadlineAtMs?: number }>
 ) => Promise<WindowsHostDirectoryAclProof>;
 
 export type WindowsHostDirectoryAuthority = Readonly<{
-  assertCurrent: () => Promise<void>;
+  assertCurrent: (input?: Readonly<{ deadlineAtMs?: number }>) => Promise<void>;
   release: () => Promise<void>;
   rootPath: string;
 }>;
@@ -69,7 +70,6 @@ export const WINDOWS_READ_ONLY_TREE_ADMISSION_POLICY = Object.freeze({
   operationLedger: 'shared-monotonic-v1',
   proofBinding: 'physical-object-change-time-acl-digest-v1'
 });
-const WINDOWS_POINTER_BYTES = 8;
 const NAME_SAM_COMPATIBLE = 2;
 const OWNER_SECURITY_INFORMATION = 0x0000_0001;
 const DACL_SECURITY_INFORMATION = 0x0000_0004;
@@ -742,10 +742,28 @@ function sameWindowsPath(left: string, right: string): boolean {
     ordinaryWindowsPath(path.win32.resolve(right)).toLocaleLowerCase('en-US');
 }
 
-async function physicalWindowsDirectory(directoryPath: string): Promise<Readonly<{
+type PhysicalWindowsDirectory = Readonly<{
+  creationTime: string;
   identity: DirectoryIdentity;
   rootPath: string;
-}>> {
+}>;
+
+function sameMutablePhysicalObject(
+  left: PhysicalWindowsDirectory,
+  right: PhysicalWindowsDirectory
+): boolean {
+  return samePhysicalObject(left.identity, right.identity)
+    && left.creationTime === right.creationTime;
+}
+
+function assertMutableCreationIdentity(physical: PhysicalWindowsDirectory): void {
+  if (!/^[1-9][0-9]*$/.test(physical.creationTime)) {
+    throw authorityError('proof-unavailable',
+      'Windows mutable directory creation identity is unavailable');
+  }
+}
+
+async function physicalWindowsDirectory(directoryPath: string): Promise<PhysicalWindowsDirectory> {
   if (!path.win32.isAbsolute(directoryPath)) {
     throw authorityError(
       'native-provider-unavailable',
@@ -786,6 +804,7 @@ async function physicalWindowsDirectory(directoryPath: string): Promise<Readonly
     );
   }
   return Object.freeze({
+    creationTime: String(metadata.birthtimeNs),
     identity: directoryIdentity(metadata),
     rootPath
   });
@@ -1217,15 +1236,19 @@ async function proveWindowsHostDirectoryAuthority(
   aclProbe: WindowsHostDirectoryAclProbe,
   initialAcl?: WindowsHostDirectoryAclProof,
   release: () => Promise<void> = async () => undefined,
-  expectedIdentity?: DirectoryIdentity
+  expectedPhysical?: PhysicalWindowsDirectory
 ): Promise<WindowsHostDirectoryAuthority> {
   const physical = await physicalWindowsDirectory(directoryPath);
-  if (expectedIdentity && !sameDirectoryIdentity(physical.identity, expectedIdentity)) {
-    throw new Error('Windows host directory authority changed before issuance');
+  assertMutableCreationIdentity(physical);
+  if (expectedPhysical && (!sameMutablePhysicalObject(physical, expectedPhysical)
+    || !sameDirectoryIdentity(physical.identity, expectedPhysical.identity))) {
+    throw authorityError('physical-identity-changed',
+      'Windows host directory authority changed before issuance');
   }
   const acl = initialAcl ?? await aclProbe(physical.rootPath);
   const physicalAfterAcl = await physicalWindowsDirectory(physical.rootPath);
-  if (!sameDirectoryIdentity(physicalAfterAcl.identity, physical.identity)) {
+  if (!sameMutablePhysicalObject(physicalAfterAcl, physical)
+    || !sameDirectoryIdentity(physicalAfterAcl.identity, physical.identity)) {
     throw authorityError(
       'physical-identity-changed',
       'Windows host directory authority changed during ACL admission'
@@ -1243,7 +1266,7 @@ async function proveWindowsHostDirectoryAuthority(
   return Object.freeze({
     rootPath: physical.rootPath,
     release: releaseOnce,
-    assertCurrent: async () => {
+    assertCurrent: async (input?: Readonly<{ deadlineAtMs?: number }>) => {
       if (released) {
         throw authorityError(
           'session-closed',
@@ -1252,11 +1275,12 @@ async function proveWindowsHostDirectoryAuthority(
       }
       try {
         const currentPhysical = await physicalWindowsDirectory(physical.rootPath);
-        const currentAcl = await aclProbe(physical.rootPath);
+        const currentAcl = await aclProbe(physical.rootPath, input);
         const currentPhysicalAfterAcl = await physicalWindowsDirectory(physical.rootPath);
-        if (!sameDirectoryIdentity(currentPhysical.identity, physical.identity) ||
-          !sameDirectoryIdentity(currentPhysicalAfterAcl.identity, physical.identity) ||
-          !sameDirectoryIdentity(currentPhysicalAfterAcl.identity, currentPhysical.identity) ||
+        // This authority owns a mutable directory, not a sealed generation.
+        // Child publication changes ChangeTime without replacing the root.
+        if (!sameMutablePhysicalObject(currentPhysical, physical) ||
+          !sameMutablePhysicalObject(currentPhysicalAfterAcl, physical) ||
           currentAcl.ownerSid !== acl.ownerSid ||
           currentAcl.aclDigest !== acl.aclDigest) {
           throw authorityError(
@@ -1265,6 +1289,10 @@ async function proveWindowsHostDirectoryAuthority(
           );
         }
       } catch (error) {
+        if (error instanceof WindowsHostDirectoryAuthorityError
+            && (error.failure === 'deadline-exhausted' || error.failure === 'aborted')) {
+          throw error;
+        }
         await releaseOnce();
         if (error instanceof WindowsHostDirectoryAuthorityError) throw error;
         throw authorityError('physical-identity-changed',
@@ -1568,6 +1596,7 @@ export async function hardenExistingWindowsHostDirectoryAuthority(
   const session = await NativeWindowsAclSession.open(operation);
   try {
     const created = await physicalWindowsDirectory(directoryPath);
+    assertMutableCreationIdentity(created);
     assertWindowsAclOperationCurrent(operation);
     let initialAcl: WindowsHostDirectoryAclProof;
     if (options.knownNew === true) {
@@ -1587,7 +1616,7 @@ export async function hardenExistingWindowsHostDirectoryAuthority(
     }
     const hardened = await physicalWindowsDirectory(created.rootPath);
     assertWindowsAclOperationCurrent(operation);
-    if (!samePhysicalObject(hardened.identity, created.identity)) {
+    if (!sameMutablePhysicalObject(hardened, created)) {
       throw authorityError(
         'physical-identity-changed',
         'Windows existing host directory changed during ACL hardening'
@@ -1595,13 +1624,18 @@ export async function hardenExistingWindowsHostDirectoryAuthority(
     }
     return await proveWindowsHostDirectoryAuthority(
       hardened.rootPath,
-      async (targetPath) => session.prove(targetPath, Object.freeze({
-        deadlineAtMonotonicMs: performance.now() + WINDOWS_ACL_PROOF_TIMEOUT_MS,
+      async (targetPath, probeInput) => session.prove(targetPath, Object.freeze({
+        deadlineAtMonotonicMs: performance.now() + Math.max(0, Math.min(
+          WINDOWS_ACL_PROOF_TIMEOUT_MS,
+          probeInput?.deadlineAtMs === undefined
+            ? WINDOWS_ACL_PROOF_TIMEOUT_MS
+            : probeInput.deadlineAtMs - Date.now()
+        )),
         signal: options.signal
       })),
       initialAcl,
       async () => session.close(),
-      hardened.identity
+      hardened
     );
   } catch (error) {
     session.close();

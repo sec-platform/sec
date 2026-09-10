@@ -40,6 +40,7 @@ export type SecOperationRequirementBindingProjection = Readonly<{
   readonly requirementContractDigest: SecOperationDigest;
   readonly providerIdentityDigest: SecOperationDigest;
   readonly providerBindingDigest: SecOperationDigest;
+  readonly absoluteDeadlineAtUnixMs: number;
   readonly resourceCeilings: readonly SecOperationResourceCeiling[];
   readonly resourceCeilingIdentityDigest: SecOperationDigest;
   readonly contextDigest: SecOperationDigest;
@@ -102,6 +103,8 @@ export function issueSecOperationRequirementBindingContext(input: Readonly<{
   readonly operation: SecBoundSemanticOperation;
   readonly requirementId: string;
   readonly resourceCeilings: readonly SecOperationResourceCeiling[];
+  /** Optional fixed child deadline; omission preserves the operation attempt deadline. */
+  readonly absoluteDeadlineAtUnixMs?: number;
 }>): SecOperationRequirementBindingContext {
   assertSecSemanticOperationProjection(input.operation);
   const requirement = input.operation.plan.execution.requirements.find(
@@ -118,6 +121,13 @@ export function issueSecOperationRequirementBindingContext(input: Readonly<{
     input.operation,
     input.resourceCeilings
   );
+  const absoluteDeadlineAtUnixMs = input.absoluteDeadlineAtUnixMs
+    ?? input.operation.plan.attempt.deadlineAtUnixMs;
+  if (!Number.isSafeInteger(absoluteDeadlineAtUnixMs)
+      || absoluteDeadlineAtUnixMs <= Date.now()
+      || absoluteDeadlineAtUnixMs > input.operation.plan.attempt.deadlineAtUnixMs) {
+    throw new Error('Operation requirement absolute deadline is not narrowed from its attempt.');
+  }
   const resourceCeilingIdentityDigest = sha256({
     domain: 'sec.operation.requirement-resource-ceiling',
     operationIdentityDigest: input.operation.plan.identity.identityDigest,
@@ -125,6 +135,7 @@ export function issueSecOperationRequirementBindingContext(input: Readonly<{
     boundAttemptDigest: input.operation.boundAttemptDigest,
     requirementId: requirement.id,
     providerBindingDigest: providerBinding.bindingDigest,
+    absoluteDeadlineAtUnixMs,
     resourceCeilings
   }) as SecOperationDigest;
   const withoutContextDigest = deepFreeze({
@@ -136,6 +147,7 @@ export function issueSecOperationRequirementBindingContext(input: Readonly<{
     requirementContractDigest: requirement.contractDigest,
     providerIdentityDigest: providerBinding.providerIdentityDigest,
     providerBindingDigest: providerBinding.bindingDigest,
+    absoluteDeadlineAtUnixMs,
     resourceCeilings,
     resourceCeilingIdentityDigest
   });

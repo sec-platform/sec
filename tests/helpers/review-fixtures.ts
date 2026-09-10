@@ -4,19 +4,9 @@ import { buildReviewSummary } from '../../src/compiler/emit/write-review-summary
 import type { AcceptanceCoverageReport } from '../../src/semantic/acceptance/contract/types.ts';
 import type { ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
 import type { VerificationReport } from '../../src/verification/contract/types.ts';
-import type { ReviewProvenanceRegistrySummary, ReviewSummary } from '../../src/verification/review/contract/types.ts';
+import type { ReviewSummary } from '../../src/verification/review/contract/types.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 import { emptyVerificationLogs } from './verification-fixtures.ts';
-
-export function buildOfficialRegistrySummary(paths: string[]): ReviewProvenanceRegistrySummary {
-  return {
-    registrySourceId: 'official',
-    registryKind: 'official',
-    registryLocation: 'compiler',
-    count: paths.length,
-    paths
-  };
-}
 
 type ReviewLockOptions = Partial<Omit<LockFile, 'app' | 'passStatus'>> & {
   app?: Partial<LockFile['app']>;

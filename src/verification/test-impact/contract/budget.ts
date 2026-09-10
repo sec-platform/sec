@@ -1,4 +1,8 @@
-import type { TestImpactProjectionReceipt } from '../../../brownfield/source-program-model/test-impact-projection.ts';
+import { sourceProgramSurfaceForPath } from '../../../brownfield/source-program-model/contract.ts';
+import {
+  assertWorkspaceSourceSnapshot,
+  type WorkspaceSourceSnapshot
+} from '../../../brownfield/source-program-model/workspace-source-snapshot.ts';
 import { platformCommand } from '../../../interface/cli/contract/command.ts';
 import {
   compareCodeUnits,
@@ -6,7 +10,7 @@ import {
   sha256,
   uniqueSorted
 } from '../../../system-architecture/foundation/runtime/canonical.ts';
-import { isSecRepositoryTestModulePath } from '../../../system-architecture/repository-modules/test-module-path.ts';
+import { isSecRepositoryTestModulePath, normalizeSecRepositoryTestModulePath } from '../../../system-architecture/repository-modules/test-module-path.ts';
 
 export type TestBudgetLane = {
   id: 'fast' | 'runtime' | 'all';
@@ -18,7 +22,8 @@ export type SlowTestResourceClass = 'standard' | 'runtime-heavy';
 export type SlowTestSuite = {
   id: string;
   owner: string;
-  timeoutMs: number;
+  /** Admission through terminal observer settlement. */
+  logicalRunTimeoutMs: number;
   parallelSafe: boolean;
   resourceClass: SlowTestResourceClass;
   prRiskBaseline: boolean;
@@ -27,8 +32,15 @@ export type SlowTestSuite = {
 
 export type TestBudgetSnapshotGeneration = Readonly<{
   workspaceSnapshotIdentityDigest: `sha256:${string}`;
-  testObservationDigest: `sha256:${string}`;
-  sourceProjectionDigest: `sha256:${string}`;
+  testInventoryDigest: `sha256:${string}`;
+}>;
+
+export type IssuedTestInventoryProjection = Readonly<{
+  schema: 'sec-test-inventory-projection-v1';
+  workspaceSnapshotIdentityDigest: `sha256:${string}`;
+  snapshotDigest: `sha256:${string}`;
+  testFiles: readonly string[];
+  inventoryDigest: `sha256:${string}`;
 }>;
 
 export type TestBudgetProjection = Readonly<{
@@ -60,7 +72,7 @@ export type TestBudgetContract = {
 type SlowTestSuiteDefinition = {
   id: string;
   owner: string;
-  timeoutMs: number;
+  logicalRunTimeoutMs: number;
   parallelSafe: boolean;
   resourceClass: SlowTestResourceClass;
   prRiskBaseline: boolean;
@@ -80,7 +92,7 @@ function slowPathSuite(
   id: string,
   file: string,
   owner: string,
-  timeoutMs = 180_000,
+  logicalRunTimeoutMs = 180_000,
   options: {
     parallelSafe?: boolean;
     resourceClass?: SlowTestResourceClass;
@@ -90,7 +102,7 @@ function slowPathSuite(
   return {
     id,
     owner,
-    timeoutMs,
+    logicalRunTimeoutMs,
     parallelSafe: options.parallelSafe ?? false,
     resourceClass: options.resourceClass ?? 'standard',
     prRiskBaseline: options.prRiskBaseline ?? false,
@@ -102,14 +114,14 @@ function slowFileSuite(
   id: string,
   fileName: string,
   owner: string,
-  timeoutMs = 180_000,
+  logicalRunTimeoutMs = 180_000,
   options: {
     parallelSafe?: boolean;
     resourceClass?: SlowTestResourceClass;
     prRiskBaseline?: boolean;
   } = {}
 ): SlowTestSuiteDefinition {
-  return slowPathSuite(id, e2eTestFile(fileName), owner, timeoutMs, options);
+  return slowPathSuite(id, e2eTestFile(fileName), owner, logicalRunTimeoutMs, options);
 }
 
 // Slow e2e suites are file-granular by default so CI can shard them with the
@@ -213,9 +225,25 @@ const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze(
   slowFileSuite('e2e-workspace', 'workspace', 'compiler-workspace-e2e', 120_000, { parallelSafe: true, prRiskBaseline: true })
 ]);
 
-const explicitSlowTestFiles: ReadonlySet<string> = new Set(
-  slowTestSuiteDefinitions.flatMap((suite) => suite.files)
-);
+// This index derives only from the immutable definitions above. Its maps never
+// escape; query results are frozen and retain declaration order. Do not rebuild
+// the same suite identity/path tables for every changed-file lookup.
+const slowTestSuiteIndex = (() => {
+  const ids = Object.freeze(slowTestSuiteDefinitions.map(({ id }) => id));
+  const mutable = new Map<string, string[]>();
+  for (const suite of slowTestSuiteDefinitions) {
+    for (const file of suite.files) {
+      const matches = mutable.get(file);
+      if (matches === undefined) mutable.set(file, [suite.id]);
+      else matches.push(suite.id);
+    }
+  }
+  const idsByFile: ReadonlyMap<string, readonly string[]> = new Map(
+    [...mutable].map(([file, matches]) => [file, Object.freeze(matches)] as const)
+  );
+  return { ids, knownIds: new Set(ids), idsByFile };
+})();
+const NO_SLOW_TEST_SUITES: readonly string[] = Object.freeze([]);
 
 function buildSlowTestSuites(slowFiles: readonly string[]): readonly SlowTestSuite[] {
     const slowFileSet = new Set(slowFiles);
@@ -235,7 +263,7 @@ function buildSlowTestSuites(slowFiles: readonly string[]): readonly SlowTestSui
         return [{
           id: definition.id,
           owner: definition.owner,
-          timeoutMs: definition.timeoutMs,
+          logicalRunTimeoutMs: definition.logicalRunTimeoutMs,
           parallelSafe: definition.parallelSafe,
           resourceClass: definition.resourceClass,
           prRiskBaseline: definition.prRiskBaseline,
@@ -253,13 +281,54 @@ function buildSlowTestSuites(slowFiles: readonly string[]): readonly SlowTestSui
     return suites;
 }
 
-function projectionGeneration(
-  source: TestImpactProjectionReceipt
-): TestBudgetSnapshotGeneration {
+const issuedTestInventories = new WeakSet<object>();
+
+function testFilesFromSnapshotFiles(files: readonly { path: string }[]): readonly string[] {
+  return uniqueSorted(files.map(({ path }) => path).filter((path) => (
+    sourceProgramSurfaceForPath(path) === 'test'
+      && isSecRepositoryTestModulePath(path)
+  )));
+}
+
+function issueTestInventory(input: Omit<IssuedTestInventoryProjection, 'schema' | 'inventoryDigest'>): IssuedTestInventoryProjection {
+  const unsigned = deepFreeze({
+    schema: 'sec-test-inventory-projection-v1' as const,
+    workspaceSnapshotIdentityDigest: input.workspaceSnapshotIdentityDigest,
+    snapshotDigest: input.snapshotDigest,
+    testFiles: uniqueSorted([...input.testFiles])
+  });
+  const inventory = deepFreeze({
+    ...unsigned,
+    inventoryDigest: sha256(unsigned) as `sha256:${string}`
+  });
+  issuedTestInventories.add(inventory);
+  return inventory;
+}
+
+export function issueTestInventoryProjection(input: Readonly<{
+  snapshot: WorkspaceSourceSnapshot;
+}>): IssuedTestInventoryProjection {
+  const snapshot = input.snapshot;
+  assertWorkspaceSourceSnapshot(snapshot);
+  return issueTestInventory({
+    workspaceSnapshotIdentityDigest: snapshot.identityDigest,
+    snapshotDigest: snapshot.snapshotDigest,
+    testFiles: testFilesFromSnapshotFiles(snapshot.files)
+  });
+}
+
+export function assertIssuedTestInventoryProjection(
+  inventory: IssuedTestInventoryProjection
+): void {
+  if (!issuedTestInventories.has(inventory)) {
+    throw new Error('Test inventory requires its owner-issued workspace snapshot projection.');
+  }
+}
+
+function projectionGeneration(source: IssuedTestInventoryProjection): TestBudgetSnapshotGeneration {
   return Object.freeze({
     workspaceSnapshotIdentityDigest: source.workspaceSnapshotIdentityDigest as `sha256:${string}`,
-    testObservationDigest: source.testObservationDigest as `sha256:${string}`,
-    sourceProjectionDigest: source.projectionDigest as `sha256:${string}`
+    testInventoryDigest: source.inventoryDigest
   });
 }
 
@@ -275,12 +344,32 @@ function budgetProjectionDigest(
   return sha256(projection) as `sha256:${string}`;
 }
 
-function compileExactTestBudgetProjection(
-  source: TestImpactProjectionReceipt
-): TestBudgetProjection {
+type CapturedTestBudgetInput = Readonly<{
+  generation: TestBudgetSnapshotGeneration;
+  generationKey: `sha256:${string}`;
+  testFiles: ReadonlySet<string>;
+}>;
+
+function captureTestBudgetInput(source: IssuedTestInventoryProjection): CapturedTestBudgetInput {
+  assertIssuedTestInventoryProjection(source);
   const generation = projectionGeneration(source);
-  const generationKey = projectionGenerationKey(generation);
-  const testFiles = uniqueSorted(source.testFiles.filter(isSecRepositoryTestModulePath));
+  return {
+    generation,
+    generationKey: projectionGenerationKey(generation),
+    testFiles: new Set(source.testFiles.filter(isSecRepositoryTestModulePath)
+      .map(normalizeSecRepositoryTestModulePath))
+  };
+}
+
+const compiledTestBudgetProjections = new WeakSet<TestBudgetProjection>();
+const issuedTestBudgetSources = new WeakMap<TestBudgetProjection, IssuedTestInventoryProjection>();
+
+function compileExactTestBudgetProjection(
+  input: CapturedTestBudgetInput,
+  issuedSource: IssuedTestInventoryProjection
+): TestBudgetProjection {
+  const { generation, generationKey } = input;
+  const testFiles = uniqueSorted([...input.testFiles]);
   const fastTestFiles = testFiles.filter(isFastTestFile);
   const slowTestFiles = testFiles.filter(isSlowTestFile);
   const slowSuites = buildSlowTestSuites(slowTestFiles);
@@ -292,56 +381,44 @@ function compileExactTestBudgetProjection(
     slowTestFiles,
     slowSuites
   });
-  return deepFreeze({
+  const compiled = deepFreeze({
     ...unsigned,
     projectionDigest: budgetProjectionDigest(unsigned)
   });
-}
-
-function isCurrentCachedProjection(
-  cached: TestBudgetProjection,
-  source: TestImpactProjectionReceipt,
-  generationKey: `sha256:${string}`
-): boolean {
-  if (!Object.isFrozen(cached)
-      || cached.generationKey !== generationKey
-      || cached.generation.sourceProjectionDigest !== source.projectionDigest
-      || cached.generation.testObservationDigest !== source.testObservationDigest
-      || cached.generation.workspaceSnapshotIdentityDigest !== source.workspaceSnapshotIdentityDigest) {
-    return false;
-  }
-  const { projectionDigest, ...unsigned } = cached;
-  return projectionDigest === budgetProjectionDigest(unsigned)
-    && cached.testFiles.every((file) => source.testFiles.includes(file))
-    && cached.testFiles.length === source.testFiles.filter(isSecRepositoryTestModulePath).length
-    && cached.fastTestFiles.every(isFastTestFile)
-    && cached.slowTestFiles.every(isSlowTestFile)
-    && cached.slowSuites.every((suite) => Object.isFrozen(suite) && Object.isFrozen(suite.files));
-}
-
-/**
- * Invocation-owned cache. Its key is the complete Source Snapshot/Test
- * Observation generation; cached values never become membership authority.
- */
-export class TestBudgetProjectionCache {
-  private readonly projections = new Map<`sha256:${string}`, TestBudgetProjection>();
-
-  project(source: TestImpactProjectionReceipt): TestBudgetProjection {
-    const generationKey = projectionGenerationKey(projectionGeneration(source));
-    const cached = this.projections.get(generationKey);
-    if (cached !== undefined && isCurrentCachedProjection(cached, source, generationKey)) {
-      return cached;
-    }
-    const exact = compileExactTestBudgetProjection(source);
-    this.projections.set(generationKey, exact);
-    return exact;
-  }
+  compiledTestBudgetProjections.add(compiled);
+  issuedTestBudgetSources.set(compiled, issuedSource);
+  return compiled;
 }
 
 export function compileTestBudgetProjection(
-  source: TestImpactProjectionReceipt
+  source: IssuedTestInventoryProjection
 ): TestBudgetProjection {
-  return compileExactTestBudgetProjection(source);
+  return compileExactTestBudgetProjection(
+    captureTestBudgetInput(source), source
+  );
+}
+
+/**
+ * Execution provenance is stronger than derivation provenance: the exact
+ * budget instance must retain the owner-issued test inventory projection from
+ * which it was compiled. A DTO that reproduces the same bytes cannot acquire
+ * this association.
+ */
+export function assertTestBudgetExecutionProvenance(
+  projection: TestBudgetProjection,
+  source: IssuedTestInventoryProjection
+): void {
+  assertIssuedTestInventoryProjection(source);
+  if (!compiledTestBudgetProjections.has(projection)
+      || issuedTestBudgetSources.get(projection) !== source) {
+    throw new Error('Test budget execution requires its exact owner-issued test inventory projection.');
+  }
+  const generation = projectionGeneration(source);
+  if (projection.generationKey !== projectionGenerationKey(generation)
+      || projection.generation.workspaceSnapshotIdentityDigest !== generation.workspaceSnapshotIdentityDigest
+      || projection.generation.testInventoryDigest !== generation.testInventoryDigest) {
+    throw new Error('Test budget generation differs from its issued test inventory projection.');
+  }
 }
 
 export function getTestFilesSync(projection: TestBudgetProjection): readonly string[] {
@@ -361,18 +438,17 @@ export function getSlowTestSuitesSync(projection: TestBudgetProjection): readonl
 }
 
 export function isKnownSlowTestSuiteId(suiteId: string): boolean {
-  return slowTestSuiteIds().includes(suiteId);
+  return slowTestSuiteIndex.knownIds.has(suiteId);
 }
 
 export function slowTestSuiteIds(): readonly string[] {
-  return Object.freeze(slowTestSuiteDefinitions.map((suite) => suite.id));
+  return slowTestSuiteIndex.ids;
 }
 
 /** Canonical suite identity for a live, removed, or renamed test path. */
 export function slowTestSuiteIdsForFile(file: string): readonly string[] {
-  return Object.freeze(slowTestSuiteDefinitions
-    .filter((suite) => suite.files.includes(file))
-    .map((suite) => suite.id));
+  file = normalizeSecRepositoryTestModulePath(file);
+  return slowTestSuiteIndex.idsByFile.get(file) ?? NO_SLOW_TEST_SUITES;
 }
 
 export function slowTestSuiteFiles(
@@ -391,9 +467,9 @@ export function slowTestPrRiskBaselineSuiteIds(
 }
 
 export function isSlowTestFile(file: string): boolean {
-  const normalized = file.replaceAll('\\', '/').replace(/^\.\//u, '');
+  const normalized = normalizeSecRepositoryTestModulePath(file);
   return isSecRepositoryTestModulePath(normalized)
-    && (explicitSlowTestFiles.has(normalized) || normalized.startsWith('tests/e2e/'));
+    && (slowTestSuiteIndex.idsByFile.has(normalized) || normalized.startsWith('tests/e2e/'));
 }
 
 export function isFastTestFile(file: string): boolean {
@@ -438,7 +514,7 @@ export function formatTestBudgetContract(contract: TestBudgetContract): string {
     ...contract.slowSuites.map((suite) => [
       `Slow suite ${suite.id}`,
       `owner=${suite.owner}`,
-      `timeoutMs=${suite.timeoutMs}`,
+      `logicalRunTimeoutMs=${suite.logicalRunTimeoutMs}`,
       `parallelSafe=${suite.parallelSafe}`,
       `resourceClass=${suite.resourceClass}`,
       `prRiskBaseline=${suite.prRiskBaseline}`,

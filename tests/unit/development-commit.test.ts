@@ -99,6 +99,30 @@ test('development.commit consumes one exact staged admission before publishing i
   }
 }, 20_000);
 
+test('development.commit reports failed staged normalization without publishing the candidate', async () => {
+  const { root, request } = await fixture();
+  try {
+    const kernelPath = 'src/development/import-normalization/kernel.ts';
+    await writeFile(path.join(root, kernelPath),
+      "import path from 'node:path';\nimport fs from 'node:fs';\nexport function normalize(): void { void fs; void path; }\n");
+    git(root, ['add', '--', kernelPath]);
+    const before = {
+      head: git(root, ['rev-parse', 'HEAD']),
+      tree: git(root, ['write-tree'])
+    };
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await expect(issueDevelopmentCommitAdmission({ request }))
+        .rejects.toThrow('Candidate import normalization blocked commit: failed; action sha256:');
+      expect({
+        head: git(root, ['rev-parse', 'HEAD']),
+        tree: git(root, ['write-tree'])
+      }).toEqual(before);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 20_000);
+
 test('development.commit rejects missing admission before repository Effect', async () => {
   const { root, request } = await fixture();
   try {

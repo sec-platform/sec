@@ -1,4 +1,7 @@
-import type { SourceProgramOperationProducerClosure } from '../../brownfield/source-program-model/contract.ts';
+import {
+  isSourceProgramInputPath,
+  type SourceProgramOperationProducerClosure
+} from '../../brownfield/source-program-model/contract.ts';
 import {
   assertPhysicalWorkspaceSourceSnapshot,
   requireStagedWorkspaceSourceSelection,
@@ -14,6 +17,7 @@ import {
 
 export const CANDIDATE_NORMALIZATION_SUBJECT_SCHEMA =
   'sec-candidate-normalization-snapshot-subject' as const;
+export const CANDIDATE_NORMALIZATION_DURATION_MS = 300_000;
 
 export const IMPORT_NORMALIZATION_OPERATION = Object.freeze({
   capability: 'development.import-normalization',
@@ -80,7 +84,7 @@ const NORMALIZATION_RESULT_CONTRACT_DIGEST = sha256({
 }) as CandidateNormalizationDigest;
 
 export function isCandidateNormalizationPath(value: string): boolean {
-  return /\.[cm]?tsx?$/iu.test(value);
+  return isSourceProgramInputPath(value) && /\.[cm]?tsx?$/iu.test(value);
 }
 
 /**

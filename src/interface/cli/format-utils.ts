@@ -1,4 +1,7 @@
+import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { mergeCountSummaries, summarizeCounts } from '../../system-architecture/foundation/runtime/collections.ts';
+import { stringifyJsonValue } from '../../system-architecture/foundation/runtime/json-text.ts';
+import type { JsonOutputOptions } from './json-output-options.ts';
 
 export function formatList(values: string[], fallback = 'none'): string {
   return values.length > 0 ? values.join(', ') : fallback;
@@ -18,13 +21,13 @@ export function formatFields(values: readonly string[]): string {
   return values.join('; ');
 }
 
-export function formatJson(value: unknown, options: { compact: boolean }): string {
-  return JSON.stringify(value, null, options.compact ? 0 : 2);
+export function formatJson(value: unknown, options: Pick<JsonOutputOptions, 'compact'>): string {
+  return stringifyJsonValue(value, options.compact ? 0 : 2, 'CLI JSON output');
 }
 
 export function printJsonOrText<T>(
   value: T,
-  options: { json: boolean; compact: boolean },
+  options: JsonOutputOptions,
   formatText: (value: T) => string
 ): void {
   console.log(options.json ? formatJson(value, options) : formatText(value));
@@ -44,4 +47,15 @@ export function formatSummaryEntries(entries: Array<{ id: string; count: number 
 
 export function formatMergedSummaryEntries(entries: Array<{ id: string; count: number }>): string {
   return formatSummaryEntries(summarizeById(entries));
+}
+
+
+/** Format already-aggregated non-negative counts without expanding them into
+ * one value per occurrence. Zero entries retain the old absent-display rule. */
+export function formatCountRecord(counts: Readonly<Record<string, number>>): string {
+  const entries = Object.entries(counts).map(([id, count]) => {
+    if (!Number.isSafeInteger(count) || count < 0) throw new RangeError(`Invalid count for ${id}`);
+    return { id, count };
+  }).filter((entry) => entry.count > 0).sort((left, right) => compareCodeUnits(left.id, right.id));
+  return formatSummaryEntries(entries);
 }

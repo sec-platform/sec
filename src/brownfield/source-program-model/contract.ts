@@ -31,6 +31,8 @@ const SOURCE_PROGRAM_GRAPH_EXTENSION = /\.(?:[cm]?[jt]sx?|json|ya?ml|toml)$/iu;
 const SOURCE_PROGRAM_ROOT_INPUT = new Set([
   'bunfig.toml',
   'docs/authority.json',
+  '.gitignore',
+  'knip.json',
   'package.json',
   'tsconfig.json'
 ]);
@@ -42,6 +44,7 @@ const SOURCE_PROGRAM_ROOT_INPUT = new Set([
  */
 export function isSourceProgramInputPath(repositoryPath: string): boolean {
   if (SOURCE_PROGRAM_ROOT_INPUT.has(repositoryPath)) return true;
+  if (/^\.githooks\/[^/]+$/u.test(repositoryPath)) return true;
   if (/^\.github\/workflows\/[^/]+\.ya?ml$/iu.test(repositoryPath)) return true;
   if (!SOURCE_PROGRAM_GRAPH_EXTENSION.test(repositoryPath)) return false;
   return repositoryPath.startsWith('src/') || repositoryPath.startsWith('tests/');
@@ -400,7 +403,6 @@ export type SourceProgramCandidateCode =
   | 'duplicate-production-identity-token'
   | 'duplicate-production-endpoint-literal'
   | 'versioned-declaration-conflicts-with-canonical-name'
-  | 'versioned-declaration-without-coexisting-version'
   | 'direct-process-transport-outside-owner'
   | 'process-resource-session-boundary-unresolved'
   | 'durable-worker-domain-import'
@@ -435,7 +437,6 @@ export const SOURCE_PROGRAM_BLOCKING_CANDIDATE_CODES = Object.freeze([
   'operation-critical-role-unresolved',
   'operation-recovery-binding-unresolved',
   'versioned-declaration-conflicts-with-canonical-name',
-  'versioned-declaration-without-coexisting-version',
   'test-mirrors-production-identity-literal',
   'test-mirrors-production-literal-collection',
   'test-mirrors-production-source-path'

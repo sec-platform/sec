@@ -73,6 +73,7 @@ test('foundation context binds one exact attempt requirement provider and narrow
   expect(projection.boundAttemptDigest).toBe(bound.boundAttemptDigest);
   expect(projection.requirementId).toBe('typescript.project-check');
   expect(projection.providerBindingDigest).toBe(bound.bindings[0]!.bindingDigest);
+  expect(projection.absoluteDeadlineAtUnixMs).toBe(bound.plan.attempt.deadlineAtUnixMs);
   expect(projection.resourceCeilings).toEqual([
     { resource: 'duration-ms', maximum: 30_000 },
     { resource: 'output-bytes', maximum: 2_048 },
@@ -80,6 +81,28 @@ test('foundation context binds one exact attempt requirement provider and narrow
   ]);
   expect(projection).not.toHaveProperty('argv');
   expect(projection).not.toHaveProperty('terminal');
+});
+
+test('foundation context binds a fixed child deadline and rejects attempt widening', () => {
+  const narrowedOperation = operation('child-deadline-provider');
+  const childDeadlineAtUnixMs = narrowedOperation.plan.attempt.deadlineAtUnixMs - 10_000;
+  const narrowed = consumeSecOperationRequirementBindingContext(
+    issueSecOperationRequirementBindingContext({
+      operation: narrowedOperation,
+      requirementId: 'typescript.project-check',
+      resourceCeilings: [{ resource: 'duration-ms', maximum: 30_000 }],
+      absoluteDeadlineAtUnixMs: childDeadlineAtUnixMs
+    })
+  );
+  expect(narrowed.absoluteDeadlineAtUnixMs).toBe(childDeadlineAtUnixMs);
+
+  const widenedOperation = operation('widened-child-deadline-provider');
+  expect(() => issueSecOperationRequirementBindingContext({
+    operation: widenedOperation,
+    requirementId: 'typescript.project-check',
+    resourceCeilings: [{ resource: 'duration-ms', maximum: 30_000 }],
+    absoluteDeadlineAtUnixMs: widenedOperation.plan.attempt.deadlineAtUnixMs + 1
+  })).toThrow('absolute deadline is not narrowed from its attempt');
 });
 
 test('structural copies serialization and caller flags cannot recreate the context', () => {

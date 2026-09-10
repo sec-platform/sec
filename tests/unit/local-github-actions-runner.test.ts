@@ -506,6 +506,7 @@ describe('local GitHub Actions runner contract', () => {
     })).toBe('retired-invalid');
     expect(existsSync(oldCandidatePath)).toBe(false);
 
+    successor!.acknowledgeReclaimedRecovery();
     const currentBinding = createLocalGitHubActionsRunnerOciCandidateBinding(
       specDigest, successor!.owner
     );

@@ -22,7 +22,6 @@ import {
   assertRuntimeGenerationCensusReceipt,
   censusRetainedRuntimeGenerations,
   observeRetainedRuntimeEndpointResidue,
-  type RetainedRuntimeGenerationCensus,
   type RuntimeEndpointResidueReceipt,
   type RuntimeGenerationCensusReceipt
 } from '../../../runtime-state/physical/runtime/runtime-endpoint-residue.ts';
@@ -55,7 +54,9 @@ import {
 import {
   ensureDockerDaemonStartedWithCommand,
   observeDockerDaemonWithCommand,
-  type DockerDaemonCommandResult
+  projectStartedDockerDaemonLauncherFailure,
+  type DockerDaemonCommandResult,
+  type DockerDaemonLauncherResult
 } from './daemon-algorithm.ts';
 import { withDockerDesktopLauncherLock } from './daemon.ts';
 
@@ -185,7 +186,8 @@ interface DockerDesktopLifecycleEnvironment {
 
 async function dockerDesktopLifecycleEnvironment(): Promise<DockerDesktopLifecycleEnvironment> {
   const retained: RetainedRuntimeStateDirectory[] = [];
-  let generationCensus: RetainedRuntimeGenerationCensus | null = null;
+  let generationCensusReceipt: RuntimeGenerationCensusReceipt | null = null;
+  let admittedGenerationRoots: readonly PhysicalDirectoryIdentity[] = Object.freeze([]);
   let closed = false;
   let terminalCloseFailure: unknown;
   const close = (): void => {
@@ -196,10 +198,6 @@ async function dockerDesktopLifecycleEnvironment(): Promise<DockerDesktopLifecyc
     try {
       settlePhysicalResources({
         cleanup: [
-          ...(generationCensus === null ? [] : [{
-            label: 'runtime-generation-census',
-            settle: () => generationCensus!.close()
-          }]),
           ...[...retained].reverse().map((directory, index) => ({
             label: `runtime-state-root-${index}`,
             settle: () => { directory.close(); }
@@ -215,19 +213,23 @@ async function dockerDesktopLifecycleEnvironment(): Promise<DockerDesktopLifecyc
   };
   try {
     const profile = await openRetainedWindowsRuntimeStateDirectory({
-      ...DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.profile
+      ...DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.profile,
+      requireHostNamespace: true
     });
     retained.push(profile);
     const localAppData = await openRetainedWindowsRuntimeStateDirectory({
-      ...DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.localAppData
+      ...DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.localAppData,
+      requireHostNamespace: true
     });
     retained.push(localAppData);
     const appData = await openRetainedWindowsRuntimeStateDirectory({
-      ...DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.roamingAppData
+      ...DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.roamingAppData,
+      requireHostNamespace: true
     });
     retained.push(appData);
     const programData = await openRetainedWindowsRuntimeStateDirectory({
-      ...DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.programData
+      ...DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.programData,
+      requireHostNamespace: true
     });
     retained.push(programData);
     const ownerByFolder = new Map([
@@ -252,13 +254,13 @@ async function dockerDesktopLifecycleEnvironment(): Promise<DockerDesktopLifecyc
         providerIdentityDigest: `sha256:${string}`
       ): RuntimeGenerationCensusReceipt {
         if (closed) throw new Error('Docker Desktop retained runtime-state environment is closed.');
-        if (generationCensus !== null) {
-          if (generationCensus.receipt.providerIdentityDigest !== providerIdentityDigest) {
+        if (generationCensusReceipt !== null) {
+          if (generationCensusReceipt.providerIdentityDigest !== providerIdentityDigest) {
             throw new Error('Docker Desktop runtime generation census provider identity changed.');
           }
-          return generationCensus.receipt;
+          return generationCensusReceipt;
         }
-        generationCensus = censusRetainedRuntimeGenerations({
+        const census = censusRetainedRuntimeGenerations({
           providerIdentityDigest,
           ...DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.generationCensus,
           profiles: DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.generationRoots.map((profile) => {
@@ -274,18 +276,30 @@ async function dockerDesktopLifecycleEnvironment(): Promise<DockerDesktopLifecyc
             });
           })
         });
-        return generationCensus.receipt;
+        try {
+          admittedGenerationRoots = Object.freeze(
+            census.generations.map(({ directory }) => directory)
+          );
+          generationCensusReceipt = census.receipt;
+        } finally {
+          // The official provider owns mutations beneath these generation
+          // roots. Retain them through census readback, then release before
+          // the launcher Effect rather than requiring the preimage to remain
+          // unchanged while Docker performs its own recovery.
+          census.close();
+        }
+        return generationCensusReceipt;
       },
       observeRuntimeEndpointResidue(
         providerEvidence: string,
         providerIdentityDigest: `sha256:${string}`
       ): RuntimeEndpointResidueReceipt | null {
         if (closed) throw new Error('Docker Desktop retained runtime-state environment is closed.');
-        if (generationCensus === null) {
+        if (generationCensusReceipt === null) {
           throw new Error('Docker Desktop runtime generation census has not been admitted.');
         }
         return observeRetainedRuntimeEndpointResidue({
-          admittedGenerationRoots: generationCensus.generations.map(({ directory }) => directory),
+          admittedGenerationRoots,
           providerEvidence,
           providerIdentityDigest,
           roots: retained
@@ -413,12 +427,9 @@ function assertPositiveBound(value: number, label: string): number {
 export async function openContainerEngineSession(
   input: OpenContainerEngineSessionInput & Readonly<{
     beforeDesktopLaunch?: () => Promise<void> | void;
-    observeDesktopLaunchSettlement?: (input: Readonly<{
-      code: number;
-      stdout: string;
-      stderr: string;
-      physicalDisposition: 'settled' | 'unknown';
-    }>) => Promise<void> | void;
+    observeDesktopLaunchSettlement?: (
+      input: DockerDaemonLauncherResult
+    ) => Promise<void> | void;
   }>
 ): Promise<ContainerEngineSession> {
   const cwd = path.resolve(input.cwd);
@@ -450,16 +461,6 @@ export async function openContainerEngineSession(
           label: 'executable-dispose',
           settle: () => retained.boundary.executable.dispose()
         },
-        ...(retained.launcherBoundary === undefined ? [] : [
-          {
-            label: 'launcher-working-directory-dispose',
-            settle: () => retained.launcherBoundary!.workingDirectory.dispose()
-          },
-          {
-            label: 'launcher-executable-dispose',
-            settle: () => retained.launcherBoundary!.executable.dispose()
-          }
-        ])
       ]
     });
   }
@@ -681,11 +682,9 @@ export async function openContainerEngineSession(
 
   try {
     if (process.platform === 'win32') {
-      const launcherBoundary = retained.launcherBoundary
-        ?? fail('retained Docker Desktop launcher is unavailable');
       runtimeState = await dockerDesktopLifecycleEnvironment();
       independentProvider = issueIndependentProviderProcessCapability({
-        boundary: launcherBoundary,
+        boundary: retained.boundary,
         operation: input.operation
       });
       const providerPhysicalIdentityDigest = independentProvider.providerPhysicalIdentityDigest;
@@ -773,9 +772,7 @@ export async function openContainerEngineSession(
           ),
           providerAuthorityIdentityDigest: independentProvider!.providerPhysicalIdentityDigest,
           providerIdentityDigest: admissionProviderIdentityDigest,
-          launch: async ({ deadlineAtUnixMs }) => {
-            const boundary = retained.launcherBoundary
-              ?? fail('retained Docker Desktop launcher is unavailable');
+          launch: async ({ args, deadlineAtUnixMs }) => {
             const timeoutMs = Math.min(
               deadlineAtUnixMs,
               processSession.deadlineAtUnixMs - 1
@@ -785,13 +782,11 @@ export async function openContainerEngineSession(
             }
             active += 1;
             try {
-              const { result } = await processSession.run(boundary, [], {
-                env: environment,
-                envMode: 'replace',
-                independentProvider: independentProvider!,
+              const result = await rawRun(args, {
+                acceptAnyExitCode: true,
                 maxStdoutBytes: 1024 * 1024,
                 maxStderrBytes: 1024 * 1024
-              });
+              }, independentProvider!);
               return Object.freeze({
                 code: result.code,
                 stdout: Buffer.from(result.stdout).toString('utf8'),
@@ -799,16 +794,8 @@ export async function openContainerEngineSession(
                 physicalDisposition: 'settled' as const
               });
             } catch (error) {
-              if (error instanceof RetainedCommandTransportError
-                  && error.outcome.started
-                  && (error.outcome.status === 'timed-out'
-                    || error.outcome.status === 'termination-unproven')) {
-                return Object.freeze({
-                  code: error.outcome.exitCode ?? 1,
-                  stdout: '',
-                  stderr: error.message,
-                  physicalDisposition: 'unknown' as const
-                });
+              if (error instanceof RetainedCommandTransportError) {
+                return projectStartedDockerDaemonLauncherFailure(error);
               }
               throw error;
             } finally {
@@ -965,16 +952,6 @@ export async function openContainerEngineSession(
                 label: 'working-directory-readback',
                 settle: () => retained.boundary.workingDirectory.assertCurrent()
               },
-              ...(retained.launcherBoundary === undefined ? [] : [
-                {
-                  label: 'launcher-executable-readback',
-                  settle: () => retained.launcherBoundary!.executable.assertCurrent()
-                },
-                {
-                  label: 'launcher-working-directory-readback',
-                  settle: () => retained.launcherBoundary!.workingDirectory.assertCurrent()
-                }
-              ]),
               ...retained.retainedOwners.map((owner, index) => ({
                 label: `provider-owner-readback-${index}`,
                 settle: () => owner.assertCurrent()
@@ -998,16 +975,6 @@ export async function openContainerEngineSession(
                 label: 'executable-dispose',
                 settle: () => retained.boundary.executable.dispose()
               },
-              ...(retained.launcherBoundary === undefined ? [] : [
-                {
-                  label: 'launcher-working-directory-dispose',
-                  settle: () => retained.launcherBoundary!.workingDirectory.dispose()
-                },
-                {
-                  label: 'launcher-executable-dispose',
-                  settle: () => retained.launcherBoundary!.executable.dispose()
-                }
-              ])
             ]
           });
         } catch (error) {

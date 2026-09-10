@@ -1,14 +1,265 @@
-import { test } from 'bun:test';
+import { expect, test } from 'bun:test';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { upgradeWorkspace } from '../../src/change-management/upgrade/orchestration.ts';
+import { runUpgradeWorkspaceWithLease } from '../../src/change-management/upgrade/upgrade-workspace.ts';
+import {
+  inspectNoFollowDirectoryChain,
+  inspectNoFollowDirectoryLeaf,
+  PhysicalNoFollowError,
+  retireNoFollowDirectoryTree,
+  scanNoFollowDirectoryTreeInventory
+} from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { settlePhysicalResourcesAsync } from '../../src/runtime-state/physical/runtime/resource-settlement.ts';
+import { readOptionalProvenanceFile } from '../../src/semantic/provenance/authority.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { writeJson } from '../../src/workspace/files.ts';
-import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
-import { prepareBlockUpgradeDryRunFixture } from '../helpers/block-upgrade-fixtures.ts';
+import { createWorkspaceWriteLeaseManager } from '../../src/workspace/lease.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+import { calculateCanonicalProjectFileHash } from '../../src/workspace/runtime/project-file-hash.ts';
+import { prepareBlockUpgradeDryRunFixture, writeBlockUpgradeFixture } from '../helpers/block-upgrade-fixtures.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 import { expectUpgradeDryRunFailure, expectUpgradeDryRunFailureWithDiagnostics } from './upgrade-diagnostics-fixtures.ts';
 
+test('upgrade success provenance binds the committed applied terminal bytes', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await writeBlockUpgradeFixture(workspaceRoot);
+    await upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0');
+    const terminalPath = resolveWorkspaceArtifactPath(
+      workspaceRoot,
+      CI_ARTIFACT_FILES.upgradeExecutionTerminal
+    );
+    const provenance = readOptionalProvenanceFile(
+      resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance),
+      'Upgrade success provenance'
+    );
+    const terminalArtifacts = provenance?.artifacts.filter(
+      ({ path: artifactPath }) => artifactPath === CI_ARTIFACT_FILES.upgradeExecutionTerminal
+    ) ?? [];
+    expect(terminalArtifacts).toHaveLength(1);
+    expect(terminalArtifacts[0]?.hash).toBe(calculateCanonicalProjectFileHash(terminalPath));
+  }, 'engineering-compiler-upgrade-terminal-provenance-');
+});
+
+test('upgrade preserves planning failure when provenance publication rejects a foreign parent', async () => {
+  const { workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
+    prefix: 'engineering-compiler-upgrade-secondary-publication-',
+    migration: {
+      id: 'mig-missing-entry-file',
+      kind: 'text-append',
+      entry: 'migrations/missing-entry-file.json',
+      requiresVerification: false
+    }
+  });
+  const provenancePath = resolveWorkspaceArtifactPath(
+    workspaceRoot,
+    CI_ARTIFACT_FILES.provenance
+  );
+  const provenanceParent = path.dirname(provenancePath);
+  const foreignParent = path.join(workspaceRoot, 'foreign-provenance');
+  await fs.rm(provenanceParent, { recursive: true, force: true });
+  await fs.mkdir(foreignParent, { recursive: true });
+  await fs.symlink(
+    foreignParent,
+    provenanceParent,
+    process.platform === 'win32' ? 'junction' : 'dir'
+  );
+
+  let failure: unknown;
+  try {
+    await upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0');
+  } catch (error) {
+    failure = error;
+  }
+
+  expect(failure).toBeInstanceOf(AggregateError);
+  const aggregate = failure as AggregateError;
+  expect(aggregate.errors).toHaveLength(2);
+  expect(aggregate.cause).toBe(aggregate.errors[0]);
+  expect(aggregate.errors[0]).toMatchObject({ code: 'UPGRADE-MIGRATION-002' });
+  expect(aggregate.errors[1]).toBeInstanceOf(PhysicalNoFollowError);
+  expect((aggregate.errors[1] as PhysicalNoFollowError).code)
+    .toBe('PHYSICAL_NO_FOLLOW_UNSAFE_PATH');
+});
+
+test('upgrade retains its recovery snapshot when the write lease is lost before rollback', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await writeBlockUpgradeFixture(workspaceRoot);
+    const migratedTarget = path.join(
+      workspaceRoot,
+      'src',
+      'installed',
+      'private',
+      'customer-normalizer.ts'
+    );
+    const originalTarget = await fs.readFile(migratedTarget, 'utf8');
+    await fs.rm(path.join(
+      getWorkspacePaths(workspaceRoot).privateRegistryRoot,
+      'private.block-upgrade',
+      'files',
+      'src',
+      'installed',
+      'private',
+      'block-upgrade.ts'
+    ));
+    const manager = createWorkspaceWriteLeaseManager();
+    const lease = await manager.acquire(workspaceRoot);
+    const execution = runUpgradeWorkspaceWithLease(
+      workspaceRoot,
+      'private/block-upgrade',
+      '0.2.0',
+      lease.token
+    ).then(
+      (value) => ({ value } as const),
+      (error: unknown) => ({ error } as const)
+    );
+    let leaseReleased = false;
+    let observationFailure: unknown = null;
+    let releaseFailure: unknown = null;
+    let executionOutcome: Awaited<typeof execution>;
+    try {
+      const observationDeadline = Date.now() + 10_000;
+      while (await fs.readFile(migratedTarget, 'utf8') === originalTarget) {
+        if (Date.now() >= observationDeadline) {
+          throw new Error('Upgrade migration was not observed before the lease-loss deadline.');
+        }
+        await Bun.sleep(5);
+      }
+      await lease.release();
+      leaseReleased = true;
+    } catch (error) {
+      observationFailure = error;
+    }
+    if (!leaseReleased) {
+      try {
+        await lease.release();
+        leaseReleased = true;
+      } catch (error) {
+        releaseFailure = error;
+      }
+    }
+    executionOutcome = await execution;
+    const failure = 'error' in executionOutcome ? executionOutcome.error : undefined;
+    const aggregate = failure instanceof AggregateError ? failure : null;
+    const primary = aggregate?.cause as (Error & {
+      readonly details?: { readonly recoverySnapshot?: {
+        readonly path?: unknown;
+        readonly device?: unknown;
+        readonly inode?: unknown;
+        readonly parentPath?: unknown;
+        readonly parentDevice?: unknown;
+        readonly parentInode?: unknown;
+        readonly status?: unknown;
+      } };
+    }) | undefined;
+    const snapshotPath = primary?.details?.recoverySnapshot?.path;
+    const snapshotDetails = primary?.details?.recoverySnapshot;
+    let assertionFailure: unknown = observationFailure ?? releaseFailure;
+    if (assertionFailure === null) {
+      try {
+        expect(failure).toBeInstanceOf(AggregateError);
+        expect(primary?.details).toMatchObject({
+          rollbackStatus: 'recovery-required',
+          recoverySnapshot: { status: 'retained-locator-only' }
+        });
+        expect(primary?.cause).toBeInstanceOf(AggregateError);
+        expect((primary?.cause as AggregateError).errors[1])
+          .toMatchObject({ code: 'WORKSPACE-WRITE-LEASE-002' });
+        expect(await fs.readFile(migratedTarget, 'utf8')).not.toBe(originalTarget);
+        if (typeof snapshotPath !== 'string' || typeof snapshotDetails?.parentPath !== 'string') {
+          throw new Error('Expected retained recovery snapshot and parent locators.');
+        }
+      } catch (error) {
+        assertionFailure = error;
+      }
+    }
+    await settlePhysicalResourcesAsync({
+      ...(assertionFailure === null ? {} : {
+        primary: { label: 'upgrade-recovery-test', error: assertionFailure }
+      }),
+      cleanup: typeof snapshotPath === 'string' && typeof snapshotDetails?.parentPath === 'string'
+        ? [{
+            label: 'upgrade-recovery-test-snapshot',
+            settle: () => {
+              const temporaryParent = inspectNoFollowDirectoryChain(
+                snapshotDetails.parentPath as string,
+                'Upgrade recovery test temporary parent'
+              ).target;
+              if (temporaryParent.device !== snapshotDetails.parentDevice
+                  || temporaryParent.inode !== snapshotDetails.parentInode) {
+                throw new Error('Upgrade recovery test temporary parent identity changed.');
+              }
+              const snapshot = inspectNoFollowDirectoryLeaf(
+                temporaryParent,
+                path.basename(snapshotPath),
+                'Upgrade recovery test snapshot'
+              );
+              if (snapshot === null || snapshot.device !== snapshotDetails.device
+                  || snapshot.inode !== snapshotDetails.inode) {
+                throw new Error('Upgrade recovery test snapshot identity changed.');
+              }
+              const inventory = scanNoFollowDirectoryTreeInventory(snapshot, {
+                deadlineAtMs: performance.now() + 30_000,
+                maximumEntries: 100_000,
+                maximumBytes: 1024 * 1024 * 1024,
+                includePermissionMode: true
+              });
+              retireNoFollowDirectoryTree({
+                deadlineAtMonotonicMs: performance.now() + 30_000,
+                inventory,
+                parent: temporaryParent,
+                root: snapshot,
+                restoreOwnerPermissions: true
+              });
+            }
+          }]
+        : []
+    });
+  }, 'engineering-compiler-upgrade-fence-recovery-');
+});
+
+test('upgrade rollback restores nested preserved-name entries and file permission modes', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await writeBlockUpgradeFixture(workspaceRoot);
+    const paths = getWorkspacePaths(workspaceRoot);
+    const nestedPath = path.join(workspaceRoot, 'src', 'coverage', 'retained.txt');
+    const rootFilePath = path.join(workspaceRoot, 'rollback-root.txt');
+    const graphLockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
+    const graphLockPreimage = await fs.readFile(graphLockPath);
+    await fs.mkdir(path.dirname(nestedPath), { recursive: true });
+    await fs.writeFile(nestedPath, 'nested preimage\n');
+    await fs.writeFile(rootFilePath, 'root preimage\n');
+    if (process.platform === 'linux') {
+      await fs.chmod(nestedPath, 0o640);
+      await fs.chmod(rootFilePath, 0o750);
+    }
+    const nestedMode = (await fs.lstat(nestedPath)).mode & 0o7777;
+    const rootMode = (await fs.lstat(rootFilePath)).mode & 0o7777;
+    await fs.rm(path.join(
+      paths.privateRegistryRoot,
+      'private.block-upgrade',
+      'files',
+      'src',
+      'installed',
+      'private',
+      'block-upgrade.ts'
+    ));
+
+    await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0'))
+      .rejects.toMatchObject({ details: { rollbackStatus: 'restored' } });
+    await expect(fs.readFile(nestedPath, 'utf8')).resolves.toBe('nested preimage\n');
+    await expect(fs.readFile(rootFilePath, 'utf8')).resolves.toBe('root preimage\n');
+    expect(await fs.readFile(graphLockPath)).toEqual(graphLockPreimage);
+    if (process.platform === 'linux') {
+      expect((await fs.lstat(nestedPath)).mode & 0o7777).toBe(nestedMode);
+      expect((await fs.lstat(rootFilePath)).mode & 0o7777).toBe(rootMode);
+    }
+  }, 'engineering-compiler-upgrade-nested-rollback-');
+});
+
 test('upgrade records missing migration entry diagnostics before planning', async () => {
-  const { paths, workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
+  const { workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
     prefix: 'engineering-compiler-upgrade-missing-migration-entry-',
     migration: {
       id: 'mig-missing-entry-file',
@@ -64,7 +315,7 @@ test('upgrade rejects migration entry paths that escape the manifest root', asyn
 });
 
 test('upgrade records mismatched migration entry metadata diagnostics before planning', async () => {
-  const { paths, workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
+  const { workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
     prefix: 'engineering-compiler-upgrade-mismatched-migration-entry-',
     migration: {
       id: 'mig-expected-entry',
@@ -111,7 +362,7 @@ test('upgrade records mismatched migration entry metadata diagnostics before pla
 });
 
 test('upgrade rejects duplicate migration ids before planning', async () => {
-  const { paths, workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
+  const { workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
     prefix: 'engineering-compiler-upgrade-duplicate-migration-id-',
     migrations: [
       {
@@ -166,7 +417,7 @@ test('upgrade rejects duplicate migration ids before planning', async () => {
 });
 
 test('upgrade records migration target path escape diagnostics before planning', async () => {
-  const { paths, workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
+  const { workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
     prefix: 'engineering-compiler-upgrade-target-escape-',
     migration: {
       id: 'mig-target-escape',
@@ -211,7 +462,7 @@ test('upgrade records migration target path escape diagnostics before planning',
 });
 
 test('upgrade records migration manifest source escape diagnostics before planning', async () => {
-  const { paths, workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
+  const { workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
     prefix: 'engineering-compiler-upgrade-source-escape-',
     migration: {
       id: 'mig-source-escape',
@@ -256,7 +507,7 @@ test('upgrade records migration manifest source escape diagnostics before planni
 });
 
 test('upgrade rejects empty config rewrite paths before planning', async () => {
-  const { paths, workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
+  const { workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
     prefix: 'engineering-compiler-upgrade-empty-config-path-',
     migration: {
       id: 'mig-empty-config-path',
@@ -303,7 +554,7 @@ test('upgrade rejects empty config rewrite paths before planning', async () => {
 });
 
 test('upgrade rejects JSON array structure mismatches before planning', async () => {
-  const { paths, workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
+  const { workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
     prefix: 'engineering-compiler-upgrade-json-structure-',
     migration: {
       id: 'mig-json-array-append',
@@ -339,7 +590,7 @@ test('upgrade rejects JSON array structure mismatches before planning', async ()
 });
 
 test('upgrade rejects JSON array parent structure mismatches before planning', async () => {
-  const { paths, workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
+  const { workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
     prefix: 'engineering-compiler-upgrade-json-parent-structure-',
     migration: {
       id: 'mig-json-array-append-nested',

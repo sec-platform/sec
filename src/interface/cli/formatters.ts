@@ -16,14 +16,13 @@ import { buildCiArtifactUploadGroups, CI_ARTIFACT_MANIFEST_PATH } from '../../ve
 import type { CiArtifactKind, CiArtifactManifest, CiArtifactUploadGroup } from '../../verification/ci-artifacts/contract/types.ts';
 import type { RuntimeVerificationLaneReport, VerificationReport } from '../../verification/contract/types.ts';
 import { reviewArtifactMissingReasonTypeCount, reviewArtifactUploadGroupCount } from '../../verification/review/contract/artifact.ts';
-import { buildReviewPolicySummary } from '../../verification/review/contract/policy.ts';
 import type { ReviewSummary } from '../../verification/review/contract/types.ts';
 import { upgradeDiagnosticsAttributionParts } from '../../verification/review/contract/upgrade.ts';
 import { buildE2eMatrix, type E2eMatrix } from '../../verification/review/runtime/matrix.ts';
 import { toWorkspaceArtifactPath } from '../../workspace/runtime/paths.ts';
-import { formatCounts, formatFields, formatList, formatMergedSummaryEntries, formatSummaryEntries, optionalFields } from './format-utils.ts';
+import { formatCountRecord, formatCounts, formatFields, formatList, formatMergedSummaryEntries, formatSummaryEntries, optionalFields } from './format-utils.ts';
 
-export type ArtifactPathUploadGroup = CiArtifactUploadGroup;
+type ArtifactPathUploadGroup = CiArtifactUploadGroup;
 
 export type ArtifactPathKind = CiArtifactKind;
 
@@ -63,7 +62,7 @@ export type PostgresContract = {
   }>;
 };
 
-export type RuntimeStepInspect = {
+type RuntimeStepInspect = {
   id: 'build' | 'unit' | 'acceptance';
   status: RuntimeVerificationLaneReport['status'];
   passedCount: number;
@@ -106,12 +105,12 @@ export function formatCiArtifactManifest(manifest: CiArtifactManifest): string {
       `upload groups=${manifest.summary.uploadGroupCount}`
     ]),
     `Kinds: governance=${manifest.summary.governanceCount}, test=${manifest.summary.testCount}, contract=${manifest.summary.contractCount}`,
-    `Missing reasons: ${formatCounts(Object.entries(manifest.summary.missingReasonCounts).flatMap(([reason, count]) => Array(count).fill(reason)))}`,
+    `Missing reasons: ${formatCountRecord(manifest.summary.missingReasonCounts)}`,
     `Upload groups: ${formatList(manifest.uploadGroups.map((group) => `${group.kind}=${group.count}`))}`
   ].join('\n');
 }
 
-export function artifactUploadPathSummary(
+function artifactUploadPathSummary(
   manifest: CiArtifactManifest,
   kind?: ArtifactPathKind
 ): {
@@ -264,7 +263,7 @@ export function formatE2eMatrix(matrix: E2eMatrix): string {
   ].join('\n');
 }
 
-export type ReviewDiagnosticEntry =
+type ReviewDiagnosticEntry =
   | {
     id: string;
     category: 'failure';
@@ -327,7 +326,7 @@ export function buildReviewDiagnosticsInspect(summary: ReviewSummary): ReviewDia
     }))
   ];
   const artifactPaths = uniqueSorted(summary.failurePoints.map((point) => point.artifactPath));
-  const blocks = uniqueSorted(summary.regressionRisks.map((risk) => risk.blockId ?? ''));
+  const blocks = uniqueSorted(diagnostics.flatMap((entry) => entry.category === 'regression-risk' && entry.blockId ? [entry.blockId] : []));
 
   return {
     status: summary.ciSummary.status,
@@ -367,7 +366,7 @@ export function formatReviewDiagnosticsInspect(inspect: ReviewDiagnosticsInspect
   ].join('\n');
 }
 
-export function formatUpgradeDiagnosticsDetails(details: unknown): string {
+function formatUpgradeDiagnosticsDetails(details: unknown): string {
   return formatList(upgradeDiagnosticsAttributionParts(details));
 }
 
@@ -474,19 +473,16 @@ export type PolicySourceInspect = {
 };
 
 export function buildPolicySourceInspect(report: PolicyReport): PolicySourceInspect {
+  const snapshot = (
+    source: Pick<PolicyReport['official']['sources'][number], 'path' | 'policyIds'>,
+    scope: 'official' | 'project'
+  ) => {
+    const policyIds = [...source.policyIds];
+    return { scope, path: source.path, policyCount: policyIds.length, policyIds };
+  };
   const sources = [
-    ...report.official.sources.map((source) => ({
-      scope: 'official' as const,
-      path: source.path,
-      policyCount: source.policyIds.length,
-      policyIds: source.policyIds
-    })),
-    ...report.project.sources.map((source) => ({
-      scope: 'project' as const,
-      path: source.path,
-      policyCount: source.policyIds.length,
-      policyIds: source.policyIds
-    }))
+    ...report.official.sources.map((source) => snapshot(source, 'official')),
+    ...report.project.sources.map((source) => snapshot(source, 'project'))
   ].sort((left, right) => compareCodeUnits(left.scope, right.scope) || compareCodeUnits(left.path, right.path));
   return {
     status: report.status,
@@ -564,20 +560,22 @@ export type AcceptanceTargetInspect = {
 export function buildAcceptanceTargetInspect(
   report: AcceptanceCoverageReport
 ): AcceptanceTargetInspect {
-  const entries = report.blocks;
-  const uncoveredIds = report.uncoveredBlocks;
+  const targets = [...report.blocks].map((entry) => {
+    const captured = { ...entry };
+    const declaredAcceptance = [...captured.declaredAcceptance];
+    const coveredBy = [...captured.coveredBy];
+    return { ...captured, declaredAcceptance, coveredBy,
+      declaredAcceptanceCount: declaredAcceptance.length, coveredByCount: coveredBy.length };
+  });
+  const uncoveredIds = [...report.uncoveredBlocks];
   return {
     status: report.status,
     targetKind: 'blocks',
-    targetCount: entries.length,
-    coveredCount: countMatching(entries, (entry) => !entry.uncovered),
+    targetCount: targets.length,
+    coveredCount: countMatching(targets, (target) => !target.uncovered),
     uncoveredCount: uncoveredIds.length,
     uncoveredIds,
-    targets: entries.map((entry) => ({
-      ...entry,
-      declaredAcceptanceCount: entry.declaredAcceptance.length,
-      coveredByCount: entry.coveredBy.length
-    }))
+    targets
   };
 }
 
@@ -624,14 +622,16 @@ function buildRuntimeStepInspect(
   id: RuntimeStepInspect['id'],
   step: RuntimeVerificationLaneReport['build']
 ): RuntimeStepInspect {
+  const passed = [...step.passed];
+  const failed = [...step.failed];
   return {
     id,
     status: step.status,
-    passedCount: step.passed.length,
-    failedCount: step.failed.length,
+    passedCount: passed.length,
+    failedCount: failed.length,
     command: step.command,
-    passed: step.passed,
-    failed: step.failed
+    passed,
+    failed
   };
 }
 
@@ -714,7 +714,10 @@ export function formatProvenanceRegistry(provenance: ProvenanceFile): string {
   const unverifiedArtifacts = provenance.artifacts.filter((artifact) => artifact.verifiedBy.length === 0);
   const overrideArtifacts = provenance.artifacts.filter((artifact) => artifact.overrideStatus !== 'none');
   const generatedPasses = uniqueSorted(
-    provenance.artifacts.map((artifact) => artifact.generatedByPass ?? '')
+    provenance.artifacts.flatMap((artifact) => {
+      const pass = artifact.generatedByPass;
+      return pass ? [pass] : [];
+    })
   );
   const lines = [
     formatFields([

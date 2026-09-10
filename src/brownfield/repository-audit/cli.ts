@@ -1,14 +1,20 @@
 #!/usr/bin/env bun
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import {
-  createOptions as createKnipOptions,
-  type Issues as KnipIssues,
-  type MainOptions as KnipMainOptions
-} from 'knip/session';
+  DEFAULT_REPOSITORY_AUDIT_REF,
+  parseRepositoryAuditCliOptions,
+  REPOSITORY_AUDIT_SEVERITY_RANK,
+  repositoryAuditShouldFail,
+  repositoryModuleTopologyShouldFail,
+  type RepositoryAuditCliOptions,
+  type RepositoryAuditSeverity,
+  type WorkingTreeSourceProgramAuditOptions
+} from './cli-contract.ts';
+export { repositoryAuditShouldFail } from './cli-contract.ts';
+
 import ts from 'typescript';
 
 import {
@@ -28,29 +34,18 @@ import {
 } from '../../control/documentation/document-control-plane-contract.ts';
 import { withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
 import { type GitReadSession, type GitReadSessionCommand } from '../../external-capabilities/git-read/runtime/session.ts';
-import { parseWorktreeStatusPorcelainZ } from '../../runtime-state/physical/contract/git-worktree-observation.ts';
 import {
-  inspectNoFollowDirectoryChain,
-  retainNoFollowDirectoryForChildProcess,
-  retainNoFollowOrdinaryFile,
-  type PhysicalDirectoryIdentity,
-  type RetainedNoFollowChildProcessDirectory,
-  type RetainedNoFollowOrdinaryFile,
+  inspectNoFollowDirectoryChain, retainNoFollowOrdinaryFile, type RetainedNoFollowOrdinaryFile,
   type RetainedNoFollowProvenDirectoryGeneration
 } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
-  assertProcessResourceRunResult,
   openProcessResourceSession,
   type ProcessResourceRunResult,
   type ProcessResourceSession,
   type ProcessResourceSessionReceipt
 } from '../../runtime-state/physical/runtime/process-resource-session.ts';
 import {
-  issueRetainedCommandBoundary,
-  retainCommandAuxiliaryOrdinaryFiles,
-  RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-  RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
-  RetainedCommandTransportError
+  issueRetainedCommandBoundary, RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RetainedCommandTransportError
 } from '../../runtime-state/physical/runtime/process.ts';
 import {
   PhysicalResourceCompositeSettlementError,
@@ -64,7 +59,7 @@ import {
   type SealedPhysicalExecutionTreeRetirementReceipt
 } from '../../runtime-state/physical/runtime/sealed-execution-tree-generation.ts';
 import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateEnvironment } from '../../runtime-state/workspace-state/layout.ts';
-import { compareCodeUnits, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalJson, compareCodeUnits, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { issueSecOperationRequirementBindingContext } from '../../system-architecture/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,
@@ -75,9 +70,7 @@ import {
   type SecOperationDigest
 } from '../../system-architecture/operation/semantic.ts';
 import {
-  compileSecRepositoryModuleArchitectureProjection,
-  compileSecRepositoryModuleMembershipSnapshot,
-  compileSecRepositoryModuleTopologyProjection,
+  compileSecRepositoryModuleArchitectureProjection, compileSecRepositoryModuleTopologyProjection,
   type SecRepositoryModuleArchitectureProjection,
   type SecRepositoryModuleGraph,
   type SecRepositoryModuleMembership,
@@ -102,7 +95,7 @@ import {
   createSourceProgramCompilationOperation,
   type SourceProgramCompilationOperation
 } from '../source-program-model/compilation-operation.ts';
-import { SOURCE_PROGRAM_BLOCKING_CANDIDATE_CODES, sourceProgramSurfaceForPath, type SourceProgramCandidate, type SourceProgramFileInput, type SourceProgramModel, type SourceProgramOperationProducerClosure, type SourceProgramOwnerIntentEvidence, type SourceProgramSupersessionReceipt } from '../source-program-model/contract.ts';
+import { SOURCE_PROGRAM_BLOCKING_CANDIDATE_CODES, sourceProgramSurfaceForPath, type SourceProgramCandidate, type SourceProgramFileInput, type SourceProgramModel, type SourceProgramOwnerIntentEvidence, type SourceProgramSupersessionReceipt } from '../source-program-model/contract.ts';
 import {
   compileSourceProgramDeclarationTopology,
   type SourceProgramDeclarationTopology
@@ -113,7 +106,8 @@ import {
   compileSourceProgramArchitectureEvolutionReference,
   compileSourceProgramReconciliationProjection
 } from '../source-program-model/reconciliation-projection.ts';
-import { buildSourceProgramAggregateImportReductionPatch, compileSourceProgramAggregateImportReductionPlan, compileSourceProgramGraphCutReductionPlan, compileSourceProgramSupersessionEvidence, compileSourceProgramSupersessionEvidenceIdentity, compileSourceProgramSupersessionReceipt, compileSourceProgramTestRetirementReceipt, compileSourceProgramUnusedSymbolProviderReceipt, compileSourceProgramVersionSuffixReductionPlan, parseSourceProgramSupersessionEvidence, projectSourceProgramTestRetirementDispositions, renderSourceProgramGraphCutReductionPatch, renderSourceProgramVersionSuffixReductionPatch, type SourceProgramSupersessionEvidence, type SourceProgramSupersessionEvidenceIdentity, type SourceProgramUnusedSymbolEvidence, type SourceProgramUnusedSymbolProviderReceipt } from '../source-program-model/reduction.ts';
+import { buildSourceProgramAggregateImportReductionPatch, compileSourceProgramAggregateImportReductionPlan, compileSourceProgramGraphCutReductionPlan, compileSourceProgramSupersessionEvidence, compileSourceProgramSupersessionEvidenceIdentity, compileSourceProgramSupersessionReceipt, compileSourceProgramTestRetirementReceipt, compileSourceProgramVersionSuffixReductionPlan, parseSourceProgramSupersessionEvidence, projectSourceProgramTestRetirementDispositions, renderSourceProgramGraphCutReductionPatch, renderSourceProgramVersionSuffixReductionPatch, type SourceProgramSupersessionEvidence, type SourceProgramSupersessionEvidenceIdentity } from '../source-program-model/reduction.ts';
+import { compileRepositorySourceProgramWithCache } from '../source-program-model/repository-compilation-cache-session.ts';
 import { compileRepositorySourceProgramCompilation } from '../source-program-model/repository-compilation.ts';
 import { compileSourceProgramOwnerIntentEvidence, summarizeSourceProgramTopology } from '../source-program-model/repository.ts';
 import { compileSourceProgramTestBaselineEvidence, compileSourceProgramTestValue, reconcileSourceProgramTestValueWithSupersession, SOURCE_PROGRAM_BLOCKING_TEST_FINDING_CODES, summarizeSourceProgramTestUnknownDispositionClusters, type SourceProgramTestBaselineEvidence, type SourceProgramTestFinding } from '../source-program-model/test-value.ts';
@@ -129,6 +123,10 @@ import {
   type PhysicalWorkspaceSourceSnapshot,
   type WorkspaceSourceFile
 } from '../source-program-model/workspace-source-snapshot.ts';
+import {
+  executeKnipUnusedSymbolProvider,
+  type KnipProviderResult
+} from './knip-provider.ts';
 import {
   deriveRepositoryAuditImplementationDigest,
   joinRepositoryAuditLoadedImplementationObservation,
@@ -438,7 +436,7 @@ function repositoryModuleTopologyGitBudget(): ReturnType<typeof repositoryAuditG
   });
 }
 
-export type RepositoryAuditSeverity = 'critical' | 'high' | 'medium' | 'low';
+export type { RepositoryAuditSeverity } from './cli-contract.ts';
 
 export interface RepositoryAuditFinding {
   code: string;
@@ -1123,10 +1121,11 @@ async function compileRevisionSupersessionEvidence(
     tsconfigRelativePath,
     { dependencyGeneration, dependencyGenerationDigest }
   );
-  const compilation = compileRepositorySourceProgramCompilation({
+  const compilation = compileRepositorySourceProgramWithCache({
     workspaceSnapshot,
     projectInput,
     operation,
+    repositoryRoot,
     reviewedProcessDispatchers,
     unknowns: revisionUnknowns
   });
@@ -1140,10 +1139,12 @@ async function compileRevisionSupersessionEvidence(
       tests: compileSourceProgramTestValue({
         repositoryRoot: DEFAULT_REPOSITORY_ROOT,
         files,
-        model
+        model,
+        operation
       }),
-      intentEvidence: compileSourceProgramOwnerIntentEvidence(model, membership),
-      identity
+      intentEvidence: compileSourceProgramOwnerIntentEvidence(model, membership, operation),
+      identity,
+      operation
     })
   });
 }
@@ -1198,47 +1199,6 @@ async function compileWorkingTreeModuleTopology(
   );
 }
 
-async function compileKnipUnusedSymbolEvidence(
-  repositoryRoot: string,
-  model: SourceProgramModel,
-  files: readonly SourceProgramFileInput[]
-): Promise<SourceProgramUnusedSymbolProviderReceipt> {
-  const options = await createKnipOptions({
-    cwd: repositoryRoot,
-    includedIssueTypes: ['exports', 'types'],
-    isShowProgress: false
-  });
-  const { main: runKnip } = await import('knip') as unknown as Readonly<{
-    main(options: KnipMainOptions): Promise<Readonly<{ issues: KnipIssues }>>;
-  }>;
-  const result = await runKnip(options);
-  const providerRevision = rawSha256(await readFile(new URL(import.meta.resolve('knip'))));
-  const evidence: SourceProgramUnusedSymbolEvidence[] = [];
-  for (const issueRecords of [result.issues.exports, result.issues.types]) {
-    for (const [rawPath, symbols] of Object.entries(issueRecords)) {
-      const repositoryPath = rawPath.replaceAll('\\', '/');
-      for (const name of Object.keys(symbols)) {
-        evidence.push(Object.freeze({
-          path: repositoryPath,
-          name
-        }));
-      }
-    }
-  }
-  return compileSourceProgramUnusedSymbolProviderReceipt({
-    model,
-    files,
-    providerRevision,
-    configuration: Object.freeze({
-      includedIssueTypes: Object.freeze(['exports', 'types'] as const),
-      isShowProgress: false as const
-    }),
-    settlement: 'completed',
-    candidates: Object.freeze(evidence.sort((left, right) =>
-      compareCodeUnits(left.path, right.path) || compareCodeUnits(left.name, right.name)))
-  });
-}
-
 function compileRepositoryModuleArchitectureAdmission(
   graph: SecRepositoryModuleGraph,
   membership: SecRepositoryModuleMembership,
@@ -1286,7 +1246,8 @@ async function compileWorkingTreeSourceProgram(
   repositoryRoot: string,
   supersessionBaseline: string,
   deadlineAtUnixMs: number,
-  allowSupersessionEvidenceCache: boolean
+  allowSupersessionEvidenceCache: boolean,
+  observeKnip: boolean
 ): Promise<Readonly<{
   cache: 'hit' | 'incremental' | 'miss';
   sourceProgramCompilation: Readonly<{
@@ -1313,6 +1274,9 @@ async function compileWorkingTreeSourceProgram(
   moduleMembership: SecRepositoryModuleMembership;
   reviewedProcessDispatchers: readonly string[];
   sourceFiles: readonly WorkspaceSourceFile[];
+  workspaceSnapshot: PhysicalWorkspaceSourceSnapshot;
+  compilationOperation: SourceProgramCompilationOperation;
+  knipProvider: KnipProviderResult | null;
 }>> {
   const runtime = await import('../../toolchain/dependencies/runtime.ts');
   const authority = await runtime.observeCompilerDependencyExecutionGenerationAuthority(
@@ -1326,7 +1290,7 @@ async function compileWorkingTreeSourceProgram(
     deadlineAtUnixMs
   });
   try {
-    return await withAuthorityGitReadSession(
+    const compilation = await withAuthorityGitReadSession(
       { cwd: repositoryRoot, budget: repositoryAuditGitBudget(deadlineAtUnixMs) },
       async (session) => compileWorkingTreeSourceProgramWithSession(
         session,
@@ -1338,6 +1302,25 @@ async function compileWorkingTreeSourceProgram(
         allowSupersessionEvidenceCache
       )
     );
+    if (!observeKnip) return Object.freeze({ ...compilation, knipProvider: null });
+    const cacheRoot = resolveSecRuntimeCacheRoot({
+      platform: currentSecRuntimePlatform(),
+      environment: secRuntimeStateEnvironment(),
+      repositoryRoot
+    });
+    const generationParentPath = path.join(cacheRoot, 'repository-audit', 'knip-generations');
+    await mkdir(generationParentPath, { recursive: true });
+    const knipProvider = await executeKnipUnusedSymbolProvider({
+      workspaceSnapshot: compilation.workspaceSnapshot,
+      model: compilation.model,
+      dependencyGeneration: retained,
+      generationParent: inspectNoFollowDirectoryChain(
+        generationParentPath,
+        'Knip execution generation parent'
+      ).target,
+      deadlineAtUnixMs
+    });
+    return Object.freeze({ ...compilation, knipProvider });
   } finally {
     await retained.retire();
   }
@@ -1377,6 +1360,8 @@ async function compileWorkingTreeSourceProgramWithSession(
   moduleMembership: SecRepositoryModuleMembership;
   reviewedProcessDispatchers: readonly string[];
   sourceFiles: readonly WorkspaceSourceFile[];
+  workspaceSnapshot: PhysicalWorkspaceSourceSnapshot;
+  compilationOperation: SourceProgramCompilationOperation;
 }>> {
   const compilationOperation = createSourceProgramCompilationOperation({ deadlineAtUnixMs });
   const before = await runGitBytes(session, [
@@ -1387,7 +1372,6 @@ async function compileWorkingTreeSourceProgramWithSession(
     throw new Error('Working-tree Source Program Model requires Git status');
   }
   const workspaceSnapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
-  const repositoryPaths = workspaceSnapshot.files.map(({ path: repositoryPath }) => repositoryPath);
   if (supersessionBaseline.startsWith('-')) {
     throw new Error('--supersession-baseline cannot begin with -');
   }
@@ -1450,7 +1434,6 @@ async function compileWorkingTreeSourceProgramWithSession(
       }))
   ));
   const files = workspaceSnapshot.files;
-  const presentRepositoryPaths = repositoryPaths;
   const unknowns: import('../source-program-model/contract.ts').SourceProgramUnknown[] = [];
   const moduleMembership = workspaceSnapshot.moduleMembership;
   if (moduleMembership.descriptors.length === 0) {
@@ -1489,7 +1472,7 @@ async function compileWorkingTreeSourceProgramWithSession(
     tsconfigRelativePath,
     { dependencyGeneration, dependencyGenerationDigest }
   );
-  const compilation = compileRepositorySourceProgramCompilation({
+  const compilation = compileRepositorySourceProgramWithCache({
     workspaceSnapshot,
     projectInput,
     operation: compilationOperation,
@@ -1504,7 +1487,8 @@ async function compileWorkingTreeSourceProgramWithSession(
     baselineTestPaths,
     baselineModel: baselineReconciliation.compilation.typeScriptCompilation.model,
     candidateModel: incrementalCompilation.model,
-    baselineRevision: baselineTestRevision
+    baselineRevision: baselineTestRevision,
+    operation: compilationOperation
   });
   const declarationTopology = compileSourceProgramDeclarationTopology(compilation);
   const moduleArchitecture = compileRepositoryModuleArchitectureAdmission(
@@ -1541,22 +1525,18 @@ async function compileWorkingTreeSourceProgramWithSession(
       ? baselineSupersessionEvidence
       : null,
     currentSupersessionIdentity,
-    currentIntentEvidence: compileSourceProgramOwnerIntentEvidence(model, moduleMembership),
+    currentIntentEvidence: compileSourceProgramOwnerIntentEvidence(
+      model,
+      moduleMembership,
+      compilationOperation
+    ),
     moduleMembership,
     reviewedProcessDispatchers,
-    sourceFiles: Object.freeze(files)
+    sourceFiles: Object.freeze(files),
+    workspaceSnapshot,
+    compilationOperation
   });
 }
-
-type WorkingTreeSourceProgramAuditOptions = Readonly<{
-  enforce: boolean;
-  full: boolean;
-  includeCandidates: boolean;
-  outputPath: string | null;
-  query: string | null;
-  reductionMode: 'aggregate-import' | 'graph-cut' | 'none' | 'version';
-  supersessionBaseline: string;
-}>;
 
 type PreparedWorkingTreeSourceProgramAudit = Readonly<{
   dependencyGenerationDigest: `sha256:${string}`;
@@ -1564,45 +1544,6 @@ type PreparedWorkingTreeSourceProgramAudit = Readonly<{
   operationInput: SourceProgramAuditOperationInput;
   producerCompilation: ReturnType<typeof compileRepositorySourceProgramCompilation>;
 }>;
-
-function oneCliValue(args: readonly string[], name: string): string | null {
-  const indices = args.flatMap((value, index) => value === name ? [index] : []);
-  if (indices.length === 0) return null;
-  if (indices.length !== 1) throw new Error(`${name} may be supplied exactly once`);
-  const value = args[indices[0]! + 1];
-  if (value === undefined || value.startsWith('--')) {
-    throw new Error(`${name} requires one value`);
-  }
-  return value;
-}
-
-function workingTreeSourceProgramAuditOptions(
-  args: readonly string[]
-): WorkingTreeSourceProgramAuditOptions {
-  const modes = Object.freeze([
-    ['--aggregate-import-reductions', 'aggregate-import'],
-    ['--graph-cuts', 'graph-cut'],
-    ['--version-reductions', 'version']
-  ] as const).filter(([flag]) => args.includes(flag));
-  if (modes.length > 1) {
-    throw new Error('Choose exactly one reduction mode per exact source snapshot');
-  }
-  const baseline = oneCliValue(args, '--supersession-baseline') ?? 'HEAD';
-  if (baseline.startsWith('-')) {
-    throw new Error('--supersession-baseline requires one Git revision');
-  }
-  const query = oneCliValue(args, '--query');
-  const output = oneCliValue(args, '--output');
-  return Object.freeze({
-    enforce: args.includes('--enforce'),
-    full: args.includes('--full'),
-    includeCandidates: args.includes('--candidates'),
-    outputPath: output === null ? null : path.resolve(output),
-    query,
-    reductionMode: modes[0]?.[1] ?? 'none',
-    supersessionBaseline: baseline
-  });
-}
 
 async function prepareWorkingTreeSourceProgramAudit(
   options: WorkingTreeSourceProgramAuditOptions,
@@ -1614,7 +1555,8 @@ async function prepareWorkingTreeSourceProgramAudit(
         DEFAULT_REPOSITORY_ROOT,
         options.supersessionBaseline,
         deadlineAtUnixMs,
-        !options.enforce
+        !options.enforce,
+        options.reductionMode === 'graph-cut'
       );
     } finally {
       releaseTypeScriptSourceProgramWorkspace();
@@ -1625,9 +1567,26 @@ async function prepareWorkingTreeSourceProgramAudit(
     model,
     ownerIntents: worktreeAudit.currentIntentEvidence
   });
+  const knipReceipt = worktreeAudit.knipProvider?.status === 'completed'
+    ? worktreeAudit.knipProvider.receipt
+    : null;
   const reconciliation = compileSourceProgramReconciliationProjection({
     before: worktreeAudit.baselineSourceProgramCompilation,
-    after: worktreeAudit.currentSourceProgramCompilation
+    after: worktreeAudit.currentSourceProgramCompilation,
+    ...(options.reductionMode === 'graph-cut' ? {
+      providerEvidence: [knipReceipt === null
+        ? Object.freeze({
+            provider: 'knip', status: 'unresolved' as const,
+            providerRevision: null, configDigest: null, inputDigest: null, candidateDigest: null
+          })
+        : Object.freeze({
+            provider: 'knip', status: 'observed' as const,
+            providerRevision: knipReceipt.providerRevision,
+            configDigest: knipReceipt.configurationDigest as `sha256:${string}`,
+            inputDigest: knipReceipt.inputDigest as `sha256:${string}`,
+            candidateDigest: knipReceipt.candidateDigest as `sha256:${string}`
+          })]
+    } : {})
   });
   const architectureEvolution = compileSourceProgramArchitectureEvolutionReference({
     reconciliation
@@ -1637,17 +1596,20 @@ async function prepareWorkingTreeSourceProgramAudit(
     files: worktreeAudit.sourceFiles,
     model,
     baselineTestPaths: worktreeAudit.baselineTestPaths,
-    baselineEvidence: worktreeAudit.baselineTestEvidence
+    baselineEvidence: worktreeAudit.baselineTestEvidence,
+    operation: worktreeAudit.compilationOperation
   });
   const currentSupersessionEvidence = compileSourceProgramSupersessionEvidence({
     model,
     tests: testValue,
     intentEvidence: worktreeAudit.currentIntentEvidence,
-    identity: worktreeAudit.currentSupersessionIdentity
+    identity: worktreeAudit.currentSupersessionIdentity,
+    operation: worktreeAudit.compilationOperation
   });
   const supersession = compileSourceProgramSupersessionReceipt({
     baseline: worktreeAudit.baselineSupersessionEvidence,
-    current: currentSupersessionEvidence
+    current: currentSupersessionEvidence,
+    operation: worktreeAudit.compilationOperation
   });
   const observedDisposition = reconcileSourceProgramTestValueWithSupersession(
     testValue,
@@ -1660,7 +1622,8 @@ async function prepareWorkingTreeSourceProgramAudit(
     currentModel: model,
     currentTestCompilation: testValue,
     baselineFiles: worktreeAudit.baselineSourceFiles,
-    currentFiles: worktreeAudit.sourceFiles
+    currentFiles: worktreeAudit.sourceFiles,
+    operation: worktreeAudit.compilationOperation
   });
   const testDisposition = projectSourceProgramTestRetirementDispositions(
     observedDisposition,
@@ -1673,6 +1636,7 @@ async function prepareWorkingTreeSourceProgramAudit(
     testDisposition.findings
   );
   const reductionCompilerContext = Object.freeze({
+    operation: worktreeAudit.compilationOperation,
     typeScriptModel: worktreeAudit.currentSourceProgramCompilation.typeScriptCompilation.model,
     moduleMembership: worktreeAudit.moduleMembership,
     reviewedProcessDispatchers: worktreeAudit.reviewedProcessDispatchers
@@ -1703,16 +1667,11 @@ async function prepareWorkingTreeSourceProgramAudit(
       ? null
       : buildSourceProgramAggregateImportReductionPatch(plan, worktreeAudit.sourceFiles);
     reduction = Object.freeze({ mode: 'aggregate-import', plan, patch });
-  } else if (options.reductionMode === 'graph-cut') {
-    const provider = await compileKnipUnusedSymbolEvidence(
-      DEFAULT_REPOSITORY_ROOT,
-      model,
-      worktreeAudit.sourceFiles
-    );
+  } else if (options.reductionMode === 'graph-cut' && knipReceipt !== null) {
     const plan = compileSourceProgramGraphCutReductionPlan(
       model,
       worktreeAudit.sourceFiles,
-      provider,
+      knipReceipt,
       reductionCompilerContext
     );
     const patch = plan.reductions.every(({ status }) => status === 'blocked')
@@ -1723,9 +1682,9 @@ async function prepareWorkingTreeSourceProgramAudit(
       plan,
       patch,
       providerEvidence: Object.freeze({
-        provider: provider.provider,
-        receiptDigest: provider.receiptDigest,
-        sourceRevision: provider.sourceRevision
+        provider: knipReceipt.provider,
+        receiptDigest: knipReceipt.receiptDigest,
+        sourceRevision: knipReceipt.sourceRevision
       })
     });
   }
@@ -1753,10 +1712,14 @@ async function prepareWorkingTreeSourceProgramAudit(
       sourceProgram: compileSourceProgramAuditSourceProgramProjection(
         model,
         sourceFileIdentities,
-        options.includeCandidates
+        options.includeCandidates,
+        options.blockingDetails && options.blockingDetailsDomain === 'source-program'
       ),
       moduleArchitecture: worktreeAudit.moduleArchitecture,
       options: Object.freeze({
+        blockingDetails: options.blockingDetails,
+        blockingDetailsDomain: options.blockingDetailsDomain,
+        blockingDetailsPage: options.blockingDetailsPage,
         enforce: options.enforce,
         full: options.full,
         includeCandidates: options.includeCandidates,
@@ -2092,16 +2055,6 @@ export function projectRepositorySourceGovernance(
   });
 }
 
-interface DeletedBlobGitFact {
-  oldBlob: string;
-  bytes: number;
-  lineCount: number;
-}
-
-function unknownCount(unknowns: readonly string[], markers: readonly string[]): number {
-  return unknowns.filter((unknown) => markers.some((marker) => unknown.includes(marker))).length;
-}
-
 async function auditControlPlane(
   session: GitReadSession,
   tracked: readonly string[],
@@ -2269,7 +2222,7 @@ async function auditRepositoryWithSession(
   repositoryRoot: string,
   options: { defaultRef?: string }
 ): Promise<RepositoryAuditReport> {
-  const defaultRefInput = options.defaultRef ?? process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF ?? 'refs/remotes/origin/main';
+  const defaultRefInput = options.defaultRef ?? process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF ?? DEFAULT_REPOSITORY_AUDIT_REF;
   const isExactSha = /^[0-9a-f]{40}$/u.test(defaultRefInput);
   // For exact SHA input, validate it resolves to a commit object. For ref input,
   // use rev-parse --verify <ref> (resolves through symbolic refs).
@@ -2479,14 +2432,8 @@ async function auditRepositoryWithSession(
       ? 'unresolved'
       : 'clean';
 
-  const rank: Record<RepositoryAuditSeverity, number> = {
-    critical: 0,
-    high: 1,
-    low: 3,
-    medium: 2
-  };
   findings.sort((left, right) =>
-    rank[left.severity] - rank[right.severity]
+    REPOSITORY_AUDIT_SEVERITY_RANK[left.severity] - REPOSITORY_AUDIT_SEVERITY_RANK[right.severity]
     || (left.path ?? '').localeCompare(right.path ?? '')
     || (left.line ?? 0) - (right.line ?? 0)
     || left.code.localeCompare(right.code));
@@ -2552,64 +2499,21 @@ async function auditRepositoryWithSession(
   });
 }
 
-function severityFails(
-  severity: RepositoryAuditSeverity,
-  threshold: RepositoryAuditSeverity
-): boolean {
-  const rank: Record<RepositoryAuditSeverity, number> = {
-    critical: 0,
-    high: 1,
-    low: 3,
-    medium: 2
-  };
-  return rank[severity] <= rank[threshold];
-}
-
-export function repositoryAuditShouldFail(
-  report: Pick<RepositoryAuditReport, 'findings' | 'unknowns'>,
-  options: {
-    diagnostic?: boolean;
-    failOn?: RepositoryAuditSeverity | 'none';
-  } = {}
-): boolean {
-  const diagnostic = options.diagnostic ?? false;
-  const failOn = options.failOn ?? 'high';
-  if (!diagnostic && report.unknowns.length > 0) return true;
-  return failOn !== 'none'
-    && report.findings.some((finding) => severityFails(finding.severity, failOn));
-}
-
 export async function runRepositoryAuditCli(
   args: readonly string[] = process.argv.slice(2),
   execution: Readonly<{ deadlineAtUnixMs?: number }> = {}
 ): Promise<void> {
-  const diagnostic = args.includes('--diagnostic');
-  const full = args.includes('--full');
-  const outputIndex = args.indexOf('--output');
-  const outputPath = outputIndex >= 0 ? args[outputIndex + 1] : undefined;
-  const failIndex = args.indexOf('--fail-on');
-  const queryIndex = args.indexOf('--query');
-  const query = queryIndex >= 0 ? args[queryIndex + 1] : undefined;
-  if (queryIndex >= 0 && (!query || query.startsWith('--'))) {
-    throw new Error('--query requires one symbol, literal, module, or path fragment');
-  }
-  const failOn = failIndex >= 0
-    ? args[failIndex + 1] as RepositoryAuditSeverity | 'none' | undefined
-    : 'high';
-  if (failOn !== undefined
-    && failOn !== 'none'
-    && !['critical', 'high', 'medium', 'low'].includes(failOn)) {
-    throw new Error(`Unsupported --fail-on value: ${failOn}`);
-  }
+  return runRepositoryAuditInput(parseRepositoryAuditCliOptions(args), execution);
+}
 
-  // Default-base identity: CLI --default-ref takes precedence; env is read only
-  // when CLI flag is absent. No other inference paths.
-  const defaultRefIndex = args.indexOf('--default-ref');
-  const cliDefaultRef = defaultRefIndex >= 0 ? args[defaultRefIndex + 1] : undefined;
-  const defaultRef = cliDefaultRef ?? process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF ?? undefined;
-
-  if (args.includes('--worktree-module-topology')) {
+async function runRepositoryAuditInput(
+  input: RepositoryAuditCliOptions,
+  execution: Readonly<{ deadlineAtUnixMs?: number }> = {}
+): Promise<void> {
+  const { diagnostic, full, outputPath, query, failOn } = input;
+  if (input.mode === 'module-topology') {
     const result = await compileWorkingTreeModuleTopology(DEFAULT_REPOSITORY_ROOT);
+    if (repositoryModuleTopologyShouldFail(result, input.enforce)) process.exitCode = 1;
     const projection = Object.freeze({
       sourceRevision: result.sourceRevision,
       workspaceSourceSnapshot: Object.freeze({
@@ -2640,28 +2544,36 @@ export async function runRepositoryAuditCli(
           })
     });
     const encoded = `${JSON.stringify(projection, null, 2)}\n`;
-    if (outputPath !== undefined) {
-      const absoluteOutput = path.resolve(outputPath);
-      await mkdir(path.dirname(absoluteOutput), { recursive: true });
-      await writeFile(absoluteOutput, encoded, 'utf8');
+    if (outputPath !== null) {
+      await mkdir(path.dirname(outputPath), { recursive: true });
+      await writeFile(outputPath, encoded, 'utf8');
     }
     process.stdout.write(encoded);
-    if (args.includes('--enforce') && result.topology.violations.length > 0) {
-      process.exitCode = 1;
-    }
     return;
   }
 
-  if (args.includes('--worktree-source-program')) { if (!Number.isSafeInteger(execution.deadlineAtUnixMs) || (execution.deadlineAtUnixMs as number) <= Date.now()) { throw new Error("Working-tree Source Program audit requires one inherited absolute deadline."); } await runSupervisedWorkingTreeSourceProgramAudit(args, (execution.deadlineAtUnixMs as number) - Date.now()); return; }
+  if (input.mode === 'source-program') {
+    const deadline = execution.deadlineAtUnixMs;
+    const now = Date.now();
+    if (!Number.isSafeInteger(deadline) || (deadline as number) <= now) {
+      throw new Error('Working-tree Source Program audit requires one inherited absolute deadline.');
+    }
+    await runSupervisedWorkingTreeSourceProgramAudit(input, (deadline as number) - now);
+    return;
+  }
+
+  // Freeze the original precedence before any asynchronous audit work.
+  const defaultRef = input.defaultRef
+    ?? process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF ?? DEFAULT_REPOSITORY_AUDIT_REF;
 
   const report = await auditRepository(undefined, { defaultRef });
+  if (repositoryAuditShouldFail(report, { diagnostic, failOn })) process.exitCode = 1;
   const encoded = `${JSON.stringify(report, null, 2)}\n`;
-  if (outputPath) {
-    const absoluteOutput = path.resolve(outputPath);
-    await mkdir(path.dirname(absoluteOutput), { recursive: true });
-    await writeFile(absoluteOutput, encoded, 'utf8');
+  if (outputPath !== null) {
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, encoded, 'utf8');
   }
-  process.stdout.write(query
+  process.stdout.write(query !== null
     ? `${JSON.stringify({
         modelDigest: report.sourceProgram.modelDigest,
         sourceRevision: report.sourceProgram.sourceRevision,
@@ -2670,13 +2582,6 @@ export async function runRepositoryAuditCli(
     : full
       ? encoded
       : `${JSON.stringify(projectRepositoryAuditCli(report), null, 2)}\n`);
-
-  if (repositoryAuditShouldFail(report, {
-    diagnostic,
-    failOn: failOn ?? 'high'
-  })) {
-    process.exitCode = 1;
-  }
 }
 
 export type RepositoryAuditWorkerDiagnosticReason =
@@ -2933,6 +2838,17 @@ export async function executeSupervisedWorkingTreeSourceProgramAudit(
   args: readonly string[],
   maximumDurationMs = SOURCE_PROGRAM_AUDIT_DEADLINE_MS
 ): Promise<RepositoryAuditWorkerExecution> {
+  const options = parseRepositoryAuditCliOptions(args, 'source-program');
+  if (options.mode !== 'source-program') {
+    throw new Error('Supervised Source Program entry requires source-program mode');
+  }
+  return executeAdmittedWorkingTreeSourceProgramAudit(options, maximumDurationMs);
+}
+
+async function executeAdmittedWorkingTreeSourceProgramAudit(
+  options: WorkingTreeSourceProgramAuditOptions,
+  maximumDurationMs: number
+): Promise<RepositoryAuditWorkerExecution> {
   if (!Number.isSafeInteger(maximumDurationMs)
       || maximumDurationMs < 1
       || maximumDurationMs > SOURCE_PROGRAM_AUDIT_DEADLINE_MS) {
@@ -2944,7 +2860,6 @@ export async function executeSupervisedWorkingTreeSourceProgramAudit(
     Math.min(SOURCE_PROGRAM_AUDIT_MAX_SETTLEMENT_RESERVE_MS, Math.floor(maximumDurationMs / 20))
   );
   const workerDeadlineAtUnixMs = deadlineAtUnixMs - settlementReserveMs;
-  const options = workingTreeSourceProgramAuditOptions(args);
   const prepared = await prepareWorkingTreeSourceProgramAudit(options, workerDeadlineAtUnixMs);
   const producerClosure = compileSourceProgramOperationProducerClosure(
     prepared.producerCompilation,
@@ -2956,7 +2871,15 @@ export async function executeSupervisedWorkingTreeSourceProgramAudit(
   const operationPayload = encodeSourceProgramAuditOperationInput(prepared.operationInput);
   if (operationPayload.byteLength
       > REPOSITORY_AUDIT_WORKER_PROTOCOL_LIMITS.maximumOperationInputBytes) {
-    throw new Error('Repository Audit normalized operation exceeds its canonical input budget.');
+    const projectionFieldBytes = Object.freeze(Object.entries(prepared.operationInput.projection)
+      .map(([field, value]) => Object.freeze({
+        field,
+        bytes: Buffer.byteLength(JSON.stringify(canonicalJson(value)), 'utf8')
+      }))
+      .sort((left, right) => right.bytes - left.bytes || compareCodeUnits(left.field, right.field)));
+    throw new Error(
+      `Repository Audit normalized operation exceeds its canonical input budget: ${JSON.stringify(projectionFieldBytes)}`
+    );
   }
   const executablePath = path.resolve(process.execPath);
   let executable: RetainedNoFollowOrdinaryFile | null = null;
@@ -3231,25 +3154,25 @@ export async function executeSupervisedWorkingTreeSourceProgramAudit(
 }
 
 async function runSupervisedWorkingTreeSourceProgramAudit(
-  args: readonly string[],
+  input: WorkingTreeSourceProgramAuditOptions,
   maximumDurationMs = SOURCE_PROGRAM_AUDIT_DEADLINE_MS
 ): Promise<void> {
-  const execution = await executeSupervisedWorkingTreeSourceProgramAudit(args, maximumDurationMs);
+  const execution = await executeAdmittedWorkingTreeSourceProgramAudit(input, maximumDurationMs);
   if (execution.status === 'denied') {
-    process.stderr.write(`${JSON.stringify(execution.diagnostic)}\n`);
     process.exitCode = 1;
+    process.stderr.write(`${JSON.stringify(execution.diagnostic)}\n`);
     return;
   }
+  // A successful invocation must not clear a failure already recorded by a
+  // caller running several checks in this process.
+  if (execution.code !== 0) process.exitCode = execution.code;
   process.stdout.write(execution.stdout);
   process.stderr.write(execution.stderr);
-  process.exitCode = execution.code;
 }
 
 if (import.meta.main) {
-  const args = process.argv.slice(2);
-  if (args.includes('--worktree-source-program')) {
-    await runSupervisedWorkingTreeSourceProgramAudit(args);
-  } else {
-    await runRepositoryAuditCli(args);
-  }
+  const input = parseRepositoryAuditCliOptions(process.argv.slice(2));
+  await runRepositoryAuditInput(input, input.mode === 'source-program'
+    ? { deadlineAtUnixMs: Date.now() + SOURCE_PROGRAM_AUDIT_DEADLINE_MS }
+    : {});
 }

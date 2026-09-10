@@ -1,3 +1,4 @@
+import type { ProcessResourceSession } from '../../runtime-state/physical/runtime/process-resource-session.ts';
 import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
 import { isAffectedSelectionFailClosed } from '../../verification/test-impact/affected.ts';
 import {
@@ -7,12 +8,15 @@ import {
 } from './affected-plan-contract.ts';
 import type { MaterializedOperationDependencyBootstrapResult } from './dependency-bootstrap.ts';
 import { retainOperationDependencyReadGeneration } from './dependency-read-generation.ts';
+import { executeFastCheckStages } from './fast-check-stages.ts';
 import {
   type ResolvedAffectedTestExecution
 } from './test-runner.ts';
 
 interface LocalAffectedCheckExecutionOptions {
   readonly operation: SecBoundSemanticOperation;
+  /** Borrowed by the repository fence; no selector may open a second ledger. */
+  readonly processSession?: ProcessResourceSession;
   readonly prepareCompilerDependencies?: () => Promise<MaterializedOperationDependencyBootstrapResult>;
 }
 
@@ -23,35 +27,37 @@ async function executeLocalAffectedGate(
   compilerDependencies: MaterializedOperationDependencyBootstrapResult | undefined
 ): Promise<number> {
   if (step.id === 'imports:check') {
-    const { runImportCheck } = await import('./import-organizer.ts');
-    const outcome = await runImportCheck({});
-    if (outcome.status === 'canonical') return 0;
-    console.error(
-      `Imports need transform (needs-import-transform) in ${outcome.files.length} file(s):\n`
-      + `${outcome.files.map((file) => `- ${file}`).join('\n')}\nRun bun run imports:apply.`
-    );
-    return 1;
-  }
-  if (step.id === 'audit:static') {
-    const { runDevCommand } = await import('./command-runner.ts');
-    return runDevCommand('bun', ['run', step.id], {});
+    return runObservedReadOnlyStage(step.id, async () => {
+      const { runImportCheck } = await import('./import-organizer.ts');
+      const outcome = await runImportCheck({});
+      if (outcome.status === 'canonical') return 0;
+      console.error(
+        `Imports need transform (needs-import-transform) in ${outcome.files.length} file(s):\n`
+        + `${outcome.files.map((file) => `- ${file}`).join('\n')}\nRun bun run imports:apply.`
+      );
+      return 1;
+    });
   }
   if (step.id === 'typecheck') {
     if (compilerDependencies === undefined) {
       console.error('Local affected typecheck requires completed compiler dependency admission.');
       return 1;
     }
-    const { runTypecheckWithDependencyRootAndProjectGenerationEvidence } = await import(
-      './typecheck-runner.ts'
-    );
-    return runTypecheckWithDependencyRootAndProjectGenerationEvidence(
-      compilerDependencies,
-      affectedExecution.projectGenerationEvidence
-    );
+    return runObservedReadOnlyStage(step.id, async () => {
+      const { runTypecheckWithDependencyRootAndProjectGenerationEvidence } = await import(
+        './typecheck-runner.ts'
+      );
+      return runTypecheckWithDependencyRootAndProjectGenerationEvidence(
+        compilerDependencies,
+        affectedExecution.projectGenerationEvidence
+      );
+    });
   }
   if (step.id === 'docs:doctor') {
-    const { runDevCommand } = await import('./command-runner.ts');
-    return runDevCommand('bun', ['src/control/documentation/doctor/cli.ts'], {});
+    return runObservedReadOnlyStage(step.id, async () => {
+      const { runDevCommand } = await import('./command-runner.ts');
+      return runDevCommand('bun', ['src/control/documentation/doctor/cli.ts'], {});
+    });
   }
 
   const { withHeavyVerificationGateLease } = await import('../../verification/gate/state/heavy-lease.ts');
@@ -59,6 +65,14 @@ async function executeLocalAffectedGate(
     'test:affected',
     () => affectedExecution.run(compilerDependencies)
   );
+}
+
+async function runObservedReadOnlyStage(
+  commandId: string,
+  run: () => Promise<number>
+): Promise<number> {
+  const { runStandaloneRepositoryZeroWriteOperation } = await import('./repository-mutation-fence.ts');
+  return runStandaloneRepositoryZeroWriteOperation(commandId, run);
 }
 
 async function assertAffectedExecutionCurrent(
@@ -97,18 +111,29 @@ export async function runLocalAffectedCheck(
     console.error(`Affected ProjectInput dependency generation is unavailable: ${dependencyResolution.reason}`);
     return 1;
   }
-  let affectedExecution: ResolvedAffectedTestExecution | null;
+  let affectedExecution: ResolvedAffectedTestExecution | null = null;
   try {
-    affectedExecution = await resolveAffectedTestExecution({
-      dependencyGeneration: dependencyResolution?.generation,
-      operation: options.operation,
-      issueTestImpactProjection: issueCheckAffectedTestImpactProjection,
-      // This owner performs the explicit admission immediately before compiler
-      // dependency preparation and before every gate. Plan output keeps the
-      // resolution-time fence; execution avoids an otherwise redundant full
-      // source census before its own adjacent fence.
-      verifyAtResolution: args.length === 1
-    });
+    const resolve = (processSession?: ProcessResourceSession) => resolveAffectedTestExecution({
+        dependencyGeneration: dependencyResolution?.generation,
+        operation: options.operation,
+        processSession,
+        issueTestImpactProjection: issueCheckAffectedTestImpactProjection,
+        verifyAtResolution: args.length === 1
+      });
+    if (options.processSession !== undefined) {
+      affectedExecution = await resolve(options.processSession);
+    } else {
+      const { runRepositoryZeroWriteOperation } = await import('./repository-mutation-fence.ts');
+      const selectionCode = await runRepositoryZeroWriteOperation(
+        'check:affected:selection',
+        async (processSession) => {
+          affectedExecution = await resolve(processSession);
+          return affectedExecution === null ? 1 : 0;
+        },
+        { operation: options.operation }
+      );
+      if (selectionCode !== 0) return selectionCode;
+    }
   } finally {
     if (dependencyResolution?.status === 'ready') {
       await dependencyResolution.generation.retire();
@@ -179,31 +204,38 @@ export async function runFastCheck(options: FastCheckExecutionOptions = {}): Pro
 
   console.log('Running fast check: imports:check -> docs:doctor + typecheck (parallel) -> test:fast');
 
-  const { runImportCheck } = await import('./import-organizer.ts');
-  const importsOutcome = await runImportCheck({});
-  if (importsOutcome.status !== 'canonical') {
-    console.error(
-      `Imports need transform (needs-import-transform) in ${importsOutcome.files.length} file(s):\n`
-      + `${importsOutcome.files.map((file) => `- ${file}`).join('\n')}\nRun bun run imports:apply.`
-    );
-    return 1;
-  }
-
-  const { runDevCommand } = await import('./command-runner.ts');
-  const { runTypecheckWithDependencyRoot } = await import('./typecheck-runner.ts');
-  const typecheck = () => runTypecheckWithDependencyRoot(compilerDependencies);
-
-  const [docsCode, typecheckCode] = await Promise.all([
-    runDevCommand('bun', ['src/control/documentation/doctor/cli.ts'], {}),
-    typecheck()
-  ]);
-  if (docsCode !== 0) return docsCode;
-  if (typecheckCode !== 0) return typecheckCode;
-
-  const { withHeavyVerificationGateLease } = await import('../../verification/gate/state/heavy-lease.ts');
-  const { runFastTests } = await import('./test-runner.ts');
-  return withHeavyVerificationGateLease('test:fast', () => runFastTests([], compilerDependencies), {
-    namespace: 'test:fast',
-    waitTimeoutMs: 5000
+  return executeFastCheckStages({
+    imports: async () => {
+      return runObservedReadOnlyStage('check:fast:imports', async () => {
+        const { runImportCheck } = await import('./import-organizer.ts');
+        const outcome = await runImportCheck({});
+        if (outcome.status === 'canonical') return 0;
+        console.error(
+          `Imports need transform (needs-import-transform) in ${outcome.files.length} file(s):\n`
+          + `${outcome.files.map(file => `- ${file}`).join('\n')}\nRun bun run imports:apply.`
+        );
+        return 1;
+      });
+    },
+    documentation: async () => {
+      return runObservedReadOnlyStage('check:fast:docs:doctor', async () => {
+        const { runDevCommand } = await import('./command-runner.ts');
+        return runDevCommand('bun', ['src/control/documentation/doctor/cli.ts'], {});
+      });
+    },
+    types: async () => {
+      return runObservedReadOnlyStage('check:fast:typecheck', async () => {
+        const { runTypecheckWithDependencyRoot } = await import('./typecheck-runner.ts');
+        return runTypecheckWithDependencyRoot(compilerDependencies);
+      });
+    },
+    tests: async () => {
+      const { withHeavyVerificationGateLease } = await import('../../verification/gate/state/heavy-lease.ts');
+      const { runFastTests } = await import('./test-runner.ts');
+      return withHeavyVerificationGateLease('test:fast', () => runFastTests([], compilerDependencies), {
+        namespace: 'test:fast',
+        waitTimeoutMs: 5000
+      });
+    }
   });
 }

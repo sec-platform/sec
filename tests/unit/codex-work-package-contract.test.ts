@@ -264,6 +264,9 @@ test('rename and copy endpoints must remain inside one task seam', () => {
 
 test('changed records preserve same-source copy lineage without weakening path identity', () => {
   const parsed = CodexDevelopmentDecodeWorkPackageManifest(manifest().replace(
+    '  - src/compiler/',
+    '  - vendor/'
+  ).replace(
     '      - platform/shared/ci-contract.ts\n      - scripts/codex/',
     '      - src/'
   ));
@@ -307,6 +310,9 @@ test('changed records preserve same-source copy lineage without weakening path i
 
 test('changed records reject case-insensitive flattened path collisions', () => {
   const parsed = CodexDevelopmentDecodeWorkPackageManifest(manifest().replace(
+    '  - src/compiler/',
+    '  - vendor/'
+  ).replace(
     '      - platform/shared/ci-contract.ts\n      - scripts/codex/',
     '      - src/'
   ));

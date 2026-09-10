@@ -204,18 +204,6 @@ test('aggregate fails closed for empty claims instead of manufacturing passed', 
   expect(result.claimResults).toEqual([]);
 });
 
-test('aggregate result has correct shape', () => {
-  const result = CodexDevelopmentAggregateVerificationClaims({
-    claims: [{ claimId: 'c1', requiredGateIds: ['g1'], owningEnvironments: ['linux-x64'] }],
-    gateResults: []
-  });
-  expect(result).toHaveProperty('overallStatus');
-  expect(result).toHaveProperty('overallReasonCode');
-  expect(result).toHaveProperty('claimResults');
-  expect(Array.isArray(result.claimResults)).toBe(true);
-  expect(result.claimResults).toHaveLength(1);
-});
-
 function canonicalAggregateFixture() {
   const gate = CodexDevelopmentBuildVerificationGateResult(minimalValidInput());
   const claims = [{

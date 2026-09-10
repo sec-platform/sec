@@ -59,3 +59,19 @@ test('strict YAML preserves duplicate-key failure identity', () => {
       yamlErrorCode: 'DUPLICATE_KEY'
     }));
 });
+
+test('both YAML capabilities reject a second document with the parser cause intact', () => {
+  for (const source of ['first: 1\n---\nsecond: 2\n', '---\nfirst: 1\n...\n---\n']) {
+    for (const parse of [parseYamlValue, parseYamlDocument]) {
+      expect(() => parse(source, VALUE_ADMISSION)).toThrow(expect.objectContaining({
+        code: 'YAML-SYNTAX-001',
+        kind: 'invalid-yaml',
+        yamlErrorCode: 'MULTIPLE_DOCS',
+        cause: expect.objectContaining({ code: 'MULTIPLE_DOCS' })
+      }));
+    }
+  }
+  expect(parseYamlValue('---\nvalue: |\n  ---\n...\n', VALUE_ADMISSION))
+    .toEqual({ value: '---\n' });
+  expect(parseYamlValue('', VALUE_ADMISSION)).toBeNull();
+});

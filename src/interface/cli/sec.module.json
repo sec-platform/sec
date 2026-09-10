@@ -9,7 +9,7 @@
       "subject": "semantic.repair-plan",
       "relation": "reads-back",
       "symbol": {
-        "path": "src/interface/cli/register-commands.ts",
+        "path": "src/interface/cli/artifact-command-read.ts",
         "name": "readRequiredRepairPlan"
       },
       "operation": null

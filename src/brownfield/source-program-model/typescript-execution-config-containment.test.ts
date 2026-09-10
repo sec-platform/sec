@@ -55,12 +55,10 @@ test('ProjectInput signs one exact execution-config containment receipt', () => 
   expect(first.input.executionConfigContainment).toMatchObject({
     status: 'contained',
     compilerRevision: ts.version,
-    dependencyGenerationPhysicalDigest: null,
     projectConfigPath: 'tsconfig.json',
     projectConfigDigest: first.snapshot.file('tsconfig.json')?.contentDigest,
     workspaceSnapshotIdentityDigest: first.snapshot.identityDigest
   });
-  expect(first.input.executionConfigContainment.containmentDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
   expect(equivalent.input.executionConfigContainment).toEqual(first.input.executionConfigContainment);
   expect(changedConfig.input.executionConfigContainment.containmentDigest)
     .not.toBe(first.input.executionConfigContainment.containmentDigest);

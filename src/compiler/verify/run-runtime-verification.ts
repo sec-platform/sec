@@ -6,7 +6,8 @@ import { defaultLogger } from '../../system-architecture/foundation/logger.ts';
 import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
 import {
   dependencyAuthorityPaths,
-  ensureProjectDependencies
+  ensureProjectDependencies,
+  withProjectDependencyBridge
 } from '../../toolchain/dependencies/runtime.ts';
 import type { RuntimeVerificationLaneReport, VerificationStatus, VerificationStepReport } from '../../verification/contract/types.ts';
 import type { CommitFence } from '../../workspace/files.ts';
@@ -97,6 +98,9 @@ export function runtimeVerificationInvocation(
   isolated = false,
   isolatedConfigPath?: string
 ): { command: string; args: string[] } {
+  if (!path.isAbsolute(projectRoot)) {
+    throw new Error('Runtime verification requires one absolute project root');
+  }
   if (!isolated) {
     return {
       command: 'bun',
@@ -181,12 +185,30 @@ export async function runRuntimeVerification(
     )
   );
 
-  await withPhase('runtime-dependency-validation', () => ensureProjectDependencies(workspaceRoot, {
-    beforeCommit: options.beforeCommit,
-    signal: options.signal,
-    skipSharedDepsWarmup: true,
-    ...(isolated ? { installMode: 'prebound-only' as const } : {})
-  }));
+  const lane: RuntimeVerificationLaneReport = {
+    status: 'passed',
+    build: skippedStep(),
+    unit: {
+      status: runtimeUnitFiles.length === 0 ? 'skipped' : 'passed',
+      passed: [],
+      failed: [],
+      command: runtimeUnitFiles.length === 0
+        ? null
+        : RUNTIME_VERIFICATION_INVOCATION_CONTRACT.unit.logicalCommandLabel
+    },
+    acceptance: skippedStep(),
+    logs: { stdout: '', stderr: '' }
+  };
+  if (runtimeUnitFiles.length === 0) return lane;
+
+  if (isolated) {
+    await withPhase('runtime-dependency-validation', () => ensureProjectDependencies(workspaceRoot, {
+      beforeCommit: options.beforeCommit,
+      signal: options.signal,
+      skipSharedDepsWarmup: true,
+      installMode: 'prebound-only'
+    }));
+  }
 
   const isolatedRuntimeRoot = isolated
     ? path.join(options.stagingWorkspaceRoot!, '.isolated-process', 'runtime')
@@ -213,25 +235,9 @@ export async function runRuntimeVerification(
         options.sourceEnvironmentForTests ?? process.env
       )
     : { ...(options.sourceEnvironmentForTests ?? process.env) };
-  const lane: RuntimeVerificationLaneReport = {
-    status: 'passed',
-    build: skippedStep(),
-    unit: {
-      status: runtimeUnitFiles.length === 0 ? 'skipped' : 'passed',
-      passed: [],
-      failed: [],
-      command: runtimeUnitFiles.length === 0
-        ? null
-        : RUNTIME_VERIFICATION_INVOCATION_CONTRACT.unit.logicalCommandLabel
-    },
-    acceptance: skippedStep(),
-    logs: { stdout: '', stderr: '' }
-  };
-
   try {
-    if (runtimeUnitFiles.length === 0) return lane;
     const invocation = runtimeVerificationInvocation(workspaceRoot, isolated, isolatedConfigPath);
-    const result = await timed('runtime unit', options.emitTiming ?? true, () =>
+    const executeRuntimeUnit = () => timed('runtime unit', options.emitTiming ?? true, () =>
       (options.commandRunnerForTests ?? runCommand)(invocation.command, invocation.args, {
         beforeSpawn: isolated ? options.beforeCommit : undefined,
         cwd: workspaceRoot,
@@ -240,6 +246,13 @@ export async function runRuntimeVerification(
         ...(isolated ? { envMode: 'replace' as const } : {})
       })
     );
+    const result = isolated
+      ? await executeRuntimeUnit()
+      : await withPhase('runtime-dependency-validation', () => withProjectDependencyBridge(
+          workspaceRoot,
+          executeRuntimeUnit,
+          { beforeCommit: options.beforeCommit, signal: options.signal }
+        ));
     const status = normalizeStatus(result.code);
     lane.status = status;
     lane.unit = {

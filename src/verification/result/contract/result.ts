@@ -602,7 +602,7 @@ export function CodexDevelopmentAssertVerificationGateResult(
   assertDigest(candidate.inputDigest, `${label}.inputDigest`);
   assertStringSet(candidate.applicability, new Set(APPLICABILITIES), `${label}.applicability`);
   assertStringSet(candidate.disposition, new Set(DISPOSITIONS), `${label}.disposition`);
-  const { status, reasonCode } = CodexDevelopmentAssertVerificationStatusReason(
+  const { status } = CodexDevelopmentAssertVerificationStatusReason(
     candidate.status,
     candidate.reasonCode,
     label

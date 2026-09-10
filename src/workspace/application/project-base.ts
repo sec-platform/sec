@@ -29,6 +29,22 @@ function artifactParentDirectories(root: string): string[] {
   return childDirectories(root, relativeParents);
 }
 
+/**
+ * Materialize the fixed CI artifact namespace before any publisher retains an
+ * existing parent. The manifest remains the only path registry; workspace
+ * templates and fixtures consume this operation instead of reproducing its
+ * directory set.
+ */
+export async function ensureCanonicalWorkspaceArtifactParents(
+  workspaceRoot: string,
+  commitFence?: CommitFence
+): Promise<void> {
+  const root = getWorkspacePaths(workspaceRoot).workspaceRoot;
+  for (const directory of artifactParentDirectories(root)) {
+    await ensureDir(directory, commitFence);
+  }
+}
+
 export async function ensureProjectBase(
   workspaceRoot: string,
   commitFence?: CommitFence
@@ -56,7 +72,6 @@ export async function ensureProjectBase(
   const runtimeTestUnitRoot = path.join(testsRoot, 'runtime', 'unit');
   const overrideDirs = childDirectories(overridesRoot, ['rules', 'patches', 'manifests']);
   const provenancePath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.provenance);
-  const artifactParents = artifactParentDirectories(root);
   const policySpecPath = path.join(policiesRoot, 'policy.spec.yaml');
   const overrideManifestPath = path.join(overridesRoot, 'override-manifest.yaml');
 
@@ -77,12 +92,12 @@ export async function ensureProjectBase(
     prismaRoot,
     secRoot,
     artifactsRoot,
-    ...artifactParents,
     cacheRoot,
     workspaceWriteLeaseRoot
   ]) {
     await ensureDir(directory, commitFence);
   }
+  await ensureCanonicalWorkspaceArtifactParents(root, commitFence);
 
   for (const directory of [
     modelBlocksRoot,

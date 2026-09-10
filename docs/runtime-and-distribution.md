@@ -63,6 +63,8 @@ Host Profile 绑定 runtime family/version、OS/architecture、filesystem/path�
 
 SEC first-party source、CLI、development operations 与 canonical local Verification 只支持一个 Bun Host Runtime generation。ambient Node executable、Node-only entrypoint、dual-runtime selector 或 Bun 失败 fallback Node 不属于 SEC Host。
 
+Repository package scripts 必须把 JavaScript 工具的实际入口交给当前 Bun executable；不能让 dependency bin 的 Node shebang 或 PATH 决定 Host。Workflow-owned JavaScript 同样在 Bun setup 后执行，trusted-base preflight 仍先于加载仓库 checker 或安装其 dependencies。
+
 Bun 支持 node namespace APIs 或 node_modules layout 不代表 Node Host support。只有 native Bun API 在实测中减少 closure/cost且增强 typed semantics、不创建第二 owner 时才替换标准 API；不按 import 字符串机械改写。外部 Provider 内部需要 Node 时，它是 Provider opaque implementation dependency。
 
 ## 5. Provisioning 与 physical adoption
@@ -206,7 +208,13 @@ caller cwd 不参与 package/resource 定位。source、bundle、isolated compil
 ~~~mermaid
 stateDiagram-v2
   [*] --> Observed
-  Observed --> Acquired: exact generation lease
+  Observed --> Acquired: fresh exact generation lease
+  Observed --> RecoveryPending: exact takeover retains earliest recovery owner
+  RecoveryPending --> Acquired: consumer recovery/readback then durable acknowledgement
+  RecoveryPending --> Restored: exact predecessor record restored
+  RecoveryPending --> Residue: recovery or acknowledgement settlement unresolved
+  Restored --> Observed: successor handle retired; predecessor remains durable
+  Residue --> RecoveryPending: next proven takeover retains recovery identity
   Acquired --> Active: heartbeat and identity fences
   Active --> Published: physical publication
   Active --> Unknown: durability unresolved
@@ -217,6 +225,19 @@ stateDiagram-v2
 ~~~
 
 一个 workspace 默认一个 writer generation；并行需 domain/resource resolver 证明。acquire/heartbeat/release/recovery/commit fence 绑定 workspace、owner、physical identity。timeout 不证明 owner dead；recovery 不移除后继 writer。唯一 inspector 服务 Gate/audit/recovery。
+
+可变 Runtime State 目录的对象身份与其子项变化分别验证：同一根下的合法 child publication 不使根对象失效。Windows mutable root 的持续校验绑定物理对象、创建身份、owner 与 DACL；目录 ChangeTime 会随子项变化，不能单独作为 root replacement 判据。sealed read-only generation 仍使用其完整 ChangeTime/content/ACL 约束，不继承可变根的放宽。
+
+physical mutation lease 的唯一持久记录同时保存 active owner 与尚未完成的 recovery
+owner；连续接管继承最早未完成的恢复身份，不能覆盖为中间进程。接管不得先删除旧
+记录再发布新记录。identity-bound replacement 的中间状态必须由 physical owner 恢复，
+不能把暂时缺失解释为无 owner。consumer 完成旧资源恢复与 readback 后才持久确认并
+创建新 owner 绑定的资源；未确认时只能保留或按 exact identity 恢复前驱记录，不能
+release 丢弃最后恢复身份。owner identity 与 lease record 的版本分别演进；旧单 owner
+记录只能经同一物理接管协议转为新记录，不改变既有资源的原 owner identity。
+确认本身属于可能失败的持久 Effect，必须在 acquisition owner 的异常与结算边界内执行；
+借用 lease 的内层 consumer 不重复拥有确认或释放。确认失败时按当前 recovery 状态恢复
+前驱或释放，结算失败保留原始失败及恢复记录，不能留下无人结算的活进程 lease。
 
 ## 12. Platform capability
 
