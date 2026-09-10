@@ -57,7 +57,7 @@ test('sealed Knip provider binds source, config and dependencies and signs only 
       scripts: { start: 'bun src/example/index.ts' }
     }, null, 2)}\n`),
     writeFile(path.join(repositoryRoot, 'knip.json'), `${JSON.stringify({
-      entry: ['src/example/index.ts'],
+      entry: ['src/example/index.ts!'],
       project: ['src/**/*.ts']
     }, null, 2)}\n`),
     writeFile(path.join(repositoryRoot, 'tsconfig.json'), `${JSON.stringify({
@@ -66,7 +66,7 @@ test('sealed Knip provider binds source, config and dependencies and signs only 
     }, null, 2)}\n`),
     writeFile(path.join(repositoryRoot, 'src', 'example', 'sec.module.json'), `${JSON.stringify({
       importGraph: 'runtime',
-      externalEntrypoints: [],
+      externalEntrypoints: ['src/example/index.ts'],
       capabilityProviders: [],
       preDependencyBootstrap: false
     }, null, 2)}\n`),
@@ -128,6 +128,23 @@ test('sealed Knip provider binds source, config and dependencies and signs only 
       diagnostic: { reason: 'source-drift' }
     });
     expect('receipt' in sourceDrift).toBeFalse();
+
+    await writeFile(path.join(repositoryRoot, 'knip.json'), `${JSON.stringify({
+      entry: ['src/example/library.ts'],
+      project: ['src/**/*.ts']
+    }, null, 2)}\n`);
+    const entrypointDrift = await observe(repositoryRoot);
+    const uncoveredEntrypoint = await executeKnipUnusedSymbolProvider({
+      ...entrypointDrift,
+      dependencyGeneration,
+      generationParent,
+      deadlineAtUnixMs
+    });
+    expect(uncoveredEntrypoint).toMatchObject({
+      status: 'unresolved',
+      diagnostic: { reason: 'configuration-unbound' }
+    });
+    expect('receipt' in uncoveredEntrypoint).toBeFalse();
 
     await writeFile(path.join(repositoryRoot, 'knip.json'), `${JSON.stringify({
       entry: ['../outside.ts'],

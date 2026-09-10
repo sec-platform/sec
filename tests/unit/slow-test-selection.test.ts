@@ -1,7 +1,12 @@
 import { afterAll, expect, test } from 'bun:test';
 
+import {
+  admitTestSuiteExecutionPolicy,
+  issueTestSuiteExecutionPolicy
+} from '../../src/development/runner/test-execution-policy.ts';
 import { compileTestBudgetProjection, slowTestPrRiskBaselineSuiteIds, TestBudgetProjectionCache, type TestBudgetProjection } from '../../src/verification/test-impact/contract/budget.ts';
 import { selectSlowTestRiskClosure as selectSlowTestClosureWithProvider } from '../../src/verification/test-impact/slow-risk-selection.ts';
+import { compilerRoot } from '../../src/workspace/runtime/paths.ts';
 import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
 
 const testImpactFixture = await acquireExactRepositoryTestImpactProviderFixture();
@@ -89,4 +94,65 @@ test('repository configuration resolves only through the snapshot-bound owner pr
     expect(selection.reasons).not.toContain('changed-files-unresolved');
     expect(selection.reasons).toContain('ownership-impact');
   }
+});
+
+test('long suite admission retains its exact issued Source Program provenance and one finite deadline', () => {
+  const suite = budgetProjection.slowSuites.find(
+    ({ id }) => id === 'contract-document-control-plane-lifecycle'
+  )!;
+  expect(suite.logicalRunTimeoutMs).toBe(1_200_000);
+  const bunOptions = ['--timeout', '180000'];
+  const policy = issueTestSuiteExecutionPolicy({
+    sourceProjection: provider.projection,
+    budgetProjection,
+    suiteId: suite.id,
+    selectedFiles: suite.files,
+    bunOptions,
+    workingDirectory: compilerRoot
+  });
+  const beforeAdmission = Date.now();
+  const admission = admitTestSuiteExecutionPolicy(policy);
+  const afterAdmission = Date.now();
+  expect(admission.admittedAtUnixMs).toBeGreaterThanOrEqual(beforeAdmission);
+  expect(admission.admittedAtUnixMs).toBeLessThanOrEqual(afterAdmission);
+  expect(admission.logicalDeadlineAtUnixMs).toBe(
+    admission.admittedAtUnixMs + suite.logicalRunTimeoutMs
+  );
+  expect(admission.childDeadlineAtUnixMs).toBe(
+    admission.logicalDeadlineAtUnixMs - policy.settlementMarginMs
+  );
+  expect(() => admitTestSuiteExecutionPolicy(policy)).toThrow('single-use');
+
+  const clonedBudget = structuredClone(budgetProjection);
+  expect(() => issueTestSuiteExecutionPolicy({
+    sourceProjection: provider.projection,
+    budgetProjection: clonedBudget,
+    suiteId: suite.id,
+    selectedFiles: suite.files,
+    bunOptions,
+    workingDirectory: compilerRoot
+  })).toThrow('exact owner-issued Source Program projection');
+
+  expect(() => issueTestSuiteExecutionPolicy({
+    sourceProjection: provider.projection,
+    budgetProjection,
+    suiteId: suite.id,
+    selectedFiles: suite.files,
+    bunOptions: ['tests/e2e/unowned.test.ts'],
+    workingDirectory: compilerRoot
+  })).toThrow('extra test selector');
+
+  const concurrentPolicy = issueTestSuiteExecutionPolicy({
+    sourceProjection: provider.projection,
+    budgetProjection,
+    suiteId: suite.id,
+    selectedFiles: suite.files,
+    bunOptions: ['--concurrent', '--timeout', '180000'],
+    workingDirectory: compilerRoot
+  });
+  expect(concurrentPolicy.canonicalArgv).toEqual([
+    'bun', 'test', ...suite.files, '--concurrent', '--max-concurrency', '3',
+    '--timeout', '180000'
+  ]);
+
 });

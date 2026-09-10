@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { canonicalJson, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import type { SourceProgramModel } from '../source-program-model/contract.ts';
 import {
+  BLOCKING_DETAILS_PAGE_MAXIMUM_BYTES,
   compileSourceProgramAuditOperation,
   compileSourceProgramAuditOperationInput,
   compileSourceProgramAuditSourceProgramProjection,
@@ -12,12 +13,14 @@ import {
   encodeSourceProgramAuditOperationResult,
   parseSourceProgramAuditOperationInput,
   parseSourceProgramAuditOperationResult,
+  SourceProgramAuditBlockingDetailError,
   type CompileSourceProgramAuditOperationInput,
   type SourceProgramAuditOperationInput
 } from './source-program-audit-operation.ts';
 
 import { compileSourceProgramFindingDelta } from '../source-program-model/reconciliation-findings.ts';
 import { captureRepositoryAnalysisPolicy } from '../source-program-model/repository-analysis-policy.ts';
+import { REPOSITORY_AUDIT_WORKER_PROTOCOL_LIMITS } from './worker-protocol.ts';
 
 const digest = (value: unknown): `sha256:${string}` => sha256(value) as `sha256:${string}`;
 
@@ -262,12 +265,27 @@ function input(): CompileSourceProgramAuditOperationInput {
     }),
     reduction: Object.freeze({ mode: 'none' }),
     options: Object.freeze({
+      blockingDetails: false,
+      blockingDetailsDomain: 'priority',
+      blockingDetailsPage: 0,
       full: false,
       enforce: true,
       includeCandidates: false,
       queryProjection: null,
       outputPath: null
     })
+  });
+}
+
+function sourceProgramWithOneUnknown(
+  sourceProgram: CompileSourceProgramAuditOperationInput['sourceProgram']
+): CompileSourceProgramAuditOperationInput['sourceProgram'] {
+  const observation = Object.freeze({ reason: 'unresolved-observation' });
+  return Object.freeze({
+    ...sourceProgram,
+    unknownDigests: Object.freeze([sha256(observation)]),
+    unknownsDigest: sha256([observation]),
+    counts: Object.freeze({ ...sourceProgram.counts, unknowns: 1 })
   });
 }
 
@@ -300,6 +318,10 @@ describe('Source Program audit domain operation', () => {
       changedResult,
       changedResult.byteLength
     ));
+    assert.throws(() => compileSourceProgramAuditOperationInput({
+      ...input(),
+      options: { ...input().options, blockingDetailsDomain: 'foreign' }
+    } as unknown as CompileSourceProgramAuditOperationInput), /Unsupported Repository Audit blocking-detail domain/u);
   });
 
   test('is deterministic and excludes unknown caller properties from its result identity', () => {
@@ -418,20 +440,220 @@ describe('Source Program audit domain operation', () => {
       implementationDominance: facts.implementationDominance,
       options: Object.freeze({ ...facts.options, enforce: false })
     })));
+    const detailed = compileSourceProgramAuditOperation(
+      compileSourceProgramAuditOperationInput(Object.freeze({
+        ...facts,
+        sourceProgram: blockedSourceProgram,
+        blockingCandidates: Object.freeze([blocker]),
+        options: Object.freeze({ ...facts.options, blockingDetails: true })
+      })));
 
     assert.equal(blocked.exitCode, 1);
     assert.equal(diagnosticOnly.exitCode, 0);
     assert.equal((blocked.projection.summary as { blockingCandidates: number }).blockingCandidates, 1);
+    assert.deepEqual(detailed.projection.blockingDetails, {
+      count: 1,
+      digest: sha256([{ category: 'blocking-candidate', record: blocker }]),
+      page: 0,
+      pageCount: 1,
+      pageMaximumBytes: BLOCKING_DETAILS_PAGE_MAXIMUM_BYTES,
+      records: [{ category: 'blocking-candidate', record: blocker }]
+    });
   });
 
 
   test('enforced audits refuse uncovered source observations even without known candidates', () => {
     const facts = input();
     const request = compileSourceProgramAuditOperationInput({ ...facts,
-      sourceProgram: { ...facts.sourceProgram, counts: { ...facts.sourceProgram.counts, unknowns: 1 } }
+      sourceProgram: sourceProgramWithOneUnknown(facts.sourceProgram)
     });
     assert.ok(request.blockingReasons.includes('source-program-incomplete'));
     assert.equal(compileSourceProgramAuditOperation(request).exitCode, 1);
+    assert.throws(() => compileSourceProgramAuditOperationInput({
+      ...facts,
+      sourceProgram: sourceProgramWithOneUnknown(facts.sourceProgram),
+      options: {
+        ...facts.options, blockingDetails: true, blockingDetailsDomain: 'source-program'
+      }
+    }), /not the exact Source Program unknown set/);
+  });
+
+  test('byte pages bind the complete retirement set and survive canonical wire readback', () => {
+    const facts = input();
+    const proofs = Object.freeze(Array.from({ length: 50 }, (_, index) => Object.freeze({
+      status: 'blocked' as const,
+      path: `tests/retirement-${index}.test.ts`,
+      unknownEvidence: Object.freeze([`${index}:`.padEnd(120_000, 'x')])
+    })));
+    const compiled = compileSourceProgramAuditOperationInput(Object.freeze({
+      ...facts,
+      testRetirement: Object.freeze({ ...facts.testRetirement, proofs }),
+      options: Object.freeze({
+        ...facts.options,
+        blockingDetails: true,
+        blockingDetailsDomain: 'test-retirement' as const,
+        blockingDetailsPage: 1
+      })
+    }));
+    const page = compiled.projection.blockingDetails as Readonly<{
+      count: number;
+      digest: string;
+      page: number;
+      pageCount: number;
+      pageMaximumBytes: number;
+      records: readonly unknown[];
+    }>;
+
+    assert.equal(page.count, 50);
+    assert.equal(page.digest, sha256(proofs.map((record) => ({
+      category: 'blocked-test-retirement-proof', record
+    }))));
+    assert.equal(page.page, 1);
+    assert.equal(page.pageCount, 2);
+    assert.ok(page.records.length > 0 && page.records.length < proofs.length);
+    assert.equal(page.pageMaximumBytes, BLOCKING_DETAILS_PAGE_MAXIMUM_BYTES);
+    const encoded = encodeSourceProgramAuditOperationInput(compiled);
+    assert.ok(encoded.byteLength
+      < REPOSITORY_AUDIT_WORKER_PROTOCOL_LIMITS.maximumOperationInputBytes);
+    const parsed = parseSourceProgramAuditOperationInput(
+      encoded,
+      REPOSITORY_AUDIT_WORKER_PROTOCOL_LIMITS.maximumOperationInputBytes
+    );
+    assert.deepEqual(
+      compileSourceProgramAuditOperation(parsed).projection.blockingDetails,
+      page
+    );
+  });
+
+  test('priority details isolate actionable findings from large unselected domains', () => {
+    const facts = input();
+    const blocker = Object.freeze({
+      code: 'direct-process-transport-outside-owner' as const,
+      subject: 'spawn',
+      paths: Object.freeze(['src/domain.ts']),
+      reason: 'direct process transport is outside its canonical owner',
+      observationClass: 'derived' as const
+    });
+    const finding = Object.freeze({
+      code: 'test-module-disposition-unknown' as const,
+      path: 'tests/domain.test.ts',
+      detail: 'unknown disposition',
+      span: null,
+      disposition: null
+    });
+    const proofs = Object.freeze(Array.from({ length: 50 }, (_, index) => Object.freeze({
+      status: 'blocked' as const,
+      unknownEvidence: Object.freeze([`${index}:`.padEnd(120_000, 'x')])
+    })));
+    const sourceProgram = Object.freeze({
+      ...facts.sourceProgram,
+      candidateDigests: Object.freeze([sha256(blocker)]),
+      counts: Object.freeze({ ...facts.sourceProgram.counts, candidates: 1 })
+    });
+    const compiled = compileSourceProgramAuditOperationInput(Object.freeze({
+      ...facts,
+      sourceProgram,
+      blockingCandidates: Object.freeze([blocker]),
+      testDisposition: Object.freeze({
+        ...facts.testDisposition, findings: Object.freeze([finding])
+      }),
+      blockingTestFindings: Object.freeze([finding]),
+      testRetirement: Object.freeze({ ...facts.testRetirement, proofs }),
+      options: Object.freeze({ ...facts.options, blockingDetails: true })
+    }));
+    const details = compiled.projection.blockingDetails as Readonly<{
+      count: number; records: readonly Readonly<{ category: string }>[];
+    }>;
+    assert.equal(details.count, 2);
+    assert.deepEqual(details.records.map(({ category }) => category), [
+      'blocking-candidate', 'blocking-test-finding'
+    ]);
+    assert.equal((compiled.projection.testRetirement as { blocked: number }).blocked, 50);
+    assert.ok(encodeSourceProgramAuditOperationInput(compiled).byteLength
+      < REPOSITORY_AUDIT_WORKER_PROTOCOL_LIMITS.maximumOperationInputBytes);
+  });
+
+  test('one blocking-detail record larger than the derived page budget is typed and never truncated', () => {
+    const facts = input();
+    const proof = Object.freeze({
+      status: 'blocked' as const,
+      unknownEvidence: Object.freeze(['x'.repeat(BLOCKING_DETAILS_PAGE_MAXIMUM_BYTES)])
+    });
+    let failure: unknown;
+    try {
+      compileSourceProgramAuditOperationInput(Object.freeze({
+        ...facts,
+        testRetirement: Object.freeze({ ...facts.testRetirement, proofs: Object.freeze([proof]) }),
+        options: Object.freeze({
+          ...facts.options, blockingDetails: true, blockingDetailsDomain: 'test-retirement' as const
+        })
+      }));
+    } catch (error) {
+      failure = error;
+    }
+    assert.ok(failure instanceof SourceProgramAuditBlockingDetailError);
+    assert.equal(failure.domain, 'test-retirement');
+    assert.equal(failure.index, 0);
+    assert.equal(failure.recordDigest, sha256({
+      category: 'blocked-test-retirement-proof', record: proof
+    }));
+    assert.ok(failure.recordBytes > BLOCKING_DETAILS_PAGE_MAXIMUM_BYTES);
+  });
+
+  test('reported test-finding count follows the selected byte page plus compact findings', () => {
+    const facts = input();
+    const blockers = Object.freeze(Array.from({ length: 2 }, (_, index) => Object.freeze({
+      code: 'direct-process-transport-outside-owner' as const,
+      subject: `spawn-${index}`,
+      paths: Object.freeze([`src/domain-${index}.ts`]),
+      reason: 'x'.repeat(Math.floor(BLOCKING_DETAILS_PAGE_MAXIMUM_BYTES / 2) + 1_000),
+      observationClass: 'derived' as const
+    })));
+    const disposition = Object.freeze({
+      path: 'tests/domain.test.ts',
+      disposition: 'unknown' as const,
+      evidence: Object.freeze({
+        owner: 'verification.tests', sourceRevision: facts.sourceProgram.sourceRevision,
+        replacementTestIds: Object.freeze([]),
+        census: Object.freeze({ producerCount: 0, consumerCount: 0, externalContractCount: 0 }),
+        supersession: null
+      }),
+      baselineDigest: digest('baseline'),
+      evidenceDigest: digest('evidence')
+    });
+    const finding = Object.freeze({
+      code: 'test-module-disposition-unknown' as const,
+      path: disposition.path,
+      detail: 'unknown disposition',
+      span: null,
+      disposition
+    });
+    const sourceProgram = Object.freeze({
+      ...facts.sourceProgram,
+      candidateDigests: Object.freeze(blockers.map((blocker) => sha256(blocker))),
+      counts: Object.freeze({ ...facts.sourceProgram.counts, candidates: blockers.length })
+    });
+    const common = Object.freeze({
+      ...facts,
+      sourceProgram,
+      blockingCandidates: blockers,
+      testDisposition: Object.freeze({ ...facts.testDisposition, findings: Object.freeze([finding]) }),
+      blockingTestFindings: Object.freeze([finding])
+    });
+    const page = (page: number) => compileSourceProgramAuditOperationInput(Object.freeze({
+      ...common,
+      options: Object.freeze({
+        ...facts.options, blockingDetails: true, blockingDetailsPage: page
+      })
+    })).projection;
+
+    const first = page(0), second = page(1);
+    assert.equal((first.summary as { reportedBlockingTestFindings: number })
+      .reportedBlockingTestFindings, 0);
+    assert.equal((second.summary as { reportedBlockingTestFindings: number })
+      .reportedBlockingTestFindings, 1);
+    assert.deepEqual((first.blockingDetails as { records: readonly unknown[] }).records.length, 1);
+    assert.deepEqual((second.blockingDetails as { records: readonly unknown[] }).records.length, 2);
   });
 
   test('unresolved declaration topology independently blocks enforce', () => {
@@ -456,7 +678,7 @@ describe('Source Program audit domain operation', () => {
     const facts = input();
     for (const full of [false, true]) for (const enforce of [false, true]) {
       const request = compileSourceProgramAuditOperationInput({ ...facts,
-        sourceProgram: { ...facts.sourceProgram, counts: { ...facts.sourceProgram.counts, unknowns: 1 } },
+        sourceProgram: sourceProgramWithOneUnknown(facts.sourceProgram),
         declarationTopology: { ...facts.declarationTopology, unknowns: [{ reason: 'unresolved' }] },
         testRetirement: { ...facts.testRetirement, proofs: [{ status: 'blocked' }] },
         options: { ...facts.options, full, enforce }
@@ -589,7 +811,7 @@ describe('Source Program audit domain operation', () => {
 
   test('recomputed public result hashes cannot hide a failed enforced decision behind exit zero', () => {
     const facts = input(), request = compileSourceProgramAuditOperationInput({ ...facts,
-      sourceProgram: { ...facts.sourceProgram, counts: { ...facts.sourceProgram.counts, unknowns: 1 } } });
+      sourceProgram: sourceProgramWithOneUnknown(facts.sourceProgram) });
     const honest = compileSourceProgramAuditOperation(request);
     assert.equal(honest.exitCode, 1);
     const unsigned = { projection: honest.projection, reductionPatch: honest.reductionPatch, exitCode: 0 as const };
@@ -601,7 +823,7 @@ describe('Source Program audit domain operation', () => {
 
   test('a failure exit cannot be invented for an explicitly successful diagnostic decision', () => {
     const facts = input(), request = compileSourceProgramAuditOperationInput({ ...facts,
-      sourceProgram: { ...facts.sourceProgram, counts: { ...facts.sourceProgram.counts, unknowns: 1 } },
+      sourceProgram: sourceProgramWithOneUnknown(facts.sourceProgram),
       options: { ...facts.options, enforce: false } });
     const honest = compileSourceProgramAuditOperation(request);
     assert.equal(honest.exitCode, 0);

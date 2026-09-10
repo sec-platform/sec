@@ -1,5 +1,10 @@
 import path from 'node:path';
+import type { PreparedWindowsRepositoryChangeObserver } from '../../runtime-state/physical/runtime/windows-repository-change-observer.ts';
 import { snapshotByteView } from '../../system-architecture/foundation/runtime/byte-snapshot.ts';
+import {
+  assertIssuedTestSuiteExecutionAdmission,
+  type TestSuiteExecutionAdmission
+} from './test-execution-policy.ts';
 
 // Admission belongs to this command family. These values are not shared with
 // unrelated operations simply because their present numerical values agree.
@@ -15,6 +20,9 @@ interface DevCommandInputOptions {
   readonly input?: Uint8Array;
   readonly signal?: AbortSignal;
   readonly workingDirectory?: string;
+  /** Exact long-running suite admission; ordinary numeric timeouts never widen. */
+  readonly testSuiteAdmission?: TestSuiteExecutionAdmission;
+  readonly testSuiteObserver?: PreparedWindowsRepositoryChangeObserver;
 }
 export interface ObserveDevCommandOptions extends DevCommandInputOptions { readonly observe: true; }
 export interface ExecuteDevCommandOptions extends DevCommandInputOptions { readonly observe?: false; }
@@ -79,7 +87,10 @@ export function captureDevCommandInput(
   }
   const { observe, timeoutMs: requestedTimeout, deadlineAtUnixMs: requestedDeadline,
     input: requestedInput, signal, workingDirectory: requestedDirectory,
-    auxiliaryOrdinaryFilePaths: requestedAuxiliary } = options ?? {};
+    auxiliaryOrdinaryFilePaths: requestedAuxiliary, testSuiteAdmission, testSuiteObserver } = options ?? {};
+  if ((testSuiteAdmission === undefined) !== (testSuiteObserver === undefined)) {
+    throw new Error('Dev command test suite admission and observer must be supplied together.');
+  }
   if (observe !== undefined && typeof observe !== 'boolean') {
     throw new TypeError('Dev command observation mode must be boolean');
   }
@@ -89,8 +100,13 @@ export function captureDevCommandInput(
   // Check the actual signal brand without interpreting an already-aborted signal
   // as successful cancellation. The original process owner settles cancellation.
   if (signal !== undefined) Reflect.apply(aborted, signal, []);
-  const duration = requestedTimeout === undefined ? DEV_COMMAND_MAX_DURATION_MS : requestedTimeout;
-  if (!Number.isSafeInteger(duration) || duration < 2 || duration > DEV_COMMAND_MAX_DURATION_MS) {
+  if (testSuiteAdmission !== undefined) assertIssuedTestSuiteExecutionAdmission(testSuiteAdmission);
+  const suiteRemaining = testSuiteAdmission === undefined
+    ? null
+    : testSuiteAdmission.childDeadlineAtUnixMs - now;
+  const ownerCeiling = suiteRemaining === null ? DEV_COMMAND_MAX_DURATION_MS : suiteRemaining;
+  const duration = requestedTimeout === undefined ? ownerCeiling : requestedTimeout;
+  if (!Number.isSafeInteger(duration) || duration < 2 || duration > ownerCeiling) {
     throw new Error('Dev command timeout must be a safe integer within the owner duration ceiling.');
   }
   const ownerDeadline = now + duration;
@@ -118,6 +134,8 @@ export function captureDevCommandInput(
     workingDirectory: path.resolve(cwd, requestedDirectory === undefined ? defaultWorkingDirectory : requestedDirectory),
     auxiliaryOrdinaryFilePaths: Object.freeze(auxiliary),
     signal,
+    testSuiteAdmission,
+    testSuiteObserver,
     deadlineAtUnixMs,
     timeoutMs,
     maximumNativeProcessResources: process.platform === 'win32' && input !== undefined ? 2 : 1

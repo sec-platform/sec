@@ -2,6 +2,17 @@ import path from 'node:path';
 
 import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
 import {
+  consumeSecOperationRequirementBindingContext,
+  type SecOperationRequirementBindingContext
+} from '../../../system-architecture/operation/requirement-binding-context.ts';
+import {
+  assertSecSemanticOperationProjection,
+  compileSecCapabilityBinding,
+  type SecBoundSemanticOperation,
+  type SecCapabilityBinding,
+  type SecOperationDigest
+} from '../../../system-architecture/operation/semantic.ts';
+import {
   inspectNoFollowDirectoryChain,
   retainNoFollowDirectoryForChildProcess,
   type RetainedNoFollowChildProcessDirectory
@@ -10,8 +21,18 @@ import {
 const MAXIMUM_ROOTS = 8;
 const MAXIMUM_EVENTS = 100_000;
 const MAXIMUM_OBSERVATION_MS = 5 * 60_000;
+export const RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID =
+  'runtime-state.windows-repository-change-observer.retained' as const;
+export const RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST = sha256({
+  domain: 'runtime-state.windows-repository-change-observer.retained',
+  provider: 'windows-read-directory-changes',
+  duration: 'operation-bound-duration',
+  maximumRoots: MAXIMUM_ROOTS,
+  maximumEvents: MAXIMUM_EVENTS
+}) as SecOperationDigest;
 
 const observerBrand: unique symbol = Symbol('windows-repository-change-observer');
+const preparedObserverBrand: unique symbol = Symbol('prepared-windows-repository-change-observer');
 
 export type WindowsRepositoryChangeAction =
   | 'added'
@@ -54,6 +75,12 @@ export type WindowsRepositoryChangeObserverSettlement =
 
 export interface WindowsRepositoryChangeObserver {
   readonly [observerBrand]: never;
+  readonly rootIdentityDigest: `sha256:${string}`;
+}
+
+export interface PreparedWindowsRepositoryChangeObserver {
+  readonly [preparedObserverBrand]: never;
+  readonly providerBinding: SecCapabilityBinding;
   readonly rootIdentityDigest: `sha256:${string}`;
 }
 
@@ -102,6 +129,12 @@ interface WatcherLease {
   readonly worker: Worker;
   readonly stopEventHandle: bigint;
   readonly settlement: Promise<WorkerSettledMessage | WorkerFailedMessage>;
+  readonly closed: Promise<void>;
+}
+
+interface UnsettledWatcher {
+  readonly worker: Worker;
+  readonly closed: Promise<void>;
 }
 
 interface LiveObserver {
@@ -113,6 +146,19 @@ interface LiveObserver {
 }
 
 const liveObservers = new WeakMap<object, LiveObserver>();
+type PreparedObserverState = Readonly<{
+  retainedRoots: readonly RetainedNoFollowChildProcessDirectory[];
+  roots: readonly string[];
+  rootIdentityDigest: `sha256:${string}`;
+}>;
+const preparedObservers = new WeakMap<object, PreparedObserverState>();
+const activatedPreparedObservers = new WeakMap<object, WindowsRepositoryChangeObserver>();
+const unsettledPreparedObservers = new WeakSet<object>();
+type UnsettledObserverRecovery = Readonly<{
+  retainedRoots: readonly RetainedNoFollowChildProcessDirectory[];
+  workers: readonly UnsettledWatcher[];
+}>;
+const retainedUnsettledObservers = new Set<UnsettledObserverRecovery>();
 
 function exactKeys(value: object, expected: readonly string[]): boolean {
   const actual = Object.keys(value).sort();
@@ -230,39 +276,56 @@ function watchRequest(root: string, rootIndex: number): readonly WatchRequest[] 
   ]);
 }
 
-function startWatcher(request: WatchRequest, deadlineAtUnixMs: number): Promise<WatcherLease | null> {
+function beforeDeadline<T>(promise: Promise<T>, deadlineAtUnixMs: number): Promise<T | null> {
+  const remaining = deadlineAtUnixMs - Date.now();
+  if (remaining <= 0) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), remaining);
+    void promise.then((value) => { clearTimeout(timer); resolve(value); }, () => {
+      clearTimeout(timer); resolve(null);
+    });
+  });
+}
+
+function startWatcher(
+  request: WatchRequest,
+  deadlineAtUnixMs: number
+): Promise<WatcherLease | null | UnsettledWatcher> {
   return new Promise((resolve) => {
     const worker = new Worker(import.meta.url, { ref: true });
+    const closed = new Promise<void>((close) => worker.addEventListener('close', () => close(), { once: true }));
     let terminal = false;
     let resolveSettlement!: (value: WorkerSettledMessage | WorkerFailedMessage) => void;
     const settlement = new Promise<WorkerSettledMessage | WorkerFailedMessage>((settle) => {
       resolveSettlement = settle;
     });
-    const timeout = setTimeout(() => {
-      if (terminal) return;
-      terminal = true;
-      void worker.terminate();
-      resolve(null);
-    }, Math.max(1, deadlineAtUnixMs - Date.now()));
-    const fail = (): void => {
+    const fail = async (): Promise<void> => {
       if (terminal) return;
       terminal = true;
       clearTimeout(timeout);
-      void worker.terminate();
-      resolve(null);
+      worker.terminate();
+      resolve(await beforeDeadline(closed, deadlineAtUnixMs) === null
+        ? Object.freeze({ worker, closed })
+        : null);
     };
-    worker.onmessageerror = fail;
+    const timeout = setTimeout(() => { void fail(); }, Math.max(1, deadlineAtUnixMs - Date.now()));
+    worker.onmessageerror = () => { void fail(); };
     worker.onerror = (event) => {
       event.preventDefault();
-      fail();
+      void fail();
     };
     worker.onmessage = (event) => {
       const message = workerMessage(event.data);
-      if (message === null) return fail();
+      if (message === null) return void fail();
       if (message.kind === 'armed') {
         if (terminal) return;
         clearTimeout(timeout);
-        resolve(Object.freeze({ worker, stopEventHandle: message.stopEventHandle, settlement }));
+        resolve(Object.freeze({ worker, stopEventHandle: message.stopEventHandle, settlement, closed }));
+        return;
+      }
+      if (message.kind === 'failed') {
+        resolveSettlement(message);
+        void fail();
         return;
       }
       if (terminal) return;
@@ -272,6 +335,34 @@ function startWatcher(request: WatchRequest, deadlineAtUnixMs: number): Promise<
     };
     worker.postMessage(request);
   });
+}
+
+function retainUnsettledObserverRecovery(
+  retainedRoots: readonly RetainedNoFollowChildProcessDirectory[],
+  workers: readonly UnsettledWatcher[]
+): void {
+  const recovery = Object.freeze({
+    retainedRoots: Object.freeze([...retainedRoots]),
+    workers: Object.freeze([...workers])
+  });
+  retainedUnsettledObservers.add(recovery);
+  void Promise.all(recovery.workers.map(({ closed }) => closed)).then(() => {
+    if (disposeRoots(recovery.retainedRoots)) retainedUnsettledObservers.delete(recovery);
+  });
+}
+
+async function settleStartedWatchers(
+  watchers: readonly WatcherLease[],
+  deadlineAtUnixMs: number
+): Promise<boolean> {
+  const signals = await Promise.all(watchers.map(({ stopEventHandle }) => setWindowsEvent(stopEventHandle)));
+  const terminal = await beforeDeadline(Promise.allSettled(watchers.map((watcher, index) => {
+    if (!signals[index]) watcher.worker.terminate();
+    return signals[index] ? watcher.settlement : watcher.closed;
+  })), deadlineAtUnixMs);
+  for (const watcher of watchers) watcher.worker.terminate();
+  const closed = await beforeDeadline(Promise.all(watchers.map((watcher) => watcher.closed)), deadlineAtUnixMs);
+  return terminal !== null && closed !== null;
 }
 
 function disposeRoots(roots: readonly RetainedNoFollowChildProcessDirectory[]): boolean {
@@ -286,6 +377,170 @@ function unavailable(
   reason: WindowsRepositoryChangeObserverUnavailableReason
 ): WindowsRepositoryChangeObserverResolution {
   return Object.freeze({ status: 'unavailable', reason });
+}
+
+/** Retains the exact roots and issues the observer provider binding without
+ * starting a watcher. The caller must bind the complete semantic operation
+ * before armPreparedWindowsRepositoryChangeObserver can perform the Effect.
+ */
+export function prepareWindowsRepositoryChangeObserver(input: Readonly<{
+  roots: readonly string[];
+}>): PreparedWindowsRepositoryChangeObserver {
+  const roots = canonicalRootPaths(input.roots);
+  if (process.platform !== 'win32' || roots === null) {
+    throw new Error('Test suite repository observer preparation is unavailable.');
+  }
+  const retainedRoots: RetainedNoFollowChildProcessDirectory[] = [];
+  try {
+    const projections = [];
+    for (const [index, root] of roots.entries()) {
+      const chain = inspectNoFollowDirectoryChain(root, `repository change root[${index}]`);
+      projections.push(rootIdentityProjection(chain));
+      retainedRoots.push(retainNoFollowDirectoryForChildProcess(
+        chain,
+        40 + index,
+        `repository change root[${index}]`
+      ));
+    }
+    const rootIdentityDigest = sha256(Object.freeze(projections)) as `sha256:${string}`;
+    const providerIdentityDigest = sha256({
+      domain: 'windows-repository-change-observer.physical-provider',
+      rootIdentityDigest
+    }) as SecOperationDigest;
+    const prepared = Object.freeze({
+      [preparedObserverBrand]: undefined as never,
+      providerBinding: compileSecCapabilityBinding({
+        requirementId: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID,
+        contractDigest: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
+        providerIdentityDigest
+      }),
+      rootIdentityDigest
+    }) as PreparedWindowsRepositoryChangeObserver;
+    preparedObservers.set(prepared, Object.freeze({
+      retainedRoots: Object.freeze(retainedRoots),
+      roots,
+      rootIdentityDigest
+    }));
+    return prepared;
+  } catch (error) {
+    disposeRoots(retainedRoots);
+    throw error;
+  }
+}
+
+export async function armPreparedWindowsRepositoryChangeObserver(input: Readonly<{
+  prepared: PreparedWindowsRepositoryChangeObserver;
+  operation: SecBoundSemanticOperation;
+  requirementBindingContext: SecOperationRequirementBindingContext;
+}>): Promise<WindowsRepositoryChangeObserverResolution> {
+  const state = preparedObservers.get(input.prepared);
+  if (state === undefined) return unavailable('invalid-input');
+  assertSecSemanticOperationProjection(input.operation);
+  const context = consumeSecOperationRequirementBindingContext(input.requirementBindingContext);
+  const requirement = input.operation.plan.execution.requirements.find(
+    ({ id }) => id === RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID
+  );
+  const binding = input.operation.bindings.find(
+    ({ requirementId }) => requirementId === RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID
+  );
+  const durationCeiling = context.resourceCeilings.find(({ resource }) => resource === 'duration-ms');
+  const operationDeadlineAtUnixMs = input.operation.plan.attempt.deadlineAtUnixMs;
+  const armObservedAtUnixMs = Date.now();
+  const ceilingDeadlineAtUnixMs = durationCeiling === undefined
+    ? Number.NaN
+    : armObservedAtUnixMs + durationCeiling.maximum;
+  const deadlineAtUnixMs = Math.min(
+    operationDeadlineAtUnixMs,
+    context.absoluteDeadlineAtUnixMs,
+    ceilingDeadlineAtUnixMs
+  );
+  if (requirement?.contractDigest !== RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST
+      || binding?.bindingDigest !== input.prepared.providerBinding.bindingDigest
+      || context.operationIdentityDigest !== input.operation.plan.identity.identityDigest
+      || context.boundAttemptDigest !== input.operation.boundAttemptDigest
+      || context.requirementId !== RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID
+      || context.providerBindingDigest !== input.prepared.providerBinding.bindingDigest
+      || durationCeiling === undefined
+      || durationCeiling.maximum < 1
+      || !Number.isSafeInteger(operationDeadlineAtUnixMs)
+      || !Number.isSafeInteger(context.absoluteDeadlineAtUnixMs)
+      || !Number.isSafeInteger(ceilingDeadlineAtUnixMs)
+      || armObservedAtUnixMs >= deadlineAtUnixMs) {
+    return unavailable('invalid-input');
+  }
+  const watchers: WatcherLease[] = [];
+  const unsettledWorkers: UnsettledWatcher[] = [];
+  try {
+    for (const [rootIndex, root] of state.roots.entries()) {
+      for (const request of watchRequest(root, rootIndex)) {
+        const watcher = await startWatcher(request, deadlineAtUnixMs);
+        if (watcher !== null && !('stopEventHandle' in watcher)) {
+          unsettledWorkers.push(watcher);
+          throw new Error('observer worker settlement unresolved');
+        }
+        if (watcher === null) throw new Error('observer arm failed');
+        watchers.push(watcher);
+      }
+    }
+    for (const retained of state.retainedRoots) retained.assertCurrent();
+    const observer = Object.freeze({
+      [observerBrand]: undefined as never,
+      rootIdentityDigest: state.rootIdentityDigest
+    }) as WindowsRepositoryChangeObserver;
+    liveObservers.set(observer, {
+      retainedRoots: state.retainedRoots,
+      watchers: Object.freeze(watchers),
+      rootIdentityDigest: state.rootIdentityDigest,
+      deadlineAtUnixMs,
+      settled: false
+    });
+    preparedObservers.delete(input.prepared);
+    activatedPreparedObservers.set(input.prepared, observer);
+    return Object.freeze({ status: 'ready', observer });
+  } catch {
+    const watchersSettled = unsettledWorkers.length === 0
+      && await settleStartedWatchers(watchers, deadlineAtUnixMs).catch(() => false);
+    if (!watchersSettled) {
+      for (const watcher of watchers) watcher.worker.terminate();
+      retainUnsettledObserverRecovery(state.retainedRoots, [...watchers, ...unsettledWorkers]);
+      unsettledPreparedObservers.add(input.prepared);
+      preparedObservers.delete(input.prepared);
+      return unavailable('arm-failed');
+    }
+    const rootsDisposed = disposeRoots(state.retainedRoots);
+    preparedObservers.delete(input.prepared);
+    if (!rootsDisposed) return unavailable('arm-failed');
+    return unavailable(Date.now() >= deadlineAtUnixMs ? 'deadline-exhausted' : 'arm-failed');
+  }
+}
+
+/** Settles the observer armed from this exact prepared capability. */
+export async function settlePreparedWindowsRepositoryChangeObserver(
+  prepared: PreparedWindowsRepositoryChangeObserver
+): Promise<WindowsRepositoryChangeObserverSettlement> {
+  const observer = activatedPreparedObservers.get(prepared);
+  if (observer === undefined) {
+    return Object.freeze({
+      status: 'discontinuous',
+      rootIdentityDigest: prepared.rootIdentityDigest
+    });
+  }
+  activatedPreparedObservers.delete(prepared);
+  return settleWindowsRepositoryChangeObserver(observer);
+}
+
+export function disposePreparedWindowsRepositoryChangeObserver(
+  prepared: PreparedWindowsRepositoryChangeObserver
+): void {
+  if (unsettledPreparedObservers.has(prepared)) {
+    throw new Error('Prepared repository observer worker settlement is unresolved.');
+  }
+  const state = preparedObservers.get(prepared);
+  if (state === undefined) return;
+  preparedObservers.delete(prepared);
+  if (!disposeRoots(state.retainedRoots)) {
+    throw new Error('Prepared repository observer roots did not settle.');
+  }
 }
 
 /**
@@ -310,6 +565,7 @@ export async function armWindowsRepositoryChangeObserver(input: Readonly<{
   }
   const retainedRoots: RetainedNoFollowChildProcessDirectory[] = [];
   const watchers: WatcherLease[] = [];
+  const unsettledWorkers: UnsettledWatcher[] = [];
   try {
     const projections = [];
     for (const [index, root] of roots.entries()) {
@@ -325,6 +581,10 @@ export async function armWindowsRepositoryChangeObserver(input: Readonly<{
     for (const [rootIndex, root] of roots.entries()) {
       for (const request of watchRequest(root, rootIndex)) {
         const watcher = await startWatcher(request, input.deadlineAtUnixMs);
+        if (watcher !== null && !('stopEventHandle' in watcher)) {
+          unsettledWorkers.push(watcher);
+          throw new Error('observer worker settlement unresolved');
+        }
         if (watcher === null) throw new Error('observer arm failed');
         watchers.push(watcher);
       }
@@ -343,11 +603,13 @@ export async function armWindowsRepositoryChangeObserver(input: Readonly<{
     });
     return Object.freeze({ status: 'ready', observer });
   } catch {
-    for (const watcher of watchers) {
-      void setWindowsEvent(watcher.stopEventHandle);
-      void watcher.worker.terminate();
+    const watchersSettled = unsettledWorkers.length === 0
+      && await settleStartedWatchers(watchers, input.deadlineAtUnixMs).catch(() => false);
+    if (watchersSettled) disposeRoots(retainedRoots);
+    else {
+      for (const watcher of watchers) watcher.worker.terminate();
+      retainUnsettledObserverRecovery(retainedRoots, [...watchers, ...unsettledWorkers]);
     }
-    disposeRoots(retainedRoots);
     return unavailable(Date.now() >= input.deadlineAtUnixMs ? 'deadline-exhausted' : 'arm-failed');
   }
 }
@@ -386,7 +648,16 @@ export async function settleWindowsRepositoryChangeObserver(
       if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
     }
   }
-  for (const watcher of live.watchers) void watcher.worker.terminate();
+  for (const watcher of live.watchers) watcher.worker.terminate();
+  const workersClosed = await beforeDeadline(
+    Promise.all(live.watchers.map(({ closed }) => closed)),
+    live.deadlineAtUnixMs
+  );
+  if (workersClosed === null) {
+    retainUnsettledObserverRecovery(live.retainedRoots, live.watchers);
+    liveObservers.delete(observer);
+    return Object.freeze({ status: 'deadline-exhausted', rootIdentityDigest: live.rootIdentityDigest });
+  }
   try {
     for (const root of live.retainedRoots) root.assertCurrent();
   } catch {

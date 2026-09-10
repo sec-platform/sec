@@ -82,6 +82,8 @@ flowchart TD
 
 同一 exact source snapshot 只编译一个 canonical Source Program。CLI、hook、workflow、test、Impact、Architecture 与 audit 只消费 bounded projections，不各自创建 AST、Language Service、resolver、path census、entrypoint list 或 cache。
 
+审计阻塞详情由既有 enforcement 所消费的同一 finding records 投影，绑定 source identity 与结果 digest；无需裁决的 topology edges、units 和 replacement graphs 保持 count/digest。详情选择属于唯一 audit operation 合同，并继续受原有输入、输出和执行预算约束；超限必须返回 typed failure，不能靠增大通用预算、第二 parser 或重复传递完整模型获得可达性。compact counts 不足以裁决具体整改，完整图也不能成为读取少量 blocking records 的必要前置。
+
 ~~~text
 SourceClosure =
   entrypoint

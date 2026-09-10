@@ -137,6 +137,24 @@ function assertBoundKnipConfiguration(snapshot: PhysicalWorkspaceSourceSnapshot)
     }
   };
   visit(parsed);
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Knip configuration must be an object');
+  }
+  const entry = (parsed as Record<string, unknown>).entry;
+  if (!Array.isArray(entry) || entry.some((value) => typeof value !== 'string')) {
+    throw new Error('Knip configuration entry must be a string array');
+  }
+  const configuredEntrypoints = new Set(entry.map((value) => (
+    value.endsWith('!') ? value.slice(0, -1) : value
+  )));
+  const missingDescriptorEntrypoints = snapshot.moduleMembership.descriptors
+    .flatMap(({ externalEntrypoints }) => externalEntrypoints)
+    .filter((entrypoint) => !configuredEntrypoints.has(entrypoint));
+  if (missingDescriptorEntrypoints.length > 0) {
+    throw new Error(
+      `Knip configuration does not cover snapshot module entrypoints: ${missingDescriptorEntrypoints.join(', ')}`
+    );
+  }
 }
 
 function isolatedEnvironment(): NodeJS.ProcessEnv {

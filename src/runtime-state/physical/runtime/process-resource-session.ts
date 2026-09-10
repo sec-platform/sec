@@ -305,9 +305,12 @@ export function openProcessResourceSession(input: Readonly<{
   const startedAtMonotonicMs = performance.now();
   const durationUntilAttemptDeadlineMs =
     input.operation.plan.attempt.deadlineAtUnixMs - startedAtUnixMs;
+  const durationUntilBindingDeadlineMs =
+    bindingProjection.absoluteDeadlineAtUnixMs - startedAtUnixMs;
   const admittedDurationMs = Math.min(
     maximumDurationMs,
     durationUntilAttemptDeadlineMs,
+    durationUntilBindingDeadlineMs,
     MAX_TIMER_DELAY_MS
   );
   if (input.signal?.aborted === true) {

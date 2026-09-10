@@ -78,7 +78,10 @@ function input(full = false): CompileSourceProgramAuditOperationInput {
       baselineActionKey: digest('before-action'), currentActionKey: digest('action'), baselineTestPathsDigest: baselineDigest,
       baselineRegistrationCensusDigest: digest('before-census'), currentRegistrationCensusDigest: digest('census'),
       currentTestCompilationDigest: testCompilationDigest, supersessionReceiptDigest, proofs: [], receiptDigest: digest('retirement') },
-    reduction: { mode: 'none' }, options: { full, enforce: true, includeCandidates: false, queryProjection: null, outputPath: null }
+    reduction: { mode: 'none' }, options: {
+      blockingDetails: false, blockingDetailsDomain: 'priority', blockingDetailsPage: 0, full, enforce: true,
+      includeCandidates: false, queryProjection: null, outputPath: null
+    }
   };
 }
 

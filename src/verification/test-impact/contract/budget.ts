@@ -1,4 +1,8 @@
-import type { TestImpactProjectionReceipt } from '../../../brownfield/source-program-model/test-impact-projection.ts';
+import {
+  assertIssuedTestImpactProjection,
+  type IssuedTestImpactProjection,
+  type TestImpactProjectionReceipt
+} from '../../../brownfield/source-program-model/test-impact-projection.ts';
 import { platformCommand } from '../../../interface/cli/contract/command.ts';
 import {
   compareCodeUnits,
@@ -18,7 +22,8 @@ export type SlowTestResourceClass = 'standard' | 'runtime-heavy';
 export type SlowTestSuite = {
   id: string;
   owner: string;
-  timeoutMs: number;
+  /** Admission through terminal observer settlement. */
+  logicalRunTimeoutMs: number;
   parallelSafe: boolean;
   resourceClass: SlowTestResourceClass;
   prRiskBaseline: boolean;
@@ -60,7 +65,7 @@ export type TestBudgetContract = {
 type SlowTestSuiteDefinition = {
   id: string;
   owner: string;
-  timeoutMs: number;
+  logicalRunTimeoutMs: number;
   parallelSafe: boolean;
   resourceClass: SlowTestResourceClass;
   prRiskBaseline: boolean;
@@ -80,7 +85,7 @@ function slowPathSuite(
   id: string,
   file: string,
   owner: string,
-  timeoutMs = 180_000,
+  logicalRunTimeoutMs = 180_000,
   options: {
     parallelSafe?: boolean;
     resourceClass?: SlowTestResourceClass;
@@ -90,7 +95,7 @@ function slowPathSuite(
   return {
     id,
     owner,
-    timeoutMs,
+    logicalRunTimeoutMs,
     parallelSafe: options.parallelSafe ?? false,
     resourceClass: options.resourceClass ?? 'standard',
     prRiskBaseline: options.prRiskBaseline ?? false,
@@ -102,14 +107,14 @@ function slowFileSuite(
   id: string,
   fileName: string,
   owner: string,
-  timeoutMs = 180_000,
+  logicalRunTimeoutMs = 180_000,
   options: {
     parallelSafe?: boolean;
     resourceClass?: SlowTestResourceClass;
     prRiskBaseline?: boolean;
   } = {}
 ): SlowTestSuiteDefinition {
-  return slowPathSuite(id, e2eTestFile(fileName), owner, timeoutMs, options);
+  return slowPathSuite(id, e2eTestFile(fileName), owner, logicalRunTimeoutMs, options);
 }
 
 // Slow e2e suites are file-granular by default so CI can shard them with the
@@ -251,7 +256,7 @@ function buildSlowTestSuites(slowFiles: readonly string[]): readonly SlowTestSui
         return [{
           id: definition.id,
           owner: definition.owner,
-          timeoutMs: definition.timeoutMs,
+          logicalRunTimeoutMs: definition.logicalRunTimeoutMs,
           parallelSafe: definition.parallelSafe,
           resourceClass: definition.resourceClass,
           prRiskBaseline: definition.prRiskBaseline,
@@ -312,9 +317,22 @@ function captureTestBudgetInput(source: TestImpactProjectionReceipt): CapturedTe
 // certify a forged partition or suite assignment. This is local derivation
 // provenance, not Source Program membership or execution authority.
 const compiledTestBudgetProjections = new WeakSet<TestBudgetProjection>();
+const issuedTestBudgetSources = new WeakMap<TestBudgetProjection, IssuedTestImpactProjection>();
+
+function issuedSourceOrNull(
+  source: TestImpactProjectionReceipt
+): IssuedTestImpactProjection | null {
+  try {
+    assertIssuedTestImpactProjection(source);
+    return source;
+  } catch {
+    return null;
+  }
+}
 
 function compileExactTestBudgetProjection(
-  input: CapturedTestBudgetInput
+  input: CapturedTestBudgetInput,
+  issuedSource: IssuedTestImpactProjection | null
 ): TestBudgetProjection {
   const { generation, generationKey } = input;
   const testFiles = uniqueSorted([...input.testFiles]);
@@ -334,6 +352,7 @@ function compileExactTestBudgetProjection(
     projectionDigest: budgetProjectionDigest(unsigned)
   });
   compiledTestBudgetProjections.add(compiled);
+  if (issuedSource !== null) issuedTestBudgetSources.set(compiled, issuedSource);
   return compiled;
 }
 
@@ -367,9 +386,11 @@ export class TestBudgetProjectionCache {
     const input = captureTestBudgetInput(source);
     const cached = this.projections.get(input.generationKey);
     if (cached !== undefined && isCurrentCachedProjection(cached, input)) {
+      const issuedSource = issuedSourceOrNull(source);
+      if (issuedSource !== null) issuedTestBudgetSources.set(cached, issuedSource);
       return cached;
     }
-    const exact = compileExactTestBudgetProjection(input);
+    const exact = compileExactTestBudgetProjection(input, issuedSourceOrNull(source));
     this.projections.set(input.generationKey, exact);
     return exact;
   }
@@ -378,7 +399,31 @@ export class TestBudgetProjectionCache {
 export function compileTestBudgetProjection(
   source: TestImpactProjectionReceipt
 ): TestBudgetProjection {
-  return compileExactTestBudgetProjection(captureTestBudgetInput(source));
+  return compileExactTestBudgetProjection(captureTestBudgetInput(source), issuedSourceOrNull(source));
+}
+
+/**
+ * Execution provenance is stronger than derivation provenance: the exact
+ * budget instance must retain the owner-issued Source Program projection from
+ * which it was compiled. A DTO that reproduces the same bytes cannot acquire
+ * this association.
+ */
+export function assertTestBudgetExecutionProvenance(
+  projection: TestBudgetProjection,
+  source: IssuedTestImpactProjection
+): void {
+  assertIssuedTestImpactProjection(source);
+  if (!compiledTestBudgetProjections.has(projection)
+      || issuedTestBudgetSources.get(projection) !== source) {
+    throw new Error('Test budget execution requires its exact owner-issued Source Program projection.');
+  }
+  const generation = projectionGeneration(source);
+  if (projection.generationKey !== projectionGenerationKey(generation)
+      || projection.generation.workspaceSnapshotIdentityDigest !== generation.workspaceSnapshotIdentityDigest
+      || projection.generation.testObservationDigest !== generation.testObservationDigest
+      || projection.generation.sourceProjectionDigest !== generation.sourceProjectionDigest) {
+    throw new Error('Test budget generation differs from its issued Source Program projection.');
+  }
 }
 
 export function getTestFilesSync(projection: TestBudgetProjection): readonly string[] {
@@ -474,7 +519,7 @@ export function formatTestBudgetContract(contract: TestBudgetContract): string {
     ...contract.slowSuites.map((suite) => [
       `Slow suite ${suite.id}`,
       `owner=${suite.owner}`,
-      `timeoutMs=${suite.timeoutMs}`,
+      `logicalRunTimeoutMs=${suite.logicalRunTimeoutMs}`,
       `parallelSafe=${suite.parallelSafe}`,
       `resourceClass=${suite.resourceClass}`,
       `prRiskBaseline=${suite.prRiskBaseline}`,

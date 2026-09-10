@@ -1435,6 +1435,7 @@ const WINDOWS_FILE_ATTRIBUTE_TAG_INFO = 9;
 const WINDOWS_FILE_BASIC_INFO = 0;
 const WINDOWS_FILE_STANDARD_INFO = 1;
 const WINDOWS_FILE_ID_INFO = 18;
+const WINDOWS_EXTENDED_FILE_ID_TYPE = 2;
 const WINDOWS_GENERIC_READ = 0x8000_0000;
 const WINDOWS_GENERIC_WRITE = 0x4000_0000;
 const WINDOWS_SYNCHRONIZE = 0x0010_0000;
@@ -1502,6 +1503,7 @@ function loadWindowsKernel32() {
   try {
     return dlopen('kernel32.dll', {
       CreateFileW: { args: [FFIType.ptr, FFIType.u32, FFIType.u32, FFIType.ptr, FFIType.u32, FFIType.u32, FFIType.ptr], returns: FFIType.u64 },
+      OpenFileById: { args: [FFIType.u64, FFIType.ptr, FFIType.u32, FFIType.u32, FFIType.ptr, FFIType.u32], returns: FFIType.u64 },
       GetFileInformationByHandleEx: { args: [FFIType.u64, FFIType.u32, FFIType.ptr, FFIType.u32], returns: FFIType.i32 },
       GetFinalPathNameByHandleW: { args: [FFIType.u64, FFIType.ptr, FFIType.u32, FFIType.u32], returns: FFIType.u32 },
       DeviceIoControl: { args: [FFIType.u64, FFIType.u32, FFIType.ptr, FFIType.u32, FFIType.ptr, FFIType.u32, FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
@@ -1561,6 +1563,10 @@ function windowsWide(value: string): Buffer {
   return Buffer.from(`${path.toNamespacedPath(path.resolve(value))}\0`, 'utf16le');
 }
 
+function windowsLiteralWide(value: string): Buffer {
+  return Buffer.from(`${value}\0`, 'utf16le');
+}
+
 function windowsPathKey(value: string): string {
   return value.replace(/[\\/]+$/u, '').toLocaleLowerCase('en-US');
 }
@@ -1586,7 +1592,12 @@ function windowsFinalPath(handle: bigint, label: string): string {
   return output.subarray(0, length * 2).toString('utf16le');
 }
 
-function windowsIdentity(handle: bigint, absolutePath: string, label: string): PhysicalDirectoryIdentity {
+function windowsDirectoryIdentity(
+  handle: bigint,
+  absolutePath: string,
+  label: string,
+  requireExactLexicalPath: boolean
+): PhysicalDirectoryIdentity {
   const library = requireWindowsKernel32();
   const tag = Buffer.alloc(8);
   if (library.symbols.GetFileInformationByHandleEx(handle, WINDOWS_FILE_ATTRIBUTE_TAG_INFO, tag, tag.byteLength) === 0) {
@@ -1597,7 +1608,8 @@ function windowsIdentity(handle: bigint, absolutePath: string, label: string): P
     throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} is not an ordinary non-reparse directory.`);
   }
   const finalPath = windowsFinalPath(handle, label);
-  if (windowsPathKey(finalPath) !== windowsPathKey(path.toNamespacedPath(absolutePath))) {
+  if (requireExactLexicalPath
+      && windowsPathKey(finalPath) !== windowsPathKey(path.toNamespacedPath(absolutePath))) {
     throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} escaped its exact lexical path.`);
   }
   const id = Buffer.alloc(24);
@@ -1611,6 +1623,10 @@ function windowsIdentity(handle: bigint, absolutePath: string, label: string): P
     inode: id.subarray(8).toString('hex'),
     objectId: `windows:${id.toString('hex')}`
   });
+}
+
+function windowsIdentity(handle: bigint, absolutePath: string, label: string): PhysicalDirectoryIdentity {
+  return windowsDirectoryIdentity(handle, absolutePath, label, true);
 }
 
 function windowsOpenDirectory(absolutePath: string, label: string, forFlush = false): bigint {
@@ -1647,6 +1663,197 @@ function windowsOpenDirectory(absolutePath: string, label: string, forFlush = fa
     throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} cannot be opened without following reparse points (Win32 ${lastError}).`);
   }
   return handle;
+}
+
+export interface RetainedWindowsHostNamespaceDirectory {
+  readonly path: string;
+  readonly identity: PhysicalDirectoryIdentity;
+  assertCurrent(): void;
+  dispose(): void;
+}
+
+interface RetainedWindowsHostNamespaceDirectoryRecord {
+  readonly handle: bigint;
+  readonly identity: PhysicalDirectoryIdentity;
+  state: 'open' | 'closed';
+}
+
+const retainedWindowsHostNamespaceDirectories =
+  new WeakMap<object, RetainedWindowsHostNamespaceDirectoryRecord>();
+
+/**
+ * Reopens one Windows directory through its 128-bit FileId and retains that
+ * kernel object.  The handle-derived final path must equal the caller's
+ * expected host path.  This detects AppData/MSIX merged views where a lexical
+ * open has the requested spelling but its FileId actually belongs to a
+ * package-local backing directory.
+ */
+export function retainWindowsHostNamespaceDirectoryById(
+  expected: PhysicalDirectoryIdentity,
+  label = 'Windows host namespace directory'
+): RetainedWindowsHostNamespaceDirectory {
+  if (process.platform !== 'win32') {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `${label} requires the Windows OpenFileById backend.`
+    );
+  }
+  if (!/^[a-f0-9]{16}$/u.test(expected.device)
+      || !/^[a-f0-9]{32}$/u.test(expected.inode)) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `${label} has no Windows 128-bit FileId identity.`
+    );
+  }
+  const normalizedPath = requireAbsoluteDirectoryPath(expected.path, label);
+  const root = path.win32.parse(normalizedPath).root;
+  if (!/^[A-Za-z]:\\$/u.test(root)) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `${label} volume cannot be opened by a local Windows drive identity.`
+    );
+  }
+  const library = requireWindowsKernel32();
+  const volumePath = `\\\\.\\${root.slice(0, 2)}`;
+  const volumeHandle = library.symbols.CreateFileW(
+    windowsLiteralWide(volumePath),
+    0,
+    WINDOWS_SHARE_READ_WRITE_DELETE,
+    null,
+    WINDOWS_OPEN_EXISTING,
+    0,
+    null
+  );
+  if (volumeHandle === WINDOWS_INVALID_HANDLE) {
+    throw physicalWin32Error(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `${label} volume identity cannot be retained.`,
+      library.symbols.GetLastError()
+    );
+  }
+  let handle: bigint | null = null;
+  let volumeOpen = true;
+  let capability: RetainedWindowsHostNamespaceDirectory | null = null;
+  let primaryError: unknown;
+  try {
+    const descriptor = Buffer.alloc(24);
+    descriptor.writeUInt32LE(descriptor.byteLength, 0);
+    descriptor.writeUInt32LE(WINDOWS_EXTENDED_FILE_ID_TYPE, 4);
+    Buffer.from(expected.inode, 'hex').copy(descriptor, 8);
+    handle = library.symbols.OpenFileById(
+      volumeHandle,
+      descriptor,
+      0,
+      WINDOWS_SHARE_READ_WRITE_DELETE,
+      null,
+      WINDOWS_FILE_FLAG_BACKUP_SEMANTICS | WINDOWS_FILE_FLAG_OPEN_REPARSE_POINT
+    );
+    if (handle === WINDOWS_INVALID_HANDLE) {
+      handle = null;
+      throw physicalWin32Error(
+        'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+        `${label} FileId cannot be reopened in the host namespace.`,
+        library.symbols.GetLastError()
+      );
+    }
+    const observed = windowsDirectoryIdentity(handle, normalizedPath, label, false);
+    if (windowsPathKey(observed.finalPath) !== windowsPathKey(path.toNamespacedPath(normalizedPath))
+        || !sameIdentity(expected, observed)) {
+      throw physicalError(
+        'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+        `${label} FileId does not resolve to the expected host namespace identity.`
+      );
+    }
+    const volumeCloseError = closeWindowsHandlesBestEffort(
+      [volumeHandle],
+      `${label} volume`
+    );
+    volumeOpen = false;
+    if (volumeCloseError !== null) throw volumeCloseError;
+    const record: RetainedWindowsHostNamespaceDirectoryRecord = {
+      handle,
+      identity: observed,
+      state: 'open'
+    };
+    capability = Object.freeze({
+      path: observed.path,
+      identity: observed,
+      assertCurrent(): void {
+        if (record.state !== 'open') {
+          throw physicalError(
+            'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+            `${label} host namespace capability is closed.`
+          );
+        }
+        const current = windowsIdentity(record.handle, record.identity.path, label);
+        if (!sameIdentity(record.identity, current)) {
+          throw physicalError(
+            'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+            `${label} host namespace identity changed.`
+          );
+        }
+        let lexicalHandle: bigint | null = null;
+        let lexicalFailure: unknown;
+        try {
+          lexicalHandle = windowsOpenDirectory(
+            record.identity.path,
+            `${label} current lexical binding`
+          );
+          const lexical = windowsIdentity(
+            lexicalHandle,
+            record.identity.path,
+            `${label} current lexical binding`
+          );
+          if (!sameIdentity(record.identity, lexical)) {
+            throw physicalError(
+              'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+              `${label} current lexical binding no longer resolves to the retained host object.`
+            );
+          }
+        } catch (error) {
+          lexicalFailure = error;
+        } finally {
+          const closeError = closeWindowsHandlesBestEffort(
+            lexicalHandle === null ? [] : [lexicalHandle],
+            `${label} current lexical binding`
+          );
+          if (lexicalFailure === undefined && closeError !== null) lexicalFailure = closeError;
+        }
+        if (lexicalFailure !== undefined) throw lexicalFailure;
+      },
+      dispose(): void {
+        if (record.state === 'closed') return;
+        closeWindowsHandle(record.handle);
+        record.state = 'closed';
+      }
+    });
+    retainedWindowsHostNamespaceDirectories.set(capability, record);
+    handle = null;
+  } catch (error) {
+    primaryError = error;
+  } finally {
+    const closeError = closeWindowsHandlesBestEffort([
+      ...(handle === null ? [] : [handle]),
+      ...(volumeOpen ? [volumeHandle] : [])
+    ], `${label} admission`);
+    if (primaryError === undefined && closeError !== null) primaryError = closeError;
+  }
+  if (primaryError !== undefined) throw primaryError;
+  return capability!;
+}
+
+export function assertRetainedWindowsHostNamespaceDirectory(
+  capability: unknown,
+  label = 'Windows host namespace directory'
+): asserts capability is RetainedWindowsHostNamespaceDirectory {
+  if (capability === null || typeof capability !== 'object') {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', `${label} was not issued by Runtime Physical.`);
+  }
+  const record = retainedWindowsHostNamespaceDirectories.get(capability);
+  if (record === undefined || record.state !== 'open') {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', `${label} was not issued as a live host namespace capability.`);
+  }
+  (capability as RetainedWindowsHostNamespaceDirectory).assertCurrent();
 }
 
 function windowsOpenPinnedReadDirectory(absolutePath: string, label: string): bigint {

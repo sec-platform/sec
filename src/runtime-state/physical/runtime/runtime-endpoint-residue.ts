@@ -184,6 +184,7 @@ export function censusRetainedRuntimeGenerations(input: Readonly<{
             profile.owner.root.path,
             'Runtime generation census owner root'
           ),
+          owner: profile.owner,
           segments: profile.segments
         });
         retained.push(generation);

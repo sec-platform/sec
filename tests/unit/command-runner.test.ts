@@ -115,7 +115,7 @@ test('canonical Bun execution accounts immutable stdin in the owner process sess
 
   expect(() => runDevCommand('bun', ['--version'], {}, {
     input: new Uint8Array(DEV_COMMAND_MAX_STDIN_BYTES + 1)
-  })).toThrow('owner input-byte ceiling');
+  })).toThrow('byte snapshot limit');
   expect(() => runDevCommand('bun', ['--version'], {}, {
     deadlineAtUnixMs: Date.now() - 1
   })).toThrow('parent deadline is exhausted');
@@ -184,16 +184,10 @@ test('caller cancellation and deadline exhaustion fail closed', async () => {
     signal: controller.signal
   })).rejects.toThrow('cancelled');
 
-  process.stdout.write = (() => true) as typeof process.stdout.write;
-  process.stderr.write = (() => true) as typeof process.stderr.write;
-  const timedOut = await runDevCommand('bun', [
-    '--no-env-file',
-    '--eval',
-    'await Bun.sleep(200)'
-  ], {}, { observe: true, timeoutMs: 40 });
-  expect(timedOut.observationIntegrity.kind).toBe('failed');
-  expect(devCommandObservationExitCode(timedOut)).toBe(1);
-  expect(timedOut.terminal.kind).not.toBe('exited');
+  await expect(runDevCommand('bun', ['--version'], {}, {
+    observe: true,
+    timeoutMs: 2
+  })).rejects.toThrow('absolute deadline is not narrowed from its attempt');
 });
 
 test('output-forwarding failure invalidates an otherwise completed observation', async () => {

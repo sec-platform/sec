@@ -59,7 +59,7 @@ import {
   type SealedPhysicalExecutionTreeRetirementReceipt
 } from '../../runtime-state/physical/runtime/sealed-execution-tree-generation.ts';
 import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateEnvironment } from '../../runtime-state/workspace-state/layout.ts';
-import { compareCodeUnits, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalJson, compareCodeUnits, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { issueSecOperationRequirementBindingContext } from '../../system-architecture/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,
@@ -1710,10 +1710,14 @@ async function prepareWorkingTreeSourceProgramAudit(
       sourceProgram: compileSourceProgramAuditSourceProgramProjection(
         model,
         sourceFileIdentities,
-        options.includeCandidates
+        options.includeCandidates,
+        options.blockingDetails && options.blockingDetailsDomain === 'source-program'
       ),
       moduleArchitecture: worktreeAudit.moduleArchitecture,
       options: Object.freeze({
+        blockingDetails: options.blockingDetails,
+        blockingDetailsDomain: options.blockingDetailsDomain,
+        blockingDetailsPage: options.blockingDetailsPage,
         enforce: options.enforce,
         full: options.full,
         includeCandidates: options.includeCandidates,
@@ -2865,7 +2869,15 @@ async function executeAdmittedWorkingTreeSourceProgramAudit(
   const operationPayload = encodeSourceProgramAuditOperationInput(prepared.operationInput);
   if (operationPayload.byteLength
       > REPOSITORY_AUDIT_WORKER_PROTOCOL_LIMITS.maximumOperationInputBytes) {
-    throw new Error('Repository Audit normalized operation exceeds its canonical input budget.');
+    const projectionFieldBytes = Object.freeze(Object.entries(prepared.operationInput.projection)
+      .map(([field, value]) => Object.freeze({
+        field,
+        bytes: Buffer.byteLength(JSON.stringify(canonicalJson(value)), 'utf8')
+      }))
+      .sort((left, right) => right.bytes - left.bytes || compareCodeUnits(left.field, right.field)));
+    throw new Error(
+      `Repository Audit normalized operation exceeds its canonical input budget: ${JSON.stringify(projectionFieldBytes)}`
+    );
   }
   const executablePath = path.resolve(process.execPath);
   let executable: RetainedNoFollowOrdinaryFile | null = null;

@@ -15,7 +15,10 @@ import {
   reuseOperationDependencies,
   type MaterializedOperationDependencyBootstrapResult
 } from './dependency-bootstrap.ts';
-import type { RepositoryMutationFenceOptions } from './repository-mutation-fence.ts';
+import type {
+  RepositoryMutationFenceExecutionContext,
+  RepositoryMutationFenceOptions
+} from './repository-mutation-fence.ts';
 
 export function shouldReportDevRunnerSuccess(
   environment: Readonly<Record<string, string | undefined>> = process.env
@@ -134,7 +137,10 @@ type ParsedImportOperationArgs = Readonly<{
 
 async function runRepositoryZeroWriteCommand(
   commandId: string,
-  operation: (processSession?: ProcessResourceSession) => Promise<number>,
+  operation: (
+    processSession?: ProcessResourceSession,
+    executionContext?: RepositoryMutationFenceExecutionContext
+  ) => Promise<number>,
   semanticOperation: SecBoundSemanticOperation,
   fenceOptions: Omit<RepositoryMutationFenceOptions, 'operation'> = {}
 ): Promise<number> {
@@ -338,7 +344,11 @@ async function main(): Promise<void> {
       process.exitCode = 1;
       return;
     }
-    const { runAffectedTests } = await import('./test-runner.ts');
+    const {
+      isExactSlowTestRunnerSelection,
+      isSelectorlessTestRunnerSelection,
+      runAffectedTests
+    } = await import('./test-runner.ts');
     const { issueCheckAffectedTestImpactProjection } = await import('./check-affected-source.ts');
     const { compileAffectedTestSelectionSemanticOperation } = await import('./affected-plan-contract.ts');
     const operation = compileAffectedTestSelectionSemanticOperation({
@@ -356,6 +366,21 @@ async function main(): Promise<void> {
       return;
     }
     const { withHeavyVerificationGateLease } = await import('../../verification/gate/state/heavy-lease.ts');
+    if (args.length > 0 && isSelectorlessTestRunnerSelection(args)) {
+      console.error('test:affected option-only execution is unsupported because it cannot prove a fast-only or slow-only test selection.');
+      process.exitCode = 1;
+      return;
+    }
+    if (isExactSlowTestRunnerSelection(args)) {
+      process.exitCode = await withHeavyVerificationGateLease(
+        'test:affected',
+        () => runAffectedTests(issueCheckAffectedTestImpactProjection, args, {
+          operation
+        }),
+        { namespace: 'test:affected', waitTimeoutMs: 5000 }
+      );
+      return;
+    }
     process.exitCode = await runRepositoryZeroWriteCommand('test:affected', (processSession) =>
       withHeavyVerificationGateLease(
         'test:affected',
@@ -507,11 +532,33 @@ async function main(): Promise<void> {
   if (!['contract-freeze', 'test', 'test:full', 'test:fast', 'test:slow'].includes(target)) usage();
 
   const {
+    executePreparedSlowTestSuiteExecutions,
+    isExactSlowTestRunnerSelection,
+    isSelectorlessTestRunnerSelection,
+    prepareSlowTestSuiteExecutions,
     runContractFreeze,
     runFastTests,
     runSlowTests,
     runTests
   } = await import('./test-runner.ts');
+  const runPreparedSlowSuites = async (slowArgs: string[]): Promise<number> => {
+    const preparedSuites = await prepareSlowTestSuiteExecutions(slowArgs);
+    return executePreparedSlowTestSuiteExecutions(preparedSuites, target);
+  };
+  if (target === 'test:slow' || (
+    (target === 'test' || target === 'test:full') && isExactSlowTestRunnerSelection(args)
+  )) {
+    process.exitCode = await runPreparedSlowSuites(args);
+    return;
+  }
+  if ((target === 'test' || target === 'test:full') && isSelectorlessTestRunnerSelection(args)) {
+    const fastCode = await runStandaloneRepositoryZeroWriteCommand(
+      `${target}:fast`,
+      () => runTests(args, { omitSlowSuites: true })
+    );
+    process.exitCode = fastCode === 0 ? await runPreparedSlowSuites(args) : fastCode;
+    return;
+  }
   process.exitCode = await runStandaloneRepositoryZeroWriteCommand(target, () => (
     target === 'contract-freeze'
       ? runContractFreeze()

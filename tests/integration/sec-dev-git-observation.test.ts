@@ -9,6 +9,7 @@ import {
   compileAffectedTestSelectionSemanticOperation
 } from '../../src/development/runner/affected-plan-contract.ts';
 import {
+  projectRepositoryObserverFailureDiagnostic,
   runRepositoryZeroWriteOperation
 } from '../../src/development/runner/repository-mutation-fence.ts';
 import {
@@ -330,9 +331,35 @@ test('repository mutation operation fence turns a child write into one diagnosti
     expect(operationCallCount).toBe(1);
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0]).toContain('mutated or lost continuous observation');
+    const encoded = diagnostics[0]!.match(/diagnostic=(\{.*\})\.$/u)?.[1];
+    expect(encoded).toBeDefined();
+    const diagnostic = JSON.parse(encoded!) as {
+      eventCount: number;
+      firstEvent: { action: string; path: string; root: string; rootIndex: number };
+      observationDigest: string;
+    };
+    expect(diagnostic.eventCount).toBeGreaterThan(0);
+    expect(diagnostic.firstEvent.root).toBe(root);
+    expect(diagnostic.firstEvent.rootIndex).toBe(0);
+    expect(diagnostic.firstEvent.path).toBe('committed.ts');
+    expect(['added', 'modified']).toContain(diagnostic.firstEvent.action);
+    expect(diagnostic.observationDigest).toStartWith('sha256:');
     expect(await fs.readFile(path.join(root, 'committed.ts'), 'utf8')).toBe('export const escaped = true;\n');
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('repository observer diagnostics preserve non-event failure boundaries without invented paths', () => {
+  for (const status of ['overflow', 'discontinuous'] as const) {
+    const diagnostic = projectRepositoryObserverFailureDiagnostic({
+      status,
+      rootIdentityDigest: `sha256:${'0'.repeat(64)}`
+    }, ['D:\\fixture']);
+    expect(diagnostic.status).toBe(status);
+    expect(diagnostic).not.toHaveProperty('firstEvent');
+    expect(diagnostic).not.toHaveProperty('eventCount');
+    expect(diagnostic).not.toHaveProperty('observationDigest');
   }
 });
 

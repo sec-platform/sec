@@ -1361,11 +1361,30 @@ function compileRepositorySourceProgramModelInternal(
         && binding.requirementId === null
       ));
       if (exactDomainOwner !== undefined) continue;
+      const exactTerminalIssuers = roleBindings.filter(({ descriptor: owner, provider, binding }) => (
+        owner.moduleId === descriptor.moduleId
+        && provider.capability === operation.capability
+        && binding.operation === operation.operation
+        && binding.role === 'terminal-issuer'
+        && binding.requirementId === null
+      ));
+      const terminalDomainOwners = exactTerminalIssuers.length === 1
+        ? roleBindings.filter(({ descriptor: owner, provider, binding }) => (
+            owner.moduleId === descriptor.moduleId
+            && provider.capability === operation.capability
+            && binding.role === 'domain-owner'
+            && binding.semanticOperation === exactTerminalIssuers[0]!.binding.semanticOperation
+            && binding.requirementId === null
+          ))
+        : [];
+      if (terminalDomainOwners.length === 1) continue;
       candidates.push(Object.freeze({
         code: 'operation-critical-role-unresolved',
         subject: `${operation.capability}:${operation.operation}`,
         paths: Object.freeze([`${descriptor.root}/sec.module.json`]),
-        reason: 'effectful public semantic operation has no exact domain-owner role bound to its declared requirement provider operation',
+        reason: exactTerminalIssuers.length === 1
+          ? 'effectful terminal operation has no unique domain owner in the same module, capability, and semantic operation'
+          : 'effectful public semantic operation has no exact domain-owner role bound to its declared requirement provider operation',
         observationClass: 'unknown'
       }));
     }
@@ -1572,6 +1591,8 @@ function compileRepositorySourceProgramModelInternal(
   const entrypointsByCommand = new Map<string, SourceProgramEntrypoint[]>();
   for (const entrypoint of entrypoints) {
     if (entrypoint.command === null) continue;
+    if (entrypoint.kind === 'cli-command'
+        && sourceProgramSurfaceForPath(entrypoint.path) === 'test') continue;
     const group = entrypointsByCommand.get(entrypoint.command) ?? [];
     group.push(entrypoint);
     entrypointsByCommand.set(entrypoint.command, group);

@@ -637,6 +637,40 @@ describe('work-selection live contract', () => {
       const headSha = fixtureGitSha(root, 'HEAD');
       const headTreeSha = fixtureGitSha(root, 'HEAD^{tree}');
 
+      const independentItem = prior.catalog.items.find(({ workId }) => workId !== 'issue-186')!;
+      const independentManifestPath = `docs/work-packages/${independentItem.packageId}.md`;
+      runFixtureGit(root, ['checkout', '--quiet', '-b', 'independent-review', baseSha]);
+      writeFileSync(path.join(root, independentManifestPath), `---\n`
+        + `schema: codex-development-work-package-v1\n`
+        + `id: ${independentItem.packageId}\ntracking: ${independentItem.tracking}\nbase: ${baseSha}\n`
+        + `manifestState: frozen\nrequiredProfile: quick\nciRevision: ci-verification-v19\n`
+        + `tasks:\n  - id: independent-fixture\n    owner: development-governance-owner\n`
+        + `    ownedPaths:\n      - ${independentManifestPath}\n`
+        + `forbiddenPaths:\n  - package.json\n`
+        + `acceptance:\n  - independent fixture remains exact\n`
+        + `tests:\n  - tests/unit/work-selection-live.test.ts\n---\n`, 'utf8');
+      runFixtureGit(root, ['add', '--', independentManifestPath]);
+      runFixtureGit(root, ['commit', '--quiet', '-m', 'fixture: independent candidate']);
+      const independentHeadSha = fixtureGitSha(root, 'HEAD');
+      const secondaryItem = prior.catalog.items.find(({ workId }) => (
+        workId !== 'issue-186' && workId !== independentItem.workId
+      ))!;
+      const secondaryManifestPath = `docs/work-packages/${secondaryItem.packageId}.md`;
+      runFixtureGit(root, ['checkout', '--quiet', '-b', 'secondary-review', baseSha]);
+      writeFileSync(path.join(root, secondaryManifestPath), `---\n`
+        + `schema: codex-development-work-package-v1\n`
+        + `id: ${secondaryItem.packageId}\ntracking: ${secondaryItem.tracking}\nbase: ${baseSha}\n`
+        + `manifestState: frozen\nrequiredProfile: quick\nciRevision: ci-verification-v19\n`
+        + `tasks:\n  - id: secondary-fixture\n    owner: development-governance-owner\n`
+        + `    ownedPaths:\n      - ${secondaryManifestPath}\n`
+        + `forbiddenPaths:\n  - package.json\n`
+        + `acceptance:\n  - secondary fixture remains exact\n`
+        + `tests:\n  - tests/unit/work-selection-live.test.ts\n---\n`, 'utf8');
+      runFixtureGit(root, ['add', '--', secondaryManifestPath]);
+      runFixtureGit(root, ['commit', '--quiet', '-m', 'fixture: secondary candidate']);
+      const secondaryHeadSha = fixtureGitSha(root, 'HEAD');
+      runFixtureGit(root, ['checkout', '--quiet', 'terminal-compaction']);
+
       const issueRecords = Object.fromEntries(prior.catalog.items.map((item, index) => [
         `i${index}`,
         {
@@ -654,11 +688,27 @@ describe('work-selection live contract', () => {
         baseRefOid: baseSha,
         body: 'presentation is not operation identity'
       };
+      const independentPullRequest = {
+        number: 572,
+        headRefName: 'independent-review',
+        headRefOid: independentHeadSha,
+        baseRefName: 'main',
+        baseRefOid: baseSha,
+        body: `Work-Package: ${independentManifestPath}`
+      };
+      const secondaryPullRequest = {
+        number: 574,
+        headRefName: 'secondary-review',
+        headRefOid: secondaryHeadSha,
+        baseRefName: 'main',
+        baseRefOid: baseSha,
+        body: `Work-Package: ${secondaryManifestPath}`
+      };
       const provider = ((command, args, cwd, environment) => {
         if (command === 'gh') {
           const value = args[0] === 'api'
             ? { data: { repository: issueRecords } }
-            : [pullRequest];
+            : [pullRequest, independentPullRequest, secondaryPullRequest];
           return {
             status: 0,
             stdout: Buffer.from(JSON.stringify(value)),
@@ -670,6 +720,8 @@ describe('work-selection live contract', () => {
             status: 0,
             stdout: Buffer.from(
               `${baseSha}\trefs/heads/main\n${headSha}\trefs/heads/terminal-compaction\n`
+              + `${independentHeadSha}\trefs/heads/independent-review\n`
+              + `${secondaryHeadSha}\trefs/heads/secondary-review\n`
             ),
             stderr: Buffer.alloc(0)
           };
@@ -724,20 +776,118 @@ describe('work-selection live contract', () => {
         state: 'healthy',
         ref: rawSha256('terminal-provider-replay-main-health')
       }));
+      if (observed.status !== 'resolved') {
+        throw new Error(`expected resolved live fixture: ${JSON.stringify(observed)}`);
+      }
       expect(observed.status).toBe('resolved');
-      if (observed.status !== 'resolved') throw new Error('expected resolved live fixture');
       expect(observed.receipt.input.current).toMatchObject({
         activeWorkId: 'issue-186',
         activeRef: terminal.candidate.bindingDigest,
         activeState: 'incomplete',
         activeLegality: 'legal'
       });
-      expect(observed.receipt.registry.entries.some(({ source }) => source === 'open-pr'))
-        .toBe(false);
+      const terminalPrEntries = observed.receipt.registry.entries.filter(({ source }) => source === 'open-pr');
+      expect(terminalPrEntries).toHaveLength(2);
+      expect(terminalPrEntries.find(({ prNumber }) => prNumber === independentPullRequest.number))
+        .toMatchObject({
+          prNumber: independentPullRequest.number,
+          baseSha,
+          headSha: independentHeadSha,
+          manifestPath: independentManifestPath
+        });
+      expect(terminalPrEntries.find(({ prNumber }) => prNumber === secondaryPullRequest.number))
+        .toMatchObject({
+          prNumber: secondaryPullRequest.number,
+          baseSha,
+          headSha: secondaryHeadSha,
+          manifestPath: secondaryManifestPath
+        });
       expect(observed.reasonCodes).toEqual([]);
       expect(() => requireResolvedSecWorkDecisionReceipt(observed)).toThrow(
         'Work selection result is not issued by the trusted production live runner'
       );
+
+      runFixtureGit(root, ['checkout', '--quiet', 'independent-review']);
+      const ordinary = await observeSecWorkSelectionWithProviderV1({
+        cwd: root,
+        exactMain: baseSha,
+        exactMainTree: baseTreeSha
+      }, (command, args, cwd, environment) => {
+        if (command === 'gh') {
+          const value = args[0] === 'api'
+            ? {
+                data: {
+                  repository: Object.fromEntries(Object.entries(issueRecords).map(([alias, issue]) => [
+                    alias, { ...issue, state: 'OPEN' }
+                  ]))
+                }
+              }
+            : [independentPullRequest, secondaryPullRequest];
+          return {
+            status: 0,
+            stdout: Buffer.from(JSON.stringify(value)),
+            stderr: Buffer.alloc(0)
+          };
+        }
+        return provider(command, args, cwd, environment);
+      }, async () => ({
+        state: 'healthy',
+        ref: rawSha256('multi-pr-current-main-health')
+      }));
+      if (ordinary.status !== 'resolved') {
+        throw new Error(`expected resolved multi-PR fixture: ${JSON.stringify(ordinary)}`);
+      }
+      expect(ordinary.receipt.input.current).toMatchObject({
+        activeWorkId: independentItem.workId,
+        activeState: 'incomplete',
+        activeLegality: 'legal'
+      });
+      const ordinaryPrEntries = ordinary.receipt.registry.entries.filter(({ source }) => source === 'open-pr');
+      expect(ordinaryPrEntries.map(({ prNumber }) => prNumber).sort((left, right) => left! - right!))
+        .toEqual([independentPullRequest.number, secondaryPullRequest.number]);
+      expect(ordinaryPrEntries.find(({ prNumber }) => prNumber === independentPullRequest.number))
+        .toMatchObject({ headSha: independentHeadSha, manifestPath: independentManifestPath });
+      expect(ordinaryPrEntries.find(({ prNumber }) => prNumber === secondaryPullRequest.number))
+        .toMatchObject({ headSha: secondaryHeadSha, manifestPath: secondaryManifestPath });
+      const malformedUnselected = await observeSecWorkSelectionWithProviderV1({
+        cwd: root,
+        exactMain: baseSha,
+        exactMainTree: baseTreeSha
+      }, (command, args, cwd, environment) => {
+        if (command === 'gh' && args[0] !== 'api') {
+          return {
+            status: 0,
+            stdout: Buffer.from(JSON.stringify([
+              independentPullRequest,
+              { ...secondaryPullRequest, body: 'missing canonical Work Package locator' }
+            ])),
+            stderr: Buffer.alloc(0)
+          };
+        }
+        if (command === 'gh') {
+          return {
+            status: 0,
+            stdout: Buffer.from(JSON.stringify({
+              data: {
+                repository: Object.fromEntries(Object.entries(issueRecords).map(([alias, issue]) => [
+                  alias, { ...issue, state: 'OPEN' }
+                ]))
+              }
+            })),
+            stderr: Buffer.alloc(0)
+          };
+        }
+        return provider(command, args, cwd, environment);
+      }, async () => ({
+        state: 'healthy',
+        ref: rawSha256('multi-pr-malformed-main-health')
+      }));
+      expect(malformedUnselected).toMatchObject({
+        status: 'unresolved',
+        reasonCodes: ['work-package-registry-unresolved'],
+        receipt: null
+      });
+      runFixtureGit(root, ['checkout', '--quiet', 'terminal-compaction']);
 
       const missingHead = 'f'.repeat(40);
       const unavailable = await observeSecWorkSelectionWithProviderV1({
@@ -759,7 +909,60 @@ describe('work-selection live contract', () => {
       }));
       expect(unavailable).toMatchObject({
         status: 'unresolved',
-        reasonCodes: ['terminal-candidate-roadmap-unresolved'],
+        reasonCodes: ['current-open-pr-match-unresolved'],
+        receipt: null
+      });
+
+      const duplicateCurrent = await observeSecWorkSelectionWithProviderV1({
+        cwd: root,
+        exactMain: baseSha,
+        exactMainTree: baseTreeSha
+      }, (command, args, cwd, environment) => {
+        if (command === 'gh' && args[0] !== 'api') {
+          return {
+            status: 0,
+            stdout: Buffer.from(JSON.stringify([
+              pullRequest,
+              { ...pullRequest, number: pullRequest.number + 1 }
+            ])),
+            stderr: Buffer.alloc(0)
+          };
+        }
+        return provider(command, args, cwd, environment);
+      }, async () => ({
+        state: 'healthy',
+        ref: rawSha256('duplicate-current-main-health')
+      }));
+      expect(duplicateCurrent).toMatchObject({
+        status: 'unresolved',
+        reasonCodes: ['current-open-pr-match-unresolved'],
+        receipt: null
+      });
+
+      let currentBranchReads = 0;
+      const driftedCheckout = await observeSecWorkSelectionWithProviderV1({
+        cwd: root,
+        exactMain: baseSha,
+        exactMainTree: baseTreeSha
+      }, (command, args, cwd, environment) => {
+        if (command === 'git' && args.join('\0') === 'branch\0--show-current') {
+          currentBranchReads += 1;
+          if (currentBranchReads === 2) {
+            return {
+              status: 0,
+              stdout: Buffer.from('secondary-review\n'),
+              stderr: Buffer.alloc(0)
+            };
+          }
+        }
+        return provider(command, args, cwd, environment);
+      }, async () => ({
+        state: 'healthy',
+        ref: rawSha256('current-checkout-drift-main-health')
+      }));
+      expect(driftedCheckout).toMatchObject({
+        status: 'unresolved',
+        reasonCodes: ['current-checkout-drift-unresolved'],
         receipt: null
       });
 

@@ -252,6 +252,8 @@ old-only | both | new-only | unknown
 
 ## 12. Workflow/container capability
 
+本地 trusted-runtime 的候选 Git bundle 由 Git semantic owner 发布：复用原生 Git 的 bare init、exact local-object fetch、bundle create/verify，不自写 Git 对象协议、不安装第二工具。目标绑定 exact base/head、source worktree/git/common-object identities、owned temporary root 与 absent 输出；调用方不能提供任意 argv、remote、ref 或输出路径。现有 retained Git physical provider 与 ProcessResourceSession 执行有限命令集合，单次消费后以 ordinary no-follow bundle bytes/digest、Git verification 和 retained capability 交给容器 owner；能力持续到消费者结束，关闭并读回后才签发 terminal receipt。失败保留已发生 Effect 与临时资源的原 owner，不把 raw command exit、caller DTO 或 catch 后删除视为成功；旧裸 bundle helper 在真实消费者切换后退役。Git read session 不承接 fetch、bundle publication 或其他写入。
+
 dispatch、repository/check transport 与 compute 是独立 capabilities。Adapter 只有新增 credential isolation、immutable execution identity、sandbox、remote/local CAS、destructive-resource ownership、settlement/readback 时才成立。
 
 需要启动或采用Provider时，consumer只能请求实现架构定义的`ProviderBootstrapOperation`并消费其opaque live capability；不得在workload adapter内顺手启动daemon、修lock、改context、下载runtime或切换endpoint。provider bootstrap与workload使用不同OperationKey、journal、allocation和terminal；二者只通过exact `ProviderRootBinding`连接。local与remote是重新binding的候选，不是silent fallback，也不共享Evidence身份。本节状态机描述Provider generation的采用/运行时可用生命周期；单次 workflow/attempt 的执行状态由实现架构执行微内核拥有，不能把两者合并为一个generation或复用同一terminal记录。
@@ -261,18 +263,22 @@ Lifecycle：
 ```mermaid
 stateDiagram-v2
   [*] --> Candidate
-  Candidate --> Admitted: profile + retained roots + binding + budget
+  Candidate --> Admitted: profile + retained host namespace + binding + budget
+  Candidate --> Unavailable: unknown or redirected namespace
+  Admitted --> Unavailable: retained identity or lexical binding changed
   Admitted --> Starting
   Starting --> Ready: endpoint/process/readback
   Starting --> Residue: partial/timeout/unknown
   Ready --> Settling: stop/close/operation terminal
   Settling --> Terminal: process tree + endpoint + resource readback
   Settling --> Residue: partial/foreign/replacement
-  Residue --> Admitted: owner-authorized recovery
+  Residue --> Admitted: owner-authorized recovery + exact namespace readback
   Terminal --> Retired: handles/consumers/state zero
 ```
 
 provider runtime generation 由 physical owner签发；普通 caller 不按 prefix/glob/name 清理。历史 generation 只在 live handle、consumer、recovery、external contract 和 unknown 全零后由 authenticated GC 删除。
+
+外部宿主 Provider 的 runtime root 必须与 daemon 使用同一物理 namespace。packaged 进程的 AppData merged view、相同 lexical path 或普通 Known Folder 返回值不能单独证明这一点；无法证明宿主 namespace 时，在启动或恢复 Effect 前保持 unavailable。部分 namespace Effect 后必须按实际 FileId 与物理位置分别结算各层，保留前像，不能因原 lexical path 仍在而重放隔离。
 
 breakaway child capability 绑定 exact operation/attempt/provider，不可移植。parent/job settled 不等于 child/provider terminal。
 

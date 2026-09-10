@@ -13,7 +13,8 @@ import {
 test('repository defaults preserve high-severity enforcement and no output effect', () => {
   assert.deepEqual(parse([]), {
     mode: 'repository', diagnostic: false, enforce: false, full: false,
-    includeCandidates: false, failOn: 'high', defaultRef: undefined,
+    blockingDetails: false, blockingDetailsDomain: 'priority', blockingDetailsPage: 0, includeCandidates: false,
+    failOn: 'high', defaultRef: undefined,
     outputPath: null, query: null, reductionMode: 'none', supersessionBaseline: 'HEAD'
   });
 });
@@ -39,7 +40,8 @@ test('both mode selectors reject in either order rather than selecting the first
 });
 
 test('all string-valued switches reject missing, empty and NUL values', () => {
-  for (const name of ['output', 'query', 'fail-on', 'default-ref', 'supersession-baseline']) {
+  for (const name of ['output', 'query', 'fail-on', 'default-ref', 'supersession-baseline',
+    'blocking-details-domain', 'blocking-details-page']) {
     for (const value of [undefined, '', 'x\0y']) {
       const args = value === undefined ? [`--${name}`] : [`--${name}`, value];
       assert.throws(() => parse(args));
@@ -101,12 +103,37 @@ test('non-repository modes reject ignored repository-only options', () => {
   }
 });
 
-test('source-only reduction, candidate and baseline options cannot silently run another mode', () => {
-  for (const option of ['--candidates', '--graph-cuts', '--version-reductions',
+test('source-only reduction, detail, candidate and baseline options cannot silently run another mode', () => {
+  for (const option of ['--blocking-details', '--blocking-details-domain=priority', '--blocking-details-page=0', '--candidates', '--graph-cuts', '--version-reductions',
     '--aggregate-import-reductions', '--supersession-baseline=HEAD']) {
     assert.throws(() => parse([option]), /only supported/);
     assert.throws(() => parse(['--worktree-module-topology', option]), /only supported/);
   }
+});
+
+test('blocking details select the bounded source-program diagnostic projection', () => {
+  const parsed = parse([
+    '--blocking-details', '--blocking-details-domain=test-retirement', '--blocking-details-page=2'
+  ], 'source-program');
+  assert.equal(parsed.blockingDetails, true);
+  assert.equal(parsed.blockingDetailsDomain, 'test-retirement');
+  assert.equal(parsed.blockingDetailsPage, 2);
+  assert.equal(parsed.full, false);
+  assert.equal(parsed.includeCandidates, false);
+});
+
+test('blocking detail pages require the bounded projection and reject invalid indices', () => {
+  assert.throws(() => parse(['--blocking-details-page=1'], 'source-program'), /requires --blocking-details/);
+  assert.throws(() => parse(['--blocking-details-domain=priority'], 'source-program'), /requires --blocking-details/);
+  assert.throws(() => parse([
+    '--blocking-details', '--blocking-details-domain=everything'
+  ], 'source-program'), /Unsupported --blocking-details-domain/);
+  for (const value of ['-1', '1.5', '9007199254740992']) {
+    assert.throws(() => parse([
+      '--blocking-details', `--blocking-details-page=${value}`
+    ], 'source-program'), /Unsupported --blocking-details-page/);
+  }
+  assert.throws(() => parse(['--blocking-details', '--full'], 'source-program'), /cannot be combined/);
 });
 
 test('each reduction works alone and conflicting reductions reject', () => {

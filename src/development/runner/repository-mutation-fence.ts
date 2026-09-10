@@ -7,7 +7,11 @@ import {
 import { settlePhysicalResourcesAsync, type PhysicalResourceSettlementFailure } from '../../runtime-state/physical/runtime/resource-settlement.ts';
 import {
   armWindowsRepositoryChangeObserver,
+  disposePreparedWindowsRepositoryChangeObserver,
+  prepareWindowsRepositoryChangeObserver,
+  settlePreparedWindowsRepositoryChangeObserver,
   settleWindowsRepositoryChangeObserver,
+  type PreparedWindowsRepositoryChangeObserver,
   type WindowsRepositoryChangeObserverSettlement
 } from '../../runtime-state/physical/runtime/windows-repository-change-observer.ts';
 import { observeOptionalDiagnostic } from '../../system-architecture/foundation/runtime/optional-diagnostic.ts';
@@ -17,6 +21,15 @@ import { compilerRoot } from '../../workspace/runtime/paths.ts';
 import { DEV_COMMAND_MAX_DURATION_MS } from './command-input.ts';
 import { requireCommandExitCode } from './command-outcome.ts';
 import { RepositoryObservationError, resolveRepositoryObservationRoots } from './repository-observation.ts';
+import {
+  assertIssuedTestSuiteExecutionAdmission,
+  type TestSuiteExecutionAdmission
+} from './test-execution-policy.ts';
+
+export type RepositoryMutationFenceExecutionContext = Readonly<{
+  testSuiteAdmission: TestSuiteExecutionAdmission;
+  testSuiteObserver: PreparedWindowsRepositoryChangeObserver;
+}>;
 
 export interface RepositoryMutationFenceOptions {
   readonly operation: SecBoundSemanticOperation;
@@ -26,6 +39,52 @@ export interface RepositoryMutationFenceOptions {
   readonly observerDeadlineAtUnixMs?: number;
   /** Standalone commands settle root-discovery Git before their own provider runs. */
   readonly retainProcessSession?: boolean;
+  /** Exact suite admission whose observer is bound by the child operation. */
+  readonly testSuiteAdmission?: TestSuiteExecutionAdmission;
+}
+
+export type RepositoryObserverFailureDiagnostic = Readonly<{
+  schema: 'sec-repository-observer-failure-diagnostic-v1';
+  status: Exclude<WindowsRepositoryChangeObserverSettlement['status'], 'zero-events'>;
+  rootIdentityDigest: `sha256:${string}`;
+  eventCount?: number;
+  observationDigest?: `sha256:${string}`;
+  firstEvent?: Readonly<{
+    action: string;
+    path: string;
+    root: string | null;
+    rootIndex: number;
+  }>;
+}>;
+
+/** Bounded diagnostic projection only; it cannot authorize or excuse a write. */
+export function projectRepositoryObserverFailureDiagnostic(
+  settlement: Exclude<WindowsRepositoryChangeObserverSettlement, { status: 'zero-events' }>,
+  roots: readonly string[]
+): RepositoryObserverFailureDiagnostic {
+  if (settlement.status !== 'events') {
+    return Object.freeze({
+      schema: 'sec-repository-observer-failure-diagnostic-v1',
+      status: settlement.status,
+      rootIdentityDigest: settlement.rootIdentityDigest
+    });
+  }
+  const first = settlement.events[0];
+  return Object.freeze({
+    schema: 'sec-repository-observer-failure-diagnostic-v1',
+    status: settlement.status,
+    rootIdentityDigest: settlement.rootIdentityDigest,
+    eventCount: settlement.events.length,
+    observationDigest: settlement.observationDigest,
+    ...(first === undefined ? {} : {
+      firstEvent: Object.freeze({
+        action: first.action,
+        path: first.path,
+        root: roots[first.rootIndex] ?? null,
+        rootIndex: first.rootIndex
+      })
+    })
+  });
 }
 
 const REPOSITORY_ZERO_WRITE_OBSERVATION_MAX_MS = DEV_COMMAND_MAX_DURATION_MS;
@@ -79,12 +138,17 @@ function closeRepositoryProcessResourceSession(
  */
 export async function runRepositoryZeroWriteOperation(
   commandId: string,
-  operation: (processSession?: ProcessResourceSession) => Promise<number>,
+  operation: (
+    processSession?: ProcessResourceSession,
+    executionContext?: RepositoryMutationFenceExecutionContext
+  ) => Promise<number>,
   options: RepositoryMutationFenceOptions
 ): Promise<number> {
   const cwd = process.cwd();
   const startedAt = Date.now();
   const { operation: semanticOperation, repositoryRoot: requestedRoot, report: suppliedReport } = options;
+  const testSuiteAdmission = options.testSuiteAdmission;
+  if (testSuiteAdmission !== undefined) assertIssuedTestSuiteExecutionAdmission(testSuiteAdmission);
   if (typeof operation !== 'function' || (suppliedReport !== undefined && typeof suppliedReport !== 'function')) {
     throw new TypeError('Repository observation operation and reporter must be callable');
   }
@@ -106,11 +170,13 @@ export async function runRepositoryZeroWriteOperation(
     && requestedObserverDeadline !== undefined
     ? requestedObserverDeadline
     : parentDeadline;
-  const deadlineAtUnixMs = Math.min(
-    effectiveObserverParentDeadline,
-    requestedObserverDeadline ?? Number.MAX_SAFE_INTEGER,
-    startedAt + REPOSITORY_ZERO_WRITE_OBSERVATION_MAX_MS
-  );
+  const deadlineAtUnixMs = testSuiteAdmission === undefined
+    ? Math.min(
+        effectiveObserverParentDeadline,
+        requestedObserverDeadline ?? Number.MAX_SAFE_INTEGER,
+        startedAt + REPOSITORY_ZERO_WRITE_OBSERVATION_MAX_MS
+      )
+    : testSuiteAdmission.logicalDeadlineAtUnixMs;
   const report = suppliedReport === undefined ? console.error : (message: string) => Reflect.apply(suppliedReport, options, [message]);
   if (deadlineAtUnixMs <= startedAt) {
     observeOptionalDiagnostic(() => report(`${commandId} strict-zero-write-unproven: observation deadline exhausted.`));
@@ -143,9 +209,14 @@ export async function runRepositoryZeroWriteOperation(
     closeRepositoryProcessResourceSession(processSession, semanticOperation);
     processSession = undefined;
   }
-  let observerResolution: Awaited<ReturnType<typeof armWindowsRepositoryChangeObserver>>;
+  let preparedObserver: PreparedWindowsRepositoryChangeObserver | undefined;
+  let observerResolution: Awaited<ReturnType<typeof armWindowsRepositoryChangeObserver>> | undefined;
   try {
-    observerResolution = await armWindowsRepositoryChangeObserver({ roots, deadlineAtUnixMs });
+    if (testSuiteAdmission === undefined) {
+      observerResolution = await armWindowsRepositoryChangeObserver({ roots, deadlineAtUnixMs });
+    } else {
+      preparedObserver = prepareWindowsRepositoryChangeObserver({ roots });
+    }
   } catch (error) {
     await settlePhysicalResourcesAsync({
       primary: { label: 'repository-native-change-observer-admission', error },
@@ -158,7 +229,7 @@ export async function runRepositoryZeroWriteOperation(
     });
     throw new Error('Unreachable repository native observer settlement state.');
   }
-  if (observerResolution.status !== 'ready') {
+  if (testSuiteAdmission === undefined && observerResolution!.status !== 'ready') {
     if (processSession !== undefined) {
       await settlePhysicalResourcesAsync({
         cleanup: [{
@@ -169,14 +240,23 @@ export async function runRepositoryZeroWriteOperation(
     }
     observeOptionalDiagnostic(() => report(
       `${commandId} strict-zero-write-unproven: native repository observation is unavailable `
-      + `(${observerResolution.reason}).`
+      + `(${observerResolution!.status === 'unavailable' ? observerResolution!.reason : 'invalid-input'}).`
     ));
     return 1;
   }
+  const readyObserver = observerResolution?.status === 'ready'
+    ? observerResolution.observer
+    : undefined;
   let result: number | undefined;
   let primary: PhysicalResourceSettlementFailure | undefined;
   try {
-    result = requireCommandExitCode(await operation(processSession), 'Repository-observed command');
+    result = requireCommandExitCode(await operation(
+      processSession,
+      preparedObserver === undefined ? undefined : Object.freeze({
+        testSuiteAdmission: testSuiteAdmission!,
+        testSuiteObserver: preparedObserver
+      })
+    ), 'Repository-observed command');
   } catch (error) {
     primary = { label: 'repository-observed-command', error };
   }
@@ -185,7 +265,15 @@ export async function runRepositoryZeroWriteOperation(
     primary,
     cleanup: [
       { label: 'repository-native-change-observer', settle: async () => {
-        settlement = await settleWindowsRepositoryChangeObserver(observerResolution.observer);
+        if (preparedObserver !== undefined) {
+          settlement = await settlePreparedWindowsRepositoryChangeObserver(preparedObserver);
+          disposePreparedWindowsRepositoryChangeObserver(preparedObserver);
+        } else {
+          if (readyObserver === undefined) {
+            throw new Error('Repository observer was not armed.');
+          }
+          settlement = await settleWindowsRepositoryChangeObserver(readyObserver);
+        }
         // A failed command does not erase a second loss-of-observation result.
         // Keep the native settlement as cause; display text is not the evidence.
         if (primary !== undefined && settlement.status !== 'zero-events') {
@@ -199,9 +287,10 @@ export async function runRepositoryZeroWriteOperation(
     ]
   });
   if (settlement!.status !== 'zero-events') {
+    const diagnostic = projectRepositoryObserverFailureDiagnostic(settlement!, roots);
     observeOptionalDiagnostic(() => report(
       `${commandId} mutated or lost continuous observation of repository state; `
-      + `observer=${settlement!.status}.`
+      + `observer=${settlement!.status}; diagnostic=${JSON.stringify(diagnostic)}.`
     ));
     return 1;
   }

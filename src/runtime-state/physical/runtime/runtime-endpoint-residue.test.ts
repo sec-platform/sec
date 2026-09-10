@@ -5,7 +5,10 @@ import path from 'node:path';
 
 import { inspectNoFollowDirectoryChain } from './physical-no-follow.ts';
 import { PhysicalResourceCompositeSettlementError } from './resource-settlement.ts';
-import { openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot } from './retained-runtime-state-directory.ts';
+import {
+  openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot,
+  retainedRuntimeStateDirectoryRequiresHostNamespace
+} from './retained-runtime-state-directory.ts';
 import {
   assertRuntimeEndpointResidueReceipt,
   censusRetainedRuntimeGenerations,
@@ -88,6 +91,34 @@ test('bounded generation census emits every provider lifecycle state without fil
       states: ['inaccessible-residue']
     });
     expect(inaccessible.entries[0]?.state).toBe('inaccessible-residue');
+  } finally {
+    census?.close();
+    owner?.close();
+    await rm(rootPath, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(process.platform !== 'win32')('generation census preserves the owner host-namespace requirement', async () => {
+  const rootPath = await mkdtemp(path.join(os.tmpdir(), 'runtime-host-census-'));
+  let owner: ReturnType<typeof openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot> | null = null;
+  let census: ReturnType<typeof censusRetainedRuntimeGenerations> | null = null;
+  try {
+    await mkdir(path.join(rootPath, 'generation'));
+    owner = openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot({
+      childDescriptor: 48,
+      mode: 'open-existing',
+      root: inspectNoFollowDirectoryChain(rootPath, 'host census owner'),
+      requireHostNamespace: true
+    });
+    census = censusRetainedRuntimeGenerations({
+      providerIdentityDigest,
+      maximumBytesPerRoot: 1024,
+      maximumDurationMs: 2_000,
+      maximumEntriesPerRoot: 2,
+      profiles: [{ id: 'host', owner, segments: ['generation'], childDescriptor: 49 }]
+    });
+    expect(census.receipt.entries[0]?.state).toBe('active');
+    expect(retainedRuntimeStateDirectoryRequiresHostNamespace(census.generations[0]!)).toBe(true);
   } finally {
     census?.close();
     owner?.close();

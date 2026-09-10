@@ -33,7 +33,7 @@ import {
   isAffectedSelectionFailClosed,
   projectAffectedSelectionToVerificationGateResult
 } from '../../verification/test-impact/affected.ts';
-import { compileTestBudgetProjection, FAST_TEST_PROCESS_POLICY_TEST_FILE, getFastTestFilesSync, getSlowTestFilesSync, isFastTestFile, isKnownSlowTestSuiteId, isSlowTestFile, slowTestSuiteFiles, slowTestSuiteIds, TEST_ARCHITECTURE_POLICY_TEST_FILE, type TestBudgetProjection } from '../../verification/test-impact/contract/budget.ts';
+import { compileTestBudgetProjection, FAST_TEST_PROCESS_POLICY_TEST_FILE, getFastTestFilesSync, getSlowTestFilesSync, isFastTestFile, isKnownSlowTestSuiteId, isSlowTestFile, slowTestSuiteFiles, slowTestSuiteIds, slowTestSuiteIdsForFile, TEST_ARCHITECTURE_POLICY_TEST_FILE, type TestBudgetProjection } from '../../verification/test-impact/contract/budget.ts';
 import { createRepositoryTestImpactSourceProvider, formatSlowImpactNotice, type CodexDevelopmentTestImpactSourceProvider } from '../../verification/test-impact/runtime/impact.ts';
 import { CodexDevelopmentCreateTestImpactTransitionObservation, gitChangedFileDiffArgs, gitIndexChangedFileDiffArgs, gitPathBlobBatchArgs, gitUntrackedFileArgs, gitWorkingTreeStatusArgs, gitWorktreeChangedFileDiffArgs, parseGitChangedRecordsOutput, parseGitPathBlobBatchOutput, parseGitUntrackedFileOutput, type CodexDevelopmentTestImpactTransitionObservation } from '../../verification/test-impact/runtime/transition.ts';
 import { selectSlowTestRiskClosure } from '../../verification/test-impact/slow-risk-selection.ts';
@@ -90,10 +90,14 @@ import {
   type FastTestProcessResourceClass,
   type FastTestResourceClassLimits
 } from './fast-test-policy.ts';
+import type { RepositoryMutationFenceExecutionContext } from './repository-mutation-fence.ts';
 import { explicitFastTestMaxConcurrency } from './test-concurrency-policy.ts';
 import {
+  admitTestSuiteExecutionPolicy,
   compileTestInvocationExecutionPolicy,
-  withDefaultTestTimeout
+  issueTestSuiteExecutionPolicy,
+  withDefaultTestTimeout,
+  type TestSuiteExecutionPolicy
 } from './test-execution-policy.ts';
 import {
   createTestInvocationRuntimeRoots,
@@ -305,63 +309,6 @@ function extractSlowTestRunnerArgs(args: string[]): SlowTestRunnerArgs {
   }
 
   return { suiteId, bunArgs };
-}
-
-type SlowTestArgSelection =
-  | { kind: 'run'; args: string[] }
-  | { kind: 'skip'; message: string };
-
-function slowTestArgSelection(
-  args: string[],
-  budgetProjection: TestBudgetProjection
-): SlowTestArgSelection {
-  const { suiteId, bunArgs } = extractSlowTestRunnerArgs(args);
-  if (suiteId && !isKnownSlowTestSuiteId(suiteId)) {
-    throw new Error(`Unknown slow test suite "${suiteId}". Available suites: ${slowTestSuiteIds().join(', ') || 'none'}`);
-  }
-
-  const availableFiles = suiteId
-    ? slowTestSuiteFiles(budgetProjection, suiteId)
-    : getSlowTestFilesSync(budgetProjection);
-  if (availableFiles.length === 0) {
-    return { kind: 'skip', message: suiteId ? `No slow files for suite ${suiteId}` : 'No slow test files detected.' };
-  }
-
-  const { options, selectors } = partitionBunTestArgs(bunArgs);
-  const fastSelectors = selectors.filter(isFastTestFile);
-  if (fastSelectors.length > 0) {
-    throw new Error(`Slow test runner cannot run fast test files: ${fastSelectors.join(', ')}`);
-  }
-
-  const label = suiteId ? `slow suite ${suiteId}` : 'slow';
-  return {
-    kind: 'run',
-    args: [
-      'test',
-      ...selectMatchingTestFiles([...availableFiles], selectors, label),
-      ...withDefaultTestTimeout(options)
-    ]
-  };
-}
-
-type FullTestInvocation = Readonly<{
-  kind: 'fast' | 'slow';
-  id: string;
-  args: string[];
-}>;
-
-function fullTestInvocations(budgetProjection: TestBudgetProjection): FullTestInvocation[] {
-  const slowSelection = slowTestArgSelection([], budgetProjection);
-  const fast = fastTestInvocations([], budgetProjection, 'complete');
-  return [
-    ...fast.concurrentShards.map(({ id, args }) => ({ kind: 'fast' as const, id, args })),
-    ...fast.resourceClassOrder.flatMap((resourceClass) => (
-      fast.resourceQueues[resourceClass].map(({ id, args }) => ({ kind: 'fast' as const, id, args }))
-    )),
-    ...(slowSelection.kind === 'run'
-      ? [{ kind: 'slow' as const, id: 'slow:001', args: slowSelection.args }]
-      : [])
-  ];
 }
 
 function affectedTestsBaseRef(): string | undefined {
@@ -804,6 +751,17 @@ export async function issueCurrentTestImpactSourceProvider(): Promise<CodexDevel
 export async function issueCurrentTestBudgetProjection(): Promise<TestBudgetProjection> {
   const provider = await issueCurrentTestImpactSourceProvider();
   return compileTestBudgetProjection(provider.projection);
+}
+
+async function issueCurrentTestBudgetExecutionSource(): Promise<Readonly<{
+  sourceProjection: IssuedTestImpactProjection;
+  budgetProjection: TestBudgetProjection;
+}>> {
+  const provider = await issueCurrentTestImpactSourceProvider();
+  return Object.freeze({
+    sourceProjection: provider.projection,
+    budgetProjection: compileTestBudgetProjection(provider.projection)
+  });
 }
 
 function sameGitSelectionObservation(
@@ -1667,83 +1625,44 @@ export async function runAffectedTests(
   return execution.run();
 }
 
-export async function runTests(args: string[] = []): Promise<number> {
-  let exitCode = 1;
-  let selectors: string[] = [];
-  if (args.length > 0) {
-    ({ selectors } = partitionBunTestArgs(args));
-    if (selectors.length > 0 && selectors.every(isFastTestFile)) {
-      await withOperationDependencies('test-direct-fast', async ({ binPath }) => {
-        const environment = pathEnv(binPath);
-        const invocationArgs = managedBunTestArgs(['test', ...args]);
-        exitCode = await runWithTestInvocationRuntime(environment, (runtime) =>
-          runWithParentOwnedProcessTemp(runtime, environment, 'direct:001', (prepared) =>
-            runDevCommand('bun', invocationArgs, prepared, {
-              timeoutMs: testSupervisorTimeoutMs(invocationArgs)
-            })));
-      });
-      return exitCode;
-    }
+export async function runTests(
+  args: string[] = [],
+  options: Readonly<{ omitSlowSuites?: boolean }> = {}
+): Promise<number> {
+  const { selectors } = partitionBunTestArgs(args);
+  if (selectors.length > 0) {
+    if (selectors.every(isFastTestFile)) return runFastTests(args);
+    if (selectors.every(isSlowTestFile)) return runSlowTests(args);
+    console.error('Direct test selection must resolve entirely to exact fast or exact slow test files.');
+    return 1;
   }
-  const directOperation = args.length === 0
-    ? 'test-full'
-    : selectors.length > 0 && selectors.every(isSlowTestFile)
-      ? 'test-direct-slow'
-      : 'test-direct-ambiguous';
-  const budgetProjection = args.length === 0
-    ? await issueCurrentTestBudgetProjection()
-    : null;
-  await withOperationDependencies(directOperation, async ({ binPath }) => {
-    const environment = pathEnv(binPath);
-    if (args.length > 0) {
-      // Only an exact slow-file selection proves that Bun cannot discover a
-      // fast test. Option-only, mixed and pattern/directory selections share
-      // the same invocation runtime boundary as every other fast-capable
-      // entrypoint.
-      const isProvenSlowOnly = selectors.length > 0 && selectors.every(isSlowTestFile);
-      const invocationArgs = managedBunTestArgs(['test', ...args]);
-      exitCode = isProvenSlowOnly
-        ? await runDevCommand('bun', invocationArgs, environment, {
-            timeoutMs: testSupervisorTimeoutMs(invocationArgs)
-          })
-        : await runWithTestInvocationRuntime(environment, (runtime) =>
-            runWithParentOwnedProcessTemp(runtime, environment, 'direct:001', (prepared) =>
-              runDevCommand('bun', invocationArgs, prepared, {
-                timeoutMs: testSupervisorTimeoutMs(invocationArgs)
-              })));
-      return;
-    }
-    exitCode = await runWithTestInvocationRuntime(environment, async (runtime) => {
-      for (const invocation of fullTestInvocations(budgetProjection!)) {
-        const invocationArgs = managedBunTestArgs(invocation.args);
-        const code = invocation.kind === 'fast'
-          ? await runWithParentOwnedProcessTemp(runtime, environment, invocation.id, (prepared) =>
-              runDevCommand('bun', invocationArgs, prepared, {
-                timeoutMs: testSupervisorTimeoutMs(invocationArgs)
-              }))
-          : await runDevCommand('bun', invocationArgs, environment, {
-              timeoutMs: testSupervisorTimeoutMs(invocationArgs)
-            });
-        if (code !== 0) return code;
-      }
-      return 0;
-    });
-  });
-  return exitCode;
+  const fastExitCode = await runFastTestsForInventory(args, undefined, 'complete');
+  if (fastExitCode !== 0 || options.omitSlowSuites) return fastExitCode;
+  return runSlowTests(args);
 }
 
-export async function runFastTests(
+export function isExactSlowTestRunnerSelection(args: string[]): boolean {
+  const { selectors } = partitionBunTestArgs(args);
+  return selectors.length > 0 && selectors.every(isSlowTestFile);
+}
+
+export function isSelectorlessTestRunnerSelection(args: string[]): boolean {
+  return partitionBunTestArgs(args).selectors.length === 0;
+}
+
+async function runFastTestsForInventory(
   args: string[] = [],
-  preparedDependencies?: OperationDependencyBootstrapResult
+  preparedDependencies?: OperationDependencyBootstrapResult,
+  inventory: 'default' | 'complete' = 'default'
 ): Promise<number> {
   let exitCode = 1;
-  const budgetProjection = await issueCurrentTestBudgetProjection();
   const workspace = await prepareFastTestWorkspaceRun();
   const workspaceEnv = workspace.env;
   let invocationRuntime: TestInvocationRuntimeRoots | null = null;
   let hasPrimaryFailure = false;
   let primaryFailure: unknown;
   try {
+    const budgetProjection = await issueCurrentTestBudgetProjection();
     if (testInvocationRuntimeIsolationModeForPlatform(process.platform) === 'retained') {
       invocationRuntime = await createTestInvocationRuntimeRoots({
         repositoryRoot: compilerRoot,
@@ -1753,7 +1672,7 @@ export async function runFastTests(
     }
     await withOperationDependencies('test-fast', async ({ binPath }) => {
       try {
-        const plan = fastTestInvocations(args, budgetProjection);
+        const plan = fastTestInvocations(args, budgetProjection, inventory);
         const env = pathEnv(binPath, workspaceEnv);
         exitCode = await runBoundedFastTestInvocations(
           plan.concurrentShards,
@@ -1796,32 +1715,121 @@ export async function runFastTests(
   return exitCode;
 }
 
+export async function runFastTests(
+  args: string[] = [],
+  preparedDependencies?: OperationDependencyBootstrapResult
+): Promise<number> {
+  return runFastTestsForInventory(args, preparedDependencies);
+}
+
 export async function runSlowTests(args: string[] = []): Promise<number> {
-  let exitCode = 1;
-  let selection: SlowTestArgSelection;
   try {
-    const budgetProjection = await issueCurrentTestBudgetProjection();
-    selection = slowTestArgSelection(args, budgetProjection);
+    return executePreparedSlowTestSuiteExecutions(
+      await prepareSlowTestSuiteExecutions(args),
+      'test:slow'
+    );
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     return 1;
   }
-  if (selection.kind === 'skip') {
-    console.log(selection.message);
+}
+
+export type PreparedSlowTestSuiteExecution = Readonly<{
+  policy: TestSuiteExecutionPolicy;
+  run: (context: RepositoryMutationFenceExecutionContext) => Promise<number>;
+}>;
+
+/** Prepares dependencies once and derives one execution per unique canonical suite. */
+export async function prepareSlowTestSuiteExecutions(
+  args: string[] = []
+): Promise<readonly PreparedSlowTestSuiteExecution[]> {
+  const { sourceProjection, budgetProjection } = await issueCurrentTestBudgetExecutionSource();
+  const { suiteId, bunArgs } = extractSlowTestRunnerArgs(args);
+  if (suiteId !== undefined && !isKnownSlowTestSuiteId(suiteId)) {
+    throw new Error(`Unknown slow test suite "${suiteId}". Available suites: ${slowTestSuiteIds().join(', ') || 'none'}`);
+  }
+  const { options, selectors } = partitionBunTestArgs(bunArgs);
+  const fastSelectors = selectors.filter(isFastTestFile);
+  if (fastSelectors.length > 0) {
+    throw new Error(`Slow test runner cannot run fast test files: ${fastSelectors.join(', ')}`);
+  }
+  const availableFiles = suiteId === undefined
+    ? getSlowTestFilesSync(budgetProjection)
+    : slowTestSuiteFiles(budgetProjection, suiteId);
+  if (availableFiles.length === 0) return Object.freeze([]);
+  const selectedFiles = selectMatchingTestFiles(
+    [...availableFiles], selectors, suiteId === undefined ? 'slow' : `slow suite ${suiteId}`
+  );
+  const filesBySuite = new Map<string, string[]>();
+  for (const file of selectedFiles) {
+    const owners = slowTestSuiteIdsForFile(file);
+    const selectedOwner = suiteId === undefined ? owners : owners.filter((id) => id === suiteId);
+    if (selectedOwner.length !== 1) {
+      throw new Error(`Slow test file has no unique canonical suite: ${file}`);
+    }
+    const files = filesBySuite.get(selectedOwner[0]!) ?? [];
+    files.push(file);
+    filesBySuite.set(selectedOwner[0]!, files);
+  }
+  const dependencies = await ensureOperationDependencies(compileSecOperationDemandGraph({
+    operation: 'test-slow',
+    terminalWorkIds: []
+  }));
+  const environment = pathEnv(path.join(dependencies.nodeModulesPath, '.bin'));
+  return Object.freeze(budgetProjection.slowSuites.flatMap((suite) => {
+    const files = filesBySuite.get(suite.id);
+    if (files === undefined) return [];
+    const policy = issueTestSuiteExecutionPolicy({
+      sourceProjection,
+      budgetProjection,
+      suiteId: suite.id,
+      selectedFiles: files,
+      bunOptions: withDefaultTestTimeout(options),
+      workingDirectory: compilerRoot
+    });
+    const invocationArgs = [...policy.canonicalArgv.slice(1)];
+    return [Object.freeze({
+      policy,
+      run: (context: RepositoryMutationFenceExecutionContext) => runDevCommand(
+        'bun', invocationArgs, environment, {
+          testSuiteAdmission: context.testSuiteAdmission,
+          testSuiteObserver: context.testSuiteObserver
+        }
+      )
+    })];
+  }));
+}
+
+export async function executePreparedSlowTestSuiteExecutions(
+  preparedSuites: readonly PreparedSlowTestSuiteExecution[],
+  commandId: string
+): Promise<number> {
+  if (preparedSuites.length === 0) {
+    console.log('No slow test files detected.');
     return 0;
   }
-  await withOperationDependencies('test-slow', async ({ binPath }) => {
-    try {
-      const invocationArgs = managedBunTestArgs(selection.args);
-      exitCode = await runDevCommand('bun', invocationArgs, pathEnv(binPath), {
-        timeoutMs: testSupervisorTimeoutMs(invocationArgs)
-      });
-    } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error));
-      exitCode = 1;
-    }
-  });
-  return exitCode;
+  const { compileRepositoryObservationOperation } = await import('./repository-observation.ts');
+  const { runRepositoryZeroWriteOperation } = await import('./repository-mutation-fence.ts');
+  for (const preparedSuite of preparedSuites) {
+    const admission = admitTestSuiteExecutionPolicy(preparedSuite.policy);
+    const code = await runRepositoryZeroWriteOperation(
+      `${commandId}:${preparedSuite.policy.suiteId}`,
+      (_processSession, context) => {
+        if (context === undefined) {
+          throw new Error('Slow suite execution requires its repository observer context.');
+        }
+        return preparedSuite.run(context);
+      },
+      {
+        operation: compileRepositoryObservationOperation(),
+        observerDeadlineAtUnixMs: admission.logicalDeadlineAtUnixMs,
+        retainProcessSession: false,
+        testSuiteAdmission: admission
+      }
+    );
+    if (code !== 0) return code;
+  }
+  return 0;
 }
 
 export async function runContractFreeze(targets?: ContractFreezeTarget[]): Promise<number> {

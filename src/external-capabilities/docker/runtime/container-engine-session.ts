@@ -215,19 +215,23 @@ async function dockerDesktopLifecycleEnvironment(): Promise<DockerDesktopLifecyc
   };
   try {
     const profile = await openRetainedWindowsRuntimeStateDirectory({
-      ...DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.profile
+      ...DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.profile,
+      requireHostNamespace: true
     });
     retained.push(profile);
     const localAppData = await openRetainedWindowsRuntimeStateDirectory({
-      ...DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.localAppData
+      ...DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.localAppData,
+      requireHostNamespace: true
     });
     retained.push(localAppData);
     const appData = await openRetainedWindowsRuntimeStateDirectory({
-      ...DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.roamingAppData
+      ...DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.roamingAppData,
+      requireHostNamespace: true
     });
     retained.push(appData);
     const programData = await openRetainedWindowsRuntimeStateDirectory({
-      ...DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.programData
+      ...DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.programData,
+      requireHostNamespace: true
     });
     retained.push(programData);
     const ownerByFolder = new Map([

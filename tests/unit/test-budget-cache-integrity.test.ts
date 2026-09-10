@@ -46,7 +46,7 @@ test('self-hashed cache data cannot omit a required suite or replace its owner, 
   const original = first.slowSuites[0]!;
   const variants: Partial<TestBudgetProjection>[] = [
     { slowSuites: [] },
-    { slowSuites: [{ ...original, owner: 'unrelated', timeoutMs: 1,
+    { slowSuites: [{ ...original, owner: 'unrelated', logicalRunTimeoutMs: 1,
       parallelSafe: false, resourceClass: 'runtime-heavy', prRiskBaseline: true }] },
     { slowSuites: [{ ...original, files: ['tests/e2e/other.test.ts'] }] }
   ];

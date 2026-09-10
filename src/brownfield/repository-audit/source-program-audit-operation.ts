@@ -27,8 +27,13 @@ import {
 } from '../source-program-model/reconciliation-findings.ts';
 
 import { compileSourceProgramMechanismReview, type SourceProgramMechanismReview } from './mechanism-review.ts';
+import { REPOSITORY_AUDIT_WORKER_PROTOCOL_LIMITS } from './worker-protocol.ts';
 
 const REDUCTION_MODES = new Set<string>(['none', 'version', 'graph-cut', 'aggregate-import']);
+const BLOCKING_DETAIL_DOMAINS = new Set<string>([
+  'priority', 'source-program', 'declaration-topology', 'test-retirement',
+  'implementation-dominance', 'test-value', 'supersession', 'module-architecture'
+]);
 const OPERATION_INPUT_KEYS = Object.freeze([
   'binding',
   'blockingReasons',
@@ -228,9 +233,12 @@ export interface CompileSourceProgramAuditOperationInput {
     readonly modelDigest: string;
     readonly sourceFileSetDigest: string;
     readonly candidateDigests: readonly string[];
+    readonly unknownDigests: readonly string[];
+    readonly unknownsDigest: string;
     /** Nonblocking diagnostic view; older in-process projections may omit it. */
     readonly mechanismReview?: SourceProgramMechanismReview;
     readonly candidates: readonly SourceProgramCandidate[];
+    readonly unknowns: SourceProgramModel['unknowns'];
     readonly counts: Readonly<{
       readonly capabilities: number;
       readonly candidates: number;
@@ -301,6 +309,11 @@ export interface CompileSourceProgramAuditOperationInput {
   /** Reduction compilers and provider receipts remain in the parent boundary. */
   readonly reduction: SourceProgramAuditReduction;
   readonly options: Readonly<{
+    readonly blockingDetails: boolean;
+    readonly blockingDetailsDomain: 'priority' | 'source-program' | 'declaration-topology'
+      | 'test-retirement' | 'implementation-dominance' | 'test-value'
+      | 'supersession' | 'module-architecture';
+    readonly blockingDetailsPage: number;
     readonly full: boolean;
     readonly enforce: boolean;
     readonly includeCandidates: boolean;
@@ -370,6 +383,100 @@ function compactRecordSet<T>(records: readonly T[]): Readonly<{
   return Object.freeze({ count: records.length, digest: sha256(records) });
 }
 
+export const BLOCKING_DETAILS_PAGE_MAXIMUM_BYTES =
+  REPOSITORY_AUDIT_WORKER_PROTOCOL_LIMITS.maximumOperationInputBytes / 8;
+
+export class SourceProgramAuditBlockingDetailError extends Error {
+  readonly code = 'blocking-detail-record-too-large';
+  constructor(
+    readonly domain: string,
+    readonly index: number,
+    readonly recordDigest: string,
+    readonly recordBytes: number
+  ) {
+    super(
+      `Repository Audit blocking-detail record exceeds its page budget: ${domain}:${index}:${recordDigest}:${recordBytes}`
+    );
+    this.name = 'SourceProgramAuditBlockingDetailError';
+  }
+}
+
+function pagedRecordSet<T>(
+  domain: string,
+  records: readonly T[],
+  page: number
+): Readonly<{
+  count: number;
+  digest: string;
+  page: number;
+  pageCount: number;
+  pageMaximumBytes: number;
+  records: readonly T[];
+}> {
+  const selected: T[] = [];
+  let currentPage = 0;
+  let currentRecordCount = 0;
+  let currentBytes = 2;
+  for (const [index, record] of records.entries()) {
+    const recordBytes = canonicalWireBytes(record).byteLength;
+    if (recordBytes + 2 > BLOCKING_DETAILS_PAGE_MAXIMUM_BYTES) {
+      throw new SourceProgramAuditBlockingDetailError(
+        domain, index, sha256(record), recordBytes
+      );
+    }
+    const nextBytes = currentBytes + recordBytes + (currentRecordCount === 0 ? 0 : 1);
+    if (currentRecordCount > 0 && nextBytes > BLOCKING_DETAILS_PAGE_MAXIMUM_BYTES) {
+      currentPage++;
+      currentRecordCount = 0;
+      currentBytes = 2;
+    }
+    if (currentPage === page) selected.push(record);
+    currentBytes += recordBytes + (currentRecordCount === 0 ? 0 : 1);
+    currentRecordCount++;
+  }
+  return Object.freeze({
+    count: records.length,
+    digest: sha256(records),
+    page,
+    pageCount: records.length === 0 ? 0 : currentPage + 1,
+    pageMaximumBytes: BLOCKING_DETAILS_PAGE_MAXIMUM_BYTES,
+    records: Object.freeze(selected)
+  });
+}
+
+type BlockingDetailRecord = Readonly<{ readonly category: string; readonly record: unknown }>;
+
+function blockingDetailRecords(
+  input: CompileSourceProgramAuditOperationInput,
+  domain: CompileSourceProgramAuditOperationInput['options']['blockingDetailsDomain']
+): readonly BlockingDetailRecord[] {
+  const tagged = (category: string, records: readonly unknown[]): readonly BlockingDetailRecord[] =>
+    Object.freeze(records.map((record) => Object.freeze({ category, record })));
+  switch (domain) {
+    case 'priority':
+      return Object.freeze([
+        ...tagged('blocking-candidate', input.blockingCandidates),
+        ...tagged('blocking-test-finding', input.blockingTestFindings)
+      ]);
+    case 'source-program': return tagged('source-program-unknown', input.sourceProgram.unknowns);
+    case 'declaration-topology':
+      return tagged('declaration-topology-unknown', input.declarationTopology.unknowns);
+    case 'test-retirement':
+      return tagged('blocked-test-retirement-proof', input.testRetirement.proofs
+        .filter(({ status }) => status === 'blocked'));
+    case 'implementation-dominance':
+      return tagged('implementation-dominance-finding', input.implementationDominance.findings);
+    case 'test-value':
+      return Object.freeze([
+        ...tagged('blocking-test-finding', input.blockingTestFindings),
+        ...tagged('unknown-test-disposition', input.unknownDispositionClusters)
+      ]);
+    case 'supersession': return tagged('supersession-finding', input.supersession.findings);
+    case 'module-architecture':
+      return tagged('module-architecture-violation', input.moduleArchitecture.violations);
+  }
+}
+
 function assertSourceFileIdentities(
   files: readonly Readonly<{ readonly path: string; readonly contentDigest: string }>[]
 ): void {
@@ -399,7 +506,8 @@ function assertReductionPatch(
 export function compileSourceProgramAuditSourceProgramProjection(
   model: SourceProgramModel,
   sourceFileIdentities: readonly Readonly<{ readonly path: string; readonly contentDigest: string }>[],
-  includeCandidates: boolean
+  includeCandidates: boolean,
+  includeUnknowns = false
 ): CompileSourceProgramAuditOperationInput['sourceProgram'] {
   assertSourceFileIdentities(sourceFileIdentities);
   const modelFileDigestByPath = new Map(model.files.map(({ path, contentDigest }) =>
@@ -415,7 +523,10 @@ export function compileSourceProgramAuditSourceProgramProjection(
     sourceFileSetDigest: sha256(sourceFileIdentities),
     mechanismReview: compileSourceProgramMechanismReview(model),
     candidateDigests: Object.freeze(model.candidates.map((candidate) => sha256(candidate))),
+    unknownDigests: Object.freeze(model.unknowns.map((unknown) => sha256(unknown))),
+    unknownsDigest: sha256(model.unknowns),
     candidates: includeCandidates ? model.candidates : Object.freeze([]),
+    unknowns: includeUnknowns ? model.unknowns : Object.freeze([]),
     counts: Object.freeze({
       capabilities: model.capabilities.length,
       candidates: model.candidates.length,
@@ -469,6 +580,7 @@ function assertFacts(input: CompileSourceProgramAuditOperationInput): void {
   if (input.sourceProgram.sourceFileSetDigest !== sha256(input.sourceFileIdentities)
       || input.sourceProgram.counts.files !== input.sourceFileIdentities.length
       || input.sourceProgram.candidateDigests.length !== input.sourceProgram.counts.candidates
+      || input.sourceProgram.unknownDigests.length !== input.sourceProgram.counts.unknowns
       || input.sourceProgram.candidates.length !== (
         input.options.includeCandidates ? input.sourceProgram.counts.candidates : 0
       )) {
@@ -544,6 +656,15 @@ function assertFacts(input: CompileSourceProgramAuditOperationInput): void {
   const candidateDigests = new Set(input.sourceProgram.candidateDigests);
   if (input.blockingCandidates.some((candidate) => !candidateDigests.has(sha256(candidate)))) {
     throw new Error('Blocking candidate projection is not a subset of the Source Program model');
+  }
+  const unknownDigests = new Set(input.sourceProgram.unknownDigests);
+  if (input.options.blockingDetails
+      && input.options.blockingDetailsDomain === 'source-program' && (
+    input.sourceProgram.unknowns.length !== input.sourceProgram.counts.unknowns
+    || sha256(input.sourceProgram.unknowns) !== input.sourceProgram.unknownsDigest
+    || input.sourceProgram.unknowns.some((unknown) => !unknownDigests.has(sha256(unknown)))
+  )) {
+    throw new Error('Blocking-detail unknown projection is not the exact Source Program unknown set');
   }
   const findingDigests = new Set(input.testDisposition.findings.map((finding) => sha256(finding)));
   if (input.blockingTestFindings.some((finding) => !findingDigests.has(sha256(finding)))) {
@@ -779,8 +900,39 @@ function reductionProjection(
 export function compileSourceProgramAuditOperationInput(
   input: CompileSourceProgramAuditOperationInput
 ): SourceProgramAuditOperationInput {
+  if (!Number.isSafeInteger(input.options.blockingDetailsPage)
+      || input.options.blockingDetailsPage < 0) {
+    throw new Error('Repository Audit blocking-detail page must be a non-negative safe integer');
+  }
+  if (!BLOCKING_DETAIL_DOMAINS.has(input.options.blockingDetailsDomain)) {
+    throw new Error(`Unsupported Repository Audit blocking-detail domain: ${input.options.blockingDetailsDomain}`);
+  }
+  if (!input.options.blockingDetails && (
+    input.options.blockingDetailsPage !== 0 || input.options.blockingDetailsDomain !== 'priority'
+  )) {
+    throw new Error('Repository Audit blocking-detail selectors require blocking details');
+  }
+  if (input.options.blockingDetails && input.options.full) {
+    throw new Error('Repository Audit blocking details cannot be combined with the full projection');
+  }
+  if (!Number.isSafeInteger(input.sourceProgram.counts.unknowns)
+      || input.sourceProgram.counts.unknowns < 0) {
+    throw new Error('Source Program unknown observation count is invalid');
+  }
   assertFacts(input);
   const full = input.options.full;
+  const blockingDetails = input.options.blockingDetails;
+  const blockingDetailsPage = input.options.blockingDetailsPage;
+  const blockingDetailsDomain = input.options.blockingDetailsDomain;
+  const detailsFor = (...domains: readonly typeof blockingDetailsDomain[]): boolean =>
+    blockingDetails && domains.includes(blockingDetailsDomain);
+  const blockingDetailsProjection = blockingDetails
+    ? pagedRecordSet(
+        blockingDetailsDomain,
+        blockingDetailRecords(input, blockingDetailsDomain),
+        blockingDetailsPage
+      )
+    : null;
   const candidates = input.blockingCandidates;
   const testFindings = input.blockingTestFindings;
   const unknownDispositionClusters = input.unknownDispositionClusters;
@@ -792,10 +944,6 @@ export function compileSourceProgramAuditOperationInput(
     disposition?.disposition !== 'unknown');
   // An enforced audit needs coverage, not just an empty known-finding list.
   // Mechanism-review heuristics remain nonblocking review leads.
-  if (!Number.isSafeInteger(input.sourceProgram.counts.unknowns)
-      || input.sourceProgram.counts.unknowns < 0) {
-    throw new Error('Source Program unknown observation count is invalid');
-  }
   const blockingReasons = Object.freeze([
     ...(input.sourceProgram.counts.unknowns > 0 ? ['source-program-incomplete'] : []),
     ...(input.declarationTopology.unknowns.length > 0 ? ['declaration-topology-incomplete'] : []),
@@ -910,6 +1058,10 @@ export function compileSourceProgramAuditOperationInput(
       )),
       blockers: compactRecordSet(input.architectureEvolution.blockers)
     }),
+    sourceProgramUnknowns: Object.freeze({
+      count: input.sourceProgram.counts.unknowns,
+      digest: input.sourceProgram.unknownsDigest
+    }),
     blockingCandidates: full ? candidates : compactRecordSet(candidates),
     blockingTestFindings: full
       ? testFindings
@@ -938,6 +1090,9 @@ export function compileSourceProgramAuditOperationInput(
       proofsDigest: sha256(input.testRetirement.proofs)
     }),
     topology: input.topology,
+    ...(blockingDetailsProjection === null ? {} : {
+      blockingDetails: blockingDetailsProjection
+    }),
     testValue: Object.freeze({
       baselineDigest: input.testValue.baselineDigest,
       baselineEvidenceDigest: input.testValue.baselineEvidenceDigest,
@@ -971,7 +1126,14 @@ export function compileSourceProgramAuditOperationInput(
       architectureEvolutionDirection: input.architectureEvolution.direction,
       architectureEvolutionBlockers: input.architectureEvolution.blockers.length,
       blockingTestFindings: testFindings.length,
-      reportedBlockingTestFindings: (full ? testFindings : compactBlockingTestFindings).length,
+      reportedBlockingTestFindings: full
+        ? testFindings.length
+        : compactBlockingTestFindings.length + (detailsFor('priority', 'test-value')
+          ? blockingDetailsProjection!.records.filter(({ category, record }) =>
+              category === 'blocking-test-finding'
+              && (record as SourceProgramTestFinding).disposition?.disposition === 'unknown'
+            ).length
+          : 0),
       unknownDispositionClusters: unknownDispositionClusters.length,
       unknownDispositions: input.testDisposition.dispositions.filter(({ disposition }) =>
         disposition === 'unknown').length,

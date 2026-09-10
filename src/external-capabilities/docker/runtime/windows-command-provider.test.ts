@@ -14,7 +14,7 @@ import {
 import { openWindowsDockerCommandProvider } from './windows-command-provider.ts';
 
 test.skipIf(process.platform !== 'win32')(
-  'Windows Docker provider ignores ambient PATH, ProgramFiles, and temp redirection',
+  'Windows Docker provider requires host Known Folders and ignores ambient redirection',
   async () => {
     const original = {
       PATH: process.env.PATH,
@@ -29,9 +29,25 @@ test.skipIf(process.platform !== 'win32')(
       process.env.PROGRAMFILES = String.raw`C:\ambient-program-files`;
       process.env.TEMP = String.raw`C:\ambient-temp`;
       process.env.TMP = String.raw`C:\ambient-tmp`;
-      provider = await openWindowsDockerCommandProvider({
-        workingDirectory: path.win32.resolve(process.cwd())
-      });
+      try {
+        provider = await openWindowsDockerCommandProvider({
+          workingDirectory: path.win32.resolve(process.cwd())
+        });
+      } catch (error) {
+        let current: unknown = error;
+        let hostNamespaceUnavailable = false;
+        for (let depth = 0; depth < 8 && current instanceof Error; depth += 1) {
+          if ('code' in current
+              && current.code === 'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE'
+              && current.message.includes('host owner root')) {
+            hostNamespaceUnavailable = true;
+            break;
+          }
+          current = current.cause;
+        }
+        expect(hostNamespaceUnavailable).toBe(true);
+        return;
+      }
       const programFiles = await resolveWindowsKnownFolderPath('program-files');
       expect(provider.executable).toBe(path.win32.join(
         programFiles,

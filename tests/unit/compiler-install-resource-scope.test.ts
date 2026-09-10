@@ -17,7 +17,7 @@ const executable = (dispose: () => void) => ({ dispose }) as RetainedNoFollowOrd
 const directory = (dispose: () => void) => ({ dispose }) as RetainedNoFollowChildProcessDirectory;
 const fixtureDigest = sha256({ fixture: 'compiler-install-resource-settlement' }) as SecOperationDigest;
 const expectation = () => ({ operationIdentityDigest: fixtureDigest, boundAttemptDigest: fixtureDigest, requirementId: 'test.install' });
-function ownedSession() {
+function ownedSession(absoluteDeadlineAtUnixMs?: number) {
   const budgets = [
     { resource: 'duration-ms' as const, maximum: 5000 }, { resource: 'input-bytes' as const, maximum: 0 },
     { resource: 'output-bytes' as const, maximum: 1 }, { resource: 'processes' as const, maximum: 1 }
@@ -30,10 +30,18 @@ function ownedSession() {
   const operation = bindSecSemanticOperation(plan, [compileSecCapabilityBinding({ requirementId: 'test.install',
     contractDigest: fixtureDigest, providerIdentityDigest: fixtureDigest })]);
   const session = openProcessResourceSession({ operation, requirementBindingContext: issueSecOperationRequirementBindingContext({
-    operation, requirementId: 'test.install', resourceCeilings: budgets }) });
+    operation, requirementId: 'test.install', resourceCeilings: budgets,
+    ...(absoluteDeadlineAtUnixMs === undefined ? {} : { absoluteDeadlineAtUnixMs }) }) });
   return { session, expected: { operationIdentityDigest: operation.plan.identity.identityDigest,
     boundAttemptDigest: operation.boundAttemptDigest, requirementId: 'test.install' } };
 }
+
+test('an absolute child deadline narrows the operation without renewal at session admission', () => {
+  const absoluteDeadlineAtUnixMs = Date.now() + 2_000;
+  const { session } = ownedSession(absoluteDeadlineAtUnixMs);
+  assert.ok(session.deadlineAtUnixMs <= absoluteDeadlineAtUnixMs);
+  session.close();
+});
 
 for (const count of [0, 1, 2, 3]) {
   test(`partial acquisition releases exactly the ${count} already acquired resources`, async () => {

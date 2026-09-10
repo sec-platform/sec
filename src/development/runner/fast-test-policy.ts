@@ -145,6 +145,11 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     resourceClass: 'independent-process'
   },
   {
+    file: 'tests/integration/compiler-dependency-installation.test.ts',
+    reason: 'process-global-environment-and-isolated-physical-lifecycle',
+    resourceClass: 'independent-process'
+  },
+  {
     file: 'tests/integration/pipeline-workspace-write-lease.test.ts',
     reason: 'workspace-mutation',
     resourceClass: 'independent-process'
@@ -272,6 +277,66 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
   {
     file: 'tests/unit/workspace-write-lease.test.ts',
     reason: 'workspace-lease-process-state',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'src/external-capabilities/docker/runtime/windows-command-provider.test.ts',
+    reason: 'process-global-environment-and-host-identity-readback',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'src/external-capabilities/docker/runtime/launcher-lock.test.ts',
+    reason: 'process-global-environment-and-isolated-provider-lease',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'src/external-capabilities/docker/runtime/command-provider.test.ts',
+    reason: 'process-global-environment-and-isolated-provider-capability',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'src/brownfield/source-program-model/repository-compilation-cache-provider.test.ts',
+    reason: 'module-global-compilation-cache-and-process-environment',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'src/development/workspace-transition/operation.test.ts',
+    reason: 'process-global-mocks-and-environment',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'src/runtime-state/workspace-state/external-provider-coordination-lease.test.ts',
+    reason: 'process-global-environment-and-isolated-provider-lease',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'src/runtime-state/workspace-state/content-addressed-workspace-cache.test.ts',
+    reason: 'module-global-runtime-cache-and-process-environment',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'src/runtime-state/physical/runtime/windows-known-folders.test.ts',
+    reason: 'process-global-environment-and-host-identity-readback',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/dev-command-input.test.ts',
+    reason: 'process-global-environment',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/github-api-credential.test.ts',
+    reason: 'process-global-environment-and-child-process',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/local-github-actions-runner.test.ts',
+    reason: 'process-global-environment-and-child-process',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/template-validation-lifecycle.test.ts',
+    reason: 'process-global-environment',
     resourceClass: 'independent-process'
   },
 ] as const satisfies readonly FastTestProcessIsolationDefinition[];

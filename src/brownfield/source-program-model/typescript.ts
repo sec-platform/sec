@@ -1772,6 +1772,14 @@ function unwrapReturnProvenanceExpression(expression: ts.Expression): ts.Express
   return current;
 }
 
+function isFailOnlyReturnProvenanceGuard(statement: ts.Statement): boolean {
+  if (!ts.isIfStatement(statement) || statement.elseStatement !== undefined) return false;
+  const branch = statement.thenStatement;
+  return ts.isThrowStatement(branch)
+    || (ts.isBlock(branch) && branch.statements.length === 1
+      && ts.isThrowStatement(branch.statements[0]!));
+}
+
 function compileSourceProgramReturnProvenance(input: Readonly<{
   checker: ts.TypeChecker;
   declaration: SourceProgramDeclaration;
@@ -1880,14 +1888,16 @@ function compileSourceProgramReturnProvenance(input: Readonly<{
   } else {
     const terminal = body.statements.at(-1);
     const prefix = body.statements.slice(0, -1);
-    const prefixIsConstOnly = prefix.every((statement) => (
-      ts.isVariableStatement(statement)
-      && (statement.declarationList.flags & ts.NodeFlags.Const) !== 0
-      && statement.declarationList.declarations.every((declaration) => (
-        ts.isIdentifier(declaration.name) && declaration.initializer !== undefined
-      ))
+    const prefixPreservesReturnProvenance = prefix.every((statement) => (
+      isFailOnlyReturnProvenanceGuard(statement)
+      || (ts.isVariableStatement(statement)
+        && (statement.declarationList.flags & ts.NodeFlags.Const) !== 0
+        && statement.declarationList.declarations.every((declaration) => (
+          ts.isIdentifier(declaration.name) && declaration.initializer !== undefined
+        )))
     ));
-    normalReturns = prefixIsConstOnly && terminal !== undefined && ts.isReturnStatement(terminal)
+    normalReturns = prefixPreservesReturnProvenance
+      && terminal !== undefined && ts.isReturnStatement(terminal)
       ? terminal.expression === undefined
         ? Object.freeze([LITERAL_RETURN_PROVENANCE])
         : expressionValues(terminal.expression)

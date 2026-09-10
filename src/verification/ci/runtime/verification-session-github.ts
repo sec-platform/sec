@@ -59,6 +59,7 @@ export interface GitHubCandidateObservation {
   mergeCommitSha: string | null;
   mergeCommitTreeSha: string | null;
   mergeCommitMessage: string | null;
+  mergeCommitParentShas: readonly string[] | null;
 }
 
 export interface GitHubReviewObservation {
@@ -1308,10 +1309,26 @@ class VerificationSessionGitHubAdapter {
       }
       if (candidate.mergeCommitSha !== null) assertSha(candidate.mergeCommitSha, 'mergeCommitSha');
       if (candidate.mergeCommitTreeSha !== null) assertSha(candidate.mergeCommitTreeSha, 'mergeCommitTreeSha');
+      let mergeCommitParentShas: readonly string[] | null = null;
+      if (candidate.mergeCommitParentShas !== null) {
+        if (!Array.isArray(candidate.mergeCommitParentShas)) {
+          fail('mergeCommitParentShas must be an array or null.');
+        }
+        const parentShas = candidate.mergeCommitParentShas.map((parentSha, index) =>
+          assertSha(parentSha, `mergeCommitParentShas[${index}]`));
+        if (new Set(parentShas).size !== parentShas.length) {
+          fail('mergeCommitParentShas contains a duplicate commit.');
+        }
+        mergeCommitParentShas = Object.freeze(parentShas);
+      }
       if ((candidate.mergeCommitSha === null) !== (candidate.mergeCommitTreeSha === null)
         || (candidate.mergeCommitSha === null) !== (candidate.mergeCommitMessage === null)
+        || (candidate.mergeCommitSha === null) !== (candidate.mergeCommitParentShas === null)
         || (candidate.mergeCommitMessage !== null && typeof candidate.mergeCommitMessage !== 'string')) fail('merge commit identity is partial.');
-      return bindProviderShapeSource(Object.freeze({ ...candidate }), providerShapeSource(candidate));
+      return bindProviderShapeSource(
+        Object.freeze({ ...candidate, mergeCommitParentShas }),
+        providerShapeSource(candidate)
+      );
     } catch (error) {
       return rethrowProviderResponseShape(error, 'github-candidate-pr-tree-merge', providerShapeSource(candidate));
     }
@@ -2707,7 +2724,12 @@ class GhVerificationSessionTransport implements VerificationSessionGitHubTranspo
         headBranch: prValue.headRefName, headSha: prValue.headRefOid, headTreeSha: headTreeSource.trim(),
         title: prValue.title, body: prValue.body,
         mergeCommitSha, mergeCommitTreeSha: mergeCommitValue?.tree?.sha ?? null,
-        mergeCommitMessage: mergeCommitValue?.message ?? null
+        mergeCommitMessage: mergeCommitValue?.message ?? null,
+        mergeCommitParentShas: mergeCommitValue === undefined
+          ? null
+          : Array.isArray(mergeCommitValue.parents)
+            ? Object.freeze(mergeCommitValue.parents.map((parent) => parent?.sha))
+            : mergeCommitValue.parents
       });
       return bindProviderShapeSource(observation, sourceBundle());
     } catch (error) {

@@ -196,6 +196,10 @@ resource classes：immutable-copyable、rebuildable、identity-bound、process-b
 
 effectful-test supervisor绑定 exact Action/child plan、one absolute deadline、aggregate budget和cancellation。primary failure/cancel/deadline 后停止新admission，终止已启动 children，settle streams，cleanup/readback，再发布 terminal。Promise timeout、parent exit、finally log 不足。
 
+本地 slow suite 的 `logicalRunTimeoutMs` 由 test-budget owner 拥有，表示一次 admission 至观察器 terminal settlement 的总预算；Bun per-case timeout 不得延长它。依赖准备先由既有 dependency owner 完成。执行 compiler 绑定 owner-issued Source Program projection、对应 budget generation、唯一 suite/files、cwd 与 canonical argv；普通 DTO、缓存 WeakSet 或自写 digest 不能签发成员身份或执行权限。令两个 provider capability acquire/binding 前固定的 admission 时刻为 `A`、总预算为 `L`、既有 settlement margin 为 `M`，则 `Dlogical = A + L`、`Dchild = Dlogical - M`；child requirement context 绑定 `Dchild`，observer context 绑定 `Dlogical`，绝对期限参与同一 opaque context 的 digest。retain、observer arm/ready 与后续耗时均只缩短剩余窗口，不能从后续 acquisition 时刻或 ready barrier 重新计时。observer physical owner 先准备 retained roots 与 binding，绑定 operation 后才启动 worker。
+
+同一 semantic operation 由 retained command provider 与 repository observer physical owner 分别绑定 child 与 observer requirements，收齐 bindings 后才能执行；只准一个 Bun child，沿现有 ProcessResourceSession ledger 结算。runner 保留套件准入与预算来源验证；physical observer 只消费既有 foundation 签发的 single-consumer requirement binding context、exact operation 和自身 retained capability，不能反向导入测试策略。prepared observer 只保留物理 roots/binding，不接受 caller deadline；arm 从 operation 的绝对期限与 context 的 duration ceiling 得到剩余窗口。该 bound contract 的时长由已准入 operation 约束，普通命令和未绑定 observer 仍受五分钟上限约束，caller 数字不能扩大权限。slow/full lane 按唯一 suite registry 逐 suite 消费这一入口；exact slow files 无唯一归属、来源未签发、身份漂移、重复消费、过期或取消均在 Effect 前拒绝。不得保留含义模糊的 suite `timeoutMs` alias、全 slow 文件共用无归属 child 或第二执行器。宿主是否 GitHub Actions 不参与本地执行语义。
+
 test invocation retirement 开始后禁止新 generation；子资源清理失败保留其 recovery lease
 及仍有效的 parent physical authority，已结算资源不在重试中重复删除。只有全部子资源与
 lease 结算成功才释放 parent authority。死 owner 接管消费

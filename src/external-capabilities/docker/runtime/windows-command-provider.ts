@@ -77,21 +77,24 @@ export async function openWindowsDockerCommandProvider(input: Readonly<{
       childDescriptor: profile.installation.directoryChildDescriptor,
       folder: profile.installation.folder,
       mode: 'open-existing',
-      segments: profile.installation.directorySegments
+      segments: profile.installation.directorySegments,
+      requireHostNamespace: true
     });
     retainedOwners.push(installation);
     const desktopLauncherInstallation = await openRetainedWindowsRuntimeStateDirectory({
       childDescriptor: profile.installation.desktopLauncher.directoryChildDescriptor,
       folder: profile.installation.folder,
       mode: 'open-existing',
-      segments: profile.installation.desktopLauncher.directorySegments
+      segments: profile.installation.desktopLauncher.directorySegments,
+      requireHostNamespace: true
     });
     retainedOwners.push(desktopLauncherInstallation);
     const cliPluginDirectory = await openRetainedWindowsRuntimeStateDirectory({
       childDescriptor: profile.installation.cliPluginDirectoryChildDescriptor,
       folder: profile.installation.folder,
       mode: 'open-existing',
-      segments: profile.installation.cliPluginDirectorySegments
+      segments: profile.installation.cliPluginDirectorySegments,
+      requireHostNamespace: true
     });
     retainedOwners.push(cliPluginDirectory);
     const environmentOwners: RetainedRuntimeStateDirectory[] = [];
@@ -103,7 +106,8 @@ export async function openWindowsDockerCommandProvider(input: Readonly<{
     ]) {
       const retained = await openRetainedWindowsRuntimeStateDirectory({
         ...owner,
-        mode: 'open-existing'
+        mode: 'open-existing',
+        requireHostNamespace: true
       });
       retainedOwners.push(retained);
       environmentOwners.push(retained);
@@ -112,7 +116,8 @@ export async function openWindowsDockerCommandProvider(input: Readonly<{
       childDescriptor: profile.environment.temp.childDescriptor,
       folder: profile.environment.temp.folder,
       mode: 'open-existing',
-      segments: profile.environment.temp.directorySegments
+      segments: profile.environment.temp.directorySegments,
+      requireHostNamespace: true
     });
     retainedOwners.push(tempOwner);
     environmentOwners.push(tempOwner);

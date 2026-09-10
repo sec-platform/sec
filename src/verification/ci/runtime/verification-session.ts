@@ -4027,6 +4027,7 @@ function ensureMaintainerReviewWakeup(
 
 export function assertHostedSquashMergeCompletion(input: {
   candidate: GitHubCandidateObservation;
+  expectedBaseSha: string;
   expectedHeadSha: string;
   expectedHeadTreeSha: string;
   markers: readonly string[];
@@ -4047,6 +4048,11 @@ export function assertHostedSquashMergeCompletion(input: {
     || candidate.mergeCommitTreeSha !== input.expectedHeadTreeSha
     || candidate.mergeCommitMessage === null) {
     throw new Error('hosted exact-head squash merge completed with a mismatched head or merge tree.');
+  }
+  if (candidate.baseSha !== input.expectedBaseSha
+    || candidate.mergeCommitParentShas?.length !== 1
+    || candidate.mergeCommitParentShas[0] !== input.expectedBaseSha) {
+    throw new Error('exact-head squash merge parent does not equal the verified base.');
   }
   const messageLines = candidate.mergeCommitMessage.split(/\r?\n/u);
   if (!input.markers.every((marker) => messageLines.includes(marker))) {
@@ -5173,6 +5179,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       }
       try {
         assertHostedSquashMergeCompletion({ candidate: merged,
+          expectedBaseSha: artifact.session.baseSha,
           expectedHeadSha: artifact.session.headSha, expectedHeadTreeSha: artifact.session.headTreeSha,
           markers: [...markers, ...issueMarkers], reviewReceipt: selected.publication.result.reviewReceipt,
           expectedTitle: `Verified integration ${artifact.session.sessionRevision.slice(7, 19)}`,

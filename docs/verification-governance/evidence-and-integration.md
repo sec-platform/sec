@@ -39,6 +39,8 @@ Provenance kinds：
 
 Review是独立Verification Action，绑定 exact subject、principal、owner/consumer/Effect/recovery/doc closure和unknown。prose只解释 typed findings。
 
+本地 closeout 的 Review 缺失只产生 `WAITING_REVIEW`；读取 Review 不隐含向维护者发送评论的权限。通知属于独立的消息 Effect，需要明确授权并由相应 Provider 执行与读回，不能隐藏在验证准入路径中。
+
 ## 12. Trusted bootstrap
 
 ```mermaid
@@ -107,6 +109,8 @@ exact base/head/tree
 PR body/comment/status/journal/admin identity/local JSON/serialized receipt 不授权 merge。authorization 是 provenance-bound、single-use、bounded-lifetime live capability。response lost/ambiguous 时只readback，不 replay。
 
 成功需 merged tree=verified candidate tree，并协调 remote main、PR/Issue disposition、branch/worktree closeout与new-main readback；各 physical Effect 仍由自己的owner执行。cleanup unknown/foreign residue阻断completion。
+
+squash completion 由同一 merge completion owner 验证 Provider 实际观察的唯一 parent 等于已验证 base；不能从预期 merge method 推定父提交。local closeout 消费同一次 GitHub commit observation 的 tree/parents，并通过已有 repository-bound GitHub ref owner 读回当前主线；本地可变的 `origin` 名称不能签发远端仓库身份，无需为了这些观察先写入本地 objects 或 remote-tracking refs。本地主线同步仍由独立 workspace/branch Effect owner 负责。
 
 ## 15. 无代码逻辑验证
 

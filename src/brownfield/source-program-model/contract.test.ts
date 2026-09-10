@@ -1676,6 +1676,36 @@ function compileSupersessionSnapshot(
   return compileSupersessionFixture(sources, declareIntent, declareObligation).evidence;
 }
 
+test('test-surface command observations do not become product duplicate-command candidates', () => {
+  const testOnly = compileSupersessionFixture({
+    'tests/example-command.test.ts': [
+      "import { Command } from 'commander';",
+      'const root = new Command();',
+      "root.command('sample');",
+      "root.command('sample');",
+      ''
+    ].join('\n')
+  }).full.model;
+  expect(testOnly.entrypoints.filter(({ kind }) => kind === 'cli-command')).toHaveLength(2);
+  expect(testOnly.candidates).not.toContainEqual(expect.objectContaining({
+    code: 'duplicate-entrypoint-command'
+  }));
+
+  const productDuplicate = compileSupersessionFixture({
+    'src/example/cli.ts': [
+      "import { Command } from 'commander';",
+      'const root = new Command();',
+      "root.command('sample');",
+      "root.command('sample');",
+      ''
+    ].join('\n')
+  }).full.model;
+  expect(productDuplicate.candidates).toContainEqual(expect.objectContaining({
+    code: 'duplicate-entrypoint-command',
+    subject: 'sample'
+  }));
+});
+
 test('supersession evidence preserves a zero input admission ceiling and rejects negative budgets', () => {
   const sources = {
     'src/example/operation.ts': "export function execute(): string { return 'ok'; }\n"
@@ -2521,6 +2551,136 @@ test('source program keeps an effectful public operation without an exact domain
   }));
 });
 
+test('source program accepts a terminal issuer only through its unique same-capability semantic domain owner', () => {
+  const operationObligation = (capability: string, operation: string) => ({
+    operation: { kind: 'capability', capability, operation },
+    consumerSupport: { consumers: [] },
+    effect: {
+      kinds: ['process'],
+      failureKinds: ['example.failed'],
+      recovery: 'owner-intervention'
+    },
+    evolution: {
+      migration: 'not-required',
+      retirement: 'replacement-obligations-satisfied'
+    },
+    resources: {
+      aggregateBudgets: [
+        { resource: 'duration-ms', maximum: 1_000 },
+        { resource: 'input-bytes', maximum: 0 },
+        { resource: 'output-bytes', maximum: 1 },
+        { resource: 'processes', maximum: 1 }
+      ]
+    },
+    futureSupport: { condition: 'semantic-superset-required' }
+  });
+  const compile = (capabilityProviders: readonly Readonly<{
+    capability: string;
+    operations: readonly string[];
+    effectKinds: readonly string[];
+    operationRoles: readonly Readonly<{
+      operation: string;
+      role: string;
+      semanticOperation: string;
+      requirementId: string | null;
+      recovery: null;
+    }>[];
+  }>[]) => compileIssuerRoleFixture({
+    sources: {
+      'src/lifecycle/operation.ts': [
+        'export function create(): void {}',
+        'export function createOther(): void {}',
+        'export function close(): void {}'
+      ].join('\n')
+    },
+    operationObligations: {
+      'src/lifecycle': [operationObligation('example.lifecycle', 'close')]
+    },
+    descriptors: { 'src/lifecycle': capabilityProviders }
+  });
+  const terminalRole = {
+    operation: 'close',
+    role: 'terminal-issuer',
+    semanticOperation: 'example.lifecycle.run',
+    requirementId: null,
+    recovery: null
+  } as const;
+  const domainRole = {
+    operation: 'create',
+    role: 'domain-owner',
+    semanticOperation: 'example.lifecycle.run',
+    requirementId: null,
+    recovery: null
+  } as const;
+  type OperationRoleFixture = Readonly<{
+    operation: string;
+    role: string;
+    semanticOperation: string;
+    requirementId: string | null;
+    recovery: null;
+  }>;
+  const provider = (operationRoles: readonly OperationRoleFixture[]) => ({
+    capability: 'example.lifecycle',
+    operations: ['create', 'createOther', 'close'],
+    effectKinds: [],
+    operationRoles
+  });
+
+  const accepted = compile([provider([domainRole, terminalRole])]);
+  expect(accepted.candidates).not.toContainEqual(expect.objectContaining({
+    code: 'operation-critical-role-unresolved',
+    subject: 'example.lifecycle:close'
+  }));
+
+  const isolated = compile([provider([terminalRole])]);
+  expect(isolated.candidates).toContainEqual(expect.objectContaining({
+    code: 'operation-critical-role-unresolved',
+    subject: 'example.lifecycle:close'
+  }));
+
+  const crossCapability = compile([
+    provider([terminalRole]),
+    {
+      capability: 'example.other-lifecycle',
+      operations: ['create'],
+      effectKinds: [],
+      operationRoles: [domainRole]
+    }
+  ]);
+  expect(crossCapability.candidates).toContainEqual(expect.objectContaining({
+    code: 'operation-critical-role-unresolved',
+    subject: 'example.lifecycle:close'
+  }));
+
+  const crossSemanticOperation = compile([provider([
+    { ...domainRole, semanticOperation: 'example.lifecycle.other-run' },
+    terminalRole
+  ])]);
+  expect(crossSemanticOperation.candidates).toContainEqual(expect.objectContaining({
+    code: 'operation-critical-role-unresolved',
+    subject: 'example.lifecycle:close'
+  }));
+
+  const requirementBoundClose = compile([provider([
+    domainRole,
+    {
+      ...terminalRole,
+      role: 'provider-settlement-issuer',
+      requirementId: 'example.lifecycle.provider'
+    }
+  ])]);
+  expect(requirementBoundClose.candidates).toContainEqual(expect.objectContaining({
+    code: 'operation-critical-role-unresolved',
+    subject: 'example.lifecycle:close'
+  }));
+
+  expect(() => compile([provider([
+    domainRole,
+    { ...domainRole, operation: 'createOther' },
+    terminalRole
+  ])])).toThrow('repository snapshot descriptor is invalid');
+});
+
 test('source program keeps an unresolved durable input contract blocking', () => {
   const model = compileIssuerRoleFixture({
     sources: {
@@ -2635,6 +2795,32 @@ test('causal relation projection rejects generic persisted reads and accepts the
     code: 'causal-relation-owner-bypass',
     subject: 'semantic.repair-plan:parser/readback',
     observationClass: 'derived'
+  }));
+});
+
+test('causal readback provenance preserves a terminal parser return across a fail-only guard', () => {
+  const guarded = compileCausalReaderFixture([
+    "import { parseRepairPlanJson, type RepairPlan } from '../../semantic/repair/contract/types.ts';",
+    'function bytesOrNull(): string | null { return null; }',
+    'function readRequiredRepairPlan(_path: string): RepairPlan {',
+    '  const bytes = bytesOrNull();',
+    "  if (bytes === null) throw new Error('missing');",
+    '  return parseRepairPlanJson(bytes);',
+    '}'
+  ].join('\n'));
+  expect(guarded.candidates).not.toContainEqual(expect.objectContaining({
+    code: 'causal-relation-owner-bypass'
+  }));
+
+  const mutatingBranch = compileCausalReaderFixture([
+    "import { parseRepairPlanJson, type RepairPlan } from '../../semantic/repair/contract/types.ts';",
+    'function readRequiredRepairPlan(source: string): RepairPlan {',
+    "  if (source.length === 0) source = '{}';",
+    '  return parseRepairPlanJson(source);',
+    '}'
+  ].join('\n'));
+  expect(mutatingBranch.candidates).toContainEqual(expect.objectContaining({
+    code: 'causal-relation-owner-bypass'
   }));
 });
 

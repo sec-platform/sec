@@ -21,6 +21,9 @@ const CLI_OPTIONS = {
   'worktree-module-topology': { type: 'boolean' },
   'worktree-source-program': { type: 'boolean' },
   candidates: { type: 'boolean' },
+  'blocking-details': { type: 'boolean' },
+  'blocking-details-page': { type: 'string' },
+  'blocking-details-domain': { type: 'string' },
   'aggregate-import-reductions': { type: 'boolean' },
   'graph-cuts': { type: 'boolean' },
   'version-reductions': { type: 'boolean' },
@@ -37,6 +40,11 @@ export type RepositoryAuditCliOptions = Readonly<{
   enforce: boolean;
   full: boolean;
   includeCandidates: boolean;
+  blockingDetails: boolean;
+  blockingDetailsPage: number;
+  blockingDetailsDomain: 'priority' | 'source-program' | 'declaration-topology'
+    | 'test-retirement' | 'implementation-dominance' | 'test-value'
+    | 'supersession' | 'module-architecture';
   failOn: RepositoryAuditSeverity | 'none';
   defaultRef: string | undefined;
   outputPath: string | null;
@@ -45,7 +53,7 @@ export type RepositoryAuditCliOptions = Readonly<{
   supersessionBaseline: string;
 }>;
 export type WorkingTreeSourceProgramAuditOptions = Pick<RepositoryAuditCliOptions,
-  'enforce' | 'full' | 'includeCandidates' | 'outputPath' | 'query' |
+  'blockingDetails' | 'blockingDetailsDomain' | 'blockingDetailsPage' | 'enforce' | 'full' | 'includeCandidates' | 'outputPath' | 'query' |
   'reductionMode' | 'supersessionBaseline'>;
 
 function requireFailOn(value: unknown): RepositoryAuditSeverity | 'none' {
@@ -54,6 +62,33 @@ function requireFailOn(value: unknown): RepositoryAuditSeverity | 'none' {
     return value as RepositoryAuditSeverity | 'none';
   }
   throw new TypeError(`Unsupported --fail-on value: ${String(value)}`);
+}
+
+function requireBlockingDetailsPage(value: unknown): number {
+  if (value === undefined) return 0;
+  if (typeof value !== 'string' || !/^(?:0|[1-9][0-9]*)$/u.test(value)) {
+    throw new TypeError(`Unsupported --blocking-details-page value: ${String(value)}`);
+  }
+  const page = Number(value);
+  if (!Number.isSafeInteger(page)) {
+    throw new TypeError(`Unsupported --blocking-details-page value: ${value}`);
+  }
+  return page;
+}
+
+const BLOCKING_DETAIL_DOMAINS = new Set([
+  'priority', 'source-program', 'declaration-topology', 'test-retirement',
+  'implementation-dominance', 'test-value', 'supersession', 'module-architecture'
+]);
+
+function requireBlockingDetailsDomain(
+  value: unknown
+): RepositoryAuditCliOptions['blockingDetailsDomain'] {
+  const domain = value ?? 'priority';
+  if (typeof domain !== 'string' || !BLOCKING_DETAIL_DOMAINS.has(domain)) {
+    throw new TypeError(`Unsupported --blocking-details-domain value: ${String(value)}`);
+  }
+  return domain as RepositoryAuditCliOptions['blockingDetailsDomain'];
 }
 
 /** One grammar for the executable, programmatic CLI and supervised audit entry.
@@ -103,7 +138,7 @@ export function parseRepositoryAuditCliOptions(
     }
   };
   onlyIn('repository', ['diagnostic', 'fail-on', 'default-ref']);
-  onlyIn('source-program', ['candidates', 'aggregate-import-reductions',
+  onlyIn('source-program', ['blocking-details', 'blocking-details-domain', 'blocking-details-page', 'candidates', 'aggregate-import-reductions',
     'graph-cuts', 'version-reductions', 'supersession-baseline']);
   if (mode === 'module-topology' && supplied.has('query')) {
     throw new Error('--query is not supported by module-topology audit');
@@ -111,12 +146,24 @@ export function parseRepositoryAuditCliOptions(
   if (mode === 'source-program' && supplied.has('output') && reductionMode === 'none') {
     throw new Error('--output requires one reduction mode for source-program audit');
   }
+  if (supplied.has('blocking-details-page') && !values['blocking-details']) {
+    throw new Error('--blocking-details-page requires --blocking-details');
+  }
+  if (supplied.has('blocking-details-domain') && !values['blocking-details']) {
+    throw new Error('--blocking-details-domain requires --blocking-details');
+  }
+  if (values['blocking-details'] && values.full) {
+    throw new Error('--blocking-details cannot be combined with --full');
+  }
   const supersessionBaseline = values['supersession-baseline'] ?? 'HEAD';
   if (supersessionBaseline.startsWith('-')) throw new Error('--supersession-baseline requires one Git revision');
   if (values['default-ref']?.startsWith('-')) throw new Error('--default-ref requires one Git revision');
   return Object.freeze({
     mode,
     diagnostic: values.diagnostic ?? false,
+    blockingDetails: values['blocking-details'] ?? false,
+    blockingDetailsDomain: requireBlockingDetailsDomain(values['blocking-details-domain']),
+    blockingDetailsPage: requireBlockingDetailsPage(values['blocking-details-page']),
     enforce: values.enforce ?? false,
     full: values.full ?? false,
     includeCandidates: values.candidates ?? false,

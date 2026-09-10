@@ -22,6 +22,11 @@ import {
 } from '../../runtime-state/physical/runtime/process.ts';
 import { settlePhysicalResources } from '../../runtime-state/physical/runtime/resource-settlement.ts';
 import type { RetainedCommandBoundary } from '../../runtime-state/physical/runtime/retained-command-boundary.ts';
+import {
+  armPreparedWindowsRepositoryChangeObserver,
+  RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
+  RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID
+} from '../../runtime-state/physical/runtime/windows-repository-change-observer.ts';
 import { snapshotByteTail } from '../../system-architecture/foundation/runtime/byte-snapshot.ts';
 import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { failureMessage } from '../../system-architecture/foundation/runtime/failure-inspection.ts';
@@ -42,6 +47,12 @@ import {
 import { requireCommandExitCode, type DevCommandObservation, type DevCommandTerminalOutcome } from './command-outcome.ts';
 import { DEFAULT_FAST_TEST_MAX_CONCURRENCY } from './fast-test-policy.ts';
 import { applyDefaultFastTestConcurrency } from './test-concurrency-policy.ts';
+import {
+  assertIssuedTestSuiteExecutionAdmission,
+  TEST_SUITE_CHILD_REQUIREMENT_ID,
+  TEST_SUITE_EXECUTION_OPERATION,
+  type TestSuiteExecutionAdmission
+} from './test-execution-policy.ts';
 export { DEV_COMMAND_MAX_DURATION_MS, DEV_COMMAND_MAX_STDIN_BYTES } from './command-input.ts';
 export type { ExecuteDevCommandOptions, ObserveDevCommandOptions } from './command-input.ts';
 export { devCommandObservationExitCode } from './command-outcome.ts';
@@ -58,6 +69,15 @@ const DEV_COMMAND_CONTRACT_DIGEST = sha256({
   workingDirectory: 'owner-admitted-retained-directory',
   maximumNativeProcessResources: 2,
   maximumDurationMs: DEV_COMMAND_MAX_DURATION_MS,
+  maximumStdinBytes: DEV_COMMAND_MAX_STDIN_BYTES,
+  maximumStdoutBytes: DEV_COMMAND_MAX_STDOUT_BYTES,
+  maximumStderrBytes: DEV_COMMAND_MAX_STDERR_BYTES
+}) as SecOperationDigest;
+export const TEST_SUITE_CHILD_CONTRACT_DIGEST = sha256({
+  domain: 'development.runner.test-suite.bun-child',
+  executable: 'current-bun-runtime',
+  workingDirectory: 'owner-admitted-retained-directory',
+  budget: 'owner-issued-test-suite-execution-policy',
   maximumStdinBytes: DEV_COMMAND_MAX_STDIN_BYTES,
   maximumStdoutBytes: DEV_COMMAND_MAX_STDOUT_BYTES,
   maximumStderrBytes: DEV_COMMAND_MAX_STDERR_BYTES
@@ -172,23 +192,37 @@ function compileDevCommandOperation(input: Readonly<{
   providerIdentityDigest: SecOperationDigest;
   timeoutMs: number;
   workingDirectory: string;
+  testSuiteAdmission?: TestSuiteExecutionAdmission;
+  observerProviderIdentityDigest?: SecOperationDigest;
 }>): SecBoundSemanticOperation {
+  const suite = input.testSuiteAdmission;
+  if ((suite === undefined) !== (input.observerProviderIdentityDigest === undefined)) {
+    throw new Error('Dev command suite operation requires both physical providers.');
+  }
+  if (suite !== undefined) assertIssuedTestSuiteExecutionAdmission(suite);
+  const commandRequirementId = suite === undefined
+    ? DEV_COMMAND_REQUIREMENT_ID
+    : TEST_SUITE_CHILD_REQUIREMENT_ID;
+  const commandContractDigest = suite === undefined
+    ? DEV_COMMAND_CONTRACT_DIGEST
+    : TEST_SUITE_CHILD_CONTRACT_DIGEST;
   const plan = compileSecSemanticOperationPlan({
-    operation: 'development.runner.bun-command',
+    operation: suite === undefined ? 'development.runner.bun-command' : TEST_SUITE_EXECUTION_OPERATION,
     intentDigest: sha256({
       effectiveArgv: input.effectiveArgv,
       environment: input.environment,
       inputDigest: input.inputDigest,
       auxiliaryOrdinaryFilePaths: input.auxiliaryOrdinaryFilePaths,
-      workingDirectory: input.workingDirectory
+      workingDirectory: input.workingDirectory,
+      ...(suite === undefined ? {} : { testSuitePolicyDigest: suite.policy.policyDigest })
     }) as SecOperationDigest,
-    decisionDigest: DEV_COMMAND_CONTRACT_DIGEST,
-    deadlineAtUnixMs: input.deadlineAtUnixMs,
+    decisionDigest: suite?.policy.policyDigest ?? DEV_COMMAND_CONTRACT_DIGEST,
+    deadlineAtUnixMs: suite?.logicalDeadlineAtUnixMs ?? input.deadlineAtUnixMs,
     attempt: issueSecSemanticOperationAttemptContext({
-      authorityGrantDigest: DEV_COMMAND_CONTRACT_DIGEST
+      authorityGrantDigest: suite?.policy.policyDigest ?? DEV_COMMAND_CONTRACT_DIGEST
     }),
     aggregateBudgets: [
-      { resource: 'duration-ms', maximum: input.timeoutMs },
+      { resource: 'duration-ms', maximum: suite?.policy.logicalRunTimeoutMs ?? input.timeoutMs },
       { resource: 'input-bytes', maximum: input.inputBytes },
       {
         resource: 'output-bytes',
@@ -197,8 +231,8 @@ function compileDevCommandOperation(input: Readonly<{
       { resource: 'processes', maximum: input.maximumNativeProcessResources }
     ],
     requirements: [{
-      id: DEV_COMMAND_REQUIREMENT_ID,
-      contractDigest: DEV_COMMAND_CONTRACT_DIGEST,
+      id: commandRequirementId,
+      contractDigest: commandContractDigest,
       effectKinds: ['process'],
       failureKinds: [
         'development.runner.cancelled',
@@ -208,13 +242,25 @@ function compileDevCommandOperation(input: Readonly<{
         'development.runner.spawn-failed',
         'development.runner.termination-unproven'
       ]
-    }]
+    }, ...(suite === undefined ? [] : [{
+      id: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID,
+      contractDigest: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
+      effectKinds: ['filesystem' as const],
+      failureKinds: [
+        'development.runner.deadline-exhausted',
+        'development.runner.physical-identity-drift'
+      ]
+    }])]
   });
   return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
-    requirementId: DEV_COMMAND_REQUIREMENT_ID,
-    contractDigest: DEV_COMMAND_CONTRACT_DIGEST,
+    requirementId: commandRequirementId,
+    contractDigest: commandContractDigest,
     providerIdentityDigest: input.providerIdentityDigest
-  })]);
+  }), ...(suite === undefined ? [] : [compileSecCapabilityBinding({
+    requirementId: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID,
+    contractDigest: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
+    providerIdentityDigest: input.observerProviderIdentityDigest!
+  })])]);
 }
 
 interface DevCommandPhysicalCapability {
@@ -337,12 +383,13 @@ function assertDevCommandResourceReceipt(
   receipt: ProcessResourceSessionReceipt,
   operation: SecBoundSemanticOperation,
   completed: boolean,
-  expectedInputBytes: number
+  expectedInputBytes: number,
+  expectedRequirementId: string
 ): void {
   assertProcessResourceSessionReceipt(receipt, {
     operationIdentityDigest: operation.plan.identity.identityDigest,
     boundAttemptDigest: operation.boundAttemptDigest,
-    requirementId: DEV_COMMAND_REQUIREMENT_ID
+    requirementId: expectedRequirementId
   });
   if (receipt.operationIdentityDigest !== operation.plan.identity.identityDigest
       || receipt.boundAttemptDigest !== operation.boundAttemptDigest
@@ -363,6 +410,7 @@ function settleDevCommandExecution(input: Readonly<{
   expectedInputBytes: number;
   operation: SecBoundSemanticOperation;
   session: ProcessResourceSession;
+  expectedRequirementId: string;
 }>): void {
   if (!ISSUED_DEV_COMMAND_PHYSICAL_CAPABILITIES.has(input.capability)) {
     throw new Error('Dev command settlement requires an owner-issued physical capability.');
@@ -381,7 +429,13 @@ function settleDevCommandExecution(input: Readonly<{
           settle: () => {
             if (!sessionClosed) return; // close already contributed its own failure
             if (receipt === undefined) throw new Error('Dev command process session did not issue a terminal receipt.');
-            assertDevCommandResourceReceipt(receipt, input.operation, input.completed, input.expectedInputBytes);
+            assertDevCommandResourceReceipt(
+              receipt,
+              input.operation,
+              input.completed,
+              input.expectedInputBytes,
+              input.expectedRequirementId
+            );
           }
         }
       ]
@@ -402,11 +456,17 @@ export function runDevCommand<TOptions extends DevCommandOptions | undefined = u
   }
   const captured = captureDevCommandInput(args, env, options, compilerRoot);
   const { observed, input: commandInput, inputBytes, environment, workingDirectory,
-    auxiliaryOrdinaryFilePaths, deadlineAtUnixMs, timeoutMs, maximumNativeProcessResources, signal } = captured;
+    auxiliaryOrdinaryFilePaths, deadlineAtUnixMs, timeoutMs, maximumNativeProcessResources, signal,
+    testSuiteAdmission, testSuiteObserver } = captured;
   const effectiveArgs = applyDefaultFastTestConcurrency(
     command, [...captured.args], DEFAULT_FAST_TEST_MAX_CONCURRENCY
   );
   const effectiveArgv = Object.freeze([command, ...effectiveArgs]);
+  if (testSuiteAdmission !== undefined
+      && (testSuiteAdmission.policy.workingDirectory !== workingDirectory
+        || JSON.stringify(testSuiteAdmission.policy.canonicalArgv) !== JSON.stringify(effectiveArgv))) {
+    return Promise.reject(new Error('Dev command differs from its admitted test suite execution policy.'));
+  }
 
   const execute = async (): Promise<number | DevCommandObservation> => {
     const capability = issueDevCommandPhysicalCapability({
@@ -426,22 +486,53 @@ export function runDevCommand<TOptions extends DevCommandOptions | undefined = u
         maximumNativeProcessResources,
         providerIdentityDigest: capability.providerIdentityDigest,
         timeoutMs,
-        workingDirectory
+        workingDirectory,
+        testSuiteAdmission,
+        observerProviderIdentityDigest: testSuiteObserver?.providerBinding.providerIdentityDigest
       });
+      if (testSuiteObserver !== undefined) {
+        const observerDurationMs = testSuiteAdmission!.logicalDeadlineAtUnixMs - Date.now();
+        if (!Number.isSafeInteger(observerDurationMs) || observerDurationMs < 1) {
+          throw new Error('Test suite observer deadline was exhausted during physical admission.');
+        }
+        const observerResolution = await armPreparedWindowsRepositoryChangeObserver({
+          prepared: testSuiteObserver,
+          operation,
+          requirementBindingContext: issueSecOperationRequirementBindingContext({
+            operation,
+            requirementId: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID,
+            resourceCeilings: [{ resource: 'duration-ms', maximum: observerDurationMs }]
+          })
+        });
+        if (observerResolution.status !== 'ready') {
+          throw new Error(`Test suite repository observer is unavailable (${observerResolution.reason}).`);
+        }
+      }
+      const processDurationMs = testSuiteAdmission === undefined
+        ? timeoutMs
+        : testSuiteAdmission.childDeadlineAtUnixMs - Date.now();
+      if (!Number.isSafeInteger(processDurationMs) || processDurationMs < 2) {
+        throw new Error('Test suite child deadline was exhausted during physical admission.');
+      }
       session = openProcessResourceSession({
         operation,
         requirementBindingContext: issueSecOperationRequirementBindingContext({
           operation,
-          requirementId: DEV_COMMAND_REQUIREMENT_ID,
+          requirementId: testSuiteAdmission === undefined
+            ? DEV_COMMAND_REQUIREMENT_ID
+            : TEST_SUITE_CHILD_REQUIREMENT_ID,
           resourceCeilings: [
-            { resource: 'duration-ms', maximum: timeoutMs },
+            { resource: 'duration-ms', maximum: processDurationMs },
             { resource: 'input-bytes', maximum: inputBytes },
             {
               resource: 'output-bytes',
               maximum: DEV_COMMAND_MAX_STDOUT_BYTES + DEV_COMMAND_MAX_STDERR_BYTES
             },
             { resource: 'processes', maximum: maximumNativeProcessResources }
-          ]
+          ],
+          ...(testSuiteAdmission === undefined ? {} : {
+            absoluteDeadlineAtUnixMs: testSuiteAdmission.childDeadlineAtUnixMs
+          })
         }),
         signal
       });
@@ -488,7 +579,10 @@ export function runDevCommand<TOptions extends DevCommandOptions | undefined = u
       executionFailure,
       expectedInputBytes: inputBytes,
       operation,
-      session
+      session,
+      expectedRequirementId: testSuiteAdmission === undefined
+        ? DEV_COMMAND_REQUIREMENT_ID
+        : TEST_SUITE_CHILD_REQUIREMENT_ID
     });
 
     if (result === undefined) {
