@@ -9,6 +9,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { z } from 'zod';
 
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
 
@@ -57,147 +58,62 @@ export interface VerificationFreezeSession {
   sessionDigest: `sha256:${string}`;
 }
 
-function assertRecord(value: unknown, label: string): asserts value is Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(`${label} must be an object.`);
-  }
-}
-
-function assertExactKeys(
-  value: Record<string, unknown>,
-  expected: readonly string[],
-  label: string
-): void {
-  const actual = Object.keys(value).sort();
-  const wanted = [...expected].sort();
-  if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) {
-    throw new Error(`${label} must contain exactly: ${wanted.join(', ')}.`);
-  }
-}
-
-function assertSha(value: unknown, label: string): string {
-  if (typeof value !== 'string' || !/^[0-9a-f]{40}$/u.test(value)) {
-    throw new Error(`${label} must be a 40-character SHA.`);
-  }
-  return value;
-}
-
-function assertDigest(value: unknown, label: string): `sha256:${string}` {
-  if (typeof value !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value)) {
-    throw new Error(`${label} must be a SHA-256 digest.`);
-  }
-  return value as `sha256:${string}`;
-}
-
-function assertRepository(value: unknown): string {
-  if (
-    typeof value !== 'string'
-    || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/u.test(value)
-  ) {
-    throw new Error('Verification session repository must be one owner/name identity.');
-  }
-  return value;
-}
-
-function assertManifestPath(value: unknown): string {
-  if (
-    typeof value !== 'string'
-    || !/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(value)
-  ) {
-    throw new Error('Manifest path must match docs/work-packages/<id>.md.');
-  }
-  return value;
-}
-
-function assertSessionId(value: unknown): string {
-  if (
-    typeof value !== 'string'
-    || !/^[a-z0-9][a-z0-9-]{1,127}$/u.test(value)
-  ) {
-    throw new Error('Session id must be a bounded lowercase identifier.');
-  }
-  return value;
-}
-
-function assertPrNumber(value: unknown): number {
-  if (!Number.isSafeInteger(value) || (value as number) <= 0) {
-    throw new Error('Pull request number must be a positive safe integer.');
-  }
-  return value as number;
-}
-
-function assertIsoDate(value: unknown, label: string): string {
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value)) {
-    throw new Error(`${label} must be an ISO-8601 UTC timestamp.`);
-  }
-  return value;
-}
+const sha = z.string().regex(/^[0-9a-f]{40}$/u, 'must be a 40-character SHA.');
+const digest = z.string().regex(/^sha256:[0-9a-f]{64}$/u, 'must be a SHA-256 digest.')
+  .transform(value => value as `sha256:${string}`);
+const repository = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/u,
+  'Verification session repository must be one owner/name identity.');
+const manifestPath = z.string().regex(/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u,
+  'Manifest path must match docs/work-packages/<id>.md.');
+const sessionId = z.string().regex(/^[a-z0-9][a-z0-9-]{1,127}$/u,
+  'Session id must be a bounded lowercase identifier.');
+const prNumber = z.int().positive();
+// This existing wire contract validates timestamp syntax, not calendar validity.
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u,
+  'must be an ISO-8601 UTC timestamp.');
+const text = z.string().min(1).max(512).refine(value => !/[\u0000-\u001f]/u.test(value),
+  'must be bounded text.');
+const registryEntry = z.object({
+  manifestPath,
+  manifestDigest: digest,
+  source: z.enum(['default', 'open-pr']),
+  prNumber: prNumber.nullable(),
+  baseSha: sha.nullable(),
+  headSha: sha.nullable(),
+  headTreeSha: sha.nullable()
+}).strict().refine(entry => entry.source !== 'open-pr' || (
+  entry.prNumber !== null && entry.baseSha !== null && entry.headSha !== null && entry.headTreeSha !== null
+), 'open-pr source requires PR/base/head/tree identity.').refine(entry => entry.source !== 'default' || (
+  entry.prNumber === null && entry.baseSha === null && entry.headSha === null && entry.headTreeSha === null
+), 'default source cannot bind PR identity.');
+const registryProjection = z.object({
+  schema: z.literal(VERIFICATION_REGISTRY_PROJECTION_SCHEMA),
+  observedAt: isoDate,
+  repository,
+  defaultBranch: z.string().min(1),
+  defaultTreeSha: sha,
+  entries: z.array(registryEntry).refine(entries =>
+    new Set(entries.map(entry => entry.manifestPath)).size === entries.length,
+  'Registry projection contains duplicate manifest paths.')
+}).strict();
+const freezeSession = z.object({
+  schema: z.literal(VERIFICATION_FREEZE_SESSION_SCHEMA),
+  sessionId,
+  frozenAt: isoDate,
+  repository,
+  prNumber,
+  baseSha: sha,
+  headSha: sha,
+  manifestPath,
+  manifestDigest: digest,
+  candidateTreeSha: sha,
+  sessionDigest: z.string()
+}).strict();
 
 export function parseVerificationRegistryProjection(
   source: string
 ): VerificationRegistryProjection {
-  const parsed: unknown = JSON.parse(source);
-  assertRecord(parsed, 'Verification registry projection');
-  if (parsed.schema !== VERIFICATION_REGISTRY_PROJECTION_SCHEMA) {
-    throw new Error('Verification registry projection schema mismatch.');
-  }
-  assertExactKeys(
-    parsed,
-    ['schema', 'observedAt', 'repository', 'defaultBranch', 'defaultTreeSha', 'entries'],
-    'Verification registry projection'
-  );
-  const entries = parsed.entries;
-  if (!Array.isArray(entries)) throw new Error('Registry entries must be an array.');
-  const normalizedEntries = entries.map((entry, index) => {
-    assertRecord(entry, `Registry entry ${index}`);
-    assertExactKeys(
-      entry,
-      ['manifestPath', 'manifestDigest', 'source', 'prNumber', 'baseSha', 'headSha', 'headTreeSha'],
-      `Registry entry ${index}`
-    );
-    const source = entry.source;
-    let sourceKind: VerificationManifestSource;
-    if (source === 'default') {
-      sourceKind = 'default';
-    } else if (source === 'open-pr') {
-      sourceKind = 'open-pr';
-    } else {
-      throw new Error(`Registry entry ${index} source is invalid.`);
-    }
-    const manifestPath = assertManifestPath(entry.manifestPath);
-    const prNumber = entry.prNumber === null ? null : assertPrNumber(entry.prNumber);
-    if (sourceKind === 'open-pr' && (prNumber === null || entry.baseSha === null || entry.headSha === null || entry.headTreeSha === null)) {
-      throw new Error(`Registry entry ${index} open-pr source requires PR/base/head/tree identity.`);
-    }
-    if (sourceKind === 'default' && (prNumber !== null || entry.baseSha !== null || entry.headSha !== null || entry.headTreeSha !== null)) {
-      throw new Error(`Registry entry ${index} default source cannot bind PR identity.`);
-    }
-    return {
-      manifestPath,
-      manifestDigest: assertDigest(entry.manifestDigest, `Registry entry ${index} digest`),
-      source: sourceKind,
-      prNumber,
-      baseSha: entry.baseSha === null ? null : assertSha(entry.baseSha, `Registry entry ${index} base`),
-      headSha: entry.headSha === null ? null : assertSha(entry.headSha, `Registry entry ${index} head`),
-      headTreeSha: entry.headTreeSha === null
-        ? null
-        : assertSha(entry.headTreeSha, `Registry entry ${index} head tree`)
-    };
-  });
-  const paths = normalizedEntries.map(({ manifestPath }) => manifestPath);
-  if (new Set(paths).size !== paths.length) {
-    throw new Error('Registry projection contains duplicate manifest paths.');
-  }
-  return {
-    schema: VERIFICATION_REGISTRY_PROJECTION_SCHEMA,
-    observedAt: assertIsoDate(parsed.observedAt, 'Registry observedAt'),
-    repository: assertRepository(parsed.repository),
-    defaultBranch: typeof parsed.defaultBranch === 'string' && parsed.defaultBranch.length > 0
-      ? parsed.defaultBranch
-      : (() => { throw new Error('Registry defaultBranch is invalid.'); })(),
-    defaultTreeSha: assertSha(parsed.defaultTreeSha, 'Registry defaultTreeSha'),
-    entries: normalizedEntries
-  };
+  return registryProjection.parse(JSON.parse(source) as unknown);
 }
 
 function sessionDigest(value: Record<string, unknown>): `sha256:${string}` {
@@ -205,33 +121,13 @@ function sessionDigest(value: Record<string, unknown>): `sha256:${string}` {
 }
 
 export function parseVerificationFreezeSessionV1(source: string): VerificationFreezeSession {
-  const parsed: unknown = JSON.parse(source);
-  assertRecord(parsed, 'Verification freeze session');
-  if (parsed.schema !== VERIFICATION_FREEZE_SESSION_SCHEMA) {
-    throw new Error('Verification freeze session schema mismatch.');
-  }
-  assertExactKeys(
-    parsed,
-    ['schema', 'sessionId', 'frozenAt', 'repository', 'prNumber', 'baseSha', 'headSha', 'manifestPath', 'manifestDigest', 'candidateTreeSha', 'sessionDigest'],
-    'Verification freeze session'
-  );
+  const parsed = freezeSession.parse(JSON.parse(source) as unknown);
   const { sessionDigest: _sessionDigest, ...withoutDigest } = parsed;
-  if (sessionDigest(withoutDigest) !== parsed.sessionDigest) {
+  const expectedDigest = sessionDigest(withoutDigest);
+  if (expectedDigest !== parsed.sessionDigest) {
     throw new Error('Verification freeze session digest mismatch.');
   }
-  return {
-    schema: VERIFICATION_FREEZE_SESSION_SCHEMA,
-    sessionId: assertSessionId(parsed.sessionId),
-    frozenAt: assertIsoDate(parsed.frozenAt, 'Freeze session frozenAt'),
-    repository: assertRepository(parsed.repository),
-    prNumber: assertPrNumber(parsed.prNumber),
-    baseSha: assertSha(parsed.baseSha, 'Freeze session base'),
-    headSha: assertSha(parsed.headSha, 'Freeze session head'),
-    manifestPath: assertManifestPath(parsed.manifestPath),
-    manifestDigest: assertDigest(parsed.manifestDigest, 'Freeze session manifestDigest'),
-    candidateTreeSha: assertSha(parsed.candidateTreeSha, 'Freeze session candidateTreeSha'),
-    sessionDigest: assertDigest(parsed.sessionDigest, 'Freeze session sessionDigest')
-  };
+  return { ...withoutDigest, sessionDigest: expectedDigest };
 }
 
 export interface VerificationSessionMainHealthRef {
@@ -296,83 +192,85 @@ export interface VerificationSessionProposalInput {
   readonly mainHealthPolicyDigest: `sha256:${string}`;
 }
 
-function assertText(value: unknown, label: string): string {
-  if (typeof value !== 'string' || value.length === 0 || value.length > 512 || /[\u0000-\u001f]/u.test(value)) {
-    throw new Error(`${label} must be bounded text.`);
-  }
-  return value;
-}
+const candidateInput = z.object({
+  repository,
+  prNumber,
+  baseSha: sha,
+  baseTreeSha: sha,
+  headSha: sha,
+  headTreeSha: sha,
+  manifestPath,
+  manifestDigest: digest,
+  actionPlanClosureDigest: digest,
+  profile: text,
+  environmentDigest: digest,
+  trustRevision: sha,
+  reviewPolicyDigest: digest
+});
+const proposalInput = candidateInput.extend({
+  testImpactTransitionDigest: digest,
+  scopeProposalDigest: digest,
+  mainHealthPolicyDigest: digest
+});
+const semanticMainHealth = z.object({
+  mainSha: sha,
+  mainTreeSha: sha,
+  healthRevision: digest
+});
+const semanticMainHealthKeys = semanticMainHealth.keyof().array()
+  .length(semanticMainHealth.keyof().options.length);
+const semanticFields = candidateInput.extend({
+  sessionProposalDigest: digest,
+  scopeAuthorizationRevision: digest,
+  evidenceRequirementDigest: digest,
+  integrationPolicyDigest: digest
+});
+const semanticInput = semanticFields.extend({
+  // Validate keys and values from the same captured reference, without accepting inherited identity fields.
+  mainHealthRef: z.preprocess(value => {
+    semanticMainHealthKeys.parse(Object.keys(value ?? {}));
+    return value;
+  }, semanticMainHealth.strict().readonly())
+});
+const sessionInput = semanticFields.extend({
+  sessionId,
+  createdAt: isoDate,
+  scopeAuthorizationReceiptDigest: digest,
+  // Full creation has always projected this reference, including ignoring extra fields.
+  mainHealthRef: semanticMainHealth.extend({ ledgerReceiptDigest: digest }).readonly()
+});
+const sessionEnvelope = sessionInput.extend({
+  schema: z.literal(VERIFICATION_SESSION_SCHEMA),
+  sessionRevision: z.string()
+}).strict();
 
 export function createVerificationSessionProposalDigest(
   input: VerificationSessionProposalInput
 ): `sha256:${string}` {
-  return sessionDigest(Object.freeze({
-    repository: assertRepository(input.repository), prNumber: assertPrNumber(input.prNumber),
-    baseSha: assertSha(input.baseSha, 'Session proposal baseSha'),
-    baseTreeSha: assertSha(input.baseTreeSha, 'Session proposal baseTreeSha'),
-    headSha: assertSha(input.headSha, 'Session proposal headSha'),
-    headTreeSha: assertSha(input.headTreeSha, 'Session proposal headTreeSha'),
-    manifestPath: assertManifestPath(input.manifestPath),
-    manifestDigest: assertDigest(input.manifestDigest, 'Session proposal manifestDigest'),
-    testImpactTransitionDigest: assertDigest(
-      input.testImpactTransitionDigest,
-      'Session proposal testImpactTransitionDigest'
-    ),
-    scopeProposalDigest: assertDigest(input.scopeProposalDigest, 'Session proposal scopeProposalDigest'),
-    actionPlanClosureDigest: assertDigest(input.actionPlanClosureDigest, 'Session proposal actionPlanClosureDigest'),
-    profile: assertText(input.profile, 'Session proposal profile'),
-    environmentDigest: assertDigest(input.environmentDigest, 'Session proposal environmentDigest'),
-    trustRevision: assertSha(input.trustRevision, 'Session proposal trustRevision'),
-    reviewPolicyDigest: assertDigest(input.reviewPolicyDigest, 'Session proposal reviewPolicyDigest'),
-    mainHealthPolicyDigest: assertDigest(input.mainHealthPolicyDigest, 'Session proposal mainHealthPolicyDigest')
-  }));
-}
-
-function createVerificationSessionSemanticInput(input: VerificationSessionSemanticInput) {
-  const mainHealthRef = input.mainHealthRef;
-  assertRecord(mainHealthRef, 'Verification session mainHealthRef');
-  assertExactKeys(mainHealthRef, ['mainSha', 'mainTreeSha', 'healthRevision'], 'Verification session mainHealthRef');
-  return Object.freeze({
-    repository: assertRepository(input.repository),
-    prNumber: assertPrNumber(input.prNumber),
-    baseSha: assertSha(input.baseSha, 'Verification session baseSha'),
-    baseTreeSha: assertSha(input.baseTreeSha, 'Verification session baseTreeSha'),
-    headSha: assertSha(input.headSha, 'Verification session headSha'),
-    headTreeSha: assertSha(input.headTreeSha, 'Verification session headTreeSha'),
-    manifestPath: assertManifestPath(input.manifestPath),
-    manifestDigest: assertDigest(input.manifestDigest, 'Verification session manifestDigest'),
-    sessionProposalDigest: assertDigest(input.sessionProposalDigest, 'Verification session sessionProposalDigest'),
-    scopeAuthorizationRevision: assertDigest(input.scopeAuthorizationRevision, 'Verification session scopeAuthorizationRevision'),
-    actionPlanClosureDigest: assertDigest(input.actionPlanClosureDigest, 'Verification session actionPlanClosureDigest'),
-    profile: assertText(input.profile, 'Verification session profile'),
-    environmentDigest: assertDigest(input.environmentDigest, 'Verification session environmentDigest'),
-    trustRevision: assertSha(input.trustRevision, 'Verification session trustRevision'),
-    reviewPolicyDigest: assertDigest(input.reviewPolicyDigest, 'Verification session reviewPolicyDigest'),
-    evidenceRequirementDigest: assertDigest(input.evidenceRequirementDigest, 'Verification session evidenceRequirementDigest'),
-    integrationPolicyDigest: assertDigest(input.integrationPolicyDigest, 'Verification session integrationPolicyDigest'),
-    mainHealthRef: Object.freeze({
-      mainSha: assertSha(mainHealthRef.mainSha, 'Verification session mainHealthRef.mainSha'),
-      mainTreeSha: assertSha(mainHealthRef.mainTreeSha, 'Verification session mainHealthRef.mainTreeSha'),
-      healthRevision: assertDigest(mainHealthRef.healthRevision, 'Verification session mainHealthRef.healthRevision')
-    })
-  });
+  return sessionDigest(proposalInput.parse(input));
 }
 
 export function createVerificationSession(input: VerificationSessionInput): VerificationSession {
-  const { sessionId: _sessionId, createdAt: _createdAt,
-    scopeAuthorizationReceiptDigest: _scopeReceipt, mainHealthRef, ...stable } = input;
-  const semantic = createVerificationSessionSemanticInput({ ...stable, mainHealthRef: {
+  // Stable fields historically come from object rest: inherited/non-enumerable fields cannot supply them.
+  const { sessionId, createdAt, scopeAuthorizationReceiptDigest, mainHealthRef, ...stable } = input;
+  return sealSession(sessionInput.parse({
+    ...stable, sessionId, createdAt, scopeAuthorizationReceiptDigest, mainHealthRef
+  }));
+}
+
+function sealSession(input: VerificationSessionInput): VerificationSession {
+  const { sessionId, createdAt, scopeAuthorizationReceiptDigest, mainHealthRef, ...stable } = input;
+  const semantic = Object.freeze({ ...stable, mainHealthRef: Object.freeze({
     mainSha: mainHealthRef.mainSha, mainTreeSha: mainHealthRef.mainTreeSha,
     healthRevision: mainHealthRef.healthRevision
-  } });
+  }) });
   return Object.freeze({
     schema: VERIFICATION_SESSION_SCHEMA,
-    sessionId: assertSessionId(input.sessionId),
-    createdAt: assertIsoDate(input.createdAt, 'Verification session createdAt'),
-    scopeAuthorizationReceiptDigest: assertDigest(input.scopeAuthorizationReceiptDigest, 'Verification session scopeAuthorizationReceiptDigest'),
+    sessionId,
+    createdAt,
+    scopeAuthorizationReceiptDigest,
     ...semantic,
-    mainHealthRef: Object.freeze({ ...semantic.mainHealthRef,
-      ledgerReceiptDigest: assertDigest(input.mainHealthRef.ledgerReceiptDigest, 'Verification session mainHealthRef.ledgerReceiptDigest') }),
+    mainHealthRef,
     sessionRevision: sessionDigest(semantic)
   });
 }
@@ -380,22 +278,13 @@ export function createVerificationSession(input: VerificationSessionInput): Veri
 export function createVerificationSessionRevision(
   input: VerificationSessionSemanticInput
 ): `sha256:${string}` {
-  return sessionDigest(createVerificationSessionSemanticInput(input));
+  return sessionDigest(semanticInput.parse(input));
 }
 
 export function parseVerificationSession(source: string): VerificationSession {
-  const parsed: unknown = JSON.parse(source);
-  assertRecord(parsed, 'Verification session V2');
-  if (parsed.schema !== VERIFICATION_SESSION_SCHEMA) throw new Error('Verification session V2 schema mismatch.');
-  assertExactKeys(parsed, [
-    'schema', 'sessionId', 'createdAt', 'repository', 'prNumber', 'baseSha', 'baseTreeSha',
-    'headSha', 'headTreeSha', 'manifestPath', 'manifestDigest', 'sessionProposalDigest', 'scopeAuthorizationRevision',
-    'scopeAuthorizationReceiptDigest',
-    'actionPlanClosureDigest', 'profile', 'environmentDigest', 'trustRevision', 'reviewPolicyDigest',
-    'evidenceRequirementDigest', 'integrationPolicyDigest', 'mainHealthRef', 'sessionRevision'
-  ], 'Verification session V2');
+  const parsed = sessionEnvelope.parse(JSON.parse(source) as unknown);
   const { schema: _schema, sessionRevision: _sessionRevision, ...input } = parsed;
-  const session = createVerificationSession(input as unknown as VerificationSessionInput);
+  const session = sealSession(input);
   if (session.sessionRevision !== parsed.sessionRevision) throw new Error('Verification session V2 revision mismatch.');
   return session;
 }
