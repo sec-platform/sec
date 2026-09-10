@@ -149,6 +149,7 @@ export interface SourceProgramReductionCompilerContext {
   readonly typeScriptModel: SourceProgramModel;
   readonly moduleMembership: SecRepositoryModuleMembership;
   readonly reviewedProcessDispatchers: readonly string[];
+  readonly operation?: SourceProgramCompilationOperation;
 }
 
 export interface SourceProgramAggregateImportReduction {
@@ -2188,6 +2189,8 @@ export function compileSourceProgramAggregateImportReductionPlan(
   architectureSnapshot: SourceProgramArchitectureSnapshot,
   context: SourceProgramReductionCompilerContext
 ): SourceProgramAggregateImportReductionPlan {
+  const operation = resolveSourceProgramCompilationOperation(context.operation);
+  sourceProgramCompilationCheckpoint(operation, 'reduction-plan', 'start');
   if (architectureSnapshot.sourceRevision !== model.sourceRevision) {
     throw new SourceProgramReductionAdmissionError(
       'source-snapshot-drift',
@@ -2209,12 +2212,14 @@ export function compileSourceProgramAggregateImportReductionPlan(
   const moduleByPath = new Map(model.files.map((file) => [file.path, file.moduleId] as const));
   const referencesByPath = new Map<string, SourceProgramModel['references'][number][]>();
   for (const reference of model.references) {
+    sourceProgramCompilationCheckpoint(operation, 'reduction-plan');
     const current = referencesByPath.get(reference.path) ?? [];
     current.push(reference);
     referencesByPath.set(reference.path, current);
   }
   const reductions: SourceProgramAggregateImportReduction[] = [];
   for (const path of sourceByPath.keys()) {
+    sourceProgramCompilationCheckpoint(operation, 'reduction-plan');
     if (!/\.[cm]?[jt]sx?$/iu.test(path)) continue;
     const sourceFile = sourceProgramTypeScriptSourceFile(typeScriptModel, path);
     if (sourceFile === null) {
@@ -2224,6 +2229,7 @@ export function compileSourceProgramAggregateImportReductionPlan(
       );
     }
     for (const statement of sourceFile.statements) {
+      sourceProgramCompilationCheckpoint(operation, 'reduction-plan');
       if ((!ts.isImportDeclaration(statement) && !ts.isExportDeclaration(statement))
           || statement.moduleSpecifier === undefined
           || !ts.isStringLiteralLike(statement.moduleSpecifier)
@@ -2257,6 +2263,7 @@ export function compileSourceProgramAggregateImportReductionPlan(
         : null;
       if (bindings !== null) {
         for (const binding of bindings) {
+          sourceProgramCompilationCheckpoint(operation, 'reduction-plan');
           const reference = statementReferences.find((candidate) =>
             candidate.span.start >= binding.getStart(sourceFile, false)
             && candidate.span.end <= binding.getEnd());
@@ -2310,6 +2317,7 @@ export function compileSourceProgramAggregateImportReductionPlan(
     }),
     reductions: Object.freeze(reductions)
   });
+  sourceProgramCompilationCheckpoint(operation, 'reduction-plan', 'complete');
   compiledAggregateImportReductionPlans.add(plan);
   return plan;
 }
@@ -2470,6 +2478,8 @@ export function compileSourceProgramGraphCutReductionPlan(
   unusedSymbols: SourceProgramUnusedSymbolProviderReceipt,
   context: SourceProgramReductionCompilerContext
 ): SourceProgramGraphCutReductionPlan {
+  const operation = resolveSourceProgramCompilationOperation(context.operation);
+  sourceProgramCompilationCheckpoint(operation, 'reduction-plan', 'start');
   const sourceSnapshotDigest = sourceFileSnapshotDigest(files);
   const typeScriptModel = exactReductionTypeScriptModel(model, context);
   if (!compiledUnusedSymbolProviderReceipts.has(unusedSymbols)
@@ -2501,7 +2511,11 @@ export function compileSourceProgramGraphCutReductionPlan(
       || code === 'dynamic-runtime-opaque'
       || code === 'computed-property-unresolved')
     .map(({ path }) => path));
-  const ownerIntents = compileSourceProgramOwnerIntentEvidence(model, context.moduleMembership);
+  const ownerIntents = compileSourceProgramOwnerIntentEvidence(
+    model,
+    context.moduleMembership,
+    operation
+  );
   const evidence = [...unusedSymbols.candidates]
     .sort((left, right) => compareCodeUnits(left.path, right.path)
       || compareCodeUnits(left.name, right.name));
@@ -2509,6 +2523,7 @@ export function compileSourceProgramGraphCutReductionPlan(
   const declarationIdsByReductionKey = new Map<string, string>();
   const seen = new Set<string>();
   for (const item of evidence) {
+    sourceProgramCompilationCheckpoint(operation, 'reduction-plan');
     const key = `${item.path}\0${item.name}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -2573,15 +2588,18 @@ export function compileSourceProgramGraphCutReductionPlan(
   const overlappingKeys = new Set<string>();
   const readyByPath = new Map<string, SourceProgramGraphCutReduction[]>();
   for (const reduction of preliminaryReady) {
+    sourceProgramCompilationCheckpoint(operation, 'reduction-plan');
     const current = readyByPath.get(reduction.path) ?? [];
     current.push(reduction);
     readyByPath.set(reduction.path, current);
   }
   for (const pathReductions of readyByPath.values()) {
+    sourceProgramCompilationCheckpoint(operation, 'reduction-plan');
     const ordered = [...pathReductions].sort((left, right) =>
       left.removalSpan!.start - right.removalSpan!.start
       || left.removalSpan!.end - right.removalSpan!.end);
     for (let index = 1; index < ordered.length; index += 1) {
+      sourceProgramCompilationCheckpoint(operation, 'reduction-plan');
       if (ordered[index - 1]!.removalSpan!.end <= ordered[index]!.removalSpan!.start) continue;
       overlappingKeys.add(`${ordered[index - 1]!.path}\0${ordered[index - 1]!.name}`);
       overlappingKeys.add(`${ordered[index]!.path}\0${ordered[index]!.name}`);
@@ -2601,6 +2619,7 @@ export function compileSourceProgramGraphCutReductionPlan(
   let verificationReason: string | null = null;
   let verificationDigest = sha256({ status: 'no-ready-reductions' });
   if (ready.length > 0) {
+    sourceProgramCompilationCheckpoint(operation, 'reduction-plan');
     const virtualFiles = graphCutVirtualFiles(files, ready);
     const virtualSourceRevision = sha256({
       baseSourceRevision: model.sourceRevision,
@@ -2610,20 +2629,25 @@ export function compileSourceProgramGraphCutReductionPlan(
       sourceRevision: model.sourceRevision,
       files
     });
+    sourceProgramCompilationCheckpoint(operation, 'reduction-plan');
     const virtualDiagnostics = compileSourceProgramTypeScriptDiagnosticSnapshot({
       sourceRevision: virtualSourceRevision,
       files: virtualFiles
     });
+    sourceProgramCompilationCheckpoint(operation, 'reduction-plan');
     const virtualModel = compileRepositorySourceProgramModel({
       sourceRevision: virtualSourceRevision,
       files: virtualFiles,
       moduleMembership: context.moduleMembership,
       reviewedProcessDispatchers: context.reviewedProcessDispatchers
     });
+    sourceProgramCompilationCheckpoint(operation, 'reduction-plan');
     const excludedDeclarationIds = new Set(ready.map((reduction) =>
       declarationIdsByReductionKey.get(`${reduction.path}\0${reduction.name}`)!).filter(Boolean));
     const baselineProjection = graphCutSemanticProjection(model, excludedDeclarationIds);
+    sourceProgramCompilationCheckpoint(operation, 'reduction-plan');
     const virtualProjection = graphCutSemanticProjection(virtualModel, new Set());
+    sourceProgramCompilationCheckpoint(operation, 'reduction-plan');
     verificationReason = graphCutNewDiagnosticReason(baselineDiagnostics, virtualDiagnostics)
       ?? (sha256(baselineProjection) === sha256(virtualProjection)
         ? null
@@ -2663,6 +2687,7 @@ export function compileSourceProgramGraphCutReductionPlan(
     }),
     reductions: Object.freeze(verifiedReductions)
   });
+  sourceProgramCompilationCheckpoint(operation, 'reduction-plan', 'complete');
   compiledGraphCutReductionPlans.add(plan);
   return plan;
 }
@@ -2672,12 +2697,15 @@ export function compileSourceProgramVersionSuffixReductionPlan(
   files: readonly SourceProgramFileInput[],
   context: SourceProgramReductionCompilerContext
 ): SourceProgramVersionSuffixReductionPlan {
+  const operation = resolveSourceProgramCompilationOperation(context.operation);
+  sourceProgramCompilationCheckpoint(operation, 'reduction-plan', 'start');
   const typeScriptModel = exactReductionTypeScriptModel(model, context);
   const sourceByPath = new Map(files
     .filter(({ path }) => /\.[cm]?[jt]sx?$/iu.test(path))
     .map((file) => [file.path, file.source] as const));
   const sourceFileByPath = new Map<string, ts.SourceFile>();
   for (const path of sourceByPath.keys()) {
+    sourceProgramCompilationCheckpoint(operation, 'reduction-plan');
     const sourceFile = sourceProgramTypeScriptSourceFile(typeScriptModel, path);
     if (sourceFile === null) {
       throw new SourceProgramReductionAdmissionError(
@@ -2703,7 +2731,9 @@ export function compileSourceProgramVersionSuffixReductionPlan(
   // already occupied. Export aliases need a distinct public-surface graph cut
   // and are deliberately not rewritten as local bindings here.
   for (const [filePath, sourceFile] of sourceFileByPath) {
+    sourceProgramCompilationCheckpoint(operation, 'reduction-plan');
     const visitImportAlias = (node: ts.Node): void => {
+      sourceProgramCompilationCheckpoint(operation, 'reduction-plan');
       if (ts.isImportSpecifier(node) && node.propertyName !== undefined) {
         const match = VERSIONED_DECLARATION_NAME.exec(node.name.text);
         const proposedName = match?.[1] ?? '';
@@ -2747,6 +2777,7 @@ export function compileSourceProgramVersionSuffixReductionPlan(
     visitImportAlias(sourceFile);
   }
   for (const declaration of model.declarations) {
+    sourceProgramCompilationCheckpoint(operation, 'reduction-plan');
     const candidateKey = `${declaration.path}\u0000${declaration.name}`;
     if (!candidateKeys.has(candidateKey) || processedSymbols.has(candidateKey)) continue;
     const match = VERSIONED_DECLARATION_NAME.exec(declaration.name);
@@ -2808,7 +2839,7 @@ export function compileSourceProgramVersionSuffixReductionPlan(
   }
   reductions.sort((left, right) => compareCodeUnits(left.declarationPaths[0] ?? '', right.declarationPaths[0] ?? '')
     || compareCodeUnits(left.currentName, right.currentName));
-  return Object.freeze({
+  const plan = Object.freeze({
     sourceRevision: model.sourceRevision,
     planDigest: sha256({
       snapshot: sourceSnapshotIdentity(model, files),
@@ -2816,6 +2847,8 @@ export function compileSourceProgramVersionSuffixReductionPlan(
     }),
     reductions: Object.freeze(reductions)
   });
+  sourceProgramCompilationCheckpoint(operation, 'reduction-plan', 'complete');
+  return plan;
 }
 
 export function renderSourceProgramVersionSuffixReductionPatch(

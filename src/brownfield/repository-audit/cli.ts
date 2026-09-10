@@ -1634,6 +1634,7 @@ async function prepareWorkingTreeSourceProgramAudit(
     testDisposition.findings
   );
   const reductionCompilerContext = Object.freeze({
+    operation: worktreeAudit.compilationOperation,
     typeScriptModel: worktreeAudit.currentSourceProgramCompilation.typeScriptCompilation.model,
     moduleMembership: worktreeAudit.moduleMembership,
     reviewedProcessDispatchers: worktreeAudit.reviewedProcessDispatchers

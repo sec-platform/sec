@@ -15,6 +15,7 @@ export type SourceProgramCompilationPhase =
   | 'supersession-evidence'
   | 'supersession-receipt'
   | 'test-retirement'
+  | 'reduction-plan'
   | 'repository-projection'
   | 'cache-publish'
   | 'settlement';

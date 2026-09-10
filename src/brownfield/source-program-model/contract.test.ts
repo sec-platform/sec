@@ -598,6 +598,26 @@ test('source program model finds capability producers, consumers, literals, and 
     moduleMembership,
     reviewedProcessDispatchers: []
   });
+  const cancelled = new AbortController();
+  const cancelledOperation = createSourceProgramCompilationOperation({
+    deadlineAtUnixMs: Date.now() + 30_000,
+    signal: cancelled.signal
+  });
+  cancelled.abort();
+  expect(() => compileSourceProgramVersionSuffixReductionPlan(model, files, {
+    typeScriptModel,
+    moduleMembership,
+    reviewedProcessDispatchers: [],
+    operation: cancelledOperation
+  })).toThrow('source-program-compilation-cancelled:reduction-plan');
+  expect(() => compileSourceProgramVersionSuffixReductionPlan(model, files, {
+    typeScriptModel,
+    moduleMembership,
+    reviewedProcessDispatchers: [],
+    operation: createSourceProgramCompilationOperation({
+      deadlineAtUnixMs: Date.now() - 1
+    })
+  })).toThrow('source-program-compilation-deadline-exhausted:reduction-plan');
   const versionReductionPatch = renderSourceProgramVersionSuffixReductionPatch(
     versionReductionPlan,
     files
@@ -1324,6 +1344,21 @@ test('unused-symbol provider evidence requires a sealed exact provider receipt',
     { ...receipt },
     graphCutContext(fixture)
   )).toThrow('compiler-issued exact provider candidate receipt');
+
+  const controller = new AbortController();
+  const operation = createSourceProgramCompilationOperation({
+    deadlineAtUnixMs: Date.now() + 30_000,
+    signal: controller.signal,
+    observePhase: ({ phase, state }) => {
+      if (phase === 'reduction-plan' && state === 'start') controller.abort();
+    }
+  });
+  expect(() => compileSourceProgramGraphCutReductionPlan(
+    fixture.model,
+    fixture.files,
+    receipt,
+    { ...graphCutContext(fixture), operation }
+  )).toThrow('source-program-compilation-cancelled:owner-intent');
 });
 
 test('graph cut requests compiler syntax only for provider candidates', () => {
