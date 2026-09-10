@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { z } from 'zod';
 
 import { encodeVerificationActionData } from '../../verification/action/contract/action.ts';
 
@@ -62,56 +63,67 @@ function fail(message: string): never {
   throw new Error(`ScopeAuthorization ${message}`);
 }
 
-function record(value: unknown, label: string): Record<string, unknown> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) fail(`${label} must be an object.`);
-  return value as Record<string, unknown>;
-}
-
-function exact(value: Record<string, unknown>, keys: readonly string[], label: string): void {
-  const actual = Object.keys(value).sort();
-  const expected = [...keys].sort();
-  if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
-    fail(`${label} must contain exactly: ${expected.join(', ')}.`);
-  }
-}
-
-function text(value: unknown, label: string): string {
-  if (typeof value !== 'string' || value.length === 0 || value.length > 512 || /[\u0000-\u001f]/u.test(value)) {
-    fail(`${label} must be bounded text.`);
-  }
-  return value;
-}
-
-function sha(value: unknown, label: string): string {
-  if (typeof value !== 'string' || !/^[0-9a-f]{40}$/u.test(value)) fail(`${label} must be a commit/tree SHA.`);
-  return value;
-}
-
-function digest(value: unknown, label: string): ScopeAuthorizationDigest {
-  if (typeof value !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value)) fail(`${label} must be a SHA-256 digest.`);
-  return value as ScopeAuthorizationDigest;
-}
-
-function instant(value: unknown, label: string): string {
-  const result = text(value, label);
-  if (new Date(result).toISOString() !== result) fail(`${label} must be a canonical ISO timestamp.`);
-  return result;
-}
-
-function path(value: unknown, label: string): string {
-  const result = text(value, label);
-  if (result.includes('\\') || result.startsWith('/') || result.includes('/../') || result.startsWith('../') || result === '..') {
-    fail(`${label} must be repository-relative.`);
-  }
-  return result;
-}
-
-function canonicalPaths(values: unknown): readonly string[] {
-  if (!Array.isArray(values) || values.length === 0) fail('authorizedPaths must be a non-empty array.');
-  const result = values.map((value, index) => path(value, `authorizedPaths[${index}]`)).sort();
-  if (new Set(result).size !== result.length) fail('authorizedPaths must be unique.');
-  return Object.freeze(result);
-}
+const text = z.string().min(1).max(512).refine(value => !/[\u0000-\u001f]/u.test(value), 'must be bounded text.');
+const sha = z.string().regex(/^[0-9a-f]{40}$/u, 'must be a commit/tree SHA.');
+const digest = z.string().regex(/^sha256:[0-9a-f]{64}$/u, 'must be a SHA-256 digest.')
+  .transform(value => value as ScopeAuthorizationDigest);
+const instant = text.refine(value => {
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString() === value;
+}, 'must be a canonical ISO timestamp.');
+const path = text.refine(value => !(
+  value.includes('\\') || value.startsWith('/') || value.includes('/../') || value.startsWith('../') || value === '..'
+), 'must be repository-relative.');
+const canonicalPaths = z.array(path).min(1).transform(values => values.sort())
+  .refine(values => new Set(values).size === values.length, 'authorizedPaths must be unique.').readonly();
+const stableIssuer = z.object({
+  principalId: text,
+  role: z.literal('trusted-base-a0'),
+  trustRevision: sha,
+  producerIdentity: text
+}).strict();
+const fullIssuer = stableIssuer.extend({
+  sourceTransport: z.enum(['trusted-base', 'github-actions']),
+  sourceRunId: text,
+  sourceRef: text,
+  sourceDigest: digest
+}).strict();
+// Issuer identity requires own enumerable fields; object schemas also read inherited fields.
+const stableIssuerKeys = stableIssuer.keyof().array().length(stableIssuer.keyof().options.length);
+const fullIssuerKeys = fullIssuer.keyof().array().length(fullIssuer.keyof().options.length);
+const semanticInput = z.object({
+  repository: text,
+  prNumber: z.int().positive(),
+  baseSha: sha,
+  baseTreeSha: sha,
+  headSha: sha,
+  headTreeSha: sha,
+  manifestPath: path,
+  manifestDigest: digest,
+  proposalDigest: digest,
+  authorizedPaths: canonicalPaths,
+  profile: text,
+  environmentDigest: digest,
+  issuer: z.preprocess(value => {
+    stableIssuerKeys.parse(Object.keys(value ?? {}));
+    return value;
+  }, stableIssuer.readonly())
+});
+const authorizationInput = semanticInput.extend({
+  issuer: z.preprocess(value => {
+    fullIssuerKeys.parse(Object.keys(value ?? {}));
+    return value;
+  }, fullIssuer.readonly()),
+  sessionProposalDigest: digest,
+  actionPlanClosureDigest: digest,
+  issuedAt: instant,
+  expiresAt: instant
+});
+const authorizationEnvelope = authorizationInput.extend({
+  schema: z.literal(SCOPE_AUTHORIZATION_SCHEMA),
+  authorizationRevision: z.string(),
+  authorizationDigest: z.string()
+}).strict();
 
 function hash(value: unknown): ScopeAuthorizationDigest {
   return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
@@ -120,62 +132,27 @@ function hash(value: unknown): ScopeAuthorizationDigest {
 export function createScopeAuthorizationRevision(
   input: ScopeAuthorizationSemanticInput
 ): ScopeAuthorizationDigest {
-  const issuer = record(input.issuer, 'semantic issuer');
-  exact(issuer, ['principalId', 'role', 'trustRevision', 'producerIdentity'], 'semantic issuer');
-  if (issuer.role !== 'trusted-base-a0') fail('semantic issuer.role must be trusted-base-a0.');
-  return hash(Object.freeze({
-    schema: SCOPE_AUTHORIZATION_SCHEMA,
-    repository: text(input.repository, 'repository'),
-    prNumber: Number.isSafeInteger(input.prNumber) && input.prNumber > 0 ? input.prNumber : fail('prNumber must be positive.'),
-    baseSha: sha(input.baseSha, 'baseSha'), baseTreeSha: sha(input.baseTreeSha, 'baseTreeSha'),
-    headSha: sha(input.headSha, 'headSha'), headTreeSha: sha(input.headTreeSha, 'headTreeSha'),
-    manifestPath: path(input.manifestPath, 'manifestPath'), manifestDigest: digest(input.manifestDigest, 'manifestDigest'),
-    proposalDigest: digest(input.proposalDigest, 'proposalDigest'), authorizedPaths: canonicalPaths(input.authorizedPaths),
-    profile: text(input.profile, 'profile'), environmentDigest: digest(input.environmentDigest, 'environmentDigest'),
-    issuer: Object.freeze({ principalId: text(issuer.principalId, 'issuer.principalId'), role: 'trusted-base-a0' as const,
-      trustRevision: sha(issuer.trustRevision, 'issuer.trustRevision'), producerIdentity: text(issuer.producerIdentity, 'issuer.producerIdentity') })
-  }));
+  return hashSemanticScope(semanticInput.parse(input));
 }
 
 export function createScopeAuthorization(input: ScopeAuthorizationInput): ScopeAuthorization {
-  const issuer = record(input.issuer, 'issuer');
-  exact(issuer, ['principalId', 'role', 'trustRevision', 'producerIdentity', 'sourceTransport', 'sourceRunId', 'sourceRef', 'sourceDigest'], 'issuer');
-  if (issuer.role !== 'trusted-base-a0') fail('issuer.role must be trusted-base-a0.');
-  if (issuer.sourceTransport !== 'trusted-base' && issuer.sourceTransport !== 'github-actions') fail('issuer.sourceTransport is invalid.');
+  return sealScopeAuthorization(authorizationInput.parse(input));
+}
+
+function hashSemanticScope(input: ScopeAuthorizationSemanticInput): ScopeAuthorizationDigest {
+  return hash(Object.freeze({ schema: SCOPE_AUTHORIZATION_SCHEMA, ...input }));
+}
+
+function sealScopeAuthorization(input: ScopeAuthorizationInput): ScopeAuthorization {
   const normalized = Object.freeze({
     schema: SCOPE_AUTHORIZATION_SCHEMA,
-    repository: text(input.repository, 'repository'),
-    prNumber: Number.isSafeInteger(input.prNumber) && input.prNumber > 0 ? input.prNumber : fail('prNumber must be positive.'),
-    baseSha: sha(input.baseSha, 'baseSha'),
-    baseTreeSha: sha(input.baseTreeSha, 'baseTreeSha'),
-    headSha: sha(input.headSha, 'headSha'),
-    headTreeSha: sha(input.headTreeSha, 'headTreeSha'),
-    manifestPath: path(input.manifestPath, 'manifestPath'),
-    manifestDigest: digest(input.manifestDigest, 'manifestDigest'),
-    proposalDigest: digest(input.proposalDigest, 'proposalDigest'),
-    authorizedPaths: canonicalPaths(input.authorizedPaths),
-    sessionProposalDigest: digest(input.sessionProposalDigest, 'sessionProposalDigest'),
-    actionPlanClosureDigest: digest(input.actionPlanClosureDigest, 'actionPlanClosureDigest'),
-    profile: text(input.profile, 'profile'),
-    environmentDigest: digest(input.environmentDigest, 'environmentDigest'),
-    issuer: Object.freeze({
-      principalId: text(issuer.principalId, 'issuer.principalId'),
-      role: 'trusted-base-a0' as const,
-      trustRevision: sha(issuer.trustRevision, 'issuer.trustRevision'),
-      producerIdentity: text(issuer.producerIdentity, 'issuer.producerIdentity'),
-      sourceTransport: issuer.sourceTransport,
-      sourceRunId: text(issuer.sourceRunId, 'issuer.sourceRunId'),
-      sourceRef: text(issuer.sourceRef, 'issuer.sourceRef'),
-      sourceDigest: digest(issuer.sourceDigest, 'issuer.sourceDigest')
-    }),
-    issuedAt: instant(input.issuedAt, 'issuedAt'),
-    expiresAt: instant(input.expiresAt, 'expiresAt')
+    ...input
   });
   if (normalized.expiresAt <= normalized.issuedAt) fail('expiresAt must be after issuedAt.');
   const { issuedAt: _issuedAt, expiresAt: _expiresAt, issuer: fullIssuer,
     sessionProposalDigest: _sessionProposalDigest, actionPlanClosureDigest: _actionPlanClosureDigest,
     ...semanticCore } = normalized;
-  const authorizationRevision = createScopeAuthorizationRevision({ ...semanticCore, issuer: {
+  const authorizationRevision = hashSemanticScope({ ...semanticCore, issuer: {
     principalId: fullIssuer.principalId, role: fullIssuer.role, trustRevision: fullIssuer.trustRevision,
     producerIdentity: fullIssuer.producerIdentity
   } });
@@ -184,15 +161,9 @@ export function createScopeAuthorization(input: ScopeAuthorizationInput): ScopeA
 }
 
 export function parseScopeAuthorization(source: string): ScopeAuthorization {
-  const parsed = record(JSON.parse(source) as unknown, 'receipt');
-  exact(parsed, [
-    'schema', 'repository', 'prNumber', 'baseSha', 'baseTreeSha', 'headSha', 'headTreeSha',
-    'manifestPath', 'manifestDigest', 'proposalDigest', 'authorizedPaths', 'sessionProposalDigest',
-    'actionPlanClosureDigest', 'profile', 'environmentDigest', 'issuer', 'issuedAt', 'expiresAt',
-    'authorizationRevision', 'authorizationDigest'
-  ], 'receipt');
-  if (parsed.schema !== SCOPE_AUTHORIZATION_SCHEMA) fail('schema mismatch.');
-  const authorization = createScopeAuthorization(parsed as unknown as ScopeAuthorizationInput);
+  const parsed = authorizationEnvelope.parse(JSON.parse(source) as unknown);
+  const { schema: _schema, authorizationRevision: _revision, authorizationDigest: _digest, ...input } = parsed;
+  const authorization = sealScopeAuthorization(input);
   if (authorization.authorizationRevision !== parsed.authorizationRevision) fail('semantic revision mismatch.');
   if (authorization.authorizationDigest !== parsed.authorizationDigest) fail('digest mismatch.');
   return authorization;
@@ -227,9 +198,9 @@ export function assertScopeAuthorizationCurrent(
     [live.environmentDigest, current.environmentDigest, 'environmentDigest']
   ];
   for (const [actual, expected, label] of checks) if (actual !== expected) fail(`${label} drift invalidates authorization.`);
-  const livePaths = canonicalPaths(live.changedPaths);
+  const livePaths = canonicalPaths.parse(live.changedPaths);
   if (encodeVerificationActionData(livePaths) !== encodeVerificationActionData(current.authorizedPaths)) {
     fail('candidate write-set drift invalidates authorization.');
   }
-  if (instant(live.now, 'now') > current.expiresAt) fail('receipt is expired.');
+  if (instant.parse(live.now) > current.expiresAt) fail('receipt is expired.');
 }
