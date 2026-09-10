@@ -26,10 +26,9 @@ export const RUNTIME_GENERATION_CENSUS_SCHEMA =
   'sec-runtime-generation-census-v1' as const;
 
 export type RuntimeGenerationCensusState =
-  | 'active'
+  | 'present'
   | 'absent'
-  | 'stale-residue'
-  | 'inaccessible-residue'
+  | 'access-unavailable'
   | 'unknown';
 
 export interface RuntimeGenerationCensusEntry {
@@ -117,7 +116,7 @@ function censusStateFromFailure(error: unknown): RuntimeGenerationCensusState {
   if (failure?.code === 'PHYSICAL_NO_FOLLOW_ABSENT') return 'absent';
   if (failure?.nativeFailure?.namespace === 'win32'
       && failure.nativeFailure.failureClass === 'access-unavailable') {
-    return 'inaccessible-residue';
+    return 'access-unavailable';
   }
   return 'unknown';
 }
@@ -198,9 +197,10 @@ export function censusRetainedRuntimeGenerations(input: Readonly<{
         entries.push(Object.freeze({
           id: profile.id,
           path: generation.path,
-          state: inventory.some(({ kind }) => kind === 'link')
-            ? 'stale-residue' as const
-            : 'active' as const,
+          // Inventory is a bounded physical fact. Link presence does not
+          // establish whether the provider generation is active or stale;
+          // only the provider lifecycle can make that decision.
+          state: 'present' as const,
           ownerRoot: profile.owner.root,
           generationRoot: generation.directory,
           entryCount: inventory.length
@@ -273,7 +273,7 @@ export function issueRuntimeGenerationCensusReceiptForTests(input: Readonly<{
       state,
       ownerRoot: identity(index),
       generationRoot: state === 'absent' ? null : identity(index),
-      entryCount: state === 'active' ? 0 : 1
+      entryCount: state === 'present' ? 0 : 1
     })))
   });
   ISSUED_RUNTIME_GENERATION_CENSUS_RECEIPTS.add(receipt);

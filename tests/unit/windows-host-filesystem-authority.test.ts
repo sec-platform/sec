@@ -342,6 +342,12 @@ test.skipIf(process.platform !== 'win32')(
       );
       await authority.assertCurrent();
       expect(authority.rootPath).toBe(path.resolve(authorityRoot));
+      const operationRoot = path.join(authorityRoot, 'operation');
+      await mkdir(operationRoot);
+      await authority.assertCurrent();
+      await writeFile(path.join(operationRoot, 'record.json'), '{}');
+      await rm(operationRoot, { recursive: true });
+      await authority.assertCurrent();
       await authority.release();
       await expect(authority.assertCurrent()).rejects.toMatchObject({
         failure: 'session-closed'

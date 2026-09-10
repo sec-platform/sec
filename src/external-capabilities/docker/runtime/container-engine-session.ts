@@ -22,7 +22,6 @@ import {
   assertRuntimeGenerationCensusReceipt,
   censusRetainedRuntimeGenerations,
   observeRetainedRuntimeEndpointResidue,
-  type RetainedRuntimeGenerationCensus,
   type RuntimeEndpointResidueReceipt,
   type RuntimeGenerationCensusReceipt
 } from '../../../runtime-state/physical/runtime/runtime-endpoint-residue.ts';
@@ -185,7 +184,8 @@ interface DockerDesktopLifecycleEnvironment {
 
 async function dockerDesktopLifecycleEnvironment(): Promise<DockerDesktopLifecycleEnvironment> {
   const retained: RetainedRuntimeStateDirectory[] = [];
-  let generationCensus: RetainedRuntimeGenerationCensus | null = null;
+  let generationCensusReceipt: RuntimeGenerationCensusReceipt | null = null;
+  let admittedGenerationRoots: readonly PhysicalDirectoryIdentity[] = Object.freeze([]);
   let closed = false;
   let terminalCloseFailure: unknown;
   const close = (): void => {
@@ -196,10 +196,6 @@ async function dockerDesktopLifecycleEnvironment(): Promise<DockerDesktopLifecyc
     try {
       settlePhysicalResources({
         cleanup: [
-          ...(generationCensus === null ? [] : [{
-            label: 'runtime-generation-census',
-            settle: () => generationCensus!.close()
-          }]),
           ...[...retained].reverse().map((directory, index) => ({
             label: `runtime-state-root-${index}`,
             settle: () => { directory.close(); }
@@ -256,13 +252,13 @@ async function dockerDesktopLifecycleEnvironment(): Promise<DockerDesktopLifecyc
         providerIdentityDigest: `sha256:${string}`
       ): RuntimeGenerationCensusReceipt {
         if (closed) throw new Error('Docker Desktop retained runtime-state environment is closed.');
-        if (generationCensus !== null) {
-          if (generationCensus.receipt.providerIdentityDigest !== providerIdentityDigest) {
+        if (generationCensusReceipt !== null) {
+          if (generationCensusReceipt.providerIdentityDigest !== providerIdentityDigest) {
             throw new Error('Docker Desktop runtime generation census provider identity changed.');
           }
-          return generationCensus.receipt;
+          return generationCensusReceipt;
         }
-        generationCensus = censusRetainedRuntimeGenerations({
+        const census = censusRetainedRuntimeGenerations({
           providerIdentityDigest,
           ...DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.generationCensus,
           profiles: DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.generationRoots.map((profile) => {
@@ -278,18 +274,30 @@ async function dockerDesktopLifecycleEnvironment(): Promise<DockerDesktopLifecyc
             });
           })
         });
-        return generationCensus.receipt;
+        try {
+          admittedGenerationRoots = Object.freeze(
+            census.generations.map(({ directory }) => directory)
+          );
+          generationCensusReceipt = census.receipt;
+        } finally {
+          // The official provider owns mutations beneath these generation
+          // roots. Retain them through census readback, then release before
+          // the launcher Effect rather than requiring the preimage to remain
+          // unchanged while Docker performs its own recovery.
+          census.close();
+        }
+        return generationCensusReceipt;
       },
       observeRuntimeEndpointResidue(
         providerEvidence: string,
         providerIdentityDigest: `sha256:${string}`
       ): RuntimeEndpointResidueReceipt | null {
         if (closed) throw new Error('Docker Desktop retained runtime-state environment is closed.');
-        if (generationCensus === null) {
+        if (generationCensusReceipt === null) {
           throw new Error('Docker Desktop runtime generation census has not been admitted.');
         }
         return observeRetainedRuntimeEndpointResidue({
-          admittedGenerationRoots: generationCensus.generations.map(({ directory }) => directory),
+          admittedGenerationRoots,
           providerEvidence,
           providerIdentityDigest,
           roots: retained

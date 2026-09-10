@@ -29,7 +29,7 @@ const ensureStartedAuthority = Object.freeze({
   providerIdentityDigest: residueProviderIdentityDigest,
   censusRuntimeGenerations: () => issueRuntimeGenerationCensusReceiptForTests({
     providerIdentityDigest: residueProviderIdentityDigest,
-    states: ['active', 'absent']
+    states: ['present', 'absent']
   }),
   launch: async () => Object.freeze({
     ...available,
@@ -231,40 +231,64 @@ describe('Docker daemon lifecycle algorithm', () => {
     } catch (error) {
       expectReason(error, 'desktop-start-failed');
     }
-    expect(lifecycles).toEqual(['observe', 'observe']);
+    expect(lifecycles).toEqual(['observe', 'observe', 'observe']);
   });
 
-  test('pre-start generation census blocks typed residue and unknown states before launcher spawn', async () => {
-    for (const vector of [
-      { state: 'stale-residue' as const, reason: 'runtime-endpoint-residue' as const },
-      { state: 'inaccessible-residue' as const, reason: 'runtime-endpoint-residue' as const },
-      { state: 'unknown' as const, reason: 'desktop-environment-unavailable' as const }
-    ]) {
+  test('pre-start generation census preserves facts while only unknown blocks the official launcher', async () => {
+    for (const state of ['present', 'access-unavailable'] as const) {
       const lifecycles: string[] = [];
-      try {
-        await ensureDockerDaemonStartedWithCommand({
-          ...ensureStartedAuthority,
-          censusRuntimeGenerations: () => issueRuntimeGenerationCensusReceiptForTests({
-            providerIdentityDigest: residueProviderIdentityDigest,
-            states: [vector.state]
-          }),
-          commandDeadlineAtUnixMs,
-          cwd: process.cwd(),
-          deadlineAtUnixMs: Date.now() + 10_000,
-          endpointHost,
-          platform: 'win32',
-          withLauncherLock: async (operation) => await operation(),
-          run: async ({ lifecycle }) => {
-            lifecycles.push(lifecycle);
-            return unavailable;
-          }
-        });
-        throw new Error('expected generation census blocker');
-      } catch (error) {
-        expectReason(error, vector.reason);
-      }
-      expect(lifecycles).toEqual(['observe', 'observe']);
+      let launches = 0;
+      const result = await ensureDockerDaemonStartedWithCommand({
+        ...ensureStartedAuthority,
+        censusRuntimeGenerations: () => issueRuntimeGenerationCensusReceiptForTests({
+          providerIdentityDigest: residueProviderIdentityDigest,
+          states: [state]
+        }),
+        commandDeadlineAtUnixMs,
+        cwd: process.cwd(),
+        deadlineAtUnixMs: Date.now() + 10_000,
+        endpointHost,
+        platform: 'win32',
+        launch: async () => {
+          launches += 1;
+          return { ...available, physicalDisposition: 'settled' as const };
+        },
+        withLauncherLock: async (operation) => await operation(),
+        run: async ({ lifecycle }) => {
+          lifecycles.push(lifecycle);
+          return lifecycles.length < 3 ? unavailable : available;
+        }
+      });
+      expect(result).toBe(available);
+      expect(launches).toBe(1);
+      expect(lifecycles).toEqual(['observe', 'observe', 'observe']);
     }
+
+    let launches = 0;
+    try {
+      await ensureDockerDaemonStartedWithCommand({
+        ...ensureStartedAuthority,
+        censusRuntimeGenerations: () => issueRuntimeGenerationCensusReceiptForTests({
+          providerIdentityDigest: residueProviderIdentityDigest,
+          states: ['unknown']
+        }),
+        commandDeadlineAtUnixMs,
+        cwd: process.cwd(),
+        deadlineAtUnixMs: Date.now() + 10_000,
+        endpointHost,
+        platform: 'win32',
+        launch: async () => {
+          launches += 1;
+          return { ...available, physicalDisposition: 'settled' as const };
+        },
+        withLauncherLock: async (operation) => await operation(),
+        run: async () => unavailable
+      });
+      throw new Error('expected unknown census blocker');
+    } catch (error) {
+      expectReason(error, 'desktop-environment-unavailable');
+    }
+    expect(launches).toBe(0);
   });
 
   test('direct launcher output is presentation-only and final daemon readback is authoritative', async () => {
@@ -329,6 +353,41 @@ describe('Docker daemon lifecycle algorithm', () => {
     expect(observations).toBe(3);
   });
 
+  test('a ready daemon cannot settle an unknown launcher process tree', async () => {
+    let observations = 0;
+    let launches = 0;
+    try {
+      await ensureDockerDaemonStartedWithCommand({
+        ...ensureStartedAuthority,
+        commandDeadlineAtUnixMs,
+        cwd: process.cwd(),
+        deadlineAtUnixMs: Date.now() + 10_000,
+        endpointHost,
+        platform: 'win32',
+        launch: async () => {
+          launches += 1;
+          return {
+            code: 1,
+            stdout: '',
+            stderr: 'launcher process tree did not settle',
+            physicalDisposition: 'unknown' as const
+          };
+        },
+        withLauncherLock: async (operation) => await operation(),
+        run: async () => {
+          observations += 1;
+          return observations < 3 ? unavailable : available;
+        }
+      });
+      throw new Error('expected unknown launcher settlement blocker');
+    } catch (error) {
+      expectReason(error, 'desktop-launcher-settlement-unknown');
+      expect((error as DockerDaemonAvailabilityFailure).phase).toBe('final-readback');
+    }
+    expect(launches).toBe(1);
+    expect(observations).toBe(3);
+  });
+
   test('consumes a physical-owner runtime endpoint residue receipt', async () => {
     await withIssuedResidueReceipt(async ({ endpointPath, observe }) => {
       try {
@@ -352,20 +411,24 @@ describe('Docker daemon lifecycle algorithm', () => {
         throw new Error('expected runtime endpoint residue blocker');
       } catch (error) {
         expectReason(error, 'runtime-endpoint-residue');
-        expect((error as DockerDaemonAvailabilityFailure).phase).toBe('desktop-start');
+        expect((error as DockerDaemonAvailabilityFailure).phase).toBe('final-readback');
       }
     });
   });
 
   test('reboot and Win32 presentation without physical receipt is non-authoritative', async () => {
     let observations = 0;
+    let residueObservations = 0;
     const result = await ensureDockerDaemonStartedWithCommand({
       ...ensureStartedAuthority,
       commandDeadlineAtUnixMs,
       cwd: process.cwd(),
       deadlineAtUnixMs: Date.now() + 10_000,
       endpointHost,
-      observeRuntimeEndpointResidue: () => null,
+      observeRuntimeEndpointResidue: () => {
+        residueObservations += 1;
+        return null;
+      },
       platform: 'win32',
       launch: async () => ({
         code: 0,
@@ -380,6 +443,7 @@ describe('Docker daemon lifecycle algorithm', () => {
       }
     });
     expect(result).toBe(available);
+    expect(residueObservations).toBe(0);
   });
 
   test('classifies retained child settlement failure separately from endpoint state', async () => {

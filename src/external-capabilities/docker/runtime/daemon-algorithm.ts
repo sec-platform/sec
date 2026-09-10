@@ -190,11 +190,6 @@ export async function ensureDockerDaemonStartedWithCommand(
       fail(input.endpointHost, 'desktop-environment-unavailable', 'admission');
     }
     const censusEvidence = census.entries.map(({ id, state }) => `${id}:${state}`).join('\n');
-    if (census.entries.some(({ state }) => (
-      state === 'stale-residue' || state === 'inaccessible-residue'
-    ))) {
-      fail(input.endpointHost, 'runtime-endpoint-residue', 'desktop-start', censusEvidence);
-    }
     if (census.entries.some(({ state }) => state === 'unknown')) {
       fail(input.endpointHost, 'desktop-environment-unavailable', 'admission', censusEvidence);
     }
@@ -221,32 +216,6 @@ export async function ensureDockerDaemonStartedWithCommand(
       fail(input.endpointHost, 'desktop-start-failed', 'desktop-start', message);
     }
     const providerEvidence = `${start.stdout}\n${start.stderr}`;
-    let residue: RuntimeEndpointResidueReceipt | null;
-    try {
-      residue = input.observeRuntimeEndpointResidue?.(providerEvidence) ?? null;
-    } catch (error) {
-      fail(
-        input.endpointHost,
-        'desktop-environment-unavailable',
-        'admission',
-        error instanceof Error ? error.message : String(error)
-      );
-    }
-    if (residue !== null) {
-      assertRuntimeEndpointResidueReceipt(residue);
-      if (residue.providerIdentityDigest !== input.providerIdentityDigest) {
-        fail(input.endpointHost, 'desktop-environment-unavailable', 'admission');
-      }
-      fail(
-        input.endpointHost,
-        'runtime-endpoint-residue',
-        'desktop-start',
-        providerEvidence
-      );
-    }
-    if (start.code !== 0 && start.physicalDisposition === 'settled') {
-      fail(input.endpointHost, 'desktop-start-failed', 'desktop-start', providerEvidence);
-    }
     const finalReadback = await run(
       input,
       infoArgs(input.endpointHost),
@@ -254,14 +223,44 @@ export async function ensureDockerDaemonStartedWithCommand(
       'endpoint-unavailable',
       'final-readback'
     );
-    if (finalReadback.code !== 0) {
+    if (start.physicalDisposition === 'unknown') {
       fail(
         input.endpointHost,
-        start.physicalDisposition === 'unknown'
-          ? 'desktop-launcher-settlement-unknown'
+        'desktop-launcher-settlement-unknown',
+        'final-readback',
+        `${providerEvidence}\n${finalReadback.stderr}`
+      );
+    }
+    if (finalReadback.code !== 0) {
+      let residue: RuntimeEndpointResidueReceipt | null;
+      try {
+        residue = input.observeRuntimeEndpointResidue?.(providerEvidence) ?? null;
+        if (residue !== null) {
+          assertRuntimeEndpointResidueReceipt(residue);
+          if (residue.providerIdentityDigest !== input.providerIdentityDigest) {
+            fail(input.endpointHost, 'desktop-environment-unavailable', 'final-readback');
+          }
+        }
+      } catch (error) {
+        if (error instanceof DockerDaemonAvailabilityFailure) throw error;
+        fail(
+          input.endpointHost,
+          'desktop-environment-unavailable',
+          'final-readback',
+          error instanceof Error ? error.message : String(error)
+        );
+      }
+      fail(
+        input.endpointHost,
+        residue !== null
+            ? 'runtime-endpoint-residue'
+            : start.code !== 0
+              ? 'desktop-start-failed'
           : 'endpoint-unavailable',
         'final-readback',
-        finalReadback.stderr
+        residue !== null || start.code !== 0
+          ? `${providerEvidence}\n${finalReadback.stderr}`
+          : finalReadback.stderr
       );
     }
     return finalReadback;

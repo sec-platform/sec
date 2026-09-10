@@ -42,7 +42,7 @@ test('partial generation census preserves primary and reports its physical close
   expect(closeCalls).toBe(1);
 });
 
-test('bounded generation census emits every provider lifecycle state without filename rules', async () => {
+test('bounded generation census reports physical presence without inferring provider lifecycle from links', async () => {
   const rootPath = await mkdtemp(path.join(os.tmpdir(), 'runtime-generation-census-'));
   let owner: ReturnType<typeof openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot> | null = null;
   let census: ReturnType<typeof censusRetainedRuntimeGenerations> | null = null;
@@ -81,16 +81,16 @@ test('bounded generation census emits every provider lifecycle state without fil
     });
     expect(Object.fromEntries(census.receipt.entries.map(({ id, state }) => [id, state])))
       .toEqual({
-        active: 'active',
+        active: 'present',
         absent: 'absent',
-        stale: 'stale-residue',
+        stale: 'present',
         unknown: 'unknown'
       });
     const inaccessible = issueRuntimeGenerationCensusReceiptForTests({
       providerIdentityDigest,
-      states: ['inaccessible-residue']
+      states: ['access-unavailable']
     });
-    expect(inaccessible.entries[0]?.state).toBe('inaccessible-residue');
+    expect(inaccessible.entries[0]?.state).toBe('access-unavailable');
   } finally {
     census?.close();
     owner?.close();
@@ -117,7 +117,7 @@ test.skipIf(process.platform !== 'win32')('generation census preserves the owner
       maximumEntriesPerRoot: 2,
       profiles: [{ id: 'host', owner, segments: ['generation'], childDescriptor: 49 }]
     });
-    expect(census.receipt.entries[0]?.state).toBe('active');
+    expect(census.receipt.entries[0]?.state).toBe('present');
     expect(retainedRuntimeStateDirectoryRequiresHostNamespace(census.generations[0]!)).toBe(true);
   } finally {
     census?.close();

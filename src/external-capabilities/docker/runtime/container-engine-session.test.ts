@@ -57,7 +57,7 @@ test('ready provider identity is a successor of exact admission resources and at
   const authorityProviderIdentityDigest = digest('authority-provider');
   const generationCensus = issueRuntimeGenerationCensusReceiptForTests({
     providerIdentityDigest: authorityProviderIdentityDigest,
-    states: ['active']
+    states: ['present']
   });
   const admissionInput = {
     authorityProviderIdentityDigest,
@@ -82,7 +82,7 @@ test('ready provider identity is a successor of exact admission resources and at
   })).not.toBe(admission);
   const transplantedCensus = issueRuntimeGenerationCensusReceiptForTests({
     providerIdentityDigest: digest('different-authority-provider'),
-    states: ['active']
+    states: ['present']
   });
   expect(() => compileContainerEngineAdmissionProviderIdentity({
     ...admissionInput,

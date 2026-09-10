@@ -226,6 +226,8 @@ stateDiagram-v2
 
 一个 workspace 默认一个 writer generation；并行需 domain/resource resolver 证明。acquire/heartbeat/release/recovery/commit fence 绑定 workspace、owner、physical identity。timeout 不证明 owner dead；recovery 不移除后继 writer。唯一 inspector 服务 Gate/audit/recovery。
 
+可变 Runtime State 目录的对象身份与其子项变化分别验证：同一根下的合法 child publication 不使根对象失效。Windows mutable root 的持续校验绑定物理对象、创建身份、owner 与 DACL；目录 ChangeTime 会随子项变化，不能单独作为 root replacement 判据。sealed read-only generation 仍使用其完整 ChangeTime/content/ACL 约束，不继承可变根的放宽。
+
 physical mutation lease 的唯一持久记录同时保存 active owner 与尚未完成的 recovery
 owner；连续接管继承最早未完成的恢复身份，不能覆盖为中间进程。接管不得先删除旧
 记录再发布新记录。identity-bound replacement 的中间状态必须由 physical owner 恢复，

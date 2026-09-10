@@ -278,6 +278,8 @@ stateDiagram-v2
 
 provider runtime generation 由 physical owner签发；普通 caller 不按 prefix/glob/name 清理。历史 generation 只在 live handle、consumer、recovery、external contract 和 unknown 全零后由 authenticated GC 删除。
 
+物理目录 census 只签发可观察的结构与访问事实，不能从存在 link 推导 generation 已陈旧，也不能从普通文件树推导 daemon 正在运行。已绑定真实宿主目录、官方 launcher 与 provider identity 后，provider 自有运行时的恢复由该 launcher 执行；SEC 不抢先改名、删除或隔离其 socket。未知输入闭包仍拒绝启动，launcher settlement 和最终 endpoint readback 共同决定可用性，启动过程中的访问诊断不能代替该终态。
+
 外部宿主 Provider 的 runtime root 必须与 daemon 使用同一物理 namespace。packaged 进程的 AppData merged view、相同 lexical path 或普通 Known Folder 返回值不能单独证明这一点；无法证明宿主 namespace 时，在启动或恢复 Effect 前保持 unavailable。部分 namespace Effect 后必须按实际 FileId 与物理位置分别结算各层，保留前像，不能因原 lexical path 仍在而重放隔离。
 
 breakaway child capability 绑定 exact operation/attempt/provider，不可移植。parent/job settled 不等于 child/provider terminal。
