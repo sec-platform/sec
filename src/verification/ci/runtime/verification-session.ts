@@ -24,6 +24,7 @@ import {
   writeFileSync
 } from 'node:fs';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import { CompilerError } from '../../../compiler/errors.ts';
 import {
@@ -2446,7 +2447,7 @@ async function joinExactPostMergeMainHealth(input: Readonly<{
       joined = matches[0]!;
       break;
     }
-    await new Promise<void>((resolve) => setTimeout(resolve, pollMilliseconds));
+    await delay(pollMilliseconds);
   }
   if (joined === null) throw new Error('Timed out joining the exact post-merge MainHealth run.');
   const run = apiRecord(input.ctx, `/repos/${input.repository}/actions/runs/${joined.id}`,

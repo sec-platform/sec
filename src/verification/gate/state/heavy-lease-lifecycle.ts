@@ -1,3 +1,5 @@
+import { setTimeout as delay } from 'node:timers/promises';
+
 /** Stable retry classification owned by the lease provider, not its prose. */
 export class HeavyVerificationGateBusyError extends Error {
   readonly code = 'HEAVY_GATE_BUSY';
@@ -54,7 +56,7 @@ export async function waitForHeavyVerificationGateLease<T extends ReleasableGate
       if (!(error instanceof HeavyVerificationGateBusyError)) throw error;
       const remaining = deadline - performance.now();
       if (remaining <= 0) throw error;
-      await new Promise<void>(resolve => setTimeout(resolve, Math.min(25, remaining)));
+      await delay(Math.min(25, remaining));
       if (performance.now() >= deadline) throw error;
     }
   }

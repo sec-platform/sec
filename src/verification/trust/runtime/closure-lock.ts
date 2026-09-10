@@ -67,6 +67,7 @@ export const TCB_APPROVED_EXTERNAL_IMPORTS = new Set([
   'node:os',
   'node:path',
   'node:stream',
+  'node:timers/promises',
   'node:url',
   'node:util',
   'node:util/types',
