@@ -45,7 +45,7 @@ test('lossy UTF-16 is refused in identity, commit message and physical roots', (
       assert.equal(canonicalCommitTreeInput({ ...commit(), author: { ...person(), [field]: `a${invalid}z` } }), null);
     }
     for (const field of ['repositoryRoot', 'worktreeRoot'] as const) {
-      assert.equal(captureGitDevelopmentCommitContract({ ...commit(), [field]: path.resolve(invalid) }), null);
+      assert.equal(captureGitDevelopmentCommitContract({ ...commit(), [field]: `${path.resolve('repo')}${path.sep}${invalid}` }), null);
     }
   }
   const valid = '界🙂e\u0301 �';

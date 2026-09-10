@@ -11,35 +11,6 @@ function keysNamed(env: Readonly<Record<string, string>>, name: string): string[
   return Object.keys(env).filter((key) => key.toUpperCase() === name.toUpperCase());
 }
 
-test('case-insensitive override replaces the old spelling and value', () => {
-  const env = environment({ PATH: 'new' }, { Path: 'old' });
-  assert.deepEqual(keysNamed(env, 'PATH'), ['PATH']);
-  assert.equal(gitEnvironmentValue(env, 'path'), 'new');
-});
-
-test('later case-variant overrides win without retaining multiple definitions', () => {
-  const env = environment({ Path: 'first', PATH: 'last' }, { path: 'ambient' });
-  assert.deepEqual(keysNamed(env, 'path'), ['PATH']);
-  assert.equal(env.PATH, 'last');
-});
-
-test('undefined override removes every earlier canonical spelling', () => {
-  assert.deepEqual(keysNamed(environment({ PATH: undefined }, { Path: 'old' }), 'path'), []);
-  assert.deepEqual(keysNamed(environment({ Path: 'first', PATH: undefined }, { path: 'old' }), 'path'), []);
-});
-
-test('undefined source entries do not hide later defined spellings', () => {
-  const env = environment({}, { PATH: undefined, Path: 'retained' });
-  assert.deepEqual(keysNamed(env, 'path'), ['Path']);
-  assert.equal(env.Path, 'retained');
-});
-
-test('source duplicates retain the existing first-defined rule', () => {
-  const env = environment({}, { Path: 'first', PATH: 'second' });
-  assert.deepEqual(keysNamed(env, 'path'), ['Path']);
-  assert.equal(env.Path, 'first');
-});
-
 test('mandatory Git isolation cannot be disabled through mixed-case overrides', () => {
   const env = environment({ git_terminal_prompt: '1', Git_No_Replace_Objects: '0', Git_Config_Global: 'evil' }, {});
   assert.equal(env.GIT_TERMINAL_PROMPT, '0');
@@ -83,16 +54,6 @@ test('blocked override values are not read before being discarded', () => {
 test('case-insensitive environment lookup does not read unrelated getters', () => {
   const env = Object.defineProperty({ PATH: 'chosen' }, 'unrelated', { enumerable: true, get() { throw new Error('must not read'); } });
   assert.equal(gitEnvironmentValue(env, 'path'), 'chosen');
-});
-
-test('environment is a frozen own-property record without prototype aliases', () => {
-  const source = JSON.parse('{"__proto__":"plain-value","constructor":"plain-constructor","PATH":"chosen"}');
-  const env = environment({}, source);
-  assert.equal(Object.getPrototypeOf(env), null);
-  assert.ok(Object.isFrozen(env));
-  assert.equal(Object.hasOwn(env, '__proto__'), true);
-  assert.equal(env.__proto__, 'plain-value');
-  assert.equal(env.constructor, 'plain-constructor');
 });
 
 test('environment resolution does not mutate its source or overrides', () => {

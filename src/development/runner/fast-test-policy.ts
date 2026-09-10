@@ -135,6 +135,11 @@ export function isDefaultFastTestFile(file: string): boolean {
 
 const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
   {
+    file: 'tests/unit/formatter-publication-lifecycle.test.ts',
+    reason: 'process-global-mocks',
+    resourceClass: 'independent-process'
+  },
+  {
     file: 'tests/contract/benchmark-budget.test.ts',
     reason: 'repeated-repository-compilation-and-process-global-cli-context',
     resourceClass: 'independent-process'

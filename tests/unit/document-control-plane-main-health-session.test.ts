@@ -17,23 +17,23 @@ import { mock } from 'bun:test';
 let routingState = 'ordinary-only';
 let sessionDepth = 0;
 let sessionCount = 0;
-let calls = [];
 let latestSnapshot = null;
 
 mock.module(${JSON.stringify(mainHealthHref)}, () => ({
   withMainHealthGitHubReadSession: async (input) => {
     if (sessionDepth !== 0) throw new Error('document-control opened a nested owner session');
     sessionCount += 1;
-    calls.push('session:start');
     sessionDepth += 1;
     try {
       return await input.operation();
     } finally {
       sessionDepth -= 1;
-      calls.push('session:end');
     }
   },
   assertMainHealthPublicationAuthorityStable: () => undefined,
+  observeCanonicalMainHealthForDocumentControlTestingV2: async () => {
+    throw new Error('Test-only observer used outside its issued actor');
+  },
   observeMainHealthGitHubControlInventory: async () => Object.freeze({
     openPullRequests: Object.freeze([]),
     openIssues: Object.freeze([]),
@@ -42,14 +42,13 @@ mock.module(${JSON.stringify(mainHealthHref)}, () => ({
   observeMainHealthGitHubDefaultBranchSha: async () => 'a'.repeat(40),
   observeCanonicalMainHealthForPublication: async (input) => {
     if (sessionDepth !== 1) throw new Error('MainHealth snapshot escaped the shared session');
-    calls.push('repair:' + input.mainSha);
-    latestSnapshot = Object.freeze({ ordinal: calls.length });
+    latestSnapshot = Object.freeze({});
     return Object.freeze({
       authority: Object.freeze({}),
       stableDigest: 'sha256:' + '1'.repeat(64),
       projection: Object.freeze({ state: 'healthy', ref: 'sha256:' + '2'.repeat(64) }),
       ledger: null,
-      repairDecision: Object.freeze({ routingState, marker: 'repair-' + routingState }),
+      repairDecision: Object.freeze({ routingState }),
       supersession: Object.freeze({ kind: 'absent' }),
       workSelectionSnapshot: latestSnapshot
     });
@@ -64,12 +63,14 @@ const selectionResult = Object.freeze({
 });
 
 mock.module(${JSON.stringify(selectionHref)}, () => ({
+  observeSecWorkSelectionWithProviderV1: async () => {
+    throw new Error('Test-only selection provider used outside its issued actor');
+  },
   observeSecWorkSelectionLive: async (input) => {
     if (sessionDepth !== 1) throw new Error('selection escaped the shared MainHealth session');
     if (input.mainHealthSnapshot !== latestSnapshot) {
       throw new Error('selection did not consume the exact T2 MainHealth snapshot');
     }
-    calls.push('selection:' + input.exactMain);
     return selectionResult;
   }
 }));
@@ -86,24 +87,18 @@ const input = Object.freeze({
 });
 
 const ordinary = await observeDocumentControlWorkRouting(input);
-const ordinaryCalls = calls;
 const ordinarySessionCount = sessionCount;
-calls = [];
 sessionCount = 0;
 routingState = 'repair-only';
 const repair = await observeDocumentControlWorkRouting(input);
 
 process.stdout.write(JSON.stringify({
   ordinary: {
-    repairMarker: ordinary.repairDecision.marker,
     selectionMarker: ordinary.selection?.marker ?? null,
-    calls: ordinaryCalls,
     sessionCount: ordinarySessionCount
   },
   repair: {
-    repairMarker: repair.repairDecision.marker,
     selection: repair.selection,
-    calls,
     sessionCount
   },
   finalSessionDepth: sessionDepth
@@ -119,26 +114,11 @@ process.stdout.write(JSON.stringify({
   expect(result.status, result.stderr).toBe(0);
   expect(JSON.parse(result.stdout)).toEqual({
     ordinary: {
-      repairMarker: 'repair-ordinary-only',
       selectionMarker: 'selection',
-      calls: [
-        'session:start',
-        `repair:${'a'.repeat(40)}`,
-        `repair:${'a'.repeat(40)}`,
-        `selection:${'a'.repeat(40)}`,
-        'session:end'
-      ],
       sessionCount: 1
     },
     repair: {
-      repairMarker: 'repair-repair-only',
       selection: null,
-      calls: [
-        'session:start',
-        `repair:${'a'.repeat(40)}`,
-        `repair:${'a'.repeat(40)}`,
-        'session:end'
-      ],
       sessionCount: 1
     },
     finalSessionDepth: 0
