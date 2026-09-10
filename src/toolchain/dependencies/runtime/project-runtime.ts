@@ -10930,6 +10930,8 @@ async function observeCompilerDependencyReadyFromPublishedProof(
  * path never recovers, publishes, installs or repairs dependency state. A
  * nonterminal owner journal is therefore a typed blocker, not an invitation
  * to turn a freshness/read operation into a writer.
+ * Null means no compatible current execution authority: the locator can be
+ * absent or bound to other canonical inputs. Unknown or corrupt state throws.
  */
 export async function observeCompilerDependencyExecutionGenerationAuthority(
   options: RuntimeDependencyInstallOptions = {},
@@ -10994,10 +10996,7 @@ export async function observeCompilerDependencyExecutionGenerationAuthority(
     );
   }
   if (observed.kind === 'incompatible-bridge') {
-    throw new SecError(
-      'RUNTIME-DEPS-004',
-      'Compiler dependency generation observation found an incompatible locator'
-    );
+    return null;
   }
   runtimeDependencyOperationRemainingMs(
     operationOptions,

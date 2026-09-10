@@ -201,6 +201,12 @@ SEC local Bun profile 的职责绑定已确定，但物理地址仍由Runtime St
 
 Runtime Cache丢失使generation observation成为conclusive absent或unresolved，不使已有PASS继续有效；Runtime State丢失是recovery/authority failure，不能按cache miss重建。generation store、provider cache和state namespaces必须物理隔离并由同一layout owner证明都在repository外；业务代码看不到它们的path。
 
+依赖bootstrap复用历史成功Action前必须回读当前兼容execution authority；相同manifest恢复不保证consumer locator仍指向该generation。只读owner对缺失或已识别的canonical输入不兼容返回无可用authority，对未知绑定、损坏、身份漂移及nonterminal recovery继续拒绝。无可用authority使旧成功Action失效，以其ActionKey进入既有recovery lineage派生后继Action；后继executor复观测后才调用唯一ensure owner恢复。只读回读不执行恢复，历史失败不因此重跑，整条恢复链共享原deadline与取消信号。
+
+该bootstrap也必须能在consumer locator缺失时加载：通用Action协调器不得通过未使用的CI/DAG功能提前导入依赖已安装才能加载的合同。CI专用解析仍由原合同拥有，在实际执行CI/DAG时加载；不复制schema、不为冷启动引入第二验证器，也不靠全局模块搜索路径补齐依赖。
+
+已与active locator隔离且consumer-zero的旧generation可以按持久pre-mutation authority退休；这不签发当前内容完整性或可执行authority。Windows ACL退休只对仍存在、物理身份匹配且ACL等于封存proof的对象恢复前序ACL，已匹配前序ACL的对象视为恢复完成；缺失路径必须从根逐段确认所有现存ancestor的proof、物理身份及非alias状态，只有首个确认缺失的边不产生ACL Effect。缺少ancestor proof、替换、alias及其他读取失败继续拒绝。内容漂移须保留处置证据，后续物理回收仍由当前inventory和根身份fence拥有；不得把此退休规则用于ready/retain admission。
+
 ### 13.4 Materialization、retain 与 projection 状态机
 
 ~~~mermaid

@@ -11,7 +11,7 @@ export type OperationDependencyReadGenerationResolution =
     }>
   | Readonly<{
       status: 'unavailable';
-      reason: 'dependency-generation-absent' | 'dependency-runtime-unavailable';
+      reason: 'dependency-generation-unavailable' | 'dependency-runtime-unavailable';
     }>;
 
 /**
@@ -62,7 +62,7 @@ export async function observeOperationDependencyReadGeneration(input: Readonly<{
   if (authority === null) {
     return Object.freeze({
       status: 'unavailable' as const,
-      reason: 'dependency-generation-absent' as const
+      reason: 'dependency-generation-unavailable' as const
     });
   }
   return Object.freeze({

@@ -32,6 +32,7 @@ export { SHARED_DEPENDENCY_FORBIDDEN_AUTHORITY_FILES } from './runtime/project-r
 export interface RuntimeDependencyInstallOptions extends Readonly<RuntimeDependencyInstallRequest> {}
 
 
+/** Null means no compatible current authority, not necessarily an absent locator. */
 export async function observeCompilerDependencyExecutionGenerationAuthority(
   options: RuntimeDependencyInstallOptions = {},
   compilerDependencyRoot?: string

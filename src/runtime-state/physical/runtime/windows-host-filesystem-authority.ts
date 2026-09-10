@@ -441,7 +441,9 @@ class NativeWindowsAclSession {
     );
     const descriptorLength = requiredLength.readUInt32LE();
     if (first !== 0 || descriptorLength < 20 || descriptorLength > 65_535) {
-      throw authorityError('native-provider-unavailable', 'Windows tree security descriptor is invalid');
+      throw authorityError('native-provider-unavailable',
+        `Windows tree security descriptor size probe failed for ${JSON.stringify(targetPath)} ` +
+        `(result=${first}, requiredBytes=${descriptorLength})`);
     }
     const descriptor = Buffer.alloc(descriptorLength);
     if (this.#advapi32.symbols.GetFileSecurityW(
@@ -1202,17 +1204,44 @@ export async function retireWindowsReadOnlyTreeGeneration(
   }
   const operation = generationOperation(options, proof.entries.length + 1);
   const session = await NativeWindowsAclSession.open(operation);
+  const entriesByPath = new Map(proof.entries.map((entry) => [entry.relativePath, entry]));
   try {
     for (const [index, expected] of [...proof.entries].reverse().entries()) {
       advanceWindowsAclOperation(operation, 'generation-entry-retire', index);
       const entryPath = path.join(root.rootPath, ...expected.relativePath.split('/'));
-      const current = await physicalWindowsTreeEntry(entryPath);
+      const current = await physicalWindowsTreeEntry(entryPath).catch(async (error: unknown) => {
+        if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') throw error;
+        const segments = expected.relativePath.split('/');
+        for (let depth = 1; depth <= segments.length; depth += 1) {
+          assertWindowsAclOperationCurrent(operation);
+          const relative = segments.slice(0, depth).join('/');
+          const ancestorProof = entriesByPath.get(relative);
+          if (ancestorProof === undefined) {
+            throw authorityError('proof-unavailable', 'Windows generation retirement ancestor has no proof');
+          }
+          const ancestor = await physicalWindowsTreeEntry(
+            path.join(root.rootPath, ...segments.slice(0, depth))
+          ).catch((cause: unknown) => {
+            if (cause instanceof Error && 'code' in cause && cause.code === 'ENOENT') return null;
+            throw cause;
+          });
+          if (ancestor === null) return null;
+          if (!samePhysicalObject(ancestor.identity, ancestorProof.identity)) {
+            throw authorityError('physical-identity-changed', 'Windows generation retirement ancestor changed');
+          }
+        }
+        throw authorityError('physical-identity-changed', 'Windows generation absence changed during retirement');
+      });
+      // Retirement restores ACLs only on surviving proof-bound objects. An
+      // absent descendant grants no capability and needs no ACL restoration.
+      // Execution/readiness validation deliberately retains its strict census.
+      if (current === null) continue;
       if (!samePhysicalObject(current.identity, expected.identity)) {
         throw authorityError('physical-identity-changed', 'Windows generation entry changed before retirement');
       }
       const predecessor = Buffer.from(expected.predecessorDescriptor, 'base64');
       const currentDescriptor = session.captureDescriptor(entryPath, operation);
-      if (sameDirectoryIdentity(current.identity, expected.identity)) {
+      if (rawSha256(currentDescriptor) === expected.aclDigest) {
         session.restoreDescriptor(entryPath, predecessor, operation);
       } else if (ownerDaclSemanticDigest(currentDescriptor) !== ownerDaclSemanticDigest(predecessor)) {
         throw authorityError('acl-untrusted', 'Windows generation entry has nonterminal ACL residue');
@@ -1221,7 +1250,7 @@ export async function retireWindowsReadOnlyTreeGeneration(
     advanceWindowsAclOperation(operation, 'generation-root-retire', proof.entries.length);
     const rootPredecessor = Buffer.from(proof.rootPredecessorDescriptor, 'base64');
     const currentRootDescriptor = session.captureDescriptor(root.rootPath, operation);
-    if (sameDirectoryIdentity(root.identity, proof.rootIdentity)) {
+    if (rawSha256(currentRootDescriptor) === proof.rootAclDigest) {
       session.restoreDescriptor(root.rootPath, rootPredecessor, operation);
     } else if (ownerDaclSemanticDigest(currentRootDescriptor) !== ownerDaclSemanticDigest(rootPredecessor)) {
       throw authorityError('acl-untrusted', 'Windows generation root has nonterminal ACL residue');
