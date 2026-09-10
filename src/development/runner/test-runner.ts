@@ -24,7 +24,7 @@ import { secRuntimeStateEnvironment } from '../../runtime-state/workspace-state/
 import { deepFreeze, rawSha256, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { uniqueSortedLines } from '../../system-architecture/foundation/runtime/collections.ts';
 import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
-import { isSecRepositoryTestModulePath } from '../../system-architecture/repository-modules/test-module-path.ts';
+import { isSecRepositoryTestModulePath, normalizeSecRepositoryTestModulePath } from '../../system-architecture/repository-modules/test-module-path.ts';
 import type { RetainedCompilerDependencyReadGeneration } from '../../toolchain/dependencies/runtime.ts';
 import { buildContractFreezeRunnerInvocations, type ContractFreezeTarget } from '../../verification/freeze.ts';
 import {
@@ -197,7 +197,7 @@ function testSupervisorTimeoutMs(args: readonly string[]): number {
   return compileTestInvocationExecutionPolicy(args, DEV_COMMAND_MAX_DURATION_MS).supervisorTimeoutMs;
 }
 
-export type FastTestInvocationQueue = 'concurrent-shard' | FastTestProcessResourceClass;
+export type FastTestInvocationQueue = 'parallel' | FastTestProcessResourceClass;
 
 export type FastTestInvocation = {
   readonly id: string;
@@ -973,7 +973,7 @@ function receiptArgv(argv: readonly string[]): { argv: string[]; truncated: bool
 }
 
 function invocationTestFiles(invocation: FastTestInvocation): string[] {
-  return invocation.args.filter(isTestFileSelector);
+  return invocation.args.filter(isTestFileSelector).map(normalizeSecRepositoryTestModulePath);
 }
 
 function emitFastTestFailureReceipt(
@@ -1040,45 +1040,6 @@ function emitFastTestFailureReceipt(
     })
   };
   console.error(`${FAST_TEST_FAILURE_RECEIPT_PREFIX}${JSON.stringify(receipt)}`);
-}
-
-export type FastTestInvocationBatchResult<TResult> = {
-  readonly batchIndex: number;
-  readonly invocations: readonly FastTestInvocation[];
-  readonly outcomes: readonly PromiseSettledResult<TResult>[];
-};
-
-export async function scheduleBoundedFastTestInvocations<TResult>(
-  invocations: readonly FastTestInvocation[],
-  concurrency: number,
-  dispatch: (invocation: FastTestInvocation) => Promise<TResult>,
-  isFailure: (result: TResult, invocation: FastTestInvocation) => boolean
-): Promise<FastTestInvocationBatchResult<TResult> | null> {
-  if (!Number.isSafeInteger(concurrency) || concurrency < 1) {
-    throw new Error('Fast-test invocation concurrency must be a positive safe integer.');
-  }
-  for (let index = 0; index < invocations.length; index += concurrency) {
-    const batch = invocations.slice(index, index + concurrency);
-    const pending: Promise<TResult>[] = [];
-    for (const invocation of batch) {
-      try {
-        pending.push(dispatch(invocation));
-      } catch (error) {
-        pending.push(Promise.reject(error));
-      }
-    }
-    const outcomes = await Promise.allSettled(pending);
-    if (outcomes.some((outcome, outcomeIndex) => (
-      outcome.status === 'rejected' || isFailure(outcome.value, batch[outcomeIndex]!)
-    ))) {
-      return {
-        batchIndex: Math.floor(index / concurrency),
-        invocations: batch,
-        outcomes
-      };
-    }
-  }
-  return null;
 }
 
 async function runFastTestExecutionWaves(

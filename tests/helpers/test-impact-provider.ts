@@ -57,6 +57,7 @@ export type ExactRepositoryTestImpactProviderFixture = ExactGitFixtureBase & Rea
 }>;
 
 export type ExactGitTreeTestRunnerFixture = ExactGitFixtureBase & Readonly<{
+  workspaceSnapshot: ReturnType<typeof acquireExactGitTreeWorkspaceSourceSnapshot>;
   indexStageOutput: Uint8Array;
   deletedTrackedOutput: Uint8Array;
   affectedObservation: Awaited<ReturnType<AffectedTestImpactProjectionIssuer>>;
@@ -407,6 +408,7 @@ export async function createExactGitTreeTestRunnerFixture(
       process.chdir(previousWorkingDirectory);
     }
     const fixture = Object.freeze({
+      workspaceSnapshot: exactSnapshot,
       provider,
       sourceCommitSha,
       fixtureCommitSha,

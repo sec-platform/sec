@@ -64,16 +64,16 @@ test('partition and process planning both reject duplicate lexical identities', 
   }
 });
 
-test('canonical input ordering and shard boundaries are unchanged and caller arrays are not rewritten', () => {
+test('native parallel input preserves canonical ordering without rewriting caller arrays', () => {
   const original = ['tests/unit/z.test.ts', independent, 'src/alpha_spec.ts', shared, 'tests/unit/a.test.ts'];
   const input = original.map((file, index) => spellings(file)[index % 4]!);
   const before = [...input];
-  const plan = planFastTestProcesses(input, 2);
-  assert.deepEqual(plan.concurrentShards, [['tests/unit/z.test.ts', 'src/alpha_spec.ts'], ['tests/unit/a.test.ts']]);
+  const plan = planFastTestProcesses(input);
+  assert.deepEqual(plan.parallelFiles, ['tests/unit/z.test.ts', 'src/alpha_spec.ts', 'tests/unit/a.test.ts']);
   assert.deepEqual(plan.resourceQueues['independent-process'], [independent]);
   assert.deepEqual(plan.resourceQueues['shared-host-runtime'], [shared]);
   assert.deepEqual(input, before);
-  assert.deepEqual(plan, planFastTestProcesses(original, 2));
+  assert.deepEqual(plan, planFastTestProcesses(original));
 });
 
 test('resource declarations reject aliases of an existing registration without conflating distinct paths', () => {
@@ -164,8 +164,7 @@ test('known suite completeness and unowned slow-file rejection remain unchanged'
   assert.deepEqual(compileTestBudgetProjection(source([])).testFiles, []);
 });
 
-test('shard and concurrency ceilings retain their previous resource semantics', () => {
-  for (const size of [0, -1, 17, 1.5, NaN, Infinity]) assert.throws(() => planFastTestProcesses([], size));
+test('native worker and inner concurrency retain the aggregate resource ceiling', () => {
   for (const cpus of [1, 2, 8, 16, 32]) {
     const budget = resolveFastTestConcurrencyBudget(cpus);
     const managed = resolveManagedFastTestConcurrency(budget, null);

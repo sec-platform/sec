@@ -3,8 +3,6 @@ import { availableParallelism } from 'node:os';
 import { isSecRepositoryTestModulePath, normalizeSecRepositoryTestModulePath } from '../../system-architecture/repository-modules/test-module-path.ts';
 import { FAST_TEST_PROCESS_POLICY_TEST_FILE } from '../../verification/test-impact/contract/budget.ts';
 
-export const DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE = 16;
-export const MAX_FAST_TEST_PROCESS_SHARD_SIZE = 16;
 export const MAX_FAST_TEST_GLOBAL_RESOURCE_BUDGET = 16;
 export const MAX_FAST_TEST_PROCESS_CONCURRENCY = 8;
 
@@ -429,7 +427,7 @@ export interface FastTestFilePartition {
 }
 
 export interface FastTestProcessPlan {
-  readonly concurrentShards: string[][];
+  readonly parallelFiles: string[];
   readonly resourceClassOrder: typeof FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER;
   readonly resourceQueues: Record<FastTestProcessResourceClass, string[]>;
   readonly resourceLimits: FastTestResourceClassLimits;
@@ -462,27 +460,11 @@ export function partitionFastTestFiles(files: readonly string[]): FastTestFilePa
 }
 
 export function planFastTestProcesses(
-  files: readonly string[],
-  concurrentShardSize = DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE
+  files: readonly string[]
 ): FastTestProcessPlan {
-  if (
-    !Number.isSafeInteger(concurrentShardSize) ||
-    concurrentShardSize < 1 ||
-    concurrentShardSize > MAX_FAST_TEST_PROCESS_SHARD_SIZE
-  ) {
-    throw new Error(
-      `Fast test process shard size must be an integer between 1 and ${MAX_FAST_TEST_PROCESS_SHARD_SIZE}.`
-    );
-  }
-
   const partition = partitionFastTestFiles(files);
-  const concurrentShards: string[][] = [];
-  for (let index = 0; index < partition.concurrent.length; index += concurrentShardSize) {
-    concurrentShards.push(partition.concurrent.slice(index, index + concurrentShardSize));
-  }
-
   return {
-    concurrentShards,
+    parallelFiles: partition.concurrent,
     resourceClassOrder: FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER,
     resourceQueues: partition.resourceQueues,
     resourceLimits: DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS

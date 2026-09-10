@@ -72,7 +72,7 @@ export type TestSuiteExecutionAdmission = Readonly<{
 
 export type FastTestBatchInvocationPolicy = Readonly<{
   id: string;
-  queue: 'concurrent-shard' | FastTestProcessResourceClass;
+  queue: 'parallel' | FastTestProcessResourceClass;
   files: readonly string[];
   canonicalArgv: readonly string[];
   supervisorTimeoutMs: number;
@@ -132,20 +132,32 @@ export function issueFastTestBatchExecutionPolicy(input: Readonly<{
     throw new Error('Fast test batch requires unique current canonical fast test files.');
   }
   const bunOptions = canonicalBunTestOptions(input.bunOptions);
+  for (const option of bunOptions) {
+    const name = option.split('=', 1)[0]!;
+    if (['--parallel', '--isolate', '--no-isolate', '--no-orphans'].includes(name)) {
+      throw new Error(`Bun ${name} is owned by the fast test execution policy.`);
+    }
+  }
   const managedConcurrency = resolveManagedFastTestConcurrency(
     DEFAULT_FAST_TEST_CONCURRENCY_BUDGET,
     explicitFastTestMaxConcurrency(bunOptions)
   );
   const processPlan = planFastTestProcesses(files);
   const invocation = (
-    queue: 'concurrent-shard' | FastTestProcessResourceClass,
+    queue: 'parallel' | FastTestProcessResourceClass,
     invocationFiles: readonly string[],
     index: number
   ): FastTestBatchInvocationPolicy => {
     const boundedOptions = explicitFastTestMaxConcurrency(bunOptions) === null
       ? ['--max-concurrency', String(managedConcurrency.innerConcurrency), ...bunOptions]
       : bunOptions;
-    const args = ['test', ...invocationFiles, ...withDefaultTestTimeout(boundedOptions)];
+    const args = [
+      'test', ...invocationFiles.map((file) => `./${file}`),
+      ...(queue === 'parallel'
+        ? [`--parallel=${managedConcurrency.outerProcessConcurrency}`, '--isolate']
+        : []),
+      '--no-orphans', ...withDefaultTestTimeout(boundedOptions)
+    ];
     const executionPolicy = compileTestInvocationExecutionPolicy(args, DEV_COMMAND_MAX_DURATION_MS);
     return deepFreeze({
       id: `${queue}:${String(index + 1).padStart(3, '0')}`,
@@ -155,9 +167,9 @@ export function issueFastTestBatchExecutionPolicy(input: Readonly<{
       supervisorTimeoutMs: executionPolicy.supervisorTimeoutMs
     });
   };
-  const concurrentInvocations = processPlan.concurrentShards.map((shard, index) => (
-    invocation('concurrent-shard', shard, index)
-  ));
+  const concurrentInvocations = processPlan.parallelFiles.length === 0
+    ? []
+    : [invocation('parallel', processPlan.parallelFiles, 0)];
   const resourceInvocations = Object.fromEntries(FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER.map(
     (resourceClass) => [resourceClass, processPlan.resourceQueues[resourceClass].map(
       (file, index) => invocation(resourceClass, [file], index)
@@ -458,6 +470,9 @@ function canonicalBunTestOptions(options: readonly string[]): string[] {
       throw new Error('Test suite execution options contain an extra test selector.');
     }
     const name = option.includes('=') ? option.slice(0, option.indexOf('=')) : option;
+    if (['--test-worker', '--shard', '--changed', '--path-ignore-patterns'].includes(name)) {
+      throw new Error(`Bun ${name} is owned by the test execution policy.`);
+    }
     if (TEST_SUITE_OPTIONS_WITH_VALUE.has(name) && !option.includes('=')) {
       const value = captured[index + 1];
       if (value === undefined || value.startsWith('-')) {

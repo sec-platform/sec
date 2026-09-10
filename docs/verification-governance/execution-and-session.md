@@ -215,7 +215,7 @@ flowchart LR
   R --> F
 ```
 
-fast batch 的实际 dispatch 直接消费已签发 execution waves，不另行按 concurrency 重建队列。logical budget 是整个 batch 的有限总 allowance，不承诺每个 child 用满自己的 ceiling 后仍无条件完成。所有 process-temp、Runtime State/Cache/TMP cleanup 与 authority release 消费同一 `Dlogical`；尾部 margin 是保留窗口，不是每个 cleanup 可重新领取的时长。cleanup 可使用 batch 未消耗的时间，但不能续窗；过期或尚有在途操作时保留未结算资源与 capability，不能把 observer 到期或 Promise 返回当作 cleanup terminal。外层异常清理只补尚未执行的路径，不以相同输入重试已失败的 cleanup。
+fast batch 的普通测试文件由一个 Bun 原生 `--parallel` worker pool 调度，`--isolate` 隔离文件全局上下文；worker 数和每个 worker 的测试并发共享既有 aggregate resource budget。SEC 不再切分固定大小的普通文件 shards 或实现第二个 worker scheduler；canonical argv 使用精确相对路径，caller 不得覆盖 worker、隔离或文件选集选项。涉及进程环境、cwd、完整进程生命周期或共享宿主资源的文件仍消费既有资源队列和独立 invocation，不能由 JavaScript 上下文隔离推断操作系统状态已恢复。`--no-orphans` 补充 Bun 子进程退出清理，不替代 retained process identity、observer 和 settlement。实际 dispatch 消费已签发的普通 pool 与资源阶段，不另行重建队列。logical budget 是整个 batch 的有限总 allowance，不承诺每个 child 用满自己的 ceiling 后仍无条件完成。所有 process-temp、Runtime State/Cache/TMP cleanup 与 authority release 消费同一 `Dlogical`；尾部 margin 是保留窗口，不是每个 cleanup 可重新领取的时长。cleanup 可使用 batch 未消耗的时间，但不能续窗；过期或尚有在途操作时保留未结算资源与 capability，不能把 observer 到期或 Promise 返回当作 cleanup terminal。外层异常清理只补尚未执行的路径，不以相同输入重试已失败的 cleanup。
 
 test invocation retirement 开始后禁止新 generation；子资源清理失败保留其 recovery lease
 及仍有效的 parent physical authority，已结算资源不在重试中重复删除。只有全部子资源与
