@@ -34,25 +34,8 @@ public-docs/**
 
 ## Canonical 来源
 
-公共文档只投影这些现有 owner：
-
-- `docs/product.md`
-- `docs/system-architecture.md`
-- `docs/semantic-model.md`
-- `docs/brownfield-import.md`
-- `docs/capability-and-block-model.md`
-- `docs/compiler-target-ir.md`
-- `docs/delta-and-impact.md`
-- `docs/semantic-mutation.md`
-- `docs/change-management.md`
-- `docs/verification-governance.md`
-- `docs/runtime-and-distribution.md`
-- `docs/agent-and-user-machine-interface.md`
-- `docs/development-governance.md`
-- `docs/external-provider-policy.md`
-- `docs/roadmap/capability-dag.md`
-
-`docs/authority.json` 继续拥有 documentation identity/lifecycle/ownership；本目录不替代它。
+每个公共主题从生成的文档导航 `docs/README.md` 定位 canonical owner，并引用其具体合同。
+`docs/authority.json` 拥有 documentation identity/lifecycle/ownership；本目录不手工维护第二份 owner 清单。
 
 ## 读者模型
 
@@ -63,7 +46,7 @@ public-docs/**
 - SEC 用户；
 - 应用开发者；
 - Brownfield 接入者；
-- Block / Provider / Target 扩展作者；
+- Public Contract / Port / Provider / Target 扩展作者；
 - 构建、验证、迁移、发布和排障人员；
 - SEC contributor；
 - 架构师；

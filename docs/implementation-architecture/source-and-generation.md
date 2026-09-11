@@ -33,13 +33,13 @@ flowchart LR
 
 | source | owner | rules |
 | --- | --- | --- |
-| product first-party implementation | one logical authored corpus with profile-bound physical roots | all declarations trace to semantic origin、ResponsibilityScope与ResponsibilityRealization；SEC self-hosting profile currently binds its primary Address to `src/` |
+| product first-party implementation | one logical authored corpus with profile-bound physical roots | all declarations trace to semantic origin、ResponsibilityScope与ResponsibilityRealization |
 | target workspace | explicit ProjectBinding + WorkspaceContentView | remains in user workspace; path is Address only |
 | deterministic generated | compiler + exact target IR | edit upstream only; canonical byte readback |
 | governed authored | responsibility owner + freedom envelope | candidate re-enters Source Program/reconciliation/conformance |
 | opaque external | external Provider binding | no silent edit/interpretation beyond coverage |
 
-`source`作为语义角色不等于目录名。SEC自身authored implementation统一在`src/`；用户目标工程的源码是Target workspace content，不迁入SEC仓库。
+`source`作为语义角色不等于目录名；物理地址由 [Placement](placement-and-locality.md) 拥有。用户目标工程的源码是Target workspace content，不迁入SEC仓库。
 
 ## 3. Local change and full product preservation
 

@@ -3,18 +3,11 @@
   "locale": "zh-CN",
   "pages": [
     {
-      "id": "architecture",
-      "path": "public-docs/architecture.md",
-      "kind": "learning-projection",
-      "audiences": ["architect", "beginner", "developer", "user"],
-      "canonicalRefs": ["docs/system-architecture.md"]
-    },
-    {
       "id": "concepts",
       "path": "public-docs/concepts.md",
       "kind": "concept-guide",
       "audiences": ["beginner", "developer", "user"],
-      "canonicalRefs": ["docs/capability-and-block-model.md", "docs/compiler-target-ir.md", "docs/semantic-model.md", "docs/system-architecture.md", "docs/verification-governance.md"]
+      "canonicalRefs": ["docs/compiler-target-ir.md", "docs/implementation-architecture/model-and-boundaries.md", "docs/runtime-and-distribution/distribution-and-support.md", "docs/semantic-model.md", "docs/system-architecture.md", "docs/verification-governance.md"]
     },
     {
       "id": "contributing",
@@ -42,28 +35,28 @@
       "path": "public-docs/glossary.md",
       "kind": "glossary",
       "audiences": ["architect", "beginner", "developer", "researcher", "user"],
-      "canonicalRefs": ["docs/capability-and-block-model.md", "docs/compiler-target-ir.md", "docs/semantic-model.md", "docs/system-architecture.md", "docs/verification-governance.md"]
+      "canonicalRefs": ["docs/compiler-target-ir.md", "docs/implementation-architecture/model-and-boundaries.md", "docs/semantic-model.md", "docs/system-architecture.md", "docs/verification-governance.md"]
     },
     {
       "id": "guides",
       "path": "public-docs/guides.md",
       "kind": "task-guide",
       "audiences": ["developer", "operator", "user"],
-      "canonicalRefs": ["docs/agent-and-user-machine-interface.md", "docs/brownfield-import.md", "docs/capability-and-block-model.md", "docs/change-management.md", "docs/compiler-target-ir.md", "docs/external-provider-policy.md", "docs/runtime-and-distribution.md", "docs/semantic-mutation.md", "docs/verification-governance.md"]
+      "canonicalRefs": ["docs/agent-and-user-machine-interface.md", "docs/brownfield-import.md", "docs/change-management.md", "docs/compiler-target-ir.md", "docs/external-provider-policy.md", "docs/implementation-architecture/model-and-boundaries.md", "docs/runtime-and-distribution.md", "docs/runtime-and-distribution/distribution-and-support.md", "docs/semantic-mutation.md", "docs/verification-governance.md"]
     },
     {
       "id": "learn",
       "path": "public-docs/learn.md",
       "kind": "learning-path",
       "audiences": ["architect", "beginner", "developer", "user"],
-      "canonicalRefs": ["docs/agent-and-user-machine-interface.md", "docs/brownfield-import.md", "docs/capability-and-block-model.md", "docs/compiler-target-ir.md", "docs/development-governance.md", "docs/external-provider-policy.md", "docs/runtime-and-distribution.md", "docs/semantic-model.md", "docs/verification-governance.md"]
+      "canonicalRefs": ["docs/agent-and-user-machine-interface.md", "docs/brownfield-import.md", "docs/compiler-target-ir.md", "docs/development-governance.md", "docs/external-provider-policy.md", "docs/implementation-architecture/model-and-boundaries.md", "docs/runtime-and-distribution.md", "docs/runtime-and-distribution/distribution-and-support.md", "docs/semantic-model.md", "docs/verification-governance.md"]
     },
     {
       "id": "principles",
       "path": "public-docs/principles.md",
       "kind": "principle-projection",
       "audiences": ["architect", "developer", "researcher", "user"],
-      "canonicalRefs": ["docs/agent-and-user-machine-interface.md", "docs/change-management.md", "docs/compiler-target-ir.md", "docs/development-governance.md", "docs/external-provider-policy.md", "docs/roadmap/capability-dag.md", "docs/semantic-model.md", "docs/semantic-mutation.md", "docs/system-architecture.md", "docs/verification-governance.md"]
+      "canonicalRefs": ["docs/agent-and-user-machine-interface.md", "docs/change-management.md", "docs/compiler-target-ir.md", "docs/development-governance.md", "docs/external-provider-policy.md", "docs/implementation-architecture/model-and-boundaries.md", "docs/roadmap/capability-dag.md", "docs/semantic-model.md", "docs/semantic-mutation.md", "docs/system-architecture.md", "docs/verification-governance.md"]
     },
     {
       "id": "quickstart",
@@ -84,7 +77,7 @@
       "path": "public-docs/reference.md",
       "kind": "reference-index",
       "audiences": ["developer", "operator", "user"],
-      "canonicalRefs": ["docs/authority.json", "docs/runtime-and-distribution.md", "docs/verification-governance.md"]
+      "canonicalRefs": ["docs/authority.json", "docs/compiler-target-ir.md", "docs/runtime-and-distribution.md", "docs/semantic-model.md", "docs/verification-governance.md"]
     },
     {
       "id": "start-here",
