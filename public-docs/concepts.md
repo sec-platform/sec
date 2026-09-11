@@ -47,22 +47,19 @@ Evidence 支持 Claim，但不自动成为产品规则。
 
 - 文件；
 - class；
-- package；
-- Block。
+- package。
 
-## Capability / Block
-
-Capability 表示能力语义；Block 是可复用、可解析和连接的实现/组合结构之一。
-
-精确语义见 `docs/capability-and-block-model.md`。
-
-## Port / Contract / Slot
+## Capability / Contract / Port
 
 用于表达：
 
 - 可以连接什么；
 - 需要满足什么合同；
 - 哪些位置允许受治理的实现变化。
+
+Capability Contract 表达能力需求与约束；Public Contract 和 Port 定义实现必须满足的公开边界。精确语义见 `docs/semantic-model.md` 和 `docs/implementation-architecture/model-and-boundaries.md`。
+
+旧 Block、Slot 只作为历史输入的迁移载体解释，不是目标模型中的一等身份；迁移边界见 `docs/runtime-and-distribution/distribution-and-support.md`。
 
 ## Implementation Resolution
 

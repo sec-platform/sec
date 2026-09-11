@@ -12,9 +12,7 @@
 | 断言 | Assertion | 某个来源对事实的声明 | 不等于已被接受 |
 | 责任 | Responsibility | 工程语义责任边界 | 不等于目录 |
 | 能力 | Capability | 可被要求、实现、组合和验证的能力 | 不等于 npm package |
-| 积木 | Block | SEC 中一种可复用能力/结构载体 | 不等于所有代码块 |
 | 端口 | Port | 可连接的 typed semantic boundary | 不等于 UI 上一条线 |
-| 槽位 | Slot | 允许受治理实现/扩展进入的位置 | 不等于任意插件逃生口 |
 | 合同 | Contract | 必须满足的结构化约束 | 不等于自然语言承诺 |
 | 实现解析 | Implementation Resolution | 从 requirement 到具体实现选择 | 不等于安装依赖 |
 | 合格性 | Eligibility | 候选是否满足所有 hard constraints | 不能被性能分数抵消 |

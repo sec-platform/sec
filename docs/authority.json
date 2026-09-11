@@ -718,55 +718,6 @@
       ]
     },
     {
-      "id": "workspace-domains-proposal",
-      "path": "docs/proposals/engineering-workspace-domains.md",
-      "kind": "proposal",
-      "domain": "proposal",
-      "lifecycle": "draft",
-      "dynamicPolicy": "forbidden",
-      "owns": [],
-      "projects": [
-        "system-architecture"
-      ],
-      "proposal": {
-        "disposition": "adapt",
-        "canonicalTargets": [
-          "brownfield",
-          "roadmap",
-          "system-architecture"
-        ],
-        "activationTrigger": "real-workspace-domain-consumer-and-focused-owner-contract",
-        "retirementTarget": "docs/archive/proposals/engineering-workspace-domains.md",
-        "evidenceRequirement": "domain-identity-validator-query-mutation-and-consumer-migration",
-        "reversalCondition": null
-      }
-    },
-    {
-      "id": "run-kernel-proposal",
-      "path": "docs/proposals/development-run-kernel.md",
-      "kind": "proposal",
-      "domain": "proposal",
-      "lifecycle": "draft",
-      "dynamicPolicy": "forbidden",
-      "owns": [],
-      "projects": [
-        "development-governance"
-      ],
-      "proposal": {
-        "disposition": "adapt",
-        "canonicalTargets": [
-          "development-governance",
-          "roadmap",
-          "system-architecture",
-          "verification-governance"
-        ],
-        "activationTrigger": "verification-session-candidate-generation-action-closure-and-promotion-consumer-cutover",
-        "retirementTarget": "docs/archive/proposals/development-run-kernel.md",
-        "evidenceRequirement": "historical-run-replay-state-owner-separation-finding-generation-action-reuse-promotion-readback-and-consumer-zero-retirement",
-        "reversalCondition": null
-      }
-    },
-    {
       "id": "current-state",
       "path": "docs/work/current-state.yaml",
       "kind": "control",

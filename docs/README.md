@@ -56,8 +56,6 @@ generated-from: docs/authority.json
 | authority | verification-governance | [`docs/verification-governance.md`](verification-governance.md) | verification.aggregate、verification.claim、verification.gate、verification.layering、verification.result | — |
 | authority | verification-governance | [`docs/verification-governance/evidence-and-integration.md`](verification-governance/evidence-and-integration.md) | verification.evidence、verification.implementation-conformance、verification.merge-authority、verification.provenance | — |
 | authority | verification-governance | [`docs/verification-governance/execution-and-session.md`](verification-governance/execution-and-session.md) | verification.applicability、verification.environment | — |
-| proposal | proposal | [`docs/proposals/development-run-kernel.md`](proposals/development-run-kernel.md) | — | adapt |
-| proposal | proposal | [`docs/proposals/engineering-workspace-domains.md`](proposals/engineering-workspace-domains.md) | — | adapt |
 | machine-ledger | external-provider | `docs/governance/external-capability-ledger.yaml` | provider.state | — |
 | control | current-control | [`docs/roadmap.md`](roadmap.md) | control.work-selection-catalog | — |
 | control | current-control | [`docs/work/active-work-package.md`](work/active-work-package.md) | control.active-work-package | — |

@@ -7,6 +7,7 @@ import {
   documentationRecordByPath,
   parseDocumentationAuthorityRegistry
 } from './authority.ts';
+import { extractBacktickFilePaths, extractH1Headings, repositoryPathForInline } from './doctor/shared.ts';
 
 export const PUBLIC_DOCUMENTATION_PROJECTION_SCHEMA =
   'sec-public-documentation-projection-v1' as const;
@@ -54,7 +55,7 @@ function markdownTargets(source: string): readonly string[] {
 }
 
 function principleIds(source: string): readonly string[] {
-  return [...source.matchAll(/^##\s+([MRP]\d{1,2})\s+—/gmu)].map((match) => match[1]!);
+  return [...source.matchAll(/^#{2,3}\s+([MRP]\d{1,2})\s+—/gmu)].map((match) => match[1]!);
 }
 
 export async function readPublicDocumentationProjectionV1(
@@ -93,7 +94,10 @@ export async function readPublicDocumentationProjectionV1(
       }
       try { await readFile(resolved, 'utf8'); } catch { brokenLinks.push(`${page.path} -> ${target}`); }
     }
-    for (const canonicalRef of page.canonicalRefs) {
+    const inlineCanonicalRefs = extractBacktickFilePaths(source)
+      .map(repositoryPathForInline)
+      .filter((reference): reference is string => reference?.startsWith('docs/') === true);
+    for (const canonicalRef of new Set([...page.canonicalRefs, ...inlineCanonicalRefs])) {
       if (documentationRecordByPath(registry, canonicalRef) === undefined) {
         unregisteredCanonicalRefs.push(`${page.path} -> ${canonicalRef}`);
       }
@@ -102,7 +106,7 @@ export async function readPublicDocumentationProjectionV1(
     pullRequestUrls.push(...source.match(/https:\/\/github\.com\/[^\s)]+\/pull\/\d+/gu) ?? []);
     return Object.freeze({
       ...page,
-      h1Count: source.split('\n').filter((line) => /^#\s+\S/u.test(line)).length,
+      h1Count: extractH1Headings(source).length,
       internalMarkdownTargets: Object.freeze([...targets])
     });
   }));

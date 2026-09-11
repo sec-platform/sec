@@ -1,6 +1,6 @@
-# SEC 指南
+# SEC 指南：任务地图
 
-指南按“你要完成什么”组织，而不是按内部 domain 文件组织。
+本页按任务定位概念流程和合同入口，不代替可执行步骤。第一次操作请从 [Quickstart](quickstart.md) 开始，精确接口见 [Reference](reference.md)。
 
 ## 新项目
 
@@ -69,9 +69,9 @@ AI 提交 proposal，不直接取得 canonical write authority。
 
 精确 owner：`docs/agent-and-user-machine-interface.md`。
 
-## Block / Capability
+## 可复用能力与实现选择
 
-开发可复用能力时，先定义 Contract/Port/Capability，再决定 Block、Provider 或具体实现。
+开发可复用能力时，先定义 Capability Contract、Public Contract 与 Port，再审查 Implementation Candidate 并冻结 Implementation Binding。Provider 与分发选择分别遵守各自边界，不能替代语义合同。精确 owner：`docs/implementation-architecture/model-and-boundaries.md`、`docs/compiler-target-ir.md`、`docs/external-provider-policy.md`、`docs/runtime-and-distribution/distribution-and-support.md`。
 
 不要让 UI node、文件路径或包名反向定义 Capability identity。
 

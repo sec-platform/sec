@@ -74,22 +74,22 @@ Attach
 重点区分：
 
 - Responsibility；
-- Capability；
-- Block；
-- Contract；
+- Capability Contract；
+- Public Contract；
 - Port；
-- Slot；
 - Implementation Candidate；
 - Eligibility；
 - Resolution Decision；
 - Implementation Binding；
 - Provider；
-- Adapter。
+- Distribution Binding。
 
 阅读：
 
-- `docs/capability-and-block-model.md`
+- `docs/semantic-model.md`
+- `docs/implementation-architecture/model-and-boundaries.md`
 - `docs/compiler-target-ir.md`
+- `docs/runtime-and-distribution/distribution-and-support.md`
 - `docs/external-provider-policy.md`
 
 ## L4：理解物理世界
@@ -131,11 +131,3 @@ AI 的上下文也只是 revision-bound projection；AI 输出默认是 proposal
 - `AGENTS.md`
 
 这一层面向 contributor，不是普通用户前置。
-
-## 图形化学习
-
-完整的 Beginner → Engineering → Architect 多层图形体系进入：
-
-- [架构学习](architecture.md)
-
-图是 projection；精确语义仍回到 canonical owner。

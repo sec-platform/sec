@@ -152,18 +152,6 @@ absorb-design | integrate-provider | integrate-adapter
 
 `maybe/later/temporarily keep everything` 无效。decision 绑定 problem、consumer、owner、version/license、security/data、Evidence、duplicate deletion、revalidation trigger 和 exit。
 
-### 6.3 替换资格与保留边界
-
-通用库具备同名功能不证明能够替换现有机制。资格审查须从实际 consumer 的合同逐项寻找反例，区分可由薄边界保留的领域决定与必须重新实现的核心机制；语法不同、已有实现较短或减少一个依赖均不能单独否决替换。以下是对既有 owner 的审查路由，不在本文重新定义其算法或参数：
-
-| Consumer 所需边界 | 资格审查必须覆盖 | 重新评估条件 |
-| --- | --- | --- |
-| [受限模板渲染](../src/compiler/compose/render-template-string.ts) | context 数据访问、未选中分支的条件验证，以及输出分配前的字节上界；改变模板语法不能抹掉这些义务 | 稳定公开接口能承接解析和有界输出，保留领域约束后仍能删除原核心机制 |
-| [闭合有向图的强连通分量](../src/system-architecture/foundation/runtime/directed-graph.ts) | 未声明端点拒绝、深图不依赖调用栈，以及 consumer 用于 identity 的确定性结果；库的遍历顺序不能成为 identity owner | 非递归实现可在保留输入与结果边界后删除算法核心，且不增加另一份 canonical graph |
-| [结构化任务组](../src/system-architecture/foundation/runtime/concurrency.ts) | 首次失败后的准入、取消传播、所有已启动任务的结算，以及失败集合与发布边界；Promise 提前拒绝不证明 Effect 已结束 | 公开任务组能力可承接完整生命周期，使现有调度与结算机制实际退役 |
-
-保留结论只针对已比较接口和当前 consumer；不证明不存在更优实现，也不豁免下一次语义变化时的重新审查。研究记录保留上游来源与具体反例，不能凭库名或功能清单签发采用；不采用的候选无需为完成比较而安装。
-
 ## 7. Physical adoption
 
 最小 physical proof 只覆盖本次 invocation 的因果闭包：

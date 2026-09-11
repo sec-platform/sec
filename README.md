@@ -14,9 +14,9 @@ SEC 不是低代码运行时、模板市场或自由式整仓 AI 编码器。Can
 6. [通用 Agent 行为宪法](docs/agent-constitution.md)
 7. [SEC 系统架构](docs/system-architecture.md)
 8. [SEC 实现架构与意图编译](docs/implementation-architecture.md)
-8. [语义模型](docs/semantic-model.md)
-9. [编译与目标 IR](docs/compiler-target-ir.md)
-10. [Canonical 文档导航](docs/README.md)
+9. [语义模型](docs/semantic-model.md)
+10. [编译与目标 IR](docs/compiler-target-ir.md)
+11. [Canonical 文档导航](docs/README.md)
 
 公共文档是面向读者的知识投影，不取得第二套产品或架构 authority；精确语义仍以 `docs/authority.json` 定位的 canonical owner 为准。
 

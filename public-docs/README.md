@@ -38,7 +38,7 @@ SEC 是一个 **Engineering Workspace Compiler（工程工作区编译器）**�
 
 ## 要理解完整架构
 
-- [架构学习](architecture.md)
+- [架构学习路线](learn.md)
 
 ## 要开发 SEC 本身
 

@@ -26,9 +26,9 @@ Enforcement    哪些机器机制最终应强制它
 
 ---
 
-# 一、元原则
+## 一、元原则
 
-## M0 — 原则可证成、可追溯、可反驳
+### M0 — 原则可证成、可追溯、可反驳
 
 **原则**：任何 SEC 原则、规则、架构裁决或“最佳实践”都不得仅以结论形式存在；必须能够追溯到现实事实、逻辑约束、产品价值、外部规范、工程 Evidence 或明确授权决策。
 
@@ -53,7 +53,7 @@ Basis
 
 ---
 
-## M1 — 原则作用域不能超过证据作用域
+### M1 — 原则作用域不能超过证据作用域
 
 **原则**：一个实验、事故、平台限制或论文只支持它实际覆盖的对象、环境、版本和任务；不能自动推广成宇宙规律。
 
@@ -67,7 +67,7 @@ Basis
 
 ---
 
-## M2 — 原则必须可修订，但不能被流行度随意改写
+### M2 — 原则必须可修订，但不能被流行度随意改写
 
 **原则**：依赖外部现实的原则应随决定性 Evidence 重新验证；没有新证据时不能因为新框架、新模型或流行趋势就切换。
 
@@ -81,7 +81,7 @@ Basis
 
 ---
 
-## M3 — 原则本身不能自我授权
+### M3 — 原则本身不能自我授权
 
 **原则**：一条被标成 Principle 的句子不能因为这个标签就取得 canonical authority。
 
@@ -93,9 +93,9 @@ Basis
 
 ---
 
-# 二、九条根原则
+## 二、九条根原则
 
-## R1 — Reality Primacy：现实高于叙事
+### R1 — Reality Primacy：现实高于叙事
 
 **原则**：实际 canonical/physical state 高于聊天、计划、报告、UI 或历史描述。
 
@@ -111,7 +111,7 @@ Basis
 
 ---
 
-## R2 — Epistemic Separation：认识状态必须分离
+### R2 — Epistemic Separation：认识状态必须分离
 
 **原则**：Fact、Assertion、Authority、Confidence、Evidence、Provenance、Unknown 不是一个概念。
 
@@ -125,7 +125,7 @@ Basis
 
 ---
 
-## R3 — Canonical Authority：一个长期真值一个 owner
+### R3 — Canonical Authority：一个长期真值一个 owner
 
 **原则**：同一可竞争语义不能长期由多个独立 authority/writer 同时拥有。
 
@@ -145,7 +145,7 @@ one truth
 
 ---
 
-## R4 — Identity & Revision：先知道“是谁”和“哪一版”
+### R4 — Identity & Revision：先知道“是谁”和“哪一版”
 
 **原则**：名字、路径、顺序、时间和显示标签不能替代稳定 identity；任何会变化的状态必须有 revision/freshness。
 
@@ -159,7 +159,7 @@ one truth
 
 ---
 
-## R5 — Deterministic Validated Computation：可机械决定的结果必须可重复
+### R5 — Deterministic Validated Computation：可机械决定的结果必须可重复
 
 **原则**：相同完整输入、规则、Provider revision 与声明环境应得到相同 canonical result。
 
@@ -173,7 +173,7 @@ one truth
 
 ---
 
-## R6 — Constraints Before Optimization：合法性先于优化
+### R6 — Constraints Before Optimization：合法性先于优化
 
 **原则**：correctness、安全、权限、合同、Target、数据完整性等 hard constraints 失败的候选不能靠性能、流行度或成本加权补回来。
 
@@ -193,7 +193,7 @@ candidate closure
 
 ---
 
-## R7 — Bounded Transactional Change：副作用必须受限并有终态
+### R7 — Bounded Transactional Change：副作用必须受限并有终态
 
 **原则**：修改必须有明确 scope、precondition、effect、publication、readback 与 recovery terminal。
 
@@ -216,7 +216,7 @@ plan
 
 ---
 
-## R8 — Independent Verification：声明不能自证
+### R8 — Independent Verification：声明不能自证
 
 **原则**：candidate、Provider 或 writer 不能同时定义成功标准、验证器和结果并用它给自己授权。
 
@@ -230,7 +230,7 @@ plan
 
 ---
 
-## R9 — Finite Reasoning / Attention Economy：推理资源有限
+### R9 — Finite Reasoning / Attention Economy：推理资源有限
 
 **原则**：AI、人、CPU、I/O、工具调用、上下文和时间都是有限资源；机器能可靠确定的事实应由确定性机制生产和复用，模型只消费当前任务的最小充分投影并按需展开。
 
@@ -254,9 +254,9 @@ full canonical state
 
 ---
 
-# 三、事实与知识原则
+## 三、事实与知识原则
 
-## P01 — 当前现实优先于历史描述
+### P01 — 当前现实优先于历史描述
 
 **依据**：外部状态会变化。
 
@@ -268,7 +268,7 @@ full canonical state
 
 ---
 
-## P02 — Fact 必须绑定 scope 与 revision
+### P02 — Fact 必须绑定 scope 与 revision
 
 **依据**：同一命题在不同版本、Target、Host 或环境下可能真假不同。
 
@@ -280,7 +280,7 @@ full canonical state
 
 ---
 
-## P03 — Fact 与 Assertion 分离
+### P03 — Fact 与 Assertion 分离
 
 **依据**：同一事实可以被多个来源独立声明，来源之间可能冲突。
 
@@ -292,7 +292,7 @@ full canonical state
 
 ---
 
-## P04 — Authority 与 Confidence 分离
+### P04 — Authority 与 Confidence 分离
 
 **依据**：推断非常自信仍不代表拥有定义权。
 
@@ -304,7 +304,7 @@ full canonical state
 
 ---
 
-## P05 — Provenance 不能被聚合抹掉
+### P05 — Provenance 不能被聚合抹掉
 
 **依据**：多个来源可能并不独立，可能复制同一个错误；last-write 也不证明更新值更正确。
 
@@ -316,7 +316,7 @@ full canonical state
 
 ---
 
-## P06 — Unknown / Ambiguous / Conflict / Opaque 是一等状态
+### P06 — Unknown / Ambiguous / Conflict / Opaque 是一等状态
 
 **依据**：现实观察和静态分析不可能永远完整。
 
@@ -328,7 +328,7 @@ full canonical state
 
 ---
 
-## P07 — “没发现”只有在 coverage 足够时才是负证据
+### P07 — “没发现”只有在 coverage 足够时才是负证据
 
 **依据**：一个没有探测能力的工具看不到对象没有任何证明力。
 
@@ -340,7 +340,7 @@ full canonical state
 
 ---
 
-## P08 — Verification 只证明 exact Claim / Input / Environment
+### P08 — Verification 只证明 exact Claim / Input / Environment
 
 **依据**：测试结果依赖实现、输入、环境、Provider 和 revision。
 
@@ -352,9 +352,9 @@ full canonical state
 
 ---
 
-# 四、Authority、Owner 与 Identity 原则
+## 四、Authority、Owner 与 Identity 原则
 
-## P09 — 每个长期 truth 一个 canonical owner
+### P09 — 每个长期 truth 一个 canonical owner
 
 **依据**：避免 competing truth。
 
@@ -366,7 +366,7 @@ full canonical state
 
 ---
 
-## P10 — 每个 derived fact / state machine 一个 producer/owner
+### P10 — 每个 derived fact / state machine 一个 producer/owner
 
 **依据**：两套独立算法会产生分歧和 invalidation 漂移。
 
@@ -378,7 +378,7 @@ full canonical state
 
 ---
 
-## P11 — 每个竞争 mutable state 一个 writer
+### P11 — 每个竞争 mutable state 一个 writer
 
 **依据**：并发 writer 会造成 race、lost update、ABA 和 partial ordering 问题。
 
@@ -390,7 +390,7 @@ full canonical state
 
 ---
 
-## P12 — Projection / Cache / UI / Artifact 不能反向取得 Authority
+### P12 — Projection / Cache / UI / Artifact 不能反向取得 Authority
 
 **依据**：这些表示可能过滤、聚合、延迟、损坏或为某读者定制。
 
@@ -402,7 +402,7 @@ full canonical state
 
 ---
 
-## P13 — 稳定 Identity 不依赖 Path / Name / Order / Wall-clock
+### P13 — 稳定 Identity 不依赖 Path / Name / Order / Wall-clock
 
 **依据**：这些 presentation/physical attributes 会变。
 
@@ -414,7 +414,7 @@ full canonical state
 
 ---
 
-## P14 — Derived State 必须有 Freshness / Invalidation
+### P14 — Derived State 必须有 Freshness / Invalidation
 
 **依据**：上游变化后旧 cache、Impact、Binding、Evidence 可能错误。
 
@@ -426,7 +426,7 @@ full canonical state
 
 ---
 
-## P15 — 跨领域关系必须用 Stable Reference，不靠名字相似
+### P15 — 跨领域关系必须用 Stable Reference，不靠名字相似
 
 **依据**：同名、相邻路径、相同 label 都不证明语义关系。
 
@@ -438,9 +438,9 @@ full canonical state
 
 ---
 
-# 五、计算、推导与实现原则
+## 五、计算、推导与实现原则
 
-## P16 — Raw / Untrusted 与 Validated / Frozen 分层
+### P16 — Raw / Untrusted 与 Validated / Frozen 分层
 
 **依据**：Parser、Provider、AI、文件和网络输入都可能错误或被污染。
 
@@ -460,7 +460,7 @@ raw
 
 ---
 
-## P17 — Semantic Contract 与 Implementation 分离
+### P17 — Semantic Contract 与 Implementation 分离
 
 **依据**：一个行为通常有多个实现；实现技术会变化，但产品语义可能稳定。
 
@@ -468,11 +468,11 @@ raw
 
 **反例**：某能力若本质就是指定实现技术，例如用户明确 pin 某 Provider，则实现选择成为显式 constraint，但仍不能绕过 eligibility。
 
-**owner**：`docs/compiler-target-ir.md`、`docs/capability-and-block-model.md`。
+**owner**：`docs/semantic-model.md`、`docs/implementation-architecture/model-and-boundaries.md`、`docs/compiler-target-ir.md`。
 
 ---
 
-## P18 — Hard Constraints 不能被 Soft Optimization 抵消
+### P18 — Hard Constraints 不能被 Soft Optimization 抵消
 
 **依据**：错误/越权候选没有合法优化空间。
 
@@ -484,7 +484,7 @@ raw
 
 ---
 
-## P19 — 不存在脱离完整上下文的“宇宙唯一最优实现”
+### P19 — 不存在脱离完整上下文的“宇宙唯一最优实现”
 
 **依据**：Target、Host、license、security、maintenance、performance、existing stack 和用户 constraint 会改变最优解。
 
@@ -496,7 +496,7 @@ raw
 
 ---
 
-## P20 — 冻结完整输入后，Decision / Binding / Output 必须 Deterministic
+### P20 — 冻结完整输入后，Decision / Binding / Output 必须 Deterministic
 
 **依据**：避免枚举顺序、Map insertion、locale 或 filesystem 顺序导致实现漂移。
 
@@ -508,7 +508,7 @@ raw
 
 ---
 
-## P21 — Downstream 只能消费 Upstream 冻结结果，不能重新解释
+### P21 — Downstream 只能消费 Upstream 冻结结果，不能重新解释
 
 **依据**：如果 Backend、Runtime、CLI projection、Adapter 都重新选实现，会出现多个隐式 Resolver。
 
@@ -520,7 +520,7 @@ raw
 
 ---
 
-## P22 — Predicted 与 Actual 必须分离
+### P22 — Predicted 与 Actual 必须分离
 
 **依据**：Plan 时只能预测 Impact/Delta；执行中可能出现新事实、race 或 Provider failure。
 
@@ -532,9 +532,9 @@ raw
 
 ---
 
-# 六、权限、修改与恢复原则
+## 六、权限、修改与恢复原则
 
-## P23 — Authorization 是多个边界的交集
+### P23 — Authorization 是多个边界的交集
 
 **依据**：caller 有权限不代表可以改任意 target；path 可写也不代表语义允许。
 
@@ -559,7 +559,7 @@ caller capability
 
 ---
 
-## P24 — Plan / Dry-run 与 Apply 必须分离
+### P24 — Plan / Dry-run 与 Apply 必须分离
 
 **依据**：边规划边写会让 Review、Impact 和 rollback 失去稳定对象。
 
@@ -571,7 +571,7 @@ caller capability
 
 ---
 
-## P25 — Effect 前必须重读 Live State 并 CAS / Re-plan
+### P25 — Effect 前必须重读 Live State 并 CAS / Re-plan
 
 **依据**：TOCTOU、并发用户修改和 Provider drift 真实存在。
 
@@ -583,7 +583,7 @@ caller capability
 
 ---
 
-## P26 — 产品事务没有“半成功但算完成”
+### P26 — 产品事务没有“半成功但算完成”
 
 **依据**：partial publication 会产生不同 consumer 看见不同真相。
 
@@ -595,7 +595,7 @@ caller capability
 
 ---
 
-## P27 — Publication 不确定时必须保持不确定
+### P27 — Publication 不确定时必须保持不确定
 
 **依据**：process exit 0、syscall return、API 200 都不一定证明 durable readback。
 
@@ -607,7 +607,7 @@ caller capability
 
 ---
 
-## P28 — Unknown Effect / Stale / Ambiguous 在需要安全证明时 Fail Closed
+### P28 — Unknown Effect / Stale / Ambiguous 在需要安全证明时 Fail Closed
 
 **依据**：错误放行可能产生不可逆变化或伪造 PASS。
 
@@ -619,9 +619,9 @@ caller capability
 
 ---
 
-# 七、Verification 与成熟度原则
+## 七、Verification 与成熟度原则
 
-## P29 — Candidate 不得自证
+### P29 — Candidate 不得自证
 
 **依据**：自定义 oracle 可以让任何 candidate PASS。
 
@@ -633,7 +633,7 @@ caller capability
 
 ---
 
-## P30 — 能力成熟度不得跳级
+### P30 — 能力成熟度不得跳级
 
 **依据**：文档、代码、测试、部署和真实 adoption 是不同事实。
 
@@ -645,7 +645,7 @@ caller capability
 
 ---
 
-## P31 — Compatibility 不能由表面相似推出
+### P31 — Compatibility 不能由表面相似推出
 
 **依据**：同 API、类型检查、semver 或绿色测试仍可能改变 timeout、retry、error、Effect、wire schema 或 data semantics。
 
@@ -657,9 +657,9 @@ caller capability
 
 ---
 
-# 八、演进与复杂度原则
+## 八、演进与复杂度原则
 
-## P32 — 新 Owner 接管旧 Owner 必须 Shadow → Parity → Cutover → Retire
+### P32 — 新 Owner 接管旧 Owner 必须 Shadow → Parity → Cutover → Retire
 
 **依据**：长期 dual writer 会重新形成第二 authority。
 
@@ -671,7 +671,7 @@ caller capability
 
 ---
 
-## P33 — Incremental / Cache 只是优化，Clean / Reference 是语义裁判
+### P33 — Incremental / Cache 只是优化，Clean / Reference 是语义裁判
 
 **依据**：cache 会丢、坏、stale；incremental selector 可能漏 dependency。
 
@@ -683,7 +683,7 @@ caller capability
 
 ---
 
-## P34 — 没有真实 Producer / Consumer，不物理建设抽象宇宙
+### P34 — 没有真实 Producer / Consumer，不物理建设抽象宇宙
 
 **依据**：没有 consumer 时无法验证 schema、边界和 lifecycle 是否合理，容易过度设计。
 
@@ -695,7 +695,7 @@ caller capability
 
 ---
 
-## P35 — Wheel-first，但不 Wheel-owned
+### P35 — Wheel-first，但不 Wheel-owned
 
 **依据**：Git、TypeScript、Prettier、成熟 parser/DB/toolchain 已经解决大量机械问题；重复自研扩大 bug、性能和维护面积。
 
@@ -707,9 +707,9 @@ caller capability
 
 ---
 
-# 九、AI 与信息治理原则
+## 九、AI 与信息治理原则
 
-## P36 — AI 是 Bounded Proposer，不是 Truth Authority
+### P36 — AI 是 Bounded Proposer，不是 Truth Authority
 
 **依据**：模型是概率系统，输出受模型、提示、上下文和采样影响。
 
@@ -721,7 +721,7 @@ caller capability
 
 ---
 
-## P37 — Canonical Truth 必须 Full-fidelity，不为 Prompt 有损降级
+### P37 — Canonical Truth 必须 Full-fidelity，不为 Prompt 有损降级
 
 **依据**：完整工程模型服务整个生命周期，而 Prompt 只服务一次任务；两个目标函数不同。
 
@@ -741,7 +741,7 @@ full canonical state
 
 ---
 
-## P38 — Context Compression 的目标是 Decision-preserving，不是“看起来语义相似”
+### P38 — Context Compression 的目标是 Decision-preserving，不是“看起来语义相似”
 
 **依据**：一个摘要可以整体意思接近，却删掉唯一会改变 eligibility、permission 或 failure 的异常条件。
 
@@ -753,7 +753,7 @@ full canonical state
 
 ---
 
-## P39 — Progressive Disclosure：最小充分起步，沿 Unresolved Frontier 展开
+### P39 — Progressive Disclosure：最小充分起步，沿 Unresolved Frontier 展开
 
 **依据**：全仓一次性输入会增加检索和定位工作；过度裁剪又会遗漏关键边界。
 
@@ -774,7 +774,7 @@ security、authority、must-preserve 等 mandatory context 不能等待模型自
 
 ---
 
-## P40 — Externalize Deterministic Cognition：可机械认知不反复消耗 AI
+### P40 — Externalize Deterministic Cognition：可机械认知不反复消耗 AI
 
 **依据**：dependency closure、owner resolution、schema validation、test selection、Git identity 等都可以由确定性程序更稳定地产生。
 
@@ -794,7 +794,7 @@ machine computes
 
 ---
 
-## P41 — Context Coverage 必须显式；“给了一些相关信息”不等于“充分”
+### P41 — Context Coverage 必须显式；“给了一些相关信息”不等于“充分”
 
 **依据**：过度压缩最危险的不是文字少，而是系统不知道删掉了什么重要事实。
 
@@ -806,7 +806,7 @@ machine computes
 
 ---
 
-# 十、这些原则怎样落到工程，而不是停在文档
+## 十、这些原则怎样落到工程，而不是停在文档
 
 原则本身不是完成状态。
 
