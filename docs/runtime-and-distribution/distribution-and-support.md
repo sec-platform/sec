@@ -6,19 +6,17 @@ domain: runtime-distribution
 
 # 平台能力、分发与支持
 
-本片段拥有 browser/container/native 分类、public distribution、support invalidation、逻辑验证与完成条件。
+本文拥有可选宿主能力、DistributionPackage/DistributionSource、公开发行、extension surface和Support生命周期。它不拥有产品语义、Implementation Resolution、外部Provider业务真值或物理Effect执行。
 
-本片段与 [owner root](../runtime-and-distribution.md) 共享同一 domain，但只拥有 registry 分配给本片段的 ownership keys；跨片段语义使用引用，不复制定义。
+## 1. Browser、container、native 等宿主能力
 
-## 14. Browser、container、native
+Browser、container、process isolation、native helper、FFI、GPU/设备环境等都是**按Target/Requirement激活的可选能力**。缺失、unsupported、not-run、failed分开；是否阻塞由实际consumer requirement决定。
 
-Browser Provider 只服务 Target workspace 的真实 browser Acceptance，不构成 SEC core UI/Workbench runtime。request-only/DOM-free/pure semantic tests 选择更窄 Provider；文件名不决定 capability。
+浏览器只在目标成品确实需要DOM/browser API时进入闭包；request-only、DOM-free或纯semantic测试选择更窄Provider。Container/process context本身也不是malicious-code sandbox，真实隔离取决于capability/OS boundary。
 
-Container、process containment、native helper、FFI、test environment 是 Optional Capabilities。缺失、unsupported、not-run、failed 分离；是否 block 由 Requirement/Compatibility/Support owner 决定。temp/process/browser context 本身不是 malicious-code sandbox。
+## 2. DistributionPackage 的存在证明
 
-## 15. Distribution package 与 extension
-
-`DistributionPackage`只在一组内容确有独立acquisition、integrity/trust、release/support或migration/retirement lifecycle时成立。它是物理分发单位，不是Domain、Responsibility、Capability、implementation、source目录或默认“芯片”层：
+`DistributionPackage`只在一组内容确有独立 acquisition、integrity/trust、release/support或migration/retirement lifecycle 时成立：
 
 ```text
 DistributionPackage = exact {
@@ -32,115 +30,139 @@ DistributionPackage = exact {
 }
 ```
 
+存在条件：
+
 ```text
 distributionPackageRequired(candidate) iff
   real producer and consumer
   and independent distribution/trust/support/evolution lifecycle
-  and deleting the package boundary worsens accepted outcome or lifecycle cost
+  and deleting package boundary worsens accepted outcome or lifecycle cost
 ```
 
-没有该证明时，使用普通PublicContract、Port、ImplementationCandidate、Provision或authored ImplementationUnit；不创建空manifest、版本、resolver、facade或目录。package components只由真实consumer闭包决定，不能预设统一大清单。
+否则使用普通PublicContract、ImplementationCandidate、Provision、ImplementationUnit或artifact member，不创建空manifest、resolver、facade和版本层。
 
-Registry/catalog、OCI、language package registry、Git release、local signed archive或其他source都是可替换`DistributionSource` Provisions。External Provider owner证明endpoint/principal/credential/protocol/identity/security；分发owner只消费其opaque observation。core不拥有一个全局Registry，也不按search order或“唯一命中”授权。
+## 3. DistributionSource 与 Binding
 
-```mermaid
-flowchart LR
-  Q[Acquisition Requirement] --> S[Eligible DistributionSource Provisions]
-  S --> DB[Exact Distribution Binding]
-  DB --> C[Package-delivered candidate/content refs]
-  C --> IR[Implementation Resolver]
-  N[Native/existing/governed candidates] --> IR
-  IR --> IB[ImplementationBinding]
-  IB --> M[Admitted acquisition/materialization]
+OCI、language package registry、Git release、local signed archive、organization artifact store等都是可替换`DistributionSource` Provisions。
+
+```text
+AcquisitionRequirement
+→ eligible DistributionSource Provisions
+→ exact DistributionBinding
+→ exact content/candidate refs
+→ Implementation Resolution
+→ ImplementationBinding
+→ admitted materialization Effect
 ```
 
-Distribution Binding只证明从何处取得哪组exact content；Implementation Binding才表示产品采用哪个实现。resolution保持pure，下载、install、Generator、migration和materialization都在选择后经统一Effect/资源/settlement链执行。consumer冻结Binding后不得重扫live source或重新选择。
+**DistributionBinding != ImplementationBinding != Materialization。**
 
-“Extension”是一个public surface用例，不是额外实体：
+DistributionBinding只说明从哪里、按何种trust/integrity取得哪组内容；ImplementationBinding说明产品采用哪个实现；materialization才执行下载/安装/解包/生成/写入。
+
+Resolver保持pure，不扫描live source并同时下载。Consumer冻结Binding后也不在执行中重新搜索“更近/更新”的source。
+
+## 4. Package与实现选择正交
+
+一个ImplementationCandidate可以：
+
+- 已存在于当前repository；
+- 由用户直接提供源码；
+- 来自已安装环境；
+- 由DistributionPackage交付；
+- 来自remote/native/device Provider。
+
+Package名、版本、下载量或registry排名不产生业务资格。Package-delivered candidate仍要通过合同、Target、Effect/Permission、security、license、support和Evidence等统一eligibility。
+
+一个package也可以交付多个独立candidate/assets，但不能因同包就把它们合成同一semantic responsibility。
+
+## 5. Extension 是公共用例，不是第二对象模型
+
+Extension需要由普通关系组合：
 
 | extension need | canonical composition |
-| --- | --- |
+|---|---|
 | local pure alternative | PublicContract/Port + ImplementationCandidate + conformance |
-| stateful或Effectful alternative | 上述关系 + Provider + Requirement/Grant/Allocation/Settlement |
-| independent distributed alternative | 上述关系 + DistributionPackage/Binding |
+| stateful/Effectful alternative | 上述关系 + Provider + Requirement/Grant/Allocation/Settlement |
+| independently distributed alternative | 上述关系 + DistributionPackage/Binding |
 | opaque third-party code | ExternalBinding + disclosure/security/unknown ceiling |
 
-只有真实external/plugin consumer需要稳定发现和替换时才公开extension port；普通callback、strategy function或内部算法不升格。动态callback、ambient capability、caller object和test seam不能绕过Provider/Authority边界。
+只有真实external/plugin consumer需要稳定发现、替换或独立发布时才公开extension port。普通callback、strategy function或内部算法不升格成extension subsystem。
 
-当前实现中的历史载体只作为迁移输入映射一次，不能继续定义target语义：
+Extension port不能绕过Provider/Authority/Effect边界。动态callback、caller object、ambient service locator或test seam也不能形成隐藏能力注入。
 
-| observed legacy carrier | target relation | 处置 |
-| --- | --- | --- |
-| Block identity | 通过存在证明则DistributionPackage；否则拆为contract/candidate/artifact refs | 不保留同名target type |
-| Block Capability / Provider Binding | Requirement/Provision/DistributionBinding/ImplementationBinding | 不复制第二套resolver algebra |
-| Generator declaration | compiler pass或ArtifactProducer definition | Effect与materialization另行准入 |
-| Registry | DistributionSource Provider | 不成为repository/product truth owner |
-| Slot | contract、binding、work/evidence关系的旧混合record | 仅migration parser读取；target无Slot identity |
+## 6. 版本轴正交
 
-迁移必须total preservation：现有语义、资产、producer/consumer、installed workspace、upgrade/recovery、external obligation各有`preserve | transform | retire | quarantine | unresolved`；正常路径不dual-read/dual-write，旧consumer-zero后删除旧parser、resolver、authority key与地址。
+至少区分：
 
-版本域保持正交：package release、contract schema、Provider protocol、Target compatibility与migration grammar不能互相借用。任一版本只有真实durable/external reader或support/migration branch存在时才成立。
+- package release revision；
+- public contract/schema revision；
+- Provider protocol revision；
+- Target compatibility/profile revision；
+- ImplementationBinding revision；
+- migration grammar/state revision。
 
-## 16. Public distribution
+只有真实durable/external reader、consumer或support branch存在时才需要相应version。一个版本号不能代替另一轴的compatibility判断。
 
-~~~mermaid
-sequenceDiagram
-  participant R as Exact release revision
-  participant B as Release builder
-  participant V as Verification
-  participant P as Publisher
-  R->>B: clean tree + exact Binding + accepted generation
-  B->>V: package exports assets dependencies SBOM
-  V-->>B: host/target install runtime Evidence
-  B->>P: signed artifact + checksum + attestation
-  P-->>B: publication receipt
-  B->>B: remote/local readback
-~~~
+## 7. 依赖和安装脚本
 
-不得从 live working tree 递归复制或 force-push 重写 public main。公开 projection allowlist 排除 private docs/session/secret/Registry/cache/test residue/nonpublic Provider。
+分发manifest与lock必须覆盖实际运行closure：直接/传递依赖、native runtime、assets、install/build scripts、license、integrity与平台条件。
 
-验证覆盖 exports/entry/launcher/module policy、assets、dependencies/license/native/install scripts、declared Hosts、Target deps、cross-host determinism、privacy/permissions/metadata、SBOM/signature、rollback/yank/deprecation/migration。
+安装脚本属于Effectful供给，不能在pure resolution/inspection阶段隐式执行。需要安装/构建时形成明确Operation，接受authority/resource/security和settlement检查。
 
-## 17. Support invalidation
+## 8. Public distribution
 
-EOL/security policy、dependency support drop、Provider withdrawal、Binding invalidation/Delta、Compatibility invalidation、package smoke failure、platform/ABI regression、incident 或 artifact不可重现都使 Support invalidated。
+公开发行至少从clean exact source/Binding generation建立：
 
-失效后停止新承诺，保留 affected Binding/Delta/Compatibility/environment/Evidence，选择 fix/re-resolution/migration/deprecation/retirement，重新完成 physical package/deploy proof 后才能恢复。README table、旧 PASS 或仍可安装不能覆盖。
+```text
+exact release input
+→ build deterministic package/artifacts
+→ verify exports/entry/assets/dependencies/license/security
+→ verify declared target install/runtime
+→ sign/checksum/SBOM/attestation as required
+→ publish
+→ remote/local readback
+```
 
-## 18. 无代码逻辑验证
+不得从live dirty worktree递归复制后称为正式release。公开projection按disclosure policy排除private docs、secret、runtime state、test residue和非公开Provider信息。
 
-| 场景 | 必须结果 | 禁止 |
-|---|---|---|
-| Bun缺失但Node存在 | Host unavailable | Node fallback |
-| tool未安装 | adoption unavailable | session下载工具 |
-| checker mismatch | zero typecheck Effect | ambient PATH checker |
-| warm cache与clean输出不同 | cache invalid | warm结果 authority |
-| child exit 0但descendant活着 | settlement failed/unknown | completed |
-| target为Node、SEC host为Bun | 两轴同时合法 | 推断同一 runtime |
-| dependency scan EACCES | unresolved | cache miss/install |
-| lock/journal schema drift | migration/recovery-required | 默认字段兼容 |
-| browser已从SEC core退役 | core正常；Target browser仍可选 | 删除Target capability |
-| 只有local pure implementation | 普通candidate/ImplementationUnit | 创建DistributionPackage或extension runtime |
-| distribution candidate唯一 | 仍检查trust/compatibility并由Implementation Resolver采用 | 自动授权或first-found |
-| package source不可用 | typed unavailable；零下载/install | 裸网络/本地fallback |
-| 历史Slot/Block record存在 | isolated migration input | 恢复normal双读或同名target identity |
-| release build来自dirty tree | reject | copy后hash |
+Artifact upload成功不等于publication/adoption terminal；真实repository/registry readback和support状态另行结算。
 
-## 19. 完成条件
+## 9. Support lifecycle
 
-~~~text
-RuntimeClosed =
-  runtime-neutral core
-  AND one Bun Host generation
+Support是关于“某个准确artifact/Binding在指定target/environment下仍被承诺”的状态，不是“还能下载”。以下变化可使Support失效：
+
+- EOL/security policy；
+- dependency/provider support drop；
+- Binding/Compatibility invalidation；
+- install/runtime smoke failure；
+- platform/ABI regression；
+- incident；
+- artifact不可重现；
+-必要Evidence过期。
+
+失效后停止新承诺，保留affected Binding/Delta/Compatibility/environment/Evidence，选择fix/re-resolution/migration/deprecation/retirement。重新建立对应physical+Verification证据后才能恢复。
+
+## 10. Deprecation、yank 与 retirement
+
+Deprecation通知未来support改变；yank阻止新采用但不抹除已经绑定/发布的历史artifact；retirement需要实际consumer/effect/recovery/support horizon闭合。
+
+旧package/contract reader只有在真实durable consumer仍存在时保留。为了“兼容一切”永久双读或自动fallback不是默认策略。
+
+## 11. 完成条件
+
+```text
+DistributionAndSupportClosed =
+  host/target capability axes remain orthogonal
   AND provisioning separated from adoption
-  AND retained capability plus shared budget and settlement
-  AND Source Program and Verification truth not duplicated
-  AND dependency generation has one owner and recovery
-  AND distribution package is optional and existence-proven
-  AND distribution binding != implementation binding != materialization
-  AND extension uses ordinary contract/provider relations without a second object model
-  AND legacy packaging/slot carriers are migration-only and consumer-zero after cutover
-  AND Host Toolchain Target Runtime axes remain orthogonal
-  AND release is clean reproducible and read back
-  AND Support can be invalidated and recovered
-~~~
+  AND DistributionPackage is optional and existence-proven
+  AND DistributionBinding != ImplementationBinding != materialization
+  AND extension uses ordinary contract/provider relations
+  AND package/runtime closure includes real assets/dependencies/scripts
+  AND public release is reproducible and read back
+  AND support can be invalidated, migrated and retired
+```
+
+<!-- sec-clause {"blocker":null,"kind":"stable-decision"} -->
+## 规范片段
+
+分发只在真实acquisition/trust/support生命周期存在时建立Package/DistributionBinding；实现选择、安装Effect和Support分别拥有自己的identity与资格。Extension复用普通Contract/Provider/Binding关系，不形成第二插件对象模型；公开发行与支持以准确closure、验证和readback为准。

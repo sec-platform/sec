@@ -112,6 +112,7 @@ TargetImplementationScopeArtifact = exact {
 | --- | --- |
 | [实现实体、边界与依赖](implementation-architecture/model-and-boundaries.md) | Canonical Implementation Graph、ResponsibilityRealization、可见性、public surface 与 facade/index 存在证明 |
 | [Source、Placement 与 Generation](implementation-architecture/source-and-generation.md) | source ownership 总入口；下挂 placement、target/current round trip 与增量观察三片段 |
+| [实现供给与装配](implementation-architecture/supply-and-assembly.md) | native/library/Wasm/process/device/remote 等供给形态、适配、替换、装配与最小边界 |
 | [执行运行时与物化](implementation-architecture/execution-and-materialization.md) | provider-backed Effect、process/container/resource session、durable worker、generation/materialization |
 | [迁移与一致性](implementation-architecture/migration-and-conformance.md) | target-current transition、cutover/retirement、machine admission、独立 conformance |
 
@@ -122,6 +123,7 @@ ImplementationArchitectureClosed =
   RefinementClosed
   and ImplementationGraphClosed
   and SourceAndGenerationDesignClosed
+  and SupplyAndAssemblyClosed
   and ExecutionMaterializationClosed
   and ArchitectureTransitionDesignClosed
   and ConformanceModelClosed

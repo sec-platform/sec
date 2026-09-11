@@ -288,6 +288,41 @@ GeneratedProjection = exact {
 
 CLI、README、图、public docs、AI context和search index只读projection；不能新增、删减或重排会改变meaning的事实。任何图/表出现source graph中不存在的node/edge/state，必须先修改canonical source而不是让renderer拥有新事实。
 
+### 9.1 HTML 与图形阅读投影
+
+HTML、SVG和阅读导航是可删除、可重建的projection，不得成为Markdown、结构化contract、源码或图源之外的第二事实源。完整HTML必须绑定一个exact `DocumentationGeneration`、一个purpose closure、included source/artifact refs、renderer identity/options、presentation contract和disclosure policy；缺少其中任一项都不能用“当前页面能打开”代替完整性。
+
+普通正文变化不应强制安装完整浏览器自动化栈。图形物化分三层：
+
+| mode | input | contract |
+| --- | --- | --- |
+| cached | 当前source + 与图源精确匹配的validated diagram cache | 日常完整图文构建；旧缓存不得配新图源 |
+| browser-assisted | 上述输入 + 用户明确取得的可信离线renderer | 本地刷新图缓存；不得联网下载renderer或执行目标工程 |
+| automated | 上述输入 + 明确隔离的browser/renderer capability | CI/无人值守刷新、父级硬超时与完整settlement；重型renderer不是SEC产品运行依赖 |
+
+```text
+DiagramProjectionKey = digest(
+  exact diagram source bytes,
+  diagram language/revision,
+  renderer identity + exact version,
+  canonical renderer options,
+  deterministic seed/id policy,
+  security/sanitization contract revision
+)
+```
+
+文件名、标题或视觉相似不能命中缓存。图源、renderer identity/options或影响布局/语义的输入变化时缓存失效；当前模式不能刷新时，完整构建返回typed failure。只有调用者明确选择source-only视图时，才允许展示图源并显式标记未渲染，不能静默降级后仍称完整新版。
+
+同一冻结输入与同一renderer contract应产生byte-equivalent HTML；使用随机布局的renderer必须固定非零种子和稳定元素identity。文件、导航、锚点、源附件和图顺序使用canonical order，不依赖目录遍历、locale、wall clock或collection insertion order。换浏览器、字体或renderer版本可能形成新的projection identity，不能冒充旧环境的可复现输出。
+
+默认阅读构建与阅读页面离线：不下载外部脚本、字体、图片或图引擎；外部资料只保留链接。Markdown原始HTML、事件属性、脚本和危险URI不得直接取得执行权；SVG嵌入前拒绝活动脚本、外部资源和危险事件；页面用严格CSP限制脚本和网络。渲染器不得执行目标工程、安装依赖或读取未进入closure的本地文件。隔离只证明renderer Effect边界，不证明图语义或正文正确。
+
+输出只在正文、引用、图、source attachments、导航和完整性检查全部成功后原子替换；失败保留上一份已知完整输出。自动模式中的可能挂死renderer必须有外部父级硬期限，页内timer不能替代对同步死循环的进程级终止。
+
+完整阅读版至少检查：included source可达、同generation本地引用可解析、图缓存key与图源一致、SVG/XML结构有效且安全、关键文本/图内容未被裁掉、桌面与窄屏不产生整页横向溢出、超宽表格/代码/图局部滚动、无未声明网络请求或页面错误、重复构建满足声明的确定性合同。视觉检查只证明projection质量，不替代source meaning验证。
+
+当图能够从一个结构化表或typed relation graph确定生成时，只维护结构化源并派生图；只有图源自身承载其他源无法确定的设计决定时，它才是对应meaning owner。MD、HTML、SVG不得分别维护同一事实。
+
 ## 10. Compiler completion
 
 ```text
@@ -302,6 +337,7 @@ DocumentationCompilationClosed =
   and every required purpose has a complete closure contract
   and all required addresses are collision-free under target profile
   and all required projections preserve meaning/disclosure/blockers/unknowns
+  and HTML/diagram projections use exact source-bound caches or explicit renderer admission, never silent stale/degraded output
   and projection incremental output equals clean output for the same DocumentationProjectionActionKey
 ```
 
