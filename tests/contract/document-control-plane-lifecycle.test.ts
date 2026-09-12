@@ -1722,6 +1722,228 @@ test('freeze publishes one exact index tree, projects worktree bytes, and is ide
   }
 }, 30_000);
 
+interface ProposalFreezeFixture {
+  readonly fixture: FreezeFixture;
+  readonly proposalBytes: Buffer;
+  readonly proposalFile: string;
+  readonly proposalId: string;
+  readonly proposalJournalPath: string;
+  readonly proposalPath: string;
+}
+
+async function createProposalFreezeFixture(): Promise<ProposalFreezeFixture> {
+  const fixture = await createFreezeFixture();
+  try {
+    const proposalId = 'private-sandbox-python-runtime-transition';
+    const proposalPath = `docs/work-packages/${proposalId}.md`;
+    const manifestPath = path.join(fixture.repositoryRoot, ...FREEZE_TARGET_PATH.split('/'));
+    const proposalBytes = Buffer.from(
+      (await readFile(manifestPath, 'utf8'))
+        .replaceAll(FREEZE_TARGET_ID, proposalId)
+        .replace('tracking: issue-311', 'tracking: none'),
+      'utf8'
+    );
+    runGit(fixture.repositoryRoot, ['rm', '--quiet', '--cached', FREEZE_TARGET_PATH]);
+    await unlink(manifestPath);
+    const proposalFile = path.join(fixture.repositoryRoot, ...proposalPath.split('/'));
+    await writeFile(proposalFile, proposalBytes);
+    runGit(fixture.repositoryRoot, ['add', proposalPath]);
+    return Object.freeze({
+      fixture,
+      proposalBytes,
+      proposalFile,
+      proposalId,
+      proposalJournalPath: path.join(
+        fixture.repositoryRoot,
+        '.tmp/codex/document-control-plane-freeze-v1/journal.json'
+      ),
+      proposalPath
+    });
+  } catch (error) {
+    await fixture.dispose();
+    throw error;
+  }
+}
+
+test('proposal-only journal preserves its PROPOSED identity and public in-progress reason', async () => {
+  const prepared = await createProposalFreezeFixture();
+  const { fixture, proposalJournalPath, proposalPath } = prepared;
+  try {
+    await expect(freezeDocumentControlPlane({
+      cwd: fixture.repositoryRoot,
+      manifestPath: proposalPath,
+      reviewedOn: '2026-08-09',
+      proposalOnly: true,
+      faultAfter: 'after-pointer-publish'
+    })).rejects.toThrow('Injected document control freeze fault: after-pointer-publish.');
+    const proposalJournalBytes = await readFile(proposalJournalPath);
+    const terminalJournal = JSON.parse(proposalJournalBytes.toString('utf8')) as {
+      schema: string;
+      authoringDisposition: string;
+      result: { schema: string; status: string };
+    };
+    expect(terminalJournal).toMatchObject({
+      schema: 'sec-document-control-plane-freeze-journal-v5',
+      authoringDisposition: 'proposal-only',
+      result: {
+        schema: 'sec-document-control-plane-freeze-result-v2',
+        status: 'PROPOSED'
+      }
+    });
+    expect((await resolveLiveControlPlane(fixture.repositoryRoot, { observeGitHub: false }))
+      .activeWorkPackage).toEqual({
+        state: 'unresolved',
+        reason: 'document-control-authoring-in-progress'
+      });
+    for (const invalidResult of [
+      { schema: 'sec-document-control-plane-freeze-result-v2', status: 'ACTIVATED_INDEX_PENDING_COMMIT' },
+      { schema: 'sec-document-control-plane-freeze-result-v1', status: 'PROPOSED' }
+    ]) {
+      await writeFile(proposalJournalPath, `${JSON.stringify({
+        ...terminalJournal,
+        result: { ...terminalJournal.result, ...invalidResult }
+      }, null, 2)}\n`, 'utf8');
+      await expect(resolveLiveControlPlane(fixture.repositoryRoot, { observeGitHub: false }))
+        .rejects.toThrow('Freeze journal result identity is invalid');
+      await writeFile(proposalJournalPath, proposalJournalBytes);
+    }
+  } finally {
+    await fixture.dispose();
+  }
+}, 30_000);
+
+test('proposal-only recovery rejects the activation lane and completes as PROPOSED', async () => {
+  const prepared = await createProposalFreezeFixture();
+  const { fixture, proposalId, proposalJournalPath, proposalPath } = prepared;
+  try {
+    await expect(freezeDocumentControlPlane({
+      cwd: fixture.repositoryRoot,
+      manifestPath: proposalPath,
+      reviewedOn: '2026-08-09',
+      proposalOnly: true,
+      faultAfter: 'after-pointer-publish'
+    })).rejects.toThrow('Injected document control freeze fault: after-pointer-publish.');
+    const journalBeforeWrongLane = await readFile(proposalJournalPath);
+    await expect(freezeDocumentControlPlane({
+      cwd: fixture.repositoryRoot,
+      manifestPath: proposalPath,
+      reviewedOn: '2026-08-09'
+    })).rejects.toThrow('belongs to another authoring disposition');
+    expect(await readFile(proposalJournalPath)).toEqual(journalBeforeWrongLane);
+
+    const recovered = await freezeDocumentControlPlane({
+      cwd: fixture.repositoryRoot,
+      manifestPath: proposalPath,
+      reviewedOn: '2026-08-09',
+      proposalOnly: true
+    });
+    expect(recovered).toMatchObject({
+      schema: 'sec-document-control-plane-freeze-result-v2',
+      status: 'PROPOSED',
+      baseSha: fixture.baseSha,
+      candidateHeadSha: null,
+      manifestPath: proposalPath,
+      indexPublished: true,
+      worktreeProjected: true
+    });
+    expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(recovered.candidateTreeSha);
+    expect(CodexDevelopmentParseRollingPlan(
+      await readFile(path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'), 'utf8')
+    ).activePackageId).toBe(proposalId);
+    await expectFreezeTransactionRetired(fixture.repositoryRoot);
+  } finally {
+    await fixture.dispose();
+  }
+}, 30_000);
+
+test('proposal-only live readback rejects pointer and manifest identity drift', async () => {
+  const prepared = await createProposalFreezeFixture();
+  const { fixture, proposalBytes, proposalFile, proposalPath } = prepared;
+  try {
+    await freezeDocumentControlPlane({
+      cwd: fixture.repositoryRoot,
+      manifestPath: proposalPath,
+      reviewedOn: '2026-08-09',
+      proposalOnly: true
+    });
+    await expectFreezeTransactionRetired(fixture.repositoryRoot);
+    const pointerFile = path.join(fixture.repositoryRoot, POINTER_PATH);
+    const pointerBytes = await readFile(pointerFile);
+    await writeFile(pointerFile, pointerBytes.toString('utf8').replace(
+      `manifestDigest: ${CodexDevelopmentWorkPackageManifestDigest(proposalBytes)}`,
+      `manifestDigest: ${rawSha256('proposal-pointer-digest-drift')}`
+    ));
+    runGit(fixture.repositoryRoot, ['add', POINTER_PATH]);
+    await expect(resolveLiveControlPlane(fixture.repositoryRoot, { observeGitHub: false }))
+      .rejects.toThrow('does not bind the exact active pointer manifest');
+    await writeFile(pointerFile, pointerBytes);
+    runGit(fixture.repositoryRoot, ['add', POINTER_PATH]);
+    await writeFile(proposalFile, proposalBytes.toString('utf8').replace('tracking: none', 'tracking: issue-999'));
+    runGit(fixture.repositoryRoot, ['add', proposalPath]);
+    await expect(resolveLiveControlPlane(fixture.repositoryRoot, { observeGitHub: false }))
+      .rejects.toThrow('does not bind the exact active manifest identity');
+    await writeFile(proposalFile, proposalBytes);
+    runGit(fixture.repositoryRoot, ['add', proposalPath]);
+  } finally {
+    await fixture.dispose();
+  }
+}, 30_000);
+
+test('a completed proposal is idempotent only through the proposal-only lane', async () => {
+  const prepared = await createProposalFreezeFixture();
+  const { fixture, proposalPath } = prepared;
+  try {
+    const proposed = await freezeDocumentControlPlane({
+      cwd: fixture.repositoryRoot,
+      manifestPath: proposalPath,
+      reviewedOn: '2026-08-09',
+      proposalOnly: true
+    });
+    await expectFreezeTransactionRetired(fixture.repositoryRoot);
+    await expect(freezeDocumentControlPlane({
+      cwd: fixture.repositoryRoot,
+      manifestPath: proposalPath,
+      reviewedOn: '2026-08-09'
+    })).rejects.toThrow();
+    const repeated = await freezeDocumentControlPlane({
+      cwd: fixture.repositoryRoot,
+      manifestPath: proposalPath,
+      reviewedOn: '2026-08-09',
+      proposalOnly: true
+    });
+    expect(repeated).toMatchObject({
+      status: 'PROPOSED',
+      candidateTreeSha: proposed.candidateTreeSha,
+      manifestDigest: proposed.manifestDigest
+    });
+    await expectFreezeTransactionRetired(fixture.repositoryRoot);
+  } finally {
+    await fixture.dispose();
+  }
+}, 30_000);
+
+test('proposal-only retry cannot advance an activation journal', async () => {
+  const fixture = await createFreezeFixture();
+  try {
+    await expect(freezeDocumentControlPlane({
+      cwd: fixture.repositoryRoot,
+      manifestPath: FREEZE_TARGET_PATH,
+      reviewedOn: '2026-08-09',
+      faultAfter: 'after-pointer-publish'
+    })).rejects.toThrow('after-pointer-publish');
+    const beforeWrongLane = await readFreezeEffectSnapshot(fixture.repositoryRoot);
+    await expect(freezeDocumentControlPlane({
+      cwd: fixture.repositoryRoot,
+      manifestPath: FREEZE_TARGET_PATH,
+      reviewedOn: '2026-08-09',
+      proposalOnly: true
+    })).rejects.toThrow('belongs to another authoring disposition');
+    expect(await readFreezeEffectSnapshot(fixture.repositoryRoot)).toEqual(beforeWrongLane);
+  } finally {
+    await fixture.dispose();
+  }
+}, 30_000);
+
 test('pre-evidence replan replaces one staged manifest generation in the same worktree', async () => {
   const fixture = await createFreezeFixture();
   try {
@@ -3688,7 +3910,7 @@ test('freeze journal V4 separates index transport integrity and rejects every le
       await writeFile(journalPath, `${JSON.stringify(legacy, null, 2)}\n`, 'utf8');
       const beforeLegacyRejection = await readFreezeEffectSnapshot(legacyFixture.repositoryRoot);
       await expect(resolveLiveControlPlane(legacyFixture.repositoryRoot, { observeGitHub: false }))
-        .rejects.toThrow('Only freeze journal V4 can serve as recovery authority');
+        .rejects.toThrow('Only freeze journal V4 or V5 can serve as recovery authority');
       expect(await readFreezeEffectSnapshot(legacyFixture.repositoryRoot)).toEqual(beforeLegacyRejection);
     }
   } finally {

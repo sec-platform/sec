@@ -118,13 +118,18 @@ export function writeDurableTransitionFile(
 }
 
 export async function ensureDependencyTransitionNamespace(
-  ownerRoot: string,
+  ownerRoot: string | PhysicalDirectoryIdentity,
   input: RuntimeDependencyEffectFenceInput
 ): Promise<DependencyTransitionNamespace> {
-  ownerRoot = path.resolve(ownerRoot);
   const options = runtimeDependencyEffectFenceOptions(input);
+  const expectedOwner = typeof ownerRoot === 'string'
+    ? inspectNoFollowDirectoryChain(path.resolve(ownerRoot), 'Dependency transition owner root').target
+    : assertSameNoFollowDirectoryIdentity(ownerRoot, 'Dependency transition owner root').target;
   await runtimeDependencyOperationEffectFence(options, 'Dependency transition namespace creation');
-  const owner = inspectNoFollowDirectoryChain(ownerRoot, 'Dependency transition owner root').target;
+  const owner = assertSameNoFollowDirectoryIdentity(
+    expectedOwner,
+    'Dependency transition owner root effect admission'
+  ).target;
   const paths = dependencyTransitionNamespacePaths(owner.path);
   // This is the only namespace creation route. Existing names are reopened
   // without following links, so a foreign/reparse path fails closed.

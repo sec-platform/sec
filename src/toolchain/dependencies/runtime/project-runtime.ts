@@ -6,6 +6,7 @@ import { setTimeout as sleepMs } from 'node:timers/promises';
 import { generatedStateDigest, generatedStateDomainProviderMaterialDigest, type GeneratedStateCleanupProfile, type GeneratedStateInventory, type GeneratedStatePhysicalIdentity, type GeneratedStateRegistration } from '../../../runtime-state/generated-state/contract.ts';
 import { consumeGeneratedStateWorktreeRetirementEffectAuthority, type GeneratedStateWorktreeRetirementProvider } from '../../../runtime-state/generated-state/lifecycle.ts';
 import { assertPhysicalGenerationRetirementReceipt, assertSameNoFollowDirectoryIdentity, copyNoFollowDirectoryTreesBulk, createExclusiveNoFollowDirectory, createExclusiveNoFollowRandomDirectory, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectExactNoFollowLinkEntry, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowDirectoryLeaf, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileEntry, materializeRetainedNoFollowProvenDirectoryGeneration, openWindowsLegacySealedDirectoryRelocation, PhysicalNoFollowError, prepareWindowsLegacySealedDirectoryRelocation, publishExclusiveDurableCanonicalFile, publishExclusiveNoFollowLink, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectoryAcrossParents, relocateRetainedNoFollowLinkAcrossParents, relocateWindowsLegacySealedDirectory, reopenRetainedNoFollowProvenDirectoryGeneration, replaceDurableCanonicalFile, retainNoFollowOrdinaryFile, retireNoFollowDirectoryTree, retireNoFollowProvenDirectoryGeneration, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryChain, type PhysicalDirectoryIdentity, type PhysicalGenerationRetirementReceipt, type RetainedNoFollowOrdinaryFile, type RetainedNoFollowProvenDirectoryGeneration, type WindowsLegacySealedDirectoryRelocationCapability } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { WindowsHostDirectoryAuthorityError } from '../../../runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeStatePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
 import {
@@ -67,6 +68,7 @@ import {
   transitionSlotFromPhysical,
   transitionSlotMatches,
   type DependencyTransitionJournal,
+  type DependencyTransitionNamespace,
   type DependencyTransitionSlot,
   type RuntimeDependencySourceGeneration
 } from './dependency-transition/contract.ts';
@@ -1939,11 +1941,20 @@ async function migrateRegisteredLegacyCompilerDependencyStages(
     .map((name) => path.join(parent.path, name))
     .filter((stagePath) => !representedStagePaths.has(path.resolve(stagePath)));
 
+  const lifecycle = options.generatedStateLifecycle;
+  if (lifecycle === undefined || lifecycle.inspect === undefined || lifecycle.observeRetirement === undefined) {
+    throw new SecError(
+      'RUNTIME-DEPS-004',
+      'Legacy compiler dependency stage migration requires one root-bound lifecycle inventory authority'
+    );
+  }
   const {
     assertGeneratedStateCleanupContinuationReceipt,
-    inspectGeneratedState
+    assertGeneratedStateRetirementObservation
   } = await import('../../../runtime-state/generated-state/lifecycle.ts');
-  const lifecycleCensus = await inspectGeneratedState({ repositoryRoot: root, workspaceRoot: root });
+  runtimeDependencyOperationRemainingMs(options, 'Legacy compiler dependency lifecycle census admission');
+  const lifecycleCensus = await lifecycle.inspect();
+  runtimeDependencyOperationRemainingMs(options, 'Legacy compiler dependency lifecycle census readback');
   const registeredMissing = lifecycleCensus.entries.filter((entry) => {
     const absolute = path.resolve(root, ...entry.relativePath.split('/'));
     return entry.ruleId === stageAuthority.lifecycle!.ruleId &&
@@ -2000,42 +2011,33 @@ async function migrateRegisteredLegacyCompilerDependencyStages(
       });
     }
     const relativePath = path.relative(root, stagePath).replaceAll('\\', '/');
-    runtimeDependencyOperationRemainingMs(options, 'Legacy compiler dependency registration inventory admission');
-    const inventory = await inspectGeneratedState({
-      repositoryRoot: root,
-      workspaceRoot: root,
-      relativePaths: [relativePath]
+    runtimeDependencyOperationRemainingMs(options, 'Legacy compiler dependency registration observation admission');
+    const observed = await lifecycle.observeRetirement(relativePath, {
+      owner: stageAuthority.lifecycle.owner,
+      producer: stageAuthority.lifecycle.producer,
+      ruleId: stageAuthority.lifecycle.ruleId,
+      physical: stageRoot.physical
     });
-    runtimeDependencyOperationRemainingMs(options, 'Legacy compiler dependency registration inventory readback');
-    const observed = inventory.entries[0];
-    const activeRegistration = observed?.registrationState === 'active';
-    const retiredRegistration = observed?.registrationState === 'retired';
-    if (inventory.entries.length !== 1 || observed === undefined ||
-        observed.relativePath !== relativePath || observed.kind !== 'directory' ||
-        observed.ruleId !== stageAuthority.lifecycle.ruleId ||
-        observed.owner !== stageAuthority.lifecycle.owner ||
+    runtimeDependencyOperationRemainingMs(options, 'Legacy compiler dependency registration observation readback');
+    assertGeneratedStateRetirementObservation(observed);
+    const activeRegistration = observed.status === 'active';
+    const retiredRegistration = observed.status === 'retired-present';
+    if (observed.relativePath !== relativePath ||
         (!activeRegistration && !retiredRegistration) || observed.registrationDigest === null ||
-        observed.physicalIdentity === null ||
-        !sameGeneratedStateIdentity(observed.physicalIdentity, stageRoot.physical) ||
-        (activeRegistration
-          ? !canonicalEquals(uniqueSorted(observed.blockers), ['owner-active']) || observed.settlement !== 'protected'
-          : observed.blockers.length !== 0 || observed.settlement !== 'ready')) {
+        observed.physical === null ||
+        !sameGeneratedStateIdentity(observed.physical, stageRoot.physical)) {
       throw new SecError('RUNTIME-DEPS-004', 'Legacy compiler dependency stage has no exact active or retired registration receipt', {
         relativePath,
-        observed: observed === undefined ? null : {
-          blockers: observed.blockers,
-          kind: observed.kind,
-          owner: observed.owner,
-          physicalIdentity: observed.physicalIdentity,
+        observed: {
+          physical: observed.physical,
           registrationDigest: observed.registrationDigest,
-          registrationState: observed.registrationState,
-          ruleId: observed.ruleId
+          status: observed.status
         }
       });
     }
     let registration: GeneratedStateRegistration | null = null;
     if (activeRegistration) {
-      const bind = options.generatedStateLifecycle?.bind;
+      const bind = lifecycle.bind;
       if (bind === undefined) {
         throw new SecError(
           'RUNTIME-DEPS-004',
@@ -2064,7 +2066,7 @@ async function migrateRegisteredLegacyCompilerDependencyStages(
     }));
   }
 
-  const quarantine = options.generatedStateLifecycle?.quarantine;
+  const quarantine = lifecycle.quarantine;
   if (quarantine === undefined &&
       (registeredMissing.some(({ registrationState }) => registrationState === 'retired') ||
         validated.some(({ registrationState }) => registrationState === 'retired'))) {
@@ -3364,6 +3366,12 @@ async function reclaimOrphanInstallLock(
     'Install lock orphan candidate admission'
   );
   if (initialLockObservation === null) return true;
+  const initialOwner = parseInstallLockOwner(
+    readNoFollowOwnedFileJson(initialLockObservation, 'Install lock orphan candidate admission')
+  );
+  if (initialOwner === null || processIsAlive(initialOwner.pid)) return false;
+  const initialCreatedAtMs = Date.parse(initialOwner.createdAt);
+  if (!Number.isFinite(initialCreatedAtMs) || Date.now() - initialCreatedAtMs < 5_000) return false;
   let reclaimMarker: Readonly<{
     bytes: Buffer;
     observation: NoFollowOwnedFileObservation;
@@ -3384,7 +3392,7 @@ async function reclaimOrphanInstallLock(
     });
     const reclaimBytes = Buffer.from(formatJsonFile(reclaimOwner), 'utf8');
     try {
-      publishExclusiveDurableCanonicalFile({
+      const publication = publishExclusiveDurableCanonicalFile({
         parent: reclaimParent,
         name: path.basename(reclaimPath),
         bytes: reclaimBytes,
@@ -3395,9 +3403,22 @@ async function reclaimOrphanInstallLock(
           }
         }
       });
+      if (!publication.created) return false;
+      const published = observeNoFollowOwnedFile(reclaimPath, 'Install lock reclaim marker publication');
+      if (published === null || published.device !== publication.physical.device ||
+          published.inode !== publication.physical.inode) {
+        throw new SecError(
+          'RUNTIME-DEPS-003',
+          'Install lock reclaim marker publication identity changed; current marker is preserved'
+        );
+      }
     } catch (error) {
       if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED') {
-        return false;
+        throw new SecError(
+          'RUNTIME-DEPS-003',
+          'Install lock reclaim marker publication remained unknown; current marker is preserved',
+          { cause: runtimeDependencyFailureEvidence(error), reclaimPath }
+        );
       }
       throw error;
     }
@@ -3485,14 +3506,41 @@ function isLegacyInstallLockReclaimBytes(bytes: Buffer): boolean {
     .test(bytes.toString('utf8'));
 }
 
-async function reclaimLockIsActive(
+type InstallLockReclaimState = 'absent' | 'active' | 'terminal-handoff';
+
+async function reclaimLockState(
   reclaimPath: string,
   lockPath: string,
   options: RuntimeDependencyOperationOptions
-): Promise<boolean> {
+): Promise<InstallLockReclaimState> {
   const observation = observeNoFollowOwnedFile(reclaimPath, 'Install lock reclaim marker');
-  if (observation === null) return false;
+  if (observation === null) return 'absent';
   const bytes = readNoFollowOwnedFileBytes(observation, 'Install lock reclaim marker');
+  const terminalHandoff = (() => {
+    try {
+      return parseCompilerDependencyCoordinationCutover(bytes);
+    } catch {
+      return null;
+    }
+  })();
+  if (terminalHandoff !== null) {
+    const pairedLock = observeNoFollowOwnedFile(lockPath, 'Install lock terminal handoff pair');
+    if (pairedLock === null) return 'active';
+    const pairedBytes = readNoFollowOwnedFileBytes(pairedLock, 'Install lock terminal handoff pair');
+    const pairedOwner = (() => {
+      try {
+        return parseInstallLockOwner(JSON.parse(pairedBytes.toString('utf8')) as unknown);
+      } catch {
+        return null;
+      }
+    })();
+    return pairedOwner !== null && pairedOwner.token === terminalHandoff.lockOwnerToken &&
+        pairedLock.device === terminalHandoff.lock.device && pairedLock.inode === terminalHandoff.lock.inode &&
+        pairedLock.size === terminalHandoff.lock.size &&
+        generatedStateDigest([...pairedBytes]) === terminalHandoff.lockOwnerBytesDigest
+      ? 'terminal-handoff'
+      : 'active';
+  }
   const owner = (() => {
     try {
       return parseInstallLockReclaimOwner(JSON.parse(bytes.toString('utf8')) as unknown);
@@ -3501,9 +3549,9 @@ async function reclaimLockIsActive(
     }
   })();
   if (owner !== null) {
-    if (processIsAlive(owner.pid)) return true;
+    if (processIsAlive(owner.pid)) return 'active';
     const createdAtMs = Date.parse(owner.createdAt);
-    if (!Number.isFinite(createdAtMs) || Date.now() - createdAtMs < 5_000) return true;
+    if (!Number.isFinite(createdAtMs) || Date.now() - createdAtMs < 5_000) return 'active';
     await settleInstallLockOwnedFileDeletion({
       assertExpected: (current) => {
         const currentOwner = readNoFollowOwnedFileJson(current, 'Install lock orphan reclaim marker');
@@ -3519,7 +3567,7 @@ async function reclaimLockIsActive(
       label: 'Install lock orphan reclaim marker',
       options
     });
-    return false;
+    return 'absent';
   }
 
   // The former reclaim grammar persisted only a UUID.  It is never accepted
@@ -3528,21 +3576,21 @@ async function reclaimLockIsActive(
   // beyond the maximum lifetime of every former operation/settlement, and
   // any paired lock owner is also provably dead.  Unknown bytes remain a
   // typed preservation barrier.
-  if (!isLegacyInstallLockReclaimBytes(bytes)) return true;
+  if (!isLegacyInstallLockReclaimBytes(bytes)) return 'active';
   let legacyMtimeMs: number;
   try {
     const stat = lstatSync(reclaimPath);
-    if (!stat.isFile()) return true;
+    if (!stat.isFile()) return 'active';
     legacyMtimeMs = stat.mtimeMs;
   } catch {
-    return true;
+    return 'active';
   }
   const readback = observeNoFollowOwnedFile(reclaimPath, 'Legacy install lock reclaim marker readback');
   if (readback === null || !sameNoFollowOwnedFileObservation(readback, observation) ||
       !readNoFollowOwnedFileBytes(readback, 'Legacy install lock reclaim marker bytes').equals(bytes) ||
       !Number.isFinite(legacyMtimeMs) ||
       Date.now() - legacyMtimeMs < LEGACY_INSTALL_LOCK_RECLAIM_MAXIMUM_LIFETIME_MS) {
-    return true;
+    return 'active';
   }
   const lockObservation = observeNoFollowOwnedFile(lockPath, 'Legacy install lock owner');
   if (lockObservation !== null) {
@@ -3553,7 +3601,7 @@ async function reclaimLockIsActive(
     if (lockOwner === null || processIsAlive(lockOwner.pid) ||
         !Number.isFinite(lockCreatedAtMs) ||
         Date.now() - lockCreatedAtMs < LEGACY_INSTALL_LOCK_RECLAIM_MAXIMUM_LIFETIME_MS) {
-      return true;
+      return 'active';
     }
   }
   await settleInstallLockOwnedFileDeletion({
@@ -3570,7 +3618,14 @@ async function reclaimLockIsActive(
     label: 'Legacy install lock reclaim marker migration',
     options
   });
-  return false;
+  return 'absent';
+}
+
+class InstallLockTerminalHandoffObservedError extends Error {
+  constructor(readonly lockPath: string) {
+    super(`Install lock reached its terminal handoff: ${lockPath}`);
+    this.name = 'InstallLockTerminalHandoffObservedError';
+  }
 }
 
 function runtimeDependencyFailureEvidence(error: unknown): Readonly<{
@@ -3638,7 +3693,11 @@ async function withInstallLock<T>(
 
       while (true) {
         runtimeDependencyOperationRemainingMs(operationOptions, 'Install lock admission');
-        if (await reclaimLockIsActive(`${lockPath}.reclaim`, lockPath, operationOptions)) {
+        const reclaimState = await reclaimLockState(`${lockPath}.reclaim`, lockPath, operationOptions);
+        if (reclaimState === 'terminal-handoff') {
+          throw new InstallLockTerminalHandoffObservedError(lockPath);
+        }
+        if (reclaimState === 'active') {
           await waitForRuntimeDependencyOperation(
             operationOptions,
             pollIntervalMs,
@@ -4312,7 +4371,9 @@ async function migrateCompilerDependencyCoordination(
             'Compiler dependency coordination migration marker') !== null) throw error;
     }
     const legacyLockPath = path.join(root, '.tmp', 'dependency-installs', 'compiler.lock');
-    const request = await withInstallLock(legacyLockPath, operationOptions, async () => {
+    let request: ReturnType<typeof issueInstallLockTerminalHandoffRequest>;
+    try {
+      request = await withInstallLock(legacyLockPath, operationOptions, async () => {
       await settleCompilerDependencyRecoveryUnderLease(root, operationOptions);
       const pending = await readDependencyTransition(root, operationOptions);
       if (pending !== null && pending.phase !== 'complete' && pending.phase !== 'rolled-back') {
@@ -4398,15 +4459,32 @@ async function migrateCompilerDependencyCoordination(
       })) {
         throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency coordination migration found an invalid consumer chain');
       }
-      return issueInstallLockTerminalHandoffRequest({
+        return issueInstallLockTerminalHandoffRequest({
         compilerRootPhysical: generatedStatePhysicalIdentity(inspectNoFollowDirectoryChain(
           root,
           'Compiler dependency coordination migration root'
         ).target),
         coordinationRootPhysical: generatedStatePhysicalIdentity(coordinationRoot),
         workspaceLocatorKey: roots.workspaceLocatorKey
+        });
       });
-    });
+    } catch (error) {
+      if (!(error instanceof InstallLockTerminalHandoffObservedError) ||
+          !sameHostPath(error.lockPath, legacyLockPath)) throw error;
+      assertCompilerDependencyCoordinationCutover({
+        compilerDependencyRoot: root,
+        coordinationRoot,
+        workspaceLocatorKey: roots.workspaceLocatorKey
+      });
+      const observedCutover = readCompilerDependencyCoordinationCutover(root);
+      publishCompilerDependencyCoordinationLocator({
+        compilerDependencyRoot: root,
+        cutover: observedCutover,
+        stateRoot: authority.stateRoot
+      });
+      readCompilerDependencyCoordinationLocator(root, observedCutover);
+      return false;
+    }
     installLockTerminalHandoffRequests.delete(request);
     const cutover = readCompilerDependencyCoordinationCutover(root);
     publishCompilerDependencyCoordinationLocator({
@@ -7367,9 +7445,9 @@ async function recoverCompilerDependencyTransition(
         active = await currentActive();
       }
       // Publication order is part of the capability contract: a locator may
-      // never expose a writable generation.  The persisted proof is issued
-      // and read back under this same compiler-root transition lease before
-      // the link can become visible to any consumer.
+      // never expose a writable generation. The physical generation owner
+      // issues the persisted proof; a different consumer root can only reopen
+      // that proof before its locator becomes visible.
       await ensureCompilerDependencyGenerationReadOnlyProof(
         root,
         immutableSourceGeneration,
@@ -10118,16 +10196,63 @@ type RetiredCompilerDependencyPreimage = Readonly<{
   retiredRegistrationDigest: `sha256:${string}` | null;
 }>;
 
+function assertCompilerDependencyProofOwnerCurrent(
+  sourceGeneration: RuntimeDependencySourceGeneration,
+  label: string
+): PhysicalDirectoryIdentity {
+  const owner = inspectNoFollowDirectoryChain(sourceGeneration.ownerRoot, label).target;
+  if (!sameHostPath(owner.path, sourceGeneration.ownerRoot) || !sameGeneratedStateIdentity(
+    generatedStatePhysicalIdentity(owner),
+    sourceGeneration.ownerRootPhysical
+  )) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency proof owner root changed');
+  }
+  return owner;
+}
+
+function assertCompilerDependencyProofNamespaceCurrent(
+  namespace: DependencyTransitionNamespace,
+  sourceGeneration: RuntimeDependencySourceGeneration,
+  label: string
+): void {
+  const owner = assertSameNoFollowDirectoryIdentity(namespace.ownerRoot, label).target;
+  if (!sameHostPath(owner.path, sourceGeneration.ownerRoot) || !sameGeneratedStateIdentity(
+    generatedStatePhysicalIdentity(owner),
+    sourceGeneration.ownerRootPhysical
+  )) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency proof namespace owner changed');
+  }
+}
+
+function inspectCompilerDependencyProofNamespace(
+  sourceGeneration: RuntimeDependencySourceGeneration,
+  label: string
+): DependencyTransitionNamespace | null {
+  const owner = assertCompilerDependencyProofOwnerCurrent(sourceGeneration, `${label} owner`);
+  const namespace = inspectDependencyTransitionNamespace(owner.path);
+  if (namespace !== null) {
+    assertCompilerDependencyProofNamespaceCurrent(namespace, sourceGeneration, `${label} namespace`);
+  }
+  return namespace;
+}
+
+async function ensureCompilerDependencyProofNamespace(
+  sourceGeneration: RuntimeDependencySourceGeneration,
+  options: RuntimeDependencyOperationOptions,
+  label: string
+): Promise<DependencyTransitionNamespace> {
+  const owner = assertCompilerDependencyProofOwnerCurrent(sourceGeneration, `${label} owner`);
+  const namespace = await ensureDependencyTransitionNamespace(owner, options);
+  assertCompilerDependencyProofNamespaceCurrent(namespace, sourceGeneration, `${label} namespace`);
+  return namespace;
+}
+
 async function retireCompilerDependencyExecutionProofIfPresent(
   root: string,
   sourcePath: string,
   options: RuntimeDependencyOperationOptions,
   expectedSourceGeneration?: RuntimeDependencySourceGeneration
 ): Promise<void> {
-  const namespace = inspectDependencyTransitionNamespace(root);
-  if (namespace === null) return;
-  const proofRoot = inspectNoFollowDirectoryChild(namespace.backupRoot, 'read-only-generations');
-  if (proofRoot === null) return;
   const binding = await readCompilerDepsBinding(path.join(sourcePath, COMPILER_DEPS_BINDING_FILE));
   if (binding === null) {
     throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency generation binding is unavailable before proof retirement');
@@ -10146,6 +10271,18 @@ async function retireCompilerDependencyExecutionProofIfPresent(
       'Compiler dependency execution proof retirement authority is foreign'
     );
   }
+  const namespace = inspectCompilerDependencyProofNamespace(
+    sourceGeneration,
+    'Compiler dependency execution proof retirement'
+  );
+  if (namespace === null) return;
+  const proofRoot = inspectNoFollowDirectoryChild(namespace.backupRoot, 'read-only-generations');
+  if (proofRoot === null) return;
+  assertCompilerDependencyProofNamespaceCurrent(
+    namespace,
+    sourceGeneration,
+    'Compiler dependency execution proof retirement read admission'
+  );
   const sourceRoot = inspectNoFollowDirectoryChain(
     sourcePath,
     'Compiler dependency execution proof retirement source root'
@@ -10175,6 +10312,11 @@ async function retireCompilerDependencyExecutionProofIfPresent(
       !sameNoFollowOwnedFileObservation(proofObservation, proofReadback)) {
     throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency execution proof changed before retirement');
   }
+  assertCompilerDependencyProofNamespaceCurrent(
+    namespace,
+    sourceGeneration,
+    'Compiler dependency execution proof retirement readback'
+  );
   let proofText: string;
   try {
     proofText = new TextDecoder('utf-8', { fatal: true }).decode(proofBytes);
@@ -10183,6 +10325,11 @@ async function retireCompilerDependencyExecutionProofIfPresent(
       cause: error instanceof Error ? error.message : String(error)
     });
   }
+  assertCompilerDependencyProofNamespaceCurrent(
+    namespace,
+    sourceGeneration,
+    'Compiler dependency execution proof retirement effect admission'
+  );
   await runtimeDependencyOperationEffectFence(options, 'Compiler dependency execution generation retirement');
   const context = runtimeDependencyOperationContext(options);
   const remainingMs = runtimeDependencyOperationRemainingMs(
@@ -10203,6 +10350,11 @@ async function retireCompilerDependencyExecutionProofIfPresent(
     root: sourceRoot,
     signal: context.signal
   });
+  assertCompilerDependencyProofNamespaceCurrent(
+    namespace,
+    sourceGeneration,
+    'Compiler dependency execution proof file retirement admission'
+  );
   await runtimeDependencyOperationEffectFence(options, 'Compiler dependency execution proof retirement receipt');
   deleteNoFollowOwnedFile(
     proofPath,
@@ -10212,6 +10364,11 @@ async function retireCompilerDependencyExecutionProofIfPresent(
   if (observeNoFollowOwnedFile(proofPath, 'Compiler dependency execution proof retirement terminal') !== null) {
     throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency execution proof retirement left nonterminal residue');
   }
+  assertCompilerDependencyProofNamespaceCurrent(
+    namespace,
+    sourceGeneration,
+    'Compiler dependency execution proof retirement terminal readback'
+  );
 }
 
 async function retireIncompatibleCompilerDependencyTarget(
@@ -10320,7 +10477,7 @@ async function ensureCompilerDependencyGenerationReadOnlyProof(
     options,
     'Compiler dependency read-only generation admission'
   );
-  const sourceRoot = inspectNoFollowDirectoryChain(
+  let sourceRoot = inspectNoFollowDirectoryChain(
     sourceGeneration.sourcePath,
     'Compiler dependency read-only generation root'
   ).target;
@@ -10330,17 +10487,74 @@ async function ensureCompilerDependencyGenerationReadOnlyProof(
   )) {
     throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency read-only generation root changed');
   }
-  const namespace = await ensureDependencyTransitionNamespace(root, options);
-  await runtimeDependencyOperationEffectFence(
-    options,
-    'Compiler dependency execution proof namespace publication'
-  );
-  const proofRoot = createNoFollowOrdinaryDirectoryChain(
+  const proofOwnerRoot = path.resolve(sourceGeneration.ownerRoot);
+  const ownsProof = sameHostPath(root, proofOwnerRoot);
+  const namespace = ownsProof
+    ? await ensureCompilerDependencyProofNamespace(
+        sourceGeneration,
+        options,
+        'Compiler dependency source owner proof'
+      )
+    : inspectCompilerDependencyProofNamespace(
+        sourceGeneration,
+        'Compiler dependency source owner proof'
+      );
+  if (namespace === null) {
+    throw new SecError(
+      'RUNTIME-DEPS-004',
+      'Compiler dependency source owner proof namespace is unavailable'
+    );
+  }
+  let proofRoot = inspectNoFollowDirectoryChild(
     namespace.backupRoot,
-    ['read-only-generations']
+    'read-only-generations',
+    'Compiler dependency source owner proof root'
+  );
+  if (proofRoot === null) {
+    if (!ownsProof) {
+      throw new SecError(
+        'RUNTIME-DEPS-004',
+        'Compiler dependency source owner proof is unavailable'
+      );
+    }
+    await runtimeDependencyOperationEffectFence(
+      options,
+      'Compiler dependency execution proof namespace publication'
+    );
+    proofRoot = createNoFollowOrdinaryDirectoryChain(
+      namespace.backupRoot,
+      ['read-only-generations']
+    );
+  }
+  assertCompilerDependencyProofNamespaceCurrent(
+    namespace,
+    sourceGeneration,
+    'Compiler dependency source owner proof read admission'
   );
   const proofName = `${sourceGeneration.epoch.slice('sha256:'.length)}.json`;
+  const proofPath = path.join(proofRoot.path, proofName);
+  const proofEntry = inspectNoFollowOrdinaryFileEntry(proofRoot, proofName);
+  const initialProofObservation = observeNoFollowOwnedFile(
+    proofPath,
+    'Compiler dependency source owner proof'
+  );
+  if ((proofEntry === null) !== (initialProofObservation === null)
+      || (proofEntry !== null && initialProofObservation !== null
+        && (proofEntry.device !== initialProofObservation.device
+          || proofEntry.inode !== initialProofObservation.inode))) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency source owner proof changed before read');
+  }
   const proofBytes = readNoFollowOrdinaryFile(proofRoot, proofName);
+  const initialProofReadback = observeNoFollowOwnedFile(
+    proofPath,
+    'Compiler dependency source owner proof readback'
+  );
+  if ((proofBytes === null) !== (initialProofReadback === null)
+      || (initialProofObservation === null) !== (initialProofReadback === null)
+      || (initialProofObservation !== null && initialProofReadback !== null
+        && !sameNoFollowOwnedFileObservation(initialProofObservation, initialProofReadback))) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency source owner proof changed during read');
+  }
   let proofText: string | null;
   try {
     proofText = proofBytes === null
@@ -10356,8 +10570,15 @@ async function ensureCompilerDependencyGenerationReadOnlyProof(
     generation: RetainedNoFollowProvenDirectoryGeneration;
     proofText: string;
   }>;
-  if (proofText === null) {
-    const inventory = scanNoFollowDirectoryTreeInventory(sourceRoot, {
+  const binding = Object.freeze({
+    generationDigest: sourceGeneration.epoch,
+    treeDigest: sourceGeneration.treeDigest,
+    treeEntryCount: sourceGeneration.treeEntryCount
+  });
+  const observeInventory = (
+    rootIdentity = sourceRoot
+  ): ReturnType<typeof scanNoFollowDirectoryTreeInventory> => {
+    const inventory = scanNoFollowDirectoryTreeInventory(rootIdentity, {
       deadlineAtMs: context.deadlineAtMonotonicMs,
       maximumBytes: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
       maximumEntries: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES,
@@ -10368,12 +10589,16 @@ async function ensureCompilerDependencyGenerationReadOnlyProof(
         || observedTree.treeEntryCount !== sourceGeneration.treeEntryCount) {
       throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency read-only generation content changed');
     }
-    materialized = await materializeRetainedNoFollowProvenDirectoryGeneration({
-      binding: {
-        generationDigest: sourceGeneration.epoch,
-        treeDigest: sourceGeneration.treeDigest,
-        treeEntryCount: sourceGeneration.treeEntryCount
-      },
+    return inventory;
+  };
+  const seal = async (
+    inventory = observeInventory()
+  ): Promise<Readonly<{
+    generation: RetainedNoFollowProvenDirectoryGeneration;
+    proofText: string;
+  }>> => {
+    const sealed = await materializeRetainedNoFollowProvenDirectoryGeneration({
+      binding,
       deadlineAtUnixMs: Date.now() + Math.max(1, Math.floor(
         runtimeDependencyOperationRemainingMs(options, 'Compiler dependency read-only generation seal')
       )),
@@ -10382,50 +10607,356 @@ async function ensureCompilerDependencyGenerationReadOnlyProof(
       root: sourceRoot,
       signal: context.signal
     });
+    try {
+      await runtimeDependencyOperationEffectFence(
+        options,
+        'Compiler dependency sealed generation proof publication'
+      );
+      await sealed.generation.assertAuthorityCurrent();
+      const sealedRoot = inspectNoFollowDirectoryChain(
+        sourceGeneration.sourcePath,
+        'Compiler dependency sealed generation readback root'
+      ).target;
+      if (!sameGeneratedStateIdentity(
+        generatedStatePhysicalIdentity(sealedRoot),
+        sourceGeneration.physical
+      )) {
+        throw new SecError(
+          'RUNTIME-DEPS-004',
+          'Compiler dependency generation changed after proof seal'
+        );
+      }
+      observeInventory(sealedRoot);
+      await sealed.generation.assertAuthorityCurrent();
+      return sealed;
+    } catch (error) {
+      const settlementFailures: unknown[] = [];
+      try {
+        const retirement = await sealed.generation.retire();
+        assertPhysicalGenerationRetirementReceipt(retirement);
+      } catch (retirementError) {
+        settlementFailures.push(retirementError);
+      }
+      try {
+        const currentRoot = inspectNoFollowDirectoryChain(
+          sourceGeneration.sourcePath,
+          'Compiler dependency rejected proof retirement root'
+        ).target;
+        await retireNoFollowProvenDirectoryGeneration({
+          binding,
+          deadlineAtUnixMs: Date.now() + Math.max(1, Math.floor(
+            runtimeDependencyOperationRemainingMs(options, 'Compiler dependency rejected proof retirement')
+          )),
+          proofText: sealed.proofText,
+          root: currentRoot,
+          signal: context.signal
+        });
+      } catch (retirementError) {
+        settlementFailures.push(retirementError);
+      }
+      if (settlementFailures.length !== 0) {
+        throw new AggregateError(
+          [error, ...settlementFailures],
+          'Compiler dependency proof validation and physical settlement both failed'
+        );
+      }
+      if (error instanceof SecError && error.code === 'RUNTIME-DEPS-004') throw error;
+      throw new SecError(
+        'RUNTIME-DEPS-004',
+        'Compiler dependency sealed generation changed before proof publication',
+        { cause: error instanceof Error ? error.message : String(error) }
+      );
+    }
+  };
+  let recoveredOwnerProof = false;
+  if (proofText === null) {
+    if (!ownsProof) {
+      throw new SecError(
+        'RUNTIME-DEPS-004',
+        'Compiler dependency source owner proof is unavailable'
+      );
+    }
+    materialized = await seal();
   } else {
-    materialized = await materializeRetainedNoFollowProvenDirectoryGeneration({
-      binding: {
-        generationDigest: sourceGeneration.epoch,
-        treeDigest: sourceGeneration.treeDigest,
-        treeEntryCount: sourceGeneration.treeEntryCount
-      },
-      deadlineAtUnixMs: Date.now() + Math.max(1, Math.floor(
-        runtimeDependencyOperationRemainingMs(options, 'Compiler dependency read-only generation reopen')
-      )),
-      proofText,
-      root: sourceRoot,
-      signal: context.signal
-    });
+    try {
+      materialized = await materializeRetainedNoFollowProvenDirectoryGeneration({
+        binding,
+        deadlineAtUnixMs: Date.now() + Math.max(1, Math.floor(
+          runtimeDependencyOperationRemainingMs(options, 'Compiler dependency read-only generation reopen')
+        )),
+        proofText,
+        root: sourceRoot,
+        signal: context.signal
+      });
+    } catch (error) {
+      if (!ownsProof || !(error instanceof WindowsHostDirectoryAuthorityError)
+          || error.failure !== 'physical-identity-changed') {
+        throw error;
+      }
+      const inventory = observeInventory();
+      await runtimeDependencyOperationEffectFence(
+        options,
+        'Compiler dependency owner proof recovery retirement'
+      );
+      await retireNoFollowProvenDirectoryGeneration({
+        binding,
+        deadlineAtUnixMs: Date.now() + Math.max(1, Math.floor(
+          runtimeDependencyOperationRemainingMs(options, 'Compiler dependency owner proof recovery retirement')
+        )),
+        proofText,
+        root: sourceRoot,
+        signal: context.signal
+      });
+      sourceRoot = inspectNoFollowDirectoryChain(
+        sourceGeneration.sourcePath,
+        'Compiler dependency recovered generation root'
+      ).target;
+      if (!sameGeneratedStateIdentity(
+        generatedStatePhysicalIdentity(sourceRoot),
+        sourceGeneration.physical
+      )) {
+        throw new SecError(
+          'RUNTIME-DEPS-004',
+          'Compiler dependency generation changed during owner proof recovery'
+        );
+      }
+      materialized = await seal(inventory);
+      recoveredOwnerProof = true;
+    }
   }
-  let effectiveProofText: string;
-  let retirement: PhysicalGenerationRetirementReceipt | null = null;
+  const effectiveProofText = materialized.proofText;
+  let authorityFailure: unknown;
   try {
     await materialized.generation.assertAuthorityCurrent();
-    effectiveProofText = materialized.proofText;
-  } finally {
-    retirement = await materialized.generation.retire();
-    assertPhysicalGenerationRetirementReceipt(retirement);
+  } catch (error) {
+    authorityFailure = error;
   }
-  if (proofBytes === null) {
-    await runtimeDependencyOperationEffectFence(
-      options,
-      'Compiler dependency execution proof publication'
+  let retainedRetirementFailure: unknown;
+  try {
+    const retirement = await materialized.generation.retire();
+    assertPhysicalGenerationRetirementReceipt(retirement);
+  } catch (error) {
+    retainedRetirementFailure = error;
+  }
+  if (authorityFailure !== undefined && retainedRetirementFailure !== undefined) {
+    throw new AggregateError(
+      [authorityFailure, retainedRetirementFailure],
+      'Compiler dependency generation authority and retained-capability retirement both failed'
     );
-    const bytes = Buffer.from(effectiveProofText, 'utf8');
-    publishExclusiveDurableCanonicalFile({
-      parent: proofRoot,
-      name: proofName,
-      bytes,
-      validate(candidate) {
+  }
+  if (authorityFailure !== undefined) throw authorityFailure;
+  if (retainedRetirementFailure !== undefined) throw retainedRetirementFailure;
+
+  const publicationRequired = proofBytes === null || recoveredOwnerProof;
+  let publishedProofObservation: NoFollowOwnedFileObservation | null = null;
+  try {
+    if (publicationRequired) {
+      assertCompilerDependencyProofNamespaceCurrent(
+        namespace,
+        sourceGeneration,
+        'Compiler dependency execution proof publication admission'
+      );
+      await runtimeDependencyOperationEffectFence(
+        options,
+        'Compiler dependency execution proof publication'
+      );
+      const bytes = Buffer.from(effectiveProofText, 'utf8');
+      const validate = (candidate: Uint8Array): void => {
         if (!Buffer.from(candidate).equals(bytes)) {
           throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency execution proof bytes changed');
         }
+      };
+      if (proofBytes === null) {
+        const receipt = publishExclusiveDurableCanonicalFile({
+          parent: proofRoot,
+          name: proofName,
+          bytes,
+          validate
+        });
+        if (receipt.created) {
+          const observation = observeNoFollowOwnedFile(
+            proofPath,
+            'Compiler dependency published execution proof'
+          );
+          if (observation === null || observation.device !== receipt.physical.device
+              || observation.inode !== receipt.physical.inode) {
+            throw new SecError(
+              'RUNTIME-DEPS-004',
+              'Compiler dependency published execution proof identity changed'
+            );
+          }
+          publishedProofObservation = observation;
+        }
+      } else {
+        if (proofEntry === null) {
+          throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency source owner proof changed');
+        }
+        const receipt = replaceDurableCanonicalFile({
+          parent: proofRoot,
+          name: proofName,
+          bytes,
+          expectedExisting: { device: proofEntry.device, inode: proofEntry.inode },
+          validate
+        });
+        const observation = observeNoFollowOwnedFile(
+          proofPath,
+          'Compiler dependency replaced execution proof'
+        );
+        if (observation === null || observation.device !== receipt.physical.device
+            || observation.inode !== receipt.physical.inode) {
+          throw new SecError(
+            'RUNTIME-DEPS-004',
+            'Compiler dependency replaced execution proof identity changed'
+          );
+        }
+        publishedProofObservation = observation;
       }
-    });
-  }
-  const readback = readNoFollowOrdinaryFile(proofRoot, proofName);
-  if (readback === null || Buffer.from(readback).toString('utf8') !== effectiveProofText) {
-    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency execution proof readback changed');
+    }
+    assertCompilerDependencyProofNamespaceCurrent(
+      namespace,
+      sourceGeneration,
+      'Compiler dependency execution proof readback admission'
+    );
+    const readback = readNoFollowOrdinaryFile(proofRoot, proofName);
+    if (readback === null || Buffer.from(readback).toString('utf8') !== effectiveProofText) {
+      throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency execution proof readback changed');
+    }
+    assertCompilerDependencyProofNamespaceCurrent(
+      namespace,
+      sourceGeneration,
+      'Compiler dependency execution proof final readback'
+    );
+  } catch (error) {
+    if (!publicationRequired) throw error;
+    const settlementFailures: unknown[] = [];
+    let currentProofObservation: NoFollowOwnedFileObservation | null | undefined;
+    try {
+      assertCompilerDependencyProofNamespaceCurrent(
+        namespace,
+        sourceGeneration,
+        'Compiler dependency rejected proof publication settlement admission'
+      );
+      currentProofObservation = observeNoFollowOwnedFile(
+        proofPath,
+        'Compiler dependency rejected proof publication settlement'
+      );
+    } catch (observationError) {
+      settlementFailures.push(observationError);
+    }
+    const ownedProofObservation = publishedProofObservation !== null
+      && currentProofObservation !== null && currentProofObservation !== undefined
+      && sameNoFollowOwnedFileObservation(publishedProofObservation, currentProofObservation)
+      ? publishedProofObservation
+      : recoveredOwnerProof && initialProofObservation !== null
+        && currentProofObservation !== null && currentProofObservation !== undefined
+        && sameNoFollowOwnedFileObservation(initialProofObservation, currentProofObservation)
+        ? initialProofObservation
+        : null;
+    if (currentProofObservation !== null && currentProofObservation !== undefined
+        && ownedProofObservation === null) {
+      settlementFailures.push(new SecError(
+        'RUNTIME-DEPS-004',
+        'Compiler dependency rejected proof publication left unowned proof state'
+      ));
+    }
+    let physicalRetired = false;
+    if (currentProofObservation !== undefined
+        && (currentProofObservation === null || ownedProofObservation !== null)) {
+      try {
+        await runtimeDependencyOperationEffectFence(
+          options,
+          'Compiler dependency rejected proof publication retirement'
+        );
+        const currentRoot = inspectNoFollowDirectoryChain(
+          sourceGeneration.sourcePath,
+          'Compiler dependency rejected proof publication root'
+        ).target;
+        await retireNoFollowProvenDirectoryGeneration({
+          binding,
+          deadlineAtUnixMs: Date.now() + Math.max(1, Math.floor(
+            runtimeDependencyOperationRemainingMs(options, 'Compiler dependency rejected proof publication retirement')
+          )),
+          proofText: effectiveProofText,
+          root: currentRoot,
+          signal: context.signal
+        });
+        physicalRetired = true;
+      } catch (retirementError) {
+        settlementFailures.push(retirementError);
+      }
+    }
+    if (physicalRetired) {
+      try {
+        assertCompilerDependencyProofNamespaceCurrent(
+          namespace,
+          sourceGeneration,
+          'Compiler dependency rejected proof publication cleanup'
+        );
+        const proofAfterRetirement = observeNoFollowOwnedFile(
+          proofPath,
+          'Compiler dependency rejected proof publication cleanup'
+        );
+        if ((proofAfterRetirement === null) !== (ownedProofObservation === null)
+            || (proofAfterRetirement !== null && ownedProofObservation !== null
+              && !sameNoFollowOwnedFileObservation(ownedProofObservation, proofAfterRetirement))) {
+          throw new SecError(
+            'RUNTIME-DEPS-004',
+            'Compiler dependency rejected proof publication ownership changed during retirement'
+          );
+        }
+        if (ownedProofObservation !== null) {
+          const publishedBytes = readNoFollowOrdinaryFile(proofRoot, proofName);
+          const publishedReadback = observeNoFollowOwnedFile(
+            proofPath,
+            'Compiler dependency rejected proof publication cleanup readback'
+          );
+          if (publishedBytes === null || publishedReadback === null
+              || !sameNoFollowOwnedFileObservation(ownedProofObservation, publishedReadback)) {
+            throw new SecError(
+              'RUNTIME-DEPS-004',
+              'Compiler dependency rejected proof publication ownership changed'
+            );
+          }
+          await runtimeDependencyOperationEffectFence(
+            options,
+            'Compiler dependency rejected proof publication cleanup'
+          );
+          assertCompilerDependencyProofNamespaceCurrent(
+            namespace,
+            sourceGeneration,
+            'Compiler dependency rejected proof publication deletion admission'
+          );
+          deleteNoFollowOwnedFile(
+            proofPath,
+            ownedProofObservation,
+            'Compiler dependency rejected proof publication cleanup'
+          );
+          if (observeNoFollowOwnedFile(
+            proofPath,
+            'Compiler dependency rejected proof publication cleanup terminal'
+          ) !== null) {
+            throw new SecError(
+              'RUNTIME-DEPS-004',
+              'Compiler dependency rejected proof publication cleanup left residue'
+            );
+          }
+        }
+        assertCompilerDependencyProofNamespaceCurrent(
+          namespace,
+          sourceGeneration,
+          'Compiler dependency rejected proof publication cleanup terminal readback'
+        );
+      } catch (cleanupError) {
+        settlementFailures.push(cleanupError);
+      }
+    }
+    if (settlementFailures.length !== 0) {
+      throw new AggregateError(
+        [error, ...settlementFailures],
+        'Compiler dependency proof publication and physical settlement both failed'
+      );
+    }
+    throw error;
   }
   return Object.freeze({ proofText: effectiveProofText, sourceRoot });
 }
@@ -10613,7 +11144,10 @@ export async function retainCompilerDependencyReadGeneration(
           sourceRoot,
           'Compiler dependency read generation authority admission'
         );
-        const namespace = inspectDependencyTransitionNamespace(expected.root);
+        const namespace = inspectCompilerDependencyProofNamespace(
+          expected.sourceGeneration,
+          'Compiler dependency read generation proof'
+        );
         const proofRoot = namespace === null ? null : inspectNoFollowDirectoryChild(
           namespace.backupRoot,
           'read-only-generations',
@@ -10627,6 +11161,11 @@ export async function retainCompilerDependencyReadGeneration(
         if (proofBytes === null) {
           throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency read generation proof is unavailable');
         }
+        assertCompilerDependencyProofNamespaceCurrent(
+          namespace,
+          expected.sourceGeneration,
+          'Compiler dependency read generation proof readback'
+        );
         let proofText: string;
         try {
           proofText = new TextDecoder('utf-8', { fatal: true }).decode(proofBytes);
@@ -10654,6 +11193,11 @@ export async function retainCompilerDependencyReadGeneration(
         await assertOwnerAuthorityCurrent(
           sourceRoot,
           'Compiler dependency read generation authority readback'
+        );
+        assertCompilerDependencyProofNamespaceCurrent(
+          namespace,
+          expected.sourceGeneration,
+          'Compiler dependency read generation proof final readback'
         );
         const acquired = await acquireCompilerDependencyConsumer(
           expected.sourceGeneration,
@@ -10759,6 +11303,10 @@ type CompilerDependencyReadyObservation =
       nodeModulesPath: string;
     }>;
 
+type CompilerDependencyPublishedProofObservation =
+  | Exclude<CompilerDependencyReadyObservation, Readonly<{ kind: 'incompatible-bridge' }>>
+  | Readonly<{ kind: 'owner-proof-recovery-required' }>;
+
 /**
  * Reads the one admitted compiler dependency surface without publishing or
  * repairing it. A linked-worktree locator and a local physical generation are
@@ -10824,44 +11372,68 @@ async function observeCompilerDependencyReadyFromPublishedProof(
   nodeModulesPath: string,
   identity: CompilerDependencyIdentity,
   options: RuntimeDependencyOperationOptions,
-  ledger: Awaited<ReturnType<typeof readDependencyTransitionLedger>>
-): Promise<CompilerDependencyReadyObservation | null> {
-  if (ledger === null) return null;
+  observed: Exclude<CompilerDependencyReadyObservation, Readonly<{ kind: 'incompatible-bridge' }>>
+): Promise<CompilerDependencyPublishedProofObservation> {
   let generationPath: string;
   try {
     generationPath = path.resolve(await fs.realpath(nodeModulesPath));
   } catch (error) {
-    if (isFileNotFoundError(error)) return null;
+    if (isFileNotFoundError(error)) {
+      throw new SecError(
+        'RUNTIME-DEPS-004',
+        'Compiler dependency published generation disappeared before proof readback'
+      );
+    }
     throw error;
   }
-  if (!isCanonicalLocalCompilerDependencyGeneration(root, generationPath)) return null;
   const binding = await readCompilerDepsBinding(path.join(generationPath, COMPILER_DEPS_BINDING_FILE));
-  if (binding === null || !compilerDependencyBindingMatchesIdentity(binding, identity)) return null;
-  const bindingDigest = generatedStateDigest(binding);
+  if (binding === null || !compilerDependencyBindingMatchesIdentity(binding, identity)
+      || !canonicalEquals(binding, observed.binding)
+      || !sameHostPath(generationPath, observed.sourceGeneration.sourcePath)) {
+    throw new SecError(
+      'RUNTIME-DEPS-004',
+      'Compiler dependency published generation changed before proof readback'
+    );
+  }
   const generationRoot = inspectNoFollowDirectoryChain(
     generationPath,
     'Compiler dependency published generation root'
   ).target;
   const generationPhysical = generatedStatePhysicalIdentity(generationRoot);
-  const records = [...ledger.records.values()]
-    .filter((record) => record.kind === 'compiler-local-locator' && record.phase === 'complete'
-      && sameHostPath(record.sourceGeneration.sourcePath, generationPath)
-      && record.sourceGeneration.bindingDigest === bindingDigest
-      && sameGeneratedStateIdentity(record.sourceGeneration.physical, generationPhysical))
-    .sort((left, right) => right.sequence - left.sequence);
-  const record = records[0];
-  if (record === undefined) return null;
-  const namespace = inspectDependencyTransitionNamespace(root);
-  if (namespace === null) return null;
+  if (!sameGeneratedStateIdentity(observed.sourceGeneration.physical, generationPhysical)) {
+    throw new SecError(
+      'RUNTIME-DEPS-004',
+      'Compiler dependency published generation physical identity changed before proof readback'
+    );
+  }
+  const ownerRecoveryRequired = (): CompilerDependencyPublishedProofObservation => {
+    if (sameHostPath(root, observed.sourceGeneration.ownerRoot)) {
+      return Object.freeze({ kind: 'owner-proof-recovery-required' as const });
+    }
+    throw new SecError(
+      'RUNTIME-DEPS-004',
+      'Compiler dependency source owner proof is unavailable'
+    );
+  };
+  const namespace = inspectCompilerDependencyProofNamespace(
+    observed.sourceGeneration,
+    'Compiler dependency published generation proof'
+  );
+  if (namespace === null) return ownerRecoveryRequired();
   const proofRoot = inspectNoFollowDirectoryChild(
     namespace.backupRoot,
     'read-only-generations',
     'Compiler dependency published generation proof root'
   );
-  if (proofRoot === null) return null;
-  const proofName = `${record.sourceGeneration.epoch.slice('sha256:'.length)}.json`;
+  if (proofRoot === null) return ownerRecoveryRequired();
+  const proofName = `${observed.sourceGeneration.epoch.slice('sha256:'.length)}.json`;
   const proofBytes = readNoFollowOrdinaryFile(proofRoot, proofName);
-  if (proofBytes === null) return null;
+  if (proofBytes === null) return ownerRecoveryRequired();
+  assertCompilerDependencyProofNamespaceCurrent(
+    namespace,
+    observed.sourceGeneration,
+    'Compiler dependency published generation proof readback'
+  );
   let proofText: string;
   try {
     proofText = new TextDecoder('utf-8', { fatal: true }).decode(proofBytes);
@@ -10871,18 +11443,35 @@ async function observeCompilerDependencyReadyFromPublishedProof(
     });
   }
   const context = runtimeDependencyOperationContext(options);
-  const reopened = await reopenRetainedNoFollowProvenDirectoryGeneration({
-    deadlineAtUnixMs: Date.now() + Math.max(1, Math.floor(
-      runtimeDependencyOperationRemainingMs(options, 'Compiler dependency published generation proof')
-    )),
-    proofText,
-    root: generationRoot,
-    signal: context.signal
-  });
+  let reopened: Awaited<ReturnType<typeof reopenRetainedNoFollowProvenDirectoryGeneration>>;
   try {
-    if (reopened.binding.generationDigest !== record.sourceGeneration.epoch
-        || reopened.binding.treeDigest !== record.sourceGeneration.treeDigest
-        || reopened.binding.treeEntryCount !== record.sourceGeneration.treeEntryCount) {
+    reopened = await reopenRetainedNoFollowProvenDirectoryGeneration({
+      deadlineAtUnixMs: Date.now() + Math.max(1, Math.floor(
+        runtimeDependencyOperationRemainingMs(options, 'Compiler dependency published generation proof')
+      )),
+      proofText,
+      root: generationRoot,
+      signal: context.signal
+    });
+  } catch (error) {
+    if (!(error instanceof WindowsHostDirectoryAuthorityError)
+        || error.failure !== 'physical-identity-changed') {
+      throw error;
+    }
+    if (!sameHostPath(root, observed.sourceGeneration.ownerRoot)) {
+      throw new SecError(
+        'RUNTIME-DEPS-004',
+        'Compiler dependency source owner proof changed; owner recovery is required'
+      );
+    }
+    return Object.freeze({ kind: 'owner-proof-recovery-required' as const });
+  }
+  let result: Exclude<CompilerDependencyReadyObservation, Readonly<{ kind: 'incompatible-bridge' }>> | undefined;
+  let readbackFailure: unknown;
+  try {
+    if (reopened.binding.generationDigest !== observed.sourceGeneration.epoch
+        || reopened.binding.treeDigest !== observed.sourceGeneration.treeDigest
+        || reopened.binding.treeEntryCount !== observed.sourceGeneration.treeEntryCount) {
       throw new SecError(
         'RUNTIME-DEPS-004',
         'Compiler dependency published generation proof differs from its immutable transition'
@@ -10912,16 +11501,36 @@ async function observeCompilerDependencyReadyFromPublishedProof(
         'Compiler dependency published generation changed during proof readback'
       );
     }
-    return Object.freeze({
+    assertCompilerDependencyProofNamespaceCurrent(
+      namespace,
+      observed.sourceGeneration,
+      'Compiler dependency published generation proof final readback'
+    );
+    result = Object.freeze({
       binding,
       kind: 'external-bridge' as const,
       nodeModulesPath,
-      sourceGeneration: record.sourceGeneration
+      sourceGeneration: observed.sourceGeneration
     });
-  } finally {
+  } catch (error) {
+    readbackFailure = error;
+  }
+  let retirementFailure: unknown;
+  try {
     const retirement = await reopened.generation.retire();
     assertPhysicalGenerationRetirementReceipt(retirement);
+  } catch (error) {
+    retirementFailure = error;
   }
+  if (readbackFailure !== undefined && retirementFailure !== undefined) {
+    throw new AggregateError(
+      [readbackFailure, retirementFailure],
+      'Compiler dependency proof readback and retained-capability retirement both failed'
+    );
+  }
+  if (readbackFailure !== undefined) throw readbackFailure;
+  if (retirementFailure !== undefined) throw retirementFailure;
+  return result!;
 }
 
 /**
@@ -10959,28 +11568,6 @@ export async function observeCompilerDependencyExecutionGenerationAuthority(
     );
   }
   const identity = await observeCompilerDependencyIdentity(root, operationOptions);
-  const published = await observeCompilerDependencyReadyFromPublishedProof(
-    root,
-    nodeModulesPath,
-    identity,
-    operationOptions,
-    transitionLedger
-  );
-  if (published !== null && published.kind !== 'incompatible-bridge') {
-    return issueCompilerDependencyExecutionGenerationAuthority({
-      binding: published.binding,
-      directRootResolution: compilerDependencyDirectRootResolution(
-        published.binding,
-        identity
-      ),
-      identity,
-      kind: 'none',
-      nodeModulesPath,
-      root,
-      sourceGeneration: published.sourceGeneration,
-      source: 'existing'
-    });
-  }
   const observed = await observeCompilerDependencyReady(
     root,
     nodeModulesPath,
@@ -10998,43 +11585,25 @@ export async function observeCompilerDependencyExecutionGenerationAuthority(
   if (observed.kind === 'incompatible-bridge') {
     return null;
   }
-  runtimeDependencyOperationRemainingMs(
-    operationOptions,
-    'Compiler dependency generation observation readback admission'
-  );
-  await operationOptions.beforeCommit?.();
-  assertCompilerDependencyInputsCurrent(root, identity);
-  const finalIdentity = await observeCompilerDependencyIdentity(root, operationOptions);
-  const finalObservation = await observeCompilerDependencyReady(
+  const published = await observeCompilerDependencyReadyFromPublishedProof(
     root,
     nodeModulesPath,
-    finalIdentity,
-    operationOptions
-  );
-  runtimeDependencyOperationRemainingMs(
+    identity,
     operationOptions,
-    'Compiler dependency generation observation final readback'
+    observed
   );
-  if (finalObservation === null || finalObservation.kind === 'incompatible-bridge' ||
-      finalObservation.kind !== observed.kind || !canonicalEquals(finalIdentity, identity) ||
-      !canonicalEquals(finalObservation.binding, observed.binding) ||
-      !canonicalEquals(finalObservation.sourceGeneration, observed.sourceGeneration)) {
-    throw new SecError(
-      'RUNTIME-DEPS-004',
-      'Compiler dependency generation changed during observation'
-    );
-  }
+  if (published.kind === 'owner-proof-recovery-required') return null;
   return issueCompilerDependencyExecutionGenerationAuthority({
-    binding: finalObservation.binding,
+    binding: published.binding,
     directRootResolution: compilerDependencyDirectRootResolution(
-      finalObservation.binding,
-      finalIdentity
+      published.binding,
+      identity
     ),
-    identity: finalIdentity,
+    identity,
     kind: 'none',
     nodeModulesPath,
     root,
-    sourceGeneration: finalObservation.sourceGeneration,
+    sourceGeneration: published.sourceGeneration,
     source: 'existing'
   });
 }
@@ -11106,18 +11675,23 @@ async function ensureCompilerDepsReadyInternal(
     });
   }
   if (observed?.kind === 'external-bridge') {
-    return withCompilerDependencyTransitionLease(root, lifecycleOptions, async () => {
+    return withCompilerDependencyTransitionLease(root, lifecycleOptions, async (lockedOptions) => {
       const current = await observeCompilerDependencyReady(
         root,
         nodeModulesPath,
         identity,
-        lifecycleOptions
+        lockedOptions
       );
       if (current?.kind !== 'external-bridge'
           || !canonicalEquals(current.binding, observed.binding)) {
         throw new SecError('IMPORT-AUTHORITY-004', 'Compiler dependency locator changed before lifecycle binding');
       }
-      await bindExistingCompilerDependencyLocator(root, identity, current.binding, lifecycleOptions);
+      await ensureCompilerDependencyGenerationReadOnlyProof(
+        root,
+        current.sourceGeneration,
+        lockedOptions
+      );
+      await bindExistingCompilerDependencyLocator(root, identity, current.binding, lockedOptions);
       return createCompilerDepsReadyState({
         binding: current.binding,
         identity,

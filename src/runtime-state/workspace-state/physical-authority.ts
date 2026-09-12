@@ -168,17 +168,14 @@ async function withWindowsRuntimeStateAuthorityOperation<T>(
       && (!Number.isSafeInteger(deadlineAtUnixMs) || deadlineAtUnixMs <= Date.now())) {
     throw new RuntimeStateAuthorityDeadlineError('Windows Runtime State authority operation deadline is invalid or expired.');
   }
-  if (deadlineAtUnixMs !== undefined && generation.pendingOperations !== 0) {
-    throw new RuntimeStateAuthorityDeadlineError('Windows Runtime State authority has a pending operation at bounded admission.');
-  }
   generation.pendingOperations += 1;
   const predecessor = generation.operationTail;
-  let settle!: () => void;
-  generation.operationTail = new Promise<void>((resolve) => {
-    settle = resolve;
-  });
-  await predecessor;
-  try {
+  let cancelled = false;
+  let operationStarted = false;
+  let cancellationFailure: RuntimeStateAuthorityDeadlineError | undefined;
+  const execution = predecessor.then(async () => {
+    if (cancelled) throw cancellationFailure;
+    operationStarted = true;
     if (deadlineAtUnixMs !== undefined && Date.now() >= deadlineAtUnixMs) {
       throw new RuntimeStateAuthorityDeadlineError('Windows Runtime State authority operation deadline expired.');
     }
@@ -190,9 +187,31 @@ async function withWindowsRuntimeStateAuthorityOperation<T>(
       throw new RuntimeStateAuthorityDeadlineError('Windows Runtime State authority operation settled after its deadline.');
     }
     return result;
-  } finally {
-    settle();
+  }).finally(() => {
     generation.pendingOperations -= 1;
+  });
+  generation.operationTail = execution.then(
+    () => undefined,
+    () => undefined
+  );
+  if (deadlineAtUnixMs === undefined) return execution;
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      execution,
+      new Promise<never>((_resolve, reject) => {
+        deadlineTimer = setTimeout(() => {
+          if (operationStarted) return;
+          cancellationFailure = new RuntimeStateAuthorityDeadlineError(
+            'Windows Runtime State authority operation deadline expired while queued.'
+          );
+          cancelled = true;
+          reject(cancellationFailure);
+        }, Math.max(0, deadlineAtUnixMs - Date.now()));
+      })
+    ]);
+  } finally {
+    if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
   }
 }
 
