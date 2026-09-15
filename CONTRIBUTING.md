@@ -1,6 +1,6 @@
-# Contributing to SEC
+# Contributing to the Engineering Workspace Compiler
 
-SEC is under active architecture and implementation convergence. The repository is being prepared for public open-source development, but interfaces and contribution workflows may still change before the first stable public release.
+This repository retains the historical name `sec`; that name is not the current project definition or acronym. The Engineering Workspace Compiler is under active architecture and implementation convergence. Interfaces and contribution workflows may still change before the first stable public release.
 
 ## Before contributing
 
@@ -16,7 +16,7 @@ The public summaries are not a second architecture authority. When they conflict
 
 ## Development environment
 
-SEC currently uses Bun and TypeScript. Use the repository-pinned runtime/toolchain declarations rather than copying version numbers from documentation:
+The current implementation uses Bun and TypeScript. Use the repository-pinned runtime/toolchain declarations rather than copying version numbers from documentation:
 
 - `.bun-version`
 - `package.json`
@@ -28,14 +28,14 @@ Before making a change, use the repository's canonical development entry point d
 
 ## Change principles
 
-A contribution should preserve SEC's core engineering boundaries:
+A contribution should preserve the project's core engineering boundaries:
 
 - one canonical owner for each piece of engineering truth;
 - explicit identity, revision, authority, effect, failure, recovery, and evidence boundaries where they matter;
 - AI output is proposal or bounded execution input, not self-authenticating engineering truth;
 - unknown or unsupported states fail honestly rather than being converted into success;
 - planning and observation do not silently mutate the target workspace;
-- existing programming languages and external tools are reusable providers/targets, not concepts to duplicate inside SEC without a real semantic need;
+- existing programming languages and external tools are reusable providers/targets, not concepts to duplicate without a real semantic need;
 - a new abstraction needs a real producer, consumer, distinct invariant, and lifecycle rather than only a new name.
 
 ## Keep changes focused
@@ -58,8 +58,8 @@ Stable documentation should avoid embedding transient branch names, pull-request
 
 ## Public API and compatibility
 
-SEC has not yet declared a stable public API. Do not infer compatibility guarantees from the current package version, file layout, CLI command shape, or internal TypeScript types. Any future compatibility guarantee must be explicitly versioned and released.
+The project has not yet declared a stable public API. Do not infer compatibility guarantees from the current package version, file layout, CLI command shape, or internal TypeScript types. Any future compatibility guarantee must be explicitly versioned and released.
 
 ## Licensing
 
-By contributing code or documentation to this repository, you agree that your contribution may be distributed under the repository's MIT License.
+By contributing code or documentation to this repository, you agree that your contribution may be distributed under the repository's MIT License. Third-party materials remain subject to their own applicable license and notice requirements.
