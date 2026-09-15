@@ -400,7 +400,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout exact trusted main producer
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.validate-agent-operation-activation-request.outputs.base-sha }}
           fetch-depth: 0
@@ -411,7 +411,7 @@ jobs:
           path: trusted
 
       - name: Checkout exact candidate SUT
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.validate-agent-operation-activation-request.outputs.head-sha }}
           fetch-depth: 0
@@ -536,7 +536,7 @@ jobs:
       queue: max
     steps:
       - name: Checkout trusted exact default base for Session coordination
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.validate-hosted-request.outputs.base-sha }}
           fetch-depth: 0
@@ -783,7 +783,7 @@ jobs:
       resolution-artifact-name: ${{ steps.resolve.outputs.resolution-artifact-name }}
     steps:
       - name: Checkout trusted exact default base for Action resolution
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.validate-hosted-request.outputs.base-sha }}
           fetch-depth: 0
@@ -878,7 +878,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout trusted exact default base for SUT capability preflight
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.validate-hosted-request.outputs.base-sha }}
           fetch-depth: 0
@@ -948,7 +948,7 @@ jobs:
       ticket-issued: ${{ steps.ticket.outputs.ticket-issued }}
     steps:
       - name: Checkout trusted exact default base for Action claim
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.validate-hosted-request.outputs.base-sha }}
           fetch-depth: 0
@@ -1014,7 +1014,7 @@ jobs:
           '
 
       - name: Checkout exact candidate for trusted materialization only
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.validate-hosted-request.outputs.head-sha }}
           path: .tmp/codex/candidate
@@ -1127,7 +1127,7 @@ jobs:
       raw-result-digest: ${{ steps.sut.outputs.raw-result-digest }}
     steps:
       - name: Checkout trusted exact default base for SUT facade
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.validate-hosted-request.outputs.base-sha }}
           fetch-depth: 0
@@ -1214,7 +1214,7 @@ jobs:
       queue: max
     steps:
       - name: Checkout fresh trusted exact default base for terminal assembly
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.validate-hosted-request.outputs.base-sha }}
           fetch-depth: 0
@@ -1371,7 +1371,7 @@ jobs:
 
       - name: Checkout exact pushed main revision
         id: checkout-main
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.client_payload.payload.mainSha }}
           fetch-depth: 0
