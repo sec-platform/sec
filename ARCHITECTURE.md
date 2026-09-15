@@ -1,10 +1,10 @@
-# SEC Architecture Overview
+# Engineering Workspace Compiler — Architecture Overview
 
-This document is a public-facing projection of SEC's current architecture. It is intentionally smaller than the canonical design corpus under `docs/**` and does not replace those documents as design authority.
+This document is a public-facing projection of the project's current architecture. The repository retains the historical name `sec`; that name is not used here as the current project definition or acronym. This overview is intentionally smaller than the canonical design corpus under `docs/**` and does not replace those documents as design authority.
 
 ## Core idea
 
-SEC separates **engineering meaning** from the particular source files, packages, processes, and tools that realize that meaning.
+The system separates **engineering meaning** from the particular source files, packages, processes, and tools that realize that meaning.
 
 The central causal chain is:
 
@@ -34,7 +34,7 @@ A path, type name, package, generated file, test result, process exit code, or A
 
 ## Product flow
 
-SEC supports two major entry paths that converge on the same downstream semantics.
+The Engineering Workspace Compiler supports two major entry paths that converge on the same downstream semantics.
 
 ### Existing software
 
@@ -80,7 +80,7 @@ Published target workspace
 
 ## Product domains
 
-The current SEC product design partitions responsibilities into six domains:
+The current product design partitions responsibilities into six domains:
 
 1. **Engineering Semantics** — accepted definitions, responsibilities, contracts, policies, and semantic revisions.
 2. **Realization** — target selection, eligible implementation candidates, design decisions, exact implementation bindings, and target-artifact generation.
@@ -107,7 +107,7 @@ It may not silently replace canonical semantics, manufacture evidence, expand it
 
 ## Why source code can become assembly-like
 
-SEC does not attempt to eliminate source code or existing languages.
+The project does not attempt to eliminate source code or existing languages.
 
 The architectural thesis is that a sufficiently expressive, governed engineering-semantic layer can become the primary surface through which humans and AI describe and evolve systems. Conventional source code can then increasingly act as a lower-level realization format: generated or transformed where appropriate, inspected when necessary, and compiled through existing language ecosystems.
 
@@ -115,7 +115,7 @@ The analogy is architectural rather than literal. Source code remains substantia
 
 ## Failure is part of the model
 
-SEC does not collapse every unsuccessful operation into a generic error. Its architecture distinguishes outcomes such as:
+The architecture does not collapse every unsuccessful operation into a generic error. It distinguishes outcomes such as:
 
 - rejected requests;
 - unresolved semantics or observations;
