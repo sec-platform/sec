@@ -16,6 +16,6 @@
 4. 一个logical run保持一个mutable candidate。只有独立结果与owner/文件边界明确、并行有实际收益时委派；子任务权限只收窄，主线程保留授权、架构裁决、集成、验证和收口，不能让多个writer修改同一owner。
 5. 编辑期执行最小有效哨兵；frozen对象才生成昂贵证据。执行集合按`RequiredClosure ∩ MissingOrStale`选择，同一ActionKey的fresh PASS、确定性失败及authenticated in-flight分别复用、停止该失败路径及join。证据只证明其绑定对象与环境。
 6. 失败先定位owner、失效前提、影响闭包和恢复入口，不用扩大timeout、切换Provider、删测试或重复运行绕过。反证使旧计划失效，修正相交唯一owner；无关且安全的工作继续。实现迁移、独立审查与真实发布按其自身合同处理。
-7. 作用后取得真实settlement/readback；merge后重新绑定new main与新一代权限，完成声明区分设计、源码、局部测试、受信Gate、远端入库、合并与branch/worktree/runtime残留。旧操作责任不因换attempt、新提交或删除配置而消失。
+7. 作用后取得真实settlement/readback；merge后重新绑定new main与新一代权限，完成声明区分设计、源码、局部测试、受信Gate、远端入库、合并与branch/worktree/runtime残留。辅助工作树先用generated-state/compiler-dependency退役与`worktree-physical-closeout`结算受管locator，不把`git worktree remove`当完整清理；旧操作责任不因换attempt、新提交或删除配置而消失。
 
 上述机器载体的实现与当前状态以各自producer/consumer、原生能力和回读为依据。Skill只保留有界判断规则；文件存在不证明进程已加载或未来行为符合。规则投影或当前作用权限不能确认时保留相交unknown，不自报已完成。
