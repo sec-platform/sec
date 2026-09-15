@@ -125,59 +125,6 @@ test('upgrade rejects literal text replace migrations when search text is missin
   );
 });
 
-test('upgrade rejects malformed text replace regex migration entries before planning', async () => {
-  await withBlockUpgradeDryRunFixture(
-    {
-      prefix: 'engineering-compiler-upgrade-malformed-text-regex-',
-      migration: {
-        id: 'mig-upgrade-notes-regex',
-        kind: 'text-replace-regex',
-        entry: 'migrations/upgrade-notes-regex.json',
-        requiresVerification: false,
-        body: {
-          id: 'mig-upgrade-notes-regex',
-          kind: 'text-replace-regex',
-          reason: 'Replace upgrade notes marker.',
-          target: 'docs/upgrade-notes.md',
-          pattern: 'status: pending'
-        }
-      }
-    },
-    async ({ workspaceRoot }) => {
-      await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0', { dryRun: true })).rejects.toMatchObject({
-        code: 'UPGRADE-MIGRATION-011'
-      });
-    }
-  );
-});
-
-test('upgrade rejects invalid text replace regex patterns before planning', async () => {
-  await withBlockUpgradeDryRunFixture(
-    {
-      prefix: 'engineering-compiler-upgrade-invalid-text-regex-',
-      migration: {
-        id: 'mig-upgrade-notes-regex',
-        kind: 'text-replace-regex',
-        entry: 'migrations/upgrade-notes-regex.json',
-        requiresVerification: false,
-        body: {
-          id: 'mig-upgrade-notes-regex',
-          kind: 'text-replace-regex',
-          reason: 'Replace upgrade notes marker.',
-          target: 'docs/upgrade-notes.md',
-          pattern: 'status: (pending',
-          replacement: 'status: applied'
-        }
-      }
-    },
-    async ({ workspaceRoot }) => {
-      await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0', { dryRun: true })).rejects.toMatchObject({
-        code: 'UPGRADE-MIGRATION-014'
-      });
-    }
-  );
-});
-
 test('upgrade rejects malformed text append migration entries before planning', async () => {
   await withBlockUpgradeDryRunFixture(
     {

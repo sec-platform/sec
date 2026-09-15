@@ -70,9 +70,9 @@ test('CLI emits text migration operation details in upgrade summaries', async ()
         from: ['0.1.x'],
         migrations: [
           {
-            id: 'mig-upgrade-notes-regex',
-            kind: 'text-replace-regex',
-            entry: 'migrations/upgrade-notes-regex.json',
+            id: 'mig-upgrade-notes-literal',
+            kind: 'text-replace',
+            entry: 'migrations/upgrade-notes-literal.json',
             fromVersion: '0.1.0',
             toVersion: '0.2.0',
             requiresVerification: true
@@ -88,14 +88,13 @@ test('CLI emits text migration operation details in upgrade summaries', async ()
         ]
       }
     });
-    await writeJson(path.join(versionRoot, 'migrations', 'upgrade-notes-regex.json'), {
-      id: 'mig-upgrade-notes-regex',
-      kind: 'text-replace-regex',
+    await writeJson(path.join(versionRoot, 'migrations', 'upgrade-notes-literal.json'), {
+      id: 'mig-upgrade-notes-literal',
+      kind: 'text-replace',
       reason: 'Replace upgrade notes marker.',
       target: 'docs/upgrade-notes.md',
-      pattern: 'status: pending',
-      replacement: 'status: applied',
-      flags: 'g'
+      search: 'status: pending',
+      replacement: 'status: applied'
     });
     await writeJson(path.join(versionRoot, 'migrations', 'report-directory-archive.json'), {
       id: 'mig-report-directory-archive',
@@ -112,8 +111,8 @@ test('CLI emits text migration operation details in upgrade summaries', async ()
 
     await expectCliText(workspaceRoot, ['upgrade', 'private/text-upgrade', '0.2.0', '--dry-run'], [
       'Operation roles: directory=1, text=1',
-      'Migration mig-upgrade-notes-regex: text-replace-regex;',
-      'target=docs/upgrade-notes.md; role=text; replacementLength=15; pattern=status: pending; flags=g; requiresVerification=true',
+      'Migration mig-upgrade-notes-literal: text-replace;',
+      'target=docs/upgrade-notes.md; role=text; searchLength=15; replacementLength=15; requiresVerification=true',
       'Migration mig-report-directory-archive: rename-directory;',
       'target=generated/reports/archive/current; source=generated/reports/current; role=directory; requiresVerification=false'
     ]);

@@ -154,6 +154,28 @@ function ensureMigrationStringArray(value: unknown, field: string, entryPath: st
   return value;
 }
 
+const UNSAFE_JSON_MUTATION_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+function assertSafeJsonMutationKey(key: string, field: string): void {
+  if (UNSAFE_JSON_MUTATION_KEYS.has(key)) {
+    throw new CompilerError(
+      'UPGRADE-MIGRATION-030',
+      `${field} contains reserved JSON mutation key "${key}"`
+    );
+  }
+}
+
+function assertSafeJsonMutationPath(pathSegments: string[], field: string): void {
+  for (const segment of pathSegments) assertSafeJsonMutationKey(segment, field);
+}
+
+function assertSafeJsonMergeObject(value: Record<string, unknown>, field: string): void {
+  for (const [key, child] of Object.entries(value)) {
+    assertSafeJsonMutationKey(key, field);
+    if (isJsonObject(child)) assertSafeJsonMergeObject(child, field);
+  }
+}
+
 type MigrationEntryValidationContext<K extends UpgradeMigrationEntry['kind'] = UpgradeMigrationEntry['kind']> = {
   entry: Extract<UpgradeMigrationEntry, { kind: K }>;
   entryPath: string;
@@ -188,6 +210,7 @@ function validateConfigRewriteMigrationEntry({
     if (update.path.length === 0) {
       throw new CompilerError('UPGRADE-MIGRATION-010', 'Config rewrite path must not be empty');
     }
+    assertSafeJsonMutationPath(update.path, 'Config rewrite path');
     if (update.operation !== undefined && update.operation !== 'set' && update.operation !== 'delete') {
       throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires updates[].operation`);
     }
@@ -205,6 +228,7 @@ function validateJsonArrayMigrationEntry({
   if (entry.path.length === 0) {
     throw new CompilerError('UPGRADE-MIGRATION-010', 'JSON array migration path must not be empty');
   }
+  assertSafeJsonMutationPath(entry.path, 'JSON array migration path');
   if (!Array.isArray(entry.items) || entry.items.length === 0) {
     throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires items`);
   }
@@ -218,20 +242,11 @@ function validateJsonObjectMergeMigrationEntry({
   if (entry.path.length === 0) {
     throw new CompilerError('UPGRADE-MIGRATION-010', 'JSON object merge path must not be empty');
   }
+  assertSafeJsonMutationPath(entry.path, 'JSON object merge path');
   if (!isJsonObject(entry.value)) {
     throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires value`);
   }
-}
-
-function validateTextReplaceRegexMigrationEntry({
-  entry,
-  entryPath
-}: MigrationEntryValidationContext<'text-replace-regex'>): void {
-  ensureMigrationString(entry.pattern, 'pattern', entryPath);
-  ensureMigrationString(entry.replacement, 'replacement', entryPath);
-  if (entry.flags !== undefined) {
-    ensureMigrationString(entry.flags, 'flags', entryPath);
-  }
+  assertSafeJsonMergeObject(entry.value, 'JSON object merge value');
 }
 
 function validateDbExpandContractMigrationEntry({
@@ -381,6 +396,7 @@ function applyConfigUpdates(config: unknown, updates: Array<{ path: string[]; va
     if (update.path.length === 0) {
       throw new CompilerError('UPGRADE-MIGRATION-010', 'Config rewrite path must not be empty');
     }
+    assertSafeJsonMutationPath(update.path, 'Config rewrite path');
     let current = root;
     for (const segment of update.path.slice(0, -1)) {
       const next = current[segment];
@@ -413,6 +429,7 @@ function resolveJsonArrayTarget(
   if (pathSegments.length === 0) {
     throw new CompilerError('UPGRADE-MIGRATION-010', 'JSON array migration path must not be empty');
   }
+  assertSafeJsonMutationPath(pathSegments, `${label} path`);
   const root = ensureJsonObject(config, label);
   let current = root;
   for (const segment of pathSegments.slice(0, -1)) {
@@ -466,6 +483,7 @@ function applyJsonArrayRemove(config: unknown, entry: Extract<UpgradeMigrationEn
 
 function mergeJsonObjects(target: Record<string, unknown>, source: Record<string, unknown>): void {
   for (const [key, value] of Object.entries(source)) {
+    assertSafeJsonMutationKey(key, 'JSON object merge value');
     const existing = target[key];
     if (isJsonObject(existing) && isJsonObject(value)) {
       mergeJsonObjects(existing, value);
@@ -479,6 +497,8 @@ function applyJsonObjectMerge(config: unknown, entry: Extract<UpgradeMigrationEn
   if (entry.path.length === 0) {
     throw new CompilerError('UPGRADE-MIGRATION-010', 'JSON object merge path must not be empty');
   }
+  assertSafeJsonMutationPath(entry.path, 'JSON object merge path');
+  assertSafeJsonMergeObject(entry.value, 'JSON object merge value');
   const root = ensureJsonObject(config, 'JSON object merge');
   let current = root;
   for (const segment of entry.path.slice(0, -1)) {
@@ -503,31 +523,11 @@ function applyJsonObjectMerge(config: unknown, entry: Extract<UpgradeMigrationEn
   return config;
 }
 
-function buildTextReplaceRegex(entry: Extract<UpgradeMigrationEntry, { kind: 'text-replace-regex' }>): RegExp {
-  try {
-    return new RegExp(entry.pattern, entry.flags ?? 'g');
-  } catch (error) {
-    throw new CompilerError('UPGRADE-MIGRATION-014', `Invalid text replacement regex for "${entry.id}"`, { error: error instanceof Error ? error.message : String(error) });
-  }
-}
-
 function applyTextReplace(source: string, entry: Extract<UpgradeMigrationEntry, { kind: 'text-replace' }>): string {
   if (!source.includes(entry.search)) {
     throw new CompilerError('UPGRADE-MIGRATION-015', `Text replacement pattern did not match "${entry.target}"`);
   }
   return source.split(entry.search).join(entry.replacement);
-}
-
-function applyTextReplaceRegex(
-  source: string,
-  entry: Extract<UpgradeMigrationEntry, { kind: 'text-replace-regex' }>
-): string {
-  const pattern = buildTextReplaceRegex(entry);
-  if (!pattern.test(source)) {
-    throw new CompilerError('UPGRADE-MIGRATION-015', `Text replacement pattern did not match "${entry.target}"`);
-  }
-  pattern.lastIndex = 0;
-  return source.replace(pattern, entry.replacement);
 }
 
 async function removeFileMigrationTarget(
@@ -670,7 +670,7 @@ type MigrationApplyContext<K extends UpgradeMigrationEntry['kind'] = UpgradeMigr
 
 type ManifestFileMigrationContext = MigrationApplyContext<ManifestFileMigrationKind>;
 
-type TextReplaceMigrationContext = MigrationApplyContext<'text-replace' | 'text-replace-regex'>;
+type TextReplaceMigrationContext = MigrationApplyContext<'text-replace'>;
 
 type FileOperationEvidenceContext<K extends UpgradeMigrationEntry['kind'] = UpgradeMigrationEntry['kind']> =
   BaseMigrationOperationContext & {
@@ -774,13 +774,7 @@ async function applyTextReplaceMigration(context: TextReplaceMigrationContext): 
   await statFileMigrationTarget(targetPath, entry.target, entry.kind);
   const source = await fs.readFile(targetPath, 'utf8');
   await commitFence();
-  await fs.writeFile(
-    targetPath,
-    entry.kind === 'text-replace'
-      ? applyTextReplace(source, entry)
-      : applyTextReplaceRegex(source, entry),
-    'utf8'
-  );
+  await fs.writeFile(targetPath, applyTextReplace(source, entry), 'utf8');
 }
 
 async function applyDbExpandContractMigration(context: MigrationApplyContext<'db-expand-contract'>): Promise<void> {
@@ -929,7 +923,6 @@ async function statFileMigrationTarget(
     | 'json-array-remove'
     | 'json-object-merge'
     | 'text-replace'
-    | 'text-replace-regex'
     | 'text-append'
     | 'db-expand-contract' = 'delete-file',
   options: { allowMissing?: boolean } = {}
@@ -1245,15 +1238,6 @@ const migrationOperationSpecs = {
       replacementLength: entry.replacement.length
     })
   },
-  'text-replace-regex': {
-    validate: validateTextReplaceRegexMigrationEntry,
-    apply: applyTextReplaceMigration,
-    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'text', {
-      pattern: entry.pattern,
-      replacementLength: entry.replacement.length,
-      ...(entry.flags ? { flags: entry.flags } : {})
-    })
-  },
   'create-directory': {
     apply: async ({ commitFence, entry, targetPath }) => {
       await statCreateDirectoryMigrationTarget(targetPath, entry.target);
@@ -1356,26 +1340,15 @@ async function collectTextPatternEvidence(
 ): Promise<string[]> {
   const evidence: string[] = [];
   for (const entry of migrationEntries) {
-    if (entry.kind !== 'text-replace' && entry.kind !== 'text-replace-regex') {
-      continue;
-    }
-    const pattern = entry.kind === 'text-replace-regex' ? buildTextReplaceRegex(entry) : null;
+    if (entry.kind !== 'text-replace') continue;
     const targetPath = resolveWorkspaceMigrationPath(workspaceRoot, entry.target, {
       migrationId: entry.id,
       role: 'target'
     });
     await statFileMigrationTarget(targetPath, entry.target, entry.kind);
     const source = await fs.readFile(targetPath, 'utf8');
-    if (entry.kind === 'text-replace') {
-      applyTextReplace(source, entry);
-      evidence.push(`${entry.id}:literal:${entry.search.length}`);
-      continue;
-    }
-    if (!pattern || !pattern.test(source)) {
-      throw new CompilerError('UPGRADE-MIGRATION-015', `Text replacement pattern did not match "${entry.target}"`);
-    }
-    pattern.lastIndex = 0;
-    evidence.push(`${entry.id}:flags:${pattern.flags}`);
+    applyTextReplace(source, entry);
+    evidence.push(`${entry.id}:literal:${entry.search.length}`);
   }
   return uniqueSorted(evidence);
 }
@@ -1729,7 +1702,7 @@ const PREFLIGHT_FAILURE_BY_ERROR_CODE = new Map<string, UpgradeDiagnostics['fail
   ['UPGRADE-MIGRATION-007', 'migration-targets'],
   ['UPGRADE-MIGRATION-012', 'migration-json-structure'],
   ['UPGRADE-MIGRATION-013', 'migration-json-structure'],
-  ['UPGRADE-MIGRATION-014', 'migration-text-patterns'],
+  ['UPGRADE-MIGRATION-030', 'migration-json-structure'],
   ['UPGRADE-MIGRATION-015', 'migration-text-patterns'],
   ['UPGRADE-CONFLICT-001', 'override-conflicts']
 ]);
