@@ -27,6 +27,7 @@ import {
   type RetainedCommandExecutable,
   type RetainedCommandWorkingDirectory
 } from './retained-command-boundary.ts';
+import { resolveWindowsKnownFolderPath } from './windows-known-folders.ts';
 
 export const ISOLATED_VERIFICATION_ENV_KEY = 'SEC_ISOLATED_VERIFICATION' as const;
 
@@ -273,34 +274,36 @@ async function terminateCommandProcessTree(child: ChildProcess): Promise<void> {
     child.kill('SIGTERM');
     return;
   }
-  const configuredRoot = process.env.SystemRoot ?? process.env.SYSTEMROOT ?? String.raw`C:\Windows`;
-  const systemRoot = path.isAbsolute(configuredRoot) ? configuredRoot : String.raw`C:\Windows`;
-  const taskkill = path.join(systemRoot, 'System32', 'taskkill.exe');
-  await new Promise<void>((resolve) => {
-    const killer = spawn(taskkill, ['/PID', String(child.pid), '/T', '/F'], {
-      env: {
-        SystemRoot: systemRoot,
-        SYSTEMROOT: systemRoot,
-        WINDIR: systemRoot
-      },
-      stdio: 'ignore',
-      windowsHide: true
+  try {
+    const windowsRoot = await resolveWindowsKnownFolderPath('windows');
+    const taskkill = path.win32.join(windowsRoot, 'System32', 'taskkill.exe');
+    await new Promise<void>((resolve) => {
+      const killer = spawn(taskkill, ['/PID', String(child.pid), '/T', '/F'], {
+        env: {
+          SystemRoot: windowsRoot,
+          SYSTEMROOT: windowsRoot,
+          WINDIR: windowsRoot
+        },
+        stdio: 'ignore',
+        windowsHide: true
+      });
+      let complete = false;
+      const finish = (): void => {
+        if (complete) return;
+        complete = true;
+        clearTimeout(timeout);
+        resolve();
+      };
+      const timeout = setTimeout(() => {
+        killer.kill('SIGKILL');
+        finish();
+      }, 5_000);
+      killer.once('error', finish);
+      killer.once('close', finish);
     });
-    let complete = false;
-    const finish = (): void => {
-      if (complete) return;
-      complete = true;
-      clearTimeout(timeout);
-      resolve();
-    };
-    const timeout = setTimeout(() => {
-      killer.kill('SIGKILL');
-      finish();
-    }, 5_000);
-    killer.once('error', finish);
-    killer.once('close', finish);
-  });
-  if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+  }
 }
 
 type RunCommandStdio = Array<'ignore' | 'pipe' | number>;

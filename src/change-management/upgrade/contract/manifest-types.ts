@@ -8,7 +8,6 @@ export interface UpgradeJsonArrayRemoveMigrationEntry { id: string; kind: 'json-
 export interface UpgradeJsonObjectMergeMigrationEntry { id: string; kind: 'json-object-merge'; reason: string; target: string; path: string[]; value: Record<string, unknown>; }
 export interface UpgradeTextAppendMigrationEntry { id: string; kind: 'text-append'; reason: string; target: string; content: string; }
 export interface UpgradeTextReplaceMigrationEntry { id: string; kind: 'text-replace'; reason: string; target: string; search: string; replacement: string; }
-export interface UpgradeTextReplaceRegexMigrationEntry { id: string; kind: 'text-replace-regex'; reason: string; target: string; pattern: string; replacement: string; flags?: string; }
 export interface UpgradeCreateDirectoryMigrationEntry { id: string; kind: 'create-directory'; reason: string; target: string; }
 export interface UpgradeDeleteFileMigrationEntry { id: string; kind: 'delete-file'; reason: string; target: string; }
 export interface UpgradeDeleteDirectoryMigrationEntry { id: string; kind: 'delete-directory'; reason: string; target: string; }
@@ -26,7 +25,6 @@ export type UpgradeMigrationEntry =
   | UpgradeJsonObjectMergeMigrationEntry
   | UpgradeTextAppendMigrationEntry
   | UpgradeTextReplaceMigrationEntry
-  | UpgradeTextReplaceRegexMigrationEntry
   | UpgradeCreateDirectoryMigrationEntry
   | UpgradeDeleteFileMigrationEntry
   | UpgradeDeleteDirectoryMigrationEntry

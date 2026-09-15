@@ -145,15 +145,3 @@ export function renameDirectory(source: string, target: string): UpgradeMigratio
     target
   };
 }
-
-export function textReplaceRegex(target: string, pattern: string, replacement: string, flags?: string): UpgradeMigrationEntry {
-  return {
-    id: 'mig-test-text-replace-regex',
-    kind: 'text-replace-regex',
-    reason: 'test regex text replacement',
-    target,
-    pattern,
-    replacement,
-    ...(flags ? { flags } : {})
-  };
-}

@@ -183,6 +183,35 @@ test('json-object-merge migration rejects non-object targets', async () => {
   });
 });
 
+test('JSON migrations reject reserved mutation path segments without changing object prototypes', async () => {
+  await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
+    await writeJson(path.join(workspaceRoot, 'app.config.json'), {});
+
+    await expect(
+      apply(['app.config.json'], [configRewrite('app.config.json', [
+        { path: ['__proto__', 'polluted'], value: true }
+      ])])
+    ).rejects.toMatchObject({
+      code: 'UPGRADE-MIGRATION-030'
+    });
+    expect(({} as { polluted?: boolean }).polluted).toBeUndefined();
+  });
+});
+
+test('JSON object merge rejects reserved keys at every nested level', async () => {
+  await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
+    await writeJson(path.join(workspaceRoot, 'app.config.json'), {});
+    const unsafeValue = JSON.parse('{"nested":{"constructor":{"prototype":{"polluted":true}}}}') as Record<string, unknown>;
+
+    await expect(
+      apply(['app.config.json'], [jsonObjectMerge('app.config.json', ['feature'], unsafeValue)])
+    ).rejects.toMatchObject({
+      code: 'UPGRADE-MIGRATION-030'
+    });
+    expect(({} as { polluted?: boolean }).polluted).toBeUndefined();
+  });
+});
+
 test('config-rewrite migration rejects empty update paths', async () => {
   await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
     await writeJson(path.join(workspaceRoot, 'app.config.json'), {});
