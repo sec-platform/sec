@@ -1,10 +1,10 @@
-# SEC — SEC Engineering Compiler
+# SEC — Spec Engineering Compiler
 
 > **Engineering intent and semantics above source code. Source code becomes an increasingly assembly-like realization layer.**
 
 [中文](README.zh-CN.md)
 
-SEC is a local-first **Engineering Workspace Compiler**. The name is recursive: **SEC = SEC Engineering Compiler**.
+SEC is a local-first **Engineering Workspace Compiler**. **SEC stands for Spec Engineering Compiler.**
 
 SEC explores a software-engineering model in which humans and AI work primarily with intent, semantics, constraints, responsibilities, evidence, and controlled operations, while conventional programming-language source code becomes a lower-level realization target rather than the sole authoritative representation of a system.
 
