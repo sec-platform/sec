@@ -235,7 +235,7 @@ jobs:
           bun-version: ${{ needs.resolve.outputs.bun-version }}
 
       - name: Checkout exact trusted base checker
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
         with:
           ref: ${{ needs.resolve.outputs.base }}
           path: trusted-base
@@ -243,7 +243,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout exact candidate as data
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
         with:
           ref: ${{ needs.resolve.outputs.head }}
           path: candidate-data
@@ -691,14 +691,14 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: Checkout exact trusted base sandbox owner
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
         with:
           ref: ${{ needs.resolve.outputs.base }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Checkout clean exact base SUT input
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
         with:
           ref: ${{ needs.resolve.outputs.base }}
           path: base-sut
@@ -706,7 +706,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout exact candidate SUT only
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
         with:
           ref: ${{ needs.resolve.outputs.head }}
           path: candidate-sut
@@ -855,7 +855,7 @@ jobs:
           (cd "$FINAL_EVIDENCE_ROOT" && sha256sum final-envelope.json > SHA256SUMS.tmp && mv SHA256SUMS.tmp SHA256SUMS)
 
       - name: Checkout exact trusted base reducer
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
         with:
           ref: ${{ needs.resolve.outputs.base }}
           path: trusted-base
@@ -863,7 +863,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout exact candidate as POST data
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
         with:
           ref: ${{ needs.resolve.outputs.head }}
           path: candidate-data
