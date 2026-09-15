@@ -1,0 +1,30 @@
+name: Feature request
+description: Propose a concrete product capability or bounded improvement
+title: "feature: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe the user-visible or engineering result you need.
+    validations:
+      required: true
+  - type: textarea
+    id: current_limit
+    attributes:
+      label: Current limitation
+      description: Explain the concrete workflow or boundary that prevents the outcome today.
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints and examples
+      description: Include representative inputs, outputs, non-goals, and compatibility needs.
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Existing evidence or related owners
+      description: Link relevant documentation, code, issues, or external standards.

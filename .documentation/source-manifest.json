@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/1",
-  "source_set_sha256": "286bedf87b121816875161bcb3896ac39d393d958f0f58aa75740ac6e2696738",
+  "source_set_sha256": "d1cd8921ed089446d27e3009e55c0241898fe294d12b123d823bb80464f4b7d2",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -34,8 +34,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 1937,
-      "sha256": "d600c58475c76e7763c8d0cb48f08625491f0a124eaa8c917e3a9fa42273f2c6"
+      "bytes": 4459,
+      "sha256": "4bf697861da2123a55d0e03e2939e26742c65f8a2346e835b4cc17558044f9cc"
     },
     {
       "path": "alternatives/README.md",

@@ -1,27 +1,62 @@
-# SEC
+# Engineering Workspace Compiler
 
-<a id="sec-设计与作者源"></a>
-<a id="从你要做的事情开始"></a>
-<a id="三类内容不要混读"></a>
+> Engineering intent, maintainable authoring, and available implementations compiled into controlled changes to real software workspaces.
 
-SEC是一套面向软件工程的开发与编译系统：把工程目标、作者内容和可用实现连接起来，形成可维护的目标工程，并支持持续修改、检查及明确获准的运行与交付。
+[中文说明](README.zh-CN.md)
 
-本仓库中的设计文档以 SEC-086 的信息架构和主题责任为目标规范，包含设计规范和有限范本；实现、验证和实际采用状态分别记录。
+This repository retains the historical name `sec`; that name is not the current project definition or acronym. SEC is a local-first **Engineering Workspace Compiler** for connecting product goals, structured engineering semantics, governed source facts, implementation choices, verification evidence, and target-environment constraints.
 
-| 需要了解什么 | 入口 |
+The long-term direction is for people and AI to work primarily with intent, semantics, constraints, responsibilities, effects, and evidence, while conventional source code increasingly serves as a lower-level realization target. Existing languages and ecosystems remain essential implementation targets and interoperability layers.
+
+## What the system does
+
+SEC supports two input paths: it can reconstruct relevant engineering facts from an existing workspace, or consume deliberately authored goals and constraints. Both paths feed the same responsibility chain:
+
+```text
+Goal / Existing Workspace
+          ↓
+Governed Engineering Content
+          ↓
+Meaning + Requirements
+          ↓
+Implementation Selection
+          ↓
+Target Artifacts + Controlled Effects
+          ↓
+Readback + Verification + Evidence
+```
+
+The requested outcome determines where a task ends. Analysis, a bounded design, an implementation candidate, a generated artifact, an executed operation, and a verified delivery are distinct results.
+
+## Core boundaries
+
+SEC is not an unrestricted whole-repository AI code generator, a low-code runtime, or a template marketplace. Files, generated output, test results, tool responses, and AI statements do not become authoritative merely because they exist. Their identity, source, scope, effects, and evidence must remain explicit at the boundary where they are consumed.
+
+The system keeps author content, semantic interpretation, compilation, verification, external effects, recovery, and publication as separate responsibilities. A plan does not grant write authority; generated code does not prove adoption; a process exit does not prove that an external effect settled; and a documented target design does not claim that its implementation is complete.
+
+## Read the design
+
+The canonical design corpus currently uses Chinese titles and paths:
+
+| Question | Canonical entry |
 |---|---|
-| 系统是什么，如何分责并与环境协作 | [总体架构](docs/架构/总体设计.md) |
-| 产品范围、目标与完整约束 | [产品](docs/产品/README.md) |
-| 查找子系统、接口或一项具体设计 | [文档主题](docs/README.md) · [任务路线](docs/任务路线.md) |
-| 查看最终作者成果、各类产品和完整范本 | [成品详解](docs/作者/成品/README.md) · [实际作者源](examples/开发成品/README.md) · [其他范本](examples/README.md) |
-| 为什么采用、还缺什么 | [设计决定](docs/决策/README.md) · [未决状态](docs/状态/README.md) |
-| 修改和交付这份规范 | [维护](docs/维护/README.md) |
-| 开发 SEC 仓库自身 | [AGENTS.md](AGENTS.md) |
+| What is the product and what constraints apply? | [Product scope and constraints](docs/产品/README.md) |
+| How is the complete system divided and connected? | [System architecture](docs/架构/总体设计.md) |
+| Where is a subsystem, interface, or concrete design? | [Documentation index](docs/README.md) · [Task routes](docs/任务路线.md) |
+| What can an authored product contain? | [Author deliverables](docs/作者/成品/README.md) · [Complete examples](examples/开发成品/README.md) |
+| Why was a design chosen, and what remains unresolved? | [Decisions](docs/决策/README.md) · [Open status](docs/状态/README.md) |
+| How is this specification maintained? | [Documentation maintenance](docs/维护/README.md) |
 
-当前文档直接描述目标设计；正确的旧成果融合到相应正文，读取和实现不以旧路径、旧authority registry或修订日志为前置。独立理由、反例、依据和准确未决属于当前设计，不因清理过程材料而删除。
+The summaries in this root directory are reader-facing projections. Canonical definitions remain in their owning documents under `docs/**`; document identity and generated inventory are maintained under `.documentation/**`. The current corpus digest and delivery number are recorded in [`.documentation/baseline.json`](.documentation/baseline.json); they describe documentation content and do not certify implementation or release status.
 
-文档组织、唯一编辑位置、派生视图和维护规则由[文档架构](docs/维护/文档架构.md)维护。
+## Project status
 
-准确当前内容与交付编号见[基线](.documentation/baseline.json)；编号不是产品版本或实现完成证明。
+The project is under active research and development. It contains substantial implementation, tests, documentation, examples, and verification infrastructure, but documented capabilities can be at different stages of specification, implementation, verification, adoption, and retirement.
 
-按需查看网页阅读版，见[阅读构建](docs/维护/阅读构建.md)；正文、图源与作者文件仍在本仓库维护。
+See [PROJECT_STATUS.md](PROJECT_STATUS.md) for the maturity boundary and a reproducible starting path.
+
+## Development and licensing
+
+Repository development rules are in [AGENTS.md](AGENTS.md), and contributor guidance is in [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Project-owned source code, specifications, architecture and design documents, tests, and other copyrightable engineering materials are distributed under the [MIT License](LICENSE). Third-party components remain subject to their own licenses and notices.
