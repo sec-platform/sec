@@ -39,7 +39,7 @@ tasks:
   - id: proposal
     owner: development-governance-maintainer
     ownedPaths:
-      - docs/work-packages/${packageId}.md
+      - config/repository/work-packages/${packageId}.md
 forbiddenPaths:
   - src/compiler/
 acceptance:
@@ -94,12 +94,12 @@ resolver:
   requireRemoteMatch: true
 stableFacts:
   workSelection:
-    catalog: docs/roadmap.md#sec-work-selection-roadmap-catalog-v1
+    catalog: config/repository/work-selection.md#sec-work-selection-roadmap-catalog-v1
     projection: sec-work-selection-live-v1-required
 `);
   const currentPointerSource = CodexDevelopmentRenderActivePointer({
     spec,
-    manifestPath: `docs/work-packages/${activePackageId}.md`,
+    manifestPath: `config/repository/work-packages/${activePackageId}.md`,
     manifestDigest: CodexDevelopmentWorkPackageManifestDigest(currentManifest) as `sha256:${string}`,
     reviewedOn: '2026-08-21'
   });
@@ -108,7 +108,7 @@ stableFacts:
     currentPointerSource,
     currentRollingPlanSource: legacyRollingPlanSource(),
     currentManifestBytes: currentManifest,
-    manifestPath: `docs/work-packages/${proposalPackageId}.md`,
+    manifestPath: `config/repository/work-packages/${proposalPackageId}.md`,
     manifestBytes: targetManifest,
     baseSha: exactMain,
     baseTreeSha: exactMainTree,
@@ -120,7 +120,7 @@ stableFacts:
   };
   const projection = CodexDevelopmentCreateFreezeProjection({ ...common, proposalOnly });
   expect(projection.authoringDisposition).toBe('proposal-only');
-  expect(projection.retiredManifestPath).toBe(`docs/work-packages/${activePackageId}.md`);
+  expect(projection.retiredManifestPath).toBe(`config/repository/work-packages/${activePackageId}.md`);
   expect(CodexDevelopmentParseRollingPlan(projection.rollingPlanSource).activePackageId)
     .toBe(proposalPackageId);
   expect(CodexDevelopmentParseRollingMachineProjection(projection.rollingPlanSource)).toMatchObject({
@@ -131,7 +131,7 @@ stableFacts:
     active: {
       packageId: proposalPackageId,
       tracking: 'none',
-      manifestPath: `docs/work-packages/${proposalPackageId}.md`,
+      manifestPath: `config/repository/work-packages/${proposalPackageId}.md`,
       manifestDigest: CodexDevelopmentWorkPackageManifestDigest(targetManifest)
     },
     candidates: [...candidates]
@@ -149,7 +149,7 @@ stableFacts:
     ...common,
     proposalOnly: { ...proposalOnly, currentResolution: {
       state: 'active',
-      manifest: `docs/work-packages/${activePackageId}.md`,
+      manifest: `config/repository/work-packages/${activePackageId}.md`,
       manifestDigest: CodexDevelopmentWorkPackageManifestDigest(currentManifest)
     } }
   })).toThrow('byte-exact on the live default');
@@ -182,7 +182,7 @@ test('MainHealth topology is compiled and rendered atomically instead of slicing
   const rendered = CodexDevelopmentActivateMainHealthRepairRollingPlan({
     source: legacyRollingPlanSource(),
     packageId: repairPackageId,
-    manifestPath: `docs/work-packages/${repairPackageId}.md`,
+    manifestPath: `config/repository/work-packages/${repairPackageId}.md`,
     manifestDigest: rawSha256('repair-manifest'),
     mainSha: exactMain,
     mainTreeSha: exactMainTree,
@@ -224,7 +224,7 @@ test('a digest-bound topology cannot be promoted by Markdown surgery', () => {
     active: {
       packageId: activePackageId,
       tracking: 'issue-1',
-      manifestPath: `docs/work-packages/${activePackageId}.md`,
+      manifestPath: `config/repository/work-packages/${activePackageId}.md`,
       manifestDigest: rawSha256('active-manifest')
     },
     candidates
@@ -239,7 +239,7 @@ test('a digest-bound topology cannot be promoted by Markdown surgery', () => {
 test('prior freeze validation derives a machine successor without legacy Markdown promotion', () => {
   const targetPackageId = candidates[0];
   const immutableCandidates = [...candidates, 'candidate-four-v1'] as const;
-  const targetManifestPath = `docs/work-packages/${targetPackageId}.md`;
+  const targetManifestPath = `config/repository/work-packages/${targetPackageId}.md`;
   const targetManifest = Buffer.from(`---
 schema: codex-development-work-package-v1
 id: ${targetPackageId}
@@ -254,7 +254,7 @@ tasks:
     ownedPaths:
       - ${targetManifestPath}
 forbiddenPaths:
-  - public-docs/
+  - private/
 acceptance:
   - "Prior machine projection remains exact."
 tests:
@@ -273,7 +273,7 @@ resolver:
   requireRemoteMatch: true
 stableFacts:
   workSelection:
-    catalog: docs/roadmap.md#sec-work-selection-roadmap-catalog-v1
+    catalog: config/repository/work-selection.md#sec-work-selection-roadmap-catalog-v1
     projection: sec-work-selection-live-v1-required
 `);
   const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(
@@ -301,7 +301,7 @@ stableFacts:
       active: {
         packageId: activePackageId,
         tracking: 'issue-1',
-        manifestPath: `docs/work-packages/${activePackageId}.md`,
+        manifestPath: `config/repository/work-packages/${activePackageId}.md`,
         manifestDigest: rawSha256('active-manifest')
       },
       candidates: immutableCandidates
@@ -372,7 +372,7 @@ last-reviewed: 2026-08-20
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/${activePackageId}.md
+manifest: config/repository/work-packages/${activePackageId}.md
 manifestDigest: ${sourceManifestDigest}
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
@@ -392,7 +392,7 @@ matchingDefaultBlob: none
     currentRollingPlanSource: legacyRollingPlanSource(),
     currentManifestBytes: sourceManifest,
     authority,
-    targetManifestPath: `docs/work-packages/${activePackageId}.md`,
+    targetManifestPath: `config/repository/work-packages/${activePackageId}.md`,
     targetManifestDigest: rawSha256('next manifest'),
     targetPackageId: activePackageId,
     targetTracking: 'issue-1',
@@ -413,7 +413,7 @@ matchingDefaultBlob: none
     currentRollingPlanSource: `${legacyRollingPlanSource()}drift`,
     currentManifestBytes: sourceManifest,
     authority,
-    targetManifestPath: `docs/work-packages/${activePackageId}.md`,
+    targetManifestPath: `config/repository/work-packages/${activePackageId}.md`,
     targetManifestDigest: rawSha256('next manifest'),
     targetPackageId: activePackageId,
     targetTracking: 'issue-1',
@@ -439,7 +439,7 @@ matchingDefaultBlob: none
 });
 
 test('required same-package freeze compiles the committed replan instead of accepting caller prose', () => {
-  const manifestPath = `docs/work-packages/${activePackageId}.md`;
+  const manifestPath = `config/repository/work-packages/${activePackageId}.md`;
   const sourceManifest = Buffer.from(`---
 schema: codex-development-work-package-v1
 id: ${activePackageId}
@@ -454,7 +454,7 @@ tasks:
     ownedPaths:
       - ${manifestPath}
 forbiddenPaths:
-  - public-docs/
+  - private/
 acceptance:
   - "Projection remains canonical."
 tests:
@@ -507,7 +507,7 @@ resolver:
   requireRemoteMatch: true
 stableFacts:
   workSelection:
-    catalog: docs/roadmap.md#sec-work-selection-roadmap-catalog-v1
+    catalog: config/repository/work-selection.md#sec-work-selection-roadmap-catalog-v1
     projection: sec-work-selection-live-v1-required
 `);
   const result = CodexDevelopmentCreateFreezeProjection({
@@ -584,8 +584,8 @@ stableFacts:
   );
   const permittedProjectionDeltaPaths = new Set([
     manifestPath,
-    'docs/work/active-work-package.md',
-    'docs/work/rolling-plan.md'
+    'config/repository/active-work-package.md',
+    'config/repository/rolling-plan.md'
   ]);
   const exactActive = {
     packageId: activePackageId,
@@ -629,7 +629,7 @@ test('heading drift is rejected against the digest-bound machine topology', () =
   const rendered = CodexDevelopmentActivateMainHealthRepairRollingPlan({
     source: legacyRollingPlanSource(),
     packageId: repairPackageId,
-    manifestPath: `docs/work-packages/${repairPackageId}.md`,
+    manifestPath: `config/repository/work-packages/${repairPackageId}.md`,
     manifestDigest: rawSha256('repair-manifest'),
     mainSha: exactMain,
     mainTreeSha: exactMainTree,

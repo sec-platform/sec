@@ -12,9 +12,9 @@ last-reviewed: 2026-09-16
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:d4e44f548dcef9ee0512ce990a091107443ff4b37ff99f8783decedce5dafb6b",
-    "manifestPath": "docs/work-packages/sec-086-cutover.md",
-    "packageId": "sec-086-cutover",
+    "manifestDigest": "sha256:7df1cfacdfba02c699cae9515e1a427fa10da9495a5ed3fb41259eedc373e293",
+    "manifestPath": "config/repository/work-packages/documentation-control-convergence-v1.md",
+    "packageId": "documentation-control-convergence-v1",
     "tracking": "none"
   },
   "authority": "none",
@@ -24,18 +24,18 @@ last-reviewed: 2026-09-16
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "a873494b81f702ed57924c243b2d190f59ab9334",
-  "exactMainTree": "a43713bdaa4ab6668fd28c24bdf9c575c4b96fda",
-  "projectionDigest": "sha256:ca7faf059b97db32da439650e3717bb2a0866e96f8f8d4769e089467f950da70",
+  "exactMain": "551b147ab8702d4f58dd1f65fcc919f0c4a200dc",
+  "exactMainTree": "5b2adaca33cbc63d45782c5e205e4f524f32bfa0",
+  "projectionDigest": "sha256:209ee68257f0d23f629aefb1289d3ade59acd4745886571036bd850b083eb410",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### sec-086-cutover
+### documentation-control-convergence-v1
 
-Proposal-only target manifest `docs/work-packages/sec-086-cutover.md` at `sha256:d4e44f548dcef9ee0512ce990a091107443ff4b37ff99f8783decedce5dafb6b`, based on exact main `a873494b81f702ed57924c243b2d190f59ab9334` and tree `a43713bdaa4ab6668fd28c24bdf9c575c4b96fda`.
+Proposal-only target manifest `config/repository/work-packages/documentation-control-convergence-v1.md` at `sha256:7df1cfacdfba02c699cae9515e1a427fa10da9495a5ed3fb41259eedc373e293`, based on exact main `551b147ab8702d4f58dd1f65fcc919f0c4a200dc` and tree `5b2adaca33cbc63d45782c5e205e4f524f32bfa0`.
 
 ## 候选 Work Package
 

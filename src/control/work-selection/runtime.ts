@@ -229,7 +229,7 @@ async function resolveCanonicalDefaultProjection(input: {
   const stateBytes = await readGitBlob(
     input.run,
     input.root,
-    `${defaultRef}:docs/work/current-state.yaml`,
+    `${defaultRef}:config/repository/current-state.yaml`,
     'trusted-current-state-unresolved'
   );
   const state = CodexDevelopmentParseCurrentStateSpec(
@@ -506,13 +506,13 @@ async function exactManifestPaths(
   label: string
 ): Promise<readonly string[]> {
   const bytes = await requireCommand(run, 'git', [
-    'ls-tree', '-r', '--name-only', '-z', '--full-tree', ref, '--', 'docs/work-packages'
+    'ls-tree', '-r', '--name-only', '-z', '--full-tree', ref, '--', 'config/repository/work-packages'
   ], root, `${label}-unresolved`);
   const source = decodeUtf8(bytes, `${label}-invalid-utf8`);
   if (source.length === 0) return Object.freeze([]);
   if (!source.endsWith('\0')) throw new LiveObservationFailure(`${label}-truncated`, source);
   const paths = source.slice(0, -1).split('\0');
-  if (paths.some((candidate) => !/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(candidate))
+  if (paths.some((candidate) => !/^config\/repository\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(candidate))
       || new Set(paths).size !== paths.length) {
     throw new LiveObservationFailure(`${label}-malformed`, source);
   }
@@ -552,7 +552,7 @@ export async function observeSecRoadmapTerminalCompactionCandidate(input: {
     const candidateRoadmapSource = decodeUtf8(await readGitBlob(
       input.run,
       input.root,
-      `${pullRequest.headSha}:docs/roadmap.md`,
+      `${pullRequest.headSha}:config/repository/work-selection.md`,
       'terminal-candidate-roadmap-unresolved'
     ), 'terminal-candidate-roadmap-invalid-utf8');
     if (candidateRoadmapSource !== input.terminalCompaction.roadmapSource) {
@@ -868,7 +868,7 @@ function currentLifecycle(input: {
       ({ prNumber }) => prNumber === input.selectedPullRequest!.number
     );
     const entry = selectedEntries.length === 1 ? selectedEntries[0] : undefined;
-    const packageId = entry?.manifestPath.slice('docs/work-packages/'.length, -'.md'.length);
+    const packageId = entry?.manifestPath.slice('config/repository/work-packages/'.length, -'.md'.length);
     const item = packageId === undefined
       ? undefined
       : input.catalogItems.find((candidate) => candidate.packageId === packageId);
@@ -972,7 +972,7 @@ async function observeSecWorkSelectionWithinHostedSession(
       defaultBranch: defaultProjection.state.resolver.defaultBranch,
       supplied: input.exactMain
     });
-    const trustedStateBytes = await readGitBlob(run, root, `${exactMain}:docs/work/current-state.yaml`,
+    const trustedStateBytes = await readGitBlob(run, root, `${exactMain}:config/repository/current-state.yaml`,
       'trusted-current-state-unresolved');
     if (!trustedStateBytes.equals(defaultProjection.stateBytes)) {
       throw new LiveObservationFailure(
@@ -1030,7 +1030,7 @@ async function observeSecWorkSelectionWithinHostedSession(
         blockerRefs: [mainHealth.ref]
       });
     }
-    const roadmapBytes = await readGitBlob(run, root, `${exactMain}:docs/roadmap.md`,
+    const roadmapBytes = await readGitBlob(run, root, `${exactMain}:config/repository/work-selection.md`,
       'roadmap-unresolved');
     const roadmapSource = decodeUtf8(roadmapBytes, 'roadmap-invalid-utf8');
     const observedCatalog = parseSecRoadmapWorkCatalog(roadmapSource);
@@ -1098,14 +1098,14 @@ async function observeSecWorkSelectionWithinHostedSession(
         })
       );
     }
-    const pointerBytes = await readGitBlob(run, root, `${exactMain}:docs/work/active-work-package.md`,
+    const pointerBytes = await readGitBlob(run, root, `${exactMain}:config/repository/active-work-package.md`,
       'active-pointer-unresolved');
     const pointerSource = decodeUtf8(pointerBytes, 'active-pointer-invalid-utf8');
     const pointer = CodexDevelopmentParseActivePointer(pointerSource);
     const rollingPlanSource = decodeUtf8(await readGitBlob(
       run,
       root,
-      `${exactMain}:docs/work/rolling-plan.md`,
+      `${exactMain}:config/repository/rolling-plan.md`,
       'rolling-plan-unresolved'
     ), 'rolling-plan-invalid-utf8');
     const activeManifestBytes = await readGitBlob(

@@ -6,14 +6,14 @@ domain: current-control
 
 # 当前 Work Selection Catalog
 
-本文件是现行 WorkSelection 与 document-control consumer 的机器控制投影，只拥有当前 catalog。稳定能力节点、进入/退出条件和产品完成边界由[实施主线](演进/实施/主线前沿与准入.md)拥有；此处的工作记录不构成另一套产品规范。
+本文件是现行 WorkSelection 与 document-control consumer 的机器控制投影，只拥有当前 catalog。稳定能力节点、进入/退出条件和产品完成边界由[实施主线](../../docs/演进/实施/主线前沿与准入.md)拥有；此处的工作记录不构成另一套产品规范。
 
 | Catalog责任 | 唯一owner |
 | --- | --- |
-| capability语义、依赖与退出合同 | [实施主线](演进/实施/主线前沿与准入.md) |
+| capability语义、依赖与退出合同 | [实施主线](../../docs/演进/实施/主线前沿与准入.md) |
 | catalog schema、strict parser与consumer contract | WorkSelection live contract owner |
 | 当前items及其排序输入 | 本current-control projection |
-| 字段/引用迁移、reader切换与旧generation退役 | [兼容迁移](演进/兼容迁移与退役.md)与上述两个owner |
+| 字段/引用迁移、reader切换与旧generation退役 | [兼容迁移](../../docs/演进/兼容迁移与退役.md)与上述两个owner |
 
 字段名、字符串值和本文件位置都不产生ownership。当前catalog中的`stageRef`与`roadmap:r14/*`只属于待原子迁移的旧control schema address，不得被稳定设计、测试或新consumer解释为capability identity；目标合同以`capabilityRef`引用semantic capability node，并在writer/parser/全部consumer同一cutover后删除旧字段和旧引用，不保留alias或双读。
 

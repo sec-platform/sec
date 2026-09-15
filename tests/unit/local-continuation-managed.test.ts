@@ -48,7 +48,7 @@ test('one upstream handoff becomes managed local continuation until explicit ext
   };
   try {
     mkdirSync(path.join(repositoryRoot, 'src'), { recursive: true });
-    mkdirSync(path.join(repositoryRoot, 'docs', 'work-packages'), { recursive: true });
+    mkdirSync(path.join(repositoryRoot, 'config', 'repository', 'work-packages'), { recursive: true });
     run(repositoryRoot, 'git', ['init', '-b', 'integration/continuation-fixture']);
     git(repositoryRoot, 'config', 'core.autocrlf', 'false');
     git(repositoryRoot, 'config', 'user.email', 'sec@example.invalid');
@@ -59,7 +59,7 @@ test('one upstream handoff becomes managed local continuation until explicit ext
     const baseSha = git(repositoryRoot, 'rev-parse', 'HEAD');
     const baseTreeSha = git(repositoryRoot, 'rev-parse', 'HEAD^{tree}');
 
-    const manifestPath = 'docs/work-packages/continuation-fixture-v1.md';
+    const manifestPath = 'config/repository/work-packages/continuation-fixture-v1.md';
     writeFileSync(path.join(repositoryRoot, manifestPath), `---
 schema: codex-development-work-package-v1
 id: continuation-fixture-v1
@@ -72,7 +72,7 @@ tasks:
   - id: continuation-fixture
     owner: continuation-fixture-owner
     ownedPaths:
-      - docs/work-packages/continuation-fixture-v1.md
+      - config/repository/work-packages/continuation-fixture-v1.md
       - src/
 forbiddenPaths:
   - README.md

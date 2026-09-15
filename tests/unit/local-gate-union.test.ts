@@ -140,7 +140,7 @@ test('documentation support assets trigger docs doctor without becoming product 
     'docs/unregistered-legacy.md'
   ])))).toEqual(['docs:doctor']);
   expect(gateIds(buildLocalAffectedCheckPlan(affectedPlan([
-    'docs/work/active-work-package.md'
+    'config/repository/active-work-package.md'
   ])))).toEqual([]);
 });
 

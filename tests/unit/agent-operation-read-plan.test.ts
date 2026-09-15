@@ -35,14 +35,14 @@ function input(): SecOperationReadPlanInput {
       goalDigest: digest('b'),
       trustedRevision: '6b7f1a3f54b0b4bdd8eef4c065e1e83607f6bbcb',
       targetCandidate: 'ef922744393d451a037349197fe4dd57d6ae8497',
-      workPackageProposalRef: 'docs/work-packages/task-capsule-compiler-v1.md',
+      workPackageProposalRef: 'config/repository/work-packages/task-capsule-compiler-v1.md',
       workPackageProposalDigest: digest('c'),
       workPackageProjectionId: digest('e'),
       scopeGrantId: null,
       ownerFacts: [
         {
           id: 'work-package',
-          ref: 'docs/work-packages/task-capsule-compiler-v1.md',
+          ref: 'config/repository/work-packages/task-capsule-compiler-v1.md',
           owner: 'development-governance-owner',
           revision: digest('c')
         },
@@ -77,7 +77,7 @@ function input(): SecOperationReadPlanInput {
       },
       {
         id: 'manifest',
-        ref: 'docs/work-packages/task-capsule-compiler-v1.md',
+        ref: 'config/repository/work-packages/task-capsule-compiler-v1.md',
         owner: 'development-governance-owner',
         revision: digest('c'),
         reasonCode: 'bind-operation-scope',

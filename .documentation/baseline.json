@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-baseline/1",
-  "source_set_sha256": "d6e7d63e9da5ae5a5cb6a0463b9dfc4efeed147d1146a908f1f3930ca02bb9b6",
+  "source_set_sha256": "286bedf87b121816875161bcb3896ac39d393d958f0f58aa75740ac6e2696738",
   "source_root": "..",
   "source_roots": [
     "AGENTS.md",
@@ -28,16 +28,9 @@
   ],
   "source_manifest": "source-manifest.json",
   "audited_namespaces": [
-    "docs",
-    "public-docs"
+    "docs"
   ],
-  "non_documentation_roots": [
-    "docs/work",
-    "docs/work-packages",
-    "docs/roadmap.md",
-    "docs/governance",
-    "docs/archive/library-reuse/2026-09-07"
-  ],
+  "non_documentation_roots": [],
   "excluded_from_source_hash": [
     ".documentation/baseline.json",
     ".documentation/source-manifest.json"

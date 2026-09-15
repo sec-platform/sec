@@ -9,7 +9,7 @@ import { CodexDevelopmentBuildVerificationGateResult } from '../../src/verificat
 const digest = (value: string): `sha256:${string}` => `sha256:${value.repeat(64).slice(0, 64)}`;
 const candidate: CiVerificationActionCandidate = {
   baseSha: '1'.repeat(40), baseTreeSha: '2'.repeat(40), headSha: '3'.repeat(40), headTreeSha: '4'.repeat(40),
-  manifestPath: 'docs/work-packages/example-v1.md', manifestDigest: digest('a'),
+  manifestPath: 'config/repository/work-packages/example-v1.md', manifestDigest: digest('a'),
   scopeAuthorizationRevision: digest('b'), profile: 'quick',
   toolchainRevision: 'bun@1.3.14', providerRevision: 'github-actions@trusted-default',
   contractRevision: CI_VERIFICATION_CONTRACT_REVISION,

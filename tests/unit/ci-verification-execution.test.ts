@@ -74,7 +74,7 @@ const HEAD = '1'.repeat(40);
 const TREE = '2'.repeat(40);
 const BASE = '3'.repeat(40);
 const BASE_TREE = '4'.repeat(40);
-const MANIFEST_PATH = 'docs/work-packages/exact-verification-v1.md';
+const MANIFEST_PATH = 'config/repository/work-packages/exact-verification-v1.md';
 const RAW = `sha256:${'a'.repeat(64)}` as const;
 
 function gitFixture(root: string, args: readonly string[]): string {

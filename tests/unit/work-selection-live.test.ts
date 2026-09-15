@@ -46,7 +46,7 @@ import { rawSha256, sha256 } from '../../src/system-architecture/foundation/runt
 
 const exactMain = 'a'.repeat(40);
 const exactMainTree = 'b'.repeat(40);
-const roadmapSource = readFileSync('docs/roadmap.md', 'utf8');
+const roadmapSource = readFileSync('config/repository/work-selection.md', 'utf8');
 
 type CatalogObservationV1 = Readonly<{
   source: string;
@@ -201,7 +201,7 @@ function registry(
     entries: completedWorkIds.map((workId, index) => {
       const item = catalog.items.find((candidate) => candidate.workId === workId)!;
       return {
-        manifestPath: `docs/work-packages/${item.packageId}.md`,
+        manifestPath: `config/repository/work-packages/${item.packageId}.md`,
         manifestDigest: sha256({ fixture: 'registry-manifest', workId, index }) as `sha256:${string}`,
         source: 'default' as const,
         prNumber: null,
@@ -235,7 +235,7 @@ function receipt(completedWorkIds?: readonly string[]) {
   const observation = observeCatalog(roadmapSource);
   const { catalog } = observation;
   const exactRepositoryCompletion = catalog.items.filter(({ packageId }) => (
-    existsSync(`docs/work-packages/${packageId}.md`)
+    existsSync(`config/repository/work-packages/${packageId}.md`)
   )).map(({ workId }) => workId);
   return receiptForCatalog(observation, completedWorkIds ?? exactRepositoryCompletion);
 }
@@ -243,7 +243,7 @@ function receipt(completedWorkIds?: readonly string[]) {
 describe('work-selection live contract', () => {
 
   test('MainHealth repair and locked routes stop before roadmap, Issue, PR, registry, or branch census', async () => {
-    const currentStateBytes = readFileSync('docs/work/current-state.yaml');
+    const currentStateBytes = readFileSync('config/repository/current-state.yaml');
     for (const [state, reasonCode] of [
       ['unhealthy', 'main-health-repair-only'],
       ['unresolved', 'main-health-locked']
@@ -259,8 +259,8 @@ describe('work-selection live contract', () => {
           ? Buffer.from(`${process.cwd()}\n`)
           : key === 'for-each-ref\0--format=%(refname)%00%(symref)\0refs/remotes/*/HEAD'
             ? Buffer.from('refs/remotes/origin/HEAD\0refs/remotes/origin/main\n')
-            : key === 'show\0refs/remotes/origin/main:docs/work/current-state.yaml'
-                || key === `show\0${exactMain}:docs/work/current-state.yaml`
+            : key === 'show\0refs/remotes/origin/main:config/repository/current-state.yaml'
+                || key === `show\0${exactMain}:config/repository/current-state.yaml`
               ? currentStateBytes
               : key === 'rev-parse\0--verify\0refs/remotes/origin/main'
                 ? Buffer.from(`${exactMain}\n`)
@@ -288,7 +288,7 @@ describe('work-selection live contract', () => {
       });
       expect(mainHealthObservations).toBe(1);
       expect(commands.every(({ command }) => command === 'git')).toBe(true);
-      expect(commands.some(({ args }) => args.some((argument) => argument.includes('docs/roadmap.md'))))
+      expect(commands.some(({ args }) => args.some((argument) => argument.includes('config/repository/work-selection.md'))))
         .toBe(false);
       expect(commands).toHaveLength(6);
     }
@@ -399,7 +399,7 @@ describe('work-selection live contract', () => {
       '"prerequisiteWorkIds": ["issue-352"]'
     );
     expect(compaction.delayedManifestRetirementPaths).toEqual([
-      'docs/work-packages/generated-ignored-state-lifecycle-v1.md'
+      'config/repository/work-packages/generated-ignored-state-lifecycle-v1.md'
     ]);
     expect(compaction.demandGraphDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
     expect(parseSecRoadmapWorkCatalog(compaction.roadmapSource).catalogDigest)
@@ -452,12 +452,12 @@ describe('work-selection live contract', () => {
       roadmapSource: prior.source,
       completedWorkIds: ['issue-271']
     });
-    const manifestPath = 'docs/work-packages/generated-ignored-state-lifecycle-v1.md';
+    const manifestPath = 'config/repository/work-packages/generated-ignored-state-lifecycle-v1.md';
     expect(() => assertSecRoadmapTerminalCompactionDelta({
       priorRoadmapSource: prior.source,
       roadmapSource: prior.source,
       priorManifestPaths: [manifestPath],
-      manifestPaths: [manifestPath, 'docs/work-packages/new-selected-v1.md']
+      manifestPaths: [manifestPath, 'config/repository/work-packages/new-selected-v1.md']
     })).not.toThrow();
     expect(() => assertSecRoadmapTerminalCompactionDelta({
       priorRoadmapSource: prior.source,
@@ -468,14 +468,14 @@ describe('work-selection live contract', () => {
     expect(() => assertSecRoadmapTerminalCompactionDelta({
       priorRoadmapSource: prior.source,
       roadmapSource: compaction.roadmapSource,
-      priorManifestPaths: [manifestPath, 'docs/work-packages/survivor-v1.md'],
-      manifestPaths: ['docs/work-packages/new-selected-v1.md']
+      priorManifestPaths: [manifestPath, 'config/repository/work-packages/survivor-v1.md'],
+      manifestPaths: ['config/repository/work-packages/new-selected-v1.md']
     })).toThrow(/cannot mutate the manifest set/u);
     expect(() => assertSecRoadmapTerminalCompactionDelta({
       priorRoadmapSource: prior.source,
       roadmapSource: compaction.roadmapSource,
       priorManifestPaths: [manifestPath],
-      manifestPaths: ['docs/work-packages/new-selected-v1.md']
+      manifestPaths: ['config/repository/work-packages/new-selected-v1.md']
     })).toThrow(/cannot mutate the manifest set/u);
   });
 
@@ -501,8 +501,8 @@ describe('work-selection live contract', () => {
       completedWorkIds: ['issue-271']
     });
     const manifestPaths = [
-      'docs/work-packages/generated-ignored-state-lifecycle-v1.md',
-      'docs/work-packages/survivor-v1.md'
+      'config/repository/work-packages/generated-ignored-state-lifecycle-v1.md',
+      'config/repository/work-packages/survivor-v1.md'
     ];
     const candidate = createSecRoadmapTerminalCompactionCandidate({
       repository: 'sec-platform/sec',
@@ -573,7 +573,7 @@ describe('work-selection live contract', () => {
       const seedSha = fixtureGitSha(root, 'HEAD');
       const seedTree = fixtureGitSha(root, 'HEAD^{tree}');
       const packageId = 'git-worktree-physical-closeout-v1';
-      const manifestPath = `docs/work-packages/${packageId}.md`;
+      const manifestPath = `config/repository/work-packages/${packageId}.md`;
       const manifestSource = `---\n`
         + `schema: codex-development-work-package-v1\n`
         + `id: ${packageId}\ntracking: issue-186\nbase: ${seedSha}\n`
@@ -584,12 +584,16 @@ describe('work-selection live contract', () => {
         + `forbiddenPaths:\n  - package.json\n`
         + `acceptance:\n  - terminal fixture remains self contained\n`
         + `tests:\n  - tests/unit/work-selection-live.test.ts\n---\n`;
-      const manifestDirectory = path.join(root, 'docs', 'work-packages');
+      const manifestDirectory = path.join(root, 'config', 'repository', 'work-packages');
       rmSync(manifestDirectory, { recursive: true, force: true });
       mkdirSync(manifestDirectory, { recursive: true });
+      writeFileSync(
+        path.join(root, 'config', 'repository', 'current-state.yaml'),
+        readFileSync(path.join(process.cwd(), 'config', 'repository', 'current-state.yaml'))
+      );
       writeFileSync(path.join(root, manifestPath), manifestSource, 'utf8');
       const manifestDigest = rawSha256(manifestSource);
-      writeFileSync(path.join(root, 'docs', 'work', 'active-work-package.md'), `---\n`
+      writeFileSync(path.join(root, 'config', 'repository', 'active-work-package.md'), `---\n`
         + `schema: sec-active-work-package-pointer-v2\nstatus: conditional\nlast-reviewed: 2026-08-23\n---\n\n`
         + `# 当前唯一 Active Work Package\n\n\`\`\`yaml\n`
         + `selectionMode: exact-manifest-not-on-default-branch-v1\n`
@@ -616,10 +620,10 @@ describe('work-selection live contract', () => {
           'typescript-7-checker-acceleration-v1'
         ]
       });
-      writeFileSync(path.join(root, 'docs', 'work', 'rolling-plan.md'),
+      writeFileSync(path.join(root, 'config', 'repository', 'rolling-plan.md'),
         renderSecWorkRollingTransitionPlan({ projection: priorRolling, reviewedOn: '2026-08-23' }), 'utf8');
-      writeFileSync(path.join(root, 'docs', 'roadmap.md'), prior.source, 'utf8');
-      runFixtureGit(root, ['add', '--', 'docs/roadmap.md', 'docs/work', 'docs/work-packages']);
+      writeFileSync(path.join(root, 'config', 'repository', 'work-selection.md'), prior.source, 'utf8');
+      runFixtureGit(root, ['add', '--', 'config/repository']);
       runFixtureGit(root, ['commit', '--quiet', '-m', 'fixture: terminal base']);
       const baseSha = fixtureGitSha(root, 'HEAD');
       const baseTreeSha = fixtureGitSha(root, 'HEAD^{tree}');
@@ -631,14 +635,14 @@ describe('work-selection live contract', () => {
         completedWorkIds: ['issue-186']
       });
       runFixtureGit(root, ['checkout', '--quiet', '-b', 'terminal-compaction']);
-      writeFileSync(path.join(root, 'docs', 'roadmap.md'), compaction.roadmapSource, 'utf8');
-      runFixtureGit(root, ['add', '--', 'docs/roadmap.md']);
+      writeFileSync(path.join(root, 'config', 'repository', 'work-selection.md'), compaction.roadmapSource, 'utf8');
+      runFixtureGit(root, ['add', '--', 'config/repository/work-selection.md']);
       runFixtureGit(root, ['commit', '--quiet', '-m', 'fixture: terminal candidate']);
       const headSha = fixtureGitSha(root, 'HEAD');
       const headTreeSha = fixtureGitSha(root, 'HEAD^{tree}');
 
       const independentItem = prior.catalog.items.find(({ workId }) => workId !== 'issue-186')!;
-      const independentManifestPath = `docs/work-packages/${independentItem.packageId}.md`;
+      const independentManifestPath = `config/repository/work-packages/${independentItem.packageId}.md`;
       runFixtureGit(root, ['checkout', '--quiet', '-b', 'independent-review', baseSha]);
       writeFileSync(path.join(root, independentManifestPath), `---\n`
         + `schema: codex-development-work-package-v1\n`
@@ -655,7 +659,7 @@ describe('work-selection live contract', () => {
       const secondaryItem = prior.catalog.items.find(({ workId }) => (
         workId !== 'issue-186' && workId !== independentItem.workId
       ))!;
-      const secondaryManifestPath = `docs/work-packages/${secondaryItem.packageId}.md`;
+      const secondaryManifestPath = `config/repository/work-packages/${secondaryItem.packageId}.md`;
       runFixtureGit(root, ['checkout', '--quiet', '-b', 'secondary-review', baseSha]);
       writeFileSync(path.join(root, secondaryManifestPath), `---\n`
         + `schema: codex-development-work-package-v1\n`
@@ -967,11 +971,11 @@ describe('work-selection live contract', () => {
       });
 
       writeFileSync(
-        path.join(root, 'docs', 'work-packages', 'provider-replay-drift.md'),
+        path.join(root, 'config', 'repository', 'work-packages', 'provider-replay-drift.md'),
         '# unauthorized manifest path drift\n',
         'utf8'
       );
-      runFixtureGit(root, ['add', '--', 'docs/work-packages/provider-replay-drift.md']);
+      runFixtureGit(root, ['add', '--', 'config/repository/work-packages/provider-replay-drift.md']);
       runFixtureGit(root, ['commit', '--quiet', '-m', 'fixture: manifest path drift']);
       const driftedHead = fixtureGitSha(root, 'HEAD');
       const drifted = await observeSecRoadmapTerminalCompactionCandidate({
@@ -1028,7 +1032,7 @@ describe('work-selection live contract', () => {
     const selectedCatalogItem = catalog.items.find(({ workId }) => workId === selectedWorkId)!;
     const selectedCandidate = result.input.candidates.find(({ workId }) => workId === selectedWorkId)!;
     expect(selectedCandidate).toMatchObject({ lifecycle: 'open', readiness: 'ready' });
-    expect(existsSync(`docs/work-packages/${selectedCatalogItem.packageId}.md`)).toBeFalse();
+    expect(existsSync(`config/repository/work-packages/${selectedCatalogItem.packageId}.md`)).toBeFalse();
     const projection = compileSecWorkRollingProjection(result);
     expect(projection.active.packageId).toBe(selectedCatalogItem.packageId);
     expect(projection.candidates.length).toBeLessThanOrEqual(5);
@@ -1079,7 +1083,7 @@ describe('work-selection live contract', () => {
       active: {
         packageId: 'active-v1',
         tracking: 'issue-1',
-        manifestPath: 'docs/work-packages/active-v1.md',
+        manifestPath: 'config/repository/work-packages/active-v1.md',
         manifestDigest: rawSha256('target-manifest')
       },
       candidates: ['candidate-two-v1', 'candidate-three-v1']
@@ -1109,7 +1113,7 @@ describe('work-selection live contract', () => {
       owner: 'ci-verification-maintainer',
       failureFingerprints: [failureFingerprint]
     });
-    const packageId = manifestPath.slice('docs/work-packages/'.length, -'.md'.length);
+    const packageId = manifestPath.slice('config/repository/work-packages/'.length, -'.md'.length);
     const projection = compileSecWorkRollingTransitionProjection({
       exactMain,
       exactMainTree,

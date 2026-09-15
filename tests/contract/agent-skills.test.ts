@@ -185,7 +185,7 @@ test('registered heuristic runtime surfaces resolve at least one Skill', () => {
     'sec-repository-audit'
   ]);
   expect(resolveSecRepositoryHeuristicSkills(
-    'docs/governance/external-capability-ledger.yaml'
+    'config/external-capabilities/ledger.yaml'
   )).toEqual(['sec-external-capability-governance', 'sec-heuristic-governance']);
   expect(resolveSecRepositoryHeuristicSkills('src/verification/ci/runtime/ci-orchestration-core.ts')).toEqual([
   ]);
@@ -213,7 +213,7 @@ test('documentation and Agent trust-root kinds have focused governance ownership
 
 test('external capability ledger binds repository authority and keeps rejected standing providers retired', async () => {
   const ledgerSource = await readFile(
-    path.join(REPOSITORY_ROOT, 'docs/governance/external-capability-ledger.yaml'),
+    path.join(REPOSITORY_ROOT, 'config/external-capabilities/ledger.yaml'),
     'utf8'
   );
   const ledger = parseYaml(ledgerSource) as {

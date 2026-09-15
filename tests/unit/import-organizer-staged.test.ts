@@ -78,7 +78,7 @@ test('staged organizer fast sentinel preserves working bytes while normalizing t
     git(repoRoot, ['config', 'user.name', 'SEC Tests']);
     git(repoRoot, ['config', 'core.autocrlf', 'false']);
     git(repoRoot, ['config', 'core.hooksPath', '.git/hooks']);
-    const workPackageDirectory = path.join(repoRoot, 'docs', 'work-packages');
+    const workPackageDirectory = path.join(repoRoot, 'config', 'repository', 'work-packages');
     await mkdir(workPackageDirectory, { recursive: true });
     const longCanonicalOwner = path.join(
       workPackageDirectory,

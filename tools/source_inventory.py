@@ -1,6 +1,16 @@
 """The documentation source boundary shared by checks and reading builds."""
 from pathlib import Path
+import argparse
+import hashlib
 import json
+import os
+import tempfile
+
+
+EXCLUDED_FROM_SOURCE_HASH = frozenset({
+    '.documentation/baseline.json',
+    '.documentation/source-manifest.json',
+})
 
 
 def load(path: Path):
@@ -81,3 +91,87 @@ def source_files(root: Path) -> tuple[Path, ...]:
         elif entry not in members:
             raise ValueError(f'unexpected file in documentation namespace: {entry.relative_to(root)}')
     return tuple(sorted(files, key=lambda entry: entry.relative_to(root).as_posix()))
+
+
+def _sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def source_manifest_members(root: Path) -> list[dict[str, object]]:
+    """Capture every declared source member in canonical path order."""
+    root = root.resolve()
+    members = []
+    for path in source_files(root):
+        name = path.relative_to(root).as_posix()
+        if name in EXCLUDED_FROM_SOURCE_HASH:
+            continue
+        data = path.read_bytes()
+        members.append({'path': name, 'bytes': len(data), 'sha256': _sha256(data)})
+    return members
+
+
+def source_set_digest(members: list[dict[str, object]]) -> str:
+    encoded = json.dumps(
+        members, ensure_ascii=False, sort_keys=True, separators=(',', ':')
+    ).encode('utf-8')
+    return _sha256(encoded)
+
+
+def _replace_json(path: Path, value: object) -> None:
+    """Publish one complete JSON value; interruption leaves old or new bytes."""
+    payload = json.dumps(value, ensure_ascii=False, indent=2) + '\n'
+    descriptor, temporary_name = tempfile.mkstemp(
+        dir=path.parent, prefix=f'.{path.name}.', suffix='.tmp'
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, 'w', encoding='utf-8', newline='\n') as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        temporary.replace(path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def refresh_source_manifest(root: Path) -> dict[str, object]:
+    """Refresh the sole byte manifest and its baseline digest from current sources."""
+    root = root.resolve()
+    baseline_path = local_path(root, '.documentation/baseline.json')
+    manifest_path = local_path(root, '.documentation/source-manifest.json')
+    baseline = load(baseline_path)
+    if baseline.get('source_manifest') != 'source-manifest.json':
+        raise ValueError('baseline source_manifest must be source-manifest.json')
+    excluded = baseline.get('excluded_from_source_hash')
+    if set(excluded or ()) != EXCLUDED_FROM_SOURCE_HASH:
+        raise ValueError('baseline excluded_from_source_hash differs from the canonical set')
+    members = source_manifest_members(root)
+    digest = source_set_digest(members)
+    manifest = {
+        'schema': 'sec.documentation-source-manifest/1',
+        'source_set_sha256': digest,
+        'members': members,
+    }
+    updated_baseline = dict(baseline)
+    updated_baseline['source_set_sha256'] = digest
+    # A crash between these replacements is fail-closed: the ordinary checker
+    # rejects the mismatched digests, and rerunning this command converges them.
+    _replace_json(manifest_path, manifest)
+    _replace_json(baseline_path, updated_baseline)
+    return {
+        'source_set_sha256': digest,
+        'source_members': len(members),
+        'manifest': manifest_path.relative_to(root).as_posix(),
+        'baseline': baseline_path.relative_to(root).as_posix(),
+    }
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('root', nargs='?', type=Path, default=Path(__file__).resolve().parent.parent)
+    parser.add_argument('--write', action='store_true', help='refresh the canonical manifest and baseline digest')
+    arguments = parser.parse_args()
+    if not arguments.write:
+        parser.error('--write is required; ordinary verification uses tools/check_docs.py')
+    print(json.dumps(refresh_source_manifest(arguments.root), ensure_ascii=False, indent=2))

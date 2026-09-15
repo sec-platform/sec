@@ -122,7 +122,7 @@ export function compileMainHealthRepairDecision(input: Readonly<{
   if (manifestPath === null || ledger.owner === null || ledger.failureFingerprints.length === 0) {
     return blocked('repair-manifest-identity-invalid', observationDigest, 'repair-only');
   }
-  const match = /^docs\/work-packages\/([a-z0-9][a-z0-9-]*)\.md$/u.exec(manifestPath);
+  const match = /^config\/repository\/work-packages\/([a-z0-9][a-z0-9-]*)\.md$/u.exec(manifestPath);
   if (match === null) {
     return blocked('repair-manifest-identity-invalid', observationDigest, 'repair-only');
   }

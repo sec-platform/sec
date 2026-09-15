@@ -71,7 +71,7 @@ function expectUnique(values: readonly string[]): void {
 }
 
 test('repository sources route by semantic kind and module identity', () => {
-  const activeDocumentationPath = (candidate: string) => candidate === 'docs/roadmap.md';
+  const activeDocumentationPath = (candidate: string) => candidate === 'config/repository/work-selection.md';
   expect(classifyTestImpactSource(
     'catalog/registry/official/ticket.basic/block.manifest.yaml',
     activeDocumentationPath
@@ -91,7 +91,7 @@ test('repository sources route by semantic kind and module identity', () => {
     '.githooks/unobserved',
     activeDocumentationPath
   )).toBeNull();
-  expect(classifyTestImpactSource('docs/roadmap.md', activeDocumentationPath))
+  expect(classifyTestImpactSource('config/repository/work-selection.md', activeDocumentationPath))
     .toBe('active-documentation');
   expect(classifyTestImpactSource('docs/unregistered.manifest.yaml', activeDocumentationPath))
     .toBeNull();

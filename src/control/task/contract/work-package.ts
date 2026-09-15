@@ -320,8 +320,8 @@ export function CodexDevelopmentParseWorkPackageLocator(body: string): string {
   if (locatorLines.length !== 1) {
     throw new Error(`PR body must contain exactly one Work-Package locator line; found ${locatorLines.length}.`);
   }
-  const match = /^Work-Package: (docs\/work-packages\/([a-z0-9][a-z0-9-]*)\.md)$/u.exec(locatorLines[0]!);
-  if (!match) throw new Error('PR Work-Package locator must be exactly `Work-Package: docs/work-packages/<id>.md`.');
+  const match = /^Work-Package: (config\/repository\/work-packages\/([a-z0-9][a-z0-9-]*)\.md)$/u.exec(locatorLines[0]!);
+  if (!match) throw new Error('PR Work-Package locator must be exactly `Work-Package: config/repository/work-packages/<id>.md`.');
   return match[1]!;
 }
 
@@ -416,7 +416,7 @@ export function CodexDevelopmentDecodeWorkPackageManifest(
     acceptance,
     tests
   };
-  const canonicalPath = `docs/work-packages/${manifest.id}.md`;
+  const canonicalPath = `config/repository/work-packages/${manifest.id}.md`;
   if (expectedPath !== undefined && expectedPath !== canonicalPath) {
     throw new Error(`Work Package manifest ID/path mismatch: expected ${canonicalPath}, received ${expectedPath}.`);
   }

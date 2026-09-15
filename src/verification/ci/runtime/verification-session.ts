@@ -531,7 +531,7 @@ function synchronizeTrustedRemoteDefaultRef(input: {
   return Object.freeze({ defaultSha: liveAfter, headSha: headAfter });
 }
 
-const WORK_PACKAGE_DIRECTORY = 'docs/work-packages';
+const WORK_PACKAGE_DIRECTORY = 'config/repository/work-packages';
 
 function blobDigest(
   ctx: VerificationSessionScope,
@@ -574,7 +574,7 @@ function collectDefaultManifestEntries(
   );
   return listing
     .split(/\r?\n/u)
-    .filter((line) => /^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(line.trim()))
+    .filter((line) => /^config\/repository\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(line.trim()))
     .map((manifestPath) => manifestPath.trim())
     .sort()
     .map((manifestPath) => ({

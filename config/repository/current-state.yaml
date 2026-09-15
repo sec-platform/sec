@@ -12,5 +12,5 @@ stableFacts:
     implementation: latest-main-code-and-contracts
     verification: exact-head-evidence
   workSelection:
-    catalog: docs/roadmap.md#sec-work-selection-roadmap-catalog-v1
+    catalog: config/repository/work-selection.md#sec-work-selection-roadmap-catalog-v1
     projection: sec-work-selection-live-v1-required

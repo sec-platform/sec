@@ -20,7 +20,7 @@ const candidate: CiVerificationActionCandidate = Object.freeze({
   baseTreeSha: '2'.repeat(40),
   headSha: '3'.repeat(40),
   headTreeSha: '4'.repeat(40),
-  manifestPath: 'docs/work-packages/example-v1.md',
+  manifestPath: 'config/repository/work-packages/example-v1.md',
   manifestDigest: digest('a'),
   scopeAuthorizationRevision: digest('b'),
   profile: 'quick',

@@ -9,7 +9,7 @@ from pathlib import Path, PurePosixPath
 import argparse, hashlib, json, re, sys
 sys.dont_write_bytecode = True
 import collections, html
-from source_inventory import load, local_path, source_files
+from source_inventory import EXCLUDED_FROM_SOURCE_HASH, load, local_path, source_files
 
 def plain_heading(text: str) -> str:
     # Only presentation markup is removed; no Unicode normalization/case-fold
@@ -65,7 +65,7 @@ def anchor_locations(text: str) -> dict[str, list[int]]:
     return dict(found)
 
 
-EXCLUDED = {'.documentation/baseline.json', '.documentation/source-manifest.json'}
+EXCLUDED = EXCLUDED_FROM_SOURCE_HASH
 def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 def canonical(value: object) -> bytes:

@@ -137,7 +137,7 @@ function activeWorkObservation(
     observedAt: new Date().toISOString(),
     state: 'active',
     branch: fixture.branch,
-    manifest: 'docs/work-packages/v6-test.md',
+    manifest: 'config/repository/work-packages/v6-test.md',
     reason: null
   });
 }

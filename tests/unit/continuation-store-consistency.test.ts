@@ -15,7 +15,7 @@ function fixture() {
   const environment = { ...process.env, SEC_STATE_HOME: path.join(root, 'state'), SEC_CACHE_HOME: path.join(root, 'cache') };
   const checkpoint = createLocalContinuationCheckpoint({ repository: 'sec-platform/sec', prNumber: 573,
     branch: 'refactor/repository-architecture-convergence-v1', baseSha: '1'.repeat(40), baseTreeSha: '2'.repeat(40),
-    headSha: '3'.repeat(40), headTreeSha: '4'.repeat(40), manifestPath: 'docs/work-packages/sec-static-convergence-v1.md' });
+    headSha: '3'.repeat(40), headTreeSha: '4'.repeat(40), manifestPath: 'config/repository/work-packages/sec-static-convergence-v1.md' });
   const layout = resolveSecRuntimeStateForRepository({ repository: checkpoint.repository, repositoryRoot, environment });
   return { root, repositoryRoot, environment, checkpoint, layout };
 }

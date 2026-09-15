@@ -80,9 +80,9 @@ import {
 } from './operation-activation.ts';
 
 const CONTROL_PATHS = Object.freeze({
-  currentState: 'docs/work/current-state.yaml',
-  pointer: 'docs/work/active-work-package.md',
-  rollingPlan: 'docs/work/rolling-plan.md'
+  currentState: 'config/repository/current-state.yaml',
+  pointer: 'config/repository/active-work-package.md',
+  rollingPlan: 'config/repository/rolling-plan.md'
 });
 const COMMAND_TIMEOUT_MS = 60_000;
 const COMMAND_MAX_BUFFER = 32 * 1024 * 1024;
@@ -378,7 +378,7 @@ function canonicalBytes(value: unknown): Buffer {
 function listWorkPackagePaths(root: string, revision: string): readonly string[] {
   const bytes = requireCommand('git', [
     '-c', 'core.quotepath=false', 'ls-tree', '-r', '--name-only', '-z', revision,
-    '--', 'docs/work-packages'
+    '--', 'config/repository/work-packages'
   ], root, 'activation-scope-conflict');
   if (bytes.length === 0 || bytes.at(-1) !== 0) {
     unavailable('activation-scope-conflict', 'candidate-work-package-census-is-empty-or-unterminated');
@@ -420,7 +420,7 @@ function preparationWorkPackageDeletions(
       ...(tracking === 'none' && candidatePackagePaths.length > 1
         ? {
             roadmapSource: decodeUtf8(
-              readGitBlob(candidateRoot, `${proposalRevision}:docs/roadmap.md`).bytes,
+              readGitBlob(candidateRoot, `${proposalRevision}:config/repository/work-selection.md`).bytes,
               'activation-scope-conflict'
             )
           }

@@ -2074,10 +2074,10 @@ async function auditControlPlane(
   findings: RepositoryAuditFinding[],
   unknowns: string[]
 ): Promise<{ pointerManifestOnDefault: boolean }> {
-  const pointerPath = 'docs/work/active-work-package.md';
-  const rollingPath = 'docs/work/rolling-plan.md';
+  const pointerPath = 'config/repository/active-work-package.md';
+  const rollingPath = 'config/repository/rolling-plan.md';
   if (!tracked.includes(pointerPath) || !tracked.includes(rollingPath)) {
-    unknowns.push('docs/work control plane is incomplete');
+    unknowns.push('config/repository control plane is incomplete');
     return { pointerManifestOnDefault: false };
   }
 
@@ -2085,7 +2085,7 @@ async function auditControlPlane(
   const rollingPlan = textByPath.get(rollingPath);
   if (pointer === undefined || pointer === null
     || rollingPlan === undefined || rollingPlan === null) {
-    unknowns.push('docs/work control plane is not readable as text at the audited revision');
+    unknowns.push('config/repository control plane is not readable as text at the audited revision');
     return { pointerManifestOnDefault: false };
   }
   let manifestPath: string;
@@ -2151,7 +2151,7 @@ async function auditControlPlane(
     { allowFailure: true }
   );
   // The active-phase manifest is frozen on the default branch by the activation
-  // commit; docs/work/README.md keeps it `conditional` while the pointer selects
+  // commit; config/repository/README.md keeps it `conditional` while the pointer selects
   // it. Being present on default is the designed state, not a violation.
   const pointerManifestOnDefault = defaultManifestBytes !== null
     && createHash('sha256').update(defaultManifestBytes).digest('hex') === expectedDigest;
@@ -2166,7 +2166,7 @@ async function auditControlPlane(
     });
   }
 
-  const liveManifests = tracked.filter((file) => /^docs\/work-packages\/[^/]+\.md$/u.test(file));
+  const liveManifests = tracked.filter((file) => /^config\/repository\/work-packages\/[^/]+\.md$/u.test(file));
   try {
     const entries = await Promise.all(liveManifests.map(async (packagePath) => {
       const candidateBytes = bytesByPath.get(packagePath);
@@ -2181,7 +2181,7 @@ async function auditControlPlane(
           : await runGitBytes(session, ['show', `${defaultRef}:${packagePath}`], { allowFailure: true })
       };
     }));
-    const roadmapSource = textByPath.get('docs/roadmap.md');
+    const roadmapSource = textByPath.get('config/repository/work-selection.md');
     const census = CodexDevelopmentClassifyWorkPackageCensus({
       selectedManifestPath: manifestPath,
       entries,
@@ -2193,7 +2193,7 @@ async function auditControlPlane(
       pushFinding(findings, {
         code: 'control-plane-live-manifest-census',
         message: `multiple byte-exact published predecessors remain: ${census.ambiguousPredecessorPaths.join(', ')}`,
-        path: 'docs/work-packages',
+        path: 'config/repository/work-packages',
         severity: 'high'
       });
     }
@@ -2209,7 +2209,7 @@ async function auditControlPlane(
     pushFinding(findings, {
       code: 'control-plane-live-manifest-census',
       message: error instanceof Error ? error.message : String(error),
-      path: 'docs/work-packages',
+      path: 'config/repository/work-packages',
       severity: 'critical'
     });
   }
@@ -2370,9 +2370,7 @@ async function auditRepositoryWithSession(
     findings.push(...sourceGovernance.blockingFindings);
 
     for (const [index, rawLine] of source.split(/\r?\n/u).entries()) {
-      if (markdownCoverage?.kind === 'active-authority'
-        && !repositoryPath.startsWith('docs/work/')
-        && DYNAMIC_IDENTITY.test(rawLine)) {
+      if (markdownCoverage?.kind === 'active-authority' && DYNAMIC_IDENTITY.test(rawLine)) {
         pushFinding(findings, {
           code: 'dynamic-identity-in-stable-authority',
           line: index + 1,

@@ -85,7 +85,7 @@ test('degraded exact-main repair decision binds the whole routing identity', () 
     owner: 'ci-verification-maintainer', failureFingerprints: [FAILURE]
   }));
   expect(result.binding?.packageId).toBe(result.binding?.manifestPath
-    .slice('docs/work-packages/'.length, -'.md'.length));
+    .slice('config/repository/work-packages/'.length, -'.md'.length));
   expect(result.binding?.healthRevision).toMatch(/^sha256:[0-9a-f]{64}$/u);
   expect(result.decisionDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
   expect(Object.isFrozen(result)).toBe(true);

@@ -269,8 +269,8 @@ test('trusted-base TestImpact reads a new candidate module graph from exact Git 
         '.documentation/baseline.json',
         '.documentation/source-manifest.json'
       ],
-      audited_namespaces: ['docs', 'public-docs'],
-      non_documentation_roots: ['docs/work', 'docs/work-packages'],
+      audited_namespaces: ['docs'],
+      non_documentation_roots: [],
       entry: '../README.md',
       delivery_number: '086',
       archive_name: 'SEC-086.zip',

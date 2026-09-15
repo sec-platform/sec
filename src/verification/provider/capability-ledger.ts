@@ -5,7 +5,7 @@ import { parse as parseYaml } from 'yaml';
 import { createVerificationProviderAvailabilityEpoch, type VerificationProviderAvailabilityEpoch, type VerificationProviderCapabilityInput } from './contract/capability.ts';
 
 export const VERIFICATION_PROVIDER_LEDGER_PATH =
-  'docs/governance/external-capability-ledger.yaml' as const;
+  'config/external-capabilities/ledger.yaml' as const;
 
 export interface VerificationProviderCapabilityLedgerProjection {
   readonly document: Readonly<Record<string, unknown>>;

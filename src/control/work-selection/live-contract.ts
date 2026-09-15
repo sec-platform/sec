@@ -138,7 +138,7 @@ export interface SecWorkDecisionReceipt {
   readonly repository: string;
   readonly exactMain: string;
   readonly exactMainTree: string;
-  readonly roadmapPath: 'docs/roadmap.md';
+  readonly roadmapPath: 'config/repository/work-selection.md';
   readonly roadmapRevision: SecWorkDigest;
   readonly catalog: SecRoadmapWorkCatalog;
   readonly registry: SecWorkRegistryObservation;
@@ -689,7 +689,7 @@ export function parseSecRoadmapWorkCatalog(source: string): SecRoadmapWorkCatalo
 }
 
 function workManifestPath(item: SecRoadmapWorkCatalogItem): string {
-  return `docs/work-packages/${item.packageId}.md`;
+  return `config/repository/work-packages/${item.packageId}.md`;
 }
 
 function renderRoadmapCatalogJson(value: unknown, depth = 0): string {
@@ -1117,7 +1117,7 @@ function normalizeTransitionActive(value: unknown): SecWorkRollingTransitionActi
   exactKeys(active, ROLLING_TRANSITION_ACTIVE_KEYS, 'rolling transition active');
   const parsedPackageId = packageId(active.packageId, 'rolling transition active.packageId');
   const manifestPath = text(active.manifestPath, 'rolling transition active.manifestPath');
-  if (manifestPath !== `docs/work-packages/${parsedPackageId}.md`) {
+  if (manifestPath !== `config/repository/work-packages/${parsedPackageId}.md`) {
     fail('rolling transition active.manifestPath must equal the active package identity.');
   }
   return deepFreeze({
@@ -1330,7 +1330,7 @@ function normalizeRegistry(input: SecWorkRegistryObservation): SecWorkRegistryOb
   const entries = [...input.entries].map((entry, index) => {
     const label = `registry.entries[${index}]`;
     const manifestPath = text(entry.manifestPath, `${label}.manifestPath`);
-    if (!/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(manifestPath)) {
+    if (!/^config\/repository\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(manifestPath)) {
       fail(`${label}.manifestPath is not canonical.`);
     }
     const normalized = {
@@ -1400,7 +1400,7 @@ function dependencyFacts(
   return workIds.map((workId) => {
     const dependency = itemsByWorkId.get(workId);
     if (dependency === undefined) fail(`dependency ${workId} disappeared after catalog validation.`);
-    const manifestPath = `docs/work-packages/${dependency.packageId}.md`;
+    const manifestPath = `config/repository/work-packages/${dependency.packageId}.md`;
     return {
       ref: `work-package:${dependency.packageId}`,
       status: completedManifests.has(manifestPath) ? 'satisfied' : 'unsatisfied'
@@ -1451,7 +1451,7 @@ function candidateFromLiveFacts(input: {
   itemsByWorkId: ReadonlyMap<string, SecRoadmapWorkCatalogItem>;
   completedManifests: ReadonlySet<string>;
 }): SecWorkCandidate {
-  const completionManifest = `docs/work-packages/${input.item.packageId}.md`;
+  const completionManifest = `config/repository/work-packages/${input.item.packageId}.md`;
   const alreadyInMain = input.completedManifests.has(completionManifest);
   if (!alreadyInMain && input.item.disposition === 'active'
       && input.currentSpec.providerState !== 'open') {
@@ -1599,7 +1599,7 @@ function receiptWithoutDigest(input: {
     repository: text(input.repository, 'receipt.repository'),
     exactMain,
     exactMainTree,
-    roadmapPath: 'docs/roadmap.md',
+    roadmapPath: 'config/repository/work-selection.md',
     roadmapRevision: selectionInput.identity.roadmapRevision,
     catalog,
     registry,

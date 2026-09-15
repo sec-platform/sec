@@ -627,7 +627,7 @@ test('active lifecycle admits only main and the exact active/open candidate', ()
     activeWorkPackage: {
       state: 'active',
       branch: 'feat/example',
-      manifest: 'docs/work-packages/example-v1.md',
+      manifest: 'config/repository/work-packages/example-v1.md',
       reason: null
     }
   });
@@ -728,7 +728,7 @@ test('authorization blocks an exact remote SHA race', () => {
     activeWorkPackage: {
       state: 'active',
       branch: 'feat/example',
-      manifest: 'docs/work-packages/example-v1.md',
+      manifest: 'config/repository/work-packages/example-v1.md',
       reason: null
     }
   });
@@ -785,7 +785,7 @@ test('local branch appearing after preparation blocks all deletion', () => {
     activeWorkPackage: {
       state: 'active',
       branch: 'feat/example',
-      manifest: 'docs/work-packages/example-v1.md',
+      manifest: 'config/repository/work-packages/example-v1.md',
       reason: null
     }
   });
@@ -844,7 +844,7 @@ test('divergent local branch is protected because remote recovery does not cover
     activeWorkPackage: {
       state: 'active',
       branch: 'feat/example',
-      manifest: 'docs/work-packages/example-v1.md',
+      manifest: 'config/repository/work-packages/example-v1.md',
       reason: null
     }
   });
@@ -902,7 +902,7 @@ test('merged closeout cannot delete either ref while a registered worktree remai
     activeWorkPackage: {
       state: 'active',
       branch: 'feat/example',
-      manifest: 'docs/work-packages/example-v1.md',
+      manifest: 'config/repository/work-packages/example-v1.md',
       reason: null
     }
   });
@@ -1012,7 +1012,7 @@ test('branch/ref CAS rejects missing or caller-forged worktree cleanup authority
     activeWorkPackage: {
       state: 'active',
       branch: 'feat/example',
-      manifest: 'docs/work-packages/example-v1.md',
+      manifest: 'config/repository/work-packages/example-v1.md',
       reason: null
     }
   });
@@ -1184,7 +1184,7 @@ test('active work package selecting another branch does not block orphan closeou
     activeWorkPackage: {
       state: 'active' as const,
       branch: 'feat/candidate',
-      manifest: 'docs/work-packages/example-v1.md',
+      manifest: 'config/repository/work-packages/example-v1.md',
       reason: null
     }
   };
@@ -1209,7 +1209,7 @@ test('active work package selecting the closeout branch blocks it', () => {
     activeWorkPackage: {
       state: 'active' as const,
       branch: 'probe/stale',
-      manifest: 'docs/work-packages/example-v1.md',
+      manifest: 'config/repository/work-packages/example-v1.md',
       reason: null
     }
   };

@@ -85,7 +85,7 @@ function planInput(overrides: {
       goalDigest: digest('b'),
       trustedRevision: base,
       targetCandidate: head,
-      workPackageProposalRef: 'docs/work-packages/task-capsule-compiler-v1.md',
+      workPackageProposalRef: 'config/repository/work-packages/task-capsule-compiler-v1.md',
       workPackageProposalDigest: digest('c'),
       workPackageProjectionId: digest('e'),
       scopeGrantId: null,

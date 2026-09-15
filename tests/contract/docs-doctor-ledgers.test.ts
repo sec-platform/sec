@@ -185,7 +185,7 @@ async function withLedgerFixture(
 ): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-docs-ledgers-'));
   try {
-    await mkdir(path.join(root, 'docs/governance'), { recursive: true });
+    await mkdir(path.join(root, 'config/external-capabilities'), { recursive: true });
     await execute(root);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -202,7 +202,7 @@ async function writeFixture(root: string, state: FixtureState): Promise<void> {
   await rm(specPath, { recursive: true, force: true });
   await Promise.all([
     writeFile(
-      path.join(root, 'docs/governance/external-capability-ledger.yaml'),
+      path.join(root, 'config/external-capabilities/ledger.yaml'),
       stringifyYaml(state.external),
       'utf8'
     ),
@@ -283,7 +283,7 @@ test('docs doctor reads the supplied EnvironmentSpec with no-follow and rejects 
       windowsControlCliProvider()
     );
     const specPath = path.join(root, ...WINDOWS_CONTROL_CLI_SPEC_RELATIVE_PATH.split('/'));
-    const file = 'docs/governance/external-capability-ledger.yaml';
+    const file = 'config/external-capabilities/ledger.yaml';
     const expectSpecError = async (
       mutate: () => Promise<void>,
       message: string
@@ -342,7 +342,7 @@ test('docs doctor reads the supplied EnvironmentSpec with no-follow and rejects 
 
 test('host-command-execution has one exhaustive provider closure with no null or alias route', async () => {
   await withLedgerFixture(async (root) => {
-    const file = 'docs/governance/external-capability-ledger.yaml';
+    const file = 'config/external-capabilities/ledger.yaml';
     const cases: Array<[
       string,
       (provider: Record<string, unknown>) => void,
@@ -382,7 +382,7 @@ test('docs doctor uses the hosted capability epoch window for every observation'
     const state = fixtureState();
     const capability = (state.external.verification as Record<string, unknown>).capabilities as Array<Record<string, unknown>>;
     capability[0]!.observedAt = '2026-08-10T23:59:59.999Z';
-    await expectOneError(root, state, 'docs/governance/external-capability-ledger.yaml',
+    await expectOneError(root, state, 'config/external-capabilities/ledger.yaml',
       'VerificationProviderCapability capability codex-review observation must fall within the availability epoch.');
   });
 });
@@ -392,7 +392,7 @@ test('docs doctor preserves the verification ledger parser failure reason', asyn
     const state = fixtureState();
     const verification = state.external.verification as Record<string, unknown>;
     verification.legacyEpoch = 'v0';
-    await expectOneError(root, state, 'docs/governance/external-capability-ledger.yaml',
+    await expectOneError(root, state, 'config/external-capabilities/ledger.yaml',
       'External capability ledger.verification.legacyEpoch is not allowed.');
   });
 });
@@ -413,7 +413,7 @@ test('external provider schema and cross-field negatives report the exact failin
   await withLedgerFixture(async (root) => {
     const base = fixtureState();
     await expectZeroErrors(root, base);
-    const file = 'docs/governance/external-capability-ledger.yaml';
+    const file = 'config/external-capabilities/ledger.yaml';
 
     const wrongSchema = structuredClone(base);
     wrongSchema.external.schema = 'sec-external-capability-ledger-v2';
@@ -580,7 +580,7 @@ test('ledger schemas reject missing, unknown, nested, and legacy alias fields', 
   await withLedgerFixture(async (root) => {
     const base = fixtureState();
     await expectZeroErrors(root, base);
-    const externalFile = 'docs/governance/external-capability-ledger.yaml';
+    const externalFile = 'config/external-capabilities/ledger.yaml';
     const variants: Array<{
       state: FixtureState;
       file: string;
@@ -747,7 +747,7 @@ test('external runner release authority binds exact primary-source archive and b
     await expectOneError(
       root,
       digestDrift,
-      'docs/governance/external-capability-ledger.yaml',
+      'config/external-capabilities/ledger.yaml',
       'External capability provider github-actions-local-runner.versionAuthority.artifactSha256 '
         + 'must be an exact SHA-256 digest.'
     );
@@ -760,7 +760,7 @@ test('external runner release authority binds exact primary-source archive and b
     await expectOneError(
       root,
       capabilityDrift,
-      'docs/governance/external-capability-ledger.yaml',
+      'config/external-capabilities/ledger.yaml',
       'External capability provider github-actions-local-runner.versionAuthority.'
         + 'outerSutContainerCapabilities must bind the exact constructor boundary.'
     );
@@ -772,7 +772,7 @@ test('external runner release authority binds exact primary-source archive and b
     await expectOneError(
       root,
       releaseDrift,
-      'docs/governance/external-capability-ledger.yaml',
+      'config/external-capabilities/ledger.yaml',
       'External capability provider github-actions-local-runner.versionAuthority '
         + 'GitHub Actions runner release identity is invalid.'
     );
@@ -784,7 +784,7 @@ test('external runner release authority binds exact primary-source archive and b
     await expectOneError(
       root,
       nodeDigestDrift,
-      'docs/governance/external-capability-ledger.yaml',
+      'config/external-capabilities/ledger.yaml',
       'External capability provider github-actions-local-runner.versionAuthority.nodeArtifactSha256 '
         + 'must bind the exact Node.js binary.'
     );
@@ -798,7 +798,7 @@ test('external runner release authority binds exact primary-source archive and b
     await expectOneError(
       root,
       githubCliDigestDrift,
-      'docs/governance/external-capability-ledger.yaml',
+      'config/external-capabilities/ledger.yaml',
       'External capability provider github-actions-local-runner.versionAuthority '
         + 'GitHub CLI identity is invalid.'
     );
@@ -810,7 +810,7 @@ test('external runner release authority binds exact primary-source archive and b
     await expectOneError(
       root,
       pythonDrift,
-      'docs/governance/external-capability-ledger.yaml',
+      'config/external-capabilities/ledger.yaml',
       'External capability provider github-actions-local-runner.versionAuthority.pythonVersion '
         + 'must bind the archive-inspection runtime.'
     );
@@ -822,7 +822,7 @@ test('external runner release authority binds exact primary-source archive and b
     await expectOneError(
       root,
       zipDrift,
-      'docs/governance/external-capability-ledger.yaml',
+      'config/external-capabilities/ledger.yaml',
       'External capability provider github-actions-local-runner.versionAuthority.'
         + 'zipExtractionCapability must bind setup archive extraction.'
     );
@@ -834,7 +834,7 @@ test('external runner release authority binds exact primary-source archive and b
     await expectOneError(
       root,
       imageDrift,
-      'docs/governance/external-capability-ledger.yaml',
+      'config/external-capabilities/ledger.yaml',
       'External capability provider github-actions-local-runner.versionAuthority.imageId '
         + 'must be an exact built image digest.'
     );
@@ -846,7 +846,7 @@ test('external runner release authority binds exact primary-source archive and b
     await expectOneError(
       root,
       initDrift,
-      'docs/governance/external-capability-ledger.yaml',
+      'config/external-capabilities/ledger.yaml',
       'External capability provider github-actions-local-runner.versionAuthority.containerInitCapability '
         + 'must bind persistent child reaping.'
     );
@@ -858,7 +858,7 @@ test('external runner release authority binds exact primary-source archive and b
     await expectOneError(
       root,
       roleDrift,
-      'docs/governance/external-capability-ledger.yaml',
+      'config/external-capabilities/ledger.yaml',
       'External capability provider github-actions-local-runner.versionAuthority.roleProfiles '
         + 'must bind the exact trust-domain roles.'
     );
@@ -872,7 +872,7 @@ test('external runner release authority binds exact primary-source archive and b
     await expectOneError(
       root,
       authorityKindEscape,
-      'docs/governance/external-capability-ledger.yaml',
+      'config/external-capabilities/ledger.yaml',
       'External capability provider github-actions-local-runner.versionAuthority.kind '
         + 'must be external-release for the workflow-execution capability.'
     );
