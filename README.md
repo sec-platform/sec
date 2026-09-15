@@ -59,4 +59,6 @@ See [PROJECT_STATUS.md](PROJECT_STATUS.md) for the maturity boundary and a repro
 
 Repository development rules are in [AGENTS.md](AGENTS.md), and contributor guidance is in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Project-owned source code, specifications, architecture and design documents, tests, and other copyrightable engineering materials are distributed under the [MIT License](LICENSE). Third-party components remain subject to their own licenses and notices.
+Repository-owned software, tests, tools, executable examples, and build or workflow material are licensed under [MPL-2.0](LICENSE). Repository-owned documentation and specifications are licensed under [CC BY 4.0](LICENSES/CC-BY-4.0.txt). See the [license map](LICENSES/README.md), [authors](AUTHORS.md), and [citation metadata](CITATION.cff) for the exact scope and attribution.
+
+MPL-2.0 is used without Exhibit B. Using SEC on another project does not by itself apply MPL-2.0 to that project's source or generated output; copied SEC implementation material retains its license. Third-party components remain subject to their own licenses and notices.

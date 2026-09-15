@@ -15,4 +15,4 @@ List the checks or exact evidence that cover this change. State material limitat
 - [ ] I kept unrelated and user-owned work out of this change.
 - [ ] I updated the owning documentation when product or architecture behavior changed.
 - [ ] I did not add secrets, personal data, generated credentials, or private environment paths.
-- [ ] Third-party code or assets include the required license and provenance.
+- [ ] New material follows `LICENSES/README.md` and `REUSE.toml`; third-party material retains its license, provenance, and required notices.
