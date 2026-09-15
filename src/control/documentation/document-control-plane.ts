@@ -6409,7 +6409,8 @@ async function resolveLiveControlPlaneWithGitReadSession(
       defaultManifestBlob,
       defaultRefState
     });
-  if (candidateManifestBlob !== undefined
+  if (activeWorkPackage.state === 'active'
+      && candidateManifestBlob !== undefined
       && rollingManifestBinding !== null) {
     const candidateManifest = CodexDevelopmentParseCurrentWorkPackageManifest(
       decodeUtf8(candidateManifestBlob, 'Rolling transition active manifest'),
