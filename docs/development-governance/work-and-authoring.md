@@ -126,6 +126,22 @@ Parallel pure reads/independent workers are allowed；concurrent writes to same 
 
 ## 10. Authoring、freeze 与 promotion
 
+Document-control freeze 还提供一个显式 `proposal-only` authoring lane，用于在 manual Tier 0
+operator 尚未签发 activation authority 时生成唯一的候选投影。它只在当前 pointer 所指
+manifest 与 live exact default 中的 blob byte-exact、active resolution 为
+`none / matching-default-blob`、目标 manifest 为 `tracking:none` 且其 `base` 等于 live
+exact default SHA 时成立。pointer、rolling plan、旧 pointer-bound predecessor manifest 的退休、index
+publication 与 readback 仍由同一个 document-control renderer 和事务 owner 完成；result
+及 recovery journal 始终标为 `PROPOSED`。
+rolling projection 的唯一 owner 同时生成显式 `authority:none` 的machine view，绑定exact
+main/tree与target manifest identity；其digest只保护表示完整性，不产生任何authority。
+
+该投影不接收或产生 WorkDecision、MainHealth repair、activation receipt、
+IntegrationAuthorization 或 merge authority。正常 activation lane 仍必须消费真实
+WorkDecision；selection 失败不能降级为 proposal-only。候选合入 default 后，pointer
+manifest 与 default blob 相同只解析为 `state:none / matching-default-blob`，不会因投影
+已发布而产生 active Work Package authority。
+
 | Phase | Allowed | Forbidden |
 | --- | --- | --- |
 | Authoring | mutate authorized candidate、focused/incremental proof | hosted status、merge claim |

@@ -26,6 +26,32 @@ const exactMainTree = 'b'.repeat(40);
 const activePackageId = 'active-v1';
 const candidates = ['candidate-two-v1', 'candidate-three-v1'] as const;
 
+function proposalManifest(packageId: string, tracking: string, base = exactMain): Buffer {
+  return Buffer.from(`---
+schema: codex-development-work-package-v1
+id: ${packageId}
+tracking: ${tracking}
+base: '${base}'
+manifestState: frozen
+requiredProfile: full
+ciRevision: ci-verification-v19
+tasks:
+  - id: proposal
+    owner: development-governance-maintainer
+    ownedPaths:
+      - docs/work-packages/${packageId}.md
+forbiddenPaths:
+  - src/compiler/
+acceptance:
+  - "Proposal remains authority-free."
+tests:
+  - tests/unit/document-control-plane-projection.test.ts
+---
+
+# Proposal
+`, 'utf8');
+}
+
 function legacyRollingPlanSource(): string {
   return `---
 title: projection fixture
@@ -53,6 +79,103 @@ Legacy candidate prose.
 Legacy candidate prose.
 `;
 }
+
+test('proposal-only freeze renders one authority-free tracking:none successor', () => {
+  const proposalPackageId = 'private-sandbox-python-runtime-transition';
+  const currentManifest = proposalManifest(activePackageId, 'issue-1');
+  const targetManifest = proposalManifest(proposalPackageId, 'none');
+  const spec = CodexDevelopmentParseCurrentStateSpec(`schema: sec-current-state-live-v1
+resolver:
+  command: bun src/control/documentation/document-control-plane.ts status --json
+  repository: sec-platform/sec
+  remote: origin
+  defaultBranch: main
+  defaultRef: refs/remotes/origin/main
+  requireRemoteMatch: true
+stableFacts:
+  workSelection:
+    catalog: docs/roadmap.md#sec-work-selection-roadmap-catalog-v1
+    projection: sec-work-selection-live-v1-required
+`);
+  const currentPointerSource = CodexDevelopmentRenderActivePointer({
+    spec,
+    manifestPath: `docs/work-packages/${activePackageId}.md`,
+    manifestDigest: CodexDevelopmentWorkPackageManifestDigest(currentManifest) as `sha256:${string}`,
+    reviewedOn: '2026-08-21'
+  });
+  const common = {
+    spec,
+    currentPointerSource,
+    currentRollingPlanSource: legacyRollingPlanSource(),
+    currentManifestBytes: currentManifest,
+    manifestPath: `docs/work-packages/${proposalPackageId}.md`,
+    manifestBytes: targetManifest,
+    baseSha: exactMain,
+    baseTreeSha: exactMainTree,
+    reviewedOn: '2026-08-21'
+  };
+  const proposalOnly = {
+    currentResolution: { state: 'none', reason: 'matching-default-blob' } as const,
+    defaultManifestBytes: currentManifest
+  };
+  const projection = CodexDevelopmentCreateFreezeProjection({ ...common, proposalOnly });
+  expect(projection.authoringDisposition).toBe('proposal-only');
+  expect(projection.retiredManifestPath).toBe(`docs/work-packages/${activePackageId}.md`);
+  expect(CodexDevelopmentParseRollingPlan(projection.rollingPlanSource).activePackageId)
+    .toBe(proposalPackageId);
+  expect(CodexDevelopmentParseRollingMachineProjection(projection.rollingPlanSource)).toMatchObject({
+    schema: 'sec-work-rolling-proposal-projection-v1',
+    exactMain,
+    exactMainTree,
+    authority: 'none',
+    active: {
+      packageId: proposalPackageId,
+      tracking: 'none',
+      manifestPath: `docs/work-packages/${proposalPackageId}.md`,
+      manifestDigest: CodexDevelopmentWorkPackageManifestDigest(targetManifest)
+    },
+    candidates: [...candidates]
+  });
+  expect(() => CodexDevelopmentParseRollingMachineProjection(
+    projection.rollingPlanSource.replace('"authority": "none"', '"authority": "activation"')
+  )).toThrow('authority none');
+  expect(() => CodexDevelopmentAssertRollingMachineBaseBinding({
+    projection: CodexDevelopmentParseRollingMachineProjection(projection.rollingPlanSource)!,
+    exactMain,
+    exactMainTree: 'c'.repeat(40)
+  })).toThrow('does not bind the exact live default tree');
+
+  expect(() => CodexDevelopmentCreateFreezeProjection({
+    ...common,
+    proposalOnly: { ...proposalOnly, currentResolution: {
+      state: 'active',
+      manifest: `docs/work-packages/${activePackageId}.md`,
+      manifestDigest: CodexDevelopmentWorkPackageManifestDigest(currentManifest)
+    } }
+  })).toThrow('byte-exact on the live default');
+  expect(() => CodexDevelopmentCreateFreezeProjection({
+    ...common,
+    manifestBytes: proposalManifest(proposalPackageId, 'issue-2'),
+    proposalOnly
+  })).toThrow('target tracking must be none');
+  expect(() => CodexDevelopmentCreateFreezeProjection({
+    ...common,
+    proposalOnly,
+    workSelectionProjection: { receipt: {} as never }
+  })).toThrow('forbids selection, repair, and replan');
+  expect(() => CodexDevelopmentCreateFreezeProjection({
+    ...common,
+    proposalOnly,
+    requestedRollingPlanSource: legacyRollingPlanSource()
+  })).toThrow('forbids caller-authored rolling-plan bytes');
+  expect(() => CodexDevelopmentCreateFreezeProjection({
+    ...common,
+    manifestBytes: proposalManifest(proposalPackageId, 'none', 'f'.repeat(40)),
+    proposalOnly
+  })).toThrow('base must equal the exact live default revision');
+  expect(() => CodexDevelopmentCreateFreezeProjection(common))
+    .toThrow('requires exactly one live WorkDecision or MainHealth repair projection');
+});
 
 test('MainHealth topology is compiled and rendered atomically instead of slicing prior Markdown', () => {
   const repairPackageId = 'main-health-repair-v1';

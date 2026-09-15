@@ -339,12 +339,12 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
   expect(step(workflow, 'assemble-verification-action-terminal',
     'Assemble canonical five-state terminal artifact').name)
     .toBe('Assemble canonical five-state terminal artifact');
-  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION).toContain(':sandbox-v5');
-  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION).not.toContain(':sandbox-v4');
+  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION).toContain(':sandbox-v6');
+  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION).not.toContain(':sandbox-v5');
   expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY).toMatchObject({
-    policyRevision: 'sandbox-v5',
+    policyRevision: 'sandbox-v6',
     rootIsolation: 'private-tmpfs-chroot-retained-archive-fd-closed-before-candidate',
-    toolClosure: 'private-explicit-runtime-binaries-and-dynamic-libraries-v2',
+    toolClosure: 'private-explicit-runtime-binaries-python-stdlib-and-dynamic-libraries-v3',
     network: 'none',
     inheritedFileDescriptors: 'stdio-plus-authenticated-archive-fd-until-private-copy',
     inputMount: 'retained-ordinary-fd-private-tmpfs-authenticated-copy-v2',
@@ -364,7 +364,72 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
     'CHOWN', 'SETGID', 'SETPCAP', 'SETUID', 'SYS_ADMIN', 'SYS_CHROOT'
   ]);
   expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.runtimeBinaries).toContain('/usr/bin/tar');
-  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.runtimeDirectories).toEqual(['/usr/lib/git-core']);
+  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.python.version)
+    .toBe(SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.runtime.pythonVersion);
+  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.runtimeBinaries)
+    .toContain(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.python.executablePath);
+  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.runtimeDirectories).toEqual([
+    '/usr/lib/git-core',
+    CI_VERIFICATION_HOSTED_SANDBOX_POLICY.python.stdlibDirectory
+  ]);
+});
+
+test('every cold SUT facade installs exact-base dependencies before its first repository module import', async () => {
+  const [compiler, bootstrap] = await Promise.all([
+    readCompilerFile('.github/workflows/compiler-pr-validation.yml'),
+    readCompilerFile('.github/workflows/sec-trusted-bootstrap.yml')
+  ]).then((sources) => sources.map((source) => parseYaml(source) as Workflow));
+  const cases = [
+    {
+      workflow: bootstrap!,
+      job: 'candidate-sut',
+      install: 'Install exact-base SUT facade dependencies without lifecycle scripts',
+      entrypoint: 'Run candidate SUT through trusted private sandbox'
+    },
+    {
+      workflow: compiler!,
+      job: 'preflight-verification-action-sut',
+      install: 'Install exact-base SUT preflight dependencies without lifecycle scripts',
+      entrypoint: 'Prove hostile SUT sandbox on the capability-bearing role'
+    },
+    {
+      workflow: compiler!,
+      job: 'claim-verification-action',
+      install: 'Install exact-base Action claim dependencies without lifecycle scripts',
+      entrypoint: 'Verify exact SUT capability before candidate materialization'
+    },
+    {
+      workflow: compiler!,
+      job: 'execute-verification-action-sut',
+      install: 'Install exact-base SUT facade dependencies without lifecycle scripts',
+      entrypoint: 'Execute one normalized candidate operation without credentials'
+    }
+  ] as const;
+  for (const candidate of cases) {
+    const job = candidate.workflow.jobs[candidate.job]!;
+    const install = step(candidate.workflow, candidate.job, candidate.install);
+    const entrypoint = step(candidate.workflow, candidate.job, candidate.entrypoint);
+    expect(install['working-directory']).toBeUndefined();
+    expect(install.run).toContain('test ! -e .npmrc');
+    expect(install.run).toContain('env -i');
+    expect(install.run).toContain('HOME=/tmp/sec-hosted-dependency-home');
+    expect(install.run).toContain('TMPDIR=/tmp/sec-hosted-dependency-tmp');
+    expect(install.run).toContain('BUN_INSTALL_CACHE_DIR=/tmp/sec-hosted-dependency-home/.bun/install/cache');
+    expect(install.run).toContain('LANG=C.UTF-8');
+    expect(install.run).toContain('install --frozen-lockfile --ignore-scripts');
+    expect(job.steps.indexOf(install)).toBeLessThan(job.steps.indexOf(entrypoint));
+  }
+  const cleanBase = step(bootstrap!, 'candidate-sut', 'Checkout clean exact base SUT input');
+  expect(cleanBase.with).toMatchObject({
+    ref: '${{ needs.resolve.outputs.base }}',
+    path: 'base-sut',
+    'persist-credentials': false
+  });
+  const bootstrapEntrypoint = step(
+    bootstrap!, 'candidate-sut', 'Run candidate SUT through trusted private sandbox'
+  );
+  expect(bootstrapEntrypoint.env?.BASE_SUT_ROOT).toBe('${{ github.workspace }}/base-sut');
+  expect(bootstrapEntrypoint.run).toContain('--base-root "$BASE_SUT_ROOT"');
 });
 
 test('hosted activation is a lightweight trusted-main artifact producer, not a candidate credential', async () => {
