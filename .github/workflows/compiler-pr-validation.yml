@@ -50,7 +50,7 @@ jobs:
     steps:
       - name: Resolve proposal against live default, PR, candidate, and actor
         id: request
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           PAYLOAD_JSON: ${{ toJSON(github.event.client_payload) }}
           EVENT_TYPE: ${{ github.event.action }}
@@ -235,7 +235,7 @@ jobs:
     steps:
       - name: Bind activation request to live main, exact draft PR, manifest, and maintainer
         id: request
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           PAYLOAD_JSON: ${{ toJSON(github.event.client_payload) }}
           WORKFLOW_SHA: ${{ github.sha }}
@@ -1327,7 +1327,7 @@ jobs:
     steps:
       - name: Bind canonical MainHealth request to live main
         if: ${{ github.event_name == 'repository_dispatch' }}
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           PAYLOAD_JSON: ${{ toJSON(github.event.client_payload) }}
           WORKFLOW_SHA: ${{ github.sha }}
