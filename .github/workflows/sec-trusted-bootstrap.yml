@@ -697,6 +697,14 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Checkout clean exact base SUT input
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ needs.resolve.outputs.base }}
+          path: base-sut
+          fetch-depth: 0
+          persist-credentials: false
+
       - name: Checkout exact candidate SUT only
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
@@ -718,9 +726,28 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-trusted-bootstrap-bun-
 
+      - name: Install exact-base SUT facade dependencies without lifecycle scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
+          unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
+          test ! -e .npmrc
+          mkdir -p /tmp/sec-hosted-dependency-home /tmp/sec-hosted-dependency-tmp
+          BUN_BIN="$(command -v bun)"
+          env -i \
+            PATH=/usr/bin:/bin \
+            HOME=/tmp/sec-hosted-dependency-home \
+            TMPDIR=/tmp/sec-hosted-dependency-tmp \
+            BUN_INSTALL_CACHE_DIR=/tmp/sec-hosted-dependency-home/.bun/install/cache \
+            LANG=C.UTF-8 \
+            CI=1 \
+            "$BUN_BIN" install --frozen-lockfile --ignore-scripts
+
       - name: Run candidate SUT through trusted private sandbox
         shell: bash
         env:
+          BASE_SUT_ROOT: ${{ github.workspace }}/base-sut
           CANDIDATE_ROOT: ${{ github.workspace }}/candidate-sut
           SUT_EVIDENCE_ROOT: ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}
           SEC_BOOTSTRAP_BASE: ${{ needs.resolve.outputs.base }}
@@ -735,7 +762,7 @@ jobs:
           unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
           unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
           bun src/verification/ci/verification.ts execute-trusted-bootstrap-sut \
-            --base-root "$GITHUB_WORKSPACE" \
+            --base-root "$BASE_SUT_ROOT" \
             --candidate-root "$CANDIDATE_ROOT" \
             --output-directory "$SUT_EVIDENCE_ROOT" \
             --base-sha "$SEC_BOOTSTRAP_BASE" \

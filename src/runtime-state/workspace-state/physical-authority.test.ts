@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { expect, jest, test } from 'bun:test';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -139,6 +139,51 @@ test.skipIf(process.platform !== 'win32')(
 );
 
 test.skipIf(process.platform !== 'win32')(
+  'a bounded queued Runtime State operation expires without poisoning its FIFO successor',
+  async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-state-queued-deadline-'));
+    const repositoryRoot = path.join(root, 'repository');
+    const stateRoot = path.join(root, 'state');
+    const cacheRoot = path.join(root, 'cache');
+    mkdirSync(repositoryRoot);
+    const authority = await acquireSecRuntimeStatePhysicalAuthority({
+      repositoryRoot,
+      stateRoot,
+      cacheRoot,
+      requiredDirectories: []
+    });
+    let predecessor: Promise<void> | undefined;
+    let cancelled: Promise<void> | undefined;
+    try {
+      const now = Date.now();
+      jest.useFakeTimers({ now });
+      predecessor = authority.assertCurrent();
+      cancelled = authority.assertCurrent({ deadlineAtUnixMs: now + 1_000 });
+      const cancellation = cancelled.then(
+        () => Object.freeze({ status: 'fulfilled' as const }),
+        (error: unknown) => Object.freeze({ error, status: 'rejected' as const })
+      );
+      jest.advanceTimersByTime(1_000);
+      jest.useRealTimers();
+
+      const cancellationResult = await cancellation;
+      expect(cancellationResult.status).toBe('rejected');
+      expect((cancellationResult as { error: unknown }).error)
+        .toMatchObject({ message: expect.stringContaining('deadline expired while queued') });
+      await predecessor;
+      await expect(authority.assertCurrent()).resolves.toBeUndefined();
+    } finally {
+      jest.useRealTimers();
+      await Promise.allSettled([predecessor, cancelled].filter(
+        (operation): operation is Promise<void> => operation !== undefined
+      ));
+      await authority.release().catch(() => undefined);
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+);
+
+test.skipIf(process.platform !== 'win32')(
   'bounded shared-reference release preserves its reference while another capability operation is pending',
   async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-state-shared-pending-'));
@@ -223,7 +268,7 @@ test.skipIf(process.platform !== 'win32')(
   }
 );
 
-test.skipIf(process.platform !== 'win32')('owner child generations advance without retiring concurrent stable root holders', async () => {
+test.skipIf(process.platform !== 'win32')('bounded owner child generations queue without retiring concurrent stable root holders', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-state-generation-'));
   const repositoryRoot = path.join(root, 'repository');
   const stateRoot = path.join(root, 'state');
@@ -238,20 +283,33 @@ test.skipIf(process.platform !== 'win32')('owner child generations advance witho
   let second: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
   let third: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
   try {
-    [second, third] = await Promise.all([
+    const concurrentDeadlineAtUnixMs = Date.now() + 30_000;
+    const concurrent = await Promise.allSettled([
       acquireSecRuntimeStatePhysicalAuthority({
         repositoryRoot,
         stateRoot,
         cacheRoot,
-        requiredDirectories: [path.join(stateRoot, 'operations', 'first')]
+        requiredDirectories: [path.join(stateRoot, 'operations', 'first')],
+        deadlineAtUnixMs: concurrentDeadlineAtUnixMs
       }),
       acquireSecRuntimeStatePhysicalAuthority({
         repositoryRoot,
         stateRoot,
         cacheRoot,
-        requiredDirectories: [path.join(stateRoot, 'operations', 'second')]
+        requiredDirectories: [path.join(stateRoot, 'operations', 'second')],
+        deadlineAtUnixMs: concurrentDeadlineAtUnixMs
       })
     ]);
+    if (concurrent[0].status === 'fulfilled') second = concurrent[0].value;
+    if (concurrent[1].status === 'fulfilled') third = concurrent[1].value;
+    const failures = concurrent.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1) {
+      throw new AggregateError(failures, 'Bounded concurrent Runtime State authority acquisition failed');
+    }
+    if (second === undefined || third === undefined) {
+      throw new Error('Bounded concurrent Runtime State authority acquisition returned no capability.');
+    }
     await Promise.all([first.assertCurrent(), second.assertCurrent(), third.assertCurrent()]);
     expect(second.directory(path.join(stateRoot, 'operations', 'first')).path).toBe(path.join(stateRoot, 'operations', 'first'));
     expect(third.directory(path.join(stateRoot, 'operations', 'second')).path).toBe(path.join(stateRoot, 'operations', 'second'));

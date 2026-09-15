@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { generatedStateDigest } from '../../src/runtime-state/generated-state/contract.ts';
@@ -84,6 +84,29 @@ test('namespace writer fixes its original root and callback receiver before its 
     assert.equal(result.ownerRoot.path, root); assert.ok(input.calls > 0);
     assert.equal(result.recordsRoot.path, dependencyTransitionNamespacePaths(root).recordsRoot);
   } finally { process.chdir(original); }
+}));
+
+test('namespace writer rejects an owner replacement before creating anything in the foreign root', async () => fixture(async root => {
+  const expectedOwner = inspectNoFollowDirectoryChain(root).target;
+  const displacedRoot = `${root}.displaced`;
+  let replaced = false;
+  try {
+    await assert.rejects(ensureDependencyTransitionNamespace(expectedOwner, {
+      ...controls(),
+      beforeCommit() {
+        if (replaced) return;
+        renameSync(root, displacedRoot);
+        mkdirSync(root);
+        replaced = true;
+      }
+    }), /owner root effect admission/);
+    assert.equal(replaced, true);
+    assert.equal(existsSync(dependencyTransitionNamespacePaths(root).backupRoot), false);
+    assert.equal(existsSync(dependencyTransitionNamespacePaths(displacedRoot).backupRoot), false);
+  } finally {
+    if (existsSync(root)) rmSync(root, { recursive: true, force: true });
+    if (existsSync(displacedRoot)) renameSync(displacedRoot, root);
+  }
 }));
 
 test('cancelled namespace admission performs no directory creation', async () => fixture(async root => {

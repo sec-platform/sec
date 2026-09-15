@@ -1,5 +1,19 @@
 import { createHash } from 'node:crypto';
+
+import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../../external-capabilities/linux-verification/contract.ts';
 import { VERIFICATION_SESSION_SCHEMA } from '../../session/contract/session.ts';
+
+const HOSTED_SANDBOX_PYTHON_VERSION =
+  SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.runtime.pythonVersion;
+const hostedSandboxPythonVersion = /^(\d+)\.(\d+)\.\d+$/u.exec(HOSTED_SANDBOX_PYTHON_VERSION);
+if (hostedSandboxPythonVersion === null) {
+  throw new Error('Hosted sandbox Python authority must be one exact semantic version.');
+}
+const HOSTED_SANDBOX_PYTHON = Object.freeze({
+  version: HOSTED_SANDBOX_PYTHON_VERSION,
+  executablePath: '/usr/bin/python3' as const,
+  stdlibDirectory: `/usr/lib/python${hostedSandboxPythonVersion[1]}.${hostedSandboxPythonVersion[2]}` as const
+});
 
 /** Active trusted hosted lane. */
 export const CI_VERIFICATION_SESSION_CONTRACT_REVISION = 'ci-verification-session-v2' as const;
@@ -14,7 +28,7 @@ export const CI_VERIFICATION_SESSION_ARTIFACT_PREFIX = VERIFICATION_SESSION_SCHE
  */
 export const CI_VERIFICATION_HOSTED_SANDBOX_POLICY = Object.freeze({
   schema: 'sec-ci-verification-hosted-sandbox-policy-v1' as const,
-  policyRevision: 'sandbox-v5' as const,
+  policyRevision: 'sandbox-v6' as const,
   runnerImage: 'ubuntu-24.04' as const,
   substrate: 'util-linux-unshare' as const,
   namespaces: Object.freeze(['mount', 'pid', 'network'] as const),
@@ -40,7 +54,8 @@ export const CI_VERIFICATION_HOSTED_SANDBOX_POLICY = Object.freeze({
     hostExtraction: false as const
   }),
   workspace: 'private-tmpfs-extract-inside-chroot' as const,
-  toolClosure: 'private-explicit-runtime-binaries-and-dynamic-libraries-v2' as const,
+  toolClosure: 'private-explicit-runtime-binaries-python-stdlib-and-dynamic-libraries-v3' as const,
+  python: HOSTED_SANDBOX_PYTHON,
   runtimeBinaries: Object.freeze([
     '/usr/bin/awk',
     '/usr/bin/bash',
@@ -64,6 +79,7 @@ export const CI_VERIFICATION_HOSTED_SANDBOX_POLICY = Object.freeze({
     '/usr/bin/mktemp',
     '/usr/bin/mount',
     '/usr/bin/prlimit',
+    HOSTED_SANDBOX_PYTHON.executablePath,
     '/usr/bin/readlink',
     '/usr/bin/realpath',
     '/usr/bin/rm',
@@ -86,7 +102,8 @@ export const CI_VERIFICATION_HOSTED_SANDBOX_POLICY = Object.freeze({
     '/usr/bin/xargs'
   ] as const),
   runtimeDirectories: Object.freeze([
-    '/usr/lib/git-core'
+    '/usr/lib/git-core',
+    HOSTED_SANDBOX_PYTHON.stdlibDirectory
   ] as const),
   runtimeAliases: Object.freeze([
     Object.freeze({ path: '/bin', target: 'usr/bin' }),

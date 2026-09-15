@@ -2,71 +2,64 @@
 title: SEC 滚动近期计划
 status: active
 domain: current-control
-last-reviewed: 2026-08-28
+last-reviewed: 2026-09-16
 ---
 
 # SEC 滚动近期计划
 
-本文件由唯一rolling projection compiler生成。普通选择与非普通transition使用同一机器拓扑和同一全文renderer；digest只证明规范化内容完整性，effectful owner仍必须在发布前重验其WorkDecision、committed-candidate或MainHealth authority。禁止单独修改标题、prose、JSON字段或digest。
+本文件由唯一rolling projection compiler生成，是未获activation authority的proposal-only候选投影。authority固定为none；projection digest只保护规范化表示，不能产生WorkDecision、Effect、merge或完成权限。
 
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:162b39ff0acd9910d6c38ffaa962be4460ce9460f75a4ea36b49852b7ffce89a",
-    "manifestPath": "docs/work-packages/default-branch-health-repair-36b174ebc783bb2b2e0c079d58fb825f0966b60b-848e6d50f2852dc05566c9d272c71782a7c39fb6c1badea43b1f74e9064b3c8e.md",
-    "packageId": "default-branch-health-repair-36b174ebc783bb2b2e0c079d58fb825f0966b60b-848e6d50f2852dc05566c9d272c71782a7c39fb6c1badea43b1f74e9064b3c8e",
+    "manifestDigest": "sha256:f43a3f7dc0091200a0ec4f0d277fb9c0b445f2f0251387ed2d0c70f82c45a874",
+    "manifestPath": "docs/work-packages/private-sandbox-python-runtime-transition.md",
+    "packageId": "private-sandbox-python-runtime-transition",
     "tracking": "none"
   },
-  "authority": {
-    "kind": "committed-candidate-replan",
-    "sourceHead": "21160041eb8cdbffd72e91d63501491eb7051061",
-    "sourceManifestDigest": "sha256:0369fe25da6990f295a690f93d7d9d6b9a9265c059e7a4f454c8ac111f81308c",
-    "sourcePointerRevision": "sha256:193887829b361aaa1df27aed49753cf7af38db3a91751db0663adf7cc81cc4cd",
-    "sourceRollingRevision": "sha256:b3d61721fce5659e6c147c949be064c2d24d57eec0bd5b39bc933af21131c4d7",
-    "sourceTree": "d73030fb9244aacde19e8502426e9ad541398afc"
-  },
+  "authority": "none",
   "candidates": [
     "operation-read-plan-authority-canary-v1",
     "sec-static-convergence-v1",
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "36b174ebc783bb2b2e0c079d58fb825f0966b60b",
-  "exactMainTree": "f7dd21a385a00589ecf04a41e98fe9d9e4fb43d6",
-  "projectionDigest": "sha256:1bbd28b1a88323bc51ae366a8439f4ab4f60a44e7b1352c1edd2fb576477e16e",
-  "schema": "sec-work-rolling-transition-projection-v1"
+  "exactMain": "47f0c6a2607b310cb4bf53c47a4dd0aed073310b",
+  "exactMainTree": "010e5b9c6619c74e1bd9dbdf6829a9a9aaa268f4",
+  "projectionDigest": "sha256:bcf326bfd2572b9a808d82cc123db465bda0efc263083f3c66f6788b80494ea7",
+  "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### default-branch-health-repair-36b174ebc783bb2b2e0c079d58fb825f0966b60b-848e6d50f2852dc05566c9d272c71782a7c39fb6c1badea43b1f74e9064b3c8e
+### private-sandbox-python-runtime-transition
 
-Existing active package replan bound to exact source head `21160041eb8cdbffd72e91d63501491eb7051061`, source tree `d73030fb9244aacde19e8502426e9ad541398afc`, manifest `sha256:162b39ff0acd9910d6c38ffaa962be4460ce9460f75a4ea36b49852b7ffce89a`, and authority `sha256:4881437c944ac29140b56b1d692f9bc3d452ad521b2663067e0fadc889dd6d21`.
+Proposal-only target manifest `docs/work-packages/private-sandbox-python-runtime-transition.md` at `sha256:f43a3f7dc0091200a0ec4f0d277fb9c0b445f2f0251387ed2d0c70f82c45a874`, based on exact main `47f0c6a2607b310cb4bf53c47a4dd0aed073310b` and tree `010e5b9c6619c74e1bd9dbdf6829a9a9aaa268f4`.
 
 ## 候选 Work Package
 
 ### 1. operation-read-plan-authority-canary-v1
 
-Retained ordered candidate from transition authority `sha256:4881437c944ac29140b56b1d692f9bc3d452ad521b2663067e0fadc889dd6d21`.
+Retained ordered candidate identity from the published baseline; no selection authority is implied.
 
 ### 2. sec-static-convergence-v1
 
-Retained ordered candidate from transition authority `sha256:4881437c944ac29140b56b1d692f9bc3d452ad521b2663067e0fadc889dd6d21`.
+Retained ordered candidate identity from the published baseline; no selection authority is implied.
 
 ### 3. candidate-control-transaction-v1
 
-Retained ordered candidate from transition authority `sha256:4881437c944ac29140b56b1d692f9bc3d452ad521b2663067e0fadc889dd6d21`.
+Retained ordered candidate identity from the published baseline; no selection authority is implied.
 
 ### 4. typescript-7-checker-acceleration-v1
 
-Retained ordered candidate from transition authority `sha256:4881437c944ac29140b56b1d692f9bc3d452ad521b2663067e0fadc889dd6d21`.
+Retained ordered candidate identity from the published baseline; no selection authority is implied.
 
 ## 重新规划硬触发器
 
 1. exact main、roadmap/catalog、registry/lifecycle/conflict或current-spec revision漂移；
 2. active/tracking/package与decision不一致，或候选少于二、多于五、重复、手工重排、增删；
-3. WorkDecision或显式transition authority不再与当前projection逐项相等；
+3. WorkDecision、显式transition authority或proposal exact binding不再与当前projection逐项相等；
 4. independent Review之后head/tree/base/manifest或本projection bytes改变。
 
 ## 加速验收
