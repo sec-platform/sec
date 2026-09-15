@@ -1,5 +1,5 @@
 {
-  "schema": "sec-docker-windows-installation-profile-v3",
+  "schema": "sec-docker-windows-installation-profile-v4",
   "platform": "win32",
   "installation": {
     "folder": "program-files",
@@ -30,14 +30,13 @@
       "wslExecutableName": "wsl.exe",
       "wslExecutableChildDescriptor": 52
     },
-    "profile": { "folder": "profile", "childDescriptor": 42 },
-    "localAppData": { "folder": "local-app-data", "childDescriptor": 43 },
-    "roamingAppData": { "folder": "roaming-app-data", "childDescriptor": 44 },
-    "programData": { "folder": "program-data", "childDescriptor": 45 },
+    "profile": { "folder": "profile" },
+    "localAppData": { "folder": "local-app-data" },
+    "roamingAppData": { "folder": "roaming-app-data" },
+    "programData": { "folder": "program-data" },
     "temp": {
       "folder": "local-app-data",
-      "directorySegments": ["Temp"],
-      "childDescriptor": 46
+      "directorySegments": ["Temp"]
     }
   }
 }

@@ -1,0 +1,545 @@
+{
+  "schema": "sec.author-module/1",
+  "moduleId": "studio:family",
+  "namespace": "studio.family",
+  "dialects": {
+    "req": {
+      "languageId": "sec.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {
+    "standard": {
+      "mode": "workspace",
+      "moduleId": "studio:standard"
+    },
+    "ide": {
+      "mode": "workspace",
+      "moduleId": "sec/spec/ide"
+    },
+    "search": {
+      "mode": "workspace",
+      "moduleId": "sec/spec/search"
+    },
+    "delivery": {
+      "mode": "workspace",
+      "moduleId": "sec/spec/delivery"
+    },
+    "quality": {
+      "mode": "workspace",
+      "moduleId": "sec/spec/quality"
+    }
+  },
+  "definitions": {
+    "d:CheckedVariant": {
+      "kind": "req:composite",
+      "name": "CheckedVariant",
+      "body": {
+        "parameters": {
+          "primary": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "ide",
+                "export": "Workbench"
+              }
+            }
+          },
+          "secondary": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "ide",
+                "export": "Workbench"
+              }
+            }
+          },
+          "wanted": {
+            "role": "value",
+            "type": {
+              "ref": {
+                "import": "search",
+                "export": "StalePolicy"
+              }
+            }
+          },
+          "selected": {
+            "role": "value",
+            "type": {
+              "ref": {
+                "import": "search",
+                "export": "StalePolicy"
+              }
+            }
+          },
+          "platforms": {
+            "role": "value",
+            "type": {
+              "list": {
+                "ref": {
+                  "import": "delivery",
+                  "export": "Platform"
+                }
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "when": {
+              "condition": {
+                "equal": [
+                  {
+                    "parameter": "selected"
+                  },
+                  {
+                    "parameter": "wanted"
+                  }
+                ]
+              },
+              "then": [
+                {
+                  "when": {
+                    "condition": {
+                      "equal": [
+                        {
+                          "parameter": "wanted"
+                        },
+                        {
+                          "enum": {
+                            "import": "search",
+                            "export": "Reject"
+                          }
+                        }
+                      ]
+                    },
+                    "then": [
+                      {
+                        "use": {
+                          "import": "standard",
+                          "export": "LocalWorkbench"
+                        },
+                        "arguments": {
+                          "s": {
+                            "parameter": "primary"
+                          },
+                          "stalePolicy": {
+                            "parameter": "selected"
+                          },
+                          "platforms": {
+                            "parameter": "platforms"
+                          }
+                        }
+                      }
+                    ],
+                    "else": [
+                      {
+                        "use": {
+                          "import": "standard",
+                          "export": "LocalWorkbench"
+                        },
+                        "arguments": {
+                          "s": {
+                            "parameter": "secondary"
+                          },
+                          "stalePolicy": {
+                            "parameter": "selected"
+                          },
+                          "platforms": {
+                            "parameter": "platforms"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              ],
+              "else": [
+                {
+                  "any": []
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "d:PolicyPair": {
+      "kind": "req:composite",
+      "name": "PolicyPair",
+      "body": {
+        "parameters": {
+          "shared": {
+            "role": "value",
+            "type": {
+              "builtin": "Bool"
+            }
+          },
+          "optimizeLatency": {
+            "role": "value",
+            "type": {
+              "builtin": "Bool"
+            }
+          },
+          "platforms": {
+            "role": "value",
+            "type": {
+              "list": {
+                "ref": {
+                  "import": "delivery",
+                  "export": "Platform"
+                }
+              }
+            }
+          }
+        },
+        "subjects": {
+          "primary": {
+            "type": {
+              "ref": {
+                "import": "ide",
+                "export": "Workbench"
+              }
+            }
+          },
+          "secondary": {
+            "type": {
+              "ref": {
+                "import": "ide",
+                "export": "Workbench"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "all": [
+              {
+                "when": {
+                  "condition": {
+                    "value": {
+                      "parameter": "shared"
+                    }
+                  },
+                  "then": [
+                    {
+                      "exists": {
+                        "bind": "selected",
+                        "in": [
+                          {
+                            "enum": {
+                              "import": "search",
+                              "export": "Reject"
+                            }
+                          },
+                          {
+                            "enum": {
+                              "import": "search",
+                              "export": "RebuildThenConfirm"
+                            }
+                          }
+                        ],
+                        "body": [
+                          {
+                            "forEach": {
+                              "bind": "wanted",
+                              "in": [
+                                {
+                                  "enum": {
+                                    "import": "search",
+                                    "export": "Reject"
+                                  }
+                                },
+                                {
+                                  "enum": {
+                                    "import": "search",
+                                    "export": "RebuildThenConfirm"
+                                  }
+                                }
+                              ],
+                              "body": [
+                                {
+                                  "use": {
+                                    "definitionId": "d:CheckedVariant"
+                                  },
+                                  "arguments": {
+                                    "primary": {
+                                      "subject": "primary"
+                                    },
+                                    "secondary": {
+                                      "subject": "secondary"
+                                    },
+                                    "wanted": {
+                                      "bound": "wanted"
+                                    },
+                                    "selected": {
+                                      "bound": "selected"
+                                    },
+                                    "platforms": {
+                                      "parameter": "platforms"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "else": [
+                    {
+                      "forEach": {
+                        "bind": "wanted",
+                        "in": [
+                          {
+                            "enum": {
+                              "import": "search",
+                              "export": "Reject"
+                            }
+                          },
+                          {
+                            "enum": {
+                              "import": "search",
+                              "export": "RebuildThenConfirm"
+                            }
+                          }
+                        ],
+                        "body": [
+                          {
+                            "any": [
+                              {
+                                "use": {
+                                  "definitionId": "d:CheckedVariant"
+                                },
+                                "arguments": {
+                                  "primary": {
+                                    "subject": "primary"
+                                  },
+                                  "secondary": {
+                                    "subject": "secondary"
+                                  },
+                                  "wanted": {
+                                    "bound": "wanted"
+                                  },
+                                  "selected": {
+                                    "enum": {
+                                      "import": "search",
+                                      "export": "Reject"
+                                    }
+                                  },
+                                  "platforms": {
+                                    "parameter": "platforms"
+                                  }
+                                }
+                              },
+                              {
+                                "use": {
+                                  "definitionId": "d:CheckedVariant"
+                                },
+                                "arguments": {
+                                  "primary": {
+                                    "subject": "primary"
+                                  },
+                                  "secondary": {
+                                    "subject": "secondary"
+                                  },
+                                  "wanted": {
+                                    "bound": "wanted"
+                                  },
+                                  "selected": {
+                                    "enum": {
+                                      "import": "search",
+                                      "export": "RebuildThenConfirm"
+                                    }
+                                  },
+                                  "platforms": {
+                                    "parameter": "platforms"
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "forEach": {
+                  "bind": "product",
+                  "in": [
+                    {
+                      "subject": "primary"
+                    },
+                    {
+                      "subject": "secondary"
+                    }
+                  ],
+                  "body": [
+                    {
+                      "prefer": {
+                        "import": "quality",
+                        "export": "Cost"
+                      },
+                      "fields": {
+                        "on": {
+                          "bound": "product"
+                        },
+                        "metric": {
+                          "enum": {
+                            "import": "quality",
+                            "export": "ResidentMemory"
+                          }
+                        },
+                        "priority": {
+                          "literal": 1
+                        },
+                        "workload": {
+                          "enum": {
+                            "import": "quality",
+                            "export": "DeclaredWorkload"
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "when": {
+                        "condition": {
+                          "value": {
+                            "parameter": "optimizeLatency"
+                          }
+                        },
+                        "then": [
+                          {
+                            "prefer": {
+                              "import": "quality",
+                              "export": "Cost"
+                            },
+                            "fields": {
+                              "on": {
+                                "bound": "product"
+                              },
+                              "metric": {
+                                "enum": {
+                                  "import": "quality",
+                                  "export": "InteractiveLatency"
+                                }
+                              },
+                              "priority": {
+                                "literal": 2
+                              },
+                              "workload": {
+                                "enum": {
+                                  "import": "quality",
+                                  "export": "DeclaredWorkload"
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "d:Independent": {
+      "kind": "req:composite",
+      "name": "Independent",
+      "body": {
+        "parameters": {},
+        "terms": [
+          {
+            "use": {
+              "definitionId": "d:PolicyPair"
+            },
+            "arguments": {
+              "shared": {
+                "literal": false
+              },
+              "optimizeLatency": {
+                "literal": true
+              },
+              "platforms": [
+                {
+                  "enum": {
+                    "import": "delivery",
+                    "export": "Windows"
+                  }
+                },
+                {
+                  "enum": {
+                    "import": "delivery",
+                    "export": "Linux"
+                  }
+                },
+                {
+                  "enum": {
+                    "import": "delivery",
+                    "export": "MacOS"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "d:SharedDefault": {
+      "kind": "req:composite",
+      "name": "SharedDefault",
+      "body": {
+        "parameters": {},
+        "terms": [
+          {
+            "use": {
+              "definitionId": "d:PolicyPair"
+            },
+            "arguments": {
+              "shared": {
+                "literal": true
+              },
+              "optimizeLatency": {
+                "literal": true
+              },
+              "platforms": [
+                {
+                  "enum": {
+                    "import": "delivery",
+                    "export": "Windows"
+                  }
+                },
+                {
+                  "enum": {
+                    "import": "delivery",
+                    "export": "Linux"
+                  }
+                },
+                {
+                  "enum": {
+                    "import": "delivery",
+                    "export": "MacOS"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "Independent": {
+      "definitionId": "d:Independent"
+    },
+    "SharedDefault": {
+      "definitionId": "d:SharedDefault"
+    }
+  }
+}

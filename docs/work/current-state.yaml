@@ -8,11 +8,6 @@ resolver:
   requireRemoteMatch: true
 
 stableFacts:
-  documentAuthority:
-    registry: docs/authority.json
-    parser: src/control/documentation/authority.ts
-  productAuthority:
-    document: docs/product.md
   capabilityAuthority:
     implementation: latest-main-code-and-contracts
     verification: exact-head-evidence

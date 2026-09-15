@@ -257,7 +257,7 @@ test('non-code product inputs reach tests through semantic module owners', () =>
     'src/compiler/virtual-manifest-consumer.ts': 'export const manifestConsumer = true;',
     'tests/unit/virtual-manifest-consumer.test.ts': "import { manifestConsumer } from '../../src/compiler/virtual-manifest-consumer.ts'; void manifestConsumer;"
   });
-  const documentation = selectTestsForSources(['docs/product.md'], provider);
+  const documentation = selectTestsForSources(['docs/产品/产品要求与工作约束.md'], provider);
   expect(documentation.owners).toContain('control.documentation');
   expect(documentation.fast).toEqual([]);
   expect(documentation.slow).toEqual([]);

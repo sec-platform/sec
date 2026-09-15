@@ -1,0 +1,137 @@
+{
+  "scope": "仅已发现的精确句子回归和当前入口；不理解任意自然语言改写，不证明无未知冲突。有效规范变更时须根据真实授权/理由调整而非永不允许修改。",
+  "checks": [
+    {
+      "id": "author-primary",
+      "path": "docs/作者/结构化源码.md",
+      "mode": "must_contain",
+      "text": "不成为本入口的依赖"
+    },
+    {
+      "id": "choice-not-user-command",
+      "path": "docs/产品/产品要求与工作约束.md",
+      "mode": "must_contain",
+      "text": "采用何种具体表示仍由D02"
+    },
+    {
+      "id": "legacy-default",
+      "path": "docs/产品/术语与质量属性.md",
+      "mode": "must_not_contain",
+      "text": "当前默认中立文本为`.sec`"
+    },
+    {
+      "id": "no-default-text-assembly",
+      "path": "docs/架构/协作与状态边界.md",
+      "mode": "must_not_contain",
+      "text": "当前默认是[AI任务操作与直接中立文本]"
+    },
+    {
+      "id": "old-expansion-not-required:1",
+      "path": "docs/作者/可替换表示与适用范围.md",
+      "mode": "must_not_contain",
+      "text": "最重要的作者成果是28个.sec"
+    },
+    {
+      "id": "old-expansion-not-required:2",
+      "path": "docs/领域/计算基础/紧凑表示与程序范式.md",
+      "mode": "must_not_contain",
+      "text": "最重要的作者成果是28个.sec"
+    },
+    {
+      "id": "old-expansion-not-required:3",
+      "path": "docs/领域/计算基础/名称导入与契约.md",
+      "mode": "must_not_contain",
+      "text": "最重要的作者成果是28个.sec"
+    },
+    {
+      "id": "old-expansion-not-required:4",
+      "path": "docs/领域/计算基础/文法类型与求值.md",
+      "mode": "must_not_contain",
+      "text": "最重要的作者成果是28个.sec"
+    },
+    {
+      "id": "old-expansion-not-required:5",
+      "path": "docs/领域/计算基础/画像与领域边界.md",
+      "mode": "must_not_contain",
+      "text": "最重要的作者成果是28个.sec"
+    },
+    {
+      "id": "old-expansion-not-required:6",
+      "path": "alternatives/文本意图/语法草案.md",
+      "mode": "must_not_contain",
+      "text": "最重要的作者成果是28个.sec"
+    },
+    {
+      "id": "baseline-load",
+      "path": "docs/维护/设计任务规则.md",
+      "mode": "must_contain",
+      "text": "先比源清单摘要"
+    },
+    {
+      "id": "two-json-roles",
+      "path": "docs/作者/结构化源码.md",
+      "mode": "must_contain",
+      "text": "它们不分别保存“意图全集”和“实现全集”"
+    },
+    {
+      "id": "supply-not-product-code",
+      "path": "docs/作者/需求含义与实现责任.md",
+      "mode": "must_contain",
+      "text": "产品作者"
+    },
+    {
+      "id": "current-baseline-local",
+      "path": "README.md",
+      "mode": "must_contain",
+      "text": ".documentation/baseline.json"
+    },
+    {
+      "id": "root-system-first",
+      "path": "README.md",
+      "mode": "must_contain",
+      "text": "docs/架构/总体设计.md"
+    },
+    {
+      "id": "no-r70-current",
+      "path": "docs/产品/全体系能力与边界.md",
+      "mode": "must_not_contain",
+      "text": "包修订：r70"
+    },
+    {
+      "id": "no-frozen-primary",
+      "path": "docs/任务路线.md",
+      "mode": "must_not_contain",
+      "text": "直接打开[studio.sec]"
+    },
+    {
+      "id": "direct-current-source",
+      "path": "docs/任务路线.md",
+      "mode": "must_contain",
+      "text": "直接打开[studio.json]"
+    },
+    {
+      "id": "no-generic-computational-baseline",
+      "path": "docs/作者/可替换表示与适用范围.md",
+      "mode": "must_not_contain",
+      "text": "当前文法是已选择供有界实施的作者面基线"
+    },
+    {
+      "id": "no-generic-markdown-authority",
+      "path": "docs/维护/设计任务规则.md",
+      "mode": "must_not_contain",
+      "text": "源码提取物来自Markdown，维护时改唯一围栏再派生，不双写。"
+    },
+    {
+      "id": "no-second-target-from-example",
+      "path": "docs/演进/实施/仓库迁移与自托管.md",
+      "mode": "must_not_contain",
+      "text": "窄C在当前可用出口之后另行校准"
+    },
+    {
+      "id": "no-implicit-text-mvp",
+      "path": "docs/演进/实施/仓库迁移与自托管.md",
+      "mode": "must_not_contain",
+      "text": "| 模块和库 | `.sec`多模块"
+    }
+  ]
+}

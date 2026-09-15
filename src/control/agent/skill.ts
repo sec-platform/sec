@@ -126,7 +126,8 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
       )
     };
   }
-  if (path === 'README.md' || path === 'docs/README.md' || path === 'docs/work/README.md') {
+  if (path === 'README.md' || path === 'docs/README.md' || path === 'docs/work/README.md'
+      || path === '.documentation/README.md') {
     return {
       kind: 'navigation',
       skills: []
@@ -147,13 +148,18 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
     return { kind: 'repository-content', skills: [] };
   }
   if (/^public-docs\/[^/]+\.md$/u.test(path)) {
-    // Public documentation is a zh-CN projection bound to canonical sources by
-    // public-docs/manifest.json; it holds no authority and routes no Skill.
+    // Retired public pages can still occur in a predecessor revision under review.
+    // They hold no current authority and route no Skill.
     return { kind: 'public-projection', skills: [] };
+  }
+  if (/^(?:examples|alternatives)\//u.test(path)
+      && activeDocumentationRecord(path) !== undefined) {
+    // Indexed examples and alternatives remain source material, not adopted authority.
+    return { kind: 'repository-content', skills: [] };
   }
   if (!/^docs\//u.test(path)) return null;
 
-  if (path === 'docs/development-governance.md') {
+  if (path === 'docs/开发/用途与任务范围.md') {
     return {
       kind: 'active-authority',
       skills: skills(
@@ -167,7 +173,7 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
       )
     };
   }
-  if (path === 'docs/verification-governance.md') {
+  if (path === 'docs/运行/保证/要求证据与裁决.md') {
     return {
       kind: 'active-authority',
       skills: skills(
@@ -177,7 +183,8 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
       )
     };
   }
-  if (path === 'docs/external-provider-policy.md') {
+  if (path === 'docs/作者/工程源/资产与非源码.md'
+      || path === 'docs/运行/宿主生态与技术约束.md') {
     return {
       kind: 'active-authority',
       skills: skills(
@@ -187,7 +194,7 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
       )
     };
   }
-  if (activeDocumentationRecord(path)?.kind === 'authority') {
+  if (activeDocumentationRecord(path) !== undefined) {
     return {
       kind: 'active-authority',
       skills: skills(
@@ -236,9 +243,11 @@ export function resolveSecRepositoryHeuristicSkills(path: string): SecAgentSkill
   if (path === 'AGENTS.md') {
     return skills('sec-heuristic-governance', 'sec-repository-audit', 'sec-task-delegation');
   }
-  if (path === 'docs/authority.json'
-    || path.startsWith('src/control/documentation/')
-    || path === 'src/control/documentation/doctor/cli.ts') {
+  if (path.startsWith('.documentation/')
+    || path === 'tools/check_docs.py'
+    || path === 'tools/check_design.py'
+    || path === 'tools/source_inventory.py'
+    || path.startsWith('src/control/documentation/')) {
     return skills('sec-heuristic-governance', 'sec-repository-audit');
   }
   if (path === 'docs/governance/external-capability-ledger.yaml') {
@@ -365,11 +374,12 @@ export const SEC_AGENT_SKILL_METADATA = {
  */
 export const SEC_SKILL_QUARANTINE_EXACT_PATHS = [
   'AGENTS.md',
-  'docs/development-governance.md'
+  'docs/开发/AI协作/规则装载与任务恢复.md'
 ] as const;
 
 export const SEC_SKILL_QUARANTINE_PATH_PREFIXES = [
   '.agents/',
+  'docs/开发/AI协作/',
   'src/control/agent/',
   'scripts/codex/'
 ] as const;

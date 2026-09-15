@@ -93,6 +93,7 @@ import {
 import { tsconfigRelativePath } from '../../workspace/runtime/paths.ts';
 import {
   createSourceProgramCompilationOperation,
+  SourceProgramCompilationInterruptedError,
   type SourceProgramCompilationOperation
 } from '../source-program-model/compilation-operation.ts';
 import { SOURCE_PROGRAM_BLOCKING_CANDIDATE_CODES, sourceProgramSurfaceForPath, type SourceProgramCandidate, type SourceProgramFileInput, type SourceProgramModel, type SourceProgramOwnerIntentEvidence, type SourceProgramSupersessionReceipt } from '../source-program-model/contract.ts';
@@ -1092,7 +1093,8 @@ async function compileRevisionSupersessionEvidence(
   dependencyGeneration: RetainedNoFollowProvenDirectoryGeneration,
   dependencyGenerationDigest: `sha256:${string}`,
   operation: SourceProgramCompilationOperation,
-  cachedEvidence: SourceProgramSupersessionEvidence | null
+  cachedEvidence: SourceProgramSupersessionEvidence | null,
+  cacheAccess: 'read-only' | 'read-write'
 ): Promise<Readonly<{
   compilation: ReturnType<typeof compileRepositorySourceProgramCompilation>;
   evidence: SourceProgramSupersessionEvidence;
@@ -1122,6 +1124,7 @@ async function compileRevisionSupersessionEvidence(
     { dependencyGeneration, dependencyGenerationDigest }
   );
   const compilation = compileRepositorySourceProgramWithCache({
+    cacheAccess,
     workspaceSnapshot,
     projectInput,
     operation,
@@ -1247,6 +1250,7 @@ async function compileWorkingTreeSourceProgram(
   supersessionBaseline: string,
   deadlineAtUnixMs: number,
   allowSupersessionEvidenceCache: boolean,
+  cacheAccess: 'read-only' | 'read-write',
   observeKnip: boolean
 ): Promise<Readonly<{
   cache: 'hit' | 'incremental' | 'miss';
@@ -1299,7 +1303,8 @@ async function compileWorkingTreeSourceProgram(
         deadlineAtUnixMs,
         retained.physicalGeneration,
         retained.generationDigest,
-        allowSupersessionEvidenceCache
+        allowSupersessionEvidenceCache,
+        cacheAccess
       )
     );
     if (!observeKnip) return Object.freeze({ ...compilation, knipProvider: null });
@@ -1333,7 +1338,8 @@ async function compileWorkingTreeSourceProgramWithSession(
   deadlineAtUnixMs: number,
   dependencyGeneration: RetainedNoFollowProvenDirectoryGeneration,
   dependencyGenerationDigest: `sha256:${string}`,
-  allowSupersessionEvidenceCache: boolean
+  allowSupersessionEvidenceCache: boolean,
+  cacheAccess: 'read-only' | 'read-write'
 ): Promise<Readonly<{
   cache: 'hit' | 'incremental' | 'miss';
   sourceProgramCompilation: Readonly<{
@@ -1413,7 +1419,8 @@ async function compileWorkingTreeSourceProgramWithSession(
     dependencyGeneration,
     dependencyGenerationDigest,
     compilationOperation,
-    cachedBaselineSupersessionEvidence
+    cachedBaselineSupersessionEvidence,
+    cacheAccess
   );
   const baselineSupersessionEvidence = baselineReconciliation.evidence;
   const baselineTestPaths = Object.freeze(
@@ -1473,6 +1480,7 @@ async function compileWorkingTreeSourceProgramWithSession(
     { dependencyGeneration, dependencyGenerationDigest }
   );
   const compilation = compileRepositorySourceProgramWithCache({
+    cacheAccess,
     workspaceSnapshot,
     projectInput,
     operation: compilationOperation,
@@ -1556,6 +1564,7 @@ async function prepareWorkingTreeSourceProgramAudit(
         options.supersessionBaseline,
         deadlineAtUnixMs,
         !options.enforce,
+        options.enforce ? 'read-only' : 'read-write',
         options.reductionMode === 'graph-cut'
       );
     } finally {
@@ -3172,7 +3181,17 @@ async function runSupervisedWorkingTreeSourceProgramAudit(
 
 if (import.meta.main) {
   const input = parseRepositoryAuditCliOptions(process.argv.slice(2));
-  await runRepositoryAuditInput(input, input.mode === 'source-program'
-    ? { deadlineAtUnixMs: Date.now() + SOURCE_PROGRAM_AUDIT_DEADLINE_MS }
-    : {});
+  try {
+    await runRepositoryAuditInput(input, input.mode === 'source-program'
+      ? { deadlineAtUnixMs: Date.now() + SOURCE_PROGRAM_AUDIT_DEADLINE_MS }
+      : {});
+  } catch (error) {
+    if (!(error instanceof SourceProgramCompilationInterruptedError)) throw error;
+    process.stderr.write(`${JSON.stringify({
+      code: error.code,
+      phase: error.phase,
+      phaseEvents: error.phaseEvents
+    })}\n`);
+    process.exitCode = 1;
+  }
 }

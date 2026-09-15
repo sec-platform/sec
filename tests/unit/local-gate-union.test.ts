@@ -63,7 +63,7 @@ function gateIds(plan: ReturnType<typeof buildLocalAffectedCheckPlan>): LocalAff
 
 test('local affected plan selects docs doctor alone for pure active documentation', () => {
   const plan = buildLocalAffectedCheckPlan(affectedPlan(
-    ['docs/verification-governance.md'],
+    ['docs/运行/保证/要求证据与裁决.md'],
     ['tests/unit/codex-work-package-contract.test.ts']
   ));
 
@@ -74,7 +74,7 @@ test('local affected plan selects docs doctor alone for pure active documentatio
 test('local affected plan forms one ordered union for mixed TypeScript and docs changes', () => {
   const plan = buildLocalAffectedCheckPlan(affectedPlan(
     [
-      'docs/verification-governance.md',
+      'docs/运行/保证/要求证据与裁决.md',
       'src/development/runner/check-runner.ts'
     ],
     [
@@ -117,12 +117,31 @@ test('local affected plan does not turn Source Program invalidation into full-re
   )))).toEqual(['imports:check', 'typecheck', 'test:affected']);
 
   expect(gateIds(buildLocalAffectedCheckPlan(affectedPlan(
-    ['docs/verification-governance.md']
+    ['docs/运行/保证/要求证据与裁决.md']
   )))).toEqual(['docs:doctor']);
 
   expect(gateIds(buildLocalAffectedCheckPlan(affectedPlan(
-    ['docs/authority.json']
+    ['.documentation/documents.json']
   )))).toEqual(['docs:doctor', 'test:affected']);
+});
+
+test('documentation support assets trigger docs doctor without becoming product TypeScript', () => {
+  expect(gateIds(buildLocalAffectedCheckPlan(affectedPlan([
+    '.documentation/baseline.json'
+  ])))).toEqual(['docs:doctor', 'test:affected']);
+  expect(gateIds(buildLocalAffectedCheckPlan(affectedPlan([
+    'examples/documentation-example.ts'
+  ])))).toEqual(['docs:doctor']);
+  expect(gateIds(buildLocalAffectedCheckPlan(affectedPlan(
+    ['tools/check_docs.py'],
+    ['tests/unit/active-documentation-contract.test.ts']
+  )))).toEqual(['docs:doctor', 'test:affected']);
+  expect(gateIds(buildLocalAffectedCheckPlan(affectedPlan([
+    'docs/unregistered-legacy.md'
+  ])))).toEqual(['docs:doctor']);
+  expect(gateIds(buildLocalAffectedCheckPlan(affectedPlan([
+    'docs/work/active-work-package.md'
+  ])))).toEqual([]);
 });
 
 test('local affected plan preserves unresolved authority and selects no invented broad fallback', () => {

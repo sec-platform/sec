@@ -15,7 +15,7 @@ description: 用于 SEC canonical authority、公共合同、identity/revision�
 - 只做文档生命周期、格式或链接维护。
 
 ## 输入
-- latest exact main、长期 Goal和阶段出口、`docs/authority.json`解析出的领域owner、当前代码/types/tests、consumer/impact图、状态与写 owner、失败/恢复证据、兼容和迁移约束。
+- latest exact main、长期 Goal和阶段出口、由`.documentation/documents.json`定位的当前文档及其正文责任、当前代码/types/tests、consumer/impact图、状态与写 owner、失败/恢复证据、兼容和迁移约束。文档身份索引只定位，不签发领域或作用权限。
 
 ## 前置门禁
 - 受信 control-plane snapshot 已解析；跨仓/广泛变化先完成 `sec-repository-audit` 或等价的全量影响证据。

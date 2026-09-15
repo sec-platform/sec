@@ -1,0 +1,32 @@
+// 需求作者源；定义允许的产品行为，不执行安装或构造运行对象。
+import "sec/spec/ide" as ide;
+import "sec/spec/workspace" as workspace;
+
+export design Workspaces(s: ide.Workbench) {
+  require workspace.Roots {
+    on: s.workspace,
+    multiplicity: workspace.Many,
+    identity: workspace.ProviderIdentity,
+    nested: workspace.ExplicitMembership
+  };
+
+  require workspace.Files {
+    on: s.workspace,
+    operations: [workspace.Read, workspace.Create, workspace.Move, workspace.Delete],
+    conflicts: workspace.PreserveDrafts,
+    access: workspace.RuntimeGrant
+  };
+
+  require workspace.Snapshot {
+    on: s.workspace,
+    documents: s.documents,
+    precedence: workspace.OpenModelWins,
+    absence: workspace.OpenEmptySuppressesDisk
+  };
+
+  require workspace.Recovery {
+    documents: s.documents,
+    history: s.history,
+    mode: workspace.RecoverDraftNotReplayEffects
+  };
+}

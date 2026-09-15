@@ -1,0 +1,248 @@
+{
+  "schema": "sec.author-module/1",
+  "moduleId": "example/spec/normalization",
+  "namespace": "example/spec/normalization",
+  "dialects": {
+    "req": {
+      "languageId": "sec.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {},
+  "definitions": {
+    "t:Transform": {
+      "kind": "req:subject",
+      "name": "Transform",
+      "body": {
+        "roles": {}
+      }
+    },
+    "t:Delivery": {
+      "kind": "req:subject",
+      "name": "Delivery",
+      "body": {
+        "roles": {}
+      }
+    },
+    "t:Adjacency": {
+      "kind": "req:value-type",
+      "name": "Adjacency",
+      "body": {
+        "enumMembers": [
+          "example/spec/normalization#MergeTouching",
+          "example/spec/normalization#KeepTouching"
+        ]
+      }
+    },
+    "v:MergeTouching": {
+      "kind": "req:enum-value",
+      "name": "MergeTouching",
+      "body": {
+        "nominalIdentity": "example/spec/normalization#MergeTouching"
+      }
+    },
+    "v:KeepTouching": {
+      "kind": "req:enum-value",
+      "name": "KeepTouching",
+      "body": {
+        "nominalIdentity": "example/spec/normalization#KeepTouching"
+      }
+    },
+    "t:Form": {
+      "kind": "req:value-type",
+      "name": "Form",
+      "body": {
+        "enumMembers": [
+          "example/spec/normalization#Library",
+          "example/spec/normalization#Command",
+          "example/spec/normalization#Worker",
+          "example/spec/normalization#HttpHandler",
+          "example/spec/normalization#Plugin",
+          "example/spec/normalization#Panel"
+        ]
+      }
+    },
+    "v:Library": {
+      "kind": "req:enum-value",
+      "name": "Library",
+      "body": {
+        "nominalIdentity": "example/spec/normalization#Library"
+      }
+    },
+    "v:Command": {
+      "kind": "req:enum-value",
+      "name": "Command",
+      "body": {
+        "nominalIdentity": "example/spec/normalization#Command"
+      }
+    },
+    "v:Worker": {
+      "kind": "req:enum-value",
+      "name": "Worker",
+      "body": {
+        "nominalIdentity": "example/spec/normalization#Worker"
+      }
+    },
+    "v:HttpHandler": {
+      "kind": "req:enum-value",
+      "name": "HttpHandler",
+      "body": {
+        "nominalIdentity": "example/spec/normalization#HttpHandler"
+      }
+    },
+    "v:Plugin": {
+      "kind": "req:enum-value",
+      "name": "Plugin",
+      "body": {
+        "nominalIdentity": "example/spec/normalization#Plugin"
+      }
+    },
+    "v:Panel": {
+      "kind": "req:enum-value",
+      "name": "Panel",
+      "body": {
+        "nominalIdentity": "example/spec/normalization#Panel"
+      }
+    },
+    "r:Canonical": {
+      "kind": "req:rule",
+      "name": "Canonical",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Transform"
+              ]
+            },
+            "meaning": "准确变换主体"
+          },
+          "adjacency": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "example/spec/normalization#MergeTouching",
+                "example/spec/normalization#KeepTouching"
+              ]
+            },
+            "meaning": "相接区间的公开结果语义"
+          }
+        },
+        "semantics": {
+          "source": "../规则合同.md",
+          "section": "Canonical",
+          "sha256": "bd881707aa9a7b45158e53317a8faee84da50c3c4eb5282fd66eae83f20472b1",
+          "scope": "该规则完整的字段、正常行为、失败、资源及方法合同"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Emit": {
+      "kind": "req:rule",
+      "name": "Emit",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Delivery"
+              ]
+            },
+            "meaning": "准确成品主体"
+          },
+          "operation": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Transform"
+              ]
+            },
+            "meaning": "同一规范化行为"
+          },
+          "form": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "example/spec/normalization#Library",
+                "example/spec/normalization#Command",
+                "example/spec/normalization#Worker",
+                "example/spec/normalization#HttpHandler",
+                "example/spec/normalization#Plugin",
+                "example/spec/normalization#Panel"
+              ]
+            },
+            "meaning": "本合同逐项定义的消费形式"
+          }
+        },
+        "semantics": {
+          "source": "../规则合同.md",
+          "section": "Emit",
+          "sha256": "bd881707aa9a7b45158e53317a8faee84da50c3c4eb5282fd66eae83f20472b1",
+          "scope": "该规则完整的字段、正常行为、失败、资源及方法合同"
+        },
+        "implementation": "unbound"
+      }
+    }
+  },
+  "exports": {
+    "Transform": {
+      "definitionId": "t:Transform"
+    },
+    "Delivery": {
+      "definitionId": "t:Delivery"
+    },
+    "Adjacency": {
+      "definitionId": "t:Adjacency"
+    },
+    "MergeTouching": {
+      "definitionId": "v:MergeTouching"
+    },
+    "KeepTouching": {
+      "definitionId": "v:KeepTouching"
+    },
+    "Form": {
+      "definitionId": "t:Form"
+    },
+    "Library": {
+      "definitionId": "v:Library"
+    },
+    "Command": {
+      "definitionId": "v:Command"
+    },
+    "Worker": {
+      "definitionId": "v:Worker"
+    },
+    "HttpHandler": {
+      "definitionId": "v:HttpHandler"
+    },
+    "Plugin": {
+      "definitionId": "v:Plugin"
+    },
+    "Panel": {
+      "definitionId": "v:Panel"
+    },
+    "Canonical": {
+      "definitionId": "r:Canonical"
+    },
+    "Emit": {
+      "definitionId": "r:Emit"
+    }
+  },
+  "extensions": {
+    "sec.documentation-derived/1": {
+      "source": "../规则合同.md",
+      "sha256": "bd881707aa9a7b45158e53317a8faee84da50c3c4eb5282fd66eae83f20472b1",
+      "editable": false,
+      "note": "有限设计字段目录，不是已运行供给或已发布语义包"
+    }
+  }
+}

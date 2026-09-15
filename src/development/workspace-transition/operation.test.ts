@@ -79,9 +79,16 @@ mock.module('../hooks/install.ts', () => ({
       observationDigest: `sha256:${'5'.repeat(64)}`
     });
   },
-  async installGitHooksWithSession() {
+  async installGitHooksWithSession(input: Readonly<{
+    operation: SecBoundSemanticOperation;
+    processSession: ProcessResourceSession;
+  }>) {
+    expect(input.operation === parentOperation).toBe(true);
+    expect(input.processSession === parentProcessSession).toBe(true);
+    expect(activeSessions).toBe(1);
     hookMaterializations += 1;
-    throw new Error('unmigrated hook Effect must not run');
+    hookObservation = 'ready';
+    return Object.freeze({ status: 'installed' as const, message: 'installed' });
   }
 }));
 
@@ -95,6 +102,8 @@ function reset(): void {
   currentHead = HEAD;
   parentProcessSession = null;
   parentOperation = null;
+  dependencyReady = true;
+  hookObservation = 'ready';
   delete process.env.SEC_WORKSPACE_TRANSITION_DEADLINE_AT_UNIX_MS;
 }
 
@@ -120,6 +129,22 @@ test('ready observations complete with zero materialization Effect and final rea
     .toBe(parentOperation?.plan.identity.identityDigest);
 });
 
+test('path checkout does not admit dependency or hook installation', async () => {
+  reset();
+  dependencyReady = false;
+  hookObservation = 'materialization-required';
+  await expect(runWorkspaceTransitionOperation({
+    event: 'post-checkout',
+    arguments: [HEAD, HEAD, '0'],
+    repositoryRoot: 'D:\\repo',
+    async handoff() { throw new Error('path checkout must not hand off'); }
+  })).resolves.toBe(0);
+  expect(dependencyMaterializations).toBe(0);
+  expect(hookMaterializations).toBe(0);
+  expect(activeSessions).toBe(0);
+  expect(parentProcessSession?.signal.aborted).toBe(true);
+});
+
 test('unmigrated dependency Effect is blocked before materialization or handoff', async () => {
   reset();
   dependencyReady = false;
@@ -136,7 +161,7 @@ test('unmigrated dependency Effect is blocked before materialization or handoff'
   expect(parentProcessSession?.signal.aborted).toBe(true);
 });
 
-test('unmigrated hook Effect is blocked before a child can start', async () => {
+test('hook materialization adopts the exact parent operation and process session', async () => {
   reset();
   dependencyReady = true;
   hookObservation = 'materialization-required';
@@ -147,8 +172,9 @@ test('unmigrated hook Effect is blocked before a child can start', async () => {
     async handoff() {
       throw new Error('dependency-ready transition must not hand off');
     }
-  })).rejects.toHaveProperty('code', 'workspace-transition-provider-integration-unavailable');
-  expect(hookMaterializations).toBe(0);
+  })).resolves.toBe(0);
+  expect(hookMaterializations).toBe(1);
+  expect(maximumActiveSessions).toBe(1);
   expect(parentProcessSession?.signal.aborted).toBe(true);
 });
 

@@ -1,5 +1,10 @@
 import { createHash } from 'node:crypto';
 
+import { isSourceProgramInputPath } from '../../../brownfield/source-program-model/contract.ts';
+import {
+  isDocumentationVerificationInputPath,
+  type DocumentationVerificationBaseline
+} from '../../../control/documentation/active.ts';
 import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../system-architecture/foundation/contract/repository-path.ts';
 import { uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
 import type { CiVerificationGatePhase, CiVerificationGateStep } from '../../action/contract/ci.ts';
@@ -130,12 +135,43 @@ export function CodexDevelopmentCanonicalChangedFiles(files: readonly string[]):
   return uniqueSorted(files);
 }
 
-function hasTypeScriptChange(files: readonly string[]): boolean {
-  return files.some((file) => /\.[cm]?tsx?$/u.test(file));
+function hasTypeScriptChange(
+  files: readonly string[],
+  documentationBaseline: DocumentationVerificationBaseline
+): boolean {
+  return files.some((file) => (
+    /\.[cm]?tsx?$/u.test(file)
+    && (isSourceProgramInputPath(file)
+      || !isDocumentationVerificationInputPath(file, documentationBaseline))
+  ));
 }
 
 function hasDocumentationLifecycleChange(owners: readonly string[]): boolean {
   return owners.includes('control.documentation');
+}
+
+const documentationVerificationBaselines = new WeakMap<object, DocumentationVerificationBaseline>();
+
+export function bindDocumentationVerificationGateInput<T extends CodexDevelopmentTestImpactSourceProvider>(
+  provider: T,
+  baseline: DocumentationVerificationBaseline
+): T {
+  const bound = documentationVerificationBaselines.get(provider);
+  if (bound !== undefined && bound !== baseline) {
+    throw new Error('CI documentation baseline is already bound to this exact candidate provider.');
+  }
+  documentationVerificationBaselines.set(provider, baseline);
+  return provider;
+}
+
+function documentationVerificationBaselineFromProvider(
+  provider: CodexDevelopmentTestImpactSourceProvider
+): DocumentationVerificationBaseline {
+  const candidate = documentationVerificationBaselines.get(provider);
+  if (candidate === undefined) {
+    throw new Error('CI verification requires an exact candidate documentation verification baseline.');
+  }
+  return candidate;
 }
 
 export function CodexDevelopmentBuildVerificationPlan(
@@ -146,11 +182,14 @@ export function CodexDevelopmentBuildVerificationPlan(
 ): CodexDevelopmentVerificationPlan {
   const changedFiles = rawChangedFiles === null ? null : CodexDevelopmentCanonicalChangedFiles(rawChangedFiles);
   const selection = selectSlowTestRiskClosure(changedFiles, testImpactSourceProvider, transition);
-  const hasDocsLifecycleChange = changedFiles === null || hasDocumentationLifecycleChange(selection.owners);
+  const documentationBaseline = documentationVerificationBaselineFromProvider(testImpactSourceProvider);
+  const hasDocsLifecycleChange = changedFiles === null
+    || hasDocumentationLifecycleChange(selection.owners)
+    || changedFiles.some((file) => isDocumentationVerificationInputPath(file, documentationBaseline));
   const gates = profile === 'full'
     ? buildCiFullGatePlan({ hasDocumentationLifecycleChange: hasDocsLifecycleChange })
     : buildCiQuickGatePlan({
-      includeImports: changedFiles === null || hasTypeScriptChange(changedFiles),
+      includeImports: changedFiles === null || hasTypeScriptChange(changedFiles, documentationBaseline),
       includeDocs: hasDocsLifecycleChange,
       selectedSlowSuites: selection.suites,
       selectedSlowTests: selection.slowTests

@@ -17,6 +17,7 @@ export {
   withGitHubApiMergeWriteSession,
   withGitHubApiReadOperationBudget,
   withGitHubApiReadSession,
+  withGitHubApiRunnerAdminSession,
   withGitHubApiStatusWriteSession,
   type GitHubApiCapability,
   type GitHubApiEffect,

@@ -1,0 +1,34 @@
+// 需求作者源；定义允许的产品行为，不执行安装或构造运行对象。
+import "sec/spec/ide" as ide;
+import "sec/spec/language" as language;
+
+export design Languages(s: ide.Workbench) {
+  require language.Providers {
+    on: s.languages,
+    documents: s.documents,
+    settings: s.settings,
+    capability: language.NegotiateExact,
+    unsupported: language.ExplicitUnavailable
+  };
+
+  require language.Diagnostics {
+    on: s.diagnostics,
+    producers: s.languages,
+    documents: s.documents,
+    publication: language.ByProducerScopeAndRevision
+  };
+
+  require language.Refactoring {
+    on: s.languages,
+    documents: s.documents,
+    workspace: s.workspace,
+    edits: language.VersionedGroup,
+    preservation: language.EffectsAndEvaluationOrder
+  };
+
+  require language.Assistance {
+    on: s.languages,
+    features: [language.Completion, language.Definition, language.References, language.Hover, language.Signature],
+    truth: language.CandidateNotEstablishedFact
+  };
+}

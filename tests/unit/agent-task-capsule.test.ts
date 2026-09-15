@@ -28,7 +28,7 @@ function planningContext(): SecTaskCapsulePlanningContext {
     ownerFacts: [
       {
         id: 'task-capsule-owner',
-        ref: 'docs/development-governance.md',
+        ref: 'docs/开发/AI协作/规则装载与任务恢复.md',
         owner: 'development-governance-owner',
         revision: 'owner-v1'
       },

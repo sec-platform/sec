@@ -1,9 +1,10 @@
 import { afterAll, expect, test } from 'bun:test';
 import { parse as parseYaml } from 'yaml';
 
+import { currentDocumentationVerificationBaseline } from '../../src/control/documentation/active.ts';
 import { CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST, createCiMainHealthRequestOperationId } from '../../src/control/main-health/provider-policy.ts';
 import { buildCiContract, CI_MAIN_HEALTH_COMMANDS, CI_MAIN_HEALTH_JOB_NAME, CI_MAIN_HEALTH_STEP_ORDER } from '../../src/verification/ci/contract/core.ts';
-import { assertCiExpectedHead, buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentBuildVerificationPlan } from '../../src/verification/ci/contract/plan.ts';
+import { assertCiExpectedHead, bindDocumentationVerificationGateInput, buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentBuildVerificationPlan } from '../../src/verification/ci/contract/plan.ts';
 import { slowTestSuiteIds } from '../../src/verification/test-impact/contract/budget.ts';
 import { TCB_TRUST_ROOT } from '../../src/verification/trust/compiler.ts';
 import {
@@ -25,7 +26,10 @@ import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
 
 const testImpactFixture = await acquireExactRepositoryTestImpactProviderFixture();
-const testImpactProvider = testImpactFixture.provider;
+const testImpactProvider = bindDocumentationVerificationGateInput(
+  testImpactFixture.provider,
+  currentDocumentationVerificationBaseline()
+);
 afterAll(() => testImpactFixture.dispose());
 
 type WorkflowStep = Readonly<{
@@ -219,7 +223,7 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
     'docs/work/rolling-plan.md',
     SEC_TCB_CLOSURE_RUNTIME_PATH,
     'tests/contract/ci-contract.test.ts',
-    'tests/contract/documentation-authority.test.ts',
+    'tests/unit/active-documentation-contract.test.ts',
     'tests/contract/tcb-closure-lock.test.ts'
   ];
   expect(r2ChangedPaths

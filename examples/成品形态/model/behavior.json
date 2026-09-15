@@ -1,0 +1,78 @@
+{
+  "schema": "sec.author-module/1",
+  "moduleId": "example:normalization",
+  "namespace": "example.normalization",
+  "dialects": {
+    "req": {
+      "languageId": "sec.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {
+    "spec": {
+      "mode": "workspace",
+      "moduleId": "example/spec/normalization"
+    }
+  },
+  "definitions": {
+    "d:Normalize": {
+      "kind": "req:composite",
+      "name": "Normalize",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Transform"
+              }
+            }
+          },
+          "adjacency": {
+            "role": "value",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Adjacency"
+              }
+            },
+            "default": {
+              "enum": {
+                "import": "spec",
+                "export": "MergeTouching"
+              }
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Canonical"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "adjacency": {
+                "parameter": "adjacency"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "normalize": {
+            "parameter": "on"
+          }
+        }
+      }
+    }
+  },
+  "exports": {
+    "Normalize": {
+      "definitionId": "d:Normalize"
+    }
+  }
+}

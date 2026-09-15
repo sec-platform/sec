@@ -1,0 +1,162 @@
+{
+  "schema": "sec.author-module/1",
+  "moduleId": "sec/spec/policy",
+  "namespace": "spec.policy",
+  "dialects": {
+    "req": {
+      "languageId": "sec.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {},
+  "definitions": {
+    "v:OnlyEffectiveIdempotencyOrFinality": {
+      "kind": "req:enum-value",
+      "name": "OnlyEffectiveIdempotencyOrFinality",
+      "body": {
+        "nominalIdentity": "sec/spec/policy#OnlyEffectiveIdempotencyOrFinality"
+      }
+    },
+    "v:OriginAndPurposeGrant": {
+      "kind": "req:enum-value",
+      "name": "OriginAndPurposeGrant",
+      "body": {
+        "nominalIdentity": "sec/spec/policy#OriginAndPurposeGrant"
+      }
+    },
+    "v:DeniedUnlessGranted": {
+      "kind": "req:enum-value",
+      "name": "DeniedUnlessGranted",
+      "body": {
+        "nominalIdentity": "sec/spec/policy#DeniedUnlessGranted"
+      }
+    },
+    "v:ScopeAndRevisionGrant": {
+      "kind": "req:enum-value",
+      "name": "ScopeAndRevisionGrant",
+      "body": {
+        "nominalIdentity": "sec/spec/policy#ScopeAndRevisionGrant"
+      }
+    },
+    "r:Network": {
+      "kind": "req:rule",
+      "name": "Network",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "EffectBoundary"
+              ]
+            },
+            "meaning": "产品根内全部网络作用，含生成依赖和扩展"
+          },
+          "policy": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/policy#OriginAndPurposeGrant"
+              ]
+            },
+            "meaning": "按主体/来源/目的/时间授权"
+          },
+          "background": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/policy#DeniedUnlessGranted"
+              ]
+            },
+            "meaning": "后台联网默认拒绝，用户可明示授予目的"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/需求规则与供给合同.md",
+          "section": "policy.Network",
+          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Destruction": {
+      "kind": "req:rule",
+      "name": "Destruction",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "EffectBoundary"
+              ]
+            },
+            "meaning": "破坏性/不可逆作用主体"
+          },
+          "policy": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/policy#ScopeAndRevisionGrant"
+              ]
+            },
+            "meaning": "许可绑定实际对象范围和有效前置"
+          },
+          "retry": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/policy#OnlyEffectiveIdempotencyOrFinality"
+              ]
+            },
+            "meaning": "仅有效同意图去重或旧尝试终结后确认无效果可重试"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/需求规则与供给合同.md",
+          "section": "policy.Destruction",
+          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
+        },
+        "implementation": "unbound"
+      }
+    }
+  },
+  "exports": {
+    "OnlyEffectiveIdempotencyOrFinality": {
+      "definitionId": "v:OnlyEffectiveIdempotencyOrFinality"
+    },
+    "OriginAndPurposeGrant": {
+      "definitionId": "v:OriginAndPurposeGrant"
+    },
+    "DeniedUnlessGranted": {
+      "definitionId": "v:DeniedUnlessGranted"
+    },
+    "ScopeAndRevisionGrant": {
+      "definitionId": "v:ScopeAndRevisionGrant"
+    },
+    "Network": {
+      "definitionId": "r:Network"
+    },
+    "Destruction": {
+      "definitionId": "r:Destruction"
+    }
+  },
+  "extensions": {
+    "sec.documentation-derived/1": {
+      "source": "../../../docs/作者/需求规则与供给合同.md",
+      "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+      "editable": false,
+      "note": "本份是固定文档的设计字段索引，不是已发布语义实现；正文含义未由可执行读取器交付。"
+    }
+  }
+}

@@ -1,0 +1,2103 @@
+{
+  "schema": "sec.author-module/1",
+  "moduleId": "example:deliverable-definitions",
+  "namespace": "example:deliverable-definitions",
+  "dialects": {
+    "req": {
+      "languageId": "sec.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {
+    "spec": {
+      "mode": "workspace",
+      "moduleId": "example/spec/deliverable-details"
+    }
+  },
+  "definitions": {
+    "d:Definitions": {
+      "kind": "req:composite",
+      "name": "Definitions",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "packageName": {
+            "role": "value",
+            "type": {
+              "builtin": "Text"
+            },
+            "default": {
+              "literal": "interval-policy"
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Definitions"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "packageName": {
+                "parameter": "packageName"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:StaticValue": {
+      "kind": "req:composite",
+      "name": "StaticValue",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "title": {
+            "role": "value",
+            "type": {
+              "builtin": "Text"
+            },
+            "default": {
+              "literal": "Workspace"
+            }
+          },
+          "historyLimit": {
+            "role": "value",
+            "type": {
+              "builtin": "Int"
+            },
+            "default": {
+              "literal": 200
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "StaticValue"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "title": {
+                "parameter": "title"
+              },
+              "historyLimit": {
+                "parameter": "historyLimit"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:Resources": {
+      "kind": "req:composite",
+      "name": "Resources",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Resources"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:Expression": {
+      "kind": "req:composite",
+      "name": "Expression",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "factor": {
+            "role": "value",
+            "type": {
+              "builtin": "Int"
+            },
+            "default": {
+              "literal": 2
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Expression"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "factor": {
+                "parameter": "factor"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:ContextPatch": {
+      "kind": "req:composite",
+      "name": "ContextPatch",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "oldName": {
+            "role": "value",
+            "type": {
+              "builtin": "Text"
+            },
+            "default": {
+              "literal": "normalize"
+            }
+          },
+          "newName": {
+            "role": "value",
+            "type": {
+              "builtin": "Text"
+            },
+            "default": {
+              "literal": "canonicalize"
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "ContextPatch"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "oldName": {
+                "parameter": "oldName"
+              },
+              "newName": {
+                "parameter": "newName"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:Library": {
+      "kind": "req:composite",
+      "name": "Library",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "operation": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Operation"
+              }
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Library"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "operation": {
+                "parameter": "operation"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:SDK": {
+      "kind": "req:composite",
+      "name": "SDK",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "operation": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Operation"
+              }
+            }
+          },
+          "maxInFlight": {
+            "role": "value",
+            "type": {
+              "builtin": "Int"
+            },
+            "default": {
+              "literal": 4
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "SDK"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "operation": {
+                "parameter": "operation"
+              },
+              "maxInFlight": {
+                "parameter": "maxInFlight"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:ProtocolClient": {
+      "kind": "req:composite",
+      "name": "ProtocolClient",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "operation": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Operation"
+              }
+            }
+          },
+          "requestTimeoutMs": {
+            "role": "value",
+            "type": {
+              "builtin": "Int"
+            },
+            "default": {
+              "literal": 30000
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "ProtocolClient"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "operation": {
+                "parameter": "operation"
+              },
+              "requestTimeoutMs": {
+                "parameter": "requestTimeoutMs"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:Command": {
+      "kind": "req:composite",
+      "name": "Command",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "operation": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Operation"
+              }
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Command"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "operation": {
+                "parameter": "operation"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:BatchCommand": {
+      "kind": "req:composite",
+      "name": "BatchCommand",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "operation": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Operation"
+              }
+            }
+          },
+          "maxInFlight": {
+            "role": "value",
+            "type": {
+              "builtin": "Int"
+            },
+            "default": {
+              "literal": 4
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "BatchCommand"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "operation": {
+                "parameter": "operation"
+              },
+              "maxInFlight": {
+                "parameter": "maxInFlight"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:HttpHandler": {
+      "kind": "req:composite",
+      "name": "HttpHandler",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "operation": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Operation"
+              }
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "HttpHandler"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "operation": {
+                "parameter": "operation"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:Service": {
+      "kind": "req:composite",
+      "name": "Service",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "operation": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Operation"
+              }
+            }
+          },
+          "port": {
+            "role": "value",
+            "type": {
+              "builtin": "Int"
+            },
+            "default": {
+              "literal": 0
+            }
+          },
+          "maxInFlight": {
+            "role": "value",
+            "type": {
+              "builtin": "Int"
+            },
+            "default": {
+              "literal": 4
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Service"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "operation": {
+                "parameter": "operation"
+              },
+              "port": {
+                "parameter": "port"
+              },
+              "maxInFlight": {
+                "parameter": "maxInFlight"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:Worker": {
+      "kind": "req:composite",
+      "name": "Worker",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "operation": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Operation"
+              }
+            }
+          },
+          "maxInFlight": {
+            "role": "value",
+            "type": {
+              "builtin": "Int"
+            },
+            "default": {
+              "literal": 4
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Worker"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "operation": {
+                "parameter": "operation"
+              },
+              "maxInFlight": {
+                "parameter": "maxInFlight"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:Component": {
+      "kind": "req:composite",
+      "name": "Component",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "operation": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Operation"
+              }
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Component"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "operation": {
+                "parameter": "operation"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:Plugin": {
+      "kind": "req:composite",
+      "name": "Plugin",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "operation": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Operation"
+              }
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Plugin"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "operation": {
+                "parameter": "operation"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:WebPanel": {
+      "kind": "req:composite",
+      "name": "WebPanel",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "operation": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Operation"
+              }
+            }
+          },
+          "title": {
+            "role": "value",
+            "type": {
+              "builtin": "Text"
+            },
+            "default": {
+              "literal": "Interval Workbench"
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "WebPanel"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "operation": {
+                "parameter": "operation"
+              },
+              "title": {
+                "parameter": "title"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:Desktop": {
+      "kind": "req:composite",
+      "name": "Desktop",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "operation": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Operation"
+              }
+            }
+          },
+          "title": {
+            "role": "value",
+            "type": {
+              "builtin": "Text"
+            },
+            "default": {
+              "literal": "Interval Workbench"
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Desktop"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "operation": {
+                "parameter": "operation"
+              },
+              "title": {
+                "parameter": "title"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:Mobile": {
+      "kind": "req:composite",
+      "name": "Mobile",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "operation": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Operation"
+              }
+            }
+          },
+          "title": {
+            "role": "value",
+            "type": {
+              "builtin": "Text"
+            },
+            "default": {
+              "literal": "Interval Workbench"
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Mobile"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "operation": {
+                "parameter": "operation"
+              },
+              "title": {
+                "parameter": "title"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:Family": {
+      "kind": "req:composite",
+      "name": "Family",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "title": {
+            "role": "value",
+            "type": {
+              "builtin": "Text"
+            },
+            "default": {
+              "literal": "Interval Suite"
+            }
+          }
+        },
+        "subjects": {
+          "operation": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Operation"
+              }
+            }
+          },
+          "library": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "command": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "web": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Canonical"
+            },
+            "fields": {
+              "on": {
+                "subject": "operation"
+              }
+            }
+          },
+          {
+            "use": {
+              "definitionId": "d:Library"
+            },
+            "arguments": {
+              "on": {
+                "subject": "library"
+              },
+              "operation": {
+                "subject": "operation"
+              }
+            }
+          },
+          {
+            "use": {
+              "definitionId": "d:Command"
+            },
+            "arguments": {
+              "on": {
+                "subject": "command"
+              },
+              "operation": {
+                "subject": "operation"
+              }
+            }
+          },
+          {
+            "use": {
+              "definitionId": "d:WebPanel"
+            },
+            "arguments": {
+              "on": {
+                "subject": "web"
+              },
+              "operation": {
+                "subject": "operation"
+              },
+              "title": {
+                "parameter": "title"
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "spec",
+              "export": "Family"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "title": {
+                "parameter": "title"
+              },
+              "library": {
+                "subject": "library"
+              },
+              "command": {
+                "subject": "command"
+              },
+              "web": {
+                "subject": "web"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:Query": {
+      "kind": "req:composite",
+      "name": "Query",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "pageSize": {
+            "role": "value",
+            "type": {
+              "builtin": "Int"
+            },
+            "default": {
+              "literal": 128
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Query"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "pageSize": {
+                "parameter": "pageSize"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:BatchData": {
+      "kind": "req:composite",
+      "name": "BatchData",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "partitionCount": {
+            "role": "value",
+            "type": {
+              "builtin": "Int"
+            },
+            "default": {
+              "literal": 1
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "BatchData"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "partitionCount": {
+                "parameter": "partitionCount"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:WindowStream": {
+      "kind": "req:composite",
+      "name": "WindowStream",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "windowMs": {
+            "role": "value",
+            "type": {
+              "builtin": "Int"
+            },
+            "default": {
+              "literal": 1000
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "WindowStream"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "windowMs": {
+                "parameter": "windowMs"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:Migration": {
+      "kind": "req:composite",
+      "name": "Migration",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "batchSize": {
+            "role": "value",
+            "type": {
+              "builtin": "Int"
+            },
+            "default": {
+              "literal": 256
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Migration"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "batchSize": {
+                "parameter": "batchSize"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:Compiler": {
+      "kind": "req:composite",
+      "name": "Compiler",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Compiler"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:Analyzer": {
+      "kind": "req:composite",
+      "name": "Analyzer",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Analyzer"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:Generator": {
+      "kind": "req:composite",
+      "name": "Generator",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Generator"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:Inference": {
+      "kind": "req:composite",
+      "name": "Inference",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "weights": {
+            "role": "value",
+            "type": {
+              "list": {
+                "builtin": "Int"
+              }
+            },
+            "default": [
+              {
+                "literal": 2
+              },
+              {
+                "literal": -1
+              }
+            ]
+          },
+          "bias": {
+            "role": "value",
+            "type": {
+              "builtin": "Int"
+            },
+            "default": {
+              "literal": 0
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Inference"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "weights": {
+                "parameter": "weights"
+              },
+              "bias": {
+                "parameter": "bias"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:Trainer": {
+      "kind": "req:composite",
+      "name": "Trainer",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "regularization": {
+            "role": "value",
+            "type": {
+              "builtin": "Int"
+            },
+            "default": {
+              "literal": 1
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Trainer"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "regularization": {
+                "parameter": "regularization"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:Sampler": {
+      "kind": "req:composite",
+      "name": "Sampler",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "numerator": {
+            "role": "value",
+            "type": {
+              "builtin": "Int"
+            },
+            "default": {
+              "literal": 1
+            }
+          },
+          "denominator": {
+            "role": "value",
+            "type": {
+              "builtin": "Int"
+            },
+            "default": {
+              "literal": 2
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Sampler"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "numerator": {
+                "parameter": "numerator"
+              },
+              "denominator": {
+                "parameter": "denominator"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:Optimizer": {
+      "kind": "req:composite",
+      "name": "Optimizer",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Optimizer"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:GpuKernel": {
+      "kind": "req:composite",
+      "name": "GpuKernel",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "GpuKernel"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:Firmware": {
+      "kind": "req:composite",
+      "name": "Firmware",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "lowMv": {
+            "role": "value",
+            "type": {
+              "builtin": "Int"
+            },
+            "default": {
+              "literal": 1000
+            }
+          },
+          "highMv": {
+            "role": "value",
+            "type": {
+              "builtin": "Int"
+            },
+            "default": {
+              "literal": 1200
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Firmware"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "lowMv": {
+                "parameter": "lowMv"
+              },
+              "highMv": {
+                "parameter": "highMv"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:RealTime": {
+      "kind": "req:composite",
+      "name": "RealTime",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "periodUs": {
+            "role": "value",
+            "type": {
+              "builtin": "Int"
+            },
+            "default": {
+              "literal": 10000
+            }
+          },
+          "deadlineUs": {
+            "role": "value",
+            "type": {
+              "builtin": "Int"
+            },
+            "default": {
+              "literal": 10000
+            }
+          },
+          "lowMv": {
+            "role": "value",
+            "type": {
+              "builtin": "Int"
+            },
+            "default": {
+              "literal": 1000
+            }
+          },
+          "highMv": {
+            "role": "value",
+            "type": {
+              "builtin": "Int"
+            },
+            "default": {
+              "literal": 1200
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "RealTime"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "periodUs": {
+                "parameter": "periodUs"
+              },
+              "deadlineUs": {
+                "parameter": "deadlineUs"
+              },
+              "lowMv": {
+                "parameter": "lowMv"
+              },
+              "highMv": {
+                "parameter": "highMv"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:Installer": {
+      "kind": "req:composite",
+      "name": "Installer",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "retainPrevious": {
+            "role": "value",
+            "type": {
+              "builtin": "Int"
+            },
+            "default": {
+              "literal": 1
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Installer"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "retainPrevious": {
+                "parameter": "retainPrevious"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:Deployment": {
+      "kind": "req:composite",
+      "name": "Deployment",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "replicas": {
+            "role": "value",
+            "type": {
+              "builtin": "Int"
+            },
+            "default": {
+              "literal": 1
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Deployment"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "replicas": {
+                "parameter": "replicas"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    },
+    "d:NativeChange": {
+      "kind": "req:composite",
+      "name": "NativeChange",
+      "body": {
+        "parameters": {
+          "on": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "oldName": {
+            "role": "value",
+            "type": {
+              "builtin": "Text"
+            },
+            "default": {
+              "literal": "normalize"
+            }
+          },
+          "newName": {
+            "role": "value",
+            "type": {
+              "builtin": "Text"
+            },
+            "default": {
+              "literal": "canonicalize"
+            }
+          }
+        },
+        "subjects": {},
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "NativeChange"
+            },
+            "fields": {
+              "on": {
+                "parameter": "on"
+              },
+              "oldName": {
+                "parameter": "oldName"
+              },
+              "newName": {
+                "parameter": "newName"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "parameter": "on"
+          }
+        }
+      }
+    }
+  },
+  "exports": {
+    "Definitions": {
+      "definitionId": "d:Definitions"
+    },
+    "StaticValue": {
+      "definitionId": "d:StaticValue"
+    },
+    "Resources": {
+      "definitionId": "d:Resources"
+    },
+    "Expression": {
+      "definitionId": "d:Expression"
+    },
+    "ContextPatch": {
+      "definitionId": "d:ContextPatch"
+    },
+    "Library": {
+      "definitionId": "d:Library"
+    },
+    "SDK": {
+      "definitionId": "d:SDK"
+    },
+    "ProtocolClient": {
+      "definitionId": "d:ProtocolClient"
+    },
+    "Command": {
+      "definitionId": "d:Command"
+    },
+    "BatchCommand": {
+      "definitionId": "d:BatchCommand"
+    },
+    "HttpHandler": {
+      "definitionId": "d:HttpHandler"
+    },
+    "Service": {
+      "definitionId": "d:Service"
+    },
+    "Worker": {
+      "definitionId": "d:Worker"
+    },
+    "Component": {
+      "definitionId": "d:Component"
+    },
+    "Plugin": {
+      "definitionId": "d:Plugin"
+    },
+    "WebPanel": {
+      "definitionId": "d:WebPanel"
+    },
+    "Desktop": {
+      "definitionId": "d:Desktop"
+    },
+    "Mobile": {
+      "definitionId": "d:Mobile"
+    },
+    "Family": {
+      "definitionId": "d:Family"
+    },
+    "Query": {
+      "definitionId": "d:Query"
+    },
+    "BatchData": {
+      "definitionId": "d:BatchData"
+    },
+    "WindowStream": {
+      "definitionId": "d:WindowStream"
+    },
+    "Migration": {
+      "definitionId": "d:Migration"
+    },
+    "Compiler": {
+      "definitionId": "d:Compiler"
+    },
+    "Analyzer": {
+      "definitionId": "d:Analyzer"
+    },
+    "Generator": {
+      "definitionId": "d:Generator"
+    },
+    "Inference": {
+      "definitionId": "d:Inference"
+    },
+    "Trainer": {
+      "definitionId": "d:Trainer"
+    },
+    "Sampler": {
+      "definitionId": "d:Sampler"
+    },
+    "Optimizer": {
+      "definitionId": "d:Optimizer"
+    },
+    "GpuKernel": {
+      "definitionId": "d:GpuKernel"
+    },
+    "Firmware": {
+      "definitionId": "d:Firmware"
+    },
+    "RealTime": {
+      "definitionId": "d:RealTime"
+    },
+    "Installer": {
+      "definitionId": "d:Installer"
+    },
+    "Deployment": {
+      "definitionId": "d:Deployment"
+    },
+    "NativeChange": {
+      "definitionId": "d:NativeChange"
+    }
+  }
+}

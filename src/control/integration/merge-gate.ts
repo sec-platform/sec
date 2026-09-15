@@ -637,7 +637,6 @@ type MergeGateCoreInput = Readonly<{
   consumptionOperationId: MergeGateDigest;
   issuedAt: string;
   expiresAt: string;
-  trustedSourceRef: string;
   issuer: MergeGateIssuerInput;
 }>;
 
@@ -718,13 +717,11 @@ function evaluateMergeGateCore(input: MergeGateCoreInput): MergeGateCoreResult {
     expectedTrustRevision: trustRevision
   });
   if (!health.allowed || health.status !== 'healthy') fail(`ordinary lane is locked: ${health.reason}`);
-  const mainHealthTransportAccepted = input.mainHealth.producer.sourceTransport === 'github-api'
-    || input.issuer.sourceTransport === 'trusted-integration-runtime'
-      && input.mainHealth.producer.sourceTransport === 'trusted-local-readback';
   if (input.mainHealth.producer.identity !== DEFAULT_BRANCH_REVISION_HEALTH_PRODUCER_IDENTITY ||
-      !mainHealthTransportAccepted ||
+      input.mainHealth.producer.sourceTransport !== 'github-api' ||
       input.mainHealth.producer.trustRevision !== trustRevision ||
-      input.mainHealth.producer.sourceRef !== input.trustedSourceRef) {
+      input.mainHealth.producer.sourceRef
+        !== `github-check-runs:${candidate.repository}@${candidate.currentBaseSha}`) {
     fail('fresh MainHealth producer provenance is not bound to the trusted authorization runtime.');
   }
   CodexDevelopmentAssertVerificationEvidenceV4(evidence, {
@@ -840,7 +837,6 @@ export function CodexDevelopmentEvaluateMergeGate(
     consumptionOperationId: input.consumptionOperationId,
     issuedAt: input.issuedAt,
     expiresAt: input.expiresAt,
-    trustedSourceRef: provenance.workflowRef,
     issuer: {
       principalId: provenance.actorNodeId,
       trustedRevision: provenance.workflowSha,
@@ -901,7 +897,6 @@ export function CodexDevelopmentEvaluateTrustedRuntimeMergeGate(
     consumptionOperationId: input.consumptionOperationId,
     issuedAt: input.issuedAt,
     expiresAt: input.expiresAt,
-    trustedSourceRef: provenance.runtimeRef,
     issuer: {
       principalId: provenance.actorNodeId,
       trustedRevision: provenance.runtimeSha,

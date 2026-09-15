@@ -1,0 +1,425 @@
+{
+  "schema": "sec.binding-lock/1",
+  "projectId": "sec-example:complete-deliverables",
+  "resolutionInputs": {
+    "algorithm": "sha256",
+    "digest": "d9f32ae93d27c405b716157808f2dd3755d9330ad8caceb537cdf4daff73a872"
+  },
+  "bindings": {
+    "example:deliverable-definitions/dialects/req": "structure",
+    "example/spec/deliverable-details/dialects/req": "structure",
+    "example:deliverable:analyzer/dialects/req": "structure",
+    "example:deliverable:batchcommand/dialects/req": "structure",
+    "example:deliverable:batchdata/dialects/req": "structure",
+    "example:deliverable:command/dialects/req": "structure",
+    "example:deliverable:compiler/dialects/req": "structure",
+    "example:deliverable:component/dialects/req": "structure",
+    "example:deliverable:contextpatch/dialects/req": "structure",
+    "example:deliverable:definitions/dialects/req": "structure",
+    "example:deliverable:deployment/dialects/req": "structure",
+    "example:deliverable:desktop/dialects/req": "structure",
+    "example:deliverable:expression/dialects/req": "structure",
+    "example:deliverable:family/dialects/req": "structure",
+    "example:deliverable:firmware/dialects/req": "structure",
+    "example:deliverable:generator/dialects/req": "structure",
+    "example:deliverable:gpukernel/dialects/req": "structure",
+    "example:deliverable:httphandler/dialects/req": "structure",
+    "example:deliverable:inference/dialects/req": "structure",
+    "example:deliverable:installer/dialects/req": "structure",
+    "example:deliverable:library/dialects/req": "structure",
+    "example:deliverable:migration/dialects/req": "structure",
+    "example:deliverable:mobile/dialects/req": "structure",
+    "example:deliverable:nativechange/dialects/req": "structure",
+    "example:deliverable:optimizer/dialects/req": "structure",
+    "example:deliverable:plugin/dialects/req": "structure",
+    "example:deliverable:protocolclient/dialects/req": "structure",
+    "example:deliverable:query/dialects/req": "structure",
+    "example:deliverable:realtime/dialects/req": "structure",
+    "example:deliverable:resources/dialects/req": "structure",
+    "example:deliverable:sampler/dialects/req": "structure",
+    "example:deliverable:sdk/dialects/req": "structure",
+    "example:deliverable:service/dialects/req": "structure",
+    "example:deliverable:staticvalue/dialects/req": "structure",
+    "example:deliverable:trainer/dialects/req": "structure",
+    "example:deliverable:webpanel/dialects/req": "structure",
+    "example:deliverable:windowstream/dialects/req": "structure",
+    "example:deliverable:worker/dialects/req": "structure",
+    "example/spec/deliverable-details/rule/Definitions": "contract:0",
+    "example/spec/deliverable-details/rule/StaticValue": "contract:0",
+    "example/spec/deliverable-details/rule/Resources": "contract:0",
+    "example/spec/deliverable-details/rule/Expression": "contract:1",
+    "example/spec/deliverable-details/rule/ContextPatch": "contract:1",
+    "example/spec/deliverable-details/rule/Library": "contract:2",
+    "example/spec/deliverable-details/rule/SDK": "contract:2",
+    "example/spec/deliverable-details/rule/ProtocolClient": "contract:2",
+    "example/spec/deliverable-details/rule/Command": "contract:3",
+    "example/spec/deliverable-details/rule/BatchCommand": "contract:3",
+    "example/spec/deliverable-details/rule/HttpHandler": "contract:4",
+    "example/spec/deliverable-details/rule/Service": "contract:4",
+    "example/spec/deliverable-details/rule/Worker": "contract:5",
+    "example/spec/deliverable-details/rule/Component": "contract:5",
+    "example/spec/deliverable-details/rule/Plugin": "contract:5",
+    "example/spec/deliverable-details/rule/WebPanel": "contract:6",
+    "example/spec/deliverable-details/rule/Desktop": "contract:6",
+    "example/spec/deliverable-details/rule/Mobile": "contract:6",
+    "example/spec/deliverable-details/rule/Family": "contract:7",
+    "example/spec/deliverable-details/rule/Query": "contract:8",
+    "example/spec/deliverable-details/rule/BatchData": "contract:8",
+    "example/spec/deliverable-details/rule/WindowStream": "contract:8",
+    "example/spec/deliverable-details/rule/Migration": "contract:9",
+    "example/spec/deliverable-details/rule/Compiler": "contract:10",
+    "example/spec/deliverable-details/rule/Analyzer": "contract:10",
+    "example/spec/deliverable-details/rule/Generator": "contract:10",
+    "example/spec/deliverable-details/rule/Inference": "contract:11",
+    "example/spec/deliverable-details/rule/Trainer": "contract:11",
+    "example/spec/deliverable-details/rule/Sampler": "contract:11",
+    "example/spec/deliverable-details/rule/Optimizer": "contract:11",
+    "example/spec/deliverable-details/rule/GpuKernel": "contract:12",
+    "example/spec/deliverable-details/rule/Firmware": "contract:12",
+    "example/spec/deliverable-details/rule/RealTime": "contract:12",
+    "example/spec/deliverable-details/rule/Installer": "contract:13",
+    "example/spec/deliverable-details/rule/Deployment": "contract:13",
+    "example/spec/deliverable-details/rule/NativeChange": "contract:1",
+    "example/spec/deliverable-details/rule/Canonical": "normalization"
+  },
+  "nodes": {
+    "structure": {
+      "kind": "language",
+      "subjectId": "sec.requirement-structure",
+      "revision": "46539481fe264751d564d8c3380de6f8e0ab14e82009a5aee656cf8ca607ca76",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "46539481fe264751d564d8c3380de6f8e0ab14e82009a5aee656cf8ca607ca76",
+        "byteLength": 33817,
+        "format": "markdown"
+      },
+      "locations": [
+        "../../docs/作者/结构化源码.md"
+      ],
+      "dependencies": []
+    },
+    "contract:0": {
+      "kind": "definition",
+      "subjectId": "example:deliverable-contract:0",
+      "revision": "54a44379966dda4a0f2d37851ab3d015fd1ca39c3168ed3de01be5d55509b01b",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "54a44379966dda4a0f2d37851ab3d015fd1ca39c3168ed3de01be5d55509b01b",
+        "byteLength": 6149,
+        "format": "markdown"
+      },
+      "locations": [
+        "../../docs/作者/成品/规格与静态资产.md"
+      ],
+      "dependencies": [
+        "structure"
+      ]
+    },
+    "contract:1": {
+      "kind": "definition",
+      "subjectId": "example:deliverable-contract:1",
+      "revision": "ff2cfed55b8fbadbab08c249985def9d5b2ddf410ae4a98669416c94b4779341",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "ff2cfed55b8fbadbab08c249985def9d5b2ddf410ae4a98669416c94b4779341",
+        "byteLength": 5806,
+        "format": "markdown"
+      },
+      "locations": [
+        "../../docs/作者/成品/片段与已有工程变化.md"
+      ],
+      "dependencies": [
+        "structure"
+      ]
+    },
+    "contract:2": {
+      "kind": "definition",
+      "subjectId": "example:deliverable-contract:2",
+      "revision": "3c25db9a92a70578210885604b447985100bbb233b74342d8570a96496ff2c1a",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "3c25db9a92a70578210885604b447985100bbb233b74342d8570a96496ff2c1a",
+        "byteLength": 7517,
+        "format": "markdown"
+      },
+      "locations": [
+        "../../docs/作者/成品/库与协议客户端.md"
+      ],
+      "dependencies": [
+        "structure"
+      ]
+    },
+    "contract:3": {
+      "kind": "definition",
+      "subjectId": "example:deliverable-contract:3",
+      "revision": "4108a450cc5daf72da23605455be02f16aaf6e098fabc126c35ed9b32c5828a3",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "4108a450cc5daf72da23605455be02f16aaf6e098fabc126c35ed9b32c5828a3",
+        "byteLength": 4826,
+        "format": "markdown"
+      },
+      "locations": [
+        "../../docs/作者/成品/命令与批处理程序.md"
+      ],
+      "dependencies": [
+        "structure"
+      ]
+    },
+    "contract:4": {
+      "kind": "definition",
+      "subjectId": "example:deliverable-contract:4",
+      "revision": "cab36d1468e8e2493119e93a6b97da27313cfdf63654960566d72e90b8439e2e",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "cab36d1468e8e2493119e93a6b97da27313cfdf63654960566d72e90b8439e2e",
+        "byteLength": 6972,
+        "format": "markdown"
+      },
+      "locations": [
+        "../../docs/作者/成品/请求处理器与服务.md"
+      ],
+      "dependencies": [
+        "structure"
+      ]
+    },
+    "contract:5": {
+      "kind": "definition",
+      "subjectId": "example:deliverable-contract:5",
+      "revision": "454b0dc081b6d2d4f0491ce47c175baa7ef526fb2c07711a291fc7d38cc93752",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "454b0dc081b6d2d4f0491ce47c175baa7ef526fb2c07711a291fc7d38cc93752",
+        "byteLength": 7159,
+        "format": "markdown"
+      },
+      "locations": [
+        "../../docs/作者/成品/工作器组件与插件.md"
+      ],
+      "dependencies": [
+        "structure"
+      ]
+    },
+    "contract:6": {
+      "kind": "definition",
+      "subjectId": "example:deliverable-contract:6",
+      "revision": "eabf81d6c099abbc71dcb91e1ed07a0865e73d61ea97322ae9fff0b11c6dceb6",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "eabf81d6c099abbc71dcb91e1ed07a0865e73d61ea97322ae9fff0b11c6dceb6",
+        "byteLength": 9065,
+        "format": "markdown"
+      },
+      "locations": [
+        "../../docs/作者/成品/交互应用.md"
+      ],
+      "dependencies": [
+        "structure"
+      ]
+    },
+    "contract:7": {
+      "kind": "definition",
+      "subjectId": "example:deliverable-contract:7",
+      "revision": "e41efc5de67456e1fdf7bf749f4287f7a527961f89dc945f5fb8f92a587715ad",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "e41efc5de67456e1fdf7bf749f4287f7a527961f89dc945f5fb8f92a587715ad",
+        "byteLength": 4394,
+        "format": "markdown"
+      },
+      "locations": [
+        "../../docs/作者/成品/产品族与共同发行.md"
+      ],
+      "dependencies": [
+        "structure"
+      ]
+    },
+    "contract:8": {
+      "kind": "definition",
+      "subjectId": "example:deliverable-contract:8",
+      "revision": "fee3549a2c4ba78b009fe13ab904e2c517deb584e37e7a7aa0df0e0f13749186",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "fee3549a2c4ba78b009fe13ab904e2c517deb584e37e7a7aa0df0e0f13749186",
+        "byteLength": 9194,
+        "format": "markdown"
+      },
+      "locations": [
+        "../../docs/作者/成品/查询批数据与持续流.md"
+      ],
+      "dependencies": [
+        "structure"
+      ]
+    },
+    "contract:9": {
+      "kind": "definition",
+      "subjectId": "example:deliverable-contract:9",
+      "revision": "e8f5db43265953245e3ebc1008d756bc296315823bec41c2863e92b088e7455a",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "e8f5db43265953245e3ebc1008d756bc296315823bec41c2863e92b088e7455a",
+        "byteLength": 5398,
+        "format": "markdown"
+      },
+      "locations": [
+        "../../docs/作者/成品/数据与配置迁移.md"
+      ],
+      "dependencies": [
+        "structure"
+      ]
+    },
+    "contract:10": {
+      "kind": "definition",
+      "subjectId": "example:deliverable-contract:10",
+      "revision": "fe649eb99ce3cc678efee3b0756bf2ca122ad389f18111788d7e7547cf139ea6",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "fe649eb99ce3cc678efee3b0756bf2ca122ad389f18111788d7e7547cf139ea6",
+        "byteLength": 5854,
+        "format": "markdown"
+      },
+      "locations": [
+        "../../docs/作者/成品/编译分析与生成工具.md"
+      ],
+      "dependencies": [
+        "structure"
+      ]
+    },
+    "contract:11": {
+      "kind": "definition",
+      "subjectId": "example:deliverable-contract:11",
+      "revision": "8d1dfa77a3a44bdc0285aaff5574511053bcb8e25de4600316608f6ddf2ee8e5",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "8d1dfa77a3a44bdc0285aaff5574511053bcb8e25de4600316608f6ddf2ee8e5",
+        "byteLength": 7476,
+        "format": "markdown"
+      },
+      "locations": [
+        "../../docs/作者/成品/模型概率与优化.md"
+      ],
+      "dependencies": [
+        "structure"
+      ]
+    },
+    "contract:12": {
+      "kind": "definition",
+      "subjectId": "example:deliverable-contract:12",
+      "revision": "542d087dd8c6c2b41c13b5adef051c05295161b997111146f7e5f5872c19678a",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "542d087dd8c6c2b41c13b5adef051c05295161b997111146f7e5f5872c19678a",
+        "byteLength": 8126,
+        "format": "markdown"
+      },
+      "locations": [
+        "../../docs/作者/成品/计算核固件与实时程序.md"
+      ],
+      "dependencies": [
+        "structure"
+      ]
+    },
+    "contract:13": {
+      "kind": "definition",
+      "subjectId": "example:deliverable-contract:13",
+      "revision": "749be5545d24a859ba229d4e6ddf6f2d14dd0dea9b3fa5b80266279abede5434",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "749be5545d24a859ba229d4e6ddf6f2d14dd0dea9b3fa5b80266279abede5434",
+        "byteLength": 6361,
+        "format": "markdown"
+      },
+      "locations": [
+        "../../docs/作者/成品/安装与部署.md"
+      ],
+      "dependencies": [
+        "structure"
+      ]
+    },
+    "normalization": {
+      "kind": "definition",
+      "subjectId": "example:normalization-contract",
+      "revision": "bd881707aa9a7b45158e53317a8faee84da50c3c4eb5282fd66eae83f20472b1",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "bd881707aa9a7b45158e53317a8faee84da50c3c4eb5282fd66eae83f20472b1",
+        "byteLength": 17502,
+        "format": "markdown"
+      },
+      "locations": [
+        "../成品形态/规则合同.md"
+      ],
+      "dependencies": [
+        "structure"
+      ]
+    },
+    "common": {
+      "kind": "definition",
+      "subjectId": "example:deliverable-common",
+      "revision": "786181b6679d768bfb9f803257fb17424d7f693a5062db98cbd0663b55dab507",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "786181b6679d768bfb9f803257fb17424d7f693a5062db98cbd0663b55dab507",
+        "byteLength": 8344,
+        "format": "markdown"
+      },
+      "locations": [
+        "../../docs/作者/成品/共同数据与完整性.md"
+      ],
+      "dependencies": [
+        "structure"
+      ]
+    },
+    "catalog": {
+      "kind": "module",
+      "subjectId": "example/spec/deliverable-details",
+      "revision": "2dab75acde6b54cdcc7a8c4a759a60a018192d6afa0b58bc4094a3d22cf55afa",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "2dab75acde6b54cdcc7a8c4a759a60a018192d6afa0b58bc4094a3d22cf55afa",
+        "byteLength": 54278,
+        "format": "json"
+      },
+      "locations": [
+        "contracts/spec.json"
+      ],
+      "dependencies": [
+        "structure"
+      ]
+    },
+    "definitions": {
+      "kind": "module",
+      "subjectId": "example:deliverable-definitions",
+      "revision": "fdca0fd43cd93956932ce7589a7ff13aecc35021dccc975875c2402db70da1b5",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "fdca0fd43cd93956932ce7589a7ff13aecc35021dccc975875c2402db70da1b5",
+        "byteLength": 45801,
+        "format": "json"
+      },
+      "locations": [
+        "definitions.json"
+      ],
+      "dependencies": [
+        "structure"
+      ]
+    },
+    "boundary-types": {
+      "kind": "definition",
+      "subjectId": "example:public-boundaries",
+      "revision": "ff45cb994fc2a681a9aaaaf9ddded97012b1faf879a6d954af7fcbd6ced51d30",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "ff45cb994fc2a681a9aaaaf9ddded97012b1faf879a6d954af7fcbd6ced51d30",
+        "byteLength": 18836,
+        "format": "typescript-declaration"
+      },
+      "locations": [
+        "公开边界.d.ts"
+      ],
+      "dependencies": [
+        "structure"
+      ]
+    }
+  }
+}

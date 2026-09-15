@@ -1,8 +1,11 @@
 import { afterAll, expect, test } from 'bun:test';
-import { currentActiveDocumentationPaths } from '../../src/control/documentation/active.ts';
+import {
+  currentActiveDocumentationPaths,
+  currentDocumentationVerificationBaseline
+} from '../../src/control/documentation/active.ts';
 
 import { buildCiContract } from '../../src/verification/ci/contract/core.ts';
-import { buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentBuildVerificationPlan as buildVerificationPlanWithProvider, CodexDevelopmentCanonicalChangedFiles, type CodexDevelopmentVerificationPlanProfile } from '../../src/verification/ci/contract/plan.ts';
+import { bindDocumentationVerificationGateInput, buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentBuildVerificationPlan as buildVerificationPlanWithProvider, CodexDevelopmentCanonicalChangedFiles, type CodexDevelopmentVerificationPlanProfile } from '../../src/verification/ci/contract/plan.ts';
 import {
   CodexDevelopmentChangedFilesFromRecords,
   CodexDevelopmentCreateNotRunGate
@@ -18,7 +21,10 @@ import {
 } from '../testkit/contracts.ts';
 
 const testImpactFixture = await acquireExactRepositoryTestImpactProviderFixture();
-const testImpactProvider = testImpactFixture.provider;
+const testImpactProvider = bindDocumentationVerificationGateInput(
+  testImpactFixture.provider,
+  currentDocumentationVerificationBaseline()
+);
 afterAll(() => testImpactFixture.dispose());
 const testBudgetProjection = compileTestBudgetProjection(testImpactProvider.testInventory);
 const selectSlowTestRiskClosure = (files: string[] | null) => (
@@ -99,7 +105,7 @@ test('documentation trust roots select only snapshot-observed suites without fal
     expect(selection.resolved).toBe(true);
   }
 
-  expect(selectSlowTestRiskClosure(['docs/product.md'])).toMatchObject({
+  expect(selectSlowTestRiskClosure(['docs/产品/产品要求与工作约束.md'])).toMatchObject({
     slowTests: [],
     owners: ['control.documentation'],
     reasons: ['ownership-impact'],
@@ -133,9 +139,15 @@ test('Quick docs gate follows the canonical documentation lifecycle owner', () =
   ]);
   expect(unknownDocsYaml.selectionResolved).toBe(false);
   expect(unknownDocsYaml.affectedOwners).not.toContain('control.documentation');
-  expect(unknownDocsYaml.gates.map(({ id }) => id)).not.toContain('docs-doctor');
+  expect(unknownDocsYaml.gates.map(({ id }) => id)).toContain('docs-doctor');
   expect(unknownDocsYaml.gates.filter(({ id }) => id.startsWith('slow-suite-')))
     .toHaveLength(slowTestPrRiskBaselineSuiteIds().length);
+
+  const documentationExample = CodexDevelopmentBuildVerificationPlan('quick', [
+    'examples/documentation-example.ts'
+  ]);
+  expect(documentationExample.gates.map(({ id }) => id)).toContain('docs-doctor');
+  expect(documentationExample.gates.map(({ id }) => id)).not.toContain('imports');
 });
 
 test('changed-file canonicalization shares the repository path contract', () => {

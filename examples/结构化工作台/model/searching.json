@@ -1,0 +1,197 @@
+{
+  "schema": "sec.author-module/1",
+  "moduleId": "studio:searching",
+  "namespace": "studio.searching",
+  "dialects": {
+    "req": {
+      "languageId": "sec.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {
+    "ide": {
+      "mode": "workspace",
+      "moduleId": "sec/spec/ide"
+    },
+    "search": {
+      "mode": "workspace",
+      "moduleId": "sec/spec/search"
+    }
+  },
+  "definitions": {
+    "d:Searching": {
+      "kind": "req:composite",
+      "name": "Searching",
+      "body": {
+        "parameters": {
+          "s": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "ide",
+                "export": "Workbench"
+              }
+            }
+          },
+          "stalePolicy": {
+            "role": "value",
+            "type": {
+              "ref": {
+                "import": "search",
+                "export": "StalePolicy"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "import": "search",
+              "export": "Text"
+            },
+            "fields": {
+              "on": {
+                "parameter": "s",
+                "path": [
+                  "search"
+                ]
+              },
+              "workspace": {
+                "parameter": "s",
+                "path": [
+                  "workspace"
+                ]
+              },
+              "documents": {
+                "parameter": "s",
+                "path": [
+                  "documents"
+                ]
+              },
+              "pattern": {
+                "enum": {
+                  "import": "search",
+                  "export": "LiteralAndDeclaredRegexDialect"
+                }
+              },
+              "results": {
+                "enum": {
+                  "import": "search",
+                  "export": "MatchWithSourceVersion"
+                }
+              },
+              "coverage": {
+                "enum": {
+                  "import": "search",
+                  "export": "Explicit"
+                }
+              },
+              "cancellation": {
+                "enum": {
+                  "import": "search",
+                  "export": "SupersededCannotPublish"
+                }
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "search",
+              "export": "Replace"
+            },
+            "fields": {
+              "on": {
+                "parameter": "s",
+                "path": [
+                  "replace"
+                ]
+              },
+              "matches": {
+                "parameter": "s",
+                "path": [
+                  "search"
+                ]
+              },
+              "documents": {
+                "parameter": "s",
+                "path": [
+                  "documents"
+                ]
+              },
+              "preview": {
+                "enum": {
+                  "import": "search",
+                  "export": "DisplayedEditsOnly"
+                }
+              },
+              "acceptance": {
+                "enum": {
+                  "import": "search",
+                  "export": "DisplayedPlan"
+                }
+              },
+              "stale": {
+                "parameter": "stalePolicy"
+              },
+              "scope": {
+                "enum": {
+                  "import": "search",
+                  "export": "SelectedOrCompleteScope"
+                }
+              },
+              "recovery": {
+                "enum": {
+                  "import": "search",
+                  "export": "ReconcileNoBlindReplay"
+                }
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "search",
+              "export": "Presentation"
+            },
+            "fields": {
+              "search": {
+                "parameter": "s",
+                "path": [
+                  "search"
+                ]
+              },
+              "replace": {
+                "parameter": "s",
+                "path": [
+                  "replace"
+                ]
+              },
+              "shell": {
+                "parameter": "s",
+                "path": [
+                  "shell"
+                ]
+              },
+              "navigation": {
+                "enum": {
+                  "import": "search",
+                  "export": "ExactSourceMatch"
+                }
+              },
+              "readonly": {
+                "enum": {
+                  "import": "search",
+                  "export": "InspectableNotWritable"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "Searching": {
+      "definitionId": "d:Searching"
+    }
+  }
+}

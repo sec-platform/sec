@@ -1,0 +1,38 @@
+// 需求作者源；定义允许的产品行为，不执行安装或构造运行对象。
+import "sec/spec/ide" as ide;
+import "sec/spec/experience" as experience;
+
+export design Experience(s: ide.Workbench) {
+  require experience.Layout {
+    on: s.shell,
+    editor: s.editor,
+    workspace: s.workspace,
+    search: s.search,
+    diagnostics: s.diagnostics,
+    terminal: s.terminal,
+    panes: experience.WorkbenchLayout,
+    visibility: experience.TaskContext
+  };
+
+  require experience.Commands {
+    on: s.shell,
+    targets: [s.workspace, s.editor, s.search, s.replace, s.languages, s.tasks, s.terminal, s.debug, s.tests, s.vcs, s.extensions, s.settings],
+    access: [experience.Menu, experience.Palette, experience.Keyboard],
+    registry: experience.TypedCommandSchema,
+    enablement: experience.CurrentContext
+  };
+
+  require experience.Accessibility {
+    on: s.shell,
+    focus: experience.DeterministicKeyboardRoute,
+    labels: experience.AccessibleNames,
+    status: experience.TextAndAssistiveNotification
+  };
+
+  require experience.Appearance {
+    on: s.shell,
+    theme: experience.SemanticTokens,
+    locale: experience.MessageCatalog,
+    missingText: experience.VisibleFallback
+  };
+}

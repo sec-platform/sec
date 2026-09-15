@@ -1,304 +1,134 @@
+import { expect, test } from 'bun:test';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { expect, test } from 'bun:test';
-
 import {
-  isActiveDocumentationPath
+  activeDocumentationRecord,
+  currentActiveDocumentationPaths,
+  isActiveDocumentationPath,
+  isDocumentationVerificationInputPath,
+  parseDocumentationIdentityRegistry,
+  parseDocumentationVerificationBaseline
 } from '../../src/control/documentation/active.ts';
-import {
-  activeDocumentationPaths,
-  parseDocumentationAuthorityRegistry,
-  renderDocumentationIndex
-} from '../../src/control/documentation/authority.ts';
-import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../src/system-architecture/foundation/contract/repository-path.ts';
 
-const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
+const ROOT = path.resolve(import.meta.dir, '../..');
 
-const NON_CANONICAL_REPOSITORY_PATHS = [
-  '',
-  '/docs/work/current-state.yaml',
-  'C:/absolute.md',
-  'C:relative.md',
-  'file:/docs/readme.md',
-  'docs\\work\\current-state.yaml',
-  'docs/file:stream.md',
-  'docs//x.md',
-  'docs/./x.md',
-  'docs/work/../evidence/probe.yaml',
-  'docs/work//state.yaml',
-  'docs/work/\0state.yaml',
-  'docs/e\u0301.md'
-] as const;
-
-function authorityRecord(
-  id: string,
-  filePath: string,
-  overrides: Record<string, unknown> = {}
-): Record<string, unknown> {
-  return {
-    id,
-    path: filePath,
-    kind: 'authority',
-    domain: `test-${id}`,
-    lifecycle: 'stable',
-    dynamicPolicy: 'forbidden',
-    owns: [`test.${id}`],
-    projects: [],
-    ...overrides
-  };
-}
-
-function navigationRecord(
-  id: string,
-  filePath: string,
-  overrides: Record<string, unknown> = {}
-): Record<string, unknown> {
-  return {
-    id,
-    path: filePath,
-    kind: 'navigation',
-    domain: `navigation-${id}`,
-    lifecycle: 'active',
-    dynamicPolicy: 'forbidden',
-    owns: [],
-    projects: [],
-    ...overrides
-  };
-}
-
-function proposalRecord(
-  id: string,
-  filePath: string,
-  target = 'target',
-  overrides: Record<string, unknown> = {}
-): Record<string, unknown> {
-  return {
-    id,
-    path: filePath,
-    kind: 'proposal',
-    domain: 'proposal',
-    lifecycle: 'draft',
-    dynamicPolicy: 'forbidden',
-    owns: [],
-    projects: [target],
-    proposal: {
-      disposition: 'adapt',
-      canonicalTargets: [target],
-      activationTrigger: 'real-consumer-and-focused-work-package',
-      retirementTarget: `docs/archive/proposals/${id}.md`,
-      evidenceRequirement: 'consumer-migration-and-main-readback',
-      reversalCondition: null
-    },
-    ...overrides
-  };
-}
-
-function authorityRegistry(...documents: Record<string, unknown>[]): string {
-  return JSON.stringify({ documents });
-}
-
-test('canonical repository paths require normalized repository-relative POSIX segments', () => {
-  for (const file of [
-    'README.md',
-    'docs/product.md',
-    'docs/work/current-state.yaml'
-  ]) expect(CodexDevelopmentIsCanonicalRepositoryPath(file)).toBe(true);
-
-  for (const file of NON_CANONICAL_REPOSITORY_PATHS) {
-    expect(CodexDevelopmentIsCanonicalRepositoryPath(file)).toBe(false);
-  }
-});
-
-test('documentation registry reuses canonical paths and rejects Windows aliases', () => {
-  for (const file of NON_CANONICAL_REPOSITORY_PATHS) {
-    expect(() => parseDocumentationAuthorityRegistry(
-      authorityRegistry(authorityRecord('invalid', file))
-    )).toThrow();
-  }
-
-  expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
-    authorityRecord('upper', 'docs/A.md'),
-    authorityRecord('lower', 'docs/a.md')
-  ))).toThrow('Case-insensitive document path collision');
-});
-
-test('existing registry lists retain code-unit ordering semantics', () => {
-  expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
-    authorityRecord('ordered', 'docs/ordered.md', { owns: ['test.A', 'test.a'] })
-  ))).not.toThrow();
-  expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
-    authorityRecord('reversed', 'docs/reversed.md', { owns: ['test.a', 'test.A'] })
-  ))).toThrow(/canonical code-unit order/);
-});
-
-test('documentation dependency graph rejects project, generation and proposal-target cycles', () => {
-  expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
-    authorityRecord('a', 'docs/a.md', { projects: ['b'] }),
-    authorityRecord('b', 'docs/b.md', { projects: ['a'] })
-  ))).toThrow('Documentation dependency cycle');
-
-  expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
-    navigationRecord('self', 'docs/self.md', { generatedFrom: 'docs/self.md' })
-  ))).toThrow('Documentation dependency cycle');
-
-  expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
-    navigationRecord('a', 'docs/a.md', { generatedFrom: 'docs/b.md' }),
-    navigationRecord('b', 'docs/b.md', { generatedFrom: 'docs/a.md' })
-  ))).toThrow('Documentation dependency cycle');
-
-  const target = authorityRecord('target', 'docs/target.md', { projects: ['proposal'] });
-  const proposal = proposalRecord('proposal', 'docs/proposals/proposal.md', 'target', {
-    projects: []
+function identitySource(documents: readonly unknown[]): string {
+  return JSON.stringify({
+    schema: 'sec.documentation-identity/1',
+    scope: 'fixture',
+    documents
   });
-  expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
-    target,
-    proposal
-  ))).toThrow('Documentation dependency cycle');
-});
+}
 
-test('proposal kind requires one enforceable lifecycle disposition', () => {
-  const target = authorityRecord('target', 'docs/target.md');
+const FIRST_ID = 'urn:uuid:00000000-0000-4000-8000-000000000001';
+const SECOND_ID = 'urn:uuid:00000000-0000-4000-8000-000000000002';
 
-  expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
-    target,
-    proposalRecord('missing', 'docs/proposals/missing.md', 'target', { proposal: undefined })
-  ))).toThrow(/requires lifecycle draft and proposal metadata/);
+function baselineSource(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    schema: 'sec.documentation-baseline/1',
+    source_set_sha256: '0'.repeat(64),
+    source_root: '..',
+    source_roots: ['README.md', '.documentation', 'docs/产品', 'examples', 'tools'],
+    source_manifest: 'source-manifest.json',
+    excluded_from_source_hash: [
+      '.documentation/baseline.json',
+      '.documentation/source-manifest.json'
+    ],
+    audited_namespaces: ['docs', 'public-docs'],
+    non_documentation_roots: ['docs/work', 'docs/work-packages', 'docs/roadmap.md', 'docs/governance'],
+    entry: '../README.md',
+    delivery_number: '086',
+    archive_name: 'SEC-086.zip',
+    scope: 'fixture',
+    authority_limit: 'fixture',
+    ...overrides
+  });
+}
 
-  expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
-    target,
-    proposalRecord('active', 'docs/proposals/active.md', 'target', { lifecycle: 'active' })
-  ))).toThrow(/requires lifecycle draft/);
-
-  expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
-    target,
-    authorityRecord('non-proposal', 'docs/non-proposal.md', {
-      proposal: proposalRecord('nested', 'docs/proposals/nested.md', 'target').proposal
-    })
-  ))).toThrow(/non-proposal kind cannot declare proposal metadata/);
-});
-
-test('adopt and adapt proposals require target, activation, Evidence and archive retirement', () => {
-  const target = authorityRecord('target', 'docs/target.md');
-  const base = proposalRecord('proposal', 'docs/proposals/proposal.md', 'target');
-
-  for (const patch of [
-    { canonicalTargets: [] },
-    { activationTrigger: null },
-    { evidenceRequirement: null }
-  ]) {
-    expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
-      target,
-      { ...base, proposal: { ...(base.proposal as object), ...patch } }
-    ))).toThrow(/requires canonicalTargets, activationTrigger and evidenceRequirement/);
-  }
-
-  expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
-    target,
-    { ...base, proposal: { ...(base.proposal as object), retirementTarget: 'docs/proposal.md' } }
-  ))).toThrow(/retirementTarget must be under docs\/archive/);
-});
-
-test('proposal targets must resolve to owning non-proposal records', () => {
-  const target = authorityRecord('target', 'docs/target.md');
-  expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
-    target,
-    proposalRecord('unknown', 'docs/proposals/unknown.md', 'missing', {
-      projects: ['target']
-    })
-  ))).toThrow(/targets unknown document missing/);
-
-  const first = proposalRecord('first', 'docs/proposals/first.md', 'target');
-  const second = proposalRecord('second', 'docs/proposals/second.md', 'first');
-  expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
-    target,
-    first,
-    second
-  ))).toThrow(/cannot migrate into proposal first/);
-
-  const navigation = navigationRecord('navigation', 'docs/navigation.md');
-  expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
-    target,
-    navigation,
-    proposalRecord('bad-target', 'docs/proposals/bad-target.md', 'navigation')
-  ))).toThrow(/target navigation is not an owning canonical record/);
-});
-
-test('proposal retirement targets are unique', () => {
-  const target = authorityRecord('target', 'docs/target.md');
-  const first = proposalRecord('first', 'docs/proposals/first.md', 'target');
-  const secondBase = proposalRecord('second', 'docs/proposals/second.md', 'target');
-  const second = {
-    ...secondBase,
-    proposal: {
-      ...(secondBase.proposal as object),
-      retirementTarget: 'docs/archive/proposals/first.md'
-    }
-  };
-  expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
-    target,
-    first,
-    second
-  ))).toThrow(/retirementTarget .* is shared by first and second/);
-});
-
-test('reject and experimental dispositions preserve reversal or Evidence requirements', () => {
-  const target = authorityRecord('target', 'docs/target.md');
-  const base = proposalRecord('proposal', 'docs/proposals/proposal.md', 'target');
-
-  expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
-    target,
-    {
-      ...base,
-      proposal: {
-        ...(base.proposal as object),
-        disposition: 'reject',
-        canonicalTargets: [],
-        reversalCondition: null
-      }
-    }
-  ))).toThrow(/reject requires no canonicalTargets and a reversalCondition/);
-
-  expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
-    target,
-    {
-      ...base,
-      proposal: {
-        ...(base.proposal as object),
-        disposition: 'experimental',
-        canonicalTargets: [],
-        evidenceRequirement: null
-      }
-    }
-  ))).toThrow(/experimental requires activationTrigger and evidenceRequirement/);
-});
-
-test('active documentation lookup and generated index consume the registry', async () => {
-  const registrySource = await readFile(
-    path.join(REPOSITORY_ROOT, 'docs/authority.json'),
-    'utf8'
+test('current documentation paths and stable identities come from the SEC-086 identity registry', async () => {
+  const registry = parseDocumentationIdentityRegistry(
+    await readFile(path.join(ROOT, '.documentation/documents.json'), 'utf8')
   );
-  const registry = parseDocumentationAuthorityRegistry(registrySource);
-  const projectedPaths = activeDocumentationPaths(registry);
-  for (const file of projectedPaths) {
-    expect(isActiveDocumentationPath(file)).toBe(true);
-  }
-
-  const actualIndex = await readFile(path.join(REPOSITORY_ROOT, 'docs/README.md'), 'utf8');
-  expect(actualIndex).toBe(renderDocumentationIndex(registry));
-  expect(actualIndex).toContain('| Proposal 处置 |');
-  expect(actualIndex).toContain('| adapt |');
+  expect(currentActiveDocumentationPaths()).toEqual([
+    '.documentation/documents.json',
+    ...registry.documents.map(({ path }) => path)
+  ].sort());
+  expect(isActiveDocumentationPath('docs/维护/文档身份与重组协议.md')).toBe(true);
+  expect(isActiveDocumentationPath('docs/authority.json')).toBe(false);
+  expect(activeDocumentationRecord('AGENTS.md')).toEqual({
+    documentId: 'urn:uuid:d4f25365-130a-5c38-bba7-ea1d5b89c8af',
+    path: 'AGENTS.md'
+  });
 });
 
-test('historical, evidence, work-package, and unknown documents are not active by fallback', () => {
+test('documentation identity parsing rejects ambiguous identity, path and object shape', () => {
+  expect(() => parseDocumentationIdentityRegistry(identitySource([
+    { document_id: FIRST_ID, path: 'docs/a.md' },
+    { document_id: FIRST_ID, path: 'docs/b.md' }
+  ]))).toThrow(/duplicate document identity/u);
+  expect(() => parseDocumentationIdentityRegistry(identitySource([
+    { document_id: FIRST_ID, path: 'docs/A.md' },
+    { document_id: SECOND_ID, path: 'docs/a.md' }
+  ]))).toThrow(/duplicate document path/u);
+  expect(() => parseDocumentationIdentityRegistry(identitySource([
+    { document_id: FIRST_ID, path: 'docs/a.md', kind: 'authority' }
+  ]))).toThrow(/keys must be exact/u);
+  expect(() => parseDocumentationIdentityRegistry(
+    '{"schema":"sec.documentation-identity/1","scope":"x","scope":"y","documents":[]}'
+  )).toThrow(/duplicate/u);
+});
+
+test('documentation identities use canonical UUIDs and Markdown repository paths', () => {
+  expect(() => parseDocumentationIdentityRegistry(identitySource([
+    { document_id: 'development-governance', path: 'docs/a.md' }
+  ]))).toThrow(/UUID URN/u);
+  expect(() => parseDocumentationIdentityRegistry(identitySource([
+    { document_id: FIRST_ID, path: '../outside.md' }
+  ]))).toThrow(/canonical Markdown repository path/u);
+});
+
+test('documentation gate inputs are derived from the baseline without expanding document identity', () => {
+  const baseline = parseDocumentationVerificationBaseline(baselineSource());
   for (const file of [
-    'docs/00-文档索引与一致性规则.md',
-    'docs/archive/authority-v5/00-文档索引与一致性规则.md',
-    'docs/evidence/probe.md',
-    'docs/work-packages/unknown.md',
-    'docs/architecture/unowned.md',
-    'docs/governance/unowned.yaml',
-    'README.MD',
-    ...NON_CANONICAL_REPOSITORY_PATHS
-  ]) expect(isActiveDocumentationPath(file)).toBe(false);
+    '.documentation/baseline.json',
+    '.documentation/source-manifest.json',
+    'docs/产品/new.md',
+    'docs/unregistered-legacy.md',
+    'public-docs/stale.md',
+    'examples/sample.ts',
+    'tools/check_docs.py'
+  ]) {
+    expect(isDocumentationVerificationInputPath(file, baseline)).toBe(true);
+  }
+  for (const file of [
+    'docs/work/active-work-package.md',
+    'docs/work-packages/history.md',
+    'docs/roadmap.md',
+    'docs/governance/ledger.yaml',
+    'src/product.ts'
+  ]) {
+    expect(isDocumentationVerificationInputPath(file, baseline)).toBe(false);
+  }
+  expect(isActiveDocumentationPath('examples/sample.ts')).toBe(false);
+  expect(isActiveDocumentationPath('tools/check_docs.py')).toBe(false);
+});
+
+test('documentation verification baseline rejects ambiguous or competing roots', () => {
+  expect(parseDocumentationVerificationBaseline(baselineSource({
+    non_documentation_roots: []
+  })).nonDocumentationRoots).toEqual([]);
+  expect(() => parseDocumentationVerificationBaseline(baselineSource({
+    source_roots: ['README.md'],
+    non_documentation_roots: ['docs']
+  }))).toThrow(/outside audited_namespaces/u);
+  expect(() => parseDocumentationVerificationBaseline(baselineSource({
+    non_documentation_roots: ['src']
+  }))).toThrow(/outside audited_namespaces/u);
+  expect(() => parseDocumentationVerificationBaseline(baselineSource({
+    source_roots: ['docs'],
+    non_documentation_roots: ['docs/work']
+  }))).toThrow(/overlaps source_roots/u);
+  expect(() => parseDocumentationVerificationBaseline(baselineSource({ unexpected: true })))
+    .toThrow(/unsupported root key/u);
 });

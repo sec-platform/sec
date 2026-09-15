@@ -2,30 +2,18 @@ import path from 'node:path';
 
 import type { GitHubCheckObservation } from '../../external-capabilities/github-api/contract.ts';
 import {
-  assertGitHubApiCapability,
   assertGitHubApiReadOperationBudgetCurrent,
   currentGitHubApiCapability,
   executeGitHubApiOperation,
-  inspectGitHubApiCapability,
   GitHubApiProviderError as MainHealthGitHubProviderError,
   withGitHubApiReadOperationBudget,
   withGitHubApiReadSession,
-  withGitHubApiStatusWriteSession,
   type GitHubApiCapability
 } from '../../external-capabilities/github-api/operation-session.ts';
-import { acquirePhysicalMutationLease, type PhysicalMutationLeaseHandle } from '../../runtime-state/physical/runtime/mutation-lease.ts';
-import { createNoFollowDirectoryChain, inspectExactNoFollowDirectoryPresence, inspectNoFollowOrdinaryFileEntry, PhysicalNoFollowError, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, scanNoFollowDirectoryTree, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { resolveSecRuntimeStateForRepository } from '../../runtime-state/workspace-state/paths.ts';
-import { acquireSecRuntimeStatePhysicalAuthority, type SecRuntimeStatePhysicalAuthority } from '../../runtime-state/workspace-state/physical-authority.ts';
 import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { encodeVerificationActionData } from '../../verification/action/contract/action.ts';
-import { createTrustedRuntimeMainHealthSupersessionAuthorization, createTrustedRuntimeMainHealthSupersessionIntent, createTrustedRuntimeMainHealthSupersessionPermit, createTrustedRuntimeMainHealthSupersessionReceipt, parseTrustedRuntimeMainHealthReceipt, parseTrustedRuntimeMainHealthSupersessionIntent, parseTrustedRuntimeMainHealthSupersessionPermit, parseTrustedRuntimeMainHealthSupersessionReceipt, readTrustedRuntimeMainHealthSupersessionPayload, trustedRuntimeMainHealthSupersessionPermitBytes, trustedRuntimeMainHealthSupersessionReceiptBytes, trustedRuntimeMainHealthSupersessionRequestDigest, trustedRuntimeMainHealthSupersessionStatusRequest, type TrustedRuntimeMainHealthSupersessionAuthorization, type TrustedRuntimeMainHealthSupersessionIntent, type TrustedRuntimeMainHealthSupersessionPermit, type TrustedRuntimeMainHealthSupersessionReceipt, type TrustedRuntimeOpaqueDomainPayload } from '../../verification/trusted-runtime/trusted-runtime-container.ts';
 import {
   createMainHealthLedger,
-  createMainHealthRevision,
-  issueMainHealthLedgerProjection,
-  mainHealthLedgerCanonicalBytes,
-  resolveMainHealthLedgerProjection,
   resolveOrdinaryMainHealthLane,
   type MainHealthDigest,
   type MainHealthLedger,
@@ -33,9 +21,8 @@ import {
 } from './contract.ts';
 import {
   createRegisteredHostedMainHealthInputs,
-  createTrustedLocalMainHealthInput,
   GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY,
-  TRUSTED_LOCAL_MAIN_HEALTH_FRESHNESS_MS
+  HOSTED_MAIN_HEALTH_FRESHNESS_MS
 } from './main-health-observation.ts';
 import {
   compileMainHealthRepairDecision,
@@ -108,34 +95,6 @@ export function assertMainHealthGitHubReadOperationBudgetCurrent(input: Readonly
 }
 
 /** Opens the separate production status-write session used only by reconcile. */
-export async function withMainHealthGitHubStatusWriteSession<T>(input: Readonly<{
-  repositoryRoot: string;
-  repository: string;
-  operation: () => Promise<T>;
-}>): Promise<T> {
-  return await withGitHubApiStatusWriteSession({
-    repositoryRoot: input.repositoryRoot,
-    repository: input.repository,
-    operation: async () => await input.operation()
-  });
-}
-
-declare const mainHealthRuntimeAuthorityBrand: unique symbol;
-
-export type MainHealthRuntimeAuthority = Readonly<{
-  /** Opaque in-process handle; the physical authority is held in a private map. */
-  readonly [mainHealthRuntimeAuthorityBrand]: true;
-}>;
-
-type MainHealthRuntimeAuthorityBinding = Readonly<{
-  binding: MainHealthDigest;
-  assertCurrent: () => Promise<void>;
-  directory: (absolutePath: string) => PhysicalDirectoryIdentity;
-}>;
-
-const mainHealthRuntimeAuthorityBindings =
-  new WeakMap<object, MainHealthRuntimeAuthorityBinding>();
-
 type HostedMainHealthObservation =
   | Readonly<{ kind: 'observed'; checks: readonly GitHubCheckObservation[] }>
   | Readonly<{ kind: 'unavailable'; ref: MainHealthDigest }>
@@ -158,626 +117,6 @@ function invalidRef(label: string, value: Uint8Array | string): MainHealthDigest
   }));
 }
 
-export async function issueTrustedRuntimeMainHealthAuthorityV2(input: Readonly<{
-  repositoryRoot: string;
-  repository: string;
-  environment?: NodeJS.ProcessEnv;
-}>): Promise<MainHealthRuntimeAuthority> {
-  const acquired = await acquireTrustedRuntimeMainHealthAuthority(input);
-  return acquired.authority;
-}
-
-/**
- * Canonical Runtime State enrollment for MainHealth.  The physical authority
- * and its opaque semantic handle are minted together so a caller cannot
- * acquire one physical root for receipt work and silently re-resolve another
- * root for the later effect/publication fence.
- */
-export async function acquireTrustedRuntimeMainHealthAuthority(input: Readonly<{
-  repositoryRoot: string;
-  repository: string;
-  environment?: NodeJS.ProcessEnv;
-  requiredDirectories?: readonly string[];
-}>): Promise<Readonly<{
-  authority: MainHealthRuntimeAuthority;
-  physicalAuthority: SecRuntimeStatePhysicalAuthority;
-}>> {
-  const layout = resolveSecRuntimeStateForRepository({
-    repository: input.repository,
-    repositoryRoot: input.repositoryRoot,
-    environment: input.environment
-  });
-  const authority = await acquireSecRuntimeStatePhysicalAuthority({
-    repositoryRoot: input.repositoryRoot,
-    stateRoot: layout.stateRoot,
-    cacheRoot: layout.cacheRoot,
-    // MainHealth effects always use this exact durable subject directory for
-    // both the preimage and its namespace lease. Include it in the authority
-    // even when a caller did not spell it out so a handle can never fall back
-    // to an independently resolved lease root.
-    requiredDirectories: Object.freeze([
-      ...new Set([
-        path.join(layout.repositoryStateRoot, 'trusted-main-health', 'v1'),
-        ...(input.requiredDirectories ?? [])
-      ])
-    ])
-  });
-  await authority.assertCurrent();
-  const requiredDirectoryBindings = Object.freeze(
-    [...new Set([
-      path.join(layout.repositoryStateRoot, 'trusted-main-health', 'v1'),
-      ...(input.requiredDirectories ?? [])
-    ])]
-      .map((directoryPath) => {
-        const directory = authority.directory(path.resolve(directoryPath));
-        return Object.freeze({
-          path: directory.path,
-          finalPath: directory.finalPath,
-          device: directory.device,
-          inode: directory.inode,
-          objectId: directory.objectId
-        });
-      })
-      .sort((left, right) => left.path.localeCompare(right.path))
-  );
-  const binding = digestRef(Object.freeze({
-    schema: 'sec-main-health-runtime-authority-binding-v2',
-    stateRoot: Object.freeze({
-      path: authority.stateRoot.path,
-      finalPath: authority.stateRoot.finalPath,
-      device: authority.stateRoot.device,
-      inode: authority.stateRoot.inode,
-      objectId: authority.stateRoot.objectId
-    }),
-    cacheRoot: Object.freeze({
-      path: authority.cacheRoot.path,
-      finalPath: authority.cacheRoot.finalPath,
-      device: authority.cacheRoot.device,
-      inode: authority.cacheRoot.inode,
-      objectId: authority.cacheRoot.objectId
-    }),
-    requiredDirectories: requiredDirectoryBindings
-  }));
-  const handle = Object.freeze({}) as MainHealthRuntimeAuthority;
-  mainHealthRuntimeAuthorityBindings.set(handle, Object.freeze({
-    binding,
-    assertCurrent: authority.assertCurrent,
-    directory: authority.directory
-  }));
-  return Object.freeze({ authority: handle, physicalAuthority: authority });
-}
-
-function mainHealthRuntimeAuthorityBinding(
-  authority: MainHealthRuntimeAuthority
-): MainHealthRuntimeAuthorityBinding {
-  const binding = mainHealthRuntimeAuthorityBindings.get(authority);
-  if (binding === undefined) {
-    throw new Error('MainHealth Runtime authority is forged or not issued in this process');
-  }
-  return binding;
-}
-
-export function trustedRuntimeMainHealthAuthorityBinding(
-  authority: MainHealthRuntimeAuthority
-): MainHealthDigest {
-  return mainHealthRuntimeAuthorityBinding(authority).binding;
-}
-
-async function assertCurrentMainHealthRuntimeAuthority(
-  authority: MainHealthRuntimeAuthority
-): Promise<void> {
-  await mainHealthRuntimeAuthorityBinding(authority).assertCurrent();
-}
-
-function mainHealthRuntimeAuthorityDirectory(
-  authority: MainHealthRuntimeAuthority,
-  expected: PhysicalDirectoryIdentity
-): PhysicalDirectoryIdentity {
-  const bound = mainHealthRuntimeAuthorityBinding(authority).directory(expected.path);
-  if (bound.device !== expected.device
-      || bound.inode !== expected.inode
-      || bound.objectId !== expected.objectId) {
-    throw new Error('MainHealth Runtime authority directory differs from the exact preimage root');
-  }
-  return bound;
-}
-
-function decodeExactUtf8(bytes: Uint8Array): string {
-  const source = Buffer.from(bytes);
-  const text = new TextDecoder('utf-8', { fatal: true }).decode(source);
-  if (!Buffer.from(text, 'utf8').equals(source)) {
-    throw new Error('trusted local MainHealth receipt is not exact UTF-8');
-  }
-  return text;
-}
-
-function projectLedger(input: Readonly<{
-  ledger: MainHealthLedger;
-  now: string;
-  repository: string;
-  defaultBranch: string;
-  mainSha: string;
-  mainTreeSha: string;
-}>): WorkSelectionMainHealthProjection {
-  const decision = resolveOrdinaryMainHealthLane({
-    ledger: input.ledger,
-    now: input.now,
-    expectedRepository: input.repository,
-    expectedDefaultBranch: input.defaultBranch,
-    expectedMainSha: input.mainSha,
-    expectedMainTreeSha: input.mainTreeSha,
-    expectedTrustRevision: input.mainSha
-  });
-  const state: MainHealthRoutingState =
-    decision.observationValidity === 'invalid' || decision.ledger === null
-      ? 'unresolved'
-      : input.ledger.status === 'degraded'
-        ? 'unhealthy'
-        : input.ledger.status === 'healthy' && decision.allowed
-          ? 'healthy'
-          : 'unresolved';
-  return Object.freeze({
-    state,
-    ref: input.ledger.healthRevision as MainHealthDigest
-  });
-}
-
-function observeTrustedLocalProvider(input: Readonly<{
-  repositoryRoot: string;
-  repository: string;
-  mainSha: string;
-  mainTreeSha: string;
-  now: string;
-  environment?: NodeJS.ProcessEnv;
-}>): WorkSelectionMainHealthProviderObservation {
-  let receiptBytes: Uint8Array | null = null;
-  try {
-    const layout = resolveSecRuntimeStateForRepository({
-      repository: input.repository,
-      repositoryRoot: input.repositoryRoot,
-      environment: input.environment
-    });
-    const root = path.join(layout.repositoryStateRoot, 'trusted-main-health', 'v1');
-    const presence = inspectExactNoFollowDirectoryPresence(
-      root,
-      'WorkSelection trusted MainHealth root'
-    );
-    if (presence.state === 'absent') return Object.freeze({ kind: 'absent' });
-    receiptBytes = readNoFollowOrdinaryFile(
-      presence.directory.target,
-      `main-${input.mainSha}.json`
-    );
-    if (receiptBytes === null) return Object.freeze({ kind: 'absent' });
-
-    const receipt = parseTrustedRuntimeMainHealthReceipt(decodeExactUtf8(receiptBytes));
-    const canonicalReceiptBytes = Buffer.from(
-      `${encodeVerificationActionData(receipt)}\n`,
-      'utf8'
-    );
-    if (!Buffer.from(receiptBytes).equals(canonicalReceiptBytes)) {
-      return Object.freeze({
-        kind: 'invalid',
-        ref: invalidRef('trusted-local-noncanonical-bytes', receiptBytes)
-      });
-    }
-    if (receipt.repository !== input.repository
-        || receipt.mainSha !== input.mainSha
-        || receipt.mainTreeSha !== input.mainTreeSha) {
-      return Object.freeze({
-        kind: 'invalid',
-        ref: invalidRef('trusted-local-subject-mismatch', receiptBytes)
-      });
-    }
-    const nowMs = Date.parse(input.now);
-    const receiptObservedAtMs = Date.parse(receipt.observedAt);
-    if (!Number.isFinite(receiptObservedAtMs) || !Number.isFinite(nowMs)
-        || receiptObservedAtMs > nowMs) {
-      return Object.freeze({
-        kind: 'invalid',
-        ref: invalidRef('trusted-local-time-invalid', receiptBytes)
-      });
-    }
-    // The physical receipt is immutable exact-subject Evidence. Freshness
-    // belongs to this read observation, so an unchanged main never needs the
-    // four commands rerun merely because wall time advanced.
-    const expiresAtMs = nowMs + TRUSTED_LOCAL_MAIN_HEALTH_FRESHNESS_MS;
-    const expiresAt = new Date(expiresAtMs).toISOString();
-    return Object.freeze({
-      kind: 'available',
-      ledger: createMainHealthLedger(createTrustedLocalMainHealthInput({
-        schema: 'sec-trusted-local-main-health-observation-v1',
-        repository: input.repository,
-        mainSha: input.mainSha,
-        mainTreeSha: input.mainTreeSha,
-        trustRevision: input.mainSha,
-        runtimeRef: `trusted-main-health-receipt:${receipt.receiptDigest}`,
-        executionId: receipt.executionId,
-        verificationReceiptDigest: receipt.receiptDigest,
-        observedAt: input.now,
-        expiresAt
-      }))
-    });
-  } catch (error) {
-    return classifyTrustedLocalMainHealthObservationFailure(error, receiptBytes);
-  }
-}
-
-export function classifyTrustedLocalMainHealthObservationFailure(
-  error: unknown,
-  receiptBytes: Uint8Array | null = null
-): WorkSelectionMainHealthProviderObservation {
-  if (error instanceof PhysicalNoFollowError) {
-    if (error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') {
-      return Object.freeze({ kind: 'absent' });
-    }
-    if (error.code === 'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE') {
-      return Object.freeze({
-        kind: 'unavailable',
-        ref: invalidRef('trusted-local-no-follow-capability-unavailable', error.code)
-      });
-    }
-  }
-  return Object.freeze({
-    kind: 'invalid',
-    ref: invalidRef(
-      'trusted-local-observation-invalid',
-      receiptBytes ?? (error instanceof Error ? error.message : String(error))
-    )
-  });
-}
-
-function observeTrustedLocalSupersessionPreimage(input: Readonly<{
-  repositoryRoot: string;
-  repository: string;
-  mainSha: string;
-  mainTreeSha: string;
-  environment?: NodeJS.ProcessEnv;
-}>) {
-  const layout = resolveSecRuntimeStateForRepository({
-    repository: input.repository,
-    repositoryRoot: input.repositoryRoot,
-    environment: input.environment
-  });
-  const root = path.join(layout.repositoryStateRoot, 'trusted-main-health', 'v1');
-  const presence = inspectExactNoFollowDirectoryPresence(
-    root,
-    'WorkSelection trusted MainHealth supersession root'
-  );
-  if (presence.state === 'absent') {
-    throw new Error('trusted local MainHealth supersession source root is absent');
-  }
-  const sourceName = `main-${input.mainSha}.json`;
-  const source = inspectNoFollowOrdinaryFileEntry(presence.directory.target, sourceName);
-  if (source === null || source.bytes === null) {
-    throw new Error('trusted local MainHealth supersession source is absent');
-  }
-  const receipt = parseTrustedRuntimeMainHealthReceipt(decodeExactUtf8(source.bytes));
-  const canonicalReceiptBytes = Buffer.from(`${encodeVerificationActionData(receipt)}\n`, 'utf8');
-  if (!Buffer.from(source.bytes).equals(canonicalReceiptBytes)
-      || receipt.repository !== input.repository
-      || receipt.mainSha !== input.mainSha
-      || receipt.mainTreeSha !== input.mainTreeSha) {
-    throw new Error('trusted local MainHealth supersession preimage is not exact');
-  }
-  return Object.freeze({ directory: presence.directory.target, source, receipt });
-}
-
-const MAIN_HEALTH_SUPERSESSION_EFFECT_CAPABILITY_SCHEMA =
-  'sec-main-health-supersession-effect-capability-v2' as const;
-
-type MainHealthSupersessionEffectCapability = Readonly<{
-  schema: typeof MAIN_HEALTH_SUPERSESSION_EFFECT_CAPABILITY_SCHEMA;
-  effect: 'prefer-exact-registered-hosted-provider';
-  authorization: TrustedRuntimeMainHealthSupersessionAuthorization;
-  hostedAuthorityDigest: MainHealthDigest;
-  issuedAt: string;
-  expiresAt: string;
-  authorizationDigest: MainHealthDigest;
-}>;
-
-const issuedMainHealthSupersessionCapabilities = new WeakSet<object>();
-
-function hostedMainHealthAuthorityDigest(ledger: MainHealthLedger): MainHealthDigest {
-  return resolveMainHealthLedgerProjection(
-    issueMainHealthLedgerProjection(mainHealthLedgerCanonicalBytes(ledger))
-  ).bindingDigest;
-}
-
-function mainHealthTrustedRuntimePayload(
-  ledger: MainHealthLedger
-): TrustedRuntimeOpaqueDomainPayload {
-  const binding = resolveMainHealthLedgerProjection(
-    issueMainHealthLedgerProjection(mainHealthLedgerCanonicalBytes(ledger))
-  );
-  return Object.freeze({
-    canonicalBytes: binding.canonicalBytes,
-    byteDigest: binding.byteDigest,
-    semanticRevision: binding.semanticRevision,
-    bindingDigest: binding.bindingDigest
-  });
-}
-
-function mainHealthLedgerFromTrustedRuntimePayload(
-  payload: TrustedRuntimeOpaqueDomainPayload
-): MainHealthLedger {
-  const binding = resolveMainHealthLedgerProjection(
-    issueMainHealthLedgerProjection(payload.canonicalBytes)
-  );
-  if (binding.byteDigest !== payload.byteDigest
-      || binding.semanticRevision !== payload.semanticRevision
-      || binding.bindingDigest !== payload.bindingDigest) {
-    throw new Error('MainHealth durable payload does not match its owner-issued projection');
-  }
-  return binding.ledger;
-}
-
-function parseMainHealthSupersessionIntent(
-  value: unknown
-): TrustedRuntimeMainHealthSupersessionIntent {
-  const payload = readTrustedRuntimeMainHealthSupersessionPayload(value);
-  mainHealthLedgerFromTrustedRuntimePayload(payload);
-  return parseTrustedRuntimeMainHealthSupersessionIntent(value, payload);
-}
-
-function parseMainHealthSupersessionReceipt(
-  value: unknown
-): TrustedRuntimeMainHealthSupersessionReceipt {
-  const payload = readTrustedRuntimeMainHealthSupersessionPayload(value);
-  mainHealthLedgerFromTrustedRuntimePayload(payload);
-  return parseTrustedRuntimeMainHealthSupersessionReceipt(value, payload);
-}
-
-function localHealthyMainHealthRevision(input: Readonly<{
-  repository: string;
-  defaultBranch: string;
-  mainSha: string;
-  mainTreeSha: string;
-}>): MainHealthDigest {
-  return createMainHealthRevision({
-    repository: input.repository,
-    defaultBranch: input.defaultBranch,
-    mainSha: input.mainSha,
-    mainTreeSha: input.mainTreeSha,
-    status: 'healthy',
-    failureFingerprints: Object.freeze([]),
-    owner: null,
-    repairWorkPackage: null,
-    allowedLanes: Object.freeze(['ordinary'] as const),
-    trustRevision: input.mainSha
-  });
-}
-
-function assertMainHealthSupersessionHostedProjection(
-  authorization: TrustedRuntimeMainHealthSupersessionAuthorization
-): MainHealthLedger {
-  const ledger = mainHealthLedgerFromTrustedRuntimePayload(authorization.hostedPayload);
-  if (ledger.repository !== authorization.localReceipt.repository
-      || ledger.mainSha !== authorization.localReceipt.mainSha
-      || ledger.mainTreeSha !== authorization.localReceipt.mainTreeSha
-      || ledger.trustRevision !== authorization.localReceipt.mainSha
-      || ledger.producer.sourceTransport !== 'github-api'
-      || hostedMainHealthAuthorityDigest(ledger) !== authorization.hostedAuthorityDigest) {
-    throw new Error('MainHealth supersession hosted projection is not exact or authenticated');
-  }
-  return ledger;
-}
-
-function issueMainHealthSupersessionEffectCapability(input: Readonly<{
-  preimage: ReturnType<typeof observeTrustedLocalSupersessionPreimage>;
-  hostedLedger: MainHealthLedger;
-  runtimeAuthorityBinding: MainHealthDigest;
-  issuedAt: string;
-  issuer: Readonly<{
-    transport: 'github-rest-token';
-    login: string;
-    nodeId: string;
-    permission: 'admin' | 'maintain';
-  }>;
-  predecessorRecordDigest: MainHealthDigest | null;
-}>): MainHealthSupersessionEffectCapability {
-  const hostedAuthorityDigest = hostedMainHealthAuthorityDigest(input.hostedLedger);
-  const authorization = createTrustedRuntimeMainHealthSupersessionAuthorization({
-    sourceName: input.preimage.source.relativePath,
-    source: input.preimage.source,
-    localReceipt: input.preimage.receipt,
-    localHealthRevision: localHealthyMainHealthRevision({
-      repository: input.preimage.receipt.repository,
-      defaultBranch: input.hostedLedger.defaultBranch,
-      mainSha: input.preimage.receipt.mainSha,
-      mainTreeSha: input.preimage.receipt.mainTreeSha
-    }),
-    hostedPayload: mainHealthTrustedRuntimePayload(input.hostedLedger),
-    hostedAuthorityDigest,
-    runtimeAuthorityBinding: input.runtimeAuthorityBinding,
-    predecessorRecordDigest: input.predecessorRecordDigest,
-    issuer: input.issuer
-  });
-  return issueMainHealthSupersessionEffectCapabilityFromAuthorization({
-    authorization,
-    hostedAuthorityDigest,
-    issuedAt: input.issuedAt
-  });
-}
-
-function issueMainHealthSupersessionEffectCapabilityFromAuthorization(input: Readonly<{
-  authorization: TrustedRuntimeMainHealthSupersessionAuthorization;
-  hostedAuthorityDigest: MainHealthDigest;
-  issuedAt: string;
-}>): MainHealthSupersessionEffectCapability {
-  const hostedLedger = assertMainHealthSupersessionHostedProjection(input.authorization);
-  if (input.hostedAuthorityDigest !== input.authorization.hostedAuthorityDigest) {
-    throw new Error('MainHealth supersession authorization hosted authority is not exact');
-  }
-  const semantic = Object.freeze({
-    schema: MAIN_HEALTH_SUPERSESSION_EFFECT_CAPABILITY_SCHEMA,
-    effect: 'prefer-exact-registered-hosted-provider' as const,
-    authorization: input.authorization,
-    hostedAuthorityDigest: input.hostedAuthorityDigest,
-    issuedAt: input.issuedAt,
-    expiresAt: hostedLedger.expiresAt
-  });
-  const capability = Object.freeze({
-    ...semantic,
-    authorizationDigest: digestRef(semantic)
-  });
-  issuedMainHealthSupersessionCapabilities.add(capability);
-  return capability;
-}
-
-function consumeMainHealthSupersessionEffectCapability(
-  capability: MainHealthSupersessionEffectCapability
-): TrustedRuntimeMainHealthSupersessionAuthorization {
-  if (!issuedMainHealthSupersessionCapabilities.has(capability)) {
-    throw new Error('MainHealth supersession Effect capability is forged or already consumed');
-  }
-  issuedMainHealthSupersessionCapabilities.delete(capability);
-  const authorization = createTrustedRuntimeMainHealthSupersessionAuthorization({
-    sourceName: capability.authorization.sourceName,
-    source: Object.freeze({
-      relativePath: capability.authorization.sourceName,
-      kind: 'file' as const,
-      device: capability.authorization.source.device,
-      inode: capability.authorization.source.inode,
-      size: capability.authorization.source.size,
-      bytes: Buffer.from(
-        `${encodeVerificationActionData(capability.authorization.localReceipt)}\n`,
-        'utf8'
-      ),
-      linkTarget: null
-    }),
-    localReceipt: capability.authorization.localReceipt,
-    localHealthRevision: capability.authorization.localHealthRevision,
-    hostedPayload: capability.authorization.hostedPayload,
-    hostedAuthorityDigest: capability.authorization.hostedAuthorityDigest,
-    runtimeAuthorityBinding: capability.authorization.runtimeAuthorityBinding,
-    predecessorRecordDigest: capability.authorization.predecessorRecordDigest,
-    issuer: capability.authorization.issuer
-  });
-  const semantic = Object.freeze({
-    schema: MAIN_HEALTH_SUPERSESSION_EFFECT_CAPABILITY_SCHEMA,
-    effect: 'prefer-exact-registered-hosted-provider' as const,
-    authorization,
-    hostedAuthorityDigest: hostedMainHealthAuthorityDigest(
-      mainHealthLedgerFromTrustedRuntimePayload(authorization.hostedPayload)
-    ),
-    issuedAt: capability.issuedAt,
-    expiresAt: capability.expiresAt
-  });
-  if (encodeVerificationActionData(authorization)
-        !== encodeVerificationActionData(capability.authorization)
-      || semantic.hostedAuthorityDigest !== capability.hostedAuthorityDigest
-      || digestRef(semantic) !== capability.authorizationDigest
-      || !Number.isFinite(Date.parse(capability.issuedAt))
-      || Date.parse(capability.expiresAt) < Date.now()) {
-    throw new Error('MainHealth supersession Effect capability binding is stale or invalid');
-  }
-  return authorization;
-}
-
-function mainHealthSupersessionAuthorizationStableValue(
-  authorization: TrustedRuntimeMainHealthSupersessionAuthorization
-): unknown {
-  return Object.freeze({
-    schema: 'sec-main-health-supersession-authorization-stable-v3',
-    repository: authorization.repository,
-    mainSha: authorization.mainSha,
-    mainTreeSha: authorization.mainTreeSha,
-    operationId: authorization.operationId,
-    operationLeaseName: authorization.operationLeaseName,
-    predecessorRecordDigest: authorization.predecessorRecordDigest,
-    runtimeAuthorityBinding: authorization.runtimeAuthorityBinding,
-    issuer: authorization.issuer,
-    sourceName: authorization.sourceName,
-    source: authorization.source,
-    localReceiptDigest: authorization.localReceipt.receiptDigest,
-    localHealthRevision: authorization.localHealthRevision,
-    hostedAuthorityDigest: authorization.hostedAuthorityDigest,
-    hostedLedgerAuthorityDigest: hostedMainHealthAuthorityDigest(
-      mainHealthLedgerFromTrustedRuntimePayload(authorization.hostedPayload)
-    ),
-    effectAuthorizationDigest: authorization.effectAuthorizationDigest
-  });
-}
-
-function assertMainHealthSupersessionAuthorizationStableMatch(
-  expected: TrustedRuntimeMainHealthSupersessionAuthorization,
-  current: TrustedRuntimeMainHealthSupersessionAuthorization,
-  phase: string
-): void {
-  if (encodeVerificationActionData(mainHealthSupersessionAuthorizationStableValue(expected))
-      !== encodeVerificationActionData(mainHealthSupersessionAuthorizationStableValue(current))) {
-    throw new Error(`MainHealth supersession prepared authorization differs from current preimage ${phase}`);
-  }
-}
-
-function assertMainHealthSupersessionAuthorizationSource(
-  preimage: ReturnType<typeof observeTrustedLocalSupersessionPreimage>,
-  authorization: TrustedRuntimeMainHealthSupersessionAuthorization,
-  phase: string
-): void {
-  if (authorization.repository !== preimage.receipt.repository
-      || authorization.mainSha !== preimage.receipt.mainSha
-      || authorization.mainTreeSha !== preimage.receipt.mainTreeSha
-      || authorization.sourceName !== preimage.source.relativePath
-      || authorization.source.device !== preimage.source.device
-      || authorization.source.inode !== preimage.source.inode
-      || authorization.source.size !== preimage.source.size
-      || preimage.source.bytes === null
-      || rawSha256(preimage.source.bytes) !== authorization.source.byteDigest
-      || authorization.localReceipt.receiptDigest !== preimage.receipt.receiptDigest) {
-    throw new Error(`MainHealth supersession authorization source differs from exact preimage ${phase}`);
-  }
-}
-
-async function assertCurrentMainHealthSupersessionIssuer(input: Readonly<{
-  authorization: Readonly<{
-    repository: string;
-    issuer: TrustedRuntimeMainHealthSupersessionAuthorization['issuer'];
-  }>;
-  capability: GitHubApiCapability;
-}>): Promise<void> {
-  assertGitHubApiCapability(input.capability, input.authorization.repository, 'read');
-  const capabilityPrincipal = inspectGitHubApiCapability(input.capability).principal;
-  if (capabilityPrincipal.login !== input.authorization.issuer.login
-      || capabilityPrincipal.nodeId !== input.authorization.issuer.nodeId
-      || capabilityPrincipal.permission !== input.authorization.issuer.permission) {
-    throw new MainHealthGitHubProviderError(
-      'MainHealth supersession issuer capability differs from its authorization'
-    );
-  }
-  const viewer = await executeGitHubApiOperation(
-    input.capability,
-    { kind: 'current-user' }
-  );
-  if (viewer === null || typeof viewer !== 'object' || Array.isArray(viewer)) {
-    throw new MainHealthGitHubProviderError('MainHealth supersession viewer response is invalid');
-  }
-  const viewerRecord = viewer as Record<string, unknown>;
-  if (viewerRecord.login !== input.authorization.issuer.login
-      || viewerRecord.node_id !== input.authorization.issuer.nodeId) {
-    throw new MainHealthGitHubProviderError('MainHealth supersession issuer identity changed');
-  }
-  const permission = await executeGitHubApiOperation(input.capability, {
-    kind: 'collaborator-permission',
-    login: input.authorization.issuer.login
-  });
-  if (permission === null || typeof permission !== 'object' || Array.isArray(permission)
-      || (permission as Record<string, unknown>).permission
-        !== input.authorization.issuer.permission) {
-    throw new MainHealthGitHubProviderError(
-      'MainHealth supersession issuer identity or live permission changed'
-    );
-  }
-}
-
-type MainHealthSupersessionProviderAuthorization =
-  TrustedRuntimeMainHealthSupersessionReceipt['providerAuthorization'];
-
-/**
- * The status effect is authorized for one exact default/main subject only.
- * A live ref change is a typed external drift, not a provider-unavailable
- * retry signal: the caller must abandon this effect and re-resolve MainHealth.
- */
 export class MainHealthExternalMainDriftError extends MainHealthGitHubProviderError {
   readonly code = 'external-main-drift' as const;
 
@@ -1218,6 +557,34 @@ export async function observeWorkSelectionGitHubOpenPullRequests(input: Readonly
   }));
 }
 
+function projectLedger(input: Readonly<{
+  ledger: MainHealthLedger;
+  now: string;
+  repository: string;
+  defaultBranch: string;
+  mainSha: string;
+  mainTreeSha: string;
+}>): WorkSelectionMainHealthProjection {
+  const decision = resolveOrdinaryMainHealthLane({
+    ledger: input.ledger,
+    now: input.now,
+    expectedRepository: input.repository,
+    expectedDefaultBranch: input.defaultBranch,
+    expectedMainSha: input.mainSha,
+    expectedMainTreeSha: input.mainTreeSha,
+    expectedTrustRevision: input.mainSha
+  });
+  const state: MainHealthRoutingState =
+    decision.observationValidity === 'invalid' || decision.ledger === null
+      ? 'unresolved'
+      : input.ledger.status === 'degraded'
+        ? 'unhealthy'
+        : input.ledger.status === 'healthy' && decision.allowed
+          ? 'healthy'
+          : 'unresolved';
+  return Object.freeze({ state, ref: input.ledger.healthRevision });
+}
+
 export async function observeWorkSelectionGitHubBranchRefs(input: Readonly<{
   repository: string;
 }>): Promise<readonly Readonly<{ branch: string; sha: string }>[]> {
@@ -1298,1648 +665,6 @@ export async function observeMainHealthGitHubDefaultBranchSha(input: Readonly<{
   });
 }
 
-function parseMainHealthGitHubStatusJson(value: unknown, label: string): unknown {
-  if (value === undefined) throw new Error(`MainHealth supersession ${label} is not exact JSON`);
-  return value;
-}
-
-function normalizeMainHealthGitHubStatus(
-  value: unknown,
-  authorization: TrustedRuntimeMainHealthSupersessionAuthorization
-): MainHealthSupersessionProviderAuthorization {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('MainHealth supersession GitHub status is not an object');
-  }
-  const record = value as Record<string, unknown>;
-  const creator = record.creator;
-  const request = trustedRuntimeMainHealthSupersessionStatusRequest(authorization);
-  if (creator === null || typeof creator !== 'object' || Array.isArray(creator)
-      || !Number.isSafeInteger(record.id) || Number(record.id) <= 0
-      || typeof record.node_id !== 'string' || record.node_id.length === 0
-      || record.sha !== authorization.mainSha
-      || record.state !== request.state
-      || record.context !== request.context
-      || record.description !== request.description
-      || record.target_url !== request.targetUrl
-      || typeof record.created_at !== 'string'
-      || typeof record.updated_at !== 'string') {
-    throw new Error('MainHealth supersession GitHub status differs from the exact authorization');
-  }
-  const creatorRecord = creator as Record<string, unknown>;
-  if (creatorRecord.login !== authorization.issuer.login
-      || creatorRecord.node_id !== authorization.issuer.nodeId) {
-    throw new Error('MainHealth supersession GitHub status creator differs from the issuer');
-  }
-  return Object.freeze({
-    transport: 'github-commit-status',
-    statusId: Number(record.id),
-    statusNodeId: record.node_id,
-    state: 'success',
-    context: request.context,
-    description: request.description,
-    targetUrl: request.targetUrl,
-    createdAt: record.created_at,
-    updatedAt: record.updated_at,
-    creator: Object.freeze({
-      login: authorization.issuer.login,
-      nodeId: authorization.issuer.nodeId
-    })
-  });
-}
-
-async function readMainHealthSupersessionStatusContext(input: Readonly<{
-  authorization: TrustedRuntimeMainHealthSupersessionAuthorization;
-  capability: GitHubApiCapability;
-}>): Promise<readonly MainHealthSupersessionProviderAuthorization[]> {
-  const request = trustedRuntimeMainHealthSupersessionStatusRequest(input.authorization);
-  const readPage = async (page: number): Promise<readonly unknown[]> => {
-    const pageValue = parseMainHealthGitHubStatusJson(
-      await executeGitHubApiOperation(input.capability, {
-        kind: 'commit-statuses',
-        sha: input.authorization.mainSha,
-        page
-      }),
-      'GitHub status inventory'
-    );
-    if (!Array.isArray(pageValue)) {
-      throw new Error('MainHealth supersession GitHub status inventory is not an array');
-    }
-    for (const candidate of pageValue) {
-      if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)) {
-        throw new Error('MainHealth supersession GitHub status inventory contains a non-object');
-      }
-      const context = (candidate as Record<string, unknown>).context;
-      if (typeof context !== 'string') {
-        throw new Error('MainHealth supersession GitHub status context is invalid');
-      }
-    }
-    return Object.freeze([...pageValue]);
-  };
-
-  // The statuses endpoint has no total_count.  A single page walk is not a
-  // census: a concurrent insert can move a matching status across a page
-  // boundary while preserving page one.  Freeze the complete page set and
-  // reread every page before any POST/terminal decision.  The terminal page
-  // is the explicit boundary (length < 100); a changed boundary or any page
-  // bytes/order is a provider observation failure, never permission to retry.
-  const firstPages: (readonly unknown[])[] = [];
-  let lastPage: number | null = null;
-  for (let page = 1; page <= 10; page += 1) {
-    const pageValue = await readPage(page);
-    firstPages.push(pageValue);
-    if (pageValue.length < 100) {
-      lastPage = page;
-      break;
-    }
-  }
-  if (lastPage === null) {
-    throw new Error('MainHealth supersession GitHub status inventory exceeded bounded pagination');
-  }
-  const secondPages: (readonly unknown[])[] = [];
-  for (let page = 1; page <= lastPage; page += 1) {
-    const pageValue = await readPage(page);
-    const firstPage = firstPages[page - 1]!;
-    if (pageValue.length !== firstPage.length
-        || encodeVerificationActionData(pageValue)
-          !== encodeVerificationActionData(firstPage)) {
-      throw new MainHealthGitHubProviderError(
-        'MainHealth supersession GitHub status inventory changed during complete stable readback'
-      );
-    }
-    if (page < lastPage && pageValue.length < 100) {
-      throw new MainHealthGitHubProviderError(
-        'MainHealth supersession GitHub status pagination shortened during stable readback'
-      );
-    }
-    if (page === lastPage && pageValue.length >= 100) {
-      throw new MainHealthGitHubProviderError(
-        'MainHealth supersession GitHub status pagination boundary extended during stable readback'
-      );
-    }
-    secondPages.push(pageValue);
-  }
-
-  const matches: MainHealthSupersessionProviderAuthorization[] = [];
-  for (const pageValue of secondPages) {
-    for (const candidate of pageValue) {
-      const context = (candidate as Record<string, unknown>).context as string;
-      if (context.toLowerCase() === request.context.toLowerCase()) {
-        matches.push(normalizeMainHealthGitHubStatus(candidate, input.authorization));
-      }
-    }
-  }
-  return Object.freeze(matches);
-}
-
-async function observeMainHealthSupersessionProviderAuthorization(input: Readonly<{
-  authorization: TrustedRuntimeMainHealthSupersessionAuthorization;
-  capability: GitHubApiCapability;
-  expected?: MainHealthSupersessionProviderAuthorization;
-}>): Promise<MainHealthSupersessionProviderAuthorization> {
-  const statuses = await readMainHealthSupersessionStatusContext(input);
-  if (statuses.length !== 1) {
-    throw new Error('MainHealth supersession GitHub authorization is absent, duplicated, or conflicting');
-  }
-  const status = statuses[0]!;
-  if (input.expected !== undefined
-      && encodeVerificationActionData(status)
-        !== encodeVerificationActionData(input.expected)) {
-    throw new Error('MainHealth supersession GitHub authorization readback changed');
-  }
-  return status;
-}
-
-/**
- * Revalidate every local and external authority which controls the only
- * status POST.  This check intentionally runs immediately before the status
- * inventory/POST boundary and is repeated by the terminal fence.  In
- * particular, a check-run observation for the same commit is not evidence
- * that the mutable default branch still points at that commit.
- */
-async function assertMainHealthStatusEffectFence(input: Readonly<{
-  authorization: TrustedRuntimeMainHealthSupersessionAuthorization;
-  capability: GitHubApiCapability;
-  preimage: ReturnType<typeof observeTrustedLocalSupersessionPreimage>;
-  runtimeAuthority: MainHealthRuntimeAuthority;
-  defaultBranch: string;
-}>): Promise<void> {
-  const hostedLedger = assertMainHealthSupersessionHostedProjection(input.authorization);
-  if (input.defaultBranch !== hostedLedger.defaultBranch) {
-    throw new MainHealthExternalMainDriftError(
-      hostedLedger.defaultBranch,
-      input.defaultBranch
-    );
-  }
-  assertMainHealthSupersessionSourceExact(
-    input.preimage,
-    'immediately before status effect'
-  );
-  assertMainHealthSupersessionAuthorizationSource(
-    input.preimage,
-    input.authorization,
-    'immediately before status effect'
-  );
-  await assertCurrentMainHealthRuntimeAuthority(input.runtimeAuthority);
-  await assertCurrentMainHealthSupersessionIssuer({
-    authorization: input.authorization,
-    capability: input.capability
-  });
-  const observedMainSha = await observeMainHealthGitHubDefaultBranchShaBound({
-    repository: input.authorization.repository,
-    defaultBranch: hostedLedger.defaultBranch,
-    capability: input.capability
-  });
-  if (observedMainSha !== input.authorization.mainSha) {
-    throw new MainHealthExternalMainDriftError(
-      input.authorization.mainSha,
-      observedMainSha
-    );
-  }
-}
-
-async function ensureMainHealthSupersessionProviderAuthorization(input: Readonly<{
-  authorization: TrustedRuntimeMainHealthSupersessionAuthorization;
-  capability: GitHubApiCapability;
-  allowPublish: boolean;
-  defaultBranch: string;
-  preimage: ReturnType<typeof observeTrustedLocalSupersessionPreimage>;
-  runtimeAuthority: MainHealthRuntimeAuthority;
-  intentDigest: MainHealthDigest;
-  permitState: Readonly<{
-    available: MainHealthSupersessionPermitCandidate | null;
-    consumed: MainHealthSupersessionPermitCandidate | null;
-  }>;
-}>): Promise<Readonly<{
-  providerAuthorization: MainHealthSupersessionProviderAuthorization;
-  created: boolean;
-}>> {
-  await assertMainHealthStatusEffectFence(input);
-  const before = await readMainHealthSupersessionStatusContext(input);
-  if (before.length === 1) {
-    if (input.permitState.consumed === null) {
-      throw new Error(
-        'MainHealth supersession status exists without a consumed durable Effect permit'
-      );
-    }
-    return Object.freeze({ providerAuthorization: before[0]!, created: false });
-  }
-  if (before.length !== 0) {
-    throw new Error('MainHealth supersession GitHub authorization is duplicated or conflicting');
-  }
-  if (!input.allowPublish || input.permitState.consumed !== null
-      || input.permitState.available === null) {
-    throw new Error(
-      input.permitState.consumed === null
-        ? 'MainHealth supersession prepared intent status is absent and its permit is ambiguous'
-        : 'MainHealth supersession prepared intent status is absent after its permit was consumed'
-    );
-  }
-  const consumed = publishMainHealthSupersessionPermit({
-    directory: input.preimage.directory,
-    authorization: input.authorization,
-    intentDigest: input.intentDigest,
-    phase: 'consumed'
-  });
-  if (!consumed.created) {
-    throw new Error(
-      'MainHealth supersession durable Effect permit was already consumed; status is ambiguous'
-    );
-  }
-  // The consumed transition is the final durable admission before the
-  // external effect. Re-read every authority again so a drift discovered in
-  // this last window prevents the POST; a subsequent invocation will observe
-  // the consumed permit and refuse to retry blindly.
-  await assertMainHealthStatusEffectFence(input);
-  const request = trustedRuntimeMainHealthSupersessionStatusRequest(input.authorization);
-  const publication = await executeGitHubApiOperation(input.capability, {
-    kind: 'create-commit-status',
-    sha: input.authorization.mainSha,
-    status: Object.freeze({
-      state: request.state,
-      context: request.context,
-      description: request.description,
-      targetUrl: request.targetUrl
-    })
-  });
-  let published: MainHealthSupersessionProviderAuthorization;
-  try {
-    published = normalizeMainHealthGitHubStatus(publication, input.authorization);
-  } catch (error) {
-    // A successful response with an unusable body is not permission to retry.
-    throw new Error(
-      `MainHealth supersession GitHub publication response is unusable: ${error instanceof Error ? error.message : String(error)}`
-    );
-  }
-  // The response is never treated as terminal authority until the inventory
-  // readback observes exactly one matching status.  A lost response therefore
-  // cannot induce a second POST on this or a later invocation.
-  const readback = await observeMainHealthSupersessionProviderAuthorization({
-    authorization: input.authorization,
-    capability: input.capability
-  });
-  if (encodeVerificationActionData(readback)
-      !== encodeVerificationActionData(published)) {
-    throw new Error('MainHealth supersession GitHub publication response differs from readback');
-  }
-  return Object.freeze({ providerAuthorization: readback, created: true });
-}
-
-/**
- * Completes a prepared status whose original hosted ledger is no longer the
- * live provider authority.  The status itself is still an exact, uniquely
- * readable effect, so publishing its immutable terminal preserves the crash
- * evidence and gives the next operation an authenticated predecessor.  This
- * path never re-POSTs and deliberately does not pretend the stale hosted
- * ledger is current; the normal observer marks this terminal inactive and
- * resolves the newly chained successor against the live provider.
- */
-function settleOwnedMainHealthOperationLease(
-  lease: PhysicalMutationLeaseHandle,
-  primaryFailure: unknown,
-  hasPrimaryFailure: boolean
-): void {
-  try {
-    if (lease.recoveryPending) lease.restoreReclaimedOwner();
-    else lease.release();
-  } catch (settlementFailure) {
-    if (hasPrimaryFailure) {
-      throw new AggregateError(
-        [primaryFailure, settlementFailure],
-        'MainHealth operation and lease settlement both failed.'
-      );
-    }
-    throw settlementFailure;
-  }
-}
-
-async function publishPreparedHistoricalTerminal(input: Readonly<{
-  repositoryRoot: string;
-  preimage: ReturnType<typeof observeTrustedLocalSupersessionPreimage>;
-  prepared: MainHealthSupersessionPreparedCandidate;
-  githubCapability: GitHubApiCapability;
-  runtimeAuthority: MainHealthRuntimeAuthority;
-  operationLease?: PhysicalMutationLeaseHandle;
-  environment?: NodeJS.ProcessEnv;
-}>): Promise<Readonly<{
-  receipt: TrustedRuntimeMainHealthSupersessionReceipt;
-  recordPath: string;
-}>> {
-  const authorization = preparedAuthorization(input.prepared);
-  const boundDirectory = mainHealthRuntimeAuthorityDirectory(
-    input.runtimeAuthority,
-    input.preimage.directory
-  );
-  const operationLease = input.operationLease ?? acquirePhysicalMutationLease(
-    boundDirectory,
-    authorization.operationLeaseName
-  );
-  if (operationLease === null) {
-    throw new Error('MainHealth supersession historical terminal lease is already active');
-  }
-  const releaseLease = input.operationLease === undefined;
-  let primaryFailure: unknown;
-  let hasPrimaryFailure = false;
-  try {
-    if (releaseLease) operationLease.acknowledgeReclaimedRecovery();
-    assertMainHealthSupersessionSourceExact(input.preimage, 'before historical terminal');
-    assertMainHealthSupersessionAuthorizationSource(
-      input.preimage,
-      authorization,
-      'before historical terminal'
-    );
-    await assertCurrentMainHealthRuntimeAuthority(input.runtimeAuthority);
-    const statuses = await readMainHealthSupersessionStatusContext({
-      authorization,
-      capability: input.githubCapability
-    });
-    if (statuses.length === 0) {
-      throw new Error(
-        'MainHealth prepared status disappeared; historical terminal is ambiguous and cannot retry'
-      );
-    }
-    if (statuses.length !== 1) {
-      throw new Error(
-        'MainHealth prepared status is duplicated or conflicting; historical terminal is blocked'
-      );
-    }
-    const evidence = readMainHealthSupersessionEvidence({
-      repositoryRoot: input.repositoryRoot,
-      repository: authorization.repository,
-      environment: input.environment
-    });
-    const linked = evidence.terminals.filter(({ receipt }) =>
-        receipt.mainSha === authorization.mainSha
-        && receipt.mainTreeSha === authorization.mainTreeSha
-        && receipt.preparedIntentDigest === input.prepared.intent.intentDigest);
-    if (linked.length > 1) {
-      throw new Error('MainHealth prepared status has duplicate historical terminals');
-    }
-    if (linked.length === 1
-        && encodeVerificationActionData(linked[0]!.receipt.providerAuthorization)
-          !== encodeVerificationActionData(statuses[0]!)) {
-      throw new Error('MainHealth prepared historical terminal provider status changed');
-    }
-    const terminal = linked[0]?.receipt ?? createTrustedRuntimeMainHealthSupersessionReceipt({
-      authorization,
-      preparedIntentDigest: input.prepared.intent.intentDigest,
-      providerAuthorization: statuses[0]!
-    });
-    const recordBytes = trustedRuntimeMainHealthSupersessionReceiptBytes(terminal);
-    const supersessionDirectory = createNoFollowDirectoryChain(
-      input.preimage.directory,
-      ['supersessions']
-    );
-    const recordName = [
-      'supersession', terminal.operationId.slice('sha256:'.length),
-      terminal.recordDigest.slice('sha256:'.length)
-    ].join('-') + '.json';
-    if (linked.length === 0) {
-      publishExclusiveDurableCanonicalFile({
-        parent: supersessionDirectory,
-        name: recordName,
-        bytes: recordBytes,
-        validate: (bytes) => {
-          const parsed = parseMainHealthSupersessionReceipt(
-            new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-          );
-          if (!Buffer.from(bytes).equals(trustedRuntimeMainHealthSupersessionReceiptBytes(parsed))) {
-            throw new Error('MainHealth historical terminal bytes are not canonical');
-          }
-        }
-      });
-    }
-    const readback = readNoFollowOrdinaryFile(supersessionDirectory, recordName);
-    if (readback === null || !Buffer.from(readback).equals(recordBytes)) {
-      throw new Error('MainHealth historical terminal differs after publication');
-    }
-    assertMainHealthSupersessionSourceExact(input.preimage, 'during historical terminal readback');
-    await assertCurrentMainHealthRuntimeAuthority(input.runtimeAuthority);
-    return Object.freeze({
-      receipt: terminal,
-      recordPath: path.join(supersessionDirectory.path, recordName)
-    });
-  } catch (error) {
-    primaryFailure = error;
-    hasPrimaryFailure = true;
-    throw error;
-  } finally {
-    if (releaseLease) {
-      settleOwnedMainHealthOperationLease(operationLease, primaryFailure, hasPrimaryFailure);
-    }
-  }
-}
-
-function preparedAuthorization(
-  prepared: MainHealthSupersessionPreparedCandidate
-): TrustedRuntimeMainHealthSupersessionAuthorization {
-  return prepared.intent.authorization;
-}
-
-function assertMainHealthSupersessionSourceExact(
-  preimage: ReturnType<typeof observeTrustedLocalSupersessionPreimage>,
-  phase: string
-): void {
-  const current = inspectNoFollowOrdinaryFileEntry(
-    preimage.directory,
-    preimage.source.relativePath
-  );
-  if (current === null) throw new Error(`MainHealth supersession source disappeared ${phase}`);
-  const expectedBytes = preimage.source.bytes;
-  if (current.kind !== 'file' || current.bytes === null || expectedBytes === null
-      || current.device !== preimage.source.device
-      || current.inode !== preimage.source.inode
-      || current.size !== preimage.source.size
-      || !Buffer.from(current.bytes).equals(Buffer.from(expectedBytes))) {
-    throw new Error(`MainHealth supersession source changed ${phase}`);
-  }
-}
-
-type MainHealthSupersessionTerminalCandidate = Readonly<{
-  receipt: TrustedRuntimeMainHealthSupersessionReceipt;
-  recordPath: string;
-}>;
-
-type MainHealthSupersessionPreparedCandidate = Readonly<{
-  intent: TrustedRuntimeMainHealthSupersessionIntent;
-  recordPath: string;
-}>;
-
-type MainHealthSupersessionPermitCandidate = Readonly<{
-  permit: TrustedRuntimeMainHealthSupersessionPermit;
-  recordPath: string;
-}>;
-
-function readMainHealthSupersessionEvidence(input: Readonly<{
-  repositoryRoot: string;
-  repository: string;
-  environment?: NodeJS.ProcessEnv;
-}>): Readonly<{
-  root: ReturnType<typeof inspectExactNoFollowDirectoryPresence>;
-  terminals: readonly MainHealthSupersessionTerminalCandidate[];
-  prepared: readonly MainHealthSupersessionPreparedCandidate[];
-  permits: readonly MainHealthSupersessionPermitCandidate[];
-}> {
-  const layout = resolveSecRuntimeStateForRepository({
-    repository: input.repository,
-    repositoryRoot: input.repositoryRoot,
-    environment: input.environment
-  });
-  const root = inspectExactNoFollowDirectoryPresence(
-    path.join(layout.repositoryStateRoot, 'trusted-main-health', 'v1'),
-    'MainHealth supersession recovery root'
-  );
-  if (root.state === 'absent') {
-    return Object.freeze({
-      root,
-      terminals: Object.freeze([]),
-      prepared: Object.freeze([]),
-      permits: Object.freeze([])
-    });
-  }
-  const terminals: MainHealthSupersessionTerminalCandidate[] = [];
-  const terminalPath = path.join(root.directory.target.path, 'supersessions');
-  const terminalDirectory = inspectExactNoFollowDirectoryPresence(
-    terminalPath,
-    'MainHealth supersession recovery receipts'
-  );
-  if (terminalDirectory.state === 'present') {
-    for (const entry of scanNoFollowDirectoryTree(terminalDirectory.directory.target)) {
-      if (!/^supersession-[0-9a-f]{64}-[0-9a-f]{64}\.json$/u.test(entry.relativePath)
-          || entry.kind !== 'file' || entry.bytes === null) {
-        throw new Error(`unknown supersession terminal entry: ${entry.relativePath}`);
-      }
-      const receipt = parseMainHealthSupersessionReceipt(
-        new TextDecoder('utf-8', { fatal: true }).decode(entry.bytes)
-      );
-      if (!Buffer.from(entry.bytes).equals(trustedRuntimeMainHealthSupersessionReceiptBytes(receipt))) {
-        throw new Error(`supersession terminal bytes are not canonical: ${entry.relativePath}`);
-      }
-      const expectedName = [
-        'supersession', receipt.operationId.slice('sha256:'.length),
-        receipt.recordDigest.slice('sha256:'.length)
-      ].join('-') + '.json';
-      if (entry.relativePath !== expectedName) {
-        throw new Error(`supersession terminal name mismatch: ${entry.relativePath}`);
-      }
-      if (receipt.repository === input.repository) {
-        terminals.push(Object.freeze({
-          receipt,
-          recordPath: path.join(terminalPath, entry.relativePath)
-        }));
-      }
-    }
-  }
-  const prepared: MainHealthSupersessionPreparedCandidate[] = [];
-  const preparedPath = path.join(root.directory.target.path, 'prepared');
-  const preparedDirectory = inspectExactNoFollowDirectoryPresence(
-    preparedPath,
-    'MainHealth supersession prepared intents'
-  );
-  if (preparedDirectory.state === 'present') {
-    for (const entry of scanNoFollowDirectoryTree(preparedDirectory.directory.target)) {
-      if (!/^prepared-[0-9a-f]{64}-[0-9a-f]{64}\.json$/u.test(entry.relativePath)
-          || entry.kind !== 'file' || entry.bytes === null) {
-        throw new Error(`unknown supersession prepared entry: ${entry.relativePath}`);
-      }
-      const intent = parseMainHealthSupersessionIntent(
-        new TextDecoder('utf-8', { fatal: true }).decode(entry.bytes)
-      );
-      const expectedName = [
-        'prepared', intent.authorization.operationId.slice('sha256:'.length),
-        intent.intentDigest.slice('sha256:'.length)
-      ].join('-') + '.json';
-      if (entry.relativePath !== expectedName
-          || !Buffer.from(entry.bytes).equals(
-            Buffer.from(`${encodeVerificationActionData(intent)}\n`, 'utf8')
-          )) {
-        throw new Error(`supersession prepared name or bytes mismatch: ${entry.relativePath}`);
-      }
-      if (intent.authorization.repository === input.repository) {
-        prepared.push(Object.freeze({
-          intent,
-          recordPath: path.join(preparedPath, entry.relativePath)
-        }));
-      }
-    }
-  }
-  const permits: MainHealthSupersessionPermitCandidate[] = [];
-  const permitPath = path.join(root.directory.target.path, 'permits');
-  const permitDirectory = inspectExactNoFollowDirectoryPresence(
-    permitPath,
-    'MainHealth supersession Effect permits'
-  );
-  if (permitDirectory.state === 'present') {
-    for (const entry of scanNoFollowDirectoryTree(permitDirectory.directory.target)) {
-      if (!/^permit-[0-9a-f]{64}-[0-9a-f]{64}-(?:available|consumed)\.json$/u.test(
-        entry.relativePath
-      ) || entry.kind !== 'file' || entry.bytes === null) {
-        throw new Error(`unknown supersession permit entry: ${entry.relativePath}`);
-      }
-      const permit = parseTrustedRuntimeMainHealthSupersessionPermit(
-        new TextDecoder('utf-8', { fatal: true }).decode(entry.bytes)
-      );
-      const expectedName = [
-        'permit', permit.operationId.slice('sha256:'.length),
-        permit.intentDigest.slice('sha256:'.length), permit.phase
-      ].join('-') + '.json';
-      if (entry.relativePath !== expectedName
-          || !Buffer.from(entry.bytes).equals(
-            trustedRuntimeMainHealthSupersessionPermitBytes(permit)
-          )) {
-        throw new Error(`supersession permit name or bytes mismatch: ${entry.relativePath}`);
-      }
-      if (permit.repository === input.repository) {
-        permits.push(Object.freeze({
-          permit,
-          recordPath: path.join(permitPath, entry.relativePath)
-        }));
-      }
-    }
-  }
-  return Object.freeze({ root, terminals, prepared, permits });
-}
-
-export type MainHealthSupersessionObservation =
-  | Readonly<{ kind: 'absent' }>
-  | Readonly<{
-      kind: 'active';
-      supersession: Readonly<{
-        status: 'resumed-superseded';
-        receipt: TrustedRuntimeMainHealthSupersessionReceipt;
-        recordPath: string;
-      }>;
-    }>
-  | Readonly<{
-      kind: 'prepared';
-      intent: TrustedRuntimeMainHealthSupersessionIntent;
-      recordPath: string;
-      /** The prepared status is exact, but its recorded hosted ledger is no
-       * longer the current provider authority and must be terminalized as
-       * inactive before a successor can be prepared. */
-      providerDrift: boolean;
-    }>
-  | Readonly<{
-      kind: 'inactive';
-      ref: MainHealthDigest;
-      /** The inactive maximal terminal remains the authenticated predecessor. */
-      recordDigest: MainHealthDigest;
-    }>
-  | Readonly<{ kind: 'blocked'; ref: MainHealthDigest }>;
-
-function mainHealthSupersessionRef(reason: string, detail: unknown): MainHealthDigest {
-  return digestRef(Object.freeze({
-    schema: 'sec-main-health-supersession-observation-v2',
-    reason,
-    detail
-  }));
-}
-
-function mainHealthSupersessionBlocked(
-  reason: string,
-  detail: unknown
-): MainHealthSupersessionObservation {
-  return Object.freeze({ kind: 'blocked', ref: mainHealthSupersessionRef(reason, detail) });
-}
-
-function mainHealthSupersessionInactive(
-  reason: string,
-  detail: unknown,
-  recordDigest: MainHealthDigest
-): MainHealthSupersessionObservation {
-  return Object.freeze({
-    kind: 'inactive',
-    ref: mainHealthSupersessionRef(reason, detail),
-    recordDigest
-  });
-}
-
-type MainHealthSupersessionChainAdmission =
-  | Readonly<{ kind: 'empty' }>
-  | Readonly<{ kind: 'leaf'; candidate: MainHealthSupersessionTerminalCandidate }>
-  | Readonly<{ kind: 'blocked'; ref: MainHealthDigest }>;
-
-/**
- * Select one authenticated maximal terminal from immutable history. A
- * predecessor is a chain edge, not a hint: missing parents, cycles and forks
- * are fail-closed because two competing effect histories cannot safely project
- * the same exact-main subject.
- */
-function admitMainHealthSupersessionChain(
-  terminals: readonly MainHealthSupersessionTerminalCandidate[]
-): MainHealthSupersessionChainAdmission {
-  if (terminals.length === 0) return Object.freeze({ kind: 'empty' });
-  const byDigest = new Map<string, MainHealthSupersessionTerminalCandidate>();
-  for (const candidate of terminals) {
-    const key = candidate.receipt.recordDigest;
-    if (byDigest.has(key)) {
-      return Object.freeze({
-        kind: 'blocked',
-        ref: mainHealthSupersessionRef('duplicate-supersession-terminal-digest', key)
-      });
-    }
-    byDigest.set(key, candidate);
-  }
-  const childByParent = new Map<string, MainHealthSupersessionTerminalCandidate>();
-  for (const candidate of terminals) {
-    const predecessor = candidate.receipt.predecessorRecordDigest;
-    if (predecessor === null) continue;
-    if (predecessor === candidate.receipt.recordDigest) {
-      return Object.freeze({
-        kind: 'blocked',
-        ref: mainHealthSupersessionRef('supersession-chain-cycle', {
-          recordDigest: candidate.receipt.recordDigest,
-          predecessor
-        })
-      });
-    }
-    const parent = byDigest.get(predecessor);
-    if (parent === undefined) {
-      return Object.freeze({
-        kind: 'blocked',
-        ref: mainHealthSupersessionRef('supersession-chain-predecessor-missing', {
-          recordDigest: candidate.receipt.recordDigest,
-          predecessor
-        })
-      });
-    }
-    const existingChild = childByParent.get(predecessor);
-    if (existingChild !== undefined
-        && existingChild.receipt.recordDigest !== candidate.receipt.recordDigest) {
-      return Object.freeze({
-        kind: 'blocked',
-        ref: mainHealthSupersessionRef('supersession-chain-fork', {
-          predecessor,
-          childDigests: [
-            existingChild.receipt.recordDigest,
-            candidate.receipt.recordDigest
-          ].sort()
-        })
-      });
-    }
-    childByParent.set(predecessor, candidate);
-  }
-  for (const candidate of terminals) {
-    const visited = new Set<string>();
-    let current: MainHealthSupersessionTerminalCandidate | undefined = candidate;
-    while (current !== undefined && current.receipt.predecessorRecordDigest !== null) {
-      const key = current.receipt.recordDigest;
-      if (visited.has(key)) {
-        return Object.freeze({
-          kind: 'blocked',
-          ref: mainHealthSupersessionRef('supersession-chain-cycle', key)
-        });
-      }
-      visited.add(key);
-      current = byDigest.get(current.receipt.predecessorRecordDigest);
-    }
-  }
-  const leaves = terminals.filter(({ receipt }) => !childByParent.has(receipt.recordDigest));
-  if (leaves.length !== 1) {
-    return Object.freeze({
-      kind: 'blocked',
-      ref: mainHealthSupersessionRef('supersession-chain-maximal-terminal-ambiguous', {
-        leafDigests: leaves.map(({ receipt }) => receipt.recordDigest).sort()
-      })
-    });
-  }
-  return Object.freeze({ kind: 'leaf', candidate: leaves[0]! });
-}
-
-async function observeMainHealthPreparedSupersession(input: Readonly<{
-  candidate: MainHealthSupersessionPreparedCandidate;
-  hostedProvider: WorkSelectionMainHealthProviderObservation;
-  capability?: GitHubApiCapability;
-  runtimeAuthority?: MainHealthRuntimeAuthority;
-}>): Promise<MainHealthSupersessionObservation> {
-  const preparedCandidate = input.candidate;
-  if (input.runtimeAuthority !== undefined
-      && preparedCandidate.intent.authorization.runtimeAuthorityBinding
-        !== mainHealthRuntimeAuthorityBinding(input.runtimeAuthority).binding) {
-    return mainHealthSupersessionBlocked('prepared-runtime-authority-mismatch', {
-      intentDigest: preparedCandidate.intent.intentDigest,
-      intentBinding: preparedCandidate.intent.authorization.runtimeAuthorityBinding,
-      currentBinding: mainHealthRuntimeAuthorityBinding(input.runtimeAuthority).binding
-    });
-  }
-  if (input.capability === undefined) {
-    return mainHealthSupersessionBlocked(
-      'prepared-provider-capability-unavailable', preparedCandidate.intent.intentDigest
-    );
-  }
-  if (input.hostedProvider.kind !== 'available') {
-    return mainHealthSupersessionBlocked(
-      'prepared-hosted-provider-unavailable',
-      input.hostedProvider.kind
-    );
-  }
-  const providerDrift = hostedMainHealthAuthorityDigest(input.hostedProvider.ledger)
-    !== preparedCandidate.intent.authorization.hostedAuthorityDigest;
-  let statuses: readonly MainHealthSupersessionProviderAuthorization[];
-  try {
-    statuses = await readMainHealthSupersessionStatusContext({
-      authorization: preparedCandidate.intent.authorization,
-      capability: input.capability
-    });
-    if (statuses.length === 1) {
-      await assertCurrentMainHealthSupersessionIssuer({
-        authorization: preparedCandidate.intent.authorization,
-        capability: input.capability
-      });
-    }
-    if (input.runtimeAuthority !== undefined) {
-      await assertCurrentMainHealthRuntimeAuthority(input.runtimeAuthority);
-    }
-  } catch (error) {
-    if (error instanceof MainHealthGitHubProviderError
-        && (error.statusCode === 401 || error.statusCode === 403
-          || error.message.includes('identity') || error.message.includes('permission'))) {
-      return mainHealthSupersessionBlocked('prepared-issuer-permission-drift', error.message);
-    }
-    return mainHealthSupersessionBlocked(
-      'prepared-provider-observation-unavailable',
-      error instanceof Error ? error.message : String(error)
-    );
-  }
-  if (statuses.length === 0) {
-    return mainHealthSupersessionBlocked(
-      'prepared-intent-zero-status-ambiguous', preparedCandidate.intent.intentDigest
-    );
-  }
-  if (statuses.length !== 1) {
-    return mainHealthSupersessionBlocked('prepared-intent-status-duplicate', {
-      intentDigest: preparedCandidate.intent.intentDigest,
-      count: statuses.length
-    });
-  }
-  return Object.freeze({
-    kind: 'prepared',
-    intent: preparedCandidate.intent,
-    recordPath: preparedCandidate.recordPath,
-    providerDrift
-  });
-}
-
-async function observeMainHealthSupersession(input: Readonly<{
-  repositoryRoot: string;
-  repository: string;
-  mainSha: string;
-  mainTreeSha: string;
-  hostedProvider: WorkSelectionMainHealthProviderObservation;
-  capability?: GitHubApiCapability;
-  runtimeAuthority?: MainHealthRuntimeAuthority;
-  environment?: NodeJS.ProcessEnv;
-}>): Promise<MainHealthSupersessionObservation> {
-  try {
-    const evidence = readMainHealthSupersessionEvidence(input);
-    if (evidence.root.state === 'absent') return Object.freeze({ kind: 'absent' });
-    const terminals = evidence.terminals.filter(({ receipt }) =>
-      receipt.mainSha === input.mainSha && receipt.mainTreeSha === input.mainTreeSha);
-    const allPrepared = evidence.prepared.filter(({ intent }) =>
-      intent.authorization.mainSha === input.mainSha
-        && intent.authorization.mainTreeSha === input.mainTreeSha);
-    const terminalsByPreparedDigest = new Map<string, MainHealthSupersessionTerminalCandidate[]>();
-    for (const terminal of terminals) {
-      const linked = terminalsByPreparedDigest.get(terminal.receipt.preparedIntentDigest) ?? [];
-      linked.push(terminal);
-      terminalsByPreparedDigest.set(terminal.receipt.preparedIntentDigest, linked);
-    }
-    const consumedPreparedDigests = new Set<string>();
-    for (const preparedCandidate of allPrepared) {
-      const linked = terminalsByPreparedDigest.get(preparedCandidate.intent.intentDigest);
-      if (linked === undefined) continue;
-      if (linked.length !== 1) {
-        return mainHealthSupersessionBlocked('prepared-intent-terminal-linkage-duplicate', {
-          intentDigest: preparedCandidate.intent.intentDigest,
-          terminalDigests: linked.map(({ receipt }) => receipt.recordDigest).sort()
-        });
-      }
-      const terminal = linked[0]!.receipt;
-      if (terminal.operationId !== preparedCandidate.intent.authorization.operationId
-          || encodeVerificationActionData(
-            mainHealthSupersessionAuthorizationStableValue(preparedCandidate.intent.authorization)
-          ) !== encodeVerificationActionData(
-            mainHealthSupersessionAuthorizationStableValue(terminal)
-          )) {
-        return mainHealthSupersessionBlocked('prepared-intent-terminal-linkage-mismatch', {
-          intentDigest: preparedCandidate.intent.intentDigest,
-          terminalDigest: terminal.recordDigest
-        });
-      }
-      consumedPreparedDigests.add(preparedCandidate.intent.intentDigest);
-    }
-    const prepared = allPrepared.filter(({ intent }) =>
-      !consumedPreparedDigests.has(intent.intentDigest));
-    for (const terminal of terminals) {
-      if (!allPrepared.some(({ intent }) => intent.intentDigest === terminal.receipt.preparedIntentDigest)) {
-        return mainHealthSupersessionBlocked('terminal-prepared-intent-missing', {
-          terminalDigest: terminal.receipt.recordDigest,
-          preparedIntentDigest: terminal.receipt.preparedIntentDigest
-        });
-      }
-    }
-    // A terminal is consumable only when its immutable prepared intent has a
-    // complete available->consumed permit chain.  Keep both records forever;
-    // their presence is the crash/restart proof that this operation cannot
-    // be POSTed again.
-    for (const terminal of terminals) {
-      const preparedIntent = allPrepared.find(({ intent }) =>
-        intent.intentDigest === terminal.receipt.preparedIntentDigest);
-      if (preparedIntent === undefined) continue;
-      try {
-        const permitState = matchingMainHealthSupersessionPermits(
-          evidence,
-          terminal.receipt,
-          preparedIntent.intent.intentDigest
-        );
-        if (permitState.consumed === null) {
-          return mainHealthSupersessionBlocked(
-            'terminal-consumed-permit-missing',
-            terminal.receipt.recordDigest
-          );
-        }
-      } catch (error) {
-        return mainHealthSupersessionBlocked(
-          'terminal-permit-transition-invalid',
-          error instanceof Error ? error.message : String(error)
-        );
-      }
-    }
-    if (prepared.length > 1) {
-      return mainHealthSupersessionBlocked('duplicate-or-conflicting-supersession-evidence', {
-        terminalDigests: terminals.map(({ receipt }) => receipt.recordDigest).sort(),
-        preparedDigests: prepared.map(({ intent }) => intent.intentDigest).sort()
-      });
-    }
-    for (const preparedCandidate of prepared) {
-      try {
-        const permitState = matchingMainHealthSupersessionPermits(
-          evidence,
-          preparedCandidate.intent.authorization,
-          preparedCandidate.intent.intentDigest
-        );
-        if (permitState.available === null) {
-          return mainHealthSupersessionBlocked(
-            'prepared-available-permit-missing',
-            preparedCandidate.intent.intentDigest
-          );
-        }
-      } catch (error) {
-        return mainHealthSupersessionBlocked(
-          'prepared-permit-transition-invalid',
-          error instanceof Error ? error.message : String(error)
-        );
-      }
-    }
-    const chain = admitMainHealthSupersessionChain(terminals);
-    if (chain.kind === 'blocked') return chain;
-    if (chain.kind === 'empty') {
-      if (prepared.length === 0) return Object.freeze({ kind: 'absent' });
-      const preparedCandidate = prepared[0]!;
-      if (preparedCandidate.intent.authorization.predecessorRecordDigest !== null) {
-        return mainHealthSupersessionBlocked('prepared-predecessor-missing', {
-          intentDigest: preparedCandidate.intent.intentDigest,
-          predecessorRecordDigest: preparedCandidate.intent.authorization.predecessorRecordDigest
-        });
-      }
-      return observeMainHealthPreparedSupersession({
-        candidate: preparedCandidate,
-        hostedProvider: input.hostedProvider,
-        capability: input.capability,
-        runtimeAuthority: input.runtimeAuthority
-      });
-    }
-    if (chain.kind === 'leaf') {
-      const active = chain.candidate;
-      const terminalInactive = async (
-        reason: string,
-        detail: unknown
-      ): Promise<MainHealthSupersessionObservation> => {
-        const inactive = mainHealthSupersessionInactive(
-          reason,
-          detail,
-          active.receipt.recordDigest
-        );
-        if (prepared.length === 0) return inactive;
-        const preparedCandidate = prepared[0]!;
-        if (preparedCandidate.intent.authorization.predecessorRecordDigest
-            !== active.receipt.recordDigest) {
-          return mainHealthSupersessionBlocked('prepared-predecessor-does-not-match-maximal-terminal', {
-            terminalDigest: active.receipt.recordDigest,
-            preparedDigest: preparedCandidate.intent.intentDigest,
-            preparedPredecessor: preparedCandidate.intent.authorization.predecessorRecordDigest
-          });
-        }
-        return observeMainHealthPreparedSupersession({
-          candidate: preparedCandidate,
-          hostedProvider: input.hostedProvider,
-          capability: input.capability,
-          runtimeAuthority: input.runtimeAuthority
-        });
-      };
-      const sourceName = `main-${input.mainSha}.json`;
-      const source = inspectNoFollowOrdinaryFileEntry(evidence.root.directory.target, sourceName);
-      const localBytes = Buffer.from(
-        `${encodeVerificationActionData(active.receipt.localReceipt)}\n`,
-        'utf8'
-      );
-      if (source === null || source.bytes === null || source.kind !== 'file'
-          || active.receipt.sourceName !== sourceName
-          || active.receipt.source.device !== source.device
-          || active.receipt.source.inode !== source.inode
-          || active.receipt.source.size !== source.size
-          || !Buffer.from(source.bytes).equals(localBytes)) {
-        return terminalInactive('superseded-local-source-identity-drift', {
-          sourceName,
-          candidateDigest: active.receipt.recordDigest
-        });
-      }
-      if (input.runtimeAuthority !== undefined
-          && active.receipt.runtimeAuthorityBinding
-            !== mainHealthRuntimeAuthorityBinding(input.runtimeAuthority).binding) {
-        return terminalInactive('superseded-runtime-authority-drift', {
-          candidateBinding: active.receipt.runtimeAuthorityBinding,
-          currentBinding: mainHealthRuntimeAuthorityBinding(input.runtimeAuthority).binding
-        });
-      }
-      if (input.hostedProvider.kind !== 'available') {
-        return mainHealthSupersessionBlocked(
-          'superseding-hosted-provider-unavailable', input.hostedProvider.kind
-        );
-      }
-      const recordedHostedAuthorityDigest = hostedMainHealthAuthorityDigest(
-        mainHealthLedgerFromTrustedRuntimePayload(active.receipt.hostedPayload)
-      );
-      const currentHostedAuthorityDigest = hostedMainHealthAuthorityDigest(
-        input.hostedProvider.ledger
-      );
-      if (recordedHostedAuthorityDigest !== active.receipt.hostedAuthorityDigest
-          || currentHostedAuthorityDigest !== active.receipt.hostedAuthorityDigest) {
-        return terminalInactive('superseding-hosted-provider-drift', {
-          recordedHostedAuthorityDigest,
-          currentHostedAuthorityDigest,
-          receiptHostedAuthorityDigest: active.receipt.hostedAuthorityDigest
-        });
-      }
-      if (input.capability === undefined) {
-        return mainHealthSupersessionBlocked(
-          'supersession-provider-capability-unavailable', active.receipt.recordDigest
-        );
-      }
-      try {
-        const statuses = await readMainHealthSupersessionStatusContext({
-          authorization: active.receipt,
-          capability: input.capability
-        });
-        if (statuses.length === 0) {
-          return terminalInactive('supersession-provider-status-drift', {
-            candidateDigest: active.receipt.recordDigest,
-            status: 'absent'
-          });
-        }
-        if (statuses.length !== 1) {
-          return mainHealthSupersessionBlocked('supersession-provider-status-duplicate', {
-            candidateDigest: active.receipt.recordDigest,
-            count: statuses.length
-          });
-        }
-        if (encodeVerificationActionData(statuses[0])
-            !== encodeVerificationActionData(active.receipt.providerAuthorization)) {
-          return terminalInactive('supersession-provider-status-drift', {
-            candidateDigest: active.receipt.recordDigest
-          });
-        }
-        await assertCurrentMainHealthSupersessionIssuer({
-          authorization: active.receipt,
-          capability: input.capability
-        });
-        if (input.runtimeAuthority !== undefined) {
-          await assertCurrentMainHealthRuntimeAuthority(input.runtimeAuthority);
-        }
-      } catch (error) {
-        if (error instanceof MainHealthGitHubProviderError
-            && (error.statusCode === 401 || error.statusCode === 403
-              || error.message.includes('identity') || error.message.includes('permission'))) {
-          return terminalInactive(
-            'supersession-issuer-permission-drift',
-            error.message
-          );
-        }
-        return mainHealthSupersessionBlocked(
-          'supersession-provider-observation-unavailable',
-          error instanceof Error ? error.message : String(error)
-        );
-      }
-      if (prepared.length !== 0) {
-        return mainHealthSupersessionBlocked('prepared-with-active-terminal', {
-          terminalDigest: active.receipt.recordDigest,
-          preparedDigests: prepared.map(({ intent }) => intent.intentDigest).sort()
-        });
-      }
-      return Object.freeze({
-        kind: 'active',
-        supersession: Object.freeze({ status: 'resumed-superseded', ...active })
-      });
-    }
-    return Object.freeze({ kind: 'blocked', ref: mainHealthSupersessionRef(
-      'supersession-chain-unreachable',
-      terminals.map(({ receipt }) => receipt.recordDigest).sort()
-    ) });
-  } catch (error) {
-    return mainHealthSupersessionBlocked(
-      'supersession-physical-observation-unavailable',
-      error instanceof PhysicalNoFollowError
-        ? Object.freeze({ code: error.code, message: error.message })
-        : error instanceof Error ? error.message : String(error)
-    );
-  }
-}
-
-async function observeMainHealthProvidersBase(input: Readonly<{
-  repositoryRoot: string;
-  repository: string;
-  defaultBranch: string;
-  mainSha: string;
-  mainTreeSha: string;
-  capability: GitHubApiCapability;
-  environment?: NodeJS.ProcessEnv;
-}>): Promise<Readonly<{
-  observedAt: string;
-  localProvider: WorkSelectionMainHealthProviderObservation;
-  hostedProvider: WorkSelectionMainHealthProviderObservation;
-  resolution: CanonicalMainHealthProviderResolution;
-}>> {
-  const observedAt = new Date().toISOString();
-    const hostedExpiresAt = new Date(
-      Date.parse(observedAt) + TRUSTED_LOCAL_MAIN_HEALTH_FRESHNESS_MS
-    ).toISOString();
-    const hosted = await observeHostedMainHealthChecks({
-      repositoryRoot: input.repositoryRoot,
-      repository: input.repository,
-      mainSha: input.mainSha,
-      capability: input.capability
-    });
-    const localProvider = observeTrustedLocalProvider({
-      repositoryRoot: input.repositoryRoot,
-      repository: input.repository,
-      mainSha: input.mainSha,
-      mainTreeSha: input.mainTreeSha,
-      now: observedAt,
-      environment: input.environment
-    });
-    const hostedProvider = observeHostedProvider({
-      repository: input.repository,
-      mainSha: input.mainSha,
-      mainTreeSha: input.mainTreeSha,
-      now: observedAt,
-      expiresAt: hostedExpiresAt,
-      observation: hosted
-    });
-    const resolution = resolveWorkSelectionMainHealthProviders({
-      repository: input.repository,
-      defaultBranch: input.defaultBranch,
-      mainSha: input.mainSha,
-      mainTreeSha: input.mainTreeSha,
-      now: observedAt,
-      local: localProvider,
-      hosted: hostedProvider
-    });
-  return Object.freeze({ observedAt, localProvider, hostedProvider, resolution });
-}
-
-async function assertMainHealthProviderConflict(input: Readonly<{
-  repositoryRoot: string;
-  repository: string;
-  defaultBranch: string;
-  mainSha: string;
-  mainTreeSha: string;
-  authorization: TrustedRuntimeMainHealthSupersessionAuthorization;
-  capability: GitHubApiCapability;
-  environment?: NodeJS.ProcessEnv;
-}>): Promise<Readonly<{ observedAt: string; hosted: MainHealthLedger }>> {
-  const providerFence = await observeMainHealthProvidersBase({
-    repositoryRoot: input.repositoryRoot,
-    repository: input.repository,
-    defaultBranch: input.defaultBranch,
-    mainSha: input.mainSha,
-    mainTreeSha: input.mainTreeSha,
-    capability: input.capability,
-    environment: input.environment
-  });
-  if (providerFence.resolution.repairObservation.kind !== 'provider-conflict'
-      || providerFence.localProvider.kind !== 'available'
-      || providerFence.hostedProvider.kind !== 'available'
-      || providerFence.localProvider.ledger.healthRevision !== input.authorization.localHealthRevision
-      || hostedMainHealthAuthorityDigest(providerFence.hostedProvider.ledger)
-        !== input.authorization.hostedAuthorityDigest) {
-    throw new Error('MainHealth provider conflict changed inside supersession lease');
-  }
-  return Object.freeze({
-    observedAt: providerFence.observedAt,
-    hosted: providerFence.hostedProvider.ledger
-  });
-}
-
-function readPreparedIntentForDirectory(
-  directory: ReturnType<typeof observeTrustedLocalSupersessionPreimage>['directory'],
-  operationId: MainHealthDigest
-): MainHealthSupersessionPreparedCandidate | null {
-  const preparedPath = path.join(directory.path, 'prepared');
-  const preparedDirectory = inspectExactNoFollowDirectoryPresence(
-    preparedPath,
-    'MainHealth supersession prepared intent recovery'
-  );
-  if (preparedDirectory.state === 'absent') return null;
-  const candidates: MainHealthSupersessionPreparedCandidate[] = [];
-  for (const entry of scanNoFollowDirectoryTree(preparedDirectory.directory.target)) {
-    if (!/^prepared-[0-9a-f]{64}-[0-9a-f]{64}\.json$/u.test(entry.relativePath)
-        || entry.kind !== 'file' || entry.bytes === null) {
-      throw new Error(`unknown supersession prepared entry: ${entry.relativePath}`);
-    }
-    const intent = parseMainHealthSupersessionIntent(
-      new TextDecoder('utf-8', { fatal: true }).decode(entry.bytes)
-    );
-    const expectedName = [
-      'prepared', intent.authorization.operationId.slice('sha256:'.length),
-      intent.intentDigest.slice('sha256:'.length)
-    ].join('-') + '.json';
-    if (entry.relativePath !== expectedName
-        || !Buffer.from(entry.bytes).equals(
-          Buffer.from(`${encodeVerificationActionData(intent)}\n`, 'utf8')
-        )) {
-      throw new Error(`supersession prepared name or bytes mismatch: ${entry.relativePath}`);
-    }
-    if (intent.authorization.operationId === operationId) {
-      candidates.push(Object.freeze({
-        intent,
-        recordPath: path.join(preparedPath, entry.relativePath)
-      }));
-    }
-  }
-  if (candidates.length > 1) {
-    throw new Error('duplicate or conflicting MainHealth supersession prepared intents');
-  }
-  return candidates[0] ?? null;
-}
-
-function mainHealthSupersessionPermitName(
-  permit: TrustedRuntimeMainHealthSupersessionPermit
-): string {
-  return [
-    'permit', permit.operationId.slice('sha256:'.length),
-    permit.intentDigest.slice('sha256:'.length), permit.phase
-  ].join('-') + '.json';
-}
-
-function publishMainHealthSupersessionPermit(input: Readonly<{
-  directory: ReturnType<typeof observeTrustedLocalSupersessionPreimage>['directory'];
-  authorization: TrustedRuntimeMainHealthSupersessionAuthorization;
-  intentDigest: MainHealthDigest;
-  phase: 'available' | 'consumed';
-}>): Readonly<{
-  permit: TrustedRuntimeMainHealthSupersessionPermit;
-  recordPath: string;
-  created: boolean;
-}> {
-  const permit = createTrustedRuntimeMainHealthSupersessionPermit({
-    authorization: input.authorization,
-    intentDigest: input.intentDigest,
-    phase: input.phase
-  });
-  const permitDirectory = createNoFollowDirectoryChain(
-    input.directory,
-    ['permits']
-  );
-  const name = mainHealthSupersessionPermitName(permit);
-  const bytes = trustedRuntimeMainHealthSupersessionPermitBytes(permit);
-  const publication = publishExclusiveDurableCanonicalFile({
-    parent: permitDirectory,
-    name,
-    bytes,
-    validate: (candidateBytes) => {
-      const parsed = parseTrustedRuntimeMainHealthSupersessionPermit(
-        new TextDecoder('utf-8', { fatal: true }).decode(candidateBytes)
-      );
-      if (!Buffer.from(candidateBytes).equals(
-        trustedRuntimeMainHealthSupersessionPermitBytes(parsed)
-      )) {
-        throw new Error('MainHealth supersession permit bytes are not canonical');
-      }
-    }
-  });
-  const readback = readNoFollowOrdinaryFile(permitDirectory, name);
-  if (readback === null || !Buffer.from(readback).equals(bytes)) {
-    throw new Error('MainHealth supersession permit differs after publication');
-  }
-  return Object.freeze({
-    permit,
-    recordPath: publication.path,
-    created: publication.created
-  });
-}
-
-function matchingMainHealthSupersessionPermits(
-  evidence: Readonly<{
-    permits: readonly MainHealthSupersessionPermitCandidate[];
-  }>,
-  authorization: TrustedRuntimeMainHealthSupersessionAuthorization,
-  intentDigest: MainHealthDigest
-): Readonly<{
-  available: MainHealthSupersessionPermitCandidate | null;
-  consumed: MainHealthSupersessionPermitCandidate | null;
-}> {
-  const candidates = evidence.permits.filter(({ permit }) =>
-    permit.operationId === authorization.operationId
-      || permit.intentDigest === intentDigest);
-  const expectedAvailable = createTrustedRuntimeMainHealthSupersessionPermit({
-    authorization,
-    intentDigest,
-    phase: 'available'
-  });
-  const expectedConsumed = createTrustedRuntimeMainHealthSupersessionPermit({
-    authorization,
-    intentDigest,
-    phase: 'consumed'
-  });
-  let available: MainHealthSupersessionPermitCandidate | null = null;
-  let consumed: MainHealthSupersessionPermitCandidate | null = null;
-  for (const candidate of candidates) {
-    const expected = candidate.permit.phase === 'available'
-      ? expectedAvailable
-      : expectedConsumed;
-    if (candidate.permit.operationId !== authorization.operationId
-        || candidate.permit.intentDigest !== intentDigest
-        || encodeVerificationActionData(candidate.permit)
-          !== encodeVerificationActionData(expected)) {
-      throw new Error('MainHealth supersession permit transition or namespace is forged');
-    }
-    if (candidate.permit.phase === 'available') {
-      if (available !== null) {
-        throw new Error('MainHealth supersession available permit is duplicated');
-      }
-      available = candidate;
-    } else {
-      if (consumed !== null) {
-        throw new Error('MainHealth supersession consumed permit is duplicated');
-      }
-      consumed = candidate;
-    }
-  }
-  if (consumed !== null && available === null) {
-    throw new Error('MainHealth supersession consumed permit has no available predecessor');
-  }
-  return Object.freeze({ available, consumed });
-}
-
-async function executeMainHealthSupersessionEffect(input: Readonly<{
-  repositoryRoot: string;
-  defaultBranch: string;
-  preimage: ReturnType<typeof observeTrustedLocalSupersessionPreimage>;
-  capability: MainHealthSupersessionEffectCapability;
-  githubCapability: GitHubApiCapability;
-  runtimeAuthority: MainHealthRuntimeAuthority;
-  operationLease?: PhysicalMutationLeaseHandle;
-  preparedIntent?: MainHealthSupersessionPreparedCandidate;
-  environment?: NodeJS.ProcessEnv;
-}>): Promise<Readonly<{
-  status: 'superseded' | 'resumed-superseded';
-  receipt: TrustedRuntimeMainHealthSupersessionReceipt;
-  recordPath: string;
-}>> {
-  const authorization = consumeMainHealthSupersessionEffectCapability(input.capability);
-  if (authorization.runtimeAuthorityBinding
-      !== mainHealthRuntimeAuthorityBinding(input.runtimeAuthority).binding) {
-    throw new Error('MainHealth supersession Runtime authority binding changed before Effect');
-  }
-  const operationLease = input.operationLease ?? acquirePhysicalMutationLease(
-    mainHealthRuntimeAuthorityDirectory(input.runtimeAuthority, input.preimage.directory),
-    authorization.operationLeaseName
-  );
-  if (operationLease === null) {
-    throw new Error('MainHealth supersession operation is already active or its owner liveness is unknown');
-  }
-  const releaseLease = input.operationLease === undefined;
-  let primaryFailure: unknown;
-  let hasPrimaryFailure = false;
-  try {
-    if (releaseLease) operationLease.acknowledgeReclaimedRecovery();
-    // Re-admit the maximal predecessor only after taking the subject lease.
-    // This is the durable CAS fence that prevents two stale observers from
-    // creating different prepared intents (and therefore two external POSTs)
-    // for one exact receipt namespace.
-    const leasedEvidence = readMainHealthSupersessionEvidence({
-      repositoryRoot: input.repositoryRoot,
-      repository: authorization.repository,
-      environment: input.environment
-    });
-    const leasedTerminals = leasedEvidence.terminals.filter(({ receipt }) =>
-      receipt.mainSha === authorization.mainSha
-        && receipt.mainTreeSha === authorization.mainTreeSha);
-    const leasedChain = admitMainHealthSupersessionChain(leasedTerminals);
-    if (leasedChain.kind === 'blocked') {
-      throw new Error('MainHealth supersession predecessor CAS is blocked by malformed or forked history');
-    }
-    if (leasedChain.kind === 'leaf'
-        && leasedChain.candidate.receipt.operationId !== authorization.operationId
-        && authorization.predecessorRecordDigest !== leasedChain.candidate.receipt.recordDigest) {
-      throw new Error('MainHealth supersession maximal predecessor changed after lease acquisition');
-    }
-    if (leasedChain.kind === 'empty' && authorization.predecessorRecordDigest !== null) {
-      throw new Error('MainHealth supersession predecessor disappeared after lease acquisition');
-    }
-    const consumedPreparedDigests = new Set(
-      leasedTerminals.map(({ receipt }) => receipt.preparedIntentDigest)
-    );
-    const competingPrepared = leasedEvidence.prepared.filter(({ intent }) =>
-      intent.authorization.mainSha === authorization.mainSha
-        && intent.authorization.mainTreeSha === authorization.mainTreeSha
-        && !consumedPreparedDigests.has(intent.intentDigest)
-        && intent.intentDigest !== input.preparedIntent?.intent.intentDigest);
-    if (competingPrepared.length !== 0) {
-      throw new Error('MainHealth supersession prepared intent fork detected under subject lease');
-    }
-    await assertCurrentMainHealthRuntimeAuthority(input.runtimeAuthority);
-    assertMainHealthSupersessionSourceExact(input.preimage, 'before intent');
-    assertMainHealthSupersessionAuthorizationSource(
-      input.preimage,
-      authorization,
-      'before intent'
-    );
-    await assertCurrentMainHealthSupersessionIssuer({
-      authorization,
-      capability: input.githubCapability
-    });
-    const fence = await assertMainHealthProviderConflict({
-      repositoryRoot: input.repositoryRoot,
-      repository: authorization.repository,
-      defaultBranch: input.defaultBranch,
-      mainSha: authorization.mainSha,
-      mainTreeSha: authorization.mainTreeSha,
-      authorization,
-      capability: input.githubCapability,
-      environment: input.environment
-    });
-
-    let prepared = input.preparedIntent ?? readPreparedIntentForDirectory(
-      input.preimage.directory,
-      authorization.operationId
-    );
-    if (prepared !== null) {
-      if (prepared.intent.requestDigest
-          !== trustedRuntimeMainHealthSupersessionRequestDigest(
-            prepared.intent.authorization
-          )) {
-        throw new Error('MainHealth supersession prepared request digest is not exact');
-      }
-      assertMainHealthSupersessionAuthorizationStableMatch(
-        prepared.intent.authorization,
-        authorization,
-        'during recovery'
-      );
-    }
-    let permitState: Readonly<{
-      available: MainHealthSupersessionPermitCandidate | null;
-      consumed: MainHealthSupersessionPermitCandidate | null;
-    }>;
-    if (prepared === null) {
-      const intent = createTrustedRuntimeMainHealthSupersessionIntent({
-        authorization,
-        preparedAt: fence.observedAt
-      });
-      const preparedDirectory = createNoFollowDirectoryChain(
-        input.preimage.directory,
-        ['prepared']
-      );
-      const intentName = [
-        'prepared', intent.authorization.operationId.slice('sha256:'.length),
-        intent.intentDigest.slice('sha256:'.length)
-      ].join('-') + '.json';
-      const intentBytes = Buffer.from(`${encodeVerificationActionData(intent)}\n`, 'utf8');
-      const publication = publishExclusiveDurableCanonicalFile({
-        parent: preparedDirectory,
-        name: intentName,
-        bytes: intentBytes,
-        validate: (bytes) => {
-          const parsed = parseMainHealthSupersessionIntent(
-            new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-          );
-          if (!Buffer.from(bytes).equals(Buffer.from(`${encodeVerificationActionData(parsed)}\n`, 'utf8'))) {
-            throw new Error('MainHealth supersession prepared intent bytes are not canonical');
-          }
-        }
-      });
-      const readback = readNoFollowOrdinaryFile(preparedDirectory, intentName);
-      if (readback === null || !Buffer.from(readback).equals(intentBytes)) {
-        throw new Error('MainHealth supersession prepared intent differs after publication');
-      }
-      if (!publication.created) {
-        throw new Error(
-          'MainHealth supersession prepared intent already existed without recovery evidence'
-        );
-      }
-      prepared = Object.freeze({ intent, recordPath: publication.path });
-      // The available permit is a separate immutable publication.  It is
-      // created by the same subject lease and is the only predecessor from
-      // which this invocation may durably consume a POST permit.
-      const availablePublication = publishMainHealthSupersessionPermit({
-        directory: input.preimage.directory,
-        authorization: intent.authorization,
-        intentDigest: intent.intentDigest,
-        phase: 'available'
-      });
-      if (!availablePublication.created) {
-        throw new Error(
-          'MainHealth supersession prepared intent has a pre-existing Effect permit'
-        );
-      }
-      permitState = Object.freeze({
-        available: Object.freeze({
-          permit: availablePublication.permit,
-          recordPath: availablePublication.recordPath
-        }),
-        consumed: null
-      });
-    } else {
-      permitState = matchingMainHealthSupersessionPermits(
-        leasedEvidence,
-        authorization,
-        prepared.intent.intentDigest
-      );
-      if (permitState.available === null && permitState.consumed === null) {
-        throw new Error(
-          'MainHealth supersession prepared intent has no durable Effect permit'
-        );
-      }
-    }
-
-    assertMainHealthSupersessionSourceExact(input.preimage, 'before provider Effect');
-    assertMainHealthSupersessionAuthorizationSource(
-      input.preimage,
-      authorization,
-      'before provider Effect'
-    );
-    await assertCurrentMainHealthRuntimeAuthority(input.runtimeAuthority);
-    await assertCurrentMainHealthSupersessionIssuer({
-      authorization,
-      capability: input.githubCapability
-    });
-    await assertMainHealthProviderConflict({
-      repositoryRoot: input.repositoryRoot,
-      repository: authorization.repository,
-      defaultBranch: input.defaultBranch,
-      mainSha: authorization.mainSha,
-      mainTreeSha: authorization.mainTreeSha,
-      authorization,
-      capability: input.githubCapability,
-      environment: input.environment
-    });
-    const providerResult = await ensureMainHealthSupersessionProviderAuthorization({
-      authorization,
-      capability: input.githubCapability,
-      allowPublish: permitState.available !== null && permitState.consumed === null,
-      defaultBranch: input.defaultBranch,
-      preimage: input.preimage,
-      runtimeAuthority: input.runtimeAuthority,
-      intentDigest: prepared.intent.intentDigest,
-      permitState
-    });
-    assertMainHealthSupersessionSourceExact(input.preimage, 'before terminal');
-    assertMainHealthSupersessionAuthorizationSource(
-      input.preimage,
-      authorization,
-      'before terminal'
-    );
-    await assertCurrentMainHealthRuntimeAuthority(input.runtimeAuthority);
-    await assertCurrentMainHealthSupersessionIssuer({
-      authorization,
-      capability: input.githubCapability
-    });
-    await assertMainHealthProviderConflict({
-      repositoryRoot: input.repositoryRoot,
-      repository: authorization.repository,
-      defaultBranch: input.defaultBranch,
-      mainSha: authorization.mainSha,
-      mainTreeSha: authorization.mainTreeSha,
-      authorization,
-      capability: input.githubCapability,
-      environment: input.environment
-    });
-    const terminal = createTrustedRuntimeMainHealthSupersessionReceipt({
-      authorization,
-      preparedIntentDigest: prepared.intent.intentDigest,
-      providerAuthorization: providerResult.providerAuthorization
-    });
-    const recordBytes = trustedRuntimeMainHealthSupersessionReceiptBytes(terminal);
-    const supersessionDirectory = createNoFollowDirectoryChain(
-      input.preimage.directory,
-      ['supersessions']
-    );
-    const recordName = [
-      'supersession', terminal.operationId.slice('sha256:'.length),
-      terminal.recordDigest.slice('sha256:'.length)
-    ].join('-') + '.json';
-    const publication = publishExclusiveDurableCanonicalFile({
-      parent: supersessionDirectory,
-      name: recordName,
-      bytes: recordBytes,
-      validate: (bytes) => {
-        const parsed = parseMainHealthSupersessionReceipt(
-          new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-        );
-        if (!Buffer.from(bytes).equals(trustedRuntimeMainHealthSupersessionReceiptBytes(parsed))) {
-          throw new Error('MainHealth supersession terminal bytes are not canonical');
-        }
-      }
-    });
-    const archived = readNoFollowOrdinaryFile(supersessionDirectory, recordName);
-    if (archived === null || !Buffer.from(archived).equals(recordBytes)) {
-      throw new Error('MainHealth supersession terminal differs after publication');
-    }
-    assertMainHealthSupersessionSourceExact(input.preimage, 'during terminal readback');
-    assertMainHealthSupersessionAuthorizationSource(
-      input.preimage,
-      authorization,
-      'during terminal readback'
-    );
-    await assertCurrentMainHealthRuntimeAuthority(input.runtimeAuthority);
-    await assertCurrentMainHealthSupersessionIssuer({
-      authorization: terminal,
-      capability: input.githubCapability
-    });
-    await assertMainHealthProviderConflict({
-      repositoryRoot: input.repositoryRoot,
-      repository: authorization.repository,
-      defaultBranch: input.defaultBranch,
-      mainSha: authorization.mainSha,
-      mainTreeSha: authorization.mainTreeSha,
-      authorization,
-      capability: input.githubCapability,
-      environment: input.environment
-    });
-    const terminalStatus = await observeMainHealthSupersessionProviderAuthorization({
-      authorization: terminal,
-      capability: input.githubCapability,
-      expected: terminal.providerAuthorization
-    });
-    if (encodeVerificationActionData(terminalStatus)
-        !== encodeVerificationActionData(terminal.providerAuthorization)) {
-      throw new Error('MainHealth supersession terminal provider readback changed');
-    }
-    return Object.freeze({
-      status: publication.created ? 'superseded' : 'resumed-superseded',
-      receipt: terminal,
-      recordPath: publication.path
-    });
-  } catch (error) {
-    primaryFailure = error;
-    hasPrimaryFailure = true;
-    throw error;
-  } finally {
-    if (releaseLease) {
-      settleOwnedMainHealthOperationLease(operationLease, primaryFailure, hasPrimaryFailure);
-    }
-  }
-}
-
 function observeHostedProvider(input: Readonly<{
   repository: string;
   mainSha: string;
@@ -2988,15 +713,13 @@ export function resolveWorkSelectionMainHealthProviders(input: Readonly<{
   mainSha: string;
   mainTreeSha: string;
   now: string;
-  local: WorkSelectionMainHealthProviderObservation;
   hosted: WorkSelectionMainHealthProviderObservation;
 }>): CanonicalMainHealthProviderResolution {
-  if (input.local.kind === 'invalid' || input.hosted.kind === 'invalid') {
+  if (input.hosted.kind === 'invalid') {
     const ref = digestRef(Object.freeze({
       schema: WORK_SELECTION_MAIN_HEALTH_PROVIDER_SCHEMA,
-      status: 'provider-invalid',
-      local: input.local.kind === 'invalid' ? input.local.ref : input.local.kind,
-      hosted: input.hosted.kind === 'invalid' ? input.hosted.ref : input.hosted.kind
+      status: 'hosted-provider-invalid',
+      hosted: input.hosted.ref
     }));
     return Object.freeze({
       projection: Object.freeze({
@@ -3008,12 +731,11 @@ export function resolveWorkSelectionMainHealthProviders(input: Readonly<{
     });
   }
 
-  if (input.local.kind === 'unavailable' || input.hosted.kind === 'unavailable') {
+  if (input.hosted.kind === 'unavailable') {
     const ref = digestRef(Object.freeze({
       schema: WORK_SELECTION_MAIN_HEALTH_PROVIDER_SCHEMA,
-      status: 'provider-unavailable',
-      local: input.local.kind === 'unavailable' ? input.local.ref : input.local.kind,
-      hosted: input.hosted.kind === 'unavailable' ? input.hosted.ref : input.hosted.kind,
+      status: 'hosted-provider-unavailable',
+      hosted: input.hosted.ref,
       repository: input.repository,
       defaultBranch: input.defaultBranch,
       mainSha: input.mainSha,
@@ -3026,46 +748,25 @@ export function resolveWorkSelectionMainHealthProviders(input: Readonly<{
     });
   }
 
-  const localLedger = input.local.kind === 'available' ? input.local.ledger : null;
   const hostedLedger = input.hosted.kind === 'available' ? input.hosted.ledger : null;
-  if (localLedger !== null && hostedLedger !== null
-      && localLedger.healthRevision !== hostedLedger.healthRevision) {
-    const ref = digestRef(Object.freeze({
-      schema: WORK_SELECTION_MAIN_HEALTH_PROVIDER_SCHEMA,
-      status: 'provider-conflict',
-      localHealthRevision: localLedger.healthRevision,
-      hostedHealthRevision: hostedLedger.healthRevision
-    }));
-    return Object.freeze({
-      projection: Object.freeze({
-        state: 'unresolved',
-        ref
-      }),
-      ledger: null,
-      repairObservation: Object.freeze({ kind: 'provider-conflict', observationRef: ref })
-    });
-  }
-
-  const selected = localLedger ?? hostedLedger;
-  if (selected !== null) {
+  if (hostedLedger !== null) {
     return Object.freeze({
       projection: projectLedger({
-        ledger: selected,
+        ledger: hostedLedger,
         now: input.now,
         repository: input.repository,
         defaultBranch: input.defaultBranch,
         mainSha: input.mainSha,
         mainTreeSha: input.mainTreeSha
       }),
-      ledger: selected,
-      repairObservation: Object.freeze({ kind: 'available', ledger: selected })
+      ledger: hostedLedger,
+      repairObservation: Object.freeze({ kind: 'available', ledger: hostedLedger })
     });
   }
 
   const ref = digestRef(Object.freeze({
     schema: WORK_SELECTION_MAIN_HEALTH_PROVIDER_SCHEMA,
     status: 'provider-missing',
-    local: input.local.kind,
     hosted: input.hosted.kind,
     hostedRef: null,
     repository: input.repository,
@@ -3346,517 +1047,55 @@ async function observeHostedMainHealthChecks(input: Readonly<{
   }
 }
 
-type CanonicalMainHealthProvidersObservation = Readonly<{
-  repositoryRoot: string;
-  repository: string;
-  defaultBranch: string;
-  mainSha: string;
-  mainTreeSha: string;
-  observedAt: string;
-  physicalLocalProvider: WorkSelectionMainHealthProviderObservation;
-  localProvider: WorkSelectionMainHealthProviderObservation;
-  hostedProvider: WorkSelectionMainHealthProviderObservation;
-  supersession: MainHealthSupersessionObservation;
-  resolution: CanonicalMainHealthProviderResolution;
-}>;
-
-async function observeCanonicalMainHealthProvidersBound(input: Readonly<{
+async function observeWorkSelectionMainHealthProvider(input: Readonly<{
   repositoryRoot: string;
   repository: string;
   defaultBranch: string;
   mainSha: string;
   mainTreeSha: string;
   capability: GitHubApiCapability;
-  runtimeAuthority?: MainHealthRuntimeAuthority;
-  environment?: NodeJS.ProcessEnv;
-}>): Promise<CanonicalMainHealthProvidersObservation> {
-  const base = await observeMainHealthProvidersBase(input);
-    const supersession = await observeMainHealthSupersession({
-      repositoryRoot: input.repositoryRoot,
-      repository: input.repository,
-      mainSha: input.mainSha,
-      mainTreeSha: input.mainTreeSha,
-      hostedProvider: base.hostedProvider,
-      capability: input.capability,
-      runtimeAuthority: input.runtimeAuthority,
-      environment: input.environment
-    });
-    let finalLocalProvider = base.localProvider;
-    let finalHostedProvider = base.hostedProvider;
-    let finalSupersession = supersession;
-    if (supersession.kind === 'active') {
-      const finalBase = await observeMainHealthProvidersBase(input);
-      finalLocalProvider = finalBase.localProvider;
-      finalHostedProvider = finalBase.hostedProvider;
-      if (finalHostedProvider.kind !== 'available') {
-        finalSupersession = mainHealthSupersessionBlocked(
-          'supersession-final-hosted-provider-unavailable',
-          Object.freeze({
-            recordDigest: supersession.supersession.receipt.recordDigest,
-            finalHostedKind: finalHostedProvider.kind
-          })
-        );
-      } else if (hostedMainHealthAuthorityDigest(finalHostedProvider.ledger)
-          !== supersession.supersession.receipt.hostedAuthorityDigest) {
-        finalSupersession = mainHealthSupersessionInactive(
-          'supersession-final-hosted-provider-drift',
-          supersession.supersession.receipt.recordDigest,
-          supersession.supersession.receipt.recordDigest
-        );
-      } else if (finalLocalProvider.kind !== 'available'
-          || base.localProvider.kind !== 'available'
-          || finalLocalProvider.ledger.healthRevision
-            !== base.localProvider.ledger.healthRevision) {
-        // A terminal may only project local-absent after the final local
-        // physical observation remains the exact conflict preimage.  A
-        // replacement, disappearance or unavailable read invalidates the
-        // terminal evidence but leaves the old record retained for chaining.
-        finalSupersession = finalLocalProvider.kind === 'absent'
-          ? mainHealthSupersessionInactive(
-              'supersession-final-local-provider-absent',
-              supersession.supersession.receipt.recordDigest,
-              supersession.supersession.receipt.recordDigest
-            )
-          : finalLocalProvider.kind === 'available'
-            && base.localProvider.kind === 'available'
-          ? mainHealthSupersessionInactive(
-              'supersession-final-local-provider-drift',
-              Object.freeze({
-                recordDigest: supersession.supersession.receipt.recordDigest,
-                initialHealthRevision: base.localProvider.ledger.healthRevision,
-                finalHealthRevision: finalLocalProvider.ledger.healthRevision
-              }),
-              supersession.supersession.receipt.recordDigest
-            )
-            : mainHealthSupersessionBlocked(
-                'supersession-final-local-provider-unavailable',
-                Object.freeze({
-                  recordDigest: supersession.supersession.receipt.recordDigest,
-                  finalLocalKind: finalLocalProvider.kind
-                })
-              );
-      } else {
-        try {
-          const finalPreimage = observeTrustedLocalSupersessionPreimage(input);
-          const finalReceiptBytes = Buffer.from(
-            `${encodeVerificationActionData(finalPreimage.receipt)}\n`,
-            'utf8'
-          );
-          if (finalPreimage.receipt.receiptDigest
-                !== supersession.supersession.receipt.localReceipt.receiptDigest
-              || finalPreimage.source.device !== supersession.supersession.receipt.source.device
-              || finalPreimage.source.inode !== supersession.supersession.receipt.source.inode
-              || finalPreimage.source.size !== supersession.supersession.receipt.source.size
-              || finalPreimage.source.bytes === null
-              || !Buffer.from(finalPreimage.source.bytes).equals(finalReceiptBytes)
-              || rawSha256(finalPreimage.source.bytes)
-                !== supersession.supersession.receipt.source.byteDigest) {
-            finalSupersession = mainHealthSupersessionInactive(
-              'supersession-final-local-physical-drift',
-              supersession.supersession.receipt.recordDigest,
-              supersession.supersession.receipt.recordDigest
-            );
-          }
-        } catch (error) {
-          finalSupersession = mainHealthSupersessionBlocked(
-            'supersession-final-local-physical-observation-unavailable',
-            error instanceof Error ? error.message : String(error)
-          );
-        }
-      }
-      if (finalSupersession.kind === 'active') {
-        // The hosted ledger must be re-observed after the exact local file
-        // read.  This closes the last local-first/hosted-second TOCTOU window:
-        // a provider update during local read cannot be projected using the
-        // earlier hosted observation.
-        const finalFence = await observeMainHealthProvidersBase(input);
-        finalLocalProvider = finalFence.localProvider;
-        finalHostedProvider = finalFence.hostedProvider;
-        if (finalHostedProvider.kind !== 'available') {
-          finalSupersession = mainHealthSupersessionBlocked(
-            'supersession-final-hosted-provider-unavailable',
-            Object.freeze({
-              recordDigest: supersession.supersession.receipt.recordDigest,
-              finalHostedKind: finalHostedProvider.kind
-            })
-          );
-        } else if (hostedMainHealthAuthorityDigest(finalHostedProvider.ledger)
-            !== supersession.supersession.receipt.hostedAuthorityDigest) {
-          finalSupersession = mainHealthSupersessionInactive(
-            'supersession-final-hosted-provider-drift',
-            supersession.supersession.receipt.recordDigest,
-            supersession.supersession.receipt.recordDigest
-          );
-        } else if (finalLocalProvider.kind !== 'available') {
-          finalSupersession = finalLocalProvider.kind === 'absent'
-            ? mainHealthSupersessionInactive(
-                'supersession-final-local-provider-absent',
-                supersession.supersession.receipt.recordDigest,
-                supersession.supersession.receipt.recordDigest
-              )
-            : mainHealthSupersessionBlocked(
-                'supersession-final-local-provider-unavailable',
-                Object.freeze({
-                  recordDigest: supersession.supersession.receipt.recordDigest,
-                  finalLocalKind: finalLocalProvider.kind
-                })
-              );
-        } else if (base.localProvider.kind !== 'available'
-            || finalLocalProvider.ledger.healthRevision
-              !== base.localProvider.ledger.healthRevision) {
-          finalSupersession = mainHealthSupersessionInactive(
-            'supersession-final-local-provider-drift',
-            supersession.supersession.receipt.recordDigest,
-            supersession.supersession.receipt.recordDigest
-          );
-        } else {
-          try {
-            const finalFencePreimage = observeTrustedLocalSupersessionPreimage(input);
-            const finalFenceReceiptBytes = Buffer.from(
-              `${encodeVerificationActionData(finalFencePreimage.receipt)}\n`,
-              'utf8'
-            );
-            if (finalFencePreimage.receipt.receiptDigest
-                  !== supersession.supersession.receipt.localReceipt.receiptDigest
-                || finalFencePreimage.source.device
-                  !== supersession.supersession.receipt.source.device
-                || finalFencePreimage.source.inode
-                  !== supersession.supersession.receipt.source.inode
-                || finalFencePreimage.source.size
-                  !== supersession.supersession.receipt.source.size
-                || finalFencePreimage.source.bytes === null
-                || !Buffer.from(finalFencePreimage.source.bytes).equals(finalFenceReceiptBytes)
-                || rawSha256(finalFencePreimage.source.bytes)
-                  !== supersession.supersession.receipt.source.byteDigest) {
-              finalSupersession = mainHealthSupersessionInactive(
-                'supersession-final-local-physical-drift',
-                supersession.supersession.receipt.recordDigest,
-                supersession.supersession.receipt.recordDigest
-              );
-            }
-          } catch (error) {
-            finalSupersession = mainHealthSupersessionBlocked(
-              'supersession-final-local-physical-observation-unavailable',
-              error instanceof Error ? error.message : String(error)
-            );
-          }
-        }
-      }
-    }
-    const effectiveLocalProvider: WorkSelectionMainHealthProviderObservation =
-      finalSupersession.kind === 'active'
-        ? finalLocalProvider.kind === 'available'
-          ? Object.freeze({ kind: 'absent' })
-          : Object.freeze({
-              kind: 'invalid' as const,
-              ref: mainHealthSupersessionRef(
-                'supersession-final-local-provider-unavailable',
-                finalLocalProvider.kind
-              )
-            })
-        : finalSupersession.kind === 'blocked'
-          ? Object.freeze({ kind: 'invalid', ref: finalSupersession.ref })
-          : finalLocalProvider;
-    const resolution = resolveWorkSelectionMainHealthProviders({
+}>): Promise<Readonly<{
+  observedAt: string;
+  hostedProvider: WorkSelectionMainHealthProviderObservation;
+  resolution: CanonicalMainHealthProviderResolution;
+}>> {
+  const observedAt = new Date().toISOString();
+  const hosted = await observeHostedMainHealthChecks(input);
+  const hostedProvider = observeHostedProvider({
+    repository: input.repository,
+    mainSha: input.mainSha,
+    mainTreeSha: input.mainTreeSha,
+    now: observedAt,
+    expiresAt: new Date(
+      Date.parse(observedAt) + HOSTED_MAIN_HEALTH_FRESHNESS_MS
+    ).toISOString(),
+    observation: hosted
+  });
+  return Object.freeze({
+    observedAt,
+    hostedProvider,
+    resolution: resolveWorkSelectionMainHealthProviders({
       repository: input.repository,
       defaultBranch: input.defaultBranch,
       mainSha: input.mainSha,
       mainTreeSha: input.mainTreeSha,
-      now: base.observedAt,
-      local: effectiveLocalProvider,
-      hosted: finalHostedProvider
-    });
-  return Object.freeze({
-    repositoryRoot: input.repositoryRoot,
-    repository: input.repository,
-    defaultBranch: input.defaultBranch,
-    mainSha: input.mainSha,
-    mainTreeSha: input.mainTreeSha,
-    observedAt: base.observedAt,
-    physicalLocalProvider: finalLocalProvider,
-    localProvider: effectiveLocalProvider,
-    hostedProvider: finalHostedProvider,
-    supersession: finalSupersession,
-    resolution
-  });
-}
-
-/**
- * Explicit MainHealth reconciliation Effect. Read-only status and work
- * selection never call this operation. The operation compiles an authenticated,
- * issuer-bound content-addressed supersession authorization, executes it behind
- * the receipt namespace lease, and proves hosted-only resolution by readback.
- */
-async function reconcileCanonicalMainHealthProviderConflictBound(input: Readonly<{
-  repositoryRoot: string;
-  repository: string;
-  defaultBranch: string;
-  mainSha: string;
-  mainTreeSha: string;
-  githubCapability: GitHubApiCapability;
-  runtimeAuthority: MainHealthRuntimeAuthority;
-  environment?: NodeJS.ProcessEnv;
-}>): Promise<Readonly<{
-  observedAt: string;
-  authorizationDigest: MainHealthDigest;
-  supersession: Readonly<{
-    status: 'superseded' | 'resumed-superseded';
-    receipt: TrustedRuntimeMainHealthSupersessionReceipt;
-    recordPath: string;
-  }>;
-  resolution: CanonicalMainHealthProviderResolution;
-}>> {
-  assertGitHubApiCapability(input.githubCapability, input.repository, 'status-write');
-    await assertCurrentMainHealthRuntimeAuthority(input.runtimeAuthority);
-    const providerInput = Object.freeze({
-    repositoryRoot: input.repositoryRoot,
-    repository: input.repository,
-    defaultBranch: input.defaultBranch,
-    mainSha: input.mainSha,
-    mainTreeSha: input.mainTreeSha,
-    capability: input.githubCapability,
-    runtimeAuthority: input.runtimeAuthority,
-    environment: input.environment
-    });
-    const admission = await observeCanonicalMainHealthProvidersBound(providerInput);
-    if (admission.supersession.kind === 'active') {
-    const recovered = admission.supersession.supersession;
-    if (admission.physicalLocalProvider.kind !== 'available') {
-      throw new Error('MainHealth supersession requires one exact active provider conflict');
-    }
-    const postRecovery = await observeCanonicalMainHealthProvidersBound(providerInput);
-    if (postRecovery.hostedProvider.kind !== 'available'
-        || admission.hostedProvider.kind !== 'available') {
-      throw new Error('MainHealth supersession recovery changed during terminal readback');
-    }
-    if (postRecovery.localProvider.kind !== 'absent'
-        || postRecovery.physicalLocalProvider.kind !== 'available'
-        || postRecovery.supersession.kind !== 'active'
-        || postRecovery.supersession.supersession.receipt.recordDigest
-          !== recovered.receipt.recordDigest
-        || hostedMainHealthAuthorityDigest(postRecovery.hostedProvider.ledger)
-          !== hostedMainHealthAuthorityDigest(admission.hostedProvider.ledger)
-        || postRecovery.resolution.repairObservation.kind !== 'available') {
-      throw new Error('MainHealth supersession recovery changed during terminal readback');
-    }
-      return Object.freeze({
-      observedAt: postRecovery.observedAt,
-      authorizationDigest: recovered.receipt.effectAuthorizationDigest,
-      supersession: recovered,
-      resolution: postRecovery.resolution
-    });
-    }
-    let preparedRecovery = admission.supersession.kind === 'prepared'
-      ? admission.supersession
-      : null;
-    let predecessorRecordDigest = admission.supersession.kind === 'inactive'
-      ? admission.supersession.recordDigest
-      : preparedRecovery?.intent.authorization.predecessorRecordDigest ?? null;
-    if (admission.supersession.kind === 'blocked'
-      || admission.resolution.repairObservation.kind !== 'provider-conflict'
-      || admission.localProvider.kind !== 'available'
-      || admission.hostedProvider.kind !== 'available') {
-    throw new Error('MainHealth supersession requires one exact active provider conflict');
-  }
-
-    const effectFence = await observeCanonicalMainHealthProvidersBound(providerInput);
-    if (effectFence.supersession.kind === 'active'
-      || effectFence.supersession.kind === 'blocked'
-      || (effectFence.supersession.kind === 'inactive'
-        && effectFence.supersession.recordDigest !== predecessorRecordDigest)
-      || (preparedRecovery === null
-        && effectFence.supersession.kind === 'prepared')
-      || (preparedRecovery !== null
-        && (effectFence.supersession.kind !== 'prepared'
-          || effectFence.supersession.intent.intentDigest
-            !== preparedRecovery.intent.intentDigest))
-      || effectFence.resolution.repairObservation.kind !== 'provider-conflict'
-      || effectFence.localProvider.kind !== 'available'
-      || effectFence.hostedProvider.kind !== 'available'
-      || effectFence.localProvider.ledger.healthRevision
-        !== admission.localProvider.ledger.healthRevision
-      || hostedMainHealthAuthorityDigest(effectFence.hostedProvider.ledger)
-        !== hostedMainHealthAuthorityDigest(admission.hostedProvider.ledger)) {
-    throw new Error('MainHealth provider conflict changed before supersession Effect authorization');
-  }
-    const effectHostedLedger = (effectFence.hostedProvider as Readonly<{
-      kind: 'available';
-      ledger: MainHealthLedger;
-    }>).ledger;
-    const preimage = observeTrustedLocalSupersessionPreimage(input);
-    const boundDirectory = mainHealthRuntimeAuthorityDirectory(
-      input.runtimeAuthority,
-      preimage.directory
-    );
-    const issuer = inspectGitHubApiCapability(input.githubCapability).principal;
-    if (issuer.permission !== 'admin' && issuer.permission !== 'maintain') {
-      throw new Error('MainHealth supersession requires a live maintain/admin issuer');
-    }
-    const runtimeAuthorityBinding = mainHealthRuntimeAuthorityBinding(input.runtimeAuthority).binding;
-    const issuerIdentity = Object.freeze({
-      transport: 'github-rest-token' as const,
-      login: issuer.login,
-      nodeId: issuer.nodeId,
-      permission: issuer.permission
-    });
-    const createCurrentAuthorization = (
-      currentPredecessor: MainHealthDigest | null
-    ): TrustedRuntimeMainHealthSupersessionAuthorization =>
-      createTrustedRuntimeMainHealthSupersessionAuthorization({
-        sourceName: preimage.source.relativePath,
-        source: preimage.source,
-        localReceipt: preimage.receipt,
-        localHealthRevision: localHealthyMainHealthRevision({
-          repository: preimage.receipt.repository,
-          defaultBranch: input.defaultBranch,
-          mainSha: preimage.receipt.mainSha,
-          mainTreeSha: preimage.receipt.mainTreeSha
-        }),
-        hostedPayload: mainHealthTrustedRuntimePayload(effectHostedLedger),
-        hostedAuthorityDigest: hostedMainHealthAuthorityDigest(effectHostedLedger),
-        runtimeAuthorityBinding,
-        predecessorRecordDigest: currentPredecessor,
-        issuer: issuerIdentity
-      });
-    let currentAuthorization = createCurrentAuthorization(predecessorRecordDigest);
-    const operationLease = acquirePhysicalMutationLease(
-      boundDirectory,
-      currentAuthorization.operationLeaseName
-    );
-    if (operationLease === null) {
-      throw new Error('MainHealth supersession subject lease is already active or liveness is unknown');
-    }
-    let primaryFailure: unknown;
-    let hasPrimaryFailure = false;
-    try {
-      operationLease.acknowledgeReclaimedRecovery();
-      if (preparedRecovery?.providerDrift === true) {
-        // The status POST already happened, but the hosted ledger changed
-        // before the terminal was durable.  Keep that exact status evidence as
-        // an inactive historical terminal while holding the same subject lease
-        // used for the chained successor.
-        const historical = await publishPreparedHistoricalTerminal({
-          repositoryRoot: input.repositoryRoot,
-          preimage,
-          prepared: preparedRecovery,
-          githubCapability: input.githubCapability,
-          runtimeAuthority: input.runtimeAuthority,
-          operationLease,
-          environment: input.environment
-        });
-        predecessorRecordDigest = historical.receipt.recordDigest;
-        preparedRecovery = null;
-        currentAuthorization = createCurrentAuthorization(predecessorRecordDigest);
-      }
-      const capability = preparedRecovery === null
-        ? issueMainHealthSupersessionEffectCapability({
-            preimage,
-            hostedLedger: effectHostedLedger,
-            runtimeAuthorityBinding,
-            issuedAt: effectFence.observedAt,
-            predecessorRecordDigest,
-            issuer: issuerIdentity
-          })
-        : (() => {
-            assertMainHealthSupersessionAuthorizationStableMatch(
-              preparedRecovery.intent.authorization,
-              currentAuthorization,
-              'before prepared recovery'
-            );
-            return issueMainHealthSupersessionEffectCapabilityFromAuthorization({
-              authorization: preparedRecovery.intent.authorization,
-              hostedAuthorityDigest: hostedMainHealthAuthorityDigest(effectHostedLedger),
-              issuedAt: effectFence.observedAt
-            });
-          })();
-      const supersession = await executeMainHealthSupersessionEffect({
-        repositoryRoot: input.repositoryRoot,
-        defaultBranch: input.defaultBranch,
-        preimage,
-        capability,
-        githubCapability: input.githubCapability,
-        runtimeAuthority: input.runtimeAuthority,
-        operationLease,
-        preparedIntent: preparedRecovery === null ? undefined : preparedRecovery,
-        environment: input.environment
-      });
-      const postEffect = await observeCanonicalMainHealthProvidersBound(providerInput);
-      if (postEffect.localProvider.kind !== 'absent'
-        || postEffect.physicalLocalProvider.kind !== 'available'
-        || postEffect.hostedProvider.kind !== 'available'
-        || postEffect.supersession.kind !== 'active'
-        || postEffect.supersession.supersession.receipt.recordDigest
-          !== supersession.receipt.recordDigest
-        || postEffect.supersession.supersession.receipt.runtimeAuthorityBinding
-          !== runtimeAuthorityBinding
-        || postEffect.supersession.supersession.receipt.predecessorRecordDigest
-          !== predecessorRecordDigest
-        || hostedMainHealthAuthorityDigest(postEffect.hostedProvider.ledger)
-          !== capability.hostedAuthorityDigest
-      || postEffect.resolution.ledger?.ledgerDigest
-        !== postEffect.hostedProvider.ledger.ledgerDigest
-      || postEffect.resolution.repairObservation.kind !== 'available') {
-        throw new Error('MainHealth supersession provider changed during exact post-Effect readback');
-      }
-      return Object.freeze({
-        observedAt: postEffect.observedAt,
-        authorizationDigest: supersession.receipt.effectAuthorizationDigest,
-        supersession,
-        resolution: postEffect.resolution
-      });
-    } catch (error) {
-      primaryFailure = error;
-      hasPrimaryFailure = true;
-      throw error;
-    } finally {
-      settleOwnedMainHealthOperationLease(operationLease, primaryFailure, hasPrimaryFailure);
-    }
-}
-
-/**
- * Caller-free MainHealth reconciliation entry. The provider owner resolves
- * and validates the status-write credential at this narrow Effect boundary;
- * callers cannot supply a transport, bearer token, or forged issuer.
- */
-export async function reconcileCanonicalMainHealthProviderConflict(input: Readonly<{
-  repositoryRoot: string;
-  repository: string;
-  defaultBranch: string;
-  mainSha: string;
-  mainTreeSha: string;
-  runtimeAuthority: MainHealthRuntimeAuthority;
-  environment?: NodeJS.ProcessEnv;
-}>): Promise<Readonly<{
-  observedAt: string;
-  authorizationDigest: MainHealthDigest;
-  supersession: Readonly<{
-    status: 'superseded' | 'resumed-superseded';
-    receipt: TrustedRuntimeMainHealthSupersessionReceipt;
-    recordPath: string;
-  }>;
-  resolution: CanonicalMainHealthProviderResolution;
-}>> {
-  return await withMainHealthGitHubStatusWriteSession({
-    repositoryRoot: input.repositoryRoot,
-    repository: input.repository,
-    operation: async () => await reconcileCanonicalMainHealthProviderConflictBound({
-      ...input,
-      githubCapability: currentGitHubApiCapability(
-        input.repository,
-        'status-write'
-      )
+      now: observedAt,
+      hosted: hostedProvider
     })
   });
 }
 
-function compileMainHealthRepairDecisionFromCanonicalObservation(
+function compileMainHealthRepairDecisionFromWorkSelectionObservation(
   input: Readonly<{
     repository: string;
     defaultBranch: string;
     mainSha: string;
     mainTreeSha: string;
   }>,
-  observation: CanonicalMainHealthProvidersObservation
+  observation: Readonly<{
+    observedAt: string;
+    resolution: CanonicalMainHealthProviderResolution;
+  }>
 ): MainHealthRepairDecision {
   return compileMainHealthRepairDecision({
     observation: observation.resolution.repairObservation,
@@ -3882,15 +1121,6 @@ type MainHealthPublicationAuthorityBinding = Readonly<{
     mainSha: string;
     mainTreeSha: string;
   }>;
-  runtimeAuthorityBinding: MainHealthDigest | null;
-  localPhysical: Readonly<{
-    relativePath: string;
-    device: string;
-    inode: string;
-    size: number;
-    byteDigest: MainHealthDigest;
-  }> | null;
-  hostedAuthorityDigest: MainHealthDigest | null;
   hostedProviderEpoch: MainHealthDigest | null;
   hostedProvenanceDigest: MainHealthDigest | null;
 }>;
@@ -3912,76 +1142,30 @@ export function assertMainHealthPublicationAuthorityStable(
   first: MainHealthPublicationAuthority,
   second: MainHealthPublicationAuthority
 ): void {
-  if (encodeVerificationActionData(mainHealthPublicationStableAuthorityBinding(
-    mainHealthPublicationAuthorityBinding(first)
-  )) !== encodeVerificationActionData(mainHealthPublicationStableAuthorityBinding(
-    mainHealthPublicationAuthorityBinding(second)
-  ))) {
+  if (encodeVerificationActionData(mainHealthPublicationAuthorityBinding(first))
+      !== encodeVerificationActionData(mainHealthPublicationAuthorityBinding(second))) {
     throw new Error('MainHealth publication authority drifted between live snapshots');
   }
 }
 
-function mainHealthPublicationStableAuthorityBinding(
-  binding: MainHealthPublicationAuthorityBinding
-): Readonly<{
-  subject: MainHealthPublicationAuthorityBinding['subject'];
-  runtimeAuthorityBinding: MainHealthDigest | null;
-  localPhysical: MainHealthPublicationAuthorityBinding['localPhysical'];
-  hostedProviderEpoch: MainHealthDigest | null;
-  hostedProvenanceDigest: MainHealthDigest | null;
-}> {
-  return Object.freeze({
-    subject: binding.subject,
-    runtimeAuthorityBinding: binding.runtimeAuthorityBinding,
-    localPhysical: binding.localPhysical,
-    hostedProviderEpoch: binding.hostedProviderEpoch,
-    hostedProvenanceDigest: binding.hostedProvenanceDigest
-  });
-}
-
-function createMainHealthPublicationAuthorityBinding(input: Readonly<{
-  observation: CanonicalMainHealthProvidersObservation;
-  runtimeAuthority?: MainHealthRuntimeAuthority;
-  environment?: NodeJS.ProcessEnv;
-}>): MainHealthPublicationAuthorityBinding {
-  const physicalLocal = input.observation.physicalLocalProvider.kind === 'available'
-    ? (() => {
-        const preimage = observeTrustedLocalSupersessionPreimage({
-          repositoryRoot: input.observation.repositoryRoot,
-          repository: input.observation.repository,
-          mainSha: input.observation.mainSha,
-          mainTreeSha: input.observation.mainTreeSha,
-          environment: input.environment
-        });
-        if (preimage.source.bytes === null) {
-          throw new Error('MainHealth local physical publication source is unavailable');
-        }
-        return Object.freeze({
-          relativePath: preimage.source.relativePath,
-          device: preimage.source.device,
-          inode: preimage.source.inode,
-          size: preimage.source.size,
-          byteDigest: rawSha256(preimage.source.bytes)
-        });
-      })()
+function createWorkSelectionMainHealthPublicationAuthority(input: Readonly<{
+  repository: string;
+  defaultBranch: string;
+  mainSha: string;
+  mainTreeSha: string;
+  hostedProvider: WorkSelectionMainHealthProviderObservation;
+}>): MainHealthPublicationAuthority {
+  const hostedLedger = input.hostedProvider.kind === 'available'
+    ? input.hostedProvider.ledger
     : null;
-  const hostedLedger = input.observation.hostedProvider.kind === 'available'
-    ? input.observation.hostedProvider.ledger
-    : null;
-  return Object.freeze({
+  const authority = Object.freeze({}) as MainHealthPublicationAuthority;
+  mainHealthPublicationAuthorityBindings.set(authority, Object.freeze({
     subject: Object.freeze({
-      repository: input.observation.repository,
-      defaultBranch: input.observation.defaultBranch,
-      mainSha: input.observation.mainSha,
-      mainTreeSha: input.observation.mainTreeSha
+      repository: input.repository,
+      defaultBranch: input.defaultBranch,
+      mainSha: input.mainSha,
+      mainTreeSha: input.mainTreeSha
     }),
-    runtimeAuthorityBinding: input.runtimeAuthority === undefined
-      ? null
-      : mainHealthRuntimeAuthorityBinding(input.runtimeAuthority).binding,
-    localPhysical: physicalLocal,
-    hostedAuthorityDigest: hostedLedger === null
-      ? null
-      : hostedMainHealthAuthorityDigest(hostedLedger),
     hostedProviderEpoch: hostedLedger === null ? null : hostedLedger.healthRevision,
     hostedProvenanceDigest: hostedLedger === null
       ? null
@@ -3989,34 +1173,21 @@ function createMainHealthPublicationAuthorityBinding(input: Readonly<{
           schema: 'sec-main-health-hosted-provenance-v2',
           producer: hostedLedger.producer
         }))
-  });
-}
-
-function createMainHealthPublicationAuthority(input: Readonly<{
-  observation: CanonicalMainHealthProvidersObservation;
-  runtimeAuthority?: MainHealthRuntimeAuthority;
-  environment?: NodeJS.ProcessEnv;
-}>): MainHealthPublicationAuthority {
-  const authority = Object.freeze({}) as MainHealthPublicationAuthority;
-  mainHealthPublicationAuthorityBindings.set(
-    authority,
-    createMainHealthPublicationAuthorityBinding(input)
-  );
+  }));
   return authority;
 }
 
-function mainHealthPublicationStableDigestFromBinding(input: Readonly<{
+function mainHealthPublicationStableDigest(input: Readonly<{
   projection: WorkSelectionMainHealthProjection;
   ledger: MainHealthLedger | null;
   repairDecision: MainHealthRepairDecision;
-  supersession: MainHealthSupersessionObservation;
-  authority: MainHealthPublicationAuthorityBinding;
+  authority: MainHealthPublicationAuthority;
 }>): MainHealthDigest {
   const ledger = input.ledger;
   return digestRef(Object.freeze({
-    schema: 'sec-main-health-publication-stable-observation-v2',
+    schema: 'sec-hosted-main-health-publication-stable-observation-v1',
     projection: input.projection,
-    authority: mainHealthPublicationStableAuthorityBinding(input.authority),
+    authority: mainHealthPublicationAuthorityBinding(input.authority),
     ledger: ledger === null ? null : Object.freeze({
       repository: ledger.repository,
       defaultBranch: ledger.defaultBranch,
@@ -4035,62 +1206,9 @@ function mainHealthPublicationStableDigestFromBinding(input: Readonly<{
       status: input.repairDecision.status,
       routingState: input.repairDecision.routingState,
       reasonCode: input.repairDecision.reasonCode,
-      binding: input.repairDecision.binding === null
-        ? null
-        : Object.freeze({
-            repository: input.repairDecision.binding.repository,
-            defaultBranch: input.repairDecision.binding.defaultBranch,
-            mainSha: input.repairDecision.binding.mainSha,
-            mainTreeSha: input.repairDecision.binding.mainTreeSha,
-            trustRevision: input.repairDecision.binding.trustRevision,
-            healthRevision: input.repairDecision.binding.healthRevision,
-            owner: input.repairDecision.binding.owner,
-            manifestPath: input.repairDecision.binding.manifestPath,
-            packageId: input.repairDecision.binding.packageId,
-            failureFingerprints: input.repairDecision.binding.failureFingerprints
-          })
-    }),
-    supersession: input.supersession.kind === 'active'
-      ? Object.freeze({
-          kind: 'active' as const,
-          semanticDigest: input.supersession.supersession.receipt.semanticDigest,
-          runtimeAuthorityBinding:
-            input.supersession.supersession.receipt.runtimeAuthorityBinding,
-          hostedAuthorityDigest:
-            input.supersession.supersession.receipt.hostedAuthorityDigest
-        })
-      : input.supersession.kind === 'inactive'
-        ? Object.freeze({
-            kind: 'inactive' as const,
-            ref: input.supersession.ref,
-            recordDigest: input.supersession.recordDigest
-          })
-        : input.supersession.kind === 'blocked'
-          ? Object.freeze({ kind: 'blocked' as const, ref: input.supersession.ref })
-          : input.supersession.kind === 'prepared'
-            ? Object.freeze({
-                kind: 'prepared' as const,
-                intentDigest: input.supersession.intent.intentDigest,
-                operationId: input.supersession.intent.authorization.operationId,
-                effectAuthorizationDigest:
-                  input.supersession.intent.authorization.effectAuthorizationDigest,
-                providerDrift: input.supersession.providerDrift
-              })
-            : Object.freeze({ kind: 'absent' as const })
+      binding: input.repairDecision.binding
+    })
   }));
-}
-
-function mainHealthPublicationStableDigest(input: Readonly<{
-  projection: WorkSelectionMainHealthProjection;
-  ledger: MainHealthLedger | null;
-  repairDecision: MainHealthRepairDecision;
-  supersession: MainHealthSupersessionObservation;
-  authority: MainHealthPublicationAuthority;
-}>): MainHealthDigest {
-  return mainHealthPublicationStableDigestFromBinding({
-    ...input,
-    authority: mainHealthPublicationAuthorityBinding(input.authority)
-  });
 }
 
 const mainHealthTestingResultBrand = Symbol('sec-main-health-testing-result-v2');
@@ -4161,14 +1279,11 @@ export async function observeCanonicalMainHealthForPublication(input: Readonly<{
   defaultBranch: string;
   mainSha: string;
   mainTreeSha: string;
-  runtimeAuthority?: MainHealthRuntimeAuthority;
-  environment?: NodeJS.ProcessEnv;
 }>): Promise<Readonly<{
   observedAt: string;
   projection: WorkSelectionMainHealthProjection;
   ledger: MainHealthLedger | null;
   repairDecision: MainHealthRepairDecision;
-  supersession: MainHealthSupersessionObservation;
   authority: MainHealthPublicationAuthority;
   stableDigest: MainHealthDigest;
   workSelectionSnapshot: WorkSelectionMainHealthSnapshot;
@@ -4177,25 +1292,23 @@ export async function observeCanonicalMainHealthForPublication(input: Readonly<{
     repositoryRoot: input.repositoryRoot,
     repository: input.repository,
     operation: async () => {
-      const observation = await observeCanonicalMainHealthProvidersBound({
+      const observation = await observeWorkSelectionMainHealthProvider({
         ...input,
         capability: currentGitHubApiCapability(input.repository, 'read')
       });
-      const repairDecision = compileMainHealthRepairDecisionFromCanonicalObservation(
+      const repairDecision = compileMainHealthRepairDecisionFromWorkSelectionObservation(
         input,
         observation
       );
-      const authority = createMainHealthPublicationAuthority({
-        observation,
-        runtimeAuthority: input.runtimeAuthority,
-        environment: input.environment
+      const authority = createWorkSelectionMainHealthPublicationAuthority({
+        ...input,
+        hostedProvider: observation.hostedProvider
       });
       const result = Object.freeze({
         observedAt: observation.observedAt,
         projection: observation.resolution.projection,
         ledger: observation.resolution.ledger,
         repairDecision,
-        supersession: observation.supersession,
         authority,
         stableDigest: '' as MainHealthDigest
       });
@@ -4225,18 +1338,16 @@ export async function observeCanonicalMainHealthForRepairV1(input: Readonly<{
   defaultBranch: string;
   mainSha: string;
   mainTreeSha: string;
-  runtimeAuthority?: MainHealthRuntimeAuthority;
-  environment?: NodeJS.ProcessEnv;
 }>): Promise<MainHealthRepairDecision> {
   return await withMainHealthGitHubReadSession({
     repositoryRoot: input.repositoryRoot,
     repository: input.repository,
     operation: async () => {
-      const observation = await observeCanonicalMainHealthProvidersBound({
+      const observation = await observeWorkSelectionMainHealthProvider({
         ...input,
         capability: currentGitHubApiCapability(input.repository, 'read')
       });
-      return compileMainHealthRepairDecisionFromCanonicalObservation(input, observation);
+      return compileMainHealthRepairDecisionFromWorkSelectionObservation(input, observation);
     }
   });
 }
@@ -4253,10 +1364,8 @@ export async function observeCanonicalMainHealthForWorkSelectionTestingV2(input:
   mainSha: string;
   mainTreeSha: string;
   capability: GitHubApiCapability;
-  runtimeAuthority?: MainHealthRuntimeAuthority;
-  environment?: NodeJS.ProcessEnv;
 }>): Promise<MainHealthTestingResult<WorkSelectionMainHealthProjection>> {
-  const observation = await observeCanonicalMainHealthProvidersBound(input);
+  const observation = await observeWorkSelectionMainHealthProvider(input);
   return Object.freeze({
     ...observation.resolution.projection,
     [mainHealthTestingResultBrand]: true as const
@@ -4271,12 +1380,10 @@ export async function observeCanonicalMainHealthForRepairTestingV2(input: Readon
   mainSha: string;
   mainTreeSha: string;
   capability: GitHubApiCapability;
-  runtimeAuthority?: MainHealthRuntimeAuthority;
-  environment?: NodeJS.ProcessEnv;
 }>): Promise<MainHealthTestingResult<MainHealthRepairDecision>> {
-  const observation = await observeCanonicalMainHealthProvidersBound(input);
+  const observation = await observeWorkSelectionMainHealthProvider(input);
   return Object.freeze({
-    ...compileMainHealthRepairDecisionFromCanonicalObservation(input, observation),
+    ...compileMainHealthRepairDecisionFromWorkSelectionObservation(input, observation),
     [mainHealthTestingResultBrand]: true as const
   });
 }
@@ -4294,55 +1401,26 @@ export async function observeCanonicalMainHealthForDocumentControlTestingV2(inpu
   mainSha: string;
   mainTreeSha: string;
   capability: GitHubApiCapability;
-  runtimeAuthority?: MainHealthRuntimeAuthority;
-  environment?: NodeJS.ProcessEnv;
 }>): Promise<MainHealthTestingResult<Readonly<{
   projection: WorkSelectionMainHealthProjection;
   repairDecision: MainHealthRepairDecision;
   stableDigest: MainHealthDigest;
 }>>> {
-  const observation = await observeCanonicalMainHealthProvidersBound(input);
-  const repairDecision = compileMainHealthRepairDecisionFromCanonicalObservation(input, observation);
-  const authority = createMainHealthPublicationAuthorityBinding({
-    observation,
-    runtimeAuthority: input.runtimeAuthority,
-    environment: input.environment
+  const observation = await observeWorkSelectionMainHealthProvider(input);
+  const repairDecision = compileMainHealthRepairDecisionFromWorkSelectionObservation(input, observation);
+  const authority = createWorkSelectionMainHealthPublicationAuthority({
+    ...input,
+    hostedProvider: observation.hostedProvider
   });
   return Object.freeze({
     projection: observation.resolution.projection,
     repairDecision,
-    stableDigest: mainHealthPublicationStableDigestFromBinding({
+    stableDigest: mainHealthPublicationStableDigest({
       projection: observation.resolution.projection,
       ledger: observation.resolution.ledger,
       repairDecision,
-      supersession: observation.supersession,
       authority
     }),
-    [mainHealthTestingResultBrand]: true as const
-  });
-}
-
-/** @internal Test-only bound reconciliation observer; never a production API. */
-export async function reconcileCanonicalMainHealthProviderConflictTestingV2(input: Readonly<{
-  repositoryRoot: string;
-  repository: string;
-  defaultBranch: string;
-  mainSha: string;
-  mainTreeSha: string;
-  githubCapability: GitHubApiCapability;
-  runtimeAuthority: MainHealthRuntimeAuthority;
-  environment?: NodeJS.ProcessEnv;
-}>): Promise<MainHealthTestingResult<Awaited<ReturnType<
-  typeof reconcileCanonicalMainHealthProviderConflictBound
->>>> {
-  if (inspectGitHubApiCapability(input.githubCapability).origin !== 'test') {
-    throw new MainHealthGitHubProviderError(
-      'MainHealth testing reconciliation requires an isolated test capability'
-    );
-  }
-  const result = await reconcileCanonicalMainHealthProviderConflictBound(input);
-  return Object.freeze({
-    ...result,
     [mainHealthTestingResultBrand]: true as const
   });
 }

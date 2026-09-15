@@ -14,7 +14,6 @@ import {
   type SecDigest,
   type SecTaskCapsulePlanningContext
 } from '../../src/control/agent/task-capsule.ts';
-import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
 
 const digest = (character: string): SecDigest => `sha256:${character.repeat(64)}`;
 
@@ -49,13 +48,13 @@ function input(): SecOperationReadPlanInput {
         },
         {
           id: 'authority-registry',
-          ref: 'docs/authority.json',
+          ref: '.documentation/documents.json',
           owner: 'documentation-authority-owner',
           revision: 'blob-authority-v1'
         }
       ],
       scopeProposal: {
-        readPaths: ['docs/', 'src/control/agent/'],
+        readPaths: ['.documentation/', 'docs/', 'src/control/agent/'],
         writePaths: ['src/control/agent/'],
         forbiddenPaths: ['.agents/skills/', '.github/workflows/'],
         authorizedResources: ['github:issue/346/comments'],
@@ -70,7 +69,7 @@ function input(): SecOperationReadPlanInput {
     requiredRefs: [
       {
         id: 'authority',
-        ref: 'docs/authority.json',
+        ref: '.documentation/documents.json',
         owner: 'documentation-authority-owner',
         revision: 'blob-authority-v1',
         reasonCode: 'resolve-canonical-owner',
@@ -191,44 +190,15 @@ test('read receipt binds planned owner revision reason and bytes', () => {
   })).toThrow(/planned owner, revision, and reason/u);
 });
 
-test('documentation clause projection binds exact spans to one semantic graph', () => {
+test('retired documentation clause projections cannot re-enter the read contract', () => {
   const source = input();
-  const withoutSelectionDigest = {
-    kind: 'markdown-clauses' as const,
-    compilerInputDigest: digest('1'),
-    semanticGraphDigest: digest('2'),
-    sourceDigest: digest('3'),
-    clauses: [{
-      clauseId: 'clause:owner-boundary',
-      contentDigest: digest('4'),
-      lineStart: 10,
-      lineEnd: 18
-    }]
-  };
-  const projection = {
-    ...withoutSelectionDigest,
-    selectionDigest: sha256(withoutSelectionDigest) as SecDigest
-  };
-  const plan = compileSecOperationReadPlan({
-    ...source,
-    requiredRefs: [{
-      ...source.requiredRefs[0]!,
-      ref: 'docs/development-governance.md',
-      projection
-    }]
-  });
-  expect(plan.requiredRefs[0]!.projection).toEqual(projection);
   expect(() => compileSecOperationReadPlan({
     ...source,
     requiredRefs: [{
       ...source.requiredRefs[0]!,
-      ref: 'docs/development-governance.md',
-      projection: {
-        ...projection,
-        clauses: [{ ...projection.clauses[0]!, lineEnd: 19 }]
-      }
+      projection: { kind: 'markdown-clauses' } as never
     }]
-  })).toThrow(/selectionDigest mismatch/u);
+  })).toThrow(/projection is unsupported/u);
 });
 
 test('plan parser rejects tampering and Skill projection carries exact upstream capsule identity', () => {

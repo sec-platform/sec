@@ -1,0 +1,46 @@
+{
+  "schema": "sec.project/1",
+  "projectId": "sec-example:studio-structured",
+  "sourceScopes": [
+    {
+      "root": "model",
+      "kind": "semantic",
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "contracts",
+      "kind": "design",
+      "editSource": {
+        "mode": "derived"
+      }
+    }
+  ],
+  "modules": {
+    "studio:delivery": "model/delivery.json",
+    "studio:editing": "model/editing.json",
+    "studio:execution": "model/execution.json",
+    "studio:experience": "model/experience.json",
+    "studio:extensions": "model/extensions.json",
+    "studio:languages": "model/languages.json",
+    "studio:searching": "model/searching.json",
+    "studio:standard": "model/standard.json",
+    "studio:studio": "model/studio.json",
+    "studio:workspaces": "model/workspaces.json",
+    "sec/spec/experience": "contracts/experience.json",
+    "sec/spec/policy": "contracts/policy.json",
+    "sec/spec/execution": "contracts/execution.json",
+    "sec/spec/settings": "contracts/settings.json",
+    "sec/spec/search": "contracts/search.json",
+    "sec/spec/vcs": "contracts/vcs.json",
+    "sec/spec/delivery": "contracts/delivery.json",
+    "sec/spec/extension": "contracts/extension.json",
+    "sec/spec/ide": "contracts/ide.json",
+    "sec/spec/workspace": "contracts/workspace.json",
+    "sec/spec/quality": "contracts/quality.json",
+    "sec/spec/language": "contracts/language.json",
+    "sec/spec/editing": "contracts/editing.json"
+  },
+  "targets": {}
+}
