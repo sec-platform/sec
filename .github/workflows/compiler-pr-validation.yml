@@ -50,7 +50,7 @@ jobs:
     steps:
       - name: Resolve proposal against live default, PR, candidate, and actor
         id: request
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           PAYLOAD_JSON: ${{ toJSON(github.event.client_payload) }}
           EVENT_TYPE: ${{ github.event.action }}
@@ -235,7 +235,7 @@ jobs:
     steps:
       - name: Bind activation request to live main, exact draft PR, manifest, and maintainer
         id: request
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           PAYLOAD_JSON: ${{ toJSON(github.event.client_payload) }}
           WORKFLOW_SHA: ${{ github.sha }}
@@ -400,7 +400,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout exact trusted main producer
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
         with:
           ref: ${{ needs.validate-agent-operation-activation-request.outputs.base-sha }}
           fetch-depth: 0
@@ -411,7 +411,7 @@ jobs:
           path: trusted
 
       - name: Checkout exact candidate SUT
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
         with:
           ref: ${{ needs.validate-agent-operation-activation-request.outputs.head-sha }}
           fetch-depth: 0
@@ -436,7 +436,7 @@ jobs:
           bun-version-file: trusted/.bun-version
 
       - name: Cache trusted activation Bun install
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('trusted/bun.lock') }}
@@ -484,7 +484,7 @@ jobs:
       - name: Upload exact Agent operation activation receipt
         id: activation-upload
         if: ${{ steps.compile-activation.outputs.disposition == 'created' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sec-agent-operation-activation-${{ needs.validate-agent-operation-activation-request.outputs.phase }}-${{ needs.validate-agent-operation-activation-request.outputs.request-operation-hex }}
           path: ${{ runner.temp }}/agent-operation-activation.json
@@ -536,7 +536,7 @@ jobs:
       queue: max
     steps:
       - name: Checkout trusted exact default base for Session coordination
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
         with:
           ref: ${{ needs.validate-hosted-request.outputs.base-sha }}
           fetch-depth: 0
@@ -548,7 +548,7 @@ jobs:
           bun-version-file: .bun-version
 
       - name: Cache trusted Session coordinator Bun install
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
@@ -625,7 +625,7 @@ jobs:
 
       - name: Upload canonical parent Action dispatch plan artifact
         id: parent-plan-upload
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.parent-plan.outputs.artifact-name }}
           path: .tmp/codex/verification-action-parent-dispatch-plan.json
@@ -751,7 +751,7 @@ jobs:
 
       - name: Upload sole terminal Verification Session artifact
         id: terminal-session-upload
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sec-verification-session-v2-pr-${{ needs.validate-hosted-request.outputs.pr-number }}-session-${{ needs.validate-hosted-request.outputs.session-revision-hex }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: .tmp/codex/verification-session-artifact.json
@@ -783,7 +783,7 @@ jobs:
       resolution-artifact-name: ${{ steps.resolve.outputs.resolution-artifact-name }}
     steps:
       - name: Checkout trusted exact default base for Action resolution
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
         with:
           ref: ${{ needs.validate-hosted-request.outputs.base-sha }}
           fetch-depth: 0
@@ -795,7 +795,7 @@ jobs:
           bun-version-file: .bun-version
 
       - name: Cache trusted Action resolver Bun install
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
@@ -856,7 +856,7 @@ jobs:
           echo "resolution-artifact-name=$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Upload trusted Action resolution transport
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.resolve.outputs.resolution-artifact-name }}
           path: |
@@ -878,7 +878,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout trusted exact default base for SUT capability preflight
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
         with:
           ref: ${{ needs.validate-hosted-request.outputs.base-sha }}
           fetch-depth: 0
@@ -905,7 +905,7 @@ jobs:
             "$BUN_BIN" install --frozen-lockfile --ignore-scripts
 
       - name: Download trusted Action resolution for SUT capability preflight
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ needs.resolve-verification-action.outputs.resolution-artifact-name }}
           path: .tmp/codex
@@ -918,7 +918,7 @@ jobs:
             --json > .tmp/codex/hosted-sut-capability.json
 
       - name: Upload exact SUT capability observation
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sec-verification-action-sut-capability-v1-${{ needs.resolve-verification-action.outputs.action-key-hex }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: .tmp/codex/hosted-sut-capability.json
@@ -948,7 +948,7 @@ jobs:
       ticket-issued: ${{ steps.ticket.outputs.ticket-issued }}
     steps:
       - name: Checkout trusted exact default base for Action claim
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
         with:
           ref: ${{ needs.validate-hosted-request.outputs.base-sha }}
           fetch-depth: 0
@@ -960,7 +960,7 @@ jobs:
           bun-version-file: .bun-version
 
       - name: Cache exact-base Action claim dependencies
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/sec-hosted-dependency-home/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
@@ -983,13 +983,13 @@ jobs:
             "$BUN_BIN" install --frozen-lockfile --ignore-scripts
 
       - name: Download trusted Action resolution transport
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ needs.resolve-verification-action.outputs.resolution-artifact-name }}
           path: .tmp/codex
 
       - name: Download exact SUT capability observation
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: sec-verification-action-sut-capability-v1-${{ needs.resolve-verification-action.outputs.action-key-hex }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: .tmp/codex/sut-capability
@@ -1014,7 +1014,7 @@ jobs:
           '
 
       - name: Checkout exact candidate for trusted materialization only
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
         with:
           ref: ${{ needs.validate-hosted-request.outputs.head-sha }}
           path: .tmp/codex/candidate
@@ -1064,7 +1064,7 @@ jobs:
           --json
 
       - name: Upload immutable Action start marker
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sec-verification-action-start-v2-${{ needs.resolve-verification-action.outputs.action-key-hex }}
           path: .tmp/codex/verification-action-start-marker.json
@@ -1099,7 +1099,7 @@ jobs:
 
       - name: Upload exact prepared candidate and execution ticket transport
         if: ${{ steps.ticket.outputs.ticket-issued == 'true' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.ticket.outputs.prepared-artifact-name }}
           path: ${{ runner.temp }}/sec-action-prepared
@@ -1127,7 +1127,7 @@ jobs:
       raw-result-digest: ${{ steps.sut.outputs.raw-result-digest }}
     steps:
       - name: Checkout trusted exact default base for SUT facade
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
         with:
           ref: ${{ needs.validate-hosted-request.outputs.base-sha }}
           fetch-depth: 0
@@ -1154,13 +1154,13 @@ jobs:
             "$BUN_BIN" install --frozen-lockfile --ignore-scripts
 
       - name: Download trusted Action resolution transport
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ needs.resolve-verification-action.outputs.resolution-artifact-name }}
           path: .tmp/codex
 
       - name: Download exact prepared candidate ticket transport
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ needs.claim-verification-action.outputs.prepared-artifact-name }}
           path: .tmp/codex/prepared
@@ -1182,7 +1182,7 @@ jobs:
           echo "raw-artifact-name=$RAW_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Upload untrusted raw SUT transport only
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.sut.outputs.raw-artifact-name }}
           path: .tmp/codex/raw/verification-action-raw-observation.json
@@ -1214,7 +1214,7 @@ jobs:
       queue: max
     steps:
       - name: Checkout fresh trusted exact default base for terminal assembly
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
         with:
           ref: ${{ needs.validate-hosted-request.outputs.base-sha }}
           fetch-depth: 0
@@ -1226,7 +1226,7 @@ jobs:
           bun-version-file: .bun-version
 
       - name: Cache fresh terminal assembler Bun install
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
@@ -1237,21 +1237,21 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Download trusted Action resolution transport
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ needs.resolve-verification-action.outputs.resolution-artifact-name }}
           path: .tmp/codex
 
       - name: Download original execution ticket for terminal assembly
         if: ${{ needs.resolve-verification-action.outputs.provider-disposition == 'start-allowed' }}
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ needs.claim-verification-action.outputs.prepared-artifact-name }}
           path: .tmp/codex/prepared
 
       - name: Download raw SUT transport for terminal assembly
         if: ${{ needs.resolve-verification-action.outputs.provider-disposition == 'start-allowed' }}
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ needs.execute-verification-action-sut.outputs.raw-artifact-name }}
           path: .tmp/codex/raw
@@ -1273,7 +1273,7 @@ jobs:
 
       - name: Upload canonical terminal Action artifact
         if: ${{ needs.resolve-verification-action.outputs.provider-disposition == 'start-allowed' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sec-verification-action-v2-${{ needs.resolve-verification-action.outputs.action-key-hex }}
           path: .tmp/codex/verification-action-terminal-artifact.json
@@ -1295,7 +1295,7 @@ jobs:
 
       - name: Upload exact post-upload terminal anchor
         if: ${{ needs.resolve-verification-action.outputs.provider-disposition != 'repair-terminal-status' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sec-verification-action-terminal-anchor-v2-${{ needs.resolve-verification-action.outputs.action-key-hex }}
           path: .tmp/codex/verification-action-terminal-status-anchor.json
@@ -1327,7 +1327,7 @@ jobs:
     steps:
       - name: Bind canonical MainHealth request to live main
         if: ${{ github.event_name == 'repository_dispatch' }}
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           PAYLOAD_JSON: ${{ toJSON(github.event.client_payload) }}
           WORKFLOW_SHA: ${{ github.sha }}
@@ -1371,7 +1371,7 @@ jobs:
 
       - name: Checkout exact pushed main revision
         id: checkout-main
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
         with:
           ref: ${{ github.event.client_payload.payload.mainSha }}
           fetch-depth: 0
@@ -1385,7 +1385,7 @@ jobs:
 
       - name: Cache Bun install
         id: cache-bun
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
