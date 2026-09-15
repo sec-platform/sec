@@ -57,4 +57,4 @@ Public repository visibility means that the project can be inspected and contrib
 
 A future release must state its supported capabilities, targets, compatibility boundary, verification coverage, installation path, and known limitations. Until then, consumers should pin an exact revision and expect architecture and implementation interfaces to change.
 
-Project-owned materials are available under the [MIT License](LICENSE). Third-party dependencies and materials remain subject to their own licenses and notices.
+Repository-owned software and executable engineering material are available under [MPL-2.0](LICENSE). Repository-owned documentation and specifications are available under [CC BY 4.0](LICENSES/CC-BY-4.0.txt). The exact boundary is recorded in [`LICENSES/README.md`](LICENSES/README.md) and [`REUSE.toml`](REUSE.toml); third-party dependencies and materials remain subject to their own licenses and notices.

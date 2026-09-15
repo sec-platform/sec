@@ -29,4 +29,6 @@ SEC 不是低代码运行时、模板市场或自由式整仓 AI 编码器。文
 
 项目仍处于积极研究与开发阶段。仓库包含实现、测试、文档、范本和验证基础设施；一项设计被记录，不代表对应能力已经实现、验证、采用或稳定发布。
 
-开发规则见 [AGENTS.md](AGENTS.md)，贡献说明见 [CONTRIBUTING.md](CONTRIBUTING.md)。项目自有的源码、规范、架构与设计文档、测试及其他可版权工程材料按 [MIT License](LICENSE) 发布；第三方内容继续适用其自身许可证与声明。
+开发规则见 [AGENTS.md](AGENTS.md)，贡献说明见 [CONTRIBUTING.md](CONTRIBUTING.md)。仓库自有的软件、测试、工具、可执行范本以及构建和工作流材料采用 [MPL-2.0](LICENSE)；仓库自有的文档与规范采用 [CC BY 4.0](LICENSES/CC-BY-4.0.txt)。准确范围、署名和引用方式见[许可证映射](LICENSES/README.md)、[作者](AUTHORS.md)与[引用元数据](CITATION.cff)。
+
+MPL-2.0 不附加 Exhibit B。仅使用 SEC 处理其他工程，不会自动让目标工程或生成结果受 MPL 约束；实际复制的 SEC 实现材料继续保留原许可证。第三方内容仍适用其自身许可证与声明。

@@ -1,6 +1,24 @@
 {
   "name": "engineering-compiler",
   "version": "0.1.0",
+  "description": "Local-first Engineering Workspace Compiler for governed, verifiable software evolution.",
+  "license": "MPL-2.0",
+  "author": "Jeremy Yang",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sec-platform/sec.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sec-platform/sec/issues"
+  },
+  "homepage": "https://github.com/sec-platform/sec#readme",
+  "keywords": [
+    "compiler",
+    "developer-tools",
+    "software-engineering",
+    "local-first",
+    "ai-assisted-development"
+  ],
   "private": true,
   "type": "module",
   "source": "./src/interface/cli/cli.ts",

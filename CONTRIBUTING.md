@@ -62,4 +62,6 @@ The project has not yet declared a stable public API. Do not infer compatibility
 
 ## Licensing
 
-By contributing code or documentation to this repository, you agree that your contribution may be distributed under the repository's MIT License. Third-party materials remain subject to their own applicable license and notice requirements.
+By submitting a contribution, you represent that you have the right to provide it under the license assigned to its destination files. Software and executable engineering material are contributed under MPL-2.0; documentation and specifications are contributed under CC BY 4.0. The exact repository classification is in [`LICENSES/README.md`](LICENSES/README.md) and [`REUSE.toml`](REUSE.toml).
+
+Do not submit material whose license is incompatible with that destination. Third-party material must retain its copyright, license, provenance, and any required notices; identify it explicitly in the pull request.
