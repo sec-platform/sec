@@ -508,7 +508,7 @@ jobs:
 
       - name: Download exact integration preflight and recovery artifact
         if: ${{ needs.authorize.outputs.integration-lane == 'open-first-effect' }}
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: sec-branch-closeout-recovery-v1-pr-${{ needs.plan.outputs.pr-number }}-session-${{ needs.plan.outputs.session-revision }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: .
