@@ -484,7 +484,7 @@ jobs:
       - name: Upload exact Agent operation activation receipt
         id: activation-upload
         if: ${{ steps.compile-activation.outputs.disposition == 'created' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sec-agent-operation-activation-${{ needs.validate-agent-operation-activation-request.outputs.phase }}-${{ needs.validate-agent-operation-activation-request.outputs.request-operation-hex }}
           path: ${{ runner.temp }}/agent-operation-activation.json
@@ -625,7 +625,7 @@ jobs:
 
       - name: Upload canonical parent Action dispatch plan artifact
         id: parent-plan-upload
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.parent-plan.outputs.artifact-name }}
           path: .tmp/codex/verification-action-parent-dispatch-plan.json
@@ -751,7 +751,7 @@ jobs:
 
       - name: Upload sole terminal Verification Session artifact
         id: terminal-session-upload
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sec-verification-session-v2-pr-${{ needs.validate-hosted-request.outputs.pr-number }}-session-${{ needs.validate-hosted-request.outputs.session-revision-hex }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: .tmp/codex/verification-session-artifact.json
@@ -856,7 +856,7 @@ jobs:
           echo "resolution-artifact-name=$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Upload trusted Action resolution transport
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.resolve.outputs.resolution-artifact-name }}
           path: |
@@ -918,7 +918,7 @@ jobs:
             --json > .tmp/codex/hosted-sut-capability.json
 
       - name: Upload exact SUT capability observation
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sec-verification-action-sut-capability-v1-${{ needs.resolve-verification-action.outputs.action-key-hex }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: .tmp/codex/hosted-sut-capability.json
@@ -1064,7 +1064,7 @@ jobs:
           --json
 
       - name: Upload immutable Action start marker
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sec-verification-action-start-v2-${{ needs.resolve-verification-action.outputs.action-key-hex }}
           path: .tmp/codex/verification-action-start-marker.json
@@ -1099,7 +1099,7 @@ jobs:
 
       - name: Upload exact prepared candidate and execution ticket transport
         if: ${{ steps.ticket.outputs.ticket-issued == 'true' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.ticket.outputs.prepared-artifact-name }}
           path: ${{ runner.temp }}/sec-action-prepared
@@ -1182,7 +1182,7 @@ jobs:
           echo "raw-artifact-name=$RAW_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Upload untrusted raw SUT transport only
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.sut.outputs.raw-artifact-name }}
           path: .tmp/codex/raw/verification-action-raw-observation.json
@@ -1273,7 +1273,7 @@ jobs:
 
       - name: Upload canonical terminal Action artifact
         if: ${{ needs.resolve-verification-action.outputs.provider-disposition == 'start-allowed' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sec-verification-action-v2-${{ needs.resolve-verification-action.outputs.action-key-hex }}
           path: .tmp/codex/verification-action-terminal-artifact.json
@@ -1295,7 +1295,7 @@ jobs:
 
       - name: Upload exact post-upload terminal anchor
         if: ${{ needs.resolve-verification-action.outputs.provider-disposition != 'repair-terminal-status' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sec-verification-action-terminal-anchor-v2-${{ needs.resolve-verification-action.outputs.action-key-hex }}
           path: .tmp/codex/verification-action-terminal-status-anchor.json

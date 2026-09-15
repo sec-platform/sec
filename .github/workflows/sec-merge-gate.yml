@@ -352,7 +352,7 @@ jobs:
       - name: Upload exact branch closeout recovery artifact
         id: upload-branch-closeout-recovery
         if: ${{ steps.prepare-integration.outputs.integration-lane == 'open-first-effect' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sec-branch-closeout-recovery-v1-pr-${{ needs.plan.outputs.pr-number }}-session-${{ needs.plan.outputs.session-revision }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: |
@@ -620,7 +620,7 @@ jobs:
 
       - name: Retain exact integration and closeout publication projections
         if: always() && !cancelled() && hashFiles('.tmp/codex/integration-projection.json') != ''
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sec-closeout-projections-v1-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: |
