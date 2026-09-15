@@ -142,7 +142,7 @@ test('exact-main health policy binds one stable GitHub Actions app and terminal 
     'persist-credentials': false
   });
   expect(job.steps[2]?.with).toMatchObject({ 'bun-version-file': '.bun-version' });
-  expect(job.steps[3]?.uses).toBe('actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830');
+  expect(job.steps[3]?.uses).toBe('actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9');
 });
 
 

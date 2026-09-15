@@ -501,7 +501,7 @@ test('hosted activation is a lightweight trusted-main artifact producer, not a c
     'agent-operation-activation',
     'Publish exact Agent operation activation receipt'
   );
-  expect(upload.uses).toBe('actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02');
+  expect(upload.uses).toBe('actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a');
   expect(upload.if).toContain("steps.compile-activation.outputs.disposition == 'created'");
   expect(upload.with?.['retention-days']).toBe(90);
   expect(publication.if).toContain("steps.compile-activation.outputs.disposition == 'created'");
@@ -514,7 +514,7 @@ test('exact-head workflow review findings install clean TS jobs and grant provid
   const workflow = parseYaml(
     await readCompilerFile('.github/workflows/compiler-pr-validation.yml')
   ) as Workflow;
-  const cacheAction = 'actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830';
+  const cacheAction = 'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9';
 
   expect(workflow.jobs['coordinate-verification-session']?.permissions?.statuses).toBe('read');
   expect(workflow.jobs['resolve-verification-action']?.permissions?.statuses).toBe('read');

@@ -916,7 +916,7 @@ test('hosted integration splits read-only authorization, terminal status, and me
   expect(plan.steps).toHaveLength(1);
   expect(plan.if).toBeUndefined();
   expect(plan.steps[0]?.uses)
-    .toBe('actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b');
+    .toBe('actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3');
 
   expect(authorize.needs).toBe('plan');
   expect(authorize.if).toBe("${{ needs.plan.outputs.ready == 'true' }}");
