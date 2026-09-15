@@ -1,0 +1,85 @@
+{
+  "schema": "sec.author-module/1",
+  "moduleId": "example:deliverable:batchcommand",
+  "namespace": "example:deliverable:batchcommand",
+  "dialects": {
+    "req": {
+      "languageId": "sec.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {
+    "spec": {
+      "mode": "workspace",
+      "moduleId": "example/spec/deliverable-details"
+    },
+    "forms": {
+      "mode": "workspace",
+      "moduleId": "example:deliverable-definitions"
+    }
+  },
+  "definitions": {
+    "d:App": {
+      "kind": "req:composite",
+      "name": "App",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "operation": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Operation"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Canonical"
+            },
+            "fields": {
+              "on": {
+                "subject": "operation"
+              }
+            }
+          },
+          {
+            "use": {
+              "import": "forms",
+              "export": "BatchCommand"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              },
+              "operation": {
+                "subject": "operation"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    }
+  },
+  "exports": {
+    "App": {
+      "definitionId": "d:App"
+    }
+  }
+}

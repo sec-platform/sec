@@ -3,8 +3,8 @@ import { expect, test } from 'bun:test';
 import {
   createObservedMainHealthInputWithPolicy,
   createRegisteredHostedMainHealthInputs,
-  createTrustedLocalMainHealthInput,
-  createTrustedRuntimeMainHealthCheckProviderPolicyV1
+  createTrustedRuntimeMainHealthCheckProviderPolicyV1,
+  GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY
 } from '../../src/control/main-health/main-health-observation.ts';
 import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../src/control/main-health/provider-policy.ts';
 import type { GitHubCheckObservation } from '../../src/external-capabilities/github-api/contract.ts';
@@ -126,12 +126,31 @@ test('duplicate direct App MainHealth checks remain ambiguous and locked', () =>
 });
 
 test('direct App sourceRunId must bind the exact observed GitHub check id', () => {
-  expect(() => observe([check()], '78')).toThrow('sourceRunId must equal the exact observed check id');
+  expect(() => observe([check()], '78')).toThrow('sourceRunId must equal the exact observed check or workflow run id');
 });
 
 test('hosted registry accepts the exact Actions principal and ignores an unregistered same-name App', () => {
   expect(compileHosted([check()])).toEqual([]);
-  expect(compileHosted([actionsCheck()])).toMatchObject([{ status: 'healthy', allowedLanes: ['ordinary'] }]);
+  expect(compileHosted([actionsCheck()])).toMatchObject([{
+    status: 'healthy',
+    allowedLanes: ['ordinary'],
+    producer: { sourceRunId: '123' }
+  }]);
+});
+
+test('Actions sourceRunId must bind the exact observed workflow run id', () => {
+  expect(() => createObservedMainHealthInputWithPolicy({
+    repository: 'sec-platform/sec',
+    mainSha: MAIN,
+    mainTreeSha: MAIN_TREE,
+    trustRevision: MAIN,
+    observedAt: '2026-08-19T00:00:00.000Z',
+    expiresAt: '2026-08-19T01:00:00.000Z',
+    sourceRunId: '124',
+    sourceRef: `github-check-runs:sec-platform/sec@${MAIN}`,
+    checks: [actionsCheck()],
+    policy: GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY
+  })).toThrow('sourceRunId must equal the exact observed check or workflow run id');
 });
 
 test('hosted registry does not enroll same-App near matches before producer provenance matches', () => {
@@ -156,41 +175,4 @@ test('terminal non-success remains degraded and routes only to repair', () => {
   expect(ledger.allowedLanes).toEqual(['repair']);
   expect(ledger.failureFingerprints).toHaveLength(1);
   expect(ledger.repairWorkPackage).not.toBeNull();
-});
-
-test('durable local runtime receipt projects healthy exact-main input without Actions', () => {
-  const input = createTrustedLocalMainHealthInput({
-    schema: 'sec-trusted-local-main-health-observation-v1',
-    repository: 'sec-platform/sec',
-    mainSha: MAIN,
-    mainTreeSha: MAIN_TREE,
-    trustRevision: MAIN,
-    runtimeRef: RUNTIME_REF,
-    executionId: 'trusted-main-health-example',
-    verificationReceiptDigest: `sha256:${'a'.repeat(64)}`,
-    observedAt: '2026-08-19T00:00:00.000Z',
-    expiresAt: '2026-08-19T01:00:00.000Z'
-  });
-  expect(input).toMatchObject({
-    status: 'healthy',
-    allowedLanes: ['ordinary'],
-    producer: {
-      sourceTransport: 'trusted-local-readback',
-      sourceRunId: 'trusted-main-health-example',
-      sourceRef: RUNTIME_REF,
-      sourceDigest: `sha256:${'a'.repeat(64)}`
-    }
-  });
-  expect(() => createTrustedLocalMainHealthInput({
-    schema: 'sec-trusted-local-main-health-observation-v1',
-    repository: 'sec-platform/sec',
-    mainSha: MAIN,
-    mainTreeSha: MAIN_TREE,
-    trustRevision: MAIN,
-    runtimeRef: RUNTIME_REF,
-    executionId: 'trusted-main-health-example',
-    verificationReceiptDigest: `sha256:${'a'.repeat(64)}`,
-    observedAt: '2026-08-19T01:00:00.000Z',
-    expiresAt: '2026-08-19T00:00:00.000Z'
-  })).toThrow('not exact or fresh');
 });

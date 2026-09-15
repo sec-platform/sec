@@ -4,7 +4,7 @@ import path from 'node:path';
 import { GITHUB_API_BASE_URL, GITHUB_HOST } from '../contract.ts';
 import { GitHubCredentialUnavailableError, readGitHubToken } from '../credential.ts';
 
-export type GitHubApiEffect = 'read' | 'status-write' | 'merge-write';
+export type GitHubApiEffect = 'read' | 'status-write' | 'merge-write' | 'runner-admin';
 
 export type GitHubApiTransport = (
   input: string | URL,
@@ -92,6 +92,9 @@ export type GitHubApiOperation =
   | Readonly<{ kind: 'git-ref'; branch: string }>
   | Readonly<{ kind: 'workflow-run'; runId: string }>
   | Readonly<{ kind: 'check-runs'; sha: string; page: number }>
+  | Readonly<{ kind: 'repository-runners'; page: number }>
+  | Readonly<{ kind: 'create-runner-registration-token' }>
+  | Readonly<{ kind: 'delete-repository-runner'; runnerId: number }>
   | Readonly<{ kind: 'control-inventory-open-counts' }>
   | Readonly<{
       kind: 'control-inventory-review-threads';
@@ -107,7 +110,7 @@ export type GitHubApiOperation =
     }>;
 
 type CompiledGitHubApiRequest = Readonly<{
-  method: 'GET' | 'POST' | 'PUT';
+  method: 'DELETE' | 'GET' | 'POST' | 'PUT';
   path: string;
   body?: unknown;
 }>;
@@ -202,6 +205,15 @@ function compileOperation(
   operation: GitHubApiOperation
 ): CompiledGitHubApiRequest {
   const repo = repository(repositoryName);
+  if (effect === 'runner-admin'
+      && operation.kind !== 'current-user'
+      && operation.kind !== 'collaborator-permission'
+      && operation.kind !== 'create-runner-registration-token'
+      && operation.kind !== 'delete-repository-runner') {
+    throw new GitHubApiProviderError(
+      'GitHub API runner-admin authority permits only fixed runner lifecycle effects'
+    );
+  }
   const read = (path: string, body?: unknown): CompiledGitHubApiRequest =>
     Object.freeze({ method: body === undefined ? 'GET' as const : 'POST' as const, path, body });
   switch (operation.kind) {
@@ -238,6 +250,24 @@ function compileOperation(
       }
       return read(`/repos/${repo}/actions/runs/${operation.runId}`);
     case 'check-runs': return read(`/repos/${repo}/commits/${sha(operation.sha)}/check-runs?per_page=100&page=${page(operation.page)}`);
+    case 'repository-runners':
+      return read(`/repos/${repo}/actions/runners?per_page=100&page=${page(operation.page)}`);
+    case 'create-runner-registration-token':
+      if (effect !== 'runner-admin') {
+        throw new GitHubApiProviderError('GitHub API runner registration requires runner-admin authority');
+      }
+      return Object.freeze({
+        method: 'POST',
+        path: `/repos/${repo}/actions/runners/registration-token`
+      });
+    case 'delete-repository-runner':
+      if (effect !== 'runner-admin') {
+        throw new GitHubApiProviderError('GitHub API runner deletion requires runner-admin authority');
+      }
+      return Object.freeze({
+        method: 'DELETE',
+        path: `/repos/${repo}/actions/runners/${positiveInteger(operation.runnerId, 'runner id')}`
+      });
     case 'control-inventory-open-counts': {
       const parts = repositoryParts(repo);
       return read('/graphql', Object.freeze({
@@ -308,6 +338,7 @@ export function assertGitHubApiCapability(
     ? true
     : value.effect === requiredEffect;
   if (value.repository !== repositoryName || !effectSatisfied
+      || (requiredEffect === 'runner-admin' && value.principal.permission !== 'admin')
       || ((requiredEffect === 'status-write' || requiredEffect === 'merge-write')
         && value.principal.permission !== 'admin'
         && value.principal.permission !== 'maintain')) {
@@ -335,6 +366,9 @@ function issueCapability(input: Readonly<{
       || !['admin', 'maintain', 'write', 'triage', 'read', 'none'].includes(input.principal.permission)
       || typeof input.transport !== 'function') {
     throw new GitHubApiProviderError('GitHub API capability issuance input is invalid');
+  }
+  if (input.effect === 'runner-admin' && input.principal.permission !== 'admin') {
+    throw new GitHubApiProviderError('GitHub API runner-admin capability requires admin permission');
   }
   if ((input.effect === 'status-write' || input.effect === 'merge-write')
       && input.principal.permission !== 'admin' && input.principal.permission !== 'maintain') {
@@ -476,6 +510,17 @@ async function executeWithToken<T>(
       })),
       deadline
     ]);
+    if (response.status === 204) {
+      if (response.ok && compiled.method === 'DELETE'
+          && operation.kind === 'delete-repository-runner'
+          && response.body === null) {
+        return null as T;
+      }
+      throw new GitHubApiProviderError(
+        `GitHub API ${operation.kind} returned an invalid 204 response`,
+        response.status
+      );
+    }
     if (response.body === null || typeof response.body.getReader !== 'function') {
       throw new GitHubApiProviderError('GitHub API response does not expose a bounded streaming body', response.status);
     }
@@ -639,6 +684,9 @@ async function enroll(input: Readonly<{
       || !['admin', 'maintain', 'write', 'triage', 'read', 'none'].includes(permission)) {
     throw new GitHubApiProviderError('GitHub API token repository permission is invalid');
   }
+  if (input.origin === 'production' && input.effect === 'runner-admin' && permission !== 'admin') {
+    throw new GitHubApiProviderError('GitHub API production runner-admin credential requires admin permission');
+  }
   if (input.origin === 'production' && permission !== 'admin' && permission !== 'maintain') {
     throw new GitHubApiProviderError('GitHub API production credential requires maintain/admin permission');
   }
@@ -759,6 +807,14 @@ export async function withGitHubApiMergeWriteSession<T>(input: Readonly<{
   operation: (capability: GitHubApiCapability) => Promise<T>;
 }>): Promise<T> {
   return await withProductionSession({ ...input, effect: 'merge-write' });
+}
+
+export async function withGitHubApiRunnerAdminSession<T>(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  operation: (capability: GitHubApiCapability) => Promise<T>;
+}>): Promise<T> {
+  return await withProductionSession({ ...input, effect: 'runner-admin' });
 }
 
 export async function withGitHubApiReadOperationBudget<T>(input: Readonly<{

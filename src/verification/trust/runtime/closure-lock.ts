@@ -125,11 +125,7 @@ export const TCB_REVIEWED_PROCESS_DISPATCHERS = new Set([
   'src/verification/ci/runtime/verification-action-github-provider.ts::function-declaration:runProcessText::spawnSync#1',
   'src/verification/ci/runtime/verification-session-github.ts::function-declaration:runVerificationSessionGh::spawnSync#1',
   'src/verification/ci/runtime/verification-session.ts::function-declaration:runVerificationSessionCommand::spawnSync#1',
-  'src/development/hooks/install.ts::function-declaration:gitText::spawnSync#1',
-  'src/control/documentation/doctor/cli.ts::function-declaration:captureDocsDoctorIndexTree::spawnSync#1',
-  'src/control/documentation/doctor/cli.ts::function-declaration:captureDocsDoctorIndexTree::spawnSync#2',
-  'src/control/documentation/doctor/cli.ts::function-declaration:readCapturedGitTreeBlob::spawnSync#1',
-  'src/control/documentation/doctor/cli.ts::function-declaration:resolveChangedDocumentPathsSince::spawnSync#1'
+  'src/development/hooks/install.ts::function-declaration:gitText::spawnSync#1'
 ]);
 
 export const TCB_REVIEWED_NETWORK_DISPATCHERS = new Set([

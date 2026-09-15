@@ -1,0 +1,356 @@
+{
+  "schema": "sec.binding-lock/1",
+  "projectId": "sec-example:studio-structured",
+  "resolutionInputs": {
+    "algorithm": "sha256",
+    "digest": "4a1425e10f1c6c59aa58f022f03eb1d9a9f9d66a7443b99fca57165700c038b9",
+    "byteLength": 6099,
+    "format": "application/json; canonical=sorted-keys-compact-utf8"
+  },
+  "bindings": {
+    "module:studio:delivery/dialects/req": "structure",
+    "module:studio:editing/dialects/req": "structure",
+    "module:studio:execution/dialects/req": "structure",
+    "module:studio:experience/dialects/req": "structure",
+    "module:studio:extensions/dialects/req": "structure",
+    "module:studio:languages/dialects/req": "structure",
+    "module:studio:searching/dialects/req": "structure",
+    "module:studio:standard/dialects/req": "structure",
+    "module:studio:studio/dialects/req": "structure",
+    "module:studio:workspaces/dialects/req": "structure",
+    "module:sec/spec/experience/dialects/req": "structure",
+    "module:sec/spec/policy/dialects/req": "structure",
+    "module:sec/spec/execution/dialects/req": "structure",
+    "module:sec/spec/settings/dialects/req": "structure",
+    "module:sec/spec/search/dialects/req": "structure",
+    "module:sec/spec/vcs/dialects/req": "structure",
+    "module:sec/spec/delivery/dialects/req": "structure",
+    "module:sec/spec/extension/dialects/req": "structure",
+    "module:sec/spec/ide/dialects/req": "structure",
+    "module:sec/spec/workspace/dialects/req": "structure",
+    "module:sec/spec/quality/dialects/req": "structure",
+    "module:sec/spec/language/dialects/req": "structure",
+    "module:sec/spec/editing/dialects/req": "structure",
+    "module:studio:delivery/imports/ide": "catalog:ide",
+    "module:studio:delivery/imports/delivery": "catalog:delivery",
+    "module:studio:delivery/imports/quality": "catalog:quality",
+    "module:studio:editing/imports/ide": "catalog:ide",
+    "module:studio:editing/imports/editing": "catalog:editing",
+    "module:studio:execution/imports/ide": "catalog:ide",
+    "module:studio:execution/imports/execution": "catalog:execution",
+    "module:studio:execution/imports/vcs": "catalog:vcs",
+    "module:studio:experience/imports/ide": "catalog:ide",
+    "module:studio:experience/imports/experience": "catalog:experience",
+    "module:studio:extensions/imports/ide": "catalog:ide",
+    "module:studio:extensions/imports/extension": "catalog:extension",
+    "module:studio:extensions/imports/policy": "catalog:policy",
+    "module:studio:extensions/imports/settings": "catalog:settings",
+    "module:studio:languages/imports/ide": "catalog:ide",
+    "module:studio:languages/imports/language": "catalog:language",
+    "module:studio:searching/imports/ide": "catalog:ide",
+    "module:studio:searching/imports/search": "catalog:search",
+    "module:studio:standard/imports/ide": "catalog:ide",
+    "module:studio:standard/imports/search": "catalog:search",
+    "module:studio:standard/imports/delivery": "catalog:delivery",
+    "module:studio:studio/imports/ide": "catalog:ide",
+    "module:studio:studio/imports/search": "catalog:search",
+    "module:studio:studio/imports/delivery": "catalog:delivery",
+    "module:studio:studio/imports/quality": "catalog:quality",
+    "module:studio:workspaces/imports/ide": "catalog:ide",
+    "module:studio:workspaces/imports/workspace": "catalog:workspace"
+  },
+  "nodes": {
+    "structure": {
+      "kind": "language",
+      "subjectId": "sec.requirement-structure",
+      "revision": "46539481fe264751d564d8c3380de6f8e0ab14e82009a5aee656cf8ca607ca76",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "46539481fe264751d564d8c3380de6f8e0ab14e82009a5aee656cf8ca607ca76",
+        "byteLength": 33817,
+        "format": "text/markdown"
+      },
+      "dependencies": [
+        "module-envelope"
+      ],
+      "locations": [
+        "../../docs/作者/结构化源码.md"
+      ]
+    },
+    "module-envelope": {
+      "kind": "library",
+      "subjectId": "sec:design-document:module-envelope",
+      "revision": "d1abd41e1203c43bca065a16b70b6a3db1fab1b771e4da38f211e0b547865663",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "d1abd41e1203c43bca065a16b70b6a3db1fab1b771e4da38f211e0b547865663",
+        "byteLength": 97103,
+        "format": "text/markdown"
+      },
+      "dependencies": [],
+      "locations": [
+        "../../docs/作者/工程源/清单模块与绑定锁.md"
+      ]
+    },
+    "rule-semantics": {
+      "kind": "library",
+      "subjectId": "sec:design-document:rule-semantics",
+      "revision": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+        "byteLength": 46659,
+        "format": "text/markdown"
+      },
+      "dependencies": [],
+      "locations": [
+        "../../docs/作者/需求规则与供给合同.md"
+      ]
+    },
+    "catalog:delivery": {
+      "kind": "library",
+      "subjectId": "sec:design-document:catalog:delivery",
+      "revision": "013f458216cf61b9d8a4c45def27652563bb1c02b8a9b38454481f4e0193c14e",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "013f458216cf61b9d8a4c45def27652563bb1c02b8a9b38454481f4e0193c14e",
+        "byteLength": 10986,
+        "format": "application/json"
+      },
+      "dependencies": [
+        "structure",
+        "rule-semantics"
+      ],
+      "locations": [
+        "contracts/delivery.json"
+      ]
+    },
+    "catalog:editing": {
+      "kind": "library",
+      "subjectId": "sec:design-document:catalog:editing",
+      "revision": "51a33f620f2e9dbd3cb5a069712823b5752f1deeb57db64f9f3958356c808632",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "51a33f620f2e9dbd3cb5a069712823b5752f1deeb57db64f9f3958356c808632",
+        "byteLength": 11394,
+        "format": "application/json"
+      },
+      "dependencies": [
+        "structure",
+        "rule-semantics"
+      ],
+      "locations": [
+        "contracts/editing.json"
+      ]
+    },
+    "catalog:execution": {
+      "kind": "library",
+      "subjectId": "sec:design-document:catalog:execution",
+      "revision": "dd2d0e87896e071399148326ab6d7b4f89cae58c7fd06b32cefb1c236e333a76",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "dd2d0e87896e071399148326ab6d7b4f89cae58c7fd06b32cefb1c236e333a76",
+        "byteLength": 13736,
+        "format": "application/json"
+      },
+      "dependencies": [
+        "structure",
+        "rule-semantics"
+      ],
+      "locations": [
+        "contracts/execution.json"
+      ]
+    },
+    "catalog:experience": {
+      "kind": "library",
+      "subjectId": "sec:design-document:catalog:experience",
+      "revision": "ead7d3f5ce1f17f0e54bec66082479f484027c03644fa01e01edd2331e8c3eec",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "ead7d3f5ce1f17f0e54bec66082479f484027c03644fa01e01edd2331e8c3eec",
+        "byteLength": 13420,
+        "format": "application/json"
+      },
+      "dependencies": [
+        "structure",
+        "rule-semantics"
+      ],
+      "locations": [
+        "contracts/experience.json"
+      ]
+    },
+    "catalog:extension": {
+      "kind": "library",
+      "subjectId": "sec:design-document:catalog:extension",
+      "revision": "3dacc8a28377b8cb86bb1a013b12d59a304eedb5936476548487598291deb7cd",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "3dacc8a28377b8cb86bb1a013b12d59a304eedb5936476548487598291deb7cd",
+        "byteLength": 6638,
+        "format": "application/json"
+      },
+      "dependencies": [
+        "structure",
+        "rule-semantics"
+      ],
+      "locations": [
+        "contracts/extension.json"
+      ]
+    },
+    "catalog:ide": {
+      "kind": "library",
+      "subjectId": "sec:design-document:catalog:ide",
+      "revision": "9d4e236364ac6fe2df84762695a6a8867a21cc16098f196c80138bbd64eacac8",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "9d4e236364ac6fe2df84762695a6a8867a21cc16098f196c80138bbd64eacac8",
+        "byteLength": 4777,
+        "format": "application/json"
+      },
+      "dependencies": [
+        "structure",
+        "rule-semantics"
+      ],
+      "locations": [
+        "contracts/ide.json"
+      ]
+    },
+    "catalog:language": {
+      "kind": "library",
+      "subjectId": "sec:design-document:catalog:language",
+      "revision": "9994f382dbcbc1e36eb5ab57d80aeb85e241ee528921f19ad651682a44a4c64f",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "9994f382dbcbc1e36eb5ab57d80aeb85e241ee528921f19ad651682a44a4c64f",
+        "byteLength": 11155,
+        "format": "application/json"
+      },
+      "dependencies": [
+        "structure",
+        "rule-semantics"
+      ],
+      "locations": [
+        "contracts/language.json"
+      ]
+    },
+    "catalog:policy": {
+      "kind": "library",
+      "subjectId": "sec:design-document:catalog:policy",
+      "revision": "5cc32637489f463026f4fd2c65a8ef88fcc37a835395d04ed081555c18127636",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "5cc32637489f463026f4fd2c65a8ef88fcc37a835395d04ed081555c18127636",
+        "byteLength": 4979,
+        "format": "application/json"
+      },
+      "dependencies": [
+        "structure",
+        "rule-semantics"
+      ],
+      "locations": [
+        "contracts/policy.json"
+      ]
+    },
+    "catalog:quality": {
+      "kind": "library",
+      "subjectId": "sec:design-document:catalog:quality",
+      "revision": "a5f4a9463c748e8be353aa89127fa822e034bfac62357801cb7b659a64647bce",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "a5f4a9463c748e8be353aa89127fa822e034bfac62357801cb7b659a64647bce",
+        "byteLength": 5916,
+        "format": "application/json"
+      },
+      "dependencies": [
+        "structure",
+        "rule-semantics"
+      ],
+      "locations": [
+        "contracts/quality.json"
+      ]
+    },
+    "catalog:search": {
+      "kind": "library",
+      "subjectId": "sec:design-document:catalog:search",
+      "revision": "ba2c833c3019298c0a48cb0c5f454dbe760d71e2bce0c13903d8aaaa7750b819",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "ba2c833c3019298c0a48cb0c5f454dbe760d71e2bce0c13903d8aaaa7750b819",
+        "byteLength": 11966,
+        "format": "application/json"
+      },
+      "dependencies": [
+        "structure",
+        "rule-semantics"
+      ],
+      "locations": [
+        "contracts/search.json"
+      ]
+    },
+    "catalog:settings": {
+      "kind": "library",
+      "subjectId": "sec:design-document:catalog:settings",
+      "revision": "7cb5c4e41434f4d0737ad49c8d70cf84255eeac18f21346a0fe3ad29b78a6e8a",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "7cb5c4e41434f4d0737ad49c8d70cf84255eeac18f21346a0fe3ad29b78a6e8a",
+        "byteLength": 4371,
+        "format": "application/json"
+      },
+      "dependencies": [
+        "structure",
+        "rule-semantics"
+      ],
+      "locations": [
+        "contracts/settings.json"
+      ]
+    },
+    "catalog:vcs": {
+      "kind": "library",
+      "subjectId": "sec:design-document:catalog:vcs",
+      "revision": "667673b7d01018de29973af12e93ccf30ea71410c376ba4f857b385ac3ae1961",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "667673b7d01018de29973af12e93ccf30ea71410c376ba4f857b385ac3ae1961",
+        "byteLength": 3534,
+        "format": "application/json"
+      },
+      "dependencies": [
+        "structure",
+        "rule-semantics"
+      ],
+      "locations": [
+        "contracts/vcs.json"
+      ]
+    },
+    "catalog:workspace": {
+      "kind": "library",
+      "subjectId": "sec:design-document:catalog:workspace",
+      "revision": "cb9257ee0ce8d8a485a63b2567a347efa9233e52343474931bd7f3cfdeb774b0",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "cb9257ee0ce8d8a485a63b2567a347efa9233e52343474931bd7f3cfdeb774b0",
+        "byteLength": 10794,
+        "format": "application/json"
+      },
+      "dependencies": [
+        "structure",
+        "rule-semantics"
+      ],
+      "locations": [
+        "contracts/workspace.json"
+      ]
+    }
+  },
+  "extensions": {
+    "sec.example-design": {
+      "scope": "准确设计资料与字段目录绑定，不是运行实现、目标画像、安装或权限证明；这是有限材料锁，不声称已经封闭全部被引用语义、真实工具链或可信计算基",
+      "missing": [
+        "结构读取器的生产实现",
+        "规则方法和符合性证据",
+        "TS与三个桌面目标的真实画像/工具/资产"
+      ],
+      "bindingLocationSyntax": "module:<moduleId>/dialects/<alias>或module:<moduleId>/imports/<alias>；此范本中的分隔与别名均无歧义"
+    }
+  }
+}

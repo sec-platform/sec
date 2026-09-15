@@ -25,13 +25,14 @@ const PRINCIPAL: GitHubApiPrincipal = Object.freeze({
 });
 
 function capability(input: Readonly<{
-  effect: 'read' | 'status-write' | 'merge-write';
+  effect: 'read' | 'status-write' | 'merge-write' | 'runner-admin';
   transport: GitHubApiTransport;
+  principal?: GitHubApiPrincipal;
 }>): GitHubApiCapability {
   return issueGitHubApiTestCapability({
     repository: 'sec-platform/sec',
     token: TOKEN,
-    principal: PRINCIPAL,
+    principal: input.principal ?? PRINCIPAL,
     effect: input.effect,
     transport: input.transport
   });
@@ -152,6 +153,180 @@ test('status-write authority remains unable to merge a pull request', async () =
     })
   })).rejects.toThrow('requires merge-write authority');
   expect(transportCalls).toBe(0);
+});
+
+test('read authority cannot register or delete runners', async () => {
+  let transportCalls = 0;
+  const api = capability({
+    effect: 'read',
+    transport: async () => {
+      transportCalls += 1;
+      return Response.json({});
+    }
+  });
+  await expect(withGitHubApiTestSession({
+    capability: api,
+    operation: async () => await executeGitHubApiOperation(api, {
+      kind: 'create-runner-registration-token'
+    })
+  })).rejects.toThrow('requires runner-admin authority');
+  await expect(withGitHubApiTestSession({
+    capability: api,
+    operation: async () => await executeGitHubApiOperation(api, {
+      kind: 'delete-repository-runner',
+      runnerId: 42
+    })
+  })).rejects.toThrow('requires runner-admin authority');
+  expect(transportCalls).toBe(0);
+});
+
+test('read authority compiles the bounded repository runner inventory page', async () => {
+  const targets: string[] = [];
+  const api = capability({
+    effect: 'read',
+    transport: async (target) => {
+      targets.push(String(target));
+      return Response.json({ total_count: 0, runners: [] });
+    }
+  });
+  await expect(withGitHubApiTestSession({
+    capability: api,
+    operation: async () => await executeGitHubApiOperation(api, {
+      kind: 'repository-runners',
+      page: 2
+    })
+  })).resolves.toEqual({ total_count: 0, runners: [] });
+  expect(targets).toEqual([
+    'https://api.github.com/repos/sec-platform/sec/actions/runners?per_page=100&page=2'
+  ]);
+});
+
+test('runner-admin capability requires repository admin permission before transport', () => {
+  let transportCalls = 0;
+  for (const permission of ['maintain', 'read'] as const) {
+    expect(() => issueGitHubApiTestCapability({
+      repository: 'sec-platform/sec',
+      token: TOKEN,
+      principal: Object.freeze({ ...PRINCIPAL, permission }),
+      effect: 'runner-admin',
+      transport: async () => {
+        transportCalls += 1;
+        return Response.json({});
+      }
+    })).toThrow('requires admin permission');
+  }
+  expect(transportCalls).toBe(0);
+});
+
+test('runner-admin enrollment rejects maintain and accepts admin repository permission', async () => {
+  const enroll = async (permission: 'admin' | 'maintain') => {
+    const operations: string[] = [];
+    const result = await withGitHubApiTestEnrollmentSession({
+      repository: 'sec-platform/sec',
+      effect: 'runner-admin',
+      readToken: async () => TOKEN,
+      transport: async (target) => {
+        operations.push(new URL(String(target)).pathname);
+        return String(target).endsWith('/user')
+          ? Response.json({ login: 'maintainer', node_id: 'MDQ6VXNlcjE=', id: 900001 })
+          : Response.json({ permission });
+      },
+      operation: async (api) => inspectGitHubApiCapability(api).principal.permission
+    });
+    return Object.freeze({ result, operations });
+  };
+  await expect(enroll('maintain')).rejects.toThrow('requires admin permission');
+  await expect(enroll('admin')).resolves.toEqual({
+    result: 'admin',
+    operations: [
+      '/user',
+      '/repos/sec-platform/sec/collaborators/maintainer/permission'
+    ]
+  });
+});
+
+test('runner-admin compiles fixed runner effects and accepts DELETE 204 empty success', async () => {
+  const observations: Array<Readonly<{ url: string; method: string | undefined; body: string | null }>> = [];
+  const api = capability({
+    effect: 'runner-admin',
+    principal: Object.freeze({ ...PRINCIPAL, permission: 'admin' }),
+    transport: async (target, init) => {
+      observations.push(Object.freeze({
+        url: String(target),
+        method: init?.method,
+        body: init?.body === undefined ? null : String(init.body)
+      }));
+      return init?.method === 'DELETE'
+        ? new Response(null, { status: 204 })
+        : Response.json({ token: 'transient-registration-token' });
+    }
+  });
+  await withGitHubApiTestSession({
+    capability: api,
+    operation: async () => {
+      expect(await executeGitHubApiOperation(api, {
+        kind: 'create-runner-registration-token'
+      })).toEqual({ token: 'transient-registration-token' });
+      expect(await executeGitHubApiOperation(api, {
+        kind: 'delete-repository-runner',
+        runnerId: 42
+      })).toBeNull();
+    }
+  });
+  expect(observations).toEqual([
+    {
+      url: 'https://api.github.com/repos/sec-platform/sec/actions/runners/registration-token',
+      method: 'POST',
+      body: null
+    },
+    {
+      url: 'https://api.github.com/repos/sec-platform/sec/actions/runners/42',
+      method: 'DELETE',
+      body: null
+    }
+  ]);
+});
+
+test('runner-admin authority cannot invoke unrelated read or write operations', async () => {
+  let transportCalls = 0;
+  const api = capability({
+    effect: 'runner-admin',
+    principal: Object.freeze({ ...PRINCIPAL, permission: 'admin' }),
+    transport: async () => {
+      transportCalls += 1;
+      return Response.json({});
+    }
+  });
+  for (const operation of [
+    { kind: 'repository' as const },
+    {
+      kind: 'create-commit-status' as const,
+      sha: SHA,
+      status: {
+        state: 'success' as const,
+        context: 'ci/security',
+        description: 'passed',
+        targetUrl: 'https://github.com/sec-platform/sec/actions/runs/1'
+      }
+    }
+  ]) {
+    await expect(withGitHubApiTestSession({
+      capability: api,
+      operation: async () => await executeGitHubApiOperation(api, operation)
+    })).rejects.toThrow('permits only fixed runner lifecycle effects');
+  }
+  expect(transportCalls).toBe(0);
+});
+
+test('non-delete 204 cannot impersonate a successful JSON operation', async () => {
+  const api = capability({
+    effect: 'read',
+    transport: async () => new Response(null, { status: 204 })
+  });
+  await expect(withGitHubApiTestSession({
+    capability: api,
+    operation: async () => await executeGitHubApiOperation(api, { kind: 'repository' })
+  })).rejects.toThrow('returned an invalid 204 response');
 });
 
 test('status and merge authorities compile only their fixed repository method and path', async () => {

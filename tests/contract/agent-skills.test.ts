@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { afterAll, expect, test } from 'bun:test';
+import { expect, test } from 'bun:test';
 import { parse as parseYaml } from 'yaml';
 
 import { projectRepositorySourceGovernance } from '../../src/brownfield/repository-audit/cli.ts';
@@ -17,16 +17,16 @@ import {
 } from '../../src/control/agent/skill.ts';
 import {
   activeDocumentationPaths,
-  parseDocumentationAuthorityRegistry
-} from '../../src/control/documentation/authority.ts';
-import { selectTestsForSources } from '../../src/verification/test-impact/runtime/impact.ts';
-import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
+  isActiveDocumentationPath,
+  parseDocumentationIdentityRegistry
+} from '../../src/control/documentation/active.ts';
+import {
+  classifyTestImpactSource,
+  testImpactModuleIdsForSourceKind
+} from '../../src/verification/test-impact/contract/ownership.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 const SKILLS_ROOT = path.join(REPOSITORY_ROOT, '.agents', 'skills');
-const testImpactFixture = await acquireExactRepositoryTestImpactProviderFixture(REPOSITORY_ROOT);
-const TEST_IMPACT_SOURCE_PROVIDER = testImpactFixture.provider;
-afterAll(() => testImpactFixture.dispose());
 
 interface SkillFrontmatter {
   description?: unknown;
@@ -52,45 +52,6 @@ function trackedRepositoryFiles(): string[] {
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`git ls-files failed: ${result.stderr.trim()}`);
   return result.stdout.split('\0').filter(Boolean).sort();
-}
-
-function readGitBlob(repositoryRef: string, repositoryPath: string): Uint8Array;
-function readGitBlob(repositoryRef: string, repositoryPath: string, allowMissing: true): Uint8Array | null;
-function readGitBlob(
-  repositoryRef: string,
-  repositoryPath: string,
-  allowMissing = false
-): Uint8Array | null {
-  if (repositoryRef !== 'HEAD'
-      && !/^(?:[0-9a-f]{40}|refs\/remotes\/[A-Za-z0-9._-]+\/[A-Za-z0-9._\/-]+)$/u.test(repositoryRef)) {
-    throw new Error(`Git fixture ref is noncanonical: ${repositoryRef}`);
-  }
-  if (!/^docs\/[A-Za-z0-9._\/-]+$/u.test(repositoryPath)) {
-    throw new Error(`Git fixture path is noncanonical: ${repositoryPath}`);
-  }
-  const result = spawnSync('git', ['show', `${repositoryRef}:${repositoryPath}`], {
-    cwd: REPOSITORY_ROOT,
-    windowsHide: true
-  });
-  if (result.error) throw result.error;
-  if (result.status !== 0) {
-    if (allowMissing) return null;
-    throw new Error(`git show ${repositoryRef}:${repositoryPath} failed: ${result.stderr.toString().trim()}`);
-  }
-  return new Uint8Array(result.stdout);
-}
-
-function listGitWorkPackagePaths(repositoryRef: string): readonly string[] {
-  const result = spawnSync(
-    'git',
-    ['ls-tree', '-r', '--name-only', repositoryRef, '--', 'docs/work-packages'],
-    { cwd: REPOSITORY_ROOT, encoding: 'utf8', windowsHide: true }
-  );
-  if (result.error) throw result.error;
-  if (result.status !== 0) {
-    throw new Error(`git ls-tree ${repositoryRef} failed: ${result.stderr.trim()}`);
-  }
-  return result.stdout.split('\n').filter(Boolean);
 }
 
 test('SEC skill inventory conforms to one strict AgentOperation contract', async () => {
@@ -144,10 +105,10 @@ test('heuristic registry maps each irreducible behavior to exactly one Skill', (
   }
 });
 
-test('all tracked Markdown is explicitly classified and active registry paths have coverage', async () => {
+test('all tracked Markdown is explicitly classified and current document identities have coverage', async () => {
   const tracked = trackedRepositoryFiles();
-  const registry = parseDocumentationAuthorityRegistry(
-    await readFile(path.join(REPOSITORY_ROOT, 'docs/authority.json'), 'utf8')
+  const registry = parseDocumentationIdentityRegistry(
+    await readFile(path.join(REPOSITORY_ROOT, '.documentation/documents.json'), 'utf8')
   );
   const active = new Set(activeDocumentationPaths(registry));
 
@@ -155,6 +116,12 @@ test('all tracked Markdown is explicitly classified and active registry paths ha
     const coverage = resolveSecMarkdownSkillCoverage(file);
     if (!coverage) throw new Error(`Tracked Markdown is unclassified: ${file}`);
     if (active.has(file)) expect(coverage.kind).toBeDefined();
+  }
+  for (const { path: file } of registry.documents) {
+    expect(resolveSecMarkdownSkillCoverage(file)).not.toBeNull();
+    if (/^(?:examples|alternatives)\//u.test(file)) {
+      expect(resolveSecMarkdownSkillCoverage(file)?.kind).toBe('repository-content');
+    }
   }
 
   for (const unknown of [
@@ -213,7 +180,7 @@ test('registered heuristic runtime surfaces resolve at least one Skill', () => {
     ]
   });
   expect(resolveSecRepositoryHeuristicSkills('AGENTS.md')).toEqual(agentsCoverage!.skills);
-  expect(resolveSecRepositoryHeuristicSkills('docs/authority.json')).toEqual([
+  expect(resolveSecRepositoryHeuristicSkills('.documentation/documents.json')).toEqual([
     'sec-heuristic-governance',
     'sec-repository-audit'
   ]);
@@ -226,19 +193,22 @@ test('registered heuristic runtime surfaces resolve at least one Skill', () => {
   ]);
 });
 
-test('documentation and Agent trust roots have focused governance ownership', () => {
-  const skillSelection = selectTestsForSources(
-    ['.agents/skills/sec-worker-development/SKILL.md'],
-    TEST_IMPACT_SOURCE_PROVIDER
+test('documentation and Agent trust-root kinds have focused governance ownership', () => {
+  // Repository-wide selection remains owned by the canonical affected-selection
+  // operation; this contract fixes only the stable source-kind ownership relation.
+  const skillKind = classifyTestImpactSource(
+    '.agents/skills/sec-worker-development/SKILL.md',
+    isActiveDocumentationPath
   );
-  expect(skillSelection.owners).toEqual(['control.agent']);
-  expect(skillSelection.fast.length).toBeGreaterThan(0);
+  expect(skillKind).toBe('agent-skill');
+  expect(testImpactModuleIdsForSourceKind(skillKind)).toEqual(['control.agent']);
 
-  const documentationSelection = selectTestsForSources(
-    ['docs/authority.json'],
-    TEST_IMPACT_SOURCE_PROVIDER
+  const documentationKind = classifyTestImpactSource(
+    '.documentation/documents.json',
+    isActiveDocumentationPath
   );
-  expect(documentationSelection.owners).toEqual(['control.documentation']);
+  expect(documentationKind).toBe('active-documentation');
+  expect(testImpactModuleIdsForSourceKind(documentationKind)).toEqual(['control.documentation']);
 });
 
 test('external capability ledger binds repository authority and keeps rejected standing providers retired', async () => {
@@ -258,17 +228,4 @@ test('external capability ledger binds repository authority and keeps rejected s
   expect(ledger.binding).toEqual({ repository: 'sec-platform/sec' });
   expect(graphItLive?.decision).toBe('reject-with-rationale');
   expect(graphItLive?.lifecycle).toBe('retired');
-});
-
-test('repository documentation resolves registry, the exact package census, and zero docs errors', async () => {
-  const { scanDocumentation } = await import('../../src/control/documentation/doctor/cli.ts');
-  const result = await scanDocumentation({
-    docsRoot: path.join(REPOSITORY_ROOT, 'docs'),
-    repositoryRoot: REPOSITORY_ROOT,
-    readControlPlaneBlob: async (repositoryPath) => readGitBlob('HEAD', repositoryPath),
-    listControlPlanePackagePaths: async () => listGitWorkPackagePaths('HEAD'),
-    readDefaultBranchBlob: async (defaultBranchRef, repositoryPath) =>
-      readGitBlob(defaultBranchRef, repositoryPath, true)
-  });
-  expect(result.errors).toEqual([]);
 });

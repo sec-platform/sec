@@ -56,6 +56,7 @@ import {
 export type CompileRepositorySourceProgramCompilationInput = Readonly<{
   workspaceSnapshot: PhysicalWorkspaceSourceSnapshot;
   cacheProvider?: RepositoryCompilationCacheProvider;
+  cacheAccess?: 'read-only' | 'read-write';
   projectInput?: WorkspaceTypeScriptProjectInput;
   repositoryRoot?: string;
   reviewedProcessDispatchers?: readonly string[];
@@ -261,10 +262,12 @@ function compileRepositorySourceProgramCompilationCore(
   }
   const incrementalExactMs = performance.now() - incrementalExactStarted;
   // TypeScript fact shards are already complete, generation-bound and
-  // validated here. Persist this consumer-independent acceleration hint before
-  // later TestObservation/Repository projections so their interruption cannot
-  // discard a finished compiler generation.
-  if (cacheHint !== null && exactLoaded?.status !== 'hit') {
+  // validated here. A read-write consumer may persist this acceleration hint
+  // before later projections; a read-only consumer preserves the same semantic
+  // result without admitting the optional cache Effect.
+  if (cacheHint !== null
+      && exactLoaded?.status !== 'hit'
+      && input.cacheAccess !== 'read-only') {
     sourceProgramCompilationCheckpoint(operation, 'cache-publish', 'start');
     try {
       const published = cacheHint.publish(typeScriptCompilation.state.factShards);

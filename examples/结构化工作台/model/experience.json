@@ -1,0 +1,287 @@
+{
+  "schema": "sec.author-module/1",
+  "moduleId": "studio:experience",
+  "namespace": "studio.experience",
+  "dialects": {
+    "req": {
+      "languageId": "sec.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {
+    "ide": {
+      "mode": "workspace",
+      "moduleId": "sec/spec/ide"
+    },
+    "experience": {
+      "mode": "workspace",
+      "moduleId": "sec/spec/experience"
+    }
+  },
+  "definitions": {
+    "d:Experience": {
+      "kind": "req:composite",
+      "name": "Experience",
+      "body": {
+        "parameters": {
+          "s": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "ide",
+                "export": "Workbench"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "import": "experience",
+              "export": "Layout"
+            },
+            "fields": {
+              "on": {
+                "parameter": "s",
+                "path": [
+                  "shell"
+                ]
+              },
+              "editor": {
+                "parameter": "s",
+                "path": [
+                  "editor"
+                ]
+              },
+              "workspace": {
+                "parameter": "s",
+                "path": [
+                  "workspace"
+                ]
+              },
+              "search": {
+                "parameter": "s",
+                "path": [
+                  "search"
+                ]
+              },
+              "diagnostics": {
+                "parameter": "s",
+                "path": [
+                  "diagnostics"
+                ]
+              },
+              "terminal": {
+                "parameter": "s",
+                "path": [
+                  "terminal"
+                ]
+              },
+              "panes": {
+                "enum": {
+                  "import": "experience",
+                  "export": "WorkbenchLayout"
+                }
+              },
+              "visibility": {
+                "enum": {
+                  "import": "experience",
+                  "export": "TaskContext"
+                }
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "experience",
+              "export": "Commands"
+            },
+            "fields": {
+              "on": {
+                "parameter": "s",
+                "path": [
+                  "shell"
+                ]
+              },
+              "targets": [
+                {
+                  "parameter": "s",
+                  "path": [
+                    "workspace"
+                  ]
+                },
+                {
+                  "parameter": "s",
+                  "path": [
+                    "editor"
+                  ]
+                },
+                {
+                  "parameter": "s",
+                  "path": [
+                    "search"
+                  ]
+                },
+                {
+                  "parameter": "s",
+                  "path": [
+                    "replace"
+                  ]
+                },
+                {
+                  "parameter": "s",
+                  "path": [
+                    "languages"
+                  ]
+                },
+                {
+                  "parameter": "s",
+                  "path": [
+                    "tasks"
+                  ]
+                },
+                {
+                  "parameter": "s",
+                  "path": [
+                    "terminal"
+                  ]
+                },
+                {
+                  "parameter": "s",
+                  "path": [
+                    "debug"
+                  ]
+                },
+                {
+                  "parameter": "s",
+                  "path": [
+                    "tests"
+                  ]
+                },
+                {
+                  "parameter": "s",
+                  "path": [
+                    "vcs"
+                  ]
+                },
+                {
+                  "parameter": "s",
+                  "path": [
+                    "extensions"
+                  ]
+                },
+                {
+                  "parameter": "s",
+                  "path": [
+                    "settings"
+                  ]
+                }
+              ],
+              "access": [
+                {
+                  "enum": {
+                    "import": "experience",
+                    "export": "Menu"
+                  }
+                },
+                {
+                  "enum": {
+                    "import": "experience",
+                    "export": "Palette"
+                  }
+                },
+                {
+                  "enum": {
+                    "import": "experience",
+                    "export": "Keyboard"
+                  }
+                }
+              ],
+              "registry": {
+                "enum": {
+                  "import": "experience",
+                  "export": "TypedCommandSchema"
+                }
+              },
+              "enablement": {
+                "enum": {
+                  "import": "experience",
+                  "export": "CurrentContext"
+                }
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "experience",
+              "export": "Accessibility"
+            },
+            "fields": {
+              "on": {
+                "parameter": "s",
+                "path": [
+                  "shell"
+                ]
+              },
+              "focus": {
+                "enum": {
+                  "import": "experience",
+                  "export": "DeterministicKeyboardRoute"
+                }
+              },
+              "labels": {
+                "enum": {
+                  "import": "experience",
+                  "export": "AccessibleNames"
+                }
+              },
+              "status": {
+                "enum": {
+                  "import": "experience",
+                  "export": "TextAndAssistiveNotification"
+                }
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "experience",
+              "export": "Appearance"
+            },
+            "fields": {
+              "on": {
+                "parameter": "s",
+                "path": [
+                  "shell"
+                ]
+              },
+              "theme": {
+                "enum": {
+                  "import": "experience",
+                  "export": "SemanticTokens"
+                }
+              },
+              "locale": {
+                "enum": {
+                  "import": "experience",
+                  "export": "MessageCatalog"
+                }
+              },
+              "missingText": {
+                "enum": {
+                  "import": "experience",
+                  "export": "VisibleFallback"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "Experience": {
+      "definitionId": "d:Experience"
+    }
+  }
+}

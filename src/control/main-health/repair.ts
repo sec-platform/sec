@@ -13,7 +13,6 @@ export type MainHealthRepairReasonCode =
   | 'repair-provider-missing'
   | 'repair-provider-unavailable'
   | 'repair-provider-invalid'
-  | 'repair-provider-conflict'
   | 'repair-ledger-invalid'
   | 'repair-ledger-expired'
   | 'repair-ledger-identity-drift'
@@ -55,7 +54,6 @@ export type MainHealthRepairObservation = Readonly<
   | { kind: 'provider-missing'; observationRef: MainHealthDigest }
   | { kind: 'provider-unavailable'; observationRef: MainHealthDigest }
   | { kind: 'provider-invalid'; observationRef: MainHealthDigest }
-  | { kind: 'provider-conflict'; observationRef: MainHealthDigest }
 >;
 
 function blocked(
@@ -89,9 +87,7 @@ export function compileMainHealthRepairDecision(input: Readonly<{
       ? 'repair-provider-missing'
       : input.observation.kind === 'provider-unavailable'
         ? 'repair-provider-unavailable'
-        : input.observation.kind === 'provider-conflict'
-          ? 'repair-provider-conflict'
-          : 'repair-provider-invalid';
+        : 'repair-provider-invalid';
     return blocked(reasonCode, observationDigest, 'locked');
   }
   const lane = resolveRepairMainHealthLane({

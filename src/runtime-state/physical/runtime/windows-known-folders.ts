@@ -63,9 +63,11 @@ function windowsKnownFolderError(
 
 /**
  * Resolve a Windows filesystem root from the operating-system
- * Known Folder owner. Environment variables are deliberately not accepted as
- * authority: service, login and isolated process environments may omit or
- * redirect them while the user token still has one canonical folder binding.
+ * Known Folder owner. Caller-supplied path strings are deliberately not
+ * accepted as authority. SHGetKnownFolderPath may itself consult or expand
+ * the coherent current-user process environment according to Windows folder
+ * registration; this boundary does not claim that the OS result is
+ * independent of those native inputs.
  */
 export async function resolveWindowsKnownFolderPath(
   folder: WindowsKnownFolder

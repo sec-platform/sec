@@ -14,13 +14,23 @@ test('Docker Windows installation profile rejects unknown state and descriptor a
     ...DOCKER_WINDOWS_INSTALLATION_PROFILE,
     environment: {
       ...DOCKER_WINDOWS_INSTALLATION_PROFILE.environment,
-      temp: {
-        ...DOCKER_WINDOWS_INSTALLATION_PROFILE.environment.temp,
-        childDescriptor:
-          DOCKER_WINDOWS_INSTALLATION_PROFILE.environment.profile.childDescriptor
+      windows: {
+        ...DOCKER_WINDOWS_INSTALLATION_PROFILE.environment.windows,
+        rootChildDescriptor:
+          DOCKER_WINDOWS_INSTALLATION_PROFILE.installation.directoryChildDescriptor
       }
     }
   })).toThrow('child descriptors must be unique');
+  expect(() => parseDockerWindowsInstallationProfile({
+    ...DOCKER_WINDOWS_INSTALLATION_PROFILE,
+    environment: {
+      ...DOCKER_WINDOWS_INSTALLATION_PROFILE.environment,
+      localAppData: {
+        ...DOCKER_WINDOWS_INSTALLATION_PROFILE.environment.localAppData,
+        childDescriptor: 43
+      }
+    }
+  })).toThrow();
   expect(() => parseDockerWindowsInstallationProfile({
     ...DOCKER_WINDOWS_INSTALLATION_PROFILE,
     environment: {

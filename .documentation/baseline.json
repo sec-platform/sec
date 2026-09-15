@@ -1,0 +1,50 @@
+{
+  "schema": "sec.documentation-baseline/1",
+  "source_set_sha256": "d6e7d63e9da5ae5a5cb6a0463b9dfc4efeed147d1146a908f1f3930ca02bb9b6",
+  "source_root": "..",
+  "source_roots": [
+    "AGENTS.md",
+    "README.md",
+    ".documentation",
+    "alternatives",
+    "docs/README.md",
+    "docs/内容索引.md",
+    "docs/任务路线.md",
+    "docs/产品",
+    "docs/作者",
+    "docs/依据",
+    "docs/信息",
+    "docs/决策",
+    "docs/开发",
+    "docs/架构",
+    "docs/演进",
+    "docs/状态",
+    "docs/维护",
+    "docs/编译",
+    "docs/运行",
+    "docs/领域",
+    "examples",
+    "tools"
+  ],
+  "source_manifest": "source-manifest.json",
+  "audited_namespaces": [
+    "docs",
+    "public-docs"
+  ],
+  "non_documentation_roots": [
+    "docs/work",
+    "docs/work-packages",
+    "docs/roadmap.md",
+    "docs/governance",
+    "docs/archive/library-reuse/2026-09-07"
+  ],
+  "excluded_from_source_hash": [
+    ".documentation/baseline.json",
+    ".documentation/source-manifest.json"
+  ],
+  "entry": "../README.md",
+  "delivery_number": "086",
+  "archive_name": "SEC-086.zip",
+  "scope": "Current integrated target design; no historical-document navigation or dependency on previous packages.",
+  "authority_limit": "Content integrity only; not a signature, approval, product implementation or semantic-completeness proof."
+}

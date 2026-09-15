@@ -199,7 +199,6 @@ test('MainHealth observation provenance changes receipt digest but not health re
   const base = createMainHealthLedger(healthyInput());
   const cases: readonly [string, Partial<MainHealthLedgerInput>][] = [
     ['producer identity', { producer: { ...producer(), identity: 'other-runtime' } }],
-    ['source transport', { producer: { ...producer(), sourceTransport: 'trusted-local-readback' } }],
     ['source run', { producer: { ...producer(), sourceRunId: 'run-2' } }],
     ['source ref', { producer: { ...producer(), sourceRef: 'refs/heads/main@2' } }],
     ['source digest', { producer: { ...producer(), sourceDigest: D_B } }],
@@ -213,6 +212,9 @@ test('MainHealth observation provenance changes receipt digest but not health re
     expect(candidate.healthRevision, label).toBe(base.healthRevision);
     expect(candidate.ledgerDigest, label).not.toBe(base.ledgerDigest);
   }
+  expect(() => createMainHealthLedger(healthyInput({
+    producer: { ...producer(), sourceTransport: 'trusted-local-readback' as never }
+  }))).toThrow('producer.sourceTransport is invalid');
 });
 
 test('MainHealth canonicalizes set ordering and rejects duplicate/unknown members', () => {

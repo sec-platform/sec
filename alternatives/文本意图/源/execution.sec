@@ -1,0 +1,50 @@
+// 需求作者源；定义允许的产品行为，不执行安装或构造运行对象。
+import "sec/spec/ide" as ide;
+import "sec/spec/execution" as execution;
+import "sec/spec/vcs" as vcs;
+
+export design Execution(s: ide.Workbench) {
+  require execution.Tasks {
+    on: s.tasks,
+    workspace: s.workspace,
+    selection: execution.DeclaredEntries,
+    inputs: execution.ArgumentVector,
+    effect: execution.RuntimeGrant,
+    lifetime: execution.OwnedScope
+  };
+
+  require execution.Terminal {
+    on: s.terminal,
+    tasks: s.tasks,
+    input: execution.OrderedNoUnknownReplay,
+    streams: execution.SeparateWithGaps,
+    lifetime: execution.ExplicitCloseAndReconcile
+  };
+
+  require execution.Debug {
+    on: s.debug,
+    tasks: s.tasks,
+    documents: s.documents,
+    capability: execution.Negotiated,
+    source: execution.LoadedArtifact,
+    handles: execution.StopScoped,
+    controls: execution.NoDuplicateUncertainCommand
+  };
+
+  require execution.Tests {
+    on: s.tests,
+    tasks: s.tasks,
+    workspace: s.workspace,
+    discovery: execution.LazyCoverageExplicit,
+    input: execution.ExactCandidate,
+    outcomes: execution.NoCasesNotPass
+  };
+
+  require vcs.Integration {
+    on: s.vcs,
+    workspace: s.workspace,
+    view: vcs.WorktreeIndexCommitSeparate,
+    selection: vcs.Explicit,
+    merge: vcs.CandidateAndPreconditions
+  };
+}

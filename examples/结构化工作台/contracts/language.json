@@ -1,0 +1,387 @@
+{
+  "schema": "sec.author-module/1",
+  "moduleId": "sec/spec/language",
+  "namespace": "spec.language",
+  "dialects": {
+    "req": {
+      "languageId": "sec.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {},
+  "definitions": {
+    "v:ExplicitUnavailable": {
+      "kind": "req:enum-value",
+      "name": "ExplicitUnavailable",
+      "body": {
+        "nominalIdentity": "sec/spec/language#ExplicitUnavailable"
+      }
+    },
+    "v:References": {
+      "kind": "req:enum-value",
+      "name": "References",
+      "body": {
+        "nominalIdentity": "sec/spec/language#References"
+      }
+    },
+    "v:CandidateNotEstablishedFact": {
+      "kind": "req:enum-value",
+      "name": "CandidateNotEstablishedFact",
+      "body": {
+        "nominalIdentity": "sec/spec/language#CandidateNotEstablishedFact"
+      }
+    },
+    "v:Hover": {
+      "kind": "req:enum-value",
+      "name": "Hover",
+      "body": {
+        "nominalIdentity": "sec/spec/language#Hover"
+      }
+    },
+    "v:Completion": {
+      "kind": "req:enum-value",
+      "name": "Completion",
+      "body": {
+        "nominalIdentity": "sec/spec/language#Completion"
+      }
+    },
+    "v:Definition": {
+      "kind": "req:enum-value",
+      "name": "Definition",
+      "body": {
+        "nominalIdentity": "sec/spec/language#Definition"
+      }
+    },
+    "v:Signature": {
+      "kind": "req:enum-value",
+      "name": "Signature",
+      "body": {
+        "nominalIdentity": "sec/spec/language#Signature"
+      }
+    },
+    "v:ByProducerScopeAndRevision": {
+      "kind": "req:enum-value",
+      "name": "ByProducerScopeAndRevision",
+      "body": {
+        "nominalIdentity": "sec/spec/language#ByProducerScopeAndRevision"
+      }
+    },
+    "v:NegotiateExact": {
+      "kind": "req:enum-value",
+      "name": "NegotiateExact",
+      "body": {
+        "nominalIdentity": "sec/spec/language#NegotiateExact"
+      }
+    },
+    "v:VersionedGroup": {
+      "kind": "req:enum-value",
+      "name": "VersionedGroup",
+      "body": {
+        "nominalIdentity": "sec/spec/language#VersionedGroup"
+      }
+    },
+    "v:EffectsAndEvaluationOrder": {
+      "kind": "req:enum-value",
+      "name": "EffectsAndEvaluationOrder",
+      "body": {
+        "nominalIdentity": "sec/spec/language#EffectsAndEvaluationOrder"
+      }
+    },
+    "r:Providers": {
+      "kind": "req:rule",
+      "name": "Providers",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "LanguageServiceSet"
+              ]
+            },
+            "meaning": "语言服务集合"
+          },
+          "documents": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "DocumentSpace"
+              ]
+            },
+            "meaning": "输入的文档"
+          },
+          "settings": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Configuration"
+              ]
+            },
+            "meaning": "语言配置来源"
+          },
+          "capability": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/language#NegotiateExact"
+              ]
+            },
+            "meaning": "逐方法、编码和版本协商"
+          },
+          "unsupported": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/language#ExplicitUnavailable"
+              ]
+            },
+            "meaning": "未支持与零结果区分"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/需求规则与供给合同.md",
+          "section": "language.Providers",
+          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Diagnostics": {
+      "kind": "req:rule",
+      "name": "Diagnostics",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "DiagnosticSet"
+              ]
+            },
+            "meaning": "诊断集合"
+          },
+          "producers": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "LanguageServiceSet"
+              ]
+            },
+            "meaning": "生产者范围"
+          },
+          "documents": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "DocumentSpace"
+              ]
+            },
+            "meaning": "输入源"
+          },
+          "publication": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/language#ByProducerScopeAndRevision"
+              ]
+            },
+            "meaning": "发布及清除绑定生产者、范围、版本和请求代"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/需求规则与供给合同.md",
+          "section": "language.Diagnostics",
+          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Refactoring": {
+      "kind": "req:rule",
+      "name": "Refactoring",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "LanguageServiceSet"
+              ]
+            },
+            "meaning": "重构服务"
+          },
+          "documents": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "DocumentSpace"
+              ]
+            },
+            "meaning": "目标模型"
+          },
+          "workspace": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Workspace"
+              ]
+            },
+            "meaning": "文件和资源变更范围"
+          },
+          "edits": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/language#VersionedGroup"
+              ]
+            },
+            "meaning": "整组编辑的前像与外部范围语义固定"
+          },
+          "preservation": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/language#EffectsAndEvaluationOrder"
+              ]
+            },
+            "meaning": "声称保持的改签名/更名需保留实参次序和效果"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/需求规则与供给合同.md",
+          "section": "language.Refactoring",
+          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Assistance": {
+      "kind": "req:rule",
+      "name": "Assistance",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "LanguageServiceSet"
+              ]
+            },
+            "meaning": "辅助服务"
+          },
+          "features": {
+            "required": true,
+            "type": {
+              "kind": "set",
+              "element": {
+                "kind": "enum",
+                "allowed": [
+                  "sec/spec/language#Completion",
+                  "sec/spec/language#Definition",
+                  "sec/spec/language#References",
+                  "sec/spec/language#Hover",
+                  "sec/spec/language#Signature"
+                ]
+              }
+            },
+            "meaning": "本例需要的辅助方法"
+          },
+          "truth": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/language#CandidateNotEstablishedFact"
+              ]
+            },
+            "meaning": "推测建议与真实已绑定位置分开"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/需求规则与供给合同.md",
+          "section": "language.Assistance",
+          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
+        },
+        "implementation": "unbound"
+      }
+    }
+  },
+  "exports": {
+    "ExplicitUnavailable": {
+      "definitionId": "v:ExplicitUnavailable"
+    },
+    "References": {
+      "definitionId": "v:References"
+    },
+    "CandidateNotEstablishedFact": {
+      "definitionId": "v:CandidateNotEstablishedFact"
+    },
+    "Hover": {
+      "definitionId": "v:Hover"
+    },
+    "Completion": {
+      "definitionId": "v:Completion"
+    },
+    "Definition": {
+      "definitionId": "v:Definition"
+    },
+    "Signature": {
+      "definitionId": "v:Signature"
+    },
+    "ByProducerScopeAndRevision": {
+      "definitionId": "v:ByProducerScopeAndRevision"
+    },
+    "NegotiateExact": {
+      "definitionId": "v:NegotiateExact"
+    },
+    "VersionedGroup": {
+      "definitionId": "v:VersionedGroup"
+    },
+    "EffectsAndEvaluationOrder": {
+      "definitionId": "v:EffectsAndEvaluationOrder"
+    },
+    "Providers": {
+      "definitionId": "r:Providers"
+    },
+    "Diagnostics": {
+      "definitionId": "r:Diagnostics"
+    },
+    "Refactoring": {
+      "definitionId": "r:Refactoring"
+    },
+    "Assistance": {
+      "definitionId": "r:Assistance"
+    }
+  },
+  "extensions": {
+    "sec.documentation-derived/1": {
+      "source": "../../../docs/作者/需求规则与供给合同.md",
+      "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+      "editable": false,
+      "note": "本份是固定文档的设计字段索引，不是已发布语义实现；正文含义未由可执行读取器交付。"
+    }
+  }
+}

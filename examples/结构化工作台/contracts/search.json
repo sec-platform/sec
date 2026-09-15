@@ -1,0 +1,415 @@
+{
+  "schema": "sec.author-module/1",
+  "moduleId": "sec/spec/search",
+  "namespace": "spec.search",
+  "dialects": {
+    "req": {
+      "languageId": "sec.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {},
+  "definitions": {
+    "v:SelectedOrCompleteScope": {
+      "kind": "req:enum-value",
+      "name": "SelectedOrCompleteScope",
+      "body": {
+        "nominalIdentity": "sec/spec/search#SelectedOrCompleteScope"
+      }
+    },
+    "v:ExactSourceMatch": {
+      "kind": "req:enum-value",
+      "name": "ExactSourceMatch",
+      "body": {
+        "nominalIdentity": "sec/spec/search#ExactSourceMatch"
+      }
+    },
+    "v:RebuildThenConfirm": {
+      "kind": "req:enum-value",
+      "name": "RebuildThenConfirm",
+      "body": {
+        "nominalIdentity": "sec/spec/search#RebuildThenConfirm"
+      }
+    },
+    "v:Reject": {
+      "kind": "req:enum-value",
+      "name": "Reject",
+      "body": {
+        "nominalIdentity": "sec/spec/search#Reject"
+      }
+    },
+    "v:InspectableNotWritable": {
+      "kind": "req:enum-value",
+      "name": "InspectableNotWritable",
+      "body": {
+        "nominalIdentity": "sec/spec/search#InspectableNotWritable"
+      }
+    },
+    "v:DisplayedPlan": {
+      "kind": "req:enum-value",
+      "name": "DisplayedPlan",
+      "body": {
+        "nominalIdentity": "sec/spec/search#DisplayedPlan"
+      }
+    },
+    "v:MatchWithSourceVersion": {
+      "kind": "req:enum-value",
+      "name": "MatchWithSourceVersion",
+      "body": {
+        "nominalIdentity": "sec/spec/search#MatchWithSourceVersion"
+      }
+    },
+    "v:SupersededCannotPublish": {
+      "kind": "req:enum-value",
+      "name": "SupersededCannotPublish",
+      "body": {
+        "nominalIdentity": "sec/spec/search#SupersededCannotPublish"
+      }
+    },
+    "v:DisplayedEditsOnly": {
+      "kind": "req:enum-value",
+      "name": "DisplayedEditsOnly",
+      "body": {
+        "nominalIdentity": "sec/spec/search#DisplayedEditsOnly"
+      }
+    },
+    "v:Explicit": {
+      "kind": "req:enum-value",
+      "name": "Explicit",
+      "body": {
+        "nominalIdentity": "sec/spec/search#Explicit"
+      }
+    },
+    "v:ReconcileNoBlindReplay": {
+      "kind": "req:enum-value",
+      "name": "ReconcileNoBlindReplay",
+      "body": {
+        "nominalIdentity": "sec/spec/search#ReconcileNoBlindReplay"
+      }
+    },
+    "v:LiteralAndDeclaredRegexDialect": {
+      "kind": "req:enum-value",
+      "name": "LiteralAndDeclaredRegexDialect",
+      "body": {
+        "nominalIdentity": "sec/spec/search#LiteralAndDeclaredRegexDialect"
+      }
+    },
+    "t:StalePolicy": {
+      "kind": "req:value-type",
+      "name": "StalePolicy",
+      "body": {
+        "enumMembers": [
+          "sec/spec/search#Reject",
+          "sec/spec/search#RebuildThenConfirm"
+        ]
+      }
+    },
+    "r:Text": {
+      "kind": "req:rule",
+      "name": "Text",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "SearchSurface"
+              ]
+            },
+            "meaning": "查询、结果与覆盖主体"
+          },
+          "workspace": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Workspace"
+              ]
+            },
+            "meaning": "检索范围"
+          },
+          "documents": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "DocumentSpace"
+              ]
+            },
+            "meaning": "同一编辑内容集合"
+          },
+          "pattern": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/search#LiteralAndDeclaredRegexDialect"
+              ]
+            },
+            "meaning": "字面量及绑定的正则方言；不是所有引擎等价"
+          },
+          "results": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/search#MatchWithSourceVersion"
+              ]
+            },
+            "meaning": "完整命中含模型/源版本与坐标"
+          },
+          "coverage": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/search#Explicit"
+              ]
+            },
+            "meaning": "完整、截断、未读、失败、取消不同"
+          },
+          "cancellation": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/search#SupersededCannotPublish"
+              ]
+            },
+            "meaning": "旧查询可在途但不能发布为当前"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/需求规则与供给合同.md",
+          "section": "search.Text",
+          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Replace": {
+      "kind": "req:rule",
+      "name": "Replace",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "ReplacementSurface"
+              ]
+            },
+            "meaning": "替换计划主体"
+          },
+          "matches": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "SearchSurface"
+              ]
+            },
+            "meaning": "来源为同一搜索结果"
+          },
+          "documents": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "DocumentSpace"
+              ]
+            },
+            "meaning": "写入同一组模型"
+          },
+          "preview": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/search#DisplayedEditsOnly"
+              ]
+            },
+            "meaning": "预览固定选择、替换表达式、源和精确编辑"
+          },
+          "acceptance": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/search#DisplayedPlan"
+              ]
+            },
+            "meaning": "应用接受的是显示计划而非当前输入框重算值"
+          },
+          "stale": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/search#Reject",
+                "sec/spec/search#RebuildThenConfirm"
+              ]
+            },
+            "meaning": "源/模型/策略过期时本计划拒绝应用"
+          },
+          "scope": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/search#SelectedOrCompleteScope"
+              ]
+            },
+            "meaning": "允许明确选择；未明确选择的全量要求必须完整"
+          },
+          "recovery": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/search#ReconcileNoBlindReplay"
+              ]
+            },
+            "meaning": "分项查回，不重放已发生编辑"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/需求规则与供给合同.md",
+          "section": "search.Replace",
+          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Presentation": {
+      "kind": "req:rule",
+      "name": "Presentation",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "search": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "SearchSurface"
+              ]
+            },
+            "meaning": "结果模型"
+          },
+          "replace": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "ReplacementSurface"
+              ]
+            },
+            "meaning": "替换计划"
+          },
+          "shell": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "WorkbenchSurface"
+              ]
+            },
+            "meaning": "交互展示主体"
+          },
+          "navigation": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/search#ExactSourceMatch"
+              ]
+            },
+            "meaning": "定位到准确结果来源，陈旧项显示失效"
+          },
+          "readonly": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/search#InspectableNotWritable"
+              ]
+            },
+            "meaning": "只读项可看可导航但不可写"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/需求规则与供给合同.md",
+          "section": "search.Presentation",
+          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
+        },
+        "implementation": "unbound"
+      }
+    }
+  },
+  "exports": {
+    "SelectedOrCompleteScope": {
+      "definitionId": "v:SelectedOrCompleteScope"
+    },
+    "ExactSourceMatch": {
+      "definitionId": "v:ExactSourceMatch"
+    },
+    "RebuildThenConfirm": {
+      "definitionId": "v:RebuildThenConfirm"
+    },
+    "Reject": {
+      "definitionId": "v:Reject"
+    },
+    "InspectableNotWritable": {
+      "definitionId": "v:InspectableNotWritable"
+    },
+    "DisplayedPlan": {
+      "definitionId": "v:DisplayedPlan"
+    },
+    "MatchWithSourceVersion": {
+      "definitionId": "v:MatchWithSourceVersion"
+    },
+    "SupersededCannotPublish": {
+      "definitionId": "v:SupersededCannotPublish"
+    },
+    "DisplayedEditsOnly": {
+      "definitionId": "v:DisplayedEditsOnly"
+    },
+    "Explicit": {
+      "definitionId": "v:Explicit"
+    },
+    "ReconcileNoBlindReplay": {
+      "definitionId": "v:ReconcileNoBlindReplay"
+    },
+    "LiteralAndDeclaredRegexDialect": {
+      "definitionId": "v:LiteralAndDeclaredRegexDialect"
+    },
+    "StalePolicy": {
+      "definitionId": "t:StalePolicy"
+    },
+    "Text": {
+      "definitionId": "r:Text"
+    },
+    "Replace": {
+      "definitionId": "r:Replace"
+    },
+    "Presentation": {
+      "definitionId": "r:Presentation"
+    }
+  },
+  "extensions": {
+    "sec.documentation-derived/1": {
+      "source": "../../../docs/作者/需求规则与供给合同.md",
+      "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+      "editable": false,
+      "note": "本份是固定文档的设计字段索引，不是已发布语义实现；正文含义未由可执行读取器交付。"
+    }
+  }
+}

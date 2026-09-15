@@ -13,24 +13,11 @@ import { CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST, createCiMainHealth
 
 type Digest = `sha256:${string}`;
 
-export interface TrustedLocalMainHealthObservation {
-  readonly schema: 'sec-trusted-local-main-health-observation-v1';
-  readonly repository: string;
-  readonly mainSha: string;
-  readonly mainTreeSha: string;
-  readonly trustRevision: string;
-  readonly runtimeRef: string;
-  readonly executionId: string;
-  readonly verificationReceiptDigest: Digest;
-  readonly observedAt: string;
-  readonly expiresAt: string;
-}
-
 export const MAIN_HEALTH_CHECK_PROVIDER_POLICY_SCHEMA =
   'sec-main-health-check-provider-policy-v1' as const;
 
-/** One provider-neutral freshness budget for durable trusted-local MainHealth evidence. */
-export const TRUSTED_LOCAL_MAIN_HEALTH_FRESHNESS_MS = 10 * 60_000;
+/** One freshness budget for the registered hosted MainHealth producer. */
+export const HOSTED_MAIN_HEALTH_FRESHNESS_MS = 10 * 60_000;
 
 export type MainHealthCheckProviderPolicy = Readonly<{
   schema: typeof MAIN_HEALTH_CHECK_PROVIDER_POLICY_SCHEMA;
@@ -68,69 +55,6 @@ function hash(value: unknown): Digest {
   return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
 }
 
-function sha(value: string, label: string): string {
-  if (!/^[0-9a-f]{40}$/u.test(value)) throw new Error(`MainHealth ${label} must be a Git SHA.`);
-  return value;
-}
-
-function digest(value: string, label: string): Digest {
-  if (!/^sha256:[0-9a-f]{64}$/u.test(value)) {
-    throw new Error(`MainHealth ${label} must be a SHA-256 digest.`);
-  }
-  return value as Digest;
-}
-
-function instant(value: string, label: string): string {
-  if (new Date(value).toISOString() !== value) {
-    throw new Error(`MainHealth ${label} must be a canonical ISO instant.`);
-  }
-  return value;
-}
-
-/**
- * Provider-neutral MainHealth adapter for a trusted local runtime.  It does
- * not infer health from repository presence: the caller must supply the
- * durable exact-main verification receipt digest, which MergeGate binds to
- * the same trusted-base runtime revision and source ref.
- */
-export function createTrustedLocalMainHealthInput(
-  input: TrustedLocalMainHealthObservation
-): MainHealthLedgerInput {
-  if (input.schema !== 'sec-trusted-local-main-health-observation-v1') {
-    throw new Error('MainHealth trusted-local observation schema mismatch.');
-  }
-  const mainSha = sha(input.mainSha, 'mainSha');
-  const mainTreeSha = sha(input.mainTreeSha, 'mainTreeSha');
-  const trustRevision = sha(input.trustRevision, 'trustRevision');
-  const observedAt = instant(input.observedAt, 'observedAt');
-  const expiresAt = instant(input.expiresAt, 'expiresAt');
-  if (mainSha !== trustRevision || expiresAt <= observedAt) {
-    throw new Error('MainHealth trusted-local observation is not exact or fresh.');
-  }
-  return Object.freeze({
-    repository: boundedText(input.repository, 'repository'),
-    defaultBranch: 'main',
-    mainSha,
-    mainTreeSha,
-    status: 'healthy',
-    failureFingerprints: Object.freeze([]),
-    owner: null,
-    repairWorkPackage: null,
-    expiresAt,
-    allowedLanes: Object.freeze(['ordinary'] as const),
-    trustRevision,
-    observedAt,
-    producer: Object.freeze({
-      identity: DEFAULT_BRANCH_REVISION_HEALTH_PRODUCER_IDENTITY,
-      trustRevision,
-      sourceTransport: 'trusted-local-readback' as const,
-      sourceRunId: boundedText(input.executionId, 'executionId'),
-      sourceRef: boundedText(input.runtimeRef, 'runtimeRef'),
-      sourceDigest: digest(input.verificationReceiptDigest, 'verificationReceiptDigest')
-    })
-  });
-}
-
 function boundedText(value: string, label: string): string {
   if (value.length === 0 || value.length > 512 || /[\u0000-\u001f\u007f]/u.test(value)) {
     throw new Error(`MainHealth ${label} must be bounded text.`);
@@ -160,11 +84,7 @@ const RECOGNIZED_MAIN_HEALTH_CONCLUSIONS = Object.freeze([
   'action_required', 'neutral', 'stale', 'startup_failure'
 ] as const);
 
-/**
- * Existing GitHub Actions policy projected into the provider-neutral matcher.
- * Its digest remains the canonical legacy digest so current Session proposal
- * identity and all existing Actions consumers remain byte/semantic compatible.
- */
+/** GitHub Actions policy projected into the canonical hosted matcher. */
 export const GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY: MainHealthCheckProviderPolicy =
   Object.freeze({
     schema: MAIN_HEALTH_CHECK_PROVIDER_POLICY_SCHEMA,
@@ -319,9 +239,15 @@ export function createObservedMainHealthInputWithPolicy(input: {
     .filter((check) => matchesHostedMainHealthProvider(check, policy, input.mainSha))
     .sort((left, right) => left.id - right.id);
 
-  if (policy.producer.kind === 'github-app-check' && matching.length === 1
-      && input.sourceRunId !== String(matching[0]!.id)) {
-    throw new Error('MainHealth direct App sourceRunId must equal the exact observed check id.');
+  if (matching.length === 1) {
+    const expectedSourceRunId = policy.producer.kind === 'github-app-check'
+      ? String(matching[0]!.id)
+      : matching[0]!.workflowRunId;
+    if (expectedSourceRunId === null || input.sourceRunId !== expectedSourceRunId) {
+      throw new Error(
+        'MainHealth sourceRunId must equal the exact observed check or workflow run id.'
+      );
+    }
   }
 
   const successful = (check: GitHubCheckObservation): boolean =>
@@ -403,7 +329,7 @@ export function createObservedMainHealthInputWithPolicy(input: {
 
 /**
  * Selects only source-registered hosted principals and compiles each through
- * the single provider-neutral MainHealth matcher. Unknown same-name checks do
+ * the single hosted MainHealth matcher. Unknown same-name checks do
  * not gain authority and cannot invalidate an independent trusted provider.
  */
 export function createRegisteredHostedMainHealthInputs(input: {
@@ -424,16 +350,17 @@ export function createRegisteredHostedMainHealthInputs(input: {
       .filter((check) => matchesHostedMainHealthProvider(check, policy, input.mainSha));
     return createObservedMainHealthInputWithPolicy({
       ...input,
-      sourceRunId: policy.producer.kind === 'github-app-check'
-        && exactProviderChecks.length === 1
-        ? String(exactProviderChecks[0]!.id)
-        : `work-selection-${input.mainSha}`,
+      sourceRunId: exactProviderChecks.length === 1
+        ? policy.producer.kind === 'github-app-check'
+          ? String(exactProviderChecks[0]!.id)
+          : exactProviderChecks[0]!.workflowRunId!
+        : 'ambiguous-hosted-provider',
       policy
     });
   }));
 }
 
-/** Existing Actions adapter preserved for current consumers. */
+/** Direct Actions adapter used by hosted verification consumers. */
 export function createObservedMainHealthInput(input: {
   repository: string;
   mainSha: string;

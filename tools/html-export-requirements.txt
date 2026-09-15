@@ -1,0 +1,3 @@
+# Optional headless static publication only.
+-r html-requirements.txt
+playwright==1.57.0

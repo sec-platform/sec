@@ -250,6 +250,46 @@ test('cache absence and open, read, or publish failure preserve the cold semanti
   }
 });
 
+test('read-only cache consumption preserves reads and the semantic receipt without publication', () => {
+  const input = fixture(1);
+  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
+    ...input,
+    subject: virtualSnapshotSubject('read-only-cache') as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>
+  });
+  const projectInput = compileWorkspaceTypeScriptProjectInput(workspaceSnapshot, 'tsconfig.json');
+  const calls = { exact: 0, predecessor: 0, publish: 0 };
+  const provider: RepositoryCompilationCacheProvider = Object.freeze({
+    openContentAddressedHint: (generation: RepositoryCompilationGenerationReceipt) => {
+      const miss = Object.freeze({ status: 'miss' as const, keyDigest: generation.generationDigest });
+      return Object.freeze({
+        keyDigest: generation.generationDigest,
+        loadExact: () => { calls.exact++; return miss; },
+        loadPredecessor: () => { calls.predecessor++; return miss; },
+        publish: () => { calls.publish++; return miss; }
+      });
+    }
+  });
+  const readOnly = compileVirtualRepositorySourceProgramCompilation({
+    cacheProvider: provider,
+    cacheAccess: 'read-only',
+    workspaceSnapshot,
+    projectInput
+  });
+  expect(calls).toEqual({ exact: 1, predecessor: 1, publish: 0 });
+
+  const readWrite = compileVirtualRepositorySourceProgramCompilation({
+    cacheProvider: provider,
+    cacheAccess: 'read-write',
+    workspaceSnapshot,
+    projectInput
+  });
+  expect(calls).toEqual({ exact: 2, predecessor: 2, publish: 1 });
+  expect(readOnly.model).toEqual(readWrite.model);
+  expect(readOnly.testObservations).toEqual(readWrite.testObservations);
+  expect(readOnly.projectGeneration).toEqual(readWrite.projectGeneration);
+  expect(readOnly.receiptDigest).toBe(readWrite.receiptDigest);
+});
+
 test('one bounded compilation reports exact phases and rejects late cache publication', () => {
   const input = fixture(1);
   const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({

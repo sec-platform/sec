@@ -129,8 +129,9 @@ export type CompileRepositorySourceProgramWithCacheInput = Omit<
 /**
  * The sole production composition for a physical Source Program compilation.
  * Runtime Cache remains a disposable hint: admission failure falls back to
- * the canonical compiler, while every opened session is settled and can never
- * replace or certify the compiler's semantic result.
+ * the canonical compiler, read-only access retains validated cache reads
+ * without publication, and every opened session is settled. Cache access can
+ * never replace or certify the compiler's semantic result.
  */
 export function compileRepositorySourceProgramWithCache(
   input: CompileRepositorySourceProgramWithCacheInput
@@ -164,6 +165,7 @@ export function compileRepositorySourceProgramWithCache(
   try {
     compilation = compileRepositorySourceProgramCompilation({
       ...input,
+      cacheAccess: input.cacheAccess ?? 'read-write',
       ...(cacheProvider === undefined ? {} : { cacheProvider })
     });
   } catch (error) {

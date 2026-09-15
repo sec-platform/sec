@@ -3,6 +3,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { DOCUMENTATION_IDENTITY_PATH } from '../documentation/active.ts';
 import {
   compileSecOperationReadPlan,
   parseSecOperationReadPlan,
@@ -64,10 +65,10 @@ export async function resolveProspectiveWorkerOperation(
       id: source.id,
       ref: source.ref,
       owner: source.owner,
-      reasonCode: source.id === 'agents-entry'
+      reasonCode: source.ref === 'AGENTS.md'
         ? 'agent-entry-route'
-        : source.id === 'documentation-registry'
-          ? 'document-authority-registry'
+        : source.ref === DOCUMENTATION_IDENTITY_PATH
+          ? 'documentation-identity-registry'
           : 'canonical-domain-owner',
       revision: source.revision,
       contentDigest: source.contentDigest,

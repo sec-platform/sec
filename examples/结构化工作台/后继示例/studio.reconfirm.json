@@ -1,0 +1,148 @@
+{
+  "schema": "sec.author-module/1",
+  "moduleId": "studio:studio",
+  "namespace": "studio.studio",
+  "dialects": {
+    "req": {
+      "languageId": "sec.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {
+    "standard": {
+      "mode": "workspace",
+      "moduleId": "studio:standard"
+    },
+    "ide": {
+      "mode": "workspace",
+      "moduleId": "sec/spec/ide"
+    },
+    "search": {
+      "mode": "workspace",
+      "moduleId": "sec/spec/search"
+    },
+    "delivery": {
+      "mode": "workspace",
+      "moduleId": "sec/spec/delivery"
+    },
+    "quality": {
+      "mode": "workspace",
+      "moduleId": "sec/spec/quality"
+    }
+  },
+  "definitions": {
+    "d:Studio": {
+      "kind": "req:composite",
+      "name": "Studio",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "workbench": {
+            "type": {
+              "ref": {
+                "import": "ide",
+                "export": "Workbench"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "use": {
+              "import": "standard",
+              "export": "LocalWorkbench"
+            },
+            "arguments": {
+              "s": {
+                "subject": "workbench"
+              },
+              "stalePolicy": {
+                "enum": {
+                  "import": "search",
+                  "export": "RebuildThenConfirm"
+                }
+              },
+              "platforms": [
+                {
+                  "enum": {
+                    "import": "delivery",
+                    "export": "Windows"
+                  }
+                },
+                {
+                  "enum": {
+                    "import": "delivery",
+                    "export": "Linux"
+                  }
+                },
+                {
+                  "enum": {
+                    "import": "delivery",
+                    "export": "MacOS"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "prefer": {
+              "import": "quality",
+              "export": "Cost"
+            },
+            "fields": {
+              "on": {
+                "subject": "workbench"
+              },
+              "metric": {
+                "enum": {
+                  "import": "quality",
+                  "export": "ResidentMemory"
+                }
+              },
+              "priority": {
+                "literal": 1
+              },
+              "workload": {
+                "enum": {
+                  "import": "quality",
+                  "export": "DeclaredWorkload"
+                }
+              }
+            }
+          },
+          {
+            "prefer": {
+              "import": "quality",
+              "export": "Cost"
+            },
+            "fields": {
+              "on": {
+                "subject": "workbench"
+              },
+              "metric": {
+                "enum": {
+                  "import": "quality",
+                  "export": "InteractiveLatency"
+                }
+              },
+              "priority": {
+                "literal": 2
+              },
+              "workload": {
+                "enum": {
+                  "import": "quality",
+                  "export": "DeclaredWorkload"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "Studio": {
+      "definitionId": "d:Studio"
+    }
+  }
+}

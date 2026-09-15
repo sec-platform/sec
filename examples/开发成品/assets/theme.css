@@ -1,0 +1,5 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+main { max-width: 72rem; margin: auto; padding: 1rem; }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: 1rem; }
+textarea, pre { box-sizing: border-box; max-width: 100%; overflow: auto; }
+button:focus-visible, textarea:focus-visible { outline: 0.2rem solid currentColor; outline-offset: 0.2rem; }

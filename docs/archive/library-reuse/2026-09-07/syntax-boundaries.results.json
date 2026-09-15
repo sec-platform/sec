@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "runtime": "v22.16.0",
+  "sourceCommit": "d5af1adb1fba96f274bf0b8e0e041ff70d0f19a7",
+  "sourceBlob": "f8ff166b270691332845e77582a3c7cdcdc3ad81",
+  "mode": "isolated-excerpts",
+  "scope": "Describes helper semantics, not whole-docs-doctor acceptance, a security exploit, candidate-library parity or Bun verification. Explicitly restricted Markdown profiles may deliberately reject some syntax; caller/profile policy still needs conformance.",
+  "results": [
+    {
+      "id": "DOC-REFERENCE",
+      "input": "[guide][g]\n\n[g]: ./guide.md",
+      "actual": [],
+      "observation": "Reference links are not returned by this extractor."
+    },
+    {
+      "id": "DOC-CODE",
+      "input": "```text\n[x](not-a-real-link.md)\n```",
+      "actual": [
+        "not-a-real-link.md"
+      ],
+      "observation": "A link-shaped example in a fence is returned."
+    },
+    {
+      "id": "DOC-SETEXT",
+      "input": "Title\n=====",
+      "actual": [],
+      "observation": "Setext H1 is not returned."
+    },
+    {
+      "id": "DOC-DUPLICATE",
+      "input": "---\nstatus: stable\nstatus: draft\n---\n# T",
+      "actual": {
+        "ok": true,
+        "status": "stable"
+      },
+      "observation": "The first duplicate status is accepted by this helper."
+    },
+    {
+      "id": "DOC-CONTROL",
+      "input": "# T\n\n[x](./guide.md)",
+      "actual": {
+        "h1": [
+          "T"
+        ],
+        "links": [
+          "./guide.md"
+        ]
+      },
+      "observation": "Ordinary ATX and inline link control succeeds."
+    },
+    {
+      "id": "DOC-FENCE-CONTROL",
+      "input": "```text\n# not-heading\n```\n# T",
+      "actual": [
+        "T"
+      ],
+      "observation": "Existing H1 fenced-code protection is retained."
+    }
+  ]
+}

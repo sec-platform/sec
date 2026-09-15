@@ -56,7 +56,7 @@ async function executeLocalAffectedGate(
   if (step.id === 'docs:doctor') {
     return runObservedReadOnlyStage(step.id, async () => {
       const { runDevCommand } = await import('./command-runner.ts');
-      return runDevCommand('bun', ['src/control/documentation/doctor/cli.ts'], {});
+      return runDevCommand('bun', ['run', 'docs:doctor'], {});
     });
   }
 
@@ -220,7 +220,7 @@ export async function runFastCheck(options: FastCheckExecutionOptions = {}): Pro
     documentation: async () => {
       return runObservedReadOnlyStage('check:fast:docs:doctor', async () => {
         const { runDevCommand } = await import('./command-runner.ts');
-        return runDevCommand('bun', ['src/control/documentation/doctor/cli.ts'], {});
+        return runDevCommand('bun', ['run', 'docs:doctor'], {});
       });
     },
     types: async () => {
