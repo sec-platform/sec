@@ -35,7 +35,7 @@ const ENVIRONMENT = D('c');
 const RULESET = D('d');
 const REPOSITORY = 'sec-platform/sec';
 const PR = 42;
-const MANIFEST_PATH = 'docs/work-packages/t2-v1.md';
+const MANIFEST_PATH = 'config/repository/work-packages/t2-v1.md';
 const VERIFIED_AT = '2026-08-09T00:10:00.000Z';
 const MERGE_AT = '2026-08-09T00:20:00.000Z';
 

@@ -152,14 +152,14 @@ test('Quick docs gate follows the canonical documentation lifecycle owner', () =
 
 test('changed-file canonicalization shares the repository path contract', () => {
   expect(CodexDevelopmentCanonicalChangedFiles([
-    'docs/work/current-state.yaml',
+    'config/repository/current-state.yaml',
     'README.md',
     'README.md'
-  ])).toEqual(['README.md', 'docs/work/current-state.yaml']);
+  ])).toEqual(['README.md', 'config/repository/current-state.yaml']);
 
   for (const file of [
     '',
-    '/docs/work/current-state.yaml',
+    '/config/repository/current-state.yaml',
     'C:/absolute.md',
     'C:relative.md',
     'file:/docs/readme.md',
@@ -167,8 +167,8 @@ test('changed-file canonicalization shares the repository path contract', () => 
     'docs/file:stream.md',
     'docs//x.md',
     'docs/./x.md',
-    'docs/work/../evidence/probe.yaml',
-    'docs/work/\0state.yaml',
+    'config/repository/../evidence/probe.yaml',
+    'config/repository/\0state.yaml',
     'docs/e\u0301.md'
   ]) {
     expect(() => CodexDevelopmentCanonicalChangedFiles([file])).toThrow(

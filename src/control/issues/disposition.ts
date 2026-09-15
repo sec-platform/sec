@@ -126,7 +126,7 @@ function digest(value: unknown, label: string): IssueDispositionDigest {
 
 function manifestPath(value: unknown): string {
   if (typeof value !== 'string'
-    || !/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(value)) {
+    || !/^config\/repository\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(value)) {
     return fail('manifestPath must be canonical.');
   }
   return value;
@@ -309,7 +309,7 @@ export function parseWorkPackageLocatorForDisposition(body: string): string {
   if (locators.length !== 1) {
     return fail(`pull request body must contain exactly one Work-Package locator; found ${locators.length}.`);
   }
-  const match = /^Work-Package: (docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md)$/u.exec(locators[0]!);
+  const match = /^Work-Package: (config\/repository\/work-packages\/[a-z0-9][a-z0-9-]*\.md)$/u.exec(locators[0]!);
   if (match === null) return fail('pull request Work-Package locator is invalid.');
   return match[1]!;
 }

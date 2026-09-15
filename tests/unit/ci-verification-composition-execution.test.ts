@@ -16,7 +16,7 @@ const digest = (value: string): `sha256:${string}` => (
 function candidateFor(testIdentity: string): CiVerificationActionCandidate {
   return {
   baseSha: '1'.repeat(40), baseTreeSha: '2'.repeat(40), headSha: '3'.repeat(40), headTreeSha: '4'.repeat(40),
-  manifestPath: 'docs/work-packages/composition-v2.md', manifestDigest: digest(`manifest:${testIdentity}`),
+  manifestPath: 'config/repository/work-packages/composition-v2.md', manifestDigest: digest(`manifest:${testIdentity}`),
   scopeAuthorizationRevision: digest('b'), profile: 'quick',
   toolchainRevision: 'bun@1.3.14', providerRevision: 'github-actions@trusted-default',
   contractRevision: 'ci-verification-v19', requiredBlobs: [

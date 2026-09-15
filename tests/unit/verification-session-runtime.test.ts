@@ -192,7 +192,7 @@ function changedTransition(
 const JOIN_REQUEST: VerificationSessionHostedRequest = Object.freeze({
   schema: CI_VERIFICATION_SESSION_REQUEST_SCHEMA, prNumber: 42,
   expectedBaseSha: BASE, expectedBaseTreeSha: HEAD, expectedHeadSha: HEAD,
-  expectedHeadTreeSha: HEAD, manifestPath: 'docs/work-packages/verification-action-trusted-cutover-v6.md',
+  expectedHeadTreeSha: HEAD, manifestPath: 'config/repository/work-packages/verification-action-trusted-cutover-v6.md',
   manifestDigest: `sha256:${'1'.repeat(64)}`, profile: 'quick',
   expectedScopeProposalDigest: `sha256:${'2'.repeat(64)}`,
   expectedActionPlanDigest: JOIN_ACTION, expectedSessionRevision: JOIN_SESSION,
@@ -858,7 +858,7 @@ function mainHealthCheck(overrides: Partial<GitHubCheckObservation> = {}): GitHu
   };
 }
 
-const V6_MANIFEST_PATH = 'docs/work-packages/verification-action-trusted-cutover-v6.md';
+const V6_MANIFEST_PATH = 'config/repository/work-packages/verification-action-trusted-cutover-v6.md';
 const V6_MANIFEST_DIGEST = 'sha256:decaeacc27a8cc249f524736e16a3bfc407fff72adc7932233ce0dff5c57d16f' as const;
 const VERIFIED_AT = '2026-08-09T14:01:00.000Z';
 const MERGE_AT = '2026-08-09T14:05:00.000Z';
@@ -2144,7 +2144,7 @@ test('trusted-main proposal and hosted sole issuer reconstruct the same stable S
   const testImpactTransition = changedTransition(changedPaths);
   const manifestDigest = `sha256:${'b'.repeat(64)}` as const;
   const local = prepareTrustedMainVerificationSession({ repository: candidate.repository, candidate,
-    manifestPath: 'docs/work-packages/example.md', manifestDigest, changedPaths, testImpactTransition,
+    manifestPath: 'config/repository/work-packages/example.md', manifestDigest, changedPaths, testImpactTransition,
     testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER, profile: 'quick',
     integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '1',
     sourceRef: `refs/heads/main@${BASE}`, observedAt: barrier.observedAt, reviewBarrier: barrier,
@@ -2169,7 +2169,7 @@ test('trusted-main proposal and hosted sole issuer reconstruct the same stable S
       dependencyPaths.has(inputPath))).toHaveLength(4);
   }
   expect(() => prepareTrustedMainVerificationSession({ repository: candidate.repository, candidate,
-    manifestPath: 'docs/work-packages/example.md', manifestDigest, changedPaths, testImpactTransition,
+    manifestPath: 'config/repository/work-packages/example.md', manifestDigest, changedPaths, testImpactTransition,
     testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER, profile: 'quick',
     integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '1',
     sourceRef: `refs/heads/main@${BASE}`, observedAt: barrier.observedAt, reviewBarrier: barrier,
@@ -2248,7 +2248,7 @@ test('VerificationSession binds the exact deletion transition through Scope, Act
   });
   expect(() => prepareTrustedMainVerificationSession({
     repository: candidate.repository, candidate,
-    manifestPath: 'docs/work-packages/example.md', manifestDigest,
+    manifestPath: 'config/repository/work-packages/example.md', manifestDigest,
     changedPaths: [unownedRetiredPath], testImpactTransition: unownedTransition,
     testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
     profile: 'quick',
@@ -2259,7 +2259,7 @@ test('VerificationSession binds the exact deletion transition through Scope, Act
   })).toThrow(/verification plan is unresolved/i);
   const prepared = prepareTrustedMainVerificationSession({
     repository: candidate.repository, candidate,
-    manifestPath: 'docs/work-packages/example.md', manifestDigest,
+    manifestPath: 'config/repository/work-packages/example.md', manifestDigest,
     changedPaths, testImpactTransition, testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
     profile: 'quick',
     integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR',
@@ -2281,7 +2281,7 @@ test('VerificationSession binds the exact deletion transition through Scope, Act
   expect(facts.actionPlanClosure.actionPlanDigest).toBe(prepared.actionPlanClosure.actionPlanDigest);
   const localQuick = prepareLocalQuickVerificationActionPlan({
     candidate,
-    manifestPath: 'docs/work-packages/example.md',
+    manifestPath: 'config/repository/work-packages/example.md',
     manifestDigest,
     changedPaths,
     testImpactTransition,
@@ -2315,7 +2315,7 @@ test('same paths with a different Git transition change the complete Verificatio
   const changedPaths = ['src/verification/ci/runtime/verification-session.ts'];
   const prepare = (status: 'added' | 'changed') => prepareTrustedMainVerificationSession({
     repository: candidate.repository, candidate,
-    manifestPath: 'docs/work-packages/example.md', manifestDigest: `sha256:${'e'.repeat(64)}`,
+    manifestPath: 'config/repository/work-packages/example.md', manifestDigest: `sha256:${'e'.repeat(64)}`,
     changedPaths,
     testImpactTransition: CodexDevelopmentCreateTestImpactTransitionObservation({
       baseSha: candidate.baseSha, headSha: candidate.headSha,
@@ -2398,7 +2398,7 @@ test('Session local quick DAG keeps durable journals in external Runtime State a
     );
     const testImpactTransitionDigest = CodexDevelopmentTestImpactTransitionDigest(testImpactTransition);
     const closure = prepareLocalQuickVerificationActionPlan({ candidate,
-      manifestPath: 'docs/work-packages/verification-action-trusted-cutover-v6.md',
+      manifestPath: 'config/repository/work-packages/verification-action-trusted-cutover-v6.md',
       manifestDigest: `sha256:${'9'.repeat(64)}`, changedPaths: ['src/verification/ci/runtime/verification-session.ts'],
       testImpactTransition,
       testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
@@ -2406,7 +2406,7 @@ test('Session local quick DAG keeps durable journals in external Runtime State a
       scopeAuthorizationRevision: `sha256:${'8'.repeat(64)}`, executionEnvironment,
       dependencyBlobs: actionDependencyBlobs() });
     expect(() => prepareLocalQuickVerificationActionPlan({ candidate,
-      manifestPath: 'docs/work-packages/verification-action-trusted-cutover-v6.md',
+      manifestPath: 'config/repository/work-packages/verification-action-trusted-cutover-v6.md',
       manifestDigest: `sha256:${'9'.repeat(64)}`, changedPaths: ['src/verification/ci/runtime/verification-session.ts'],
       testImpactTransition,
       testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
@@ -3537,10 +3537,10 @@ function createCloseoutCliScenario(input: {
   const providerRecoveryRoot = path.join(input.recoveryHarnessRoot, input.name, 'provider');
   const recoveryRoot = path.join(input.recoveryHarnessRoot, input.name, 'rehydrated');
   mkdirSync(path.join(root, 'scripts', 'codex'), { recursive: true });
-  mkdirSync(path.join(root, 'docs', 'governance'), { recursive: true });
-  writeFileSync(path.join(root, 'docs', 'governance', 'external-capability-ledger.yaml'),
+  mkdirSync(path.join(root, 'config', 'external-capabilities'), { recursive: true });
+  writeFileSync(path.join(root, 'config', 'external-capabilities', 'ledger.yaml'),
     readFileSync(path.resolve(import.meta.dir,
-      '../../docs/governance/external-capability-ledger.yaml')));
+      '../../config/external-capabilities/ledger.yaml')));
   mkdirSync(commonDir, { recursive: true });
   const statePath = path.join(root, 'provider-state.json');
   const tcbBlobs: Record<string, string> = { ...closeoutTcbModuleBlobs() };

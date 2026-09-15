@@ -48,7 +48,7 @@ function initializeRepository(): string {
 test('exact Git blob reader binds raw LF bytes despite a CRLF checkout', () => {
   const repositoryRoot = initializeRepository();
   try {
-    const repositoryPath = 'docs/work-packages/fixture.md';
+    const repositoryPath = 'config/repository/work-packages/fixture.md';
     const absolutePath = path.join(repositoryRoot, ...repositoryPath.split('/'));
     mkdirSync(path.dirname(absolutePath), { recursive: true });
     writeFileSync(absolutePath, 'line-one\nline-two\n', 'utf8');

@@ -84,7 +84,6 @@ export type SecMarkdownSurfaceKind =
   | 'evidence'
   | 'historical'
   | 'verification-fixture'
-  | 'public-projection'
   | 'repository-content';
 
 export type SecMarkdownSkillCoverage = {
@@ -126,7 +125,7 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
       )
     };
   }
-  if (path === 'README.md' || path === 'docs/README.md' || path === 'docs/work/README.md'
+  if (path === 'README.md' || path === 'docs/README.md' || path === 'config/repository/README.md'
       || path === '.documentation/README.md') {
     return {
       kind: 'navigation',
@@ -136,8 +135,14 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
   if (/^tests\/.*\.md$/u.test(path)) {
     return { kind: 'verification-fixture', skills: [] };
   }
-  if (/^docs\/work-packages\/[^/]+\.md$/u.test(path)) {
+  if (/^config\/repository\/work-packages\/[^/]+\.md$/u.test(path)) {
     return { kind: 'frozen-work-package', skills: [] };
+  }
+  if (/^config\/repository\/(?:rolling-plan|active-work-package|work-selection)\.md$/u.test(path)) {
+    return {
+      kind: 'control-projection',
+      skills: []
+    };
   }
   if (/^docs\/evidence\/.*\.md$/u.test(path)) return { kind: 'evidence', skills: [] };
   if (/^docs\/(?:archive|superpowers)\//u.test(path)
@@ -146,11 +151,6 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
   }
   if (/^docs\/corpus\/.+\.md$/u.test(path)) {
     return { kind: 'repository-content', skills: [] };
-  }
-  if (/^public-docs\/[^/]+\.md$/u.test(path)) {
-    // Retired public pages can still occur in a predecessor revision under review.
-    // They hold no current authority and route no Skill.
-    return { kind: 'public-projection', skills: [] };
   }
   if (/^(?:examples|alternatives)\//u.test(path)
       && activeDocumentationRecord(path) !== undefined) {
@@ -212,13 +212,6 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
       )
     };
   }
-  if (/^docs\/work\/(?:rolling-plan|active-work-package)\.md$/u.test(path)) {
-    return {
-      kind: 'control-projection',
-      skills: []
-    };
-  }
-
   // Unregistered docs remain ordinary repository content. This classifies the
   // surface without granting authority or loading any Skill.
   return { kind: 'repository-content', skills: [] };
@@ -250,7 +243,7 @@ export function resolveSecRepositoryHeuristicSkills(path: string): SecAgentSkill
     || path.startsWith('src/control/documentation/')) {
     return skills('sec-heuristic-governance', 'sec-repository-audit');
   }
-  if (path === 'docs/governance/external-capability-ledger.yaml') {
+  if (path === 'config/external-capabilities/ledger.yaml') {
     return skills('sec-external-capability-governance', 'sec-heuristic-governance');
   }
   if (path.startsWith('src/control/agent/')) {

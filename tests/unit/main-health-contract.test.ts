@@ -254,7 +254,7 @@ test('MainHealth rejects invalid producer provenance and status invariants', () 
     ['healthy failure', healthyInput({ failureFingerprints: [D_A] })],
     ['degraded ordinary lane', degradedInput({ allowedLanes: ['ordinary'] })],
     ['degraded missing repair', degradedInput({ repairWorkPackage: null })],
-    ['degraded noncanonical repair', degradedInput({ repairWorkPackage: 'docs/work-packages/repair-v1.md' })],
+    ['degraded noncanonical repair', degradedInput({ repairWorkPackage: 'config/repository/work-packages/repair-v1.md' })],
     ['locked lane', lockedInput({ allowedLanes: ['repair'] })]
   ];
   for (const [label, candidate] of invalid) {

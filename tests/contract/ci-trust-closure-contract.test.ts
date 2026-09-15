@@ -217,10 +217,10 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
   });
   const r2ChangedPaths = [
     '.github/workflows/sec-trusted-bootstrap.yml',
-    'docs/work-packages/trusted-bootstrap-base-first-repair-v1.md',
-    'docs/work-packages/verification-action-kernel-finalization-v1.md',
-    'docs/work/active-work-package.md',
-    'docs/work/rolling-plan.md',
+    'config/repository/work-packages/trusted-bootstrap-base-first-repair-v1.md',
+    'config/repository/work-packages/verification-action-kernel-finalization-v1.md',
+    'config/repository/active-work-package.md',
+    'config/repository/rolling-plan.md',
     SEC_TCB_CLOSURE_RUNTIME_PATH,
     'tests/contract/ci-contract.test.ts',
     'tests/unit/active-documentation-contract.test.ts',

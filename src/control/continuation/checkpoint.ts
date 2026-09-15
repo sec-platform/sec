@@ -108,7 +108,7 @@ const checkpointInput = z.object({
   baseTreeSha: gitSha,
   headSha: gitSha,
   headTreeSha: gitSha,
-  manifestPath: canonicalText.regex(/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u,
+  manifestPath: canonicalText.regex(/^config\/repository\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u,
     'manifestPath is not canonical.')
 });
 const checkpointEnvelope = checkpointInput.extend({

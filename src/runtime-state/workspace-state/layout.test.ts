@@ -40,7 +40,7 @@ function fixture() {
     baseTreeSha: '2'.repeat(40),
     headSha: '3'.repeat(40),
     headTreeSha: '4'.repeat(40),
-    manifestPath: 'docs/work-packages/sec-static-convergence-v1.md'
+    manifestPath: 'config/repository/work-packages/sec-static-convergence-v1.md'
   });
   const layout = resolveSecRuntimeStateForRepository({
     repository: checkpoint.repository,
@@ -187,7 +187,7 @@ test('physical Runtime State rejects a symlink or junction into the repository b
     baseTreeSha: '2'.repeat(40),
     headSha: '3'.repeat(40),
     headTreeSha: '4'.repeat(40),
-    manifestPath: 'docs/work-packages/sec-static-convergence-v1.md'
+    manifestPath: 'config/repository/work-packages/sec-static-convergence-v1.md'
   });
   const layout = resolveSecRuntimeStateForRepository({
     repository: checkpoint.repository,

@@ -65,16 +65,16 @@ acceptance:
 test('Work Package locator is one exact canonical PR body line', () => {
   expect(CodexDevelopmentParseWorkPackageLocator([
     'Summary',
-    'Work-Package: docs/work-packages/b0-bootstrap-v1.md',
+    'Work-Package: config/repository/work-packages/b0-bootstrap-v1.md',
     'Validation'
-  ].join('\n'))).toBe('docs/work-packages/b0-bootstrap-v1.md');
+  ].join('\n'))).toBe('config/repository/work-packages/b0-bootstrap-v1.md');
   expect(() => CodexDevelopmentParseWorkPackageLocator('no locator')).toThrow('exactly one');
   expect(() => CodexDevelopmentParseWorkPackageLocator([
-    'Work-Package: docs/work-packages/b0-bootstrap-v1.md',
-    'Work-Package: docs/work-packages/other.md'
+    'Work-Package: config/repository/work-packages/b0-bootstrap-v1.md',
+    'Work-Package: config/repository/work-packages/other.md'
   ].join('\n'))).toThrow('found 2');
   expect(() => CodexDevelopmentParseWorkPackageLocator(
-    'Work-Package: ./docs/work-packages/b0-bootstrap-v1.md'
+    'Work-Package: ./config/repository/work-packages/b0-bootstrap-v1.md'
   )).toThrow('must be exactly');
 });
 
@@ -82,7 +82,7 @@ test('frozen Work Package V1 binds strict task ownership and full manifest bytes
   const source = manifest();
   const parsed = CodexDevelopmentDecodeWorkPackageManifest(
     source,
-    'docs/work-packages/b0-bootstrap-v1.md'
+    'config/repository/work-packages/b0-bootstrap-v1.md'
   );
   expect(parsed).toMatchObject({
     id: 'b0-bootstrap-v1',

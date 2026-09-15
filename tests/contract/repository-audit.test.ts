@@ -114,7 +114,7 @@ test('heuristic candidate extraction ignores historical authority but exposes hi
     'generated/views/vendor.min.js',
     'Agent must merge();'
   )).toEqual([]);
-  for (const repositoryPath of ['README.md', 'docs/README.md', 'docs/work/README.md']) {
+  for (const repositoryPath of ['README.md', 'docs/README.md', 'config/repository/README.md']) {
     expect(extractHeuristicBehaviorCandidates(
       repositoryPath,
       'Work Package lifecycle must remain a deterministic product projection.'
@@ -221,8 +221,8 @@ test.serial('repository audit reads one immutable HEAD tree and fails closed on 
       ''
     ].join('\n');
     const manifestDigest = createHash('sha256').update(manifest).digest('hex');
-    await mkdir(path.join(repositoryRoot, 'docs', 'work-packages'), { recursive: true });
-    await mkdir(path.join(repositoryRoot, 'docs', 'work'), { recursive: true });
+    await mkdir(path.join(repositoryRoot, 'config', 'repository', 'work-packages'), { recursive: true });
+    await mkdir(path.join(repositoryRoot, 'config', 'repository'), { recursive: true });
     await mkdir(path.join(repositoryRoot, 'src'), { recursive: true });
     await mkdir(path.join(repositoryRoot, 'templates'), { recursive: true });
     await mkdir(path.join(repositoryRoot, 'tests', 'contract'), { recursive: true });
@@ -239,24 +239,24 @@ test.serial('repository audit reads one immutable HEAD tree and fails closed on 
       'utf8'
     );
     await writeFile(
-      path.join(repositoryRoot, 'docs', 'work-packages', 'fixture.md'),
+      path.join(repositoryRoot, 'config', 'repository', 'work-packages', 'fixture.md'),
       manifest,
       'utf8'
     );
     await writeFile(
-      path.join(repositoryRoot, 'docs', 'work', 'active-work-package.md'),
+      path.join(repositoryRoot, 'config', 'repository', 'active-work-package.md'),
       [
         '---',
         'status: active',
         '---',
-        `manifest: docs/work-packages/fixture.md`,
+        `manifest: config/repository/work-packages/fixture.md`,
         `manifestDigest: sha256:${manifestDigest}`,
         ''
       ].join('\n'),
       'utf8'
     );
     await writeFile(
-      path.join(repositoryRoot, 'docs', 'work', 'rolling-plan.md'),
+      path.join(repositoryRoot, 'config', 'repository', 'rolling-plan.md'),
       [
         '---',
         'status: active',

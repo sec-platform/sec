@@ -50,7 +50,7 @@ function input(): SecOperationReadPlanInput {
       goalDigest: digest('b'),
       trustedRevision: head,
       targetCandidate: head,
-      workPackageProposalRef: 'docs/work-packages/task-capsule-compiler-v1.md',
+      workPackageProposalRef: 'config/repository/work-packages/task-capsule-compiler-v1.md',
       workPackageProposalDigest: digest('c'),
       workPackageProjectionId: digest('e'),
       scopeGrantId: null,

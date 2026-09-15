@@ -3,7 +3,13 @@ from pathlib import Path
 import json
 import tempfile
 import unittest
-from source_inventory import source_files, local_path, load
+from source_inventory import (
+    load,
+    local_path,
+    refresh_source_manifest,
+    source_files,
+    source_set_digest,
+)
 
 
 class SourceBoundary(unittest.TestCase):
@@ -18,8 +24,18 @@ class SourceBoundary(unittest.TestCase):
 
     def declare(self, roots, exemptions=()):
         (self.root / '.documentation/baseline.json').write_text(
-            json.dumps({'source_roots': roots, 'audited_namespaces': ['docs'],
-                        'non_documentation_roots': list(exemptions)}), encoding='utf-8')
+            json.dumps({
+                'schema': 'sec.documentation-baseline/1',
+                'source_set_sha256': '0' * 64,
+                'source_roots': roots,
+                'source_manifest': 'source-manifest.json',
+                'excluded_from_source_hash': [
+                    '.documentation/baseline.json',
+                    '.documentation/source-manifest.json',
+                ],
+                'audited_namespaces': ['docs'],
+                'non_documentation_roots': list(exemptions),
+            }), encoding='utf-8')
 
     def names(self):
         return {p.relative_to(self.root).as_posix() for p in source_files(self.root)}
@@ -61,11 +77,11 @@ class SourceBoundary(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'unexpected file in documentation namespace'):
             self.names()
 
-    def test_explicit_machine_history_is_separate_but_cannot_exempt_source(self):
-        (self.root / 'docs/work').mkdir()
-        (self.root / 'docs/work/history.md').write_text('published machine record')
-        self.declare(['.documentation', 'docs/规则.md'], ['docs/work'])
-        self.assertNotIn('docs/work/history.md', self.names())
+    def test_explicit_non_documentation_root_is_separate_but_cannot_exempt_source(self):
+        (self.root / 'docs/generated').mkdir()
+        (self.root / 'docs/generated/index.md').write_text('machine projection')
+        self.declare(['.documentation', 'docs/规则.md'], ['docs/generated'])
+        self.assertNotIn('docs/generated/index.md', self.names())
         self.declare(['.documentation', 'docs/规则.md'], ['docs/规则.md'])
         with self.assertRaisesRegex(ValueError, 'overlaps'):
             self.names()
@@ -85,6 +101,17 @@ class SourceBoundary(unittest.TestCase):
             self.skipTest(str(error))
         with self.assertRaisesRegex(ValueError, 'linked documentation path'):
             source_files(self.root)
+
+    def test_refresh_publishes_complete_canonical_members_and_matching_digest(self):
+        result = refresh_source_manifest(self.root)
+        manifest = load(self.root / '.documentation/source-manifest.json')
+        baseline = load(self.root / '.documentation/baseline.json')
+        names = [member['path'] for member in manifest['members']]
+        self.assertEqual(names, sorted(names))
+        self.assertEqual(names, ['docs/规则.md'])
+        self.assertEqual(manifest['source_set_sha256'], source_set_digest(manifest['members']))
+        self.assertEqual(baseline['source_set_sha256'], manifest['source_set_sha256'])
+        self.assertEqual(result['source_members'], 1)
 
 
 if __name__ == '__main__':

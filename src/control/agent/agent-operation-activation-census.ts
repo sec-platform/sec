@@ -4,7 +4,7 @@ import {
   type CodexDevelopmentWorkPackageCensusEntry
 } from '../documentation/document-control-plane-contract.ts';
 
-const WORK_PACKAGE_PATH_PATTERN = /^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u;
+const WORK_PACKAGE_PATH_PATTERN = /^config\/repository\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u;
 
 export function isCanonicalAgentOperationActivationWorkPackagePath(value: string): boolean {
   return WORK_PACKAGE_PATH_PATTERN.test(value);

@@ -110,7 +110,7 @@ export function createMainHealthRepairWorkPackagePath(input: Readonly<{
     owner: text(input.owner, 'repair owner'),
     failureFingerprints: Object.freeze(failureFingerprints)
   })).slice('sha256:'.length);
-  return `docs/work-packages/default-branch-health-repair-${mainSha}-${identity}.md`;
+  return `config/repository/work-packages/default-branch-health-repair-${mainSha}-${identity}.md`;
 }
 function record(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) fail('ledger must be an object.');

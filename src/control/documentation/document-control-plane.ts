@@ -361,9 +361,9 @@ function documentControlCliFailure(
 
 const ExternalCommandTimeoutMs = 30_000;
 const ExternalCommandMaxBufferBytes = 8 * 1024 * 1024;
-const CurrentStatePath = 'docs/work/current-state.yaml';
-const ActivePointerPath = 'docs/work/active-work-package.md';
-const RollingPlanPath = 'docs/work/rolling-plan.md';
+const CurrentStatePath = 'config/repository/current-state.yaml';
+const ActivePointerPath = 'config/repository/active-work-package.md';
+const RollingPlanPath = 'config/repository/rolling-plan.md';
 const LegacyFreezeJournalSchema = 'sec-document-control-plane-freeze-journal-v4' as const;
 const FreezeJournalSchema = 'sec-document-control-plane-freeze-journal-v5' as const;
 const LegacyFreezeResultSchema = 'sec-document-control-plane-freeze-result-v1' as const;
@@ -1734,7 +1734,7 @@ async function captureControlIndexSnapshot(
       const targetManifestBlob = options.targetManifestPath === undefined
         ? undefined
         : await readBlob(`:${options.targetManifestPath}`);
-      const roadmapBlob = await readBlob(':docs/roadmap.md');
+      const roadmapBlob = await readBlob(':config/repository/work-selection.md');
       const indexPaths = Object.freeze(parseNulList(requireCommandOutput(
         await runScratch(['ls-files', '--cached', '-z']),
         'External index snapshot path inventory'
@@ -4211,7 +4211,7 @@ async function materializeFreezeCandidateObjects(input: Readonly<{
 }
 
 function assertCanonicalManifestPath(manifestPath: string): void {
-  if (!/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(manifestPath)) {
+  if (!/^config\/repository\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(manifestPath)) {
     throw new Error('freeze --manifest must be one canonical Work Package manifest path.');
   }
 }
@@ -5311,7 +5311,7 @@ async function freezeDocumentControlPlaneWithSession(
       headPointer.manifest,
       ActivePointerPath,
       RollingPlanPath,
-      ...(workSelectionProjectionMode === 'required-v1' ? ['docs/roadmap.md'] : [])
+      ...(workSelectionProjectionMode === 'required-v1' ? ['config/repository/work-selection.md'] : [])
     ])]);
     const targetSet = new Set<string>(targets);
     const snapshot = await captureControlIndexSnapshot(repositoryRoot, {
@@ -6533,7 +6533,7 @@ async function resolveLiveControlPlaneWithGitReadSession(
   return {
     schema: 'sec-resolved-current-state-v1',
     observedAt: new Date().toISOString(),
-    source: 'docs/work/current-state.yaml',
+    source: 'config/repository/current-state.yaml',
     repository: {
       fullName: spec.resolver.repository,
       defaultBranch: spec.resolver.defaultBranch,

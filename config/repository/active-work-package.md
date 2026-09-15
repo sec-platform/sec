@@ -10,8 +10,8 @@ last-reviewed: 2026-09-16
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/sec-086-cutover.md
-manifestDigest: sha256:d4e44f548dcef9ee0512ce990a091107443ff4b37ff99f8783decedce5dafb6b
+manifest: config/repository/work-packages/documentation-control-convergence-v1.md
+manifestDigest: sha256:7df1cfacdfba02c699cae9515e1a427fa10da9495a5ed3fb41259eedc373e293
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

@@ -16,7 +16,7 @@ export { VERIFICATION_GATE_RESULT_SCHEMA } from './schema.ts';
  * any runner/CI/Product writer. All legacy models map into this contract; lossy
  * mappings surface as unresolved/invalidated rather than silently promoting to passed.
  *
- * Authority: docs/work-packages/verification-result-core-v1.md
+ * Authority: config/repository/work-packages/verification-result-core-v1.md
  * Census: Issue #176 census v0.2
  */
 

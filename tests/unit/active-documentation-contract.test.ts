@@ -35,8 +35,8 @@ function baselineSource(overrides: Record<string, unknown> = {}): string {
       '.documentation/baseline.json',
       '.documentation/source-manifest.json'
     ],
-    audited_namespaces: ['docs', 'public-docs'],
-    non_documentation_roots: ['docs/work', 'docs/work-packages', 'docs/roadmap.md', 'docs/governance'],
+    audited_namespaces: ['docs'],
+    non_documentation_roots: [],
     entry: '../README.md',
     delivery_number: '086',
     archive_name: 'SEC-086.zip',
@@ -95,17 +95,17 @@ test('documentation gate inputs are derived from the baseline without expanding 
     '.documentation/source-manifest.json',
     'docs/产品/new.md',
     'docs/unregistered-legacy.md',
-    'public-docs/stale.md',
     'examples/sample.ts',
     'tools/check_docs.py'
   ]) {
     expect(isDocumentationVerificationInputPath(file, baseline)).toBe(true);
   }
   for (const file of [
-    'docs/work/active-work-package.md',
-    'docs/work-packages/history.md',
-    'docs/roadmap.md',
-    'docs/governance/ledger.yaml',
+    'config/repository/active-work-package.md',
+    'config/repository/work-packages/history.md',
+    'config/repository/work-selection.md',
+    'config/external-capabilities/ledger.yaml',
+    'public-docs/stale.md',
     'src/product.ts'
   ]) {
     expect(isDocumentationVerificationInputPath(file, baseline)).toBe(false);
@@ -127,7 +127,7 @@ test('documentation verification baseline rejects ambiguous or competing roots',
   }))).toThrow(/outside audited_namespaces/u);
   expect(() => parseDocumentationVerificationBaseline(baselineSource({
     source_roots: ['docs'],
-    non_documentation_roots: ['docs/work']
+    non_documentation_roots: ['docs/generated']
   }))).toThrow(/overlaps source_roots/u);
   expect(() => parseDocumentationVerificationBaseline(baselineSource({ unexpected: true })))
     .toThrow(/unsupported root key/u);

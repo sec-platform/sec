@@ -18,7 +18,7 @@ function pullPage(input: { nodes?: unknown[]; totalCount?: number; hasNextPage?:
   endCursor?: string | null; title?: string; errors?: unknown[] } = {}): string {
   return JSON.stringify({ ...(input.errors === undefined ? {} : { errors: input.errors }),
     data: { repository: { pullRequest: { number: 357,
-    title: input.title ?? 'Safe PR', body: 'Work-Package: docs/work-packages/x.md\n',
+    title: input.title ?? 'Safe PR', body: 'Work-Package: config/repository/work-packages/x.md\n',
     state: 'OPEN', mergeCommit: null, closingIssuesReferences: {
       totalCount: input.totalCount ?? input.nodes?.length ?? 0,
       nodes: input.nodes ?? [], pageInfo: { hasNextPage: input.hasNextPage ?? false,

@@ -1330,7 +1330,7 @@ function localDagFixture(environment = createCiVerificationLocalExecutionEnviron
     baseTreeSha: BASE_TREE_SHA,
     headSha: HEAD_SHA,
     headTreeSha: HEAD_TREE_SHA,
-    manifestPath: 'docs/work-packages/local-feedback-v1.md',
+    manifestPath: 'config/repository/work-packages/local-feedback-v1.md',
     manifestDigest: DIGEST_A,
     scopeAuthorizationRevision: `sha256:${'b'.repeat(64)}`,
     profile: 'quick',

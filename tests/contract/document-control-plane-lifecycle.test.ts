@@ -228,13 +228,13 @@ const test = Object.assign(
   }
 ) as typeof bunTest;
 
-const CURRENT_STATE_PATH = 'docs/work/current-state.yaml';
-const POINTER_PATH = 'docs/work/active-work-package.md';
-const FIXTURE_MANIFEST_PATH = 'docs/work-packages/control-plane-lifecycle-fixture-v1.md';
+const CURRENT_STATE_PATH = 'config/repository/current-state.yaml';
+const POINTER_PATH = 'config/repository/active-work-package.md';
+const FIXTURE_MANIFEST_PATH = 'config/repository/work-packages/control-plane-lifecycle-fixture-v1.md';
 const CURRENT_ACTIVE_ID = 'current-active-v1';
-const CURRENT_ACTIVE_PATH = `docs/work-packages/${CURRENT_ACTIVE_ID}.md`;
+const CURRENT_ACTIVE_PATH = `config/repository/work-packages/${CURRENT_ACTIVE_ID}.md`;
 const FREEZE_TARGET_ID = 'freeze-target-v1';
-const FREEZE_TARGET_PATH = `docs/work-packages/${FREEZE_TARGET_ID}.md`;
+const FREEZE_TARGET_PATH = `config/repository/work-packages/${FREEZE_TARGET_ID}.md`;
 
 test('initially-absent pure T/N/R contract exhaustively owns classification and its five edges', () => {
   const byteClasses: readonly CodexDevelopmentInitiallyAbsentTupleByteClass[] = [
@@ -516,7 +516,7 @@ resolver:
   requireRemoteMatch: true
 stableFacts:
   workSelection:
-    catalog: docs/roadmap.md#sec-work-selection-roadmap-catalog-v1
+    catalog: config/repository/work-selection.md#sec-work-selection-roadmap-catalog-v1
     projection: sec-work-selection-live-v1-required
 `;
 }
@@ -831,8 +831,8 @@ async function createFreezeFixtureSeedV1(): Promise<FreezeFixtureSeedV1> {
     'README.md': '# freeze fixture\n',
     [CURRENT_STATE_PATH]: currentStateSource(),
     [POINTER_PATH]: activePointerSource(CURRENT_ACTIVE_PATH, currentManifestBytes),
-    'docs/roadmap.md': workSelectionCatalogSourceFixture({ activeCurrentPackage: true }),
-    'docs/work/rolling-plan.md': rollingPlanSource(),
+    'config/repository/work-selection.md': workSelectionCatalogSourceFixture({ activeCurrentPackage: true }),
+    'config/repository/rolling-plan.md': rollingPlanSource(),
     [CURRENT_ACTIVE_PATH]: currentManifestBytes
   };
   for (const [repositoryPath, content] of Object.entries(initialFiles)) {
@@ -845,7 +845,7 @@ async function createFreezeFixtureSeedV1(): Promise<FreezeFixtureSeedV1> {
   const projectionBaseSha = runGit(repositoryRoot, ['rev-parse', 'HEAD']);
   const projectionBaseTree = runGit(repositoryRoot, ['rev-parse', `${projectionBaseSha}^{tree}`]);
   await writeFile(
-    path.join(repositoryRoot, 'docs/work/rolling-plan.md'),
+    path.join(repositoryRoot, 'config/repository/rolling-plan.md'),
     renderSecWorkRollingPlan({
       receipt: workSelectionReceiptFixture({
         exactMain: projectionBaseSha,
@@ -856,18 +856,18 @@ async function createFreezeFixtureSeedV1(): Promise<FreezeFixtureSeedV1> {
     }),
     'utf8'
   );
-  runGit(repositoryRoot, ['add', 'docs/work/rolling-plan.md']);
+  runGit(repositoryRoot, ['add', 'config/repository/rolling-plan.md']);
   runGit(repositoryRoot, ['commit', '--quiet', '-m', 'publish rolling projection']);
   const terminalCompaction = compileSecRoadmapTerminalCompaction({
     roadmapSource: workSelectionCatalogSourceFixture({ activeCurrentPackage: true }),
     completedWorkIds: ['issue-310']
   });
   await writeFile(
-    path.join(repositoryRoot, 'docs/roadmap.md'),
+    path.join(repositoryRoot, 'config/repository/work-selection.md'),
     terminalCompaction.roadmapSource,
     'utf8'
   );
-  runGit(repositoryRoot, ['add', 'docs/roadmap.md']);
+  runGit(repositoryRoot, ['add', 'config/repository/work-selection.md']);
   runGit(repositoryRoot, ['commit', '--quiet', '-m', 'publish terminal roadmap compaction']);
   runGit(repositoryRoot, ['remote', 'add', 'origin', remoteRoot]);
   runGit(repositoryRoot, ['push', '--quiet', '--set-upstream', 'origin', 'main']);
@@ -1061,7 +1061,7 @@ matchingDefaultBlob: none
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/competing-control-plane-fixture-v1.md
+manifest: config/repository/work-packages/competing-control-plane-fixture-v1.md
 manifestDigest: ${pointer.manifestDigest}
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
@@ -1107,7 +1107,7 @@ resolver:
   requireRemoteMatch: true
 stableFacts:
   workSelection:
-    catalog: docs/roadmap.md#sec-work-selection-roadmap-catalog-v1
+    catalog: config/repository/work-selection.md#sec-work-selection-roadmap-catalog-v1
     projection: sec-work-selection-live-v1-required
 `);
   expect(CodexDevelopmentResolveWorkSelectionProjectionMode(requiredWorkSelectionSpec))
@@ -1248,7 +1248,7 @@ test('status resolves a published rolling projection as history after its exact 
       'utf8'
     );
     await writeFile(
-      path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'),
+      path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md'),
       projection.rollingPlanSource,
       'utf8'
     );
@@ -1431,7 +1431,7 @@ test('freeze projection admits only the exact degraded-main repair and preserves
       owner: 'ci-verification-maintainer',
       failureFingerprints: [repairFailure]
     });
-    const repairId = repairPath.slice('docs/work-packages/'.length, -'.md'.length);
+    const repairId = repairPath.slice('config/repository/work-packages/'.length, -'.md'.length);
     const ledger = createMainHealthLedger({
       repository: 'sec-platform/sec',
       defaultBranch: 'main',
@@ -1475,7 +1475,7 @@ tasks:
   - id: repair
     owner: ci-verification-maintainer
     ownedPaths:
-      - docs/work-packages/${repairId}.md
+      - config/repository/work-packages/${repairId}.md
 forbiddenPaths:
   - src/compiler/
 acceptance:
@@ -1644,8 +1644,8 @@ test('freeze rejects a manually staged pointer and rolling-plan selection baseli
       .replace('### 2. candidate-three-v1', '### 2. candidate-two-v1')
       .replace('### 1. candidate-swap-v1', '### 1. candidate-three-v1');
     await writeFile(path.join(fixture.repositoryRoot, POINTER_PATH), canonical.pointerSource);
-    await writeFile(path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'), reorderedRolling);
-    runGit(fixture.repositoryRoot, ['add', FREEZE_TARGET_PATH, POINTER_PATH, 'docs/work/rolling-plan.md']);
+    await writeFile(path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md'), reorderedRolling);
+    runGit(fixture.repositoryRoot, ['add', FREEZE_TARGET_PATH, POINTER_PATH, 'config/repository/rolling-plan.md']);
     const objectCensusBefore = runGit(fixture.repositoryRoot, ['count-objects', '-v']);
     await expect(freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
@@ -1686,7 +1686,7 @@ test('freeze publishes one exact index tree, projects worktree bytes, and is ide
       await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8')
     );
     const rolling = CodexDevelopmentParseRollingPlan(
-      await readFile(path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'), 'utf8')
+      await readFile(path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md'), 'utf8')
     );
     expect(pointer.manifest).toBe(FREEZE_TARGET_PATH);
     expect(rolling.activePackageId).toBe(FREEZE_TARGET_ID);
@@ -1694,7 +1694,7 @@ test('freeze publishes one exact index tree, projects worktree bytes, and is ide
     await expectFreezeTransactionRetired(fixture.repositoryRoot);
     const indexBeforeNoop = await readFile(repositoryIndexPath(fixture.repositoryRoot));
     const pointerBeforeNoop = await readFile(path.join(fixture.repositoryRoot, POINTER_PATH));
-    const rollingBeforeNoop = await readFile(path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'));
+    const rollingBeforeNoop = await readFile(path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md'));
     const second = await freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
@@ -1709,12 +1709,12 @@ test('freeze publishes one exact index tree, projects worktree bytes, and is ide
     });
     expect(await readFile(repositoryIndexPath(fixture.repositoryRoot))).toEqual(indexBeforeNoop);
     expect(await readFile(path.join(fixture.repositoryRoot, POINTER_PATH))).toEqual(pointerBeforeNoop);
-    expect(await readFile(path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'))).toEqual(rollingBeforeNoop);
+    expect(await readFile(path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md'))).toEqual(rollingBeforeNoop);
     await expectFreezeTransactionRetired(fixture.repositoryRoot);
     expect(runGit(fixture.repositoryRoot, ['diff', '--cached', '--no-renames', '--name-only'])).toBe([
       CURRENT_ACTIVE_PATH,
       POINTER_PATH,
-      'docs/work/rolling-plan.md',
+      'config/repository/rolling-plan.md',
       FREEZE_TARGET_PATH
     ].sort().join('\n'));
   } finally {
@@ -1735,7 +1735,7 @@ async function createProposalFreezeFixture(): Promise<ProposalFreezeFixture> {
   const fixture = await createFreezeFixture();
   try {
     const proposalId = 'private-sandbox-python-runtime-transition';
-    const proposalPath = `docs/work-packages/${proposalId}.md`;
+    const proposalPath = `config/repository/work-packages/${proposalId}.md`;
     const manifestPath = path.join(fixture.repositoryRoot, ...FREEZE_TARGET_PATH.split('/'));
     const proposalBytes = Buffer.from(
       (await readFile(manifestPath, 'utf8'))
@@ -1848,7 +1848,7 @@ test('proposal-only recovery rejects the activation lane and completes as PROPOS
     });
     expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(recovered.candidateTreeSha);
     expect(CodexDevelopmentParseRollingPlan(
-      await readFile(path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'), 'utf8')
+      await readFile(path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md'), 'utf8')
     ).activePackageId).toBe(proposalId);
     await expectFreezeTransactionRetired(fixture.repositoryRoot);
   } finally {
@@ -1955,7 +1955,7 @@ test('pre-evidence replan replaces one staged manifest generation in the same wo
     });
     await expectFreezeTransactionRetired(fixture.repositoryRoot);
     const firstRolling = await readFile(
-      path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'),
+      path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md'),
       'utf8'
     );
     const nextManifest = Buffer.concat([
@@ -1976,7 +1976,7 @@ test('pre-evidence replan replaces one staged manifest generation in the same wo
       .toBe(CodexDevelopmentWorkPackageManifestDigest(nextManifest));
     expect(await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8'))
       .toContain('last-reviewed: 2026-08-10');
-    expect(await readFile(path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'), 'utf8'))
+    expect(await readFile(path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md'), 'utf8'))
       .not.toBe(firstRolling);
     expect(readGitBlob(fixture.repositoryRoot, `:${FREEZE_TARGET_PATH}`)).toEqual(nextManifest);
     await expectFreezeTransactionRetired(fixture.repositoryRoot);
@@ -2066,7 +2066,7 @@ test('committed candidate replan repairs one ancestry-proven published control p
     });
     await writeFile(path.join(fixture.repositoryRoot, POINTER_PATH), firstProjection.pointerSource, 'utf8');
     await writeFile(
-      path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'),
+      path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md'),
       firstProjection.rollingPlanSource,
       'utf8'
     );
@@ -2087,7 +2087,7 @@ test('committed candidate replan repairs one ancestry-proven published control p
     runGit(fixture.repositoryRoot, ['commit', '--quiet', '--amend', '--no-edit']);
     expect(runGit(fixture.repositoryRoot, ['rev-parse', 'HEAD^'])).toBe(selectionBaseSha);
     expect(await readFile(
-      path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'),
+      path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md'),
       'utf8'
     )).toContain(`"sourceHead": "${sourceHead}"`);
 
@@ -2122,13 +2122,13 @@ test('committed candidate replan repairs one ancestry-proven published control p
 
     const publishedRolling = readGitBlob(
       fixture.repositoryRoot,
-      `${liveDefaultSha}:docs/work/rolling-plan.md`
+      `${liveDefaultSha}:config/repository/rolling-plan.md`
     )!;
     await writeFile(
-      path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'),
+      path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md'),
       Buffer.concat([publishedRolling, Buffer.from('\nCandidate-only alternate publication claim.\n', 'utf8')])
     );
-    runGit(fixture.repositoryRoot, ['add', 'docs/work/rolling-plan.md']);
+    runGit(fixture.repositoryRoot, ['add', 'config/repository/rolling-plan.md']);
     runGit(fixture.repositoryRoot, ['commit', '--quiet', '--amend', '--no-edit']);
     await expect(freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
@@ -2136,10 +2136,10 @@ test('committed candidate replan repairs one ancestry-proven published control p
       reviewedOn: '2026-08-22'
     })).rejects.toThrow('do not equal the exact published live-default projection');
     await writeFile(
-      path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'),
+      path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md'),
       publishedRolling
     );
-    runGit(fixture.repositoryRoot, ['add', 'docs/work/rolling-plan.md']);
+    runGit(fixture.repositoryRoot, ['add', 'config/repository/rolling-plan.md']);
     runGit(fixture.repositoryRoot, ['commit', '--quiet', '--amend', '--no-edit']);
 
     const repaired = await freezeDocumentControlPlane({
@@ -2160,7 +2160,7 @@ test('committed candidate replan repairs one ancestry-proven published control p
     expect<string>(repairedPointer.manifestDigest)
       .toBe(CodexDevelopmentWorkPackageManifestDigest(repairedManifest));
     const repairedRolling = await readFile(
-      path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'),
+      path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md'),
       'utf8'
     );
     expect(repairedRolling).toContain(`"exactMain": "${liveDefaultSha}"`);
@@ -2405,7 +2405,7 @@ async function readFreezeEffectSnapshot(repositoryRoot: string): Promise<Readonl
     transaction: await readDirectTransactionByteSnapshot(path.join(repositoryRoot, JOURNAL_TRANSACTION_RELATIVE)),
     index: (await readFile(repositoryIndexPath(repositoryRoot))).toString('base64'),
     pointer: (await readFile(path.join(repositoryRoot, POINTER_PATH))).toString('base64'),
-    rollingPlan: (await readFile(path.join(repositoryRoot, 'docs/work/rolling-plan.md'))).toString('base64')
+    rollingPlan: (await readFile(path.join(repositoryRoot, 'config/repository/rolling-plan.md'))).toString('base64')
   });
 }
 
@@ -2521,7 +2521,7 @@ async function readPreEffectTupleSnapshot(prepared: PublishTupleFixtureV1): Prom
     }),
     index: await readOptionalEntrySnapshot(indexPath),
     pointer: await readOptionalEntrySnapshot(path.join(prepared.fixture.repositoryRoot, POINTER_PATH)),
-    rollingPlan: await readOptionalEntrySnapshot(path.join(prepared.fixture.repositoryRoot, 'docs/work/rolling-plan.md')),
+    rollingPlan: await readOptionalEntrySnapshot(path.join(prepared.fixture.repositoryRoot, 'config/repository/rolling-plan.md')),
     journal: await readOptionalEntrySnapshot(prepared.paths.journal)
   });
 }
@@ -3125,7 +3125,7 @@ if (process.platform === 'linux') {
       });
       expect(await readFile(path.join(fixture.repositoryRoot, POINTER_PATH)))
         .toEqual(Buffer.from(active.journal.files.pointer.pre, 'base64'));
-      expect(await readFile(path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md')))
+      expect(await readFile(path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md')))
         .toEqual(Buffer.from(active.journal.files.rollingPlan.pre, 'base64'));
 
       const status = await resolveLiveControlPlane(fixture.repositoryRoot, { observeGitHub: false });
@@ -3181,7 +3181,7 @@ if (process.platform === 'linux') {
         operationId: journal.operationId,
         expectedPre: Buffer.from(journal.files.pointer.pre, 'base64')
       });
-      expect(await readFile(path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md')))
+      expect(await readFile(path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md')))
         .toEqual(Buffer.from(journal.files.rollingPlan.pre, 'base64'));
 
       const status = await resolveLiveControlPlane(fixture.repositoryRoot, { observeGitHub: false });
@@ -3240,7 +3240,7 @@ if (process.platform === 'linux') {
       expect(await readFile(`${indexPath}.lock`)).toEqual(Buffer.from(journal.index.next, 'base64'));
       expect(await readFile(path.join(fixture.repositoryRoot, POINTER_PATH)))
         .toEqual(Buffer.from(journal.files.pointer.pre, 'base64'));
-      expect(await readFile(path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md')))
+      expect(await readFile(path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md')))
         .toEqual(Buffer.from(journal.files.rollingPlan.pre, 'base64'));
 
       const status = await resolveLiveControlPlane(fixture.repositoryRoot, { observeGitHub: false });
@@ -3335,7 +3335,7 @@ if (process.platform === 'linux') {
       const journalPath = path.join(transactionRoot, 'journal.json');
       const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV4;
       expect(journal.phase).toBe('pointer-published');
-      const rollingPlanPath = path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md');
+      const rollingPlanPath = path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md');
       await expectLinuxExactS1({
         artifactRoot: transactionRoot,
         targetPath: rollingPlanPath,
@@ -3404,7 +3404,7 @@ if (process.platform === 'linux') {
             ? indexPath
             : installedCase.kind === 'pointer'
               ? path.join(fixture.repositoryRoot, POINTER_PATH)
-              : path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md');
+              : path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md');
           const nextPath = installedCase.kind === 'index'
             ? `${indexPath}.lock`
             : path.join(
@@ -4010,7 +4010,7 @@ test('optional journal reads accept an absent parent while required control read
     const status = await resolveLiveControlPlane(fixture.repositoryRoot, { observeGitHub: false });
     expect(status.activation).toBeNull();
 
-    await rm(path.join(fixture.repositoryRoot, 'docs/work-packages'), { recursive: true, force: true });
+    await rm(path.join(fixture.repositoryRoot, 'config/repository/work-packages'), { recursive: true, force: true });
     await expect(freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
@@ -4172,7 +4172,7 @@ test('freeze preserves unrelated unstaged work but rejects unrelated staged and 
       reviewedOn: '2026-08-09',
       faultAfter: 'after-pointer-publish'
     })).rejects.toThrow('after-pointer-publish');
-    const rollingPath = path.join(unknownFixture.repositoryRoot, 'docs/work/rolling-plan.md');
+    const rollingPath = path.join(unknownFixture.repositoryRoot, 'config/repository/rolling-plan.md');
     await writeFile(rollingPath, 'unknown user bytes\n', 'utf8');
     await expect(freezeDocumentControlPlane({
       cwd: unknownFixture.repositoryRoot,
@@ -4305,8 +4305,8 @@ for (const raceKind of ['head', 'local-default', 'index', 'retired-manifest'] as
 
 test('anchored rename cannot be redirected by a parent-to-junction swap after handles are open', async () => {
   const fixture = await createFreezeFixture();
-  const workPath = path.join(fixture.repositoryRoot, 'docs/work');
-  const heldWorkPath = path.join(fixture.repositoryRoot, 'docs/work-held-by-anchor');
+  const workPath = path.join(fixture.repositoryRoot, 'config/repository');
+  const heldWorkPath = path.join(fixture.repositoryRoot, 'config/repository-held-by-anchor');
   const external = path.join(fixture.parent, 'anchored-rename-external');
   const externalPointer = path.join(external, 'active-work-package.md');
   const activePointer = path.join(workPath, 'active-work-package.md');
@@ -4793,7 +4793,7 @@ test('freeze rejects reparse and nonregular paths while ignoring an ambient outs
     await mkdir(external);
     const pointerTemp = path.join(
       documentTempFixture.repositoryRoot,
-      'docs/work',
+      'config/repository',
       `.active-work-package.md.${journal.operationId.slice('sha256:'.length)}.next`
     );
     await symlink(external, pointerTemp, 'junction');
@@ -4876,7 +4876,7 @@ if (process.platform === 'win32') {
       )) as { operationId: string };
       pointerTemp = path.join(
         fixture.repositoryRoot,
-        'docs/work',
+        'config/repository',
         `.active-work-package.md.${journal.operationId.slice('sha256:'.length)}.next`
       );
       await writeFile(pointerTemp, 'ordinary ACL denial fixture\n', 'utf8');
@@ -5154,7 +5154,7 @@ test('repository controls use the shared live resolver and preserve one bounded 
   const [currentStateSource, pointerSource, rollingPlan] = await Promise.all([
     readFile(CURRENT_STATE_PATH, 'utf8'),
     readFile(POINTER_PATH, 'utf8'),
-    readFile('docs/work/rolling-plan.md', 'utf8')
+    readFile('config/repository/rolling-plan.md', 'utf8')
   ]);
   const currentState = CodexDevelopmentParseCurrentStateSpec(currentStateSource);
   const pointer = CodexDevelopmentParseActivePointer(pointerSource);

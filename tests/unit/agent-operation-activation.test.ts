@@ -50,7 +50,7 @@ function prepareRequest(): SecAgentOperationActivationRequest {
     pullRequestNumber: 400,
     expectedBaseSha: sha('a'),
     expectedHeadSha: sha('c'),
-    manifestPath: 'docs/work-packages/delegation-consumer-zero-retirement-v1.md',
+    manifestPath: 'config/repository/work-packages/delegation-consumer-zero-retirement-v1.md',
     manifestDigest: digest('2'),
     preparationCommentId: null
   });
@@ -81,18 +81,18 @@ function preparationInput(): SecAgentOperationActivationPreparationInput {
       rollingPlan: digest('5')
     },
     authorizedPaths: [
-      'docs/work/active-work-package.md',
-      'docs/work/rolling-plan.md',
-      'docs/work-packages/delegation-consumer-zero-retirement-v1.md',
+      'config/repository/active-work-package.md',
+      'config/repository/rolling-plan.md',
+      'config/repository/work-packages/delegation-consumer-zero-retirement-v1.md',
       'src/control/agent/task-capsule-host.ts',
       'src/control/agent/task-capsule.ts',
       'scripts/codex/'
     ],
     forbiddenPaths: ['source/'],
     proposalChangedPaths: [
-      'docs/work/active-work-package.md',
-      'docs/work/rolling-plan.md',
-      'docs/work-packages/delegation-consumer-zero-retirement-v1.md'
+      'config/repository/active-work-package.md',
+      'config/repository/rolling-plan.md',
+      'config/repository/work-packages/delegation-consumer-zero-retirement-v1.md'
     ],
     operationId: secAgentOperationActivationOperationId(request.requestOperationId),
     role: 'worker',
@@ -116,7 +116,7 @@ tasks:
   - id: fixture-task
     owner: development-governance-owner
     ownedPaths:
-      - docs/work-packages/${packageId}.md
+      - config/repository/work-packages/${packageId}.md
 forbiddenPaths:
   - src/compiler/
 acceptance:
@@ -149,8 +149,8 @@ test('hosted PRE is canonical and binds request, provider, and full manifest sco
 });
 
 test('hosted PRE requires every stale default-branch Work Package to be deleted', () => {
-  const selectedPath = 'docs/work-packages/selected-v1.md';
-  const predecessorPath = 'docs/work-packages/predecessor-v1.md';
+  const selectedPath = 'config/repository/work-packages/selected-v1.md';
+  const predecessorPath = 'config/repository/work-packages/predecessor-v1.md';
   const selectedBytes = workPackageManifest('selected-v1', 'issue-999');
   const predecessorBytes = workPackageManifest('predecessor-v1', 'issue-998');
   expect(assertAgentOperationActivationWorkPackageCensus({
@@ -202,7 +202,7 @@ test('FINAL binds a distinct request, exact PRE comment, PR identity, and PRE sc
     },
     controlDigests: preparation.controlDigests,
     changedPaths: [
-      'docs/work/active-work-package.md',
+      'config/repository/active-work-package.md',
       'src/control/agent/task-capsule-host.ts'
     ],
     workDecisionReceiptDigest: digest('8'),

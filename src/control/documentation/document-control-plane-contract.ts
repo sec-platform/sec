@@ -198,7 +198,7 @@ export function CodexDevelopmentResolveWorkSelectionProjectionMode(
   const record = value as Record<string, unknown>;
   const keys = Object.keys(record).sort();
   if (keys.length !== 2 || keys[0] !== 'catalog' || keys[1] !== 'projection'
-      || record.catalog !== 'docs/roadmap.md#sec-work-selection-roadmap-catalog-v1'
+      || record.catalog !== 'config/repository/work-selection.md#sec-work-selection-roadmap-catalog-v1'
       || record.projection !== 'sec-work-selection-live-v1-required') {
     throw new Error('Current-state workSelection stable fact is unsupported or incomplete.');
   }
@@ -486,7 +486,7 @@ function branchNameValue(value: unknown, label: string): string {
 
 function manifestPathValue(value: unknown, label: string): string {
   const manifest = stringValue(value, label);
-  if (!/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(manifest)) {
+  if (!/^config\/repository\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(manifest)) {
     throw new Error(`${label} must be one canonical Work Package manifest path.`);
   }
   return manifest;
@@ -775,13 +775,13 @@ export function CodexDevelopmentClassifyWorkPackageCensus(input: Readonly<{
   entries: readonly CodexDevelopmentWorkPackageCensusEntry[];
   roadmapSource?: string;
 }>): CodexDevelopmentWorkPackageCensus {
-  if (!/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(input.selectedManifestPath)) {
+  if (!/^config\/repository\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(input.selectedManifestPath)) {
     throw new Error('Work Package census selected manifest path is noncanonical.');
   }
   const entries = [...input.entries].sort((left, right) => left.path.localeCompare(right.path));
   if (entries.length === 0
       || entries.some(({ path: entryPath }) =>
-        !/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(entryPath))
+        !/^config\/repository\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(entryPath))
       || new Set(entries.map(({ path: entryPath }) => entryPath)).size !== entries.length) {
     throw new Error('Work Package census entries must be non-empty, canonical, and unique.');
   }
@@ -805,7 +805,7 @@ export function CodexDevelopmentClassifyWorkPackageCensus(input: Readonly<{
     throw new Error('Untracked recovery Work Package census requires the canonical roadmap.');
   }
   const catalogByPath = new Map(parseSecRoadmapWorkCatalog(input.roadmapSource).items.map((item) => [
-    `docs/work-packages/${item.packageId}.md`,
+    `config/repository/work-packages/${item.packageId}.md`,
     item
   ]));
   const eligible = nonSelected.filter((entry) => {
@@ -1031,7 +1031,7 @@ export function CodexDevelopmentActivateMainHealthRepairRollingPlan(input: {
       || !/^sha256:[0-9a-f]{64}$/u.test(input.healthRevision)
       || !/^sha256:[0-9a-f]{64}$/u.test(input.ledgerDigest)
       || !/^sha256:[0-9a-f]{64}$/u.test(input.decisionDigest)
-      || input.manifestPath !== `docs/work-packages/${packageId}.md`
+      || input.manifestPath !== `config/repository/work-packages/${packageId}.md`
       || !/^sha256:[0-9a-f]{64}$/u.test(input.manifestDigest)) {
     throw new Error('MainHealth repair rolling identity is invalid.');
   }
@@ -1162,7 +1162,7 @@ export function CodexDevelopmentAssertPriorFreezeProjection(input: {
     throw new Error('Prior projection pointer must be the exact compiler-rendered source.');
   }
 
-  const packageId = manifestPath.slice('docs/work-packages/'.length, -'.md'.length);
+  const packageId = manifestPath.slice('config/repository/work-packages/'.length, -'.md'.length);
   const immutableTopology = CodexDevelopmentParseRollingPlanHeadings(
     input.immutableRollingPlanSource
   );
@@ -1260,7 +1260,7 @@ export function CodexDevelopmentCreateFreezeProjection(input: {
     ? CodexDevelopmentParseRollingPlan(input.currentRollingPlanSource)
     : CodexDevelopmentParseRollingPlanHeadings(input.currentRollingPlanSource);
   if (currentRollingPlan.activePackageId !== currentPointer.manifest.slice(
-    'docs/work-packages/'.length,
+    'config/repository/work-packages/'.length,
     -'.md'.length
   )) {
     throw new Error('Current rolling plan and active pointer are not bound to the same package.');

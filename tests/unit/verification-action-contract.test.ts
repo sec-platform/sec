@@ -121,7 +121,7 @@ function actionInput(overrides: Partial<VerificationActionKeyInput> = {}): Verif
       declaredEnvironment: [{ name: 'CI', digest: DIGEST_A }]
     },
     inputClosure: [
-      { path: 'docs/work-packages/example-v1.md', digest: DIGEST_A },
+      { path: 'config/repository/work-packages/example-v1.md', digest: DIGEST_A },
       { path: 'scripts/codex/example.ts', digest: DIGEST_B }
     ],
     environment: {
@@ -160,13 +160,13 @@ test('ActionKey canonicalizes set-like closure and excludes scheduler lane ident
     },
     inputClosure: [
       { path: 'scripts/codex/example.ts', digest: DIGEST_B },
-      { path: 'docs/work-packages/example-v1.md', digest: DIGEST_A }
+      { path: 'config/repository/work-packages/example-v1.md', digest: DIGEST_A }
     ],
     upstreamActionKeys: [DIGEST_C]
   }));
   expect(first.actionKey).toBe(second.actionKey);
   expect(first.inputClosure.map(({ path }) => path)).toEqual([
-    'docs/work-packages/example-v1.md',
+    'config/repository/work-packages/example-v1.md',
     'scripts/codex/example.ts'
   ]);
   expect(parseVerificationActionKey(encodeVerificationActionData(first))).toEqual(first);
@@ -360,7 +360,7 @@ test('cheap preflight topology is exact, caller state is never accepted, and lan
   }])).toEqual({ runnable: true, reason: null });
   expect(verificationActionDependsOnChangedInputs(
     action,
-    ['docs/work-packages/example-v1.md']
+    ['config/repository/work-packages/example-v1.md']
   )).toBe(true);
   expect(verificationActionDependsOnChangedInputs(action, ['tests/unit/other.test.ts'])).toBe(false);
   expect(verificationActionDependsOnChangedInputs(action, null)).toBe(true);

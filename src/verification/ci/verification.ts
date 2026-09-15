@@ -4229,7 +4229,7 @@ function manifestBinding(
 ): ManifestBinding {
   const manifestPath = env.SEC_WORK_PACKAGE_MANIFEST_PATH;
   if (!manifestPath) return { manifestPath: null, manifestDigest: null, manifest: null };
-  if (!/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(manifestPath)) {
+  if (!/^config\/repository\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(manifestPath)) {
     throw new Error('SEC_WORK_PACKAGE_MANIFEST_PATH must be a canonical repository-relative Work Package path.');
   }
   if (sourceBlob === null) {
@@ -4313,7 +4313,7 @@ async function runCodexDevelopmentCiVerification(
         && options.transitionObservation === undefined;
       const manifestPath = env.SEC_WORK_PACKAGE_MANIFEST_PATH;
       const exactBlobPaths = uniqueSorted([
-        ...(options.readGitBlob === undefined ? ['docs/work/active-work-package.md'] : []),
+        ...(options.readGitBlob === undefined ? ['config/repository/active-work-package.md'] : []),
         ...(options.readExactGitBlob === undefined
           ? [
               ...CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS,
@@ -4509,7 +4509,7 @@ async function runCodexDevelopmentCiVerification(
     console.log(`SEC verification affected base: ${affectedBaseSha}`);
 
     stage = 'gates';
-    const fallbackManifestPath = 'docs/work/active-work-package.md';
+    const fallbackManifestPath = 'config/repository/active-work-package.md';
     const fallbackManifest = readGitBlob === undefined
       ? exactCandidateBlobs.get(fallbackManifestPath) ?? null
       : readGitBlob(headSha, fallbackManifestPath);
