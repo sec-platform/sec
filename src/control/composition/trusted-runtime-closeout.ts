@@ -15,7 +15,7 @@ import {
 } from '../../external-capabilities/github-api/operation-session.ts';
 import { publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { resolveSecRuntimeStateForRepository } from '../../runtime-state/workspace-state/paths.ts';
-import { acquireSecRuntimeStatePhysicalAuthority, type SecRuntimeStatePhysicalAuthority } from '../../runtime-state/workspace-state/physical-authority.ts';
+import { acquireSecRuntimeStatePhysicalAuthority } from '../../runtime-state/workspace-state/physical-authority.ts';
 import { encodeVerificationActionData } from '../../verification/action/contract/action.ts';
 import { CodexDevelopmentParseVerificationSessionArtifact, type CodexDevelopmentVerificationSessionArtifact } from '../../verification/ci/contract/evidence.ts';
 import {
@@ -43,7 +43,7 @@ import {
   readExactCommitMarker
 } from '../../verification/ci/runtime/verification-session.ts';
 import { renderIndependentReviewTrailer } from '../../verification/review/contract/stability.ts';
-import { createTrustedRuntimeMainHealthBaselineObservation, createTrustedRuntimeMainHealthReceipt, executeTrustedRuntimeContainerVerification, executeTrustedRuntimeMainHealth, executeTrustedRuntimeWorkspaceCanary, parseTrustedRuntimeContainerReceipt, parseTrustedRuntimeMainHealthReceipt, TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT, TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST, trustedRuntimeMainHealthCarryForwardBaselineMatches, type TrustedRuntimeContainerReceipt, type TrustedRuntimeMainHealthReceipt } from '../../verification/trusted-runtime/trusted-runtime-container.ts';
+import { executeTrustedRuntimeContainerVerification, executeTrustedRuntimeWorkspaceCanary, parseTrustedRuntimeContainerReceipt, TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT, type TrustedRuntimeContainerReceipt } from '../../verification/trusted-runtime/trusted-runtime-container.ts';
 import {
   integrationAuthorizationStatusMergeMarkers,
   parseIntegrationAuthorizationStatusPublication,
@@ -58,14 +58,10 @@ import {
   parseGitHubClosingKeywordOccurrences
 } from '../issues/disposition.ts';
 import {
-  acquireTrustedRuntimeMainHealthAuthority,
   assertMainHealthGitHubReadOperationBudgetCurrent,
   observeCanonicalMainHealthForPublication,
   observeMainHealthGitHubDefaultBranchSha,
-  reconcileCanonicalMainHealthProviderConflict,
-  trustedRuntimeMainHealthAuthorityBinding,
-  withMainHealthGitHubReadOperationBudget,
-  type MainHealthRuntimeAuthority
+  withMainHealthGitHubReadOperationBudget
 } from '../main-health/work-selection-main-health.ts';
 import {
   CodexDevelopmentAssertWorkPackageOwnership,
@@ -97,8 +93,6 @@ type TrustedRuntimeCloseoutPreMerge = Readonly<{
   actionBundle: TrustedRuntimeActionBundle;
   gateReadback: ReturnType<typeof CodexDevelopmentParseTrustedRuntimeMergeGateResult>;
   statusReadback: ReturnType<typeof parseIntegrationAuthorizationStatusPublication>;
-  mainHealthAuthority: SecRuntimeStatePhysicalAuthority;
-  mainHealthDirectory: PhysicalDirectoryIdentity;
   actionEvidenceReused: boolean;
   integrationPrincipal: Readonly<{ login: string; nodeId: string }>;
   title: string;
@@ -120,20 +114,11 @@ function hash(value: unknown): Digest {
   return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
 }
 
-function hashBytes(value: Uint8Array): Digest {
-  return `sha256:${createHash('sha256').update(value).digest('hex')}`;
-}
-
 function digest(value: unknown, label: string): Digest {
   if (typeof value !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value)) {
     fail(`${label} must be one SHA-256 digest`);
   }
   return value as Digest;
-}
-
-function gitSha(value: string, label: string): string {
-  if (!/^[0-9a-f]{40}$/u.test(value)) fail(`${label} must be one lowercase Git SHA`);
-  return value;
 }
 
 function canonicalBytes(value: unknown): Uint8Array {
@@ -142,7 +127,6 @@ function canonicalBytes(value: unknown): Uint8Array {
 
 type TrustedRuntimeOperatorArgs =
   | Readonly<{ mode: 'closeout'; repository: string; prNumber: number }>
-  | Readonly<{ mode: 'main-health'; repository: string }>
   | Readonly<{ mode: 'runtime-canary'; repository: string; dependencies: boolean }>;
 
 function parseArgs(argv: readonly string[]): TrustedRuntimeOperatorArgs {
@@ -152,7 +136,6 @@ function parseArgs(argv: readonly string[]): TrustedRuntimeOperatorArgs {
     allowPositionals: false,
     tokens: true,
     options: {
-      'main-health': { type: 'boolean' },
       'runtime-canary': { type: 'boolean' },
       dependencies: { type: 'boolean' },
       pr: { type: 'string' },
@@ -166,17 +149,12 @@ function parseArgs(argv: readonly string[]): TrustedRuntimeOperatorArgs {
     }
     seen.add(token.name);
   }
-  if ((values['main-health'] && values['runtime-canary'])
-      || (values.dependencies && !values['runtime-canary'])) {
+  if (values.dependencies && !values['runtime-canary']) {
     fail('trusted runtime operator mode must appear exactly once');
   }
   const rawPr = values.pr;
   const repository = values.repository ?? 'sec-platform/sec';
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(repository)) fail('--repository is invalid');
-  if (values['main-health']) {
-    if (rawPr !== undefined) fail('standalone trusted runtime mode cannot be combined with --pr');
-    return Object.freeze({ mode: 'main-health', repository });
-  }
   if (values['runtime-canary']) {
     if (rawPr !== undefined) fail('standalone trusted runtime mode cannot be combined with --pr');
     return Object.freeze({ mode: 'runtime-canary', repository, dependencies: values.dependencies === true });
@@ -304,301 +282,6 @@ function readCanonical<T>(input: Readonly<{
   return value;
 }
 
-export async function ensureTrustedRuntimeMainHealthReceipt(input: Readonly<{
-  repositoryRoot: string;
-  repository: string;
-  mainSha: string;
-  mainTreeSha: string;
-  runtimeStateEnvironment?: NodeJS.ProcessEnv;
-  execute?: typeof executeTrustedRuntimeMainHealth;
-}>): Promise<Readonly<{
-  receipt: TrustedRuntimeMainHealthReceipt;
-  reused: boolean;
-  authority: SecRuntimeStatePhysicalAuthority;
-  directory: PhysicalDirectoryIdentity;
-  mainHealthAuthority: MainHealthRuntimeAuthority;
-}>> {
-  const repositoryRoot = path.resolve(input.repositoryRoot);
-  const runtimeLayout = resolveSecRuntimeStateForRepository({
-    repository: input.repository,
-    repositoryRoot,
-    ...(input.runtimeStateEnvironment === undefined
-      ? {}
-      : { environment: input.runtimeStateEnvironment })
-  });
-  const mainHealthRoot = path.join(
-    runtimeLayout.repositoryStateRoot,
-    'trusted-main-health',
-    'v1'
-  );
-  const acquired = await acquireTrustedRuntimeMainHealthAuthority({
-    repositoryRoot,
-    repository: input.repository,
-    environment: input.runtimeStateEnvironment,
-    requiredDirectories: [mainHealthRoot]
-  });
-  const authority = acquired.physicalAuthority;
-  const directory = authority.directory(mainHealthRoot);
-  const ensured = await ensureTrustedRuntimeMainHealthReceiptInDirectory({
-    directory,
-    repository: input.repository,
-    mainSha: input.mainSha,
-    mainTreeSha: input.mainTreeSha,
-    execute: async () => await (input.execute ?? executeTrustedRuntimeMainHealth)({
-      repositoryRoot,
-      repository: input.repository,
-      mainSha: input.mainSha,
-      mainTreeSha: input.mainTreeSha
-    })
-  });
-  await authority.assertCurrent();
-  return Object.freeze({
-    ...ensured,
-    authority,
-    directory,
-    mainHealthAuthority: acquired.authority
-  });
-}
-
-export async function ensureTrustedRuntimeMainHealthReceiptInDirectory(input: Readonly<{
-  directory: PhysicalDirectoryIdentity;
-  repository: string;
-  mainSha: string;
-  mainTreeSha: string;
-  execute: () => Promise<TrustedRuntimeMainHealthReceipt>;
-}>): Promise<Readonly<{
-  receipt: TrustedRuntimeMainHealthReceipt;
-  reused: boolean;
-}>> {
-  const mainSha = gitSha(input.mainSha, 'MainHealth mainSha');
-  const mainTreeSha = gitSha(input.mainTreeSha, 'MainHealth mainTreeSha');
-  const name = `main-${mainSha}.json`;
-  const existing = readNoFollowOrdinaryFile(input.directory, name);
-  let receipt: TrustedRuntimeMainHealthReceipt;
-  let reused: boolean;
-  if (existing === null) {
-    receipt = publishCanonical({
-      parent: input.directory,
-      name,
-      value: await input.execute(),
-      parse: (bytes) => parseTrustedRuntimeMainHealthReceipt(
-        Buffer.from(bytes).toString('utf8')
-      )
-    });
-    reused = false;
-  } else {
-    const source = Buffer.from(existing).toString('utf8');
-    receipt = parseTrustedRuntimeMainHealthReceipt(source);
-    if (source !== `${encodeVerificationActionData(receipt)}\n`) {
-      fail('durable local MainHealth receipt bytes are not canonical');
-    }
-    reused = true;
-  }
-  if (receipt.repository !== input.repository
-      || receipt.mainSha !== mainSha
-      || receipt.mainTreeSha !== mainTreeSha) {
-    fail('durable local MainHealth receipt differs from the exact live main');
-  }
-  return Object.freeze({ receipt, reused });
-}
-
-export type TrustedRuntimeMainHealthPublication = Readonly<{
-  schema: 'sec-trusted-runtime-main-health-publication-v2';
-  repository: string;
-  mainSha: string;
-  mainTreeSha: string;
-  runtimeAuthorityBinding: Digest;
-  localReceipt: Readonly<{
-    receiptDigest: Digest;
-    byteDigest: Digest;
-    executionId: string;
-    reused: boolean;
-  }>;
-  provider: Readonly<{
-    state: 'healthy' | 'unhealthy';
-    ref: Digest;
-    routingState: 'ordinary-only' | 'repair-only';
-    reasonCode: string;
-    observationDigest: Digest;
-    decisionDigest: Digest;
-  }>;
-  supersession: Readonly<{
-    status: 'superseded' | 'resumed-superseded';
-    recordDigest: Digest;
-    operationId: Digest;
-    locator: string;
-    hostedAuthorityDigest: Digest;
-    effectAuthorizationDigest: Digest;
-    semanticDigest: Digest;
-    issuerNodeId: string;
-  }> | null;
-  publicationDigest: Digest;
-}>;
-
-export async function ensureCurrentTrustedRuntimeMainHealth(input: Readonly<{
-  repositoryRoot: string;
-  repository: string;
-  defaultBranch: string;
-}>): Promise<TrustedRuntimeMainHealthPublication> {
-  const repositoryRoot = path.resolve(input.repositoryRoot);
-  if (input.defaultBranch !== 'main') {
-    fail('standalone MainHealth requires the canonical main default branch');
-  }
-  const liveDefaultBranchSha = () => observeMainHealthGitHubDefaultBranchSha({
-    repositoryRoot,
-    repository: input.repository,
-    defaultBranch: input.defaultBranch
-  });
-  const { branch, headSha, treeSha: mainTreeSha, status, originUrl } =
-    await observeTrustedRuntimeGitFence(repositoryRoot);
-  assertOriginMatchesRepository(originUrl, input.repository);
-  if (branch !== input.defaultBranch || status !== '' || !/^[0-9a-f]{40}$/u.test(headSha)
-      || !/^[0-9a-f]{40}$/u.test(mainTreeSha)) {
-    fail('standalone MainHealth must execute from the clean exact default-branch worktree');
-  }
-  const liveDefaultSha = await liveDefaultBranchSha();
-  if (!/^[0-9a-f]{40}$/u.test(liveDefaultSha) || liveDefaultSha !== headSha) {
-    fail('standalone MainHealth must execute from the clean exact default-branch worktree');
-  }
-  const ensured = await ensureTrustedRuntimeMainHealthReceipt({
-    repositoryRoot,
-    repository: input.repository,
-    mainSha: headSha,
-    mainTreeSha
-  });
-  const runtimeAuthority = ensured.mainHealthAuthority;
-  const providerInput = Object.freeze({
-    repositoryRoot,
-    repository: input.repository,
-    defaultBranch: input.defaultBranch,
-    mainSha: headSha,
-    mainTreeSha,
-    runtimeAuthority
-  });
-  const before = await observeCanonicalMainHealthForPublication(providerInput);
-  const reconciliation = before.repairDecision.reasonCode === 'repair-provider-conflict'
-    ? await reconcileCanonicalMainHealthProviderConflict({
-        ...providerInput,
-        runtimeAuthority
-      })
-    : null;
-  if (reconciliation === null && before.repairDecision.routingState === 'locked') {
-    fail(`canonical MainHealth provider state is locked: ${before.repairDecision.reasonCode}`);
-  }
-  const after = await observeCanonicalMainHealthForPublication(providerInput);
-  if (after.projection.state === 'unresolved'
-      || after.repairDecision.routingState === 'locked') {
-    fail(`canonical MainHealth terminal provider state is locked: ${after.repairDecision.reasonCode}`);
-  }
-  const receiptName = `main-${headSha}.json`;
-  const receiptBytes = readNoFollowOrdinaryFile(ensured.directory, receiptName);
-  if (receiptBytes === null) fail('durable local MainHealth receipt disappeared during publication');
-  const localReceipt = parseTrustedRuntimeMainHealthReceipt(
-    Buffer.from(receiptBytes).toString('utf8')
-  );
-  if (!Buffer.from(receiptBytes).equals(Buffer.from(canonicalBytes(localReceipt)))
-      || localReceipt.receiptDigest !== ensured.receipt.receiptDigest
-      || localReceipt.repository !== input.repository
-      || localReceipt.mainSha !== headSha
-      || localReceipt.mainTreeSha !== mainTreeSha) {
-    fail('durable local MainHealth receipt changed during publication readback');
-  }
-  await ensured.authority.assertCurrent();
-  const { branch: finalBranch, headSha: finalHeadSha, treeSha: finalTreeSha,
-    status: finalStatus, originUrl: finalOriginUrl } = await observeTrustedRuntimeGitFence(repositoryRoot);
-  const finalLiveDefaultSha = await liveDefaultBranchSha();
-  assertOriginMatchesRepository(finalOriginUrl, input.repository);
-  if (finalBranch !== 'main' || finalHeadSha !== headSha || finalTreeSha !== mainTreeSha
-      || finalStatus !== '' || finalLiveDefaultSha !== headSha) {
-    fail('standalone MainHealth exact default-branch state changed during publication');
-  }
-  // This is the publication boundary: the local receipt, Runtime State
-  // authority, and exact Git/default-branch readback are already fenced.
-  // Re-observe the hosted provider only now so the semantic publication can
-  // never project an external ledger read that predates the final local fence.
-  const finalAfter = await observeCanonicalMainHealthForPublication(providerInput);
-  if (finalAfter.projection.state === 'unresolved'
-      || finalAfter.repairDecision.routingState === 'locked') {
-    fail(`canonical MainHealth provider state drifted at publication boundary: ${finalAfter.repairDecision.reasonCode}`);
-  }
-  const supersession = reconciliation?.supersession
-    ?? (finalAfter.supersession.kind === 'active' ? finalAfter.supersession.supersession : null);
-  if (reconciliation !== null
-      && (finalAfter.supersession.kind !== 'active'
-        || supersession === null
-        || finalAfter.supersession.supersession.receipt.recordDigest
-          !== reconciliation.supersession.receipt.recordDigest)) {
-    fail('canonical MainHealth supersession differs during final publication readback');
-  }
-  const semantic = Object.freeze({
-    schema: 'sec-trusted-runtime-main-health-publication-v2' as const,
-    repository: input.repository,
-    mainSha: headSha,
-    mainTreeSha,
-    runtimeAuthorityBinding: trustedRuntimeMainHealthAuthorityBinding(runtimeAuthority),
-    localReceipt: Object.freeze({
-      receiptDigest: localReceipt.receiptDigest,
-      byteDigest: hashBytes(receiptBytes),
-      executionId: localReceipt.executionId,
-      reused: ensured.reused
-    }),
-    provider: Object.freeze({
-      state: finalAfter.projection.state as 'healthy' | 'unhealthy',
-      ref: digest(finalAfter.projection.ref, 'MainHealth provider ref'),
-      routingState: finalAfter.repairDecision.routingState as 'ordinary-only' | 'repair-only',
-      reasonCode: finalAfter.repairDecision.reasonCode,
-      observationDigest: digest(
-        finalAfter.repairDecision.observationDigest,
-        'MainHealth provider observationDigest'
-      ),
-      decisionDigest: digest(
-        finalAfter.repairDecision.decisionDigest,
-        'MainHealth provider decisionDigest'
-      )
-    }),
-    supersession: supersession === null
-      ? null
-      : Object.freeze({
-          status: supersession.status,
-          recordDigest: supersession.receipt.recordDigest,
-          operationId: supersession.receipt.operationId,
-          locator: path.basename(supersession.recordPath),
-          hostedAuthorityDigest: supersession.receipt.hostedAuthorityDigest,
-          effectAuthorizationDigest: supersession.receipt.effectAuthorizationDigest,
-          semanticDigest: supersession.receipt.semanticDigest,
-          issuerNodeId: supersession.receipt.issuer.nodeId
-        })
-  });
-  const publicationSemantic = Object.freeze({
-    schema: semantic.schema,
-    repository: semantic.repository,
-    mainSha: semantic.mainSha,
-    mainTreeSha: semantic.mainTreeSha,
-    runtimeAuthorityBinding: semantic.runtimeAuthorityBinding,
-    localReceipt: Object.freeze({
-      receiptDigest: semantic.localReceipt.receiptDigest,
-      byteDigest: semantic.localReceipt.byteDigest,
-      executionId: semantic.localReceipt.executionId
-    }),
-    provider: Object.freeze({
-      state: semantic.provider.state,
-      ref: semantic.provider.ref,
-      routingState: semantic.provider.routingState,
-      reasonCode: semantic.provider.reasonCode
-    }),
-    supersession: semantic.supersession === null
-      ? null
-      : Object.freeze({
-          operationId: semantic.supersession.operationId,
-          hostedAuthorityDigest: semantic.supersession.hostedAuthorityDigest,
-          effectAuthorizationDigest: semantic.supersession.effectAuthorizationDigest,
-          semanticDigest: semantic.supersession.semanticDigest,
-          issuerNodeId: semantic.supersession.issuerNodeId
-        })
-  });
-  return Object.freeze({ ...semantic, publicationDigest: hash(publicationSemantic) });
-}
-
 async function observeTrustedRuntimeGitFence(repositoryRoot: string) {
   return withAuthorityGitReadSession({ cwd: repositoryRoot, budget: GIT_READ_OPERATION_BUDGET }, async (session) => {
     // A retained GitRead session is single-flight. The whole fence settles
@@ -673,8 +356,6 @@ async function finalizeMergedTrustedRuntime(input: Readonly<{
   actionBundle: TrustedRuntimeActionBundle;
   gateReadback: ReturnType<typeof CodexDevelopmentParseTrustedRuntimeMergeGateResult>;
   statusReadback: ReturnType<typeof parseIntegrationAuthorizationStatusPublication>;
-  mainHealthAuthority: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>>;
-  mainHealthDirectory: PhysicalDirectoryIdentity;
   providerMergeCommitSha: string | null;
   actionEvidenceReused: boolean;
 }>): Promise<unknown> {
@@ -759,80 +440,6 @@ async function finalizeMergedTrustedRuntime(input: Readonly<{
   if (candidate.mergeCommitTreeSha !== candidate.headTreeSha) {
     fail('remote main tree does not equal the verified candidate tree');
   }
-  const mergedBaseline = createTrustedRuntimeMainHealthBaselineObservation({
-    mainSha: candidate.mergeCommitSha,
-    mainTreeSha: candidate.mergeCommitTreeSha,
-    // The shared squash completion owner already verified the observed
-    // merge parent tuple against this independently observed base identity.
-    parentLine: `${candidate.mergeCommitSha} ${candidate.baseSha}`,
-    parentTreeSha: candidate.baseTreeSha
-  });
-  const requiredMainHealthActions = ['imports', 'typecheck', 'docs-doctor', 'affected-tests'] as const;
-  if (artifact.evidence.profile !== 'full' || artifact.evidence.status !== 'passed') {
-    fail('new-main health transition requires full passing candidate Evidence');
-  }
-  const carriedActionKeys = requiredMainHealthActions.map((gateId) => {
-    const matching = artifact.evidence.gates.filter(({ action }) =>
-      action.operation.identity === gateId);
-    if (matching.length !== 1 || matching[0]!.result.status !== 'passed') {
-      fail(`new-main health transition lacks one passing ${gateId} Action`);
-    }
-    return matching[0]!.action.actionKey as Digest;
-  });
-  const carryForwardAllowed = trustedRuntimeMainHealthCarryForwardBaselineMatches(
-    mergedBaseline,
-    { baselineSha: candidate.baseSha, baselineTreeSha: candidate.baseTreeSha }
-  );
-  const nextMainHealth = carryForwardAllowed
-    ? createTrustedRuntimeMainHealthReceipt({
-        origin: 'verified-candidate-transition',
-        repository: input.repository,
-        mainSha: candidate.mergeCommitSha,
-        mainTreeSha: candidate.mergeCommitTreeSha,
-        baselineSha: mergedBaseline.baselineSha,
-        baselineTreeSha: mergedBaseline.baselineTreeSha,
-        baselineObservationDigest: mergedBaseline.observationDigest,
-        executionId: actionBundle.containerReceipt.executionId,
-        imageId: actionBundle.containerReceipt.imageId,
-        dockerEndpoint: actionBundle.containerReceipt.dockerEndpoint,
-        networkIsolatedBeforeExecution: true,
-        planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST,
-        actionResults: [Object.freeze({
-          actionId: 'affected-closure',
-          resultDigest: hash(Object.freeze({
-            schema: 'sec-trusted-runtime-main-health-carry-forward-v2',
-            baselineObservationDigest: mergedBaseline.observationDigest,
-            mainSha: candidate.mergeCommitSha,
-            mainTreeSha: candidate.mergeCommitTreeSha,
-            carriedActionKeys
-          }))
-        })],
-        transition: {
-          candidateHeadSha: candidate.headSha,
-          candidateHeadTreeSha: candidate.headTreeSha,
-          sessionRevision: artifact.session.sessionRevision as Digest,
-          verificationEvidenceDigest: artifact.evidence.evidenceDigest as Digest,
-          containerReceiptDigest: actionBundle.containerReceipt.receiptDigest,
-          mergeGateResultDigest: gateReadback.resultDigest,
-          statusPublicationDigest: statusReadback.publicationDigest
-        },
-        observedAt: new Date().toISOString()
-      })
-    : await executeTrustedRuntimeMainHealth({
-        repositoryRoot: input.repositoryRoot,
-        repository: input.repository,
-        mainSha: candidate.mergeCommitSha,
-        mainTreeSha: candidate.mergeCommitTreeSha
-      });
-  await input.mainHealthAuthority.assertCurrent();
-  const nextMainHealthReadback = publishCanonical({
-    parent: input.mainHealthDirectory,
-    name: `main-${candidate.mergeCommitSha}.json`,
-    value: nextMainHealth,
-    parse: (bytes) => parseTrustedRuntimeMainHealthReceipt(
-      Buffer.from(bytes).toString('utf8')
-    )
-  });
   return Object.freeze({
     status: 'MERGED',
     provider: 'sec-trusted-runtime',
@@ -842,7 +449,6 @@ async function finalizeMergedTrustedRuntime(input: Readonly<{
     statusPublicationDigest: statusReadback.publicationDigest,
     mergeCommitSha: candidate.mergeCommitSha,
     mergeCommitTreeSha: candidate.mergeCommitTreeSha,
-    nextMainHealthReceiptDigest: nextMainHealthReadback.receiptDigest,
     platformEnforcement: gateReadback.platformObservation.status,
     claimsNoBypassEnforcement: false
   });
@@ -878,7 +484,6 @@ async function recoverMergedTrustedRuntime(input: Readonly<{
     repository: input.repository,
     repositoryRoot: input.repositoryRoot
   });
-  const mainHealthRoot = path.join(runtimeLayout.repositoryStateRoot, 'trusted-main-health', 'v1');
   const sessionRoot = path.join(
     runtimeLayout.repositoryStateRoot,
     'trusted-runtime',
@@ -889,10 +494,9 @@ async function recoverMergedTrustedRuntime(input: Readonly<{
     repositoryRoot: input.repositoryRoot,
     stateRoot: runtimeLayout.stateRoot,
     cacheRoot: runtimeLayout.cacheRoot,
-    requiredDirectories: [mainHealthRoot, sessionRoot]
+    requiredDirectories: [sessionRoot]
   });
   const stateDirectory = authority.directory(sessionRoot);
-  const mainHealthDirectory = authority.directory(mainHealthRoot);
   const actionBundle = readCanonical({
     parent: stateDirectory,
     name: 'verification-action.json',
@@ -922,8 +526,6 @@ async function recoverMergedTrustedRuntime(input: Readonly<{
     actionBundle,
     gateReadback,
     statusReadback,
-    mainHealthAuthority: authority,
-    mainHealthDirectory,
     providerMergeCommitSha: null,
     actionEvidenceReused: true
   });
@@ -1005,33 +607,16 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
     repository: input.repository,
     repositoryRoot
   });
-  const mainHealthRoot = path.join(
-    runtimeLayout.repositoryStateRoot,
-    'trusted-main-health',
-    'v1'
-  );
-  const ensuredMainHealth = await ensureTrustedRuntimeMainHealthReceipt({
-    repositoryRoot,
-    repository: input.repository,
-    mainSha: candidate.baseSha,
-    mainTreeSha: candidate.baseTreeSha
-  });
-  const mainHealthAuthority = ensuredMainHealth.authority;
-  const mainHealthDirectory = ensuredMainHealth.directory;
-  const mainHealthRuntimeAuthority = ensuredMainHealth.mainHealthAuthority;
   const mainHealthObservation = await observeCanonicalMainHealthForPublication({
     repositoryRoot,
     repository: input.repository,
     defaultBranch: candidate.baseBranch,
     mainSha: candidate.baseSha,
-    mainTreeSha: candidate.baseTreeSha,
-    runtimeAuthority: mainHealthRuntimeAuthority
+    mainTreeSha: candidate.baseTreeSha
   });
   if (mainHealthObservation.ledger === null
       || mainHealthObservation.projection.state !== 'healthy'
-      || mainHealthObservation.repairDecision.routingState !== 'ordinary-only'
-      || mainHealthObservation.supersession.kind === 'blocked'
-      || mainHealthObservation.supersession.kind === 'prepared') {
+      || mainHealthObservation.repairDecision.routingState !== 'ordinary-only') {
     fail(
       `canonical MainHealth is not healthy and ordinary-only at closeout admission: `
       + `${mainHealthObservation.repairDecision.reasonCode}`
@@ -1079,7 +664,7 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
     repositoryRoot,
     stateRoot: runtimeLayout.stateRoot,
     cacheRoot: runtimeLayout.cacheRoot,
-    requiredDirectories: [mainHealthRoot, sessionRoot]
+    requiredDirectories: [sessionRoot]
   });
   const stateDirectory = authority.directory(sessionRoot);
   const actionFile = 'verification-action.json';
@@ -1155,30 +740,26 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
       sessionRevision: artifact.session.sessionRevision,
       snapshotDigest: preMergeBarrier.snapshot.snapshotDigest })
   });
-  // T2 is a real hosted/local/runtime observation, not a timestamp refresh of
-  // the T1 local receipt. The owner-issued stable digest excludes volatile
-  // observation time but includes provider authority/provenance and local
-  // resolution, so healthy->healthy drift cannot pass the merge gate.
+  // T2 rereads the hosted producer. Its stable digest excludes observation
+  // time but binds producer provenance and the exact repository result, so
+  // healthy-to-healthy provenance drift cannot pass the merge gate.
   const freshMainHealthObservation = await observeCanonicalMainHealthForPublication({
     repositoryRoot,
     repository: input.repository,
     defaultBranch: candidate.baseBranch,
     mainSha: candidate.baseSha,
-    mainTreeSha: candidate.baseTreeSha,
-    runtimeAuthority: mainHealthRuntimeAuthority
+    mainTreeSha: candidate.baseTreeSha
   });
   if (freshMainHealthObservation.ledger === null
       || freshMainHealthObservation.projection.state !== 'healthy'
-      || freshMainHealthObservation.repairDecision.routingState !== 'ordinary-only'
-      || freshMainHealthObservation.supersession.kind === 'blocked'
-      || freshMainHealthObservation.supersession.kind === 'prepared') {
+      || freshMainHealthObservation.repairDecision.routingState !== 'ordinary-only') {
     fail(
       `canonical MainHealth is not healthy and ordinary-only at merge admission: `
       + `${freshMainHealthObservation.repairDecision.reasonCode}`
     );
   }
   if (freshMainHealthObservation.stableDigest !== mainHealthObservation.stableDigest) {
-    fail('canonical MainHealth provider/local authority drifted between closeout snapshots');
+    fail('canonical MainHealth hosted producer provenance drifted between closeout snapshots');
   }
   const freshMainHealth = freshMainHealthObservation.ledger;
   const artifactObservation = createTrustedRuntimeArtifactObservationFromDurableFile({
@@ -1324,8 +905,6 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
     actionBundle,
     gateReadback,
     statusReadback,
-    mainHealthAuthority,
-    mainHealthDirectory,
     actionEvidenceReused: existingAction !== null,
     integrationPrincipal: Object.freeze({ login: principal.login, nodeId: principal.nodeId }),
     title,
@@ -1387,8 +966,6 @@ async function executeTrustedRuntimeCloseoutMergeEffect(
     actionBundle: preMerge.actionBundle,
     gateReadback: preMerge.gateReadback,
     statusReadback: preMerge.statusReadback,
-    mainHealthAuthority: preMerge.mainHealthAuthority,
-    mainHealthDirectory: preMerge.mainHealthDirectory,
     providerMergeCommitSha,
     actionEvidenceReused: preMerge.actionEvidenceReused
   });
@@ -1396,13 +973,7 @@ async function executeTrustedRuntimeCloseoutMergeEffect(
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-  const result = args.mode === 'main-health'
-      ? await ensureCurrentTrustedRuntimeMainHealth({
-        repositoryRoot: process.cwd(),
-        repository: args.repository,
-        defaultBranch: 'main'
-      })
-    : args.mode === 'runtime-canary'
+  const result = args.mode === 'runtime-canary'
       ? await runCurrentTrustedRuntimeWorkspaceCanary({
           repositoryRoot: process.cwd(),
           repository: args.repository,

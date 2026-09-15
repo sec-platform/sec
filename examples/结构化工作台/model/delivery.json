@@ -1,0 +1,199 @@
+{
+  "schema": "sec.author-module/1",
+  "moduleId": "studio:delivery",
+  "namespace": "studio.delivery",
+  "dialects": {
+    "req": {
+      "languageId": "sec.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {
+    "ide": {
+      "mode": "workspace",
+      "moduleId": "sec/spec/ide"
+    },
+    "delivery": {
+      "mode": "workspace",
+      "moduleId": "sec/spec/delivery"
+    },
+    "quality": {
+      "mode": "workspace",
+      "moduleId": "sec/spec/quality"
+    }
+  },
+  "definitions": {
+    "d:Delivery": {
+      "kind": "req:composite",
+      "name": "Delivery",
+      "body": {
+        "parameters": {
+          "s": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "ide",
+                "export": "Workbench"
+              }
+            }
+          },
+          "platforms": {
+            "role": "value",
+            "type": {
+              "list": {
+                "ref": {
+                  "import": "delivery",
+                  "export": "Platform"
+                }
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "import": "delivery",
+              "export": "Source"
+            },
+            "fields": {
+              "on": {
+                "parameter": "s",
+                "path": [
+                  "release"
+                ]
+              },
+              "language": {
+                "enum": {
+                  "import": "delivery",
+                  "export": "TypeScript"
+                }
+              },
+              "target": {
+                "parameter": "s"
+              },
+              "host": {
+                "enum": {
+                  "import": "delivery",
+                  "export": "DesktopHostContract"
+                }
+              },
+              "members": {
+                "enum": {
+                  "import": "delivery",
+                  "export": "CompleteSelectedRoots"
+                }
+              },
+              "ownership": {
+                "enum": {
+                  "import": "delivery",
+                  "export": "GeneratedFromIntent"
+                }
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "delivery",
+              "export": "Compatibility"
+            },
+            "fields": {
+              "on": {
+                "parameter": "s",
+                "path": [
+                  "release"
+                ]
+              },
+              "platforms": {
+                "parameter": "platforms"
+              },
+              "unsupported": {
+                "enum": {
+                  "import": "delivery",
+                  "export": "ExplicitNoArtifact"
+                }
+              },
+              "dependencies": {
+                "enum": {
+                  "import": "delivery",
+                  "export": "Locked"
+                }
+              },
+              "licensing": {
+                "enum": {
+                  "import": "delivery",
+                  "export": "CompatibleDistribution"
+                }
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "delivery",
+              "export": "Identity"
+            },
+            "fields": {
+              "on": {
+                "parameter": "s",
+                "path": [
+                  "release"
+                ]
+              },
+              "sources": {
+                "enum": {
+                  "import": "delivery",
+                  "export": "ExactIntentAndBinding"
+                }
+              },
+              "mappings": {
+                "enum": {
+                  "import": "delivery",
+                  "export": "RequirementToArtifact"
+                }
+              },
+              "rebuild": {
+                "enum": {
+                  "import": "delivery",
+                  "export": "NoFreshNaturalLanguageInterpretation"
+                }
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "quality",
+              "export": "Admission"
+            },
+            "fields": {
+              "on": {
+                "parameter": "s"
+              },
+              "policy": {
+                "enum": {
+                  "import": "quality",
+                  "export": "LimitsFromRuntimeProfile"
+                }
+              },
+              "overload": {
+                "enum": {
+                  "import": "quality",
+                  "export": "BoundedQueueOrReject"
+                }
+              },
+              "loss": {
+                "enum": {
+                  "import": "quality",
+                  "export": "Explicit"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "Delivery": {
+      "definitionId": "d:Delivery"
+    }
+  }
+}

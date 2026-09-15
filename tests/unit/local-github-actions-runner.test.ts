@@ -15,17 +15,12 @@ import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY } from '../../src/verification/ci
 import {
   assertExactLocalGitHubActionsRunnerProfileContainers,
   assertExactLocalGitHubActionsRunnerProfileInventory,
-  assertInitialLocalGitHubActionsProviderLedger,
-  assertLocalGitHubActionsProviderLedgerTransition,
   assertLocalGitHubActionsRunnerImageIdentity,
   assertLocalGitHubActionsRunnerReplacementImageIdentity,
   assertOwnedLocalGitHubActionsRunner,
   assertRepositoryIdentityMatchesOrigin,
   assertRepositoryIdentityMatchesRemoteUrls,
-  classifyLocalGitHubActionsRunnerCommandV1,
   createBuildxRawJsonProgressAdmission,
-  createLocalGitHubActionsProviderLedger,
-  createLocalGitHubActionsProviderLedgerCommitBytes,
   createLocalGitHubActionsRunnerBuildInputProjection,
   createLocalGitHubActionsRunnerDockerfile,
   createLocalGitHubActionsRunnerEnvironmentSpec,
@@ -36,11 +31,6 @@ import {
   LOCAL_GITHUB_ACTIONS_RUNNER_CONFIGURED_MARKER,
   LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA,
   LOCAL_GITHUB_ACTIONS_RUNNER_SUPERVISOR_SCRIPT,
-  LocalGitHubActionsRunnerCommandFailure,
-  observeGitHubEndpointIdentity,
-  observeLocalGitHubActionsProvider,
-  parseLocalGitHubActionsProviderLedger,
-  parseLocalGitHubActionsProviderLedgerCommit,
   parseLocalGitHubActionsRunnerState,
   readValidatedRunnerOciLayoutIdentity,
   reconcileReclaimedLocalGitHubActionsRunnerOciCandidate,
@@ -55,7 +45,6 @@ const providerName = 'sec-main-health-1';
 const operationLabel = `sec-operation-${'b'.repeat(64)}`;
 const roles = ['control', 'trusted', 'sut'] as const;
 const environment = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
-const providerLedgerRef = `refs/tags/sec-provider-lease-${environment.environmentId}`;
 
 function createOciFixture() {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-runner-oci-'));
@@ -198,54 +187,6 @@ function container(role: LocalGitHubActionsRunnerRole, overrides: Record<string,
     State: { Running: true },
     ...overrides
   };
-}
-
-function activeLedger() {
-  return createLocalGitHubActionsProviderLedger({
-    repository,
-    providerName,
-    operationLabel,
-    expectedMainSha: 'a'.repeat(40),
-    createdAt: '2026-08-14T08:00:00.000Z',
-    dockerEndpoint,
-    githubEndpoint,
-    lifecycle: 'active',
-    generation: 7,
-    predecessorObjectSha: 'c'.repeat(40),
-    instances: instances.map((instance) => ({
-      role: instance.role,
-      roleLabel: instance.roleLabel,
-      name: instance.name,
-      containerId: instance.containerId,
-      containerState: 'present' as const,
-      runnerId: instance.runnerId,
-      runnerState: 'present' as const
-    }))
-  });
-}
-
-function initialLedger() {
-  return createLocalGitHubActionsProviderLedger({
-    repository,
-    providerName,
-    operationLabel,
-    expectedMainSha: 'a'.repeat(40),
-    createdAt: '2026-08-14T08:00:00.000Z',
-    dockerEndpoint,
-    githubEndpoint,
-    lifecycle: 'provisioning',
-    generation: 0,
-    predecessorObjectSha: null,
-    instances: instances.map((instance) => ({
-      role: instance.role,
-      roleLabel: instance.roleLabel,
-      name: instance.name,
-      containerId: null,
-      containerState: 'uncreated' as const,
-      runnerId: null,
-      runnerState: 'uncreated' as const
-    }))
-  });
 }
 
 describe('local GitHub Actions runner contract', () => {
@@ -519,113 +460,80 @@ describe('local GitHub Actions runner contract', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  test('remote CAS ledger is the authority and local state is only its exact projection', () => {
-    const initial = initialLedger();
-    expect(() => assertInitialLocalGitHubActionsProviderLedger(initial)).not.toThrow();
-    const firstContainer = createLocalGitHubActionsProviderLedger({
-      ...initial,
-      generation: 1,
-      predecessorObjectSha: '1'.repeat(40),
-      instances: initial.instances.map((instance) => instance.role === 'control'
-        ? { ...instance, containerId: 'a'.repeat(64), containerState: 'present' as const }
-        : instance)
+  test('local durable state owns lifecycle and retains every destructive identity', () => {
+    const provisioning = createLocalGitHubActionsRunnerState({
+      repository,
+      repositoryRoot: 'D:/Project/sec',
+      commonDirectory: 'D:/Project/sec/.git',
+      providerName,
+      operationLabel,
+      lifecycle: 'provisioning',
+      dockerEndpoint,
+      githubEndpoint,
+      instances: roles.map((role) => ({
+        role,
+        roleLabel: environment.runtime.roleLabels[role],
+        name: `${providerName}-${role}`,
+        containerId: null,
+        containerState: 'uncreated' as const,
+        runnerId: null,
+        runnerState: 'uncreated' as const
+      })),
+      startedAt: '2026-08-14T08:00:00.000Z'
     });
-    expect(() => assertLocalGitHubActionsProviderLedgerTransition(
-      '1'.repeat(40), initial, firstContainer
-    )).not.toThrow();
-    const commitBytes = createLocalGitHubActionsProviderLedgerCommitBytes(
-      firstContainer,
-      'f'.repeat(40)
-    );
-    expect(parseLocalGitHubActionsProviderLedgerCommit(commitBytes.toString('utf8'))).toEqual({
-      treeSha: 'f'.repeat(40),
-      parentObjectSha: '1'.repeat(40),
-      timestamp: Math.floor(Date.parse(firstContainer.createdAt) / 1000),
-      generation: 1
-    });
-    expect(() => parseLocalGitHubActionsProviderLedgerCommit(
-      commitBytes.toString('utf8').replace('SEC Provider Ledger', 'Untrusted Writer')
-    )).toThrow('commit framing is invalid');
-    const twoEffects = createLocalGitHubActionsProviderLedger({
-      ...firstContainer,
-      generation: 2,
-      predecessorObjectSha: '2'.repeat(40),
-      instances: firstContainer.instances.map((instance) => {
-        if (instance.role === 'control') {
-          return { ...instance, runnerId: 21, runnerState: 'present' as const };
-        }
-        if (instance.role === 'trusted') {
-          return { ...instance, containerId: 'b'.repeat(64), containerState: 'present' as const };
-        }
-        return instance;
-      })
-    });
-    expect(() => assertLocalGitHubActionsProviderLedgerTransition(
-      '2'.repeat(40), firstContainer, twoEffects
-    )).toThrow('exactly one lifecycle or resource effect');
-    const teardown = createLocalGitHubActionsProviderLedger({
-      ...initial,
-      lifecycle: 'teardown',
-      generation: 1,
-      predecessorObjectSha: '3'.repeat(40)
-    });
-    expect(() => assertLocalGitHubActionsProviderLedgerTransition(
-      '3'.repeat(40), initial, teardown
-    )).not.toThrow();
-    const skippedRunner = createLocalGitHubActionsProviderLedger({
-      ...teardown,
-      generation: 2,
-      predecessorObjectSha: '4'.repeat(40),
-      instances: teardown.instances.map((instance) => instance.role === 'sut'
-        ? { ...instance, runnerState: 'absent' as const }
-        : instance)
-    });
-    expect(() => assertLocalGitHubActionsProviderLedgerTransition(
-      '4'.repeat(40), teardown, skippedRunner
-    )).not.toThrow();
-
-    const ledger = activeLedger();
-    expect(parseLocalGitHubActionsProviderLedger(JSON.stringify(ledger))).toEqual(ledger);
-    expect(ledger.instances.map(({ role }) => role)).toEqual([...roles]);
-    expect(ledger.lifecycle).toBe('active');
-    expect(ledger.dockerEndpoint).toEqual(dockerEndpoint);
-    expect(ledger.githubEndpoint).toEqual(githubEndpoint);
-    expect(() => parseLocalGitHubActionsProviderLedger(JSON.stringify({
-      ...ledger,
-      githubEndpoint: { ...ledger.githubEndpoint, principal: 'Attacker' }
-    }))).toThrow('digest mismatch');
-    expect(() => parseLocalGitHubActionsProviderLedger(JSON.stringify({
-      ...ledger,
-      dockerEndpoint: { ...ledger.dockerEndpoint, extra: true }
-    }))).toThrow('keys are noncanonical');
-    expect(() => createLocalGitHubActionsProviderLedger({
-      ...ledger,
-      dockerEndpoint: { ...ledger.dockerEndpoint, endpointHost: 'tcp://remote.example:2376' }
-    })).toThrow('must be a local npipe or unix transport');
-
+    expect(parseLocalGitHubActionsRunnerState(JSON.stringify(provisioning))).toEqual(provisioning);
     const state = createLocalGitHubActionsRunnerState({
       repository,
       repositoryRoot: 'D:/Project/sec',
       commonDirectory: 'D:/Project/sec/.git',
       providerName,
       operationLabel,
-      providerLedgerRef,
-      providerLedgerObjectSha: 'd'.repeat(40),
-      providerLedgerDigest: ledger.ledgerDigest,
+      lifecycle: 'active',
       dockerEndpoint,
       githubEndpoint,
-      instances,
+      instances: instances.map((instance) => ({
+        role: instance.role,
+        roleLabel: instance.roleLabel,
+        name: instance.name,
+        containerId: instance.containerId,
+        containerState: 'present' as const,
+        runnerId: instance.runnerId,
+        runnerState: 'present' as const
+      })),
       startedAt: '2026-08-14T08:00:00.000Z'
     });
     expect(parseLocalGitHubActionsRunnerState(JSON.stringify(state))).toEqual(state);
-    expect(state.providerLedgerRef).toBe(providerLedgerRef);
     expect(() => parseLocalGitHubActionsRunnerState(JSON.stringify({
       ...state,
-      providerLedgerObjectSha: 'e'.repeat(40)
+      githubEndpoint: { ...state.githubEndpoint, principal: 'Attacker' }
     }))).toThrow('digest mismatch');
     expect(() => parseLocalGitHubActionsRunnerState(JSON.stringify({ ...state, token: 'secret' })))
       .toThrow('keys are invalid');
     expect(JSON.stringify(state)).not.toContain('token');
+    expect(() => createLocalGitHubActionsRunnerState({
+      ...state,
+      lifecycle: 'active',
+      instances: state.instances.map((instance) => instance.role === 'control'
+        ? { ...instance, runnerState: 'uncreated' as const, runnerId: null }
+        : instance)
+    })).toThrow('active runner state is incomplete');
+    const terminal = createLocalGitHubActionsRunnerState({
+      ...state,
+      lifecycle: 'terminal',
+      instances: state.instances.map((instance) => ({
+        ...instance,
+        runnerState: 'absent' as const,
+        containerState: 'absent' as const
+      }))
+    });
+    expect(terminal.instances.map(({ runnerId, containerId }) => ({ runnerId, containerId })))
+      .toEqual(instances.map(({ runnerId, containerId }) => ({ runnerId, containerId })));
+    expect(() => createLocalGitHubActionsRunnerState({
+      ...terminal,
+      instances: terminal.instances.map((instance) => instance.role === 'trusted'
+        ? { ...instance, containerState: 'present' as const, runnerState: 'present' as const }
+        : instance)
+    })).toThrow('terminal runner state retains resources');
   });
 
   test('requires one exact runner identity for every trust role', () => {
@@ -634,8 +542,25 @@ describe('local GitHub Actions runner contract', () => {
       name: `${providerName}-trusted`,
       role: 'trusted',
       operationLabel,
-      runnerId: 22
+      runnerId: 22,
+      requireIdleForRemoval: true
     })).toBe(22);
+    const missingBusy: Record<string, unknown> = { ...runner('trusted') };
+    Reflect.deleteProperty(missingBusy, 'busy');
+    for (const candidate of [
+      missingBusy,
+      runner('trusted', { busy: null }),
+      runner('trusted', { busy: 'false' }),
+      runner('trusted', { busy: true })
+    ]) {
+      expect(() => assertOwnedLocalGitHubActionsRunner(candidate, {
+        name: `${providerName}-trusted`,
+        role: 'trusted',
+        operationLabel,
+        runnerId: 22,
+        requireIdleForRemoval: true
+      })).toThrow('busy state must be exact false before cleanup');
+    }
     expect(() => assertExactLocalGitHubActionsRunnerProfileInventory({
       runners,
       instances,
@@ -783,74 +708,4 @@ describe('local GitHub Actions runner contract', () => {
     )).toThrow('origin repository identity differs');
   });
 
-  test('classifies Git and GitHub reads separately from write-capable effects', () => {
-    expect(classifyLocalGitHubActionsRunnerCommandV1('git', [
-      'rev-parse', '--show-toplevel'
-    ])).toBe('read');
-    expect(classifyLocalGitHubActionsRunnerCommandV1('git', [
-      'remote', 'get-url', 'origin'
-    ])).toBe('read');
-    expect(classifyLocalGitHubActionsRunnerCommandV1('gh', [
-      'auth', 'token', '--hostname', environment.provider.githubHost
-    ])).toBe('read');
-    expect(classifyLocalGitHubActionsRunnerCommandV1('gh', [
-      'api', '--hostname', environment.provider.githubHost, 'user'
-    ])).toBe('read');
-
-    for (const [command, args] of [
-      ['git', ['push', '--no-verify', 'origin', 'HEAD:refs/tags/example']],
-      ['git', ['fetch', '--no-tags', 'origin', 'refs/heads/main']],
-      ['git', ['hash-object', '-w', '--stdin']],
-      ['git', ['mktree']],
-      ['gh', ['api', '--method', 'DELETE', 'repos/sec-platform/sec/actions/runners/1']],
-      ['gh', ['api', '--method', 'POST', 'repos/sec-platform/sec/actions/runners/registration-token']]
-    ] as const) {
-      expect(classifyLocalGitHubActionsRunnerCommandV1(command, args)).toBe('effect');
-    }
-    expect(classifyLocalGitHubActionsRunnerCommandV1(
-      'git', ['rev-parse', 'HEAD'], true
-    )).toBe('effect');
-  });
-
-  test('blocks Windows Git/GH PATH sentinels before any provider command or ref/object effect', async () => {
-    if (process.platform !== 'win32' || process.arch !== 'x64') return;
-    const root = mkdtempSync(path.join(tmpdir(), 'sec-runner-cli-gate-'));
-    const bin = path.join(root, 'bin');
-    const marker = path.join(root, 'executed.txt');
-    mkdirSync(bin, { recursive: true });
-    const sentinel = [
-      '@echo off',
-      `>"${marker}" echo PATH-SENTINEL-RAN`,
-      'exit /b 0',
-      ''
-    ].join('\r\n');
-    writeFileSync(path.join(bin, 'git.cmd'), sentinel, 'utf8');
-    writeFileSync(path.join(bin, 'gh.cmd'), sentinel, 'utf8');
-    const previousPath = process.env.PATH;
-    process.env.PATH = `${bin};${previousPath ?? ''}`;
-    try {
-      const assertBlocked = async (operation: Promise<unknown>, expectedCommand: 'git' | 'gh'): Promise<void> => {
-        try {
-          await operation;
-          throw new Error('expected Windows control-CLI provider admission to block');
-        } catch (error) {
-          expect(error).toBeInstanceOf(LocalGitHubActionsRunnerCommandFailure);
-          expect(error).toMatchObject({
-            code: 'SEC-LOCAL-GITHUB-ACTIONS-COMMAND-BLOCKED',
-            command: expectedCommand,
-            kind: 'read',
-            providerStatus: 'unavailable',
-            reason: 'semantic-session-unavailable'
-          });
-        }
-      };
-      await assertBlocked(observeGitHubEndpointIdentity(root, repository), 'gh');
-      await assertBlocked(observeLocalGitHubActionsProvider({ cwd: root }), 'git');
-      expect(existsSync(marker)).toBe(false);
-    } finally {
-      if (previousPath === undefined) delete process.env.PATH;
-      else process.env.PATH = previousPath;
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
 });

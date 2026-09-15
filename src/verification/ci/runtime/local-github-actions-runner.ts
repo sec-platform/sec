@@ -1,8 +1,11 @@
-import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { lstatSync, renameSync } from 'node:fs';
 import path from 'node:path';
 
+import {
+  GIT_READ_OPERATION_BUDGET,
+  gitReadText
+} from '../../../development/tooling/git/git-read.ts';
 import type {
   ContainerEngineOperation,
   ContainerEngineOperationOptions,
@@ -20,6 +23,15 @@ import {
   openWindowsDockerCommandProvider
 } from '../../../external-capabilities/docker/runtime/windows-command-provider.ts';
 import {
+  withAuthorityGitReadSession
+} from '../../../external-capabilities/git-read/authority.ts';
+import {
+  executeGitHubApiOperation,
+  inspectGitHubApiCapability,
+  withGitHubApiReadSession,
+  withGitHubApiRunnerAdminSession
+} from '../../../external-capabilities/github-api/operation-session.ts';
+import {
   SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY,
   SEC_LINUX_VERIFICATION_RUNNER_INPUT_DIGEST
 } from '../../../external-capabilities/linux-verification/contract.ts';
@@ -28,7 +40,8 @@ import {
   createEnvironmentMaterializationSpec
 } from '../../../external-capabilities/linux-verification/materialization.ts';
 import { acquirePhysicalMutationLease, type PhysicalMutationLeaseHandle, type PhysicalMutationLeaseOwner } from '../../../runtime-state/physical/runtime/mutation-lease.ts';
-import { createNoFollowDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowOrdinaryFileDigest, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryIdentity } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { createNoFollowDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowOrdinaryFileDigest, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, replaceDurableCanonicalFile, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryIdentity } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { settlePhysicalResourcesAsync } from '../../../runtime-state/physical/runtime/resource-settlement.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeCachePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
 import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
@@ -47,13 +60,11 @@ import {
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY } from '../contract/revision.ts';
 
 export const LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA =
-  'sec-local-github-actions-provider-state-v3' as const;
+  'sec-local-github-actions-provider-state-v4' as const;
 // The frozen image is an execution artifact, not a provider-state projection.
 // Keep its immutable lineage label independent from later state/ledger schema
 // revisions so a control-plane migration cannot invalidate byte-identical
 // cached Linux capacity or silently demand a mutable rebuild.
-const LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_SCHEMA =
-  'sec-local-github-actions-provider-ledger-v3' as const;
 const ENVIRONMENT = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
 const LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_SCHEMA = ENVIRONMENT.image.lineageSchema;
 const LOCAL_GITHUB_ACTIONS_RUNNER_VERSION = ENVIRONMENT.archives.runner.version;
@@ -117,8 +128,6 @@ export type LocalGitHubActionsRunnerRole = keyof typeof LOCAL_GITHUB_ACTIONS_RUN
 const LOCAL_GITHUB_ACTIONS_RUNNER_ROLES = Object.freeze([
   'control', 'trusted', 'sut'
 ] as const satisfies readonly LocalGitHubActionsRunnerRole[]);
-const LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF =
-  `refs/tags/sec-provider-lease-${ENVIRONMENT.environmentId}`;
 const LOCAL_GITHUB_ACTIONS_GITHUB_HOST = ENVIRONMENT.provider.githubHost;
 
 const MAX_COMMAND_OUTPUT_BYTES = 16 * 1024 * 1024;
@@ -340,7 +349,7 @@ export type LocalGitHubActionsProviderLifecycle =
 
 export type LocalGitHubActionsProviderResourceState = 'uncreated' | 'present' | 'absent';
 
-export interface LocalGitHubActionsProviderLedgerInstance {
+export interface LocalGitHubActionsProviderStateInstance {
   readonly role: LocalGitHubActionsRunnerRole;
   readonly roleLabel: string;
   readonly name: string;
@@ -350,24 +359,6 @@ export interface LocalGitHubActionsProviderLedgerInstance {
   readonly runnerState: LocalGitHubActionsProviderResourceState;
 }
 
-export interface LocalGitHubActionsProviderLedger {
-  readonly schema: typeof LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_SCHEMA;
-  readonly repository: string;
-  readonly providerName: string;
-  readonly profileLabel: typeof LOCAL_GITHUB_ACTIONS_RUNNER_CUSTOM_LABEL;
-  readonly operationLabel: string;
-  readonly expectedMainSha: string;
-  readonly createdAt: string;
-  readonly dockerEndpoint: DockerEndpointIdentity;
-  readonly githubEndpoint: GitHubEndpointIdentity;
-  readonly imageId: typeof LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID;
-  readonly lifecycle: LocalGitHubActionsProviderLifecycle;
-  readonly generation: number;
-  readonly predecessorObjectSha: string | null;
-  readonly instances: readonly LocalGitHubActionsProviderLedgerInstance[];
-  readonly ledgerDigest: `sha256:${string}`;
-}
-
 export interface LocalGitHubActionsRunnerState {
   readonly schema: typeof LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA;
   readonly repository: string;
@@ -375,9 +366,7 @@ export interface LocalGitHubActionsRunnerState {
   readonly commonDirectory: string;
   readonly providerName: string;
   readonly operationLabel: string;
-  readonly providerLedgerRef: typeof LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF;
-  readonly providerLedgerObjectSha: string;
-  readonly providerLedgerDigest: `sha256:${string}`;
+  readonly lifecycle: LocalGitHubActionsProviderLifecycle;
   readonly dockerEndpoint: DockerEndpointIdentity;
   readonly githubEndpoint: GitHubEndpointIdentity;
   readonly image: typeof LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE;
@@ -389,7 +378,7 @@ export interface LocalGitHubActionsRunnerState {
   readonly nodeArchiveSha256: typeof LOCAL_GITHUB_ACTIONS_NODE_ARCHIVE_SHA256;
   readonly labels: typeof LOCAL_GITHUB_ACTIONS_RUNNER_LABELS;
   readonly roleLabels: typeof LOCAL_GITHUB_ACTIONS_RUNNER_ROLE_LABELS;
-  readonly instances: readonly LocalGitHubActionsRunnerInstance[];
+  readonly instances: readonly LocalGitHubActionsProviderStateInstance[];
   readonly startedAt: string;
   readonly stateDigest: `sha256:${string}`;
 }
@@ -398,118 +387,6 @@ interface CommandResult {
   readonly code: number;
   readonly stdout: Buffer;
   readonly stderr: Buffer;
-}
-
-export type LocalGitHubActionsRunnerCommandKind = 'read' | 'effect';
-
-export type LocalGitHubActionsRunnerCommandFailureReason =
-  'semantic-session-unavailable';
-
-export type LocalGitHubActionsRunnerCommandProviderStatus = 'unavailable';
-
-/**
- * A command can be physically executable and still be inadmissible for this
- * provider.  Keep the provider-resolution status and the semantic command
- * kind on the error so callers cannot mistake a Windows control-CLI gap for a
- * normal command exit or silently select the host PATH as a fallback.
- */
-export class LocalGitHubActionsRunnerCommandFailure extends Error {
-  readonly code = 'SEC-LOCAL-GITHUB-ACTIONS-COMMAND-BLOCKED' as const;
-  readonly command: 'gh' | 'git';
-  readonly kind: LocalGitHubActionsRunnerCommandKind;
-  readonly providerStatus: LocalGitHubActionsRunnerCommandProviderStatus;
-  readonly reason: LocalGitHubActionsRunnerCommandFailureReason;
-  readonly detailDigest: `sha256:${string}`;
-
-  constructor(input: Readonly<{
-    command: 'gh' | 'git';
-    kind: LocalGitHubActionsRunnerCommandKind;
-    providerStatus: LocalGitHubActionsRunnerCommandProviderStatus;
-    reason: LocalGitHubActionsRunnerCommandFailureReason;
-  }>) {
-    super(
-      `Local GitHub Actions runner: ${input.command} ${input.kind} command is blocked: ${input.reason}`
-    );
-    this.name = 'LocalGitHubActionsRunnerCommandFailure';
-    this.command = input.command;
-    this.kind = input.kind;
-    this.providerStatus = input.providerStatus;
-    this.reason = input.reason;
-    this.detailDigest = sha256({
-      code: this.code,
-      command: this.command,
-      kind: this.kind,
-      providerStatus: this.providerStatus,
-      reason: this.reason
-    }) as `sha256:${string}`;
-  }
-}
-
-const LOCAL_GITHUB_ACTIONS_RUNNER_GIT_READ_COMMANDS = new Set([
-  'branch', 'cat-file', 'diff', 'for-each-ref', 'log', 'ls-files', 'ls-remote',
-  'ls-tree', 'rev-parse', 'show', 'show-ref', 'status'
-]);
-
-function githubApiMethod(args: readonly string[]): string {
-  for (let index = 1; index < args.length; index += 1) {
-    const argument = args[index];
-    if (argument === '--method' || argument === '-X') return args[index + 1]?.toUpperCase() ?? '';
-    const match = /^(?:--method|-X)=(.*)$/u.exec(argument ?? '');
-    if (match !== null) return match[1]!.toUpperCase();
-  }
-  return 'GET';
-}
-
-/**
- * Classify before transport selection.  Unknown Git/GH verbs are effects by
- * default, which prevents a newly added write-capable command from inheriting
- * a read-only Windows session until its owner has specified an effect route.
- */
-export function classifyLocalGitHubActionsRunnerCommandV1(
-  command: 'gh' | 'git',
-  args: readonly string[],
-  inputPresent?: boolean
-): LocalGitHubActionsRunnerCommandKind;
-export function classifyLocalGitHubActionsRunnerCommandV1(
-  command: 'gh' | 'git',
-  args: readonly string[],
-  inputPresent = false
-): LocalGitHubActionsRunnerCommandKind {
-  if (inputPresent) return 'effect';
-  if (command === 'git') {
-    const verb = args[0];
-    if (verb === 'remote') return args[1] === 'get-url' ? 'read' : 'effect';
-    if (verb === 'worktree') return args[1] === 'list' ? 'read' : 'effect';
-    if (verb === 'branch') return args[1] === '--show-current' ? 'read' : 'effect';
-    return LOCAL_GITHUB_ACTIONS_RUNNER_GIT_READ_COMMANDS.has(verb ?? '')
-      ? 'read'
-      : 'effect';
-  }
-  if (args[0] === 'auth' && args[1] === 'token') return 'read';
-  if (args[0] === 'api') return githubApiMethod(args) === 'GET' ? 'read' : 'effect';
-  return 'effect';
-}
-
-async function runWindowsControlCliCommand(
-  command: 'gh' | 'git',
-  args: readonly string[],
-  options: Readonly<{
-    cwd: string;
-    input?: Buffer;
-    acceptedCodes?: readonly number[];
-    timeoutMs: number;
-    stallTimeoutMs?: number;
-    admitProgress?: (chunk: Buffer, stream: 'stdout' | 'stderr') => boolean;
-    githubToken?: string;
-  }>
-): Promise<CommandResult> {
-  const kind = classifyLocalGitHubActionsRunnerCommandV1(command, args, options.input !== undefined);
-  throw new LocalGitHubActionsRunnerCommandFailure({
-    command,
-    kind,
-    providerStatus: 'unavailable',
-    reason: 'semantic-session-unavailable'
-  });
 }
 
 export interface BuildxRawJsonProgressAdmission {
@@ -600,41 +477,6 @@ export function createBuildxRawJsonProgressAdmission(): BuildxRawJsonProgressAdm
   });
 }
 
-interface GitHubApiSession {
-  readonly token: string;
-  readonly principal: string;
-}
-
-const githubApiSessions = new Map<string, GitHubApiSession>();
-
-const COMMAND_ENV_KEYS = Object.freeze({
-  gh: Object.freeze([
-    'APPDATA', 'GH_CONFIG_DIR', 'GH_TOKEN', 'GITHUB_TOKEN', 'HOME',
-    'LOCALAPPDATA', 'PATH', 'SYSTEMROOT', 'USERPROFILE', 'WINDIR', 'XDG_CONFIG_HOME'
-  ]),
-  git: Object.freeze([
-    'HOME', 'PATH', 'SYSTEMROOT', 'USERPROFILE', 'WINDIR', 'XDG_CONFIG_HOME'
-  ])
-} satisfies Record<'gh' | 'git', readonly string[]>);
-
-function projectedCommandEnvironment(
-  keys: readonly string[],
-  source: NodeJS.ProcessEnv
-): NodeJS.ProcessEnv {
-  const environment: NodeJS.ProcessEnv = {};
-  for (const key of keys) {
-    const actualKey = Object.keys(source).find((candidate) =>
-      candidate.toUpperCase() === key);
-    if (actualKey !== undefined && source[actualKey] !== undefined) {
-      environment[actualKey] = source[actualKey];
-    }
-  }
-  return environment;
-}
-
-function commandEnvironment(command: keyof typeof COMMAND_ENV_KEYS): NodeJS.ProcessEnv {
-  return projectedCommandEnvironment(COMMAND_ENV_KEYS[command], process.env);
-}
 
 function fail(message: string): never {
   throw new Error(`Local GitHub Actions runner: ${message}`);
@@ -774,6 +616,37 @@ function githubEndpointIdentity(input: GitHubEndpointIdentity): GitHubEndpointId
   });
 }
 
+function stateInstance(
+  input: LocalGitHubActionsProviderStateInstance,
+  retainedProviderName: string
+): LocalGitHubActionsProviderStateInstance {
+  const role = runnerRole(input.role);
+  if (input.roleLabel !== LOCAL_GITHUB_ACTIONS_RUNNER_ROLE_LABELS[role]
+      || input.name !== instanceName(retainedProviderName, role)) {
+    fail('runner state role identity is invalid');
+  }
+  const containerId = input.containerId === null ? null : boundedText(input.containerId, 'containerId', 64);
+  const runnerId = input.runnerId;
+  if (containerId !== null && !/^[0-9a-f]{64}$/u.test(containerId)) fail('containerId is invalid');
+  if (runnerId !== null && (!Number.isSafeInteger(runnerId) || runnerId < 1)) fail('runnerId is invalid');
+  if ((input.containerState === 'uncreated' && containerId !== null)
+      || (input.containerState === 'present' && containerId === null)
+      || (input.runnerState === 'uncreated' && runnerId !== null)
+      || (input.runnerState === 'present' && runnerId === null)
+      || (input.runnerState === 'present' && input.containerState !== 'present')) {
+    fail('runner state resource identity is inconsistent');
+  }
+  return Object.freeze({
+    role,
+    roleLabel: input.roleLabel,
+    name: runnerName(input.name),
+    containerId,
+    containerState: providerResourceState(input.containerState),
+    runnerId,
+    runnerState: providerResourceState(input.runnerState)
+  });
+}
+
 export function createLocalGitHubActionsRunnerState(
   input: Omit<LocalGitHubActionsRunnerState, 'schema' | 'image' | 'imageId' | 'runnerVersion'
     | 'runnerArchiveSha256' | 'baseImage' | 'nodeVersion' | 'nodeArchiveSha256'
@@ -781,26 +654,30 @@ export function createLocalGitHubActionsRunnerState(
 ): LocalGitHubActionsRunnerState {
   const startedAt = new Date(input.startedAt).toISOString();
   if (startedAt !== input.startedAt) fail('startedAt must be a canonical ISO instant');
-  if (!/^[0-9a-f]{40}$/u.test(input.providerLedgerObjectSha)) fail('provider ledger object SHA is invalid');
-  if (!/^sha256:[0-9a-f]{64}$/u.test(input.providerLedgerDigest)) fail('provider ledger digest is invalid');
-  const instances = input.instances.map(runnerInstance);
+  const lifecycle = providerLifecycle(input.lifecycle);
+  const retainedProviderName = providerBaseName(input.providerName);
+  const instances = input.instances.map((instance) => stateInstance(instance, retainedProviderName));
   if (instances.length !== LOCAL_GITHUB_ACTIONS_RUNNER_ROLES.length
       || LOCAL_GITHUB_ACTIONS_RUNNER_ROLES.some((role, index) => instances[index]?.role !== role)
       || new Set(instances.map(({ name }) => name)).size !== instances.length
-      || new Set(instances.map(({ runnerId }) => runnerId)).size !== instances.length
-      || new Set(instances.map(({ containerId }) => containerId)).size !== instances.length) {
-    fail('runner instances must be one ordered unique instance per trust role');
+      || new Set(instances.flatMap(({ runnerId }) => runnerId === null ? [] : [runnerId])).size
+        !== instances.filter(({ runnerId }) => runnerId !== null).length
+      || new Set(instances.flatMap(({ containerId }) => containerId === null ? [] : [containerId])).size
+        !== instances.filter(({ containerId }) => containerId !== null).length) {
+    fail('runner state must retain one ordered unique instance per trust role');
   }
+  if (lifecycle === 'active' && instances.some(({ containerState, runnerState }) =>
+    containerState !== 'present' || runnerState !== 'present')) fail('active runner state is incomplete');
+  if (lifecycle === 'terminal' && instances.some(({ containerState, runnerState }) =>
+    containerState !== 'absent' || runnerState !== 'absent')) fail('terminal runner state retains resources');
   const material = stateMaterial({
     schema: LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA,
     repository: repositoryName(input.repository),
     repositoryRoot: path.resolve(boundedText(input.repositoryRoot, 'repositoryRoot', 4096)),
     commonDirectory: path.resolve(boundedText(input.commonDirectory, 'commonDirectory', 4096)),
-    providerName: providerBaseName(input.providerName),
+    providerName: retainedProviderName,
     operationLabel: operationLabel(input.operationLabel),
-    providerLedgerRef: LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF,
-    providerLedgerObjectSha: input.providerLedgerObjectSha,
-    providerLedgerDigest: input.providerLedgerDigest,
+    lifecycle,
     dockerEndpoint: dockerEndpointIdentity(input.dockerEndpoint),
     githubEndpoint: githubEndpointIdentity(input.githubEndpoint),
     image: LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE,
@@ -827,7 +704,7 @@ export function parseLocalGitHubActionsRunnerState(source: string): LocalGitHubA
   const value = parsed as Record<string, unknown>;
   exactKeys(value, [
     'schema', 'repository', 'repositoryRoot', 'commonDirectory', 'providerName', 'operationLabel',
-    'providerLedgerRef', 'providerLedgerObjectSha', 'providerLedgerDigest',
+    'lifecycle',
     'dockerEndpoint', 'githubEndpoint', 'image', 'imageId', 'runnerVersion',
     'runnerArchiveSha256', 'baseImage', 'nodeVersion', 'nodeArchiveSha256',
     'labels', 'roleLabels', 'instances', 'startedAt', 'stateDigest'
@@ -843,7 +720,6 @@ export function parseLocalGitHubActionsRunnerState(source: string): LocalGitHubA
       || !Array.isArray(value.labels)
       || value.labels.length !== LOCAL_GITHUB_ACTIONS_RUNNER_LABELS.length
       || value.labels.some((label, index) => label !== LOCAL_GITHUB_ACTIONS_RUNNER_LABELS[index])
-      || value.providerLedgerRef !== LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF
       || JSON.stringify(value.roleLabels) !== JSON.stringify(LOCAL_GITHUB_ACTIONS_RUNNER_ROLE_LABELS)
       || !Array.isArray(value.instances)) {
     fail('state capability identity is invalid');
@@ -854,12 +730,10 @@ export function parseLocalGitHubActionsRunnerState(source: string): LocalGitHubA
     commonDirectory: value.commonDirectory as string,
     providerName: value.providerName as string,
     operationLabel: value.operationLabel as string,
-    providerLedgerRef: value.providerLedgerRef as typeof LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF,
-    providerLedgerObjectSha: value.providerLedgerObjectSha as string,
-    providerLedgerDigest: value.providerLedgerDigest as `sha256:${string}`,
+    lifecycle: value.lifecycle as LocalGitHubActionsProviderLifecycle,
     dockerEndpoint: value.dockerEndpoint as DockerEndpointIdentity,
     githubEndpoint: value.githubEndpoint as GitHubEndpointIdentity,
-    instances: value.instances as LocalGitHubActionsRunnerInstance[],
+    instances: value.instances as LocalGitHubActionsProviderStateInstance[],
     startedAt: value.startedAt as string
   });
   if (recreated.stateDigest !== value.stateDigest) fail('state digest mismatch');
@@ -1064,161 +938,6 @@ export function createLocalGitHubActionsRunnerProjectionBuildxArgs(
   return createLocalGitHubActionsRunnerProjectionBuildxArgsForUri(retainedLayoutUriPath);
 }
 
-async function runCommand(
-  command: 'gh' | 'git',
-  args: readonly string[],
-  options: Readonly<{
-    cwd: string;
-    input?: Buffer;
-    acceptedCodes?: readonly number[];
-    acceptAnyExitCode?: boolean;
-    timeoutMs?: number;
-    stallTimeoutMs?: number;
-    admitProgress?: (chunk: Buffer, stream: 'stdout' | 'stderr') => boolean;
-    githubToken?: string;
-  }>
-): Promise<CommandResult> {
-  const timeoutMs = options.timeoutMs ?? ENVIRONMENT.provider.timeoutsMs.commandDefault;
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1
-      || timeoutMs > ENVIRONMENT.provider.timeoutsMs.commandMaximum) {
-    fail('command timeout is invalid');
-  }
-  const stallTimeoutMs = options.stallTimeoutMs;
-  if (stallTimeoutMs !== undefined && (!Number.isSafeInteger(stallTimeoutMs)
-      || stallTimeoutMs < 1 || stallTimeoutMs > timeoutMs || options.admitProgress === undefined)) {
-    fail('command stall timeout is invalid');
-  }
-  // Git/GH on Windows must pass the retained control-CLI admission before any host child can be created;
-  // there is deliberately no PATH fallback when that provider is unknown or
-  // unavailable. Non-Windows keeps its separately governed host route.
-  if (process.platform === 'win32') {
-    return await runWindowsControlCliCommand(command, args, {
-      ...options,
-      timeoutMs
-    });
-  }
-  const childEnvironment = commandEnvironment(command);
-  if (options.githubToken !== undefined) {
-    if (command !== 'gh' || !/^[^\s\u0000-\u001f]{20,1024}$/u.test(options.githubToken)) {
-      fail('command GitHub credential binding is invalid');
-    }
-    childEnvironment.GH_TOKEN = options.githubToken;
-  }
-  return await new Promise<CommandResult>((resolve, reject) => {
-    const child = spawn(command, [...args], {
-      cwd: options.cwd,
-      env: childEnvironment,
-      shell: false,
-      windowsHide: true,
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-    let outputBytes = 0;
-    let settled = false;
-    let terminationError: Error | null = null;
-    let settlementTimer: ReturnType<typeof setTimeout> | null = null;
-    let stallTimer: ReturnType<typeof setTimeout> | null = null;
-    const clearTimers = (): void => {
-      clearTimeout(absoluteTimer);
-      if (stallTimer !== null) clearTimeout(stallTimer);
-      if (settlementTimer !== null) clearTimeout(settlementTimer);
-    };
-    const terminate = (error: Error): void => {
-      if (settled || terminationError !== null) return;
-      terminationError = error;
-      if (stallTimer !== null) clearTimeout(stallTimer);
-      child.kill();
-      settlementTimer = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        child.kill('SIGKILL');
-        clearTimers();
-        reject(error);
-      }, 30_000);
-    };
-    const absoluteTimer = setTimeout(() => terminate(new Error(
-      `Local GitHub Actions runner: ${command} exceeded absolute timeout ${timeoutMs}ms`
-    )), timeoutMs);
-    const armStallTimer = (): void => {
-      if (stallTimeoutMs === undefined) return;
-      if (stallTimer !== null) clearTimeout(stallTimer);
-      stallTimer = setTimeout(() => terminate(new Error(
-        `Local GitHub Actions runner: ${command} made no admitted progress for ${stallTimeoutMs}ms`
-      )), stallTimeoutMs);
-    };
-    armStallTimer();
-    const collect = (target: Buffer[], chunk: Buffer) => {
-      if (options.admitProgress?.(chunk, target === stdout ? 'stdout' : 'stderr') === true) {
-        armStallTimer();
-      }
-      outputBytes += chunk.length;
-      if (outputBytes > MAX_COMMAND_OUTPUT_BYTES) {
-        terminate(new Error(`Local GitHub Actions runner: ${command} output exceeded bound`));
-        return;
-      }
-      target.push(Buffer.from(chunk));
-    };
-    child.stdout.on('data', (chunk: Buffer) => collect(stdout, chunk));
-    child.stderr.on('data', (chunk: Buffer) => collect(stderr, chunk));
-    child.once('error', (error) => terminate(error));
-    child.once('close', (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimers();
-      if (terminationError !== null) {
-        reject(terminationError);
-        return;
-      }
-      const result = Object.freeze({
-        code: code ?? -1,
-        stdout: Buffer.concat(stdout),
-        stderr: Buffer.concat(stderr)
-      });
-      if (options.acceptAnyExitCode !== true
-          && !(options.acceptedCodes ?? [0]).includes(result.code)) {
-        const stderrText = result.stderr.toString('utf8');
-        const stderrEvidence = stderrText.length <= 8192
-          ? stderrText
-          : `${stderrText.slice(0, 2048)}\n...[stderr middle omitted]...\n${stderrText.slice(-6144)}`;
-        reject(new Error(
-          `Local GitHub Actions runner: ${command} failed with ${result.code}: ${stderrEvidence}`
-        ));
-        return;
-      }
-      resolve(result);
-    });
-    if (options.input !== undefined) child.stdin.end(options.input);
-    else child.stdin.end();
-  });
-}
-
-async function captureGitHubApiSession(cwd: string): Promise<GitHubApiSession> {
-  const token = (await runCommand('gh', [
-    'auth', 'token', '--hostname', LOCAL_GITHUB_ACTIONS_GITHUB_HOST
-  ], { cwd })).stdout.toString('utf8').trim();
-  if (!/^[^\s\u0000-\u001f]{20,1024}$/u.test(token)) {
-    fail('GitHub API credential is invalid');
-  }
-  const principal = githubPrincipal((await runCommand('gh', [
-    'api', '--hostname', LOCAL_GITHUB_ACTIONS_GITHUB_HOST, 'user', '--jq', '.login'
-  ], { cwd, githubToken: token })).stdout.toString('utf8').trim());
-  const session = Object.freeze({ token, principal });
-  githubApiSessions.set(path.resolve(cwd), session);
-  return session;
-}
-
-async function runGitHubApi(
-  args: readonly string[],
-  options: Readonly<{ cwd: string; input?: Buffer; acceptedCodes?: readonly number[]; timeoutMs?: number }>
-): Promise<CommandResult> {
-  const session = githubApiSessions.get(path.resolve(options.cwd))
-    ?? await captureGitHubApiSession(options.cwd);
-  return await runCommand('gh', [
-    'api', '--hostname', LOCAL_GITHUB_ACTIONS_GITHUB_HOST, ...args
-  ], { ...options, githubToken: session.token });
-}
-
 async function runContainerEngineOperation(
   session: ContainerEngineSession,
   operation: ContainerEngineOperation,
@@ -1256,19 +975,28 @@ export async function observeGitHubEndpointIdentity(
   repository: string
 ): Promise<GitHubEndpointIdentity> {
   const expectedRepository = repositoryName(repository);
-  const session = githubApiSessions.get(path.resolve(cwd))
-    ?? await captureGitHubApiSession(cwd);
-  const observedRepository = (await runGitHubApi([
-    `repos/${expectedRepository}`, '--jq', '.full_name'
-  ], { cwd })).stdout.toString('utf8').trim();
-  if (observedRepository.toLowerCase() !== expectedRepository.toLowerCase()) {
-    fail('GitHub API repository identity differs from origin');
-  }
-  return githubEndpointIdentity({
-    schema: 'sec-github-api-endpoint-identity-v1',
-    host: LOCAL_GITHUB_ACTIONS_GITHUB_HOST,
+  return await withGitHubApiReadSession({
+    repositoryRoot: cwd,
     repository: expectedRepository,
-    principal: session.principal
+    operation: async (api) => {
+      const repositoryValue = await executeGitHubApiOperation(api, { kind: 'repository' });
+      if (repositoryValue === null || typeof repositoryValue !== 'object'
+          || Array.isArray(repositoryValue)) {
+        fail('GitHub API repository response is invalid');
+      }
+      const observedRepository = (repositoryValue as Record<string, unknown>).full_name;
+      if (typeof observedRepository !== 'string') fail('GitHub API repository identity is invalid');
+      if (observedRepository.toLowerCase() !== expectedRepository.toLowerCase()) {
+        fail('GitHub API repository identity differs from origin');
+      }
+      const principal = inspectGitHubApiCapability(api).principal.login;
+      return githubEndpointIdentity({
+        schema: 'sec-github-api-endpoint-identity-v1',
+        host: LOCAL_GITHUB_ACTIONS_GITHUB_HOST,
+        repository: expectedRepository,
+        principal
+      });
+    }
   });
 }
 
@@ -1285,12 +1013,16 @@ async function assertGitHubEndpointIdentity(
 }
 
 async function resolveRepositoryContext(cwd: string) {
-  const root = (await runCommand('git', ['rev-parse', '--show-toplevel'], { cwd })).stdout
-    .toString('utf8').trim();
-  const common = (await runCommand('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
-    cwd: root
-  })).stdout.toString('utf8').trim();
-  return Object.freeze({ repositoryRoot: path.resolve(root), commonDirectory: path.resolve(common) });
+  return await withAuthorityGitReadSession({ cwd, budget: GIT_READ_OPERATION_BUDGET }, async (session) => {
+    const root = (await gitReadText(session, ['rev-parse', '--show-toplevel'], {
+      maxBuffer: 1024 * 1024,
+      label: 'runner repository root'
+    })).trim();
+    const common = (await gitReadText(session, [
+      'rev-parse', '--path-format=absolute', '--git-common-dir'
+    ], { maxBuffer: 1024 * 1024, label: 'runner Git common directory' })).trim();
+    return Object.freeze({ repositoryRoot: path.resolve(root), commonDirectory: path.resolve(common) });
+  });
 }
 
 export function assertRepositoryIdentityMatchesOrigin(
@@ -1327,12 +1059,18 @@ export function assertRepositoryIdentityMatchesRemoteUrls(
 }
 
 async function assertOriginRepositoryIdentity(cwd: string, repository?: string): Promise<string> {
-  const fetchUrl = (await runCommand('git', ['remote', 'get-url', 'origin'], { cwd }))
-    .stdout.toString('utf8').trim();
-  const expected = repository ?? repositoryIdentityFromGitHubUrl(fetchUrl);
-  const pushUrls = (await runCommand('git', ['remote', 'get-url', '--all', '--push', 'origin'], { cwd }))
-    .stdout.toString('utf8').trim().split(/\r?\n/u).filter(Boolean);
-  return assertRepositoryIdentityMatchesRemoteUrls(expected, fetchUrl, pushUrls);
+  return await withAuthorityGitReadSession({ cwd, budget: GIT_READ_OPERATION_BUDGET }, async (session) => {
+    const fetchUrl = (await gitReadText(session, ['remote', 'get-url', 'origin'], {
+      maxBuffer: 1024 * 1024,
+      label: 'runner origin fetch URL'
+    })).trim();
+    const expected = repository ?? repositoryIdentityFromGitHubUrl(fetchUrl);
+    const pushUrls = (await gitReadText(session, ['remote', 'get-url', '--all', '--push', 'origin'], {
+      maxBuffer: 1024 * 1024,
+      label: 'runner origin push URLs'
+    })).trim().split(/\r?\n/u).filter(Boolean);
+    return assertRepositoryIdentityMatchesRemoteUrls(expected, fetchUrl, pushUrls);
+  });
 }
 
 function statePath(commonDirectory: string): string {
@@ -1382,6 +1120,62 @@ function publishState(commonDirectory: string, state: LocalGitHubActionsRunnerSt
   });
 }
 
+function replaceState(
+  commonDirectory: string,
+  expected: LocalGitHubActionsRunnerState,
+  next: LocalGitHubActionsRunnerState
+): void {
+  const observed = readStateProjection(commonDirectory);
+  if (observed === null || observed.state.stateDigest !== expected.stateDigest
+      || !Buffer.from(observed.bytes).equals(canonicalStateBytes(expected))) {
+    fail('local lifecycle state changed and is preserved');
+  }
+  const entry = inspectNoFollowOrdinaryFileEntry(observed.directory, 'state.json');
+  if (entry === null) fail('local lifecycle state disappeared before durable CAS');
+  const bytes = canonicalStateBytes(next);
+  replaceDurableCanonicalFile({
+    parent: observed.directory,
+    name: 'state.json',
+    bytes,
+    expectedExisting: Object.freeze({ device: entry.device, inode: entry.inode }),
+    validate: (candidate) => {
+      const parsed = parseLocalGitHubActionsRunnerState(Buffer.from(candidate).toString('utf8'));
+      if (parsed.stateDigest !== next.stateDigest || !Buffer.from(candidate).equals(bytes)) {
+        fail('durable lifecycle state CAS readback mismatch');
+      }
+    }
+  });
+}
+
+async function withRunnerLifecycleLease<T>(
+  commonDirectory: string,
+  operation: () => Promise<T>
+): Promise<T> {
+  const directory = stateDirectory(commonDirectory, true)!;
+  const lease = acquirePhysicalMutationLease(directory, 'lifecycle-lease.json', {
+    ttlMs: ENVIRONMENT.provider.timeoutsMs.commandMaximum
+  });
+  if (lease === null) fail('runner lifecycle is owned by another local operation');
+  let result: T | undefined;
+  let primary: unknown;
+  try {
+    lease.acknowledgeReclaimedRecovery();
+    result = await operation();
+  } catch (error) {
+    primary = error;
+  }
+  try {
+    lease.release();
+  } catch (error) {
+    if (primary !== undefined) {
+      throw new AggregateError([primary, error], 'runner lifecycle and lease settlement both failed');
+    }
+    throw error;
+  }
+  if (primary !== undefined) throw primary;
+  return result as T;
+}
+
 function deleteStateProjection(commonDirectory: string, expected: LocalGitHubActionsRunnerState): void {
   const observed = readStateProjection(commonDirectory);
   if (observed === null || observed.state.stateDigest !== expected.stateDigest
@@ -1404,22 +1198,64 @@ function deleteStateProjection(commonDirectory: string, expected: LocalGitHubAct
 }
 
 async function listRepositoryRunners(repository: string, cwd: string): Promise<readonly Record<string, unknown>[]> {
-  const output = await runGitHubApi([
-    `repos/${repository}/actions/runners`, '--paginate', '--jq', '.runners'
-  ], { cwd });
-  const chunks = output.stdout.toString('utf8').trim().split(/\r?\n/u).filter(Boolean);
-  const runners: Record<string, unknown>[] = [];
-  for (const chunk of chunks) {
-    const parsed = JSON.parse(chunk) as unknown;
-    if (!Array.isArray(parsed)) fail('GitHub runner inventory is invalid');
-    for (const item of parsed) {
-      if (item === null || typeof item !== 'object' || Array.isArray(item)) {
-        fail('GitHub runner inventory entry is invalid');
+  const retainedRepository = repositoryName(repository);
+  return await withGitHubApiReadSession({
+    repositoryRoot: cwd,
+    repository: retainedRepository,
+    operation: async (api) => {
+      const runners: Record<string, unknown>[] = [];
+      for (let page = 1; page <= 100; page += 1) {
+        const value = await executeGitHubApiOperation(api, { kind: 'repository-runners', page });
+        if (value === null || typeof value !== 'object' || Array.isArray(value)
+            || !Array.isArray((value as Record<string, unknown>).runners)) {
+          fail('GitHub runner inventory is invalid');
+        }
+        const entries = (value as Record<string, unknown>).runners as unknown[];
+        for (const item of entries) {
+          if (item === null || typeof item !== 'object' || Array.isArray(item)) {
+            fail('GitHub runner inventory entry is invalid');
+          }
+          runners.push(item as Record<string, unknown>);
+        }
+        if (entries.length < 100) return Object.freeze(runners);
       }
-      runners.push(item as Record<string, unknown>);
+      fail('GitHub runner inventory exceeds its bounded page count');
     }
-  }
-  return Object.freeze(runners);
+  });
+}
+
+async function createRunnerRegistrationToken(repository: string, cwd: string): Promise<string> {
+  const retainedRepository = repositoryName(repository);
+  return await withGitHubApiRunnerAdminSession({
+    repositoryRoot: cwd,
+    repository: retainedRepository,
+    operation: async (api) => {
+      const value = await executeGitHubApiOperation(api, { kind: 'create-runner-registration-token' });
+      const token = value !== null && typeof value === 'object' && !Array.isArray(value)
+        ? (value as Record<string, unknown>).token
+        : null;
+      if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{20,512}$/u.test(token)) {
+        fail('GitHub returned an invalid registration token');
+      }
+      return token;
+    }
+  });
+}
+
+async function deleteRepositoryRunner(repository: string, cwd: string, runnerId: number): Promise<void> {
+  const retainedRepository = repositoryName(repository);
+  if (!Number.isSafeInteger(runnerId) || runnerId < 1) fail('runnerId is invalid');
+  await withGitHubApiRunnerAdminSession({
+    repositoryRoot: cwd,
+    repository: retainedRepository,
+    operation: async (api) => {
+      const result = await executeGitHubApiOperation(api, {
+        kind: 'delete-repository-runner',
+        runnerId
+      });
+      if (result !== null) fail('GitHub runner deletion returned an unexpected body');
+    }
+  });
 }
 
 async function listContainerIdentityRows(
@@ -1684,6 +1520,7 @@ export function assertOwnedLocalGitHubActionsRunner(
     role: LocalGitHubActionsRunnerRole;
     operationLabel: string;
     runnerId?: number;
+    requireIdleForRemoval?: true;
   }>
 ): number {
   const id = value.id;
@@ -1704,6 +1541,9 @@ export function assertOwnedLocalGitHubActionsRunner(
   }
   if (value.os !== 'Linux') {
     fail('GitHub runner operating system identity changed and it is preserved');
+  }
+  if (input.requireIdleForRemoval === true && value.busy !== false) {
+    fail('GitHub runner busy state must be exact false before cleanup and it is preserved');
   }
   return Number(id);
 }
@@ -1773,33 +1613,60 @@ export function assertExactLocalGitHubActionsRunnerProfileInventory(input: Reado
   }
 }
 
-function withLedgerInstance(
-  ledger: LocalGitHubActionsProviderLedger,
+function withStateInstance(
+  state: LocalGitHubActionsRunnerState,
   role: LocalGitHubActionsRunnerRole,
-  update: Partial<LocalGitHubActionsProviderLedgerInstance>
-): readonly LocalGitHubActionsProviderLedgerInstance[] {
-  return Object.freeze(ledger.instances.map((instance) => instance.role === role
+  update: Partial<LocalGitHubActionsProviderStateInstance>
+): readonly LocalGitHubActionsProviderStateInstance[] {
+  return Object.freeze(state.instances.map((instance) => instance.role === role
     ? Object.freeze({ ...instance, ...update })
     : instance));
 }
 
-async function cleanupLedgerInstance(
-  cursor: ProviderLedgerCursor,
+interface LocalRunnerStateCursor {
+  state: LocalGitHubActionsRunnerState;
+  readonly commonDirectory: string;
+}
+
+function advanceLocalRunnerState(
+  cursor: LocalRunnerStateCursor,
+  update: Readonly<{
+    lifecycle?: LocalGitHubActionsProviderLifecycle;
+    instances?: readonly LocalGitHubActionsProviderStateInstance[];
+  }>
+): void {
+  const nextLifecycle = update.lifecycle ?? cursor.state.lifecycle;
+  const lifecycleAllowed = nextLifecycle === cursor.state.lifecycle
+    || (cursor.state.lifecycle === 'provisioning'
+      && (nextLifecycle === 'active' || nextLifecycle === 'teardown'))
+    || (cursor.state.lifecycle === 'active' && nextLifecycle === 'teardown')
+    || (cursor.state.lifecycle === 'teardown' && nextLifecycle === 'terminal');
+  if (!lifecycleAllowed) fail('local runner lifecycle transition is invalid');
+  const next = createLocalGitHubActionsRunnerState({
+    ...cursor.state,
+    lifecycle: nextLifecycle,
+    instances: update.instances ?? cursor.state.instances
+  });
+  replaceState(cursor.commonDirectory, cursor.state, next);
+  cursor.state = next;
+}
+
+async function cleanupStateInstance(
+  cursor: LocalRunnerStateCursor,
   cwd: string,
   role: LocalGitHubActionsRunnerRole,
   session: ContainerEngineSession
 ): Promise<void> {
-  let retained = cursor.ledger.instances.find((instance) => instance.role === role)!;
-  const runners = await listRepositoryRunners(cursor.ledger.repository, cwd);
+  let retained = cursor.state.instances.find((instance) => instance.role === role)!;
+  const runners = await listRepositoryRunners(cursor.state.repository, cwd);
   const runnerCandidates = runners.filter((runner) =>
     runner.name === retained.name || (retained.runnerId !== null && runner.id === retained.runnerId));
   if (retained.runnerState === 'uncreated') {
     if (runnerCandidates.length !== 0) {
-      fail('uncommitted GitHub runner residue exists without remote exact-ID authority and is preserved');
+      fail('GitHub runner residue exists without a retained exact ID and is preserved');
     }
-    await advanceProviderLedger(cursor, {
-      cwd,
-      instances: withLedgerInstance(cursor.ledger, role, { runnerState: 'absent' })
+    advanceLocalRunnerState(cursor, {
+      instances: withStateInstance(cursor.state, role, { runnerState: 'absent' })
     });
   } else if (retained.runnerState === 'present') {
     if (retained.runnerId === null || runnerCandidates.length > 1
@@ -1810,37 +1677,33 @@ async function cleanupLedgerInstance(
       assertOwnedLocalGitHubActionsRunner(runnerCandidates[0]!, {
         name: retained.name,
         role,
-        operationLabel: cursor.ledger.operationLabel,
-        runnerId: retained.runnerId
+        operationLabel: cursor.state.operationLabel,
+        runnerId: retained.runnerId,
+        requireIdleForRemoval: true
       });
-      if (runnerCandidates[0]!.busy === true) fail(`runner ${retained.name} became busy and cleanup is refused`);
-      await runGitHubApi([
-        '--method', 'DELETE', `repos/${cursor.ledger.repository}/actions/runners/${retained.runnerId}`
-      ], { cwd });
+      await deleteRepositoryRunner(cursor.state.repository, cwd, retained.runnerId);
     }
-    if ((await listRepositoryRunners(cursor.ledger.repository, cwd)).some((runner) =>
+    if ((await listRepositoryRunners(cursor.state.repository, cwd)).some((runner) =>
       runner.name === retained.name || runner.id === retained.runnerId)) {
       fail('GitHub runner exact ID/name deletion readback is not absent');
     }
-    await advanceProviderLedger(cursor, {
-      cwd,
-      instances: withLedgerInstance(cursor.ledger, role, { runnerState: 'absent' })
+    advanceLocalRunnerState(cursor, {
+      instances: withStateInstance(cursor.state, role, { runnerState: 'absent' })
     });
   } else if (runnerCandidates.length !== 0) {
-    fail('GitHub runner reappeared after remote terminal generation and is preserved');
+    fail('GitHub runner reappeared after local terminal state and is preserved');
   }
 
-  retained = cursor.ledger.instances.find((instance) => instance.role === role)!;
+  retained = cursor.state.instances.find((instance) => instance.role === role)!;
   const byName = await inspectContainerByName(retained.name, session);
   const byId = retained.containerId === null ? null
     : await inspectContainerById(retained.containerId, session);
   if (retained.containerState === 'uncreated') {
     if (byName !== null || byId !== null) {
-      fail('uncommitted Docker container residue exists without remote exact-ID authority and is preserved');
+      fail('Docker container residue exists without a retained exact ID and is preserved');
     }
-    await advanceProviderLedger(cursor, {
-      cwd,
-      instances: withLedgerInstance(cursor.ledger, role, { containerState: 'absent' })
+    advanceLocalRunnerState(cursor, {
+      instances: withStateInstance(cursor.state, role, { containerState: 'absent' })
     });
   } else if (retained.containerState === 'present') {
     if (retained.containerId === null || (byName === null) !== (byId === null)
@@ -1849,12 +1712,12 @@ async function cleanupLedgerInstance(
     }
     if (byId !== null) {
       assertOwnedContainer(byId, {
-        repository: cursor.ledger.repository,
-        providerName: cursor.ledger.providerName,
+        repository: cursor.state.repository,
+        providerName: cursor.state.providerName,
         instanceName: retained.name,
         role,
         containerId: retained.containerId,
-        operationLabel: cursor.ledger.operationLabel,
+        operationLabel: cursor.state.operationLabel,
         allowLegacyDetachedRunnerDuringTeardown: true
       });
       await runContainerEngineOperation(session, {
@@ -1865,12 +1728,11 @@ async function cleanupLedgerInstance(
         || await inspectContainerByName(retained.name, session) !== null) {
       fail('Docker container exact ID/name deletion readback is not absent');
     }
-    await advanceProviderLedger(cursor, {
-      cwd,
-      instances: withLedgerInstance(cursor.ledger, role, { containerState: 'absent' })
+    advanceLocalRunnerState(cursor, {
+      instances: withStateInstance(cursor.state, role, { containerState: 'absent' })
     });
   } else if (byName !== null || byId !== null) {
-    fail('Docker container reappeared after remote terminal generation and is preserved');
+    fail('Docker container reappeared after local terminal state and is preserved');
   }
 }
 
@@ -2596,498 +2458,8 @@ function providerLifecycle(value: unknown): LocalGitHubActionsProviderLifecycle 
   return value;
 }
 
-function ledgerInstance(
-  input: LocalGitHubActionsProviderLedgerInstance,
-  providerName: string
-): LocalGitHubActionsProviderLedgerInstance {
-  if (input === null || typeof input !== 'object' || Array.isArray(input)) {
-    fail('provider ledger instance is invalid');
-  }
-  exactKeys(input as unknown as Record<string, unknown>, [
-    'role', 'roleLabel', 'name', 'containerId', 'containerState', 'runnerId', 'runnerState'
-  ], 'provider ledger instance');
-  const role = runnerRole(input.role);
-  const expectedName = instanceName(providerName, role);
-  if (input.roleLabel !== LOCAL_GITHUB_ACTIONS_RUNNER_ROLE_LABELS[role] || input.name !== expectedName) {
-    fail('provider ledger role identity is invalid');
-  }
-  const containerState = providerResourceState(input.containerState);
-  const runnerState = providerResourceState(input.runnerState);
-  if ((containerState === 'present' && input.containerId === null)
-      || (containerState === 'uncreated' && input.containerId !== null)
-      || (runnerState === 'present' && input.runnerId === null)
-      || (runnerState === 'uncreated' && input.runnerId !== null)
-      || (input.containerId !== null && !/^[0-9a-f]{64}$/u.test(input.containerId))
-      || (input.runnerId !== null && (!Number.isSafeInteger(input.runnerId) || input.runnerId <= 0))) {
-    fail('provider ledger retained resource identity is invalid');
-  }
-  if (runnerState === 'present' && containerState !== 'present') {
-    fail('provider ledger present runner requires its present container identity');
-  }
-  return Object.freeze({
-    role,
-    roleLabel: input.roleLabel,
-    name: expectedName,
-    containerId: input.containerId,
-    containerState,
-    runnerId: input.runnerId,
-    runnerState
-  });
-}
-
-export function createLocalGitHubActionsProviderLedger(
-  input: Omit<LocalGitHubActionsProviderLedger, 'schema' | 'profileLabel' | 'imageId' | 'ledgerDigest'>
-): LocalGitHubActionsProviderLedger {
-  const expectedMainSha = boundedText(input.expectedMainSha, 'expected main SHA', 40);
-  if (!/^[0-9a-f]{40}$/u.test(expectedMainSha)) fail('expected main SHA is invalid');
-  const createdAt = new Date(input.createdAt).toISOString();
-  if (createdAt !== input.createdAt) fail('provider ledger createdAt is invalid');
-  if (!Number.isSafeInteger(input.generation) || input.generation < 0) fail('provider ledger generation is invalid');
-  if ((input.generation === 0) !== (input.predecessorObjectSha === null)
-      || (input.predecessorObjectSha !== null && !/^[0-9a-f]{40}$/u.test(input.predecessorObjectSha))) {
-    fail('provider ledger predecessor identity is invalid');
-  }
-  const repository = repositoryName(input.repository);
-  const providerName = providerBaseName(input.providerName);
-  const lifecycle = providerLifecycle(input.lifecycle);
-  const instances = input.instances.map((instance) => ledgerInstance(instance, providerName));
-  if (instances.length !== 3
-      || LOCAL_GITHUB_ACTIONS_RUNNER_ROLES.some((role, index) => instances[index]?.role !== role)
-      || new Set(instances.flatMap(({ containerId }) => containerId === null ? [] : [containerId])).size
-        !== instances.filter(({ containerId }) => containerId !== null).length
-      || new Set(instances.flatMap(({ runnerId }) => runnerId === null ? [] : [runnerId])).size
-        !== instances.filter(({ runnerId }) => runnerId !== null).length) {
-    fail('provider ledger instances are not one ordered unique identity per role');
-  }
-  if (lifecycle === 'active' && instances.some((instance) =>
-    instance.containerState !== 'present' || instance.runnerState !== 'present')) {
-    fail('active provider ledger must retain three present runner/container pairs');
-  }
-  if (lifecycle === 'terminal' && instances.some((instance) =>
-    instance.containerState !== 'absent' || instance.runnerState !== 'absent')) {
-    fail('terminal provider ledger must retain three absent runner/container pairs');
-  }
-  const dockerEndpoint = dockerEndpointIdentity(input.dockerEndpoint);
-  const githubEndpoint = githubEndpointIdentity(input.githubEndpoint);
-  if (githubEndpoint.repository.toLowerCase() !== repository.toLowerCase()) {
-    fail('provider ledger GitHub endpoint repository differs');
-  }
-  const material = Object.freeze({
-    schema: LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_SCHEMA,
-    repository,
-    providerName,
-    profileLabel: LOCAL_GITHUB_ACTIONS_RUNNER_CUSTOM_LABEL,
-    operationLabel: operationLabel(input.operationLabel),
-    expectedMainSha,
-    createdAt,
-    dockerEndpoint,
-    githubEndpoint,
-    imageId: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID,
-    lifecycle,
-    generation: input.generation,
-    predecessorObjectSha: input.predecessorObjectSha,
-    instances: Object.freeze(instances)
-  });
-  return Object.freeze({ ...material, ledgerDigest: sha256(material) as `sha256:${string}` });
-}
-
-export function parseLocalGitHubActionsProviderLedger(source: string): LocalGitHubActionsProviderLedger {
-  const parsed = JSON.parse(source) as unknown;
-  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) fail('provider ledger is invalid');
-  const value = parsed as Record<string, unknown>;
-  exactKeys(value, [
-    'schema', 'repository', 'providerName', 'profileLabel', 'operationLabel',
-    'expectedMainSha', 'createdAt', 'dockerEndpoint', 'githubEndpoint', 'imageId',
-    'lifecycle', 'generation', 'predecessorObjectSha', 'instances', 'ledgerDigest'
-  ], 'provider ledger');
-  if (value.schema !== LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_SCHEMA
-      || value.profileLabel !== LOCAL_GITHUB_ACTIONS_RUNNER_CUSTOM_LABEL) {
-    fail('provider ledger capability identity is invalid');
-  }
-  if (!Array.isArray(value.instances)) fail('provider ledger instances are invalid');
-  const recreated = createLocalGitHubActionsProviderLedger({
-    repository: value.repository as string,
-    providerName: value.providerName as string,
-    operationLabel: value.operationLabel as string,
-    expectedMainSha: value.expectedMainSha as string,
-    createdAt: value.createdAt as string,
-    dockerEndpoint: value.dockerEndpoint as DockerEndpointIdentity,
-    githubEndpoint: value.githubEndpoint as GitHubEndpointIdentity,
-    lifecycle: value.lifecycle as LocalGitHubActionsProviderLifecycle,
-    generation: value.generation as number,
-    predecessorObjectSha: value.predecessorObjectSha as string | null,
-    instances: value.instances as LocalGitHubActionsProviderLedgerInstance[]
-  });
-  if (recreated.ledgerDigest !== value.ledgerDigest) fail('provider ledger digest mismatch');
-  return recreated;
-}
-
-function providerLedgerStableIdentity(ledger: LocalGitHubActionsProviderLedger): string {
-  return JSON.stringify({
-    schema: ledger.schema,
-    repository: ledger.repository,
-    providerName: ledger.providerName,
-    profileLabel: ledger.profileLabel,
-    operationLabel: ledger.operationLabel,
-    expectedMainSha: ledger.expectedMainSha,
-    createdAt: ledger.createdAt,
-    dockerEndpoint: ledger.dockerEndpoint,
-    githubEndpoint: ledger.githubEndpoint,
-    imageId: ledger.imageId
-  });
-}
-
-export function assertInitialLocalGitHubActionsProviderLedger(
-  ledger: LocalGitHubActionsProviderLedger
-): void {
-  if (ledger.generation !== 0 || ledger.predecessorObjectSha !== null
-      || ledger.lifecycle !== 'provisioning'
-      || ledger.instances.some((instance) => instance.containerId !== null
-        || instance.containerState !== 'uncreated'
-        || instance.runnerId !== null
-        || instance.runnerState !== 'uncreated')) {
-    fail('provider ledger initial generation is invalid');
-  }
-}
-
-export function assertLocalGitHubActionsProviderLedgerTransition(
-  previousObjectSha: string,
-  previous: LocalGitHubActionsProviderLedger,
-  next: LocalGitHubActionsProviderLedger
-): void {
-  if (!/^[0-9a-f]{40}$/u.test(previousObjectSha)
-      || next.generation !== previous.generation + 1
-      || next.predecessorObjectSha !== previousObjectSha
-      || providerLedgerStableIdentity(next) !== providerLedgerStableIdentity(previous)) {
-    fail('provider ledger generation identity transition is invalid');
-  }
-  const lifecycleChanged = previous.lifecycle !== next.lifecycle;
-  const resourceChanges: Array<Readonly<{
-    kind: 'container' | 'runner';
-    previousId: string | number | null;
-    nextId: string | number | null;
-    previousState: LocalGitHubActionsProviderResourceState;
-    nextState: LocalGitHubActionsProviderResourceState;
-  }>> = [];
-  for (const [index, before] of previous.instances.entries()) {
-    const after = next.instances[index]!;
-    if (before.role !== after.role || before.roleLabel !== after.roleLabel || before.name !== after.name) {
-      fail('provider ledger retained role identity changed');
-    }
-    if (before.containerId !== after.containerId || before.containerState !== after.containerState) {
-      resourceChanges.push({
-        kind: 'container',
-        previousId: before.containerId,
-        nextId: after.containerId,
-        previousState: before.containerState,
-        nextState: after.containerState
-      });
-    }
-    if (before.runnerId !== after.runnerId || before.runnerState !== after.runnerState) {
-      resourceChanges.push({
-        kind: 'runner',
-        previousId: before.runnerId,
-        nextId: after.runnerId,
-        previousState: before.runnerState,
-        nextState: after.runnerState
-      });
-    }
-  }
-  if ((lifecycleChanged ? 1 : 0) + resourceChanges.length !== 1) {
-    fail('provider ledger generation must commit exactly one lifecycle or resource effect');
-  }
-  if (lifecycleChanged) {
-    const allowed = (previous.lifecycle === 'provisioning'
-        && (next.lifecycle === 'active' || next.lifecycle === 'teardown'))
-      || (previous.lifecycle === 'active' && next.lifecycle === 'teardown')
-      || (previous.lifecycle === 'teardown' && next.lifecycle === 'terminal');
-    if (!allowed) fail('provider ledger lifecycle transition is invalid');
-    return;
-  }
-  const change = resourceChanges[0]!;
-  if (previous.lifecycle === 'terminal' || previous.lifecycle === 'active') {
-    fail('provider ledger resource effect is invalid for the lifecycle');
-  }
-  const created = previous.lifecycle === 'provisioning'
-    && change.previousState === 'uncreated' && change.previousId === null
-    && change.nextState === 'present' && change.nextId !== null;
-  const skippedDuringTeardown = previous.lifecycle === 'teardown'
-    && change.previousState === 'uncreated' && change.previousId === null
-    && change.nextState === 'absent' && change.nextId === null;
-  const removedDuringTeardown = previous.lifecycle === 'teardown'
-    && change.previousState === 'present' && change.previousId !== null
-    && change.nextState === 'absent' && change.nextId === change.previousId;
-  if (!created && !skippedDuringTeardown && !removedDuringTeardown) {
-    fail('provider ledger resource transition is invalid');
-  }
-}
-
-async function observeRemoteRefSha(cwd: string, ref: string): Promise<string | null> {
-  const result = await runCommand('git', [
-    'ls-remote', '--exit-code', '--refs', 'origin', ref
-  ], { cwd, acceptedCodes: [0, 2] });
-  if (result.code === 2) return null;
-  const lines = result.stdout.toString('utf8').trim().split(/\r?\n/u).filter(Boolean);
-  if (lines.length !== 1) fail(`remote ref ${ref} is ambiguous`);
-  const match = /^([0-9a-f]{40})\s+(.+)$/u.exec(lines[0]!);
-  if (match === null || match[2] !== ref) fail(`remote ref ${ref} response is invalid`);
-  return match[1]!;
-}
-
-interface ProviderLedgerCursor {
-  ledger: LocalGitHubActionsProviderLedger;
-  objectSha: string;
-}
-
-export interface LocalGitHubActionsProviderLedgerCommit {
-  readonly treeSha: string;
-  readonly parentObjectSha: string | null;
-  readonly timestamp: number;
-  readonly generation: number;
-}
-
-function canonicalLedgerBytes(ledger: LocalGitHubActionsProviderLedger): Buffer {
-  return Buffer.from(`${JSON.stringify(ledger)}\n`, 'utf8');
-}
-
-export function createLocalGitHubActionsProviderLedgerCommitBytes(
-  ledger: LocalGitHubActionsProviderLedger,
-  treeSha: string
-): Buffer {
-  if (!/^[0-9a-f]{40}$/u.test(treeSha)) fail('provider ledger tree identity is invalid');
-  const timestamp = Math.floor(Date.parse(ledger.createdAt) / 1000);
-  if (!Number.isSafeInteger(timestamp) || timestamp < 0) fail('provider ledger commit timestamp is invalid');
-  const parent = ledger.predecessorObjectSha === null
-    ? ''
-    : `parent ${ledger.predecessorObjectSha}\n`;
-  return Buffer.from(
-    `tree ${treeSha}\n${parent}`
-    + `author SEC Provider Ledger <provider-ledger@sec.invalid> ${timestamp} +0000\n`
-    + `committer SEC Provider Ledger <provider-ledger@sec.invalid> ${timestamp} +0000\n\n`
-    + `sec-provider-ledger-v3 generation ${ledger.generation}\n`,
-    'utf8'
-  );
-}
-
-export function parseLocalGitHubActionsProviderLedgerCommit(
-  source: string
-): LocalGitHubActionsProviderLedgerCommit {
-  const match = /^tree ([0-9a-f]{40})\n(?:parent ([0-9a-f]{40})\n)?author SEC Provider Ledger <provider-ledger@sec\.invalid> ([0-9]+) \+0000\ncommitter SEC Provider Ledger <provider-ledger@sec\.invalid> ([0-9]+) \+0000\n\nsec-provider-ledger-v3 generation ([0-9]+)\n$/u
-    .exec(source);
-  if (match === null || match[3] !== match[4]) fail('provider ledger commit framing is invalid');
-  const timestamp = Number(match[3]);
-  const generation = Number(match[5]);
-  if (!Number.isSafeInteger(timestamp) || timestamp < 0
-      || !Number.isSafeInteger(generation) || generation < 0) {
-    fail('provider ledger commit numeric identity is invalid');
-  }
-  return Object.freeze({
-    treeSha: match[1]!,
-    parentObjectSha: match[2] ?? null,
-    timestamp,
-    generation
-  });
-}
-
-async function writeLedgerGenerationObject(
-  cwd: string,
-  ledger: LocalGitHubActionsProviderLedger
-): Promise<string> {
-  const blobSha = (await runCommand('git', ['hash-object', '-w', '--stdin'], {
-    cwd,
-    input: canonicalLedgerBytes(ledger)
-  })).stdout.toString('utf8').trim();
-  if (!/^[0-9a-f]{40}$/u.test(blobSha)) fail('provider ledger blob identity is invalid');
-  const treeSha = (await runCommand('git', ['mktree'], {
-    cwd,
-    input: Buffer.from(`100644 blob ${blobSha}\tprovider-ledger.json\n`, 'utf8')
-  })).stdout.toString('utf8').trim();
-  if (!/^[0-9a-f]{40}$/u.test(treeSha)) fail('provider ledger tree identity is invalid');
-  const commitBytes = createLocalGitHubActionsProviderLedgerCommitBytes(ledger, treeSha);
-  const objectSha = (await runCommand('git', ['hash-object', '-t', 'commit', '-w', '--stdin'], {
-    cwd,
-    input: commitBytes
-  })).stdout.toString('utf8').trim();
-  if (!/^[0-9a-f]{40}$/u.test(objectSha)) fail('provider ledger commit identity is invalid');
-  return objectSha;
-}
-
-async function publishProviderLedger(input: Readonly<{
-  cwd: string;
-  repository: string;
-  providerName: string;
-  operationLabel: string;
-  createdAt: string;
-  dockerEndpoint: DockerEndpointIdentity;
-  githubEndpoint: GitHubEndpointIdentity;
-}>): Promise<ProviderLedgerCursor> {
-  if (await observeRemoteRefSha(input.cwd, LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF) !== null) {
-    fail('the Linux verification profile already has a remote provider ledger');
-  }
-  const expectedMainSha = await observeRemoteRefSha(input.cwd, 'refs/heads/main');
-  if (expectedMainSha === null) fail('remote main is absent while acquiring provider ledger');
-  const ledger = createLocalGitHubActionsProviderLedger({
-    ...input,
-    expectedMainSha,
-    lifecycle: 'provisioning',
-    generation: 0,
-    predecessorObjectSha: null,
-    instances: LOCAL_GITHUB_ACTIONS_RUNNER_ROLES.map((role) => ({
-      role,
-      roleLabel: LOCAL_GITHUB_ACTIONS_RUNNER_ROLE_LABELS[role],
-      name: instanceName(input.providerName, role),
-      containerId: null,
-      containerState: 'uncreated',
-      runnerId: null,
-      runnerState: 'uncreated'
-    }))
-  });
-  assertInitialLocalGitHubActionsProviderLedger(ledger);
-  const objectSha = await writeLedgerGenerationObject(input.cwd, ledger);
-  try {
-    await runCommand('git', [
-      'push', '--no-verify', 'origin', `${objectSha}:${LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF}`
-    ], { cwd: input.cwd });
-  } catch (error) {
-    if (await observeRemoteRefSha(input.cwd, LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF) !== objectSha) {
-      throw error;
-    }
-  }
-  if (await observeRemoteRefSha(input.cwd, LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF) !== objectSha) {
-    fail('provider ledger publication readback differs');
-  }
-  return { ledger, objectSha };
-}
-
-async function loadProviderLedgerGenerationObject(input: Readonly<{
-  cwd: string;
-  objectSha: string;
-}>): Promise<Readonly<{
-  ledger: LocalGitHubActionsProviderLedger;
-  parentObjectSha: string | null;
-}>> {
-  const commitSource = (await runCommand('git', ['cat-file', 'commit', input.objectSha], {
-    cwd: input.cwd
-  })).stdout.toString('utf8');
-  const commit = parseLocalGitHubActionsProviderLedgerCommit(commitSource);
-  const treeSource = (await runCommand('git', [
-    'ls-tree', '--full-tree', '-z', input.objectSha
-  ], { cwd: input.cwd })).stdout;
-  const treeMatch = /^100644 blob ([0-9a-f]{40})\tprovider-ledger\.json\u0000$/u
-    .exec(treeSource.toString('utf8'));
-  if (treeMatch === null) fail('provider ledger commit tree is invalid');
-  const source = (await runCommand('git', ['cat-file', 'blob', treeMatch[1]!], {
-    cwd: input.cwd
-  })).stdout.toString('utf8');
-  const ledger = parseLocalGitHubActionsProviderLedger(source);
-  if (!canonicalLedgerBytes(ledger).equals(Buffer.from(source, 'utf8'))) {
-    fail('provider ledger bytes are not canonical');
-  }
-  const expectedTimestamp = Math.floor(Date.parse(ledger.createdAt) / 1000);
-  if (commit.timestamp !== expectedTimestamp
-      || commit.generation !== ledger.generation
-      || commit.parentObjectSha !== ledger.predecessorObjectSha) {
-    fail('provider ledger commit metadata differs from its canonical payload');
-  }
-  return Object.freeze({ ledger, parentObjectSha: commit.parentObjectSha });
-}
-
-async function loadProviderLedger(input: Readonly<{
-  cwd: string;
-  repository: string;
-  objectSha: string;
-}>): Promise<LocalGitHubActionsProviderLedger> {
-  const reversed: Array<Readonly<{
-    objectSha: string;
-    ledger: LocalGitHubActionsProviderLedger;
-  }>> = [];
-  const seen = new Set<string>();
-  let objectSha: string | null = input.objectSha;
-  while (objectSha !== null) {
-    if (seen.has(objectSha) || reversed.length >= 32) {
-      fail('provider ledger predecessor chain is cyclic or exceeds its bound');
-    }
-    seen.add(objectSha);
-    const generation = await loadProviderLedgerGenerationObject({
-      cwd: input.cwd,
-      objectSha
-    });
-    const ledger = generation.ledger;
-    reversed.push(Object.freeze({ objectSha, ledger }));
-    objectSha = generation.parentObjectSha;
-  }
-  const chain = reversed.reverse();
-  if (chain.length === 0) fail('provider ledger predecessor chain is empty');
-  assertInitialLocalGitHubActionsProviderLedger(chain[0]!.ledger);
-  for (let index = 1; index < chain.length; index += 1) {
-    assertLocalGitHubActionsProviderLedgerTransition(
-      chain[index - 1]!.objectSha,
-      chain[index - 1]!.ledger,
-      chain[index]!.ledger
-    );
-  }
-  if (chain.at(-1)!.ledger.generation !== chain.length - 1) {
-    fail('provider ledger generation count differs from its predecessor chain');
-  }
-  const current = chain.at(-1)!.ledger;
-  if (current.repository.toLowerCase() !== repositoryName(input.repository).toLowerCase()) {
-    fail('provider ledger repository differs from the bound repository');
-  }
-  return current;
-}
-
-async function advanceProviderLedger(
-  cursor: ProviderLedgerCursor,
-  input: Readonly<{
-    cwd: string;
-    lifecycle?: LocalGitHubActionsProviderLifecycle;
-    instances?: readonly LocalGitHubActionsProviderLedgerInstance[];
-  }>
-): Promise<void> {
-  const next = createLocalGitHubActionsProviderLedger({
-    ...cursor.ledger,
-    lifecycle: input.lifecycle ?? cursor.ledger.lifecycle,
-    generation: cursor.ledger.generation + 1,
-    predecessorObjectSha: cursor.objectSha,
-    instances: input.instances ?? cursor.ledger.instances
-  });
-  assertLocalGitHubActionsProviderLedgerTransition(cursor.objectSha, cursor.ledger, next);
-  const objectSha = await writeLedgerGenerationObject(input.cwd, next);
-  try {
-    await runCommand('git', [
-      'push', '--no-verify',
-      `--force-with-lease=${LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF}:${cursor.objectSha}`,
-      'origin', `${objectSha}:${LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF}`
-    ], { cwd: input.cwd });
-  } catch (error) {
-    if (await observeRemoteRefSha(input.cwd, LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF) !== objectSha) {
-      throw error;
-    }
-  }
-  if (await observeRemoteRefSha(input.cwd, LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF) !== objectSha) {
-    fail('provider ledger generation readback differs');
-  }
-  cursor.ledger = next;
-  cursor.objectSha = objectSha;
-}
-
-async function deleteProviderLedger(input: Readonly<{ cwd: string; objectSha: string; ledger: LocalGitHubActionsProviderLedger }>): Promise<void> {
-  if (input.ledger.lifecycle !== 'terminal') fail('only a terminal provider ledger can be deleted');
-  const current = await observeRemoteRefSha(input.cwd, LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF);
-  if (current === null) return;
-  if (current !== input.objectSha) fail('provider ledger identity changed and is preserved');
-  try {
-    await runCommand('git', [
-      'push', '--no-verify',
-      `--force-with-lease=${LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF}:${input.objectSha}`,
-      'origin', `:${LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF}`
-    ], { cwd: input.cwd });
-  } catch (error) {
-    if (await observeRemoteRefSha(input.cwd, LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF) !== null) throw error;
-  }
-  if (await observeRemoteRefSha(input.cwd, LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF) !== null) {
-    fail('provider ledger deletion readback is not absent');
-  }
+function instanceName(providerName: string, role: LocalGitHubActionsRunnerRole): string {
+  return runnerName(`${providerName}-${role}`);
 }
 
 async function waitForRunner(
@@ -3097,7 +2469,8 @@ async function waitForRunner(
   maximumAttempts = 30
 ): Promise<Record<string, unknown>> {
   for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
-    const matches = (await listRepositoryRunners(repository, cwd)).filter((runner) => runner.name === name);
+    const matches = (await listRepositoryRunners(repository, cwd))
+      .filter((runner) => runner.name === name);
     if (matches.length > 1) fail('multiple GitHub runners have the exact operation name');
     if (matches.length === 1 && matches[0]!.status === 'online') return matches[0]!;
     if (attempt < maximumAttempts) {
@@ -3107,24 +2480,20 @@ async function waitForRunner(
   fail('runner did not become online within the bounded join window');
 }
 
-function instanceName(providerName: string, role: LocalGitHubActionsRunnerRole): string {
-  return runnerName(`${providerName}-${role}`);
-}
-
 async function startRunnerInstance(input: Readonly<{
   cwd: string;
-  cursor: ProviderLedgerCursor;
+  cursor: LocalRunnerStateCursor;
   containerEngineSession: ContainerEngineSession;
   role: LocalGitHubActionsRunnerRole;
   cpus: number;
   memory: string;
 }>): Promise<LocalGitHubActionsRunnerInstance> {
-  const retained = input.cursor.ledger.instances.find((instance) => instance.role === input.role)!;
+  const retained = input.cursor.state.instances.find((instance) => instance.role === input.role)!;
   const name = retained.name;
   if (retained.containerState !== 'uncreated' || retained.runnerState !== 'uncreated') {
-    fail(`provider ledger role ${input.role} is not at its initial generation`);
+    fail(`runner state role ${input.role} is not at its initial generation`);
   }
-  if ((await listRepositoryRunners(input.cursor.ledger.repository, input.cwd)).some((runner) => runner.name === name)) {
+  if ((await listRepositoryRunners(input.cursor.state.repository, input.cwd)).some((runner) => runner.name === name)) {
     fail(`GitHub runner ${name} already exists and is preserved`);
   }
   if (await inspectContainerByName(name, input.containerEngineSession) !== null) {
@@ -3142,11 +2511,11 @@ async function startRunnerInstance(input: Readonly<{
     '--memory', input.role === 'sut' ? SUT_MEMORY : input.memory,
     '--cpus', String(input.role === 'sut' ? SUT_CPUS : input.cpus),
     '--label', `sec.local-runner.schema=${LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA}`,
-    '--label', `sec.local-runner.repository=${input.cursor.ledger.repository}`,
-    '--label', `sec.local-runner.provider-name=${input.cursor.ledger.providerName}`,
+    '--label', `sec.local-runner.repository=${input.cursor.state.repository}`,
+    '--label', `sec.local-runner.provider-name=${input.cursor.state.providerName}`,
     '--label', `sec.local-runner.instance-name=${name}`,
     '--label', `sec.local-runner.role=${input.role}`,
-    '--label', `sec.local-runner.operation-label=${input.cursor.ledger.operationLabel}`,
+    '--label', `sec.local-runner.operation-label=${input.cursor.state.operationLabel}`,
     '--label', `sec.local-runner.container-init=${LOCAL_GITHUB_ACTIONS_RUNNER_CONTAINER_INIT_CAPABILITY}`,
     '--label', `sec.local-runner.image-id=${LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID}`,
     '--env', 'RUNNER_ALLOW_RUNASROOT=1', '--env', `RUNNER_NAME=${name}`,
@@ -3164,31 +2533,27 @@ async function startRunnerInstance(input: Readonly<{
     fail('Docker returned container identity differs from exact ID/name readback');
   }
   assertOwnedContainer(byId, {
-    repository: input.cursor.ledger.repository,
-    providerName: input.cursor.ledger.providerName,
+    repository: input.cursor.state.repository,
+    providerName: input.cursor.state.providerName,
     instanceName: name,
     role: input.role,
     containerId,
-    operationLabel: input.cursor.ledger.operationLabel
+    operationLabel: input.cursor.state.operationLabel
   });
-  await advanceProviderLedger(input.cursor, {
-    cwd: input.cwd,
-    instances: withLedgerInstance(input.cursor.ledger, input.role, {
+  advanceLocalRunnerState(input.cursor, {
+    instances: withStateInstance(input.cursor.state, input.role, {
       containerId,
       containerState: 'present'
     })
   });
-  const token = (await runGitHubApi([
-    '--method', 'POST', `repos/${input.cursor.ledger.repository}/actions/runners/registration-token`, '--jq', '.token'
-  ], { cwd: input.cwd })).stdout.toString('utf8').trim();
-  if (!/^[A-Za-z0-9_-]{20,512}$/u.test(token)) fail('GitHub returned an invalid registration token');
+  const token = await createRunnerRegistrationToken(input.cursor.state.repository, input.cwd);
   const configureScript = [
     'IFS= read -r RUNNER_TOKEN',
     'RUNNER_TOKEN="$(printf \'%s\' "$RUNNER_TOKEN" | tr -d \'\\r\\n\')"',
-    `./config.sh --url https://${LOCAL_GITHUB_ACTIONS_GITHUB_HOST}/${input.cursor.ledger.repository} --token "$RUNNER_TOKEN" `
+    `./config.sh --url https://${LOCAL_GITHUB_ACTIONS_GITHUB_HOST}/${input.cursor.state.repository} --token "$RUNNER_TOKEN" `
       + '--unattended --name "$RUNNER_NAME" '
       + `--labels ${LOCAL_GITHUB_ACTIONS_RUNNER_CUSTOM_LABEL},`
-      + `${LOCAL_GITHUB_ACTIONS_RUNNER_ROLE_LABELS[input.role]},${input.cursor.ledger.operationLabel} --work _work`,
+      + `${LOCAL_GITHUB_ACTIONS_RUNNER_ROLE_LABELS[input.role]},${input.cursor.state.operationLabel} --work _work`,
     'unset RUNNER_TOKEN'
   ].join('\n');
   await runContainerEngineOperation(input.containerEngineSession, {
@@ -3210,15 +2575,14 @@ async function startRunnerInstance(input: Readonly<{
   await runContainerEngineOperation(input.containerEngineSession, {
     kind: 'container-exec', arguments: [containerId, 'bash', '-ceu', configuredMarkerScript]
   }, {});
-  const runner = await waitForRunner(input.cursor.ledger.repository, name, input.cwd, 60);
+  const runner = await waitForRunner(input.cursor.state.repository, name, input.cwd, 60);
   const runnerId = assertOwnedLocalGitHubActionsRunner(runner, {
     name,
     role: input.role,
-    operationLabel: input.cursor.ledger.operationLabel
+    operationLabel: input.cursor.state.operationLabel
   });
-  await advanceProviderLedger(input.cursor, {
-    cwd: input.cwd,
-    instances: withLedgerInstance(input.cursor.ledger, input.role, {
+  advanceLocalRunnerState(input.cursor, {
+    instances: withStateInstance(input.cursor.state, input.role, {
       runnerId,
       runnerState: 'present'
     })
@@ -3248,170 +2612,151 @@ export async function startLocalGitHubActionsProvider(input: Readonly<{
   if (!/^[1-9][0-9]{0,2}[gGmM]$/u.test(memory)) fail('memory is invalid');
   const context = await resolveRepositoryContext(input.cwd);
   await assertOriginRepositoryIdentity(context.repositoryRoot, repository);
-  if (readStateProjection(context.commonDirectory) !== null) {
-    fail(`active state already exists at ${statePath(context.commonDirectory)}`);
-  }
-  const containerEngineOperation = await openLocalContainerEngineSession({
-    cwd: context.repositoryRoot,
-    intent: 'start-provider',
-    availability: 'ensure-started',
-    subject: Object.freeze({ repository, providerName, cpus, memory })
-  });
-  const containerEngineSession = containerEngineOperation.session;
-  try {
-  const dockerEndpoint = containerEngineSession.endpoint;
-  const githubEndpoint = await observeGitHubEndpointIdentity(context.repositoryRoot, repository);
-  await ensureImage(context.repositoryRoot, containerEngineSession);
-  const startedAt = new Date().toISOString();
-  const retainedOperationLabel = `sec-operation-${randomBytes(32).toString('hex')}`;
-  const cursor = await publishProviderLedger({
-    cwd: context.repositoryRoot,
-    repository,
-    providerName,
-    operationLabel: retainedOperationLabel,
-    createdAt: startedAt,
-    dockerEndpoint,
-    githubEndpoint
-  });
-  const created: LocalGitHubActionsRunnerInstance[] = [];
-  try {
-    const existingProfile = (await listRepositoryRunners(repository, context.repositoryRoot))
-      .filter(isProviderProfileEligibleRunner);
-    const existingProfileContainers = await listProviderProfileContainers(
-      repository, containerEngineSession
-    );
-    if (existingProfile.length !== 0 || existingProfileContainers.length !== 0) {
-      fail('profile runners or containers exist outside the newly acquired provider lease and are preserved');
+  return await withRunnerLifecycleLease(context.commonDirectory, async () => {
+    if (readStateProjection(context.commonDirectory) !== null) {
+      fail(`active lifecycle state already exists at ${statePath(context.commonDirectory)}`);
     }
-    for (const role of LOCAL_GITHUB_ACTIONS_RUNNER_ROLES) {
-      created.push(await startRunnerInstance({
-        cwd: context.repositoryRoot,
-        cursor,
-        containerEngineSession,
-        role,
-        cpus,
-        memory
-      }));
-    }
-    assertExactLocalGitHubActionsRunnerProfileInventory({
-      runners: await listRepositoryRunners(repository, context.repositoryRoot),
-      instances: created,
-      operationLabel: retainedOperationLabel
+    const containerEngineOperation = await openLocalContainerEngineSession({
+      cwd: context.repositoryRoot,
+      intent: 'start-provider',
+      availability: 'ensure-started',
+      subject: Object.freeze({ repository, providerName, cpus, memory })
     });
-    assertExactLocalGitHubActionsRunnerProfileContainers({
-      containers: await listProviderProfileContainers(repository, containerEngineSession),
-      instances: created,
-      repository,
-      providerName,
-      operationLabel: retainedOperationLabel
-    });
-    await advanceProviderLedger(cursor, { cwd: context.repositoryRoot, lifecycle: 'active' });
-    const state = createLocalGitHubActionsRunnerState({
-      repository,
-      repositoryRoot: context.repositoryRoot,
-      commonDirectory: context.commonDirectory,
-      providerName,
-      operationLabel: retainedOperationLabel,
-      providerLedgerRef: LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF,
-      providerLedgerObjectSha: cursor.objectSha,
-      providerLedgerDigest: cursor.ledger.ledgerDigest,
-      dockerEndpoint,
-      githubEndpoint,
-      instances: created,
-      startedAt
-    });
-    publishState(context.commonDirectory, state);
-    return state;
-  } catch (error) {
-    const cleanupErrors: unknown[] = [];
+    const containerEngineSession = containerEngineOperation.session;
+    let primaryPresent = false;
+    let primary: unknown;
     try {
-      await assertGitHubEndpointIdentity(cursor.ledger.githubEndpoint, context.repositoryRoot);
-      if (cursor.ledger.lifecycle !== 'teardown') {
-        await advanceProviderLedger(cursor, { cwd: context.repositoryRoot, lifecycle: 'teardown' });
-      }
-    } catch (cleanupError) {
-      cleanupErrors.push(cleanupError);
-    }
-    for (const role of [...LOCAL_GITHUB_ACTIONS_RUNNER_ROLES].reverse()) {
-      try {
-        if (cleanupErrors.length === 0) {
-          await cleanupLedgerInstance(cursor, context.repositoryRoot, role, containerEngineSession);
-        }
-      } catch (cleanupError) {
-        cleanupErrors.push(cleanupError);
-      }
-    }
-    if (cleanupErrors.length === 0) {
+      const dockerEndpoint = containerEngineSession.endpoint;
+      const githubEndpoint = await observeGitHubEndpointIdentity(context.repositoryRoot, repository);
       const exactNames = new Set(LOCAL_GITHUB_ACTIONS_RUNNER_ROLES.map((role) =>
         instanceName(providerName, role)));
-      const remainingRunners = await listRepositoryRunners(repository, context.repositoryRoot);
-      const remainingContainers = [];
-      for (const name of exactNames) {
-        remainingContainers.push(await inspectContainerByName(name, containerEngineSession));
-      }
-      const remainingProfileContainers = await listProviderProfileContainers(
+      const existingProfile = (await listRepositoryRunners(repository, context.repositoryRoot))
+        .filter((runner) => isProviderProfileEligibleRunner(runner)
+          || exactNames.has(String(runner.name)));
+      const existingProfileContainers = await listProviderProfileContainers(
         repository, containerEngineSession
       );
-      if (remainingRunners.some((runner) => exactNames.has(String(runner.name))
-          || isProviderProfileEligibleRunner(runner)
-          || runnerHasLabel(runner, retainedOperationLabel))
-          || remainingContainers.some((container) => container !== null)
-          || remainingProfileContainers.length !== 0) {
-        cleanupErrors.push(new Error('provider start cleanup terminal readback retained residue'));
+      const existingNamedContainers: Array<Record<string, unknown> | null> = [];
+      for (const name of exactNames) {
+        existingNamedContainers.push(await inspectContainerByName(name, containerEngineSession));
       }
-    }
-    if (cleanupErrors.length === 0) {
+      if (existingProfile.length !== 0 || existingProfileContainers.length !== 0
+          || existingNamedContainers.some((container) => container !== null)) {
+        fail('profile runners or containers exist outside the new local lifecycle and are preserved');
+      }
+      await ensureImage(context.repositoryRoot, containerEngineSession);
+      const startedAt = new Date().toISOString();
+      const retainedOperationLabel = `sec-operation-${randomBytes(32).toString('hex')}`;
+      const initial = createLocalGitHubActionsRunnerState({
+        repository,
+        repositoryRoot: context.repositoryRoot,
+        commonDirectory: context.commonDirectory,
+        providerName,
+        operationLabel: retainedOperationLabel,
+        lifecycle: 'provisioning',
+        dockerEndpoint,
+        githubEndpoint,
+        instances: LOCAL_GITHUB_ACTIONS_RUNNER_ROLES.map((role) => ({
+          role,
+          roleLabel: LOCAL_GITHUB_ACTIONS_RUNNER_ROLE_LABELS[role],
+          name: instanceName(providerName, role),
+          containerId: null,
+          containerState: 'uncreated',
+          runnerId: null,
+          runnerState: 'uncreated'
+        })),
+        startedAt
+      });
+      publishState(context.commonDirectory, initial);
+      const cursor: LocalRunnerStateCursor = {
+        state: initial,
+        commonDirectory: context.commonDirectory
+      };
       try {
-        await advanceProviderLedger(cursor, { cwd: context.repositoryRoot, lifecycle: 'terminal' });
-        await deleteProviderLedger({
-          cwd: context.repositoryRoot,
-          objectSha: cursor.objectSha,
-          ledger: cursor.ledger
+        for (const role of LOCAL_GITHUB_ACTIONS_RUNNER_ROLES) {
+          await startRunnerInstance({
+            cwd: context.repositoryRoot,
+            cursor,
+            containerEngineSession,
+            role,
+            cpus,
+            memory
+          });
+        }
+        advanceLocalRunnerState(cursor, { lifecycle: 'active' });
+        const instances = activeInstancesFromState(cursor.state);
+        assertExactLocalGitHubActionsRunnerProfileInventory({
+          runners: await listRepositoryRunners(repository, context.repositoryRoot),
+          instances,
+          operationLabel: retainedOperationLabel
         });
-      } catch (cleanupError) {
-        cleanupErrors.push(cleanupError);
+        assertExactLocalGitHubActionsRunnerProfileContainers({
+          containers: await listProviderProfileContainers(repository, containerEngineSession),
+          instances,
+          repository,
+          providerName,
+          operationLabel: retainedOperationLabel
+        });
+        return cursor.state;
+      } catch (error) {
+        const cleanupErrors: unknown[] = [];
+        try {
+          await assertGitHubEndpointIdentity(cursor.state.githubEndpoint, context.repositoryRoot);
+          if (cursor.state.lifecycle !== 'teardown') {
+            advanceLocalRunnerState(cursor, { lifecycle: 'teardown' });
+          }
+        } catch (cleanupError) {
+          cleanupErrors.push(cleanupError);
+        }
+        for (const role of [...LOCAL_GITHUB_ACTIONS_RUNNER_ROLES].reverse()) {
+          try {
+            if (cleanupErrors.length === 0) {
+              await cleanupStateInstance(cursor, context.repositoryRoot, role, containerEngineSession);
+            }
+          } catch (cleanupError) {
+            cleanupErrors.push(cleanupError);
+          }
+        }
+        if (cleanupErrors.length === 0) {
+          try {
+            await assertNoForeignStateInventory(cursor.state, context.repositoryRoot, containerEngineSession, true);
+            advanceLocalRunnerState(cursor, { lifecycle: 'terminal' });
+            deleteStateProjection(context.commonDirectory, cursor.state);
+          } catch (cleanupError) {
+            cleanupErrors.push(cleanupError);
+          }
+        }
+        if (cleanupErrors.length > 0) {
+          throw new AggregateError([error, ...cleanupErrors], 'provider start and exact cleanup both failed');
+        }
+        throw error;
       }
+    } catch (error) {
+      primaryPresent = true;
+      primary = error;
+    } finally {
+      await settlePhysicalResourcesAsync({
+        ...(primaryPresent ? {
+          primary: { label: 'local-runner-start', error: primary }
+        } : {}),
+        cleanup: [{
+          label: 'local-runner-start-container-engine',
+          settle: async () => { await containerEngineOperation.close(); }
+        }]
+      });
     }
-    if (cleanupErrors.length > 0) {
-      throw new AggregateError([error, ...cleanupErrors], 'provider start and exact cleanup both failed');
-    }
-    throw error;
-  }
-  } finally {
-    await containerEngineOperation.close();
-  }
+    if (primaryPresent) throw primary;
+    fail('provider start did not produce a terminal result');
+  });
 }
-
-function assertProviderLedgerMatchesState(
-  ledger: LocalGitHubActionsProviderLedger,
+function activeInstancesFromState(
   state: LocalGitHubActionsRunnerState
-): void {
-  const instances = ledger.instances.map((instance) => ({
-    role: instance.role,
-    roleLabel: instance.roleLabel,
-    name: instance.name,
-    runnerId: instance.runnerId,
-    containerId: instance.containerId,
-    containerName: instance.name
-  }));
-  if (ledger.lifecycle !== 'active' || instances.some((instance) =>
-    instance.runnerId === null || instance.containerId === null)
-      || ledger.repository !== state.repository || ledger.providerName !== state.providerName
-      || ledger.operationLabel !== state.operationLabel
-      || ledger.ledgerDigest !== state.providerLedgerDigest
-      || JSON.stringify(ledger.dockerEndpoint) !== JSON.stringify(state.dockerEndpoint)
-      || JSON.stringify(ledger.githubEndpoint) !== JSON.stringify(state.githubEndpoint)
-      || JSON.stringify(instances) !== JSON.stringify(state.instances)) {
-    fail('remote provider ledger differs from local projection');
-  }
-}
-
-function activeInstancesFromLedger(
-  ledger: LocalGitHubActionsProviderLedger
 ): readonly LocalGitHubActionsRunnerInstance[] {
-  return Object.freeze(ledger.instances.map((instance) => {
-    if (instance.containerId === null || instance.runnerId === null) {
-      fail('provider ledger does not retain a complete instance identity');
+  if (state.lifecycle !== 'active') fail('runner lifecycle is not active');
+  return Object.freeze(state.instances.map((instance) => {
+    if (instance.containerState !== 'present' || instance.runnerState !== 'present'
+        || instance.containerId === null || instance.runnerId === null) {
+      fail('active runner state does not retain a complete instance identity');
     }
     return runnerInstance({
       role: instance.role,
@@ -3424,35 +2769,19 @@ function activeInstancesFromLedger(
   }));
 }
 
-function assertStateProjectionBoundToLedger(
+async function assertNoForeignStateInventory(
   state: LocalGitHubActionsRunnerState,
-  ledger: LocalGitHubActionsProviderLedger
-): void {
-  const retained = activeInstancesFromLedger(ledger);
-  if (state.repository !== ledger.repository
-      || state.providerName !== ledger.providerName
-      || state.operationLabel !== ledger.operationLabel
-      || JSON.stringify(state.dockerEndpoint) !== JSON.stringify(ledger.dockerEndpoint)
-      || JSON.stringify(state.githubEndpoint) !== JSON.stringify(ledger.githubEndpoint)
-      || JSON.stringify(state.instances) !== JSON.stringify(retained)) {
-    fail('local state projection is not bound to the remote provider ledger');
-  }
-}
-
-async function assertNoForeignProviderLedgerInventory(
-  cursor: ProviderLedgerCursor,
   cwd: string,
   session: ContainerEngineSession,
   allowLegacyDetachedRunnerDuringTeardown = false
 ): Promise<void> {
-  const ledger = cursor.ledger;
-  const runners = await listRepositoryRunners(ledger.repository, cwd);
+  const runners = await listRepositoryRunners(state.repository, cwd);
   const candidates = runners.filter((runner) => isProviderProfileEligibleRunner(runner)
-    || runnerHasLabel(runner, ledger.operationLabel)
-    || ledger.instances.some((instance) => runner.name === instance.name
+    || runnerHasLabel(runner, state.operationLabel)
+    || state.instances.some((instance) => runner.name === instance.name
       || (instance.runnerId !== null && runner.id === instance.runnerId)));
   for (const runner of candidates) {
-    const retained = ledger.instances.find((instance) =>
+    const retained = state.instances.find((instance) =>
       instance.name === runner.name || (instance.runnerId !== null && instance.runnerId === runner.id));
     if (retained === undefined || retained.runnerState !== 'present' || retained.runnerId === null
         || retained.runnerId !== runner.id || retained.name !== runner.name) {
@@ -3461,34 +2790,34 @@ async function assertNoForeignProviderLedgerInventory(
     assertOwnedLocalGitHubActionsRunner(runner, {
       name: retained.name,
       role: retained.role,
-      operationLabel: ledger.operationLabel,
+      operationLabel: state.operationLabel,
       runnerId: retained.runnerId
     });
   }
 
   const containers = await listProviderProfileContainers(
-    ledger.repository, session
+    state.repository, session
   );
   for (const container of containers) {
-    const retained = ledger.instances.find((instance) =>
+    const retained = state.instances.find((instance) =>
       instance.containerId === container.Id || container.Name === '/' + instance.name);
     if (retained === undefined || retained.containerState !== 'present' || retained.containerId === null
         || retained.containerId !== container.Id || container.Name !== '/' + retained.name) {
       fail('Docker inventory contains an uncommitted or replaced identity and it is preserved');
     }
     assertOwnedContainer(container, {
-      repository: ledger.repository,
-      providerName: ledger.providerName,
+      repository: state.repository,
+      providerName: state.providerName,
       instanceName: retained.name,
       role: retained.role,
       containerId: retained.containerId,
-      operationLabel: ledger.operationLabel,
+      operationLabel: state.operationLabel,
       ...(allowLegacyDetachedRunnerDuringTeardown
         ? { allowLegacyDetachedRunnerDuringTeardown: true as const }
         : {})
     });
   }
-  for (const retained of ledger.instances) {
+  for (const retained of state.instances) {
     const byName = await inspectContainerByName(retained.name, session);
     if (byName !== null && (retained.containerState !== 'present'
         || retained.containerId !== byName.Id)) {
@@ -3497,114 +2826,78 @@ async function assertNoForeignProviderLedgerInventory(
   }
 }
 
-async function convergeProviderLedgerToTerminal(
-  cursor: ProviderLedgerCursor,
+async function convergeStateToTerminal(
+  cursor: LocalRunnerStateCursor,
   cwd: string,
   session: ContainerEngineSession
 ): Promise<void> {
-  await assertGitHubEndpointIdentity(cursor.ledger.githubEndpoint, cwd);
-  await assertNoForeignProviderLedgerInventory(cursor, cwd, session, true);
-  if (cursor.ledger.lifecycle === 'terminal') return;
-  if (cursor.ledger.lifecycle !== 'teardown') {
-    await advanceProviderLedger(cursor, { cwd, lifecycle: 'teardown' });
+  await assertGitHubEndpointIdentity(cursor.state.githubEndpoint, cwd);
+  await assertNoForeignStateInventory(cursor.state, cwd, session, true);
+  if (cursor.state.lifecycle === 'terminal') return;
+  if (cursor.state.lifecycle !== 'teardown') {
+    advanceLocalRunnerState(cursor, { lifecycle: 'teardown' });
   }
   for (const role of [...LOCAL_GITHUB_ACTIONS_RUNNER_ROLES].reverse()) {
-    await cleanupLedgerInstance(cursor, cwd, role, session);
+    await cleanupStateInstance(cursor, cwd, role, session);
   }
-  await assertNoForeignProviderLedgerInventory(cursor, cwd, session, true);
-  await advanceProviderLedger(cursor, { cwd, lifecycle: 'terminal' });
-}
-
-async function loadCurrentProviderLedgerCursor(
-  cwd: string,
-  repository: string
-): Promise<ProviderLedgerCursor | null> {
-  const objectSha = await observeRemoteRefSha(cwd, LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF);
-  if (objectSha === null) return null;
-  let objectType = await runCommand('git', ['cat-file', '-t', objectSha], {
-    cwd,
-    acceptedCodes: [0, 1, 128]
-  });
-  if (objectType.code !== 0) {
-    await runCommand('git', [
-      'fetch', '--no-tags', '--no-write-fetch-head', 'origin',
-      LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF
-    ], { cwd });
-    objectType = await runCommand('git', ['cat-file', '-t', objectSha], { cwd });
-  }
-  if (objectType.stdout.toString('utf8').trim() !== 'commit') {
-    fail('remote provider ledger ref does not resolve to a canonical generation commit');
-  }
-  return {
-    objectSha,
-    ledger: await loadProviderLedger({ cwd, repository, objectSha })
-  };
+  await assertNoForeignStateInventory(cursor.state, cwd, session, true);
+  advanceLocalRunnerState(cursor, { lifecycle: 'terminal' });
 }
 
 export async function stopLocalGitHubActionsProvider(input: Readonly<{
   cwd: string;
 }>): Promise<Readonly<{
-  schema: 'sec-local-github-actions-provider-stop-v3';
+  schema: 'sec-local-github-actions-provider-stop-v4';
   repository: string;
   providerName: string;
   runnerCount: number;
   runnersAbsent: true;
   containersAbsent: true;
-  providerLedgerAbsent: true;
+  localStateAbsent: true;
   imageRetained: true;
 }>> {
   const context = await resolveRepositoryContext(input.cwd);
-  const projection = readStateProjection(context.commonDirectory);
-  if (projection === null) fail('no active state exists at ' + statePath(context.commonDirectory));
-  const state = projection.state;
-  if (state.repositoryRoot !== context.repositoryRoot || state.commonDirectory !== context.commonDirectory) {
-    fail('state repository identity drifted');
-  }
-  await assertOriginRepositoryIdentity(context.repositoryRoot, state.repository);
-  const cursor = await loadCurrentProviderLedgerCursor(context.repositoryRoot, state.repository);
-  if (cursor === null) fail('remote provider ledger is absent while local projection remains');
-  const containerEngineOperation = await openLocalContainerEngineSession({
-    cwd: context.repositoryRoot,
-    intent: 'stop-provider',
-    availability: 'observe',
-    subject: Object.freeze({
-      repository: state.repository,
-      providerName: state.providerName,
-      ledgerDigest: cursor.ledger.ledgerDigest
-    }),
-    expectedEndpoint: cursor.ledger.dockerEndpoint,
-  });
-  const containerEngineSession = containerEngineOperation.session;
-  try {
-  await assertGitHubEndpointIdentity(cursor.ledger.githubEndpoint, context.repositoryRoot);
-  assertStateProjectionBoundToLedger(state, cursor.ledger);
-  if (cursor.ledger.lifecycle === 'active') {
-    if (cursor.objectSha !== state.providerLedgerObjectSha
-        || cursor.ledger.ledgerDigest !== state.providerLedgerDigest) {
-      fail('active remote provider ledger differs from local projection generation');
+  return await withRunnerLifecycleLease(context.commonDirectory, async () => {
+    const projection = readStateProjection(context.commonDirectory);
+    if (projection === null) fail('no local lifecycle state exists at ' + statePath(context.commonDirectory));
+    const state = projection.state;
+    if (state.repositoryRoot !== context.repositoryRoot
+        || state.commonDirectory !== context.commonDirectory) {
+      fail('state repository identity drifted');
     }
-    assertProviderLedgerMatchesState(cursor.ledger, state);
-  }
-  await convergeProviderLedgerToTerminal(cursor, context.repositoryRoot, containerEngineSession);
-  deleteStateProjection(context.commonDirectory, state);
-  await deleteProviderLedger({
-    cwd: context.repositoryRoot,
-    objectSha: cursor.objectSha,
-    ledger: cursor.ledger
+    await assertOriginRepositoryIdentity(context.repositoryRoot, state.repository);
+    const containerEngineOperation = await openLocalContainerEngineSession({
+      cwd: context.repositoryRoot,
+      intent: 'stop-provider',
+      availability: 'observe',
+      subject: Object.freeze({
+        repository: state.repository,
+        providerName: state.providerName,
+        stateDigest: state.stateDigest
+      }),
+      expectedEndpoint: state.dockerEndpoint
+    });
+    try {
+      const cursor: LocalRunnerStateCursor = {
+        state,
+        commonDirectory: context.commonDirectory
+      };
+      await convergeStateToTerminal(cursor, context.repositoryRoot, containerEngineOperation.session);
+      deleteStateProjection(context.commonDirectory, cursor.state);
+      return Object.freeze({
+        schema: 'sec-local-github-actions-provider-stop-v4' as const,
+        repository: state.repository,
+        providerName: state.providerName,
+        runnerCount: state.instances.length,
+        runnersAbsent: true as const,
+        containersAbsent: true as const,
+        localStateAbsent: true as const,
+        imageRetained: true as const
+      });
+    } finally {
+      await containerEngineOperation.close();
+    }
   });
-  return Object.freeze({
-    schema: 'sec-local-github-actions-provider-stop-v3' as const,
-    repository: state.repository,
-    providerName: state.providerName,
-    runnerCount: state.instances.length,
-    runnersAbsent: true as const,
-    containersAbsent: true as const,
-    providerLedgerAbsent: true as const,
-    imageRetained: true as const
-  });
-  } finally {
-    await containerEngineOperation.close();
-  }
 }
 
 export async function recoverLocalGitHubActionsProvider(input: Readonly<{
@@ -3612,83 +2905,89 @@ export async function recoverLocalGitHubActionsProvider(input: Readonly<{
   repository: string;
   name: string;
 }>): Promise<Readonly<{
-  schema: 'sec-local-github-actions-provider-recovery-v3';
+  schema: 'sec-local-github-actions-provider-recovery-v4';
   repository: string;
   providerName: string;
   runnersAbsent: true;
   containersAbsent: true;
-  providerLedgerAbsent: true;
+  localStateAbsent: true;
 }>> {
   const repository = repositoryName(input.repository);
   const providerName = providerBaseName(input.name);
   const context = await resolveRepositoryContext(input.cwd);
   await assertOriginRepositoryIdentity(context.repositoryRoot, repository);
-  const projection = readStateProjection(context.commonDirectory);
-  const cursor = await loadCurrentProviderLedgerCursor(context.repositoryRoot, repository);
-  const containerEngineOperation = await openLocalContainerEngineSession({
-    cwd: context.repositoryRoot,
-    intent: 'recover-provider',
-    availability: 'observe',
-    subject: Object.freeze({
-      repository,
-      providerName,
-      ledgerDigest: cursor?.ledger.ledgerDigest ?? null
-    }),
-    ...(cursor === null ? {} : { expectedEndpoint: cursor.ledger.dockerEndpoint })
-  });
-  const containerEngineSession = containerEngineOperation.session;
-  try {
-  if (cursor === null) {
-    if (projection !== null) {
-      fail('local state projection remains without remote destructive identity authority');
-    }
-    await observeGitHubEndpointIdentity(context.repositoryRoot, repository);
-    const exactNames = new Set(LOCAL_GITHUB_ACTIONS_RUNNER_ROLES.map((role) =>
-      instanceName(providerName, role)));
-    const runners = await listRepositoryRunners(repository, context.repositoryRoot);
-    const containers = await listProviderProfileContainers(
-      repository, containerEngineSession
-    );
-    const namedContainers = [];
-    for (const name of exactNames) {
-      namedContainers.push(await inspectContainerByName(name, containerEngineSession));
-    }
-    if (runners.some((runner) => exactNames.has(String(runner.name))
-        || isProviderProfileEligibleRunner(runner)) || containers.length !== 0
-        || namedContainers.some((container) => container !== null)) {
-      fail('provider residue exists without remote exact-ID ledger authority and is preserved');
-    }
-  } else {
-    if (cursor.ledger.repository !== repository || cursor.ledger.providerName !== providerName) {
-      fail('remote provider ledger belongs to another operation and is preserved');
-    }
-    await assertGitHubEndpointIdentity(cursor.ledger.githubEndpoint, context.repositoryRoot);
-    if (projection !== null) {
-      if (projection.state.repositoryRoot !== context.repositoryRoot
-          || projection.state.commonDirectory !== context.commonDirectory) {
-        fail('state repository identity drifted');
-      }
-      assertStateProjectionBoundToLedger(projection.state, cursor.ledger);
-    }
-    await convergeProviderLedgerToTerminal(cursor, context.repositoryRoot, containerEngineSession);
-    if (projection !== null) deleteStateProjection(context.commonDirectory, projection.state);
-    await deleteProviderLedger({
+  return await withRunnerLifecycleLease(context.commonDirectory, async () => {
+    const projection = readStateProjection(context.commonDirectory);
+    const containerEngineOperation = await openLocalContainerEngineSession({
       cwd: context.repositoryRoot,
-      objectSha: cursor.objectSha,
-      ledger: cursor.ledger
+      intent: 'recover-provider',
+      availability: 'observe',
+      subject: Object.freeze({
+        repository,
+        providerName,
+        stateDigest: projection?.state.stateDigest ?? null
+      }),
+      ...(projection === null ? {} : { expectedEndpoint: projection.state.dockerEndpoint })
     });
-  }
-  return Object.freeze({
-    schema: 'sec-local-github-actions-provider-recovery-v3' as const,
-    repository,
-    providerName,
-    runnersAbsent: true as const,
-    containersAbsent: true as const,
-    providerLedgerAbsent: true as const
+    let primaryPresent = false;
+    let primary: unknown;
+    try {
+      if (projection === null) {
+        await observeGitHubEndpointIdentity(context.repositoryRoot, repository);
+        const exactNames = new Set(LOCAL_GITHUB_ACTIONS_RUNNER_ROLES.map((role) =>
+          instanceName(providerName, role)));
+        const runners = await listRepositoryRunners(repository, context.repositoryRoot);
+        const containers = await listProviderProfileContainers(repository, containerEngineOperation.session);
+        const namedContainers: Array<Record<string, unknown> | null> = [];
+        for (const name of exactNames) {
+          namedContainers.push(await inspectContainerByName(name, containerEngineOperation.session));
+        }
+        if (runners.some((runner) => exactNames.has(String(runner.name))
+            || isProviderProfileEligibleRunner(runner)) || containers.length !== 0
+            || namedContainers.some((container) => container !== null)) {
+          fail('provider residue exists without retained exact IDs and is preserved');
+        }
+      } else {
+        const state = projection.state;
+        if (state.repositoryRoot !== context.repositoryRoot
+            || state.commonDirectory !== context.commonDirectory) {
+          fail('state repository identity drifted');
+        }
+        if (state.repository !== repository || state.providerName !== providerName) {
+          fail('local lifecycle belongs to another operation and is preserved');
+        }
+        const cursor: LocalRunnerStateCursor = {
+          state,
+          commonDirectory: context.commonDirectory
+        };
+        await convergeStateToTerminal(cursor, context.repositoryRoot, containerEngineOperation.session);
+        deleteStateProjection(context.commonDirectory, cursor.state);
+      }
+      return Object.freeze({
+        schema: 'sec-local-github-actions-provider-recovery-v4' as const,
+        repository,
+        providerName,
+        runnersAbsent: true as const,
+        containersAbsent: true as const,
+        localStateAbsent: true as const
+      });
+    } catch (error) {
+      primaryPresent = true;
+      primary = error;
+    } finally {
+      await settlePhysicalResourcesAsync({
+        ...(primaryPresent ? {
+          primary: { label: 'local-runner-recovery', error: primary }
+        } : {}),
+        cleanup: [{
+          label: 'local-runner-recovery-container-engine',
+          settle: async () => { await containerEngineOperation.close(); }
+        }]
+      });
+    }
+    if (primaryPresent) throw primary;
+    fail('provider recovery did not produce a terminal result');
   });
-  } finally {
-    await containerEngineOperation.close();
-  }
 }
 
 export async function observeLocalGitHubActionsProvider(input: Readonly<{
@@ -3697,28 +2996,19 @@ export async function observeLocalGitHubActionsProvider(input: Readonly<{
   const context = await resolveRepositoryContext(input.cwd);
   const repository = await assertOriginRepositoryIdentity(context.repositoryRoot);
   const projection = readStateProjection(context.commonDirectory);
-  const cursor = await loadCurrentProviderLedgerCursor(context.repositoryRoot, repository);
   const containerEngineOperation = await openLocalContainerEngineSession({
     cwd: context.repositoryRoot,
     intent: 'observe-provider',
     availability: 'observe',
     subject: Object.freeze({
       repository,
-      ledgerDigest: cursor?.ledger.ledgerDigest ?? null
+      stateDigest: projection?.state.stateDigest ?? null
     }),
-    ...(cursor === null ? {} : { expectedEndpoint: cursor.ledger.dockerEndpoint })
+    ...(projection === null ? {} : { expectedEndpoint: projection.state.dockerEndpoint })
   });
   const containerEngineSession = containerEngineOperation.session;
   try {
-  if (cursor === null) {
-    if (projection !== null) {
-      return Object.freeze({
-        status: 'residue' as const,
-        statePath: statePath(context.commonDirectory),
-        repository,
-        reason: 'local-projection-without-remote-ledger'
-      });
-    }
+  if (projection === null) {
     await observeGitHubEndpointIdentity(context.repositoryRoot, repository);
     const profileRunners = (await listRepositoryRunners(repository, context.repositoryRoot))
       .filter(isProviderProfileEligibleRunner);
@@ -3736,41 +3026,37 @@ export async function observeLocalGitHubActionsProvider(input: Readonly<{
       status: 'residue' as const,
       statePath: statePath(context.commonDirectory),
       repository,
-      reason: 'objects-without-remote-ledger',
+      reason: 'objects-without-local-state',
       profileRunnerCount: profileRunners.length,
       profileContainerCount: profileContainers.length
     });
   }
 
-  if (cursor.ledger.repository.toLowerCase() !== repository.toLowerCase()) {
-    fail('remote provider ledger repository differs from origin and is preserved');
+  const state = projection.state;
+  if (state.repositoryRoot !== context.repositoryRoot
+      || state.commonDirectory !== context.commonDirectory
+      || state.repository.toLowerCase() !== repository.toLowerCase()) {
+    fail('local lifecycle repository identity differs from origin and is preserved');
   }
-  await assertGitHubEndpointIdentity(cursor.ledger.githubEndpoint, context.repositoryRoot);
-  if (projection !== null) assertStateProjectionBoundToLedger(projection.state, cursor.ledger);
-  await assertNoForeignProviderLedgerInventory(cursor, context.repositoryRoot, containerEngineSession);
+  await assertGitHubEndpointIdentity(state.githubEndpoint, context.repositoryRoot);
+  await assertNoForeignStateInventory(state, context.repositoryRoot, containerEngineSession);
 
-  if (cursor.ledger.lifecycle !== 'active' || projection === null) {
+  if (state.lifecycle !== 'active') {
     return Object.freeze({
       status: 'residue' as const,
       statePath: statePath(context.commonDirectory),
       repository,
-      providerLedgerPresent: true,
-      lifecycle: cursor.ledger.lifecycle,
-      generation: cursor.ledger.generation
+      localStatePresent: true,
+      lifecycle: state.lifecycle,
+      stateDigest: state.stateDigest
     });
   }
-  const state = projection.state;
-  if (cursor.objectSha !== state.providerLedgerObjectSha
-      || cursor.ledger.ledgerDigest !== state.providerLedgerDigest) {
-    fail('active provider ledger generation differs from local projection');
-  }
-  assertProviderLedgerMatchesState(cursor.ledger, state);
-  const instances = activeInstancesFromLedger(cursor.ledger);
+  const instances = activeInstancesFromState(state);
   const runners = await listRepositoryRunners(repository, context.repositoryRoot);
   assertExactLocalGitHubActionsRunnerProfileInventory({
     runners,
     instances,
-    operationLabel: cursor.ledger.operationLabel
+    operationLabel: state.operationLabel
   });
   const containers = await listProviderProfileContainers(
     repository, containerEngineSession
@@ -3779,8 +3065,8 @@ export async function observeLocalGitHubActionsProvider(input: Readonly<{
     containers,
     instances,
     repository,
-    providerName: cursor.ledger.providerName,
-    operationLabel: cursor.ledger.operationLabel
+    providerName: state.providerName,
+    operationLabel: state.operationLabel
   });
   const image = await inspectImage(containerEngineSession);
   if (image !== null) assertLocalGitHubActionsRunnerImageIdentity(image);
@@ -3794,7 +3080,7 @@ export async function observeLocalGitHubActionsProvider(input: Readonly<{
   return Object.freeze({
     status: online ? 'online' as const : 'residue' as const,
     state,
-    providerLedgerPresent: true,
+    localStatePresent: true,
     imagePresent: image !== null,
     instances: Object.freeze(observations)
   });
@@ -3820,11 +3106,8 @@ export async function retireSupersededLocalGitHubActionsRunnerImage(input: Reado
   if (decision === undefined) fail('image is not covered by a canonical superseded decision');
   const context = await resolveRepositoryContext(input.cwd);
   await assertOriginRepositoryIdentity(context.repositoryRoot);
-  if (await observeRemoteRefSha(
-    context.repositoryRoot,
-    LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF
-  ) !== null) {
-    fail('image retirement is blocked while the provider ledger is active');
+  if (readStateProjection(context.commonDirectory) !== null) {
+    fail('image retirement is blocked while the local runner lifecycle is active');
   }
   const containerEngineOperation = await openLocalContainerEngineSession({
     cwd: context.repositoryRoot,

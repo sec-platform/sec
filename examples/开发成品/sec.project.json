@@ -1,0 +1,95 @@
+{
+  "schema": "sec.project/1",
+  "projectId": "sec-example:complete-deliverables",
+  "sourceScopes": [
+    {
+      "root": ".",
+      "kind": "semantic",
+      "include": [
+        "definitions.json"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "model",
+      "kind": "semantic",
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "contracts",
+      "kind": "design",
+      "editSource": {
+        "mode": "derived"
+      }
+    },
+    {
+      "root": "assets",
+      "kind": "asset",
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "fixture",
+      "kind": "design",
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": ".",
+      "kind": "design",
+      "include": [
+        "公开边界.d.ts"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    }
+  ],
+  "modules": {
+    "example:deliverable-definitions": "definitions.json",
+    "example/spec/deliverable-details": "contracts/spec.json",
+    "example:deliverable:analyzer": "model/analyzer.json",
+    "example:deliverable:batchcommand": "model/batchcommand.json",
+    "example:deliverable:batchdata": "model/batchdata.json",
+    "example:deliverable:command": "model/command.json",
+    "example:deliverable:compiler": "model/compiler.json",
+    "example:deliverable:component": "model/component.json",
+    "example:deliverable:contextpatch": "model/contextpatch.json",
+    "example:deliverable:definitions": "model/definitions.json",
+    "example:deliverable:deployment": "model/deployment.json",
+    "example:deliverable:desktop": "model/desktop.json",
+    "example:deliverable:expression": "model/expression.json",
+    "example:deliverable:family": "model/family.json",
+    "example:deliverable:firmware": "model/firmware.json",
+    "example:deliverable:generator": "model/generator.json",
+    "example:deliverable:gpukernel": "model/gpukernel.json",
+    "example:deliverable:httphandler": "model/httphandler.json",
+    "example:deliverable:inference": "model/inference.json",
+    "example:deliverable:installer": "model/installer.json",
+    "example:deliverable:library": "model/library.json",
+    "example:deliverable:migration": "model/migration.json",
+    "example:deliverable:mobile": "model/mobile.json",
+    "example:deliverable:nativechange": "model/nativechange.json",
+    "example:deliverable:optimizer": "model/optimizer.json",
+    "example:deliverable:plugin": "model/plugin.json",
+    "example:deliverable:protocolclient": "model/protocolclient.json",
+    "example:deliverable:query": "model/query.json",
+    "example:deliverable:realtime": "model/realtime.json",
+    "example:deliverable:resources": "model/resources.json",
+    "example:deliverable:sampler": "model/sampler.json",
+    "example:deliverable:sdk": "model/sdk.json",
+    "example:deliverable:service": "model/service.json",
+    "example:deliverable:staticvalue": "model/staticvalue.json",
+    "example:deliverable:trainer": "model/trainer.json",
+    "example:deliverable:webpanel": "model/webpanel.json",
+    "example:deliverable:windowstream": "model/windowstream.json",
+    "example:deliverable:worker": "model/worker.json"
+  },
+  "targets": {}
+}

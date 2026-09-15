@@ -5,12 +5,17 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
+import { currentDocumentationVerificationBaseline } from '../../src/control/documentation/active.ts';
 import {
   GitReadAuthorityError,
   withAuthorityGitReadOperation,
   withAuthorityGitReadSession
 } from '../../src/external-capabilities/git-read/authority.ts';
 import { GIT_READ_DEFAULT_OPERATION_BUDGET } from '../../src/external-capabilities/git-read/runtime/session.ts';
+import {
+  bindDocumentationVerificationGateInput,
+  CodexDevelopmentBuildVerificationPlan
+} from '../../src/verification/ci/contract/plan.ts';
 import {
   CodexDevelopmentDefaultChangedPaths,
   CodexDevelopmentDefaultGitRevision,
@@ -235,6 +240,7 @@ test('trusted-base TestImpact reads a new candidate module graph from exact Git 
     const baseSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
 
     mkdirSync(path.join(repositoryRoot, 'src', 'candidate'), { recursive: true });
+    mkdirSync(path.join(repositoryRoot, '.documentation'), { recursive: true });
     mkdirSync(path.join(repositoryRoot, 'docs'), { recursive: true });
     mkdirSync(path.join(repositoryRoot, 'tests', 'unit'), { recursive: true });
     writeFileSync(path.join(repositoryRoot, 'src', 'candidate', 'sec.module.json'), JSON.stringify({
@@ -245,30 +251,51 @@ test('trusted-base TestImpact reads a new candidate module graph from exact Git 
       importGraph: 'runtime',
       externalEntrypoints: []
     }), 'utf8');
-    writeFileSync(path.join(repositoryRoot, 'docs', 'authority.json'), JSON.stringify({
+    writeFileSync(path.join(repositoryRoot, '.documentation', 'documents.json'), JSON.stringify({
+      schema: 'sec.documentation-identity/1',
+      scope: 'fixture',
       documents: [{
-        id: 'candidate-guide',
+        document_id: 'urn:uuid:00000000-0000-4000-8000-000000000001',
         path: 'docs/candidate.md',
-        kind: 'navigation',
-        domain: 'repository.navigation',
-        lifecycle: 'stable',
-        dynamicPolicy: 'forbidden',
-        owns: [],
-        projects: [],
       }]
+    }), 'utf8');
+    writeFileSync(path.join(repositoryRoot, '.documentation', 'baseline.json'), JSON.stringify({
+      schema: 'sec.documentation-baseline/1',
+      source_set_sha256: '0'.repeat(64),
+      source_root: '..',
+      source_roots: ['README.md', '.documentation', 'docs/candidate.md', 'candidate-doc-assets', 'src'],
+      source_manifest: 'source-manifest.json',
+      excluded_from_source_hash: [
+        '.documentation/baseline.json',
+        '.documentation/source-manifest.json'
+      ],
+      audited_namespaces: ['docs', 'public-docs'],
+      non_documentation_roots: ['docs/work', 'docs/work-packages'],
+      entry: '../README.md',
+      delivery_number: '086',
+      archive_name: 'SEC-086.zip',
+      scope: 'fixture',
+      authority_limit: 'fixture'
     }), 'utf8');
     writeFileSync(path.join(repositoryRoot, 'docs', 'candidate.md'), '# Candidate\n', 'utf8');
     writeFileSync(path.join(repositoryRoot, 'src', 'candidate', 'candidate-only.ts'),
       'export const candidateOnly = 1;\n', 'utf8');
     writeFileSync(path.join(repositoryRoot, 'tests', 'unit', 'candidate-only.test.ts'),
       "import { candidateOnly } from '../../src/candidate/candidate-only.ts'; void candidateOnly;\n", 'utf8');
-    git(repositoryRoot, ['add', 'src/candidate', 'tests', 'docs']);
+    git(repositoryRoot, ['add', 'src/candidate', 'tests', 'docs', '.documentation']);
     git(repositoryRoot, ['commit', '--quiet', '-m', 'candidate']);
     const candidateSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
 
     // The physical checkout is old-main. Only immutable candidate objects may
     // contribute source bytes to the provider.
     git(repositoryRoot, ['checkout', '--quiet', '--detach', baseSha]);
+    await withAuthorityGitReadSession(
+      { cwd: repositoryRoot, budget: {} },
+      async (session) => {
+        await expect(CodexDevelopmentExactGitWorkspaceSourceSnapshot(session, baseSha))
+          .rejects.toThrow('documentation verification baseline was not observed');
+      }
+    );
     const snapshots = await withAuthorityGitReadSession(
       { cwd: repositoryRoot, budget: {} },
       async (session) => Object.freeze([
@@ -284,6 +311,10 @@ test('trusted-base TestImpact reads a new candidate module graph from exact Git 
       snapshots[1],
       repositoryRoot
     );
+    expect(() => bindDocumentationVerificationGateInput(
+      warmProvider,
+      currentDocumentationVerificationBaseline()
+    )).toThrow('already bound to this exact candidate provider');
     expect(coldProvider.projection.subject).toEqual(expect.objectContaining({
       kind: 'physical-repository',
       provenance: expect.objectContaining({ kind: 'git-tree' })
@@ -294,6 +325,16 @@ test('trusted-base TestImpact reads a new candidate module graph from exact Git 
       .toContain('src/candidate/candidate-only.ts');
     expect(warmProvider.projection.moduleGraph.files)
       .toContain('tests/unit/candidate-only.test.ts');
+    expect(CodexDevelopmentBuildVerificationPlan(
+      'quick',
+      ['candidate-doc-assets/new.txt'],
+      warmProvider
+    ).gates.map(({ id }) => id)).toContain('docs-doctor');
+    expect(CodexDevelopmentBuildVerificationPlan(
+      'quick',
+      ['src/candidate/candidate-only.ts'],
+      warmProvider
+    ).gates.map(({ id }) => id)).toContain('imports');
     expect(selectTestsForSources(['src/candidate/candidate-only.ts'], warmProvider)).toEqual({
       fast: ['tests/unit/candidate-only.test.ts'],
       slow: [],

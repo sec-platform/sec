@@ -3,7 +3,7 @@ status: revalidation-required
 binding:
   repository: sec-platform/sec
 policy:
-  owner: docs/external-provider-policy.md
+  owner: docs/架构/实现供给与替换.md
 verification:
   schema: sec-verification-provider-availability-ledger-v1
   epochId: bootstrap-348-347-2026-08-11-v3
@@ -113,10 +113,6 @@ providers:
         - sec-linux-verification-control-v1
         - sec-linux-verification-sut-v1
         - sec-linux-verification-trusted-v1
-      providerLeaseRef: refs/tags/sec-provider-lease-sec-linux-verification-v1
-      providerLedgerSchema: sec-local-github-actions-provider-ledger-v3
-      providerLedgerAuthority: remote-cas-immutable-generations
-      providerLedgerObjectModel: git-commit-parent-chain-with-canonical-ledger-tree
       destructiveIdentityAuthority:
         endpointBinding:
           - github-api-host-principal-repository
@@ -125,7 +121,6 @@ providers:
           - exact-image-id
           - exact-container-id
           - exact-runner-id
-        localState: projection-only
         mutableLocators:
           - image-tag
           - container-name

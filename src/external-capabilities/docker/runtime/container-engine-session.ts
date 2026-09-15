@@ -44,10 +44,11 @@ import type {
 } from '../contract/container-engine-session.ts';
 import {
   createDockerEndpointIdentity,
+  DockerDaemonAvailabilityFailure,
   parseDockerEndpointIdentity,
   type DockerEndpointIdentity
 } from '../contract/daemon.ts';
-import { DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT } from '../contract/windows-runtime-state.ts';
+import { DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT, isDockerDesktopManagedEndpoint } from '../contract/windows-runtime-state.ts';
 import {
   claimDockerCommandProviderCapability
 } from './command-provider.ts';
@@ -156,6 +157,26 @@ export function compileContainerEngineAdmissionProviderIdentity(input: Readonly<
   }) as SecOperationDigest;
 }
 
+export function compileObservedContainerEngineProviderIdentity(input: Readonly<{
+  authorityProviderIdentityDigest: SecOperationDigest;
+  projectionProviderIdentityDigest: SecOperationDigest;
+  environmentDigest: SecOperationDigest;
+  operationIdentityDigest: SecOperationDigest;
+  boundAttemptDigest: SecOperationDigest;
+  executable: Readonly<{
+    path: string;
+    size: number;
+    byteDigest: `sha256:${string}`;
+    contentDigest: `sha256:${string}`;
+  }>;
+  workingDirectory: PhysicalDirectoryIdentity;
+}>): SecOperationDigest {
+  return sha256({
+    schema: 'sec-container-engine-observed-provider-identity-v1',
+    ...input
+  }) as SecOperationDigest;
+}
+
 export function compileContainerEngineReadyProviderIdentity(input: Readonly<{
   admissionProviderIdentityDigest: SecOperationDigest;
   endpoint: DockerEndpointIdentity;
@@ -212,31 +233,13 @@ async function dockerDesktopLifecycleEnvironment(): Promise<DockerDesktopLifecyc
     }
   };
   try {
-    const profile = await openRetainedWindowsRuntimeStateDirectory({
-      ...DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.profile,
-      requireHostNamespace: true
-    });
-    retained.push(profile);
     const localAppData = await openRetainedWindowsRuntimeStateDirectory({
       ...DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.localAppData,
       requireHostNamespace: true
     });
     retained.push(localAppData);
-    const appData = await openRetainedWindowsRuntimeStateDirectory({
-      ...DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.roamingAppData,
-      requireHostNamespace: true
-    });
-    retained.push(appData);
-    const programData = await openRetainedWindowsRuntimeStateDirectory({
-      ...DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.programData,
-      requireHostNamespace: true
-    });
-    retained.push(programData);
     const ownerByFolder = new Map([
-      [DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.profile.folder, profile],
-      [DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.localAppData.folder, localAppData],
-      [DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.roamingAppData.folder, appData],
-      [DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.programData.folder, programData]
+      [DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.localAppData.folder, localAppData]
     ] as const);
     return Object.freeze({
       identityMaterial() {
@@ -415,6 +418,27 @@ function endpointFromInfo(input: Readonly<{
     osType: info.OSType as 'linux',
     architecture: info.Architecture as 'x86_64'
   });
+}
+
+export async function observeBeforeDockerDesktopLifecycleAdmission(
+  input: Readonly<{
+    platform: NodeJS.Platform;
+    endpointHost: string;
+    observe(): Promise<DockerDaemonCommandResult>;
+    admitAndEnsureStarted(): Promise<DockerDaemonCommandResult>;
+  }>
+): Promise<DockerDaemonCommandResult> {
+  try {
+    return await input.observe();
+  } catch (error) {
+    if (!(error instanceof DockerDaemonAvailabilityFailure)
+        || error.reason !== 'endpoint-unavailable'
+        || input.platform !== 'win32'
+        || !isDockerDesktopManagedEndpoint(input.endpointHost)) {
+      throw error;
+    }
+    return await input.admitAndEnsureStarted();
+  }
 }
 
 function assertPositiveBound(value: number, label: string): number {
@@ -680,35 +704,26 @@ export async function openContainerEngineSession(
     }
   };
 
+  const executableDigest = retained.boundary.executable.digest();
+  const observedProviderIdentityInput = Object.freeze({
+    authorityProviderIdentityDigest: providerAuthorityIdentityDigest,
+    projectionProviderIdentityDigest: providerAuthorityIdentityDigest,
+    environmentDigest: retained.environmentDigest,
+    operationIdentityDigest: input.operation.plan.identity.identityDigest,
+    boundAttemptDigest: input.operation.boundAttemptDigest,
+    executable: Object.freeze({
+      path: retained.executable,
+      size: executableDigest.size,
+      byteDigest: executableDigest.byteDigest,
+      contentDigest: executableDigest.contentDigest
+    }),
+    workingDirectory: retained.workingDirectory
+  });
+  admissionProviderIdentityDigest = compileObservedContainerEngineProviderIdentity(
+    observedProviderIdentityInput
+  );
+
   try {
-    if (process.platform === 'win32') {
-      runtimeState = await dockerDesktopLifecycleEnvironment();
-      independentProvider = issueIndependentProviderProcessCapability({
-        boundary: retained.boundary,
-        operation: input.operation
-      });
-      const providerPhysicalIdentityDigest = independentProvider.providerPhysicalIdentityDigest;
-      const generationCensus = runtimeState.censusRuntimeGenerations(
-        providerPhysicalIdentityDigest
-      );
-      const executableDigest = retained.boundary.executable.digest();
-      admissionProviderIdentityDigest = compileContainerEngineAdmissionProviderIdentity({
-        authorityProviderIdentityDigest: providerPhysicalIdentityDigest,
-        projectionProviderIdentityDigest: providerAuthorityIdentityDigest,
-        environmentDigest: retained.environmentDigest,
-        operationIdentityDigest: input.operation.plan.identity.identityDigest,
-        boundAttemptDigest: input.operation.boundAttemptDigest,
-        executable: {
-          path: retained.executable,
-          size: executableDigest.size,
-          byteDigest: executableDigest.byteDigest,
-          contentDigest: executableDigest.contentDigest
-        },
-        workingDirectory: retained.workingDirectory,
-        runtimeStateRoots: runtimeState.identityMaterial(),
-        generationCensus
-      });
-    }
     let endpoint: DockerEndpointIdentity;
     if (input.expectedEndpoint === undefined) {
       const contextName = boundedIdentityText(
@@ -746,76 +761,102 @@ export async function openContainerEngineSession(
           stderr: result.stderr.toString('utf8')
         });
       };
-      const daemonInput = Object.freeze({
+      const observationInput = Object.freeze({
         commandDeadlineAtUnixMs: () => processSession.cooperativeDeadlineAtUnixMs(),
         cwd,
         deadlineAtUnixMs: processSession.deadlineAtUnixMs,
         endpointHost,
-        ...(runtimeState === null ? {} : {
-          observeRuntimeEndpointResidue: (providerEvidence: string) => (
-            runtimeState!.observeRuntimeEndpointResidue(
-              providerEvidence,
-              admissionProviderIdentityDigest
-            )
-          )
-        }),
         run: daemonRun
       });
-      const available = input.availability === 'ensure-started'
-        ? await ensureDockerDaemonStartedWithCommand({
-          ...daemonInput,
-          ...(input.beforeDesktopLaunch === undefined ? {} : {
-            beforeLaunch: input.beforeDesktopLaunch
-          }),
-          censusRuntimeGenerations: () => runtimeState!.censusRuntimeGenerations(
-            independentProvider!.providerPhysicalIdentityDigest
-          ),
-          providerAuthorityIdentityDigest: independentProvider!.providerPhysicalIdentityDigest,
-          providerIdentityDigest: admissionProviderIdentityDigest,
-          launch: async ({ args, deadlineAtUnixMs }) => {
-            const timeoutMs = Math.min(
-              deadlineAtUnixMs,
-              processSession.deadlineAtUnixMs - 1
-            ) - Date.now();
-            if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) {
-              fail('Docker Desktop launcher deadline is exhausted');
-            }
-            active += 1;
-            try {
-              const result = await rawRun(args, {
-                acceptAnyExitCode: true,
-                maxStdoutBytes: 1024 * 1024,
-                maxStderrBytes: 1024 * 1024
-              }, independentProvider!);
-              return Object.freeze({
-                code: result.code,
-                stdout: Buffer.from(result.stdout).toString('utf8'),
-                stderr: Buffer.from(result.stderr).toString('utf8'),
-                physicalDisposition: 'settled' as const
-              });
-            } catch (error) {
-              if (error instanceof RetainedCommandTransportError) {
-                return projectStartedDockerDaemonLauncherFailure(error);
+      let available: DockerDaemonCommandResult;
+      if (input.availability !== 'ensure-started') {
+        available = await observeDockerDaemonWithCommand(observationInput);
+      } else {
+        available = await observeBeforeDockerDesktopLifecycleAdmission({
+          platform: retained.platform,
+          endpointHost,
+          observe: async () => await observeDockerDaemonWithCommand(observationInput),
+          admitAndEnsureStarted: async () => {
+            runtimeState = await dockerDesktopLifecycleEnvironment();
+            independentProvider = issueIndependentProviderProcessCapability({
+              boundary: retained.boundary,
+              operation: input.operation
+            });
+            const providerPhysicalIdentityDigest = independentProvider.providerPhysicalIdentityDigest;
+            const generationCensus = runtimeState.censusRuntimeGenerations(
+              providerPhysicalIdentityDigest
+            );
+            admissionProviderIdentityDigest = compileContainerEngineAdmissionProviderIdentity({
+              ...observedProviderIdentityInput,
+              authorityProviderIdentityDigest: providerPhysicalIdentityDigest,
+              runtimeStateRoots: runtimeState.identityMaterial(),
+              generationCensus
+            });
+            const launchInput = Object.freeze({
+              ...observationInput,
+              observeRuntimeEndpointResidue: (providerEvidence: string) => (
+                runtimeState!.observeRuntimeEndpointResidue(
+                  providerEvidence,
+                  admissionProviderIdentityDigest
+                )
+              )
+            });
+            return await ensureDockerDaemonStartedWithCommand({
+              ...launchInput,
+              ...(input.beforeDesktopLaunch === undefined ? {} : {
+                beforeLaunch: input.beforeDesktopLaunch
+              }),
+              censusRuntimeGenerations: () => runtimeState!.censusRuntimeGenerations(
+                independentProvider!.providerPhysicalIdentityDigest
+              ),
+              providerAuthorityIdentityDigest: independentProvider!.providerPhysicalIdentityDigest,
+              providerIdentityDigest: admissionProviderIdentityDigest,
+              launch: async ({ args, deadlineAtUnixMs }) => {
+              const timeoutMs = Math.min(
+                deadlineAtUnixMs,
+                processSession.deadlineAtUnixMs - 1
+              ) - Date.now();
+              if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) {
+                fail('Docker Desktop launcher deadline is exhausted');
               }
-              throw error;
-            } finally {
-              active -= 1;
-            }
-          },
-          ...(input.observeDesktopLaunchSettlement === undefined ? {} : {
-            observeLaunchSettlement: input.observeDesktopLaunchSettlement
-          }),
-          withLauncherLock: async (operation) => await withDockerDesktopLauncherLock(
-            {
-              endpointHost,
-              operation: input.operation,
-              repositoryRoot: cwd,
-              requirementId: providerAuthorityBinding.requirementId
-            },
-            operation
-          )
-        })
-        : await observeDockerDaemonWithCommand(daemonInput);
+              active += 1;
+              try {
+                const result = await rawRun(args, {
+                  acceptAnyExitCode: true,
+                  maxStdoutBytes: 1024 * 1024,
+                  maxStderrBytes: 1024 * 1024
+                }, independentProvider!);
+                return Object.freeze({
+                  code: result.code,
+                  stdout: Buffer.from(result.stdout).toString('utf8'),
+                  stderr: Buffer.from(result.stderr).toString('utf8'),
+                  physicalDisposition: 'settled' as const
+                });
+              } catch (error) {
+                if (error instanceof RetainedCommandTransportError) {
+                  return projectStartedDockerDaemonLauncherFailure(error);
+                }
+                throw error;
+              } finally {
+                active -= 1;
+              }
+              },
+              ...(input.observeDesktopLaunchSettlement === undefined ? {} : {
+                observeLaunchSettlement: input.observeDesktopLaunchSettlement
+              }),
+              withLauncherLock: async (operation) => await withDockerDesktopLauncherLock(
+                {
+                  endpointHost,
+                  operation: input.operation,
+                  repositoryRoot: cwd,
+                  requirementId: providerAuthorityBinding.requirementId
+                },
+                operation
+              )
+            });
+          }
+        });
+      }
       endpoint = endpointFromInfo({
         contextName,
         endpointHost,

@@ -29,8 +29,9 @@ const SOURCE_PROGRAM_CATALOG_RESOURCE_PATH =
   /^catalog\/registry\/[^/]+\/.+\/files\//iu;
 const SOURCE_PROGRAM_GRAPH_EXTENSION = /\.(?:[cm]?[jt]sx?|json|ya?ml|toml)$/iu;
 const SOURCE_PROGRAM_ROOT_INPUT = new Set([
+  '.documentation/documents.json',
+  '.documentation/baseline.json',
   'bunfig.toml',
-  'docs/authority.json',
   '.gitignore',
   'knip.json',
   'package.json',

@@ -17,6 +17,7 @@ import {
   openRetainedWindowsRuntimeStateDirectory,
   type RetainedRuntimeStateDirectory
 } from '../../../runtime-state/physical/runtime/retained-runtime-state-directory.ts';
+import { resolveWindowsKnownFolderPath } from '../../../runtime-state/physical/runtime/windows-known-folders.ts';
 import type { SecOperationDigest } from '../../../system-architecture/operation/semantic.ts';
 import type { DockerCommandProviderCapability } from '../contract/command-provider.ts';
 import { DockerCommandProviderUnavailableError } from '../contract/command-provider.ts';
@@ -87,30 +88,17 @@ export async function openWindowsDockerCommandProvider(input: Readonly<{
       requireHostNamespace: true
     });
     retainedOwners.push(cliPluginDirectory);
-    const environmentOwners: RetainedRuntimeStateDirectory[] = [];
-    for (const owner of [
-      profile.environment.profile,
-      profile.environment.localAppData,
-      profile.environment.roamingAppData,
-      profile.environment.programData
-    ]) {
-      const retained = await openRetainedWindowsRuntimeStateDirectory({
-        ...owner,
-        mode: 'open-existing',
-        requireHostNamespace: true
-      });
-      retainedOwners.push(retained);
-      environmentOwners.push(retained);
-    }
-    const tempOwner = await openRetainedWindowsRuntimeStateDirectory({
-      childDescriptor: profile.environment.temp.childDescriptor,
-      folder: profile.environment.temp.folder,
-      mode: 'open-existing',
-      segments: profile.environment.temp.directorySegments,
-      requireHostNamespace: true
-    });
-    retainedOwners.push(tempOwner);
-    environmentOwners.push(tempOwner);
+    const [profilePath, localAppDataPath, roamingAppDataPath, programDataPath] =
+      await Promise.all([
+        resolveWindowsKnownFolderPath(profile.environment.profile.folder),
+        resolveWindowsKnownFolderPath(profile.environment.localAppData.folder),
+        resolveWindowsKnownFolderPath(profile.environment.roamingAppData.folder),
+        resolveWindowsKnownFolderPath(profile.environment.programData.folder)
+      ]);
+    const tempPath = path.win32.join(
+      await resolveWindowsKnownFolderPath(profile.environment.temp.folder),
+      ...profile.environment.temp.directorySegments
+    );
     const windowsRoot = await openRetainedWindowsRuntimeStateDirectory({
       childDescriptor: profile.environment.windows.rootChildDescriptor,
       folder: profile.environment.windows.folder,
@@ -225,7 +213,6 @@ export async function openWindowsDockerCommandProvider(input: Readonly<{
       RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
       'Windows Docker command provider working directory'
     );
-    const [profileOwner, localAppData, roamingAppData, programData, temp] = environmentOwners;
     return issueDockerCommandProviderCapability({
       boundary: issueRetainedCommandBoundary({
         executable,
@@ -236,19 +223,19 @@ export async function openWindowsDockerCommandProvider(input: Readonly<{
         }))
       }),
       environment: {
-        APPDATA: roamingAppData.path,
-        HOME: profileOwner.path,
+        APPDATA: roamingAppDataPath,
+        HOME: profilePath,
         LANG: 'C',
         LC_ALL: 'C',
-        LOCALAPPDATA: localAppData.path,
+        LOCALAPPDATA: localAppDataPath,
         PATH: systemDirectory.path,
-        PROGRAMDATA: programData.path,
+        PROGRAMDATA: programDataPath,
         PROGRAMFILES: installation.root.path,
         SYSTEMROOT: windowsRoot.path,
-        TEMP: temp.path,
-        TMP: temp.path,
+        TEMP: tempPath,
+        TMP: tempPath,
         TZ: 'UTC',
-        USERPROFILE: profileOwner.path,
+        USERPROFILE: profilePath,
         WINDIR: windowsRoot.path
       },
       platform: 'win32',

@@ -1,0 +1,480 @@
+{
+  "schema": "sec.author-module/1",
+  "moduleId": "sec/spec/execution",
+  "namespace": "spec.execution",
+  "dialects": {
+    "req": {
+      "languageId": "sec.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {},
+  "definitions": {
+    "v:OwnedScope": {
+      "kind": "req:enum-value",
+      "name": "OwnedScope",
+      "body": {
+        "nominalIdentity": "sec/spec/execution#OwnedScope"
+      }
+    },
+    "v:LoadedArtifact": {
+      "kind": "req:enum-value",
+      "name": "LoadedArtifact",
+      "body": {
+        "nominalIdentity": "sec/spec/execution#LoadedArtifact"
+      }
+    },
+    "v:RuntimeGrant": {
+      "kind": "req:enum-value",
+      "name": "RuntimeGrant",
+      "body": {
+        "nominalIdentity": "sec/spec/execution#RuntimeGrant"
+      }
+    },
+    "v:DeclaredEntries": {
+      "kind": "req:enum-value",
+      "name": "DeclaredEntries",
+      "body": {
+        "nominalIdentity": "sec/spec/execution#DeclaredEntries"
+      }
+    },
+    "v:LazyCoverageExplicit": {
+      "kind": "req:enum-value",
+      "name": "LazyCoverageExplicit",
+      "body": {
+        "nominalIdentity": "sec/spec/execution#LazyCoverageExplicit"
+      }
+    },
+    "v:ExactCandidate": {
+      "kind": "req:enum-value",
+      "name": "ExactCandidate",
+      "body": {
+        "nominalIdentity": "sec/spec/execution#ExactCandidate"
+      }
+    },
+    "v:ExplicitCloseAndReconcile": {
+      "kind": "req:enum-value",
+      "name": "ExplicitCloseAndReconcile",
+      "body": {
+        "nominalIdentity": "sec/spec/execution#ExplicitCloseAndReconcile"
+      }
+    },
+    "v:ArgumentVector": {
+      "kind": "req:enum-value",
+      "name": "ArgumentVector",
+      "body": {
+        "nominalIdentity": "sec/spec/execution#ArgumentVector"
+      }
+    },
+    "v:StopScoped": {
+      "kind": "req:enum-value",
+      "name": "StopScoped",
+      "body": {
+        "nominalIdentity": "sec/spec/execution#StopScoped"
+      }
+    },
+    "v:SeparateWithGaps": {
+      "kind": "req:enum-value",
+      "name": "SeparateWithGaps",
+      "body": {
+        "nominalIdentity": "sec/spec/execution#SeparateWithGaps"
+      }
+    },
+    "v:NoDuplicateUncertainCommand": {
+      "kind": "req:enum-value",
+      "name": "NoDuplicateUncertainCommand",
+      "body": {
+        "nominalIdentity": "sec/spec/execution#NoDuplicateUncertainCommand"
+      }
+    },
+    "v:Negotiated": {
+      "kind": "req:enum-value",
+      "name": "Negotiated",
+      "body": {
+        "nominalIdentity": "sec/spec/execution#Negotiated"
+      }
+    },
+    "v:NoCasesNotPass": {
+      "kind": "req:enum-value",
+      "name": "NoCasesNotPass",
+      "body": {
+        "nominalIdentity": "sec/spec/execution#NoCasesNotPass"
+      }
+    },
+    "v:OrderedNoUnknownReplay": {
+      "kind": "req:enum-value",
+      "name": "OrderedNoUnknownReplay",
+      "body": {
+        "nominalIdentity": "sec/spec/execution#OrderedNoUnknownReplay"
+      }
+    },
+    "r:Tasks": {
+      "kind": "req:rule",
+      "name": "Tasks",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "TaskSet"
+              ]
+            },
+            "meaning": "构建/运行任务主体"
+          },
+          "workspace": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Workspace"
+              ]
+            },
+            "meaning": "任务输入"
+          },
+          "selection": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/execution#DeclaredEntries"
+              ]
+            },
+            "meaning": "发现或声明的准确入口"
+          },
+          "inputs": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/execution#ArgumentVector"
+              ]
+            },
+            "meaning": "参数向量，无隐式shell拼接"
+          },
+          "effect": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/execution#RuntimeGrant"
+              ]
+            },
+            "meaning": "实际启动许可"
+          },
+          "lifetime": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/execution#OwnedScope"
+              ]
+            },
+            "meaning": "启动、子任务、结果与退出有拥有者"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/需求规则与供给合同.md",
+          "section": "execution.Tasks",
+          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Terminal": {
+      "kind": "req:rule",
+      "name": "Terminal",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "TerminalSet"
+              ]
+            },
+            "meaning": "交互终端主体"
+          },
+          "tasks": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "TaskSet"
+              ]
+            },
+            "meaning": "实际进程集合"
+          },
+          "input": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/execution#OrderedNoUnknownReplay"
+              ]
+            },
+            "meaning": "输入排队、短写和未知消费范围分别处理"
+          },
+          "streams": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/execution#SeparateWithGaps"
+              ]
+            },
+            "meaning": "stdout/stderr各自顺序，截断显式"
+          },
+          "lifetime": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/execution#ExplicitCloseAndReconcile"
+              ]
+            },
+            "meaning": "EOF、signal、进程及子树退出分别结算"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/需求规则与供给合同.md",
+          "section": "execution.Terminal",
+          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Debug": {
+      "kind": "req:rule",
+      "name": "Debug",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "DebugSessionSet"
+              ]
+            },
+            "meaning": "调试会话"
+          },
+          "tasks": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "TaskSet"
+              ]
+            },
+            "meaning": "启动或附加目标"
+          },
+          "documents": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "DocumentSpace"
+              ]
+            },
+            "meaning": "显示和来源对应"
+          },
+          "capability": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/execution#Negotiated"
+              ]
+            },
+            "meaning": "按真实驱动能力启用"
+          },
+          "source": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/execution#LoadedArtifact"
+              ]
+            },
+            "meaning": "来源跟随已加载制品，不是latest"
+          },
+          "handles": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/execution#StopScoped"
+              ]
+            },
+            "meaning": "栈和值句柄只对当前停点有效"
+          },
+          "controls": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/execution#NoDuplicateUncertainCommand"
+              ]
+            },
+            "meaning": "同一接受的控制在响应未知时不能重复作用；实际驱动可用串行未决槽实现，不把槽本身当产品要求"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/需求规则与供给合同.md",
+          "section": "execution.Debug",
+          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Tests": {
+      "kind": "req:rule",
+      "name": "Tests",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "TestSet"
+              ]
+            },
+            "meaning": "案例和结果主体"
+          },
+          "tasks": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "TaskSet"
+              ]
+            },
+            "meaning": "真实运行"
+          },
+          "workspace": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Workspace"
+              ]
+            },
+            "meaning": "案例与工程来源"
+          },
+          "discovery": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/execution#LazyCoverageExplicit"
+              ]
+            },
+            "meaning": "懒发现与完整范围不同，执行发现需许可"
+          },
+          "input": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/execution#ExactCandidate"
+              ]
+            },
+            "meaning": "测试必须消费声明的候选及完整相关输入"
+          },
+          "outcomes": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/execution#NoCasesNotPass"
+              ]
+            },
+            "meaning": "空、跳过、失败、中断、通过分开"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/需求规则与供给合同.md",
+          "section": "execution.Tests",
+          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
+        },
+        "implementation": "unbound"
+      }
+    }
+  },
+  "exports": {
+    "OwnedScope": {
+      "definitionId": "v:OwnedScope"
+    },
+    "LoadedArtifact": {
+      "definitionId": "v:LoadedArtifact"
+    },
+    "RuntimeGrant": {
+      "definitionId": "v:RuntimeGrant"
+    },
+    "DeclaredEntries": {
+      "definitionId": "v:DeclaredEntries"
+    },
+    "LazyCoverageExplicit": {
+      "definitionId": "v:LazyCoverageExplicit"
+    },
+    "ExactCandidate": {
+      "definitionId": "v:ExactCandidate"
+    },
+    "ExplicitCloseAndReconcile": {
+      "definitionId": "v:ExplicitCloseAndReconcile"
+    },
+    "ArgumentVector": {
+      "definitionId": "v:ArgumentVector"
+    },
+    "StopScoped": {
+      "definitionId": "v:StopScoped"
+    },
+    "SeparateWithGaps": {
+      "definitionId": "v:SeparateWithGaps"
+    },
+    "NoDuplicateUncertainCommand": {
+      "definitionId": "v:NoDuplicateUncertainCommand"
+    },
+    "Negotiated": {
+      "definitionId": "v:Negotiated"
+    },
+    "NoCasesNotPass": {
+      "definitionId": "v:NoCasesNotPass"
+    },
+    "OrderedNoUnknownReplay": {
+      "definitionId": "v:OrderedNoUnknownReplay"
+    },
+    "Tasks": {
+      "definitionId": "r:Tasks"
+    },
+    "Terminal": {
+      "definitionId": "r:Terminal"
+    },
+    "Debug": {
+      "definitionId": "r:Debug"
+    },
+    "Tests": {
+      "definitionId": "r:Tests"
+    }
+  },
+  "extensions": {
+    "sec.documentation-derived/1": {
+      "source": "../../../docs/作者/需求规则与供给合同.md",
+      "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+      "editable": false,
+      "note": "本份是固定文档的设计字段索引，不是已发布语义实现；正文含义未由可执行读取器交付。"
+    }
+  }
+}

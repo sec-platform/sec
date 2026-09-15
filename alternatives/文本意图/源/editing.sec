@@ -1,0 +1,35 @@
+// 需求作者源；定义允许的产品行为，不执行安装或构造运行对象。
+import "sec/spec/ide" as ide;
+import "sec/spec/editing" as editing;
+
+export design Editing(s: ide.Workbench) {
+  require editing.Documents {
+    on: s.documents,
+    resourceIdentity: editing.FromWorkspace,
+    coordinates: editing.UnambiguousSourcePositions,
+    encoding: editing.PreserveOrExplicitConvert,
+    newlines: editing.PreserveOriginal
+  };
+
+  require editing.Editor {
+    on: s.editor,
+    documents: s.documents,
+    selections: editing.Multiple,
+    views: editing.ManyViewsOneModel
+  };
+
+  require editing.History {
+    on: s.history,
+    documents: s.documents,
+    grouping: editing.ByUserAction,
+    undo: editing.IfCurrentCompatible
+  };
+
+  require editing.Save {
+    documents: s.documents,
+    workspace: s.workspace,
+    completion: editing.PerResource,
+    participants: editing.ExplicitChanges,
+    conflicts: editing.PreserveBoth
+  };
+}

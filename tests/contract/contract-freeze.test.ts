@@ -18,7 +18,7 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
     'tests/contract/benchmark-budget.test.ts',
     'tests/contract/ci-contract.test.ts',
     'tests/contract/contract-freeze.test.ts',
-    'tests/contract/docs-doctor.test.ts',
+    'tests/contract/docs-doctor-ledgers.test.ts',
     'tests/contract/error-protocol.test.ts',
     'tests/contract/fact-delta-contract.test.ts',
     'tests/contract/impact-propagation-contract.test.ts',
@@ -33,7 +33,7 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
   expect(contract.targets.map((target) => target.contractId)).toEqual(expect.arrayContaining([
     'verification.contract-freeze',
     'verification.ci-workflow',
-    'verification.docs-doctor',
+    'verification.capability-ledger',
     'verification.impact',
     'semantic.fact-delta',
     'semantic.impact-propagation',
@@ -49,7 +49,7 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
   expect(formatted).toContain(`Contract IDs: ${contract.contractIdCount}`);
   expect(formatted).toContain('Target verification.contract-freeze; file=tests/contract/contract-freeze.test.ts; command=bun test tests/contract/contract-freeze.test.ts');
   expect(formatted).toContain('Target verification.ci-workflow; file=tests/contract/ci-contract.test.ts; command=bun test tests/contract/ci-contract.test.ts');
-  expect(formatted).toContain('Target verification.docs-doctor; file=tests/contract/docs-doctor.test.ts; command=bun test tests/contract/docs-doctor.test.ts');
+  expect(formatted).toContain('Target verification.capability-ledger; file=tests/contract/docs-doctor-ledgers.test.ts; command=bun test tests/contract/docs-doctor-ledgers.test.ts');
   expect(formatted).toContain('Target repository.runtime; file=tests/contract/repository-runtime.test.ts; command=bun test tests/contract/repository-runtime.test.ts');
   expect(formatted).toContain('Target semantic.mutation; file=tests/contract/semantic-mutation-contract.test.ts; command=bun test tests/contract/semantic-mutation-contract.test.ts');
   expect(formatted).toContain('Target semantic.mutation-source-adapter; file=tests/contract/semantic-mutation-source-adapter-contract.test.ts; command=bun test tests/contract/semantic-mutation-source-adapter-contract.test.ts');
@@ -83,7 +83,7 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
         `Target file list: ${contract.targetFiles.join(', ')}`,
         'Target verification.contract-freeze; file=tests/contract/contract-freeze.test.ts; command=bun test tests/contract/contract-freeze.test.ts',
         'Target verification.ci-workflow; file=tests/contract/ci-contract.test.ts; command=bun test tests/contract/ci-contract.test.ts',
-        'Target verification.docs-doctor; file=tests/contract/docs-doctor.test.ts; command=bun test tests/contract/docs-doctor.test.ts',
+        'Target verification.capability-ledger; file=tests/contract/docs-doctor-ledgers.test.ts; command=bun test tests/contract/docs-doctor-ledgers.test.ts',
         'Target semantic.mutation; file=tests/contract/semantic-mutation-contract.test.ts; command=bun test tests/contract/semantic-mutation-contract.test.ts'
       ],
       json: {

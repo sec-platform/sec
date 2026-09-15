@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { compareCodeUnits, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { DOCUMENTATION_IDENTITY_PATH } from '../documentation/active.ts';
 import {
   resolveSecAgentOperationActivation,
   SEC_AGENT_OPERATION_ACTIVATION_REASON_CODES,
@@ -121,7 +122,7 @@ export async function resolveTrustedWorkerTaskCapsule(
     .sort(compareCodeUnits);
   const readPaths = [...new Set([
     'AGENTS.md',
-    'docs/authority.json',
+    DOCUMENTATION_IDENTITY_PATH,
     activation.manifestPath,
     ...activation.authorityOwners.map(({ ref }) => ref),
     ...writePaths

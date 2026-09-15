@@ -1,0 +1,265 @@
+{
+  "schema": "sec.author-module/1",
+  "moduleId": "studio:execution",
+  "namespace": "studio.execution",
+  "dialects": {
+    "req": {
+      "languageId": "sec.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {
+    "ide": {
+      "mode": "workspace",
+      "moduleId": "sec/spec/ide"
+    },
+    "execution": {
+      "mode": "workspace",
+      "moduleId": "sec/spec/execution"
+    },
+    "vcs": {
+      "mode": "workspace",
+      "moduleId": "sec/spec/vcs"
+    }
+  },
+  "definitions": {
+    "d:Execution": {
+      "kind": "req:composite",
+      "name": "Execution",
+      "body": {
+        "parameters": {
+          "s": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "ide",
+                "export": "Workbench"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "import": "execution",
+              "export": "Tasks"
+            },
+            "fields": {
+              "on": {
+                "parameter": "s",
+                "path": [
+                  "tasks"
+                ]
+              },
+              "workspace": {
+                "parameter": "s",
+                "path": [
+                  "workspace"
+                ]
+              },
+              "selection": {
+                "enum": {
+                  "import": "execution",
+                  "export": "DeclaredEntries"
+                }
+              },
+              "inputs": {
+                "enum": {
+                  "import": "execution",
+                  "export": "ArgumentVector"
+                }
+              },
+              "effect": {
+                "enum": {
+                  "import": "execution",
+                  "export": "RuntimeGrant"
+                }
+              },
+              "lifetime": {
+                "enum": {
+                  "import": "execution",
+                  "export": "OwnedScope"
+                }
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "execution",
+              "export": "Terminal"
+            },
+            "fields": {
+              "on": {
+                "parameter": "s",
+                "path": [
+                  "terminal"
+                ]
+              },
+              "tasks": {
+                "parameter": "s",
+                "path": [
+                  "tasks"
+                ]
+              },
+              "input": {
+                "enum": {
+                  "import": "execution",
+                  "export": "OrderedNoUnknownReplay"
+                }
+              },
+              "streams": {
+                "enum": {
+                  "import": "execution",
+                  "export": "SeparateWithGaps"
+                }
+              },
+              "lifetime": {
+                "enum": {
+                  "import": "execution",
+                  "export": "ExplicitCloseAndReconcile"
+                }
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "execution",
+              "export": "Debug"
+            },
+            "fields": {
+              "on": {
+                "parameter": "s",
+                "path": [
+                  "debug"
+                ]
+              },
+              "tasks": {
+                "parameter": "s",
+                "path": [
+                  "tasks"
+                ]
+              },
+              "documents": {
+                "parameter": "s",
+                "path": [
+                  "documents"
+                ]
+              },
+              "capability": {
+                "enum": {
+                  "import": "execution",
+                  "export": "Negotiated"
+                }
+              },
+              "source": {
+                "enum": {
+                  "import": "execution",
+                  "export": "LoadedArtifact"
+                }
+              },
+              "handles": {
+                "enum": {
+                  "import": "execution",
+                  "export": "StopScoped"
+                }
+              },
+              "controls": {
+                "enum": {
+                  "import": "execution",
+                  "export": "NoDuplicateUncertainCommand"
+                }
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "execution",
+              "export": "Tests"
+            },
+            "fields": {
+              "on": {
+                "parameter": "s",
+                "path": [
+                  "tests"
+                ]
+              },
+              "tasks": {
+                "parameter": "s",
+                "path": [
+                  "tasks"
+                ]
+              },
+              "workspace": {
+                "parameter": "s",
+                "path": [
+                  "workspace"
+                ]
+              },
+              "discovery": {
+                "enum": {
+                  "import": "execution",
+                  "export": "LazyCoverageExplicit"
+                }
+              },
+              "input": {
+                "enum": {
+                  "import": "execution",
+                  "export": "ExactCandidate"
+                }
+              },
+              "outcomes": {
+                "enum": {
+                  "import": "execution",
+                  "export": "NoCasesNotPass"
+                }
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "vcs",
+              "export": "Integration"
+            },
+            "fields": {
+              "on": {
+                "parameter": "s",
+                "path": [
+                  "vcs"
+                ]
+              },
+              "workspace": {
+                "parameter": "s",
+                "path": [
+                  "workspace"
+                ]
+              },
+              "view": {
+                "enum": {
+                  "import": "vcs",
+                  "export": "WorktreeIndexCommitSeparate"
+                }
+              },
+              "selection": {
+                "enum": {
+                  "import": "vcs",
+                  "export": "Explicit"
+                }
+              },
+              "merge": {
+                "enum": {
+                  "import": "vcs",
+                  "export": "CandidateAndPreconditions"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "Execution": {
+      "definitionId": "d:Execution"
+    }
+  }
+}

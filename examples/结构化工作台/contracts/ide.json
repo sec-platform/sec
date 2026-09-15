@@ -1,0 +1,178 @@
+{
+  "schema": "sec.author-module/1",
+  "moduleId": "sec/spec/ide",
+  "namespace": "spec.ide",
+  "dialects": {
+    "req": {
+      "languageId": "sec.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {},
+  "definitions": {
+    "v:NotIncluded": {
+      "kind": "req:enum-value",
+      "name": "NotIncluded",
+      "body": {
+        "nominalIdentity": "sec/spec/ide#NotIncluded"
+      }
+    },
+    "v:NotRequired": {
+      "kind": "req:enum-value",
+      "name": "NotRequired",
+      "body": {
+        "nominalIdentity": "sec/spec/ide#NotRequired"
+      }
+    },
+    "t:Workbench": {
+      "kind": "req:subject",
+      "name": "Workbench",
+      "body": {
+        "roles": {
+          "workspace": {
+            "subjectKind": "Workspace"
+          },
+          "documents": {
+            "subjectKind": "DocumentSpace"
+          },
+          "editor": {
+            "subjectKind": "EditorSurface"
+          },
+          "history": {
+            "subjectKind": "EditHistory"
+          },
+          "search": {
+            "subjectKind": "SearchSurface"
+          },
+          "replace": {
+            "subjectKind": "ReplacementSurface"
+          },
+          "languages": {
+            "subjectKind": "LanguageServiceSet"
+          },
+          "diagnostics": {
+            "subjectKind": "DiagnosticSet"
+          },
+          "tasks": {
+            "subjectKind": "TaskSet"
+          },
+          "terminal": {
+            "subjectKind": "TerminalSet"
+          },
+          "debug": {
+            "subjectKind": "DebugSessionSet"
+          },
+          "tests": {
+            "subjectKind": "TestSet"
+          },
+          "vcs": {
+            "subjectKind": "VersionIntegration"
+          },
+          "extensions": {
+            "subjectKind": "ExtensionSet"
+          },
+          "settings": {
+            "subjectKind": "Configuration"
+          },
+          "shell": {
+            "subjectKind": "WorkbenchSurface"
+          },
+          "release": {
+            "subjectKind": "DeliverySet"
+          },
+          "effects": {
+            "subjectKind": "EffectBoundary"
+          }
+        }
+      }
+    },
+    "r:Scope": {
+      "kind": "req:rule",
+      "name": "Scope",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Workbench"
+              ]
+            },
+            "meaning": "整个产品根"
+          },
+          "account": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/ide#NotRequired"
+              ]
+            },
+            "meaning": "本地功能不以云账号为前置"
+          },
+          "collaboration": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/ide#NotIncluded"
+              ]
+            },
+            "meaning": "此发行不交付多人实时共同编辑"
+          },
+          "marketplace": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/ide#NotRequired"
+              ]
+            },
+            "meaning": "扩展可显式本地安装，不以商店服务为前置"
+          },
+          "cloudSync": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/ide#NotIncluded"
+              ]
+            },
+            "meaning": "此发行不宣称云配置同步"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/需求规则与供给合同.md",
+          "section": "ide.Scope",
+          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
+        },
+        "implementation": "unbound"
+      }
+    }
+  },
+  "exports": {
+    "NotIncluded": {
+      "definitionId": "v:NotIncluded"
+    },
+    "NotRequired": {
+      "definitionId": "v:NotRequired"
+    },
+    "Workbench": {
+      "definitionId": "t:Workbench"
+    },
+    "Scope": {
+      "definitionId": "r:Scope"
+    }
+  },
+  "extensions": {
+    "sec.documentation-derived/1": {
+      "source": "../../../docs/作者/需求规则与供给合同.md",
+      "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+      "editable": false,
+      "note": "本份是固定文档的设计字段索引，不是已发布语义实现；正文含义未由可执行读取器交付。"
+    }
+  }
+}

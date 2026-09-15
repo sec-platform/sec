@@ -92,12 +92,11 @@ test('degraded exact-main repair decision binds the whole routing identity', () 
   expect(Object.isFrozen(result.binding)).toBe(true);
 });
 
-test('provider absence, transport failure, invalidity, and conflict remain distinct locked states', () => {
+test('hosted provider absence, transport failure, and invalidity remain distinct locked states', () => {
   for (const [kind, reasonCode] of [
     ['provider-missing', 'repair-provider-missing'],
     ['provider-unavailable', 'repair-provider-unavailable'],
-    ['provider-invalid', 'repair-provider-invalid'],
-    ['provider-conflict', 'repair-provider-conflict']
+    ['provider-invalid', 'repair-provider-invalid']
   ] as const) {
     const result = compileMainHealthRepairDecision({
       observation: { kind, observationRef: SOURCE },

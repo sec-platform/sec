@@ -1,0 +1,376 @@
+{
+  "schema": "sec.author-module/1",
+  "moduleId": "sec/spec/workspace",
+  "namespace": "spec.workspace",
+  "dialects": {
+    "req": {
+      "languageId": "sec.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {},
+  "definitions": {
+    "v:RecoverDraftNotReplayEffects": {
+      "kind": "req:enum-value",
+      "name": "RecoverDraftNotReplayEffects",
+      "body": {
+        "nominalIdentity": "sec/spec/workspace#RecoverDraftNotReplayEffects"
+      }
+    },
+    "v:OpenEmptySuppressesDisk": {
+      "kind": "req:enum-value",
+      "name": "OpenEmptySuppressesDisk",
+      "body": {
+        "nominalIdentity": "sec/spec/workspace#OpenEmptySuppressesDisk"
+      }
+    },
+    "v:RuntimeGrant": {
+      "kind": "req:enum-value",
+      "name": "RuntimeGrant",
+      "body": {
+        "nominalIdentity": "sec/spec/workspace#RuntimeGrant"
+      }
+    },
+    "v:PreserveDrafts": {
+      "kind": "req:enum-value",
+      "name": "PreserveDrafts",
+      "body": {
+        "nominalIdentity": "sec/spec/workspace#PreserveDrafts"
+      }
+    },
+    "v:Move": {
+      "kind": "req:enum-value",
+      "name": "Move",
+      "body": {
+        "nominalIdentity": "sec/spec/workspace#Move"
+      }
+    },
+    "v:Read": {
+      "kind": "req:enum-value",
+      "name": "Read",
+      "body": {
+        "nominalIdentity": "sec/spec/workspace#Read"
+      }
+    },
+    "v:ProviderIdentity": {
+      "kind": "req:enum-value",
+      "name": "ProviderIdentity",
+      "body": {
+        "nominalIdentity": "sec/spec/workspace#ProviderIdentity"
+      }
+    },
+    "v:Many": {
+      "kind": "req:enum-value",
+      "name": "Many",
+      "body": {
+        "nominalIdentity": "sec/spec/workspace#Many"
+      }
+    },
+    "v:ExplicitMembership": {
+      "kind": "req:enum-value",
+      "name": "ExplicitMembership",
+      "body": {
+        "nominalIdentity": "sec/spec/workspace#ExplicitMembership"
+      }
+    },
+    "v:Delete": {
+      "kind": "req:enum-value",
+      "name": "Delete",
+      "body": {
+        "nominalIdentity": "sec/spec/workspace#Delete"
+      }
+    },
+    "v:Create": {
+      "kind": "req:enum-value",
+      "name": "Create",
+      "body": {
+        "nominalIdentity": "sec/spec/workspace#Create"
+      }
+    },
+    "v:OpenModelWins": {
+      "kind": "req:enum-value",
+      "name": "OpenModelWins",
+      "body": {
+        "nominalIdentity": "sec/spec/workspace#OpenModelWins"
+      }
+    },
+    "r:Roots": {
+      "kind": "req:rule",
+      "name": "Roots",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Workspace"
+              ]
+            },
+            "meaning": "根集合的主体身份"
+          },
+          "multiplicity": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/workspace#Many"
+              ]
+            },
+            "meaning": "允许零个或多个根；未打开根不算失败"
+          },
+          "identity": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/workspace#ProviderIdentity"
+              ]
+            },
+            "meaning": "按提供者的规范资源身份，显示路径不定义相等"
+          },
+          "nested": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/workspace#ExplicitMembership"
+              ]
+            },
+            "meaning": "嵌套根的归属选择显式，不按扫描先后隐式抢占"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/需求规则与供给合同.md",
+          "section": "workspace.Roots",
+          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Files": {
+      "kind": "req:rule",
+      "name": "Files",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Workspace"
+              ]
+            },
+            "meaning": "同一工作区主体"
+          },
+          "operations": {
+            "required": true,
+            "type": {
+              "kind": "set",
+              "element": {
+                "kind": "enum",
+                "allowed": [
+                  "sec/spec/workspace#Read",
+                  "sec/spec/workspace#Create",
+                  "sec/spec/workspace#Move",
+                  "sec/spec/workspace#Delete"
+                ]
+              }
+            },
+            "meaning": "要求的真实资源操作集合"
+          },
+          "conflicts": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/workspace#PreserveDrafts"
+              ]
+            },
+            "meaning": "相交未保存内容必须保留或明确冲突"
+          },
+          "access": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/workspace#RuntimeGrant"
+              ]
+            },
+            "meaning": "产品在每次作用处检查实际许可，不是此声明给予许可"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/需求规则与供给合同.md",
+          "section": "workspace.Files",
+          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Snapshot": {
+      "kind": "req:rule",
+      "name": "Snapshot",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Workspace"
+              ]
+            },
+            "meaning": "捕获的工作区主体"
+          },
+          "documents": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "DocumentSpace"
+              ]
+            },
+            "meaning": "此工作区采用的开放文档集合"
+          },
+          "precedence": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/workspace#OpenModelWins"
+              ]
+            },
+            "meaning": "已打开模型对该资源权威于旧磁盘内容"
+          },
+          "absence": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/workspace#OpenEmptySuppressesDisk"
+              ]
+            },
+            "meaning": "打开模型零命中或空内容也抑制旧磁盘结果"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/需求规则与供给合同.md",
+          "section": "workspace.Snapshot",
+          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Recovery": {
+      "kind": "req:rule",
+      "name": "Recovery",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "documents": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "DocumentSpace"
+              ]
+            },
+            "meaning": "可恢复草稿主体"
+          },
+          "history": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "EditHistory"
+              ]
+            },
+            "meaning": "与草稿绑定的编辑历史"
+          },
+          "mode": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/workspace#RecoverDraftNotReplayEffects"
+              ]
+            },
+            "meaning": "恢复内容与历史不重放外部执行"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/需求规则与供给合同.md",
+          "section": "workspace.Recovery",
+          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
+        },
+        "implementation": "unbound"
+      }
+    }
+  },
+  "exports": {
+    "RecoverDraftNotReplayEffects": {
+      "definitionId": "v:RecoverDraftNotReplayEffects"
+    },
+    "OpenEmptySuppressesDisk": {
+      "definitionId": "v:OpenEmptySuppressesDisk"
+    },
+    "RuntimeGrant": {
+      "definitionId": "v:RuntimeGrant"
+    },
+    "PreserveDrafts": {
+      "definitionId": "v:PreserveDrafts"
+    },
+    "Move": {
+      "definitionId": "v:Move"
+    },
+    "Read": {
+      "definitionId": "v:Read"
+    },
+    "ProviderIdentity": {
+      "definitionId": "v:ProviderIdentity"
+    },
+    "Many": {
+      "definitionId": "v:Many"
+    },
+    "ExplicitMembership": {
+      "definitionId": "v:ExplicitMembership"
+    },
+    "Delete": {
+      "definitionId": "v:Delete"
+    },
+    "Create": {
+      "definitionId": "v:Create"
+    },
+    "OpenModelWins": {
+      "definitionId": "v:OpenModelWins"
+    },
+    "Roots": {
+      "definitionId": "r:Roots"
+    },
+    "Files": {
+      "definitionId": "r:Files"
+    },
+    "Snapshot": {
+      "definitionId": "r:Snapshot"
+    },
+    "Recovery": {
+      "definitionId": "r:Recovery"
+    }
+  },
+  "extensions": {
+    "sec.documentation-derived/1": {
+      "source": "../../../docs/作者/需求规则与供给合同.md",
+      "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+      "editable": false,
+      "note": "本份是固定文档的设计字段索引，不是已发布语义实现；正文含义未由可执行读取器交付。"
+    }
+  }
+}

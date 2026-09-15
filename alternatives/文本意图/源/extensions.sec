@@ -1,0 +1,42 @@
+// 需求作者源；定义允许的产品行为，不执行安装或构造运行对象。
+import "sec/spec/ide" as ide;
+import "sec/spec/extension" as extension;
+import "sec/spec/policy" as policy;
+import "sec/spec/settings" as settings;
+
+export design Extensions(s: ide.Workbench) {
+  require extension.Execution {
+    on: s.extensions,
+    effects: s.effects,
+    modes: [extension.DeclarativeContribution, extension.IsolatedExecutable],
+    authority: extension.DeclaredAndGranted,
+    failure: extension.ContainAndDisable
+  };
+
+  require extension.Compatibility {
+    on: s.extensions,
+    api: extension.VersionedCapability,
+    installed: extension.ExactContent,
+    unknown: extension.RejectUnsupportedRequirement
+  };
+
+  require settings.Configuration {
+    on: s.settings,
+    scopes: [settings.Product, settings.Workspace, settings.User],
+    precedence: settings.ExplicitSchemaOrder,
+    secret: settings.ReferenceOnly,
+    changes: settings.Versioned
+  };
+
+  require policy.Network {
+    on: s.effects,
+    policy: policy.OriginAndPurposeGrant,
+    background: policy.DeniedUnlessGranted
+  };
+
+  require policy.Destruction {
+    on: s.effects,
+    policy: policy.ScopeAndRevisionGrant,
+    retry: policy.OnlyEffectiveIdempotencyOrFinality
+  };
+}

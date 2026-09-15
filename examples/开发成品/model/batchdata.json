@@ -1,0 +1,63 @@
+{
+  "schema": "sec.author-module/1",
+  "moduleId": "example:deliverable:batchdata",
+  "namespace": "example:deliverable:batchdata",
+  "dialects": {
+    "req": {
+      "languageId": "sec.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {
+    "spec": {
+      "mode": "workspace",
+      "moduleId": "example/spec/deliverable-details"
+    },
+    "forms": {
+      "mode": "workspace",
+      "moduleId": "example:deliverable-definitions"
+    }
+  },
+  "definitions": {
+    "d:App": {
+      "kind": "req:composite",
+      "name": "App",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "use": {
+              "import": "forms",
+              "export": "BatchData"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    }
+  },
+  "exports": {
+    "App": {
+      "definitionId": "d:App"
+    }
+  }
+}

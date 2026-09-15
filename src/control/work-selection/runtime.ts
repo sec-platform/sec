@@ -16,6 +16,7 @@ import {
   CodexDevelopmentAssertControlPlaneBinding,
   CodexDevelopmentParseActivePointer,
   CodexDevelopmentParseCurrentStateSpec,
+  CodexDevelopmentParseRollingMachineProjection,
   CodexDevelopmentParseRollingPlan
 } from '../documentation/document-control-plane-contract.ts';
 import { buildGitHubDefaultBranchOpenPullRequestsArgs } from '../documentation/document-control-plane-github-observation.ts';
@@ -31,10 +32,7 @@ import {
   type WorkSelectionMainHealthProjection,
   type WorkSelectionMainHealthSnapshot
 } from '../main-health/work-selection-main-health.ts';
-import {
-  CodexDevelopmentParseCurrentWorkPackageManifest,
-  CodexDevelopmentWorkPackageManifestDigest
-} from '../task/contract/work-package.ts';
+import { CodexDevelopmentWorkPackageManifestDigest } from '../task/contract/work-package.ts';
 import type {
   SecCurrentWorkLifecycle,
   SecWorkDigest
@@ -791,21 +789,25 @@ function observeCanonicalControl(input: {
   const pointer = CodexDevelopmentParseActivePointer(input.pointerSource);
   CodexDevelopmentAssertControlPlaneBinding({ spec: input.spec, pointer });
   const rolling = CodexDevelopmentParseRollingPlan(input.rollingPlanSource);
-  const manifest = CodexDevelopmentParseCurrentWorkPackageManifest(
-    decodeUtf8(input.manifestBytes, 'active-manifest-invalid-utf8'),
-    input.manifestPath
-  );
+  const rollingMachine = CodexDevelopmentParseRollingMachineProjection(input.rollingPlanSource);
   const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(input.manifestBytes);
+  const packageId = path.posix.basename(input.manifestPath, '.md');
+  const machineBindingMatches = rollingMachine === null
+    || (rollingMachine.active.packageId === packageId
+      && (rollingMachine.schema !== 'sec-work-rolling-transition-projection-v1'
+        || (rollingMachine.active.manifestPath === input.manifestPath
+          && rollingMachine.active.manifestDigest === manifestDigest)));
   const ref = sha256({ pointer, rolling, manifest: {
     path: input.manifestPath,
-    id: manifest.id,
-    tracking: manifest.tracking,
+    id: packageId,
+    tracking: rollingMachine?.active.tracking ?? null,
     digest: manifestDigest
   } }) as SecWorkDigest;
   return Object.freeze({
     state: pointer.manifest === input.manifestPath
         && pointer.manifestDigest === manifestDigest
-        && rolling.activePackageId === manifest.id
+        && rolling.activePackageId === packageId
+        && machineBindingMatches
       ? 'consistent'
       : 'conflict',
     ref

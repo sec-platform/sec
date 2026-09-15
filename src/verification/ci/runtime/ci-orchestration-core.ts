@@ -9,8 +9,12 @@ import {
 } from '../../../brownfield/source-program-model/workspace-source-snapshot.ts';
 import {
   activeDocumentationPaths,
-  parseDocumentationAuthorityRegistry
-} from '../../../control/documentation/authority.ts';
+  DOCUMENTATION_BASELINE_PATH,
+  DOCUMENTATION_IDENTITY_PATH,
+  parseDocumentationIdentityRegistry,
+  parseDocumentationVerificationBaseline,
+  type DocumentationVerificationBaseline
+} from '../../../control/documentation/active.ts';
 import { GitReadAuthorityError } from '../../../external-capabilities/git-read/authority.ts';
 import { CodexDevelopmentReadExactGitBlobBytesBatchFromSession } from '../../../external-capabilities/git-read/exact-blob.ts';
 import {
@@ -41,9 +45,15 @@ import type { SecBoundSemanticOperation } from '../../../system-architecture/ope
 import { issueTestInventoryProjection } from '../../test-impact/contract/budget.ts';
 import { createRepositoryTestImpactSourceProvider, type CodexDevelopmentTestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
 import { CodexDevelopmentCreateTestImpactTransitionObservation, gitChangedFileDiffArgs, gitPathBlobBatchArgs, gitWorkingTreeStatusArgs, parseGitChangedRecordsOutput, parseGitPathBlobBatchOutput, type CodexDevelopmentGitChangedRecord, type CodexDevelopmentGitPathBlobEntry, type CodexDevelopmentTestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
+import { bindDocumentationVerificationGateInput } from '../contract/plan.ts';
 export const CODEX_DEVELOPMENT_FAILURE_TAIL_CHARACTER_LIMIT = 24_000;
 export const CODEX_DEVELOPMENT_GATE_STDOUT_BYTE_LIMIT = 8 * 1024 * 1024;
 export const CODEX_DEVELOPMENT_GATE_STDERR_BYTE_LIMIT = 8 * 1024 * 1024;
+
+const exactSnapshotDocumentationBaselines = new WeakMap<
+  PhysicalWorkspaceSourceSnapshot,
+  DocumentationVerificationBaseline
+>();
 
 export type CodexDevelopmentGateExecutionObservation = {
   id: string;
@@ -286,28 +296,51 @@ export async function CodexDevelopmentExactGitWorkspaceSourceSnapshot(
   candidateSha: string
 ): Promise<PhysicalWorkspaceSourceSnapshot> {
   assertProductionGitReadSession(session);
-  return acquireExactGitTreeWorkspaceSourceSnapshotFromSession({
+  const snapshot = await acquireExactGitTreeWorkspaceSourceSnapshotFromSession({
     session,
     commitSha: candidateSha
   });
+  const baselineBlob = (await CodexDevelopmentReadExactGitBlobs(
+    session,
+    candidateSha,
+    [DOCUMENTATION_BASELINE_PATH]
+  )).get(DOCUMENTATION_BASELINE_PATH);
+  if (baselineBlob === undefined) {
+    throw new Error('Exact candidate documentation verification baseline was not observed.');
+  }
+  let baselineSource: string;
+  try {
+    baselineSource = new TextDecoder('utf-8', { fatal: true }).decode(baselineBlob.bytes);
+  } catch (error) {
+    throw new Error('Exact candidate documentation verification baseline is not valid UTF-8.', { cause: error });
+  }
+  exactSnapshotDocumentationBaselines.set(
+    snapshot,
+    parseDocumentationVerificationBaseline(baselineSource)
+  );
+  return snapshot;
 }
 
 export function CodexDevelopmentTestImpactSourceProviderFromSnapshot(
   workspaceSnapshot: PhysicalWorkspaceSourceSnapshot,
   repositoryRoot: string
 ): CodexDevelopmentTestImpactSourceProvider {
-  const documentationRegistrySource = workspaceSnapshot.file('docs/authority.json')?.source;
-  if (documentationRegistrySource === undefined) {
-    throw new Error('Exact candidate documentation authority registry was not observed.');
+  const documentationVerificationBaseline = exactSnapshotDocumentationBaselines.get(workspaceSnapshot);
+  if (documentationVerificationBaseline === undefined) {
+    throw new Error('Exact candidate documentation verification baseline binding was not observed.');
+  }
+  const documentationIdentitySource = workspaceSnapshot.file(DOCUMENTATION_IDENTITY_PATH)?.source;
+  if (documentationIdentitySource === undefined) {
+    throw new Error('Exact candidate documentation identity registry was not observed.');
   }
   const candidateActiveDocumentationPaths = activeDocumentationPaths(
-    parseDocumentationAuthorityRegistry(documentationRegistrySource)
+    parseDocumentationIdentityRegistry(documentationIdentitySource)
   );
   const sourceProgramCompilation = compileRepositorySourceProgramCompilation({
     workspaceSnapshot,
     repositoryRoot
   });
-  return createRepositoryTestImpactSourceProvider({
+  const provider = createRepositoryTestImpactSourceProvider({
     projection: issueTestImpactProjection({
       workspaceSnapshot,
       repositoryModel: sourceProgramCompilation.model,
@@ -317,6 +350,7 @@ export function CodexDevelopmentTestImpactSourceProviderFromSnapshot(
     testInventory: issueTestInventoryProjection({ snapshot: workspaceSnapshot }),
     activeDocumentationPaths: candidateActiveDocumentationPaths
   });
+  return bindDocumentationVerificationGateInput(provider, documentationVerificationBaseline);
 }
 
 export async function CodexDevelopmentRunGateProcess(

@@ -14,12 +14,9 @@ const knownFolder = z.enum([
   'roaming-app-data',
   'windows'
 ]);
-const retainedFolder = z.object({
-  folder: knownFolder,
-  childDescriptor
-}).strict();
+const environmentFolder = z.object({ folder: knownFolder }).strict();
 const profileSchema = z.object({
-  schema: z.literal('sec-docker-windows-installation-profile-v3'),
+  schema: z.literal('sec-docker-windows-installation-profile-v4'),
   platform: z.literal('win32'),
   installation: z.object({
     folder: z.literal('program-files'),
@@ -43,14 +40,13 @@ const profileSchema = z.object({
       wslExecutableName: z.literal('wsl.exe'),
       wslExecutableChildDescriptor: childDescriptor
     }).strict(),
-    profile: retainedFolder,
-    localAppData: retainedFolder,
-    roamingAppData: retainedFolder,
-    programData: retainedFolder,
+    profile: environmentFolder,
+    localAppData: environmentFolder,
+    roamingAppData: environmentFolder,
+    programData: environmentFolder,
     temp: z.object({
       folder: z.literal('local-app-data'),
       directorySegments: z.array(segment).min(1).max(4),
-      childDescriptor
     }).strict()
   }).strict()
 }).strict().superRefine((value, context) => {
@@ -58,11 +54,6 @@ const profileSchema = z.object({
     value.installation.directoryChildDescriptor,
     value.installation.cliPluginDirectoryChildDescriptor,
     ...value.installation.cliPlugins.map(({ childDescriptor: descriptor }) => descriptor),
-    value.environment.profile.childDescriptor,
-    value.environment.localAppData.childDescriptor,
-    value.environment.roamingAppData.childDescriptor,
-    value.environment.programData.childDescriptor,
-    value.environment.temp.childDescriptor,
     value.environment.windows.rootChildDescriptor,
     value.environment.windows.systemDirectoryChildDescriptor,
     value.environment.windows.wslExecutableChildDescriptor

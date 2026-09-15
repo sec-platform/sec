@@ -1,0 +1,1621 @@
+{
+  "schema": "sec.author-module/1",
+  "moduleId": "example/spec/deliverable-details",
+  "namespace": "example/spec/deliverable-details",
+  "dialects": {
+    "req": {
+      "languageId": "sec.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {},
+  "definitions": {
+    "t:Product": {
+      "kind": "req:subject",
+      "name": "Product",
+      "body": {
+        "roles": {}
+      }
+    },
+    "t:Operation": {
+      "kind": "req:subject",
+      "name": "Operation",
+      "body": {
+        "roles": {}
+      }
+    },
+    "r:Definitions": {
+      "kind": "req:rule",
+      "name": "Definitions",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "packageName": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Text"
+              }
+            },
+            "meaning": "Definitions：可复用要求与策略包中的packageName参数；域及作用由准确正文定义，默认在复合定义维护"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/规格与静态资产.md",
+          "section": "Definitions：可复用要求与策略包",
+          "sha256": "54a44379966dda4a0f2d37851ab3d015fd1ca39c3168ed3de01be5d55509b01b",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:StaticValue": {
+      "kind": "req:rule",
+      "name": "StaticValue",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "title": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Text"
+              }
+            },
+            "meaning": "StaticValue：一个确定配置值，而非配置程序中的title参数；域及作用由准确正文定义，默认在复合定义维护"
+          },
+          "historyLimit": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Int"
+              }
+            },
+            "meaning": "StaticValue：一个确定配置值，而非配置程序中的historyLimit参数；域及作用由准确正文定义，默认在复合定义维护"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/规格与静态资产.md",
+          "section": "StaticValue：一个确定配置值，而非配置程序",
+          "sha256": "54a44379966dda4a0f2d37851ab3d015fd1ca39c3168ed3de01be5d55509b01b",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Resources": {
+      "kind": "req:rule",
+      "name": "Resources",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/规格与静态资产.md",
+          "section": "Resources：有真实成员的资源包",
+          "sha256": "54a44379966dda4a0f2d37851ab3d015fd1ca39c3168ed3de01be5d55509b01b",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Expression": {
+      "kind": "req:rule",
+      "name": "Expression",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "factor": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Int"
+              }
+            },
+            "meaning": "Expression：精确计算片段中的factor参数；域及作用由准确正文定义，默认在复合定义维护"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/片段与已有工程变化.md",
+          "section": "Expression：精确计算片段",
+          "sha256": "ff2cfed55b8fbadbab08c249985def9d5b2ddf410ae4a98669416c94b4779341",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:ContextPatch": {
+      "kind": "req:rule",
+      "name": "ContextPatch",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "oldName": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Text"
+              }
+            },
+            "meaning": "ContextPatch：在一份准确基础上更改公开名称中的oldName参数；域及作用由准确正文定义，默认在复合定义维护"
+          },
+          "newName": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Text"
+              }
+            },
+            "meaning": "ContextPatch：在一份准确基础上更改公开名称中的newName参数；域及作用由准确正文定义，默认在复合定义维护"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/片段与已有工程变化.md",
+          "section": "ContextPatch：在一份准确基础上更改公开名称",
+          "sha256": "ff2cfed55b8fbadbab08c249985def9d5b2ddf410ae4a98669416c94b4779341",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Library": {
+      "kind": "req:rule",
+      "name": "Library",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "operation": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Operation"
+              ]
+            },
+            "meaning": "与Canonical约束的是同一准确行为主体"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/库与协议客户端.md",
+          "section": "Library：没有运行容器的同步库",
+          "sha256": "3c25db9a92a70578210885604b447985100bbb233b74342d8570a96496ff2c1a",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:SDK": {
+      "kind": "req:rule",
+      "name": "SDK",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "operation": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Operation"
+              ]
+            },
+            "meaning": "与Canonical约束的是同一准确行为主体"
+          },
+          "maxInFlight": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Int"
+              }
+            },
+            "meaning": "SDK：同一行为的显式资源会话中的maxInFlight参数；域及作用由准确正文定义，默认在复合定义维护"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/库与协议客户端.md",
+          "section": "SDK：同一行为的显式资源会话",
+          "sha256": "3c25db9a92a70578210885604b447985100bbb233b74342d8570a96496ff2c1a",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:ProtocolClient": {
+      "kind": "req:rule",
+      "name": "ProtocolClient",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "operation": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Operation"
+              ]
+            },
+            "meaning": "与Canonical约束的是同一准确行为主体"
+          },
+          "requestTimeoutMs": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Int"
+              }
+            },
+            "meaning": "ProtocolClient：公开网络语义不能藏在SDK实现里中的requestTimeoutMs参数；域及作用由准确正文定义，默认在复合定义维护"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/库与协议客户端.md",
+          "section": "ProtocolClient：公开网络语义不能藏在SDK实现里",
+          "sha256": "3c25db9a92a70578210885604b447985100bbb233b74342d8570a96496ff2c1a",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Command": {
+      "kind": "req:rule",
+      "name": "Command",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "operation": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Operation"
+              ]
+            },
+            "meaning": "与Canonical约束的是同一准确行为主体"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/命令与批处理程序.md",
+          "section": "Command：一个输入，一个完整结果",
+          "sha256": "4108a450cc5daf72da23605455be02f16aaf6e098fabc126c35ed9b32c5828a3",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:BatchCommand": {
+      "kind": "req:rule",
+      "name": "BatchCommand",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "operation": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Operation"
+              ]
+            },
+            "meaning": "与Canonical约束的是同一准确行为主体"
+          },
+          "maxInFlight": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Int"
+              }
+            },
+            "meaning": "BatchCommand：确定作业顺序与分项结果中的maxInFlight参数；域及作用由准确正文定义，默认在复合定义维护"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/命令与批处理程序.md",
+          "section": "BatchCommand：确定作业顺序与分项结果",
+          "sha256": "4108a450cc5daf72da23605455be02f16aaf6e098fabc126c35ed9b32c5828a3",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:HttpHandler": {
+      "kind": "req:rule",
+      "name": "HttpHandler",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "operation": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Operation"
+              ]
+            },
+            "meaning": "与Canonical约束的是同一准确行为主体"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/请求处理器与服务.md",
+          "section": "HttpHandler：固定路由，不默认联网",
+          "sha256": "cab36d1468e8e2493119e93a6b97da27313cfdf63654960566d72e90b8439e2e",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Service": {
+      "kind": "req:rule",
+      "name": "Service",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "operation": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Operation"
+              ]
+            },
+            "meaning": "与Canonical约束的是同一准确行为主体"
+          },
+          "port": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Int"
+              }
+            },
+            "meaning": "Service：本地独立计算服务中的port参数；域及作用由准确正文定义，默认在复合定义维护"
+          },
+          "maxInFlight": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Int"
+              }
+            },
+            "meaning": "Service：本地独立计算服务中的maxInFlight参数；域及作用由准确正文定义，默认在复合定义维护"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/请求处理器与服务.md",
+          "section": "Service：本地独立计算服务",
+          "sha256": "cab36d1468e8e2493119e93a6b97da27313cfdf63654960566d72e90b8439e2e",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Worker": {
+      "kind": "req:rule",
+      "name": "Worker",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "operation": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Operation"
+              ]
+            },
+            "meaning": "与Canonical约束的是同一准确行为主体"
+          },
+          "maxInFlight": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Int"
+              }
+            },
+            "meaning": "Worker：消息会话与结算中的maxInFlight参数；域及作用由准确正文定义，默认在复合定义维护"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/工作器组件与插件.md",
+          "section": "Worker：消息会话与结算",
+          "sha256": "454b0dc081b6d2d4f0491ce47c175baa7ef526fb2c07711a291fc7d38cc93752",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Component": {
+      "kind": "req:rule",
+      "name": "Component",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "operation": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Operation"
+              ]
+            },
+            "meaning": "与Canonical约束的是同一准确行为主体"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/工作器组件与插件.md",
+          "section": "Component：可嵌入的固定进口集合",
+          "sha256": "454b0dc081b6d2d4f0491ce47c175baa7ef526fb2c07711a291fc7d38cc93752",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Plugin": {
+      "kind": "req:rule",
+      "name": "Plugin",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "operation": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Operation"
+              ]
+            },
+            "meaning": "与Canonical约束的是同一准确行为主体"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/工作器组件与插件.md",
+          "section": "Plugin：加载、注册与卸载分开",
+          "sha256": "454b0dc081b6d2d4f0491ce47c175baa7ef526fb2c07711a291fc7d38cc93752",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:WebPanel": {
+      "kind": "req:rule",
+      "name": "WebPanel",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "operation": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Operation"
+              ]
+            },
+            "meaning": "与Canonical约束的是同一准确行为主体"
+          },
+          "title": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Text"
+              }
+            },
+            "meaning": "WebPanel：纯离线页面中的title参数；域及作用由准确正文定义，默认在复合定义维护"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/交互应用.md",
+          "section": "WebPanel：纯离线页面",
+          "sha256": "eabf81d6c099abbc71dcb91e1ed07a0865e73d61ea97322ae9fff0b11c6dceb6",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Desktop": {
+      "kind": "req:rule",
+      "name": "Desktop",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "operation": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Operation"
+              ]
+            },
+            "meaning": "与Canonical约束的是同一准确行为主体"
+          },
+          "title": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Text"
+              }
+            },
+            "meaning": "Desktop：有文件打开与保存的独立应用中的title参数；域及作用由准确正文定义，默认在复合定义维护"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/交互应用.md",
+          "section": "Desktop：有文件打开与保存的独立应用",
+          "sha256": "eabf81d6c099abbc71dcb91e1ed07a0865e73d61ea97322ae9fff0b11c6dceb6",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Mobile": {
+      "kind": "req:rule",
+      "name": "Mobile",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "operation": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Operation"
+              ]
+            },
+            "meaning": "与Canonical约束的是同一准确行为主体"
+          },
+          "title": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Text"
+              }
+            },
+            "meaning": "Mobile：后台与现场状态不能照抄桌面中的title参数；域及作用由准确正文定义，默认在复合定义维护"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/交互应用.md",
+          "section": "Mobile：后台与现场状态不能照抄桌面",
+          "sha256": "eabf81d6c099abbc71dcb91e1ed07a0865e73d61ea97322ae9fff0b11c6dceb6",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Family": {
+      "kind": "req:rule",
+      "name": "Family",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "library": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "被共同发行的独立成品主体，不与family本身合并"
+          },
+          "command": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "被共同发行的独立成品主体，不与family本身合并"
+          },
+          "web": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "被共同发行的独立成品主体，不与family本身合并"
+          },
+          "title": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Text"
+              }
+            },
+            "meaning": "作者的确切选择中的title参数；域及作用由准确正文定义，默认在复合定义维护"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/产品族与共同发行.md",
+          "section": "作者的确切选择",
+          "sha256": "e41efc5de67456e1fdf7bf749f4287f7a527961f89dc945f5fb8f92a587715ad",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Query": {
+      "kind": "req:rule",
+      "name": "Query",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "pageSize": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Int"
+              }
+            },
+            "meaning": "Query：固定快照上的按键最新值中的pageSize参数；域及作用由准确正文定义，默认在复合定义维护"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/查询批数据与持续流.md",
+          "section": "Query：固定快照上的按键最新值",
+          "sha256": "fee3549a2c4ba78b009fe13ab904e2c517deb584e37e7a7aa0df0e0f13749186",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:BatchData": {
+      "kind": "req:rule",
+      "name": "BatchData",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "partitionCount": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Int"
+              }
+            },
+            "meaning": "BatchData：有清单的有限数据转换中的partitionCount参数；域及作用由准确正文定义，默认在复合定义维护"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/查询批数据与持续流.md",
+          "section": "BatchData：有清单的有限数据转换",
+          "sha256": "fee3549a2c4ba78b009fe13ab904e2c517deb584e37e7a7aa0df0e0f13749186",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:WindowStream": {
+      "kind": "req:rule",
+      "name": "WindowStream",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "windowMs": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Int"
+              }
+            },
+            "meaning": "WindowStream：持续、可背压的精确事件时间聚合中的windowMs参数；域及作用由准确正文定义，默认在复合定义维护"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/查询批数据与持续流.md",
+          "section": "WindowStream：持续、可背压的精确事件时间聚合",
+          "sha256": "fee3549a2c4ba78b009fe13ab904e2c517deb584e37e7a7aa0df0e0f13749186",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Migration": {
+      "kind": "req:rule",
+      "name": "Migration",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "batchSize": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Int"
+              }
+            },
+            "meaning": "作者意图、输入与后像中的batchSize参数；域及作用由准确正文定义，默认在复合定义维护"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/数据与配置迁移.md",
+          "section": "作者意图、输入与后像",
+          "sha256": "e8f5db43265953245e3ebc1008d756bc296315823bec41c2863e92b088e7455a",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Compiler": {
+      "kind": "req:rule",
+      "name": "Compiler",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/编译分析与生成工具.md",
+          "section": "Compiler：从规则到可调用程序",
+          "sha256": "fe649eb99ce3cc678efee3b0756bf2ca122ad389f18111788d7e7547cf139ea6",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Analyzer": {
+      "kind": "req:rule",
+      "name": "Analyzer",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/编译分析与生成工具.md",
+          "section": "Analyzer：观察不偷改输入",
+          "sha256": "fe649eb99ce3cc678efee3b0756bf2ca122ad389f18111788d7e7547cf139ea6",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Generator": {
+      "kind": "req:rule",
+      "name": "Generator",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/编译分析与生成工具.md",
+          "section": "Generator：从同一规则生成文档和数据",
+          "sha256": "fe649eb99ce3cc678efee3b0756bf2ca122ad389f18111788d7e7547cf139ea6",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Inference": {
+      "kind": "req:rule",
+      "name": "Inference",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "weights": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "list": {
+                  "builtin": "Int"
+                }
+              }
+            },
+            "meaning": "Inference：精确线性评分组件中的weights参数；域及作用由准确正文定义，默认在复合定义维护"
+          },
+          "bias": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Int"
+              }
+            },
+            "meaning": "Inference：精确线性评分组件中的bias参数；域及作用由准确正文定义，默认在复合定义维护"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/模型概率与优化.md",
+          "section": "Inference：精确线性评分组件",
+          "sha256": "8d1dfa77a3a44bdc0285aaff5574511053bcb8e25de4600316608f6ddf2ee8e5",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Trainer": {
+      "kind": "req:rule",
+      "name": "Trainer",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "regularization": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Int"
+              }
+            },
+            "meaning": "Trainer：可复现的有限岭回归中的regularization参数；域及作用由准确正文定义，默认在复合定义维护"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/模型概率与优化.md",
+          "section": "Trainer：可复现的有限岭回归",
+          "sha256": "8d1dfa77a3a44bdc0285aaff5574511053bcb8e25de4600316608f6ddf2ee8e5",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Sampler": {
+      "kind": "req:rule",
+      "name": "Sampler",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "numerator": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Int"
+              }
+            },
+            "meaning": "Sampler：概率目标与随机源分别固定中的numerator参数；域及作用由准确正文定义，默认在复合定义维护"
+          },
+          "denominator": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Int"
+              }
+            },
+            "meaning": "Sampler：概率目标与随机源分别固定中的denominator参数；域及作用由准确正文定义，默认在复合定义维护"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/模型概率与优化.md",
+          "section": "Sampler：概率目标与随机源分别固定",
+          "sha256": "8d1dfa77a3a44bdc0285aaff5574511053bcb8e25de4600316608f6ddf2ee8e5",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Optimizer": {
+      "kind": "req:rule",
+      "name": "Optimizer",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/模型概率与优化.md",
+          "section": "Optimizer：有限候选域内真正的最佳值",
+          "sha256": "8d1dfa77a3a44bdc0285aaff5574511053bcb8e25de4600316608f6ddf2ee8e5",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:GpuKernel": {
+      "kind": "req:rule",
+      "name": "GpuKernel",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/计算核固件与实时程序.md",
+          "section": "GpuKernel：有检查边界的整数批计算",
+          "sha256": "542d087dd8c6c2b41c13b5adef051c05295161b997111146f7e5f5872c19678a",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Firmware": {
+      "kind": "req:rule",
+      "name": "Firmware",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "lowMv": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Int"
+              }
+            },
+            "meaning": "Firmware：有启动与失效状态的设备控制中的lowMv参数；域及作用由准确正文定义，默认在复合定义维护"
+          },
+          "highMv": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Int"
+              }
+            },
+            "meaning": "Firmware：有启动与失效状态的设备控制中的highMv参数；域及作用由准确正文定义，默认在复合定义维护"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/计算核固件与实时程序.md",
+          "section": "Firmware：有启动与失效状态的设备控制",
+          "sha256": "542d087dd8c6c2b41c13b5adef051c05295161b997111146f7e5f5872c19678a",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:RealTime": {
+      "kind": "req:rule",
+      "name": "RealTime",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "periodUs": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Int"
+              }
+            },
+            "meaning": "RealTime：可调度边界是交付条件中的periodUs参数；域及作用由准确正文定义，默认在复合定义维护"
+          },
+          "deadlineUs": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Int"
+              }
+            },
+            "meaning": "RealTime：可调度边界是交付条件中的deadlineUs参数；域及作用由准确正文定义，默认在复合定义维护"
+          },
+          "lowMv": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Int"
+              }
+            },
+            "meaning": "RealTime：可调度边界是交付条件中的lowMv参数；域及作用由准确正文定义，默认在复合定义维护"
+          },
+          "highMv": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Int"
+              }
+            },
+            "meaning": "RealTime：可调度边界是交付条件中的highMv参数；域及作用由准确正文定义，默认在复合定义维护"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/计算核固件与实时程序.md",
+          "section": "RealTime：可调度边界是交付条件",
+          "sha256": "542d087dd8c6c2b41c13b5adef051c05295161b997111146f7e5f5872c19678a",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Installer": {
+      "kind": "req:rule",
+      "name": "Installer",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "retainPrevious": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Int"
+              }
+            },
+            "meaning": "Installer：有归属的版本目录安装中的retainPrevious参数；域及作用由准确正文定义，默认在复合定义维护"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/安装与部署.md",
+          "section": "Installer：有归属的版本目录安装",
+          "sha256": "749be5545d24a859ba229d4e6ddf6f2d14dd0dea9b3fa5b80266279abede5434",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Deployment": {
+      "kind": "req:rule",
+      "name": "Deployment",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "replicas": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Int"
+              }
+            },
+            "meaning": "Deployment：一份实际服务及其运行环境中的replicas参数；域及作用由准确正文定义，默认在复合定义维护"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/安装与部署.md",
+          "section": "Deployment：一份实际服务及其运行环境",
+          "sha256": "749be5545d24a859ba229d4e6ddf6f2d14dd0dea9b3fa5b80266279abede5434",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:NativeChange": {
+      "kind": "req:rule",
+      "name": "NativeChange",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Product"
+              ]
+            },
+            "meaning": "当前所约束的准确成品主体；不分配运行实例"
+          },
+          "oldName": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Text"
+              }
+            },
+            "meaning": "NativeChange：交付一个原生工程的准确修改集中的oldName参数；域及作用由准确正文定义，默认在复合定义维护"
+          },
+          "newName": {
+            "required": true,
+            "type": {
+              "kind": "value",
+              "valueType": {
+                "builtin": "Text"
+              }
+            },
+            "meaning": "NativeChange：交付一个原生工程的准确修改集中的newName参数；域及作用由准确正文定义，默认在复合定义维护"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/成品/片段与已有工程变化.md",
+          "section": "NativeChange：交付一个原生工程的准确修改集",
+          "sha256": "ff2cfed55b8fbadbab08c249985def9d5b2ddf410ae4a98669416c94b4779341",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Canonical": {
+      "kind": "req:rule",
+      "name": "Canonical",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Operation"
+              ]
+            },
+            "meaning": "精确整数、合并相接的纯区间规范化主体"
+          }
+        },
+        "semantics": {
+          "source": "../../成品形态/规则合同.md",
+          "section": "2. Canonical：不是一段隐藏的实现步骤；本复用定义固定MergeTouching",
+          "sha256": "bd881707aa9a7b45158e53317a8faee84da50c3c4eb5282fd66eae83f20472b1",
+          "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
+        },
+        "implementation": "unbound"
+      }
+    }
+  },
+  "exports": {
+    "Product": {
+      "definitionId": "t:Product"
+    },
+    "Operation": {
+      "definitionId": "t:Operation"
+    },
+    "Definitions": {
+      "definitionId": "r:Definitions"
+    },
+    "StaticValue": {
+      "definitionId": "r:StaticValue"
+    },
+    "Resources": {
+      "definitionId": "r:Resources"
+    },
+    "Expression": {
+      "definitionId": "r:Expression"
+    },
+    "ContextPatch": {
+      "definitionId": "r:ContextPatch"
+    },
+    "Library": {
+      "definitionId": "r:Library"
+    },
+    "SDK": {
+      "definitionId": "r:SDK"
+    },
+    "ProtocolClient": {
+      "definitionId": "r:ProtocolClient"
+    },
+    "Command": {
+      "definitionId": "r:Command"
+    },
+    "BatchCommand": {
+      "definitionId": "r:BatchCommand"
+    },
+    "HttpHandler": {
+      "definitionId": "r:HttpHandler"
+    },
+    "Service": {
+      "definitionId": "r:Service"
+    },
+    "Worker": {
+      "definitionId": "r:Worker"
+    },
+    "Component": {
+      "definitionId": "r:Component"
+    },
+    "Plugin": {
+      "definitionId": "r:Plugin"
+    },
+    "WebPanel": {
+      "definitionId": "r:WebPanel"
+    },
+    "Desktop": {
+      "definitionId": "r:Desktop"
+    },
+    "Mobile": {
+      "definitionId": "r:Mobile"
+    },
+    "Family": {
+      "definitionId": "r:Family"
+    },
+    "Query": {
+      "definitionId": "r:Query"
+    },
+    "BatchData": {
+      "definitionId": "r:BatchData"
+    },
+    "WindowStream": {
+      "definitionId": "r:WindowStream"
+    },
+    "Migration": {
+      "definitionId": "r:Migration"
+    },
+    "Compiler": {
+      "definitionId": "r:Compiler"
+    },
+    "Analyzer": {
+      "definitionId": "r:Analyzer"
+    },
+    "Generator": {
+      "definitionId": "r:Generator"
+    },
+    "Inference": {
+      "definitionId": "r:Inference"
+    },
+    "Trainer": {
+      "definitionId": "r:Trainer"
+    },
+    "Sampler": {
+      "definitionId": "r:Sampler"
+    },
+    "Optimizer": {
+      "definitionId": "r:Optimizer"
+    },
+    "GpuKernel": {
+      "definitionId": "r:GpuKernel"
+    },
+    "Firmware": {
+      "definitionId": "r:Firmware"
+    },
+    "RealTime": {
+      "definitionId": "r:RealTime"
+    },
+    "Installer": {
+      "definitionId": "r:Installer"
+    },
+    "Deployment": {
+      "definitionId": "r:Deployment"
+    },
+    "NativeChange": {
+      "definitionId": "r:NativeChange"
+    },
+    "Canonical": {
+      "definitionId": "r:Canonical"
+    }
+  }
+}

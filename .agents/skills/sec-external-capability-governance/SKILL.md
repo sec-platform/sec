@@ -56,7 +56,7 @@ description: 用于引入、升级、调用、替换或退役外部工具、Prov
 - reuse/interface decision、owner DAG、最小因果闭包、Effect/credential/readback/recovery 和资源上界。
 - unavailable 路径证明零未授权 network/download/install/cache/spawn；旧 owner 达到 consumer-zero。
 - 明确保留的行为、强反例、数据/摘要兼容、被替换实现及其生产和测试消费者；测试次数、文件数或压缩包大小不能代替这些退出条件。
-- 本Skill是触发与操作路由，不签发机器准入或采用状态。采用规则仍归docs/external-provider-policy.md，测试证据与退役归docs/verification-governance.md；不建立新台账。
+- 本Skill是触发与操作路由，不签发机器准入或采用状态。采用与接合规则归`docs/架构/实现供给与替换.md`及`docs/运行/宿主生态与技术约束.md`，证据归`docs/运行/保证/要求证据与裁决.md`，退役归`docs/演进/兼容迁移与退役.md`；不建立新台账。
 
 ## 停止与恢复
 - capability 不可证明或 unavailable 时保持 typed unknown/unsupported，不自动安装或切换第二 provider。
