@@ -216,14 +216,13 @@ class GitInvocationBudget {
     if (this.providerSession !== null) this.assertGitExecutableCurrent(label);
   }
 
-  async close(): Promise<void> {
+  releaseBorrowedSession(): void {
     const session = this.providerSession;
     this.providerSession = null;
     if (session === null) return;
-    await session.close?.();
     if (session.failure !== null) {
       throw new GitHookTransitionConflict(
-        'Git installer provider failed terminal settlement: ' + session.failure.detail
+        'Git installer borrowed provider failed before release: ' + session.failure.detail
       );
     }
   }
@@ -301,7 +300,7 @@ async function withGitInvocationBudget<T>(
       primaryError = error;
     }
     try {
-      await budget.close();
+      budget.releaseBorrowedSession();
     } catch (error) {
       primaryError ??= error;
     }

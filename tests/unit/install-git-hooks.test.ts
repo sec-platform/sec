@@ -6,8 +6,13 @@ import { pathToFileURL } from 'node:url';
 
 import { expect, test } from 'bun:test';
 
-import { installGitHooksForTest } from '../../src/development/hooks/install.ts';
-import type { GitReadProviderResolutionFailure } from '../../src/external-capabilities/git-read/runtime/session.ts';
+import { installGitHooksForTest, observeManagedGitHooksWithSession } from '../../src/development/hooks/install.ts';
+import { withAuthorityGitReadSession } from '../../src/external-capabilities/git-read/authority.ts';
+import {
+  GIT_READ_DEFAULT_OPERATION_BUDGET,
+  isolatedGitReadEnvironment,
+  type GitReadProviderResolutionFailure
+} from '../../src/external-capabilities/git-read/runtime/session.ts';
 
 test('tracked hooks bind deterministic staged normalization and candidate freeze without ambient EOL drift', async () => {
   const repoRoot = path.resolve(import.meta.dir, '../..');
@@ -111,4 +116,20 @@ test('hook installer keeps Windows provider admission separate from host executa
   expect(result.message).toContain('git-session-failed');
   expect(result.message).toContain(providerFailure.detailDigest);
   expect(spawned).toEqual([]);
+});
+
+test('hook observation borrows one Git session without closing its owner capability', async () => {
+  const repoRoot = path.resolve(import.meta.dir, '../..');
+  await withAuthorityGitReadSession({
+    cwd: repoRoot,
+    source: isolatedGitReadEnvironment(),
+    budget: GIT_READ_DEFAULT_OPERATION_BUDGET
+  }, async (session) => {
+    const first = await observeManagedGitHooksWithSession({ repoRoot, session });
+    expect(session.verifyExecutable()).toBe(true);
+
+    const second = await observeManagedGitHooksWithSession({ repoRoot, session });
+    expect(second.disposition).toBe(first.disposition);
+    expect(session.verifyExecutable()).toBe(true);
+  });
 });
