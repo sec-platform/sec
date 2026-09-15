@@ -63,7 +63,9 @@ test('source program input closure excludes target workspaces and generated arti
   expect(isSourceProgramInputPath('tests/unit/example.test.ts')).toBe(true);
   expect(isSourceProgramInputPath('src/example/sec.module.json')).toBe(true);
   expect(isSourceProgramInputPath('.github/workflows/ci.yml')).toBe(true);
-  expect(isSourceProgramInputPath('docs/authority.json')).toBe(true);
+  expect(isSourceProgramInputPath('.documentation/documents.json')).toBe(true);
+  expect(isSourceProgramInputPath('.documentation/baseline.json')).toBe(true);
+  expect(isSourceProgramInputPath('docs/authority.json')).toBe(false);
   expect(isSourceProgramInputPath(
     'examples/reference-workspace/.sec/artifacts/evidence/review-summary.json'
   )).toBe(false);

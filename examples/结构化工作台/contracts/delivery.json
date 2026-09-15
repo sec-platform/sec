@@ -1,0 +1,380 @@
+{
+  "schema": "sec.author-module/1",
+  "moduleId": "sec/spec/delivery",
+  "namespace": "spec.delivery",
+  "dialects": {
+    "req": {
+      "languageId": "sec.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {},
+  "definitions": {
+    "v:Linux": {
+      "kind": "req:enum-value",
+      "name": "Linux",
+      "body": {
+        "nominalIdentity": "sec/spec/delivery#Linux"
+      }
+    },
+    "v:TypeScript": {
+      "kind": "req:enum-value",
+      "name": "TypeScript",
+      "body": {
+        "nominalIdentity": "sec/spec/delivery#TypeScript"
+      }
+    },
+    "v:Locked": {
+      "kind": "req:enum-value",
+      "name": "Locked",
+      "body": {
+        "nominalIdentity": "sec/spec/delivery#Locked"
+      }
+    },
+    "v:ExplicitNoArtifact": {
+      "kind": "req:enum-value",
+      "name": "ExplicitNoArtifact",
+      "body": {
+        "nominalIdentity": "sec/spec/delivery#ExplicitNoArtifact"
+      }
+    },
+    "v:DesktopHostContract": {
+      "kind": "req:enum-value",
+      "name": "DesktopHostContract",
+      "body": {
+        "nominalIdentity": "sec/spec/delivery#DesktopHostContract"
+      }
+    },
+    "v:Windows": {
+      "kind": "req:enum-value",
+      "name": "Windows",
+      "body": {
+        "nominalIdentity": "sec/spec/delivery#Windows"
+      }
+    },
+    "v:MacOS": {
+      "kind": "req:enum-value",
+      "name": "MacOS",
+      "body": {
+        "nominalIdentity": "sec/spec/delivery#MacOS"
+      }
+    },
+    "v:GeneratedFromIntent": {
+      "kind": "req:enum-value",
+      "name": "GeneratedFromIntent",
+      "body": {
+        "nominalIdentity": "sec/spec/delivery#GeneratedFromIntent"
+      }
+    },
+    "v:ExactIntentAndBinding": {
+      "kind": "req:enum-value",
+      "name": "ExactIntentAndBinding",
+      "body": {
+        "nominalIdentity": "sec/spec/delivery#ExactIntentAndBinding"
+      }
+    },
+    "v:CompatibleDistribution": {
+      "kind": "req:enum-value",
+      "name": "CompatibleDistribution",
+      "body": {
+        "nominalIdentity": "sec/spec/delivery#CompatibleDistribution"
+      }
+    },
+    "v:NoFreshNaturalLanguageInterpretation": {
+      "kind": "req:enum-value",
+      "name": "NoFreshNaturalLanguageInterpretation",
+      "body": {
+        "nominalIdentity": "sec/spec/delivery#NoFreshNaturalLanguageInterpretation"
+      }
+    },
+    "v:RequirementToArtifact": {
+      "kind": "req:enum-value",
+      "name": "RequirementToArtifact",
+      "body": {
+        "nominalIdentity": "sec/spec/delivery#RequirementToArtifact"
+      }
+    },
+    "v:CompleteSelectedRoots": {
+      "kind": "req:enum-value",
+      "name": "CompleteSelectedRoots",
+      "body": {
+        "nominalIdentity": "sec/spec/delivery#CompleteSelectedRoots"
+      }
+    },
+    "t:Platform": {
+      "kind": "req:value-type",
+      "name": "Platform",
+      "body": {
+        "enumMembers": [
+          "sec/spec/delivery#Windows",
+          "sec/spec/delivery#Linux",
+          "sec/spec/delivery#MacOS"
+        ]
+      }
+    },
+    "r:Source": {
+      "kind": "req:rule",
+      "name": "Source",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "DeliverySet"
+              ]
+            },
+            "meaning": "交付主体"
+          },
+          "language": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/delivery#TypeScript"
+              ]
+            },
+            "meaning": "要求TS源输出，不指定SEC实现语言"
+          },
+          "target": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Workbench"
+              ]
+            },
+            "meaning": "完整选定产品"
+          },
+          "host": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/delivery#DesktopHostContract"
+              ]
+            },
+            "meaning": "桌面宿主能力合同；具体实现由合格Binding决定"
+          },
+          "members": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/delivery#CompleteSelectedRoots"
+              ]
+            },
+            "meaning": "源/配置/资源/必要运行库和许可齐全"
+          },
+          "ownership": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/delivery#GeneratedFromIntent"
+              ]
+            },
+            "meaning": "派生工程不反过来成为必须双写的作者源"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/需求规则与供给合同.md",
+          "section": "delivery.Source",
+          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Compatibility": {
+      "kind": "req:rule",
+      "name": "Compatibility",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "DeliverySet"
+              ]
+            },
+            "meaning": "发行组合"
+          },
+          "platforms": {
+            "required": true,
+            "type": {
+              "kind": "set",
+              "element": {
+                "kind": "enum",
+                "allowed": [
+                  "sec/spec/delivery#Windows",
+                  "sec/spec/delivery#Linux",
+                  "sec/spec/delivery#MacOS"
+                ]
+              }
+            },
+            "meaning": "要求的三个独立平台输出"
+          },
+          "unsupported": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/delivery#ExplicitNoArtifact"
+              ]
+            },
+            "meaning": "某平台不合格时该输出明确失败，不冒称三平台完成"
+          },
+          "dependencies": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/delivery#Locked"
+              ]
+            },
+            "meaning": "依赖与方法解释固定到实际内容"
+          },
+          "licensing": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/delivery#CompatibleDistribution"
+              ]
+            },
+            "meaning": "选定源码、库、资源和商标使用满足实际分发条件"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/需求规则与供给合同.md",
+          "section": "delivery.Compatibility",
+          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Identity": {
+      "kind": "req:rule",
+      "name": "Identity",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "DeliverySet"
+              ]
+            },
+            "meaning": "产物集合"
+          },
+          "sources": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/delivery#ExactIntentAndBinding"
+              ]
+            },
+            "meaning": "意图、采用的定义、方法/参数和实际输入共同固定"
+          },
+          "mappings": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/delivery#RequirementToArtifact"
+              ]
+            },
+            "meaning": "从需求出现到生成模块/约束/说明的来源关系"
+          },
+          "rebuild": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/delivery#NoFreshNaturalLanguageInterpretation"
+              ]
+            },
+            "meaning": "固定构建不再次请求AI猜需求"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/需求规则与供给合同.md",
+          "section": "delivery.Identity",
+          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
+        },
+        "implementation": "unbound"
+      }
+    }
+  },
+  "exports": {
+    "Linux": {
+      "definitionId": "v:Linux"
+    },
+    "TypeScript": {
+      "definitionId": "v:TypeScript"
+    },
+    "Locked": {
+      "definitionId": "v:Locked"
+    },
+    "ExplicitNoArtifact": {
+      "definitionId": "v:ExplicitNoArtifact"
+    },
+    "DesktopHostContract": {
+      "definitionId": "v:DesktopHostContract"
+    },
+    "Windows": {
+      "definitionId": "v:Windows"
+    },
+    "MacOS": {
+      "definitionId": "v:MacOS"
+    },
+    "GeneratedFromIntent": {
+      "definitionId": "v:GeneratedFromIntent"
+    },
+    "ExactIntentAndBinding": {
+      "definitionId": "v:ExactIntentAndBinding"
+    },
+    "CompatibleDistribution": {
+      "definitionId": "v:CompatibleDistribution"
+    },
+    "NoFreshNaturalLanguageInterpretation": {
+      "definitionId": "v:NoFreshNaturalLanguageInterpretation"
+    },
+    "RequirementToArtifact": {
+      "definitionId": "v:RequirementToArtifact"
+    },
+    "CompleteSelectedRoots": {
+      "definitionId": "v:CompleteSelectedRoots"
+    },
+    "Platform": {
+      "definitionId": "t:Platform"
+    },
+    "Source": {
+      "definitionId": "r:Source"
+    },
+    "Compatibility": {
+      "definitionId": "r:Compatibility"
+    },
+    "Identity": {
+      "definitionId": "r:Identity"
+    }
+  },
+  "extensions": {
+    "sec.documentation-derived/1": {
+      "source": "../../../docs/作者/需求规则与供给合同.md",
+      "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+      "editable": false,
+      "note": "本份是固定文档的设计字段索引，不是已发布语义实现；正文含义未由可执行读取器交付。"
+    }
+  }
+}

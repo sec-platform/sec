@@ -5,27 +5,16 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 import { stringify as stringifyYaml } from 'yaml';
 
-import {
-  parseDocumentationAuthorityRegistry,
-  type DocumentationAuthorityRegistry
-} from '../../src/control/documentation/authority.ts';
-import type { DocsDoctorIssue } from '../../src/control/documentation/doctor/cli.ts';
-import { scanMachineLedgers } from '../../src/control/documentation/doctor/ledgers.ts';
 import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/external-capabilities/linux-verification/contract.ts';
 import { SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_PATH, SEC_WINDOWS_CONTROL_CLI_PROFILE_ID, SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON, SEC_WINDOWS_CONTROL_CLI_SESSION_SURFACE } from '../../src/external-capabilities/windows-control-cli/contract/environment.ts';
+import { scanMachineLedgers, type CapabilityLedgerIssue } from '../../src/verification/provider/capability-ledger-validation.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 const WINDOWS_CONTROL_CLI_SPEC_RELATIVE_PATH = SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_PATH;
 
-async function repositoryRegistry(): Promise<DocumentationAuthorityRegistry> {
-  return parseDocumentationAuthorityRegistry(
-    await readFile(path.join(REPOSITORY_ROOT, 'docs/authority.json'), 'utf8')
-  );
-}
-
-async function scan(root: string, registry: DocumentationAuthorityRegistry): Promise<DocsDoctorIssue[]> {
-  const issues: DocsDoctorIssue[] = [];
-  await scanMachineLedgers(root, registry, issues);
+async function scan(root: string): Promise<CapabilityLedgerIssue[]> {
+  const issues: CapabilityLedgerIssue[] = [];
+  await scanMachineLedgers(root, issues);
   return issues;
 }
 
@@ -112,7 +101,7 @@ function externalLedger(): Record<string, unknown> {
     binding: {
       repository: 'sec-platform/sec'
     },
-    policy: { owner: 'docs/external-provider-policy.md' },
+    policy: { owner: 'docs/架构/实现供给与替换.md' },
     verification: {
       schema: 'sec-verification-provider-availability-ledger-v1',
       epochId: 'test-epoch-v1',
@@ -192,12 +181,12 @@ function fixtureState(): FixtureState {
 }
 
 async function withLedgerFixture(
-  execute: (root: string, registry: DocumentationAuthorityRegistry) => Promise<void>
+  execute: (root: string) => Promise<void>
 ): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-docs-ledgers-'));
   try {
-    await mkdir(path.join(root, 'docs/governance'), { recursive: true });
-    await execute(root, await repositoryRegistry());
+    await mkdir(path.join(root, 'config/external-capabilities'), { recursive: true });
+    await execute(root);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -213,7 +202,7 @@ async function writeFixture(root: string, state: FixtureState): Promise<void> {
   await rm(specPath, { recursive: true, force: true });
   await Promise.all([
     writeFile(
-      path.join(root, 'docs/governance/external-capability-ledger.yaml'),
+      path.join(root, 'config/external-capabilities/ledger.yaml'),
       stringifyYaml(state.external),
       'utf8'
     ),
@@ -221,28 +210,26 @@ async function writeFixture(root: string, state: FixtureState): Promise<void> {
   ]);
 }
 
-function machineErrors(issues: DocsDoctorIssue[]): DocsDoctorIssue[] {
+function machineErrors(issues: CapabilityLedgerIssue[]): CapabilityLedgerIssue[] {
   return issues.filter((issue) => issue.code === 'machine-ledger-invalid');
 }
 
 async function expectZeroErrors(
   root: string,
-  registry: DocumentationAuthorityRegistry,
   state: FixtureState
 ): Promise<void> {
   await writeFixture(root, state);
-  expect(machineErrors(await scan(root, registry))).toEqual([]);
+  expect(machineErrors(await scan(root))).toEqual([]);
 }
 
 async function expectOneError(
   root: string,
-  registry: DocumentationAuthorityRegistry,
   state: FixtureState,
   file: string,
   message: string
 ): Promise<void> {
   await writeFixture(root, state);
-  expect(machineErrors(await scan(root, registry)).map((issue) => ({
+  expect(machineErrors(await scan(root)).map((issue) => ({
     file: issue.file,
     message: issue.message
   }))).toEqual([{ file, message }]);
@@ -258,52 +245,52 @@ function fixtureRecord(value: unknown): Record<string, unknown> {
 }
 
 test('current repository machine ledgers satisfy their canonical contracts', async () => {
-  expect(machineErrors(await scan(REPOSITORY_ROOT, await repositoryRegistry()))).toEqual([]);
+  expect(machineErrors(await scan(REPOSITORY_ROOT))).toEqual([]);
 });
 
 test('external provider state transitions are ledger-only and graph standing count is typed', async () => {
-  await withLedgerFixture(async (root, registry) => {
+  await withLedgerFixture(async (root) => {
     const base = fixtureState();
-    await expectZeroErrors(root, registry, base);
+    await expectZeroErrors(root, base);
 
     const transitioned = structuredClone(base);
     transitioned.external.status = 'active';
     provider(transitioned.external, 'package-graph').lifecycle = 'active';
-    await expectZeroErrors(root, registry, transitioned);
+    await expectZeroErrors(root, transitioned);
   });
 });
 
 test('the canonical EnvironmentSpec route remains valid while unrelated ledger revalidation stays negative', async () => {
-  await withLedgerFixture(async (root, registry) => {
+  await withLedgerFixture(async (root) => {
     const state = fixtureState();
     (state.external.providers as Array<Record<string, unknown>>).push(
       windowsControlCliProvider()
     );
-    await expectZeroErrors(root, registry, state);
+    await expectZeroErrors(root, state);
     expect(state.external.status).toBe('revalidation-required');
 
     const unrelatedRevalidation = structuredClone(state);
     const architectureGraph = provider(unrelatedRevalidation.external, 'package-graph');
     architectureGraph.lifecycle = 'revalidation-required';
-    await expectZeroErrors(root, registry, unrelatedRevalidation);
+    await expectZeroErrors(root, unrelatedRevalidation);
   });
 });
 
 test('docs doctor reads the supplied EnvironmentSpec with no-follow and rejects file-shape drift', async () => {
-  await withLedgerFixture(async (root, registry) => {
+  await withLedgerFixture(async (root) => {
     const state = fixtureState();
     (state.external.providers as Array<Record<string, unknown>>).push(
       windowsControlCliProvider()
     );
     const specPath = path.join(root, ...WINDOWS_CONTROL_CLI_SPEC_RELATIVE_PATH.split('/'));
-    const file = 'docs/governance/external-capability-ledger.yaml';
+    const file = 'config/external-capabilities/ledger.yaml';
     const expectSpecError = async (
       mutate: () => Promise<void>,
       message: string
     ): Promise<void> => {
       await writeFixture(root, state);
       await mutate();
-      expect(machineErrors(await scan(root, registry)).map((issue) => ({
+      expect(machineErrors(await scan(root)).map((issue) => ({
         file: issue.file,
         message: issue.message
       }))).toEqual([{ file, message }]);
@@ -335,7 +322,7 @@ test('docs doctor reads the supplied EnvironmentSpec with no-follow and rejects 
       '  "profileId": "sec-windows-control-cli-v1",\n  "profileId": "sec-windows-control-cli-v1",'
     );
     await writeFile(specPath, duplicate, 'utf8');
-    const duplicateIssues = machineErrors(await scan(root, registry));
+    const duplicateIssues = machineErrors(await scan(root));
     expect(duplicateIssues).toHaveLength(1);
     expect(duplicateIssues[0]?.message).toContain(
       'EnvironmentSpec src/external-capabilities/windows-control-cli/profile/sec-windows-control-cli-v1.json '
@@ -348,14 +335,14 @@ test('docs doctor reads the supplied EnvironmentSpec with no-follow and rejects 
       '  "profileId": "sec-windows-control-cli-v1",\n  "unknown": true,'
     );
     await writeFile(specPath, unknown, 'utf8');
-    const unknownIssues = machineErrors(await scan(root, registry));
+    const unknownIssues = machineErrors(await scan(root));
     expect(unknownIssues).toHaveLength(1);
   });
 });
 
 test('host-command-execution has one exhaustive provider closure with no null or alias route', async () => {
-  await withLedgerFixture(async (root, registry) => {
-    const file = 'docs/governance/external-capability-ledger.yaml';
+  await withLedgerFixture(async (root) => {
+    const file = 'config/external-capabilities/ledger.yaml';
     const cases: Array<[
       string,
       (provider: Record<string, unknown>) => void,
@@ -385,54 +372,53 @@ test('host-command-execution has one exhaustive provider closure with no null or
         windowsControlCliProvider()
       );
       mutate(provider(state.external, 'windows-native-control-cli'));
-      await expectOneError(root, registry, state, file, message);
+      await expectOneError(root, state, file, message);
     }
   });
 });
 
 test('docs doctor uses the hosted capability epoch window for every observation', async () => {
-  await withLedgerFixture(async (root, registry) => {
+  await withLedgerFixture(async (root) => {
     const state = fixtureState();
     const capability = (state.external.verification as Record<string, unknown>).capabilities as Array<Record<string, unknown>>;
     capability[0]!.observedAt = '2026-08-10T23:59:59.999Z';
-    await expectOneError(root, registry, state, 'docs/governance/external-capability-ledger.yaml',
+    await expectOneError(root, state, 'config/external-capabilities/ledger.yaml',
       'VerificationProviderCapability capability codex-review observation must fall within the availability epoch.');
   });
 });
 
 test('docs doctor preserves the verification ledger parser failure reason', async () => {
-  await withLedgerFixture(async (root, registry) => {
+  await withLedgerFixture(async (root) => {
     const state = fixtureState();
     const verification = state.external.verification as Record<string, unknown>;
     verification.legacyEpoch = 'v0';
-    await expectOneError(root, registry, state, 'docs/governance/external-capability-ledger.yaml',
+    await expectOneError(root, state, 'config/external-capabilities/ledger.yaml',
       'External capability ledger.verification.legacyEpoch is not allowed.');
   });
 });
 
 test('docs doctor delegates static positive capability projections to the canonical normalizer', async () => {
-  await withLedgerFixture(async (root, registry) => {
+  await withLedgerFixture(async (root) => {
     const state = fixtureState();
     const capability = (state.external.verification as Record<string, unknown>)
       .capabilities as Array<Record<string, unknown>>;
     capability[0]!.availability = 'available';
     capability[0]!.reasonCode = null;
     capability[0]!.receiptRef = `sha256:${'a'.repeat(64)}`;
-    await expectZeroErrors(root, registry, state);
+    await expectZeroErrors(root, state);
   });
 });
 
 test('external provider schema and cross-field negatives report the exact failing field', async () => {
-  await withLedgerFixture(async (root, registry) => {
+  await withLedgerFixture(async (root) => {
     const base = fixtureState();
-    await expectZeroErrors(root, registry, base);
-    const file = 'docs/governance/external-capability-ledger.yaml';
+    await expectZeroErrors(root, base);
+    const file = 'config/external-capabilities/ledger.yaml';
 
     const wrongSchema = structuredClone(base);
     wrongSchema.external.schema = 'sec-external-capability-ledger-v2';
     await expectOneError(
       root,
-      registry,
       wrongSchema,
       file,
       'External capability ledger schema must be sec-external-capability-ledger-v4.'
@@ -442,7 +428,6 @@ test('external provider schema and cross-field negatives report the exact failin
     wrongStatus.external.status = 'active';
     await expectOneError(
       root,
-      registry,
       wrongStatus,
       file,
       'External capability ledger status must be revalidation-required while any provider requires revalidation.'
@@ -452,7 +437,6 @@ test('external provider schema and cross-field negatives report the exact failin
     provider(wrongCapability.external, 'package-graph').capability = 'security-analysis';
     await expectOneError(
       root,
-      registry,
       wrongCapability,
       file,
       'External capability provider package-graph.capability security-analysis requires category security.'
@@ -463,7 +447,6 @@ test('external provider schema and cross-field negatives report the exact failin
       .noPlatformSubstitution = false;
     await expectOneError(
       root,
-      registry,
       platformSubstitution,
       file,
       'External capability ledger.executionTopology.invariants must all be true.'
@@ -474,7 +457,6 @@ test('external provider schema and cross-field negatives report the exact failin
       FORBIDDEN_AUTHORITY.slice(0, -1);
     await expectOneError(
       root,
-      registry,
       weakAuthority,
       file,
       'External capability provider package-graph.forbiddenAuthority must contain exactly '
@@ -486,7 +468,6 @@ test('external provider schema and cross-field negatives report the exact failin
       .standingMcp = ['architecture-query'];
     await expectOneError(
       root,
-      registry,
       duplicateSurface,
       file,
       'Standing MCP surface architecture-query is owned by both package-graph and security-query.'
@@ -496,7 +477,6 @@ test('external provider schema and cross-field negatives report the exact failin
     fixtureRecord(provider(blankCliSurface.external, 'package-graph').surfaces).cli = ['   '];
     await expectOneError(
       root,
-      registry,
       blankCliSurface,
       file,
       'External capability provider package-graph.surfaces.cli[0] '
@@ -510,7 +490,6 @@ test('external provider schema and cross-field negatives report the exact failin
       ).standingMcp = [`architecture${control}query`];
       await expectOneError(
         root,
-        registry,
         controlStandingSurface,
         file,
         'External capability provider package-graph.surfaces.standingMcp[0] '
@@ -524,7 +503,6 @@ test('external provider schema and cross-field negatives report the exact failin
     ];
     await expectOneError(
       root,
-      registry,
       decomposedSurface,
       file,
       'External capability provider package-graph.surfaces.cli[0] must be NFC-normalized.'
@@ -536,7 +514,6 @@ test('external provider schema and cross-field negatives report the exact failin
     ];
     await expectOneError(
       root,
-      registry,
       overlongCliSurface,
       file,
       'External capability provider package-graph.surfaces.cli[0] '
@@ -547,13 +524,12 @@ test('external provider schema and cross-field negatives report the exact failin
     fixtureRecord(provider(nonKebabSurface.external, 'package-graph').surfaces).cli = [
       'Workspace.Query/v2'
     ];
-    await expectZeroErrors(root, registry, nonKebabSurface);
+    await expectZeroErrors(root, nonKebabSurface);
 
     const watchCli = structuredClone(base);
     (provider(watchCli.external, 'codegraph').surfaces as Record<string, unknown>).cli = ['query'];
     await expectOneError(
       root,
-      registry,
       watchCli,
       file,
       'External capability provider codegraph cannot expose active surfaces '
@@ -566,7 +542,6 @@ test('external provider schema and cross-field negatives report the exact failin
     ];
     await expectOneError(
       root,
-      registry,
       retiredCli,
       file,
       'External capability provider retired-graph cannot expose active surfaces '
@@ -576,14 +551,13 @@ test('external provider schema and cross-field negatives report the exact failin
     const superseded = structuredClone(base);
     provider(superseded.external, 'retired-graph').decision = 'superseded';
     delete provider(superseded.external, 'retired-graph').rationale;
-    await expectZeroErrors(root, registry, superseded);
+    await expectZeroErrors(root, superseded);
     const supersededCli = structuredClone(superseded);
     (provider(supersededCli.external, 'retired-graph').surfaces as Record<string, unknown>).cli = [
       'query'
     ];
     await expectOneError(
       root,
-      registry,
       supersededCli,
       file,
       'External capability provider retired-graph cannot expose active surfaces '
@@ -595,7 +569,6 @@ test('external provider schema and cross-field negatives report the exact failin
       .standingMcp = ['context-query'];
     await expectOneError(
       root,
-      registry,
       secondStandingGraph,
       file,
       'External capability ledger has 2 standing graph providers; maximum is 1.'
@@ -604,10 +577,10 @@ test('external provider schema and cross-field negatives report the exact failin
 });
 
 test('ledger schemas reject missing, unknown, nested, and legacy alias fields', async () => {
-  await withLedgerFixture(async (root, registry) => {
+  await withLedgerFixture(async (root) => {
     const base = fixtureState();
-    await expectZeroErrors(root, registry, base);
-    const externalFile = 'docs/governance/external-capability-ledger.yaml';
+    await expectZeroErrors(root, base);
+    const externalFile = 'config/external-capabilities/ledger.yaml';
     const variants: Array<{
       state: FixtureState;
       file: string;
@@ -691,7 +664,6 @@ test('ledger schemas reject missing, unknown, nested, and legacy alias fields', 
     for (const variant of variants) {
       await expectOneError(
         root,
-        registry,
         variant.state,
         variant.file,
         variant.message
@@ -701,7 +673,7 @@ test('ledger schemas reject missing, unknown, nested, and legacy alias fields', 
 });
 
 test('external runner release authority binds exact primary-source archive and base image digests', async () => {
-  await withLedgerFixture(async (root, registry) => {
+  await withLedgerFixture(async (root) => {
     const base = fixtureState();
     const environment = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
     const localRunner = {
@@ -741,16 +713,11 @@ test('external runner release authority binds exact primary-source archive and b
           pids: 256
         },
         roleProfiles: Object.values(environment.runtime.roleLabels).sort(),
-        providerLeaseRef: `refs/tags/sec-provider-lease-${environment.environmentId}`,
-        providerLedgerSchema: 'sec-local-github-actions-provider-ledger-v3',
-        providerLedgerAuthority: 'remote-cas-immutable-generations',
-        providerLedgerObjectModel: 'git-commit-parent-chain-with-canonical-ledger-tree',
         destructiveIdentityAuthority: {
           endpointBinding: [
             'github-api-host-principal-repository', 'docker-context-endpoint-daemon'
           ],
           immutableEffects: ['exact-image-id', 'exact-container-id', 'exact-runner-id'],
-          localState: 'projection-only',
           mutableLocators: ['image-tag', 'container-name', 'runner-name', 'labels']
         },
         imageRetirement: {
@@ -772,16 +739,15 @@ test('external runner release authority binds exact primary-source archive and b
       forbiddenAuthority: [...FORBIDDEN_AUTHORITY]
     };
     (base.external.providers as Array<Record<string, unknown>>).push(localRunner);
-    await expectZeroErrors(root, registry, base);
+    await expectZeroErrors(root, base);
 
     const digestDrift = structuredClone(base);
     const drifted = provider(digestDrift.external, 'github-actions-local-runner');
     (drifted.versionAuthority as Record<string, unknown>).artifactSha256 = 'bad';
     await expectOneError(
       root,
-      registry,
       digestDrift,
-      'docs/governance/external-capability-ledger.yaml',
+      'config/external-capabilities/ledger.yaml',
       'External capability provider github-actions-local-runner.versionAuthority.artifactSha256 '
         + 'must be an exact SHA-256 digest.'
     );
@@ -793,9 +759,8 @@ test('external runner release authority binds exact primary-source archive and b
     ];
     await expectOneError(
       root,
-      registry,
       capabilityDrift,
-      'docs/governance/external-capability-ledger.yaml',
+      'config/external-capabilities/ledger.yaml',
       'External capability provider github-actions-local-runner.versionAuthority.'
         + 'outerSutContainerCapabilities must bind the exact constructor boundary.'
     );
@@ -806,9 +771,8 @@ test('external runner release authority binds exact primary-source archive and b
       'https://github.com/actions/runner/releases/tag/v2.335.0';
     await expectOneError(
       root,
-      registry,
       releaseDrift,
-      'docs/governance/external-capability-ledger.yaml',
+      'config/external-capabilities/ledger.yaml',
       'External capability provider github-actions-local-runner.versionAuthority '
         + 'GitHub Actions runner release identity is invalid.'
     );
@@ -819,9 +783,8 @@ test('external runner release authority binds exact primary-source archive and b
     nodeAuthority.nodeArtifactSha256 = '0'.repeat(64);
     await expectOneError(
       root,
-      registry,
       nodeDigestDrift,
-      'docs/governance/external-capability-ledger.yaml',
+      'config/external-capabilities/ledger.yaml',
       'External capability provider github-actions-local-runner.versionAuthority.nodeArtifactSha256 '
         + 'must bind the exact Node.js binary.'
     );
@@ -834,9 +797,8 @@ test('external runner release authority binds exact primary-source archive and b
     githubCliAuthority.githubCliArtifactSha256 = '0'.repeat(64);
     await expectOneError(
       root,
-      registry,
       githubCliDigestDrift,
-      'docs/governance/external-capability-ledger.yaml',
+      'config/external-capabilities/ledger.yaml',
       'External capability provider github-actions-local-runner.versionAuthority '
         + 'GitHub CLI identity is invalid.'
     );
@@ -847,9 +809,8 @@ test('external runner release authority binds exact primary-source archive and b
     pythonAuthority.pythonVersion = '3.12.2';
     await expectOneError(
       root,
-      registry,
       pythonDrift,
-      'docs/governance/external-capability-ledger.yaml',
+      'config/external-capabilities/ledger.yaml',
       'External capability provider github-actions-local-runner.versionAuthority.pythonVersion '
         + 'must bind the archive-inspection runtime.'
     );
@@ -860,9 +821,8 @@ test('external runner release authority binds exact primary-source archive and b
     zipAuthority.zipExtractionCapability = 'missing';
     await expectOneError(
       root,
-      registry,
       zipDrift,
-      'docs/governance/external-capability-ledger.yaml',
+      'config/external-capabilities/ledger.yaml',
       'External capability provider github-actions-local-runner.versionAuthority.'
         + 'zipExtractionCapability must bind setup archive extraction.'
     );
@@ -873,9 +833,8 @@ test('external runner release authority binds exact primary-source archive and b
     imageAuthority.imageId = `sha256:${'f'.repeat(64)}`;
     await expectOneError(
       root,
-      registry,
       imageDrift,
-      'docs/governance/external-capability-ledger.yaml',
+      'config/external-capabilities/ledger.yaml',
       'External capability provider github-actions-local-runner.versionAuthority.imageId '
         + 'must be an exact built image digest.'
     );
@@ -886,9 +845,8 @@ test('external runner release authority binds exact primary-source archive and b
     initAuthority.containerInitCapability = 'ambient-pid1';
     await expectOneError(
       root,
-      registry,
       initDrift,
-      'docs/governance/external-capability-ledger.yaml',
+      'config/external-capabilities/ledger.yaml',
       'External capability provider github-actions-local-runner.versionAuthority.containerInitCapability '
         + 'must bind persistent child reaping.'
     );
@@ -899,9 +857,8 @@ test('external runner release authority binds exact primary-source archive and b
     roleAuthority.roleProfiles = ['sec-linux-verification-sut-v1'];
     await expectOneError(
       root,
-      registry,
       roleDrift,
-      'docs/governance/external-capability-ledger.yaml',
+      'config/external-capabilities/ledger.yaml',
       'External capability provider github-actions-local-runner.versionAuthority.roleProfiles '
         + 'must bind the exact trust-domain roles.'
     );
@@ -914,9 +871,8 @@ test('external runner release authority binds exact primary-source archive and b
     };
     await expectOneError(
       root,
-      registry,
       authorityKindEscape,
-      'docs/governance/external-capability-ledger.yaml',
+      'config/external-capabilities/ledger.yaml',
       'External capability provider github-actions-local-runner.versionAuthority.kind '
         + 'must be external-release for the workflow-execution capability.'
     );

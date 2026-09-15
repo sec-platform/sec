@@ -1,9 +1,7 @@
 {
   "importGraph": "runtime",
   "externalEntrypoints": [
-    "src/control/documentation/document-control-plane.ts",
-    "src/control/documentation/doctor/cli.ts",
-    "src/control/documentation/migration-cli.ts"
+    "src/control/documentation/document-control-plane.ts"
   ],
   "capabilityProviders": [
     {

@@ -19,18 +19,12 @@ import {
   type IssueCommentRecord
 } from '../branch-lifecycle/branch-closeout-receipt.ts';
 import {
-  documentationRecordById,
-  parseDocumentationAuthorityRegistry,
-  resolveDocumentationOperationOwners,
-  type DocumentationAuthorityRegistry
-} from '../documentation/authority.ts';
-import {
-  compileDocumentationOperationAdmissionProjection,
-  compileDocumentationSemanticGraph,
-  projectDocumentationClauseSelection,
-  type DocumentationClauseSelectionReference,
-  type DocumentationSemanticGraph
-} from '../documentation/compiler.ts';
+  DOCUMENTATION_IDENTITY_PATH,
+  documentationIdentityById,
+  documentationIdentityByPath,
+  parseDocumentationIdentityRegistry,
+  type DocumentationIdentityRecord
+} from '../documentation/active.ts';
 import {
   CodexDevelopmentAssertControlPlaneBinding,
   CodexDevelopmentParseActivePointer,
@@ -86,9 +80,9 @@ import {
 } from './operation-activation.ts';
 
 const CONTROL_PATHS = Object.freeze({
-  currentState: 'docs/work/current-state.yaml',
-  pointer: 'docs/work/active-work-package.md',
-  rollingPlan: 'docs/work/rolling-plan.md'
+  currentState: 'config/repository/current-state.yaml',
+  pointer: 'config/repository/active-work-package.md',
+  rollingPlan: 'config/repository/rolling-plan.md'
 });
 const COMMAND_TIMEOUT_MS = 60_000;
 const COMMAND_MAX_BUFFER = 32 * 1024 * 1024;
@@ -384,7 +378,7 @@ function canonicalBytes(value: unknown): Buffer {
 function listWorkPackagePaths(root: string, revision: string): readonly string[] {
   const bytes = requireCommand('git', [
     '-c', 'core.quotepath=false', 'ls-tree', '-r', '--name-only', '-z', revision,
-    '--', 'docs/work-packages'
+    '--', 'config/repository/work-packages'
   ], root, 'activation-scope-conflict');
   if (bytes.length === 0 || bytes.at(-1) !== 0) {
     unavailable('activation-scope-conflict', 'candidate-work-package-census-is-empty-or-unterminated');
@@ -426,7 +420,7 @@ function preparationWorkPackageDeletions(
       ...(tracking === 'none' && candidatePackagePaths.length > 1
         ? {
             roadmapSource: decodeUtf8(
-              readGitBlob(candidateRoot, `${proposalRevision}:docs/roadmap.md`).bytes,
+              readGitBlob(candidateRoot, `${proposalRevision}:config/repository/work-selection.md`).bytes,
               'activation-scope-conflict'
             )
           }
@@ -440,7 +434,7 @@ export interface SecOperationAuthorityOwnerObservation {
   readonly owner: string;
   readonly revision: string;
   readonly contentDigest: `sha256:${string}`;
-  readonly projection: DocumentationClauseSelectionReference | null;
+  readonly projection: null;
 }
 
 function observeOperationAuthorityOwners(
@@ -454,74 +448,62 @@ function observeOperationAuthorityOwners(
       || manifest.authorityRefs === undefined) {
     unavailable('activation-scope-conflict', 'work-package-authority-refs-missing');
   }
-  let records: ReturnType<typeof resolveDocumentationOperationOwners>;
-  let registry: DocumentationAuthorityRegistry;
-  let documentationGraph: DocumentationSemanticGraph;
+  let records: readonly DocumentationIdentityRecord[];
+  let identityBlob: ReturnType<typeof readGitBlob>;
   try {
-    const registryBlob = readGitBlob(candidateRoot, `${trustedRevision}:docs/authority.json`);
-    const registryBytes = registryBlob.bytes;
-    registry = parseDocumentationAuthorityRegistry(decodeUtf8(registryBytes, 'activation-scope-conflict'));
-    const owners = resolveDocumentationOperationOwners({
-      registry,
-      authorityRefs: manifest.authorityRefs,
-      changedPaths: paths
+    identityBlob = readGitBlob(
+      candidateRoot,
+      `${trustedRevision}:${DOCUMENTATION_IDENTITY_PATH}`
+    );
+    const registryBytes = identityBlob.bytes;
+    const registry = parseDocumentationIdentityRegistry(
+      decodeUtf8(registryBytes, 'activation-scope-conflict')
+    );
+    const owners = manifest.authorityRefs.map((documentId) => {
+      const owner = documentationIdentityById(registry, documentId);
+      if (owner === undefined) {
+        unavailable('activation-scope-conflict', `unknown-document-authority:${documentId}`);
+      }
+      return owner;
     });
-    const agents = documentationRecordById(registry, 'agents-entry');
-    const registryOwner = documentationRecordById(registry, 'documentation-registry');
-    if (agents === undefined || registryOwner === undefined
-        || agents.path !== 'AGENTS.md' || registryOwner.path !== 'docs/authority.json') {
+    const changedDocuments = paths.flatMap((repositoryPath) => {
+      const record = documentationIdentityByPath(registry, repositoryPath);
+      return record === undefined ? [] : [record];
+    });
+    const agents = documentationIdentityByPath(registry, 'AGENTS.md');
+    if (agents === undefined) {
       unavailable('activation-scope-conflict', 'startup-document-owner-missing');
     }
-    records = Object.freeze([agents, registryOwner, ...owners]
-      .filter((entry, index, values) => values.findIndex(({ id }) => id === entry.id) === index)
-      .sort((left, right) => compareCodeUnits(left.id, right.id)));
-    const documentationSources = registry.documents
-      .filter((record) => (record.kind === 'authority' || record.kind === 'corpus-contract')
-        && record.lifecycle === 'stable')
-      .sort((left, right) => compareCodeUnits(left.id, right.id))
-      .map((record) => {
-        const revision = paths.includes(record.path) ? targetCandidate : trustedRevision;
-        return {
-          documentId: record.id,
-          source: decodeUtf8(
-            readGitBlob(candidateRoot, `${revision}:${record.path}`).bytes,
-            'activation-scope-conflict'
-          )
-        };
-      });
-    documentationGraph = compileDocumentationSemanticGraph({
-      trustedTree: targetCandidate,
-      registry,
-      sources: documentationSources,
-      admission: compileDocumentationOperationAdmissionProjection({
-        trustedTree: targetCandidate,
-        registry,
-        owners,
-        subjectRefs: paths
-      })
-    });
+    records = Object.freeze([agents, ...owners, ...changedDocuments]
+      .filter((entry, index, values) => values.findIndex(
+        ({ documentId }) => documentId === entry.documentId
+      ) === index)
+      .sort((left, right) => compareCodeUnits(left.documentId, right.documentId)));
   } catch (error) {
     if (error instanceof SecAgentOperationActivationUnavailableError) throw error;
     unavailable('activation-scope-conflict', error instanceof Error ? error.message : String(error));
   }
-  return Object.freeze(records.map((entry) => {
-    const revision = entry.id !== 'documentation-registry' && paths.includes(entry.path)
+  return Object.freeze([Object.freeze({
+    id: 'documentation-identity-registry',
+    ref: DOCUMENTATION_IDENTITY_PATH,
+    owner: 'documentation-identity',
+    revision: identityBlob.oid,
+    contentDigest: rawSha256(identityBlob.bytes),
+    projection: null
+  }), ...records.map((entry) => {
+    const revision = paths.includes(entry.path)
       ? targetCandidate
       : trustedRevision;
     const blob = readGitBlob(candidateRoot, `${revision}:${entry.path}`);
     return Object.freeze({
-      id: entry.id,
+      id: entry.documentId,
       ref: entry.path,
-      owner: entry.domain,
+      owner: entry.documentId,
       revision: blob.oid,
       contentDigest: rawSha256(blob.bytes),
-      projection: documentationGraph.clauses.some(({ documentId, kind }) => (
-        documentId === entry.id && kind !== 'untyped-observation'
-      ))
-        ? projectDocumentationClauseSelection(documentationGraph, entry.id)
-        : null
+      projection: null
     });
-  }));
+  })]);
 }
 
 async function requireResolvedWorkDecision(root: string): Promise<SecWorkDecisionReceipt> {

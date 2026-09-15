@@ -12,6 +12,11 @@
     "src/control/branch-lifecycle/branch-local-residue-closeout.ts",
     "src/verification/trust/contract/ci-trust-root-registry.json",
     "src/verification/trust/runtime/closure-lock.ts",
+    "tools/check_design.py",
+    "tools/check_docs.py",
+    "tools/source_inventory.py",
+    "tools/test_check_design.py",
+    "tools/test_check_source_inventory.py",
     "tsconfig.json"
   ],
   "staticDirectoryPaths": [
@@ -30,7 +35,6 @@
     "src/control/agent/skill-applicability.ts",
     "src/control/branch-lifecycle/worktree-physical-closeout.ts",
     "src/control/composition/trusted-runtime-closeout.ts",
-    "src/control/documentation/doctor/cli.ts",
     "src/control/integration/authorization.ts",
     "src/control/integration/merge-gate.ts",
     "src/control/main-health/contract.ts",
@@ -47,6 +51,7 @@
     "src/verification/ci/runtime/local-github-actions-runner.ts",
     "src/verification/ci/runtime/verification-session.ts",
     "src/verification/ci/verification.ts",
+    "src/verification/provider/capability-ledger-validation.ts",
     "src/verification/result/contract/result.ts",
     "src/verification/review/contract/stability.ts",
     "src/verification/session/contract/session.ts",
@@ -61,8 +66,6 @@
   "reviewedBoundaryEdges": [],
   "reviewedExternalImports": [
     "src/brownfield/source-program-model/test-impact-projection.ts -> zod",
-    "src/control/documentation/doctor/frontmatter.ts -> zod",
-    "src/control/documentation/doctor/markdown-syntax.ts -> prettier/plugins/markdown",
     "src/control/scope/authorization.ts -> zod",
     "src/development/runner/env-manager.ts -> node:net",
     "src/external-capabilities/docker/contract/windows-installation-profile.ts -> zod",

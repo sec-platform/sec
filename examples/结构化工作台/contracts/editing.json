@@ -1,0 +1,390 @@
+{
+  "schema": "sec.author-module/1",
+  "moduleId": "sec/spec/editing",
+  "namespace": "spec.editing",
+  "dialects": {
+    "req": {
+      "languageId": "sec.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {},
+  "definitions": {
+    "v:PreserveOrExplicitConvert": {
+      "kind": "req:enum-value",
+      "name": "PreserveOrExplicitConvert",
+      "body": {
+        "nominalIdentity": "sec/spec/editing#PreserveOrExplicitConvert"
+      }
+    },
+    "v:PreserveBoth": {
+      "kind": "req:enum-value",
+      "name": "PreserveBoth",
+      "body": {
+        "nominalIdentity": "sec/spec/editing#PreserveBoth"
+      }
+    },
+    "v:PerResource": {
+      "kind": "req:enum-value",
+      "name": "PerResource",
+      "body": {
+        "nominalIdentity": "sec/spec/editing#PerResource"
+      }
+    },
+    "v:Multiple": {
+      "kind": "req:enum-value",
+      "name": "Multiple",
+      "body": {
+        "nominalIdentity": "sec/spec/editing#Multiple"
+      }
+    },
+    "v:ByUserAction": {
+      "kind": "req:enum-value",
+      "name": "ByUserAction",
+      "body": {
+        "nominalIdentity": "sec/spec/editing#ByUserAction"
+      }
+    },
+    "v:ExplicitChanges": {
+      "kind": "req:enum-value",
+      "name": "ExplicitChanges",
+      "body": {
+        "nominalIdentity": "sec/spec/editing#ExplicitChanges"
+      }
+    },
+    "v:IfCurrentCompatible": {
+      "kind": "req:enum-value",
+      "name": "IfCurrentCompatible",
+      "body": {
+        "nominalIdentity": "sec/spec/editing#IfCurrentCompatible"
+      }
+    },
+    "v:FromWorkspace": {
+      "kind": "req:enum-value",
+      "name": "FromWorkspace",
+      "body": {
+        "nominalIdentity": "sec/spec/editing#FromWorkspace"
+      }
+    },
+    "v:UnambiguousSourcePositions": {
+      "kind": "req:enum-value",
+      "name": "UnambiguousSourcePositions",
+      "body": {
+        "nominalIdentity": "sec/spec/editing#UnambiguousSourcePositions"
+      }
+    },
+    "v:PreserveOriginal": {
+      "kind": "req:enum-value",
+      "name": "PreserveOriginal",
+      "body": {
+        "nominalIdentity": "sec/spec/editing#PreserveOriginal"
+      }
+    },
+    "v:ManyViewsOneModel": {
+      "kind": "req:enum-value",
+      "name": "ManyViewsOneModel",
+      "body": {
+        "nominalIdentity": "sec/spec/editing#ManyViewsOneModel"
+      }
+    },
+    "r:Documents": {
+      "kind": "req:rule",
+      "name": "Documents",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "DocumentSpace"
+              ]
+            },
+            "meaning": "文档集合主体"
+          },
+          "resourceIdentity": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/editing#FromWorkspace"
+              ]
+            },
+            "meaning": "与根/文件操作共用资源身份"
+          },
+          "coordinates": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/editing#UnambiguousSourcePositions"
+              ]
+            },
+            "meaning": "位置绑定准确文本及可核对的坐标含义；字节、标量、字素及UTF-16等内部/外部单位由适配转换，不强制一种内部缓冲"
+          },
+          "encoding": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/editing#PreserveOrExplicitConvert"
+              ]
+            },
+            "meaning": "保存保留可复现原编码，改变必须是明确转换"
+          },
+          "newlines": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/editing#PreserveOriginal"
+              ]
+            },
+            "meaning": "保留原换行；显式规范化是独立行为"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/需求规则与供给合同.md",
+          "section": "editing.Documents",
+          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Editor": {
+      "kind": "req:rule",
+      "name": "Editor",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "EditorSurface"
+              ]
+            },
+            "meaning": "编辑交互主体"
+          },
+          "documents": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "DocumentSpace"
+              ]
+            },
+            "meaning": "实际被编辑的模型集合"
+          },
+          "selections": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/editing#Multiple"
+              ]
+            },
+            "meaning": "多个选区与光标及确定合并/冲突规则"
+          },
+          "views": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/editing#ManyViewsOneModel"
+              ]
+            },
+            "meaning": "多个视图绑定同一模型而不是各复制一份内容"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/需求规则与供给合同.md",
+          "section": "editing.Editor",
+          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:History": {
+      "kind": "req:rule",
+      "name": "History",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "EditHistory"
+              ]
+            },
+            "meaning": "历史主体"
+          },
+          "documents": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "DocumentSpace"
+              ]
+            },
+            "meaning": "同一模型集合"
+          },
+          "grouping": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/editing#ByUserAction"
+              ]
+            },
+            "meaning": "一组实际用户动作形成一个逻辑撤销组"
+          },
+          "undo": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/editing#IfCurrentCompatible"
+              ]
+            },
+            "meaning": "只有现场/历史允许才执行逆编辑"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/需求规则与供给合同.md",
+          "section": "editing.History",
+          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Save": {
+      "kind": "req:rule",
+      "name": "Save",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "documents": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "DocumentSpace"
+              ]
+            },
+            "meaning": "编辑完成的模型"
+          },
+          "workspace": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Workspace"
+              ]
+            },
+            "meaning": "真正持久化目的地"
+          },
+          "completion": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/editing#PerResource"
+              ]
+            },
+            "meaning": "模型编辑与各资源保存分别结算"
+          },
+          "participants": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/editing#ExplicitChanges"
+              ]
+            },
+            "meaning": "格式化等保存参与者产生的字节变化可见"
+          },
+          "conflicts": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/editing#PreserveBoth"
+              ]
+            },
+            "meaning": "外部写冲突保留双方内容/依据"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/需求规则与供给合同.md",
+          "section": "editing.Save",
+          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
+        },
+        "implementation": "unbound"
+      }
+    }
+  },
+  "exports": {
+    "PreserveOrExplicitConvert": {
+      "definitionId": "v:PreserveOrExplicitConvert"
+    },
+    "PreserveBoth": {
+      "definitionId": "v:PreserveBoth"
+    },
+    "PerResource": {
+      "definitionId": "v:PerResource"
+    },
+    "Multiple": {
+      "definitionId": "v:Multiple"
+    },
+    "ByUserAction": {
+      "definitionId": "v:ByUserAction"
+    },
+    "ExplicitChanges": {
+      "definitionId": "v:ExplicitChanges"
+    },
+    "IfCurrentCompatible": {
+      "definitionId": "v:IfCurrentCompatible"
+    },
+    "FromWorkspace": {
+      "definitionId": "v:FromWorkspace"
+    },
+    "UnambiguousSourcePositions": {
+      "definitionId": "v:UnambiguousSourcePositions"
+    },
+    "PreserveOriginal": {
+      "definitionId": "v:PreserveOriginal"
+    },
+    "ManyViewsOneModel": {
+      "definitionId": "v:ManyViewsOneModel"
+    },
+    "Documents": {
+      "definitionId": "r:Documents"
+    },
+    "Editor": {
+      "definitionId": "r:Editor"
+    },
+    "History": {
+      "definitionId": "r:History"
+    },
+    "Save": {
+      "definitionId": "r:Save"
+    }
+  },
+  "extensions": {
+    "sec.documentation-derived/1": {
+      "source": "../../../docs/作者/需求规则与供给合同.md",
+      "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+      "editable": false,
+      "note": "本份是固定文档的设计字段索引，不是已发布语义实现；正文含义未由可执行读取器交付。"
+    }
+  }
+}

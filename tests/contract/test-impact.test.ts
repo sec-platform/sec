@@ -71,7 +71,7 @@ function expectUnique(values: readonly string[]): void {
 }
 
 test('repository sources route by semantic kind and module identity', () => {
-  const activeDocumentationPath = (candidate: string) => candidate === 'docs/roadmap.md';
+  const activeDocumentationPath = (candidate: string) => candidate === 'config/repository/work-selection.md';
   expect(classifyTestImpactSource(
     'catalog/registry/official/ticket.basic/block.manifest.yaml',
     activeDocumentationPath
@@ -91,7 +91,7 @@ test('repository sources route by semantic kind and module identity', () => {
     '.githooks/unobserved',
     activeDocumentationPath
   )).toBeNull();
-  expect(classifyTestImpactSource('docs/roadmap.md', activeDocumentationPath))
+  expect(classifyTestImpactSource('config/repository/work-selection.md', activeDocumentationPath))
     .toBe('active-documentation');
   expect(classifyTestImpactSource('docs/unregistered.manifest.yaml', activeDocumentationPath))
     .toBeNull();
@@ -257,7 +257,7 @@ test('non-code product inputs reach tests through semantic module owners', () =>
     'src/compiler/virtual-manifest-consumer.ts': 'export const manifestConsumer = true;',
     'tests/unit/virtual-manifest-consumer.test.ts': "import { manifestConsumer } from '../../src/compiler/virtual-manifest-consumer.ts'; void manifestConsumer;"
   });
-  const documentation = selectTestsForSources(['docs/product.md'], provider);
+  const documentation = selectTestsForSources(['docs/产品/产品要求与工作约束.md'], provider);
   expect(documentation.owners).toContain('control.documentation');
   expect(documentation.fast).toEqual([]);
   expect(documentation.slow).toEqual([]);

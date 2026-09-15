@@ -23,7 +23,7 @@ function checkpoint() {
     baseTreeSha: BASE_TREE,
     headSha: HEAD,
     headTreeSha: HEAD_TREE,
-    manifestPath: 'docs/work-packages/sec-static-convergence-v1.md'
+    manifestPath: 'config/repository/work-packages/sec-static-convergence-v1.md'
   });
 }
 
@@ -36,7 +36,7 @@ function observation(): LocalContinuationObservation {
     parentShas: Object.freeze([BASE]),
     baseTreeSha: BASE_TREE,
     worktreeClean: true,
-    manifestPath: 'docs/work-packages/sec-static-convergence-v1.md',
+    manifestPath: 'config/repository/work-packages/sec-static-convergence-v1.md',
     manifestDigest: MANIFEST,
     workPackageId: 'sec-static-convergence-v1',
     tracking: 'issue-311',
@@ -66,7 +66,7 @@ test('checkpoint carries only irreducible remote/frozen facts and admission deri
     baseTreeSha: BASE_TREE,
     headSha: HEAD,
     headTreeSha: HEAD_TREE,
-    manifestPath: 'docs/work-packages/sec-static-convergence-v1.md',
+    manifestPath: 'config/repository/work-packages/sec-static-convergence-v1.md',
     manifestDigest: MANIFEST,
     workPackageId: 'sec-static-convergence-v1',
     tracking: 'issue-311',
@@ -93,7 +93,7 @@ test('checkpoint tamper and local identity/scope admission drift fail closed', (
     { baseTreeSha: '7'.repeat(40) },
     { parentShas: Object.freeze(['8'.repeat(40)]) },
     { worktreeClean: false },
-    { manifestPath: 'docs/work-packages/other.md' },
+    { manifestPath: 'config/repository/work-packages/other.md' },
     { manifestBaseSha: '9'.repeat(40) },
     { changedPathCount: 0 }
   ];

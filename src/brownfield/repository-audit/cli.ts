@@ -93,6 +93,7 @@ import {
 import { tsconfigRelativePath } from '../../workspace/runtime/paths.ts';
 import {
   createSourceProgramCompilationOperation,
+  SourceProgramCompilationInterruptedError,
   type SourceProgramCompilationOperation
 } from '../source-program-model/compilation-operation.ts';
 import { SOURCE_PROGRAM_BLOCKING_CANDIDATE_CODES, sourceProgramSurfaceForPath, type SourceProgramCandidate, type SourceProgramFileInput, type SourceProgramModel, type SourceProgramOwnerIntentEvidence, type SourceProgramSupersessionReceipt } from '../source-program-model/contract.ts';
@@ -1092,7 +1093,8 @@ async function compileRevisionSupersessionEvidence(
   dependencyGeneration: RetainedNoFollowProvenDirectoryGeneration,
   dependencyGenerationDigest: `sha256:${string}`,
   operation: SourceProgramCompilationOperation,
-  cachedEvidence: SourceProgramSupersessionEvidence | null
+  cachedEvidence: SourceProgramSupersessionEvidence | null,
+  cacheAccess: 'read-only' | 'read-write'
 ): Promise<Readonly<{
   compilation: ReturnType<typeof compileRepositorySourceProgramCompilation>;
   evidence: SourceProgramSupersessionEvidence;
@@ -1122,6 +1124,7 @@ async function compileRevisionSupersessionEvidence(
     { dependencyGeneration, dependencyGenerationDigest }
   );
   const compilation = compileRepositorySourceProgramWithCache({
+    cacheAccess,
     workspaceSnapshot,
     projectInput,
     operation,
@@ -1247,6 +1250,7 @@ async function compileWorkingTreeSourceProgram(
   supersessionBaseline: string,
   deadlineAtUnixMs: number,
   allowSupersessionEvidenceCache: boolean,
+  cacheAccess: 'read-only' | 'read-write',
   observeKnip: boolean
 ): Promise<Readonly<{
   cache: 'hit' | 'incremental' | 'miss';
@@ -1299,7 +1303,8 @@ async function compileWorkingTreeSourceProgram(
         deadlineAtUnixMs,
         retained.physicalGeneration,
         retained.generationDigest,
-        allowSupersessionEvidenceCache
+        allowSupersessionEvidenceCache,
+        cacheAccess
       )
     );
     if (!observeKnip) return Object.freeze({ ...compilation, knipProvider: null });
@@ -1333,7 +1338,8 @@ async function compileWorkingTreeSourceProgramWithSession(
   deadlineAtUnixMs: number,
   dependencyGeneration: RetainedNoFollowProvenDirectoryGeneration,
   dependencyGenerationDigest: `sha256:${string}`,
-  allowSupersessionEvidenceCache: boolean
+  allowSupersessionEvidenceCache: boolean,
+  cacheAccess: 'read-only' | 'read-write'
 ): Promise<Readonly<{
   cache: 'hit' | 'incremental' | 'miss';
   sourceProgramCompilation: Readonly<{
@@ -1413,7 +1419,8 @@ async function compileWorkingTreeSourceProgramWithSession(
     dependencyGeneration,
     dependencyGenerationDigest,
     compilationOperation,
-    cachedBaselineSupersessionEvidence
+    cachedBaselineSupersessionEvidence,
+    cacheAccess
   );
   const baselineSupersessionEvidence = baselineReconciliation.evidence;
   const baselineTestPaths = Object.freeze(
@@ -1473,6 +1480,7 @@ async function compileWorkingTreeSourceProgramWithSession(
     { dependencyGeneration, dependencyGenerationDigest }
   );
   const compilation = compileRepositorySourceProgramWithCache({
+    cacheAccess,
     workspaceSnapshot,
     projectInput,
     operation: compilationOperation,
@@ -1556,6 +1564,7 @@ async function prepareWorkingTreeSourceProgramAudit(
         options.supersessionBaseline,
         deadlineAtUnixMs,
         !options.enforce,
+        options.enforce ? 'read-only' : 'read-write',
         options.reductionMode === 'graph-cut'
       );
     } finally {
@@ -2065,10 +2074,10 @@ async function auditControlPlane(
   findings: RepositoryAuditFinding[],
   unknowns: string[]
 ): Promise<{ pointerManifestOnDefault: boolean }> {
-  const pointerPath = 'docs/work/active-work-package.md';
-  const rollingPath = 'docs/work/rolling-plan.md';
+  const pointerPath = 'config/repository/active-work-package.md';
+  const rollingPath = 'config/repository/rolling-plan.md';
   if (!tracked.includes(pointerPath) || !tracked.includes(rollingPath)) {
-    unknowns.push('docs/work control plane is incomplete');
+    unknowns.push('config/repository control plane is incomplete');
     return { pointerManifestOnDefault: false };
   }
 
@@ -2076,7 +2085,7 @@ async function auditControlPlane(
   const rollingPlan = textByPath.get(rollingPath);
   if (pointer === undefined || pointer === null
     || rollingPlan === undefined || rollingPlan === null) {
-    unknowns.push('docs/work control plane is not readable as text at the audited revision');
+    unknowns.push('config/repository control plane is not readable as text at the audited revision');
     return { pointerManifestOnDefault: false };
   }
   let manifestPath: string;
@@ -2142,7 +2151,7 @@ async function auditControlPlane(
     { allowFailure: true }
   );
   // The active-phase manifest is frozen on the default branch by the activation
-  // commit; docs/work/README.md keeps it `conditional` while the pointer selects
+  // commit; config/repository/README.md keeps it `conditional` while the pointer selects
   // it. Being present on default is the designed state, not a violation.
   const pointerManifestOnDefault = defaultManifestBytes !== null
     && createHash('sha256').update(defaultManifestBytes).digest('hex') === expectedDigest;
@@ -2157,7 +2166,7 @@ async function auditControlPlane(
     });
   }
 
-  const liveManifests = tracked.filter((file) => /^docs\/work-packages\/[^/]+\.md$/u.test(file));
+  const liveManifests = tracked.filter((file) => /^config\/repository\/work-packages\/[^/]+\.md$/u.test(file));
   try {
     const entries = await Promise.all(liveManifests.map(async (packagePath) => {
       const candidateBytes = bytesByPath.get(packagePath);
@@ -2172,7 +2181,7 @@ async function auditControlPlane(
           : await runGitBytes(session, ['show', `${defaultRef}:${packagePath}`], { allowFailure: true })
       };
     }));
-    const roadmapSource = textByPath.get('docs/roadmap.md');
+    const roadmapSource = textByPath.get('config/repository/work-selection.md');
     const census = CodexDevelopmentClassifyWorkPackageCensus({
       selectedManifestPath: manifestPath,
       entries,
@@ -2184,7 +2193,7 @@ async function auditControlPlane(
       pushFinding(findings, {
         code: 'control-plane-live-manifest-census',
         message: `multiple byte-exact published predecessors remain: ${census.ambiguousPredecessorPaths.join(', ')}`,
-        path: 'docs/work-packages',
+        path: 'config/repository/work-packages',
         severity: 'high'
       });
     }
@@ -2200,7 +2209,7 @@ async function auditControlPlane(
     pushFinding(findings, {
       code: 'control-plane-live-manifest-census',
       message: error instanceof Error ? error.message : String(error),
-      path: 'docs/work-packages',
+      path: 'config/repository/work-packages',
       severity: 'critical'
     });
   }
@@ -2361,9 +2370,7 @@ async function auditRepositoryWithSession(
     findings.push(...sourceGovernance.blockingFindings);
 
     for (const [index, rawLine] of source.split(/\r?\n/u).entries()) {
-      if (markdownCoverage?.kind === 'active-authority'
-        && !repositoryPath.startsWith('docs/work/')
-        && DYNAMIC_IDENTITY.test(rawLine)) {
+      if (markdownCoverage?.kind === 'active-authority' && DYNAMIC_IDENTITY.test(rawLine)) {
         pushFinding(findings, {
           code: 'dynamic-identity-in-stable-authority',
           line: index + 1,
@@ -3172,7 +3179,17 @@ async function runSupervisedWorkingTreeSourceProgramAudit(
 
 if (import.meta.main) {
   const input = parseRepositoryAuditCliOptions(process.argv.slice(2));
-  await runRepositoryAuditInput(input, input.mode === 'source-program'
-    ? { deadlineAtUnixMs: Date.now() + SOURCE_PROGRAM_AUDIT_DEADLINE_MS }
-    : {});
+  try {
+    await runRepositoryAuditInput(input, input.mode === 'source-program'
+      ? { deadlineAtUnixMs: Date.now() + SOURCE_PROGRAM_AUDIT_DEADLINE_MS }
+      : {});
+  } catch (error) {
+    if (!(error instanceof SourceProgramCompilationInterruptedError)) throw error;
+    process.stderr.write(`${JSON.stringify({
+      code: error.code,
+      phase: error.phase,
+      phaseEvents: error.phaseEvents
+    })}\n`);
+    process.exitCode = 1;
+  }
 }

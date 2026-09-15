@@ -1801,7 +1801,8 @@ export function retainWindowsHostNamespaceDirectoryById(
         || !sameIdentity(expected, observed)) {
       throw physicalError(
         'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
-        `${label} FileId does not resolve to the expected host namespace identity.`
+        `${label} FileId does not resolve to the expected host namespace identity.`,
+        { expected, observed }
       );
     }
     const volumeCloseError = closeWindowsHandlesBestEffort(

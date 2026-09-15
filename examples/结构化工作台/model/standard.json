@@ -1,0 +1,232 @@
+{
+  "schema": "sec.author-module/1",
+  "moduleId": "studio:standard",
+  "namespace": "studio.standard",
+  "dialects": {
+    "req": {
+      "languageId": "sec.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {
+    "ide": {
+      "mode": "workspace",
+      "moduleId": "sec/spec/ide"
+    },
+    "search": {
+      "mode": "workspace",
+      "moduleId": "sec/spec/search"
+    },
+    "delivery": {
+      "mode": "workspace",
+      "moduleId": "sec/spec/delivery"
+    },
+    "workspaces": {
+      "mode": "workspace",
+      "moduleId": "studio:workspaces"
+    },
+    "editing": {
+      "mode": "workspace",
+      "moduleId": "studio:editing"
+    },
+    "searching": {
+      "mode": "workspace",
+      "moduleId": "studio:searching"
+    },
+    "languages": {
+      "mode": "workspace",
+      "moduleId": "studio:languages"
+    },
+    "execution": {
+      "mode": "workspace",
+      "moduleId": "studio:execution"
+    },
+    "extensions": {
+      "mode": "workspace",
+      "moduleId": "studio:extensions"
+    },
+    "experience": {
+      "mode": "workspace",
+      "moduleId": "studio:experience"
+    },
+    "packaging": {
+      "mode": "workspace",
+      "moduleId": "studio:delivery"
+    }
+  },
+  "definitions": {
+    "d:LocalWorkbench": {
+      "kind": "req:composite",
+      "name": "LocalWorkbench",
+      "body": {
+        "parameters": {
+          "s": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "ide",
+                "export": "Workbench"
+              }
+            }
+          },
+          "stalePolicy": {
+            "role": "value",
+            "type": {
+              "ref": {
+                "import": "search",
+                "export": "StalePolicy"
+              }
+            }
+          },
+          "platforms": {
+            "role": "value",
+            "type": {
+              "list": {
+                "ref": {
+                  "import": "delivery",
+                  "export": "Platform"
+                }
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "use": {
+              "import": "workspaces",
+              "export": "Workspaces"
+            },
+            "arguments": {
+              "s": {
+                "parameter": "s"
+              }
+            }
+          },
+          {
+            "use": {
+              "import": "editing",
+              "export": "Editing"
+            },
+            "arguments": {
+              "s": {
+                "parameter": "s"
+              }
+            }
+          },
+          {
+            "use": {
+              "import": "searching",
+              "export": "Searching"
+            },
+            "arguments": {
+              "s": {
+                "parameter": "s"
+              },
+              "stalePolicy": {
+                "parameter": "stalePolicy"
+              }
+            }
+          },
+          {
+            "use": {
+              "import": "languages",
+              "export": "Languages"
+            },
+            "arguments": {
+              "s": {
+                "parameter": "s"
+              }
+            }
+          },
+          {
+            "use": {
+              "import": "execution",
+              "export": "Execution"
+            },
+            "arguments": {
+              "s": {
+                "parameter": "s"
+              }
+            }
+          },
+          {
+            "use": {
+              "import": "extensions",
+              "export": "Extensions"
+            },
+            "arguments": {
+              "s": {
+                "parameter": "s"
+              }
+            }
+          },
+          {
+            "use": {
+              "import": "experience",
+              "export": "Experience"
+            },
+            "arguments": {
+              "s": {
+                "parameter": "s"
+              }
+            }
+          },
+          {
+            "use": {
+              "import": "packaging",
+              "export": "Delivery"
+            },
+            "arguments": {
+              "s": {
+                "parameter": "s"
+              },
+              "platforms": {
+                "parameter": "platforms"
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "ide",
+              "export": "Scope"
+            },
+            "fields": {
+              "on": {
+                "parameter": "s"
+              },
+              "account": {
+                "enum": {
+                  "import": "ide",
+                  "export": "NotRequired"
+                }
+              },
+              "collaboration": {
+                "enum": {
+                  "import": "ide",
+                  "export": "NotIncluded"
+                }
+              },
+              "marketplace": {
+                "enum": {
+                  "import": "ide",
+                  "export": "NotRequired"
+                }
+              },
+              "cloudSync": {
+                "enum": {
+                  "import": "ide",
+                  "export": "NotIncluded"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "LocalWorkbench": {
+      "definitionId": "d:LocalWorkbench"
+    }
+  }
+}

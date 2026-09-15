@@ -1997,6 +1997,18 @@ const HOSTED_SUT_RUNTIME_COPY_FUNCTION = Object.freeze([
   '    [ -n "$library" ] || continue',
   '    /usr/bin/install -D -m 0555 -- "$library" "$root$library"',
   `  done < <(/usr/bin/ldd "$source" 2>/dev/null | /usr/bin/awk '$2 == "=>" && $3 ~ /^\\// { print $3 } $1 ~ /^\\// { print $1 }' || true)`,
+  '}',
+  'copy_required_dynamic_dependencies() {',
+  '  dependency_source="$1"',
+  '  dependency_output="$(/usr/bin/ldd "$dependency_source")"',
+  '  if /usr/bin/grep -F "not found" <<< "$dependency_output" >/dev/null; then return 1; fi',
+  '  dependency_inventory="$root/tmp/python-extension-dependencies"',
+  '  /usr/bin/awk \u0027$2 == "=>" && $3 ~ /^\\// { print $3 } $1 ~ /^\\// { print $1 }\u0027 <<< "$dependency_output" > "$dependency_inventory"',
+  '  while IFS= read -r library; do',
+  '    [ -n "$library" ] || continue',
+  '    /usr/bin/install -D -m 0555 -- "$library" "$root$library"',
+  '  done < "$dependency_inventory"',
+  '  /usr/bin/rm -- "$dependency_inventory"',
   '}'
 ] as const);
 
@@ -2010,11 +2022,34 @@ const HOSTED_SUT_RUNTIME_TOOL_CLOSURE = Object.freeze([
     `mkdir -p "$root${path.posix.dirname(runtimePath)}"`,
     `/usr/bin/cp -a -- ${JSON.stringify(runtimePath)} "$root${runtimePath}"`
   ]),
+  'python_extension_inventory="$root/tmp/python-extension-inventory"',
+  'python_extension_inventory_sorted="$root/tmp/python-extension-inventory.sorted"',
+  `/usr/bin/find ${JSON.stringify(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.python.stdlibDirectory)} -type f -name '*.so' -print0 > "$python_extension_inventory"`,
+  '/usr/bin/sort -z "$python_extension_inventory" > "$python_extension_inventory_sorted"',
+  'while IFS= read -r -d \u0027\u0027 extension; do copy_required_dynamic_dependencies "$extension"; done < "$python_extension_inventory_sorted"',
+  '/usr/bin/rm -- "$python_extension_inventory" "$python_extension_inventory_sorted"',
   'copy_runtime "$bun_host" "/tool/bin/bun"',
   ...CI_VERIFICATION_HOSTED_SANDBOX_POLICY.runtimeAliases.map(
     (alias) => `ln -s ${JSON.stringify(alias.target)} "$root${alias.path}"`
   )
 ]);
+
+const HOSTED_SUT_PYTHON_CAPABILITY_SCRIPT = [
+  'import hashlib,html,json,locale,pathlib,platform,re,sys,tempfile,unittest',
+  'def normalized_encoding(value):',
+  "    return value.lower().replace('_', '-')",
+  "if normalized_encoding(sys.getfilesystemencoding()) != 'utf-8':",
+  "    raise RuntimeError('filesystem encoding is not UTF-8')",
+  "if normalized_encoding(locale.getpreferredencoding(False)) != 'utf-8':",
+  "    raise RuntimeError('preferred encoding is not UTF-8')",
+  "with tempfile.TemporaryDirectory(dir='/tmp') as temporary_directory:",
+  "    probe = pathlib.Path(temporary_directory) / '文档能力.txt'",
+  "    expected = 'SEC 中文文档能力'",
+  "    probe.write_text(expected, encoding='utf-8')",
+  "    if probe.read_text(encoding='utf-8') != expected:",
+  "        raise RuntimeError('non-ASCII path/content roundtrip failed')",
+  'print(platform.python_version())'
+].join('\n');
 
 const HOSTED_SUT_CHROOT_EXECUTION_SCRIPT = [
   'expected_archive_digest="$1"',
@@ -2193,6 +2228,9 @@ export const CodexDevelopmentHostedSutCapabilityAssertion = [
   'if (JSON.stringify(actualUsrBin) !== JSON.stringify(expectedUsrBin)) fail("runtime-binary-closure");',
   'if (JSON.stringify(fs.readdirSync("/tool/bin").sort()) !== JSON.stringify(["bun", "node"])) fail("runtime-tool-aliases");',
   'if (!fs.statSync("/usr/lib/git-core").isDirectory()) fail("git-runtime-closure");',
+  `if (!fs.statSync(${JSON.stringify(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.python.stdlibDirectory)}).isDirectory()) fail("python-stdlib-closure");`,
+  `const pythonVersion = execFileSync(${JSON.stringify(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.python.executablePath)}, ["-B", "-c", ${JSON.stringify(HOSTED_SUT_PYTHON_CAPABILITY_SCRIPT)}], { encoding: "utf8" }).trim();`,
+  `if (pythonVersion !== ${JSON.stringify(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.python.version)}) fail("python-runtime-closure");`,
   'for (const descriptor of fs.readdirSync("/proc/self/fd")) { try { const target = fs.readlinkSync(`/proc/self/fd/${descriptor}`); if (/\\/(?:actions-runner|home\\/runner|runner\\/_work|run|var\\/run|workspace)|\\.oldroot|prepared-candidate\\.tar/u.test(target)) fail(`inherited-fd:${descriptor}`); } catch {} }',
   'const cgroup = JSON.parse(fs.readFileSync("/capability/cgroup.json", "utf8"));',
   'if (cgroup.memoryMax !== "4294967296" || cgroup.pidsMax !== "256" || cgroup.cpuMax !== "200000 100000") fail("cgroup-limits");',
@@ -4191,7 +4229,7 @@ function manifestBinding(
 ): ManifestBinding {
   const manifestPath = env.SEC_WORK_PACKAGE_MANIFEST_PATH;
   if (!manifestPath) return { manifestPath: null, manifestDigest: null, manifest: null };
-  if (!/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(manifestPath)) {
+  if (!/^config\/repository\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(manifestPath)) {
     throw new Error('SEC_WORK_PACKAGE_MANIFEST_PATH must be a canonical repository-relative Work Package path.');
   }
   if (sourceBlob === null) {
@@ -4275,7 +4313,7 @@ async function runCodexDevelopmentCiVerification(
         && options.transitionObservation === undefined;
       const manifestPath = env.SEC_WORK_PACKAGE_MANIFEST_PATH;
       const exactBlobPaths = uniqueSorted([
-        ...(options.readGitBlob === undefined ? ['docs/work/active-work-package.md'] : []),
+        ...(options.readGitBlob === undefined ? ['config/repository/active-work-package.md'] : []),
         ...(options.readExactGitBlob === undefined
           ? [
               ...CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS,
@@ -4471,7 +4509,7 @@ async function runCodexDevelopmentCiVerification(
     console.log(`SEC verification affected base: ${affectedBaseSha}`);
 
     stage = 'gates';
-    const fallbackManifestPath = 'docs/work/active-work-package.md';
+    const fallbackManifestPath = 'config/repository/active-work-package.md';
     const fallbackManifest = readGitBlob === undefined
       ? exactCandidateBlobs.get(fallbackManifestPath) ?? null
       : readGitBlob(headSha, fallbackManifestPath);

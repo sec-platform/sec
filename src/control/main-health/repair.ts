@@ -13,7 +13,6 @@ export type MainHealthRepairReasonCode =
   | 'repair-provider-missing'
   | 'repair-provider-unavailable'
   | 'repair-provider-invalid'
-  | 'repair-provider-conflict'
   | 'repair-ledger-invalid'
   | 'repair-ledger-expired'
   | 'repair-ledger-identity-drift'
@@ -55,7 +54,6 @@ export type MainHealthRepairObservation = Readonly<
   | { kind: 'provider-missing'; observationRef: MainHealthDigest }
   | { kind: 'provider-unavailable'; observationRef: MainHealthDigest }
   | { kind: 'provider-invalid'; observationRef: MainHealthDigest }
-  | { kind: 'provider-conflict'; observationRef: MainHealthDigest }
 >;
 
 function blocked(
@@ -89,9 +87,7 @@ export function compileMainHealthRepairDecision(input: Readonly<{
       ? 'repair-provider-missing'
       : input.observation.kind === 'provider-unavailable'
         ? 'repair-provider-unavailable'
-        : input.observation.kind === 'provider-conflict'
-          ? 'repair-provider-conflict'
-          : 'repair-provider-invalid';
+        : 'repair-provider-invalid';
     return blocked(reasonCode, observationDigest, 'locked');
   }
   const lane = resolveRepairMainHealthLane({
@@ -126,7 +122,7 @@ export function compileMainHealthRepairDecision(input: Readonly<{
   if (manifestPath === null || ledger.owner === null || ledger.failureFingerprints.length === 0) {
     return blocked('repair-manifest-identity-invalid', observationDigest, 'repair-only');
   }
-  const match = /^docs\/work-packages\/([a-z0-9][a-z0-9-]*)\.md$/u.exec(manifestPath);
+  const match = /^config\/repository\/work-packages\/([a-z0-9][a-z0-9-]*)\.md$/u.exec(manifestPath);
   if (match === null) {
     return blocked('repair-manifest-identity-invalid', observationDigest, 'repair-only');
   }

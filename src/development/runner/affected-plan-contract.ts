@@ -1,5 +1,5 @@
 import { isSourceProgramInputPath } from '../../brownfield/source-program-model/contract.ts';
-import { isActiveDocumentationPath } from '../../control/documentation/active.ts';
+import { isDocumentationVerificationInputPath } from '../../control/documentation/active.ts';
 import type { GitReadProviderRoute } from '../../external-capabilities/git-read/runtime/session.ts';
 import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import {
@@ -117,12 +117,16 @@ export function buildLocalAffectedCheckPlan(
   affectedPlan: AffectedTestPlan
 ): LocalAffectedCheckPlan {
   const changedPaths = [...affectedPlan.changedPaths];
-  const activeDocsChanged = changedPaths.some(isActiveDocumentationPath);
+  const documentationGateChanged = changedPaths.some((file) => isDocumentationVerificationInputPath(file));
   const sourceProgramInvalidated = changedPaths.some(isSourceProgramInputPath);
-  const activeDocsOnly = changedPaths.length > 0
-    && changedPaths.every(isActiveDocumentationPath)
-    && !sourceProgramInvalidated;
-  const typescriptChanged = changedPaths.some((file) => /\.[cm]?tsx?$/u.test(file));
+  const documentationGateOnly = changedPaths.length > 0
+    && changedPaths.every((file) => isDocumentationVerificationInputPath(file))
+    && !sourceProgramInvalidated
+    && !changedPaths.some((file) => file.startsWith('tools/'));
+  const typescriptChanged = changedPaths.some((file) => (
+    /\.[cm]?tsx?$/u.test(file)
+    && (isSourceProgramInputPath(file) || !isDocumentationVerificationInputPath(file))
+  ));
   const typecheckRequired = typescriptChanged || changedPaths.some((file) => (
     TYPECHECK_AUTHORITY_PATHS.has(file)
     || /^tsconfig(?:\.[^/]+)?\.json$/u.test(file)
@@ -130,12 +134,12 @@ export function buildLocalAffectedCheckPlan(
   const failClosed = affectedPlan.resolved
     && isAffectedSelectionFailClosed(affectedPlan.selectionTrustBoundary);
   const testAffectedRequired = affectedPlan.selectedFastTests.length > 0 || failClosed;
-  const gates = activeDocsOnly
+  const gates = documentationGateOnly
     ? [gate('docs:doctor')]
     : [
       ...(typescriptChanged ? [gate('imports:check')] : []),
       ...(typecheckRequired ? [gate('typecheck')] : []),
-      ...(activeDocsChanged ? [gate('docs:doctor')] : []),
+      ...(documentationGateChanged ? [gate('docs:doctor')] : []),
       ...(testAffectedRequired ? [gate('test:affected')] : [])
     ];
 

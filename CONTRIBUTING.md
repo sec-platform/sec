@@ -46,7 +46,7 @@ Do not introduce a second parser, resolver, state store, verification truth, sou
 
 ## Verification
 
-Use the repository's current machine-selected verification closure rather than assuming that a fixed list of commands is always sufficient. For local development, the scripts in `package.json` expose the supported check/test entry points, while [`docs/verification-governance.md`](docs/verification-governance.md) defines the canonical verification semantics.
+Use the repository's current machine-selected verification closure rather than assuming that a fixed list of commands is always sufficient. For local development, the scripts in `package.json` expose the supported check/test entry points, while [`docs/运行/保证/README.md`](docs/运行/保证/README.md) leads to the canonical verification and evidence semantics.
 
 A green test, command exit code, generated file, or AI review does not by itself prove that a product capability is complete or safe to release. Verification claims must remain bound to the exact subject, input, environment, and evidence they actually cover.
 

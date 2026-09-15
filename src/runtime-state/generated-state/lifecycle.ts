@@ -4186,6 +4186,7 @@ async function quarantineGeneratedStateRegistration(input: Readonly<{
 
 export interface GeneratedStateProducerHookSet {
   born(relativePath: string, operationId: string): Promise<void>;
+  inspect(relativePaths?: readonly string[]): Promise<GeneratedStateInventory>;
   bind(
     relativePath: string,
     expected?: GeneratedStateProducerBindingExpectation
@@ -4246,6 +4247,19 @@ export function generatedStateProducerHooks(
   input: GeneratedStateProducerInput,
   options: GeneratedStateLifecycleOptions = {}
 ): Readonly<GeneratedStateProducerHookSet & Partial<GeneratedStateProducerQuarantineHook>> {
+  const producerInput = Object.freeze<GeneratedStateProducerInput>({
+    repositoryRoot: input.repositoryRoot,
+    ...(input.workspaceRoot === undefined ? {} : { workspaceRoot: input.workspaceRoot })
+  });
+  const producerOptions = Object.freeze<GeneratedStateLifecycleOptions>({
+    ...options,
+    ...(options.environment === undefined
+      ? {}
+      : { environment: Object.freeze({ ...options.environment }) }),
+    ...(options.worktreeRetirementProviders === undefined
+      ? {}
+      : { worktreeRetirementProviders: Object.freeze([...options.worktreeRetirementProviders]) })
+  });
   const producerSession = new Map<string, `sha256:${string}`>();
   const requireProducerBinding = (relativePath: string): `sha256:${string}` => {
     const normalized = normalizeGeneratedStateRelativePath(relativePath);
@@ -4258,80 +4272,84 @@ export function generatedStateProducerHooks(
   const hooks = Object.freeze<GeneratedStateProducerHookSet>({
     born: async (relativePath, operationId) => {
       const registration = await registerGeneratedStateBirth(
-        { ...input, relativePath, operationId },
-        options
+        { ...producerInput, relativePath, operationId },
+        producerOptions
       );
       producerSession.set(registration.relativePath, registration.registrationDigest);
     },
+    inspect: (relativePaths) => inspectGeneratedState({
+      ...producerInput,
+      ...(relativePaths === undefined ? {} : { relativePaths })
+    }, producerOptions),
     bind: async (relativePath, expected) => {
       const registration = await bindGeneratedStateRegistration(
-        { ...input, relativePath, expected },
-        options
+        { ...producerInput, relativePath, expected },
+        producerOptions
       );
       producerSession.set(registration.relativePath, registration.registrationDigest);
       return registration;
     },
     restore: async (relativePath, expectedRegistrationDigest, expectedPhysical, outcome) => {
       const registration = await restoreGeneratedStateRegistration({
-        ...input,
+        ...producerInput,
         relativePath,
         expectedRegistrationDigest,
         expectedPhysical,
         outcome
-      }, options);
+      }, producerOptions);
       producerSession.set(registration.relativePath, registration.registrationDigest);
       return registration;
     },
     retired: async (relativePath, outcome) => {
       const registration = await retireGeneratedState({
-        ...input,
+        ...producerInput,
         relativePath,
         expectedRegistrationDigest: requireProducerBinding(relativePath),
         outcome
-      }, options);
+      }, producerOptions);
       producerSession.set(registration.relativePath, registration.registrationDigest);
       return registration;
     },
     settleRetired: (relativePath, expected) => disposeRetiredGeneratedStateDomain({
-      ...input,
+      ...producerInput,
       relativePath,
       expected
-    }, options),
+    }, producerOptions),
     observeRetirement: (relativePath, expected) => observeGeneratedStateRetirement({
-      ...input,
+      ...producerInput,
       relativePath,
       expected
-    }, options),
+    }, producerOptions),
     settleAbsent: (relativePath, expected, outcome) => settleAbsentActiveGeneratedStateRegistration({
-      ...input,
+      ...producerInput,
       relativePath,
       expected,
       outcome
-    }, options),
+    }, producerOptions),
     disposed: async (relativePath, request) => {
       const normalized = normalizeGeneratedStateRelativePath(relativePath);
       const receipt = await disposeGeneratedStateRegistration({
-        ...input,
+        ...producerInput,
         relativePath: normalized,
         expectedRegistrationDigest: producerSession.get(normalized) ?? null,
         outcome: request.outcome,
         profile: request.profile
-      }, options);
+      }, producerOptions);
       producerSession.delete(normalized);
       return receipt;
     }
   });
-  if (options.cleanupOperation === undefined) return hooks;
+  if (producerOptions.cleanupOperation === undefined) return hooks;
   const quarantineHook: GeneratedStateProducerQuarantineHook = {
     quarantine: async (relativePath, request) => {
       const normalized = normalizeGeneratedStateRelativePath(relativePath);
       const receipt = await quarantineGeneratedStateRegistration({
-        ...input,
+        ...producerInput,
         relativePath: normalized,
         expectedRegistrationDigest: producerSession.get(normalized) ?? null,
         outcome: request.outcome,
         profile: request.profile
-      }, options);
+      }, producerOptions);
       if (receipt.terminal === 'completed') producerSession.delete(normalized);
       return receipt;
     }

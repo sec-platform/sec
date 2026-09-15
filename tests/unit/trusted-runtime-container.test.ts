@@ -2,14 +2,6 @@ import path from 'node:path';
 
 import { describe, expect, test } from 'bun:test';
 
-import {
-  createMainHealthLedger,
-  createMainHealthRepairWorkPackagePath,
-  createMainHealthRevision,
-  issueMainHealthLedgerProjection,
-  mainHealthLedgerCanonicalBytes,
-  resolveMainHealthLedgerProjection
-} from '../../src/control/main-health/contract.ts';
 import { parseDockerEndpointIdentity } from '../../src/external-capabilities/docker/contract/daemon.ts';
 import {
   SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY,
@@ -26,8 +18,28 @@ import {
   issueSecSemanticOperationAttemptContext,
   type SecOperationDigest
 } from '../../src/system-architecture/operation/semantic.ts';
-import { encodeVerificationActionData } from '../../src/verification/action/contract/action.ts';
-import { TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID, TRUSTED_RUNTIME_CONTAINER_BUN_ARCHIVE_SHA256, TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT, TRUSTED_RUNTIME_CONTAINER_IMAGE_ID, TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST, TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC, TRUSTED_RUNTIME_STATE_ENVIRONMENT, TRUSTED_RUNTIME_STATE_ENVIRONMENT_DIGEST, TRUSTED_RUNTIME_TEST_TMPFS_SPEC, TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT, assertTrustedRuntimeContainerImageV1, assertTrustedRuntimeDependencyCacheVolume, assertTrustedRuntimeMainHealthCarryForwardBaselineV2, authorizeTrustedRuntimeContainerRecovery, composeTrustedRuntimeContainerLabels, createTrustedRuntimeCommandEnvironmentArgs, createTrustedRuntimeDependencyCacheMarker, createTrustedRuntimeDependencyCacheVolumeSpec, createTrustedRuntimeHostCommandEnvironment, createTrustedRuntimeImageBuildPlan, createTrustedRuntimeMainHealthBaselineObservation, createTrustedRuntimeMainHealthGatePlans, createTrustedRuntimeMainHealthReceipt, createTrustedRuntimeMainHealthSupersessionAuthorization, createTrustedRuntimeMainHealthSupersessionIntent, createTrustedRuntimeMainHealthSupersessionPermit, createTrustedRuntimeMainHealthSupersessionReceipt, issueTrustedRuntimeContainerEngineOwnerTerminalJoin, parseTrustedRuntimeContainerIdentity, parseTrustedRuntimeMainHealthAffectedPlan, parseTrustedRuntimeMainHealthReceipt, parseTrustedRuntimeMainHealthSupersessionPermit, parseTrustedRuntimeMainHealthSupersessionReceipt, renderTrustedRuntimeCommandFailureDetail, trustedRuntimeMainHealthSupersessionPermitBytes, trustedRuntimeMainHealthSupersessionStatusRequest } from '../../src/verification/trusted-runtime/trusted-runtime-container.ts';
+import {
+  TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID,
+  TRUSTED_RUNTIME_CONTAINER_BUN_ARCHIVE_SHA256,
+  TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT,
+  TRUSTED_RUNTIME_CONTAINER_IMAGE_ID,
+  TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC,
+  TRUSTED_RUNTIME_STATE_ENVIRONMENT,
+  TRUSTED_RUNTIME_TEST_TMPFS_SPEC,
+  TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT,
+  assertTrustedRuntimeContainerImageV1,
+  assertTrustedRuntimeDependencyCacheVolume,
+  authorizeTrustedRuntimeContainerRecovery,
+  composeTrustedRuntimeContainerLabels,
+  createTrustedRuntimeCommandEnvironmentArgs,
+  createTrustedRuntimeDependencyCacheMarker,
+  createTrustedRuntimeDependencyCacheVolumeSpec,
+  createTrustedRuntimeHostCommandEnvironment,
+  createTrustedRuntimeImageBuildPlan,
+  issueTrustedRuntimeContainerEngineOwnerTerminalJoin,
+  parseTrustedRuntimeContainerIdentity,
+  renderTrustedRuntimeCommandFailureDetail
+} from '../../src/verification/trusted-runtime/trusted-runtime-container.ts';
 
 const dockerEndpoint = Object.freeze({
   schema: 'sec-docker-endpoint-identity-v1' as const,
@@ -39,95 +51,6 @@ const dockerEndpoint = Object.freeze({
   osType: 'linux' as const,
   architecture: 'x86_64' as const
 });
-
-function mainHealthRetirementFixture() {
-  const mainSha = '1'.repeat(40);
-  const mainTreeSha = '2'.repeat(40);
-  const baseline = createTrustedRuntimeMainHealthBaselineObservation({
-    mainSha,
-    mainTreeSha,
-    parentLine: `${mainSha} ${'7'.repeat(40)}`,
-    parentTreeSha: '8'.repeat(40)
-  });
-  const localReceipt = createTrustedRuntimeMainHealthReceipt({
-    origin: 'physical-main',
-    repository: 'sec-platform/sec',
-    mainSha,
-    mainTreeSha,
-    baselineSha: '7'.repeat(40),
-    baselineTreeSha: '8'.repeat(40),
-    baselineObservationDigest: baseline.observationDigest,
-    executionId: 'trusted-main-health-retirement',
-    imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID,
-    dockerEndpoint,
-    networkIsolatedBeforeExecution: true,
-    planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST,
-    actionResults: [
-      { actionId: 'affected-closure', resultDigest: `sha256:${'3'.repeat(64)}` }
-    ],
-    transition: null,
-    observedAt: '2026-08-21T00:00:00.000Z'
-  });
-  const failureFingerprint = `sha256:${'4'.repeat(64)}` as const;
-  const owner = 'ci-verification-maintainer';
-  const hostedLedger = createMainHealthLedger({
-    repository: 'sec-platform/sec',
-    defaultBranch: 'main',
-    mainSha,
-    mainTreeSha,
-    status: 'degraded',
-    failureFingerprints: [failureFingerprint],
-    owner,
-    repairWorkPackage: createMainHealthRepairWorkPackagePath({
-      repository: 'sec-platform/sec',
-      defaultBranch: 'main',
-      mainSha,
-      mainTreeSha,
-      owner,
-      failureFingerprints: [failureFingerprint]
-    }),
-    expiresAt: '2026-08-21T01:00:00.000Z',
-    allowedLanes: ['repair'],
-    trustRevision: mainSha,
-    observedAt: '2026-08-21T00:00:00.000Z',
-    producer: {
-      identity: 'src/control/main-health/main-health-observation.ts',
-      trustRevision: mainSha,
-      sourceTransport: 'github-api',
-      sourceRunId: '33109458351',
-      sourceRef: `github-check-runs:sec-platform/sec@${mainSha}`,
-      sourceDigest: `sha256:${'5'.repeat(64)}`
-    }
-  });
-  const hostedProjection = resolveMainHealthLedgerProjection(
-    issueMainHealthLedgerProjection(mainHealthLedgerCanonicalBytes(hostedLedger))
-  );
-  const hostedPayload = Object.freeze({
-    canonicalBytes: hostedProjection.canonicalBytes,
-    byteDigest: hostedProjection.byteDigest,
-    semanticRevision: hostedProjection.semanticRevision,
-    bindingDigest: hostedProjection.bindingDigest
-  });
-  const localHealthRevision = createMainHealthRevision({
-    repository: localReceipt.repository,
-    defaultBranch: hostedLedger.defaultBranch,
-    mainSha: localReceipt.mainSha,
-    mainTreeSha: localReceipt.mainTreeSha,
-    status: 'healthy',
-    failureFingerprints: [],
-    owner: null,
-    repairWorkPackage: null,
-    allowedLanes: ['ordinary'],
-    trustRevision: localReceipt.mainSha
-  });
-  return Object.freeze({
-    localReceipt,
-    hostedLedger,
-    hostedPayload,
-    localHealthRevision,
-    mainSha
-  });
-}
 
 function imageInspect(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify([{
@@ -314,48 +237,6 @@ describe('provider-neutral trusted runtime container', () => {
     expect(() => createTrustedRuntimeCommandEnvironmentArgs({
       SEC_STATE_HOME: '/caller/override'
     })).toThrow('cannot replace SEC_STATE_HOME');
-  });
-
-  test('uses stable per-gate ActionKeys and invalidates only when bound inputs change', () => {
-    const affectedPlan = parseTrustedRuntimeMainHealthAffectedPlan(JSON.stringify({
-      schema: 'sec-local-affected-check-plan-v1',
-      resolved: true,
-      changedPaths: ['platform/example.ts'],
-      affectedPlan: {},
-      gates: [
-        { id: 'imports:check', command: 'bun run imports:check' },
-        { id: 'typecheck', command: 'bun run typecheck' },
-        { id: 'test:affected', command: 'bun run test:affected' }
-      ],
-      umbrellaCommand: 'bun run check:affected',
-      subsumedStandaloneCommands: [
-        'bun run imports:check', 'bun run typecheck', 'bun run test:affected'
-      ]
-    }));
-    const common = {
-      mainTreeSha: '1'.repeat(40),
-      baselineObservationDigest: `sha256:${'2'.repeat(64)}` as const,
-      affectedPlan,
-      imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID,
-      dockerEndpoint
-    };
-    const first = createTrustedRuntimeMainHealthGatePlans(common);
-    const same = createTrustedRuntimeMainHealthGatePlans(common);
-    const changed = createTrustedRuntimeMainHealthGatePlans({
-      ...common,
-      mainTreeSha: '3'.repeat(40)
-    });
-    expect(first.map(({ action }) => action.actionKey))
-      .toEqual(same.map(({ action }) => action.actionKey));
-    expect(first.every(({ action }) => action.environment.contractRevision ===
-      'sec-trusted-runtime-main-health-action-v2')).toBe(true);
-    expect(first.every(({ action }) => action.operation.declaredEnvironment.some((entry) =>
-      entry.name === 'trusted-runtime-state-environment'
-      && entry.digest === TRUSTED_RUNTIME_STATE_ENVIRONMENT_DIGEST))).toBe(true);
-    expect(first.map(({ action }) => action.actionKey))
-      .not.toEqual(changed.map(({ action }) => action.actionKey));
-    expect(first[2]!.plan.dependencies.map(({ actionKey }) => actionKey))
-      .toEqual(first.slice(0, 2).map(({ action }) => action.actionKey).sort());
   });
 
   test('binds immutable Docker and Bun identities without a GitHub Actions run', () => {
@@ -551,261 +432,5 @@ describe('provider-neutral trusted runtime container', () => {
       expected: spec,
       endpointDigest: `sha256:${'2'.repeat(64)}`
     })).toThrow(/differs from the content-addressed specification/);
-  });
-
-  test('binds one reusable exact-main health execution receipt', () => {
-    const baseline = createTrustedRuntimeMainHealthBaselineObservation({
-      mainSha: '1'.repeat(40),
-      mainTreeSha: '2'.repeat(40),
-      parentLine: `${'1'.repeat(40)} ${'7'.repeat(40)}`,
-      parentTreeSha: '8'.repeat(40)
-    });
-    const receipt = createTrustedRuntimeMainHealthReceipt({
-      origin: 'physical-main',
-      repository: 'sec-platform/sec',
-      mainSha: '1'.repeat(40),
-      mainTreeSha: '2'.repeat(40),
-      baselineSha: '7'.repeat(40),
-      baselineTreeSha: '8'.repeat(40),
-      baselineObservationDigest: baseline.observationDigest,
-      executionId: 'trusted-main-health-example',
-      imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID,
-      dockerEndpoint,
-      networkIsolatedBeforeExecution: true,
-      planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST,
-      actionResults: [
-        { actionId: 'affected-closure', resultDigest: `sha256:${'3'.repeat(64)}` }
-      ],
-      transition: null,
-      observedAt: '2026-08-21T00:00:00.000Z'
-    });
-    expect(parseTrustedRuntimeMainHealthReceipt(JSON.stringify(receipt))).toEqual(receipt);
-    expect(() => parseTrustedRuntimeMainHealthReceipt({
-      ...receipt,
-      mainTreeSha: '7'.repeat(40)
-    })).toThrow('baseline observation digest is invalid');
-  });
-
-  test('binds a terminal MainHealth supersession receipt to preimage, hosted authority, and issuer', () => {
-    const fixture = mainHealthRetirementFixture();
-    const sourceName = `main-${fixture.mainSha}.json`;
-    const sourceBytes = Buffer.from(
-      `${encodeVerificationActionData(fixture.localReceipt)}\n`,
-      'utf8'
-    );
-    const authorization = createTrustedRuntimeMainHealthSupersessionAuthorization({
-      sourceName,
-      source: Object.freeze({
-        relativePath: sourceName,
-        kind: 'file' as const,
-        device: 'fixture-device',
-        inode: 'fixture-inode',
-        size: sourceBytes.byteLength,
-        bytes: sourceBytes,
-        linkTarget: null
-      }),
-      localReceipt: fixture.localReceipt,
-      localHealthRevision: fixture.localHealthRevision,
-      hostedPayload: fixture.hostedPayload,
-      hostedAuthorityDigest: fixture.hostedPayload.bindingDigest,
-      runtimeAuthorityBinding: `sha256:${'a'.repeat(64)}`,
-      predecessorRecordDigest: null,
-      issuer: {
-        transport: 'github-rest-token',
-        login: 'maintainer',
-        nodeId: 'MDQ6VXNlcjE=',
-        permission: 'maintain'
-      }
-    });
-    const intent = createTrustedRuntimeMainHealthSupersessionIntent({
-      authorization,
-      preparedAt: '2026-08-21T00:00:00.000Z'
-    });
-    const request = trustedRuntimeMainHealthSupersessionStatusRequest(authorization);
-    const record = createTrustedRuntimeMainHealthSupersessionReceipt({
-      authorization,
-      preparedIntentDigest: intent.intentDigest,
-      providerAuthorization: {
-        transport: 'github-commit-status',
-        statusId: 123456,
-        statusNodeId: 'SC_kwDOExample',
-        state: request.state,
-        context: request.context,
-        description: request.description,
-        targetUrl: request.targetUrl,
-        createdAt: '2026-08-21T00:00:00.000Z',
-        updatedAt: '2026-08-21T00:00:00.000Z',
-        creator: { login: 'maintainer', nodeId: 'MDQ6VXNlcjE=' }
-      }
-    });
-    expect(parseTrustedRuntimeMainHealthSupersessionReceipt(
-      encodeVerificationActionData(record),
-      fixture.hostedPayload
-    )).toEqual(record);
-    expect(() => resolveMainHealthLedgerProjection({
-      projectionDigest: fixture.hostedPayload.bindingDigest
-    })).toThrow('forged or belongs to another process');
-    expect(() => parseTrustedRuntimeMainHealthSupersessionReceipt(
-      encodeVerificationActionData(record),
-      {
-        ...fixture.hostedPayload,
-        bindingDigest: `sha256:${'b'.repeat(64)}`
-      }
-    )).toThrow('differs from the domain-owner readback');
-    expect(record).toMatchObject({
-      phase: 'complete',
-      effect: 'prefer-exact-registered-hosted-provider',
-      reason: 'stronger-hosted-provider-conflict',
-      issuer: { nodeId: 'MDQ6VXNlcjE=', permission: 'maintain' },
-      localReceipt: { receiptDigest: fixture.localReceipt.receiptDigest },
-      hostedPayload: { semanticRevision: fixture.hostedLedger.healthRevision }
-    });
-    expect(() => createTrustedRuntimeMainHealthSupersessionAuthorization({
-      sourceName,
-      source: { ...record.source, relativePath: `${sourceName}.forged`, bytes: sourceBytes,
-        linkTarget: null, kind: 'file' },
-      localReceipt: fixture.localReceipt,
-      localHealthRevision: fixture.localHealthRevision,
-      hostedPayload: fixture.hostedPayload,
-      hostedAuthorityDigest: record.hostedAuthorityDigest,
-      runtimeAuthorityBinding: record.runtimeAuthorityBinding,
-      predecessorRecordDigest: null,
-      issuer: record.issuer
-    })).toThrow('exact canonical receipt preimage');
-  });
-
-  test('models the MainHealth Effect permit as an immutable available to consumed chain', () => {
-    const fixture = mainHealthRetirementFixture();
-    const sourceName = `main-${fixture.mainSha}.json`;
-    const sourceBytes = Buffer.from(
-      `${encodeVerificationActionData(fixture.localReceipt)}\n`,
-      'utf8'
-    );
-    const authorization = createTrustedRuntimeMainHealthSupersessionAuthorization({
-      sourceName,
-      source: Object.freeze({
-        relativePath: sourceName,
-        kind: 'file' as const,
-        device: 'fixture-device',
-        inode: 'fixture-inode',
-        size: sourceBytes.byteLength,
-        bytes: sourceBytes,
-        linkTarget: null
-      }),
-      localReceipt: fixture.localReceipt,
-      localHealthRevision: fixture.localHealthRevision,
-      hostedPayload: fixture.hostedPayload,
-      hostedAuthorityDigest: fixture.hostedPayload.bindingDigest,
-      runtimeAuthorityBinding: `sha256:${'a'.repeat(64)}`,
-      predecessorRecordDigest: null,
-      issuer: {
-        transport: 'github-rest-token',
-        login: 'maintainer',
-        nodeId: 'MDQ6VXNlcjE=',
-        permission: 'maintain'
-      }
-    });
-    const intent = createTrustedRuntimeMainHealthSupersessionIntent({
-      authorization,
-      preparedAt: '2026-08-21T00:00:00.000Z'
-    });
-    const available = createTrustedRuntimeMainHealthSupersessionPermit({
-      authorization,
-      intentDigest: intent.intentDigest,
-      phase: 'available'
-    });
-    const consumed = createTrustedRuntimeMainHealthSupersessionPermit({
-      authorization,
-      intentDigest: intent.intentDigest,
-      phase: 'consumed'
-    });
-    expect(parseTrustedRuntimeMainHealthSupersessionPermit(
-      trustedRuntimeMainHealthSupersessionPermitBytes(available).toString('utf8')
-    )).toEqual(available);
-    expect(parseTrustedRuntimeMainHealthSupersessionPermit(
-      trustedRuntimeMainHealthSupersessionPermitBytes(consumed).toString('utf8')
-    )).toEqual(consumed);
-    expect(consumed.permitDigest).not.toBe(available.permitDigest);
-    expect(() => parseTrustedRuntimeMainHealthSupersessionPermit({
-      ...available,
-      phase: 'consumed'
-    })).toThrow('permit digest mismatch');
-  });
-
-  test('carries verified candidate evidence forward only when the new-main tree is exact', () => {
-    const baseline = createTrustedRuntimeMainHealthBaselineObservation({
-      mainSha: '1'.repeat(40),
-      mainTreeSha: '2'.repeat(40),
-      parentLine: `${'1'.repeat(40)} ${'7'.repeat(40)}`,
-      parentTreeSha: '8'.repeat(40)
-    });
-    const receipt = createTrustedRuntimeMainHealthReceipt({
-      origin: 'verified-candidate-transition',
-      repository: 'sec-platform/sec',
-      mainSha: '1'.repeat(40),
-      mainTreeSha: '2'.repeat(40),
-      baselineSha: '7'.repeat(40),
-      baselineTreeSha: '8'.repeat(40),
-      baselineObservationDigest: baseline.observationDigest,
-      executionId: 'trusted-runtime-transition',
-      imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID,
-      dockerEndpoint,
-      networkIsolatedBeforeExecution: true,
-      planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST,
-      actionResults: [
-        { actionId: 'affected-closure', resultDigest: `sha256:${'3'.repeat(64)}` }
-      ],
-      transition: {
-        candidateHeadSha: '7'.repeat(40),
-        candidateHeadTreeSha: '2'.repeat(40),
-        sessionRevision: `sha256:${'8'.repeat(64)}`,
-        verificationEvidenceDigest: `sha256:${'9'.repeat(64)}`,
-        containerReceiptDigest: `sha256:${'a'.repeat(64)}`,
-        mergeGateResultDigest: `sha256:${'b'.repeat(64)}`,
-        statusPublicationDigest: `sha256:${'c'.repeat(64)}`
-      },
-      observedAt: '2026-08-21T00:00:00.000Z'
-    });
-    expect(parseTrustedRuntimeMainHealthReceipt(JSON.stringify(receipt))).toEqual(receipt);
-    const differentTreeBaseline = createTrustedRuntimeMainHealthBaselineObservation({
-      mainSha: '1'.repeat(40),
-      mainTreeSha: 'd'.repeat(40),
-      parentLine: `${'1'.repeat(40)} ${'7'.repeat(40)}`,
-      parentTreeSha: '8'.repeat(40)
-    });
-    expect(() => createTrustedRuntimeMainHealthReceipt({
-      ...receipt,
-      mainTreeSha: 'd'.repeat(40),
-      baselineObservationDigest: differentTreeBaseline.observationDigest
-    })).toThrow('does not bind the exact new-main tree');
-  });
-
-  test('carry-forward accepts only the observed single parent and exact parent tree', () => {
-    const mainSha = '1'.repeat(40);
-    const baselineSha = '7'.repeat(40);
-    const observation = createTrustedRuntimeMainHealthBaselineObservation({
-      mainSha,
-      mainTreeSha: '2'.repeat(40),
-      parentLine: `${mainSha} ${baselineSha}`,
-      parentTreeSha: '8'.repeat(40)
-    });
-    expect(() => createTrustedRuntimeMainHealthBaselineObservation({
-      mainSha,
-      mainTreeSha: '2'.repeat(40),
-      parentLine: `${mainSha} ${baselineSha} ${'9'.repeat(40)}`,
-      parentTreeSha: '8'.repeat(40)
-    })).toThrow('one canonical parent baseline');
-    expect(() => assertTrustedRuntimeMainHealthCarryForwardBaselineV2(
-      observation,
-      { baselineSha: '6'.repeat(40), baselineTreeSha: '8'.repeat(40) }
-    )).toThrow('differs from the exact merged commit parent');
-    expect(() => assertTrustedRuntimeMainHealthCarryForwardBaselineV2(
-      observation,
-      { baselineSha, baselineTreeSha: '9'.repeat(40) }
-    )).toThrow('differs from the exact merged commit parent');
-    expect(() => assertTrustedRuntimeMainHealthCarryForwardBaselineV2(
-      observation,
-      { baselineSha, baselineTreeSha: '8'.repeat(40) }
-    )).not.toThrow();
   });
 });

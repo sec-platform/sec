@@ -33,7 +33,7 @@ const closure = buildCiVerificationActionPlanClosure({
     baseTreeSha: '3'.repeat(40),
     headSha: HEAD,
     headTreeSha: '4'.repeat(40),
-    manifestPath: 'docs/work-packages/verification-action-trusted-cutover-v5.md',
+    manifestPath: 'config/repository/work-packages/verification-action-trusted-cutover-v5.md',
     manifestDigest: digest('a'),
     scopeAuthorizationRevision: digest('b'),
     profile: 'quick',
@@ -65,7 +65,7 @@ const sessionRequest = Object.freeze({
   expectedBaseTreeSha: '3'.repeat(40),
   expectedHeadSha: HEAD,
   expectedHeadTreeSha: '4'.repeat(40),
-  manifestPath: 'docs/work-packages/verification-action-trusted-cutover-v5.md',
+  manifestPath: 'config/repository/work-packages/verification-action-trusted-cutover-v5.md',
   manifestDigest: digest('a'),
   profile: 'quick',
   expectedScopeProposalDigest: digest('d'),
@@ -907,7 +907,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       baseTreeSha: '3'.repeat(40),
       headSha: HEAD,
       headTreeSha: '4'.repeat(40),
-      manifestPath: 'docs/work-packages/verification-action-trusted-cutover-v5.md',
+      manifestPath: 'config/repository/work-packages/verification-action-trusted-cutover-v5.md',
       manifestDigest: digest('a'),
       producer: currentOrigin
     });

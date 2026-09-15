@@ -85,18 +85,18 @@ function planInput(overrides: {
       goalDigest: digest('b'),
       trustedRevision: base,
       targetCandidate: head,
-      workPackageProposalRef: 'docs/work-packages/task-capsule-compiler-v1.md',
+      workPackageProposalRef: 'config/repository/work-packages/task-capsule-compiler-v1.md',
       workPackageProposalDigest: digest('c'),
       workPackageProjectionId: digest('e'),
       scopeGrantId: null,
       ownerFacts: [{
         id: 'development-governance',
-        ref: 'docs/development-governance.md',
+        ref: 'docs/开发/AI协作/规则装载与任务恢复.md',
         owner: 'development-governance-owner',
         revision: 'owner-revision-v1'
       }],
       scopeProposal: {
-        readPaths: ['docs/development-governance.md'],
+        readPaths: ['docs/开发/AI协作/规则装载与任务恢复.md'],
         writePaths: overrides.writePaths ?? (observedChangedPaths.length > 0
           ? observedChangedPaths
           : ['platform/shared/']),
@@ -110,7 +110,7 @@ function planInput(overrides: {
     }),
     requiredRefs: [{
       id: 'development-governance',
-      ref: 'docs/development-governance.md',
+      ref: 'docs/开发/AI协作/规则装载与任务恢复.md',
       owner: 'development-governance-owner',
       revision: 'owner-revision-v1',
       reasonCode: 'canonical-operation-owner',

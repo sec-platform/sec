@@ -63,8 +63,8 @@ const digest = z.string().regex(/^sha256:[0-9a-f]{64}$/u, 'must be a SHA-256 dig
   .transform(value => value as `sha256:${string}`);
 const repository = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/u,
   'Verification session repository must be one owner/name identity.');
-const manifestPath = z.string().regex(/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u,
-  'Manifest path must match docs/work-packages/<id>.md.');
+const manifestPath = z.string().regex(/^config\/repository\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u,
+  'Manifest path must match config/repository/work-packages/<id>.md.');
 const sessionId = z.string().regex(/^[a-z0-9][a-z0-9-]{1,127}$/u,
   'Session id must be a bounded lowercase identifier.');
 const prNumber = z.int().positive();

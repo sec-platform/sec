@@ -1,0 +1,37 @@
+// 需求作者源；定义允许的产品行为，不执行安装或构造运行对象。
+import "sec/spec/ide" as ide;
+import "sec/spec/delivery" as delivery;
+import "sec/spec/quality" as quality;
+
+export design Delivery(s: ide.Workbench, platforms: List<delivery.Platform>) {
+  require delivery.Source {
+    on: s.release,
+    language: delivery.TypeScript,
+    target: s,
+    host: delivery.DesktopHostContract,
+    members: delivery.CompleteSelectedRoots,
+    ownership: delivery.GeneratedFromIntent
+  };
+
+  require delivery.Compatibility {
+    on: s.release,
+    platforms: platforms,
+    unsupported: delivery.ExplicitNoArtifact,
+    dependencies: delivery.Locked,
+    licensing: delivery.CompatibleDistribution
+  };
+
+  require delivery.Identity {
+    on: s.release,
+    sources: delivery.ExactIntentAndBinding,
+    mappings: delivery.RequirementToArtifact,
+    rebuild: delivery.NoFreshNaturalLanguageInterpretation
+  };
+
+  require quality.Admission {
+    on: s,
+    policy: quality.LimitsFromRuntimeProfile,
+    overload: quality.BoundedQueueOrReject,
+    loss: quality.Explicit
+  };
+}

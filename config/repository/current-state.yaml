@@ -1,0 +1,16 @@
+schema: sec-current-state-live-v1
+resolver:
+  command: bun src/control/documentation/document-control-plane.ts status --json
+  repository: sec-platform/sec
+  remote: origin
+  defaultBranch: main
+  defaultRef: refs/remotes/origin/main
+  requireRemoteMatch: true
+
+stableFacts:
+  capabilityAuthority:
+    implementation: latest-main-code-and-contracts
+    verification: exact-head-evidence
+  workSelection:
+    catalog: config/repository/work-selection.md#sec-work-selection-roadmap-catalog-v1
+    projection: sec-work-selection-live-v1-required

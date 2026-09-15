@@ -6,9 +6,23 @@ import path from 'node:path';
 
 import { withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
 import { isolatedGitReadEnvironment, isProductionGitReadSession, type GitReadProviderResolutionFailure, type GitReadSession, type GitReadSessionResolution } from '../../external-capabilities/git-read/runtime/session.ts';
+import {
+  assertGitConfigEffectReceipt,
+  closeGitConfigTargetCapability,
+  issueGitConfigTargetCapability,
+  replaceAllGitConfigValue
+} from '../../external-capabilities/git/config-effect.ts';
+import {
+  assertGitPhysicalProviderReceipt,
+  closeGitPhysicalProvider,
+  openGitPhysicalProvider,
+  type GitPhysicalProviderCapability
+} from '../../external-capabilities/git/physical-provider.ts';
 import { acquirePhysicalMutationLease, type PhysicalMutationLeaseHandle, type PhysicalMutationLeaseOwner } from '../../runtime-state/physical/runtime/mutation-lease.ts';
 import { createExclusiveNoFollowDirectory, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, PhysicalNoFollowError, publishExclusiveDurableCanonicalFile, replaceDurableCanonicalFile, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryChain, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
+import type { ProcessResourceSession } from '../../runtime-state/physical/runtime/process-resource-session.ts';
 import { canonicalJson, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
 
 const MANAGED_HOOKS_PATH = '.githooks';
 const MANAGED_COMMON_DIRECTORY = 'sec-managed-hooks-v3';
@@ -3101,12 +3115,23 @@ function assertConfigStageValue(
   }
 }
 
-function writeGitConfigFileValue(
+async function writeGitConfigFileValue(
   repoRoot: string,
   configFilePath: string,
   key: string,
-  value: string
-): void {
+  value: string,
+  provider?: GitPhysicalProviderCapability
+): Promise<void> {
+  if (provider !== undefined) {
+    const target = await issueGitConfigTargetCapability({ path: configFilePath });
+    try {
+      const receipt = await replaceAllGitConfigValue({ provider, target, key, value });
+      assertGitConfigEffectReceipt(receipt);
+      return;
+    } finally {
+      closeGitConfigTargetCapability(target);
+    }
+  }
   gitText(repoRoot, [
     'config',
     '--file',
@@ -3327,7 +3352,7 @@ function reclaimConfigTransitionLocks(input: {
   }
 }
 
-function writeGitConfigValueCas(input: {
+async function writeGitConfigValueCas(input: {
   readonly repoRoot: string;
   readonly commonGitDir: string;
   readonly worktreeGitDir: string;
@@ -3336,7 +3361,8 @@ function writeGitConfigValueCas(input: {
   readonly expected: ConfigObservation;
   readonly operationDigest: string;
   readonly lease: PhysicalMutationLeaseHandle;
-}): ConfigObservation {
+  readonly configEffectProvider?: GitPhysicalProviderCapability;
+}): Promise<ConfigObservation> {
   const target = configFileTarget(
     input.expected.boundary,
     input.commonGitDir,
@@ -3417,7 +3443,13 @@ function writeGitConfigValueCas(input: {
     if (!staged.created) {
       throw new GitHookTransitionConflict('Git config stage was occupied during exclusive publication');
     }
-    writeGitConfigFileValue(input.repoRoot, stagePath, input.step.configKey, input.step.value);
+    await writeGitConfigFileValue(
+      input.repoRoot,
+      stagePath,
+      input.step.configKey,
+      input.step.value,
+      input.configEffectProvider
+    );
     if (readRetainedFile(target.parent, stageName + '.lock', 'Git config stage lock readback') !== null) {
       throw new GitHookTransitionConflict('Git config stage provider lock remained after its effect');
     }
@@ -4291,7 +4323,7 @@ function publishConfigTransitionComplete(
   );
 }
 
-function applyConfigTransition(input: {
+async function applyConfigTransition(input: {
   readonly transition: ConfigTransitionHandle;
   readonly commonRoot: PhysicalDirectoryChain;
   readonly operationLease: PhysicalMutationLeaseHandle;
@@ -4303,7 +4335,8 @@ function applyConfigTransition(input: {
   readonly testOnlyConfigActorBeforeEffect?: (stepIndex: number, repoRoot: string) => void;
   readonly testOnlyConfigActorAfterStep?: (stepIndex: number, repoRoot: string) => void;
   readonly beforeConfigEffect?: () => void;
-}): ConfigObservation {
+  readonly configEffectProvider?: GitPhysicalProviderCapability;
+}): Promise<ConfigObservation> {
   const { transition } = input;
   reclaimConfigTransitionLocks({
     transition,
@@ -4438,7 +4471,7 @@ function applyConfigTransition(input: {
       // The actual effect acquires the same canonical <config>.lock first and
       // therefore never overwrites a provider mutation observed in that window.
       input.testOnlyConfigActorBeforeEffect?.(step.index, input.repoRoot);
-      after = writeGitConfigValueCas({
+      after = await writeGitConfigValueCas({
         repoRoot: input.repoRoot,
         commonGitDir: input.commonGitDir,
         worktreeGitDir: input.worktreeGitDir,
@@ -4446,7 +4479,10 @@ function applyConfigTransition(input: {
         step,
         expected: beforeLock,
         operationDigest: transition.intent.operationDigest,
-        lease: input.operationLease
+        lease: input.operationLease,
+        ...(input.configEffectProvider === undefined
+          ? {}
+          : { configEffectProvider: input.configEffectProvider })
       });
     }
     input.testOnlyConfigActorAfterStep?.(step.index, input.repoRoot);
@@ -5213,6 +5249,7 @@ async function installGitHooksInternalWithBudget(options: {
   readonly lifecycle?: boolean;
   readonly providerResolution?: GitReadSessionResolution;
   readonly observationOnly?: boolean;
+  readonly configEffectProvider?: GitPhysicalProviderCapability;
   readonly testOnlyGitBudget?: GitInvocationBudgetOptions;
   readonly testOnlyProviderResolution?: GitReadSessionResolution;
   readonly testOnlyBeforeSpawn?: (kind: GitSpawnKind) => void;
@@ -5825,7 +5862,7 @@ async function installGitHooksInternalWithBudget(options: {
       configTransition.intent.priorGenerations.map((prior) => prior.evidence),
       'managed generation publication'
     );
-    const configAfterObservation = applyConfigTransition({
+    const configAfterObservation = await applyConfigTransition({
       transition: configTransition,
       commonRoot,
       operationLease: lease.handle,
@@ -5833,6 +5870,9 @@ async function installGitHooksInternalWithBudget(options: {
       commonGitDir,
       worktreeGitDir,
       worktreeConfigPath,
+      ...(options.configEffectProvider === undefined
+        ? {}
+        : { configEffectProvider: options.configEffectProvider }),
       testOnlyCrashAfterConfigStep: options.testOnlyCrashAfterConfigStep,
       testOnlyConfigActorBeforeEffect: options.testOnlyConfigActorBeforeEffect,
       testOnlyConfigActorAfterStep: options.testOnlyConfigActorAfterStep,
@@ -6027,11 +6067,17 @@ export async function installGitHooks(options: {
   }
 }
 
-/** Reuses the caller's exact production Git session; no second provider may be opened. */
+/**
+ * Reuses the caller's exact production Git observation and parent process
+ * session. The scoped config provider borrows that ledger and is settled here;
+ * no independent process session is opened.
+ */
 export async function installGitHooksWithSession(options: {
   readonly repoRoot: string;
   readonly lifecycle?: boolean;
   readonly session: GitReadSession;
+  readonly operation: SecBoundSemanticOperation;
+  readonly processSession: ProcessResourceSession;
 }): Promise<GitHookInstallationResult> {
   if (!isProductionGitReadSession(options.session)) {
     throw new Error('Managed Git hook materialization requires a production Git session.');
@@ -6040,11 +6086,49 @@ export async function installGitHooksWithSession(options: {
   if (path.resolve(options.session.cwd) !== repoRoot) {
     throw new Error('Managed Git hook materialization session targets another worktree.');
   }
-  return installGitHooksWithProvider({ ...options, repoRoot }, Object.freeze({
-    status: 'ready' as const,
-    route: options.session.providerRoute,
-    session: options.session
-  }));
+  if (options.session.failure !== null || options.session.gitExecutableIdentity === null) {
+    throw new Error('Managed Git hook materialization requires one live retained Git provider.');
+  }
+  const resolution = openGitPhysicalProvider({
+    cwd: repoRoot,
+    executablePath: path.resolve(options.session.gitExecutableIdentity.realPath),
+    operation: options.operation,
+    processSession: options.processSession,
+    environment: options.session.env,
+    environmentSource: {},
+    maximumExecutableBytes: options.session.budget.maxExecutableBytes
+  });
+  if (resolution.status !== 'ready') {
+    throw new Error(`Managed Git hook config Effect provider is unavailable (${resolution.reason}).`);
+  }
+  const provider = resolution.capability;
+  let result: GitHookInstallationResult | undefined;
+  let primaryError: unknown;
+  try {
+    result = await installGitHooksInternal({
+      repoRoot,
+      ...(options.lifecycle === undefined ? {} : { lifecycle: options.lifecycle }),
+      configEffectProvider: provider,
+      providerResolution: Object.freeze({
+        status: 'ready' as const,
+        route: options.session.providerRoute,
+        session: options.session
+      })
+    });
+  } catch (error) {
+    primaryError = error;
+  }
+  try {
+    const receipt = closeGitPhysicalProvider(provider);
+    assertGitPhysicalProviderReceipt(receipt, provider);
+  } catch (error) {
+    primaryError ??= error;
+  }
+  if (primaryError !== undefined) throw primaryError;
+  if (result === undefined) {
+    throw new Error('Managed Git hook materialization produced no terminal result.');
+  }
+  return result;
 }
 
 export async function observeManagedGitHooksWithSession(options: {

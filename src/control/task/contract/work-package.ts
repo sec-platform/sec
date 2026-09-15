@@ -98,9 +98,14 @@ function stringArray(value: unknown, label: string): string[] {
   return entries;
 }
 
-function stableIdArray(value: unknown, label: string): string[] {
+function documentationIdArray(value: unknown, label: string): string[] {
   const entries = stringArray(value, label);
-  entries.forEach((entry, index) => assertStableId(entry, `${label}[${index}]`));
+  entries.forEach((entry, index) => {
+    if (!/^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u
+      .test(entry)) {
+      throw new Error(`${label}[${index}] must be one lowercase document UUID URN.`);
+    }
+  });
   const canonical = [...entries].sort();
   if (canonical.some((entry, index) => entry !== entries[index])) {
     throw new Error(`${label} must be in canonical code-unit order.`);
@@ -315,8 +320,8 @@ export function CodexDevelopmentParseWorkPackageLocator(body: string): string {
   if (locatorLines.length !== 1) {
     throw new Error(`PR body must contain exactly one Work-Package locator line; found ${locatorLines.length}.`);
   }
-  const match = /^Work-Package: (docs\/work-packages\/([a-z0-9][a-z0-9-]*)\.md)$/u.exec(locatorLines[0]!);
-  if (!match) throw new Error('PR Work-Package locator must be exactly `Work-Package: docs/work-packages/<id>.md`.');
+  const match = /^Work-Package: (config\/repository\/work-packages\/([a-z0-9][a-z0-9-]*)\.md)$/u.exec(locatorLines[0]!);
+  if (!match) throw new Error('PR Work-Package locator must be exactly `Work-Package: config/repository/work-packages/<id>.md`.');
   return match[1]!;
 }
 
@@ -396,7 +401,7 @@ export function CodexDevelopmentDecodeWorkPackageManifest(
   });
   const authorityRefs = raw.authorityRefs === undefined
     ? undefined
-    : stableIdArray(raw.authorityRefs, 'Work Package manifest authorityRefs');
+    : documentationIdArray(raw.authorityRefs, 'Work Package manifest authorityRefs');
   const manifest: CodexDevelopmentWorkPackageManifest = {
     schema: CodexDevelopmentWorkPackageSchema,
     id,
@@ -411,7 +416,7 @@ export function CodexDevelopmentDecodeWorkPackageManifest(
     acceptance,
     tests
   };
-  const canonicalPath = `docs/work-packages/${manifest.id}.md`;
+  const canonicalPath = `config/repository/work-packages/${manifest.id}.md`;
   if (expectedPath !== undefined && expectedPath !== canonicalPath) {
     throw new Error(`Work Package manifest ID/path mismatch: expected ${canonicalPath}, received ${expectedPath}.`);
   }

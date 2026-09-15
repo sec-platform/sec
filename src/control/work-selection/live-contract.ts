@@ -30,6 +30,8 @@ export const SEC_WORK_ROLLING_PROJECTION_SCHEMA =
   'sec-work-rolling-projection-v1' as const;
 export const SEC_WORK_ROLLING_TRANSITION_PROJECTION_SCHEMA =
   'sec-work-rolling-transition-projection-v1' as const;
+export const SEC_WORK_ROLLING_PROPOSAL_PROJECTION_SCHEMA =
+  'sec-work-rolling-proposal-projection-v1' as const;
 export const SEC_WORK_SELECTION_LIVE_RESULT_SCHEMA =
   'sec-work-selection-live-result-v1' as const;
 export const SEC_WORK_SELECTION_LIVE_ISSUER =
@@ -136,7 +138,7 @@ export interface SecWorkDecisionReceipt {
   readonly repository: string;
   readonly exactMain: string;
   readonly exactMainTree: string;
-  readonly roadmapPath: 'docs/roadmap.md';
+  readonly roadmapPath: 'config/repository/work-selection.md';
   readonly roadmapRevision: SecWorkDigest;
   readonly catalog: SecRoadmapWorkCatalog;
   readonly registry: SecWorkRegistryObservation;
@@ -231,13 +233,48 @@ export interface SecWorkRollingTransitionProjection {
   readonly projectionDigest: SecWorkDigest;
 }
 
+/** Authority-free authoring projection. Its digest protects representation
+ * integrity only; no field selects work or grants an Effect. */
+export interface SecWorkRollingProposalProjection {
+  readonly schema: typeof SEC_WORK_ROLLING_PROPOSAL_PROJECTION_SCHEMA;
+  readonly exactMain: string;
+  readonly exactMainTree: string;
+  readonly authority: 'none';
+  readonly active: SecWorkRollingTransitionActive & Readonly<{ tracking: 'none' }>;
+  readonly candidates: readonly string[];
+  readonly projectionDigest: SecWorkDigest;
+}
+
 export type SecWorkRollingMachineProjection =
   | SecWorkRollingProjection
-  | SecWorkRollingTransitionProjection;
+  | SecWorkRollingTransitionProjection
+  | SecWorkRollingProposalProjection;
 
 export interface SecWorkRollingTopology {
   readonly activePackageId: string;
   readonly candidatePackageIds: readonly string[];
+}
+
+export interface SecWorkRollingExactManifestBinding {
+  readonly kind: 'transition' | 'proposal';
+  readonly exactMain: string;
+  readonly exactMainTree: string;
+  readonly active: SecWorkRollingTransitionActive;
+}
+
+/** Common exact binding carried by every non-ordinary rolling projection. */
+export function projectSecWorkRollingExactManifestBinding(
+  projection: SecWorkRollingMachineProjection
+): SecWorkRollingExactManifestBinding | null {
+  if (projection.schema === SEC_WORK_ROLLING_PROJECTION_SCHEMA) return null;
+  return deepFreeze({
+    kind: projection.schema === SEC_WORK_ROLLING_PROPOSAL_PROJECTION_SCHEMA
+      ? 'proposal' as const
+      : 'transition' as const,
+    exactMain: projection.exactMain,
+    exactMainTree: projection.exactMainTree,
+    active: projection.active
+  });
 }
 
 export type SecWorkSelectionLiveResult = Readonly<
@@ -280,6 +317,10 @@ const ROLLING_PROJECTION_ITEM_KEYS = [
   'decisionStatus'
 ] as const;
 const ROLLING_TRANSITION_PROJECTION_KEYS = [
+  'schema', 'exactMain', 'exactMainTree', 'authority', 'active', 'candidates',
+  'projectionDigest'
+] as const;
+const ROLLING_PROPOSAL_PROJECTION_KEYS = [
   'schema', 'exactMain', 'exactMainTree', 'authority', 'active', 'candidates',
   'projectionDigest'
 ] as const;
@@ -648,7 +689,7 @@ export function parseSecRoadmapWorkCatalog(source: string): SecRoadmapWorkCatalo
 }
 
 function workManifestPath(item: SecRoadmapWorkCatalogItem): string {
-  return `docs/work-packages/${item.packageId}.md`;
+  return `config/repository/work-packages/${item.packageId}.md`;
 }
 
 function renderRoadmapCatalogJson(value: unknown, depth = 0): string {
@@ -1076,7 +1117,7 @@ function normalizeTransitionActive(value: unknown): SecWorkRollingTransitionActi
   exactKeys(active, ROLLING_TRANSITION_ACTIVE_KEYS, 'rolling transition active');
   const parsedPackageId = packageId(active.packageId, 'rolling transition active.packageId');
   const manifestPath = text(active.manifestPath, 'rolling transition active.manifestPath');
-  if (manifestPath !== `docs/work-packages/${parsedPackageId}.md`) {
+  if (manifestPath !== `config/repository/work-packages/${parsedPackageId}.md`) {
     fail('rolling transition active.manifestPath must equal the active package identity.');
   }
   return deepFreeze({
@@ -1158,6 +1199,56 @@ export function compileSecWorkRollingTransitionProjection(input: Readonly<{
   });
 }
 
+function normalizeSecWorkRollingProposalProjection(
+  raw: Record<string, unknown>
+): SecWorkRollingProposalProjection {
+  exactKeys(raw, ROLLING_PROPOSAL_PROJECTION_KEYS, 'rolling proposal projection');
+  if (raw.schema !== SEC_WORK_ROLLING_PROPOSAL_PROJECTION_SCHEMA || raw.authority !== 'none') {
+    fail('rolling proposal projection must use its proposal schema and authority none.');
+  }
+  const active = normalizeTransitionActive(raw.active);
+  if (active.tracking !== 'none') {
+    fail('rolling proposal active package must use tracking none.');
+  }
+  const candidates = orderedPackageIds(raw.candidates, 'rolling proposal projection.candidates');
+  if (candidates.includes(active.packageId)) {
+    fail('rolling proposal active package cannot also be a candidate.');
+  }
+  const withoutDigest = deepFreeze({
+    schema: SEC_WORK_ROLLING_PROPOSAL_PROJECTION_SCHEMA,
+    exactMain: gitSha(raw.exactMain, 'rolling proposal projection.exactMain'),
+    exactMainTree: gitSha(raw.exactMainTree, 'rolling proposal projection.exactMainTree'),
+    authority: 'none' as const,
+    active: deepFreeze({ ...active, tracking: 'none' as const }),
+    candidates
+  });
+  const projectionDigest = digest(raw.projectionDigest, 'rolling proposal projection.projectionDigest');
+  if (projectionDigest !== sha256(withoutDigest)) {
+    fail('rolling proposal projection.projectionDigest does not bind the normalized projection.');
+  }
+  return deepFreeze({ ...withoutDigest, projectionDigest });
+}
+
+export function compileSecWorkRollingProposalProjection(input: Readonly<{
+  exactMain: string;
+  exactMainTree: string;
+  active: SecWorkRollingTransitionActive & Readonly<{ tracking: 'none' }>;
+  candidates: readonly string[];
+}>): SecWorkRollingProposalProjection {
+  const semantic = {
+    schema: SEC_WORK_ROLLING_PROPOSAL_PROJECTION_SCHEMA,
+    exactMain: input.exactMain,
+    exactMainTree: input.exactMainTree,
+    authority: 'none' as const,
+    active: input.active,
+    candidates: input.candidates
+  };
+  return normalizeSecWorkRollingProposalProjection({
+    ...semantic,
+    projectionDigest: sha256(semantic)
+  });
+}
+
 export function parseSecWorkRollingMachineProjection(
   source: string
 ): SecWorkRollingMachineProjection {
@@ -1167,6 +1258,9 @@ export function parseSecWorkRollingMachineProjection(
   }
   if (raw.schema === SEC_WORK_ROLLING_TRANSITION_PROJECTION_SCHEMA) {
     return normalizeSecWorkRollingTransitionProjection(raw);
+  }
+  if (raw.schema === SEC_WORK_ROLLING_PROPOSAL_PROJECTION_SCHEMA) {
+    return normalizeSecWorkRollingProposalProjection(raw);
   }
   return fail('rolling projection.schema is unsupported.');
 }
@@ -1236,7 +1330,7 @@ function normalizeRegistry(input: SecWorkRegistryObservation): SecWorkRegistryOb
   const entries = [...input.entries].map((entry, index) => {
     const label = `registry.entries[${index}]`;
     const manifestPath = text(entry.manifestPath, `${label}.manifestPath`);
-    if (!/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(manifestPath)) {
+    if (!/^config\/repository\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(manifestPath)) {
       fail(`${label}.manifestPath is not canonical.`);
     }
     const normalized = {
@@ -1306,7 +1400,7 @@ function dependencyFacts(
   return workIds.map((workId) => {
     const dependency = itemsByWorkId.get(workId);
     if (dependency === undefined) fail(`dependency ${workId} disappeared after catalog validation.`);
-    const manifestPath = `docs/work-packages/${dependency.packageId}.md`;
+    const manifestPath = `config/repository/work-packages/${dependency.packageId}.md`;
     return {
       ref: `work-package:${dependency.packageId}`,
       status: completedManifests.has(manifestPath) ? 'satisfied' : 'unsatisfied'
@@ -1357,7 +1451,7 @@ function candidateFromLiveFacts(input: {
   itemsByWorkId: ReadonlyMap<string, SecRoadmapWorkCatalogItem>;
   completedManifests: ReadonlySet<string>;
 }): SecWorkCandidate {
-  const completionManifest = `docs/work-packages/${input.item.packageId}.md`;
+  const completionManifest = `config/repository/work-packages/${input.item.packageId}.md`;
   const alreadyInMain = input.completedManifests.has(completionManifest);
   if (!alreadyInMain && input.item.disposition === 'active'
       && input.currentSpec.providerState !== 'open') {
@@ -1505,7 +1599,7 @@ function receiptWithoutDigest(input: {
     repository: text(input.repository, 'receipt.repository'),
     exactMain,
     exactMainTree,
-    roadmapPath: 'docs/roadmap.md',
+    roadmapPath: 'config/repository/work-selection.md',
     roadmapRevision: selectionInput.identity.roadmapRevision,
     catalog,
     registry,
@@ -1697,7 +1791,7 @@ ${candidateSections}
 
 1. exact main、roadmap/catalog、registry/lifecycle/conflict或current-spec revision漂移；
 2. active/tracking/package与decision不一致，或候选少于二、多于五、重复、手工重排、增删；
-3. WorkDecision或显式transition authority不再与当前projection逐项相等；
+3. WorkDecision、显式transition authority或proposal exact binding不再与当前projection逐项相等；
 4. independent Review之后head/tree/base/manifest或本projection bytes改变。
 
 ## 加速验收
@@ -1758,6 +1852,27 @@ export function renderSecWorkRollingTransitionPlan(input: Readonly<{
     activeDescription,
     candidateDescriptions: projection.candidates.map(() => (
       `Retained ordered candidate from transition authority \`${authorityDigest}\`.`
+    ))
+  });
+}
+
+export function renderSecWorkRollingProposalPlan(input: Readonly<{
+  projection: SecWorkRollingProposalProjection;
+  reviewedOn: string;
+}>): string {
+  const projection = normalizeSecWorkRollingProposalProjection(
+    input.projection as unknown as Record<string, unknown>
+  );
+  return renderRollingPlanDocument({
+    reviewedOn: input.reviewedOn,
+    projection,
+    introduction: '本文件由唯一rolling projection compiler生成，是未获activation authority的proposal-only候选投影。'
+      + 'authority固定为none；projection digest只保护规范化表示，不能产生WorkDecision、Effect、merge或完成权限。',
+    activeDescription: `Proposal-only target manifest \`${projection.active.manifestPath}\` at `
+      + `\`${projection.active.manifestDigest}\`, based on exact main \`${projection.exactMain}\` and tree `
+      + `\`${projection.exactMainTree}\`.`,
+    candidateDescriptions: projection.candidates.map(() => (
+      'Retained ordered candidate identity from the published baseline; no selection authority is implied.'
     ))
   });
 }

@@ -17,7 +17,7 @@ test('registry projection round-trips default and open-pr entries with exact ide
     defaultTreeSha: TREE_SHA,
     entries: [
       {
-        manifestPath: 'docs/work-packages/example-v1.md',
+        manifestPath: 'config/repository/work-packages/example-v1.md',
         manifestDigest: MANIFEST_DIGEST,
         source: 'default',
         prNumber: null,
@@ -26,7 +26,7 @@ test('registry projection round-trips default and open-pr entries with exact ide
         headTreeSha: null
       },
       {
-        manifestPath: 'docs/work-packages/candidate-v1.md',
+        manifestPath: 'config/repository/work-packages/candidate-v1.md',
         manifestDigest: MANIFEST_DIGEST,
         source: 'open-pr',
         prNumber: 7,
@@ -50,7 +50,7 @@ test('registry projection rejects a default entry that binds PR identity', () =>
     defaultBranch: 'main',
     defaultTreeSha: TREE_SHA,
     entries: [{
-      manifestPath: 'docs/work-packages/example-v1.md',
+      manifestPath: 'config/repository/work-packages/example-v1.md',
       manifestDigest: MANIFEST_DIGEST,
       source: 'default',
       prNumber: 7,
@@ -72,7 +72,7 @@ test('freeze session binds exact facts and rejects tampering', () => {
     prNumber: 7,
     baseSha: BASE_SHA,
     headSha: HEAD_SHA,
-    manifestPath: 'docs/work-packages/example-v1.md',
+    manifestPath: 'config/repository/work-packages/example-v1.md',
     manifestDigest: MANIFEST_DIGEST,
     candidateTreeSha: TREE_SHA,
     sessionDigest: ''
@@ -84,7 +84,7 @@ test('V2 revision is stable across run identity and timestamps and binds semanti
   const input = {
     sessionId: 'sess-001', createdAt: '2026-08-09T00:00:00.000Z', repository: 'sec-platform/sec', prNumber: 7,
     baseSha: BASE_SHA, baseTreeSha: MERGED_TREE_SHA, headSha: HEAD_SHA, headTreeSha: TREE_SHA,
-    manifestPath: 'docs/work-packages/example-v1.md', manifestDigest: MANIFEST_DIGEST,
+    manifestPath: 'config/repository/work-packages/example-v1.md', manifestDigest: MANIFEST_DIGEST,
     sessionProposalDigest: `sha256:${'7'.repeat(64)}` as const,
     scopeAuthorizationRevision: `sha256:${'b'.repeat(64)}` as const,
     scopeAuthorizationReceiptDigest: `sha256:${'9'.repeat(64)}` as const,
@@ -106,7 +106,7 @@ test('V2 revision is stable across run identity and timestamps and binds semanti
 });
 
 test('session proposal digest is precomputable without session identity or receipt provenance',()=>{
-  const proposal={repository:'sec-platform/sec',prNumber:7,baseSha:BASE_SHA,baseTreeSha:MERGED_TREE_SHA,headSha:HEAD_SHA,headTreeSha:TREE_SHA,manifestPath:'docs/work-packages/example-v1.md',manifestDigest:MANIFEST_DIGEST,testImpactTransitionDigest:`sha256:${'4'.repeat(64)}` as const,scopeProposalDigest:`sha256:${'5'.repeat(64)}` as const,actionPlanClosureDigest:`sha256:${'6'.repeat(64)}` as const,profile:'full',environmentDigest:`sha256:${'7'.repeat(64)}` as const,trustRevision:BASE_SHA,reviewPolicyDigest:`sha256:${'8'.repeat(64)}` as const,mainHealthPolicyDigest:`sha256:${'9'.repeat(64)}` as const};
+  const proposal={repository:'sec-platform/sec',prNumber:7,baseSha:BASE_SHA,baseTreeSha:MERGED_TREE_SHA,headSha:HEAD_SHA,headTreeSha:TREE_SHA,manifestPath:'config/repository/work-packages/example-v1.md',manifestDigest:MANIFEST_DIGEST,testImpactTransitionDigest:`sha256:${'4'.repeat(64)}` as const,scopeProposalDigest:`sha256:${'5'.repeat(64)}` as const,actionPlanClosureDigest:`sha256:${'6'.repeat(64)}` as const,profile:'full',environmentDigest:`sha256:${'7'.repeat(64)}` as const,trustRevision:BASE_SHA,reviewPolicyDigest:`sha256:${'8'.repeat(64)}` as const,mainHealthPolicyDigest:`sha256:${'9'.repeat(64)}` as const};
   const digest=createVerificationSessionProposalDigest(proposal);
   expect(createVerificationSessionProposalDigest({...proposal,actionPlanClosureDigest:`sha256:${'a'.repeat(64)}`})).not.toBe(digest);
   expect(createVerificationSessionProposalDigest({...proposal,testImpactTransitionDigest:`sha256:${'b'.repeat(64)}`})).not.toBe(digest);

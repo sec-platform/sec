@@ -224,7 +224,7 @@ describe('bounded control-plane CLI projections', () => {
         openIssues: Array.from({ length: 500 }, (_, number) => ({ number, body: 'x'.repeat(1_000) })),
         reviewThreads: { '539': { nodes: Array.from({ length: 100 }, () => 'noise') } }
       },
-      activeWorkPackage: { state: 'active', manifest: 'docs/work-packages/focused.md' },
+      activeWorkPackage: { state: 'active', manifest: 'config/repository/work-packages/focused.md' },
       activation: null,
       stableFacts: Array.from({ length: 500 }, () => 'noise')
     };

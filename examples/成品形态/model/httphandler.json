@@ -1,0 +1,94 @@
+{
+  "schema": "sec.author-module/1",
+  "moduleId": "example:form:httphandler",
+  "namespace": "example.form.httphandler",
+  "dialects": {
+    "req": {
+      "languageId": "sec.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {
+    "spec": {
+      "mode": "workspace",
+      "moduleId": "example/spec/normalization"
+    },
+    "behavior": {
+      "mode": "workspace",
+      "moduleId": "example:normalization"
+    }
+  },
+  "definitions": {
+    "d:HttpHandler": {
+      "kind": "req:composite",
+      "name": "HttpHandler",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "transform": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Transform"
+              }
+            }
+          },
+          "delivery": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Delivery"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "use": {
+              "import": "behavior",
+              "export": "Normalize"
+            },
+            "arguments": {
+              "on": {
+                "subject": "transform"
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "spec",
+              "export": "Emit"
+            },
+            "fields": {
+              "on": {
+                "subject": "delivery"
+              },
+              "operation": {
+                "subject": "transform"
+              },
+              "form": {
+                "enum": {
+                  "import": "spec",
+                  "export": "HttpHandler"
+                }
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "normalize": {
+            "subject": "transform"
+          },
+          "delivery": {
+            "subject": "delivery"
+          }
+        }
+      }
+    }
+  },
+  "exports": {
+    "HttpHandler": {
+      "definitionId": "d:HttpHandler"
+    }
+  }
+}

@@ -1,143 +1,103 @@
 # Engineering Workspace Compiler — Architecture Overview
 
-This document is a public-facing projection of the project's current architecture. The repository retains the historical name `sec`; that name is not used here as the current project definition or acronym. This overview is intentionally smaller than the canonical design corpus under `docs/**` and does not replace those documents as design authority.
+This is a public projection of the current SEC-086 design. It helps readers enter the system; it does not replace the canonical documents under `docs/**`.
 
-## Core idea
+## System boundary
 
-The system separates **engineering meaning** from the particular source files, packages, processes, and tools that realize that meaning.
-
-The central causal chain is:
+SEC turns engineering goals, maintainable author content, and available implementations into target workspaces whose sources and limits remain explicit. It can return analysis, a bounded design, implementation candidates, complete artifacts, or the result of an authorized operation. The requested outcome determines the stopping point.
 
 ```text
-Outcome / Non-goal
-        ↓
-Definition / Invariant
-        ↓
-Semantic Admission
-        ↓
-Responsibility / Requirement
-        ↓
-Decision / Exact Binding
-        ↓
-Admitted Operation
-        ↓
-Effect Observation
-        ↓
-Settlement / Readback
-        ↓
-Claim / Evidence / Verdict
-        ↓
-Evolution / Publication / Retirement
+People / AI / Existing Tools
+              │ goals, changes, authorized operations
+              ▼
+ Engineering Workspace Compiler
+   ├─ captures exact workspace and source facts
+   ├─ interprets meaning and requirements
+   ├─ selects or creates eligible implementations
+   ├─ produces complete target artifacts
+   ├─ evaluates applicable evidence
+   └─ admits and settles requested effects
+              │
+              ├─ analysis, diagnostics, candidates
+              ├─ source, dependencies, resources
+              └─ observed operation results
 ```
 
-A path, type name, package, generated file, test result, process exit code, or AI response cannot become authoritative merely because it exists. Authority, identity, coverage, revision, effects, and evidence are modeled explicitly.
+The compiler is usually an embeddable, modular local system. A short CLI, SDK consumer, optional warm service, isolated worker, or remote provider can host parts of it when their real lifecycle and failure boundaries justify that shape. The design does not equate logical responsibilities with separate services.
 
-## Product flow
+## Responsibilities
 
-The Engineering Workspace Compiler supports two major entry paths that converge on the same downstream semantics.
+The architecture uses ten implementation responsibilities:
 
-### Existing software
+| Responsibility | Owns | Does not own |
+|---|---|---|
+| `contracts` | shared value shapes, references, results, diagnostics | domain meaning or execution permission |
+| `workspace` | author content, identity, scope, frozen candidates, source location | target write authority |
+| `semantics` | definitions, names, types, effects, domain rules, edit meaning | external effects |
+| `compiler` | analysis by roots, implementation selection, lowering, target members, source correspondence | publication or runtime adoption |
+| `assurance` | claims, methods, coverage, evidence applicability | acceptance requirements or write permission |
+| `application` | request purpose, exact inputs, candidate changes, missing information, result ownership | a second type system or global current result |
+| `execution` | admission, resources, operation identity, effects, receipts, recovery | invented settlement after provider loss |
+| `adapters` | concrete filesystem, language, source, and host capabilities | stronger guarantees than a provider supplies |
+| `entry` | protocols, encoding, negotiated behavior, result presentation | side-channel persistence or authority |
+| `bootstrap` | constructing an instance, injecting implementations, closing created resources | a runtime-global service locator |
+
+These responsibilities collaborate without collapsing their state:
 
 ```text
-Physical workspace
-      ↓
-Exact observations
-      ↓
-Language / symbol / dependency facts
-      ↓
-Candidate responsibilities and semantics
-      ↓
-Adopt / reject / preserve unknown
+entry → application → workspace
+             │          │
+             ├──────→ compiler ← semantics
+             │             │
+             ├──────→ assurance
+             │
+             └──────→ execution → adapters
+
+contracts define shared boundary values;
+bootstrap constructs the selected implementation graph.
 ```
 
-### New or intentionally changed software
+## Two input paths, one downstream model
 
-```text
-Intent + constraints + contracts
-              ↓
-      Validated semantics
-              ↓
-    Responsibilities / requirements
-```
+For existing software, SEC captures exact physical observations, language and dependency facts, and candidate responsibilities. It adopts supported meaning, rejects disproven interpretations, and preserves material unknowns.
 
-Both converge into a canonical semantic closure:
+For new or intentionally changed software, SEC consumes goals, constraints, contracts, and authored choices. Both paths converge on maintained engineering content, implementation selection, exact target members, controlled changes, readback, and evidence.
 
-```text
-Canonical engineering semantics
-            ↓
-Implementation resolution
-            ↓
-Exact bindings
-            ↓
-Delta + impact planning
-            ↓
-Controlled mutation / generation
-            ↓
-Readback + independent verification
-            ↓
-Published target workspace
-```
+This convergence matters because generated code is not a separate truth. Author content remains maintainable, implementation choices remain traceable, and the target workspace carries only the source, dependencies, and resources it actually needs.
 
-## Product domains
+## State and failure boundaries
 
-The current product design partitions responsibilities into six domains:
+The design keeps several facts separate:
 
-1. **Engineering Semantics** — accepted definitions, responsibilities, contracts, policies, and semantic revisions.
-2. **Realization** — target selection, eligible implementation candidates, design decisions, exact implementation bindings, and target-artifact generation.
-3. **Operation Runtime** — authority grants, execution bindings, resource allocations, attempts, settlement, and operation journals.
-4. **Workspace Evolution** — desired/current delta, impact, pure plans, mutation, migration, cutover, rollback, recovery, and retirement.
-5. **Assurance** — claims, evidence, coverage, freshness, verdicts, publication, and invalidation.
-6. **Delivery and Support** — packaging, publication, deployment, support, deprecation, and withdrawal lifecycle.
+- a candidate author change and a persisted workspace change;
+- an eligible implementation and a selected implementation;
+- a generated artifact and a published artifact;
+- a verification result and the claim it actually covers;
+- an admitted operation, its provider attempt, and its observed settlement;
+- a new source revision and an already running instance.
 
-These are semantic responsibility boundaries, not directory names or runtime services.
+This prevents common false conclusions. A green test does not prove an unrelated claim; a timeout does not prove that an external effect never happened; saving new source does not hot-swap an old process; success for one output root does not prove a multi-root delivery is complete.
 
-## AI boundary
+Failures retain their real classification: rejected, unresolved, blocked, conclusively failed, recovery required, rolled back with evidence, or published with evidence. Unknown external settlement remains a recovery responsibility rather than being rewritten as success or safe retry.
 
-AI is not intended to be a second source of engineering truth.
+## AI and external capability boundary
 
-An AI-facing interface may:
+AI can interpret intent, query canonical engineering facts, propose bounded changes, explain decisions and evidence, and invoke operations within granted authority. It cannot silently replace canonical content, manufacture evidence, expand its own permission, or use generated source as proof of completion.
 
-- interpret or refine intent;
-- query canonical engineering facts;
-- propose bounded changes;
-- explain decisions and evidence;
-- invoke operations for which it has explicit authority.
+Compilers, package managers, providers, source services, and host tools are consumed through their narrow real capabilities. Their output remains bound to its source, revision, coverage, environment, and settlement behavior. A wrapper, registry entry, or successful installation does not upgrade those guarantees.
 
-It may not silently replace canonical semantics, manufacture evidence, expand its own authority, or treat generated source code as proof that the requested engineering outcome has been achieved.
+## Canonical design entry points
 
-## Why source code can become assembly-like
+- [Product scope and constraints](docs/产品/README.md)
+- [Complete system architecture](docs/架构/总体设计.md)
+- [Assembly and implementation boundaries](docs/架构/装配/README.md)
+- [Author content](docs/作者/README.md)
+- [Compilation](docs/编译/README.md)
+- [Runtime effects and recovery](docs/运行/README.md)
+- [Verification and evidence](docs/运行/保证/README.md)
+- [Evolution, migration, and retirement](docs/演进/README.md)
+- [Design decisions](docs/决策/README.md)
+- [Known unresolved scope](docs/状态/README.md)
+- [Documentation architecture](docs/维护/文档架构.md)
 
-The project does not attempt to eliminate source code or existing languages.
-
-The architectural thesis is that a sufficiently expressive, governed engineering-semantic layer can become the primary surface through which humans and AI describe and evolve systems. Conventional source code can then increasingly act as a lower-level realization format: generated or transformed where appropriate, inspected when necessary, and compiled through existing language ecosystems.
-
-The analogy is architectural rather than literal. Source code remains substantially richer than machine assembly and may continue to be directly authored in many workflows.
-
-## Failure is part of the model
-
-The architecture does not collapse every unsuccessful operation into a generic error. It distinguishes outcomes such as:
-
-- rejected requests;
-- unresolved semantics or observations;
-- blocked operations;
-- conclusive failure;
-- recovery-required states;
-- verified rollback;
-- verified publication.
-
-This distinction matters because a process terminating, timing out, or losing a handle does not prove whether an external effect did or did not occur.
-
-## Canonical design documents
-
-For the detailed and authoritative design, see:
-
-- `docs/product.md`
-- `docs/system-architecture.md`
-- `docs/implementation-architecture.md`
-- `docs/semantic-model.md`
-- `docs/compiler-target-ir.md`
-- `docs/engineering-constitution.md`
-- `docs/agent-constitution.md`
-- `docs/README.md`
-
-Public summaries should be updated from those sources rather than independently evolving a second architecture.
+The [documentation index](docs/README.md) and [task routes](docs/任务路线.md) locate the actual owner for a specific mechanism. Public summaries should be corrected from those owners whenever the design changes.

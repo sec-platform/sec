@@ -124,6 +124,54 @@ test('inspect is zero-write and protects one ignored unknown root', async () => 
   expect(await absent(cacheRoot)).toBe(true);
 });
 
+test('producer inventory and retirement readback stay bound to their creation-time roots and runtime store', async () => {
+  const { options, repositoryRoot } = await fixture();
+  const generatedRoot = fixtureRoot(repositoryRoot);
+  await mkdir(generatedRoot, { recursive: true });
+  await writeFile(path.join(generatedRoot, 'cache.bin'), 'owned');
+  const producerInput = { repositoryRoot, workspaceRoot: repositoryRoot };
+  const producerEnvironment = { ...options.environment };
+  const producerOptions = { environment: producerEnvironment };
+  const owner = generatedStateProducerHooks(producerInput, producerOptions);
+  await owner.born(LIFECYCLE_FIXTURE_PATH, 'root-bound-inventory-owner');
+
+  producerInput.repositoryRoot = path.join(path.dirname(repositoryRoot), 'foreign-repository');
+  producerInput.workspaceRoot = path.join(path.dirname(repositoryRoot), 'foreign-workspace');
+  producerEnvironment.SEC_STATE_HOME = path.join(path.dirname(repositoryRoot), 'mutated-state');
+  producerEnvironment.SEC_CACHE_HOME = path.join(path.dirname(repositoryRoot), 'mutated-cache');
+  producerOptions.environment = {
+    ...producerEnvironment,
+    SEC_STATE_HOME: path.join(path.dirname(repositoryRoot), 'replacement-state'),
+    SEC_CACHE_HOME: path.join(path.dirname(repositoryRoot), 'replacement-cache')
+  };
+
+  const foreign = generatedStateProducerHooks({ repositoryRoot }, {
+    ...options,
+    environment: {
+      ...options.environment,
+      SEC_STATE_HOME: path.join(path.dirname(repositoryRoot), 'foreign-state'),
+      SEC_CACHE_HOME: path.join(path.dirname(repositoryRoot), 'foreign-cache')
+    }
+  });
+  const ownedEntry = (await owner.inspect([LIFECYCLE_FIXTURE_PATH])).entries[0];
+  const foreignEntry = (await foreign.inspect([LIFECYCLE_FIXTURE_PATH])).entries[0];
+
+  expect(ownedEntry).toMatchObject({
+    relativePath: LIFECYCLE_FIXTURE_PATH,
+    registrationState: 'active',
+    settlement: 'protected',
+    blockers: ['owner-active']
+  });
+  expect(foreignEntry).toMatchObject({
+    relativePath: LIFECYCLE_FIXTURE_PATH,
+    registrationState: 'missing',
+    settlement: 'protected',
+    blockers: ['registration-missing']
+  });
+  expect((await owner.observeRetirement(LIFECYCLE_FIXTURE_PATH)).status).toBe('active');
+  expect((await foreign.observeRetirement(LIFECYCLE_FIXTURE_PATH)).status).toBe('mismatch');
+});
+
 test('worktree retirement preserves one covered ignored root outside the target and binds Effect-start identity', async () => {
   const fixture = await registeredWorktreeFixture();
   await mkdir(path.join(fixture.workspaceRoot, '.shared-deps'), { recursive: true });

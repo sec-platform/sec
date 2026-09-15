@@ -1,0 +1,930 @@
+{
+  "schema": "sec.documentation-identity/1",
+  "scope": "本设计库当前文档身份与位置；无历史拆分谱系，不是产品通用对象库。",
+  "documents": [
+    {
+      "document_id": "urn:uuid:d4f25365-130a-5c38-bba7-ea1d5b89c8af",
+      "path": "AGENTS.md"
+    },
+    {
+      "document_id": "urn:uuid:3ed9e7ad-d7bb-5fb9-a761-c156b2f0d2f2",
+      "path": "README.md"
+    },
+    {
+      "document_id": "urn:uuid:4204c398-a6d6-5099-8f4d-bbd6c0cb4d64",
+      "path": "alternatives/README.md"
+    },
+    {
+      "document_id": "urn:uuid:06b9569a-0e9d-5633-b422-8372cfa2814c",
+      "path": "alternatives/文本意图/README.md"
+    },
+    {
+      "document_id": "urn:uuid:656cd057-cf4e-5b64-a77d-4c34444996c3",
+      "path": "alternatives/文本意图/语法草案.md"
+    },
+    {
+      "document_id": "urn:uuid:886dc7db-1878-58ae-8e00-4efe3dacfb1e",
+      "path": "docs/README.md"
+    },
+    {
+      "document_id": "urn:uuid:2815b7eb-eaed-511c-ae06-d603790764e3",
+      "path": "docs/产品/README.md"
+    },
+    {
+      "document_id": "urn:uuid:2bc41dad-928a-4663-b3d2-f470882d2b15",
+      "path": "docs/产品/产品要求与工作约束.md"
+    },
+    {
+      "document_id": "urn:uuid:4fd47e72-af72-4668-8c0e-333b2207ecc3",
+      "path": "docs/产品/全体系能力与边界.md"
+    },
+    {
+      "document_id": "urn:uuid:a1560e59-2709-48b3-a327-e956937d5a48",
+      "path": "docs/产品/原则总纲与归属.md"
+    },
+    {
+      "document_id": "urn:uuid:c45fba26-7d5c-4ce4-9306-ce7bf400a244",
+      "path": "docs/产品/术语与质量属性.md"
+    },
+    {
+      "document_id": "urn:uuid:9c6bad2b-4c42-4c7e-9ffc-72d305491272",
+      "path": "docs/任务路线.md"
+    },
+    {
+      "document_id": "urn:uuid:c94c6605-117f-5975-ad76-adf0ae9c6711",
+      "path": "docs/作者/README.md"
+    },
+    {
+      "document_id": "urn:uuid:50f4ddfe-f400-41f1-a5bd-fa6493d9929d",
+      "path": "docs/作者/共同语义关系.md"
+    },
+    {
+      "document_id": "urn:uuid:8f15ad02-3e88-4bba-9c96-190799ca5d7c",
+      "path": "docs/作者/可替换表示与适用范围.md"
+    },
+    {
+      "document_id": "urn:uuid:c93c567a-b2f9-5505-aaad-abb322da7abd",
+      "path": "docs/作者/工程源/README.md"
+    },
+    {
+      "document_id": "urn:uuid:6011bc28-346a-4be8-b74b-32e47ee10d80",
+      "path": "docs/作者/工程源/清单模块与绑定锁.md"
+    },
+    {
+      "document_id": "urn:uuid:03abe38e-ba9c-4dc3-9c00-81a443105328",
+      "path": "docs/作者/工程源/资产与非源码.md"
+    },
+    {
+      "document_id": "urn:uuid:82a50fd1-a979-4b6e-84e4-fdb1a1696ab9",
+      "path": "docs/作者/工程源/身份断言与采纳.md"
+    },
+    {
+      "document_id": "urn:uuid:924f66fb-d0c0-5641-89c1-eb024d463a3d",
+      "path": "docs/作者/成品/README.md"
+    },
+    {
+      "document_id": "urn:uuid:84dd4cb6-e3d8-5d1f-9300-88ea72d269dc",
+      "path": "docs/作者/成品/交互应用.md"
+    },
+    {
+      "document_id": "urn:uuid:4316f255-70e9-55f6-a752-5331ca080328",
+      "path": "docs/作者/成品/产品族与共同发行.md"
+    },
+    {
+      "document_id": "urn:uuid:2ef55a25-b657-53c1-8e31-636830b788a8",
+      "path": "docs/作者/成品/共同数据与完整性.md"
+    },
+    {
+      "document_id": "urn:uuid:f01503aa-dc6a-5e2c-905f-24574824291e",
+      "path": "docs/作者/成品/命令与批处理程序.md"
+    },
+    {
+      "document_id": "urn:uuid:0c367a21-ac4b-5bfc-be42-698f1e87e6d7",
+      "path": "docs/作者/成品/安装与部署.md"
+    },
+    {
+      "document_id": "urn:uuid:5d30c645-ed7f-5450-894e-7223fd5bb603",
+      "path": "docs/作者/成品/完整性合同.md"
+    },
+    {
+      "document_id": "urn:uuid:29d0b43b-6cf7-550c-a7f7-6fad69c4a35e",
+      "path": "docs/作者/成品/工作台交互与共同状态.md"
+    },
+    {
+      "document_id": "urn:uuid:2885c6d2-416f-5ab0-a833-e0511fc81009",
+      "path": "docs/作者/成品/工作器组件与插件.md"
+    },
+    {
+      "document_id": "urn:uuid:799008ec-c264-5b49-9e8e-502ebf6e25b4",
+      "path": "docs/作者/成品/库与协议客户端.md"
+    },
+    {
+      "document_id": "urn:uuid:f07828dc-caa2-5a59-b823-ef62dfa90b2c",
+      "path": "docs/作者/成品/数据与配置迁移.md"
+    },
+    {
+      "document_id": "urn:uuid:d4dbf926-43eb-5e6d-b18c-a6d529d5a6a2",
+      "path": "docs/作者/成品/查询批数据与持续流.md"
+    },
+    {
+      "document_id": "urn:uuid:253bc4e6-edc1-5b44-854e-13de2ec07cf5",
+      "path": "docs/作者/成品/模型概率与优化.md"
+    },
+    {
+      "document_id": "urn:uuid:2454b433-d618-5aa7-be57-539d5b4beec2",
+      "path": "docs/作者/成品/片段与已有工程变化.md"
+    },
+    {
+      "document_id": "urn:uuid:c5b0a906-f0d8-545e-a704-a54c2e56f41b",
+      "path": "docs/作者/成品/编译分析与生成工具.md"
+    },
+    {
+      "document_id": "urn:uuid:0164aeff-9945-55f3-b43b-91a210ca08a1",
+      "path": "docs/作者/成品/规格与静态资产.md"
+    },
+    {
+      "document_id": "urn:uuid:5adbc8e5-191c-519c-8e5c-a3b7a0e58671",
+      "path": "docs/作者/成品/计算核固件与实时程序.md"
+    },
+    {
+      "document_id": "urn:uuid:4315b5c5-390a-5b91-838d-353fbe4fcacd",
+      "path": "docs/作者/成品/请求处理器与服务.md"
+    },
+    {
+      "document_id": "urn:uuid:c07c9fc1-fe41-521a-9b5b-2c6eb7f3c432",
+      "path": "docs/作者/成品形态与公共边界.md"
+    },
+    {
+      "document_id": "urn:uuid:441666ce-cc77-5b38-94c0-fceaf1e05a77",
+      "path": "docs/作者/组合/README.md"
+    },
+    {
+      "document_id": "urn:uuid:b8d0b8a0-1802-5f22-9b24-30733c4e8d51",
+      "path": "docs/作者/组合/定义与接口.md"
+    },
+    {
+      "document_id": "urn:uuid:bc6f2bb4-3e41-4db9-9ccd-16edc6e8070d",
+      "path": "docs/作者/组合/抽象与开放定义.md"
+    },
+    {
+      "document_id": "urn:uuid:0ad33c5f-2006-4532-b677-de4da7867af0",
+      "path": "docs/作者/组合/模块封装与复用库.md"
+    },
+    {
+      "document_id": "urn:uuid:21e184ae-9c3d-5781-89bc-911e19661943",
+      "path": "docs/作者/组合/稀疏控制与目标限定.md"
+    },
+    {
+      "document_id": "urn:uuid:ab4b3409-5cfc-4531-a70e-cb7e83e00865",
+      "path": "docs/作者/组合/结构编辑与身份保持.md"
+    },
+    {
+      "document_id": "urn:uuid:56bd5a94-3535-58ae-9561-073e9edec04b",
+      "path": "docs/作者/组合/语义扩展与领域接合.md"
+    },
+    {
+      "document_id": "urn:uuid:04fec4e5-44e5-558b-a2ab-8d0b167d05d8",
+      "path": "docs/作者/组合/跨软件需求合同.md"
+    },
+    {
+      "document_id": "urn:uuid:d3c3fa0a-2d2f-49f2-b4cd-c24db59fb5c2",
+      "path": "docs/作者/结构化源码.md"
+    },
+    {
+      "document_id": "urn:uuid:d8a0fb12-1d4f-4f9e-a784-580f86208f72",
+      "path": "docs/作者/需求关系与能力边界.md"
+    },
+    {
+      "document_id": "urn:uuid:5e8b5851-df43-59b8-bee8-61d28e5a48ff",
+      "path": "docs/作者/需求含义与实现责任.md"
+    },
+    {
+      "document_id": "urn:uuid:311ca2da-6d1d-5569-90a3-f7a60002da33",
+      "path": "docs/作者/需求规则与供给合同.md"
+    },
+    {
+      "document_id": "urn:uuid:982a6b3d-e1cd-530f-9ea1-5e9e96b9af34",
+      "path": "docs/依据/README.md"
+    },
+    {
+      "document_id": "urn:uuid:379dafa8-f22d-5b62-8f39-cae176e6c027",
+      "path": "docs/依据/来源/README.md"
+    },
+    {
+      "document_id": "urn:uuid:4a56cc4f-86f4-4a80-b7d6-b7fe7670ff50",
+      "path": "docs/依据/来源/原生工程固定源码.md"
+    },
+    {
+      "document_id": "urn:uuid:3147189e-138c-45f0-91ac-5d16314a7b6c",
+      "path": "docs/依据/来源/存储关系与交付.md"
+    },
+    {
+      "document_id": "urn:uuid:bcd34562-070e-4a6d-b712-c4abd3195f27",
+      "path": "docs/依据/来源/对象流与微分.md"
+    },
+    {
+      "document_id": "urn:uuid:512857e1-1265-4b23-ac45-2b94a7b0602e",
+      "path": "docs/依据/来源/工作台与替代路线.md"
+    },
+    {
+      "document_id": "urn:uuid:788b52b4-6056-4fc5-8af2-daa9887b0354",
+      "path": "docs/依据/来源/工程信息组织依据.md"
+    },
+    {
+      "document_id": "urn:uuid:152a04ab-37c0-566f-83b3-7f8062a19dd1",
+      "path": "docs/依据/来源/工程文档规模会话核对.md"
+    },
+    {
+      "document_id": "urn:uuid:18b61adc-8792-4df3-88b3-9c47c55c068d",
+      "path": "docs/依据/来源/构建分发与迁移.md"
+    },
+    {
+      "document_id": "urn:uuid:033d2b0c-28df-48f8-8486-35c596da4735",
+      "path": "docs/依据/来源/状态规则与约束.md"
+    },
+    {
+      "document_id": "urn:uuid:c5cdbbdd-520a-41a5-ac9e-d6beb31c7268",
+      "path": "docs/依据/来源/理论与待核线索.md"
+    },
+    {
+      "document_id": "urn:uuid:14ff94d1-8784-4851-8975-4b9e2b6636ca",
+      "path": "docs/依据/来源/表示编辑与协议.md"
+    },
+    {
+      "document_id": "urn:uuid:0c4f2097-e228-4481-b324-8afd503d0905",
+      "path": "docs/依据/来源/计算布局与数值.md"
+    },
+    {
+      "document_id": "urn:uuid:f760e613-ec95-409a-958c-7d57eacced15",
+      "path": "docs/依据/来源/设计依据与资料边界.md"
+    },
+    {
+      "document_id": "urn:uuid:97287675-e6a1-4467-8769-4001426ebd2d",
+      "path": "docs/依据/来源/证明类型与编码.md"
+    },
+    {
+      "document_id": "urn:uuid:14f2da1f-e19d-4852-9913-1b2847d9f58d",
+      "path": "docs/依据/来源/语言编译与目标工具.md"
+    },
+    {
+      "document_id": "urn:uuid:e17c8c32-492a-4bfd-a877-6ef63aaffd35",
+      "path": "docs/依据/来源/需求文档与协作.md"
+    },
+    {
+      "document_id": "urn:uuid:5c1dac09-13af-5348-8b33-1b9edb285f36",
+      "path": "docs/依据/理论/README.md"
+    },
+    {
+      "document_id": "urn:uuid:61270f18-317a-43c9-a8ff-506a5530b98f",
+      "path": "docs/依据/理论/开放世界与架构反证.md"
+    },
+    {
+      "document_id": "urn:uuid:cb888774-395a-4d08-a83a-cd7dc24d6c26",
+      "path": "docs/依据/理论/控制组织与利益约束.md"
+    },
+    {
+      "document_id": "urn:uuid:0b840cea-5df8-4e2b-a981-bb16fc11524f",
+      "path": "docs/依据/理论/理论边界与反例.md"
+    },
+    {
+      "document_id": "urn:uuid:7c7e8cd0-0678-4285-a4c6-ed4b4af030bb",
+      "path": "docs/依据/理论/表达证明与搜索边界.md"
+    },
+    {
+      "document_id": "urn:uuid:b89f19a8-e418-4148-9508-f63a88515a73",
+      "path": "docs/依据/理论/身份协调与可观测性.md"
+    },
+    {
+      "document_id": "urn:uuid:8a599140-7758-5bed-8c55-17f94770173d",
+      "path": "docs/信息/README.md"
+    },
+    {
+      "document_id": "urn:uuid:74e5ee4a-16a2-43be-ad6e-334e257b2b51",
+      "path": "docs/信息/信息类别与生命周期路由.md"
+    },
+    {
+      "document_id": "urn:uuid:3bc9351c-9ec3-48b0-8afc-5d3c0788c783",
+      "path": "docs/信息/全体系信息结构.md"
+    },
+    {
+      "document_id": "urn:uuid:e98b4b51-3a97-4d71-8aad-b380aeda2485",
+      "path": "docs/信息/存储保留与恢复.md"
+    },
+    {
+      "document_id": "urn:uuid:5a331439-f703-40ea-9a84-491bc1e595b3",
+      "path": "docs/信息/对象关系与配置基线.md"
+    },
+    {
+      "document_id": "urn:uuid:9f78d898-de63-420d-b57e-70022b09dc27",
+      "path": "docs/信息/接入检索与派生.md"
+    },
+    {
+      "document_id": "urn:uuid:d6e27fc4-3459-4168-979c-2f0ef6f0ea4c",
+      "path": "docs/内容索引.md"
+    },
+    {
+      "document_id": "urn:uuid:3a172794-e1c3-5a0f-8757-841968b79dd5",
+      "path": "docs/决策/README.md"
+    },
+    {
+      "document_id": "urn:uuid:338b43a1-5139-47ae-bad6-8ea11e15e076",
+      "path": "docs/决策/设计理由-交互与生成.md"
+    },
+    {
+      "document_id": "urn:uuid:95982933-1cc9-4d68-9b5b-03535d79877f",
+      "path": "docs/决策/设计理由-目标与核心.md"
+    },
+    {
+      "document_id": "urn:uuid:0fcb9777-af70-4b73-9e8a-3514620bbf36",
+      "path": "docs/决策/设计理由-约束与演进.md"
+    },
+    {
+      "document_id": "urn:uuid:172b9a49-8d4e-5011-b448-2e0151806851",
+      "path": "docs/开发/AI协作/README.md"
+    },
+    {
+      "document_id": "urn:uuid:622b977b-3b4a-5b55-b82e-b2a299ce6ed9",
+      "path": "docs/开发/AI协作/上下文取得与任务投影.md"
+    },
+    {
+      "document_id": "urn:uuid:7e771ea7-4f73-5494-9136-d9f4ffb376da",
+      "path": "docs/开发/AI协作/委派安全与持续交接.md"
+    },
+    {
+      "document_id": "urn:uuid:eebbe6c1-3df2-565c-b98b-dc1c111bf7d2",
+      "path": "docs/开发/AI协作/规则装载与任务恢复.md"
+    },
+    {
+      "document_id": "urn:uuid:7014125c-820b-400f-8908-613b0cd3ab25",
+      "path": "docs/开发/AI协作/需求与作者上下文.md"
+    },
+    {
+      "document_id": "urn:uuid:a150b388-fffd-5ad0-ab72-224574c7e0f0",
+      "path": "docs/开发/README.md"
+    },
+    {
+      "document_id": "urn:uuid:180c14c7-a8f9-40fa-b88b-f9112b1f8a53",
+      "path": "docs/开发/原生维护/导入观察与原生资产.md"
+    },
+    {
+      "document_id": "urn:uuid:d4431ed4-32e1-502d-b37e-5ac12083e7dc",
+      "path": "docs/开发/工具协议/README.md"
+    },
+    {
+      "document_id": "urn:uuid:1d9cde9f-b8e6-54f8-843a-dd83fbad7607",
+      "path": "docs/开发/工具协议/交互调试接口.md"
+    },
+    {
+      "document_id": "urn:uuid:c08f2d17-ebe0-59c0-a942-623c4a9ab97d",
+      "path": "docs/开发/工具协议/交互进程接口.md"
+    },
+    {
+      "document_id": "urn:uuid:81882334-ef4b-5589-b02d-1937a2bd0bc5",
+      "path": "docs/开发/工具协议/作者辅助接口.md"
+    },
+    {
+      "document_id": "urn:uuid:0fd7655f-fb2a-56f9-8c99-f4118b91dad8",
+      "path": "docs/开发/工具协议/候选修改与批量.md"
+    },
+    {
+      "document_id": "urn:uuid:761d589c-f35f-4087-8bc6-ddb08e9e4033",
+      "path": "docs/开发/工具协议/六工具与请求.md"
+    },
+    {
+      "document_id": "urn:uuid:714dd273-edc2-5e6e-b6b2-f060e8c219e5",
+      "path": "docs/开发/工具协议/客户端与并行会话.md"
+    },
+    {
+      "document_id": "urn:uuid:56c9139d-39f1-5231-9e94-fc904ff7ffbe",
+      "path": "docs/开发/工具协议/构建运行接口.md"
+    },
+    {
+      "document_id": "urn:uuid:0fb740cb-972c-55c9-b2a7-7b561f96b2bd",
+      "path": "docs/开发/测试发现与执行.md"
+    },
+    {
+      "document_id": "urn:uuid:eceab9fe-1df2-4046-80e3-347ad5f88748",
+      "path": "docs/开发/用途与任务范围.md"
+    },
+    {
+      "document_id": "urn:uuid:1acdc683-fc2c-4407-8e32-90bf32dfed70",
+      "path": "docs/开发/编辑审查与客户端.md"
+    },
+    {
+      "document_id": "urn:uuid:4efda334-0ac6-5bb5-9e72-3fb6ee840ebc",
+      "path": "docs/开发/编辑检查与失败继续.md"
+    },
+    {
+      "document_id": "urn:uuid:d357a71c-77ac-5a44-9860-fd22ab289b41",
+      "path": "docs/开发/需求到交付主链.md"
+    },
+    {
+      "document_id": "urn:uuid:f32f4deb-5a2d-5576-bb03-ccee5a64e26e",
+      "path": "docs/架构/README.md"
+    },
+    {
+      "document_id": "urn:uuid:c954e4a4-6ebc-4e93-9b3e-c2a3ca478e4f",
+      "path": "docs/架构/协作与状态边界.md"
+    },
+    {
+      "document_id": "urn:uuid:897d0c13-6e96-5e0b-9b7b-849624628b28",
+      "path": "docs/架构/实现供给与替换.md"
+    },
+    {
+      "document_id": "urn:uuid:de151f45-288f-58b1-9dab-8ab6fcb668be",
+      "path": "docs/架构/总体设计.md"
+    },
+    {
+      "document_id": "urn:uuid:92f38ec1-2b67-51e2-a4bc-47db3d97d28d",
+      "path": "docs/架构/约束强制与整体一致性.md"
+    },
+    {
+      "document_id": "urn:uuid:66acec34-64e8-56f1-a6d7-1eed3362918e",
+      "path": "docs/架构/装配/README.md"
+    },
+    {
+      "document_id": "urn:uuid:06fdaf3d-124b-47ba-a8b2-e2f340b29d41",
+      "path": "docs/架构/装配/模块与运行实例.md"
+    },
+    {
+      "document_id": "urn:uuid:99df956d-22a8-585f-980c-493962f7cc30",
+      "path": "docs/架构/装配/源绑定与解释映像.md"
+    },
+    {
+      "document_id": "urn:uuid:660e79c7-f66d-5d9e-98b1-92ffb0423701",
+      "path": "docs/架构/装配/能力接合与文件责任.md"
+    },
+    {
+      "document_id": "urn:uuid:e21369d4-fc58-5f3c-9ee5-47cc5edb7056",
+      "path": "docs/演进/README.md"
+    },
+    {
+      "document_id": "urn:uuid:41516320-74f3-47ee-92af-efe0772adb65",
+      "path": "docs/演进/兼容迁移与退役.md"
+    },
+    {
+      "document_id": "urn:uuid:a75f1811-d12f-5c7d-9ee2-51bbe8405f92",
+      "path": "docs/演进/实施/README.md"
+    },
+    {
+      "document_id": "urn:uuid:e085ad77-5a4b-4e5e-ac94-c090e73730ae",
+      "path": "docs/演进/实施/主线前沿与准入.md"
+    },
+    {
+      "document_id": "urn:uuid:fe5c13d7-1185-5575-9923-5bd4f853f504",
+      "path": "docs/演进/实施/仓库迁移与自托管.md"
+    },
+    {
+      "document_id": "urn:uuid:dad079b7-7822-5d15-ae60-74a84aee4f0d",
+      "path": "docs/演进/实施/安全构建发布与环境.md"
+    },
+    {
+      "document_id": "urn:uuid:e33f81a0-58da-52df-b4e2-05b9bcc7dbe2",
+      "path": "docs/演进/实施/独立能力的实施单元.md"
+    },
+    {
+      "document_id": "urn:uuid:d147dfa5-eb9b-4692-aa94-65a116256584",
+      "path": "docs/演进/工程挑战与覆盖边界.md"
+    },
+    {
+      "document_id": "urn:uuid:108cf629-0462-4802-a15a-8e65dcb67170",
+      "path": "docs/演进/开源协作与支持.md"
+    },
+    {
+      "document_id": "urn:uuid:c29bfa6f-2d22-4380-a742-21b82eac80c0",
+      "path": "docs/演进/适用性与能力协商.md"
+    },
+    {
+      "document_id": "urn:uuid:dddb2a6a-8189-457b-92d5-41ae31f0e40f",
+      "path": "docs/演进/领域组合与扩展条件.md"
+    },
+    {
+      "document_id": "urn:uuid:91803290-1f54-507b-aec4-24f2f98d0b04",
+      "path": "docs/状态/README.md"
+    },
+    {
+      "document_id": "urn:uuid:1fbde35c-e2a2-5030-87c2-b7c851a329f6",
+      "path": "docs/状态/作者与接口.md"
+    },
+    {
+      "document_id": "urn:uuid:38e5c6fc-ff6b-583a-a729-8ef0acc83789",
+      "path": "docs/状态/信息约束与验证.md"
+    },
+    {
+      "document_id": "urn:uuid:1233e3c7-f462-446f-b6d3-ac15b89da67e",
+      "path": "docs/状态/前沿与登记规则.md"
+    },
+    {
+      "document_id": "urn:uuid:2f6d79c4-53ff-59c6-86ce-06e8045ecce8",
+      "path": "docs/状态/执行与恢复.md"
+    },
+    {
+      "document_id": "urn:uuid:83433e43-3785-53bd-b6b9-52318bb026f1",
+      "path": "docs/状态/编译与目标.md"
+    },
+    {
+      "document_id": "urn:uuid:9492dfdf-b431-5777-a750-d28ebf897462",
+      "path": "docs/状态/语义与领域.md"
+    },
+    {
+      "document_id": "urn:uuid:93cc0c11-ed4e-58f1-bf1b-642420009ec3",
+      "path": "docs/维护/README.md"
+    },
+    {
+      "document_id": "urn:uuid:deeaf8ee-cf3f-5f3f-9e8e-2fc7eb5a9734",
+      "path": "docs/维护/交付材料与归档.md"
+    },
+    {
+      "document_id": "urn:uuid:290454ca-e8a4-523d-8cd1-dbb61b3427f9",
+      "path": "docs/维护/原则问题与交付边界.md"
+    },
+    {
+      "document_id": "urn:uuid:5506e719-8d83-5124-8f71-4e1d2e620d4f",
+      "path": "docs/维护/图表与阅读派生.md"
+    },
+    {
+      "document_id": "urn:uuid:356f9f54-8113-4186-bd62-1fba4cbace95",
+      "path": "docs/维护/基线与采用.md"
+    },
+    {
+      "document_id": "urn:uuid:05ac254f-60ce-5350-9ef7-f4374172600c",
+      "path": "docs/维护/文档架构.md"
+    },
+    {
+      "document_id": "urn:uuid:819c838a-e3c4-4d43-a169-1249e66360ab",
+      "path": "docs/维护/文档身份与重组协议.md"
+    },
+    {
+      "document_id": "urn:uuid:3c4cee78-bc8b-5258-9a04-1665adb5cedf",
+      "path": "docs/维护/组织修改与来源保全.md"
+    },
+    {
+      "document_id": "urn:uuid:7d9f6bf0-d1b2-4413-bc3f-12b2f6b1093d",
+      "path": "docs/维护/规格写作与完整性.md"
+    },
+    {
+      "document_id": "urn:uuid:0590b309-691c-4920-9d5a-3219a2d72971",
+      "path": "docs/维护/设计任务规则.md"
+    },
+    {
+      "document_id": "urn:uuid:c58051eb-43d2-4b25-b213-2c200f4d01de",
+      "path": "docs/维护/阅读构建.md"
+    },
+    {
+      "document_id": "urn:uuid:72f757a7-f3a0-541d-9d3b-1d2ffcc36767",
+      "path": "docs/编译/README.md"
+    },
+    {
+      "document_id": "urn:uuid:247c830c-2db7-5a9b-b3a2-97b794d66002",
+      "path": "docs/编译/内核/README.md"
+    },
+    {
+      "document_id": "urn:uuid:f70f748d-670d-5838-bf27-243f81db557a",
+      "path": "docs/编译/内核/原生与跨语言编译.md"
+    },
+    {
+      "document_id": "urn:uuid:569b5c45-c322-4f3c-bb05-5402748fda56",
+      "path": "docs/编译/内核/变换接纳与分析保持.md"
+    },
+    {
+      "document_id": "urn:uuid:96447fc2-24a0-5d01-9567-02afe7070ec0",
+      "path": "docs/编译/内核/生成规则与产物链接.md"
+    },
+    {
+      "document_id": "urn:uuid:8c08bf12-3148-577d-83b3-457f769e077c",
+      "path": "docs/编译/内核/确定性与自举.md"
+    },
+    {
+      "document_id": "urn:uuid:214acfae-5eeb-50aa-a816-bad41cc404d6",
+      "path": "docs/编译/内核/编译值服务.md"
+    },
+    {
+      "document_id": "urn:uuid:db51ec6b-e881-5843-9697-df29efb12f1c",
+      "path": "docs/编译/内核/诊断与追踪.md"
+    },
+    {
+      "document_id": "urn:uuid:d932377e-e033-4344-b2a8-9092903e098b",
+      "path": "docs/编译/内核/输入与阶段总览.md"
+    },
+    {
+      "document_id": "urn:uuid:c6a57c7b-a794-5945-8072-be70babc83c7",
+      "path": "docs/编译/内核/运行准备与最小实现.md"
+    },
+    {
+      "document_id": "urn:uuid:7edc577c-d057-5098-a797-e8a91b2456b4",
+      "path": "docs/编译/内核/遍管理与插件.md"
+    },
+    {
+      "document_id": "urn:uuid:58a44c1f-bfcc-54d4-a790-8679ac787957",
+      "path": "docs/编译/内核/降低与源码映射.md"
+    },
+    {
+      "document_id": "urn:uuid:8b3c0046-8813-50e1-a5d9-a9cd182db129",
+      "path": "docs/编译/内核/领域方法与整体根.md"
+    },
+    {
+      "document_id": "urn:uuid:5262aa6e-6e31-425a-9f5a-4394aed425ac",
+      "path": "docs/编译/实现选择与设计搜索.md"
+    },
+    {
+      "document_id": "urn:uuid:76f4d972-35a7-51f8-a333-03218249eb8b",
+      "path": "docs/编译/性质保持与开放环境.md"
+    },
+    {
+      "document_id": "urn:uuid:5343fe6d-d54b-5840-a689-4d60ff14fd11",
+      "path": "docs/编译/有条件实现与公共行为保持.md"
+    },
+    {
+      "document_id": "urn:uuid:8ec08b56-8de0-44e6-a136-9335f04d5d8a",
+      "path": "docs/编译/查询增量与性能.md"
+    },
+    {
+      "document_id": "urn:uuid:992f9d20-be75-571e-be47-d6ed98a340aa",
+      "path": "docs/编译/目标/README.md"
+    },
+    {
+      "document_id": "urn:uuid:2137d3a1-c2b6-5ef6-a58c-ad9eb379fca6",
+      "path": "docs/编译/目标/具体降低与领域输出.md"
+    },
+    {
+      "document_id": "urn:uuid:3536cdcb-6c34-4e77-a8e9-d3d9976c96d6",
+      "path": "docs/编译/目标/成员布局与完整产物.md"
+    },
+    {
+      "document_id": "urn:uuid:5a8ab0a4-ed00-5cbf-ab45-7727b90592d9",
+      "path": "docs/编译/目标/成品消费合同与发射.md"
+    },
+    {
+      "document_id": "urn:uuid:c87176df-ebef-5981-b22f-cf6aa22360e3",
+      "path": "docs/编译/目标/结构稳定与作者回源.md"
+    },
+    {
+      "document_id": "urn:uuid:a8dc3140-9acb-4d7b-a327-1bfcb928b5c4",
+      "path": "docs/编译/组合前提与进展闭合.md"
+    },
+    {
+      "document_id": "urn:uuid:f8513d34-fd70-5a80-aff3-2166c9eb32e9",
+      "path": "docs/编译/表示/README.md"
+    },
+    {
+      "document_id": "urn:uuid:40a2afe1-08fc-5454-aeda-40ace765ed94",
+      "path": "docs/编译/表示/目标运行与观测.md"
+    },
+    {
+      "document_id": "urn:uuid:05f85961-3a44-509e-bfe2-aa465eb97f29",
+      "path": "docs/编译/表示/编辑与受管回源.md"
+    },
+    {
+      "document_id": "urn:uuid:1d6ab5d4-65f8-43d5-ad45-65ec1c1515b8",
+      "path": "docs/编译/表示/表示族与跨层保持.md"
+    },
+    {
+      "document_id": "urn:uuid:4415863c-c83e-502a-8f71-f12a92a9550a",
+      "path": "docs/编译/表示/需求语义与实现选择.md"
+    },
+    {
+      "document_id": "urn:uuid:d8ffbe0b-69e2-4d2e-9095-edfd2609739f",
+      "path": "docs/编译/递归并行与远程编译.md"
+    },
+    {
+      "document_id": "urn:uuid:a556361e-76cb-55bf-b355-bbdf37188e2a",
+      "path": "docs/运行/README.md"
+    },
+    {
+      "document_id": "urn:uuid:5cbaf1c2-7ce4-5b9f-b5ea-2e274bdb813b",
+      "path": "docs/运行/保证/README.md"
+    },
+    {
+      "document_id": "urn:uuid:de463c35-dc43-556e-bfb5-1df40ed58878",
+      "path": "docs/运行/保证/系统不变量与组合.md"
+    },
+    {
+      "document_id": "urn:uuid:34e54a22-bb9b-4e3a-a334-b87c6399a6fa",
+      "path": "docs/运行/保证/要求证据与裁决.md"
+    },
+    {
+      "document_id": "urn:uuid:b19c2130-6765-5c1e-91f2-be7fbef62a5b",
+      "path": "docs/运行/保证/覆盖成熟度与验收范围.md"
+    },
+    {
+      "document_id": "urn:uuid:da2638fb-304c-54c3-9341-ecaf2b64090b",
+      "path": "docs/运行/保证/解释与证据接纳.md"
+    },
+    {
+      "document_id": "urn:uuid:28580f83-9b76-4417-896a-47f8610f2948",
+      "path": "docs/运行/发布运行与资源生命周期.md"
+    },
+    {
+      "document_id": "urn:uuid:12d81715-a199-47e1-afdc-a84a886dafe4",
+      "path": "docs/运行/宿主生态与技术约束.md"
+    },
+    {
+      "document_id": "urn:uuid:dbb55395-53cd-47f2-b9a8-27853832f0a5",
+      "path": "docs/运行/持久化提交与恢复.md"
+    },
+    {
+      "document_id": "urn:uuid:5f1e8c8f-fbed-4dc5-9d70-67cae36b703d",
+      "path": "docs/运行/权限与资源管理.md"
+    },
+    {
+      "document_id": "urn:uuid:26ac925e-8d10-52b1-816c-5ee7456ae842",
+      "path": "docs/运行/跨实现调用与数据寿命.md"
+    },
+    {
+      "document_id": "urn:uuid:d8c65772-f984-5caf-b19e-e8870050cba5",
+      "path": "docs/运行/验收/README.md"
+    },
+    {
+      "document_id": "urn:uuid:def5fe04-5d57-564e-a9b6-809e65d942ab",
+      "path": "docs/运行/验收/会话集成与结果复用.md"
+    },
+    {
+      "document_id": "urn:uuid:7dcafcca-c472-5772-b8a0-acb5875f500e",
+      "path": "docs/运行/验收/作者与组合案例.md"
+    },
+    {
+      "document_id": "urn:uuid:f8366361-3818-5a47-a683-cfbf8a3d033d",
+      "path": "docs/运行/验收/信息与完成边界案例.md"
+    },
+    {
+      "document_id": "urn:uuid:4dd36065-fb03-5786-b323-3eac6712712d",
+      "path": "docs/运行/验收/实现与运行案例.md"
+    },
+    {
+      "document_id": "urn:uuid:f43e83e4-bfdd-5bc2-a7d1-dc58e32c9c6f",
+      "path": "docs/运行/验收/开发面案例.md"
+    },
+    {
+      "document_id": "urn:uuid:c361fbf8-4350-4b80-a94f-64f0f9198269",
+      "path": "docs/运行/验收/方法与独立证据.md"
+    },
+    {
+      "document_id": "urn:uuid:f68b448f-bd4a-5756-a2b8-7e1225efd379",
+      "path": "docs/运行/验收/测试生成与形式方法.md"
+    },
+    {
+      "document_id": "urn:uuid:e7a5331f-2408-5d28-aaf0-e622d0c6e601",
+      "path": "docs/运行/验收/覆盖与收益判据.md"
+    },
+    {
+      "document_id": "urn:uuid:5c390fad-38e9-5289-a0da-d3c4eece88f5",
+      "path": "docs/运行/验收/领域语义案例.md"
+    },
+    {
+      "document_id": "urn:uuid:fbcd3212-6bf9-531e-b7e2-c9a24cab49c4",
+      "path": "docs/领域/README.md"
+    },
+    {
+      "document_id": "urn:uuid:9eea4ded-ce9b-4c77-a0db-9b8c57c215a1",
+      "path": "docs/领域/对象与控制/对象构造与分派.md"
+    },
+    {
+      "document_id": "urn:uuid:15b5b9d1-b760-4572-9a05-96c40789d586",
+      "path": "docs/领域/对象与控制/控制流与存储寿命.md"
+    },
+    {
+      "document_id": "urn:uuid:64ad9784-911d-5fdc-8575-a84a35f7787d",
+      "path": "docs/领域/扩展语义与适配合同.md"
+    },
+    {
+      "document_id": "urn:uuid:e920e16b-7fea-4e37-a94d-0213b707299c",
+      "path": "docs/领域/数值/自动微分与线性化.md"
+    },
+    {
+      "document_id": "urn:uuid:a1ebdd2f-c0cc-5c32-85bc-4915f7cb1375",
+      "path": "docs/领域/状态关系与流/README.md"
+    },
+    {
+      "document_id": "urn:uuid:d9d7ef94-9b11-414a-af2f-d11cc16061e0",
+      "path": "docs/领域/状态关系与流/事务与交付.md"
+    },
+    {
+      "document_id": "urn:uuid:466c393c-a0fb-47c7-a7d4-1dc801e1091c",
+      "path": "docs/领域/状态关系与流/关系查询与维护.md"
+    },
+    {
+      "document_id": "urn:uuid:b53b8483-1349-4dec-8940-6ddfcba7b7a0",
+      "path": "docs/领域/状态关系与流/层级状态与事件.md"
+    },
+    {
+      "document_id": "urn:uuid:543aed42-63f5-4499-bec8-1f43bb458f3b",
+      "path": "docs/领域/状态关系与流/背压与事件时间.md"
+    },
+    {
+      "document_id": "urn:uuid:4fdebccd-274b-571a-9c7a-986ccd21a53e",
+      "path": "docs/领域/计算基础/README.md"
+    },
+    {
+      "document_id": "urn:uuid:33f862af-f783-4942-a713-b8c1b60d8e5d",
+      "path": "docs/领域/计算基础/作者表示与实现分工.md"
+    },
+    {
+      "document_id": "urn:uuid:6c057e0f-6916-5dd1-b35c-b68e006eb9f1",
+      "path": "docs/领域/计算基础/名称导入与契约.md"
+    },
+    {
+      "document_id": "urn:uuid:c1e10ab3-4973-5070-9294-bec08404fa08",
+      "path": "docs/领域/计算基础/文法类型与求值.md"
+    },
+    {
+      "document_id": "urn:uuid:712f1d2a-aeb4-5999-b0a8-c73f10543cd7",
+      "path": "docs/领域/计算基础/画像与领域边界.md"
+    },
+    {
+      "document_id": "urn:uuid:5c2979f6-cd31-5f39-a5f3-326eb1a845bd",
+      "path": "docs/领域/计算基础/紧凑表示与程序范式.md"
+    },
+    {
+      "document_id": "urn:uuid:541b8b36-d515-4339-b55b-25459d6122e1",
+      "path": "docs/领域/计算基础/计算结构与算法.md"
+    },
+    {
+      "document_id": "urn:uuid:5840a9a3-4f5b-509f-9b5c-21d832470dee",
+      "path": "docs/领域/计算基础/通用计算与任务语义.md"
+    },
+    {
+      "document_id": "urn:uuid:4faf38be-bed0-5250-9144-0964a5e72c6b",
+      "path": "examples/README.md"
+    },
+    {
+      "document_id": "urn:uuid:c4cba8c2-0129-47da-94a8-0568c3bc9b33",
+      "path": "examples/原生维护/Code-OSS搜索替换.md"
+    },
+    {
+      "document_id": "urn:uuid:02efa398-2af8-440e-8a3c-42626f3299e2",
+      "path": "examples/合同历史与范围.md"
+    },
+    {
+      "document_id": "urn:uuid:11e6d97f-ed8e-49f2-ae92-fe6f987f1510",
+      "path": "examples/实现校准/内存编辑器计算范本.md"
+    },
+    {
+      "document_id": "urn:uuid:ba1c1711-c782-4844-ab3f-b47a19f44a30",
+      "path": "examples/实现校准/成熟供给与计算工具.md"
+    },
+    {
+      "document_id": "urn:uuid:cabaeb61-3e23-4904-bdc7-fca06a6aa4c4",
+      "path": "examples/实现校准/简洁计算与TS往返.md"
+    },
+    {
+      "document_id": "urn:uuid:75bb5b70-c535-5349-9cb7-f1c9bab65677",
+      "path": "examples/开发成品/README.md"
+    },
+    {
+      "document_id": "urn:uuid:7571ba26-dcc6-5402-8fb8-f6b40c643fa1",
+      "path": "examples/开发成品/fixture/README.md"
+    },
+    {
+      "document_id": "urn:uuid:0628816d-bcd3-5eb5-8546-2b5e81a844fc",
+      "path": "examples/成品形态/README.md"
+    },
+    {
+      "document_id": "urn:uuid:e5bfc955-5dde-5a59-bd17-a3f828183bb9",
+      "path": "examples/成品形态/规则合同.md"
+    },
+    {
+      "document_id": "urn:uuid:2b8a4764-46db-5c95-8626-25021aa066d7",
+      "path": "examples/结构化工作台/README.md"
+    },
+    {
+      "document_id": "urn:uuid:044fe416-f19d-53da-8ef1-5be1ce5c5c9e",
+      "path": "examples/结构化工作台/说明.md"
+    },
+    {
+      "document_id": "urn:uuid:084cc9d6-dd6f-4dde-88cb-a9178404a3d6",
+      "path": "examples/范本角色与原导览.md"
+    },
+    {
+      "document_id": "urn:uuid:0a48c118-7a45-4d7a-9d84-8fae758faee9",
+      "path": "examples/连续开发/从部件合格到整体成品.md"
+    },
+    {
+      "document_id": "urn:uuid:5400a62c-64d4-4f12-9904-eb12552722b7",
+      "path": "examples/连续开发/全工程连续开发.md"
+    },
+    {
+      "document_id": "urn:uuid:d3793db7-af27-5d89-a842-694ee1fef299",
+      "path": "examples/连续开发/局部实现替换与成品接合.md"
+    },
+    {
+      "document_id": "urn:uuid:f0263f80-446e-469e-8a32-d822ba83112e",
+      "path": "examples/连续开发/工程信息全生命周期.md"
+    },
+    {
+      "document_id": "urn:uuid:4c76a94f-5fa0-488c-bd85-646426a0519e",
+      "path": "examples/连续开发/源码组织与演进.md"
+    },
+    {
+      "document_id": "urn:uuid:8a182327-65a1-4cae-97a2-fd39a92aae05",
+      "path": "examples/连续开发/组合结构与任务轨迹.md"
+    },
+    {
+      "document_id": "urn:uuid:05e7e2d4-1fe2-44b7-918e-7c2cfb55713d",
+      "path": "examples/领域组合/状态关系流与数值.md"
+    },
+    {
+      "document_id": "urn:uuid:ff91d628-5de0-44a7-ae70-185f4ca9f8f6",
+      "path": "examples/领域组合/领域应用与算法.md"
+    }
+  ]
+}

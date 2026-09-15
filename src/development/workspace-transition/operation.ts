@@ -266,8 +266,8 @@ async function observeHooks(
  *
  * Dependency and hook owners retain their own state and issue the observations
  * consumed here. The ready path completes beneath one parent process ledger;
- * nested Effects remain typed unavailable until their owners accept this exact
- * operation and borrowed session instead of opening independent windows.
+ * Nested Effects accept this exact operation and borrowed session or remain
+ * typed unavailable instead of opening independent windows.
  */
 export async function runWorkspaceTransitionOperation(input: Readonly<{
   readonly event: ParseWorkspaceTransitionTriggerInput['event'];
@@ -308,6 +308,14 @@ export async function runWorkspaceTransitionOperation(input: Readonly<{
           currentHead: repository.currentHead,
           objectIdLength: repository.objectIdLength
         });
+        // Git also emits post-checkout for path restores. Like an ordinary
+        // file edit, that does not transition the workspace revision or admit
+        // dependency/hook installation. Their actual consumers retain admission.
+        if (trigger.event === 'post-checkout' && trigger.checkoutKind === 'paths') {
+          const finalRepository = await observeRepository(session);
+          assertSameRepository(repository, finalRepository, trigger.newHead);
+          return 0;
+        }
         const dependencyAuthority = await observeCompilerDependencyExecutionGenerationAuthority({
           deadlineAtUnixMs
         });
@@ -331,10 +339,19 @@ export async function runWorkspaceTransitionOperation(input: Readonly<{
         });
         if (plan.decision === 'blocked') return 1;
         if (plan.requiredEffects.includes('managed-git-hooks.materialize')) {
-          throw new WorkspaceTransitionContractError(
-            'workspace-transition-provider-integration-unavailable',
-            'Managed Git hook config Effect has not adopted the parent process session.'
-          );
+          const { installGitHooksWithSession } = await import('../hooks/install.ts');
+          const materialization = await installGitHooksWithSession({
+            repoRoot: input.repositoryRoot,
+            session,
+            operation,
+            processSession
+          });
+          if (materialization.status === 'conflict') {
+            throw new WorkspaceTransitionContractError(
+              'workspace-transition-observation-unresolved',
+              'Managed Git hook materialization ended in conflict.'
+            );
+          }
         }
         const finalHooks = await observeHooks(input.repositoryRoot, session);
         const finalDependencyAuthority = await observeCompilerDependencyExecutionGenerationAuthority({

@@ -199,7 +199,6 @@ test('MainHealth observation provenance changes receipt digest but not health re
   const base = createMainHealthLedger(healthyInput());
   const cases: readonly [string, Partial<MainHealthLedgerInput>][] = [
     ['producer identity', { producer: { ...producer(), identity: 'other-runtime' } }],
-    ['source transport', { producer: { ...producer(), sourceTransport: 'trusted-local-readback' } }],
     ['source run', { producer: { ...producer(), sourceRunId: 'run-2' } }],
     ['source ref', { producer: { ...producer(), sourceRef: 'refs/heads/main@2' } }],
     ['source digest', { producer: { ...producer(), sourceDigest: D_B } }],
@@ -213,6 +212,9 @@ test('MainHealth observation provenance changes receipt digest but not health re
     expect(candidate.healthRevision, label).toBe(base.healthRevision);
     expect(candidate.ledgerDigest, label).not.toBe(base.ledgerDigest);
   }
+  expect(() => createMainHealthLedger(healthyInput({
+    producer: { ...producer(), sourceTransport: 'trusted-local-readback' as never }
+  }))).toThrow('producer.sourceTransport is invalid');
 });
 
 test('MainHealth canonicalizes set ordering and rejects duplicate/unknown members', () => {
@@ -252,7 +254,7 @@ test('MainHealth rejects invalid producer provenance and status invariants', () 
     ['healthy failure', healthyInput({ failureFingerprints: [D_A] })],
     ['degraded ordinary lane', degradedInput({ allowedLanes: ['ordinary'] })],
     ['degraded missing repair', degradedInput({ repairWorkPackage: null })],
-    ['degraded noncanonical repair', degradedInput({ repairWorkPackage: 'docs/work-packages/repair-v1.md' })],
+    ['degraded noncanonical repair', degradedInput({ repairWorkPackage: 'config/repository/work-packages/repair-v1.md' })],
     ['locked lane', lockedInput({ allowedLanes: ['repair'] })]
   ];
   for (const [label, candidate] of invalid) {

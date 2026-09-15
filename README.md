@@ -1,91 +1,62 @@
 # Engineering Workspace Compiler
 
-> **Engineering intent and semantics above source code. Source code becomes an increasingly assembly-like realization layer.**
+> Engineering intent, maintainable authoring, and available implementations compiled into controlled changes to real software workspaces.
 
-[中文](README.zh-CN.md)
+[中文说明](README.zh-CN.md)
 
-This repository retains the historical name `sec`; that name is not intended as the current project definition or acronym. The project has evolved into a local-first **Engineering Workspace Compiler**.
+This repository retains the historical name `sec`; that name is not the current project definition or acronym. SEC is a local-first **Engineering Workspace Compiler** for connecting product goals, structured engineering semantics, governed source facts, implementation choices, verification evidence, and target-environment constraints.
 
-The compiler explores a software-engineering model in which humans and AI work primarily with intent, semantics, constraints, responsibilities, evidence, and controlled operations, while conventional programming-language source code becomes a lower-level realization target rather than the sole authoritative representation of a system.
+The long-term direction is for people and AI to work primarily with intent, semantics, constraints, responsibilities, effects, and evidence, while conventional source code increasingly serves as a lower-level realization target. Existing languages and ecosystems remain essential implementation targets and interoperability layers.
 
-The long-term thesis is that, in AI-native software development, source code can increasingly play a role analogous to assembly language today: still essential, still inspectable, and still executable through existing ecosystems, but no longer necessarily the highest-level interface through which software is designed and evolved.
+## What the system does
 
-## What the compiler does
-
-The system is designed to turn product intent, structured engineering semantics, governed source facts, implementation choices, verification evidence, and target-environment constraints into controlled changes to real software workspaces.
-
-At a high level:
+SEC supports two input paths: it can reconstruct relevant engineering facts from an existing workspace, or consume deliberately authored goals and constraints. Both paths feed the same responsibility chain:
 
 ```text
-Intent / Constraints / Existing System
-                ↓
-      Engineering Semantics
-                ↓
-   Resolution + Exact Bindings
-                ↓
-       Delta + Impact Plan
-                ↓
- Controlled Mutation / Generation
-                ↓
-   Readback + Verification + Evidence
-                ↓
-        Target Workspace
+Goal / Existing Workspace
+          ↓
+Governed Engineering Content
+          ↓
+Meaning + Requirements
+          ↓
+Implementation Selection
+          ↓
+Target Artifacts + Controlled Effects
+          ↓
+Readback + Verification + Evidence
 ```
 
-The current product definition is more precise than a generic AI coding agent: canonical engineering facts are reconstructed or admitted through governed contracts, and AI is a participant in that system rather than an unrestricted authority over the repository.
+The requested outcome determines where a task ends. Analysis, a bounded design, an implementation candidate, a generated artifact, an executed operation, and a verified delivery are distinct results.
 
-## What it is not
+## Core boundaries
 
-The Engineering Workspace Compiler is not:
+SEC is not an unrestricted whole-repository AI code generator, a low-code runtime, or a template marketplace. Files, generated output, test results, tool responses, and AI statements do not become authoritative merely because they exist. Their identity, source, scope, effects, and evidence must remain explicit at the boundary where they are consumed.
 
-- an unrestricted whole-repository AI code generator;
-- a low-code runtime that replaces source code with a GUI;
-- a template marketplace;
-- a wrapper that attempts to absorb every external tool into one framework;
-- a claim that conventional programming languages are obsolete.
+The system keeps author content, semantic interpretation, compilation, verification, external effects, recovery, and publication as separate responsibilities. A plan does not grant write authority; generated code does not prove adoption; a process exit does not prove that an external effect settled; and a documented target design does not claim that its implementation is complete.
 
-Existing languages and ecosystems remain important targets and interfaces. The goal is to move the primary engineering abstraction upward while keeping lower layers explicit and verifiable.
+## Read the design
 
-## Architecture
+The canonical design corpus currently uses Chinese titles and paths:
 
-The architecture separates engineering meaning from implementation and runtime effects. It centers on a governed semantic model, exact observations, resolution and binding, controlled workspace evolution, independent readback, evidence, and lifecycle/evolution rules.
+| Question | Canonical entry |
+|---|---|
+| What is the product and what constraints apply? | [Product scope and constraints](docs/产品/README.md) |
+| How is the complete system divided and connected? | [System architecture](docs/架构/总体设计.md) |
+| Where is a subsystem, interface, or concrete design? | [Documentation index](docs/README.md) · [Task routes](docs/任务路线.md) |
+| What can an authored product contain? | [Author deliverables](docs/作者/成品/README.md) · [Complete examples](examples/开发成品/README.md) |
+| Why was a design chosen, and what remains unresolved? | [Decisions](docs/决策/README.md) · [Open status](docs/状态/README.md) |
+| How is this specification maintained? | [Documentation maintenance](docs/维护/README.md) |
 
-See:
+The summaries in this root directory are reader-facing projections. Canonical definitions remain in their owning documents under `docs/**`; document identity and generated inventory are maintained under `.documentation/**`. The current corpus digest and delivery number are recorded in [`.documentation/baseline.json`](.documentation/baseline.json); they describe documentation content and do not certify implementation or release status.
 
-- [Public architecture overview](ARCHITECTURE.md)
-- [Project status](PROJECT_STATUS.md)
-- [Canonical product definition](docs/product.md)
-- [Canonical system architecture](docs/system-architecture.md)
-- [Semantic model](docs/semantic-model.md)
-- [Compiler and target IR](docs/compiler-target-ir.md)
-- [Canonical documentation index](docs/README.md)
+## Project status
 
-The documents under `docs/**` remain the canonical design authority. Public-facing summaries are projections of that design and do not create a second source of truth.
+The project is under active research and development. It contains substantial implementation, tests, documentation, examples, and verification infrastructure, but documented capabilities can be at different stages of specification, implementation, verification, adoption, and retirement.
 
-## Development status
+See [PROJECT_STATUS.md](PROJECT_STATUS.md) for the maturity boundary and a reproducible starting path.
 
-The project is under active research and development. The repository contains substantial implementation work together with an evolving architecture and verification system. A design being documented does **not** imply that the corresponding capability is complete, verified, released, or adopted.
+## Development and licensing
 
-The engineering model deliberately distinguishes proposal, acceptance, specification, implementation, verification, enforcement, adoption, and retirement of superseded paths.
+Repository development rules are in [AGENTS.md](AGENTS.md), and contributor guidance is in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-See [PROJECT_STATUS.md](PROJECT_STATUS.md) for the public maturity boundary.
-
-## Origin and development model
-
-The project began as an independently developed effort in 2026 around the idea that AI-native software engineering needs a higher-level authoritative engineering representation than conventional source code alone.
-
-It is currently developed independently and self-funded, including AI-model and token costs used during research and development.
-
-## Open source
-
-The repository is being prepared for public release under the **MIT License**. Project-owned implementation, specifications, architecture and design documentation, tests, and other copyrightable engineering materials are intended to be distributed under that license. The engineering knowledge embodied in those materials will therefore be openly inspectable and reusable subject to the license and any applicable third-party notices.
-
-Repository visibility and software maturity are separate facts: making the repository public will not by itself mean that every documented capability is complete or that a stable API has been declared.
-
-## Development
-
-Repository development instructions are in [AGENTS.md](AGENTS.md). Contributor-facing guidance is in [CONTRIBUTING.md](CONTRIBUTING.md).
-
----
-
-This is an engineering project under active development. Statements in this README describe the current project direction and architecture; they should not be read as claims that every described capability is already production-ready.
+Project-owned source code, specifications, architecture and design documents, tests, and other copyrightable engineering materials are distributed under the [MIT License](LICENSE). Third-party components remain subject to their own licenses and notices.

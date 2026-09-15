@@ -16,7 +16,7 @@ description: 用于用户要求全面分析 SEC 仓库、重大架构变更前�
 
 ## 输入
 - exact repository/default/head/tree identity、clean index/worktree、全部 tracked paths、open PR/Issue、CI/Review、active pointer与manifest。
-- `docs/authority.json`、模块/入口/公共合同、状态与写 owner、依赖/工具链、测试/CI/Gate、外部能力账本和历史边界。
+- `.documentation/documents.json`、相交文档正文、模块/入口/公共合同、状态与写 owner、依赖/工具链、测试/CI/Gate、外部能力账本和历史边界。身份索引与当前运行控制事实分开核验。
 
 ## 前置门禁
 - 受信 document-control-plane snapshot 已解析 latest default branch、exact revision、GitHub facts和active control plane。
@@ -25,7 +25,7 @@ description: 用于用户要求全面分析 SEC 仓库、重大架构变更前�
 ## 执行
 1. 先冻结 clean HEAD/tree，再从该 exact tree 与 raw blobs 对全部 tracked paths 做一次 census；checkout/index 内容不得混入报告。分类为产品实现、验证、配置、活动权威、历史/Evidence、Agent投影或启发式运行面；不得以搜索命中、目录抽样或固定文件清单代替全仓覆盖。
 2. 建立对象、入口、接口、状态/写 owner、生命周期、依赖、数据流、控制流、错误/恢复和发布链；区分确定性合同与需要 Agent 判断触发/选择/回退/停止的启发式行为。
-3. 对齐长期 Goal、阶段 DAG、registry owner、当前代码、测试、CI/Gate、PR/Issue/Review和真实产物；冲突时追踪唯一 canonical owner，不以文档或代码任一方自动胜出。
+3. 对齐长期 Goal、阶段 DAG、相交正文的责任、当前代码、测试、CI/Gate、PR/Issue/Review和真实产物；冲突时按当前规范裁决与现实反证追踪 canonical owner，不让身份索引签发权限，也不以代码存在反向覆盖目标设计。
 4. 主动寻找第二 writer/loader/revision/pipeline、隐式状态、循环依赖、孤儿入口、重复规则、宽泛 catch-all、无消费者配置、过期当前事实、弱测试、错误成功声明和不可恢复路径。
 5. 对每项 finding 绑定 exact path/line/symbol、机制、影响、证据、最强反例、未知和反转条件，并区分事实、机制推导、现实推断和候选优化。
 6. 将 Agent 启发式缺口交给 `sec-heuristic-governance`，跨 owner 架构缺口交给 `sec-architecture-evolution`，产品实现交给受信 work selector/Work Package owner；全仓审计本身不扩张为无限修改包。

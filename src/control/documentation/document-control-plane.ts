@@ -61,7 +61,10 @@ import {
   CodexDevelopmentParseCurrentWorkPackageManifest,
   CodexDevelopmentWorkPackageManifestDigest
 } from '../task/contract/work-package.ts';
-import { assertSecRoadmapTerminalCompactionCandidate } from '../work-selection/live-contract.ts';
+import {
+  assertSecRoadmapTerminalCompactionCandidate,
+  projectSecWorkRollingExactManifestBinding
+} from '../work-selection/live-contract.ts';
 import {
   observeSecWorkSelectionLive,
   observeSecWorkSelectionWithProviderV1,
@@ -358,11 +361,13 @@ function documentControlCliFailure(
 
 const ExternalCommandTimeoutMs = 30_000;
 const ExternalCommandMaxBufferBytes = 8 * 1024 * 1024;
-const CurrentStatePath = 'docs/work/current-state.yaml';
-const ActivePointerPath = 'docs/work/active-work-package.md';
-const RollingPlanPath = 'docs/work/rolling-plan.md';
-const FreezeJournalSchema = 'sec-document-control-plane-freeze-journal-v4' as const;
-const FreezeResultSchema = 'sec-document-control-plane-freeze-result-v1' as const;
+const CurrentStatePath = 'config/repository/current-state.yaml';
+const ActivePointerPath = 'config/repository/active-work-package.md';
+const RollingPlanPath = 'config/repository/rolling-plan.md';
+const LegacyFreezeJournalSchema = 'sec-document-control-plane-freeze-journal-v4' as const;
+const FreezeJournalSchema = 'sec-document-control-plane-freeze-journal-v5' as const;
+const LegacyFreezeResultSchema = 'sec-document-control-plane-freeze-result-v1' as const;
+const FreezeResultSchema = 'sec-document-control-plane-freeze-result-v2' as const;
 const FreezeJournalRelativePath = '.tmp/codex/document-control-plane-freeze-v1/journal.json';
 
 export type CodexDevelopmentFreezeFault =
@@ -524,8 +529,8 @@ type FreezeJournalPhase =
   | 'terminal';
 
 export interface CodexDevelopmentFreezeResult {
-  readonly schema: typeof FreezeResultSchema;
-  readonly status: 'ACTIVATED_INDEX_PENDING_COMMIT';
+  readonly schema: typeof LegacyFreezeResultSchema | typeof FreezeResultSchema;
+  readonly status: 'ACTIVATED_INDEX_PENDING_COMMIT' | 'PROPOSED';
   readonly operationId: `sha256:${string}`;
   readonly baseSha: string;
   readonly baseTreeSha: string;
@@ -543,7 +548,8 @@ interface FreezeJournalFile {
 }
 
 interface FreezeJournal {
-  readonly schema: typeof FreezeJournalSchema;
+  readonly schema: typeof LegacyFreezeJournalSchema | typeof FreezeJournalSchema;
+  readonly authoringDisposition?: 'activation' | 'proposal-only';
   readonly operationId: `sha256:${string}`;
   readonly phase: FreezeJournalPhase;
   readonly manifestPath: string;
@@ -1187,14 +1193,18 @@ function parseFreezeResult(value: unknown): CodexDevelopmentFreezeResult {
     'baseSha', 'baseTreeSha', 'candidateHeadSha', 'candidateTreeSha', 'indexPublished',
     'manifestDigest', 'manifestPath', 'operationId', 'schema', 'status', 'worktreeProjected'
   ], 'Freeze journal result');
-  if (record.schema !== FreezeResultSchema || record.status !== 'ACTIVATED_INDEX_PENDING_COMMIT'
+  const legacy = record.schema === LegacyFreezeResultSchema;
+  if ((!legacy && record.schema !== FreezeResultSchema)
+      || (legacy
+        ? record.status !== 'ACTIVATED_INDEX_PENDING_COMMIT'
+        : record.status !== 'PROPOSED')
       || record.candidateHeadSha !== null || record.indexPublished !== true
       || record.worktreeProjected !== true) {
     throw new Error('Freeze journal result identity is invalid.');
   }
   return Object.freeze({
-    schema: FreezeResultSchema,
-    status: 'ACTIVATED_INDEX_PENDING_COMMIT',
+    schema: record.schema as CodexDevelopmentFreezeResult['schema'],
+    status: record.status as CodexDevelopmentFreezeResult['status'],
     operationId: digestValue(record.operationId, 'Freeze result operationId'),
     baseSha: shaValue(record.baseSha, 'Freeze result baseSha'),
     baseTreeSha: shaValue(record.baseTreeSha, 'Freeze result baseTreeSha'),
@@ -1213,10 +1223,12 @@ function parseFreezeJournal(source: string): FreezeJournal {
     throw new Error('Document control freeze journal is invalid JSON.', { cause: error });
   }
   const record = recordValue(parsed, 'Freeze journal');
-  if (record.schema !== FreezeJournalSchema) {
-    throw new Error('Only freeze journal V4 can serve as recovery authority.');
+  const legacy = record.schema === LegacyFreezeJournalSchema;
+  if (!legacy && record.schema !== FreezeJournalSchema) {
+    throw new Error('Only freeze journal V4 or V5 can serve as recovery authority.');
   }
   exactKeys(record, [
+    ...(legacy ? [] : ['authoringDisposition']),
     'baseSha', 'baseTreeSha', 'candidateTreeSha', 'files', 'index', 'manifestDigest',
     'indexTransportDigest', 'manifestPath', 'operationId', 'phase', 'preIndexTreeSha',
     'result', 'reviewedOn', 'schema'
@@ -1226,8 +1238,14 @@ function parseFreezeJournal(source: string): FreezeJournal {
   }
   const files = recordValue(record.files, 'Freeze journal files');
   exactKeys(files, ['manifest', 'pointer', 'rollingPlan'], 'Freeze journal files');
+  const authoringDisposition = legacy
+    ? undefined
+    : record.authoringDisposition === 'proposal-only'
+      ? record.authoringDisposition
+      : (() => { throw new Error('Freeze journal V5 must describe proposal-only authoring.'); })();
   const semantic = Object.freeze({
-    schema: FreezeJournalSchema,
+    schema: record.schema as FreezeJournal['schema'],
+    ...(authoringDisposition === undefined ? {} : { authoringDisposition }),
     manifestPath: textValue(record.manifestPath, 'Freeze journal manifestPath'),
     manifestDigest: digestValue(record.manifestDigest, 'Freeze journal manifestDigest'),
     reviewedOn: textValue(record.reviewedOn, 'Freeze journal reviewedOn'),
@@ -1256,6 +1274,16 @@ function parseFreezeJournal(source: string): FreezeJournal {
       || result.baseTreeSha !== semantic.baseTreeSha || result.candidateTreeSha !== semantic.candidateTreeSha
       || result.manifestPath !== semantic.manifestPath || result.manifestDigest !== semantic.manifestDigest) {
     throw new Error('Freeze journal result is not bound to its operation.');
+  }
+  if ((authoringDisposition === 'proposal-only')
+      !== (result.status === 'PROPOSED')) {
+    throw new Error('Freeze journal result status differs from its authoring disposition.');
+  }
+  if (legacy && result.schema !== LegacyFreezeResultSchema) {
+    throw new Error('Freeze journal V4 requires its original activated result contract.');
+  }
+  if (!legacy && result.schema !== FreezeResultSchema) {
+    throw new Error('Freeze journal V5 requires its revision-matched result contract.');
   }
   const manifestBytes = fromBase64(semantic.files.manifest.next, 'Freeze journal manifest next bytes');
   if (CodexDevelopmentWorkPackageManifestDigest(manifestBytes) !== semantic.manifestDigest) {
@@ -1706,7 +1734,7 @@ async function captureControlIndexSnapshot(
       const targetManifestBlob = options.targetManifestPath === undefined
         ? undefined
         : await readBlob(`:${options.targetManifestPath}`);
-      const roadmapBlob = await readBlob(':docs/roadmap.md');
+      const roadmapBlob = await readBlob(':config/repository/work-selection.md');
       const indexPaths = Object.freeze(parseNulList(requireCommandOutput(
         await runScratch(['ls-files', '--cached', '-z']),
         'External index snapshot path inventory'
@@ -4183,7 +4211,7 @@ async function materializeFreezeCandidateObjects(input: Readonly<{
 }
 
 function assertCanonicalManifestPath(manifestPath: string): void {
-  if (!/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(manifestPath)) {
+  if (!/^config\/repository\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(manifestPath)) {
     throw new Error('freeze --manifest must be one canonical Work Package manifest path.');
   }
 }
@@ -4780,7 +4808,7 @@ async function verifyTerminalFreezeJournal(input: {
   if (journal.manifestPath !== input.manifestPath
       || journal.manifestDigest !== input.manifestDigest
       || journal.reviewedOn !== input.reviewedOn) {
-    throw new Error('Terminal freeze journal does not match the exact requested activation.');
+    throw new Error('Terminal freeze journal does not match the exact requested authoring operation.');
   }
 
   const indexPaths = await resolveIndexPaths(input.repositoryRoot);
@@ -5088,6 +5116,8 @@ type FreezeDocumentControlPlaneInput = {
   cwd: string;
   manifestPath: string;
   reviewedOn: string;
+  /** Author one untrusted tracking:none successor projection without activation authority. */
+  proposalOnly?: boolean;
   faultAfter?: CodexDevelopmentFreezeFault;
   /** Internal deterministic contract-test observer for rename durability ordering. */
   durabilityObserver?: CodexDevelopmentDurabilityObserver;
@@ -5144,6 +5174,14 @@ async function freezeDocumentControlPlaneWithSession(
     const existingRecoveryIncomplete = existingJournalSnapshot?.recovery !== undefined
       && existingJournalSnapshot.recovery !== null
       && existingJournalSnapshot.recovery.completionMode !== 'complete';
+    const requestedAuthoringDisposition = input.proposalOnly === true
+      ? 'proposal-only' as const
+      : 'activation' as const;
+    if (existingJournalSnapshot !== null
+        && (existingJournalSnapshot.journal.authoringDisposition ?? 'activation')
+          !== requestedAuthoringDisposition) {
+      throw new Error('Existing document-control journal belongs to another authoring disposition.');
+    }
     if (existingJournalSnapshot !== null
         && (existingJournalSnapshot.journal.phase !== 'terminal' || existingRecoveryIncomplete)) {
       await preflightFreezeProjectionEntryStates(repositoryRoot, existingJournalSnapshot);
@@ -5273,7 +5311,7 @@ async function freezeDocumentControlPlaneWithSession(
       headPointer.manifest,
       ActivePointerPath,
       RollingPlanPath,
-      ...(workSelectionProjectionMode === 'required-v1' ? ['docs/roadmap.md'] : [])
+      ...(workSelectionProjectionMode === 'required-v1' ? ['config/repository/work-selection.md'] : [])
     ])]);
     const targetSet = new Set<string>(targets);
     const snapshot = await captureControlIndexSnapshot(repositoryRoot, {
@@ -5314,6 +5352,16 @@ async function freezeDocumentControlPlaneWithSession(
       `${headSha}:${immutablePointer.manifest}`,
       'Immutable candidate current Work Package manifest'
     );
+    const immutableCurrentDefaultManifestBlob = await readGitBlob(
+      repositoryRoot,
+      `${localDefaultSha}:${immutablePointer.manifest}`
+    ) ?? null;
+    const immutableCurrentResolution = CodexDevelopmentResolveActiveWorkPackage({
+      pointer: immutablePointer,
+      candidateManifestBlob: immutableCurrentManifestBytes,
+      defaultManifestBlob: immutableCurrentDefaultManifestBlob,
+      defaultRefState: 'fresh'
+    });
 
     // A successor freeze may stage deletion of the old pointer-bound manifest.
     // Its immutable HEAD bytes remain the semantic PRE image; absence from the
@@ -5336,6 +5384,13 @@ async function freezeDocumentControlPlaneWithSession(
     if (currentResolution.state === 'unresolved'
         || (currentResolution.state === 'invalid' && !repairableCommittedCandidateDigestDrift)) {
       throw new Error('Current active Work Package control plane is not resolvable before freeze.');
+    }
+    if (input.proposalOnly === true
+        && (immutableCurrentResolution.state !== 'none'
+          || immutableCurrentDefaultManifestBlob === null)) {
+      throw new Error(
+        'Proposal-only freeze requires a published current pointer manifest and no active Work Package.'
+      );
     }
 
     assertNoUnrelatedStagedChanges(snapshot.stagedPaths, targetSet);
@@ -5393,7 +5448,9 @@ async function freezeDocumentControlPlaneWithSession(
           pointerSource: snapshot.pointerSource,
           rollingPlanSource: snapshot.rollingPlanSource,
           manifestPath: input.manifestPath,
-          manifestBytes: indexedTargetManifest
+          manifestBytes: indexedTargetManifest,
+          baseSha: localDefaultSha,
+          baseTreeSha
         });
         indexedControlMatchesPriorProjection = true;
       } catch (error) {
@@ -5446,6 +5503,7 @@ async function freezeDocumentControlPlaneWithSession(
     let workSelectionProjection: CodexDevelopmentWorkSelectionProjection | undefined;
     let mainHealthRepairProjection: CodexDevelopmentMainHealthRepairProjection | undefined;
     if (targetManifest.id !== immutableRolling.activePackageId
+        && input.proposalOnly !== true
         && workSelectionProjectionMode === 'required-v1') {
       const candidateBranch = requireCommand(
         await run('git', ['branch', '--show-current'], repositoryRoot),
@@ -5531,6 +5589,12 @@ async function freezeDocumentControlPlaneWithSession(
       requestedRollingPlanSource,
       workSelectionProjection,
       mainHealthRepairProjection,
+      proposalOnly: input.proposalOnly === true
+        ? {
+            currentResolution: immutableCurrentResolution,
+            defaultManifestBytes: immutableCurrentDefaultManifestBlob!
+          }
+        : undefined,
       committedCandidateReplanProjection: workSelectionProjectionMode === 'required-v1'
         && committedCandidateReplanAuthority !== undefined
         && targetManifest.id === immutableRolling.activePackageId
@@ -5652,7 +5716,12 @@ async function freezeDocumentControlPlaneWithSession(
     }> => {
       const indexTransport = Object.freeze({ pre: toBase64(indexPre), next: toBase64(indexNext) });
       const semantic = Object.freeze({
-        schema: FreezeJournalSchema,
+        schema: projection.authoringDisposition === 'proposal-only'
+          ? FreezeJournalSchema
+          : LegacyFreezeJournalSchema,
+        ...(projection.authoringDisposition === 'proposal-only'
+          ? { authoringDisposition: projection.authoringDisposition }
+          : {}),
         manifestPath: input.manifestPath,
         manifestDigest: projection.manifestDigest,
         reviewedOn: input.reviewedOn,
@@ -5673,8 +5742,12 @@ async function freezeDocumentControlPlaneWithSession(
       });
       const operationId = freezeOperationId(semantic);
       const result: CodexDevelopmentFreezeResult = Object.freeze({
-        schema: FreezeResultSchema,
-        status: 'ACTIVATED_INDEX_PENDING_COMMIT',
+        schema: projection.authoringDisposition === 'proposal-only'
+          ? FreezeResultSchema
+          : LegacyFreezeResultSchema,
+        status: projection.authoringDisposition === 'proposal-only'
+          ? 'PROPOSED'
+          : 'ACTIVATED_INDEX_PENDING_COMMIT',
         operationId,
         baseSha: localDefaultSha,
         baseTreeSha,
@@ -6010,7 +6083,7 @@ async function resolveActivationBlockedStatus(input: {
   repositoryRoot: string;
   resolverGit: ReadOnlyResolverGit;
   journal: FreezeJournal | null;
-  reason: 'activation-in-progress' | 'activation-observation-raced';
+  reason: 'activation-in-progress' | 'document-control-authoring-in-progress' | 'activation-observation-raced';
   terminal?: boolean;
 }): Promise<Record<string, unknown>> {
   const stateSource = await readFile(path.join(input.repositoryRoot, CurrentStatePath), 'utf8');
@@ -6068,6 +6141,8 @@ async function resolveActivationBlockedStatus(input: {
       status: 'unresolved',
       reason: input.reason === 'activation-in-progress'
         ? 'GitHub observation skipped while activation is nonterminal'
+        : input.reason === 'document-control-authoring-in-progress'
+        ? 'GitHub observation skipped while proposal authoring is nonterminal'
         : 'GitHub observation skipped because activation changed during status resolution'
     },
     activeWorkPackage: { state: 'unresolved', reason: input.reason },
@@ -6093,6 +6168,14 @@ function freezeJournalActivationInProgress(snapshot: FreezeJournalSnapshot | nul
     || snapshot.recovery?.completionMode === 'canonical-install-required'
     || snapshot.recovery?.completionMode === 'active-next-retirement-required'
   );
+}
+
+function freezeJournalInProgressReason(
+  journal: FreezeJournal | null
+): 'activation-in-progress' | 'document-control-authoring-in-progress' {
+  return journal?.authoringDisposition === 'proposal-only'
+    ? 'document-control-authoring-in-progress'
+    : 'activation-in-progress';
 }
 
 function optionalCommandSha(result: CommandResult, label: string): string | undefined {
@@ -6249,7 +6332,7 @@ async function resolveLiveControlPlaneWithGitReadSession(
       repositoryRoot,
       resolverGit,
       journal: activationJournal,
-      reason: 'activation-in-progress',
+      reason: freezeJournalInProgressReason(activationJournal),
       terminal: false
     });
   }
@@ -6267,7 +6350,7 @@ async function resolveLiveControlPlaneWithGitReadSession(
         repositoryRoot,
         resolverGit,
         journal: racedJournal,
-        reason: 'activation-in-progress',
+        reason: freezeJournalInProgressReason(racedJournal),
         terminal: false
       });
     }
@@ -6278,6 +6361,9 @@ async function resolveLiveControlPlaneWithGitReadSession(
   const pointer = CodexDevelopmentParseActivePointer(snapshot.pointerSource);
   const rollingPlan = CodexDevelopmentParseRollingPlan(snapshot.rollingPlanSource);
   const rollingMachine = CodexDevelopmentParseRollingMachineProjection(snapshot.rollingPlanSource);
+  const rollingManifestBinding = rollingMachine === null
+    ? null
+    : projectSecWorkRollingExactManifestBinding(rollingMachine);
   CodexDevelopmentAssertControlPlaneBinding({ spec, pointer });
   if (rollingPlan.activePackageId !== path.posix.basename(pointer.manifest, '.md')) {
     throw new Error('Immutable index pointer and rolling plan select different Work Packages.');
@@ -6286,10 +6372,10 @@ async function resolveLiveControlPlaneWithGitReadSession(
       && rollingMachine === null) {
     throw new Error('Required rolling projection is absent.');
   }
-  if (rollingMachine?.schema === 'sec-work-rolling-transition-projection-v1'
-      && (rollingMachine.active.manifestPath !== pointer.manifest
-        || rollingMachine.active.manifestDigest !== pointer.manifestDigest)) {
-    throw new Error('Rolling transition projection does not bind the exact active pointer manifest.');
+  if (rollingManifestBinding !== null
+      && (rollingManifestBinding.active.manifestPath !== pointer.manifest
+        || rollingManifestBinding.active.manifestDigest !== pointer.manifestDigest)) {
+    throw new Error('Rolling machine projection does not bind the exact active pointer manifest.');
   }
 
   const localDefaultShaResult = await resolverGit.run(
@@ -6324,14 +6410,14 @@ async function resolveLiveControlPlaneWithGitReadSession(
       defaultRefState
     });
   if (candidateManifestBlob !== undefined
-      && rollingMachine?.schema === 'sec-work-rolling-transition-projection-v1') {
+      && rollingManifestBinding !== null) {
     const candidateManifest = CodexDevelopmentParseCurrentWorkPackageManifest(
       decodeUtf8(candidateManifestBlob, 'Rolling transition active manifest'),
       pointer.manifest
     );
-    if (candidateManifest.id !== rollingMachine.active.packageId
-        || candidateManifest.tracking !== rollingMachine.active.tracking) {
-      throw new Error('Rolling transition projection does not bind the exact active manifest identity.');
+    if (candidateManifest.id !== rollingManifestBinding.active.packageId
+        || candidateManifest.tracking !== rollingManifestBinding.active.tracking) {
+      throw new Error('Rolling machine projection does not bind the exact active manifest identity.');
     }
   }
   const mainTree = defaultRefState === 'fresh'
@@ -6405,7 +6491,7 @@ async function resolveLiveControlPlaneWithGitReadSession(
     defaultBranch: spec.resolver.defaultBranch,
     resolverGit
   });
-  // The journal is the seqlock: activation publishes it before any index/worktree
+  // The journal is the seqlock: document-control authoring publishes it before any index/worktree
   // effect, so this read must be the final volatile observation in the fence.
   const activationJournalReadbackSnapshot = await readFreezeJournalSnapshot(
     repositoryRoot,
@@ -6417,7 +6503,7 @@ async function resolveLiveControlPlaneWithGitReadSession(
       repositoryRoot,
       resolverGit,
       journal: activationJournalReadback,
-      reason: 'activation-in-progress',
+      reason: freezeJournalInProgressReason(activationJournalReadback),
       terminal: false
     });
   }
@@ -6447,7 +6533,7 @@ async function resolveLiveControlPlaneWithGitReadSession(
   return {
     schema: 'sec-resolved-current-state-v1',
     observedAt: new Date().toISOString(),
-    source: 'docs/work/current-state.yaml',
+    source: 'config/repository/current-state.yaml',
     repository: {
       fullName: spec.resolver.repository,
       defaultBranch: spec.resolver.defaultBranch,
@@ -6538,7 +6624,7 @@ async function main(): Promise<void> {
   const usage = 'Usage:\n'
     + '  bun src/control/documentation/document-control-plane.ts status [--workspace <path>] [--json] [--full]\n'
     + '  bun src/control/documentation/document-control-plane.ts freeze --workspace <candidate-path> '
-    + '--manifest <path> --reviewed-on <YYYY-MM-DD> [--json]';
+    + '--manifest <path> --reviewed-on <YYYY-MM-DD> [--proposal-only] [--json]';
   if (command === 'status') {
     let workspace = process.cwd();
     for (let index = 0; index < argv.length; index += 1) {
@@ -6572,7 +6658,7 @@ async function main(): Promise<void> {
     const values = new Map<string, string>();
     for (let index = 0; index < argv.length; index += 1) {
       const argument = argv[index]!;
-      if (argument === '--json') continue;
+      if (argument === '--json' || argument === '--proposal-only') continue;
       if (argument !== '--manifest' && argument !== '--reviewed-on' && argument !== '--workspace') {
         throw new Error(usage);
       }
@@ -6587,6 +6673,9 @@ async function main(): Promise<void> {
     const workspace = values.get('--workspace');
     if (manifestPath === undefined || reviewedOn === undefined || workspace === undefined) {
       throw new Error(usage);
+    }
+    if (argv.filter((argument) => argument === '--proposal-only').length > 1) {
+      throw new Error('Duplicate freeze option: --proposal-only.');
     }
     const executionRoot = path.resolve(import.meta.dir, '..', '..', '..');
     const freezeDeadlineAtUnixMs = Date.now() + ExternalCommandTimeoutMs;
@@ -6670,7 +6759,8 @@ async function main(): Promise<void> {
       return freezeDocumentControlPlaneWithSession({
         cwd: candidateRoot,
         manifestPath,
-        reviewedOn
+        reviewedOn,
+        proposalOnly: argv.includes('--proposal-only')
       });
     }));
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

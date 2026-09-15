@@ -1,0 +1,187 @@
+{
+  "schema": "sec.author-module/1",
+  "moduleId": "studio:editing",
+  "namespace": "studio.editing",
+  "dialects": {
+    "req": {
+      "languageId": "sec.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {
+    "ide": {
+      "mode": "workspace",
+      "moduleId": "sec/spec/ide"
+    },
+    "editing": {
+      "mode": "workspace",
+      "moduleId": "sec/spec/editing"
+    }
+  },
+  "definitions": {
+    "d:Editing": {
+      "kind": "req:composite",
+      "name": "Editing",
+      "body": {
+        "parameters": {
+          "s": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "ide",
+                "export": "Workbench"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "import": "editing",
+              "export": "Documents"
+            },
+            "fields": {
+              "on": {
+                "parameter": "s",
+                "path": [
+                  "documents"
+                ]
+              },
+              "resourceIdentity": {
+                "enum": {
+                  "import": "editing",
+                  "export": "FromWorkspace"
+                }
+              },
+              "coordinates": {
+                "enum": {
+                  "import": "editing",
+                  "export": "UnambiguousSourcePositions"
+                }
+              },
+              "encoding": {
+                "enum": {
+                  "import": "editing",
+                  "export": "PreserveOrExplicitConvert"
+                }
+              },
+              "newlines": {
+                "enum": {
+                  "import": "editing",
+                  "export": "PreserveOriginal"
+                }
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "editing",
+              "export": "Editor"
+            },
+            "fields": {
+              "on": {
+                "parameter": "s",
+                "path": [
+                  "editor"
+                ]
+              },
+              "documents": {
+                "parameter": "s",
+                "path": [
+                  "documents"
+                ]
+              },
+              "selections": {
+                "enum": {
+                  "import": "editing",
+                  "export": "Multiple"
+                }
+              },
+              "views": {
+                "enum": {
+                  "import": "editing",
+                  "export": "ManyViewsOneModel"
+                }
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "editing",
+              "export": "History"
+            },
+            "fields": {
+              "on": {
+                "parameter": "s",
+                "path": [
+                  "history"
+                ]
+              },
+              "documents": {
+                "parameter": "s",
+                "path": [
+                  "documents"
+                ]
+              },
+              "grouping": {
+                "enum": {
+                  "import": "editing",
+                  "export": "ByUserAction"
+                }
+              },
+              "undo": {
+                "enum": {
+                  "import": "editing",
+                  "export": "IfCurrentCompatible"
+                }
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "editing",
+              "export": "Save"
+            },
+            "fields": {
+              "documents": {
+                "parameter": "s",
+                "path": [
+                  "documents"
+                ]
+              },
+              "workspace": {
+                "parameter": "s",
+                "path": [
+                  "workspace"
+                ]
+              },
+              "completion": {
+                "enum": {
+                  "import": "editing",
+                  "export": "PerResource"
+                }
+              },
+              "participants": {
+                "enum": {
+                  "import": "editing",
+                  "export": "ExplicitChanges"
+                }
+              },
+              "conflicts": {
+                "enum": {
+                  "import": "editing",
+                  "export": "PreserveBoth"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "Editing": {
+      "definitionId": "d:Editing"
+    }
+  }
+}

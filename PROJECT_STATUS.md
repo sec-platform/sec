@@ -1,40 +1,21 @@
 # Engineering Workspace Compiler — Project Status
 
-This project is under active research and development. The repository retains the historical name `sec`; that name is not the current project definition or acronym. This document states the public maturity boundary and does not replace machine-generated verification or the canonical design corpus.
+This project is in an **active development preview**. The repository retains the historical name `sec`; that name is not the current project definition or acronym. This page describes the public maturity boundary and does not replace exact verification evidence or the canonical design corpus.
 
-## Current phase
+## What exists today
 
-**Pre-public-release / active architecture and implementation convergence**
+The repository contains:
 
-The repository contains substantial working implementation, tests, documentation, verification machinery, and self-hosting/development-control infrastructure. Important parts of the architecture and developer-facing surface are still being consolidated.
+- an integrated SEC-086 design corpus with product, authoring, compilation, runtime, assurance, evolution, information, and domain specifications;
+- a TypeScript implementation organized around explicit contracts, workspace state, semantic interpretation, compilation, assurance, application coordination, execution, adapters, entry points, and composition;
+- tests, repository audits, documentation checks, development-control machinery, and GitHub workflows;
+- authoring examples and reference/demo entry points.
 
-The project should therefore be evaluated as an active engineering system, not as a finished product or stable SDK.
+These are repository facts, not a claim that every documented capability has reached the same maturity.
 
-## What may be relied on today
+## Maturity boundary
 
-The following statements describe the current project direction and repository structure:
-
-- the project is an **Engineering Workspace Compiler** built around governed engineering semantics rather than unrestricted whole-repository AI mutation;
-- existing and newly authored software are intended to converge on the same canonical semantic and verification model;
-- the architecture explicitly models identity, authority, exact observations, implementation binding, effects, settlement/readback, evidence, recovery, and evolution;
-- existing programming languages remain target and interoperability layers rather than being treated as obsolete;
-- project-owned code, specifications, architecture/design documentation, tests, and other copyrightable engineering materials are being prepared for distribution under the MIT License, subject to applicable third-party notices.
-
-## What should not yet be assumed
-
-Do not infer from the existence of a document, type, test, command, or implementation path that:
-
-- the capability is complete;
-- the interface is stable;
-- every target language is supported;
-- every documented design has been implemented;
-- a passing local test proves production readiness;
-- generated source proves the requested engineering outcome;
-- compatibility will be preserved across the current development phase.
-
-## Maturity vocabulary
-
-The project deliberately distinguishes stages that are often collapsed in early-stage systems:
+The project deliberately distinguishes stages that early systems often collapse:
 
 ```text
 proposed
@@ -47,24 +28,33 @@ proposed
 → superseded path retired
 ```
 
-A capability can be far along in one stage and still not have crossed a later one.
+A document, type, command, test, or implementation path can establish one of these stages without establishing the stages after it. In particular, do not assume that:
 
-## Public-release gates
+- every documented design is implemented;
+- every target language or environment is supported;
+- the current CLI, package layout, TypeScript types, or internal protocols are stable public APIs;
+- a local passing test proves production readiness;
+- generated source proves that the requested engineering outcome was adopted;
+- compatibility will be preserved throughout the current development phase.
 
-Before the repository is intentionally presented as a public open-source release, the project should have all of the following closed or explicitly bounded:
+Known gaps and intentionally unresolved design scope are maintained in [`docs/状态/README.md`](docs/状态/README.md). Concrete claims should be checked against the exact implementation revision and the evidence that actually covers them.
 
-1. public-facing naming and positioning are consistent;
-2. README, architecture overview, status, license, and contributor guidance are coherent;
-3. current capabilities and future direction are clearly separated;
-4. the complete Git history and hosted automation surface have been checked for sensitive information that should not become public;
-5. third-party licensing and provenance are suitable for public distribution;
-6. generated, internal, obsolete, and public-authoritative artifacts are clearly separated;
-7. issue and pull-request history has been reviewed for accidental disclosure and excessive internal noise;
-8. at least one small, reproducible public path demonstrates what the current system actually does;
-9. publication does not silently imply API stability or production readiness.
+## Reproducible starting points
 
-## Release policy
+Use the versions pinned by `.bun-version`, `package.json`, and `bun.lock`. After installing dependencies with the declared Bun package manager, the repository exposes these bounded entry points:
 
-Repository visibility and software maturity are separate facts. Making the repository public will mean that the source and history are visible; it will not automatically mean that the Engineering Workspace Compiler has reached a stable release.
+```console
+bun run demo:quickstart
+bun run demo:governance
+bun run demo:closed-loop
+```
 
-Versioned releases should make their own explicit claims about supported capabilities, compatibility, and verification coverage.
+The supported repository checks are listed in `package.json`; contribution work should follow the current development entry in [`AGENTS.md`](AGENTS.md) rather than treating one fixed command as sufficient for every change.
+
+## Release and compatibility policy
+
+Public repository visibility means that the project can be inspected and contributed to. It does not declare a stable API, production readiness, long-term support, or a versioned product release.
+
+A future release must state its supported capabilities, targets, compatibility boundary, verification coverage, installation path, and known limitations. Until then, consumers should pin an exact revision and expect architecture and implementation interfaces to change.
+
+Project-owned materials are available under the [MIT License](LICENSE). Third-party dependencies and materials remain subject to their own licenses and notices.

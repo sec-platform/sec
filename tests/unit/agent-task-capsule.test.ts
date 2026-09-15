@@ -21,20 +21,20 @@ function planningContext(): SecTaskCapsulePlanningContext {
     goalDigest: digest('a'),
     trustedRevision: '8ba2bf1fb39351124187130d60fa971e4802155a',
     targetCandidate: '375a3f95c4a949dcd418823e61b9488e4b4c4786',
-    workPackageProposalRef: 'docs/work-packages/task-capsule-compiler-v1.md',
+    workPackageProposalRef: 'config/repository/work-packages/task-capsule-compiler-v1.md',
     workPackageProposalDigest: digest('b'),
     workPackageProjectionId: digest('c'),
     scopeGrantId: null,
     ownerFacts: [
       {
         id: 'task-capsule-owner',
-        ref: 'docs/development-governance.md',
+        ref: 'docs/开发/AI协作/规则装载与任务恢复.md',
         owner: 'development-governance-owner',
         revision: 'owner-v1'
       },
       {
         id: 'work-package-owner',
-        ref: 'docs/work-packages/task-capsule-compiler-v1.md',
+        ref: 'config/repository/work-packages/task-capsule-compiler-v1.md',
         owner: 'development-governance-owner',
         revision: digest('b')
       }

@@ -29,7 +29,7 @@ export function createCiVerificationHostedProviderRevision(
     + `gh-${authority.archives.githubCli.version}:`
     + `gh-archive-sha256-${authority.archives.githubCli.digest.slice(7)}:`
     + `image-sha256-${authority.image.dockerProjectionDigest.slice(7)}:`
-    + `container-init-v1:bun-${authority.trustedRuntime.bunVersion}:action-producer-v2:sandbox-v5`;
+    + `container-init-v1:bun-${authority.trustedRuntime.bunVersion}:action-producer-v2:sandbox-v6`;
 }
 
 export const CI_VERIFICATION_HOSTED_PROVIDER_REVISION =

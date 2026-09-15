@@ -9,12 +9,17 @@ import {
   issueSecSemanticOperationAttemptContext,
   type SecOperationDigest
 } from '../../../system-architecture/operation/semantic.ts';
-import { createDockerEndpointIdentity } from '../contract/daemon.ts';
+import {
+  createDockerEndpointIdentity,
+  DockerDaemonAvailabilityFailure
+} from '../contract/daemon.ts';
 import {
   assertContainerEngineOperationScopeAdmission,
   compileContainerEngineAdmissionProviderIdentity,
   compileContainerEngineOperationArguments,
-  compileContainerEngineReadyProviderIdentity
+  compileContainerEngineReadyProviderIdentity,
+  compileObservedContainerEngineProviderIdentity,
+  observeBeforeDockerDesktopLifecycleAdmission
 } from './container-engine-session.ts';
 
 const endpoint = createDockerEndpointIdentity({
@@ -97,6 +102,106 @@ test('ready provider identity is a successor of exact admission resources and at
     admissionProviderIdentityDigest: digest('different-admission'),
     endpoint
   })).not.toBe(ready);
+});
+
+test('observed provider identity binds sealed command inputs without runtime-state preimage', () => {
+  const physical = Object.freeze({
+    path: 'C:\\provider-root', finalPath: '\\\\?\\C:\\provider-root',
+    device: 'device', inode: 'inode', objectId: 'object'
+  });
+  const input = {
+    authorityProviderIdentityDigest: digest('authority-provider'),
+    projectionProviderIdentityDigest: digest('projection-provider'),
+    environmentDigest: digest('canonical-child-environment'),
+    operationIdentityDigest: digest('operation'),
+    boundAttemptDigest: digest('attempt'),
+    executable: {
+      path: 'C:\\docker.exe', size: 1,
+      byteDigest: digest('executable-bytes'), contentDigest: digest('executable-content')
+    },
+    workingDirectory: physical
+  } as const;
+  const observed = compileObservedContainerEngineProviderIdentity(input);
+  expect(compileObservedContainerEngineProviderIdentity({
+    ...input,
+    environmentDigest: digest('different-sealed-environment')
+  })).not.toBe(observed);
+});
+
+test('ready daemon observation does not admit Docker Desktop host runtime state', async () => {
+  const available = Object.freeze({ code: 0, stdout: '{"ID":"daemon"}', stderr: '' });
+  let lifecycleAdmissions = 0;
+  await expect(observeBeforeDockerDesktopLifecycleAdmission({
+    platform: 'win32',
+    endpointHost: endpoint.endpointHost,
+    observe: async () => available,
+    admitAndEnsureStarted: async () => {
+      lifecycleAdmissions += 1;
+      throw new Error('host runtime state must stay unopened');
+    }
+  })).resolves.toBe(available);
+  expect(lifecycleAdmissions).toBe(0);
+});
+
+test('only endpoint unavailability admits Docker Desktop host runtime state', async () => {
+  const recovered = Object.freeze({ code: 0, stdout: '{"ID":"daemon"}', stderr: '' });
+  let lifecycleAdmissions = 0;
+  await expect(observeBeforeDockerDesktopLifecycleAdmission({
+    platform: 'win32',
+    endpointHost: endpoint.endpointHost,
+    observe: async () => {
+      throw new DockerDaemonAvailabilityFailure({
+        endpointHost: endpoint.endpointHost,
+        reason: 'endpoint-unavailable',
+        phase: 'endpoint-observe'
+      });
+    },
+    admitAndEnsureStarted: async () => {
+      lifecycleAdmissions += 1;
+      return recovered;
+    }
+  })).resolves.toBe(recovered);
+  expect(lifecycleAdmissions).toBe(1);
+
+  await expect(observeBeforeDockerDesktopLifecycleAdmission({
+    platform: 'win32',
+    endpointHost: endpoint.endpointHost,
+    observe: async () => {
+      throw new DockerDaemonAvailabilityFailure({
+        endpointHost: endpoint.endpointHost,
+        reason: 'deadline-exhausted',
+        phase: 'endpoint-observe'
+      });
+    },
+    admitAndEnsureStarted: async () => {
+      lifecycleAdmissions += 1;
+      return recovered;
+    }
+  })).rejects.toMatchObject({ reason: 'deadline-exhausted' });
+  expect(lifecycleAdmissions).toBe(1);
+});
+
+test('unmanaged endpoints and non-Windows hosts never admit Desktop lifecycle state', async () => {
+  for (const target of [
+    { platform: 'win32' as const, endpointHost: 'unix:///var/run/docker.sock' },
+    { platform: 'linux' as const, endpointHost: endpoint.endpointHost }
+  ]) {
+    let lifecycleAdmissions = 0;
+    const unavailable = new DockerDaemonAvailabilityFailure({
+      endpointHost: target.endpointHost,
+      reason: 'endpoint-unavailable',
+      phase: 'endpoint-observe'
+    });
+    await expect(observeBeforeDockerDesktopLifecycleAdmission({
+      ...target,
+      observe: async () => { throw unavailable; },
+      admitAndEnsureStarted: async () => {
+        lifecycleAdmissions += 1;
+        throw new Error('unrelated lifecycle must stay unopened');
+      }
+    })).rejects.toBe(unavailable);
+    expect(lifecycleAdmissions).toBe(0);
+  }
 });
 
 test('a non-authority resource envelope cannot open a provider settlement scope', () => {

@@ -1,0 +1,31 @@
+// 可复用需求复合定义，不含工作台实现代码。
+import "sec/spec/ide" as ide;
+import "sec/spec/search" as search;
+import "sec/spec/delivery" as delivery;
+import "./workspaces.sec" as workspaces;
+import "./editing.sec" as editing;
+import "./searching.sec" as searching;
+import "./languages.sec" as languages;
+import "./execution.sec" as execution;
+import "./extensions.sec" as extensions;
+import "./experience.sec" as experience;
+import "./delivery.sec" as packaging;
+
+export design LocalWorkbench(s: ide.Workbench, stalePolicy: search.StalePolicy, platforms: List<delivery.Platform>) {
+  use workspaces.Workspaces(s);
+  use editing.Editing(s);
+  use searching.Searching(s, stalePolicy);
+  use languages.Languages(s);
+  use execution.Execution(s);
+  use extensions.Extensions(s);
+  use experience.Experience(s);
+  use packaging.Delivery(s, platforms);
+
+  require ide.Scope {
+    on: s,
+    account: ide.NotRequired,
+    collaboration: ide.NotIncluded,
+    marketplace: ide.NotRequired,
+    cloudSync: ide.NotIncluded
+  };
+}

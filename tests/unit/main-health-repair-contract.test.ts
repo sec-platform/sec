@@ -85,19 +85,18 @@ test('degraded exact-main repair decision binds the whole routing identity', () 
     owner: 'ci-verification-maintainer', failureFingerprints: [FAILURE]
   }));
   expect(result.binding?.packageId).toBe(result.binding?.manifestPath
-    .slice('docs/work-packages/'.length, -'.md'.length));
+    .slice('config/repository/work-packages/'.length, -'.md'.length));
   expect(result.binding?.healthRevision).toMatch(/^sha256:[0-9a-f]{64}$/u);
   expect(result.decisionDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
   expect(Object.isFrozen(result)).toBe(true);
   expect(Object.isFrozen(result.binding)).toBe(true);
 });
 
-test('provider absence, transport failure, invalidity, and conflict remain distinct locked states', () => {
+test('hosted provider absence, transport failure, and invalidity remain distinct locked states', () => {
   for (const [kind, reasonCode] of [
     ['provider-missing', 'repair-provider-missing'],
     ['provider-unavailable', 'repair-provider-unavailable'],
-    ['provider-invalid', 'repair-provider-invalid'],
-    ['provider-conflict', 'repair-provider-conflict']
+    ['provider-invalid', 'repair-provider-invalid']
   ] as const) {
     const result = compileMainHealthRepairDecision({
       observation: { kind, observationRef: SOURCE },

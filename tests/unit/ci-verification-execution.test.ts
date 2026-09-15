@@ -74,7 +74,7 @@ const HEAD = '1'.repeat(40);
 const TREE = '2'.repeat(40);
 const BASE = '3'.repeat(40);
 const BASE_TREE = '4'.repeat(40);
-const MANIFEST_PATH = 'docs/work-packages/exact-verification-v1.md';
+const MANIFEST_PATH = 'config/repository/work-packages/exact-verification-v1.md';
 const RAW = `sha256:${'a'.repeat(64)}` as const;
 
 function gitFixture(root: string, args: readonly string[]): string {
@@ -1133,6 +1133,8 @@ test('sandbox command plan proves cgroup, namespace, private-root, uid, capabili
     '/proc/self/fd/3', '/usr/bin/cat --', '$candidate_archive', '/usr/bin/sha256sum',
     'for fd_path in /proc/self/fd/*', 'git -C /workspace init'
   ]) expect(encoded).toContain(invariant);
+  expect(encoded).toContain(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.python.executablePath);
+  expect(encoded).toContain(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.python.stdlibDirectory);
   for (const forbidden of [
     'GITHUB_OUTPUT', 'GH_TOKEN', '/host/output', '/var/run/docker.sock', '/run/docker.sock',
     '/home/runner/work', 'RUNNER_TEMP', 'verification-action-raw-result.json',
@@ -1250,6 +1252,35 @@ test('parent event binds the canonical one-key Session request wrapper', () => {
     { ...canonicalEvent, client_payload: { payload: sessionRequest, extra: true } },
     sessionRequest
   )).toThrow('exact Session request wrapper');
+});
+
+test('capability requires the post-runtime marker and rejects a missing Python executable', async () => {
+  const supported = await CodexDevelopmentProbeHostedSutSandboxCapability({
+    actionKey: digest('a'),
+    platform: 'linux',
+    unitNonce: 'python-supported',
+    runSandboxProcess: async (plan) => {
+      if (plan.phase === 'capability-self-test') {
+        return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_CAPABILITY_V1__');
+      }
+      return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_RESIDUE_EMPTY_V1__:direct-process-closed');
+    }
+  });
+  expect(supported).toMatchObject({ state: 'supported', markerObserved: true, cgroupEmpty: true });
+
+  const missingPython = await CodexDevelopmentProbeHostedSutSandboxCapability({
+    actionKey: digest('b'),
+    platform: 'linux',
+    unitNonce: 'missing-python',
+    runSandboxProcess: async (plan) => plan.phase === 'capability-self-test'
+      ? sandboxObservation(127, '/usr/bin/python3: No such file or directory')
+      : sandboxObservation(0, '__SEC_HOSTED_SANDBOX_RESIDUE_EMPTY_V1__:direct-process-closed')
+  });
+  expect(missingPython).toMatchObject({
+    state: 'unsupported',
+    markerObserved: false,
+    cgroupEmpty: true
+  });
 });
 
 test('capability probe detaches its deliberate residue child for trusted teardown', async () => {
@@ -1478,7 +1509,7 @@ test('raw archive metadata rejects traversal, special files, unsafe links, dupli
     ...trusted,
     entry('node_modules/example-parser/vendor/parser-core/binding.gyp'),
     entry('node_modules/example-parser/node_modules/parser-core/binding.gyp', 'symlink', {
-      linkTarget: '../../vendor/tree-sitter-proto/binding.gyp'
+      linkTarget: '../../vendor/parser-core/binding.gyp'
     })
   ])).not.toThrow();
   const hostile = [

@@ -9,10 +9,13 @@ import {
 } from '../task/contract/work-package.ts';
 import {
   compileSecWorkRollingProjection,
+  compileSecWorkRollingProposalProjection,
   compileSecWorkRollingTransitionProjection,
   parseSecRoadmapWorkCatalog,
   parseSecWorkRollingMachineProjection,
+  projectSecWorkRollingExactManifestBinding,
   renderSecWorkRollingPlan,
+  renderSecWorkRollingProposalPlan,
   renderSecWorkRollingTransitionPlan,
   rollingTopologyFromMachineProjection,
   type SecWorkDecisionReceipt,
@@ -56,6 +59,7 @@ export type CodexDevelopmentActiveWorkPackageResolution =
         | 'default-ref-stale'
         | 'default-ref-unavailable'
         | 'activation-in-progress'
+        | 'document-control-authoring-in-progress'
         | 'activation-observation-raced';
     };
 
@@ -194,7 +198,7 @@ export function CodexDevelopmentResolveWorkSelectionProjectionMode(
   const record = value as Record<string, unknown>;
   const keys = Object.keys(record).sort();
   if (keys.length !== 2 || keys[0] !== 'catalog' || keys[1] !== 'projection'
-      || record.catalog !== 'docs/roadmap.md#sec-work-selection-roadmap-catalog-v1'
+      || record.catalog !== 'config/repository/work-selection.md#sec-work-selection-roadmap-catalog-v1'
       || record.projection !== 'sec-work-selection-live-v1-required') {
     throw new Error('Current-state workSelection stable fact is unsupported or incomplete.');
   }
@@ -408,6 +412,7 @@ export function CodexDevelopmentAssertInitiallyAbsentEntryTransition(input: Read
 }
 
 export interface CodexDevelopmentFreezeProjection {
+  readonly authoringDisposition: 'activation' | 'proposal-only';
   readonly manifest: CodexDevelopmentWorkPackageManifest;
   readonly manifestPath: string;
   readonly manifestDigest: `sha256:${string}`;
@@ -481,7 +486,7 @@ function branchNameValue(value: unknown, label: string): string {
 
 function manifestPathValue(value: unknown, label: string): string {
   const manifest = stringValue(value, label);
-  if (!/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(manifest)) {
+  if (!/^config\/repository\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(manifest)) {
     throw new Error(`${label} must be one canonical Work Package manifest path.`);
   }
   return manifest;
@@ -724,9 +729,9 @@ export function CodexDevelopmentAssertRollingMachineBaseBinding(input: Readonly<
   if (input.projection.exactMain !== input.exactMain) {
     throw new Error('Rolling machine projection does not bind the exact live default revision.');
   }
-  if (input.projection.schema === 'sec-work-rolling-transition-projection-v1'
-      && input.projection.exactMainTree !== input.exactMainTree) {
-    throw new Error('Rolling transition projection does not bind the exact live default tree.');
+  const exactBinding = projectSecWorkRollingExactManifestBinding(input.projection);
+  if (exactBinding !== null && exactBinding.exactMainTree !== input.exactMainTree) {
+    throw new Error('Rolling machine projection does not bind the exact live default tree.');
   }
 }
 
@@ -770,13 +775,13 @@ export function CodexDevelopmentClassifyWorkPackageCensus(input: Readonly<{
   entries: readonly CodexDevelopmentWorkPackageCensusEntry[];
   roadmapSource?: string;
 }>): CodexDevelopmentWorkPackageCensus {
-  if (!/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(input.selectedManifestPath)) {
+  if (!/^config\/repository\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(input.selectedManifestPath)) {
     throw new Error('Work Package census selected manifest path is noncanonical.');
   }
   const entries = [...input.entries].sort((left, right) => left.path.localeCompare(right.path));
   if (entries.length === 0
       || entries.some(({ path: entryPath }) =>
-        !/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(entryPath))
+        !/^config\/repository\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(entryPath))
       || new Set(entries.map(({ path: entryPath }) => entryPath)).size !== entries.length) {
     throw new Error('Work Package census entries must be non-empty, canonical, and unique.');
   }
@@ -800,7 +805,7 @@ export function CodexDevelopmentClassifyWorkPackageCensus(input: Readonly<{
     throw new Error('Untracked recovery Work Package census requires the canonical roadmap.');
   }
   const catalogByPath = new Map(parseSecRoadmapWorkCatalog(input.roadmapSource).items.map((item) => [
-    `docs/work-packages/${item.packageId}.md`,
+    `config/repository/work-packages/${item.packageId}.md`,
     item
   ]));
   const eligible = nonSelected.filter((entry) => {
@@ -1026,7 +1031,7 @@ export function CodexDevelopmentActivateMainHealthRepairRollingPlan(input: {
       || !/^sha256:[0-9a-f]{64}$/u.test(input.healthRevision)
       || !/^sha256:[0-9a-f]{64}$/u.test(input.ledgerDigest)
       || !/^sha256:[0-9a-f]{64}$/u.test(input.decisionDigest)
-      || input.manifestPath !== `docs/work-packages/${packageId}.md`
+      || input.manifestPath !== `config/repository/work-packages/${packageId}.md`
       || !/^sha256:[0-9a-f]{64}$/u.test(input.manifestDigest)) {
     throw new Error('MainHealth repair rolling identity is invalid.');
   }
@@ -1133,6 +1138,8 @@ export function CodexDevelopmentAssertPriorFreezeProjection(input: {
   rollingPlanSource: string;
   manifestPath: string;
   manifestBytes: Uint8Array;
+  baseSha?: string;
+  baseTreeSha?: string;
 }): void {
   const manifestPath = manifestPathValue(input.manifestPath, 'Prior projection manifest path');
   const pointer = CodexDevelopmentParseActivePointer(input.pointerSource);
@@ -1155,10 +1162,33 @@ export function CodexDevelopmentAssertPriorFreezeProjection(input: {
     throw new Error('Prior projection pointer must be the exact compiler-rendered source.');
   }
 
-  const packageId = manifestPath.slice('docs/work-packages/'.length, -'.md'.length);
+  const packageId = manifestPath.slice('config/repository/work-packages/'.length, -'.md'.length);
   const immutableTopology = CodexDevelopmentParseRollingPlanHeadings(
     input.immutableRollingPlanSource
   );
+  const priorMachine = CodexDevelopmentParseRollingMachineProjection(input.rollingPlanSource);
+  if (priorMachine?.schema === 'sec-work-rolling-proposal-projection-v1') {
+    const immutableTopologyForProposal = CodexDevelopmentParseRollingPlan(
+      input.immutableRollingPlanSource
+    );
+    if (input.baseSha === undefined
+        || input.baseTreeSha === undefined
+        || priorMachine.exactMain !== input.baseSha
+        || priorMachine.exactMainTree !== input.baseTreeSha
+        || priorMachine.active.packageId !== packageId
+        || priorMachine.active.tracking !== 'none'
+        || priorMachine.active.manifestPath !== manifestPath
+        || priorMachine.active.manifestDigest !== manifestDigest
+        || JSON.stringify(priorMachine.candidates)
+          !== JSON.stringify(immutableTopologyForProposal.candidatePackageIds)
+        || input.rollingPlanSource !== renderSecWorkRollingProposalPlan({
+          projection: priorMachine,
+          reviewedOn
+        })) {
+      throw new Error('Prior proposal projection must equal its canonical exact-binding renderer.');
+    }
+    return;
+  }
   const expectedTopology = immutableTopology.activePackageId === packageId
     ? immutableTopology
     : (() => {
@@ -1203,6 +1233,10 @@ export function CodexDevelopmentCreateFreezeProjection(input: {
   workSelectionProjection?: CodexDevelopmentWorkSelectionProjection;
   mainHealthRepairProjection?: CodexDevelopmentMainHealthRepairProjection;
   committedCandidateReplanProjection?: CodexDevelopmentCommittedCandidateReplanAuthority;
+  proposalOnly?: Readonly<{
+    currentResolution: CodexDevelopmentActiveWorkPackageResolution;
+    defaultManifestBytes: Uint8Array;
+  }>;
   manifestPath: string;
   manifestBytes: Uint8Array;
   baseSha: string;
@@ -1226,7 +1260,7 @@ export function CodexDevelopmentCreateFreezeProjection(input: {
     ? CodexDevelopmentParseRollingPlan(input.currentRollingPlanSource)
     : CodexDevelopmentParseRollingPlanHeadings(input.currentRollingPlanSource);
   if (currentRollingPlan.activePackageId !== currentPointer.manifest.slice(
-    'docs/work-packages/'.length,
+    'config/repository/work-packages/'.length,
     -'.md'.length
   )) {
     throw new Error('Current rolling plan and active pointer are not bound to the same package.');
@@ -1241,6 +1275,28 @@ export function CodexDevelopmentCreateFreezeProjection(input: {
     currentManifestSource,
     currentPointer.manifest
   );
+  if (input.proposalOnly !== undefined) {
+    if (input.proposalOnly.currentResolution.state !== 'none'
+        || input.proposalOnly.currentResolution.reason !== 'matching-default-blob'
+        || CodexDevelopmentWorkPackageManifestDigest(input.proposalOnly.defaultManifestBytes)
+          !== currentPointer.manifestDigest
+        || !rawBytesEqual(input.proposalOnly.defaultManifestBytes, input.currentManifestBytes)) {
+      throw new Error(
+        'Proposal-only freeze requires the current pointer manifest to be byte-exact on the live default.'
+      );
+    }
+    if (manifest.tracking !== 'none') {
+      throw new Error('Proposal-only freeze target tracking must be none.');
+    }
+    if (manifest.id === currentManifest.id) {
+      throw new Error('Proposal-only freeze requires one successor manifest.');
+    }
+    if (input.workSelectionProjection !== undefined
+        || input.mainHealthRepairProjection !== undefined
+        || input.committedCandidateReplanProjection !== undefined) {
+      throw new Error('Proposal-only freeze forbids selection, repair, and replan authority projections.');
+    }
+  }
   if ((input.committedCandidateReplanProjection === undefined
       && CodexDevelopmentWorkPackageManifestDigest(input.currentManifestBytes)
         !== currentPointer.manifestDigest)
@@ -1264,8 +1320,10 @@ export function CodexDevelopmentCreateFreezeProjection(input: {
   });
   const projectionRequired = CodexDevelopmentResolveWorkSelectionProjectionMode(input.spec)
     === 'required-v1';
-  const externalProjectionRequired = projectionRequired && manifest.id !== currentManifest.id;
+  const externalProjectionRequired = projectionRequired && manifest.id !== currentManifest.id
+    && input.proposalOnly === undefined;
   const committedReplanRequired = projectionRequired
+    && input.proposalOnly === undefined
     && manifest.id === currentManifest.id
     && (
       input.committedCandidateReplanProjection !== undefined
@@ -1291,7 +1349,29 @@ export function CodexDevelopmentCreateFreezeProjection(input: {
     throw new Error('Selection and replan projections are forbidden for this freeze.');
   }
   let rollingPlanSource: string;
-  if (committedReplanRequired) {
+  if (input.proposalOnly !== undefined) {
+    if (input.baseTreeSha === undefined) {
+      throw new Error('Proposal-only freeze must bind the exact live default tree.');
+    }
+    if (input.requestedRollingPlanSource !== undefined) {
+      throw new Error('Proposal-only freeze forbids caller-authored rolling-plan bytes.');
+    }
+    const topology = CodexDevelopmentParseRollingPlan(input.currentRollingPlanSource);
+    rollingPlanSource = renderSecWorkRollingProposalPlan({
+      projection: compileSecWorkRollingProposalProjection({
+        exactMain: input.baseSha,
+        exactMainTree: input.baseTreeSha,
+        active: {
+          packageId: manifest.id,
+          tracking: 'none',
+          manifestPath,
+          manifestDigest
+        },
+        candidates: topology.candidatePackageIds
+      }),
+      reviewedOn: input.reviewedOn
+    });
+  } else if (committedReplanRequired) {
     if (input.baseTreeSha === undefined) {
       throw new Error('Committed candidate replan must bind the exact freeze base tree.');
     }
@@ -1407,6 +1487,7 @@ export function CodexDevelopmentCreateFreezeProjection(input: {
     throw new Error('Freeze projection rolling-plan readback failed.');
   }
   return Object.freeze({
+    authoringDisposition: input.proposalOnly === undefined ? 'activation' : 'proposal-only',
     manifest,
     manifestPath,
     manifestDigest,

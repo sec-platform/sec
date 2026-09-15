@@ -194,7 +194,7 @@ test('Skill prose bytes never influence the machine decision', () => {
 test('decision binds the operation and trusted guidance identity', () => {
   const decision = evaluateSecSkillApplicability(envelope({
     candidates: ['sec-worker-development'],
-    workPackageProposalRef: 'docs/work-packages/skill-applicability-gate-v1.md',
+    workPackageProposalRef: 'config/repository/work-packages/skill-applicability-gate-v1.md',
     taskCapsuleRef: 'capsule-1',
     taskCapsuleDigest: `sha256:${'a'.repeat(64)}`,
     taskCapsuleRevision: SEC_TASK_CAPSULE_REVISION
@@ -203,7 +203,7 @@ test('decision binds the operation and trusted guidance identity', () => {
   expect(decision.trustedRevision).toBe(TRUSTED_REVISION);
   expect(decision.targetCandidate).toBe('feat/skill-applicability-gate-v1');
   expect(decision.workPackageProposalRef).toBe(
-    'docs/work-packages/skill-applicability-gate-v1.md'
+    'config/repository/work-packages/skill-applicability-gate-v1.md'
   );
   expect(decision.taskCapsuleRef).toBe('capsule-1');
   expect(decision.taskCapsuleDigest).toBe(`sha256:${'a'.repeat(64)}`);

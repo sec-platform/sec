@@ -2,6 +2,7 @@ import type {
   GeneratedStateCleanupContinuationReceipt,
   GeneratedStateCleanupProfile,
   GeneratedStateDisposalReceipt,
+  GeneratedStateInventory,
   GeneratedStatePhysicalIdentity,
   GeneratedStateRegistration
 } from '../../../runtime-state/generated-state/contract.ts';
@@ -11,6 +12,8 @@ import { SecError } from '../../../system-architecture/foundation/contract/failu
 /** Generated-state methods owned by the dependency lifecycle boundary. */
 export type RuntimeDependencyGeneratedStateLifecycle = Readonly<{
     born(relativePath: string, operationId: string): Promise<void>;
+    /** Root-bound inventory from the same lifecycle store as every producer Effect. */
+    inspect(relativePaths?: readonly string[]): Promise<GeneratedStateInventory>;
     /** Read-only adoption of an issuer-created active registration. */
     bind?: (
       relativePath: string,

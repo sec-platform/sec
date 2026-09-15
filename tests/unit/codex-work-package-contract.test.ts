@@ -65,16 +65,16 @@ acceptance:
 test('Work Package locator is one exact canonical PR body line', () => {
   expect(CodexDevelopmentParseWorkPackageLocator([
     'Summary',
-    'Work-Package: docs/work-packages/b0-bootstrap-v1.md',
+    'Work-Package: config/repository/work-packages/b0-bootstrap-v1.md',
     'Validation'
-  ].join('\n'))).toBe('docs/work-packages/b0-bootstrap-v1.md');
+  ].join('\n'))).toBe('config/repository/work-packages/b0-bootstrap-v1.md');
   expect(() => CodexDevelopmentParseWorkPackageLocator('no locator')).toThrow('exactly one');
   expect(() => CodexDevelopmentParseWorkPackageLocator([
-    'Work-Package: docs/work-packages/b0-bootstrap-v1.md',
-    'Work-Package: docs/work-packages/other.md'
+    'Work-Package: config/repository/work-packages/b0-bootstrap-v1.md',
+    'Work-Package: config/repository/work-packages/other.md'
   ].join('\n'))).toThrow('found 2');
   expect(() => CodexDevelopmentParseWorkPackageLocator(
-    'Work-Package: ./docs/work-packages/b0-bootstrap-v1.md'
+    'Work-Package: ./config/repository/work-packages/b0-bootstrap-v1.md'
   )).toThrow('must be exactly');
 });
 
@@ -82,7 +82,7 @@ test('frozen Work Package V1 binds strict task ownership and full manifest bytes
   const source = manifest();
   const parsed = CodexDevelopmentDecodeWorkPackageManifest(
     source,
-    'docs/work-packages/b0-bootstrap-v1.md'
+    'config/repository/work-packages/b0-bootstrap-v1.md'
   );
   expect(parsed).toMatchObject({
     id: 'b0-bootstrap-v1',
@@ -109,20 +109,26 @@ test('frozen Work Package V1 binds strict task ownership and full manifest bytes
   });
 });
 
-test('Work Package V1 authorityRefs are an optional canonical owner-ID projection', () => {
+test('Work Package V1 authorityRefs are optional canonical document identities', () => {
+  const first = 'urn:uuid:00000000-0000-4000-8000-000000000001';
+  const second = 'urn:uuid:00000000-0000-4000-8000-000000000002';
   const withAuthority = manifest().replace(
     'tasks:\n',
-    'authorityRefs:\n  - development-governance\n  - verification-governance\ntasks:\n'
+    `authorityRefs:\n  - ${first}\n  - ${second}\ntasks:\n`
   );
   expect(CodexDevelopmentDecodeWorkPackageManifest(withAuthority).authorityRefs).toEqual([
-    'development-governance',
-    'verification-governance'
+    first,
+    second
   ]);
   expect(CodexDevelopmentDecodeWorkPackageManifest(manifest()).authorityRefs).toBeUndefined();
   expect(() => CodexDevelopmentDecodeWorkPackageManifest(withAuthority.replace(
-    '  - development-governance\n  - verification-governance',
-    '  - verification-governance\n  - development-governance'
+    `  - ${first}\n  - ${second}`,
+    `  - ${second}\n  - ${first}`
   ))).toThrow(/canonical code-unit order/u);
+  expect(() => CodexDevelopmentDecodeWorkPackageManifest(withAuthority.replace(
+    first,
+    'development-governance'
+  ))).toThrow(/document UUID URN/u);
 });
 
 test('Work Package parser exposes one V1 authority route and rejects retired V2 bytes', () => {
