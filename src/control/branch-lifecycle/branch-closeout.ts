@@ -27,6 +27,7 @@ import {
   collectBranchLifecycleInventory,
   type BranchLifecycleInventoryScope
 } from './branch-lifecycle-inventory.ts';
+import type { BranchPullRequestObservation } from './branch-lifecycle-types.ts';
 import {
   createRecoveryBundle,
   ensureRecoveryRoot,
@@ -109,18 +110,24 @@ export interface PrepareBranchCloseoutInput {
 
 export interface PrepareClosedUnmergedPullRequestCloseoutInput {
   number: number;
+  state: 'open' | 'closed';
+  refState: 'present' | 'absent';
   headBranch: string;
   headSha: string;
   baseBranch: string;
   baseSha: string;
+  /** Fresh provider observation retained even after the branch ref is absent. */
+  exactPullRequest: BranchPullRequestObservation;
 }
 
 type BranchCloseoutPreparationAdmission =
   | { kind: 'active-work-package' }
   | {
       kind: 'closed-unmerged';
+      expectedState: 'open' | 'closed';
       expectedBaseBranch: string;
       expectedBaseSha: string;
+      exactPullRequest: BranchPullRequestObservation;
     };
 
 function createPreparedEnvelope(input: Omit<
@@ -387,7 +394,21 @@ function prepareBranchCloseoutInternal(
     throw new Error('pullRequestNumber must be a positive safe integer.');
   }
 
-  const before = collectBranchLifecycleInventory(scope);
+  let before = collectBranchLifecycleInventory(scope);
+  if (admission.kind === 'closed-unmerged') {
+    const exact = admission.exactPullRequest;
+    if (exact.isCrossRepository
+      || exact.url !== `https://github.com/${before.repository.fullName}/pull/${exact.number}`) {
+      throw new Error('Closed-unmerged exact PR observation is not repository-local.');
+    }
+    before = {
+      ...before,
+      pullRequests: [
+        ...before.pullRequests.filter(({ number }) => number !== exact.number),
+        structuredClone(exact)
+      ].sort((left, right) => left.number - right.number)
+    };
+  }
   assertBranchCloseoutInventoryResolved(before);
   if (input.branch === before.repository.defaultBranch) {
     throw new Error('Default branch cannot be prepared for closeout.');
@@ -418,9 +439,9 @@ function prepareBranchCloseoutInternal(
   }
   if (pullRequest) {
     if (admission.kind === 'closed-unmerged') {
-      if (pullRequest.state !== 'open') {
+      if (pullRequest.state !== admission.expectedState) {
         throw new Error(
-          `Closed-unmerged preparation requires an open PR, observed ${pullRequest.state}.`
+          `Closed-unmerged preparation requires an exact ${admission.expectedState} PR, observed ${pullRequest.state}.`
         );
       }
       if (
@@ -547,8 +568,8 @@ export function prepareBranchCloseout(
 }
 
 /**
- * Produces only durable recovery/preparation for an exact open PR that has no
- * active Work Package.  It cannot close the PR or mutate refs; the separate
+ * Produces only durable recovery/preparation for an exact open or closed PR
+ * that has no active Work Package. It cannot close the PR or mutate refs; the separate
  * closed-unmerged operation compiler must still prove disposition and obtain
  * the opaque Effect provider before any external mutation.
  */
@@ -556,18 +577,31 @@ export function prepareClosedUnmergedPullRequestCloseout(
   scope: BranchCloseoutScope,
   input: PrepareClosedUnmergedPullRequestCloseoutInput
 ): PreparedBranchCloseoutEnvelope {
+  if (input.state !== 'open' && input.state !== 'closed') {
+    throw new Error('Closed-unmerged PR state must be open or closed.');
+  }
+  if (input.refState !== 'present' && input.refState !== 'absent') {
+    throw new Error('Closed-unmerged ref state must be present or absent.');
+  }
+  if (input.state === 'open' && input.refState === 'absent') {
+    throw new Error('An open closed-unmerged PR requires its exact remote ref to be present.');
+  }
   assertGitBranchName(input.headBranch);
   assertGitSha(input.headSha, 'closed-unmerged PR head');
   assertGitBranchName(input.baseBranch, 'closed-unmerged PR base branch');
   assertGitSha(input.baseSha, 'closed-unmerged PR base SHA');
   return prepareBranchCloseoutInternal(scope, {
     branch: input.headBranch,
+    refState: input.refState,
     expectedHeadSha: input.headSha,
+    expectedPrHeadSha: input.refState === 'absent' ? input.headSha : null,
     pullRequestNumber: input.number
   }, {
     kind: 'closed-unmerged',
+    expectedState: input.state,
     expectedBaseBranch: input.baseBranch,
-    expectedBaseSha: input.baseSha
+    expectedBaseSha: input.baseSha,
+    exactPullRequest: input.exactPullRequest
   });
 }
 

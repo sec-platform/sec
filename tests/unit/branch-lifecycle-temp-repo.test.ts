@@ -159,6 +159,10 @@ if (args[0] === 'api' && args[1] === '/repos/sec-platform/sec') {
   process.stdout.write('true');
   process.exit(0);
 }
+if (args[0] === 'repo' && args[1] === 'view') {
+  process.stdout.write('sec-platform/sec');
+  process.exit(0);
+}
 process.stderr.write('unsupported test gh observation: ' + args.join(' '));
 process.exit(1);
 `, 'utf8');

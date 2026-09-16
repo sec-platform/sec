@@ -27,3 +27,14 @@ export function assertGitBranchName(value: string, label = 'Git branch'): void {
     throw new Error(`${label} must be one bounded option-safe Git branch name.`);
   }
 }
+
+/** Parses only the bounded GitHub remote URL forms owned by the shared Git
+ * reference contract. Domain callers must not infer repository identity from
+ * arbitrary URL suffixes or caller-provided owner/name strings.
+ */
+export function parseGitHubRepositoryIdentityFromRemoteUrl(remoteUrl: string): string | null {
+  const normalized = remoteUrl.trim().replace(/\.git$/iu, '');
+  const match = /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/iu
+    .exec(normalized);
+  return match === null ? null : `${match[1]}/${match[2]}`;
+}

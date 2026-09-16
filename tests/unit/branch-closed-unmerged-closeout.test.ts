@@ -8,8 +8,7 @@ import {
 } from '../../src/control/branch-lifecycle/branch-closeout.ts';
 import { branchLifecycleDigest } from '../../src/control/branch-lifecycle/branch-lifecycle-audit.ts';
 import type {
-  BranchLifecycleInventory,
-  BranchPublishedCloseoutReceipt
+  BranchLifecycleInventory
 } from '../../src/control/branch-lifecycle/branch-lifecycle-types.ts';
 import {
   compileClosedUnmergedCloseoutOperation,
@@ -19,7 +18,8 @@ import {
   issueClosedUnmergedCloseoutEffectProvider,
   type ClosedUnmergedCloseoutEffectAdapter,
   type ClosedUnmergedCloseoutEffectStartReceipt,
-  type ClosedUnmergedProviderMutation
+  type ClosedUnmergedProviderMutation,
+  type ClosedUnmergedTerminal
 } from '../../src/control/branch-lifecycle/closed-unmerged-closeout.ts';
 
 const MAIN_SHA = '1'.repeat(40);
@@ -96,6 +96,9 @@ function inventory(): BranchLifecycleInventory {
 }
 
 function prepared(before: BranchLifecycleInventory): PreparedBranchCloseoutEnvelope {
+  const pullRequest = before.pullRequests.find(({ number }) => number === PR_NUMBER)!;
+  const remote = before.remoteBranches.find(({ branch }) => branch === BRANCH);
+  const local = before.localBranches.find(({ branch }) => branch === BRANCH);
   const preparation = createBranchCloseoutPreparation({
     preparedAt: '2026-09-01T00:01:00.000Z',
     repository: {
@@ -106,13 +109,13 @@ function prepared(before: BranchLifecycleInventory): PreparedBranchCloseoutEnvel
       defaultBranch: before.repository.defaultBranch
     },
     branch: BRANCH,
-    refState: 'present',
+    refState: remote ? 'present' : 'absent',
     expectedHeadSha: HEAD_SHA,
     expectedRemoteSha: HEAD_SHA,
-    expectedLocalSha: null,
-    expectedPrHeadSha: null,
+    expectedLocalSha: local?.sha ?? null,
+    expectedPrHeadSha: remote ? null : HEAD_SHA,
     pullRequestNumber: PR_NUMBER,
-    pullRequestStateAtPreparation: 'open',
+    pullRequestStateAtPreparation: pullRequest.state,
     recovery: {
       kind: 'bundle',
       path: path.resolve('branch-closeout-recovery', 'fixture.bundle'),
@@ -140,11 +143,16 @@ interface ProviderHarness {
   readonly counters: {
     closePullRequest: number;
     deleteRemoteRef: number;
+    deleteLocalRef: number;
+    pruneRemote: number;
     closeIssue: number;
   };
   setCloseResult(value: ClosedUnmergedProviderMutation): void;
   setInventoryUnavailable(detail: string | null): void;
   setBeforeDelete(value: (() => void) | null): void;
+  setAfterClose(value: (() => void) | null): void;
+  setTerminal(operationId: string, value: ClosedUnmergedTerminal): void;
+  terminal(operationId: string): ClosedUnmergedTerminal | undefined;
   mutate(mutator: (value: BranchLifecycleInventory) => void): void;
 }
 
@@ -155,10 +163,12 @@ function providerHarness(initial: BranchLifecycleInventory): ProviderHarness {
     detail: 'exact PR closed'
   };
   let beforeDelete: (() => void) | null = null;
+  let afterClose: (() => void) | null = null;
   let inventoryUnavailable: string | null = null;
   const effectStarts = new Map<string, ClosedUnmergedCloseoutEffectStartReceipt>();
-  const terminalReceipts = new Map<string, BranchPublishedCloseoutReceipt>();
-  const counters = { closePullRequest: 0, deleteRemoteRef: 0, closeIssue: 0 };
+  const terminalReceipts = new Map<string, ClosedUnmergedTerminal>();
+  const counters = { closePullRequest: 0, deleteRemoteRef: 0,
+    deleteLocalRef: 0, pruneRemote: 0, closeIssue: 0 };
   const adapter: ClosedUnmergedCloseoutEffectAdapter = {
     providerIdentity: 'fixture-github-and-git-provider',
     repository: REPOSITORY,
@@ -191,6 +201,8 @@ function providerHarness(initial: BranchLifecycleInventory): ProviderHarness {
           return { status: 'rejected', detail: 'exact PR identity changed' };
         }
         pullRequest.state = 'closed';
+        afterClose?.();
+        afterClose = null;
       }
       return closeResult;
     },
@@ -206,18 +218,32 @@ function providerHarness(initial: BranchLifecycleInventory): ProviderHarness {
       current.remoteBranches = current.remoteBranches.filter(({ branch }) => branch !== input.branch);
       return { status: 'applied', detail: 'exact remote branch deleted' };
     },
-    async pruneRemote() {
+    async deleteLocalRefCas(input) {
+      counters.deleteLocalRef += 1;
+      const target = current.localBranches.find(({ branch }) => branch === input.branch);
+      if (!target) return { status: 'already-applied', detail: 'local branch already absent' };
+      if (target.sha !== input.expectedOldSha) {
+        return { status: 'rejected', detail: 'local CAS mismatch' };
+      }
+      current.localBranches = current.localBranches.filter(({ branch }) => branch !== input.branch);
+      return { status: 'applied', detail: 'exact local branch deleted' };
+    },
+    async pruneRemote(input) {
+      counters.pruneRemote += 1;
+      if (input.branch !== BRANCH || input.expectedOldSha !== HEAD_SHA) {
+        return { status: 'rejected', detail: 'prune identity mismatch' };
+      }
       return { status: 'applied', detail: 'remote tracking refs pruned' };
     },
     async observeTerminalReceipt(operationId) {
       return { status: 'observed', value: terminalReceipts.get(operationId) ?? null };
     },
-    async publishTerminalReceipt(operationId, receipt) {
-      const existing = terminalReceipts.get(operationId);
-      if (existing && existing.publicationDigest !== receipt.publicationDigest) {
+    async publishTerminalReceipt(terminal) {
+      const existing = terminalReceipts.get(terminal.operationId);
+      if (existing && existing.receipt.publicationDigest !== terminal.receipt.publicationDigest) {
         return { status: 'rejected', detail: 'conflicting terminal receipt' };
       }
-      terminalReceipts.set(operationId, receipt);
+      terminalReceipts.set(terminal.operationId, terminal);
       return { status: existing ? 'already-applied' : 'applied', detail: 'terminal receipt durable' };
     }
   };
@@ -227,6 +253,9 @@ function providerHarness(initial: BranchLifecycleInventory): ProviderHarness {
     setCloseResult(value) { closeResult = value; },
     setInventoryUnavailable(detail) { inventoryUnavailable = detail; },
     setBeforeDelete(value) { beforeDelete = value; },
+    setAfterClose(value) { afterClose = value; },
+    setTerminal(operationId, value) { terminalReceipts.set(operationId, value); },
+    terminal(operationId) { return terminalReceipts.get(operationId); },
     mutate(mutator) { mutator(current); }
   };
 }
@@ -246,7 +275,7 @@ function evidenceClose(_before: BranchLifecycleInventory) {
   });
 }
 
-function supersededEvidence() {
+function fakeSupersededEvidence() {
   return createClosedSupersededDispositionEvidence({
     repository: REPOSITORY,
     pullRequestNumber: PR_NUMBER,
@@ -258,11 +287,21 @@ function supersededEvidence() {
     currentMainSha: MAIN_SHA,
     currentMainTreeSha: MAIN_TREE,
     durableGoal: { kind: 'issue', reference: 'Issue #313' },
-    consumerClosureDigest: `sha256:${'7'.repeat(64)}`
+    supersession: {
+      review: {
+        kind: 'branch-supersession-review', repository: REPOSITORY,
+        pullRequestNumber: PR_NUMBER, headSha: HEAD_SHA, headTreeSha: HEAD_TREE,
+        currentMainSha: MAIN_SHA, currentMainTreeSha: MAIN_TREE,
+        reviewer: 'fixture-reviewer', verdict: 'approved', paths: [], unknowns: []
+      },
+      reference: `https://github.com/${REPOSITORY}/pull/${PR_NUMBER}#issuecomment-1`,
+      author: 'fixture-maintainer', commentId: 1,
+      receiptDigest: `sha256:${'7'.repeat(64)}`
+    }
   });
 }
 
-function operation(inputEvidence: ReturnType<typeof evidenceClose> | ReturnType<typeof supersededEvidence>) {
+function operation(inputEvidence: ReturnType<typeof evidenceClose>) {
   const result = compileClosedUnmergedCloseoutOperation({
     prepared: prepared(inventory()),
     evidence: inputEvidence
@@ -273,11 +312,8 @@ function operation(inputEvidence: ReturnType<typeof evidenceClose> | ReturnType<
 }
 
 describe('closed-unmerged branch lifecycle operation', () => {
-  test.each([
-    ['evidence-close', () => evidenceClose(inventory())],
-    ['closed-superseded', supersededEvidence]
-  ] as const)('%s closes the exact PR and deletes only the exact remote ref', async (_name, createEvidence) => {
-    const closeout = operation(createEvidence());
+  test('evidence-close closes the exact PR and deletes only exact refs', async () => {
+    const closeout = operation(evidenceClose(inventory()));
     const harness = providerHarness(inventory());
     const result = await executeClosedUnmergedCloseoutOperation({
       operation: closeout,
@@ -288,6 +324,8 @@ describe('closed-unmerged branch lifecycle operation', () => {
     expect(harness.counters).toEqual({
       closePullRequest: 1,
       deleteRemoteRef: 1,
+      deleteLocalRef: 0,
+      pruneRemote: 1,
       closeIssue: 0
     });
     if (result.status === 'completed') {
@@ -295,6 +333,12 @@ describe('closed-unmerged branch lifecycle operation', () => {
       expect(result.receipt.pullRequest).toBe(PR_NUMBER);
       expect(result.receipt.disposition).toBe('closed-superseded');
     }
+  });
+
+  test('structurally plausible supersession evidence is rejected without owner issuance', () => {
+    expect(() => fakeSupersededEvidence()).toThrow(
+      'Supersession evidence requires authenticated owner observation.'
+    );
   });
 
   test('head drift blocks before effect-start, PR close, or remote deletion', async () => {
@@ -339,6 +383,82 @@ describe('closed-unmerged branch lifecycle operation', () => {
     expect(harness.counters.closeIssue).toBe(0);
   });
 
+  test('late drift after PR close is caught before either ref deletion', async () => {
+    const closeout = operation(evidenceClose(inventory()));
+    const harness = providerHarness(inventory());
+    harness.setAfterClose(() => {
+      harness.mutate((value) => {
+        value.remoteBranches = value.remoteBranches.map((entry) => (
+          entry.branch === BRANCH ? { ...entry, sha: '8'.repeat(40) } : entry
+        ));
+      });
+    });
+
+    const result = await executeClosedUnmergedCloseoutOperation({
+      operation: closeout,
+      provider: harness.provider
+    });
+
+    expect(result.status).toBe('blocked');
+    expect(harness.counters.deleteRemoteRef).toBe(0);
+    expect(harness.counters.deleteLocalRef).toBe(0);
+  });
+
+  test('an exact prepared local ref is deleted by local CAS and read back absent', async () => {
+    const before = inventory();
+    before.localBranches.push({ branch: BRANCH, sha: HEAD_SHA });
+    const result = compileClosedUnmergedCloseoutOperation({
+      prepared: prepared(before),
+      evidence: evidenceClose(before)
+    });
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') throw new Error(result.blockers.join(' | '));
+    const harness = providerHarness(before);
+
+    const executed = await executeClosedUnmergedCloseoutOperation({
+      operation: result.operation,
+      provider: harness.provider
+    });
+
+    expect(executed.status).toBe('completed');
+    expect(harness.counters.deleteLocalRef).toBe(1);
+  });
+
+  test('an already closed exact PR is accepted as the operation starting point', async () => {
+    const before = inventory();
+    before.pullRequests[0]!.state = 'closed';
+    const result = compileClosedUnmergedCloseoutOperation({
+      prepared: prepared(before), evidence: evidenceClose(before)
+    });
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') throw new Error(result.blockers.join(' | '));
+    const harness = providerHarness(before);
+    const executed = await executeClosedUnmergedCloseoutOperation({
+      operation: result.operation, provider: harness.provider
+    });
+    expect(executed.status).toBe('completed');
+    expect(harness.counters.closePullRequest).toBe(0);
+    expect(harness.counters.deleteRemoteRef).toBe(1);
+  });
+
+  test('a closed exact PR with an already absent remote ref resumes from recovery', async () => {
+    const before = inventory();
+    before.pullRequests[0]!.state = 'closed';
+    before.remoteBranches = before.remoteBranches.filter(({ branch }) => branch !== BRANCH);
+    const result = compileClosedUnmergedCloseoutOperation({
+      prepared: prepared(before), evidence: evidenceClose(before)
+    });
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') throw new Error(result.blockers.join(' | '));
+    const harness = providerHarness(before);
+    const executed = await executeClosedUnmergedCloseoutOperation({
+      operation: result.operation, provider: harness.provider
+    });
+    expect(executed.status).toBe('completed');
+    expect(harness.counters.closePullRequest).toBe(0);
+    expect(harness.counters.deleteRemoteRef).toBe(0);
+  });
+
   test('PR identity mutation blocks before closing or deleting anything', async () => {
     const closeout = operation(evidenceClose(inventory()));
     const harness = providerHarness(inventory());
@@ -370,8 +490,9 @@ describe('closed-unmerged branch lifecycle operation', () => {
     });
 
     expect(result.status).toBe('preserved');
-    expect(result.status === 'preserved' ? result.stage : null).toBe('initial-observation');
-    expect(harness.counters).toEqual({ closePullRequest: 0, deleteRemoteRef: 0, closeIssue: 0 });
+    expect(result.status === 'preserved' ? result.stage : null).toBe('effect-start-precondition');
+    expect(harness.counters).toEqual({ closePullRequest: 0, deleteRemoteRef: 0,
+      deleteLocalRef: 0, pruneRemote: 0, closeIssue: 0 });
   });
 
   test('ambiguous PR close preserves the branch and retry can finish from exact readback', async () => {
@@ -419,5 +540,54 @@ describe('closed-unmerged branch lifecycle operation', () => {
     expect(resumed.status).toBe('completed');
     expect(harness.counters.deleteRemoteRef).toBe(0);
     expect(harness.counters.closeIssue).toBe(0);
+  });
+
+  test('terminal readback with a different evidence digest is rejected', async () => {
+    const closeout = operation(evidenceClose(inventory()));
+    const completedHarness = providerHarness(inventory());
+    const completed = await executeClosedUnmergedCloseoutOperation({
+      operation: closeout, provider: completedHarness.provider
+    });
+    expect(completed.status).toBe('completed');
+    const terminal = completedHarness.terminal(closeout.operationId)!;
+    const harness = providerHarness(inventory());
+    harness.setTerminal(closeout.operationId, {
+      ...terminal, evidenceDigest: `sha256:${'9'.repeat(64)}`
+    });
+
+    const replay = await executeClosedUnmergedCloseoutOperation({
+      operation: closeout, provider: harness.provider
+    });
+
+    expect(replay.status).toBe('blocked');
+    expect(replay.status === 'blocked' ? replay.stage : null).toBe('terminal-readback');
+    expect(harness.counters.deleteRemoteRef).toBe(0);
+    expect(harness.counters.deleteLocalRef).toBe(0);
+  });
+
+  test('terminal recovery refuses a recreated remote ref without performing any mutation', async () => {
+    const closeout = operation(evidenceClose(inventory()));
+    const completedHarness = providerHarness(inventory());
+    const completed = await executeClosedUnmergedCloseoutOperation({
+      operation: closeout, provider: completedHarness.provider
+    });
+    expect(completed.status).toBe('completed');
+    const terminal = completedHarness.terminal(closeout.operationId)!;
+    const recreated = inventory();
+    recreated.pullRequests[0]!.state = 'closed';
+    const harness = providerHarness(recreated);
+    harness.setTerminal(closeout.operationId, terminal);
+
+    const replay = await executeClosedUnmergedCloseoutOperation({
+      operation: closeout, provider: harness.provider
+    });
+
+    expect(replay.status).toBe('preserved');
+    expect(replay.status === 'preserved' ? replay.stage : null).toBe('terminal-live-readback');
+    expect(replay.status === 'preserved' ? replay.reasons : []).toEqual([
+      'remote branch exists after the terminal receipt'
+    ]);
+    expect(harness.counters).toEqual({ closePullRequest: 0, deleteRemoteRef: 0,
+      deleteLocalRef: 0, pruneRemote: 0, closeIssue: 0 });
   });
 });

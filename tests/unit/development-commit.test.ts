@@ -10,8 +10,37 @@ import {
   type DevelopmentCommitAdmission,
   type DevelopmentCommitRequest
 } from '../../src/development/commit-admission/operation.ts';
-import { runDevelopmentCommit } from '../../src/development/commit/operation.ts';
+import {
+  acknowledgeDevelopmentCommitResult,
+  DevelopmentCommitLostHandleError,
+  readDevelopmentCommitOutcome,
+  recoverDevelopmentCommit,
+  retireMergedDevelopmentCommitJournals,
+  retryDevelopmentCommit,
+  runDevelopmentCommit,
+  runDevelopmentCommitForTests,
+  settleDevelopmentCommitJournalsForRef
+} from '../../src/development/commit/operation.ts';
 import { IMPORT_NORMALIZATION_OPERATION } from '../../src/development/import-normalization/contract.ts';
+import { GIT_READ_OPERATION_BUDGET } from '../../src/development/tooling/git/git-read.ts';
+import { withAuthorityGitReadSession } from '../../src/external-capabilities/git-read/authority.ts';
+import type { GitReadSession } from '../../src/external-capabilities/git-read/runtime/session.ts';
+import type { GitHubApiPrincipal } from '../../src/external-capabilities/github-api/operation-session.ts';
+import {
+  issueGitHubApiTestCapability,
+  withGitHubApiTestSession,
+  type GitHubApiTransport
+} from '../../src/external-capabilities/github-api/test/operation-session.ts';
+
+const GITHUB_REPOSITORY = 'sec-platform/sec';
+const GITHUB_TOKEN = 'development-commit-test-token';
+const GITHUB_PRINCIPAL: GitHubApiPrincipal = Object.freeze({
+  transport: 'github-rest-token',
+  login: 'maintainer',
+  nodeId: 'MDQ6VXNlcjE=',
+  userId: 900001,
+  permission: 'maintain'
+});
 
 function git(root: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], {
@@ -92,8 +121,376 @@ test('development.commit consumes one exact staged admission before publishing i
     expect(result.preimage).toBe(preimage);
     expect(git(root, ['rev-parse', 'HEAD'])).toBe(result.target);
     expect(git(root, ['status', '--porcelain'])).toBe('');
+    expect((await readFile(result.journalPath, 'utf8')).includes('"terminal":"applied"')).toBe(true);
+    expect(() => acknowledgeDevelopmentCommitResult({ ...result }))
+      .toThrow('owner-issued undelivered result');
+    acknowledgeDevelopmentCommitResult(result);
+    await expect(lstat(result.journalPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    const gitDirectory = git(root, ['rev-parse', '--absolute-git-dir']);
+    await expect(lstat(path.join(gitDirectory, 'sec-development-commit')))
+      .rejects.toMatchObject({ code: 'ENOENT' });
+    expect(() => acknowledgeDevelopmentCommitResult(result))
+      .toThrow('owner-issued undelivered result');
     await expect(runDevelopmentCommit(request, prepared.admission))
       .rejects.toThrow('already been consumed');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 20_000);
+
+test('development.commit distinguishes genuine missing objects from unresolved Git observations', async () => {
+  const { root } = await fixture();
+  try {
+    const ref = git(root, ['symbolic-ref', 'HEAD']);
+    const preimage = git(root, ['rev-parse', 'HEAD']);
+    const tree = git(root, ['write-tree']);
+    const missingTarget = 'f'.repeat(40);
+    const commonDirectory = git(root, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+    const journal = Object.freeze({
+      schema: 'sec-development-commit-journal-v1' as const,
+      operation: `sha256:${'1'.repeat(64)}` as const,
+      attempt: `sha256:${'2'.repeat(64)}` as const,
+      ref,
+      preimage,
+      target: missingTarget,
+      object: null,
+      tree,
+      terminal: null
+    });
+    const dispositions = await withAuthorityGitReadSession({
+      cwd: root,
+      budget: GIT_READ_OPERATION_BUDGET
+    }, async (session) => {
+      const missing = await readDevelopmentCommitOutcome({
+        session,
+        commonDirectory,
+        journal,
+        normal: null
+      });
+      const rejectedSession = Object.freeze({
+        ...session,
+        run: async (args: readonly string[], options?: Parameters<GitReadSession['run']>[1]) => (
+          args[0] === 'cat-file'
+            ? Object.freeze({
+              kind: 'completed' as const,
+              result: Object.freeze({
+                code: 128,
+                stdout: new Uint8Array(),
+                stderr: 'injected completed Git failure'
+              })
+            })
+            : await session.run(args, options)
+        )
+      }) as GitReadSession;
+      const rejected = await readDevelopmentCommitOutcome({
+        session: rejectedSession,
+        commonDirectory,
+        journal,
+        normal: null
+      });
+      const unresolvedSession = Object.freeze({
+        ...session,
+        run: async (args: readonly string[], options?: Parameters<GitReadSession['run']>[1]) => (
+          args[0] === 'cat-file' && args[1] === '-t'
+            ? Object.freeze({
+              kind: 'unresolved-git-read-session' as const,
+              reason: 'command-error' as const,
+              detail: 'injected object observation failure'
+            })
+            : await session.run(args, options)
+        )
+      }) as GitReadSession;
+      const unresolved = await readDevelopmentCommitOutcome({
+        session: unresolvedSession,
+        commonDirectory,
+        journal,
+        normal: null
+      });
+      return Object.freeze({
+        missing: missing.disposition,
+        rejected: rejected.disposition,
+        unresolved: unresolved.disposition
+      });
+    });
+    expect(dispositions).toEqual({
+      missing: 'not-applied',
+      rejected: 'unknown',
+      unresolved: 'unknown'
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 20_000);
+
+test('development.commit retires a merged PR journal as a consumed transport without reclassifying it applied', async () => {
+  const { root, request } = await fixture();
+  let topicWorktree: string | null = null;
+  try {
+    git(root, ['branch', '-m', 'main']);
+    git(root, ['remote', 'add', 'origin', `https://github.com/${GITHUB_REPOSITORY}.git`]);
+    const preimage = git(root, ['rev-parse', 'HEAD']);
+    const topic = 'test-design-topic';
+    git(root, ['switch', '--quiet', '-c', topic]);
+    const prepared = await issueDevelopmentCommitAdmission({ request });
+    const committed = await runDevelopmentCommit(request, prepared.admission);
+    expect(committed.disposition).toBe('applied');
+    const journalSource = await readFile(committed.journalPath, 'utf8');
+
+    const unrelatedPath = path.join(path.dirname(committed.journalPath), `${'b'.repeat(64)}.json`);
+    const unrelated = JSON.parse(journalSource) as Record<string, unknown>;
+    unrelated.ref = 'refs/heads/unrelated-topic';
+    await writeFile(unrelatedPath, `${JSON.stringify(unrelated)}\n`, 'utf8');
+
+    git(root, ['switch', '--quiet', 'main']);
+    git(root, ['merge', '--quiet', '--no-ff', '-m', 'merge test design topic', topic]);
+    const mergeSha = git(root, ['rev-parse', 'HEAD']);
+    topicWorktree = path.join(path.dirname(root), `${path.basename(root)}-topic-worktree`);
+    git(root, ['worktree', 'add', '--quiet', topicWorktree, topic]);
+    git(root, ['update-ref', '-d', `refs/heads/${topic}`]);
+    expect(git(root, ['branch', '--list', topic])).toBe('');
+    const reflog = spawnSync('git', ['reflog', 'exists', `refs/heads/${topic}`], {
+      cwd: root,
+      encoding: 'utf8',
+      windowsHide: true
+    });
+    expect(reflog.status).not.toBe(0);
+
+    const capability = (input: Readonly<{
+      headSha: string;
+      pullExists?: boolean;
+      remoteTopicExists?: boolean;
+    }>) => issueGitHubApiTestCapability({
+      repository: GITHUB_REPOSITORY,
+      token: GITHUB_TOKEN,
+      principal: GITHUB_PRINCIPAL,
+      effect: 'read',
+      transport: (async (target) => {
+        const pathname = new URL(String(target)).pathname;
+        if (pathname === `/repos/${GITHUB_REPOSITORY}`) {
+          return Response.json({ full_name: GITHUB_REPOSITORY, default_branch: 'main' });
+        }
+        if (pathname === `/repos/${GITHUB_REPOSITORY}/pulls/600`) {
+          if (input.pullExists === false) {
+            return Response.json({ message: 'Not Found' }, { status: 404 });
+          }
+          return Response.json({
+            number: 600,
+            state: 'closed',
+            merged: true,
+            merge_commit_sha: mergeSha,
+            head: { ref: topic, sha: input.headSha, repo: { full_name: GITHUB_REPOSITORY } },
+            base: { ref: 'main', repo: { full_name: GITHUB_REPOSITORY } }
+          });
+        }
+        if (pathname === `/repos/${GITHUB_REPOSITORY}/git/ref/heads/${topic}`) {
+          return input.remoteTopicExists === true
+            ? Response.json({ ref: `refs/heads/${topic}`, object: { sha: committed.target } })
+            : Response.json({ message: 'Not Found' }, { status: 404 });
+        }
+        if (pathname === `/repos/${GITHUB_REPOSITORY}/git/ref/heads/main`) {
+          return Response.json({ ref: 'refs/heads/main', object: { sha: mergeSha } });
+        }
+        return Response.json({ message: `Unexpected path ${pathname}` }, { status: 500 });
+      }) satisfies GitHubApiTransport
+    });
+    const retire = async (api: ReturnType<typeof capability>) => await withGitHubApiTestSession({
+      capability: api,
+      operation: async () => await retireMergedDevelopmentCommitJournals({
+        repositoryRoot: root,
+        capability: api,
+        pullRequestNumber: 600
+      })
+    });
+
+    git(root, ['remote', 'set-url', 'origin', 'https://github.com/other/repository.git']);
+    await expect(retire(capability({ headSha: committed.target })))
+      .rejects.toThrow('repository');
+    expect(await readFile(committed.journalPath, 'utf8')).toBe(journalSource);
+    git(root, ['remote', 'set-url', 'origin', `https://github.com/${GITHUB_REPOSITORY}.git`]);
+
+    await expect(retire(capability({ headSha: committed.target })))
+      .rejects.toThrow('worktree consumer');
+    expect(await readFile(committed.journalPath, 'utf8')).toBe(journalSource);
+    git(root, ['worktree', 'remove', '--force', topicWorktree]);
+    topicWorktree = null;
+
+    await expect(retire(capability({ headSha: committed.target, pullExists: false })))
+      .rejects.toThrow();
+    expect(await readFile(committed.journalPath, 'utf8')).toBe(journalSource);
+
+    await expect(retire(capability({ headSha: committed.target, remoteTopicExists: true })))
+      .rejects.toThrow('still has a remote ref consumer');
+    expect(await readFile(committed.journalPath, 'utf8')).toBe(journalSource);
+
+    await expect(retire(capability({ headSha: preimage })))
+      .rejects.toThrow('did not consume this exact journal target');
+    expect(await readFile(committed.journalPath, 'utf8')).toBe(journalSource);
+
+    const retired = await retire(capability({ headSha: committed.target }));
+    expect(retired).toEqual({
+      ref: `refs/heads/${topic}`,
+      observed: 1,
+      retired: 1
+    });
+    expect('disposition' in retired).toBe(false);
+    await expect(lstat(committed.journalPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await readFile(unrelatedPath, 'utf8')).toBe(`${JSON.stringify(unrelated)}\n`);
+  } finally {
+    if (topicWorktree !== null) {
+      spawnSync('git', ['worktree', 'remove', '--force', topicWorktree], {
+        cwd: root,
+        encoding: 'utf8',
+        windowsHide: true
+      });
+      await rm(topicWorktree, { recursive: true, force: true });
+    }
+    await rm(root, { recursive: true, force: true });
+  }
+}, 40_000);
+
+test('development.commit exact-ref settlement classifies every matching lost-handle journal before retirement', async () => {
+  const { root, request } = await fixture();
+  try {
+    const ref = git(root, ['symbolic-ref', 'HEAD']);
+    const preimage = git(root, ['rev-parse', 'HEAD']);
+    const prepared = await issueDevelopmentCommitAdmission({ request });
+    let journalPath = '';
+    try {
+      await runDevelopmentCommitForTests(request, prepared.admission, {
+        afterRefUpdateBeforeReadback: (candidateJournalPath) => {
+          journalPath = candidateJournalPath;
+          throw new Error('simulated settlement handoff');
+        }
+      });
+    } catch (error) {
+      expect(error).toBeInstanceOf(DevelopmentCommitLostHandleError);
+    }
+    expect(journalPath.length).toBeGreaterThan(0);
+    const pendingSource = await readFile(journalPath, 'utf8');
+    expect(pendingSource).toContain('"terminal":null');
+    const unknownPath = path.join(path.dirname(journalPath), `${'a'.repeat(64)}.json`);
+    const unknown = JSON.parse(pendingSource) as Record<string, unknown>;
+    const unknownTarget = git(root, [
+      'commit-tree', `${preimage}^{tree}`, '-p', preimage, '-m', 'unpublished census observation'
+    ]);
+    unknown.object = unknownTarget;
+    unknown.preimage = preimage;
+    unknown.target = unknownTarget;
+    unknown.tree = git(root, ['rev-parse', `${preimage}^{tree}`]);
+    unknown.terminal = 'unknown';
+    await writeFile(unknownPath, `${JSON.stringify(unknown)}\n`, 'utf8');
+    await expect(settleDevelopmentCommitJournalsForRef({ repositoryRoot: root, ref }))
+      .rejects.toThrow('requires applied readback, got unknown');
+    expect(await readFile(journalPath, 'utf8')).toBe(pendingSource);
+    await rm(unknownPath);
+
+    await expect(settleDevelopmentCommitJournalsForRef({ repositoryRoot: root, ref }))
+      .resolves.toEqual({ ref, observed: 1, retired: 1 });
+    await expect(lstat(journalPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 20_000);
+
+test('development.commit applied retry retires every exact not-applied predecessor in its Effect family', async () => {
+  const { root, request } = await fixture();
+  try {
+    const firstPrepared = await issueDevelopmentCommitAdmission({ request });
+    let predecessorPath = '';
+    try {
+      await runDevelopmentCommitForTests(request, firstPrepared.admission, {
+        afterObjectJournaled: (candidateJournalPath) => {
+          predecessorPath = candidateJournalPath;
+          throw new Error('simulated loss before ref publication');
+        }
+      });
+    } catch (error) {
+      expect(String(error)).toContain('simulated loss before ref publication');
+    }
+    expect(predecessorPath.length).toBeGreaterThan(0);
+    const recovery = await recoverDevelopmentCommit({
+      repositoryRoot: root,
+      journalPath: predecessorPath
+    });
+    expect(recovery.result.disposition).toBe('not-applied');
+    expect(await readFile(predecessorPath, 'utf8')).toContain('"terminal":"not-applied"');
+
+    const retryPrepared = await issueDevelopmentCommitAdmission({ request });
+    const retry = await retryDevelopmentCommit({
+      request,
+      admission: retryPrepared.admission,
+      recovery
+    });
+    expect(retry.disposition).toBe('applied');
+    expect(await readFile(retry.journalPath, 'utf8')).toContain('"terminal":"applied"');
+    acknowledgeDevelopmentCommitResult(retry);
+    await expect(lstat(predecessorPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(lstat(retry.journalPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 30_000);
+
+test('development.commit recovers an exact historical ref transition after ref advance and checkout, then retires on delivery', async () => {
+  const { root, request } = await fixture();
+  try {
+    const preimage = git(root, ['rev-parse', 'HEAD']);
+    const prepared = await issueDevelopmentCommitAdmission({ request });
+    let lostHandle: DevelopmentCommitLostHandleError | null = null;
+    try {
+      await runDevelopmentCommitForTests(request, prepared.admission, {
+        afterRefUpdateBeforeReadback: () => { throw new Error('simulated consumer loss'); }
+      });
+    } catch (error) {
+      expect(error).toBeInstanceOf(DevelopmentCommitLostHandleError);
+      lostHandle = error as DevelopmentCommitLostHandleError;
+    }
+    expect(lostHandle).not.toBeNull();
+    const publishedTarget = git(root, ['rev-parse', 'HEAD']);
+    expect(publishedTarget).not.toBe(preimage);
+
+    await writeFile(path.join(root, 'later.txt'), 'later\n');
+    git(root, ['add', 'later.txt']);
+    git(root, ['commit', '--quiet', '-m', 'later ref advance']);
+    const advancedTarget = git(root, ['rev-parse', 'HEAD']);
+    expect(advancedTarget).not.toBe(publishedTarget);
+    git(root, ['switch', '--quiet', '-c', 'observer', preimage]);
+    expect(git(root, ['write-tree'])).not.toBe(git(root, ['rev-parse', `${publishedTarget}^{tree}`]));
+    const staleNotApplied = JSON.parse(
+      await readFile(lostHandle!.journalPath, 'utf8')
+    ) as Record<string, unknown>;
+    staleNotApplied.terminal = 'not-applied';
+    await writeFile(lostHandle!.journalPath, `${JSON.stringify(staleNotApplied)}\n`, 'utf8');
+
+    const recovery = await recoverDevelopmentCommit({
+      repositoryRoot: root,
+      journalPath: lostHandle!.journalPath
+    });
+    expect(recovery.result).toMatchObject({
+      disposition: 'applied',
+      preimage,
+      target: publishedTarget
+    });
+    expect(git(root, ['rev-parse', advancedTarget])).toBe(advancedTarget);
+    acknowledgeDevelopmentCommitResult(recovery.result);
+    await expect(lstat(lostHandle!.journalPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 20_000);
+
+test('development.commit refuses to retire applied journal bytes that drift after result issue', async () => {
+  const { root, request } = await fixture();
+  try {
+    const prepared = await issueDevelopmentCommitAdmission({ request });
+    const result = await runDevelopmentCommit(request, prepared.admission);
+    expect(result.disposition).toBe('applied');
+    const terminal = await readFile(result.journalPath, 'utf8');
+    const drifted = `${terminal} `;
+    await writeFile(result.journalPath, drifted, 'utf8');
+    expect(() => acknowledgeDevelopmentCommitResult(result))
+      .toThrow('changed before exact terminal retirement');
+    expect(await readFile(result.journalPath, 'utf8')).toBe(drifted);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

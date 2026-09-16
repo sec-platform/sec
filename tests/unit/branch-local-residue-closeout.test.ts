@@ -450,6 +450,70 @@ for (const boundary of ['afterAuthorization', 'afterDelete', 'afterReadback', 'a
   }, 30_000);
 }
 
+test('journal-drain window ref drift blocks before the atomic delete transaction', async () => {
+  const fixture = createEffectFixture('journal-drain-ref-drift');
+  try {
+    let repositoryObservations = 0;
+    const run: typeof fixture.run = (command, args, cwd, input) => {
+      if (command === 'gh' && args[0] === 'repo') {
+        repositoryObservations += 1;
+        // The third repository observation is the new post-journal-settlement
+        // fence: initial admission and pre-effect identity have already passed.
+        if (repositoryObservations === 3) {
+          git(fixture.repositoryRoot, [
+            'update-ref', 'refs/heads/fix/example', fixture.mainSha, fixture.headSha
+          ]);
+        }
+      }
+      return fixture.run(command, args, cwd, input);
+    };
+
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run,
+      now: () => new Date('2026-08-22T00:00:00.000Z')
+    })).rejects.toThrow(/Local branch changed after authorization/u);
+
+    expect(git(fixture.repositoryRoot, ['rev-parse', 'refs/heads/fix/example']))
+      .toBe(fixture.mainSha);
+    expect(fixture.calls.filter((call) => (
+      call[0] === 'git' && call[1] === 'update-ref' && call[2] === '--stdin'
+    ))).toHaveLength(0);
+  } finally {
+    fixture.dispose();
+  }
+}, 30_000);
+
+test('merged branch closeout preserves an unresolved commit recovery consumer before deleting its reflog', async () => {
+  const fixture = createEffectFixture('commit-recovery-consumer');
+  try {
+    const directory = path.join(fixture.repositoryRoot, '.git', 'sec-development-commit');
+    mkdirSync(directory);
+    const journalPath = path.join(directory, `${'a'.repeat(64)}.json`);
+    const source = `${JSON.stringify({
+      attempt: `sha256:${'1'.repeat(64)}`,
+      object: '9'.repeat(40),
+      operation: `sha256:${'2'.repeat(64)}`,
+      preimage: fixture.mainSha,
+      ref: 'refs/heads/fix/example',
+      schema: 'sec-development-commit-journal-v1',
+      target: '9'.repeat(40),
+      terminal: null,
+      tree: git(fixture.repositoryRoot, ['rev-parse', `${fixture.headSha}^{tree}`])
+    })}\n`;
+    writeFileSync(journalPath, source);
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run
+    })).rejects.toThrow();
+    expect(git(fixture.repositoryRoot, ['rev-parse', 'refs/heads/fix/example'])).toBe(fixture.headSha);
+    expect(readFileSync(journalPath, 'utf8')).toBe(source);
+    expect(fixture.calls.some((call) => call.includes('update-ref'))).toBeFalse();
+  } finally { fixture.dispose(); }
+}, 30_000);
+
 test('terminal settlement removes the duplicate branch-closeout bundle family', async () => {
   const fixture = createEffectFixture('duplicate-bundle-retirement');
   try {

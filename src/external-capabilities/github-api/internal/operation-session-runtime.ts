@@ -1,10 +1,16 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
 
+import { assertGitBranchName } from '../../../system-architecture/foundation/contract/git-reference.ts';
 import { GITHUB_API_BASE_URL, GITHUB_HOST } from '../contract.ts';
 import { GitHubCredentialUnavailableError, readGitHubToken } from '../credential.ts';
 
-export type GitHubApiEffect = 'read' | 'status-write' | 'merge-write' | 'runner-admin';
+export type GitHubApiEffect =
+  | 'read'
+  | 'status-write'
+  | 'merge-write'
+  | 'runner-admin'
+  | 'branch-closeout-write';
 
 export type GitHubApiTransport = (
   input: string | URL,
@@ -87,6 +93,9 @@ export type GitHubApiOperation =
   | Readonly<{ kind: 'ruleset'; rulesetId: number }>
   | Readonly<{ kind: 'open-issues'; page: number }>
   | Readonly<{ kind: 'issue'; issueNumber: number }>
+  | Readonly<{ kind: 'issue-comments'; issueNumber: number; page: number }>
+  | Readonly<{ kind: 'issue-comment'; commentId: number }>
+  | Readonly<{ kind: 'create-issue-comment'; issueNumber: number; body: string }>
   | Readonly<{ kind: 'open-pulls'; baseBranch: string }>
   | Readonly<{ kind: 'matching-head-refs'; page: number }>
   | Readonly<{ kind: 'git-ref'; branch: string }>
@@ -107,7 +116,8 @@ export type GitHubApiOperation =
       headSha: string;
       title: string;
       message: string;
-    }>;
+    }>
+  | Readonly<{ kind: 'delete-ref-cas'; branch: string; expectedOldSha: string }>;
 
 type CompiledGitHubApiRequest = Readonly<{
   method: 'DELETE' | 'GET' | 'POST' | 'PUT';
@@ -131,6 +141,9 @@ const OPEN_COUNTS_QUERY =
   'query($owner:String!,$name:String!){repository(owner:$owner,name:$name){pullRequests(states:OPEN){totalCount}issues(states:OPEN){totalCount}}}';
 const REVIEW_THREADS_QUERY =
   'query($owner:String!,$name:String!,$number:Int!,$endCursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){number reviewThreads(first:100,after:$endCursor){totalCount nodes{isResolved}pageInfo{hasNextPage endCursor}}}}}';
+const DELETE_REF_CAS_MUTATION =
+  'mutation($repositoryId:ID!,$name:GitRefname!,$beforeOid:GitObjectID!,$afterOid:GitObjectID!){updateRefs(input:{repositoryId:$repositoryId,refUpdates:[{name:$name,beforeOid:$beforeOid,afterOid:$afterOid,force:true}]}){clientMutationId}}';
+const ZERO_GIT_OID = '0000000000000000000000000000000000000000';
 
 export class GitHubApiProviderError extends Error {
   readonly code: string = 'github-api-provider-unavailable';
@@ -202,7 +215,8 @@ function canonicalTarget(pathname: string): URL {
 function compileOperation(
   repositoryName: string,
   effect: GitHubApiEffect,
-  operation: GitHubApiOperation
+  operation: GitHubApiOperation,
+  exactRepositoryNodeId?: string
 ): CompiledGitHubApiRequest {
   const repo = repository(repositoryName);
   if (effect === 'runner-admin'
@@ -212,6 +226,20 @@ function compileOperation(
       && operation.kind !== 'delete-repository-runner') {
     throw new GitHubApiProviderError(
       'GitHub API runner-admin authority permits only fixed runner lifecycle effects'
+    );
+  }
+  if (effect === 'branch-closeout-write'
+      && operation.kind !== 'current-user'
+      && operation.kind !== 'collaborator-permission'
+      && operation.kind !== 'repository'
+      && operation.kind !== 'pull'
+      && operation.kind !== 'git-ref'
+      && operation.kind !== 'issue-comments'
+      && operation.kind !== 'issue-comment'
+      && operation.kind !== 'create-issue-comment'
+      && operation.kind !== 'delete-ref-cas') {
+    throw new GitHubApiProviderError(
+      'GitHub API branch-closeout-write authority permits only fixed closeout observations and effects'
     );
   }
   const read = (path: string, body?: unknown): CompiledGitHubApiRequest =>
@@ -241,6 +269,20 @@ function compileOperation(
       return read(`/repos/${repo}/rulesets/${positiveInteger(operation.rulesetId, 'ruleset id')}?includes_parents=true`);
     case 'open-issues': return read(`/repos/${repo}/issues?state=open&per_page=100&page=${page(operation.page)}`);
     case 'issue': return read(`/repos/${repo}/issues/${positiveInteger(operation.issueNumber, 'issue number')}`);
+    case 'issue-comments':
+      return read(`/repos/${repo}/issues/${positiveInteger(operation.issueNumber, 'issue number')}/comments?per_page=100&page=${page(operation.page)}`);
+    case 'issue-comment':
+      return read(`/repos/${repo}/issues/comments/${positiveInteger(operation.commentId, 'issue comment id')}`);
+    case 'create-issue-comment':
+      if (effect !== 'branch-closeout-write') {
+        throw new GitHubApiProviderError(
+          'GitHub API closeout receipt publication requires branch-closeout-write authority'
+        );
+      }
+      return read(
+        `/repos/${repo}/issues/${positiveInteger(operation.issueNumber, 'issue number')}/comments`,
+        Object.freeze({ body: boundedMultilineText(operation.body, 'issue comment body', 65_536) })
+      );
     case 'open-pulls': return read(`/repos/${repo}/pulls?state=open&base=${encodeURIComponent(boundedText(operation.baseBranch, 'base branch', 255))}&per_page=2&page=1`);
     case 'matching-head-refs': return read(`/repos/${repo}/git/matching-refs/heads/?per_page=100&page=${page(operation.page)}`);
     case 'git-ref': return read(`/repos/${repo}/git/ref/heads/${encodeURIComponent(boundedText(operation.branch, 'branch', 255))}`);
@@ -302,6 +344,27 @@ function compileOperation(
           commit_message: boundedMultilineText(operation.message, 'merge message', 65_536)
         })
       });
+    case 'delete-ref-cas':
+      if (effect !== 'branch-closeout-write') {
+        throw new GitHubApiProviderError(
+          'GitHub API exact ref deletion requires branch-closeout-write authority'
+        );
+      }
+      if (exactRepositoryNodeId === undefined) {
+        throw new GitHubApiProviderError(
+          'GitHub API exact ref deletion requires the provider-observed repository node identity'
+        );
+      }
+      assertGitBranchName(operation.branch, 'GitHub API exact ref deletion branch');
+      return read('/graphql', Object.freeze({
+        query: DELETE_REF_CAS_MUTATION,
+        variables: Object.freeze({
+          repositoryId: boundedText(exactRepositoryNodeId, 'repository node id', 512),
+          name: `refs/heads/${boundedText(operation.branch, 'branch', 255)}`,
+          beforeOid: sha(operation.expectedOldSha),
+          afterOid: ZERO_GIT_OID
+        })
+      }));
   }
 }
 
@@ -339,7 +402,9 @@ export function assertGitHubApiCapability(
     : value.effect === requiredEffect;
   if (value.repository !== repositoryName || !effectSatisfied
       || (requiredEffect === 'runner-admin' && value.principal.permission !== 'admin')
-      || ((requiredEffect === 'status-write' || requiredEffect === 'merge-write')
+      || ((requiredEffect === 'status-write'
+          || requiredEffect === 'merge-write'
+          || requiredEffect === 'branch-closeout-write')
         && value.principal.permission !== 'admin'
         && value.principal.permission !== 'maintain')) {
     throw new GitHubApiProviderError(
@@ -370,7 +435,9 @@ function issueCapability(input: Readonly<{
   if (input.effect === 'runner-admin' && input.principal.permission !== 'admin') {
     throw new GitHubApiProviderError('GitHub API runner-admin capability requires admin permission');
   }
-  if ((input.effect === 'status-write' || input.effect === 'merge-write')
+  if ((input.effect === 'status-write'
+      || input.effect === 'merge-write'
+      || input.effect === 'branch-closeout-write')
       && input.principal.permission !== 'admin' && input.principal.permission !== 'maintain') {
     throw new GitHubApiProviderError('GitHub API write capability requires maintain/admin permission');
   }
@@ -480,9 +547,15 @@ async function executeWithToken<T>(
   session: GitHubApiRequestSession,
   token: string,
   transport: GitHubApiTransport,
-  operation: GitHubApiOperation
+  operation: GitHubApiOperation,
+  exactRepositoryNodeId?: string
 ): Promise<T> {
-  const compiled = compileOperation(session.repository, session.effect, operation);
+  const compiled = compileOperation(
+    session.repository,
+    session.effect,
+    operation,
+    exactRepositoryNodeId
+  );
   const body = compiled.body === undefined ? undefined : JSON.stringify(compiled.body);
   reserve(session, body === undefined ? 0 : Buffer.byteLength(body, 'utf8'));
   session.inFlight += 1;
@@ -576,7 +649,68 @@ export async function executeGitHubApiOperation(
       || session.origin !== value.origin) {
     throw new GitHubApiProviderError('GitHub API request requires the active exact operation session');
   }
-  return await executeWithToken<unknown>(session, value.token, value.transport, operation);
+  if (operation.kind !== 'delete-ref-cas') {
+    return await executeWithToken<unknown>(session, value.token, value.transport, operation);
+  }
+  if (value.effect !== 'branch-closeout-write') {
+    throw new GitHubApiProviderError(
+      'GitHub API exact ref deletion requires branch-closeout-write authority'
+    );
+  }
+  // updateRefs supplies the native expected-old OID CAS that REST ref deletion
+  // lacks.  Resolve the repository node id through this exact repository-bound
+  // session; accepting it from a caller would let an otherwise valid
+  // capability target a different repository node.
+  const repositoryObservation = await executeWithToken<unknown>(
+    session,
+    value.token,
+    value.transport,
+    { kind: 'repository' }
+  );
+  if (repositoryObservation === null || typeof repositoryObservation !== 'object'
+      || Array.isArray(repositoryObservation)) {
+    throw new GitHubApiProviderError(
+      'GitHub API exact ref deletion repository identity response is invalid'
+    );
+  }
+  const repositoryRecord = repositoryObservation as Record<string, unknown>;
+  if (repositoryRecord.full_name !== value.repository
+      || typeof repositoryRecord.node_id !== 'string'
+      || repositoryRecord.node_id.length === 0
+      || repositoryRecord.node_id.length > 512
+      || /[\u0000-\u001f\u007f]/u.test(repositoryRecord.node_id)) {
+    throw new GitHubApiProviderError(
+      'GitHub API exact ref deletion repository identity differs from the active session'
+    );
+  }
+  const mutation = await executeWithToken<unknown>(
+    session,
+    value.token,
+    value.transport,
+    operation,
+    repositoryRecord.node_id
+  );
+  if (mutation === null || typeof mutation !== 'object' || Array.isArray(mutation)) {
+    throw new GitHubApiProviderError('GitHub API exact ref deletion response is invalid');
+  }
+  const mutationRecord = mutation as Record<string, unknown>;
+  if (Object.hasOwn(mutationRecord, 'errors')
+      && (!Array.isArray(mutationRecord.errors) || mutationRecord.errors.length > 0)) {
+    throw new GitHubApiProviderError('GitHub API exact ref deletion returned GraphQL errors');
+  }
+  const data = mutationRecord.data;
+  const updateRefs = data !== null && typeof data === 'object' && !Array.isArray(data)
+    ? (data as Record<string, unknown>).updateRefs
+    : null;
+  if (data === null || typeof data !== 'object' || Array.isArray(data)
+      || updateRefs === null || typeof updateRefs !== 'object' || Array.isArray(updateRefs)
+      || !Object.hasOwn(updateRefs, 'clientMutationId')
+      || (updateRefs as Record<string, unknown>).clientMutationId !== null) {
+    throw new GitHubApiProviderError(
+      'GitHub API exact ref deletion response lacks one successful updateRefs result'
+    );
+  }
+  return mutation;
 }
 
 export function currentGitHubApiCapability(
@@ -807,6 +941,14 @@ export async function withGitHubApiMergeWriteSession<T>(input: Readonly<{
   operation: (capability: GitHubApiCapability) => Promise<T>;
 }>): Promise<T> {
   return await withProductionSession({ ...input, effect: 'merge-write' });
+}
+
+export async function withGitHubApiBranchCloseoutWriteSession<T>(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  operation: (capability: GitHubApiCapability) => Promise<T>;
+}>): Promise<T> {
+  return await withProductionSession({ ...input, effect: 'branch-closeout-write' });
 }
 
 export async function withGitHubApiRunnerAdminSession<T>(input: Readonly<{

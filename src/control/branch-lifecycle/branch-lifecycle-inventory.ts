@@ -2,6 +2,8 @@ import { spawnSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 
+import { parseGitHubRepositoryIdentityFromRemoteUrl } from '../../system-architecture/foundation/contract/git-reference.ts';
+
 import {
   requireActiveWorkPackageOwnerObservation,
   type ActiveWorkPackageOwnerObservation
@@ -115,9 +117,7 @@ function stableSortWorktrees(entries: BranchWorktreeObservation[]): BranchWorktr
 }
 
 export function parseRepositoryFullName(remoteUrl: string): string | null {
-  const normalized = remoteUrl.trim().replace(/\.git$/u, '');
-  const match = /(?:github\.com[/:])([^/\s:]+)\/([^/\s]+)$/iu.exec(normalized);
-  return match ? `${match[1]}/${match[2]}` : null;
+  return parseGitHubRepositoryIdentityFromRemoteUrl(remoteUrl);
 }
 
 export function resolveRealPath(value: string): string {
@@ -168,16 +168,26 @@ function resolveRepositoryFullName(
   remoteUrl: string,
   unknowns: string[]
 ): string {
-  if (ctx.repositoryFullName) return ctx.repositoryFullName;
   const fromRemote = parseRepositoryFullName(remoteUrl);
-  if (fromRemote !== null) return fromRemote;
+  if (fromRemote !== null) {
+    if (ctx.repositoryFullName !== undefined && ctx.repositoryFullName !== fromRemote) {
+      throw new Error('repositoryFullName differs from the observed origin remote identity');
+    }
+    return fromRemote;
+  }
   const fromGh = optionalInventoryCommandText(
     ctx,
     'gh',
     ['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'],
     repositoryRoot
   );
-  if (fromGh !== null && /^[^/\s]+\/[^/\s]+$/u.test(fromGh)) return fromGh;
+  if (fromGh !== null
+      && parseGitHubRepositoryIdentityFromRemoteUrl(`https://github.com/${fromGh}.git`) === fromGh) {
+    if (ctx.repositoryFullName !== undefined && ctx.repositoryFullName !== fromGh) {
+      throw new Error('repositoryFullName differs from the provider-observed repository identity');
+    }
+    return fromGh;
+  }
   unknowns.push('repository full name could not be resolved from remote URL or gh');
   return '<unknown>/<unknown>';
 }
