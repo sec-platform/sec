@@ -637,22 +637,14 @@ function assertManifestTestBlobsExist(
   revision: string,
   manifest: CodexDevelopmentWorkPackageManifest
 ): void {
-  const bytes = requireCommand('git', [
-    '-c', 'core.quotepath=false', 'ls-tree', '-r', '-z', revision, '--', 'tests'
-  ], candidateRoot, 'activation-stale');
-  if (bytes.length === 0 || bytes.at(-1) !== 0) {
-    unavailable('activation-stale', 'candidate-test-census-is-empty-or-unterminated');
-  }
-  const blobs = new Set(
-    decodeUtf8(bytes.subarray(0, -1), 'activation-stale')
-      .split('\0')
-      .map((entry) => /^(?:100644|100755) blob [0-9a-f]{40,64}\t(.+)$/u.exec(entry))
-      .filter((entry): entry is RegExpExecArray => entry !== null)
-      .map((entry) => entry[1]!)
+  const missing = manifest.tests.filter(
+    (testPath) => !gitObjectExists(candidateRoot, `${revision}:${testPath}`)
   );
-  const missing = manifest.tests.filter((testPath) => !blobs.has(testPath));
   if (missing.length !== 0) {
     unavailable('activation-stale', `work-package-test-blobs-missing:${JSON.stringify(missing)}`);
+  }
+  for (const testPath of manifest.tests) {
+    readGitBlob(candidateRoot, `${revision}:${testPath}`);
   }
 }
 
