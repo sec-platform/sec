@@ -125,15 +125,30 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
       )
     };
   }
-  if (path === 'README.md' || path === 'docs/README.md' || path === 'config/repository/README.md'
+  if (path === 'README.md' || /^README\.[A-Za-z0-9-]+\.md$/u.test(path)
+      || path === 'docs/README.md' || path === 'config/repository/README.md'
       || path === '.documentation/README.md') {
     return {
       kind: 'navigation',
       skills: []
     };
   }
+  if (!path.includes('/')) {
+    // Root policies, status, support and contributor material are tracked
+    // repository content unless an earlier exact rule grants a narrower role.
+    return { kind: 'repository-content', skills: [] };
+  }
   if (/^tests\/.*\.md$/u.test(path)) {
     return { kind: 'verification-fixture', skills: [] };
+  }
+  if (/^\.github\/.*\.md$/u.test(path)) {
+    // Repository collaboration templates are maintained content, not Agent or
+    // product authority. Classify the complete surface so adding another
+    // template cannot silently fall outside the tracked-Markdown census.
+    return { kind: 'repository-content', skills: [] };
+  }
+  if (/^LICENSES\/.*\.md$/u.test(path)) {
+    return { kind: 'repository-content', skills: [] };
   }
   if (/^config\/repository\/work-packages\/[^/]+\.md$/u.test(path)) {
     return { kind: 'frozen-work-package', skills: [] };

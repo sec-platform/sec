@@ -149,6 +149,25 @@ test('archived YAML remains non-Markdown repository content', () => {
   }
 });
 
+test('GitHub collaboration Markdown remains non-authoritative repository content', () => {
+  expect(resolveSecMarkdownSkillCoverage('.github/PULL_REQUEST_TEMPLATE.md')).toEqual({
+    kind: 'repository-content',
+    skills: []
+  });
+  expect(resolveSecMarkdownSkillCoverage('ARCHITECTURE.md')).toEqual({
+    kind: 'repository-content',
+    skills: []
+  });
+  expect(resolveSecMarkdownSkillCoverage('LICENSES/README.md')).toEqual({
+    kind: 'repository-content',
+    skills: []
+  });
+  expect(resolveSecMarkdownSkillCoverage('README.zh-CN.md')).toEqual({
+    kind: 'navigation',
+    skills: []
+  });
+});
+
 test('repository surface classification follows the canonical src product root', () => {
   expect(classifySecRepositorySurface('src/compiler/compile.ts')).toEqual({
     kind: 'product-implementation',
