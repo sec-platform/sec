@@ -22,6 +22,8 @@ import {
   createBranchCloseoutPreparation,
   createBranchCloseoutReceipt
 } from '../../src/control/branch-lifecycle/branch-closeout-contract.ts';
+import { BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA } from '../../src/control/branch-lifecycle/branch-closeout.ts';
+import { branchLifecycleDigest } from '../../src/control/branch-lifecycle/branch-lifecycle-audit.ts';
 import type { BranchCloseoutReceiptObservation, BranchLifecycleInventory } from '../../src/control/branch-lifecycle/branch-lifecycle-types.ts';
 import {
   executeMergedLocalBranchResidueCloseout,
@@ -468,6 +470,34 @@ test('terminal settlement removes the duplicate branch-closeout bundle family', 
           writeFileSync(
             path.join(fixture.recoveryRoot, `${duplicateName}.sha256`),
             `${digest}  ${duplicateName}\n`
+          );
+          const operationReceipt = completedDuplicateOperationReceipt({
+            repositoryRoot: fixture.repositoryRoot,
+            headSha: fixture.headSha,
+            mainSha: fixture.mainSha,
+            recoveryPath: path.join(fixture.recoveryRoot, duplicateName),
+            recoveryDigest: `sha256:${digest}`
+          });
+          const preparationMaterial = {
+            schema: BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA,
+            preparation: operationReceipt.receipt.preparation,
+            before: operationReceipt.receipt.before,
+            attempts: [],
+            foreignWorktreeObservations: []
+          };
+          writeFileSync(
+            path.join(fixture.recoveryRoot, `${duplicateName}.preparation.json`),
+            `${JSON.stringify({
+              ...preparationMaterial,
+              envelopeDigest: branchLifecycleDigest(preparationMaterial)
+            }, null, 2)}\n`
+          );
+          writeFileSync(
+            path.join(
+              fixture.recoveryRoot,
+              `${duplicateName}.closeout-${operationReceipt.binding.closeoutOperationId.slice('sha256:'.length)}.receipt.json`
+            ),
+            `${JSON.stringify(operationReceipt, null, 2)}\n`
           );
           throw new Error('fault:duplicate-ready');
         }

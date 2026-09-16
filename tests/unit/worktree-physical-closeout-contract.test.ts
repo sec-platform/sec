@@ -2,6 +2,8 @@ import { expect, test } from 'bun:test';
 
 
 import {
+  LEGACY_WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA,
+  WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA,
   assertStableWorktreePhysicalWorkingState,
   assertWorktreePhysicalCloseoutAuthorization,
   assertWorktreePhysicalCloseoutReceipt,
@@ -16,6 +18,7 @@ import {
   parseWorktreeStatusPorcelainZ,
   type WorktreePhysicalEntry
 } from '../../src/runtime-state/worktree-closeout-contract.ts';
+import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
 
 const HEAD = '1'.repeat(40);
 const TREE = '2'.repeat(40);
@@ -202,6 +205,7 @@ test('strict status porcelain-z parser preserves ignored and rename identities w
 
 test('authorization binds exact repository target inventory and durable recovery paths', () => {
   const value = authorization();
+  expect(value.schema).toBe(WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA);
   expect(value.operationId).toMatch(/^sha256:[0-9a-f]{64}$/u);
   expect(value.authorizationDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
   expect(assertWorktreePhysicalCloseoutAuthorization(value)).toBe(value);
@@ -210,6 +214,55 @@ test('authorization binds exact repository target inventory and durable recovery
     target: { ...value.target, headSha: '9'.repeat(40) }
   };
   expect(() => assertWorktreePhysicalCloseoutAuthorization(tampered)).toThrow('canonical content mismatch');
+});
+
+test('legacy v1 authorization without generated-state field is validated exactly and normalized only in memory', () => {
+  const current = authorization();
+  const {
+    schema: ignoredSchema,
+    operationId: ignoredOperationId,
+    authorizationDigest: ignoredAuthorizationDigest,
+    generatedStateRetirement: ignoredGeneratedStateRetirement,
+    ...body
+  } = current;
+  const operationId = sha256({
+    repository: body.repository,
+    target: body.target,
+    registryBeforeDigest: body.registryBeforeDigest,
+    workingStateDigest: body.workingStateDigest,
+    inventoryDigest: body.inventory.inventoryDigest,
+    registryAdmin: {
+      relativePath: body.registryAdmin.relativePath,
+      device: body.registryAdmin.device,
+      inode: body.registryAdmin.inode,
+      inventoryDigest: body.registryAdmin.inventory.inventoryDigest
+    },
+    targetLeaseNamespace: body.targetLeaseNamespace
+  });
+  const material = {
+    schema: LEGACY_WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA,
+    operationId,
+    ...body
+  };
+  const legacy = {
+    ...material,
+    authorizationDigest: sha256(material)
+  };
+
+  const normalized = assertWorktreePhysicalCloseoutAuthorization(legacy as never);
+  expect(normalized.schema).toBe(LEGACY_WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA);
+  expect(normalized.generatedStateRetirement).toBeNull();
+  expect(Object.prototype.hasOwnProperty.call(legacy, 'generatedStateRetirement')).toBeFalse();
+  expect(() => assertWorktreePhysicalCloseoutAuthorization({
+    ...legacy,
+    operationId: detailDigest('wrong-legacy-operation')
+  } as never)).toThrow('canonical content mismatch');
+});
+
+test('v2 authorization rejects a missing generated-state field with a typed contract error', () => {
+  const { generatedStateRetirement: ignoredGeneratedStateRetirement, ...missing } = authorization();
+  expect(() => assertWorktreePhysicalCloseoutAuthorization(missing as never))
+    .toThrow('authorization generatedStateRetirement is absent');
 });
 
 test('authorized residue admits only unchanged subsets and rejects new or replaced entries', () => {
