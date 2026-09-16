@@ -6,7 +6,12 @@ import path from 'node:path';
 import { inspectNoFollowDirectoryChain, type PhysicalDirectoryChain } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { runCommandBytes } from '../../runtime-state/physical/runtime/process.ts';
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease } from '../../workspace/lease.ts';
-import { parseBranchCloseoutOperationReceipt } from './branch-closeout-contract.ts';
+import {
+  parseBranchCloseoutOperationJournal,
+  parseBranchCloseoutOperationReceipt,
+  parseBranchCloseoutReceipt
+} from './branch-closeout-contract.ts';
+import { parsePreparedBranchCloseoutEnvelope } from './branch-closeout.ts';
 import {
   assertGitBranchName,
   assertGitSha,
@@ -960,11 +965,28 @@ function retireRecoveryBundleFamily(input: Readonly<{
   store: BranchRecoveryStore;
   bundleName: string;
   expectedDigest: Digest;
+  validatedSidecars: readonly string[];
   retired: string[];
 }>): void {
+  const checksumName = `${input.bundleName}.sha256`;
+  const allowedSidecars = new Set([checksumName, ...input.validatedSidecars]);
+  const family = input.store.listOwnedFiles(`${input.bundleName}.`);
+  const unknown = family.find((name) => !allowedSidecars.has(name));
+  if (unknown !== undefined) {
+    throw new Error(`Recovery bundle family contains unvalidated evidence: ${unknown}`);
+  }
+  const checksum = input.store.inspectFile(checksumName);
+  const expectedChecksum = Buffer.from(
+    `${input.expectedDigest.slice('sha256:'.length)}  ${input.bundleName}\n`,
+    'utf8'
+  );
+  if (checksum !== null && (checksum.bytes === null
+      || !Buffer.from(checksum.bytes).equals(expectedChecksum))) {
+    throw new Error(`Recovery checksum differs before terminal retirement: ${checksumName}`);
+  }
   const bundle = input.store.inspectFile(input.bundleName);
   if (bundle === null) {
-    for (const name of [...input.store.listOwnedFiles(`${input.bundleName}.`)]
+    for (const name of [...family]
       .sort((left, right) => right.localeCompare(left))) {
       removeOwnedRecoveryFile(input.store, name, input.retired);
     }
@@ -974,17 +996,10 @@ function retireRecoveryBundleFamily(input: Readonly<{
       !== input.expectedDigest) {
     throw new Error(`Recovery bundle differs before terminal retirement: ${input.bundleName}`);
   }
-  const checksumName = `${input.bundleName}.sha256`;
-  const checksum = input.store.inspectFile(checksumName);
-  const expectedChecksum = Buffer.from(
-    `${input.expectedDigest.slice('sha256:'.length)}  ${input.bundleName}\n`,
-    'utf8'
-  );
-  if (checksum === null || checksum.bytes === null
-      || !Buffer.from(checksum.bytes).equals(expectedChecksum)) {
+  if (checksum === null) {
     throw new Error(`Recovery checksum differs before terminal retirement: ${checksumName}`);
   }
-  for (const name of [...input.store.listOwnedFiles(`${input.bundleName}.`)]
+  for (const name of [...family]
     .filter((candidate) => candidate !== checksumName)
     .sort((left, right) => right.localeCompare(left))) {
     removeOwnedRecoveryFile(input.store, name, input.retired);
@@ -1007,34 +1022,93 @@ function retireSupersededBranchCloseoutBundles(input: Readonly<{
     const digest = `sha256:${createHash('sha256').update(bundle.bytes).digest('hex')}` as Digest;
     if (digest !== input.entry.recovery.digest) continue;
     const family = input.store.listOwnedFiles(`${name}.`);
-    const hasPreparation = family.includes(`${name}.preparation.json`);
-    const hasTerminal = family.filter((candidate) => (
+    const assertPreparationBinding = (preparation: Readonly<{
+      repository: Readonly<{ fullName: string }>;
+      pullRequestNumber: number | null;
+      branch: string;
+      expectedHeadSha: string;
+      recovery: Readonly<{ sha256: string }>;
+    }>, label: string): void => {
+      if (preparation.repository.fullName !== input.repository
+          || preparation.pullRequestNumber !== input.entry.pullRequestNumber
+          || preparation.branch !== input.entry.branch
+          || preparation.expectedHeadSha !== input.entry.headSha
+          || preparation.recovery.sha256 !== input.entry.recovery.digest) {
+        throw new Error(`Duplicate branch-closeout ${label} differs from its recovery family: ${name}`);
+      }
+    };
+    const assertOperationBinding = (binding: Readonly<{
+      closeoutOperationId: string;
+      repository: string;
+      pullRequestNumber: number;
+      headSha: string;
+      newMainSha: string;
+      recoveryDigest: string;
+    }>, candidate: string): void => {
+      if (binding.repository !== input.repository
+          || binding.pullRequestNumber !== input.entry.pullRequestNumber
+          || binding.headSha !== input.entry.headSha
+          || binding.newMainSha !== input.entry.mergeCommitSha
+          || binding.recoveryDigest !== input.entry.recovery.digest) {
+        throw new Error(`Duplicate branch-closeout operation differs from its recovery family: ${candidate}`);
+      }
+    };
+    const validatedSidecars: string[] = [];
+    const preparationName = `${name}.preparation.json`;
+    const preparationBytes = input.store.read(preparationName);
+    const preparation = preparationBytes === null
+      ? null
+      : parsePreparedBranchCloseoutEnvelope(Buffer.from(preparationBytes).toString('utf8'));
+    if (preparation !== null) {
+      assertPreparationBinding(preparation.preparation, 'preparation');
+      validatedSidecars.push(preparationName);
+    }
+    const receiptName = `${name}.receipt.json`;
+    const receiptBytes = input.store.read(receiptName);
+    const branchReceipt = receiptBytes === null
+      ? null
+      : parseBranchCloseoutReceipt(Buffer.from(receiptBytes).toString('utf8'));
+    if (branchReceipt !== null) {
+      assertPreparationBinding(branchReceipt.preparation, 'receipt');
+      validatedSidecars.push(receiptName);
+    }
+    for (const candidate of family.filter((candidate) => (
+      candidate.startsWith(`${name}.closeout-`) && candidate.endsWith('.journal.json')
+    ))) {
+      const bytes = input.store.read(candidate);
+      if (bytes === null) throw new Error(`Duplicate branch-closeout journal disappeared: ${candidate}`);
+      const journal = parseBranchCloseoutOperationJournal(Buffer.from(bytes).toString('utf8'));
+      const expectedName = `${name}.closeout-${journal.binding.closeoutOperationId.slice('sha256:'.length)}.journal.json`;
+      if (candidate !== expectedName) {
+        throw new Error(`Duplicate branch-closeout journal filename differs from its operation: ${candidate}`);
+      }
+      assertOperationBinding(journal.binding, candidate);
+      validatedSidecars.push(candidate);
+    }
+    const terminalReceipts = family.filter((candidate) => (
       candidate.startsWith(`${name}.closeout-`) && candidate.endsWith('.receipt.json')
-    )).some((candidate) => {
+    )).map((candidate) => {
       const bytes = input.store.read(candidate);
       if (bytes === null) throw new Error(`Duplicate branch-closeout receipt disappeared: ${candidate}`);
       const receipt = parseBranchCloseoutOperationReceipt(Buffer.from(bytes).toString('utf8'));
       const expectedName = `${name}.closeout-${receipt.binding.closeoutOperationId.slice('sha256:'.length)}.receipt.json`;
-      if (candidate !== expectedName
-          || receipt.binding.repository !== input.repository
-          || receipt.binding.pullRequestNumber !== input.entry.pullRequestNumber
-          || receipt.receipt.preparation.repository.fullName !== input.repository
-          || receipt.receipt.preparation.pullRequestNumber !== input.entry.pullRequestNumber
-          || receipt.receipt.preparation.branch !== input.entry.branch
-          || receipt.receipt.preparation.expectedHeadSha !== input.entry.headSha
-          || receipt.receipt.preparation.recovery.sha256 !== input.entry.recovery.digest
-          || receipt.binding.headSha !== input.entry.headSha
-          || receipt.binding.newMainSha !== input.entry.mergeCommitSha
-          || receipt.binding.recoveryDigest !== input.entry.recovery.digest) {
+      if (candidate !== expectedName) {
         throw new Error(`Duplicate branch-closeout receipt differs from its recovery family: ${candidate}`);
       }
-      return receipt.receipt.closeoutStatus === 'completed';
+      assertOperationBinding(receipt.binding, candidate);
+      assertPreparationBinding(receipt.receipt.preparation, 'operation receipt');
+      validatedSidecars.push(candidate);
+      return receipt;
     });
-    if (hasPreparation && !hasTerminal) continue;
+    const hasTerminal = terminalReceipts.some(
+      ({ receipt }) => receipt.closeoutStatus === 'completed'
+    ) || branchReceipt?.closeoutStatus === 'completed';
+    if (preparation !== null && !hasTerminal) continue;
     retireRecoveryBundleFamily({
       store: input.store,
       bundleName: name,
       expectedDigest: input.entry.recovery.digest,
+      validatedSidecars,
       retired: input.retired
     });
   }
@@ -1062,6 +1136,7 @@ function retireCompletedLocalBranchResidueOperation(input: Readonly<{
       store: input.store,
       bundleName: localBundleName,
       expectedDigest: entry.recovery.digest,
+      validatedSidecars: Object.freeze([]),
       retired
     });
   }
@@ -1074,7 +1149,6 @@ async function retireOrphanCompletedReceipts(input: Readonly<{
   run: CommandRunner;
   repositoryRoot: string;
   repository: string;
-  provider: RepositoryProviderObservation;
   store: BranchRecoveryStore;
 }>): Promise<readonly string[]> {
   const receiptNames = [...input.store.listOwnedFiles('sec-local-branch-residue-')]
@@ -1083,43 +1157,68 @@ async function retireOrphanCompletedReceipts(input: Readonly<{
       candidate.replace(/\.receipt\.json$/u, '.authorization.json')
     ) === null);
   if (receiptNames.length === 0) return Object.freeze([]);
-  const observation = await observe(
-    input.run,
-    input.repositoryRoot,
-    input.repository,
-    input.provider.defaultBranch
-  );
-  const retired: string[] = [];
-  for (const name of receiptNames) {
-    const bytes = input.store.read(name);
-    if (bytes === null) continue;
-    const receipt = parseReceipt(bytes);
-    const expected = operationNames(receipt.operationId);
-    if (name !== expected.receipt) {
-      throw new Error(`Receipt filename differs from its operationId: ${name}`);
-    }
-    if (input.store.read(expected.authorization) !== null) continue;
-    if (receipt.repository !== input.repository) {
-      throw new Error(`Orphan local branch residue receipt repository differs: ${name}`);
-    }
-    for (const entry of receipt.entries) {
-      if (entry.pullRequestUrl
-          !== `https://github.com/${input.repository}/pull/${entry.pullRequestNumber}`) {
-        throw new Error(`Orphan local branch residue receipt PR URL differs: ${name}`);
+  return withWorkspaceWriteLease(input.repositoryRoot, undefined, async (lease) => {
+    await assertWorkspaceWriteLease(input.repositoryRoot, lease);
+    const orphanReceipts = receiptNames.map((name) => {
+      const bytes = input.store.read(name);
+      if (bytes === null) throw new Error(`Orphan local branch residue receipt disappeared: ${name}`);
+      const receipt = parseReceipt(bytes);
+      const expected = operationNames(receipt.operationId);
+      if (name !== expected.receipt) {
+        throw new Error(`Receipt filename differs from its operationId: ${name}`);
       }
-      if (observation.localRefs[entry.branch] !== undefined) {
-        throw new Error(`Orphan local branch residue receipt was followed by ref recreation: ${entry.branch}`);
+      if (input.store.read(expected.authorization) !== null) {
+        throw new Error(`Orphan local branch residue authorization reappeared: ${expected.authorization}`);
       }
+      if (receipt.repository !== input.repository) {
+        throw new Error(`Orphan local branch residue receipt repository differs: ${name}`);
+      }
+      for (const entry of receipt.entries) {
+        if (entry.pullRequestUrl
+            !== `https://github.com/${input.repository}/pull/${entry.pullRequestNumber}`) {
+          throw new Error(`Orphan local branch residue receipt PR URL differs: ${name}`);
+        }
+      }
+      return Object.freeze({ name, receipt });
+    });
+    const readLocalRefs = async (label: string): Promise<Readonly<Record<string, string>>> =>
+      parseLocalRefs(await requireText(input.run, 'git', [
+        'for-each-ref', '--format=%(refname:lstrip=2)%00%(objectname)%00', 'refs/heads/'
+      ], input.repositoryRoot, label));
+    const assertRefsAbsent = (
+      localRefs: Readonly<Record<string, string>>,
+      label: string
+    ): void => {
+      for (const { receipt } of orphanReceipts) {
+        for (const entry of receipt.entries) {
+          if (localRefs[entry.branch] !== undefined) {
+            throw new Error(`Orphan local branch residue receipt was followed by ref recreation at ${label}: ${entry.branch}`);
+          }
+        }
+      }
+    };
+    assertRefsAbsent(await readLocalRefs('orphan receipt initial local-ref readback'), 'initial readback');
+    for (const { receipt } of orphanReceipts) {
+      await assertMergeCommitsReachable(
+        input.run,
+        input.repositoryRoot,
+        receipt.remoteMainSha,
+        receipt.entries
+      );
     }
-    await assertMergeCommitsReachable(
-      input.run,
-      input.repositoryRoot,
-      receipt.remoteMainSha,
-      receipt.entries
-    );
-    removeOwnedRecoveryFile(input.store, name, retired);
-  }
-  return Object.freeze(retired);
+    await assertWorkspaceWriteLease(input.repositoryRoot, lease);
+    assertRefsAbsent(await readLocalRefs('orphan receipt effect-boundary local-ref readback'), 'effect boundary');
+    await assertWorkspaceWriteLease(input.repositoryRoot, lease);
+    const retired: string[] = [];
+    for (const { name, receipt } of orphanReceipts) {
+      const expected = operationNames(receipt.operationId);
+      if (input.store.read(expected.authorization) !== null) {
+        throw new Error(`Orphan local branch residue authorization reappeared at effect boundary: ${expected.authorization}`);
+      }
+      removeOwnedRecoveryFile(input.store, name, retired);
+    }
+    return Object.freeze(retired);
+  });
 }
 
 async function observeRepositoryProvider(
@@ -1526,7 +1625,6 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
     run,
     repositoryRoot,
     repository,
-    provider,
     store
   });
   const scanned = scanLocalBranchResidueOperations(store);

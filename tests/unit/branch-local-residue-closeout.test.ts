@@ -17,6 +17,13 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
+  createBranchCloseoutOperationBinding,
+  createBranchCloseoutOperationReceipt,
+  createBranchCloseoutPreparation,
+  createBranchCloseoutReceipt
+} from '../../src/control/branch-lifecycle/branch-closeout-contract.ts';
+import type { BranchCloseoutReceiptObservation, BranchLifecycleInventory } from '../../src/control/branch-lifecycle/branch-lifecycle-types.ts';
+import {
   executeMergedLocalBranchResidueCloseout,
   parseMergedPullRequestHeads,
   parseRepositoryProviderObservation,
@@ -137,6 +144,134 @@ function createEffectFixture(label: string) {
     run,
     dispose: () => rmSync(root, { recursive: true, force: true })
   };
+}
+
+function completedDuplicateOperationReceipt(input: Readonly<{
+  repositoryRoot: string;
+  headSha: string;
+  mainSha: string;
+  recoveryPath: string;
+  recoveryDigest: `sha256:${string}`;
+}>) {
+  const closeoutReceipt: BranchCloseoutReceiptObservation = {
+    requirement: 'not-required',
+    status: 'not-required',
+    receipt: null,
+    reason: null
+  };
+  const snapshot: BranchLifecycleInventory = {
+    schema: 'sec-branch-lifecycle-inventory-v1',
+    observedAt: '2026-08-22T00:00:00.000Z',
+    repository: {
+      root: input.repositoryRoot,
+      commonDir: path.join(input.repositoryRoot, '.git'),
+      fullName: 'sec-platform/sec',
+      remote: 'origin',
+      remoteUrl: 'https://github.com/sec-platform/sec.git',
+      defaultBranch: 'main'
+    },
+    main: { localSha: input.mainSha, remoteSha: input.mainSha },
+    localBranches: [{ branch: 'main', sha: input.mainSha }],
+    remoteBranches: [{ branch: 'main', sha: input.mainSha }],
+    worktrees: [{
+      path: input.repositoryRoot,
+      headSha: input.mainSha,
+      branch: 'main',
+      dirtyCount: 0,
+      untrackedCount: 0,
+      locked: false,
+      prunable: false,
+      observation: 'resolved',
+      reason: null
+    }],
+    pullRequests: [{
+      number: 42,
+      headBranch: 'fix/example',
+      headSha: input.headSha,
+      baseBranch: 'main',
+      baseSha: input.mainSha,
+      state: 'merged',
+      isDraft: false,
+      isCrossRepository: false,
+      url: 'https://github.com/sec-platform/sec/pull/42',
+      publishedCloseoutReceipts: [],
+      invalidCloseoutReceiptComments: [],
+      closeoutReceipt
+    }],
+    activeWorkPackage: { state: 'none', branch: null, manifest: null, reason: null },
+    repositorySetting: { observation: 'resolved', deleteBranchOnMerge: true, reason: null },
+    pruneConfiguration: {
+      observation: 'resolved',
+      fetchPrune: true,
+      remotePrune: true,
+      fetchPruneTags: true,
+      reason: null
+    },
+    unknowns: []
+  };
+  const preparation = createBranchCloseoutPreparation({
+    preparedAt: '2026-08-22T00:00:00.000Z',
+    repository: snapshot.repository,
+    branch: 'fix/example',
+    refState: 'present',
+    expectedHeadSha: input.headSha,
+    expectedRemoteSha: input.headSha,
+    expectedLocalSha: null,
+    expectedPrHeadSha: null,
+    pullRequestNumber: 42,
+    pullRequestStateAtPreparation: 'merged',
+    recovery: {
+      kind: 'bundle',
+      path: input.recoveryPath,
+      sha256: input.recoveryDigest,
+      verified: true,
+      verifyOutput: 'ok'
+    },
+    worktreePathsAtPreparation: []
+  });
+  const receipt = createBranchCloseoutReceipt({
+    generatedAt: '2026-08-22T00:01:00.000Z',
+    preparation,
+    request: {
+      capability: 'branch-ref-closeout-v1',
+      disposition: 'merged',
+      durableGoal: { kind: 'main', reference: `main@${input.mainSha}` }
+    },
+    authorization: {
+      branch: 'fix/example',
+      classification: 'merged-closeout',
+      remoteAction: 'already-absent',
+      localAction: 'already-absent',
+      blockers: [],
+      protections: []
+    },
+    attempts: [{ operation: 'readback', status: 'success', detail: 'exact readback' }],
+    before: snapshot,
+    after: snapshot
+  });
+  const binding = createBranchCloseoutOperationBinding({
+    integrationAuthorization: {
+      authorizationId: 'authorization-42',
+      consumptionOperationId: 'merge-42',
+      receiptDigest: `sha256:${'d'.repeat(64)}`,
+      repository: 'sec-platform/sec',
+      prNumber: 42,
+      headSha: input.headSha
+    },
+    preparation,
+    newMainSha: input.mainSha,
+    newMainTreeSha: input.mainSha,
+    candidateTreeSha: input.mainSha
+  });
+  return createBranchCloseoutOperationReceipt({
+    binding,
+    writerId: 'duplicate-family-test',
+    generatedAt: '2026-08-22T00:01:00.000Z',
+    remote: { state: 'observed-absent', detailDigest: input.recoveryDigest },
+    local: { state: 'observed-absent', detailDigest: input.recoveryDigest },
+    prune: { state: 'applied', detailDigest: input.recoveryDigest },
+    receipt
+  });
 }
 
 function merged(branch = 'fix/example', headSha = HEAD) {
@@ -378,11 +513,21 @@ test('malformed duplicate terminal filenames cannot authorize recovery retiremen
             path.join(fixture.recoveryRoot, `${duplicateBundle}.sha256`),
             `${digest}  ${duplicateBundle}\n`
           );
-          writeFileSync(path.join(fixture.recoveryRoot, `${duplicateBundle}.preparation.json`), '{}\n');
+          const operationReceipt = completedDuplicateOperationReceipt({
+            repositoryRoot: fixture.repositoryRoot,
+            headSha: fixture.headSha,
+            mainSha: fixture.mainSha,
+            recoveryPath: path.join(fixture.recoveryRoot, duplicateBundle),
+            recoveryDigest: `sha256:${digest}`
+          });
+          const validName = `${duplicateBundle}.closeout-${operationReceipt.binding.closeoutOperationId.slice('sha256:'.length)}.receipt.json`;
+          const malformedName = `${duplicateBundle}.closeout-${'f'.repeat(64)}.receipt.json`;
+          expect(validName.localeCompare(malformedName)).toBeLessThan(0);
           writeFileSync(
-            path.join(fixture.recoveryRoot, `${duplicateBundle}.closeout-${'a'.repeat(64)}.receipt.json`),
-            '{}\n'
+            path.join(fixture.recoveryRoot, validName),
+            `${JSON.stringify(operationReceipt, null, 2)}\n`
           );
+          writeFileSync(path.join(fixture.recoveryRoot, malformedName), '{}\n');
           throw new Error('fault:malformed-duplicate-ready');
         }
       }
@@ -397,14 +542,14 @@ test('malformed duplicate terminal filenames cannot authorize recovery retiremen
     expect(existsSync(path.join(fixture.recoveryRoot, duplicateBundle))).toBeTrue();
     expect(existsSync(path.join(
       fixture.recoveryRoot,
-      `${duplicateBundle}.closeout-${'a'.repeat(64)}.receipt.json`
+      `${duplicateBundle}.closeout-${'f'.repeat(64)}.receipt.json`
     ))).toBeTrue();
   } finally {
     fixture.dispose();
   }
 }, 30_000);
 
-test('orphan completion receipt is retained when its local branch was recreated', async () => {
+test('orphan completion receipt is retained when its local branch is recreated at the effect boundary', async () => {
   const fixture = createEffectFixture('orphan-recreated-ref');
   try {
     await expect(executeMergedLocalBranchResidueCloseout({
@@ -418,14 +563,23 @@ test('orphan completion receipt is retained when its local branch was recreated'
       .find((name) => name.endsWith('.authorization.json'))!;
     const receiptName = authorizationName.replace('.authorization.json', '.receipt.json');
     rmSync(path.join(fixture.recoveryRoot, authorizationName));
-    git(fixture.repositoryRoot, ['branch', 'fix/example', fixture.headSha]);
+    let recreated = false;
+    const run = (command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => {
+      const result = fixture.run(command, args, cwd, input);
+      if (!recreated && command === 'git' && args[0] === 'merge-base') {
+        git(fixture.repositoryRoot, ['branch', 'fix/example', fixture.headSha]);
+        recreated = true;
+      }
+      return result;
+    };
 
     await expect(executeMergedLocalBranchResidueCloseout({
       repositoryRoot: fixture.repositoryRoot,
       recoveryRoot: fixture.recoveryRoot,
-      run: fixture.run,
+      run,
       now: () => new Date('2026-08-22T00:01:00.000Z')
     })).rejects.toThrow('followed by ref recreation');
+    expect(recreated).toBeTrue();
     expect(existsSync(path.join(fixture.recoveryRoot, receiptName))).toBeTrue();
   } finally {
     fixture.dispose();
