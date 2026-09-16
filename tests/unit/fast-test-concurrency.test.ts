@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { availableParallelism } from 'node:os';
 
 import {
   DEFAULT_FAST_TEST_CONCURRENCY_BUDGET,
@@ -64,14 +65,10 @@ test('one pure capped budget resolves CPU counts 1..256 and MAX_SAFE_INTEGER', (
 });
 
 test('default concurrent tests receive the canonical inner budget', () => {
-  if (process.platform === 'win32') {
-    expect(DEFAULT_FAST_TEST_CONCURRENCY_BUDGET).toMatchObject({
-      availableCpuCount: 1,
-      globalBudget: 1,
-      bunTestMaxConcurrency: 1,
-      concurrentProcessLimit: 1
-    });
-  }
+  expect(DEFAULT_FAST_TEST_CONCURRENCY_BUDGET).toEqual(
+    resolveFastTestConcurrencyBudget(availableParallelism())
+  );
+  expect(resolveFastTestConcurrencyBudget(4).globalBudget).toBe(4);
   const args = applyDefaultFastTestConcurrency('bun', [
     'test',
     '--concurrent',

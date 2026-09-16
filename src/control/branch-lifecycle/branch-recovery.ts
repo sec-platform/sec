@@ -109,6 +109,8 @@ function sanitizeFileSegment(value: string): string {
 export interface BranchRecoveryStore {
   readonly root: PhysicalDirectoryIdentity;
   readonly rootChain: PhysicalDirectoryChain;
+  /** True only when this acquisition created the final recovery-root inode. */
+  readonly createdByAcquisition: boolean;
   readonly publishExclusive: (input: Readonly<{
     name: string;
     bytes: Uint8Array;
@@ -150,7 +152,10 @@ function pathInside(candidate: string, root: string): boolean {
     && relative !== '..' && !relative.startsWith(`..${path.sep}`));
 }
 
-function materializeNoFollowDirectory(absolutePath: string): PhysicalDirectoryIdentity {
+function materializeNoFollowDirectory(absolutePath: string): Readonly<{
+  root: PhysicalDirectoryIdentity;
+  createdPaths: readonly string[];
+}> {
   const target = path.resolve(absolutePath);
   const missing: string[] = [];
   let cursor = target;
@@ -163,7 +168,13 @@ function materializeNoFollowDirectory(absolutePath: string): PhysicalDirectoryId
       const ancestor = presence.directory.target;
       if (missing.length > 0) createNoFollowOrdinaryDirectoryChain(ancestor, missing);
       assertSameNoFollowDirectoryIdentity(ancestor, 'Branch recovery existing ancestor');
-      return inspectNoFollowDirectoryChain(target, 'Branch recovery directory readback').target;
+      const root = inspectNoFollowDirectoryChain(target, 'Branch recovery directory readback').target;
+      let createdPath = ancestor.path;
+      const createdPaths = missing.map((segment) => {
+        createdPath = path.join(createdPath, segment);
+        return createdPath;
+      });
+      return Object.freeze({ root, createdPaths: Object.freeze(createdPaths) });
     }
     const parent = path.dirname(cursor);
     if (parent === cursor) throw new Error('Branch recovery directory has no existing physical ancestor.');
@@ -202,8 +213,16 @@ export function acquireBranchRecoveryStore(input: Readonly<{
   const common = inspectNoFollowDirectoryChain(commonDir, 'Branch recovery common directory');
   const worktrees = worktreeRoots.map((entry) =>
     inspectNoFollowDirectoryChain(entry, 'Branch recovery worktree'));
-  const root = materializeNoFollowDirectory(requested);
+  const materialized = materializeNoFollowDirectory(requested);
+  const root = materialized.root;
   const rootChain = inspectNoFollowDirectoryChain(root.path, 'Branch recovery root');
+  const createdDirectories = Object.freeze(materialized.createdPaths.map((createdPath) => {
+    const identity = rootChain.ancestors.find((candidate) => candidate.path === createdPath);
+    if (identity === undefined) {
+      throw new Error(`Branch recovery created directory is absent from its physical chain: ${createdPath}`);
+    }
+    return identity;
+  }));
   for (const [label, forbidden] of [
     ['repository', repository],
     ['common directory', common],
@@ -229,6 +248,7 @@ export function acquireBranchRecoveryStore(input: Readonly<{
   return Object.freeze({
     root,
     rootChain,
+    createdByAcquisition: createdDirectories.some((entry) => entry.path === root.path),
     publishExclusive: (publication: Readonly<{
       name: string;
       bytes: Uint8Array;
@@ -329,6 +349,30 @@ export function acquireBranchRecoveryStore(input: Readonly<{
         'Branch recovery empty-root readback'
       ).state !== 'absent') {
         throw new Error('Branch recovery empty root remains after retirement.');
+      }
+      for (const created of [...createdDirectories].reverse().slice(1)) {
+        const presence = inspectExactNoFollowDirectoryPresence(
+          created.path,
+          'Branch recovery created ancestor retirement'
+        );
+        if (presence.state === 'absent') continue;
+        const createdInventory = scanNoFollowDirectoryTreeMetadata(presence.directory.target, {
+          deadlineAtMs: performance.now() + 5_000,
+          maximumEntries: 20_000
+        });
+        if (createdInventory.length !== 0) break;
+        const createdParent = inspectNoFollowDirectoryChain(
+          path.dirname(created.path),
+          'Branch recovery created ancestor parent'
+        ).target;
+        deleteRetainedNoFollowEntry({
+          root: createdParent,
+          relativePath: path.basename(created.path),
+          kind: 'directory',
+          device: created.device,
+          inode: created.inode,
+          ancestorDirectories: []
+        });
       }
       return true;
     },

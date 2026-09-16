@@ -249,8 +249,8 @@ test('binds repository provider identity and exact PR repository URLs', () => {
   }]), 'sec-platform/sec')).toThrow(/URL differs/u);
 });
 
-test('resumes the same durable authorization and retires recovery after every crash boundary', async () => {
-  for (const boundary of ['afterAuthorization', 'afterDelete', 'afterReadback', 'afterReceipt'] as const) {
+for (const boundary of ['afterAuthorization', 'afterDelete', 'afterReadback', 'afterReceipt'] as const) {
+  test(`resumes the same durable authorization after ${boundary}`, async () => {
     const fixture = createEffectFixture(boundary);
     try {
       await expect(executeMergedLocalBranchResidueCloseout({
@@ -308,8 +308,8 @@ test('resumes the same durable authorization and retires recovery after every cr
     } finally {
       fixture.dispose();
     }
-  }
-}, 30_000);
+  }, 30_000);
+}
 
 test('terminal settlement removes the duplicate branch-closeout bundle family', async () => {
   const fixture = createEffectFixture('duplicate-bundle-retirement');
@@ -371,6 +371,38 @@ test('default recovery root is not left behind after terminal settlement', async
     expect(existsSync(defaultRecoveryRoot)).toBeFalse();
   } finally {
     fixture.dispose();
+  }
+}, 30_000);
+
+test('no-op settlement preserves caller-owned recovery roots and retires only its created chain', async () => {
+  for (const recoveryCase of [
+    { name: 'absent', preexisting: false, sentinel: false, expectedPresent: false },
+    { name: 'preexisting-empty', preexisting: true, sentinel: false, expectedPresent: true },
+    { name: 'preexisting-nonempty', preexisting: true, sentinel: true, expectedPresent: true }
+  ] as const) {
+    const fixture = createEffectFixture(`custom-root-${recoveryCase.name}`);
+    const customParent = path.join(fixture.root, `custom-${recoveryCase.name}`);
+    const customRoot = path.join(customParent, 'recovery');
+    try {
+      git(fixture.repositoryRoot, ['branch', '-D', 'fix/example']);
+      if (recoveryCase.preexisting) mkdirSync(customRoot, { recursive: true });
+      if (recoveryCase.sentinel) writeFileSync(path.join(customRoot, 'caller-owned.txt'), 'preserve\n');
+      const result = await executeMergedLocalBranchResidueCloseout({
+        repositoryRoot: fixture.repositoryRoot,
+        recoveryRoot: customRoot,
+        run: fixture.run,
+        now: () => new Date('2026-08-22T00:00:00.000Z')
+      });
+      expect(result.settled).toEqual([]);
+      expect(result.recoveryRootRetired).toBe(!recoveryCase.expectedPresent);
+      expect(existsSync(customRoot)).toBe(recoveryCase.expectedPresent);
+      if (!recoveryCase.preexisting) expect(existsSync(customParent)).toBeFalse();
+      if (recoveryCase.sentinel) {
+        expect(readFileSync(path.join(customRoot, 'caller-owned.txt'), 'utf8')).toBe('preserve\n');
+      }
+    } finally {
+      fixture.dispose();
+    }
   }
 }, 30_000);
 
