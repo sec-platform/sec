@@ -1867,7 +1867,14 @@ export async function gcCompletedWorktreePhysicalCloseoutEvidence(
       ownerPath,
       'Worktree closeout GC owner'
     );
-    if (ownerPresence.state === 'absent') throw new Error('Worktree closeout GC owner disappeared after preflight.');
+    if (ownerPresence.state === 'absent') {
+      return Object.freeze({
+        schema: 'sec-worktree-physical-closeout-evidence-gc-v1' as const,
+        retiredOperationIds: Object.freeze([]),
+        ownerRetired: true,
+        retained: Object.freeze([])
+      });
+    }
     const owner = ownerPresence.directory.target;
     const children = scanNoFollowDirectoryDirectMetadata(owner, {
       deadlineAtMs: performance.now() + 10_000,
@@ -1965,6 +1972,12 @@ export async function gcCompletedWorktreePhysicalCloseoutEvidence(
         }));
         continue;
       }
+      const retiredIntent = authorization.current === null
+        ? null
+        : loadRetiredWorktreeIntent(operationRoot, authorization.current);
+      const retiredPhase = authorization.current === null
+        ? null
+        : loadRetiredWorktreePhase(operationRoot, authorization.current);
       const proofPresence = inspectExactNoFollowDirectoryPresence(
         authorization.proofRoot.path,
         'Worktree closeout GC proof root'
@@ -1984,17 +1997,16 @@ export async function gcCompletedWorktreePhysicalCloseoutEvidence(
             || proofRoot.inode !== currentAuthorization.proofRoot.inode) {
           throw new Error(`Worktree closeout GC proof identity changed: ${authorization.operationId}`);
         }
-        const phase = loadRetiredWorktreePhase(operationRoot, currentAuthorization);
-        if (phase === null || readNoFollowOrdinaryFile(
+        if (retiredPhase === null || readNoFollowOrdinaryFile(
           physicalDirectory(path.dirname(currentAuthorization.target.path), 'Worktree closeout GC fence parent'),
-          phase.retirementReceipt.fenceName
+          retiredPhase.retirementReceipt.fenceName
         ) !== null) {
           throw new Error(`Worktree closeout GC retirement phase is incomplete: ${authorization.operationId}`);
         }
-        assertAuthorizedLeaseNamespaceBinding(currentAuthorization, phase.retirementReceipt);
+        assertAuthorizedLeaseNamespaceBinding(currentAuthorization, retiredPhase.retirementReceipt);
         assertWorkspaceWriteLeaseRetirementProof({
           workspaceRoot: path.join(path.dirname(currentAuthorization.target.path), currentAuthorization.tombstoneName),
-          receipt: phase.retirementReceipt,
+          receipt: retiredPhase.retirementReceipt,
           proofParent: proofRoot
         });
         retireNoFollowDirectoryTree({
@@ -2009,6 +2021,27 @@ export async function gcCompletedWorktreePhysicalCloseoutEvidence(
       }
       const generatedStateRetirement = authorization.current?.generatedStateRetirement ?? null;
       if (generatedStateRetirement?.retentionRoot !== null && generatedStateRetirement !== null) {
+        if (retentionPresence?.state === 'present') {
+          assertGeneratedStateWorktreeRetirementEffectStart({
+            receipt: generatedStateRetirement,
+            repositoryRoot: authorization.current!.repository.root,
+            workspaceRoot: authorization.current!.target.path,
+            expectedBranch: authorization.current!.target.branch,
+            expectedHeadSha: authorization.current!.target.headSha,
+            expectedTreeSha: authorization.current!.target.treeSha
+          });
+          const retentionRoot = retentionPresence.directory.target;
+          retireNoFollowDirectoryTree({
+            deadlineAtMonotonicMs: performance.now() + 10_000,
+            inventory: scanNoFollowDirectoryTreeMetadata(retentionRoot, {
+              deadlineAtMs: performance.now() + 10_000,
+              maximumEntries: 20_000
+            }),
+            parent: physicalDirectory(path.dirname(retentionRoot.path), 'Worktree closeout GC retention parent'),
+            root: retentionRoot
+          });
+        }
+      } else if (generatedStateRetirement !== null) {
         assertGeneratedStateWorktreeRetirementEffectStart({
           receipt: generatedStateRetirement,
           repositoryRoot: authorization.current!.repository.root,
@@ -2017,26 +2050,29 @@ export async function gcCompletedWorktreePhysicalCloseoutEvidence(
           expectedHeadSha: authorization.current!.target.headSha,
           expectedTreeSha: authorization.current!.target.treeSha
         });
-        const retentionRoot = physicalDirectory(
-          generatedStateRetirement.retentionRoot.path,
-          'Worktree closeout GC generated-state retention root'
+      }
+      const allowedOperationFiles = new Set<string>([
+        'authorization.json',
+        'receipt-latest.json',
+        ...chain.map(receiptGenerationName),
+        ...(retiredIntent === null ? [] : [retirementIntentName(retiredIntent)]),
+        ...(retiredPhase === null ? [] : [retiredPhaseName(retiredPhase)])
+      ]);
+      const operationInventory = scanNoFollowDirectoryTreeMetadata(operationRoot, {
+        deadlineAtMs: performance.now() + 10_000,
+        maximumEntries: 20_000
+      });
+      const unknownOperationEvidence = operationInventory.find((entry) => (
+        entry.kind !== 'file' || !allowedOperationFiles.has(entry.relativePath)
+      ));
+      if (unknownOperationEvidence !== undefined) {
+        throw new Error(
+          `Worktree closeout GC found unvalidated operation evidence: ${unknownOperationEvidence.relativePath}`
         );
-        retireNoFollowDirectoryTree({
-          deadlineAtMonotonicMs: performance.now() + 10_000,
-          inventory: scanNoFollowDirectoryTreeMetadata(retentionRoot, {
-            deadlineAtMs: performance.now() + 10_000,
-            maximumEntries: 20_000
-          }),
-          parent: physicalDirectory(path.dirname(retentionRoot.path), 'Worktree closeout GC retention parent'),
-          root: retentionRoot
-        });
       }
       retireNoFollowDirectoryTree({
         deadlineAtMonotonicMs: performance.now() + 10_000,
-        inventory: scanNoFollowDirectoryTreeMetadata(operationRoot, {
-          deadlineAtMs: performance.now() + 10_000,
-          maximumEntries: 20_000
-        }),
+        inventory: operationInventory,
         parent: owner,
         root: operationRoot
       });

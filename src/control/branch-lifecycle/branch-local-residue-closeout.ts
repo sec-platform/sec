@@ -6,6 +6,7 @@ import path from 'node:path';
 import { inspectNoFollowDirectoryChain, type PhysicalDirectoryChain } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { runCommandBytes } from '../../runtime-state/physical/runtime/process.ts';
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease } from '../../workspace/lease.ts';
+import { parseBranchCloseoutOperationReceipt } from './branch-closeout-contract.ts';
 import {
   assertGitBranchName,
   assertGitSha,
@@ -994,6 +995,7 @@ function retireRecoveryBundleFamily(input: Readonly<{
 
 function retireSupersededBranchCloseoutBundles(input: Readonly<{
   store: BranchRecoveryStore;
+  repository: string;
   entry: AuthorizationEntry;
   retired: string[];
 }>): void {
@@ -1006,9 +1008,28 @@ function retireSupersededBranchCloseoutBundles(input: Readonly<{
     if (digest !== input.entry.recovery.digest) continue;
     const family = input.store.listOwnedFiles(`${name}.`);
     const hasPreparation = family.includes(`${name}.preparation.json`);
-    const hasTerminal = family.some((candidate) => (
+    const hasTerminal = family.filter((candidate) => (
       candidate.startsWith(`${name}.closeout-`) && candidate.endsWith('.receipt.json')
-    ));
+    )).some((candidate) => {
+      const bytes = input.store.read(candidate);
+      if (bytes === null) throw new Error(`Duplicate branch-closeout receipt disappeared: ${candidate}`);
+      const receipt = parseBranchCloseoutOperationReceipt(Buffer.from(bytes).toString('utf8'));
+      const expectedName = `${name}.closeout-${receipt.binding.closeoutOperationId.slice('sha256:'.length)}.receipt.json`;
+      if (candidate !== expectedName
+          || receipt.binding.repository !== input.repository
+          || receipt.binding.pullRequestNumber !== input.entry.pullRequestNumber
+          || receipt.receipt.preparation.repository.fullName !== input.repository
+          || receipt.receipt.preparation.pullRequestNumber !== input.entry.pullRequestNumber
+          || receipt.receipt.preparation.branch !== input.entry.branch
+          || receipt.receipt.preparation.expectedHeadSha !== input.entry.headSha
+          || receipt.receipt.preparation.recovery.sha256 !== input.entry.recovery.digest
+          || receipt.binding.headSha !== input.entry.headSha
+          || receipt.binding.newMainSha !== input.entry.mergeCommitSha
+          || receipt.binding.recoveryDigest !== input.entry.recovery.digest) {
+        throw new Error(`Duplicate branch-closeout receipt differs from its recovery family: ${candidate}`);
+      }
+      return receipt.receipt.closeoutStatus === 'completed';
+    });
     if (hasPreparation && !hasTerminal) continue;
     retireRecoveryBundleFamily({
       store: input.store,
@@ -1031,7 +1052,12 @@ function retireCompletedLocalBranchResidueOperation(input: Readonly<{
     if (entry.recovery.path !== path.join(input.store.root.path, localBundleName)) {
       throw new Error(`Completed recovery path escaped its canonical owner: ${entry.branch}`);
     }
-    retireSupersededBranchCloseoutBundles({ store: input.store, entry, retired });
+    retireSupersededBranchCloseoutBundles({
+      store: input.store,
+      repository: authorization.repository,
+      entry,
+      retired
+    });
     retireRecoveryBundleFamily({
       store: input.store,
       bundleName: localBundleName,
@@ -1044,19 +1070,54 @@ function retireCompletedLocalBranchResidueOperation(input: Readonly<{
   return Object.freeze(retired);
 }
 
-function retireOrphanCompletedReceipts(store: BranchRecoveryStore): readonly string[] {
+async function retireOrphanCompletedReceipts(input: Readonly<{
+  run: CommandRunner;
+  repositoryRoot: string;
+  repository: string;
+  provider: RepositoryProviderObservation;
+  store: BranchRecoveryStore;
+}>): Promise<readonly string[]> {
+  const receiptNames = [...input.store.listOwnedFiles('sec-local-branch-residue-')]
+    .filter((candidate) => candidate.endsWith('.receipt.json'))
+    .filter((candidate) => input.store.read(
+      candidate.replace(/\.receipt\.json$/u, '.authorization.json')
+    ) === null);
+  if (receiptNames.length === 0) return Object.freeze([]);
+  const observation = await observe(
+    input.run,
+    input.repositoryRoot,
+    input.repository,
+    input.provider.defaultBranch
+  );
   const retired: string[] = [];
-  for (const name of [...store.listOwnedFiles('sec-local-branch-residue-')]
-    .filter((candidate) => candidate.endsWith('.receipt.json'))) {
-    const bytes = store.read(name);
+  for (const name of receiptNames) {
+    const bytes = input.store.read(name);
     if (bytes === null) continue;
     const receipt = parseReceipt(bytes);
     const expected = operationNames(receipt.operationId);
     if (name !== expected.receipt) {
       throw new Error(`Receipt filename differs from its operationId: ${name}`);
     }
-    if (store.read(expected.authorization) !== null) continue;
-    removeOwnedRecoveryFile(store, name, retired);
+    if (input.store.read(expected.authorization) !== null) continue;
+    if (receipt.repository !== input.repository) {
+      throw new Error(`Orphan local branch residue receipt repository differs: ${name}`);
+    }
+    for (const entry of receipt.entries) {
+      if (entry.pullRequestUrl
+          !== `https://github.com/${input.repository}/pull/${entry.pullRequestNumber}`) {
+        throw new Error(`Orphan local branch residue receipt PR URL differs: ${name}`);
+      }
+      if (observation.localRefs[entry.branch] !== undefined) {
+        throw new Error(`Orphan local branch residue receipt was followed by ref recreation: ${entry.branch}`);
+      }
+    }
+    await assertMergeCommitsReachable(
+      input.run,
+      input.repositoryRoot,
+      receipt.remoteMainSha,
+      receipt.entries
+    );
+    removeOwnedRecoveryFile(input.store, name, retired);
   }
   return Object.freeze(retired);
 }
@@ -1461,7 +1522,13 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
     });
   };
 
-  const orphanReceiptFiles = retireOrphanCompletedReceipts(store);
+  const orphanReceiptFiles = await retireOrphanCompletedReceipts({
+    run,
+    repositoryRoot,
+    repository,
+    provider,
+    store
+  });
   const scanned = scanLocalBranchResidueOperations(store);
   let retiredBefore = Object.freeze({
     branches: Object.freeze([]) as readonly string[],

@@ -248,6 +248,39 @@ test('completed worktree evidence is retained while the branch is live and recla
   }
 }, 30_000);
 
+test('completed worktree GC rejects unknown operation evidence instead of deleting it', async () => {
+  const value = fixture();
+  try {
+    const authorization = await prepareWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
+    });
+    await executeWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
+      authorizationPath: authorization.authorizationPath
+    });
+    const operationRoot = path.dirname(authorization.authorizationPath);
+    const unknown = path.join(operationRoot, 'future-owner-evidence.json');
+    writeFileSync(unknown, '{}\n', 'utf8');
+    git(value.repository, ['branch', '-D', value.branch]);
+    await expect(gcCompletedWorktreePhysicalCloseoutEvidence(value.repository))
+      .rejects.toThrow('unvalidated operation evidence');
+    expect(existsSync(unknown)).toBeTrue();
+    expect(existsSync(operationRoot)).toBeTrue();
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+}, 30_000);
+
 test('one branch settlement retires the completed worktree evidence it makes eligible', async () => {
   const value = fixture();
   try {
@@ -512,6 +545,8 @@ test('closeout composes provider retirement for an automatically reused dependen
       path.join(value.repository, 'node_modules', 'typescript', 'lib', 'typescript.js'),
       'utf8'
     )).toBe('primary:typescript\n');
+    rmSync(generatedStateRetentionRoot!, { recursive: true });
+    expect(existsSync(generatedStateRetentionRoot!)).toBeFalse();
     git(value.repository, ['branch', '-D', value.branch]);
     const evidenceGc = await gcCompletedWorktreePhysicalCloseoutEvidence(value.repository);
     expect(evidenceGc.retiredOperationIds).toEqual([authorization.operationId]);
