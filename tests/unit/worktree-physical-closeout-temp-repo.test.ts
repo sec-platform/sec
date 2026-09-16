@@ -35,6 +35,7 @@ import { generatedStateProducerHooks } from '../../src/runtime-state/generated-s
 import { inspectNoFollowDirectoryChain, relocateRetainedNoFollowDirectory } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   LEGACY_WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA,
+  WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA,
   createWorktreePhysicalCloseoutReceipt,
   detailDigest
 } from '../../src/runtime-state/worktree-closeout-contract.ts';
@@ -283,7 +284,7 @@ test('completed worktree GC rejects unknown operation evidence instead of deleti
   }
 }, 30_000);
 
-test('one branch settlement retires the completed worktree evidence it makes eligible', async () => {
+test('one branch settlement retires completed v2 worktree evidence it makes eligible', async () => {
   const value = fixture();
   try {
     const authorization = await prepareWorktreePhysicalCloseout({
@@ -294,6 +295,7 @@ test('one branch settlement retires the completed worktree evidence it makes eli
       expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
     });
+    expect(authorization.schema).toBe(WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA);
     const receipt = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
       targetPath: value.target,
@@ -405,12 +407,44 @@ test('legacy v1 proofless residue converges only from exact durable absence read
       expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
     });
-    const { authorizationDigest: ignoredAuthorizationDigest, ...authorizationBody } = prepared;
+    const {
+      authorizationDigest: ignoredAuthorizationDigest,
+      generatedStateRetirement: ignoredGeneratedStateRetirement,
+      ...authorizationBody
+    } = prepared;
+    const operationId = sha256({
+      repository: authorizationBody.repository,
+      target: authorizationBody.target,
+      registryBeforeDigest: authorizationBody.registryBeforeDigest,
+      workingStateDigest: authorizationBody.workingStateDigest,
+      inventoryDigest: authorizationBody.inventory.inventoryDigest,
+      registryAdmin: {
+        relativePath: authorizationBody.registryAdmin.relativePath,
+        device: authorizationBody.registryAdmin.device,
+        inode: authorizationBody.registryAdmin.inode,
+        inventoryDigest: authorizationBody.registryAdmin.inventory.inventoryDigest
+      },
+      targetLeaseNamespace: authorizationBody.targetLeaseNamespace
+    }) as `sha256:${string}`;
+    const operationSuffix = operationId.slice('sha256:'.length);
+    const operationRoot = path.join(path.dirname(path.dirname(prepared.authorizationPath)), operationSuffix);
+    const proofRootPath = path.join(path.dirname(value.target), `sec-worktree-closeout-proof-${operationSuffix}`);
+    renameSync(prepared.proofRoot.path, proofRootPath);
+    renameSync(path.dirname(prepared.authorizationPath), operationRoot);
     const legacyBody = {
       ...authorizationBody,
-      schema: LEGACY_WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA
+      schema: LEGACY_WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA,
+      operationId,
+      registryAdmin: {
+        ...authorizationBody.registryAdmin,
+        tombstoneName: `worktree-admin-closeout-${operationSuffix}`
+      },
+      proofRoot: { ...authorizationBody.proofRoot, path: proofRootPath },
+      tombstoneName: `worktree-closeout-tombstone-${operationSuffix}`,
+      authorizationPath: path.join(operationRoot, 'authorization.json'),
+      receiptPath: path.join(operationRoot, 'receipt-latest.json')
     };
-    writeFileSync(prepared.authorizationPath, `${JSON.stringify({
+    writeFileSync(legacyBody.authorizationPath, `${JSON.stringify({
       ...legacyBody,
       authorizationDigest: sha256(legacyBody)
     }, null, 2)}\n`, 'utf8');
@@ -422,35 +456,67 @@ test('legacy v1 proofless residue converges only from exact durable absence read
       expectedHeadSha: value.headSha,
       expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
-      authorizationPath: prepared.authorizationPath
+      authorizationPath: legacyBody.authorizationPath
     });
     expect(completed.terminal).toBe('completed');
 
-    const operationRoot = path.dirname(prepared.authorizationPath);
     let generation = completed.previousReceiptDigest;
     let residue: ReturnType<typeof createWorktreePhysicalCloseoutReceipt> | null = null;
+    let beforeUnregister: ReturnType<typeof createWorktreePhysicalCloseoutReceipt> | null = null;
     while (generation !== null) {
       const candidate = JSON.parse(readFileSync(
         path.join(operationRoot, `receipt-${generation.slice('sha256:'.length)}.json`),
         'utf8'
       )) as ReturnType<typeof createWorktreePhysicalCloseoutReceipt>;
-      if (candidate.terminal === 'residue') {
-        residue = candidate;
-        break;
-      }
+      if (residue === null && candidate.terminal === 'residue') residue = candidate;
+      if (candidate.blockers.includes('unregister-intent-durable')) beforeUnregister = candidate;
       generation = candidate.previousReceiptDigest;
     }
     expect(residue).not.toBeNull();
+    expect(beforeUnregister).not.toBeNull();
     rmSync(path.join(operationRoot, `receipt-${completed.receiptDigest.slice('sha256:'.length)}.json`));
-    writeFileSync(path.join(operationRoot, 'receipt-latest.json'), `${JSON.stringify({
-      schema: 'sec-worktree-cleanup-receipt-latest-v1',
-      generation: `receipt-${residue!.receiptDigest.slice('sha256:'.length)}.json`,
-      receiptDigest: residue!.receiptDigest
-    }, null, 2)}\n`, 'utf8');
+    const writeLatest = (receipt: ReturnType<typeof createWorktreePhysicalCloseoutReceipt>) => {
+      writeFileSync(path.join(operationRoot, 'receipt-latest.json'), `${JSON.stringify({
+        schema: 'sec-worktree-cleanup-receipt-latest-v1',
+        generation: `receipt-${receipt.receiptDigest.slice('sha256:'.length)}.json`,
+        receiptDigest: receipt.receiptDigest
+      }, null, 2)}\n`, 'utf8');
+    };
+    writeLatest(residue!);
     // Reproduce the historical interrupted generation: physical and registry
     // state are already absent, but the old proof root disappeared before a
     // terminal receipt was published.
-    rmSync(prepared.proofRoot.path, { recursive: true, force: true });
+    rmSync(proofRootPath, { recursive: true, force: true });
+
+    writeLatest(beforeUnregister!);
+    await expect(executeWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
+      authorizationPath: legacyBody.authorizationPath
+    })).rejects.toThrow('lacks durable unregister success');
+    writeLatest(residue!);
+
+    const retiredPhaseName = readdirSync(operationRoot).find((name) => name.startsWith('retired-phase-'))!;
+    const retiredPhasePath = path.join(operationRoot, retiredPhaseName);
+    const retiredPhaseBytes = readFileSync(retiredPhasePath);
+    const retiredPhase = JSON.parse(retiredPhaseBytes.toString('utf8')) as {
+      retirementReceipt: { fenceName: string };
+    };
+    rmSync(retiredPhasePath);
+    await expect(executeWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
+      authorizationPath: legacyBody.authorizationPath
+    })).rejects.toThrow('lacks its durable retirement phase');
+    writeFileSync(retiredPhasePath, retiredPhaseBytes);
 
     mkdirSync(value.target);
     await expect(executeWorktreePhysicalCloseout({
@@ -460,9 +526,35 @@ test('legacy v1 proofless residue converges only from exact durable absence read
       expectedHeadSha: value.headSha,
       expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
-      authorizationPath: prepared.authorizationPath
+      authorizationPath: legacyBody.authorizationPath
     })).rejects.toThrow('target-present');
     rmSync(value.target, { recursive: true, force: true });
+
+    const tombstonePath = path.join(path.dirname(value.target), legacyBody.tombstoneName);
+    mkdirSync(tombstonePath);
+    await expect(executeWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
+      authorizationPath: legacyBody.authorizationPath
+    })).rejects.toThrow('tombstone-present');
+    rmSync(tombstonePath, { recursive: true, force: true });
+
+    const fencePath = path.join(path.dirname(value.target), retiredPhase.retirementReceipt.fenceName);
+    writeFileSync(fencePath, 'reappeared\n');
+    await expect(executeWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
+      authorizationPath: legacyBody.authorizationPath
+    })).rejects.toThrow('retirement-fence-present');
+    rmSync(fencePath);
 
     const recovered = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
@@ -471,7 +563,7 @@ test('legacy v1 proofless residue converges only from exact durable absence read
       expectedHeadSha: value.headSha,
       expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
-      authorizationPath: prepared.authorizationPath
+      authorizationPath: legacyBody.authorizationPath
     });
     expect(recovered).toMatchObject({
       terminal: 'completed',
@@ -483,6 +575,52 @@ test('legacy v1 proofless residue converges only from exact durable absence read
       operation: 'readback',
       status: 'success'
     })]);
+
+    const liveReceiptFiles = new Set<string>();
+    let liveGeneration: ReturnType<typeof createWorktreePhysicalCloseoutReceipt> | null = recovered;
+    while (liveGeneration !== null) {
+      liveReceiptFiles.add(`receipt-${liveGeneration.receiptDigest.slice('sha256:'.length)}.json`);
+      liveGeneration = liveGeneration.previousReceiptDigest === null
+        ? null
+        : JSON.parse(readFileSync(
+            path.join(operationRoot, `receipt-${liveGeneration.previousReceiptDigest.slice('sha256:'.length)}.json`),
+            'utf8'
+          )) as ReturnType<typeof createWorktreePhysicalCloseoutReceipt>;
+    }
+    for (const name of readdirSync(operationRoot).filter((candidate) => (
+      /^receipt-[0-9a-f]{64}\.json$/u.test(candidate) && !liveReceiptFiles.has(candidate)
+    ))) rmSync(path.join(operationRoot, name));
+
+    git(value.repository, ['branch', '-D', value.branch]);
+    rmSync(retiredPhasePath);
+    await expect(gcCompletedWorktreePhysicalCloseoutEvidence(value.repository))
+      .rejects.toThrow('lacks current authorization or retirement phase');
+    expect(existsSync(operationRoot)).toBeTrue();
+    writeFileSync(retiredPhasePath, retiredPhaseBytes);
+
+    mkdirSync(tombstonePath);
+    await expect(gcCompletedWorktreePhysicalCloseoutEvidence(value.repository))
+      .rejects.toThrow('tombstone-present');
+    expect(existsSync(operationRoot)).toBeTrue();
+    rmSync(tombstonePath, { recursive: true, force: true });
+
+    writeFileSync(fencePath, 'reappeared\n');
+    await expect(gcCompletedWorktreePhysicalCloseoutEvidence(value.repository))
+      .rejects.toThrow('retirement-fence-present');
+    expect(existsSync(operationRoot)).toBeTrue();
+    rmSync(fencePath);
+
+    mkdirSync(proofRootPath);
+    await expect(gcCompletedWorktreePhysicalCloseoutEvidence(value.repository))
+      .rejects.toThrow('proof identity changed');
+    expect(existsSync(operationRoot)).toBeTrue();
+    rmSync(proofRootPath, { recursive: true, force: true });
+
+    const gc = await gcCompletedWorktreePhysicalCloseoutEvidence(value.repository);
+    expect(gc.retiredOperationIds).toEqual([operationId]);
+    expect(gc.retained).toEqual([]);
+    expect(gc.ownerRetired).toBeTrue();
+    expect(existsSync(operationRoot)).toBeFalse();
   } finally {
     rmSync(value.root, { recursive: true, force: true });
   }

@@ -246,7 +246,7 @@ test('legacy v1 authorization without generated-state field is validated exactly
   };
   const legacy = {
     ...material,
-    authorizationDigest: sha256(material)
+    authorizationDigest: sha256(material) as `sha256:${string}`
   };
 
   const normalized = assertWorktreePhysicalCloseoutAuthorization(legacy as never);
@@ -257,6 +257,23 @@ test('legacy v1 authorization without generated-state field is validated exactly
     ...legacy,
     operationId: detailDigest('wrong-legacy-operation')
   } as never)).toThrow('canonical content mismatch');
+});
+
+test('legacy v1 authorization with generated-state field keeps the field-aware operation identity', () => {
+  const current = authorization();
+  const { authorizationDigest: ignoredAuthorizationDigest, ...body } = current;
+  const material = {
+    ...body,
+    schema: LEGACY_WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA
+  };
+  const legacy = {
+    ...material,
+    authorizationDigest: sha256(material) as `sha256:${string}`
+  };
+  const parsed = assertWorktreePhysicalCloseoutAuthorization(legacy);
+  expect(parsed).toEqual(legacy);
+  expect(parsed.operationId).toBe(current.operationId);
+  expect(parsed.generatedStateRetirement).toBeNull();
 });
 
 test('v2 authorization rejects a missing generated-state field with a typed contract error', () => {
