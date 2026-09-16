@@ -69,15 +69,7 @@ import {
   withGitHubApiTestSession,
   type GitHubApiTransport
 } from '../../src/external-capabilities/github-api/test/operation-session.ts';
-import { resolveSecRuntimeStateForRepository } from '../../src/runtime-state/workspace-state/paths.ts';
 import { digest, rawSha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
-import { encodeVerificationActionData } from '../../src/verification/action/contract/action.ts';
-import {
-  TRUSTED_RUNTIME_CONTAINER_IMAGE_ID,
-  TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST,
-  createTrustedRuntimeMainHealthBaselineObservation,
-  createTrustedRuntimeMainHealthReceipt
-} from '../../src/verification/trusted-runtime/trusted-runtime-container.ts';
 import {
   SEC_DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_MAX_BYTES_V1,
   SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1,
@@ -741,56 +733,6 @@ async function createFreezeFixture(): Promise<FreezeFixture> {
   ]);
   runGit(repositoryRoot, ['remote', 'set-url', 'origin', remoteRoot]);
   const baseSha = seed.baseSha;
-  const baseTreeSha = runGit(repositoryRoot, ['rev-parse', `${baseSha}^{tree}`]);
-  const baselineSha = runGit(repositoryRoot, ['rev-parse', `${baseSha}^`]);
-  const baselineTreeSha = runGit(repositoryRoot, ['rev-parse', `${baselineSha}^{tree}`]);
-  const environment = fixtureMainHealthEnvironment(repositoryRoot);
-  const layout = resolveSecRuntimeStateForRepository({
-    repository: 'sec-platform/sec',
-    repositoryRoot,
-    environment
-  });
-  const healthRoot = path.join(layout.repositoryStateRoot, 'trusted-main-health', 'v1');
-  await mkdir(healthRoot, { recursive: true });
-  const baseline = createTrustedRuntimeMainHealthBaselineObservation({
-    mainSha: baseSha,
-    mainTreeSha: baseTreeSha,
-    parentLine: `${baseSha} ${baselineSha}`,
-    parentTreeSha: baselineTreeSha
-  });
-  const receipt = createTrustedRuntimeMainHealthReceipt({
-    origin: 'physical-main',
-    repository: 'sec-platform/sec',
-    mainSha: baseSha,
-    mainTreeSha: baseTreeSha,
-    baselineSha,
-    baselineTreeSha,
-    baselineObservationDigest: baseline.observationDigest,
-    executionId: 'document-control-lifecycle-main-health',
-    imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID,
-    dockerEndpoint: Object.freeze({
-      schema: 'sec-docker-endpoint-identity-v1' as const,
-      contextName: 'test-linux',
-      endpointHost: process.platform === 'win32'
-        ? 'npipe:////./pipe/dockerDesktopLinuxEngine'
-        : 'unix:///var/run/docker.sock',
-      daemonId: 'daemon-document-control-lifecycle',
-      osType: 'linux' as const,
-      architecture: 'x86_64' as const
-    }),
-    networkIsolatedBeforeExecution: true,
-    planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST,
-    actionResults: Object.freeze([
-      Object.freeze({ actionId: 'affected-closure', resultDigest: `sha256:${'3'.repeat(64)}` })
-    ]),
-    transition: null,
-    observedAt: new Date(Date.now() - 1_000).toISOString()
-  });
-  await writeFile(
-    path.join(healthRoot, `main-${baseSha}.json`),
-    `${encodeVerificationActionData(receipt)}\n`,
-    'utf8'
-  );
   return {
     parent,
     repositoryRoot,
@@ -1448,7 +1390,7 @@ test('freeze projection admits only the exact degraded-main repair and preserves
       producer: {
         identity: 'fixture-main-health-producer',
         trustRevision: fixture.baseSha,
-        sourceTransport: 'trusted-local-readback',
+        sourceTransport: 'github-api',
         sourceRunId: 'fixture-run',
         sourceRef: 'fixture:main-health',
         sourceDigest: rawSha256('fixture-main-health-source')

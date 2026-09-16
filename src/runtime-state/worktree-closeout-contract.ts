@@ -15,6 +15,14 @@ export const WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA = 'sec-worktree-cle
 export const WORKTREE_PHYSICAL_CLOSEOUT_RECEIPT_SCHEMA = 'sec-worktree-cleanup-receipt-v1' as const;
 
 export type Digest = `sha256:${string}`;
+const fieldlessLegacyWorktreePhysicalCloseoutAuthorizations = new WeakSet<object>();
+
+export function isFieldlessLegacyWorktreePhysicalCloseoutAuthorization(
+  value: WorktreePhysicalCloseoutAuthorization
+): boolean {
+  return value.schema === WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA
+    && fieldlessLegacyWorktreePhysicalCloseoutAuthorizations.has(value);
+}
 
 export function assertStableWorktreePhysicalWorkingState(
   initialDigest: Digest,
@@ -244,20 +252,18 @@ function authorizationMaterial(value: Omit<WorktreePhysicalCloseoutAuthorization
   return value;
 }
 
-export function createWorktreePhysicalCloseoutAuthorization(
-  input: Omit<WorktreePhysicalCloseoutAuthorization, 'schema' | 'operationId' | 'authorizationDigest'>
-): WorktreePhysicalCloseoutAuthorization {
-  assertLowercaseGitSha(input.target.headSha, 'target headSha');
-  assertLowercaseGitSha(input.target.treeSha, 'target treeSha');
-  if (!/^sha256:[0-9a-f]{64}$/u.test(input.target.recoveryAuthorityDigest)) {
-    fail('target recoveryAuthorityDigest shape mismatch.');
-  }
-  const operationId = sha256({
+function worktreePhysicalCloseoutOperationMaterial(
+  input: Omit<WorktreePhysicalCloseoutAuthorization, 'schema' | 'operationId' | 'authorizationDigest'>,
+  includeGeneratedStateRetirement: boolean
+): unknown {
+  return {
     repository: input.repository,
     target: input.target,
     registryBeforeDigest: input.registryBeforeDigest,
     workingStateDigest: input.workingStateDigest,
-    generatedStateRetirementDigest: input.generatedStateRetirement?.receiptDigest ?? null,
+    ...(includeGeneratedStateRetirement
+      ? { generatedStateRetirementDigest: input.generatedStateRetirement?.receiptDigest ?? null }
+      : {}),
     inventoryDigest: input.inventory.inventoryDigest,
     registryAdmin: {
       relativePath: input.registryAdmin.relativePath,
@@ -266,7 +272,18 @@ export function createWorktreePhysicalCloseoutAuthorization(
       inventoryDigest: input.registryAdmin.inventory.inventoryDigest
     },
     targetLeaseNamespace: input.targetLeaseNamespace
-  }) as Digest;
+  };
+}
+
+export function createWorktreePhysicalCloseoutAuthorization(
+  input: Omit<WorktreePhysicalCloseoutAuthorization, 'schema' | 'operationId' | 'authorizationDigest'>
+): WorktreePhysicalCloseoutAuthorization {
+  assertLowercaseGitSha(input.target.headSha, 'target headSha');
+  assertLowercaseGitSha(input.target.treeSha, 'target treeSha');
+  if (!/^sha256:[0-9a-f]{64}$/u.test(input.target.recoveryAuthorityDigest)) {
+    fail('target recoveryAuthorityDigest shape mismatch.');
+  }
+  const operationId = sha256(worktreePhysicalCloseoutOperationMaterial(input, true)) as Digest;
   if (!/^worktrees\/[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(input.registryAdmin.relativePath) ||
     !/^worktree-admin-closeout-[0-9a-f]{64}$/u.test(input.registryAdmin.tombstoneName) ||
     input.registryAdmin.device.length === 0 || input.registryAdmin.inode.length === 0) {
@@ -311,6 +328,7 @@ export function assertWorktreePhysicalCloseoutAuthorization(
   value: WorktreePhysicalCloseoutAuthorization
 ): WorktreePhysicalCloseoutAuthorization {
   if (value.schema !== WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA) fail('authorization schema mismatch.');
+  const hasGeneratedStateRetirement = Object.prototype.hasOwnProperty.call(value, 'generatedStateRetirement');
   assertLowercaseGitSha(value.target.headSha, 'target headSha');
   assertLowercaseGitSha(value.target.treeSha, 'target treeSha');
   if (!/^sha256:[0-9a-f]{64}$/u.test(value.target.recoveryAuthorityDigest)) {
@@ -319,7 +337,10 @@ export function assertWorktreePhysicalCloseoutAuthorization(
   if (!/^sha256:[0-9a-f]{64}$/u.test(value.operationId) || !/^sha256:[0-9a-f]{64}$/u.test(value.authorizationDigest)) {
     fail('authorization digest shape mismatch.');
   }
-  const rebuilt = createWorktreePhysicalCloseoutAuthorization({
+  const normalizedGeneratedStateRetirement = hasGeneratedStateRetirement
+    ? value.generatedStateRetirement
+    : null;
+  const normalizedInput = {
     repository: value.repository,
     target: value.target,
     registryAdmin: {
@@ -330,16 +351,44 @@ export function assertWorktreePhysicalCloseoutAuthorization(
     proofRoot: value.proofRoot,
     registryBeforeDigest: value.registryBeforeDigest,
     workingStateDigest: value.workingStateDigest,
-    generatedStateRetirement: value.generatedStateRetirement,
+    generatedStateRetirement: normalizedGeneratedStateRetirement,
     inventory: createWorktreePhysicalInventory(value.inventory.entries),
     tombstoneName: value.tombstoneName,
     authorizationPath: value.authorizationPath,
     receiptPath: value.receiptPath
-  });
-  if (JSON.stringify(canonicalJson(rebuilt)) !== JSON.stringify(canonicalJson(value))) {
+  } as const;
+  const rebuilt = createWorktreePhysicalCloseoutAuthorization(normalizedInput);
+  if (hasGeneratedStateRetirement) {
+    if (JSON.stringify(canonicalJson(rebuilt)) !== JSON.stringify(canonicalJson(value))) {
+      fail('authorization digest or canonical content mismatch.');
+    }
+    return value;
+  }
+  const operationId = sha256(worktreePhysicalCloseoutOperationMaterial(
+    normalizedInput,
+    hasGeneratedStateRetirement
+  )) as Digest;
+  const { schema: ignoredSchema, operationId: ignoredOperationId, authorizationDigest: ignoredDigest, ...rebuiltBody } = rebuilt;
+  const legacyBody = Object.fromEntries(
+    Object.entries(rebuiltBody).filter(([key]) => key !== 'generatedStateRetirement')
+  );
+  const withoutDigest = {
+    schema: WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA,
+    operationId,
+    ...legacyBody
+  };
+  const expected = {
+    ...withoutDigest,
+    authorizationDigest: sha256(authorizationMaterial(withoutDigest as Omit<WorktreePhysicalCloseoutAuthorization, 'authorizationDigest'>)) as Digest
+  };
+  if (JSON.stringify(canonicalJson(expected)) !== JSON.stringify(canonicalJson(value))) {
     fail('authorization digest or canonical content mismatch.');
   }
-  return value;
+  const normalized = Object.freeze({ ...value, generatedStateRetirement: normalizedGeneratedStateRetirement });
+  if (!hasGeneratedStateRetirement) {
+    fieldlessLegacyWorktreePhysicalCloseoutAuthorizations.add(normalized);
+  }
+  return normalized;
 }
 
 export function createWorktreePhysicalCloseoutReceipt(

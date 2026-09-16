@@ -3,9 +3,10 @@
 import path from 'node:path';
 
 import { assertGeneratedStateWorktreeRetirementEffectStart, isGeneratedStateWorktreeRetirementBlocked, settleGeneratedStateForWorktreeRetirement } from '../../runtime-state/generated-state/lifecycle.ts';
-import { createNoFollowDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectory, relocateRetainedNoFollowDirectoryAcrossParents, replaceDurableCanonicalFile, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { createNoFollowDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectory, relocateRetainedNoFollowDirectoryAcrossParents, replaceDurableCanonicalFile, retireNoFollowDirectoryTree, scanNoFollowDirectoryDirectMetadata, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { runCommandBytes } from '../../runtime-state/physical/runtime/process.ts';
 import {
+  WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA,
   assertStableWorktreePhysicalWorkingState,
   assertWorktreePhysicalCloseoutAuthorization,
   assertWorktreePhysicalCloseoutReceipt,
@@ -14,6 +15,7 @@ import {
   createWorktreePhysicalCloseoutReceipt,
   createWorktreePhysicalInventory,
   detailDigest,
+  isFieldlessLegacyWorktreePhysicalCloseoutAuthorization,
   parseGitWorktreeAdminLocator,
   parseWorktreePorcelainZ,
   parseWorktreeStatusPorcelainZ,
@@ -503,6 +505,48 @@ function loadRetiredWorktreePhase(root: PhysicalDirectoryIdentity, authorization
     throw new Error('Retired closeout phase does not bind this authorization.');
   }
   return phase;
+}
+
+async function observeProoflessWorktreeCloseoutConvergence(input: Readonly<{
+  repositoryRoot: string;
+  commonDir: string;
+  authorization: WorktreePhysicalCloseoutAuthorization;
+  retiredPhase: RetiredWorktreePhase;
+  stage: string;
+}>): Promise<Awaited<ReturnType<typeof observeRegistry>>> {
+  const registry = await observeRegistry(input.repositoryRoot);
+  const targetParent = path.dirname(input.authorization.target.path);
+  const fenceParentPresence = inspectExactNoFollowDirectoryPresence(
+    targetParent,
+    `Proofless worktree closeout ${input.stage} fence parent`
+  );
+  const blockers = [
+    ...(findTargetRecord(registry.records, input.authorization.target.path) !== null ? ['registry-present'] : []),
+    ...(physicalPresence(input.authorization.target.path, `Proofless worktree closeout ${input.stage} target`) !== null
+      ? ['target-present'] : []),
+    ...(physicalPresence(
+      path.join(input.commonDir, ...input.authorization.registryAdmin.relativePath.split('/')),
+      `Proofless worktree closeout ${input.stage} admin`
+    ) !== null ? ['registry-admin-present'] : []),
+    ...(physicalPresence(
+      path.join(targetParent, input.authorization.tombstoneName),
+      `Proofless worktree closeout ${input.stage} tombstone`
+    ) !== null ? ['tombstone-present'] : []),
+    ...(inspectExactNoFollowDirectoryPresence(
+      input.authorization.proofRoot.path,
+      `Proofless worktree closeout ${input.stage} proof`
+    ).state !== 'absent' ? ['proof-present'] : []),
+    ...(fenceParentPresence.state === 'present' && readNoFollowOrdinaryFile(
+      fenceParentPresence.directory.target,
+      input.retiredPhase.retirementReceipt.fenceName
+    ) !== null ? ['retirement-fence-present'] : [])
+  ];
+  if (blockers.length > 0) {
+    throw new Error(
+      `Proofless worktree closeout has not converged at ${input.stage}: ${blockers.join(',')}`
+    );
+  }
+  return registry;
 }
 
 function receiptGenerationName(receipt: WorktreePhysicalCloseoutReceipt): string {
@@ -1119,11 +1163,6 @@ async function executeWorktreePhysicalCloseoutUnderLease(
   if (pathKey(authorization.proofRoot.path) !== pathKey(expectedProofPath)) {
     throw new Error('Authorization proof root is not the canonical target-external operation leaf.');
   }
-  const expectedProofRoot = physicalDirectory(authorization.proofRoot.path, 'Authorized target-external retained proof root');
-  if (expectedProofRoot.device !== authorization.proofRoot.device || expectedProofRoot.inode !== authorization.proofRoot.inode ||
-    expectedProofRoot.device !== authorization.targetLeaseNamespace.device) {
-    throw new Error('Authorization proof root physical identity or target-volume binding changed.');
-  }
   if (
     pathKey(authorization.authorizationPath) !== pathKey(path.join(expectedRecoveryRoot.path, 'authorization.json')) ||
     pathKey(authorization.receiptPath) !== pathKey(path.join(expectedRecoveryRoot.path, 'receipt-latest.json')) ||
@@ -1139,6 +1178,72 @@ async function executeWorktreePhysicalCloseoutUnderLease(
   ) {
     throw new Error('Repository or Git common-dir physical identity changed after authorization.');
   }
+  const prior = loadLatestReceiptGeneration(expectedRecoveryRoot);
+  const proofPresence = inspectExactNoFollowDirectoryPresence(
+    authorization.proofRoot.path,
+    'Authorized target-external retained proof root'
+  );
+  if (proofPresence.state === 'absent') {
+    if (
+      !isFieldlessLegacyWorktreePhysicalCloseoutAuthorization(authorization) ||
+      authorization.generatedStateRetirement !== null ||
+      prior === null
+    ) {
+      throw new Error('Worktree closeout proof root is absent without a legacy resumable receipt.');
+    }
+    if (prior.authorizationDigest !== authorization.authorizationDigest) {
+      throw new Error('Existing legacy receipt belongs to another authorization.');
+    }
+    const chain = loadReceiptChain(expectedRecoveryRoot, prior);
+    if (chain.some((generation) => generation.authorizationDigest !== authorization.authorizationDigest
+        || generation.operationId !== authorization.operationId)) {
+      throw new Error('Legacy receipt chain crosses authorization.');
+    }
+    if (!chain.some((generation) => generation.attempts.some((attempt) => (
+      attempt.operation === 'unregister' && attempt.status === 'success'
+    )))) {
+      throw new Error('Legacy proofless closeout lacks durable unregister success.');
+    }
+    const retiredPhase = loadRetiredWorktreePhase(expectedRecoveryRoot, authorization);
+    if (retiredPhase === null) {
+      throw new Error('Legacy proofless closeout lacks its durable retirement phase.');
+    }
+    await observeProoflessWorktreeCloseoutConvergence({
+      repositoryRoot: repository.root,
+      commonDir: repository.commonDir,
+      authorization,
+      retiredPhase,
+      stage: 'initial'
+    });
+    await assertLeases();
+    const registry = await observeProoflessWorktreeCloseoutConvergence({
+      repositoryRoot: repository.root,
+      commonDir: repository.commonDir,
+      authorization,
+      retiredPhase,
+      stage: 'effect-boundary'
+    });
+    await assertLeases();
+    return persistReceiptGeneration(expectedRecoveryRoot, createReceipt(
+      authorization,
+      registry.digest,
+      [{
+        operation: 'readback',
+        status: 'success',
+        relativePath: null,
+        detailDigest: detailDigest('legacy-proofless-terminal-absence-readback')
+      }],
+      false,
+      false,
+      null,
+      []
+    ));
+  }
+  const expectedProofRoot = proofPresence.directory.target;
+  if (expectedProofRoot.device !== authorization.proofRoot.device || expectedProofRoot.inode !== authorization.proofRoot.inode ||
+    expectedProofRoot.device !== authorization.targetLeaseNamespace.device) {
+    throw new Error('Authorization proof root physical identity or target-volume binding changed.');
+  }
   if (authorization.generatedStateRetirement !== null) {
     assertGeneratedStateWorktreeRetirementEffectStart({
       receipt: authorization.generatedStateRetirement,
@@ -1149,7 +1254,6 @@ async function executeWorktreePhysicalCloseoutUnderLease(
       expectedTreeSha: authorization.target.treeSha
     });
   }
-  const prior = loadLatestReceiptGeneration(expectedRecoveryRoot);
   if (prior !== null) {
     if (prior.authorizationDigest !== authorization.authorizationDigest) {
       throw new Error('Existing receipt belongs to another authorization.');
@@ -1754,6 +1858,399 @@ export function assertTrustedCompletedWorktreePhysicalCloseout(input: {
     throw new Error('Trusted completed worktree receipt lacks actual unregister/readback closure.');
   }
   return receipt;
+}
+
+export interface WorktreePhysicalCloseoutEvidenceGcResult {
+  readonly schema: 'sec-worktree-physical-closeout-evidence-gc-v1';
+  readonly retiredOperationIds: readonly Digest[];
+  readonly ownerRetired: boolean;
+  readonly retained: readonly Readonly<{
+    operationId: Digest;
+    reason: 'branch-live' | 'not-completed' | 'incompatible-active-proof';
+    terminal: WorktreePhysicalCloseoutReceipt['terminal'] | 'prepared';
+  }>[];
+}
+
+interface WorktreePhysicalCloseoutGcAuthorizationBinding {
+  readonly operationId: Digest;
+  readonly authorizationDigest: Digest;
+  readonly target: Readonly<{ path: string; branch: string }>;
+  readonly registryAdmin: Readonly<{ relativePath: string }>;
+  readonly proofRoot: Readonly<{ path: string }>;
+  readonly retentionRootPath: string | null;
+  readonly current: WorktreePhysicalCloseoutAuthorization | null;
+}
+
+function loadWorktreePhysicalCloseoutGcAuthorization(
+  operationRoot: PhysicalDirectoryIdentity
+): WorktreePhysicalCloseoutGcAuthorizationBinding {
+  const bytes = readNoFollowOrdinaryFile(operationRoot, 'authorization.json');
+  if (bytes === null) throw new Error('Worktree closeout GC authorization is absent.');
+  const value: unknown = JSON.parse(Buffer.from(bytes).toString('utf8'));
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Worktree closeout GC authorization is not an object.');
+  }
+  const record = value as Record<string, unknown>;
+  const operationId = record.operationId as Digest;
+  const authorizationDigest = record.authorizationDigest as Digest;
+  if (record.schema !== WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA
+      || !/^sha256:[0-9a-f]{64}$/u.test(operationId)
+      || !/^sha256:[0-9a-f]{64}$/u.test(authorizationDigest)) {
+    throw new Error('Worktree closeout GC authorization identity is invalid.');
+  }
+  const { authorizationDigest: ignoredAuthorizationDigest, ...withoutDigest } = record;
+  void ignoredAuthorizationDigest;
+  if (sha256(withoutDigest) !== authorizationDigest) {
+    throw new Error('Worktree closeout GC authorization self-digest differs.');
+  }
+  const target = record.target as Record<string, unknown> | undefined;
+  const registryAdmin = record.registryAdmin as Record<string, unknown> | undefined;
+  const targetPath = String(target?.path ?? '');
+  const targetBranch = String(target?.branch ?? '');
+  const registryAdminRelativePath = String(registryAdmin?.relativePath ?? '');
+  const proofRoot = record.proofRoot as Record<string, unknown> | undefined;
+  const proofPath = String(proofRoot?.path ?? '');
+  const generatedStateRetirement = record.generatedStateRetirement as Record<string, unknown> | null | undefined;
+  const generatedStateRetentionRoot = generatedStateRetirement?.retentionRoot as Record<string, unknown> | null | undefined;
+  const retentionRootPath = generatedStateRetentionRoot === null || generatedStateRetentionRoot === undefined
+    ? null
+    : String(generatedStateRetentionRoot.path ?? '');
+  if (!path.isAbsolute(targetPath) || targetBranch.length === 0
+      || !/^worktrees\/[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(registryAdminRelativePath)
+      || !path.isAbsolute(proofPath)
+      || (retentionRootPath !== null && !path.isAbsolute(retentionRootPath))
+      || path.basename(proofPath) !== `sec-worktree-closeout-proof-${operationId.slice('sha256:'.length)}`) {
+    throw new Error('Worktree closeout GC authorization paths are invalid.');
+  }
+  let current: WorktreePhysicalCloseoutAuthorization | null = null;
+  try {
+    current = assertWorktreePhysicalCloseoutAuthorization(value as WorktreePhysicalCloseoutAuthorization);
+  } catch {
+    // Historical completed generations keep their original self-authenticated
+    // bytes; GC does not grant them current execution authority.
+  }
+  return Object.freeze({
+    operationId,
+    authorizationDigest,
+    target: Object.freeze({ path: targetPath, branch: targetBranch }),
+    registryAdmin: Object.freeze({ relativePath: registryAdminRelativePath }),
+    proofRoot: Object.freeze({ path: proofPath }),
+    retentionRootPath,
+    current
+  });
+}
+
+/**
+ * Reclaims only terminal worktree-closeout evidence whose target and Git admin
+ * objects are absent and whose local branch authority has already disappeared.
+ * Residue remains a durable recovery root; unknown or malformed generations
+ * fail closed instead of being classified by age or path name.
+ */
+export async function gcCompletedWorktreePhysicalCloseoutEvidence(
+  repositoryRoot: string
+): Promise<WorktreePhysicalCloseoutEvidenceGcResult> {
+  const preflightRepository = await repositoryFacts(repositoryRoot);
+  const preflightOwner = inspectExactNoFollowDirectoryPresence(
+    path.join(preflightRepository.commonDir, 'sec-worktree-closeout'),
+    'Worktree closeout GC owner preflight'
+  );
+  if (preflightOwner.state === 'absent') {
+    return Object.freeze({
+      schema: 'sec-worktree-physical-closeout-evidence-gc-v1' as const,
+      retiredOperationIds: Object.freeze([]),
+      ownerRetired: false,
+      retained: Object.freeze([])
+    });
+  }
+  return withWorkspaceWriteLease(repositoryRoot, undefined, async (lease) => {
+    await assertWorkspaceWriteLease(repositoryRoot, lease);
+    const repository = await repositoryFacts(repositoryRoot);
+    const commonDir = physicalDirectory(repository.commonDir, 'Worktree closeout GC common-dir');
+    const ownerPath = path.join(commonDir.path, 'sec-worktree-closeout');
+    const ownerPresence = inspectExactNoFollowDirectoryPresence(
+      ownerPath,
+      'Worktree closeout GC owner'
+    );
+    if (ownerPresence.state === 'absent') {
+      return Object.freeze({
+        schema: 'sec-worktree-physical-closeout-evidence-gc-v1' as const,
+        retiredOperationIds: Object.freeze([]),
+        ownerRetired: true,
+        retained: Object.freeze([])
+      });
+    }
+    const owner = ownerPresence.directory.target;
+    const children = scanNoFollowDirectoryDirectMetadata(owner, {
+      deadlineAtMs: performance.now() + 10_000,
+      maximumEntries: 20_000
+    });
+    const unsafe = children.find(({ kind }) => kind !== 'directory');
+    if (unsafe !== undefined) {
+      throw new Error(`Worktree closeout GC owner contains a non-directory entry: ${unsafe.relativePath}`);
+    }
+    const retired: Digest[] = [];
+    const retained: Array<WorktreePhysicalCloseoutEvidenceGcResult['retained'][number]> = [];
+    for (const child of [...children].sort((left, right) => left.relativePath.localeCompare(right.relativePath))) {
+      await assertWorkspaceWriteLease(repositoryRoot, lease);
+      const operationRoot = physicalDirectory(
+        path.join(owner.path, child.relativePath),
+        'Worktree closeout GC operation root'
+      );
+      const authorization = loadWorktreePhysicalCloseoutGcAuthorization(operationRoot);
+      if (child.relativePath !== authorization.operationId.slice('sha256:'.length)) {
+        throw new Error(`Worktree closeout GC operation is incomplete or misbound: ${child.relativePath}`);
+      }
+      const receipt = loadLatestReceiptGeneration(operationRoot);
+      if (receipt === null) {
+        retained.push(Object.freeze({
+          operationId: authorization.operationId,
+          reason: 'not-completed' as const,
+          terminal: 'prepared' as const
+        }));
+        continue;
+      }
+      if (receipt.authorizationDigest !== authorization.authorizationDigest) {
+        throw new Error(`Worktree closeout GC receipt is misbound: ${child.relativePath}`);
+      }
+      const chain = loadReceiptChain(operationRoot, receipt);
+      if (chain.some((generation) => generation.authorizationDigest !== authorization.authorizationDigest
+          || generation.operationId !== authorization.operationId)) {
+        throw new Error(`Worktree closeout GC receipt chain crosses authorization: ${authorization.operationId}`);
+      }
+      if (receipt.terminal !== 'completed') {
+        retained.push(Object.freeze({
+          operationId: authorization.operationId,
+          reason: 'not-completed' as const,
+          terminal: receipt.terminal
+        }));
+        continue;
+      }
+      const branchObservation = authorization.target.branch.startsWith(DETACHED_BRANCH_PREFIX)
+        ? null
+        : await runRepositoryGit(repository.root, [
+            'show-ref', '--verify', '--quiet', `refs/heads/${authorization.target.branch}`
+          ]);
+      if (branchObservation !== null
+          && branchObservation.status !== 0 && branchObservation.status !== 1) {
+        throw new Error(
+          `Worktree closeout GC local branch observation failed: ${branchObservation.stderr.toString('utf8').trim()}`
+        );
+      }
+      const branchLive = branchObservation?.status === 0;
+      if (branchLive) {
+        retained.push(Object.freeze({
+          operationId: authorization.operationId,
+          reason: 'branch-live' as const,
+          terminal: receipt.terminal
+        }));
+        continue;
+      }
+      const registryAdminPath = path.join(
+        commonDir.path,
+        ...authorization.registryAdmin.relativePath.split('/')
+      );
+      if (physicalPresence(authorization.target.path, 'Worktree closeout GC target readback') !== null
+          || physicalPresence(registryAdminPath, 'Worktree closeout GC admin readback') !== null) {
+        throw new Error(`Completed worktree closeout regained physical state: ${authorization.operationId}`);
+      }
+      const unregister = chain.some((generation) => generation.attempts.some((attempt) => (
+        attempt.operation === 'unregister' && attempt.status === 'success'
+      )));
+      const readback = chain.some((generation) => generation.attempts.some((attempt) => (
+        attempt.operation === 'readback' && attempt.status === 'success'
+      )));
+      if (!unregister || !readback) {
+        throw new Error(`Completed worktree closeout lacks unregister/readback evidence: ${authorization.operationId}`);
+      }
+      const retiredIntent = authorization.current === null
+        ? null
+        : loadRetiredWorktreeIntent(operationRoot, authorization.current);
+      const retiredPhase = authorization.current === null
+        ? null
+        : loadRetiredWorktreePhase(operationRoot, authorization.current);
+      const allowedOperationFiles = new Set<string>([
+        'authorization.json',
+        'receipt-latest.json',
+        ...chain.map(receiptGenerationName),
+        ...(retiredIntent === null ? [] : [retirementIntentName(retiredIntent)]),
+        ...(retiredPhase === null ? [] : [retiredPhaseName(retiredPhase)])
+      ]);
+      const operationInventory = scanNoFollowDirectoryTreeMetadata(operationRoot, {
+        deadlineAtMs: performance.now() + 10_000,
+        maximumEntries: 20_000
+      });
+      const unknownOperationEvidence = operationInventory.find((entry) => (
+        entry.kind !== 'file' || !allowedOperationFiles.has(entry.relativePath)
+      ));
+      if (unknownOperationEvidence !== undefined) {
+        throw new Error(
+          `Worktree closeout GC found unvalidated operation evidence: ${unknownOperationEvidence.relativePath}`
+        );
+      }
+      const retentionPresence = authorization.retentionRootPath === null
+        ? null
+        : inspectExactNoFollowDirectoryPresence(
+            authorization.retentionRootPath,
+            'Worktree closeout GC generated-state retention root'
+          );
+      if (retentionPresence?.state === 'present' && authorization.current === null) {
+        retained.push(Object.freeze({
+          operationId: authorization.operationId,
+          reason: 'incompatible-active-proof' as const,
+          terminal: receipt.terminal
+        }));
+        continue;
+      }
+      const proofPresence = inspectExactNoFollowDirectoryPresence(
+        authorization.proofRoot.path,
+        'Worktree closeout GC proof root'
+      );
+      let prooflessAuthorization: WorktreePhysicalCloseoutAuthorization | null = null;
+      if (proofPresence.state === 'present') {
+        if (authorization.current === null) {
+          retained.push(Object.freeze({
+            operationId: authorization.operationId,
+            reason: 'incompatible-active-proof' as const,
+            terminal: receipt.terminal
+          }));
+          continue;
+        }
+        const currentAuthorization = authorization.current;
+        const proofRoot = proofPresence.directory.target;
+        if (proofRoot.device !== currentAuthorization.proofRoot.device
+            || proofRoot.inode !== currentAuthorization.proofRoot.inode) {
+          throw new Error(`Worktree closeout GC proof identity changed: ${authorization.operationId}`);
+        }
+        if (retiredPhase === null || readNoFollowOrdinaryFile(
+          physicalDirectory(path.dirname(currentAuthorization.target.path), 'Worktree closeout GC fence parent'),
+          retiredPhase.retirementReceipt.fenceName
+        ) !== null) {
+          throw new Error(`Worktree closeout GC retirement phase is incomplete: ${authorization.operationId}`);
+        }
+        assertAuthorizedLeaseNamespaceBinding(currentAuthorization, retiredPhase.retirementReceipt);
+        assertWorkspaceWriteLeaseRetirementProof({
+          workspaceRoot: path.join(path.dirname(currentAuthorization.target.path), currentAuthorization.tombstoneName),
+          receipt: retiredPhase.retirementReceipt,
+          proofParent: proofRoot
+        });
+        retireNoFollowDirectoryTree({
+          deadlineAtMonotonicMs: performance.now() + 10_000,
+          inventory: scanNoFollowDirectoryTreeMetadata(proofRoot, {
+            deadlineAtMs: performance.now() + 10_000,
+            maximumEntries: 20_000
+          }),
+          parent: physicalDirectory(path.dirname(proofRoot.path), 'Worktree closeout GC proof parent'),
+          root: proofRoot
+        });
+      } else {
+        if (authorization.current === null || retiredPhase === null) {
+          throw new Error(`Proofless worktree closeout lacks current authorization or retirement phase: ${authorization.operationId}`);
+        }
+        const currentAuthorization = authorization.current;
+        assertAuthorizedLeaseNamespaceBinding(currentAuthorization, retiredPhase.retirementReceipt);
+        prooflessAuthorization = currentAuthorization;
+        await observeProoflessWorktreeCloseoutConvergence({
+          repositoryRoot: repository.root,
+          commonDir: repository.commonDir,
+          authorization: currentAuthorization,
+          retiredPhase,
+          stage: 'gc-initial'
+        });
+      }
+      const generatedStateRetirement = authorization.current?.generatedStateRetirement ?? null;
+      if (generatedStateRetirement?.retentionRoot !== null && generatedStateRetirement !== null) {
+        if (retentionPresence?.state === 'present') {
+          assertGeneratedStateWorktreeRetirementEffectStart({
+            receipt: generatedStateRetirement,
+            repositoryRoot: authorization.current!.repository.root,
+            workspaceRoot: authorization.current!.target.path,
+            expectedBranch: authorization.current!.target.branch,
+            expectedHeadSha: authorization.current!.target.headSha,
+            expectedTreeSha: authorization.current!.target.treeSha
+          });
+          const retentionRoot = retentionPresence.directory.target;
+          retireNoFollowDirectoryTree({
+            deadlineAtMonotonicMs: performance.now() + 10_000,
+            inventory: scanNoFollowDirectoryTreeMetadata(retentionRoot, {
+              deadlineAtMs: performance.now() + 10_000,
+              maximumEntries: 20_000
+            }),
+            parent: physicalDirectory(path.dirname(retentionRoot.path), 'Worktree closeout GC retention parent'),
+            root: retentionRoot
+          });
+        }
+      } else if (generatedStateRetirement !== null) {
+        assertGeneratedStateWorktreeRetirementEffectStart({
+          receipt: generatedStateRetirement,
+          repositoryRoot: authorization.current!.repository.root,
+          workspaceRoot: authorization.current!.target.path,
+          expectedBranch: authorization.current!.target.branch,
+          expectedHeadSha: authorization.current!.target.headSha,
+          expectedTreeSha: authorization.current!.target.treeSha
+        });
+      }
+      if (prooflessAuthorization !== null) {
+        await assertWorkspaceWriteLease(repositoryRoot, lease);
+        const branchObservation = prooflessAuthorization.target.branch.startsWith(DETACHED_BRANCH_PREFIX)
+          ? null
+          : await runRepositoryGit(repository.root, [
+              'show-ref', '--verify', '--quiet', `refs/heads/${prooflessAuthorization.target.branch}`
+            ]);
+        if (branchObservation !== null
+            && branchObservation.status !== 0 && branchObservation.status !== 1) {
+          throw new Error(
+            `Proofless worktree closeout branch observation failed at gc-effect-boundary: ${branchObservation.stderr.toString('utf8').trim()}`
+          );
+        }
+        if (branchObservation?.status === 0) {
+          throw new Error(`Proofless worktree closeout has not converged at gc-effect-boundary: branch-present`);
+        }
+        await observeProoflessWorktreeCloseoutConvergence({
+          repositoryRoot: repository.root,
+          commonDir: repository.commonDir,
+          authorization: prooflessAuthorization,
+          retiredPhase: retiredPhase!,
+          stage: 'gc-effect-boundary'
+        });
+        await assertWorkspaceWriteLease(repositoryRoot, lease);
+      }
+      retireNoFollowDirectoryTree({
+        deadlineAtMonotonicMs: performance.now() + 10_000,
+        inventory: operationInventory,
+        parent: owner,
+        root: operationRoot
+      });
+      trustedTokensByAuthorization.delete(authorization.authorizationDigest);
+      retired.push(authorization.operationId);
+    }
+    await assertWorkspaceWriteLease(repositoryRoot, lease);
+    const ownerRetired = scanNoFollowDirectoryDirectMetadata(owner, {
+      deadlineAtMs: performance.now() + 10_000,
+      maximumEntries: 20_000
+    }).length === 0;
+    if (ownerRetired) {
+      deleteRetainedNoFollowEntry({
+        root: commonDir,
+        relativePath: 'sec-worktree-closeout',
+        kind: 'directory',
+        device: owner.device,
+        inode: owner.inode,
+        ancestorDirectories: []
+      });
+      if (inspectExactNoFollowDirectoryPresence(
+        owner.path,
+        'Worktree closeout GC empty owner readback'
+      ).state !== 'absent') {
+        throw new Error('Worktree closeout GC empty owner remains after retirement.');
+      }
+    }
+    return Object.freeze({
+      schema: 'sec-worktree-physical-closeout-evidence-gc-v1' as const,
+      retiredOperationIds: Object.freeze(retired),
+      ownerRetired,
+      retained: Object.freeze(retained)
+    });
+  });
 }
 
 function option(args: readonly string[], name: string): string {

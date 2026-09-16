@@ -140,6 +140,7 @@ for (const mutate of ['delete', 'replace'] as const) {
     // Force ordinary property enumeration rather than a runtime's optimized
     // spread path, which may already have captured the symbol before the getter.
     assert.throws(() => install(new Proxy(candidate, {})), rejected);
+    assert.equal(context(candidate), context(original));
   });
   test(`a control getter cannot ${mutate} the retained binding before ledger admission`, () => {
     const original = parent(), other = parent();

@@ -102,6 +102,46 @@
       "retirement": "domain-receipt-required"
     },
     {
+      "id": "compiler-dependency-coordination-cutover",
+      "selector": { "kind": "exact", "path": ".tmp/dependency-installs/compiler.lock.reclaim" },
+      "stateClass": "identity-bound-control-state",
+      "owner": "compiler-dependency-runtime",
+      "producer": "ensure-compiler-deps-ready",
+      "physicalForms": [{
+        "kind": "file",
+        "contentsPolicy": "ordinary-file",
+        "settlementEffect": "domain-owner-only",
+        "worktreeRetirement": { "mode": "preserve" }
+      }],
+      "scope": "workspace",
+      "activeOwnerSignal": "domain-owner-receipt",
+      "capacityPolicyRef": "owner-defined-protected",
+      "registration": "domain-owned",
+      "reconstruction": "owner-recovery-only",
+      "cleanupProfiles": [],
+      "retirement": "domain-receipt-required"
+    },
+    {
+      "id": "compiler-dependency-coordination-locator",
+      "selector": { "kind": "exact", "path": ".tmp/dependency-installs/compiler.lock.reclaim.locator" },
+      "stateClass": "identity-bound-control-state",
+      "owner": "compiler-dependency-runtime",
+      "producer": "ensure-compiler-deps-ready",
+      "physicalForms": [{
+        "kind": "file",
+        "contentsPolicy": "ordinary-file",
+        "settlementEffect": "domain-owner-only",
+        "worktreeRetirement": { "mode": "preserve" }
+      }],
+      "scope": "workspace",
+      "activeOwnerSignal": "domain-owner-receipt",
+      "capacityPolicyRef": "owner-defined-protected",
+      "registration": "domain-owned",
+      "reconstruction": "owner-recovery-only",
+      "cleanupProfiles": [],
+      "retirement": "domain-receipt-required"
+    },
+    {
       "id": "compiler-dependency-staging",
       "selector": { "kind": "direct-child-prefix", "parent": ".tmp/dependency-installs", "prefix": "c.staging-" },
       "stateClass": "active-ephemeral-workspace",

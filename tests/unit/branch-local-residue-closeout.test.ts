@@ -1,9 +1,12 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   readdirSync,
   renameSync,
   rmSync,
@@ -13,6 +16,16 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import {
+  createBranchCloseoutOperationBinding,
+  createBranchCloseoutOperationJournal,
+  createBranchCloseoutOperationReceipt,
+  createBranchCloseoutPreparation,
+  createBranchCloseoutReceipt
+} from '../../src/control/branch-lifecycle/branch-closeout-contract.ts';
+import { BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA } from '../../src/control/branch-lifecycle/branch-closeout.ts';
+import { branchLifecycleDigest } from '../../src/control/branch-lifecycle/branch-lifecycle-audit.ts';
+import type { BranchCloseoutReceiptObservation, BranchLifecycleInventory } from '../../src/control/branch-lifecycle/branch-lifecycle-types.ts';
 import {
   executeMergedLocalBranchResidueCloseout,
   parseMergedPullRequestHeads,
@@ -136,6 +149,135 @@ function createEffectFixture(label: string) {
   };
 }
 
+function completedDuplicateOperationReceipt(input: Readonly<{
+  repositoryRoot: string;
+  headSha: string;
+  mainSha: string;
+  recoveryPath: string;
+  recoveryDigest: `sha256:${string}`;
+  consumptionOperationId?: string;
+}>) {
+  const closeoutReceipt: BranchCloseoutReceiptObservation = {
+    requirement: 'not-required',
+    status: 'not-required',
+    receipt: null,
+    reason: null
+  };
+  const snapshot: BranchLifecycleInventory = {
+    schema: 'sec-branch-lifecycle-inventory-v1',
+    observedAt: '2026-08-22T00:00:00.000Z',
+    repository: {
+      root: input.repositoryRoot,
+      commonDir: path.join(input.repositoryRoot, '.git'),
+      fullName: 'sec-platform/sec',
+      remote: 'origin',
+      remoteUrl: 'https://github.com/sec-platform/sec.git',
+      defaultBranch: 'main'
+    },
+    main: { localSha: input.mainSha, remoteSha: input.mainSha },
+    localBranches: [{ branch: 'main', sha: input.mainSha }],
+    remoteBranches: [{ branch: 'main', sha: input.mainSha }],
+    worktrees: [{
+      path: input.repositoryRoot,
+      headSha: input.mainSha,
+      branch: 'main',
+      dirtyCount: 0,
+      untrackedCount: 0,
+      locked: false,
+      prunable: false,
+      observation: 'resolved',
+      reason: null
+    }],
+    pullRequests: [{
+      number: 42,
+      headBranch: 'fix/example',
+      headSha: input.headSha,
+      baseBranch: 'main',
+      baseSha: input.mainSha,
+      state: 'merged',
+      isDraft: false,
+      isCrossRepository: false,
+      url: 'https://github.com/sec-platform/sec/pull/42',
+      publishedCloseoutReceipts: [],
+      invalidCloseoutReceiptComments: [],
+      closeoutReceipt
+    }],
+    activeWorkPackage: { state: 'none', branch: null, manifest: null, reason: null },
+    repositorySetting: { observation: 'resolved', deleteBranchOnMerge: true, reason: null },
+    pruneConfiguration: {
+      observation: 'resolved',
+      fetchPrune: true,
+      remotePrune: true,
+      fetchPruneTags: true,
+      reason: null
+    },
+    unknowns: []
+  };
+  const preparation = createBranchCloseoutPreparation({
+    preparedAt: '2026-08-22T00:00:00.000Z',
+    repository: snapshot.repository,
+    branch: 'fix/example',
+    refState: 'present',
+    expectedHeadSha: input.headSha,
+    expectedRemoteSha: input.headSha,
+    expectedLocalSha: null,
+    expectedPrHeadSha: null,
+    pullRequestNumber: 42,
+    pullRequestStateAtPreparation: 'merged',
+    recovery: {
+      kind: 'bundle',
+      path: input.recoveryPath,
+      sha256: input.recoveryDigest,
+      verified: true,
+      verifyOutput: 'ok'
+    },
+    worktreePathsAtPreparation: []
+  });
+  const receipt = createBranchCloseoutReceipt({
+    generatedAt: '2026-08-22T00:01:00.000Z',
+    preparation,
+    request: {
+      capability: 'branch-ref-closeout-v1',
+      disposition: 'merged',
+      durableGoal: { kind: 'main', reference: `main@${input.mainSha}` }
+    },
+    authorization: {
+      branch: 'fix/example',
+      classification: 'merged-closeout',
+      remoteAction: 'already-absent',
+      localAction: 'already-absent',
+      blockers: [],
+      protections: []
+    },
+    attempts: [{ operation: 'readback', status: 'success', detail: 'exact readback' }],
+    before: snapshot,
+    after: snapshot
+  });
+  const binding = createBranchCloseoutOperationBinding({
+    integrationAuthorization: {
+      authorizationId: 'authorization-42',
+      consumptionOperationId: input.consumptionOperationId ?? 'merge-42',
+      receiptDigest: `sha256:${'d'.repeat(64)}`,
+      repository: 'sec-platform/sec',
+      prNumber: 42,
+      headSha: input.headSha
+    },
+    preparation,
+    newMainSha: input.mainSha,
+    newMainTreeSha: input.mainSha,
+    candidateTreeSha: input.mainSha
+  });
+  return createBranchCloseoutOperationReceipt({
+    binding,
+    writerId: 'duplicate-family-test',
+    generatedAt: '2026-08-22T00:01:00.000Z',
+    remote: { state: 'observed-absent', detailDigest: input.recoveryDigest },
+    local: { state: 'observed-absent', detailDigest: input.recoveryDigest },
+    prune: { state: 'applied', detailDigest: input.recoveryDigest },
+    receipt
+  });
+}
+
 function merged(branch = 'fix/example', headSha = HEAD) {
   return {
     number: 42,
@@ -246,8 +388,8 @@ test('binds repository provider identity and exact PR repository URLs', () => {
   }]), 'sec-platform/sec')).toThrow(/URL differs/u);
 });
 
-test('resumes the same durable authorization after crashes before and after the ref effect', async () => {
-  for (const boundary of ['afterAuthorization', 'afterDelete', 'afterReadback'] as const) {
+for (const boundary of ['afterAuthorization', 'afterDelete', 'afterReadback', 'afterReceipt'] as const) {
+  test(`resumes the same durable authorization after ${boundary}`, async () => {
     const fixture = createEffectFixture(boundary);
     try {
       await expect(executeMergedLocalBranchResidueCloseout({
@@ -262,7 +404,8 @@ test('resumes the same durable authorization after crashes before and after the 
         .filter((name) => name.endsWith('.authorization.json'));
       expect(authorizationNames).toHaveLength(1);
       expect(readdirSync(fixture.recoveryRoot)
-        .filter((name) => name.endsWith('.receipt.json'))).toHaveLength(0);
+        .filter((name) => name.endsWith('.receipt.json')))
+        .toHaveLength(boundary === 'afterReceipt' ? 1 : 0);
       expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/example'))
         .toBe(boundary === 'afterAuthorization');
 
@@ -274,9 +417,14 @@ test('resumes the same durable authorization after crashes before and after the 
       });
       expect(result.settled).toEqual(['fix/example']);
       expect(readdirSync(fixture.recoveryRoot)
-        .filter((name) => name.endsWith('.authorization.json'))).toEqual(authorizationNames);
+        .filter((name) => name.endsWith('.authorization.json'))).toEqual([]);
       expect(readdirSync(fixture.recoveryRoot)
-        .filter((name) => name.endsWith('.receipt.json'))).toHaveLength(1);
+        .filter((name) => name.endsWith('.receipt.json'))).toHaveLength(0);
+      expect(readdirSync(fixture.recoveryRoot)
+        .filter((name) => name.endsWith('.bundle') || name.endsWith('.bundle.sha256'))).toEqual([]);
+      expect(result.authorizationPath).toBeNull();
+      expect(result.receiptPath).toBeNull();
+      expect(result.retiredRecoveryFiles.length).toBeGreaterThanOrEqual(4);
       const ref = spawnSync('git', ['show-ref', '--verify', '--quiet', 'refs/heads/fix/example'], {
         cwd: fixture.repositoryRoot,
         windowsHide: true
@@ -296,6 +444,348 @@ test('resumes the same durable authorization after crashes before and after the 
       expect(fixture.calls.filter((call) => call.includes('ls-remote'))
         .every((call) => call.at(-1) === 'https://github.com/sec-platform/sec.git'))
         .toBeTrue();
+    } finally {
+      fixture.dispose();
+    }
+  }, 30_000);
+}
+
+test('terminal settlement removes the duplicate branch-closeout bundle family', async () => {
+  const fixture = createEffectFixture('duplicate-bundle-retirement');
+  try {
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run,
+      now: () => new Date('2026-08-22T00:00:00.000Z'),
+      faults: {
+        afterAuthorization: () => {
+          const authorizationName = readdirSync(fixture.recoveryRoot)
+            .find((name) => name.endsWith('.authorization.json'))!;
+          const authorization = JSON.parse(
+            readFileSync(path.join(fixture.recoveryRoot, authorizationName), 'utf8')
+          ) as { entries: Array<{ recovery: { path: string } }> };
+          const original = readFileSync(authorization.entries[0]!.recovery.path);
+          const duplicateName = `sec-branch-closeout-fix-example-1-1-${fixture.headSha.slice(0, 12)}.bundle`;
+          writeFileSync(path.join(fixture.recoveryRoot, duplicateName), original);
+          const digest = createHash('sha256').update(original).digest('hex');
+          writeFileSync(
+            path.join(fixture.recoveryRoot, `${duplicateName}.sha256`),
+            `${digest}  ${duplicateName}\n`
+          );
+          const operationReceipt = completedDuplicateOperationReceipt({
+            repositoryRoot: fixture.repositoryRoot,
+            headSha: fixture.headSha,
+            mainSha: fixture.mainSha,
+            recoveryPath: path.join(fixture.recoveryRoot, duplicateName),
+            recoveryDigest: `sha256:${digest}`
+          });
+          const preparationMaterial = {
+            schema: BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA,
+            preparation: operationReceipt.receipt.preparation,
+            before: operationReceipt.receipt.before,
+            attempts: [],
+            foreignWorktreeObservations: []
+          };
+          writeFileSync(
+            path.join(fixture.recoveryRoot, `${duplicateName}.preparation.json`),
+            `${JSON.stringify({
+              ...preparationMaterial,
+              envelopeDigest: branchLifecycleDigest(preparationMaterial)
+            }, null, 2)}\n`
+          );
+          writeFileSync(
+            path.join(
+              fixture.recoveryRoot,
+              `${duplicateName}.closeout-${operationReceipt.binding.closeoutOperationId.slice('sha256:'.length)}.receipt.json`
+            ),
+            `${JSON.stringify(operationReceipt, null, 2)}\n`
+          );
+          throw new Error('fault:duplicate-ready');
+        }
+      }
+    })).rejects.toThrow('fault:duplicate-ready');
+
+    const result = await executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run,
+      now: () => new Date('2026-08-22T00:01:00.000Z')
+    });
+    expect(result.settled).toEqual(['fix/example']);
+    expect(readdirSync(fixture.recoveryRoot)).toEqual([]);
+    expect(result.retiredRecoveryFiles.some((file) => file.includes('sec-branch-closeout-fix-example')))
+      .toBeTrue();
+  } finally {
+    fixture.dispose();
+  }
+}, 30_000);
+
+test('completed duplicate attempt cannot retire a newer pending operation in the same family', async () => {
+  const fixture = createEffectFixture('duplicate-pending-operation');
+  let duplicateName = '';
+  let completedReceiptName = '';
+  let pendingJournalName = '';
+  try {
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run,
+      now: () => new Date('2026-08-22T00:00:00.000Z'),
+      faults: {
+        afterAuthorization: () => {
+          const authorizationName = readdirSync(fixture.recoveryRoot)
+            .find((name) => name.endsWith('.authorization.json'))!;
+          const authorization = JSON.parse(
+            readFileSync(path.join(fixture.recoveryRoot, authorizationName), 'utf8')
+          ) as { entries: Array<{ recovery: { path: string } }> };
+          const original = readFileSync(authorization.entries[0]!.recovery.path);
+          duplicateName = `sec-branch-closeout-fix-example-1-1-${fixture.headSha.slice(0, 12)}.bundle`;
+          writeFileSync(path.join(fixture.recoveryRoot, duplicateName), original);
+          const digest = createHash('sha256').update(original).digest('hex');
+          writeFileSync(
+            path.join(fixture.recoveryRoot, `${duplicateName}.sha256`),
+            `${digest}  ${duplicateName}\n`
+          );
+          const completed = completedDuplicateOperationReceipt({
+            repositoryRoot: fixture.repositoryRoot,
+            headSha: fixture.headSha,
+            mainSha: fixture.mainSha,
+            recoveryPath: path.join(fixture.recoveryRoot, duplicateName),
+            recoveryDigest: `sha256:${digest}`,
+            consumptionOperationId: 'merge-completed'
+          });
+          const pending = completedDuplicateOperationReceipt({
+            repositoryRoot: fixture.repositoryRoot,
+            headSha: fixture.headSha,
+            mainSha: fixture.mainSha,
+            recoveryPath: path.join(fixture.recoveryRoot, duplicateName),
+            recoveryDigest: `sha256:${digest}`,
+            consumptionOperationId: 'merge-pending'
+          });
+          completedReceiptName = `${duplicateName}.closeout-${completed.binding.closeoutOperationId.slice('sha256:'.length)}.receipt.json`;
+          writeFileSync(path.join(fixture.recoveryRoot, completedReceiptName), `${JSON.stringify(completed, null, 2)}\n`);
+          const pendingJournal = createBranchCloseoutOperationJournal({
+            binding: pending.binding,
+            writerId: 'duplicate-family-test',
+            remote: { state: 'not-started', detailDigest: null },
+            local: { state: 'not-started', detailDigest: null },
+            prune: { state: 'not-started', detailDigest: null },
+            terminalReceiptDigest: null
+          });
+          pendingJournalName = `${duplicateName}.closeout-${pending.binding.closeoutOperationId.slice('sha256:'.length)}.journal.json`;
+          writeFileSync(
+            path.join(fixture.recoveryRoot, pendingJournalName),
+            `${JSON.stringify(pendingJournal, null, 2)}\n`
+          );
+          throw new Error('fault:duplicate-pending-ready');
+        }
+      }
+    })).rejects.toThrow('fault:duplicate-pending-ready');
+
+    const result = await executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run,
+      now: () => new Date('2026-08-22T00:01:00.000Z')
+    });
+    expect(result.settled).toEqual(['fix/example']);
+    expect(existsSync(path.join(fixture.recoveryRoot, duplicateName))).toBeTrue();
+    expect(existsSync(path.join(fixture.recoveryRoot, `${duplicateName}.sha256`))).toBeTrue();
+    expect(existsSync(path.join(fixture.recoveryRoot, completedReceiptName))).toBeTrue();
+    expect(existsSync(path.join(fixture.recoveryRoot, pendingJournalName))).toBeTrue();
+  } finally {
+    fixture.dispose();
+  }
+}, 30_000);
+
+test('pure duplicate bundle and checksum retire without lifecycle evidence', async () => {
+  const fixture = createEffectFixture('duplicate-bundle-only-retirement');
+  let duplicateName = '';
+  try {
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run,
+      now: () => new Date('2026-08-22T00:00:00.000Z'),
+      faults: {
+        afterAuthorization: () => {
+          const authorizationName = readdirSync(fixture.recoveryRoot)
+            .find((name) => name.endsWith('.authorization.json'))!;
+          const authorization = JSON.parse(
+            readFileSync(path.join(fixture.recoveryRoot, authorizationName), 'utf8')
+          ) as { entries: Array<{ recovery: { path: string } }> };
+          const original = readFileSync(authorization.entries[0]!.recovery.path);
+          duplicateName = `sec-branch-closeout-fix-example-1-1-${fixture.headSha.slice(0, 12)}.bundle`;
+          writeFileSync(path.join(fixture.recoveryRoot, duplicateName), original);
+          const digest = createHash('sha256').update(original).digest('hex');
+          writeFileSync(
+            path.join(fixture.recoveryRoot, `${duplicateName}.sha256`),
+            `${digest}  ${duplicateName}\n`
+          );
+          throw new Error('fault:bundle-only-duplicate-ready');
+        }
+      }
+    })).rejects.toThrow('fault:bundle-only-duplicate-ready');
+
+    const result = await executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run,
+      now: () => new Date('2026-08-22T00:01:00.000Z')
+    });
+    expect(result.settled).toEqual(['fix/example']);
+    expect(existsSync(path.join(fixture.recoveryRoot, duplicateName))).toBeFalse();
+    expect(existsSync(path.join(fixture.recoveryRoot, `${duplicateName}.sha256`))).toBeFalse();
+    expect(readdirSync(fixture.recoveryRoot)).toEqual([]);
+  } finally {
+    fixture.dispose();
+  }
+}, 30_000);
+
+test('malformed duplicate terminal filenames cannot authorize recovery retirement', async () => {
+  const fixture = createEffectFixture('malformed-duplicate-terminal');
+  let duplicateBundle = '';
+  try {
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run,
+      now: () => new Date('2026-08-22T00:00:00.000Z'),
+      faults: {
+        afterAuthorization: () => {
+          const authorizationName = readdirSync(fixture.recoveryRoot)
+            .find((name) => name.endsWith('.authorization.json'))!;
+          const authorization = JSON.parse(
+            readFileSync(path.join(fixture.recoveryRoot, authorizationName), 'utf8')
+          ) as { entries: Array<{ recovery: { path: string } }> };
+          const original = readFileSync(authorization.entries[0]!.recovery.path);
+          duplicateBundle = `sec-branch-closeout-fix-example-1-1-${fixture.headSha.slice(0, 12)}.bundle`;
+          writeFileSync(path.join(fixture.recoveryRoot, duplicateBundle), original);
+          const digest = createHash('sha256').update(original).digest('hex');
+          writeFileSync(
+            path.join(fixture.recoveryRoot, `${duplicateBundle}.sha256`),
+            `${digest}  ${duplicateBundle}\n`
+          );
+          const operationReceipt = completedDuplicateOperationReceipt({
+            repositoryRoot: fixture.repositoryRoot,
+            headSha: fixture.headSha,
+            mainSha: fixture.mainSha,
+            recoveryPath: path.join(fixture.recoveryRoot, duplicateBundle),
+            recoveryDigest: `sha256:${digest}`
+          });
+          const validName = `${duplicateBundle}.closeout-${operationReceipt.binding.closeoutOperationId.slice('sha256:'.length)}.receipt.json`;
+          const malformedName = `${duplicateBundle}.closeout-${'f'.repeat(64)}.receipt.json`;
+          expect(validName.localeCompare(malformedName)).toBeLessThan(0);
+          writeFileSync(
+            path.join(fixture.recoveryRoot, validName),
+            `${JSON.stringify(operationReceipt, null, 2)}\n`
+          );
+          writeFileSync(path.join(fixture.recoveryRoot, malformedName), '{}\n');
+          throw new Error('fault:malformed-duplicate-ready');
+        }
+      }
+    })).rejects.toThrow('fault:malformed-duplicate-ready');
+
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run,
+      now: () => new Date('2026-08-22T00:01:00.000Z')
+    })).rejects.toThrow('operation receipt schema mismatch');
+    expect(existsSync(path.join(fixture.recoveryRoot, duplicateBundle))).toBeTrue();
+    expect(existsSync(path.join(
+      fixture.recoveryRoot,
+      `${duplicateBundle}.closeout-${'f'.repeat(64)}.receipt.json`
+    ))).toBeTrue();
+  } finally {
+    fixture.dispose();
+  }
+}, 30_000);
+
+test('orphan completion receipt is retained when its local branch is recreated at the effect boundary', async () => {
+  const fixture = createEffectFixture('orphan-recreated-ref');
+  try {
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run,
+      now: () => new Date('2026-08-22T00:00:00.000Z'),
+      faults: { afterReceipt: () => { throw new Error('fault:orphan-receipt-ready'); } }
+    })).rejects.toThrow('fault:orphan-receipt-ready');
+    const authorizationName = readdirSync(fixture.recoveryRoot)
+      .find((name) => name.endsWith('.authorization.json'))!;
+    const receiptName = authorizationName.replace('.authorization.json', '.receipt.json');
+    rmSync(path.join(fixture.recoveryRoot, authorizationName));
+    let recreated = false;
+    const run = (command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => {
+      const result = fixture.run(command, args, cwd, input);
+      if (!recreated && command === 'git' && args[0] === 'merge-base') {
+        git(fixture.repositoryRoot, ['branch', 'fix/example', fixture.headSha]);
+        recreated = true;
+      }
+      return result;
+    };
+
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run,
+      now: () => new Date('2026-08-22T00:01:00.000Z')
+    })).rejects.toThrow('followed by ref recreation');
+    expect(recreated).toBeTrue();
+    expect(existsSync(path.join(fixture.recoveryRoot, receiptName))).toBeTrue();
+  } finally {
+    fixture.dispose();
+  }
+}, 30_000);
+
+test('default recovery root is not left behind after terminal settlement', async () => {
+  const fixture = createEffectFixture('default-root-retirement');
+  const defaultRecoveryRoot = path.join(
+    path.dirname(fixture.repositoryRoot),
+    `${path.basename(fixture.repositoryRoot)}-recovery`
+  );
+  try {
+    const result = await executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      run: fixture.run,
+      now: () => new Date('2026-08-22T00:00:00.000Z')
+    });
+    expect(result.settled).toEqual(['fix/example']);
+    expect(result.recoveryRootRetired).toBeTrue();
+    expect(existsSync(defaultRecoveryRoot)).toBeFalse();
+  } finally {
+    fixture.dispose();
+  }
+}, 30_000);
+
+test('no-op settlement preserves caller-owned recovery roots and retires only its created chain', async () => {
+  for (const recoveryCase of [
+    { name: 'absent', preexisting: false, sentinel: false, expectedPresent: false },
+    { name: 'preexisting-empty', preexisting: true, sentinel: false, expectedPresent: true },
+    { name: 'preexisting-nonempty', preexisting: true, sentinel: true, expectedPresent: true }
+  ] as const) {
+    const fixture = createEffectFixture(`custom-root-${recoveryCase.name}`);
+    const customParent = path.join(fixture.root, `custom-${recoveryCase.name}`);
+    const customRoot = path.join(customParent, 'recovery');
+    try {
+      git(fixture.repositoryRoot, ['branch', '-D', 'fix/example']);
+      if (recoveryCase.preexisting) mkdirSync(customRoot, { recursive: true });
+      if (recoveryCase.sentinel) writeFileSync(path.join(customRoot, 'caller-owned.txt'), 'preserve\n');
+      const result = await executeMergedLocalBranchResidueCloseout({
+        repositoryRoot: fixture.repositoryRoot,
+        recoveryRoot: customRoot,
+        run: fixture.run,
+        now: () => new Date('2026-08-22T00:00:00.000Z')
+      });
+      expect(result.settled).toEqual([]);
+      expect(result.recoveryRootRetired).toBe(!recoveryCase.expectedPresent);
+      expect(existsSync(customRoot)).toBe(recoveryCase.expectedPresent);
+      if (!recoveryCase.preexisting) expect(existsSync(customParent)).toBeFalse();
+      if (recoveryCase.sentinel) {
+        expect(readFileSync(path.join(customRoot, 'caller-owned.txt'), 'utf8')).toBe('preserve\n');
+      }
     } finally {
       fixture.dispose();
     }

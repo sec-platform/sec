@@ -1,3 +1,4 @@
+import { SOURCE_PROGRAM_COMPILATION_MAX_DURATION_MS } from '../../brownfield/source-program-model/compilation-operation.ts';
 import { isSourceProgramInputPath } from '../../brownfield/source-program-model/contract.ts';
 import { isDocumentationVerificationInputPath } from '../../control/documentation/active.ts';
 import type { GitReadProviderRoute } from '../../external-capabilities/git-read/runtime/session.ts';
@@ -32,8 +33,9 @@ export const AFFECTED_GIT_REVALIDATION_AGGREGATE_CEILING = Object.freeze({
 // The semantic operation includes source acquisition, compiler projection and
 // final Git readback. Individual Git sessions remain capped by their narrower
 // transport budget; the total operation must not alias one child duration.
-export const AFFECTED_SELECTION_OPERATION_DURATION_MS = 60_000;
 const AFFECTED_SELECTION_FINAL_READBACK_RESERVE_MS = 5_000;
+export const AFFECTED_SELECTION_OPERATION_DURATION_MS =
+  SOURCE_PROGRAM_COMPILATION_MAX_DURATION_MS + AFFECTED_SELECTION_FINAL_READBACK_RESERVE_MS;
 
 export interface AffectedTestSelection {
   readonly tests: readonly string[];
@@ -156,7 +158,7 @@ export function buildLocalAffectedCheckPlan(
 
 export function compileAffectedTestSelectionSemanticOperation(input: Readonly<{
   readonly purpose: 'budget-projection' | 'check-affected';
-  /** Optional owner deadline which may only narrow the canonical 60 second window. */
+  /** Optional owner deadline which may only narrow the canonical operation window. */
   readonly deadlineAtUnixMs?: number;
 }>): SecBoundSemanticOperation {
   const localDeadlineAtUnixMs = Date.now() + AFFECTED_SELECTION_OPERATION_DURATION_MS;

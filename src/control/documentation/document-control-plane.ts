@@ -50,8 +50,7 @@ import {
   observeCanonicalMainHealthForPublication,
   observeMainHealthGitHubControlInventory,
   observeMainHealthGitHubDefaultBranchSha,
-  withMainHealthGitHubReadSession,
-  type MainHealthRuntimeAuthority
+  withMainHealthGitHubReadSession
 } from '../main-health/work-selection-main-health.ts';
 import {
   issueActiveWorkPackageOwnerObservation,
@@ -127,7 +126,6 @@ export async function observeDocumentControlWorkRouting(input: Readonly<{
   defaultBranch: string;
   exactMainSha: string;
   exactMainTreeSha: string;
-  runtimeAuthority?: MainHealthRuntimeAuthority;
 }>): Promise<Readonly<{
   repairDecision: Awaited<ReturnType<typeof observeCanonicalMainHealthForPublication>>['repairDecision'];
   selection: Awaited<ReturnType<typeof observeSecWorkSelectionLive>> | null;
@@ -173,8 +171,7 @@ export async function observeDocumentControlWorkRouting(input: Readonly<{
         repository: input.repository,
         defaultBranch: input.defaultBranch,
         mainSha: input.exactMainSha,
-        mainTreeSha: input.exactMainTreeSha,
-        runtimeAuthority: input.runtimeAuthority
+        mainTreeSha: input.exactMainTreeSha
       });
       const first = await observeCanonicalMainHealthForPublication(snapshotInput);
       // T2 remains inside the outer MainHealth session, so credential,

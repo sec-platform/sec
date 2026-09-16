@@ -80,11 +80,55 @@ export type RuntimeDependencyOperationOptions = Readonly<Omit<RuntimeDependencyI
 
 const issuedOperationOptions = new WeakSet<object>();
 const boundOperationMethods = new WeakSet<object>();
+const runtimeDependencyInstallOptionKeys = new Set<PropertyKey>([
+  'beforeCommit', 'deadlineAtUnixMs', 'generatedStateLifecycle', 'installMode',
+  'lockTimeoutMs', 'monotonicNowMs', 'now', 'pollIntervalMs', 'rematerialize',
+  'sharedDepsRoot', 'signal', 'skipSharedDepsWarmup', 'sleep',
+  'testCompilerBridgeValidationHook', 'testCompilerPublishHook',
+  'testCompilerPublishPlatform', 'testCompilerRename', 'testInstallLockDelete',
+  'testInstallLockDeletePlatform', 'testMaterialization', 'testProjectProjectionHook'
+] satisfies readonly (keyof RuntimeDependencyInstallOptions)[]);
 
 function ownOption<K extends keyof RuntimeDependencyInstallOptions>(
   input: RuntimeDependencyInstallOptions, key: K
 ): RuntimeDependencyInstallOptions[K] {
   return Object.getOwnPropertyDescriptor(input, key)?.enumerable ? input[key] : undefined;
+}
+
+/** Unbound coordinator inputs may carry unrelated application data, which is
+ * deliberately not enumerated. Once an input carries a parent operation,
+ * however, an unknown enumerable accessor is executable authority that could
+ * rewrite that parent during a compatibility snapshot. Inspect descriptors
+ * without invoking accessors and retain the original binding across proxy
+ * own-key/descriptor traps before accepting the input.
+ */
+function assertNoUnownedParentBoundAccessors(
+  input: RuntimeDependencyInstallOptions,
+  controlsInput: Readonly<RuntimeDependencyOperationControlInput>,
+  guard: (captured: RuntimeDependencyOperationControlInput) => void
+): void {
+  const bindingKeys = Object.getOwnPropertySymbols(controlsInput);
+  if (bindingKeys.length === 0) return;
+  const admittedKeys = new Set<PropertyKey>([...runtimeDependencyInstallOptionKeys, ...bindingKeys]);
+  let unownedAccessor: PropertyKey | undefined;
+  try {
+    for (const key of Reflect.ownKeys(input)) {
+      if (admittedKeys.has(key)) continue;
+      const descriptor = Object.getOwnPropertyDescriptor(input, key);
+      if (descriptor?.enumerable === true && !('value' in descriptor)) {
+        unownedAccessor = key;
+        break;
+      }
+    }
+  } finally {
+    guard(input);
+  }
+  if (unownedAccessor !== undefined) {
+    throw new SecError(
+      'RUNTIME-DEPS-003',
+      'Parent-bound runtime dependency options contain an unowned executable accessor'
+    );
+  }
 }
 
 /** Method identity is fixed, while legitimate provider-private state remains
@@ -123,6 +167,7 @@ export function runtimeDependencyOperationOptions<T extends RuntimeDependencyIns
   const cwd = process.cwd();
   const guard = captureRuntimeDependencyBindingGuard(options);
   const controlsInput = captureRuntimeDependencyControlInput(options);
+  assertNoUnownedParentBoundAccessors(options, controlsInput, guard);
   const beforeCommit = ownOption(options, 'beforeCommit');
   const installMode = ownOption(options, 'installMode');
   const rematerialize = ownOption(options, 'rematerialize');
@@ -216,4 +261,3 @@ export async function runtimeDependencyOperationEffectFence(
       ? undefined : Reflect.apply(beforeCommit, options, [])
   );
 }
-

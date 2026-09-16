@@ -188,7 +188,7 @@ const USAGE = `Usage:
   bun src/control/branch-lifecycle/branch-lifecycle.ts audit [--json [--compact]]
   bun src/control/branch-lifecycle/branch-lifecycle.ts configure-clone [--json]
   bun src/control/branch-lifecycle/branch-lifecycle.ts prepare --branch <name> [--pr <n>] [--ref-state <present|absent>] [--expected-head-sha <sha>] [--pr-head-sha <sha>] [--recovery-root <absolute-path>] [--json]
-  bun src/control/branch-lifecycle/branch-lifecycle.ts settle-local-merged [--json]
+  bun src/control/branch-lifecycle/branch-lifecycle.ts settle-local-merged [--recovery-root <absolute-path>] [--json]
 `;
 
 async function main(): Promise<void> {
@@ -238,12 +238,16 @@ async function main(): Promise<void> {
 
   if (args.command === 'settle-local-merged') {
     const result = await executeMergedLocalBranchResidueCloseout({
-      repositoryRoot: process.cwd()
+      repositoryRoot: process.cwd(),
+      recoveryRoot: args.recoveryRoot ?? undefined
     });
     if (args.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     else {
       process.stdout.write(
         `Settled ${result.settled.length} merged local branch residues; `
+        + `retired-recovery=${result.retiredRecoveryFiles.length}; `
+        + `recovery-root-retired=${String(result.recoveryRootRetired)}; `
+        + `retired-worktree-evidence=${result.worktreeEvidenceGc.retiredOperationIds.length}; `
         + `protected=${result.protectedBranches.length}; unresolved=${result.unresolvedBranches.length}.\n`
       );
     }

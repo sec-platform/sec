@@ -128,6 +128,40 @@ function slowFileSuite(
 // highest useful parallelism while PR risk gates run only the impacted files.
 const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze([
   slowPathSuite(
+    'source-program-workspace-snapshot',
+    'src/brownfield/source-program-model/workspace-source-snapshot.test.ts',
+    'source-program-workspace-snapshot',
+    180_000,
+    { resourceClass: 'runtime-heavy' }
+  ),
+  slowPathSuite(
+    'compiler-dependency-fixture',
+    'src/toolchain/dependencies/test/compiler-dependency-fixture.test.ts',
+    'compiler-dependency-fixture',
+    180_000,
+    { resourceClass: 'runtime-heavy' }
+  ),
+  slowPathSuite(
+    'unit-dev-runner-dependency-bootstrap',
+    'tests/unit/dev-runner-dependency-bootstrap.test.ts',
+    'development-runner-dependency-bootstrap',
+    300_000,
+    { resourceClass: 'runtime-heavy' }
+  ),
+  slowPathSuite(
+    'unit-branch-local-residue-closeout',
+    'tests/unit/branch-local-residue-closeout.test.ts',
+    'local-branch-residue-closeout',
+    180_000,
+    { resourceClass: 'runtime-heavy' }
+  ),
+  slowPathSuite(
+    'unit-dependency-rollover-capacity',
+    'tests/unit/dependency-rollover-capacity.test.ts',
+    'compiler-dependency-transition-rollover',
+    300_000
+  ),
+  slowPathSuite(
     'integration-shared-runtime-dependencies',
     'tests/integration/project-dependency-runtime.test.ts',
     'shared-runtime-dependency-integration',

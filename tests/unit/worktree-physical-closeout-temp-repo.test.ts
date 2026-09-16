@@ -20,11 +20,13 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { executeMergedLocalBranchResidueCloseout } from '../../src/control/branch-lifecycle/branch-local-residue-closeout.ts';
 import {
   WorktreePhysicalCloseoutConsumptionToken,
   assertTrustedCompletedWorktreePhysicalCloseout,
   executeDetachedScratchWorktreePhysicalCloseout,
   executeWorktreePhysicalCloseout,
+  gcCompletedWorktreePhysicalCloseoutEvidence,
   prepareDetachedScratchWorktreePhysicalCloseout,
   prepareTrustedWorktreePhysicalCloseout,
   prepareWorktreePhysicalCloseout
@@ -32,6 +34,7 @@ import {
 import { generatedStateProducerHooks } from '../../src/runtime-state/generated-state/lifecycle.ts';
 import { inspectNoFollowDirectoryChain, relocateRetainedNoFollowDirectory } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 import {
+  WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA,
   createWorktreePhysicalCloseoutReceipt,
   detailDigest
 } from '../../src/runtime-state/worktree-closeout-contract.ts';
@@ -201,6 +204,427 @@ test('real registered worktree reaches registry and physical absence under one d
   }
 }, 30_000);
 
+test('completed worktree evidence is retained while the branch is live and reclaimed after ref settlement', async () => {
+  const value = fixture();
+  try {
+    const authorization = await prepareWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
+    });
+    const receipt = await executeWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
+      authorizationPath: authorization.authorizationPath
+    });
+    expect(receipt.terminal).toBe('completed');
+
+    const retained = await gcCompletedWorktreePhysicalCloseoutEvidence(value.repository);
+    expect(retained.retiredOperationIds).toEqual([]);
+    expect(retained.retained).toContainEqual({
+      operationId: authorization.operationId,
+      reason: 'branch-live',
+      terminal: 'completed'
+    });
+    expect(existsSync(path.dirname(authorization.authorizationPath))).toBeTrue();
+    expect(existsSync(authorization.proofRoot.path)).toBeTrue();
+
+    git(value.repository, ['branch', '-D', value.branch]);
+    const reclaimed = await gcCompletedWorktreePhysicalCloseoutEvidence(value.repository);
+    expect(reclaimed.retiredOperationIds).toEqual([authorization.operationId]);
+    expect(reclaimed.ownerRetired).toBeTrue();
+    expect(reclaimed.retained).toEqual([]);
+    expect(existsSync(path.dirname(authorization.authorizationPath))).toBeFalse();
+    expect(existsSync(path.dirname(path.dirname(authorization.authorizationPath)))).toBeFalse();
+    expect(existsSync(authorization.proofRoot.path)).toBeFalse();
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+}, 30_000);
+
+test('completed worktree GC rejects unknown operation evidence instead of deleting it', async () => {
+  const value = fixture();
+  try {
+    const authorization = await prepareWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
+    });
+    await executeWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
+      authorizationPath: authorization.authorizationPath
+    });
+    const operationRoot = path.dirname(authorization.authorizationPath);
+    const unknown = path.join(operationRoot, 'future-owner-evidence.json');
+    writeFileSync(unknown, '{}\n', 'utf8');
+    git(value.repository, ['branch', '-D', value.branch]);
+    await expect(gcCompletedWorktreePhysicalCloseoutEvidence(value.repository))
+      .rejects.toThrow('unvalidated operation evidence');
+    expect(existsSync(unknown)).toBeTrue();
+    expect(existsSync(operationRoot)).toBeTrue();
+    expect(existsSync(authorization.proofRoot.path)).toBeTrue();
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+}, 30_000);
+
+test('one branch settlement retires completed current worktree evidence it makes eligible', async () => {
+  const value = fixture();
+  try {
+    const authorization = await prepareWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
+    });
+    expect(authorization.schema).toBe(WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA);
+    const receipt = await executeWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
+      authorizationPath: authorization.authorizationPath
+    });
+    expect(receipt.terminal).toBe('completed');
+    const mainSha = git(value.repository, ['rev-parse', 'refs/remotes/origin/main']);
+    git(value.repository, ['remote', 'set-url', 'origin', 'https://github.com/sec-platform/sec.git']);
+    const run = (command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => {
+      if (command === 'gh' && args[0] === 'repo') {
+        return {
+          status: 0,
+          stdout: Buffer.from(JSON.stringify({
+            nameWithOwner: 'sec-platform/sec',
+            defaultBranchRef: { name: 'main' }
+          })),
+          stderr: Buffer.alloc(0)
+        };
+      }
+      if (command === 'gh') {
+        return {
+          status: 0,
+          stdout: Buffer.from(JSON.stringify([{
+            number: 99,
+            headRefName: value.branch,
+            headRefOid: value.headSha,
+            baseRefName: 'main',
+            state: 'MERGED',
+            mergeCommit: { oid: mainSha },
+            url: 'https://github.com/sec-platform/sec/pull/99'
+          }])),
+          stderr: Buffer.alloc(0)
+        };
+      }
+      if (args.includes('ls-remote')) {
+        return {
+          status: 0,
+          stdout: Buffer.from(`${mainSha}\trefs/heads/main\n`),
+          stderr: Buffer.alloc(0)
+        };
+      }
+      const result = spawnSync('git', [...args], {
+        cwd,
+        ...(input === undefined ? {} : { input: Buffer.from(input, 'utf8') }),
+        encoding: null,
+        windowsHide: true
+      });
+      return {
+        status: result.status,
+        stdout: Buffer.from(result.stdout ?? ''),
+        stderr: Buffer.from(result.stderr ?? result.error?.message ?? '')
+      };
+    };
+    const result = await executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: value.repository,
+      recoveryRoot: path.join(value.root, 'branch-recovery'),
+      run,
+      now: () => new Date('2026-09-16T00:00:00.000Z')
+    });
+    expect(result.settled).toEqual([value.branch]);
+    expect(result.worktreeEvidenceGc.retiredOperationIds).toEqual([authorization.operationId]);
+    expect(result.worktreeEvidenceGc.retained).toEqual([]);
+    expect(result.worktreeEvidenceGc.ownerRetired).toBeTrue();
+    expect(existsSync(path.dirname(authorization.authorizationPath))).toBeFalse();
+    expect(existsSync(authorization.proofRoot.path)).toBeFalse();
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+}, 40_000);
+
+test('prepared worktree evidence remains a recovery root', async () => {
+  const value = fixture();
+  try {
+    const authorization = await prepareWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
+    });
+    const result = await gcCompletedWorktreePhysicalCloseoutEvidence(value.repository);
+    expect(result.retiredOperationIds).toEqual([]);
+    expect(result.retained).toContainEqual({
+      operationId: authorization.operationId,
+      reason: 'not-completed',
+      terminal: 'prepared'
+    });
+    expect(existsSync(path.dirname(authorization.authorizationPath))).toBeTrue();
+    expect(existsSync(authorization.proofRoot.path)).toBeTrue();
+    expect(existsSync(value.target)).toBeTrue();
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+}, 30_000);
+
+test('fieldless historical proofless residue converges only from exact durable absence readback', async () => {
+  const value = fixture();
+  try {
+    const prepared = await prepareWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
+    });
+    const {
+      authorizationDigest: ignoredAuthorizationDigest,
+      generatedStateRetirement: ignoredGeneratedStateRetirement,
+      ...authorizationBody
+    } = prepared;
+    const operationId = sha256({
+      repository: authorizationBody.repository,
+      target: authorizationBody.target,
+      registryBeforeDigest: authorizationBody.registryBeforeDigest,
+      workingStateDigest: authorizationBody.workingStateDigest,
+      inventoryDigest: authorizationBody.inventory.inventoryDigest,
+      registryAdmin: {
+        relativePath: authorizationBody.registryAdmin.relativePath,
+        device: authorizationBody.registryAdmin.device,
+        inode: authorizationBody.registryAdmin.inode,
+        inventoryDigest: authorizationBody.registryAdmin.inventory.inventoryDigest
+      },
+      targetLeaseNamespace: authorizationBody.targetLeaseNamespace
+    }) as `sha256:${string}`;
+    const operationSuffix = operationId.slice('sha256:'.length);
+    const operationRoot = path.join(path.dirname(path.dirname(prepared.authorizationPath)), operationSuffix);
+    const proofRootPath = path.join(path.dirname(value.target), `sec-worktree-closeout-proof-${operationSuffix}`);
+    renameSync(prepared.proofRoot.path, proofRootPath);
+    renameSync(path.dirname(prepared.authorizationPath), operationRoot);
+    const legacyBody = {
+      ...authorizationBody,
+      schema: WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA,
+      operationId,
+      registryAdmin: {
+        ...authorizationBody.registryAdmin,
+        tombstoneName: `worktree-admin-closeout-${operationSuffix}`
+      },
+      proofRoot: { ...authorizationBody.proofRoot, path: proofRootPath },
+      tombstoneName: `worktree-closeout-tombstone-${operationSuffix}`,
+      authorizationPath: path.join(operationRoot, 'authorization.json'),
+      receiptPath: path.join(operationRoot, 'receipt-latest.json')
+    };
+    writeFileSync(legacyBody.authorizationPath, `${JSON.stringify({
+      ...legacyBody,
+      authorizationDigest: sha256(legacyBody)
+    }, null, 2)}\n`, 'utf8');
+
+    const completed = await executeWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
+      authorizationPath: legacyBody.authorizationPath
+    });
+    expect(completed.terminal).toBe('completed');
+
+    let generation = completed.previousReceiptDigest;
+    let residue: ReturnType<typeof createWorktreePhysicalCloseoutReceipt> | null = null;
+    let beforeUnregister: ReturnType<typeof createWorktreePhysicalCloseoutReceipt> | null = null;
+    while (generation !== null) {
+      const candidate = JSON.parse(readFileSync(
+        path.join(operationRoot, `receipt-${generation.slice('sha256:'.length)}.json`),
+        'utf8'
+      )) as ReturnType<typeof createWorktreePhysicalCloseoutReceipt>;
+      if (residue === null && candidate.terminal === 'residue') residue = candidate;
+      if (candidate.blockers.includes('unregister-intent-durable')) beforeUnregister = candidate;
+      generation = candidate.previousReceiptDigest;
+    }
+    expect(residue).not.toBeNull();
+    expect(beforeUnregister).not.toBeNull();
+    rmSync(path.join(operationRoot, `receipt-${completed.receiptDigest.slice('sha256:'.length)}.json`));
+    const writeLatest = (receipt: ReturnType<typeof createWorktreePhysicalCloseoutReceipt>) => {
+      writeFileSync(path.join(operationRoot, 'receipt-latest.json'), `${JSON.stringify({
+        schema: 'sec-worktree-cleanup-receipt-latest-v1',
+        generation: `receipt-${receipt.receiptDigest.slice('sha256:'.length)}.json`,
+        receiptDigest: receipt.receiptDigest
+      }, null, 2)}\n`, 'utf8');
+    };
+    writeLatest(residue!);
+    // Reproduce the historical interrupted generation: physical and registry
+    // state are already absent, but the old proof root disappeared before a
+    // terminal receipt was published.
+    rmSync(proofRootPath, { recursive: true, force: true });
+
+    writeLatest(beforeUnregister!);
+    await expect(executeWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
+      authorizationPath: legacyBody.authorizationPath
+    })).rejects.toThrow('lacks durable unregister success');
+    writeLatest(residue!);
+
+    const retiredPhaseName = readdirSync(operationRoot).find((name) => name.startsWith('retired-phase-'))!;
+    const retiredPhasePath = path.join(operationRoot, retiredPhaseName);
+    const retiredPhaseBytes = readFileSync(retiredPhasePath);
+    const retiredPhase = JSON.parse(retiredPhaseBytes.toString('utf8')) as {
+      retirementReceipt: { fenceName: string };
+    };
+    rmSync(retiredPhasePath);
+    await expect(executeWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
+      authorizationPath: legacyBody.authorizationPath
+    })).rejects.toThrow('lacks its durable retirement phase');
+    writeFileSync(retiredPhasePath, retiredPhaseBytes);
+
+    mkdirSync(value.target);
+    await expect(executeWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
+      authorizationPath: legacyBody.authorizationPath
+    })).rejects.toThrow('target-present');
+    rmSync(value.target, { recursive: true, force: true });
+
+    const tombstonePath = path.join(path.dirname(value.target), legacyBody.tombstoneName);
+    mkdirSync(tombstonePath);
+    await expect(executeWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
+      authorizationPath: legacyBody.authorizationPath
+    })).rejects.toThrow('tombstone-present');
+    rmSync(tombstonePath, { recursive: true, force: true });
+
+    const fencePath = path.join(path.dirname(value.target), retiredPhase.retirementReceipt.fenceName);
+    writeFileSync(fencePath, 'reappeared\n');
+    await expect(executeWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
+      authorizationPath: legacyBody.authorizationPath
+    })).rejects.toThrow('retirement-fence-present');
+    rmSync(fencePath);
+
+    const recovered = await executeWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
+      authorizationPath: legacyBody.authorizationPath
+    });
+    expect(recovered).toMatchObject({
+      terminal: 'completed',
+      blockers: [],
+      readback: { registryPresent: false, physicalPresent: false, authorizationValid: true },
+      previousReceiptDigest: residue!.receiptDigest
+    });
+    expect(recovered.attempts).toEqual([expect.objectContaining({
+      operation: 'readback',
+      status: 'success'
+    })]);
+
+    const liveReceiptFiles = new Set<string>();
+    let liveGeneration: ReturnType<typeof createWorktreePhysicalCloseoutReceipt> | null = recovered;
+    while (liveGeneration !== null) {
+      liveReceiptFiles.add(`receipt-${liveGeneration.receiptDigest.slice('sha256:'.length)}.json`);
+      liveGeneration = liveGeneration.previousReceiptDigest === null
+        ? null
+        : JSON.parse(readFileSync(
+            path.join(operationRoot, `receipt-${liveGeneration.previousReceiptDigest.slice('sha256:'.length)}.json`),
+            'utf8'
+          )) as ReturnType<typeof createWorktreePhysicalCloseoutReceipt>;
+    }
+    for (const name of readdirSync(operationRoot).filter((candidate) => (
+      /^receipt-[0-9a-f]{64}\.json$/u.test(candidate) && !liveReceiptFiles.has(candidate)
+    ))) rmSync(path.join(operationRoot, name));
+
+    git(value.repository, ['branch', '-D', value.branch]);
+    rmSync(retiredPhasePath);
+    await expect(gcCompletedWorktreePhysicalCloseoutEvidence(value.repository))
+      .rejects.toThrow('lacks current authorization or retirement phase');
+    expect(existsSync(operationRoot)).toBeTrue();
+    writeFileSync(retiredPhasePath, retiredPhaseBytes);
+
+    mkdirSync(tombstonePath);
+    await expect(gcCompletedWorktreePhysicalCloseoutEvidence(value.repository))
+      .rejects.toThrow('tombstone-present');
+    expect(existsSync(operationRoot)).toBeTrue();
+    rmSync(tombstonePath, { recursive: true, force: true });
+
+    writeFileSync(fencePath, 'reappeared\n');
+    await expect(gcCompletedWorktreePhysicalCloseoutEvidence(value.repository))
+      .rejects.toThrow('retirement-fence-present');
+    expect(existsSync(operationRoot)).toBeTrue();
+    rmSync(fencePath);
+
+    mkdirSync(proofRootPath);
+    await expect(gcCompletedWorktreePhysicalCloseoutEvidence(value.repository))
+      .rejects.toThrow('proof identity changed');
+    expect(existsSync(operationRoot)).toBeTrue();
+    rmSync(proofRootPath, { recursive: true, force: true });
+
+    const gc = await gcCompletedWorktreePhysicalCloseoutEvidence(value.repository);
+    expect(gc.retiredOperationIds).toEqual([operationId]);
+    expect(gc.retained).toEqual([]);
+    expect(gc.ownerRetired).toBeTrue();
+    expect(existsSync(operationRoot)).toBeFalse();
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+}, 30_000);
+
 test('authorized externally unregistered worktree converges physical residue without elevating the missing admin effect', async () => {
   if (process.platform !== 'win32') return;
   const value = fixture();
@@ -324,6 +748,9 @@ test('closeout composes provider retirement for an automatically reused dependen
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
     });
     expect(authorization.generatedStateRetirement).toMatchObject({ terminal: 'completed' });
+    const generatedStateRetentionRoot = authorization.generatedStateRetirement?.retentionRoot?.path;
+    expect(generatedStateRetentionRoot).toBeString();
+    expect(existsSync(generatedStateRetentionRoot!)).toBeTrue();
     expect(authorization.generatedStateRetirement?.entries.find(
       ({ relativePath }) => relativePath === 'node_modules'
     )).toMatchObject({
@@ -336,7 +763,6 @@ test('closeout composes provider retirement for an automatically reused dependen
       path.join(value.repository, 'node_modules', 'typescript', 'lib', 'typescript.js'),
       'utf8'
     )).toBe('primary:typescript\n');
-
     const receipt = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
       targetPath: value.target,
@@ -352,6 +778,13 @@ test('closeout composes provider retirement for an automatically reused dependen
       path.join(value.repository, 'node_modules', 'typescript', 'lib', 'typescript.js'),
       'utf8'
     )).toBe('primary:typescript\n');
+    rmSync(generatedStateRetentionRoot!, { recursive: true });
+    expect(existsSync(generatedStateRetentionRoot!)).toBeFalse();
+    git(value.repository, ['branch', '-D', value.branch]);
+    const evidenceGc = await gcCompletedWorktreePhysicalCloseoutEvidence(value.repository);
+    expect(evidenceGc.retiredOperationIds).toEqual([authorization.operationId]);
+    expect(evidenceGc.ownerRetired).toBeTrue();
+    expect(existsSync(generatedStateRetentionRoot!)).toBeFalse();
   } finally {
     try {
       const retirement = await disposeCompilerDependencyEnvironment(
@@ -368,7 +801,7 @@ test('closeout composes provider retirement for an automatically reused dependen
       else process.env.SEC_STATE_HOME = previousStateHome;
     }
   }
-}, 20_000);
+}, 40_000);
 
 test('Windows real closeout streams a large tracked leaf, normalizes readonly, and never traverses a junction', async () => {
   if (process.platform !== 'win32') return;

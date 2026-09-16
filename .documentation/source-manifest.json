@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/1",
-  "source_set_sha256": "ac6c0ca876ccd87671d5fe20508f1de1b7a3db28f8a7b0577e19a4e72702da66",
+  "source_set_sha256": "ee58886dc3457df4cab640e63609f2519a0da72c62dd0fa623180cb400d2fd00",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -514,8 +514,8 @@
     },
     {
       "path": "docs/开发/AI协作/规则装载与任务恢复.md",
-      "bytes": 19368,
-      "sha256": "90c28ecb99c6d9c7f48497e94ffffba84503bd9ca5f335172b58e8a081bea668"
+      "bytes": 22569,
+      "sha256": "fadb0ae09d24f8ba3cadb24d0519e6bd45bfc01f4388207b5ec07557c9289c0e"
     },
     {
       "path": "docs/开发/AI协作/需求与作者上下文.md",

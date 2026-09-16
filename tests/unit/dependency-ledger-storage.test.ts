@@ -93,7 +93,7 @@ test('namespace writer rejects an owner replacement before creating anything in 
   try {
     await assert.rejects(ensureDependencyTransitionNamespace(expectedOwner, {
       ...controls(),
-      beforeCommit() {
+      async beforeCommit() {
         if (replaced) return;
         renameSync(root, displacedRoot);
         mkdirSync(root);

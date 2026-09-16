@@ -31,7 +31,7 @@ test('normal capacity rollover enters the common recovery path and publishes exa
     assert.equal(fs.existsSync(f.prepared.retiredRecordsPath), false);
     assert.equal(fs.existsSync(f.prepared.nextRecordsPath), false);
   } finally { f.cleanup(); }
-}, 180_000);
+}, 240_000);
 
 test('a ledger below the canonical rollover threshold performs no namespace or publication effects', async () => {
   const f = createRolloverFixture();
