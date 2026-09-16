@@ -524,6 +524,7 @@ test('terminal settlement removes the duplicate branch-closeout bundle family', 
 test('completed duplicate attempt cannot retire a newer pending operation in the same family', async () => {
   const fixture = createEffectFixture('duplicate-pending-operation');
   let duplicateName = '';
+  let completedReceiptName = '';
   let pendingJournalName = '';
   try {
     await expect(executeMergedLocalBranchResidueCloseout({
@@ -562,10 +563,8 @@ test('completed duplicate attempt cannot retire a newer pending operation in the
             recoveryDigest: `sha256:${digest}`,
             consumptionOperationId: 'merge-pending'
           });
-          writeFileSync(
-            path.join(fixture.recoveryRoot, `${duplicateName}.closeout-${completed.binding.closeoutOperationId.slice('sha256:'.length)}.receipt.json`),
-            `${JSON.stringify(completed, null, 2)}\n`
-          );
+          completedReceiptName = `${duplicateName}.closeout-${completed.binding.closeoutOperationId.slice('sha256:'.length)}.receipt.json`;
+          writeFileSync(path.join(fixture.recoveryRoot, completedReceiptName), `${JSON.stringify(completed, null, 2)}\n`);
           const pendingJournal = createBranchCloseoutOperationJournal({
             binding: pending.binding,
             writerId: 'duplicate-family-test',
@@ -592,7 +591,53 @@ test('completed duplicate attempt cannot retire a newer pending operation in the
     });
     expect(result.settled).toEqual(['fix/example']);
     expect(existsSync(path.join(fixture.recoveryRoot, duplicateName))).toBeTrue();
+    expect(existsSync(path.join(fixture.recoveryRoot, `${duplicateName}.sha256`))).toBeTrue();
+    expect(existsSync(path.join(fixture.recoveryRoot, completedReceiptName))).toBeTrue();
     expect(existsSync(path.join(fixture.recoveryRoot, pendingJournalName))).toBeTrue();
+  } finally {
+    fixture.dispose();
+  }
+}, 30_000);
+
+test('pure duplicate bundle and checksum retire without lifecycle evidence', async () => {
+  const fixture = createEffectFixture('duplicate-bundle-only-retirement');
+  let duplicateName = '';
+  try {
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run,
+      now: () => new Date('2026-08-22T00:00:00.000Z'),
+      faults: {
+        afterAuthorization: () => {
+          const authorizationName = readdirSync(fixture.recoveryRoot)
+            .find((name) => name.endsWith('.authorization.json'))!;
+          const authorization = JSON.parse(
+            readFileSync(path.join(fixture.recoveryRoot, authorizationName), 'utf8')
+          ) as { entries: Array<{ recovery: { path: string } }> };
+          const original = readFileSync(authorization.entries[0]!.recovery.path);
+          duplicateName = `sec-branch-closeout-fix-example-1-1-${fixture.headSha.slice(0, 12)}.bundle`;
+          writeFileSync(path.join(fixture.recoveryRoot, duplicateName), original);
+          const digest = createHash('sha256').update(original).digest('hex');
+          writeFileSync(
+            path.join(fixture.recoveryRoot, `${duplicateName}.sha256`),
+            `${digest}  ${duplicateName}\n`
+          );
+          throw new Error('fault:bundle-only-duplicate-ready');
+        }
+      }
+    })).rejects.toThrow('fault:bundle-only-duplicate-ready');
+
+    const result = await executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run,
+      now: () => new Date('2026-08-22T00:01:00.000Z')
+    });
+    expect(result.settled).toEqual(['fix/example']);
+    expect(existsSync(path.join(fixture.recoveryRoot, duplicateName))).toBeFalse();
+    expect(existsSync(path.join(fixture.recoveryRoot, `${duplicateName}.sha256`))).toBeFalse();
+    expect(readdirSync(fixture.recoveryRoot)).toEqual([]);
   } finally {
     fixture.dispose();
   }
