@@ -34,6 +34,7 @@ import {
 import { generatedStateProducerHooks } from '../../src/runtime-state/generated-state/lifecycle.ts';
 import { inspectNoFollowDirectoryChain, relocateRetainedNoFollowDirectory } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 import {
+  LEGACY_WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA,
   createWorktreePhysicalCloseoutReceipt,
   detailDigest
 } from '../../src/runtime-state/worktree-closeout-contract.ts';
@@ -388,6 +389,100 @@ test('prepared worktree evidence remains a recovery root', async () => {
     expect(existsSync(path.dirname(authorization.authorizationPath))).toBeTrue();
     expect(existsSync(authorization.proofRoot.path)).toBeTrue();
     expect(existsSync(value.target)).toBeTrue();
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+}, 30_000);
+
+test('legacy v1 proofless residue converges only from exact durable absence readback', async () => {
+  const value = fixture();
+  try {
+    const prepared = await prepareWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
+    });
+    const { authorizationDigest: ignoredAuthorizationDigest, ...authorizationBody } = prepared;
+    const legacyBody = {
+      ...authorizationBody,
+      schema: LEGACY_WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA
+    };
+    writeFileSync(prepared.authorizationPath, `${JSON.stringify({
+      ...legacyBody,
+      authorizationDigest: sha256(legacyBody)
+    }, null, 2)}\n`, 'utf8');
+
+    const completed = await executeWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
+      authorizationPath: prepared.authorizationPath
+    });
+    expect(completed.terminal).toBe('completed');
+
+    const operationRoot = path.dirname(prepared.authorizationPath);
+    let generation = completed.previousReceiptDigest;
+    let residue: ReturnType<typeof createWorktreePhysicalCloseoutReceipt> | null = null;
+    while (generation !== null) {
+      const candidate = JSON.parse(readFileSync(
+        path.join(operationRoot, `receipt-${generation.slice('sha256:'.length)}.json`),
+        'utf8'
+      )) as ReturnType<typeof createWorktreePhysicalCloseoutReceipt>;
+      if (candidate.terminal === 'residue') {
+        residue = candidate;
+        break;
+      }
+      generation = candidate.previousReceiptDigest;
+    }
+    expect(residue).not.toBeNull();
+    rmSync(path.join(operationRoot, `receipt-${completed.receiptDigest.slice('sha256:'.length)}.json`));
+    writeFileSync(path.join(operationRoot, 'receipt-latest.json'), `${JSON.stringify({
+      schema: 'sec-worktree-cleanup-receipt-latest-v1',
+      generation: `receipt-${residue!.receiptDigest.slice('sha256:'.length)}.json`,
+      receiptDigest: residue!.receiptDigest
+    }, null, 2)}\n`, 'utf8');
+    // Reproduce the historical interrupted generation: physical and registry
+    // state are already absent, but the old proof root disappeared before a
+    // terminal receipt was published.
+    rmSync(prepared.proofRoot.path, { recursive: true, force: true });
+
+    mkdirSync(value.target);
+    await expect(executeWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
+      authorizationPath: prepared.authorizationPath
+    })).rejects.toThrow('target-present');
+    rmSync(value.target, { recursive: true, force: true });
+
+    const recovered = await executeWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
+      authorizationPath: prepared.authorizationPath
+    });
+    expect(recovered).toMatchObject({
+      terminal: 'completed',
+      blockers: [],
+      readback: { registryPresent: false, physicalPresent: false, authorizationValid: true },
+      previousReceiptDigest: residue!.receiptDigest
+    });
+    expect(recovered.attempts).toEqual([expect.objectContaining({
+      operation: 'readback',
+      status: 'success'
+    })]);
   } finally {
     rmSync(value.root, { recursive: true, force: true });
   }

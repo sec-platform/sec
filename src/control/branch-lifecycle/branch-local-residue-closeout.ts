@@ -1101,8 +1101,8 @@ function retireSupersededBranchCloseoutBundles(input: Readonly<{
       return receipt;
     });
     const hasTerminal = terminalReceipts.some(
-      ({ receipt }) => receipt.closeoutStatus === 'completed'
-    ) || branchReceipt?.closeoutStatus === 'completed';
+      ({ receipt }) => receipt.status === 'completed'
+    ) || branchReceipt?.status === 'completed';
     if (preparation !== null && !hasTerminal) continue;
     retireRecoveryBundleFamily({
       store: input.store,

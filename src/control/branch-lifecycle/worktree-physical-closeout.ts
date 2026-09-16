@@ -6,6 +6,7 @@ import { assertGeneratedStateWorktreeRetirementEffectStart, isGeneratedStateWork
 import { createNoFollowDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectory, relocateRetainedNoFollowDirectoryAcrossParents, replaceDurableCanonicalFile, retireNoFollowDirectoryTree, scanNoFollowDirectoryDirectMetadata, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { runCommandBytes } from '../../runtime-state/physical/runtime/process.ts';
 import {
+  LEGACY_WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA,
   assertStableWorktreePhysicalWorkingState,
   assertWorktreePhysicalCloseoutAuthorization,
   assertWorktreePhysicalCloseoutReceipt,
@@ -1119,11 +1120,6 @@ async function executeWorktreePhysicalCloseoutUnderLease(
   if (pathKey(authorization.proofRoot.path) !== pathKey(expectedProofPath)) {
     throw new Error('Authorization proof root is not the canonical target-external operation leaf.');
   }
-  const expectedProofRoot = physicalDirectory(authorization.proofRoot.path, 'Authorized target-external retained proof root');
-  if (expectedProofRoot.device !== authorization.proofRoot.device || expectedProofRoot.inode !== authorization.proofRoot.inode ||
-    expectedProofRoot.device !== authorization.targetLeaseNamespace.device) {
-    throw new Error('Authorization proof root physical identity or target-volume binding changed.');
-  }
   if (
     pathKey(authorization.authorizationPath) !== pathKey(path.join(expectedRecoveryRoot.path, 'authorization.json')) ||
     pathKey(authorization.receiptPath) !== pathKey(path.join(expectedRecoveryRoot.path, 'receipt-latest.json')) ||
@@ -1139,6 +1135,96 @@ async function executeWorktreePhysicalCloseoutUnderLease(
   ) {
     throw new Error('Repository or Git common-dir physical identity changed after authorization.');
   }
+  const prior = loadLatestReceiptGeneration(expectedRecoveryRoot);
+  const proofPresence = inspectExactNoFollowDirectoryPresence(
+    authorization.proofRoot.path,
+    'Authorized target-external retained proof root'
+  );
+  if (proofPresence.state === 'absent') {
+    if (
+      authorization.schema !== LEGACY_WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA ||
+      authorization.generatedStateRetirement !== null ||
+      prior === null
+    ) {
+      throw new Error('Worktree closeout proof root is absent without a legacy resumable receipt.');
+    }
+    if (prior.authorizationDigest !== authorization.authorizationDigest) {
+      throw new Error('Existing legacy receipt belongs to another authorization.');
+    }
+    const chain = loadReceiptChain(expectedRecoveryRoot, prior);
+    if (chain.some((generation) => generation.authorizationDigest !== authorization.authorizationDigest
+        || generation.operationId !== authorization.operationId)) {
+      throw new Error('Legacy receipt chain crosses authorization.');
+    }
+    if (!chain.some((generation) => generation.attempts.some((attempt) => (
+      attempt.operation === 'unregister' && attempt.status === 'success'
+    )))) {
+      throw new Error('Legacy proofless closeout lacks durable unregister success.');
+    }
+    const retiredPhase = loadRetiredWorktreePhase(expectedRecoveryRoot, authorization);
+    if (retiredPhase === null) {
+      throw new Error('Legacy proofless closeout lacks its durable retirement phase.');
+    }
+    const observeProoflessConvergence = async (stage: string) => {
+      const registry = await observeRegistry(repository.root);
+      const targetPresent = physicalPresence(authorization.target.path, `${stage} target readback`) !== null;
+      const tombstonePresent = physicalPresence(
+        path.join(path.dirname(authorization.target.path), authorization.tombstoneName),
+        `${stage} tombstone readback`
+      ) !== null;
+      const registryAdminPresent = physicalPresence(
+        path.join(repository.commonDir, ...authorization.registryAdmin.relativePath.split('/')),
+        `${stage} registry-admin readback`
+      ) !== null;
+      const proofPresent = inspectExactNoFollowDirectoryPresence(
+        authorization.proofRoot.path,
+        `${stage} proof readback`
+      ).state !== 'absent';
+      const fenceParentPresence = inspectExactNoFollowDirectoryPresence(
+        path.dirname(authorization.target.path),
+        `${stage} retirement fence parent readback`
+      );
+      const fencePresent = fenceParentPresence.state === 'present' && readNoFollowOrdinaryFile(
+        fenceParentPresence.directory.target,
+        retiredPhase.retirementReceipt.fenceName
+      ) !== null;
+      const registryPresent = findTargetRecord(registry.records, authorization.target.path) !== null;
+      const blockers = [
+        ...(registryPresent ? ['registry-present'] : []),
+        ...(registryAdminPresent ? ['registry-admin-present'] : []),
+        ...(targetPresent ? ['target-present'] : []),
+        ...(tombstonePresent ? ['tombstone-present'] : []),
+        ...(proofPresent ? ['proof-present'] : []),
+        ...(fencePresent ? ['retirement-fence-present'] : [])
+      ];
+      if (blockers.length > 0) {
+        throw new Error(`Legacy proofless closeout has not converged at ${stage}: ${blockers.join(',')}`);
+      }
+      return registry;
+    };
+    await observeProoflessConvergence('initial');
+    await assertLeases();
+    const registry = await observeProoflessConvergence('effect-boundary');
+    return persistReceiptGeneration(expectedRecoveryRoot, createReceipt(
+      authorization,
+      registry.digest,
+      [{
+        operation: 'readback',
+        status: 'success',
+        relativePath: null,
+        detailDigest: detailDigest('legacy-proofless-terminal-absence-readback')
+      }],
+      false,
+      false,
+      null,
+      []
+    ));
+  }
+  const expectedProofRoot = proofPresence.directory.target;
+  if (expectedProofRoot.device !== authorization.proofRoot.device || expectedProofRoot.inode !== authorization.proofRoot.inode ||
+    expectedProofRoot.device !== authorization.targetLeaseNamespace.device) {
+    throw new Error('Authorization proof root physical identity or target-volume binding changed.');
+  }
   if (authorization.generatedStateRetirement !== null) {
     assertGeneratedStateWorktreeRetirementEffectStart({
       receipt: authorization.generatedStateRetirement,
@@ -1149,7 +1235,6 @@ async function executeWorktreePhysicalCloseoutUnderLease(
       expectedTreeSha: authorization.target.treeSha
     });
   }
-  const prior = loadLatestReceiptGeneration(expectedRecoveryRoot);
   if (prior !== null) {
     if (prior.authorizationDigest !== authorization.authorizationDigest) {
       throw new Error('Existing receipt belongs to another authorization.');
