@@ -17,6 +17,15 @@ export const WORKTREE_PHYSICAL_CLOSEOUT_RECEIPT_SCHEMA = 'sec-worktree-cleanup-r
 
 export type Digest = `sha256:${string}`;
 
+export function isWorktreePhysicalCloseoutAuthorizationSchema(
+  value: unknown
+): value is
+  | typeof LEGACY_WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA
+  | typeof WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA {
+  return value === LEGACY_WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA
+    || value === WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA;
+}
+
 export function assertStableWorktreePhysicalWorkingState(
   initialDigest: Digest,
   readback: Readonly<{ readonly digest: Digest; readonly blocker: string | null }>
@@ -322,10 +331,7 @@ export function createWorktreePhysicalCloseoutAuthorization(
 export function assertWorktreePhysicalCloseoutAuthorization(
   value: WorktreePhysicalCloseoutAuthorization
 ): WorktreePhysicalCloseoutAuthorization {
-  if (
-    value.schema !== WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA &&
-    value.schema !== LEGACY_WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA
-  ) fail('authorization schema mismatch.');
+  if (!isWorktreePhysicalCloseoutAuthorizationSchema(value.schema)) fail('authorization schema mismatch.');
   const hasGeneratedStateRetirement = Object.prototype.hasOwnProperty.call(value, 'generatedStateRetirement');
   if (value.schema === WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA && !hasGeneratedStateRetirement) {
     fail('authorization generatedStateRetirement is absent.');

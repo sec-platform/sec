@@ -15,6 +15,7 @@ import {
   createWorktreePhysicalCloseoutReceipt,
   createWorktreePhysicalInventory,
   detailDigest,
+  isWorktreePhysicalCloseoutAuthorizationSchema,
   parseGitWorktreeAdminLocator,
   parseWorktreePorcelainZ,
   parseWorktreeStatusPorcelainZ,
@@ -504,6 +505,48 @@ function loadRetiredWorktreePhase(root: PhysicalDirectoryIdentity, authorization
     throw new Error('Retired closeout phase does not bind this authorization.');
   }
   return phase;
+}
+
+async function observeProoflessWorktreeCloseoutConvergence(input: Readonly<{
+  repositoryRoot: string;
+  commonDir: string;
+  authorization: WorktreePhysicalCloseoutAuthorization;
+  retiredPhase: RetiredWorktreePhase;
+  stage: string;
+}>): Promise<Awaited<ReturnType<typeof observeRegistry>>> {
+  const registry = await observeRegistry(input.repositoryRoot);
+  const targetParent = path.dirname(input.authorization.target.path);
+  const fenceParentPresence = inspectExactNoFollowDirectoryPresence(
+    targetParent,
+    `Proofless worktree closeout ${input.stage} fence parent`
+  );
+  const blockers = [
+    ...(findTargetRecord(registry.records, input.authorization.target.path) !== null ? ['registry-present'] : []),
+    ...(physicalPresence(input.authorization.target.path, `Proofless worktree closeout ${input.stage} target`) !== null
+      ? ['target-present'] : []),
+    ...(physicalPresence(
+      path.join(input.commonDir, ...input.authorization.registryAdmin.relativePath.split('/')),
+      `Proofless worktree closeout ${input.stage} admin`
+    ) !== null ? ['registry-admin-present'] : []),
+    ...(physicalPresence(
+      path.join(targetParent, input.authorization.tombstoneName),
+      `Proofless worktree closeout ${input.stage} tombstone`
+    ) !== null ? ['tombstone-present'] : []),
+    ...(inspectExactNoFollowDirectoryPresence(
+      input.authorization.proofRoot.path,
+      `Proofless worktree closeout ${input.stage} proof`
+    ).state !== 'absent' ? ['proof-present'] : []),
+    ...(fenceParentPresence.state === 'present' && readNoFollowOrdinaryFile(
+      fenceParentPresence.directory.target,
+      input.retiredPhase.retirementReceipt.fenceName
+    ) !== null ? ['retirement-fence-present'] : [])
+  ];
+  if (blockers.length > 0) {
+    throw new Error(
+      `Proofless worktree closeout has not converged at ${input.stage}: ${blockers.join(',')}`
+    );
+  }
+  return registry;
 }
 
 function receiptGenerationName(receipt: WorktreePhysicalCloseoutReceipt): string {
@@ -1165,46 +1208,21 @@ async function executeWorktreePhysicalCloseoutUnderLease(
     if (retiredPhase === null) {
       throw new Error('Legacy proofless closeout lacks its durable retirement phase.');
     }
-    const observeProoflessConvergence = async (stage: string) => {
-      const registry = await observeRegistry(repository.root);
-      const targetPresent = physicalPresence(authorization.target.path, `${stage} target readback`) !== null;
-      const tombstonePresent = physicalPresence(
-        path.join(path.dirname(authorization.target.path), authorization.tombstoneName),
-        `${stage} tombstone readback`
-      ) !== null;
-      const registryAdminPresent = physicalPresence(
-        path.join(repository.commonDir, ...authorization.registryAdmin.relativePath.split('/')),
-        `${stage} registry-admin readback`
-      ) !== null;
-      const proofPresent = inspectExactNoFollowDirectoryPresence(
-        authorization.proofRoot.path,
-        `${stage} proof readback`
-      ).state !== 'absent';
-      const fenceParentPresence = inspectExactNoFollowDirectoryPresence(
-        path.dirname(authorization.target.path),
-        `${stage} retirement fence parent readback`
-      );
-      const fencePresent = fenceParentPresence.state === 'present' && readNoFollowOrdinaryFile(
-        fenceParentPresence.directory.target,
-        retiredPhase.retirementReceipt.fenceName
-      ) !== null;
-      const registryPresent = findTargetRecord(registry.records, authorization.target.path) !== null;
-      const blockers = [
-        ...(registryPresent ? ['registry-present'] : []),
-        ...(registryAdminPresent ? ['registry-admin-present'] : []),
-        ...(targetPresent ? ['target-present'] : []),
-        ...(tombstonePresent ? ['tombstone-present'] : []),
-        ...(proofPresent ? ['proof-present'] : []),
-        ...(fencePresent ? ['retirement-fence-present'] : [])
-      ];
-      if (blockers.length > 0) {
-        throw new Error(`Legacy proofless closeout has not converged at ${stage}: ${blockers.join(',')}`);
-      }
-      return registry;
-    };
-    await observeProoflessConvergence('initial');
+    await observeProoflessWorktreeCloseoutConvergence({
+      repositoryRoot: repository.root,
+      commonDir: repository.commonDir,
+      authorization,
+      retiredPhase,
+      stage: 'initial'
+    });
     await assertLeases();
-    const registry = await observeProoflessConvergence('effect-boundary');
+    const registry = await observeProoflessWorktreeCloseoutConvergence({
+      repositoryRoot: repository.root,
+      commonDir: repository.commonDir,
+      authorization,
+      retiredPhase,
+      stage: 'effect-boundary'
+    });
     return persistReceiptGeneration(expectedRecoveryRoot, createReceipt(
       authorization,
       registry.digest,
@@ -1874,7 +1892,7 @@ function loadWorktreePhysicalCloseoutGcAuthorization(
   const record = value as Record<string, unknown>;
   const operationId = record.operationId as Digest;
   const authorizationDigest = record.authorizationDigest as Digest;
-  if (record.schema !== 'sec-worktree-cleanup-authorization-v1'
+  if (!isWorktreePhysicalCloseoutAuthorizationSchema(record.schema)
       || !/^sha256:[0-9a-f]{64}$/u.test(operationId)
       || !/^sha256:[0-9a-f]{64}$/u.test(authorizationDigest)) {
     throw new Error('Worktree closeout GC authorization identity is invalid.');
@@ -2086,6 +2104,7 @@ export async function gcCompletedWorktreePhysicalCloseoutEvidence(
         authorization.proofRoot.path,
         'Worktree closeout GC proof root'
       );
+      let prooflessAuthorization: WorktreePhysicalCloseoutAuthorization | null = null;
       if (proofPresence.state === 'present') {
         if (authorization.current === null) {
           retained.push(Object.freeze({
@@ -2122,6 +2141,20 @@ export async function gcCompletedWorktreePhysicalCloseoutEvidence(
           parent: physicalDirectory(path.dirname(proofRoot.path), 'Worktree closeout GC proof parent'),
           root: proofRoot
         });
+      } else {
+        if (authorization.current === null || retiredPhase === null) {
+          throw new Error(`Proofless worktree closeout lacks current authorization or retirement phase: ${authorization.operationId}`);
+        }
+        const currentAuthorization = authorization.current;
+        assertAuthorizedLeaseNamespaceBinding(currentAuthorization, retiredPhase.retirementReceipt);
+        prooflessAuthorization = currentAuthorization;
+        await observeProoflessWorktreeCloseoutConvergence({
+          repositoryRoot: repository.root,
+          commonDir: repository.commonDir,
+          authorization: currentAuthorization,
+          retiredPhase,
+          stage: 'gc-initial'
+        });
       }
       const generatedStateRetirement = authorization.current?.generatedStateRetirement ?? null;
       if (generatedStateRetirement?.retentionRoot !== null && generatedStateRetirement !== null) {
@@ -2153,6 +2186,30 @@ export async function gcCompletedWorktreePhysicalCloseoutEvidence(
           expectedBranch: authorization.current!.target.branch,
           expectedHeadSha: authorization.current!.target.headSha,
           expectedTreeSha: authorization.current!.target.treeSha
+        });
+      }
+      if (prooflessAuthorization !== null) {
+        await assertWorkspaceWriteLease(repositoryRoot, lease);
+        const branchObservation = prooflessAuthorization.target.branch.startsWith(DETACHED_BRANCH_PREFIX)
+          ? null
+          : await runRepositoryGit(repository.root, [
+              'show-ref', '--verify', '--quiet', `refs/heads/${prooflessAuthorization.target.branch}`
+            ]);
+        if (branchObservation !== null
+            && branchObservation.status !== 0 && branchObservation.status !== 1) {
+          throw new Error(
+            `Proofless worktree closeout branch observation failed at gc-effect-boundary: ${branchObservation.stderr.toString('utf8').trim()}`
+          );
+        }
+        if (branchObservation?.status === 0) {
+          throw new Error(`Proofless worktree closeout has not converged at gc-effect-boundary: branch-present`);
+        }
+        await observeProoflessWorktreeCloseoutConvergence({
+          repositoryRoot: repository.root,
+          commonDir: repository.commonDir,
+          authorization: prooflessAuthorization,
+          retiredPhase: retiredPhase!,
+          stage: 'gc-effect-boundary'
         });
       }
       retireNoFollowDirectoryTree({
