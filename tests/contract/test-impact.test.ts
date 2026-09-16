@@ -95,17 +95,32 @@ test('repository sources route by semantic kind and module identity', () => {
     .toBe('active-documentation');
   expect(classifyTestImpactSource('docs/unregistered.manifest.yaml', activeDocumentationPath))
     .toBeNull();
+  expect(classifyTestImpactSource('.codex/agents/worker.toml', activeDocumentationPath))
+    .toBe('agent-role');
+  expect(classifyTestImpactSource('.codex/unowned.toml', activeDocumentationPath)).toBeNull();
+  expect(classifyTestImpactSource('.codex/agents/notes.md', activeDocumentationPath)).toBeNull();
 
   const compilerFixturePath = 'src/compiler/fixture.ts';
   const provider = sourceProvider({
     [compilerFixturePath]: 'export const fixture = true;',
-    'tests/unit/compiler-fixture.test.ts': "import { fixture } from '../../src/compiler/fixture.ts'; void fixture;"
+    'tests/unit/compiler-fixture.test.ts': "import { fixture } from '../../src/compiler/fixture.ts'; void fixture;",
+    '.codex/agents/worker.toml': 'name = "worker"\n',
+    'src/control/agent/skill.ts': 'export const role = true;',
+    'src/control/agent/sec.module.json': '{"importGraph":"runtime","externalEntrypoints":[]}',
+    'tests/unit/agent-fixture.test.ts': "import { role } from '../../src/control/agent/skill.ts'; void role;"
   });
   expect(resolveTestOwnership([compilerFixturePath], provider)).toEqual([{
     source: compilerFixturePath,
     owner: 'compiler',
     identity: { kind: 'module', id: 'compiler' }
   }]);
+  expect(resolveTestOwnership(['.codex/agents/worker.toml'], provider)).toEqual([{
+    source: '.codex/agents/worker.toml',
+    owner: 'control.agent',
+    identity: { kind: 'module', id: 'control.agent' }
+  }]);
+  expect(selectTestsForSources(['.codex/agents/worker.toml'], provider).fast)
+    .toEqual(['tests/unit/agent-fixture.test.ts']);
 });
 
 test('observed git-hook entrypoints route through development hooks ownership', () => {
