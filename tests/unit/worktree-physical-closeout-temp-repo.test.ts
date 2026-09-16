@@ -276,6 +276,7 @@ test('completed worktree GC rejects unknown operation evidence instead of deleti
       .rejects.toThrow('unvalidated operation evidence');
     expect(existsSync(unknown)).toBeTrue();
     expect(existsSync(operationRoot)).toBeTrue();
+    expect(existsSync(authorization.proofRoot.path)).toBeTrue();
   } finally {
     rmSync(value.root, { recursive: true, force: true });
   }
