@@ -14,8 +14,9 @@ import {
   scanNoFollowDirectoryDirectMetadata
 } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 
-test('Windows retained file transaction transfers a cross-parent file and retires its exact successor', async () => {
-  if (process.platform !== 'win32') return;
+const windowsTest = test.skipIf(process.platform !== 'win32');
+
+windowsTest('Windows retained file transaction transfers a cross-parent file and retires its exact successor', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-file-transaction-'));
   try {
     mkdirSync(path.join(root, 'source'));
@@ -78,8 +79,7 @@ test('retained file transaction rejects an unissued test actor', () => {
   }
 });
 
-test('Windows retained file transaction revalidates bytes after an awaited pre-effect actor', async () => {
-  if (process.platform !== 'win32') return;
+windowsTest('Windows retained file transaction revalidates bytes after an awaited pre-effect actor', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-file-transaction-'));
   try {
     mkdirSync(path.join(root, 'source'));
@@ -111,8 +111,7 @@ test('Windows retained file transaction revalidates bytes after an awaited pre-e
   }
 });
 
-test('Windows retained file transaction cannot report a parent barrier before its real pre-barrier seam succeeds', async () => {
-  if (process.platform !== 'win32') return;
+windowsTest('Windows retained file transaction cannot report a parent barrier before its real pre-barrier seam succeeds', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-file-transaction-'));
   try {
     mkdirSync(path.join(root, 'source'));
@@ -150,8 +149,7 @@ test('Windows retained file transaction cannot report a parent barrier before it
   }
 });
 
-test('Windows no-follow directory creation reports only real create and parent-barrier phases', () => {
-  if (process.platform !== 'win32') return;
+windowsTest('Windows no-follow directory creation reports only real create and parent-barrier phases', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-directory-create-actor-'));
   try {
     const stages: string[] = [];
@@ -178,8 +176,7 @@ test('Windows no-follow directory creation reports only real create and parent-b
   }
 });
 
-test('Windows no-follow directory creation cannot report a barrier when its pre-barrier actor fails', () => {
-  if (process.platform !== 'win32') return;
+windowsTest('Windows no-follow directory creation cannot report a barrier when its pre-barrier actor fails', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-directory-create-actor-'));
   try {
     const stages: string[] = [];
@@ -235,8 +232,7 @@ test('direct no-follow metadata census does not traverse or charge nested entrie
   }
 });
 
-test('Windows absolute directory chains distinguish a missing ancestor from unsafe existing entries', () => {
-  if (process.platform !== 'win32') return;
+windowsTest('Windows absolute directory chains distinguish a missing ancestor from unsafe existing entries', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-missing-chain-'));
   try {
     const docs = path.join(root, 'docs');
@@ -266,8 +262,7 @@ test('Windows absolute directory chains distinguish a missing ancestor from unsa
   }
 });
 
-test('Windows ordinary-file inspection classifies directory and junction leaves as unsafe', () => {
-  if (process.platform !== 'win32') return;
+windowsTest('Windows ordinary-file inspection classifies directory and junction leaves as unsafe', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-file-kind-mismatch-'));
   try {
     const parentPath = path.join(root, 'work');
