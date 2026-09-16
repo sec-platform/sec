@@ -20,6 +20,9 @@ export type SourceProgramCompilationPhase =
   | 'cache-publish'
   | 'settlement';
 
+/** Canonical ceiling for one physical repository compilation, including cache publication. */
+export const SOURCE_PROGRAM_COMPILATION_MAX_DURATION_MS = 300_000;
+
 export type SourceProgramCompilationPhaseEvent = Readonly<{
   phase: SourceProgramCompilationPhase;
   state: 'start' | 'complete';

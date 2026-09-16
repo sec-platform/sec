@@ -155,7 +155,13 @@ export async function freezeDevelopmentCommitCandidate(input: Readonly<{
     ['rev-parse', '--verify', '--end-of-options', ref],
     'resolve HEAD parent'
   );
-  if (worktreeRoot !== repositoryRoot || !REF.test(ref) || !OBJECT_ID.test(preimage)) {
+  const preimageTree = await commandText(
+    session,
+    ['rev-parse', '--verify', '--end-of-options', `${preimage}^{tree}`],
+    'resolve HEAD tree'
+  );
+  if (worktreeRoot !== repositoryRoot || !REF.test(ref)
+      || !OBJECT_ID.test(preimage) || !OBJECT_ID.test(preimageTree)) {
     throw new Error('Development commit candidate repository/ref preflight is not canonical.');
   }
   const beforeIndex = observeIndex(indexPath);
@@ -174,6 +180,9 @@ export async function freezeDevelopmentCommitCandidate(input: Readonly<{
       const treeResult = await resolution.session.writeTree();
       if (treeResult.status !== 'ready') {
         throw new Error(`Development commit candidate write-tree failed: ${treeResult.reason}`);
+      }
+      if (treeResult.value === preimageTree) {
+        throw new Error('Development commit candidate has no staged tree delta.');
       }
       const commitResult = await resolution.session.commitTree({
         tree: treeResult.value,

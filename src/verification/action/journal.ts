@@ -2120,6 +2120,13 @@ function classifyMutationPublicationCandidate(input: Readonly<{
   if (match === null) {
     fail(`machine cutover found malformed mutation publication residue at ${input.inventoryPath}.`, 'recovery-required');
   }
+  // The receipt writer creates its same-lock candidate before filling the
+  // retained bytes. Seeing that exact publication name is joinable
+  // contention; parsing a concurrently written candidate would turn a normal
+  // in-flight Effect into false recovery-required residue.
+  if (match[1]!.slice(1) === input.machineReceiptLockName) {
+    fail('machine cutover mutation is contended.', 'recovery-required');
+  }
   const candidate = observedInventoryFile(
     input.absolutePath,
     input.inventoryPath,
@@ -2136,9 +2143,6 @@ function classifyMutationPublicationCandidate(input: Readonly<{
   }
   const liveness = localProcessLiveness(owner.pid);
   if (liveness === 'alive') {
-    if (match[1]!.slice(1) === input.machineReceiptLockName) {
-      fail('machine cutover mutation is contended.', 'recovery-required');
-    }
     fail(`machine cutover observed an active physical mutation publication at ${input.inventoryPath}.`, 'recovery-required');
   }
   if (liveness === 'dead') {

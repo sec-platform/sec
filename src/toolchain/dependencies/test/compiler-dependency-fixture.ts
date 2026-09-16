@@ -261,19 +261,8 @@ async function retireFixtureState(
   state: IssuedCompilerDependencyFixtureOperation
 ): Promise<void> {
   const options = fixtureOperationOptions(state);
-  const retiredLockfile = `${state.descriptor.lockfileBytes.trimEnd()}\nfixture-retirement:${state.lockRevision + 1}\n`;
-  let primary: Readonly<{ label: string; error: unknown }> | undefined;
-  try {
-    await rematerializeFixture(state, retiredLockfile, options);
-  } catch (error) {
-    primary = Object.freeze({
-      label: 'compiler-dependency-fixture-rematerialization',
-      error
-    });
-  }
   let environmentRetired = false;
   await settlePhysicalResourcesAsync({
-    ...(primary === undefined ? {} : { primary }),
     cleanup: [{
       label: 'compiler-dependency-fixture-environment-retirement',
       settle: async () => {

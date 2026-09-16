@@ -26,7 +26,10 @@ test('every coordinator route consumes the same closed fields without evaluating
 
 test('declared capability identity is preserved without inspecting its methods or freezing the provider', () => {
   const lifecycle = new Proxy({
-    async born() {}, async retired() {}, async disposed() { throw new Error('unused disposal'); }
+    async born() {},
+    async inspect() { throw new Error('unused inspection'); },
+    async retired() {},
+    async disposed() { throw new Error('unused disposal'); }
   }, { ownKeys() { assert.fail('provider enumeration'); }, get() { assert.fail('provider access'); } });
   const capability = Object.freeze({ fixture: true });
   const bound = bind({ ...controls(), generatedStateLifecycle: lifecycle, testMaterialization: capability as never });

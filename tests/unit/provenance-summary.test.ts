@@ -56,18 +56,18 @@ test('review summary surfaces provenance summary', async () => {
     overrideArtifactCount: 1,
     registryArtifactCount: 1,
     generatedArtifactCount: 4,
-    generatedPassCount: 3,
+    generatedPassCount: 2,
     originSummaryCount: 3,
     overrideSummaryCount: 2,
     registrySummaryCount: 1,
     unverifiedArtifacts: [
-      'app/tickets/page.tsx',
       CI_ARTIFACT_FILES.reviewSummary,
+      'app/tickets/page.tsx',
       'src/installed/entity/customer-service.ts'
     ]
   });
   expect(summary.provenanceSummary?.originSummaries).toHaveLength(3);
   expect(summary.provenanceSummary?.overrideSummaries).toHaveLength(2);
   expect(summary.provenanceSummary?.registrySummaries).toHaveLength(1);
-  expect(summary.provenanceSummary?.generatedPassSummaries).toHaveLength(3);
+  expect(summary.provenanceSummary?.generatedPassSummaries).toHaveLength(2);
 });

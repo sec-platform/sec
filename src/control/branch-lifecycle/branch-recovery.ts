@@ -16,7 +16,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 
-import { assertPhysicallyDisjointDirectoryChains, assertSameNoFollowDirectoryIdentity, createNoFollowOrdinaryDirectoryChain, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, scanNoFollowDirectoryTreeMetadata, type NoFollowDirectoryTreeEntry, type PhysicalDirectoryChain, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { assertPhysicallyDisjointDirectoryChains, assertSameNoFollowDirectoryIdentity, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, scanNoFollowDirectoryTreeMetadata, type NoFollowDirectoryTreeEntry, type PhysicalDirectoryChain, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 
 import {
   createBranchLifecycleGitChildEnvironment,
@@ -117,6 +117,8 @@ export interface BranchRecoveryStore {
   readonly read: (name: string) => Uint8Array | null;
   readonly inspectFile: (name: string) => NoFollowDirectoryTreeEntry | null;
   readonly listOwnedFiles: (prefix: string) => readonly string[];
+  readonly removeExact: (name: string, expected: NoFollowDirectoryTreeEntry) => void;
+  readonly retireIfEmpty: () => boolean;
   readonly assertPhysicallyDisjointFrom: (absoluteDirectoryPaths: readonly string[]) => void;
   readonly assertCurrent: () => void;
 }
@@ -275,6 +277,60 @@ export function acquireBranchRecoveryStore(input: Readonly<{
       assertCurrent();
       return Object.freeze(owned.map(({ relativePath }) => relativePath)
         .sort((left, right) => left.localeCompare(right)));
+    },
+    removeExact: (name: string, expected: NoFollowDirectoryTreeEntry) => {
+      if (!/^[A-Za-z0-9._-]+$/u.test(name) || expected.relativePath !== name
+          || expected.kind !== 'file' || expected.linkTarget !== null) {
+        throw new Error('Branch recovery exact-removal binding is invalid.');
+      }
+      assertCurrent();
+      const current = inspectNoFollowOrdinaryFileEntry(root, name);
+      if (current === null || current.kind !== 'file'
+          || current.device !== expected.device || current.inode !== expected.inode
+          || current.size !== expected.size
+          || (expected.bytes !== null && (current.bytes === null
+            || !Buffer.from(current.bytes).equals(Buffer.from(expected.bytes))))) {
+        throw new Error(`Branch recovery file changed before retirement: ${name}`);
+      }
+      deleteRetainedNoFollowEntry({
+        root,
+        relativePath: name,
+        kind: 'file',
+        device: current.device,
+        inode: current.inode,
+        ancestorDirectories: []
+      });
+      if (inspectNoFollowOrdinaryFileEntry(root, name) !== null) {
+        throw new Error(`Branch recovery file remains after retirement: ${name}`);
+      }
+      assertCurrent();
+    },
+    retireIfEmpty: () => {
+      assertCurrent();
+      const inventory = scanNoFollowDirectoryTreeMetadata(root, {
+        deadlineAtMs: performance.now() + 5_000,
+        maximumEntries: 20_000
+      });
+      if (inventory.length !== 0) return false;
+      const parent = inspectNoFollowDirectoryChain(
+        path.dirname(root.path),
+        'Branch recovery empty-root parent'
+      ).target;
+      deleteRetainedNoFollowEntry({
+        root: parent,
+        relativePath: path.basename(root.path),
+        kind: 'directory',
+        device: root.device,
+        inode: root.inode,
+        ancestorDirectories: []
+      });
+      if (inspectExactNoFollowDirectoryPresence(
+        root.path,
+        'Branch recovery empty-root readback'
+      ).state !== 'absent') {
+        throw new Error('Branch recovery empty root remains after retirement.');
+      }
+      return true;
     },
     assertPhysicallyDisjointFrom: (absoluteDirectoryPaths: readonly string[]) => {
       const current = assertCurrentChain();

@@ -22,6 +22,10 @@ import {
   acquireBranchRecoveryStore,
   type BranchRecoveryStore
 } from './branch-recovery.ts';
+import {
+  gcCompletedWorktreePhysicalCloseoutEvidence,
+  type WorktreePhysicalCloseoutEvidenceGcResult
+} from './worktree-physical-closeout.ts';
 
 const AUTHORIZATION_SCHEMA = 'sec-local-branch-residue-closeout-authorization-v1' as const;
 const RECEIPT_SCHEMA = 'sec-local-branch-residue-closeout-receipt-v1' as const;
@@ -897,12 +901,22 @@ function assertReceiptMatchesAuthorization(
   }
 }
 
-function findPendingAuthorization(
+interface ScannedLocalBranchResidueOperations {
+  readonly pending: LocalBranchResidueAuthorization | null;
+  readonly completed: readonly Readonly<{
+    authorization: LocalBranchResidueAuthorization;
+    receipt: LocalBranchResidueReceipt;
+    names: Readonly<{ authorization: string; receipt: string }>;
+  }>[];
+}
+
+function scanLocalBranchResidueOperations(
   store: BranchRecoveryStore
-): LocalBranchResidueAuthorization | null {
+): ScannedLocalBranchResidueOperations {
   const names = store.listOwnedFiles('sec-local-branch-residue-')
     .filter((name) => name.endsWith('.authorization.json'));
   const pending: LocalBranchResidueAuthorization[] = [];
+  const completed: Array<ScannedLocalBranchResidueOperations['completed'][number]> = [];
   for (const name of names) {
     const bytes = store.read(name);
     if (bytes === null) throw new Error(`Authorization disappeared during recovery scan: ${name}`);
@@ -916,12 +930,135 @@ function findPendingAuthorization(
       pending.push(authorization);
       continue;
     }
-    assertReceiptMatchesAuthorization(parseReceipt(receiptBytes), authorization);
+    const receipt = parseReceipt(receiptBytes);
+    assertReceiptMatchesAuthorization(receipt, authorization);
+    completed.push(Object.freeze({ authorization, receipt, names: expectedNames }));
   }
   if (pending.length > 1) {
     throw new Error(`Multiple pending local branch residue operations require reconciliation: ${pending.length}.`);
   }
-  return pending[0] ?? null;
+  return Object.freeze({ pending: pending[0] ?? null, completed: Object.freeze(completed) });
+}
+
+function safeRecoverySegment(branch: string): string {
+  return branch.replace(/[^A-Za-z0-9._-]+/gu, '-').replace(/^-+|-+$/gu, '').slice(0, 80);
+}
+
+function removeOwnedRecoveryFile(
+  store: BranchRecoveryStore,
+  name: string,
+  retired: string[]
+): void {
+  const observed = store.inspectFile(name);
+  if (observed === null) return;
+  store.removeExact(name, observed);
+  retired.push(path.join(store.root.path, name));
+}
+
+function retireRecoveryBundleFamily(input: Readonly<{
+  store: BranchRecoveryStore;
+  bundleName: string;
+  expectedDigest: Digest;
+  retired: string[];
+}>): void {
+  const bundle = input.store.inspectFile(input.bundleName);
+  if (bundle === null) {
+    for (const name of [...input.store.listOwnedFiles(`${input.bundleName}.`)]
+      .sort((left, right) => right.localeCompare(left))) {
+      removeOwnedRecoveryFile(input.store, name, input.retired);
+    }
+    return;
+  }
+  if (bundle.bytes === null || `sha256:${createHash('sha256').update(bundle.bytes).digest('hex')}`
+      !== input.expectedDigest) {
+    throw new Error(`Recovery bundle differs before terminal retirement: ${input.bundleName}`);
+  }
+  const checksumName = `${input.bundleName}.sha256`;
+  const checksum = input.store.inspectFile(checksumName);
+  const expectedChecksum = Buffer.from(
+    `${input.expectedDigest.slice('sha256:'.length)}  ${input.bundleName}\n`,
+    'utf8'
+  );
+  if (checksum === null || checksum.bytes === null
+      || !Buffer.from(checksum.bytes).equals(expectedChecksum)) {
+    throw new Error(`Recovery checksum differs before terminal retirement: ${checksumName}`);
+  }
+  for (const name of [...input.store.listOwnedFiles(`${input.bundleName}.`)]
+    .filter((candidate) => candidate !== checksumName)
+    .sort((left, right) => right.localeCompare(left))) {
+    removeOwnedRecoveryFile(input.store, name, input.retired);
+  }
+  removeOwnedRecoveryFile(input.store, checksumName, input.retired);
+  removeOwnedRecoveryFile(input.store, input.bundleName, input.retired);
+}
+
+function retireSupersededBranchCloseoutBundles(input: Readonly<{
+  store: BranchRecoveryStore;
+  entry: AuthorizationEntry;
+  retired: string[];
+}>): void {
+  const prefix = `sec-branch-closeout-${safeRecoverySegment(input.entry.branch)}-`;
+  for (const name of [...input.store.listOwnedFiles(prefix)]
+    .filter((candidate) => candidate.endsWith('.bundle'))) {
+    const bundle = input.store.inspectFile(name);
+    if (bundle === null || bundle.bytes === null) continue;
+    const digest = `sha256:${createHash('sha256').update(bundle.bytes).digest('hex')}` as Digest;
+    if (digest !== input.entry.recovery.digest) continue;
+    const family = input.store.listOwnedFiles(`${name}.`);
+    const hasPreparation = family.includes(`${name}.preparation.json`);
+    const hasTerminal = family.some((candidate) => (
+      candidate.startsWith(`${name}.closeout-`) && candidate.endsWith('.receipt.json')
+    ));
+    if (hasPreparation && !hasTerminal) continue;
+    retireRecoveryBundleFamily({
+      store: input.store,
+      bundleName: name,
+      expectedDigest: input.entry.recovery.digest,
+      retired: input.retired
+    });
+  }
+}
+
+function retireCompletedLocalBranchResidueOperation(input: Readonly<{
+  store: BranchRecoveryStore;
+  completed: ScannedLocalBranchResidueOperations['completed'][number];
+}>): readonly string[] {
+  const { authorization, receipt, names } = input.completed;
+  assertReceiptMatchesAuthorization(receipt, authorization);
+  const retired: string[] = [];
+  for (const entry of authorization.entries) {
+    const localBundleName = path.basename(entry.recovery.path);
+    if (entry.recovery.path !== path.join(input.store.root.path, localBundleName)) {
+      throw new Error(`Completed recovery path escaped its canonical owner: ${entry.branch}`);
+    }
+    retireSupersededBranchCloseoutBundles({ store: input.store, entry, retired });
+    retireRecoveryBundleFamily({
+      store: input.store,
+      bundleName: localBundleName,
+      expectedDigest: entry.recovery.digest,
+      retired
+    });
+  }
+  removeOwnedRecoveryFile(input.store, names.authorization, retired);
+  removeOwnedRecoveryFile(input.store, names.receipt, retired);
+  return Object.freeze(retired);
+}
+
+function retireOrphanCompletedReceipts(store: BranchRecoveryStore): readonly string[] {
+  const retired: string[] = [];
+  for (const name of [...store.listOwnedFiles('sec-local-branch-residue-')]
+    .filter((candidate) => candidate.endsWith('.receipt.json'))) {
+    const bytes = store.read(name);
+    if (bytes === null) continue;
+    const receipt = parseReceipt(bytes);
+    const expected = operationNames(receipt.operationId);
+    if (name !== expected.receipt) {
+      throw new Error(`Receipt filename differs from its operationId: ${name}`);
+    }
+    if (store.read(expected.authorization) !== null) continue;
+    removeOwnedRecoveryFile(store, name, retired);
+  }
+  return Object.freeze(retired);
 }
 
 async function observeRepositoryProvider(
@@ -1029,6 +1166,54 @@ function authorizedLocalState(
   throw new Error('Authorized local refs are in a mixed state; atomic closeout cannot be inferred.');
 }
 
+async function retireCompletedLocalBranchResidueOperations(input: Readonly<{
+  run: CommandRunner;
+  repositoryRoot: string;
+  repository: string;
+  commonDir: string;
+  remote: string;
+  remoteUrl: string;
+  provider: RepositoryProviderObservation;
+  store: BranchRecoveryStore;
+  observation: LocalBranchResidueObservation;
+  completed: ScannedLocalBranchResidueOperations['completed'];
+}>): Promise<Readonly<{ branches: readonly string[]; files: readonly string[] }>> {
+  const branches: string[] = [];
+  const files: string[] = [];
+  for (const completed of input.completed) {
+    assertAuthorizationIdentity({
+      authorization: completed.authorization,
+      repository: input.repository,
+      repositoryRoot: input.repositoryRoot,
+      commonDir: input.commonDir,
+      remote: input.remote,
+      remoteUrl: input.remoteUrl,
+      provider: input.provider,
+      store: input.store
+    });
+    if (authorizedLocalState(completed.authorization, input.observation) !== 'absent') {
+      throw new Error(
+        `Completed local branch residue operation was followed by ref recreation: ${completed.authorization.operationId}`
+      );
+    }
+    await assertMergeCommitsReachable(
+      input.run,
+      input.repositoryRoot,
+      completed.authorization.remoteMainSha,
+      completed.authorization.entries
+    );
+    files.push(...retireCompletedLocalBranchResidueOperation({
+      store: input.store,
+      completed
+    }));
+    branches.push(...completed.authorization.entries.map(({ branch }) => branch));
+  }
+  return Object.freeze({
+    branches: Object.freeze([...new Set(branches)].sort((left, right) => left.localeCompare(right))),
+    files: Object.freeze(files)
+  });
+}
+
 function assertAuthorizedObservation(
   authorization: LocalBranchResidueAuthorization,
   observation: LocalBranchResidueObservation
@@ -1082,14 +1267,18 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
     afterDelete?: () => void;
     afterReadback?: () => void;
     beforeReceipt?: () => void;
+    afterReceipt?: () => void;
   }>;
 }>): Promise<Readonly<{
-  schema: 'sec-local-branch-residue-closeout-result-v1';
+  schema: 'sec-local-branch-residue-closeout-result-v2';
   settled: readonly string[];
   protectedBranches: readonly string[];
   unresolvedBranches: readonly string[];
   authorizationPath: string | null;
   receiptPath: string | null;
+  retiredRecoveryFiles: readonly string[];
+  recoveryRootRetired: boolean;
+  worktreeEvidenceGc: WorktreePhysicalCloseoutEvidenceGcResult;
 }>> {
   const run = input.run ?? defaultRunner;
   const now = input.now ?? (() => new Date());
@@ -1119,12 +1308,15 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
   const initialWorktrees = await requireText(run, 'git', [
     'worktree', 'list', '--porcelain', '-z'
   ], repositoryRoot, 'initial worktree observation');
+  const worktreeEvidenceGc = await gcCompletedWorktreePhysicalCloseoutEvidence(repositoryRoot);
   const store = acquireBranchRecoveryStore({
     repositoryRoot,
     commonDir,
     worktreeRoots: parseWorktreeRoots(initialWorktrees),
     ...(input.recoveryRoot === undefined ? {} : { recoveryRoot: input.recoveryRoot })
   });
+  const retireDefaultRecoveryRoot = input.recoveryRoot === undefined
+    && process.env.SEC_BRANCH_RECOVERY_ROOT === undefined;
 
   const settleAuthorization = async (
     authorization: LocalBranchResidueAuthorization,
@@ -1213,19 +1405,67 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
         parse: parseReceipt
       });
       assertReceiptMatchesAuthorization(receipt, authorization);
+      input.faults?.afterReceipt?.();
       store.assertCurrent();
     });
+    const completed = scanLocalBranchResidueOperations(store).completed
+      .find((candidate) => candidate.authorization.operationId === authorization.operationId);
+    if (completed === undefined) {
+      throw new Error(`Completed local branch residue receipt disappeared: ${authorization.operationId}`);
+    }
+    const current = await observe(run, repositoryRoot, repository, authorization.defaultBranch);
+    const retirement = await retireCompletedLocalBranchResidueOperations({
+      run,
+      repositoryRoot,
+      repository,
+      commonDir,
+      remote,
+      remoteUrl,
+      provider,
+      store,
+      observation: current,
+      completed: [completed]
+    });
+    const recoveryRootRetired = retireDefaultRecoveryRoot && store.retireIfEmpty();
     return Object.freeze({
-      schema: 'sec-local-branch-residue-closeout-result-v1' as const,
+      schema: 'sec-local-branch-residue-closeout-result-v2' as const,
       settled: Object.freeze(authorization.entries.map(({ branch }) => branch)),
       protectedBranches,
       unresolvedBranches,
-      authorizationPath: path.join(store.root.path, names.authorization),
-      receiptPath: path.join(store.root.path, names.receipt)
+      authorizationPath: null,
+      receiptPath: null,
+      retiredRecoveryFiles: retirement.files,
+      recoveryRootRetired,
+      worktreeEvidenceGc
     });
   };
 
-  const pending = findPendingAuthorization(store);
+  const orphanReceiptFiles = retireOrphanCompletedReceipts(store);
+  const scanned = scanLocalBranchResidueOperations(store);
+  let retiredBefore = Object.freeze({
+    branches: Object.freeze([]) as readonly string[],
+    files: orphanReceiptFiles
+  });
+  if (scanned.completed.length > 0) {
+    const current = await observe(run, repositoryRoot, repository, provider.defaultBranch);
+    const completedRetirement = await retireCompletedLocalBranchResidueOperations({
+      run,
+      repositoryRoot,
+      repository,
+      commonDir,
+      remote,
+      remoteUrl,
+      provider,
+      store,
+      observation: current,
+      completed: scanned.completed
+    });
+    retiredBefore = Object.freeze({
+      branches: completedRetirement.branches,
+      files: Object.freeze([...orphanReceiptFiles, ...completedRetirement.files])
+    });
+  }
+  const pending = scanned.pending;
   if (pending !== null) {
     assertAuthorizationIdentity({
       authorization: pending,
@@ -1237,7 +1477,13 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
       provider,
       store
     });
-    return await settleAuthorization(pending, false, Object.freeze([]), Object.freeze([]));
+    const settled = await settleAuthorization(pending, false, Object.freeze([]), Object.freeze([]));
+    return Object.freeze({
+      ...settled,
+      settled: Object.freeze([...new Set([...retiredBefore.branches, ...settled.settled])]
+        .sort((left, right) => left.localeCompare(right))),
+      retiredRecoveryFiles: Object.freeze([...retiredBefore.files, ...settled.retiredRecoveryFiles])
+    });
   }
 
   const first = await observe(run, repositoryRoot, repository, provider.defaultBranch);
@@ -1245,12 +1491,15 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
   const plan = planMergedLocalBranchResidueCloseout(first);
   if (plan.eligible.length === 0) {
     return Object.freeze({
-      schema: 'sec-local-branch-residue-closeout-result-v1',
-      settled: Object.freeze([]),
+      schema: 'sec-local-branch-residue-closeout-result-v2',
+      settled: retiredBefore.branches,
       protectedBranches: plan.protectedBranches,
       unresolvedBranches: plan.unresolvedBranches,
       authorizationPath: null,
-      receiptPath: null
+      receiptPath: null,
+      retiredRecoveryFiles: retiredBefore.files,
+      recoveryRootRetired: retireDefaultRecoveryRoot && store.retireIfEmpty(),
+      worktreeEvidenceGc
     });
   }
   const exactRemoteMain = remoteMainSha(first);
@@ -1273,10 +1522,16 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
     entries,
     now
   });
-  return await settleAuthorization(
+  const settled = await settleAuthorization(
     authorization,
     true,
     plan.protectedBranches,
     plan.unresolvedBranches
   );
+  return Object.freeze({
+    ...settled,
+    settled: Object.freeze([...new Set([...retiredBefore.branches, ...settled.settled])]
+      .sort((left, right) => left.localeCompare(right))),
+    retiredRecoveryFiles: Object.freeze([...retiredBefore.files, ...settled.retiredRecoveryFiles])
+  });
 }

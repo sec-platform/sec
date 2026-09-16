@@ -5,7 +5,12 @@ import { expect, test } from 'bun:test';
 
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
 import { buildValidatedEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
-import { buildSemanticContractSourceCandidate, loadAuthoringSemanticContractSources } from '../../src/compiler/parse/load-authoring-semantic-contracts.ts';
+import {
+  AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH,
+  buildSemanticContractSourceCandidate,
+  loadAuthoringSemanticContractSources
+} from '../../src/compiler/parse/load-authoring-semantic-contracts.ts';
+import { normalizeSemanticContract } from '../../src/compiler/parse/load-semantic-contract.ts';
 import { normalizeSemanticMutationRequest, semanticMutationAuthorizationRevision } from '../../src/compiler/semantic-mutation/normalize-request.ts';
 import { planSemanticMutationSourceEdit, renderSemanticMutationSourceEdit } from '../../src/compiler/semantic-mutation/plan-source-edit.ts';
 import { preflightSemanticMutation } from '../../src/compiler/semantic-mutation/preflight-semantic-mutation.ts';
@@ -19,13 +24,14 @@ import { buildTrustedLocalSemanticMutationAuthorization, type TrustedLocalSemant
 import type { LoadedSemanticContract } from '../../src/semantic/contracts/contract/types.ts';
 import type { FactDeltaEndpointContext } from '../../src/semantic/engineering-ir/contract/delta-types.ts';
 import { SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION, SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION, type SemanticMutationAuthorizationContext, type SemanticMutationLoadedSourceCandidate, type SemanticMutationRequest } from '../../src/semantic/mutation/contract/types.ts';
+import { modelRelativePath } from '../../src/workspace/contract/types.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
-function loadedContract(contractPath = 'model/item.yaml'): LoadedSemanticContract {
+function loadedContract(contractPath = `${modelRelativePath}/item.yaml`): LoadedSemanticContract {
   return {
     blockId: 'item/basic',
     contractPath,
-    contract: {
+    contract: normalizeSemanticContract({
       formatVersion: '1',
       id: 'item-core',
       namespace: 'item',
@@ -69,7 +75,7 @@ function loadedContract(contractPath = 'model/item.yaml'): LoadedSemanticContrac
       permissions: [],
       effects: [],
       scenarios: []
-    }
+    })
   };
 }
 
@@ -225,9 +231,9 @@ function fixture(contract = loadedContract(), auth = authorization()) {
 }
 
 async function writePlanningWorkspace(root: string, bytes: Uint8Array): Promise<string> {
-  await mkdir(path.join(root, 'source', 'model'), { recursive: true });
+  await mkdir(path.join(root, modelRelativePath), { recursive: true });
   await mkdir(path.join(root, '.sec', 'transactions', 'tx-plan'), { recursive: true });
-  await writeFile(path.join(root, 'source', 'model', 'item.yaml'), bytes);
+  await writeFile(path.join(root, modelRelativePath, 'item.yaml'), bytes);
   return path.join(root, '.sec', 'transactions', 'tx-plan');
 }
 
@@ -365,7 +371,7 @@ test('SM-2 plans one deterministic YAML edit and preserves comments, BOM, CRLF, 
       finalNewline: false,
       beforeByteLength: before.byteLength
     });
-    expect(Array.from(await readFile(path.join(root, 'source', 'model', 'item.yaml')))).toEqual(Array.from(before));
+    expect(Array.from(await readFile(path.join(root, modelRelativePath, 'item.yaml')))).toEqual(Array.from(before));
 
     const staged = renderSemanticMutationSourceEdit(first.plan, before);
     expect(semanticMutationByteDigest(staged)).toBe(first.plan.stagedByteDigest);
@@ -575,7 +581,7 @@ test('source bytes that drift from loaded provenance reject transform without mu
       rejectedAt: 'transform',
       diagnostics: [{ code: 'SEMANTIC-MUTATION-006' }]
     });
-    expect(new Uint8Array(await readFile(path.join(root, 'source', 'model', 'item.yaml')))).toEqual(drifted);
+    expect(new Uint8Array(await readFile(path.join(root, modelRelativePath, 'item.yaml')))).toEqual(drifted);
   });
 });
 
@@ -589,11 +595,12 @@ test('authoring source candidate does not change canonical IR identity outside i
 
 test('fixed authoring index is a real loader provenance seam and does not infer unlisted source/model mirrors', async () => {
   await withTempWorkspace(async (root) => {
-    await mkdir(path.join(root, 'source', 'model'), { recursive: true });
-    await writeFile(path.join(root, 'source', 'model', 'item.yaml'), sourceYaml());
+    await mkdir(path.join(root, modelRelativePath), { recursive: true });
+    await writeFile(path.join(root, modelRelativePath, 'item.yaml'), sourceYaml());
     expect(await loadAuthoringSemanticContractSources(root, new Set(['item/basic']))).toEqual([]);
 
-    await writeFile(path.join(root, 'source', 'model', 'semantic-contracts.yaml'), [
+    const indexPath = path.join(root, ...AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH.split('/'));
+    await writeFile(indexPath, [
       'formatRevision: authoring-semantic-contract-index-v1',
       'contracts: []',
       'callerOwner: forged',
@@ -603,7 +610,7 @@ test('fixed authoring index is a real loader provenance seam and does not infer 
       code: 'CONTRACT-SEMANTIC-019'
     });
 
-    await writeFile(path.join(root, 'source', 'model', 'semantic-contracts.yaml'), [
+    await writeFile(indexPath, [
       'formatRevision: authoring-semantic-contract-index-v1',
       'contracts:',
       '  - blockId: item/basic',
@@ -616,7 +623,7 @@ test('fixed authoring index is a real loader provenance seam and does not infer 
       sourceKind: 'workspace-authoring',
       loadedContract: {
         blockId: 'item/basic',
-        contractPath: 'model/item.yaml',
+        contractPath: `${modelRelativePath}/item.yaml`,
         contract: { id: 'item-core', namespace: 'item' }
       }
     });

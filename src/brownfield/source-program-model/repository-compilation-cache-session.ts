@@ -14,7 +14,10 @@ import {
   issueSecSemanticOperationAttemptContext,
   type SecOperationDigest
 } from '../../system-architecture/operation/semantic.ts';
-import type { SourceProgramCompilationOperation } from './compilation-operation.ts';
+import {
+  SOURCE_PROGRAM_COMPILATION_MAX_DURATION_MS,
+  type SourceProgramCompilationOperation
+} from './compilation-operation.ts';
 import { createRepositoryCompilationCacheProvider } from './repository-compilation-cache-provider.ts';
 import {
   compileRepositorySourceProgramCompilation,
@@ -28,7 +31,6 @@ import {
 
 const REPOSITORY_COMPILATION_CACHE_REQUIREMENT =
   'brownfield.source-program-model.repository-compilation-cache';
-const REPOSITORY_COMPILATION_CACHE_MAX_DURATION_MS = 300_000;
 const REPOSITORY_COMPILATION_CACHE_MIN_BYTES = 64 * 1024 * 1024;
 const REPOSITORY_COMPILATION_CACHE_MAX_BYTES = 256 * 1024 * 1024;
 const REPOSITORY_COMPILATION_CACHE_MAX_ENCODING_AMPLIFICATION = 8;
@@ -46,7 +48,7 @@ export function openRepositoryCompilationCacheSession(input: Readonly<{
   assertPhysicalWorkspaceSourceSnapshot(input.workspaceSnapshot);
   const deadlineAtUnixMs = Math.min(
     input.deadlineAtUnixMs,
-    Date.now() + REPOSITORY_COMPILATION_CACHE_MAX_DURATION_MS
+    Date.now() + SOURCE_PROGRAM_COMPILATION_MAX_DURATION_MS
   );
   const durationMs = deadlineAtUnixMs - Date.now();
   const sourceByteLength = input.workspaceSnapshot.sourceByteLength;

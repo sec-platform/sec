@@ -11148,7 +11148,10 @@ export async function retainCompilerDependencyReadGeneration(
           expected.sourceGeneration,
           'Compiler dependency read generation proof'
         );
-        const proofRoot = namespace === null ? null : inspectNoFollowDirectoryChild(
+        if (namespace === null) {
+          throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency read generation proof is unavailable');
+        }
+        const proofRoot = inspectNoFollowDirectoryChild(
           namespace.backupRoot,
           'read-only-generations',
           'Compiler dependency read generation proof root'

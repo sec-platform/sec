@@ -25,6 +25,7 @@ import {
   assertTrustedCompletedWorktreePhysicalCloseout,
   executeDetachedScratchWorktreePhysicalCloseout,
   executeWorktreePhysicalCloseout,
+  gcCompletedWorktreePhysicalCloseoutEvidence,
   prepareDetachedScratchWorktreePhysicalCloseout,
   prepareTrustedWorktreePhysicalCloseout,
   prepareWorktreePhysicalCloseout
@@ -201,6 +202,77 @@ test('real registered worktree reaches registry and physical absence under one d
   }
 }, 30_000);
 
+test('completed worktree evidence is retained while the branch is live and reclaimed after ref settlement', async () => {
+  const value = fixture();
+  try {
+    const authorization = await prepareWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
+    });
+    const receipt = await executeWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
+      authorizationPath: authorization.authorizationPath
+    });
+    expect(receipt.terminal).toBe('completed');
+
+    const retained = await gcCompletedWorktreePhysicalCloseoutEvidence(value.repository);
+    expect(retained.retiredOperationIds).toEqual([]);
+    expect(retained.retained).toContainEqual({
+      operationId: authorization.operationId,
+      reason: 'branch-live',
+      terminal: 'completed'
+    });
+    expect(existsSync(path.dirname(authorization.authorizationPath))).toBeTrue();
+    expect(existsSync(authorization.proofRoot.path)).toBeTrue();
+
+    git(value.repository, ['branch', '-D', value.branch]);
+    const reclaimed = await gcCompletedWorktreePhysicalCloseoutEvidence(value.repository);
+    expect(reclaimed.retiredOperationIds).toEqual([authorization.operationId]);
+    expect(reclaimed.ownerRetired).toBeTrue();
+    expect(reclaimed.retained).toEqual([]);
+    expect(existsSync(path.dirname(authorization.authorizationPath))).toBeFalse();
+    expect(existsSync(path.dirname(path.dirname(authorization.authorizationPath)))).toBeFalse();
+    expect(existsSync(authorization.proofRoot.path)).toBeFalse();
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+}, 30_000);
+
+test('prepared worktree evidence remains a recovery root', async () => {
+  const value = fixture();
+  try {
+    const authorization = await prepareWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
+    });
+    const result = await gcCompletedWorktreePhysicalCloseoutEvidence(value.repository);
+    expect(result.retiredOperationIds).toEqual([]);
+    expect(result.retained).toContainEqual({
+      operationId: authorization.operationId,
+      reason: 'not-completed',
+      terminal: 'prepared'
+    });
+    expect(existsSync(path.dirname(authorization.authorizationPath))).toBeTrue();
+    expect(existsSync(authorization.proofRoot.path)).toBeTrue();
+    expect(existsSync(value.target)).toBeTrue();
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+}, 30_000);
+
 test('authorized externally unregistered worktree converges physical residue without elevating the missing admin effect', async () => {
   if (process.platform !== 'win32') return;
   const value = fixture();
@@ -324,6 +396,9 @@ test('closeout composes provider retirement for an automatically reused dependen
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
     });
     expect(authorization.generatedStateRetirement).toMatchObject({ terminal: 'completed' });
+    const generatedStateRetentionRoot = authorization.generatedStateRetirement?.retentionRoot?.path;
+    expect(generatedStateRetentionRoot).toBeString();
+    expect(existsSync(generatedStateRetentionRoot!)).toBeTrue();
     expect(authorization.generatedStateRetirement?.entries.find(
       ({ relativePath }) => relativePath === 'node_modules'
     )).toMatchObject({
@@ -336,7 +411,6 @@ test('closeout composes provider retirement for an automatically reused dependen
       path.join(value.repository, 'node_modules', 'typescript', 'lib', 'typescript.js'),
       'utf8'
     )).toBe('primary:typescript\n');
-
     const receipt = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
       targetPath: value.target,
@@ -352,6 +426,11 @@ test('closeout composes provider retirement for an automatically reused dependen
       path.join(value.repository, 'node_modules', 'typescript', 'lib', 'typescript.js'),
       'utf8'
     )).toBe('primary:typescript\n');
+    git(value.repository, ['branch', '-D', value.branch]);
+    const evidenceGc = await gcCompletedWorktreePhysicalCloseoutEvidence(value.repository);
+    expect(evidenceGc.retiredOperationIds).toEqual([authorization.operationId]);
+    expect(evidenceGc.ownerRetired).toBeTrue();
+    expect(existsSync(generatedStateRetentionRoot!)).toBeFalse();
   } finally {
     try {
       const retirement = await disposeCompilerDependencyEnvironment(
@@ -368,7 +447,7 @@ test('closeout composes provider retirement for an automatically reused dependen
       else process.env.SEC_STATE_HOME = previousStateHome;
     }
   }
-}, 20_000);
+}, 40_000);
 
 test('Windows real closeout streams a large tracked leaf, normalizes readonly, and never traverses a junction', async () => {
   if (process.platform !== 'win32') return;

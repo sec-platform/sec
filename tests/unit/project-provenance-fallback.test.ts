@@ -32,7 +32,7 @@ test('provenance fallback allows a missing untracked generated artifact to be re
     await writeJson(provenancePath, provenanceFor('src/generated/routes.ts'));
 
     await checkProvenanceFallback(workspaceRoot);
-  }, 'engineering-compiler-provenance-untracked-missing-');
+  }, 'prov-u-');
 });
 
 test('provenance fallback rejects a missing tracked project artifact', async () => {
@@ -44,13 +44,19 @@ test('provenance fallback rejects a missing tracked project artifact', async () 
 
     await ensureDir(path.dirname(absolutePath));
     await writeText(absolutePath, 'export const value = 1;');
-    expect((await runCommand('git', ['init'], { cwd: workspaceRoot })).code).toBe(0);
-    expect((await runCommand('git', ['add', artifactPath], { cwd: workspaceRoot })).code).toBe(0);
+    const initialized = await runCommand('git', [
+      '-c', 'core.longpaths=true', 'init', '--quiet', '--template='
+    ], { cwd: workspaceRoot });
+    expect(initialized.code, initialized.stderr).toBe(0);
+    const staged = await runCommand('git', [
+      '-c', 'core.longpaths=true', 'add', artifactPath
+    ], { cwd: workspaceRoot });
+    expect(staged.code, staged.stderr).toBe(0);
     await fs.rm(absolutePath);
     await writeJson(provenancePath, provenanceFor(artifactPath));
 
     await expect(checkProvenanceFallback(workspaceRoot)).rejects.toMatchObject({
       code: 'ERROR-DRIFT-001'
     });
-  }, 'engineering-compiler-provenance-tracked-missing-');
+  }, 'prov-t-');
 });

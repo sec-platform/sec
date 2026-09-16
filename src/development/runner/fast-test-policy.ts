@@ -89,8 +89,14 @@ export function resolveManagedFastTestConcurrency(
   });
 }
 
+// Windows fast tests frequently compose Bun workers with retained Git/native
+// children and multi-gigabyte Source Program generations. CPU count does not
+// own that memory/process closure, so the platform default is serial before
+// the pure budget compiler runs.
 export const DEFAULT_FAST_TEST_CONCURRENCY_BUDGET = resolveFastTestConcurrencyBudget(
-  availableParallelism()
+  process.platform === 'win32'
+    ? 1
+    : availableParallelism()
 );
 export const DEFAULT_FAST_TEST_MAX_CONCURRENCY =
   DEFAULT_FAST_TEST_CONCURRENCY_BUDGET.bunTestMaxConcurrency;
