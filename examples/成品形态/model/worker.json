@@ -1,0 +1,94 @@
+{
+  "schema": "sec.author-module/1",
+  "moduleId": "example:form:worker",
+  "namespace": "example.form.worker",
+  "dialects": {
+    "req": {
+      "languageId": "sec.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {
+    "spec": {
+      "mode": "workspace",
+      "moduleId": "example/spec/normalization"
+    },
+    "behavior": {
+      "mode": "workspace",
+      "moduleId": "example:normalization"
+    }
+  },
+  "definitions": {
+    "d:Worker": {
+      "kind": "req:composite",
+      "name": "Worker",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "transform": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Transform"
+              }
+            }
+          },
+          "delivery": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Delivery"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "use": {
+              "import": "behavior",
+              "export": "Normalize"
+            },
+            "arguments": {
+              "on": {
+                "subject": "transform"
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "spec",
+              "export": "Emit"
+            },
+            "fields": {
+              "on": {
+                "subject": "delivery"
+              },
+              "operation": {
+                "subject": "transform"
+              },
+              "form": {
+                "enum": {
+                  "import": "spec",
+                  "export": "Worker"
+                }
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "normalize": {
+            "subject": "transform"
+          },
+          "delivery": {
+            "subject": "delivery"
+          }
+        }
+      }
+    }
+  },
+  "exports": {
+    "Worker": {
+      "definitionId": "d:Worker"
+    }
+  }
+}

@@ -1,0 +1,207 @@
+{
+  "schema": "sec.author-module/1",
+  "moduleId": "studio:languages",
+  "namespace": "studio.languages",
+  "dialects": {
+    "req": {
+      "languageId": "sec.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {
+    "ide": {
+      "mode": "workspace",
+      "moduleId": "sec/spec/ide"
+    },
+    "language": {
+      "mode": "workspace",
+      "moduleId": "sec/spec/language"
+    }
+  },
+  "definitions": {
+    "d:Languages": {
+      "kind": "req:composite",
+      "name": "Languages",
+      "body": {
+        "parameters": {
+          "s": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "ide",
+                "export": "Workbench"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "import": "language",
+              "export": "Providers"
+            },
+            "fields": {
+              "on": {
+                "parameter": "s",
+                "path": [
+                  "languages"
+                ]
+              },
+              "documents": {
+                "parameter": "s",
+                "path": [
+                  "documents"
+                ]
+              },
+              "settings": {
+                "parameter": "s",
+                "path": [
+                  "settings"
+                ]
+              },
+              "capability": {
+                "enum": {
+                  "import": "language",
+                  "export": "NegotiateExact"
+                }
+              },
+              "unsupported": {
+                "enum": {
+                  "import": "language",
+                  "export": "ExplicitUnavailable"
+                }
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "language",
+              "export": "Diagnostics"
+            },
+            "fields": {
+              "on": {
+                "parameter": "s",
+                "path": [
+                  "diagnostics"
+                ]
+              },
+              "producers": {
+                "parameter": "s",
+                "path": [
+                  "languages"
+                ]
+              },
+              "documents": {
+                "parameter": "s",
+                "path": [
+                  "documents"
+                ]
+              },
+              "publication": {
+                "enum": {
+                  "import": "language",
+                  "export": "ByProducerScopeAndRevision"
+                }
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "language",
+              "export": "Refactoring"
+            },
+            "fields": {
+              "on": {
+                "parameter": "s",
+                "path": [
+                  "languages"
+                ]
+              },
+              "documents": {
+                "parameter": "s",
+                "path": [
+                  "documents"
+                ]
+              },
+              "workspace": {
+                "parameter": "s",
+                "path": [
+                  "workspace"
+                ]
+              },
+              "edits": {
+                "enum": {
+                  "import": "language",
+                  "export": "VersionedGroup"
+                }
+              },
+              "preservation": {
+                "enum": {
+                  "import": "language",
+                  "export": "EffectsAndEvaluationOrder"
+                }
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "language",
+              "export": "Assistance"
+            },
+            "fields": {
+              "on": {
+                "parameter": "s",
+                "path": [
+                  "languages"
+                ]
+              },
+              "features": [
+                {
+                  "enum": {
+                    "import": "language",
+                    "export": "Completion"
+                  }
+                },
+                {
+                  "enum": {
+                    "import": "language",
+                    "export": "Definition"
+                  }
+                },
+                {
+                  "enum": {
+                    "import": "language",
+                    "export": "References"
+                  }
+                },
+                {
+                  "enum": {
+                    "import": "language",
+                    "export": "Hover"
+                  }
+                },
+                {
+                  "enum": {
+                    "import": "language",
+                    "export": "Signature"
+                  }
+                }
+              ],
+              "truth": {
+                "enum": {
+                  "import": "language",
+                  "export": "CandidateNotEstablishedFact"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "Languages": {
+      "definitionId": "d:Languages"
+    }
+  }
+}

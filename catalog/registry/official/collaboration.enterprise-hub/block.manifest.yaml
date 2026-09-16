@@ -1,0 +1,33 @@
+id: collaboration/enterprise-hub
+version: 0.1.0
+kind: capability
+stackProfiles:
+  - typescript-library
+requires:
+  - auth/session
+  - tenant/context
+provides:
+  - collaboration/workflow-engine
+  - collaboration/approval-flow
+conflicts: []
+installs:
+  - kind: merge-prisma
+    from: files/prisma/enterprise-hub.prisma
+    to: prisma/schema.prisma
+  - kind: copy
+    from: files/src/installed/collaboration/workflows.ts
+    to: src/installed/collaboration/workflows.ts
+pins:
+  inputs:
+    - id: actor_identity
+      type: Session
+      required: true
+    - id: tenant_context
+      type: TenantId
+      required: true
+  outputs: []
+acceptance:
+  - id: workflow_approval_chain_flow
+    covers:
+      blocks:
+        - collaboration/enterprise-hub

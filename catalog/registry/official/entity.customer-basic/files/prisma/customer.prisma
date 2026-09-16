@@ -1,0 +1,8 @@
+model Customer {
+  id       Int    @id @default(autoincrement())
+  tenantId String
+  name     String
+  email    String
+  phone    String
+  company  String
+}

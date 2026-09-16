@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+set -eu
+
+export SEC_GIT_HOOK_ACTIVE=1
+
+bun run imports:apply --staged

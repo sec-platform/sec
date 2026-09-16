@@ -1,0 +1,130 @@
+{
+  "schema": "sec-windows-control-cli-environment-authority-v2",
+  "profileId": "sec-windows-control-cli-v1",
+  "platform": "win32",
+  "architecture": "x64",
+  "resourceContract": {
+    "maxSessionDurationMs": 120000
+  },
+  "adoptionContract": {
+    "discovery": {
+      "candidateSources": [
+        "process-path-untrusted-hint",
+        "windows-standard-location-untrusted-hint"
+      ],
+      "maxPathEntries": 128,
+      "maxCandidatesPerExecutable": 16,
+      "maxPathBytes": 32768,
+      "selection": "unique-authenticated-physical-closure"
+    },
+    "physicalClosure": {
+      "maxRetainedFiles": 64,
+      "maxObservedBytes": 134217728,
+      "maxPeSections": 96,
+      "maxImportedModules": 128,
+      "resolveSystemModules": "system32-loader-readback",
+      "runtimeProvisioning": "forbidden",
+      "persistentExecutableCache": "forbidden"
+    }
+  },
+  "rootClosure": {
+    "status": "live-adoption-required",
+    "reasonCode": "installed-executable-capability-unproven",
+    "liveAvailability": "unknown",
+    "positiveReceiptContract": {
+      "schema": "sec-windows-control-cli-installed-adoption-receipt-v1",
+      "candidate": "bounded-untrusted-locator-readback",
+      "executable": "retained-exact-bytes-readback",
+      "loader": "minimal-app-local-and-system-loader-readback",
+      "workingDirectory": "retained-no-follow-working-directory-readback",
+      "authorization": "owner-issued-live-capability",
+      "persistentExecutableCache": "forbidden"
+    }
+  },
+  "executableBindings": [
+    {
+      "id": "git",
+      "kind": "git-for-windows",
+      "version": "2.53.0.windows.3",
+      "executableName": "git.exe",
+      "candidateLayouts": [
+        {
+          "candidateRelativePath": "bin/git.exe",
+          "effectiveRelativePath": "mingw64/bin/git.exe"
+        },
+        {
+          "candidateRelativePath": "cmd/git.exe",
+          "effectiveRelativePath": "mingw64/bin/git.exe"
+        }
+      ],
+      "executableEntries": [
+        {
+          "roles": ["launcher"],
+          "relativePath": "bin/git.exe",
+          "observedSizeBytes": 46464,
+          "observedSha256": "c53279919fdea03474bb23b465b3a82287157491f1bd69a5eb82dd9831582333"
+        },
+        {
+          "roles": ["launcher"],
+          "relativePath": "cmd/git.exe",
+          "observedSizeBytes": 46464,
+          "observedSha256": "c53279919fdea03474bb23b465b3a82287157491f1bd69a5eb82dd9831582333"
+        },
+        {
+          "roles": ["effective"],
+          "relativePath": "mingw64/bin/git.exe",
+          "observedSizeBytes": 4344704,
+          "observedSha256": "c115a66a1bede6694b513af420cc90f8775be03666a54d1ecb82d6196b929fe9"
+        }
+      ],
+      "appLocalModules": [
+        {
+          "relativePath": "mingw64/bin/libiconv-2.dll",
+          "observedSizeBytes": 1136529,
+          "observedSha256": "ff31fa811f9c07cc7fdaa68c9e8bca3a7b4fdf6e0a079a58175ea58ba139c7ae"
+        },
+        {
+          "relativePath": "mingw64/bin/libintl-8.dll",
+          "observedSizeBytes": 298731,
+          "observedSha256": "0537c3dd2378218508ebe3cc416d72a99ee2d24ae1c5525e23458f32544ef861"
+        },
+        {
+          "relativePath": "mingw64/bin/libpcre2-8-0.dll",
+          "observedSizeBytes": 717955,
+          "observedSha256": "c135a87ed0f11eae8ffc4cb469671ff0b3f5d71fab5fb024e9b1e7241ca25b52"
+        },
+        {
+          "relativePath": "mingw64/bin/libwinpthread-1.dll",
+          "observedSizeBytes": 64931,
+          "observedSha256": "d66b00e4a4385344bf2be54b03446ea19ced654c78a18a024a0b43971d68459b"
+        },
+        {
+          "relativePath": "mingw64/bin/zlib1.dll",
+          "observedSizeBytes": 120814,
+          "observedSha256": "cb7ab3788d10940df874acd97b1821bbb5ee4a91f3eec11982bb5bf7a3c96443"
+        }
+      ]
+    },
+    {
+      "id": "gh",
+      "kind": "github-cli",
+      "version": "2.90.0",
+      "executableName": "gh.exe",
+      "candidateLayouts": [
+        {
+          "candidateRelativePath": "gh.exe",
+          "effectiveRelativePath": "gh.exe"
+        }
+      ],
+      "executableEntries": [
+        {
+          "roles": ["launcher", "effective"],
+          "relativePath": "gh.exe",
+          "observedSizeBytes": 40381240,
+          "observedSha256": "249613cc9dfb61eb267acfa08c2253edea271bbbec8f3ca3bf8d949a6575d60b"
+        }
+      ],
+      "appLocalModules": []
+    }
+  ]
+}

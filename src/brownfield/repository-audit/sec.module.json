@@ -1,0 +1,97 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [
+    "src/brownfield/repository-audit/cli.ts",
+    "src/brownfield/repository-audit/worker.ts"
+  ],
+  "capabilityProviders": [
+    {
+      "capability": "repository-audit",
+      "operations": [
+        "auditRepository",
+        "projectRepositorySourceGovernance"
+      ]
+    },
+    {
+      "capability": "repository-audit.worker",
+      "operations": [
+        "executeSupervisedWorkingTreeSourceProgramAudit"
+      ],
+      "effectKinds": [
+        "process"
+      ],
+      "operationRoles": [
+        {
+          "operation": "executeSupervisedWorkingTreeSourceProgramAudit",
+          "role": "domain-owner",
+          "semanticOperation": "brownfield.repository-audit.source-program",
+          "requirementId": null,
+          "recovery": null
+        }
+      ]
+    },
+    {
+      "capability": "repository-audit.source-program-operation",
+      "operations": [
+        "executeRepositoryAuditSourceProgramOperation"
+      ]
+    }
+  ],
+  "operationObligations": [
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "repository-audit.worker",
+        "operation": "executeSupervisedWorkingTreeSourceProgramAudit"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "brownfield.repository-audit"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem",
+          "process"
+        ],
+        "failureKinds": [
+          "process.cancelled",
+          "process.deadline-exhausted",
+          "process.identity-drift",
+          "process.output-budget-exhausted",
+          "process.settlement-unproven",
+          "process.unavailable"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 180000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 50331648
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 67108864
+          },
+          {
+            "resource": "processes",
+            "maximum": 2
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    }
+  ],
+  "preDependencyBootstrap": false
+}

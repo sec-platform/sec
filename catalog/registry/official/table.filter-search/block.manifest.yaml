@@ -1,0 +1,28 @@
+id: table/filter-search
+version: 0.1.0
+kind: capability
+stackProfiles:
+  - typescript-library
+requires:
+  - customer/read
+provides:
+  - table/filter-search
+conflicts: []
+installs:
+  - kind: copy
+    from: files/src/installed/table/customer-filter.ts
+    to: src/installed/table/customer-filter.ts
+  - kind: copy
+    from: files/tests/unit/customer-filter.test.ts
+    to: tests/unit/customer-filter.test.ts
+pins:
+  inputs:
+    - id: customer_created
+      type: CustomerRecord
+      required: true
+  outputs:
+    - id: customer_filtered_list
+      type: CustomerRecord[]
+      required: true
+acceptance:
+  - id: customer_list_can_be_filtered

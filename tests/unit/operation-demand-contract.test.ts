@@ -1,0 +1,83 @@
+import { expect, test } from 'bun:test';
+
+import {
+  assertSecOperationDemandGraph,
+  compileSecOperationDemandGraph
+} from '../../src/control/operation/demand.ts';
+
+test('one demand compiler derives terminal transition and no ambient execution capability', () => {
+  const graph = compileSecOperationDemandGraph({
+    operation: 'work-selection-observe',
+    terminalWorkIds: ['issue-271', 'issue-186']
+  });
+
+  expect(graph.input.terminalWorkIds).toEqual(['issue-186', 'issue-271']);
+  expect(graph.transitionDemands).toEqual(['roadmap-terminal-compaction']);
+  expect(graph.capabilityDemands).toEqual([]);
+  expect(graph.verificationObligations).toEqual([
+    'operation-demand-integrity',
+    'roadmap-terminal-topology'
+  ]);
+});
+
+test('all executable operations derive the same compiler dependency capability', () => {
+  for (const operation of [
+    'check-affected',
+    'check-fast',
+    'imports-apply',
+    'imports-check',
+    'imports-freeze',
+    'test-fast',
+    'test-direct-fast',
+    'test-slow',
+    'test-full',
+    'test-direct-slow',
+    'test-direct-ambiguous',
+    'test-contract-freeze',
+    'typecheck'
+  ] as const) {
+    const graph = compileSecOperationDemandGraph({ operation, terminalWorkIds: [] });
+    expect(graph.capabilityDemands).toEqual(['compiler-dependency-tree']);
+    if (operation.startsWith('test-')) {
+      expect(graph.verificationObligations).toContain('test-process-isolation');
+    }
+  }
+});
+
+test('dependency setup is the only operation that can demand managed Git hooks', () => {
+  const setup = compileSecOperationDemandGraph({
+    operation: 'dependency-setup',
+    terminalWorkIds: [],
+    hookPolicy: 'always'
+  });
+  expect(setup.capabilityDemands).toEqual([
+    'compiler-dependency-tree',
+    'managed-git-hooks'
+  ]);
+  expect(setup.verificationObligations).toContain('git-hook-lifecycle');
+
+  const nestedHook = compileSecOperationDemandGraph({
+    operation: 'dependency-setup',
+    terminalWorkIds: [],
+    hookPolicy: 'never'
+  });
+  expect(nestedHook.capabilityDemands).toEqual(['compiler-dependency-tree']);
+  expect(nestedHook.verificationObligations).not.toContain('git-hook-lifecycle');
+});
+
+test('demand identity is order-independent and forged ambient demand is rejected', () => {
+  const graph = compileSecOperationDemandGraph({
+    operation: 'work-selection-observe',
+    terminalWorkIds: ['issue-271', 'issue-186']
+  });
+  const reordered = compileSecOperationDemandGraph({
+    operation: 'work-selection-observe',
+    terminalWorkIds: ['issue-186', 'issue-271']
+  });
+  expect(reordered).toEqual(graph);
+
+  expect(() => assertSecOperationDemandGraph({
+    ...graph,
+    capabilityDemands: ['compiler-dependency-tree']
+  })).toThrow('differs from the canonical compiler output');
+});

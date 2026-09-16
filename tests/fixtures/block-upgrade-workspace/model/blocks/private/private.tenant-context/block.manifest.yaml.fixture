@@ -1,0 +1,24 @@
+id: private/tenant-context
+version: 0.1.0
+kind: capability
+stackProfiles:
+  - typescript-library
+requires: []
+provides:
+  - tenant/context
+conflicts: []
+installs:
+  - kind: copy
+    from: files/src/installed/private/tenant-context.ts
+    to: src/installed/private/tenant-context.ts
+pins:
+  inputs: []
+  outputs:
+    - id: tenant_context
+      type: TenantId
+      required: true
+acceptance:
+  - id: user_can_create_customer
+    covers:
+      blocks:
+        - private/tenant-context

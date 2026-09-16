@@ -1,0 +1,58 @@
+id: entity/customer-basic
+version: 0.1.0
+kind: capability
+stackProfiles:
+  - typescript-library
+requires:
+  - auth/session
+  - tenant/context
+provides:
+  - customer/read
+  - customer/write
+conflicts: []
+installs:
+  - kind: copy
+    from: files/src/installed/entity/customer-service.ts
+    to: src/installed/entity/customer-service.ts
+  - kind: merge-prisma
+    from: files/prisma/customer.prisma
+    to: prisma/schema.prisma
+  - kind: copy
+    from: files/tests/unit/customer-normalizer.test.ts
+    to: tests/unit/customer-normalizer.test.ts
+  - kind: copy
+    from: files/tests/acceptance/customer-flow.test.ts
+    to: tests/acceptance/customer-flow.test.ts
+pins:
+  inputs:
+    - id: tenant_context
+      type: TenantId
+      required: true
+    - id: actor_identity
+      type: Session
+      required: true
+  outputs:
+    - id: customer_created
+      type: CustomerRecord
+      required: true
+acceptance:
+  - id: user_can_create_customer
+    dependsOn:
+      - user_can_login
+    covers:
+      blocks:
+        - entity/customer-basic
+  - id: user_can_list_customers
+    dependsOn:
+      - user_can_create_customer
+    covers:
+      blocks:
+        - entity/customer-basic
+  - id: tenant_only_sees_own_customers
+    dependsOn:
+      - user_can_login
+      - user_can_create_customer
+    covers:
+      blocks:
+        - tenant/basic-workspace
+        - entity/customer-basic

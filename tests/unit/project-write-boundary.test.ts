@@ -1,0 +1,58 @@
+import { createHash } from 'node:crypto';
+import path from 'node:path';
+
+import { expect, test } from 'bun:test';
+
+import type { ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { checkProjectWriteBoundary } from '../../src/workspace/application/project-write-boundary.ts';
+import { ensureDir, writeJson, writeText } from '../../src/workspace/files.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+import { writeProjectBaseline } from '../../src/workspace/runtime/project-baseline.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
+
+function digest(content: string): string {
+  return createHash('sha256').update(content).digest('hex');
+}
+
+function baselinePathInput(artifactPath: string) {
+  return {
+    artifactPaths: [artifactPath]
+  };
+}
+
+test('project write boundary prefers current local baseline over stale provenance', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const { workspaceRoot: root } = getWorkspacePaths(workspaceRoot);
+    const provenancePath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.provenance);
+    const artifactPath = 'src/ui/page.ts';
+    const absolutePath = path.join(root, artifactPath);
+    const previousContent = 'export const revision = 1;';
+    const currentContent = 'export const revision = 2;';
+
+    await ensureDir(path.dirname(absolutePath));
+    await writeText(absolutePath, previousContent);
+    await writeJson(provenancePath, {
+      formatVersion: '1',
+      artifacts: [{
+        path: artifactPath,
+        originType: 'generated',
+        originId: artifactPath,
+        generatedByPass: 'compose',
+        verifiedBy: [],
+        overrideStatus: 'none',
+        hash: digest(previousContent)
+      }]
+    } satisfies ProvenanceFile);
+
+    await writeText(absolutePath, currentContent);
+    await writeProjectBaseline(workspaceRoot, baselinePathInput(artifactPath));
+
+    await checkProjectWriteBoundary(workspaceRoot);
+
+    await writeText(absolutePath, `${currentContent}\nexport const changed = true;`);
+    await expect(checkProjectWriteBoundary(workspaceRoot)).rejects.toMatchObject({
+      code: 'ERROR-DRIFT-001'
+    });
+  }, 'engineering-compiler-project-write-boundary-');
+});

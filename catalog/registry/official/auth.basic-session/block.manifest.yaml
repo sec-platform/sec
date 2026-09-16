@@ -1,0 +1,26 @@
+id: auth/basic-session
+version: 0.1.0
+kind: capability
+stackProfiles:
+  - typescript-library
+requires: []
+provides:
+  - auth/session
+conflicts: []
+installs:
+  - kind: copy
+    from: files/src/installed/auth/session.ts
+    to: src/installed/auth/session.ts
+  - kind: copy
+    from: files/tests/acceptance/auth-flow.test.ts
+    to: tests/acceptance/auth-flow.test.ts
+pins:
+  outputs:
+    - id: actor_identity
+      type: Session
+      required: true
+acceptance:
+  - id: user_can_login
+    covers:
+      blocks:
+        - auth/basic-session

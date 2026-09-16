@@ -1,0 +1,6 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [
+    "src/control/work-selection/runtime.ts"
+  ]
+}

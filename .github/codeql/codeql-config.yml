@@ -1,0 +1,10 @@
+name: "SEC CodeQL"
+
+# Test fixtures intentionally create races, malformed objects, and temporary
+# files. Production code, repository tools, and Actions workflows remain in the
+# extended CodeQL scan.
+paths-ignore:
+  - "tests/**"
+  - "**/*.test.ts"
+  - "**/*.test.js"
+  - "**/*.test.mjs"

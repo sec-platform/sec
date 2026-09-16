@@ -1,0 +1,30 @@
+import { expect } from 'bun:test';
+
+import type { ExplainGraph, ExplainGraphEdge, ExplainGraphNode } from '../../src/semantic/projection/contract/explain.ts';
+import type { ReviewConflictHint, ReviewRegressionRisk, ReviewSummary } from '../../src/verification/review/contract/types.ts';
+
+export function expectGraphNode(graph: Pick<ExplainGraph, 'nodes'>, expected: Partial<ExplainGraphNode>): void {
+  expect(graph.nodes).toContainEqual(expect.objectContaining(expected));
+}
+
+export function expectGraphEdge(graph: Pick<ExplainGraph, 'edges'>, expected: Partial<ExplainGraphEdge>): void {
+  expect(graph.edges).toContainEqual(expect.objectContaining(expected));
+}
+
+export function expectNoGraphEdge(graph: Pick<ExplainGraph, 'edges'>, expected: Partial<ExplainGraphEdge>): void {
+  expect(graph.edges).not.toContainEqual(expect.objectContaining(expected));
+}
+
+export function expectReviewConflictHint(
+  reviewSummary: Pick<ReviewSummary, 'conflictHints'>,
+  expected: ReviewConflictHint
+): void {
+  expect(reviewSummary.conflictHints).toEqual(expect.arrayContaining([expected]));
+}
+
+export function expectReviewRegressionRisk(
+  reviewSummary: Pick<ReviewSummary, 'regressionRisks'>,
+  expected: ReviewRegressionRisk
+): void {
+  expect(reviewSummary.regressionRisks).toEqual(expect.arrayContaining([expected]));
+}

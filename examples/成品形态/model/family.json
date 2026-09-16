@@ -1,0 +1,249 @@
+{
+  "schema": "sec.author-module/1",
+  "moduleId": "example:normalization-family",
+  "namespace": "example.normalization-family",
+  "dialects": {
+    "req": {
+      "languageId": "sec.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {
+    "spec": {
+      "mode": "workspace",
+      "moduleId": "example/spec/normalization"
+    },
+    "behavior": {
+      "mode": "workspace",
+      "moduleId": "example:normalization"
+    }
+  },
+  "definitions": {
+    "d:Family": {
+      "kind": "req:composite",
+      "name": "Family",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "transform": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Transform"
+              }
+            }
+          },
+          "library": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Delivery"
+              }
+            }
+          },
+          "command": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Delivery"
+              }
+            }
+          },
+          "worker": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Delivery"
+              }
+            }
+          },
+          "httphandler": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Delivery"
+              }
+            }
+          },
+          "plugin": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Delivery"
+              }
+            }
+          },
+          "panel": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Delivery"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "use": {
+              "import": "behavior",
+              "export": "Normalize"
+            },
+            "arguments": {
+              "on": {
+                "subject": "transform"
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "spec",
+              "export": "Emit"
+            },
+            "fields": {
+              "on": {
+                "subject": "library"
+              },
+              "operation": {
+                "subject": "transform"
+              },
+              "form": {
+                "enum": {
+                  "import": "spec",
+                  "export": "Library"
+                }
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "spec",
+              "export": "Emit"
+            },
+            "fields": {
+              "on": {
+                "subject": "command"
+              },
+              "operation": {
+                "subject": "transform"
+              },
+              "form": {
+                "enum": {
+                  "import": "spec",
+                  "export": "Command"
+                }
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "spec",
+              "export": "Emit"
+            },
+            "fields": {
+              "on": {
+                "subject": "worker"
+              },
+              "operation": {
+                "subject": "transform"
+              },
+              "form": {
+                "enum": {
+                  "import": "spec",
+                  "export": "Worker"
+                }
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "spec",
+              "export": "Emit"
+            },
+            "fields": {
+              "on": {
+                "subject": "httphandler"
+              },
+              "operation": {
+                "subject": "transform"
+              },
+              "form": {
+                "enum": {
+                  "import": "spec",
+                  "export": "HttpHandler"
+                }
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "spec",
+              "export": "Emit"
+            },
+            "fields": {
+              "on": {
+                "subject": "plugin"
+              },
+              "operation": {
+                "subject": "transform"
+              },
+              "form": {
+                "enum": {
+                  "import": "spec",
+                  "export": "Plugin"
+                }
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "spec",
+              "export": "Emit"
+            },
+            "fields": {
+              "on": {
+                "subject": "panel"
+              },
+              "operation": {
+                "subject": "transform"
+              },
+              "form": {
+                "enum": {
+                  "import": "spec",
+                  "export": "Panel"
+                }
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "normalize": {
+            "subject": "transform"
+          },
+          "library": {
+            "subject": "library"
+          },
+          "command": {
+            "subject": "command"
+          },
+          "worker": {
+            "subject": "worker"
+          },
+          "httphandler": {
+            "subject": "httphandler"
+          },
+          "plugin": {
+            "subject": "plugin"
+          },
+          "panel": {
+            "subject": "panel"
+          }
+        }
+      }
+    }
+  },
+  "exports": {
+    "Family": {
+      "definitionId": "d:Family"
+    }
+  }
+}

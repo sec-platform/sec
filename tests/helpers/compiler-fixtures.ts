@@ -1,0 +1,59 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+
+import { readJson } from '../../src/workspace/files.ts';
+import { compilerRoot } from '../../src/workspace/runtime/paths.ts';
+
+const compilerFileCache = new Map<string, string>();
+
+async function readCompilerText(relativePath: string): Promise<string> {
+  const cached = compilerFileCache.get(relativePath);
+  if (cached !== undefined) return cached;
+
+  const absolutePath = path.join(compilerRoot, relativePath);
+  const content = await fs.readFile(absolutePath, 'utf8');
+  compilerFileCache.set(relativePath, content);
+  return content;
+}
+
+export async function readCompilerFile(relativePath: string): Promise<string> {
+  if (/\.(?:ts|tsx)$/u.test(relativePath)) {
+    throw new Error(
+      `Production TypeScript is not a text fixture; use an explicit hostile-mutation, TCB-analysis, or transpile-input capability: ${relativePath}`
+    );
+  }
+  return readCompilerText(relativePath);
+}
+
+export async function readCompilerTextFile(relativePath: string): Promise<string> {
+  if (/\.(?:ts|tsx)$/u.test(relativePath)) {
+    throw new Error(`TypeScript implementation source requires a parsed view or explicit mutation fixture: ${relativePath}`);
+  }
+  return readCompilerText(relativePath);
+}
+
+export async function readCompilerTypeScriptMutationFixture(
+  relativePath: `${string}.ts` | `${string}.tsx`,
+  purpose: 'hostile-mutation' | 'tcb-analysis' | 'transpile-input'
+): Promise<string> {
+  if (purpose !== 'hostile-mutation' && purpose !== 'tcb-analysis' && purpose !== 'transpile-input') {
+    throw new Error('TypeScript mutation fixture purpose is invalid.');
+  }
+  return readCompilerText(relativePath);
+}
+
+interface CompilerPackage {
+  packageManager?: string;
+  scripts: Record<string, string>;
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+  trustedDependencies?: string[];
+}
+
+let cachedRootPackage: CompilerPackage | null = null;
+
+export async function readCompilerPackageJson(): Promise<CompilerPackage> {
+  if (cachedRootPackage) return cachedRootPackage;
+  cachedRootPackage = await readJson<CompilerPackage>(path.join(compilerRoot, 'package.json'));
+  return cachedRootPackage;
+}

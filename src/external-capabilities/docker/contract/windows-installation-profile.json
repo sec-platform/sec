@@ -1,0 +1,42 @@
+{
+  "schema": "sec-docker-windows-installation-profile-v4",
+  "platform": "win32",
+  "installation": {
+    "folder": "program-files",
+    "directorySegments": ["Docker", "Docker", "resources", "bin"],
+    "executableName": "docker.exe",
+    "directoryChildDescriptor": 41,
+    "cliPluginDirectorySegments": ["Docker", "Docker", "resources", "cli-plugins"],
+    "cliPluginDirectoryChildDescriptor": 47,
+    "cliPlugins": [
+      {
+        "id": "desktop",
+        "executableName": "docker-desktop.exe",
+        "childDescriptor": 48
+      },
+      {
+        "id": "buildx",
+        "executableName": "docker-buildx.exe",
+        "childDescriptor": 49
+      }
+    ]
+  },
+  "environment": {
+    "windows": {
+      "folder": "windows",
+      "rootChildDescriptor": 50,
+      "systemDirectorySegments": ["System32"],
+      "systemDirectoryChildDescriptor": 51,
+      "wslExecutableName": "wsl.exe",
+      "wslExecutableChildDescriptor": 52
+    },
+    "profile": { "folder": "profile" },
+    "localAppData": { "folder": "local-app-data" },
+    "roamingAppData": { "folder": "roaming-app-data" },
+    "programData": { "folder": "program-data" },
+    "temp": {
+      "folder": "local-app-data",
+      "directorySegments": ["Temp"]
+    }
+  }
+}

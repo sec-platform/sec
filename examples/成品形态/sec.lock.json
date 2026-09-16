@@ -1,0 +1,71 @@
+{
+  "schema": "sec.binding-lock/1",
+  "projectId": "sec-example:deliverable-forms",
+  "resolutionInputs": {
+    "algorithm": "sha256",
+    "digest": "f0a81243d0447685fcc032490ca33ca1f3e6fa400c4143c41c7fad3f96cda0e7"
+  },
+  "bindings": {
+    "example:normalization/dialects/req": "structure",
+    "example:form:command/dialects/req": "structure",
+    "example:normalization-family/dialects/req": "structure",
+    "example:form:httphandler/dialects/req": "structure",
+    "example:form:library/dialects/req": "structure",
+    "example:form:panel/dialects/req": "structure",
+    "example:form:plugin/dialects/req": "structure",
+    "example:form:worker/dialects/req": "structure",
+    "example/spec/normalization/dialects/req": "structure"
+  },
+  "nodes": {
+    "structure": {
+      "kind": "language",
+      "subjectId": "sec.requirement-structure",
+      "revision": "46539481fe264751d564d8c3380de6f8e0ab14e82009a5aee656cf8ca607ca76",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "46539481fe264751d564d8c3380de6f8e0ab14e82009a5aee656cf8ca607ca76",
+        "byteLength": 33817,
+        "format": "markdown"
+      },
+      "locations": [
+        "../../docs/作者/结构化源码.md"
+      ],
+      "dependencies": []
+    },
+    "contract": {
+      "kind": "definition",
+      "subjectId": "example/spec/normalization-contract",
+      "revision": "bd881707aa9a7b45158e53317a8faee84da50c3c4eb5282fd66eae83f20472b1",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "bd881707aa9a7b45158e53317a8faee84da50c3c4eb5282fd66eae83f20472b1",
+        "byteLength": 17502,
+        "format": "markdown"
+      },
+      "locations": [
+        "规则合同.md"
+      ],
+      "dependencies": [
+        "structure"
+      ]
+    },
+    "catalog": {
+      "kind": "module",
+      "subjectId": "example/spec/normalization",
+      "revision": "914b0596feb48241305924ae2dee4f586267458eeb4cc9bab5f4f0b4a300d024",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "914b0596feb48241305924ae2dee4f586267458eeb4cc9bab5f4f0b4a300d024",
+        "byteLength": 6412,
+        "format": "json"
+      },
+      "locations": [
+        "contracts/spec.json"
+      ],
+      "dependencies": [
+        "structure",
+        "contract"
+      ]
+    }
+  }
+}

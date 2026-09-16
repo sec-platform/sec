@@ -1,0 +1,35 @@
+id: tenant/basic-workspace
+version: 0.1.0
+kind: capability
+stackProfiles:
+  - typescript-library
+contracts:
+  - path: contracts/tenant.yaml
+requires:
+  - auth/session
+provides:
+  - tenant/context
+conflicts: []
+installs:
+  - kind: copy
+    from: files/src/installed/tenant/context.ts
+    to: src/installed/tenant/context.ts
+  - kind: copy
+    from: files/tests/shared/tenant-runtime-fixture.ts
+    to: tests/shared/tenant-runtime-fixture.ts
+pins:
+  inputs:
+    - id: actor_identity
+      type: Session
+      required: true
+  outputs:
+    - id: tenant_context
+      type: TenantId
+      required: true
+acceptance:
+  - id: tenant_only_sees_own_customers
+    dependsOn:
+      - user_can_login
+    covers:
+      blocks:
+        - tenant/basic-workspace

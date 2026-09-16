@@ -1,0 +1,25 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [],
+  "capabilityProviders": [
+    {
+      "capability": "repository-module-graph",
+      "operations": [
+        "assertSecRepositoryModuleImportBoundaries",
+        "compileSecRepositoryModuleMembershipSnapshot"
+      ]
+    }
+  ],
+  "causalRelations": [
+    {
+      "subject": "system-architecture.repository-module-placement",
+      "relation": "projects",
+      "symbol": {
+        "path": "src/system-architecture/repository-modules/placement.ts",
+        "name": "compileSecRepositoryModulePlacementAdmission"
+      },
+      "operation": null
+    }
+  ],
+  "preDependencyBootstrap": false
+}

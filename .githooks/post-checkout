@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+set -eu
+
+export SEC_GIT_HOOK_ACTIVE=1
+exec bun run dev -- workspace-transition post-checkout "$@"

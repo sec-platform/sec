@@ -1,0 +1,200 @@
+{
+  "schema": "sec.author-module/1",
+  "moduleId": "sec/spec/quality",
+  "namespace": "spec.quality",
+  "dialects": {
+    "req": {
+      "languageId": "sec.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {},
+  "definitions": {
+    "v:ResidentMemory": {
+      "kind": "req:enum-value",
+      "name": "ResidentMemory",
+      "body": {
+        "nominalIdentity": "sec/spec/quality#ResidentMemory"
+      }
+    },
+    "v:Explicit": {
+      "kind": "req:enum-value",
+      "name": "Explicit",
+      "body": {
+        "nominalIdentity": "sec/spec/quality#Explicit"
+      }
+    },
+    "v:InteractiveLatency": {
+      "kind": "req:enum-value",
+      "name": "InteractiveLatency",
+      "body": {
+        "nominalIdentity": "sec/spec/quality#InteractiveLatency"
+      }
+    },
+    "v:BoundedQueueOrReject": {
+      "kind": "req:enum-value",
+      "name": "BoundedQueueOrReject",
+      "body": {
+        "nominalIdentity": "sec/spec/quality#BoundedQueueOrReject"
+      }
+    },
+    "v:DeclaredWorkload": {
+      "kind": "req:enum-value",
+      "name": "DeclaredWorkload",
+      "body": {
+        "nominalIdentity": "sec/spec/quality#DeclaredWorkload"
+      }
+    },
+    "v:LimitsFromRuntimeProfile": {
+      "kind": "req:enum-value",
+      "name": "LimitsFromRuntimeProfile",
+      "body": {
+        "nominalIdentity": "sec/spec/quality#LimitsFromRuntimeProfile"
+      }
+    },
+    "r:Admission": {
+      "kind": "req:rule",
+      "name": "Admission",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Workbench"
+              ]
+            },
+            "meaning": "全部受管运行/查询"
+          },
+          "policy": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/quality#LimitsFromRuntimeProfile"
+              ]
+            },
+            "meaning": "使用被绑定部署配置中的容量，不伪造未测性能数值"
+          },
+          "overload": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/quality#BoundedQueueOrReject"
+              ]
+            },
+            "meaning": "内存/并发/待办有实际界限，超限暂停或拒绝"
+          },
+          "loss": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/quality#Explicit"
+              ]
+            },
+            "meaning": "截断、丢弃、取消和未完成可观察"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/需求规则与供给合同.md",
+          "section": "quality.Admission",
+          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "r:Cost": {
+      "kind": "req:rule",
+      "name": "Cost",
+      "body": {
+        "strength": "prefer",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                "Workbench"
+              ]
+            },
+            "meaning": "选择的产品实例"
+          },
+          "metric": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/quality#ResidentMemory",
+                "sec/spec/quality#InteractiveLatency"
+              ]
+            },
+            "meaning": "驻留内存；第二条可以用InteractiveLatency"
+          },
+          "priority": {
+            "required": true,
+            "type": {
+              "kind": "positive-integer"
+            },
+            "meaning": "正整数偏好次序，数值小者先；同次序为Pareto而非凭空加权"
+          },
+          "workload": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                "sec/spec/quality#DeclaredWorkload"
+              ]
+            },
+            "meaning": "比较按目标相同且明确的工作负载；未测为未知"
+          }
+        },
+        "semantics": {
+          "source": "../../../docs/作者/需求规则与供给合同.md",
+          "section": "quality.Cost",
+          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
+        },
+        "implementation": "unbound"
+      }
+    }
+  },
+  "exports": {
+    "ResidentMemory": {
+      "definitionId": "v:ResidentMemory"
+    },
+    "Explicit": {
+      "definitionId": "v:Explicit"
+    },
+    "InteractiveLatency": {
+      "definitionId": "v:InteractiveLatency"
+    },
+    "BoundedQueueOrReject": {
+      "definitionId": "v:BoundedQueueOrReject"
+    },
+    "DeclaredWorkload": {
+      "definitionId": "v:DeclaredWorkload"
+    },
+    "LimitsFromRuntimeProfile": {
+      "definitionId": "v:LimitsFromRuntimeProfile"
+    },
+    "Admission": {
+      "definitionId": "r:Admission"
+    },
+    "Cost": {
+      "definitionId": "r:Cost"
+    }
+  },
+  "extensions": {
+    "sec.documentation-derived/1": {
+      "source": "../../../docs/作者/需求规则与供给合同.md",
+      "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+      "editable": false,
+      "note": "本份是固定文档的设计字段索引，不是已发布语义实现；正文含义未由可执行读取器交付。"
+    }
+  }
+}

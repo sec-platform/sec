@@ -1,0 +1,189 @@
+{
+  "schema": "sec.author-module/1",
+  "moduleId": "studio:workspaces",
+  "namespace": "studio.workspaces",
+  "dialects": {
+    "req": {
+      "languageId": "sec.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {
+    "ide": {
+      "mode": "workspace",
+      "moduleId": "sec/spec/ide"
+    },
+    "workspace": {
+      "mode": "workspace",
+      "moduleId": "sec/spec/workspace"
+    }
+  },
+  "definitions": {
+    "d:Workspaces": {
+      "kind": "req:composite",
+      "name": "Workspaces",
+      "body": {
+        "parameters": {
+          "s": {
+            "role": "subject",
+            "type": {
+              "ref": {
+                "import": "ide",
+                "export": "Workbench"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "import": "workspace",
+              "export": "Roots"
+            },
+            "fields": {
+              "on": {
+                "parameter": "s",
+                "path": [
+                  "workspace"
+                ]
+              },
+              "multiplicity": {
+                "enum": {
+                  "import": "workspace",
+                  "export": "Many"
+                }
+              },
+              "identity": {
+                "enum": {
+                  "import": "workspace",
+                  "export": "ProviderIdentity"
+                }
+              },
+              "nested": {
+                "enum": {
+                  "import": "workspace",
+                  "export": "ExplicitMembership"
+                }
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "workspace",
+              "export": "Files"
+            },
+            "fields": {
+              "on": {
+                "parameter": "s",
+                "path": [
+                  "workspace"
+                ]
+              },
+              "operations": [
+                {
+                  "enum": {
+                    "import": "workspace",
+                    "export": "Read"
+                  }
+                },
+                {
+                  "enum": {
+                    "import": "workspace",
+                    "export": "Create"
+                  }
+                },
+                {
+                  "enum": {
+                    "import": "workspace",
+                    "export": "Move"
+                  }
+                },
+                {
+                  "enum": {
+                    "import": "workspace",
+                    "export": "Delete"
+                  }
+                }
+              ],
+              "conflicts": {
+                "enum": {
+                  "import": "workspace",
+                  "export": "PreserveDrafts"
+                }
+              },
+              "access": {
+                "enum": {
+                  "import": "workspace",
+                  "export": "RuntimeGrant"
+                }
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "workspace",
+              "export": "Snapshot"
+            },
+            "fields": {
+              "on": {
+                "parameter": "s",
+                "path": [
+                  "workspace"
+                ]
+              },
+              "documents": {
+                "parameter": "s",
+                "path": [
+                  "documents"
+                ]
+              },
+              "precedence": {
+                "enum": {
+                  "import": "workspace",
+                  "export": "OpenModelWins"
+                }
+              },
+              "absence": {
+                "enum": {
+                  "import": "workspace",
+                  "export": "OpenEmptySuppressesDisk"
+                }
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "workspace",
+              "export": "Recovery"
+            },
+            "fields": {
+              "documents": {
+                "parameter": "s",
+                "path": [
+                  "documents"
+                ]
+              },
+              "history": {
+                "parameter": "s",
+                "path": [
+                  "history"
+                ]
+              },
+              "mode": {
+                "enum": {
+                  "import": "workspace",
+                  "export": "RecoverDraftNotReplayEffects"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "Workspaces": {
+      "definitionId": "d:Workspaces"
+    }
+  }
+}

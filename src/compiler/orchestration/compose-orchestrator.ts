@@ -1,0 +1,114 @@
+import { createWorkspaceWriteCommitFence } from '../../workspace/lease.ts';
+import { composeProject } from '../compose/compose-project.ts';
+import {
+  opaqueModuleMaterializationEnvironment,
+  resolveOpaqueModuleMaterializationMode,
+  type OpaqueModuleMaterializationMode
+} from '../compose/opaque-module-materialization.ts';
+import type {
+  LockFile,
+  PlanFile
+} from '../contract.ts';
+import { CompilerError } from '../errors.ts';
+import { readLockFile } from '../lock.ts';
+import { loadWorkspacePlan } from '../parse/load-plan.ts';
+import { executePipelineStage, withPipelineTransaction } from '../pipeline/kernel.ts';
+import { requirePipelineSemanticContext } from '../pipeline/semantic-context.ts';
+import type { PipelineExecutionContext, PipelineSemanticContext } from '../pipeline/types.ts';
+import { runWorkspaceSemanticFrontend } from './semantic-orchestrator.ts';
+
+export type ComposeWorkspaceOptions = Readonly<{
+  lock?: boolean;
+  signal?: AbortSignal;
+  opaqueModuleMaterializationMode?: OpaqueModuleMaterializationMode;
+}>;
+
+function readRequiredComposeLock(workspaceRoot: string): LockFile {
+  try {
+    return readLockFile(workspaceRoot);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      throw new CompilerError('COMPOSE-BLOCKED-001', 'graph.lock.json is missing', {
+        cause: error instanceof Error ? error.message : String(error)
+      });
+    }
+    throw error;
+  }
+}
+
+function assertComposeOptions(options?: ComposeWorkspaceOptions): void {
+  options?.signal?.throwIfAborted();
+  if (options?.lock) {
+    throw new CompilerError(
+      'COMPOSE-LOCK-001',
+      'compose --lock is unavailable until a retained permission provider can prove no-follow ownership and readback; OS chmod is not a SEC authority boundary.'
+    );
+  }
+}
+
+function resolveComposeMaterializationMode(
+  options?: ComposeWorkspaceOptions
+): OpaqueModuleMaterializationMode {
+  return resolveOpaqueModuleMaterializationMode(
+    options?.opaqueModuleMaterializationMode,
+    opaqueModuleMaterializationEnvironment(process.env)
+  );
+}
+
+async function composeWorkspaceCore(
+  workspaceRoot: string,
+  semanticContext: PipelineSemanticContext,
+  context: PipelineExecutionContext,
+  materializationMode: OpaqueModuleMaterializationMode,
+  options?: ComposeWorkspaceOptions
+): Promise<{ plan: PlanFile; lock: LockFile }> {
+  const plan = loadWorkspacePlan(workspaceRoot);
+  const lock = readRequiredComposeLock(workspaceRoot);
+  const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, context.workspaceWriteLease);
+  await composeProject(workspaceRoot, lock, semanticContext, {
+    commitFence,
+    signal: options?.signal,
+    opaqueModuleMaterializationMode: materializationMode
+  });
+  return { plan, lock };
+}
+
+export async function composeWorkspace(
+  workspaceRoot = process.cwd(),
+  options?: ComposeWorkspaceOptions,
+  context?: PipelineExecutionContext
+): Promise<{ plan: PlanFile; lock: LockFile }> {
+  // Validate and resolve all ambient inputs before opening a Pipeline
+  // transaction. Unsupported or conflicting inputs must remain zero-effect.
+  assertComposeOptions(options);
+  const materializationMode = resolveComposeMaterializationMode(options);
+  if (!context) {
+    return withPipelineTransaction(
+      workspaceRoot,
+      'api',
+      ['semantic', 'compose'],
+      undefined,
+      async (transaction) => {
+        await runWorkspaceSemanticFrontend(workspaceRoot, transaction);
+        return composeWorkspace(
+          workspaceRoot,
+          { ...options, opaqueModuleMaterializationMode: materializationMode },
+          transaction
+        );
+      }
+    );
+  }
+  return executePipelineStage(
+    workspaceRoot,
+    'compose',
+    context,
+    (stageContext) => composeWorkspaceCore(
+      workspaceRoot,
+      requirePipelineSemanticContext(stageContext),
+      stageContext,
+      materializationMode,
+      options
+    ),
+    { extractLock: (result) => result.lock }
+  );
+}

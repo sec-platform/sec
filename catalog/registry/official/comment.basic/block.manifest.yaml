@@ -1,0 +1,45 @@
+id: comment/basic
+version: 0.1.0
+kind: capability
+stackProfiles:
+  - typescript-library
+requires:
+  - auth/session
+  - tenant/context
+  - ticket/read
+provides:
+  - ticket/comment
+conflicts: []
+installs:
+  - kind: copy
+    from: files/src/installed/comment/comment-service.ts
+    to: src/installed/comment/comment-service.ts
+  - kind: merge-prisma
+    from: files/prisma/comment.prisma
+    to: prisma/schema.prisma
+  - kind: copy
+    from: files/tests/unit/comment-service.test.ts
+    to: tests/unit/comment-service.test.ts
+  - kind: copy
+    from: files/tests/acceptance/comment-flow.test.ts
+    to: tests/acceptance/comment-flow.test.ts
+pins:
+  inputs:
+    - id: ticket_created
+      type: TicketRecord
+      required: true
+    - id: actor_identity
+      type: Session
+      required: true
+  outputs:
+    - id: comment_added
+      type: TicketCommentRecord
+      required: true
+acceptance:
+  - id: ticket_comment_can_be_added
+    dependsOn:
+      - ticket_can_be_created
+    covers:
+      blocks:
+        - ticket/basic
+        - comment/basic

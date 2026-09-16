@@ -1,0 +1,34 @@
+// 需求作者源；定义允许的产品行为，不执行安装或构造运行对象。
+import "sec/spec/ide" as ide;
+import "sec/spec/search" as search;
+
+export design Searching(s: ide.Workbench, stalePolicy: search.StalePolicy) {
+  require search.Text {
+    on: s.search,
+    workspace: s.workspace,
+    documents: s.documents,
+    pattern: search.LiteralAndDeclaredRegexDialect,
+    results: search.MatchWithSourceVersion,
+    coverage: search.Explicit,
+    cancellation: search.SupersededCannotPublish
+  };
+
+  require search.Replace {
+    on: s.replace,
+    matches: s.search,
+    documents: s.documents,
+    preview: search.DisplayedEditsOnly,
+    acceptance: search.DisplayedPlan,
+    stale: stalePolicy,
+    scope: search.SelectedOrCompleteScope,
+    recovery: search.ReconcileNoBlindReplay
+  };
+
+  require search.Presentation {
+    search: s.search,
+    replace: s.replace,
+    shell: s.shell,
+    navigation: search.ExactSourceMatch,
+    readonly: search.InspectableNotWritable
+  };
+}

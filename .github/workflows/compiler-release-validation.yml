@@ -1,0 +1,94 @@
+name: compiler-release-validation
+run-name: release verify exact main ${{ github.sha }}
+
+on:
+  repository_dispatch:
+    types:
+      - sec-verify-release-main-v1
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.sha }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  compiler-release-verification:
+    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-sut-v1]
+    timeout-minutes: 90
+    steps:
+      - name: Resolve trusted release request, exact head, and verifier boundary
+        id: verification
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const requestedRef = context.sha;
+            const { data: commit } = await github.rest.repos.getCommit({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: requestedRef
+            });
+            if (commit.parents.length === 0) throw new Error('Release verification requires a commit parent for v5 bases.');
+            const { data: repository } = await github.rest.repos.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+            const { data: baseBranch } = await github.rest.repos.getBranch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch: repository.default_branch
+            });
+            if (context.ref !== `refs/heads/${repository.default_branch}` || context.sha !== baseBranch.commit.sha) {
+              throw new Error('Release verifier workflow must execute from the current trusted default branch.');
+            }
+            core.setOutput('sha', commit.sha);
+            core.setOutput('base', commit.parents[0].sha);
+
+      - name: Checkout exact release head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.verification.outputs.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Fetch release base for exact tree comparison
+        run: git fetch --no-tags --depth=1 origin ${{ steps.verification.outputs.base }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache bun install
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies once
+        run: bun install --frozen-lockfile
+
+      - name: Run exact-head full verification
+        id: verify
+        shell: bash
+        env:
+          SEC_EXPECTED_HEAD_SHA: ${{ steps.verification.outputs.sha }}
+          SEC_CHANGED_BASE: ${{ steps.verification.outputs.base }}
+          SEC_AFFECTED_TESTS_BASE: ${{ steps.verification.outputs.base }}
+        run: bun scripts/ci-verification.ts --profile full --expected-head "$SEC_EXPECTED_HEAD_SHA"
+
+      - name: Upload compact full verification evidence
+        id: evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sec-verification-v19-full-release-head-${{ steps.verification.outputs.sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: .tmp/ci-verification-evidence.json
+          if-no-files-found: error
+          retention-days: 90

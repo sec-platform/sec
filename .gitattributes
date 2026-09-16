@@ -1,0 +1,84 @@
+# SEC Canonical Text Byte Contract (Issue #209 Phase A)
+# Git blob is the tracked source identity; worktree materialization must be LF for governed text.
+# This policy is the single authority; do NOT rely on developer global core.autocrlf.
+# Unknown files are NOT matched by broad rules; each class is declared explicitly.
+
+# === SEC-owned source text (canonical LF) ===
+*.ts        text eol=lf
+*.tsx       text eol=lf
+*.js        text eol=lf
+*.mjs       text eol=lf
+*.cjs       text eol=lf
+*.jsx       text eol=lf
+*.json      text eol=lf
+*.yaml      text eol=lf
+*.yml       text eol=lf
+*.md        text eol=lf
+*.html      text eol=lf
+*.htm       text eol=lf
+*.css       text eol=lf
+*.toml      text eol=lf
+*.txt       text eol=lf
+*.ejs       text eol=lf
+*.template  text eol=lf
+*.prisma    text eol=lf
+*.dot       text eol=lf
+*.mmd       text eol=lf
+*.py        text eol=lf
+*.sh        text eol=lf
+
+# === Root config files (canonical LF) ===
+/.gitattributes   text eol=lf
+/.gitignore       text eol=lf
+/.editorconfig    text eol=lf
+/.prettierrc      text eol=lf
+/.prettierrc.*    text eol=lf
+/.bun-version     text eol=lf
+
+# === Git hooks (canonical LF, shell scripts) ===
+/.githooks/* text eol=lf
+
+# === Git-internal placeholders ===
+*.gitkeep   text eol=lf
+
+# === Lockfiles (canonical LF) ===
+*.lock      text eol=lf
+/bun.lock   text eol=lf
+
+# === Binary / archive / image / font / database (non-text) ===
+*.png       -text
+*.jpg       -text
+*.jpeg      -text
+*.gif       -text
+*.bmp       -text
+*.ico       -text
+*.webp      -text
+*.svg       text eol=lf
+*.pdf       -text
+*.zip       -text
+*.tar       -text
+*.gz        -text
+*.tgz       -text
+*.7z        -text
+*.rar       -text
+*.woff      -text
+*.woff2     -text
+*.ttf       -text
+*.otf       -text
+*.eot       -text
+*.db        -text
+*.sqlite    -text
+*.sqlite3   -text
+*.node      -text
+*.wasm      -text
+*.exe       -text
+*.dll       -text
+*.so        -text
+*.dylib     -text
+
+# === Explicit CRLF (Windows-only, declared per-class) ===
+# None currently; SEC does not use .bat/.cmd/.ps1 launcher scripts.
+# If added later, declare explicitly here, e.g.:
+# *.bat   text eol=crlf
+# *.cmd   text eol=crlf
+# *.ps1   text eol=crlf

@@ -1,0 +1,5 @@
+[install]
+auto = "disable"
+
+[test]
+preload = ["./tests/setup/test-runtime.setup.ts"]

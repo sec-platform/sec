@@ -1,0 +1,20 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [
+    "src/verification/ci/runtime/verification-session.ts"
+  ],
+  "capabilityProviders": [
+    {
+      "capability": "ci-verification-contract",
+      "operations": [
+        "CodexDevelopmentBuildVerificationPlan",
+        "CodexDevelopmentFinalizeVerificationEvidenceV4",
+        "CodexDevelopmentParseVerificationSessionArtifact",
+        "buildCiContract",
+        "buildCiFullGatePlan",
+        "buildCiQuickGatePlan"
+      ]
+    }
+  ],
+  "preDependencyBootstrap": false
+}

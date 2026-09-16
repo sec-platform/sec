@@ -1,0 +1,9 @@
+model Worklog {
+  id          Int    @id @default(autoincrement())
+  tenantId    String
+  ticketId    Int
+  minutes     Int
+  note        String
+  authorId    String
+  createdAt   String
+}

@@ -1,0 +1,28 @@
+id: rbac/basic
+version: 0.1.0
+kind: capability
+stackProfiles:
+  - typescript-library
+requires:
+  - auth/session
+provides:
+  - auth/authorize
+conflicts: []
+installs:
+  - kind: copy
+    from: files/src/installed/auth/authorize.ts
+    to: src/installed/auth/authorize.ts
+  - kind: copy
+    from: files/tests/unit/rbac-authorize.test.ts
+    to: tests/unit/rbac-authorize.test.ts
+pins:
+  inputs:
+    - id: actor_identity
+      type: Session
+      required: true
+  outputs:
+    - id: authorization_decision
+      type: AuthorizationDecision
+      required: true
+acceptance:
+  - id: user_can_access_authorized_route

@@ -1,0 +1,31 @@
+model Ticket {
+  id          Int    @id @default(autoincrement())
+  tenantId    String
+  title       String
+  description String
+  status      String
+  assigneeId  String
+  dueDate     String
+  createdBy   String
+  updatedAt   String
+}
+
+model TicketAttachment {
+  id          Int    @id @default(autoincrement())
+  tenantId    String
+  ticketId    Int
+  fileName    String
+  contentType String
+  size        Int
+  contentText String
+  createdAt   String
+}
+
+model TicketComment {
+  id        Int    @id @default(autoincrement())
+  tenantId  String
+  ticketId  Int
+  body      String
+  authorId  String
+  createdAt String
+}

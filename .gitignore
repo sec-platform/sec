@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+dist/
+build/
+.next/
+test-results/
+*.egg-info/
+.shared-deps/
+.sec/
+.tmp/
+report/
+.gitnexus/
+graphify-out/
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
+.claude/skills/
+.claude/worktrees/
+.VSCodeCounter/
+CLAUDE.md
+.trae/
+.graph-it/
+.worktrees/
+.chatgpt-handoff/
+_handoff/
+*.zip
+.claude/
+.codex/*
+!.codex/config.toml
+!.codex/agents/
+!.codex/agents/*.toml

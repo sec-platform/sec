@@ -1,0 +1,32 @@
+{
+  "schema": "sec.project/1",
+  "projectId": "sec-example:deliverable-forms",
+  "sourceScopes": [
+    {
+      "root": "model",
+      "kind": "semantic",
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "contracts",
+      "kind": "design",
+      "editSource": {
+        "mode": "derived"
+      }
+    }
+  ],
+  "modules": {
+    "example:normalization": "model/behavior.json",
+    "example:form:command": "model/command.json",
+    "example:normalization-family": "model/family.json",
+    "example:form:httphandler": "model/httphandler.json",
+    "example:form:library": "model/library.json",
+    "example:form:panel": "model/panel.json",
+    "example:form:plugin": "model/plugin.json",
+    "example:form:worker": "model/worker.json",
+    "example/spec/normalization": "contracts/spec.json"
+  },
+  "targets": {}
+}

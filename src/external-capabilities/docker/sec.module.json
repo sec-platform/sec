@@ -1,0 +1,83 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [],
+  "capabilityProviders": [
+    {
+      "capability": "container-engine",
+      "operations": [
+        "openContainerEngineSession"
+      ],
+      "effectKinds": [
+        "filesystem",
+        "process",
+        "provider"
+      ],
+      "operationRoles": [
+        {
+          "operation": "openContainerEngineSession",
+          "role": "domain-owner",
+          "semanticOperation": "external.container-engine-session-open",
+          "requirementId": null,
+          "recovery": null
+        }
+      ]
+    }
+  ],
+  "operationObligations": [
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "container-engine",
+        "operation": "openContainerEngineSession"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "verification.ci",
+          "verification.trusted-runtime"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem",
+          "process",
+          "provider"
+        ],
+        "failureKinds": [
+          "container-engine.admission-failed",
+          "container-engine.desktop-launcher-path-unavailable",
+          "container-engine.endpoint-unavailable",
+          "container-engine.process-settlement-failed",
+          "container-engine.runtime-endpoint-residue"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 14400000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 134217728
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 536870912
+          },
+          {
+            "resource": "processes",
+            "maximum": 512
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    }
+  ]
+}

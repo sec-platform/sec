@@ -1,0 +1,28 @@
+id: notify/email-basic
+version: 0.1.0
+kind: capability
+stackProfiles:
+  - typescript-library
+requires:
+  - customer/write
+provides:
+  - notify/email
+conflicts: []
+installs:
+  - kind: copy
+    from: files/src/installed/notify/email-outbox.ts
+    to: src/installed/notify/email-outbox.ts
+  - kind: copy
+    from: files/tests/unit/email-outbox.test.ts
+    to: tests/unit/email-outbox.test.ts
+pins:
+  inputs:
+    - id: customer_created
+      type: CustomerRecord
+      required: true
+  outputs:
+    - id: email_notification_created
+      type: EmailNotificationRecord
+      required: true
+acceptance:
+  - id: customer_creation_sends_email_notification
