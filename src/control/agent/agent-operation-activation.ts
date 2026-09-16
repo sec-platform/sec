@@ -49,6 +49,7 @@ import {
 } from '../work-selection/live-contract.ts';
 import { observeSecWorkSelectionLive } from '../work-selection/runtime.ts';
 import {
+  assertAgentOperationActivationTestCensus,
   assertAgentOperationActivationWorkPackageCensus,
   isCanonicalAgentOperationActivationWorkPackagePath
 } from './agent-operation-activation-census.ts';
@@ -637,15 +638,11 @@ function assertManifestTestBlobsExist(
   revision: string,
   manifest: CodexDevelopmentWorkPackageManifest
 ): void {
-  const missing = manifest.tests.filter(
-    (testPath) => !gitObjectExists(candidateRoot, `${revision}:${testPath}`)
-  );
-  if (missing.length !== 0) {
-    unavailable('activation-stale', `work-package-test-blobs-missing:${JSON.stringify(missing)}`);
-  }
-  for (const testPath of manifest.tests) {
-    readGitBlob(candidateRoot, `${revision}:${testPath}`);
-  }
+  const bytes = requireCommand('git', [
+    '--literal-pathspecs', '-c', 'core.quotepath=false',
+    'ls-tree', '-r', '-z', '--full-tree', revision, '--', ...manifest.tests
+  ], candidateRoot, 'activation-stale');
+  guarded('activation-stale', () => assertAgentOperationActivationTestCensus(manifest.tests, bytes));
 }
 
 function readCandidateControl(

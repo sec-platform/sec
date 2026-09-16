@@ -4,15 +4,15 @@ import {
   resolveSecMarkdownSkillCoverage
 } from '../../src/control/agent/skill.ts';
 
-test('unknown root and docs-external Markdown fail closed', () => {
+test('ordinary root policies carry no Skill authority and unknown external Markdown stays unclassified', () => {
   for (const path of [
     'CONTRIBUTING.md',
     'SECURITY.md',
-    '.github/PULL_REQUEST_TEMPLATE.md',
-    'notes/architecture.md'
+    '.github/PULL_REQUEST_TEMPLATE.md'
   ]) {
-    expect(resolveSecMarkdownSkillCoverage(path)).toBeNull();
+    expect(resolveSecMarkdownSkillCoverage(path)).toEqual({ kind: 'repository-content', skills: [] });
   }
+  expect(resolveSecMarkdownSkillCoverage('notes/architecture.md')).toBeNull();
 });
 
 test('retired public documentation paths have no current classification', () => {

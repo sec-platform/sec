@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
+  assertAgentOperationActivationTestCensus,
   assertAgentOperationActivationWorkPackageCensus
 } from '../../src/control/agent/agent-operation-activation-census.ts';
 import {
@@ -27,6 +28,30 @@ import {
 const windowsTest = test.skipIf(process.platform !== 'win32');
 const sha = (character: string): string => character.repeat(40);
 const digest = (character: string): `sha256:${string}` => `sha256:${character.repeat(64)}`;
+
+test('activation test census accepts colocated regular blobs and rejects non-file or incomplete evidence', () => {
+  const paths = ['src/control/agent/行为.test.ts', 'tests/unit/example.spec.ts'];
+  const records = [
+    `100644 blob ${sha('a')}\t${paths[0]}\0`,
+    `100755 blob ${sha('b')}\t${paths[1]}\0`
+  ];
+  const bytes = Buffer.from(records.join(''));
+  expect(() => assertAgentOperationActivationTestCensus(paths, bytes)).not.toThrow();
+  for (const [mode, kind] of [['120000', 'blob'], ['160000', 'commit'], ['040000', 'tree']]) {
+    expect(() => assertAgentOperationActivationTestCensus(paths, Buffer.from(
+      `100644 blob ${sha('a')}\t${paths[0]}\0${mode} ${kind} ${sha('b')}\t${paths[1]}\0`
+    ))).toThrow(/work-package-test-blobs-missing/u);
+  }
+  expect(() => assertAgentOperationActivationTestCensus(paths, Buffer.from(records[0]!)))
+    .toThrow(/work-package-test-blobs-missing/u);
+  for (const invalid of [Buffer.alloc(0), bytes.subarray(0, -1)]) {
+    expect(() => assertAgentOperationActivationTestCensus(paths, invalid)).toThrow(/unterminated/u);
+  }
+  for (const invalid of [Buffer.from('invalid\0'), Buffer.from(records.join('') + records[0])]) {
+    expect(() => assertAgentOperationActivationTestCensus(paths, invalid)).toThrow(/malformed/u);
+  }
+});
+
 function provider(runId: string, workflowSha = sha('a')): SecAgentOperationActivationProvider {
   return createSecAgentOperationActivationProvider({
     repositoryId: '123',

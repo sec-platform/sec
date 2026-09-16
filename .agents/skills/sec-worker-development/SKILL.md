@@ -21,7 +21,7 @@ description: 用于在 frozen Task Envelope 内实现一个 SEC 产品、修复�
 ## 执行
 1. 只读 Capsule 指定的 authority/types/source 与 unresolved frontier；禁止默认全仓扫描。
 2. 实现最小完整纵切片；检查与变换保持不同 effect owner，检查不得隐式改写 source/index。
-3. 可以 materialize 已冻结的 test body/fixture/adapter；若出现新的 proof 缺口或必须改变测试语义，返回 `test-design-required`，不在 implement 中自行裁决。
+3. 可以 materialize 已冻结的 test body/fixture/adapter；若出现新的 proof 缺口或必须改变测试语义，向主线程 A0 回交 `test-design-required` 及最小反例。A0 在已有授权内补齐设计后续交同一任务，这不是用户审批点；Worker 不在 implement 中自行改变 Claim/oracle。
 4. 开发中只执行会改变当前实现选择的 failing/focused sentinel；即将被后续编辑失效的 Action 不启动。
 5. candidate 稳定后消费 selector 的 `RequiredClosure ∩ MissingOrStale`，每个 ActionKey 最多一次 physical start；fresh PASS、unchanged FAIL 与 authenticated in-flight 分别 reuse、stop、join。
 6. 只 stage Envelope owned paths，materialize 同一 logical run 的新 generation；finding 在同一 worktree/ref 修复，不创建 successor worktree。
