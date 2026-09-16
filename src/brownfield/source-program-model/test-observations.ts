@@ -380,11 +380,7 @@ function compilerRegistrationKind(
   declarationsByObservation: ReadonlyMap<string, SourceProgramDeclaration>,
   moduleMembership: SecRepositoryModuleMembership
 ): string | null {
-  // Modifier factories are not cases. Only the invocation of the returned
-  // callable owns a registration, including chained parameter factories.
   const direct = testRegistrationKind(node.expression);
-  if (direct !== null && /\.(?:skipIf|todoIf|if|each)$/u.test(direct)
-      && !ts.isCallExpression(node.expression)) return null;
   if (direct !== null) return direct;
   return compilerRegistrationProvenance(
     sourceFile,
@@ -662,7 +658,16 @@ function testRegistrationKind(expression: ts.LeftHandSideExpression): string | n
   const identity = callIdentity(expression);
   if (identity === null) return null;
   const root = identity.split('.')[0];
-  return root === 'test' || root === 'it' ? identity : null;
+  if (root !== 'test' && root !== 'it') return null;
+  // Bun/Jest/Vitest conditional, table and fixture APIs return a registrar;
+  // their factory invocation is not a case. The outer call supplies the case.
+  // Vitest scoped/override configure fixtures and never register a case.
+  const member = ts.isPropertyAccessExpression(expression) ? expression.name.text : null;
+  if (member === 'scoped' || member === 'override') return null;
+  if (member !== null && [
+    'if', 'skipIf', 'todoIf', 'runIf', 'each', 'for', 'extend'
+  ].includes(member)) return null;
+  return identity;
 }
 
 function unwrap(expression: ts.Expression): ts.Expression {

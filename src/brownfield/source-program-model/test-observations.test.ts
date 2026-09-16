@@ -269,6 +269,33 @@ test('compiler observations bind current-Bun local TypeScript program argv', () 
     .toEqual([expect.objectContaining({ kind: 'test.skipIf', title: 'ambient program' })]);
 });
 
+test('conditional, table and fixture factories register only their returned cases', () => {
+  const projection = compileFixture({
+    'tests/modifiers.test.ts': [
+      "import { test, it, expect } from 'vitest';",
+      "test.runIf(true)('conditional', () => { expect(1).toBe(1); });",
+      "it.for([[1]])('table', ([value]) => { expect(value).toBe(1); });",
+      "test.each([[1]])('each', (value) => { expect(value).toBe(1); });",
+      "test.extend({ value: 1 })('fixture', ({ value }) => { expect(value).toBe(1); });",
+      "const conditionalFactory = test.runIf(false);",
+      "const tableFactory = test.for([[1]]);",
+      "const fixtureFactory = test.extend({ value: 1 });",
+      "test.override({ value: 2 });",
+      "test.scoped({ value: 2 });",
+      "test.skip('skipped', () => {});",
+      "test.todo('todo');"
+    ].join('\n')
+  });
+  expect(projection.registrations.map(({ kind, title }) => ({ kind, title }))).toEqual([
+    { kind: 'test.runIf', title: 'conditional' },
+    { kind: 'it.for', title: 'table' },
+    { kind: 'test.each', title: 'each' },
+    { kind: 'test.extend', title: 'fixture' },
+    { kind: 'test.skip', title: 'skipped' },
+    { kind: 'test.todo', title: 'todo' }
+  ]);
+});
+
 test('local program observations reject shadowed, dynamic, external, and foreign executables', () => {
   const projection = compileFixture({
     'tests/local-program-negative.test.ts': [
