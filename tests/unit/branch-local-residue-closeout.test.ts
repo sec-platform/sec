@@ -562,17 +562,6 @@ test('completed duplicate attempt cannot retire a newer pending operation in the
             recoveryDigest: `sha256:${digest}`,
             consumptionOperationId: 'merge-pending'
           });
-          const preparationMaterial = {
-            schema: BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA,
-            preparation: completed.receipt.preparation,
-            before: completed.receipt.before,
-            attempts: [],
-            foreignWorktreeObservations: []
-          };
-          writeFileSync(path.join(fixture.recoveryRoot, `${duplicateName}.preparation.json`), `${JSON.stringify({
-            ...preparationMaterial,
-            envelopeDigest: branchLifecycleDigest(preparationMaterial)
-          }, null, 2)}\n`);
           writeFileSync(
             path.join(fixture.recoveryRoot, `${duplicateName}.closeout-${completed.binding.closeoutOperationId.slice('sha256:'.length)}.receipt.json`),
             `${JSON.stringify(completed, null, 2)}\n`

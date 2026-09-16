@@ -1118,7 +1118,11 @@ function retireSupersededBranchCloseoutBundles(input: Readonly<{
       : terminalReceipts.length > 0
         ? operationReceiptsCompleted
         : branchReceipt?.status === 'completed';
-    if (preparation !== null && !hasTerminal) continue;
+    const hasLifecycleEvidence = preparation !== null
+      || branchReceipt !== null
+      || operationJournals.length > 0
+      || terminalReceipts.length > 0;
+    if (hasLifecycleEvidence && !hasTerminal) continue;
     retireRecoveryBundleFamily({
       store: input.store,
       bundleName: name,
