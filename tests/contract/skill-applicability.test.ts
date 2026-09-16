@@ -55,10 +55,18 @@ function gitOutputOrNull(args: readonly string[]): string | null {
   return result.status === 0 ? result.stdout.trim() : null;
 }
 
+function gitNulPaths(args: readonly string[]): string[] {
+  const result = spawnSync('git', args, {
+    cwd: REPOSITORY_ROOT,
+    encoding: 'utf8',
+    windowsHide: true
+  });
+  if (result.status !== 0) throw new Error(result.stderr);
+  return result.stdout.split('\0').filter((entry) => entry.length > 0);
+}
+
 function changedPaths(base: string, head: string): string[] {
-  const source = gitOutput(['diff', '--name-status', base, head]);
-  return [...new Set(source.split(/\r?\n/u).filter(Boolean)
-    .flatMap((line) => line.split('\t').slice(1)))].sort();
+  return [...new Set(gitNulPaths(['diff', '--name-only', '-z', base, head]))].sort();
 }
 
 function planInput(overrides: {
