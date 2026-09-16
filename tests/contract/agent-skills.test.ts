@@ -168,9 +168,16 @@ test('GitHub collaboration Markdown remains non-authoritative repository content
   });
 });
 
-test('repository surface classification follows the canonical src product root', () => {
+test('repository surface classification follows canonical source and test identities', () => {
   expect(classifySecRepositorySurface('src/compiler/compile.ts')).toEqual({
     kind: 'product-implementation',
+    skills: []
+  });
+  for (const testPath of [
+    'src/system-architecture/repository-modules/dependency-policy.test.ts',
+    'src/control/agent/example.test.ts'
+  ]) expect(classifySecRepositorySurface(testPath)).toEqual({
+    kind: 'verification-test',
     skills: []
   });
   for (const retiredPath of ['platform/compiler/compile.ts', 'source/code/app.ts']) {

@@ -79,11 +79,23 @@ test('compact projection retains compiler-observed test consumers as canonical o
     'tests/unit/observed-fixture.test.ts': [
       "import { readFileSync } from 'node:fs';",
       "readFileSync('src/compiler/observed-fixture.ts', 'utf8');"
+    ].join('\n'),
+    'tests/unit/program-fixture.test.ts': [
+      "import { spawnSync } from 'node:child_process';",
+      "import { test } from 'bun:test';",
+      "import path from 'node:path';",
+      "test.skipIf(process.platform !== 'win32')('program', () => {",
+      "  const program = path.resolve(import.meta.dir, '../../src/compiler/observed-fixture.ts');",
+      "  spawnSync(process.execPath, [program]);",
+      "});"
     ].join('\n')
   });
   expect(projection.observedTestConsumers).toEqual([{
     targetPath: 'src/compiler/observed-fixture.ts',
     testPath: 'tests/unit/observed-fixture.test.ts'
+  }, {
+    targetPath: 'src/compiler/observed-fixture.ts',
+    testPath: 'tests/unit/program-fixture.test.ts'
   }]);
 
   const encoded = encodeTestImpactProjectionReceipt(projection);

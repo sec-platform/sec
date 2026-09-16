@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -144,3 +144,58 @@ test('development.commit rejects missing admission before repository Effect', as
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('development.commit rejects a real unfinished merge without publishing or consuming its state', async () => {
+  const { root, request } = await fixture();
+  try {
+    const base = git(root, ['rev-parse', 'HEAD']);
+    git(root, ['commit', '--quiet', '-m', 'current branch delta']);
+    const currentBranch = git(root, ['symbolic-ref', '--short', 'HEAD']);
+    git(root, ['switch', '--quiet', '-c', 'incoming', base]);
+    await writeFile(path.join(root, 'incoming.txt'), 'incoming\n');
+    git(root, ['add', 'incoming.txt']);
+    git(root, ['commit', '--quiet', '-m', 'incoming delta']);
+    git(root, ['switch', '--quiet', currentBranch]);
+    git(root, ['merge', '--no-commit', '--no-ff', 'incoming']);
+    const gitDirectory = git(root, ['rev-parse', '--absolute-git-dir']);
+    const observe = async () => ({
+      head: git(root, ['rev-parse', 'HEAD']),
+      tree: git(root, ['write-tree']),
+      objects: git(root, ['count-objects', '-v']),
+      mergeHead: await readFile(path.join(gitDirectory, 'MERGE_HEAD'), 'utf8')
+    });
+    const before = await observe();
+    await expect(issueDevelopmentCommitAdmission({ request }))
+      .rejects.toThrow('unfinished Git operation: MERGE_HEAD');
+    expect(await observe()).toEqual(before);
+    await expect(lstat(path.join(gitDirectory, 'sec-development-commit')))
+      .rejects.toMatchObject({ code: 'ENOENT' });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 20_000);
+
+test('development.commit fences sequencer state introduced after admission', async () => {
+  const { root, request } = await fixture();
+  try {
+    const prepared = await issueDevelopmentCommitAdmission({ request });
+    const gitDirectory = git(root, ['rev-parse', '--absolute-git-dir']);
+    await mkdir(path.join(gitDirectory, 'sequencer'));
+    const before = {
+      head: git(root, ['rev-parse', 'HEAD']),
+      tree: git(root, ['write-tree']),
+      objects: git(root, ['count-objects', '-v'])
+    };
+    await expect(runDevelopmentCommit(request, prepared.admission))
+      .rejects.toThrow('unfinished Git operation: sequencer');
+    expect({
+      head: git(root, ['rev-parse', 'HEAD']),
+      tree: git(root, ['write-tree']),
+      objects: git(root, ['count-objects', '-v'])
+    }).toEqual(before);
+    await expect(lstat(path.join(gitDirectory, 'sec-development-commit')))
+      .rejects.toMatchObject({ code: 'ENOENT' });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 20_000);

@@ -9,6 +9,7 @@ import {
 } from '../../external-capabilities/git-read/runtime/session.ts';
 import {
   inspectNoFollowDirectoryChain,
+  inspectNoFollowDirectoryLeaf,
   inspectNoFollowOrdinaryFileEntry
 } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
@@ -38,6 +39,7 @@ export type DevelopmentCommitCandidate = Readonly<{
 export type DevelopmentCommitCandidateDetails = Readonly<{
   readonly candidate: DevelopmentCommitCandidate;
   readonly commonDirectory: string;
+  readonly worktreeGitDirectory: string;
   readonly indexPath: string;
   readonly indexParent: Readonly<{ path: string; device: string; inode: string }>;
   readonly indexEntry: Readonly<{
@@ -76,6 +78,20 @@ async function commandText(
     throw new Error(`Development commit candidate could not ${label}.`);
   }
   return Buffer.from(command.result.stdout).toString('utf8').trim();
+}
+
+function assertStandaloneDevelopmentCommitState(worktreeGitDirectory: string): void {
+  const parent = inspectNoFollowDirectoryChain(worktreeGitDirectory, 'Development commit Git directory').target;
+  for (const name of ['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'REBASE_HEAD']) {
+    if (inspectNoFollowOrdinaryFileEntry(parent, name) !== null) {
+      throw new Error(`Development commit rejects unfinished Git operation: ${name}`);
+    }
+  }
+  for (const name of ['sequencer', 'rebase-merge', 'rebase-apply']) {
+    if (inspectNoFollowDirectoryLeaf(parent, name) !== null) {
+      throw new Error(`Development commit rejects unfinished Git operation: ${name}`);
+    }
+  }
 }
 
 function observeIndex(indexPath: string): Readonly<{
@@ -144,6 +160,10 @@ export async function freezeDevelopmentCommitCandidate(input: Readonly<{
     ['rev-parse', '--path-format=absolute', '--git-common-dir'],
     'resolve common directory'
   ));
+  const worktreeGitDirectory = path.resolve(await commandText(
+    session, ['rev-parse', '--absolute-git-dir'], 'resolve worktree Git directory'
+  ));
+  assertStandaloneDevelopmentCommitState(worktreeGitDirectory);
   const indexPath = path.resolve(await commandText(
     session,
     ['rev-parse', '--path-format=absolute', '--git-path', 'index'],
@@ -225,6 +245,7 @@ export async function freezeDevelopmentCommitCandidate(input: Readonly<{
       const details = Object.freeze({
         candidate,
         commonDirectory,
+        worktreeGitDirectory,
         indexPath,
         indexParent: beforeIndex.parent,
         indexEntry: Object.freeze({
@@ -237,6 +258,7 @@ export async function freezeDevelopmentCommitCandidate(input: Readonly<{
         preflightReceiptDigest: sha256({
           candidateDigest: candidate.candidateDigest,
           commonDirectory,
+          worktreeGitDirectory,
           indexPath
         }) as SecOperationDigest
       });
@@ -288,6 +310,7 @@ export async function assertDevelopmentCommitCandidateCurrent(input: Readonly<{
     'read back HEAD preimage'
   );
   const currentIndex = observeIndex(details.indexPath);
+  assertStandaloneDevelopmentCommitState(details.worktreeGitDirectory);
   if (ref !== details.candidate.ref || preimage !== details.candidate.preimage
       || !sameIndexObservation(currentIndex, details)) {
     throw new Error('Development commit candidate changed before Effect admission.');

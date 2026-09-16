@@ -6,10 +6,10 @@ description: 用于在 frozen Task Envelope 内实现一个 SEC 产品、修复�
 # sec-worker-development
 
 ## 触发
-- 已收到 exact base、branch、owned/forbidden paths、acceptance和focused tests。
+- 已收到 exact base、branch、owned/forbidden paths、acceptance、focused verification closure，且需要的测试语义已经冻结。
 
 ## 不触发
-- active pointer unresolved；需要改 Work Package、authority或跨 owner设计。
+- active pointer unresolved；需要改 Work Package、authority、跨 owner 设计，或必须改变 Claim/oracle/测试退役判断；后一类返回 `test-design-required`。
 
 ## 输入
 - Task Capsule/Operation Envelope、相关 owner/types/source、当前 failing reproduction 与已选择的 Action closure。
@@ -21,10 +21,11 @@ description: 用于在 frozen Task Envelope 内实现一个 SEC 产品、修复�
 ## 执行
 1. 只读 Capsule 指定的 authority/types/source 与 unresolved frontier；禁止默认全仓扫描。
 2. 实现最小完整纵切片；检查与变换保持不同 effect owner，检查不得隐式改写 source/index。
-3. 开发中只执行会改变当前实现选择的 failing/focused sentinel；即将被后续编辑失效的 Action 不启动。
-4. candidate 稳定后消费 selector 的 `RequiredClosure ∩ MissingOrStale`，每个 ActionKey 最多一次 physical start；fresh PASS、unchanged FAIL 与 authenticated in-flight 分别 reuse、stop、join。
-5. 只 stage Envelope owned paths，materialize 同一 logical run 的新 generation；finding 在同一 worktree/ref 修复，不创建 successor worktree。
-6. 返回 exact base/head/tree、changed symbols、Action/Evidence delta、blocker 与 next seam。
+3. 可以 materialize 已冻结的 test body/fixture/adapter；若出现新的 proof 缺口或必须改变测试语义，向主线程 A0 回交 `test-design-required` 及最小反例。A0 在已有授权内补齐设计后续交同一任务，这不是用户审批点；Worker 不在 implement 中自行改变 Claim/oracle。
+4. 开发中只执行会改变当前实现选择的 failing/focused sentinel；即将被后续编辑失效的 Action 不启动。
+5. candidate 稳定后消费 selector 的 `RequiredClosure ∩ MissingOrStale`，每个 ActionKey 最多一次 physical start；fresh PASS、unchanged FAIL 与 authenticated in-flight 分别 reuse、stop、join。
+6. 只 stage Envelope owned paths，materialize 同一 logical run 的新 generation；finding 在同一 worktree/ref 修复，不创建 successor worktree。
+7. 返回 exact base/head/tree、changed symbols、Action/Evidence delta、blocker 与 next seam。
 
 ## 已授权提交与中断续接
 
@@ -43,11 +44,11 @@ description: 用于在 frozen Task Envelope 内实现一个 SEC 产品、修复�
 - `target-ref-updated`授权：上述证据，加远端目标ref与内容readback、必需Gate结果、集成身份及本任务branch/worktree residue结算；commit、push或PR任一中间状态都不是完成。
 
 ## 停止与恢复
-- acceptance满足并提交 Reconciliation Delta；或触发 proof reset/authority blocker。
+- acceptance满足并提交 Reconciliation Delta；或触发 proof reset/authority blocker/`test-design-required`。
 - 已授权`target-ref-updated`且仍有合法下一动作时不得在本地验证、commit、push、PR创建或传输路径拒绝后停止；按原候选和授权终态恢复。只有外部authority不可得、需要扩大效果或typed控制面阻塞时才返回用户。
 - 普通失败回实现；重复 frozen root-cause invalidation 交给 failure owner 产生 typed proof-reset decision。
 
 ## 禁止捷径
 - 不运行重复 Action、日常 Full 或未被 selector 选择的 Risk。
-- 不删除测试、弱化 assertion、扩大 timeout或顺手重构。
+- 不自行改变 Claim/oracle/测试退役语义，不弱化 assertion、扩大 timeout、增加 sleep/retry/skip 来换绿色。
 - 普通测试失败不自动计为 candidate invalidation。

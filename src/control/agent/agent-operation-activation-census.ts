@@ -6,6 +6,34 @@ import {
 
 const WORK_PACKAGE_PATH_PATTERN = /^config\/repository\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u;
 
+/** Validate the exact declared paths against one NUL-delimited Git tree read. */
+export function assertAgentOperationActivationTestCensus(
+  testPaths: readonly string[],
+  treeBytes: Uint8Array
+): void {
+  if (treeBytes.length === 0 || treeBytes.at(-1) !== 0) {
+    throw new Error('candidate-test-census-is-empty-or-unterminated');
+  }
+  const source = new TextDecoder('utf-8', { fatal: true }).decode(treeBytes.subarray(0, -1));
+  const regularFiles = new Set<string>();
+  const observedPaths = new Set<string>();
+  for (const record of source.split('\0')) {
+    const entry = /^([0-7]{6}) (blob|tree|commit) (?:[0-9a-f]{40}|[0-9a-f]{64})\t([^\0]+)$/u.exec(record);
+    if (entry === null || observedPaths.has(entry[3]!)) {
+      throw new Error('candidate-test-census-malformed');
+    }
+    const [, mode, kind, repositoryPath] = entry;
+    observedPaths.add(repositoryPath!);
+    if ((mode === '100644' || mode === '100755') && kind === 'blob') {
+      regularFiles.add(repositoryPath!);
+    }
+  }
+  const missing = testPaths.filter((testPath) => !regularFiles.has(testPath));
+  if (missing.length > 0) {
+    throw new Error(`work-package-test-blobs-missing:${JSON.stringify(missing)}`);
+  }
+}
+
 export function isCanonicalAgentOperationActivationWorkPackagePath(value: string): boolean {
   return WORK_PACKAGE_PATH_PATTERN.test(value);
 }

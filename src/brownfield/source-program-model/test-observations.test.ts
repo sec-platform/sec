@@ -239,7 +239,18 @@ test('compiler observations bind current-Bun local TypeScript program argv', () 
       "Bun.spawnSync([process.execPath, helper]);",
       "Bun.spawn({ cmd: [process.execPath, '--no-env-file', program], stdout: 'pipe' });"
     ].join('\n'),
-    'tests/helper-program.ts': 'export const helper = true;'
+    'tests/helper-program.ts': 'export const helper = true;',
+    'tests/unit/ambient-program.test.ts': [
+      "import { spawnSync } from 'node:child_process';",
+      "import path from 'node:path';",
+      "import { test } from 'bun:test';",
+      "const unusedFactory = test.skipIf(false);",
+      "test.skipIf(process.platform !== 'win32')('ambient program', () => {",
+      "  const program = path.resolve(import.meta.dir, '../../src/example/operation.ts');",
+      "  spawnSync(process.execPath, [program]);",
+      "  Bun.spawnSync([process.execPath, program]);",
+      "});"
+    ].join('\n')
   });
 
   expect(projection.localProgramInvocations.map(({ path, target }) => ({ path, target })))
@@ -247,11 +258,15 @@ test('compiler observations bind current-Bun local TypeScript program argv', () 
       { path: 'tests/local-program.test.ts', target: 'src/example/operation.ts' },
       { path: 'tests/local-program.test.ts', target: 'tests/helper-program.ts' },
       { path: 'tests/local-program.test.ts', target: 'tests/helper-program.ts' },
-      { path: 'tests/local-program.test.ts', target: 'src/example/operation.ts' }
+      { path: 'tests/local-program.test.ts', target: 'src/example/operation.ts' },
+      { path: 'tests/unit/ambient-program.test.ts', target: 'src/example/operation.ts' },
+      { path: 'tests/unit/ambient-program.test.ts', target: 'src/example/operation.ts' }
     ]);
   expect(projection.unknowns).not.toContainEqual(expect.objectContaining({
     code: 'test-local-program-invocation-unresolved'
   }));
+  expect(projection.registrations.filter(({ path }) => path === 'tests/unit/ambient-program.test.ts'))
+    .toEqual([expect.objectContaining({ kind: 'test.skipIf', title: 'ambient program' })]);
 });
 
 test('local program observations reject shadowed, dynamic, external, and foreign executables', () => {
@@ -276,6 +291,20 @@ test('local program observations reject shadowed, dynamic, external, and foreign
       "Bun.spawnSync({ cmd: [process.execPath, 'src/example/operation.ts'], ...options });",
       "Bun.spawnSync({ cmd: [process.execPath, 'src/example/operation.ts'], cmd: [process.execPath, 'src/example/operation.ts'] });",
       "void shadowProcess; void shadowBun;"
+    ].join('\n'),
+    'tests/local-shadow.test.ts': [
+      "import { spawnSync } from 'node:child_process';",
+      "const process = { execPath: '/foreign/runtime' };",
+      "const Bun = { spawnSync(command: string[]) {} };",
+      "spawnSync(process.execPath, ['src/example/operation.ts']);",
+      "Bun.spawnSync([process.execPath, 'src/example/operation.ts']);"
+    ].join('\n'),
+    'tests/declared-shadow.test.ts': [
+      "import { spawnSync } from 'node:child_process';",
+      "declare const process: { execPath: string };",
+      "declare const Bun: { spawnSync(command: string[]): void };",
+      "spawnSync(process.execPath, ['src/example/operation.ts']);",
+      "Bun.spawnSync([process.execPath, 'src/example/operation.ts']);"
     ].join('\n')
   });
 
