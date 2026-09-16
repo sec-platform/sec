@@ -24,6 +24,7 @@ import {
   type SecAgentOperationActivationRequest
 } from '../../src/control/agent/operation-activation.ts';
 
+const windowsTest = test.skipIf(process.platform !== 'win32');
 const sha = (character: string): string => character.repeat(40);
 const digest = (character: string): `sha256:${string}` => `sha256:${character.repeat(64)}`;
 function provider(runId: string, workflowSha = sha('a')): SecAgentOperationActivationProvider {
@@ -261,9 +262,7 @@ test('candidate-local objects cannot satisfy the hosted provider schema', () => 
   })).toThrow(/finalize requires/u);
 });
 
-test('Windows activation fails closed before fake PATH Git or GitHub children and ambient CLI state', () => {
-  if (process.platform !== 'win32') return;
-
+windowsTest('Windows activation fails closed before fake PATH Git or GitHub children and ambient CLI state', () => {
   const binHome = mkdtempSync(path.join(tmpdir(), 'sec-agent-activation-fake-cli-'));
   const gitExecutionSentinel = path.join(binHome, 'git-executed.txt');
   const ghExecutionSentinel = path.join(binHome, 'gh-executed.txt');
