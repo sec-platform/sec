@@ -34,7 +34,6 @@ import {
 import { generatedStateProducerHooks } from '../../src/runtime-state/generated-state/lifecycle.ts';
 import { inspectNoFollowDirectoryChain, relocateRetainedNoFollowDirectory } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 import {
-  LEGACY_WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA,
   WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA,
   createWorktreePhysicalCloseoutReceipt,
   detailDigest
@@ -284,7 +283,7 @@ test('completed worktree GC rejects unknown operation evidence instead of deleti
   }
 }, 30_000);
 
-test('one branch settlement retires completed v2 worktree evidence it makes eligible', async () => {
+test('one branch settlement retires completed current worktree evidence it makes eligible', async () => {
   const value = fixture();
   try {
     const authorization = await prepareWorktreePhysicalCloseout({
@@ -396,7 +395,7 @@ test('prepared worktree evidence remains a recovery root', async () => {
   }
 }, 30_000);
 
-test('legacy v1 proofless residue converges only from exact durable absence readback', async () => {
+test('fieldless historical proofless residue converges only from exact durable absence readback', async () => {
   const value = fixture();
   try {
     const prepared = await prepareWorktreePhysicalCloseout({
@@ -433,7 +432,7 @@ test('legacy v1 proofless residue converges only from exact durable absence read
     renameSync(path.dirname(prepared.authorizationPath), operationRoot);
     const legacyBody = {
       ...authorizationBody,
-      schema: LEGACY_WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA,
+      schema: WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA,
       operationId,
       registryAdmin: {
         ...authorizationBody.registryAdmin,

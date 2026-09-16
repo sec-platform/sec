@@ -2,7 +2,6 @@ import { expect, test } from 'bun:test';
 
 
 import {
-  LEGACY_WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA,
   WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA,
   assertStableWorktreePhysicalWorkingState,
   assertWorktreePhysicalCloseoutAuthorization,
@@ -12,6 +11,7 @@ import {
   createWorktreePhysicalCloseoutReceipt,
   createWorktreePhysicalInventory,
   detailDigest,
+  isFieldlessLegacyWorktreePhysicalCloseoutAuthorization,
   parseGitWorktreeAdminLocator,
   parseGitWorktreeAdminPath,
   parseWorktreePorcelainZ,
@@ -216,7 +216,7 @@ test('authorization binds exact repository target inventory and durable recovery
   expect(() => assertWorktreePhysicalCloseoutAuthorization(tampered)).toThrow('canonical content mismatch');
 });
 
-test('legacy v1 authorization without generated-state field is validated exactly and normalized only in memory', () => {
+test('fieldless historical authorization is validated exactly and normalized only in memory', () => {
   const current = authorization();
   const {
     schema: ignoredSchema,
@@ -240,7 +240,7 @@ test('legacy v1 authorization without generated-state field is validated exactly
     targetLeaseNamespace: body.targetLeaseNamespace
   });
   const material = {
-    schema: LEGACY_WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA,
+    schema: WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA,
     operationId,
     ...body
   };
@@ -250,8 +250,9 @@ test('legacy v1 authorization without generated-state field is validated exactly
   };
 
   const normalized = assertWorktreePhysicalCloseoutAuthorization(legacy as never);
-  expect(normalized.schema).toBe(LEGACY_WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA);
+  expect(normalized.schema).toBe(WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA);
   expect(normalized.generatedStateRetirement).toBeNull();
+  expect(isFieldlessLegacyWorktreePhysicalCloseoutAuthorization(normalized)).toBeTrue();
   expect(Object.prototype.hasOwnProperty.call(legacy, 'generatedStateRetirement')).toBeFalse();
   expect(() => assertWorktreePhysicalCloseoutAuthorization({
     ...legacy,
@@ -259,12 +260,12 @@ test('legacy v1 authorization without generated-state field is validated exactly
   } as never)).toThrow('canonical content mismatch');
 });
 
-test('legacy v1 authorization with generated-state field keeps the field-aware operation identity', () => {
+test('field-bearing authorization keeps the field-aware operation identity without a second schema', () => {
   const current = authorization();
   const { authorizationDigest: ignoredAuthorizationDigest, ...body } = current;
   const material = {
     ...body,
-    schema: LEGACY_WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA
+    schema: WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA
   };
   const legacy = {
     ...material,
@@ -274,12 +275,7 @@ test('legacy v1 authorization with generated-state field keeps the field-aware o
   expect(parsed).toEqual(legacy);
   expect(parsed.operationId).toBe(current.operationId);
   expect(parsed.generatedStateRetirement).toBeNull();
-});
-
-test('v2 authorization rejects a missing generated-state field with a typed contract error', () => {
-  const { generatedStateRetirement: ignoredGeneratedStateRetirement, ...missing } = authorization();
-  expect(() => assertWorktreePhysicalCloseoutAuthorization(missing as never))
-    .toThrow('authorization generatedStateRetirement is absent');
+  expect(isFieldlessLegacyWorktreePhysicalCloseoutAuthorization(parsed)).toBeFalse();
 });
 
 test('authorized residue admits only unchanged subsets and rejects new or replaced entries', () => {

@@ -6,7 +6,7 @@ import { assertGeneratedStateWorktreeRetirementEffectStart, isGeneratedStateWork
 import { createNoFollowDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectory, relocateRetainedNoFollowDirectoryAcrossParents, replaceDurableCanonicalFile, retireNoFollowDirectoryTree, scanNoFollowDirectoryDirectMetadata, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { runCommandBytes } from '../../runtime-state/physical/runtime/process.ts';
 import {
-  LEGACY_WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA,
+  WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA,
   assertStableWorktreePhysicalWorkingState,
   assertWorktreePhysicalCloseoutAuthorization,
   assertWorktreePhysicalCloseoutReceipt,
@@ -15,7 +15,7 @@ import {
   createWorktreePhysicalCloseoutReceipt,
   createWorktreePhysicalInventory,
   detailDigest,
-  isWorktreePhysicalCloseoutAuthorizationSchema,
+  isFieldlessLegacyWorktreePhysicalCloseoutAuthorization,
   parseGitWorktreeAdminLocator,
   parseWorktreePorcelainZ,
   parseWorktreeStatusPorcelainZ,
@@ -1185,7 +1185,7 @@ async function executeWorktreePhysicalCloseoutUnderLease(
   );
   if (proofPresence.state === 'absent') {
     if (
-      authorization.schema !== LEGACY_WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA ||
+      !isFieldlessLegacyWorktreePhysicalCloseoutAuthorization(authorization) ||
       authorization.generatedStateRetirement !== null ||
       prior === null
     ) {
@@ -1223,6 +1223,7 @@ async function executeWorktreePhysicalCloseoutUnderLease(
       retiredPhase,
       stage: 'effect-boundary'
     });
+    await assertLeases();
     return persistReceiptGeneration(expectedRecoveryRoot, createReceipt(
       authorization,
       registry.digest,
@@ -1892,7 +1893,7 @@ function loadWorktreePhysicalCloseoutGcAuthorization(
   const record = value as Record<string, unknown>;
   const operationId = record.operationId as Digest;
   const authorizationDigest = record.authorizationDigest as Digest;
-  if (!isWorktreePhysicalCloseoutAuthorizationSchema(record.schema)
+  if (record.schema !== WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA
       || !/^sha256:[0-9a-f]{64}$/u.test(operationId)
       || !/^sha256:[0-9a-f]{64}$/u.test(authorizationDigest)) {
     throw new Error('Worktree closeout GC authorization identity is invalid.');
@@ -2211,6 +2212,7 @@ export async function gcCompletedWorktreePhysicalCloseoutEvidence(
           retiredPhase: retiredPhase!,
           stage: 'gc-effect-boundary'
         });
+        await assertWorkspaceWriteLease(repositoryRoot, lease);
       }
       retireNoFollowDirectoryTree({
         deadlineAtMonotonicMs: performance.now() + 10_000,

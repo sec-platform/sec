@@ -1072,9 +1072,9 @@ function retireSupersededBranchCloseoutBundles(input: Readonly<{
       assertPreparationBinding(branchReceipt.preparation, 'receipt');
       validatedSidecars.push(receiptName);
     }
-    for (const candidate of family.filter((candidate) => (
+    const operationJournals = family.filter((candidate) => (
       candidate.startsWith(`${name}.closeout-`) && candidate.endsWith('.journal.json')
-    ))) {
+    )).map((candidate) => {
       const bytes = input.store.read(candidate);
       if (bytes === null) throw new Error(`Duplicate branch-closeout journal disappeared: ${candidate}`);
       const journal = parseBranchCloseoutOperationJournal(Buffer.from(bytes).toString('utf8'));
@@ -1084,7 +1084,8 @@ function retireSupersededBranchCloseoutBundles(input: Readonly<{
       }
       assertOperationBinding(journal.binding, candidate);
       validatedSidecars.push(candidate);
-    }
+      return journal;
+    });
     const terminalReceipts = family.filter((candidate) => (
       candidate.startsWith(`${name}.closeout-`) && candidate.endsWith('.receipt.json')
     )).map((candidate) => {
@@ -1100,9 +1101,23 @@ function retireSupersededBranchCloseoutBundles(input: Readonly<{
       validatedSidecars.push(candidate);
       return receipt;
     });
-    const hasTerminal = terminalReceipts.some(
+    const terminalReceiptsByOperation = new Map(terminalReceipts.map((receipt) => (
+      [receipt.binding.closeoutOperationId, receipt] as const
+    )));
+    const operationReceiptsCompleted = terminalReceipts.length > 0 && terminalReceipts.every(
       ({ receipt }) => receipt.status === 'completed'
-    ) || branchReceipt?.status === 'completed';
+    );
+    const operationJournalsCompleted = operationJournals.every((journal) => {
+      const terminal = terminalReceiptsByOperation.get(journal.binding.closeoutOperationId);
+      return terminal !== undefined
+        && terminal.receipt.status === 'completed'
+        && journal.terminalReceiptDigest === terminal.receipt.receiptDigest;
+    });
+    const hasTerminal = operationJournals.length > 0
+      ? operationReceiptsCompleted && operationJournalsCompleted
+      : terminalReceipts.length > 0
+        ? operationReceiptsCompleted
+        : branchReceipt?.status === 'completed';
     if (preparation !== null && !hasTerminal) continue;
     retireRecoveryBundleFamily({
       store: input.store,

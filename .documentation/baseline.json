@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-baseline/1",
-  "source_set_sha256": "b67e3b57309217da9160846b952d0a0757043b48c06c36a7a85dc04819b14578",
+  "source_set_sha256": "f9baec508d6056629e0acb4210ef8a5be43dbd26a083263c2e3c9796504de708",
   "source_root": "..",
   "source_roots": [
     "AGENTS.md",
