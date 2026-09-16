@@ -1,4 +1,5 @@
 import { REPOSITORY_AUDIT_ENTRYPOINT_PATH } from '../../brownfield/source-program-model/contract.ts';
+import { isSecRepositoryTestModulePath } from '../../system-architecture/repository-modules/test-module-path.ts';
 import { activeDocumentationRecord } from '../documentation/active.ts';
 import {
   isSecAgentRole,
@@ -24,6 +25,7 @@ export const SEC_AGENT_SKILL_IDS = [
   'sec-heuristic-governance',
   'sec-repository-audit',
   'sec-task-delegation',
+  'sec-test-design',
   'sec-worker-development'
 ] as const;
 
@@ -37,6 +39,7 @@ export const SEC_REPOSITORY_HEURISTIC_BEHAVIOR_IDS = [
   'governance-self-correction',
   'repository-audit',
   'task-delegation',
+  'test-design',
   'worker-development'
 ] as const;
 
@@ -70,6 +73,7 @@ export const SEC_REPOSITORY_HEURISTIC_ROUTES = Object.freeze({
   'governance-self-correction': skillRoute('sec-heuristic-governance'),
   'repository-audit': skillRoute('sec-repository-audit'),
   'task-delegation': skillRoute('sec-task-delegation'),
+  'test-design': skillRoute('sec-test-design'),
   'worker-development': skillRoute('sec-worker-development')
 } satisfies Record<SecRepositoryHeuristicBehaviorId, SecRepositorySkillBehaviorRoute>);
 
@@ -184,6 +188,7 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
         'sec-heuristic-governance',
         'sec-repository-audit',
         'sec-task-delegation',
+        'sec-test-design',
         'sec-worker-development'
       )
     };
@@ -194,7 +199,18 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
       skills: skills(
         'sec-exact-head-review',
         'sec-failure-recovery',
-        'sec-repository-audit'
+        'sec-repository-audit',
+        'sec-test-design'
+      )
+    };
+  }
+  if (path === 'docs/开发/测试发现与执行.md') {
+    return {
+      kind: 'active-authority',
+      skills: skills(
+        'sec-architecture-evolution',
+        'sec-repository-audit',
+        'sec-test-design'
       )
     };
   }
@@ -280,9 +296,9 @@ export function isSecRepositoryHeuristicSurface(path: string): boolean {
 export function classifySecRepositorySurface(path: string): SecRepositorySurface {
   const markdown = resolveSecMarkdownSkillCoverage(path);
   if (markdown) return { kind: 'markdown', skills: markdown.skills };
+  if (isSecRepositoryTestModulePath(path)) return { kind: 'verification-test', skills: [] };
   const heuristicSkills = resolveSecRepositoryHeuristicSkills(path);
   if (heuristicSkills.length > 0) return { kind: 'heuristic-runtime', skills: heuristicSkills };
-  if (/^tests\//u.test(path)) return { kind: 'verification-test', skills: [] };
   if (/^src\//u.test(path)) return { kind: 'product-implementation', skills: [] };
   if (/^(?:package\.json|bun\.lock|bunfig\.toml|tsconfig\.json|\.bun-version|\.gitignore|\.gitattributes)$/u.test(path)) {
     return { kind: 'configuration', skills: [] };
@@ -367,6 +383,11 @@ export const SEC_AGENT_SKILL_METADATA = {
     id: 'sec-task-delegation',
     roles: ['a0'],
     operationKinds: ['govern', 'orient']
+  },
+  'sec-test-design': {
+    id: 'sec-test-design',
+    roles: ['a0'],
+    operationKinds: ['design']
   },
   'sec-worker-development': {
     id: 'sec-worker-development',

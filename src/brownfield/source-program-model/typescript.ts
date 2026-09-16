@@ -1376,11 +1376,16 @@ export function sourceProgramTypeScriptIdentifierIsAmbientGlobal(
   model: SourceProgramModel,
   repositoryPath: string,
   node: ts.Identifier,
-  expectedName: string
+  expectedName: 'process' | 'Bun'
 ): boolean {
+  if (expectedName !== 'process' && expectedName !== 'Bun') return false;
   const exact = exactGenerationIdentifier(model, repositoryPath, node, expectedName);
   if (exact === null) return false;
   const symbol = exact.generation.checker.getSymbolAtLocation(node);
+  // This exact workspace intentionally excludes external ambient declarations.
+  // Only runtime-owned intrinsics may use absence of a local checker binding;
+  // any declared shadow still has to satisfy the declaration-origin check.
+  if (symbol === undefined) return true;
   const declarations = symbol?.declarations ?? [];
   const repositorySourceFiles = new Set(exact.generation.sourceFiles.values());
   return declarations.length > 0 && declarations.every((declaration) => {

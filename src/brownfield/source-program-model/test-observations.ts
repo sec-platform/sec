@@ -380,7 +380,11 @@ function compilerRegistrationKind(
   declarationsByObservation: ReadonlyMap<string, SourceProgramDeclaration>,
   moduleMembership: SecRepositoryModuleMembership
 ): string | null {
+  // Modifier factories are not cases. Only the invocation of the returned
+  // callable owns a registration, including chained parameter factories.
   const direct = testRegistrationKind(node.expression);
+  if (direct !== null && /\.(?:skipIf|todoIf|if|each)$/u.test(direct)
+      && !ts.isCallExpression(node.expression)) return null;
   if (direct !== null) return direct;
   return compilerRegistrationProvenance(
     sourceFile,
