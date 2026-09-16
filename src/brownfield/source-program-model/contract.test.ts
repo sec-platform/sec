@@ -31,6 +31,7 @@ import {
   compileSourceProgramResponsibilityEvidence,
   summarizeSourceProgramTopology
 } from './repository.ts';
+import { compileSourceProgramTestRewriteDispositions } from './test-disposition-decisions.ts';
 import {
   compileSourceProgramTestBaselineEvidence,
   compileSourceProgramTestValue,
@@ -2008,7 +2009,8 @@ function compileTestRetirementFixture(
   baselineTestSource: string,
   productionSource = "export const value = 'ok';\n",
   currentTestSource?: string,
-  currentTestPath = 'tests/obsolete.test.ts'
+  currentTestPath = 'tests/obsolete.test.ts',
+  ownerRewrite = false
 ) {
   const baseline = compileSupersessionFixture({
     'src/example/operation.ts': productionSource,
@@ -2025,13 +2027,36 @@ function compileTestRetirementFixture(
     candidateModel: current.full.typeScriptModel,
     baselineRevision: baseline.evidence.identity.sourceRevision
   });
-  const currentTests = compileSourceProgramTestValue({
+  let currentTests = compileSourceProgramTestValue({
     repositoryRoot: 'C:/synthetic/repository',
     files: current.files,
     model: current.full.model,
     baselineTestPaths,
     baselineEvidence
   });
+  if (ownerRewrite) {
+    const dispositions = compileSourceProgramTestRewriteDispositions({
+      compilation: currentTests,
+      baselineEvidence,
+      batches: [Object.freeze({
+        baselineDigest: currentTests.baselineDigest,
+        owner: 'repository-test-value',
+        decisions: Object.freeze([Object.freeze({
+          path: 'tests/obsolete.test.ts',
+          replacementPaths: Object.freeze([currentTestPath]),
+          reason: 'The replacement intentionally rewrites the useful public test obligation.'
+        })])
+      })]
+    });
+    currentTests = compileSourceProgramTestValue({
+      repositoryRoot: 'C:/synthetic/repository',
+      files: current.files,
+      model: current.full.model,
+      baselineTestPaths,
+      baselineEvidence,
+      dispositions
+    });
+  }
   const currentEvidence = compileSourceProgramSupersessionEvidence({
     model: current.full.model,
     tests: currentTests,
@@ -2074,7 +2099,9 @@ test('test retirement does not demand deletion of a retained behavior test', () 
     fixture.retirement
   );
 
-  expect(fixture.retirement.baselineTestPathsDigest).toBe(sha256(['tests/obsolete.test.ts']));
+  expect(fixture.retirement.baselineTestPathsDigest).toBe(
+    'sha256:f5bf0e0e7e123d5140ba4d1c6403e68a68ba38b2a6ae87f6dc7fe3686a1b9ccc'
+  );
   expect(fixture.retirement.proofs).toEqual([]);
   expect(projection.dispositions.some(({ disposition }) => disposition === 'delete')).toBe(false);
 });
@@ -2097,6 +2124,25 @@ test('test retirement preserves an exact supersession merge instead of demanding
   }));
   expect(fixture.retirement.proofs).toEqual([]);
   expect(projection.dispositions).toEqual(fixture.observedProjection.dispositions);
+});
+
+test('test retirement does not demand consumer-zero proof after an exact owner rewrite', () => {
+  const baseline = "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', () => expect(execute()).toBe('ok'));\n";
+  const replacement = "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes and rejects invalid input', () => { expect(execute()).toBe('ok'); expect(() => execute(true)).toThrow('invalid'); });\n";
+  const fixture = compileTestRetirementFixture(
+    baseline,
+    "export function execute(invalid = false): string { if (invalid) throw new Error('invalid'); return 'ok'; }\n",
+    replacement,
+    'tests/replacement.test.ts',
+    true
+  );
+
+  expect(fixture.currentTests.dispositions).toContainEqual(expect.objectContaining({
+    path: 'tests/obsolete.test.ts', disposition: 'rewrite'
+  }));
+  expect(fixture.retirement.proofs).toEqual([]);
+  expect(fixture.observedProjection.findings.some(({ path, code }) =>
+    path === 'tests/obsolete.test.ts' && code === 'test-module-disposition-unknown')).toBe(false);
 });
 
 test('test retirement rejects a caller-forged Supersession decision', () => {

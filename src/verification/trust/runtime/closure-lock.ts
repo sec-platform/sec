@@ -119,7 +119,6 @@ export const TCB_REVIEWED_PROCESS_DISPATCHERS = new Set([
   'src/control/branch-lifecycle/branch-recovery.ts::function-declaration:runRecoveryGit::spawnSync#1',
   'src/external-capabilities/git-read/exact-blob.ts::function-declaration:runGit::spawnSync#1',
   'src/control/issues/issue-disposition-github.ts::function-declaration:gh::spawnSync#1',
-  'src/verification/ci/runtime/local-github-actions-runner.ts::function-declaration:runCommand::spawn#1',
   'src/verification/ci/runtime/verification-action-github-provider.ts::function-declaration:dispatchVerificationActionRepositoryWakeup::spawnSync#1',
   'src/verification/ci/runtime/verification-action-github-provider.ts::function-declaration:ghBytes::spawnSync#1',
   'src/verification/ci/runtime/verification-action-github-provider.ts::function-declaration:runProcessText::spawnSync#1',

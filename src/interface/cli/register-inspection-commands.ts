@@ -139,10 +139,6 @@ export function registerInspectionCommands(program: Command): void {
   });
 
   registerNamedInspectionQuery(program.command('contract'), {
-    freeze: async () => {
-      const { buildContractFreezeContract, formatContractFreezeContract } = await import('../../verification/freeze.ts');
-      return inspectionValue(buildContractFreezeContract(), formatContractFreezeContract);
-    },
     errors: async () => {
       const { buildErrorProtocolContract, formatErrorProtocolContract } = await import('./error-protocol-contract.ts');
       return inspectionValue(buildErrorProtocolContract(), formatErrorProtocolContract);

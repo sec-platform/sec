@@ -452,7 +452,6 @@ const {
   runAffectedTests: runAffectedTestsWithIssuer,
   FAST_TEST_FAILURE_RECEIPT_PREFIX,
   runFastTests,
-  runContractFreeze,
   runSlowTests,
   runTests
 } = testRunnerModule;
@@ -813,10 +812,6 @@ test('fast process policy covers default-excluded files and rejects stale or dup
   expect(() => assertFastTestProcessPolicyInventory(
     completeFastFiles.filter((file) => file !== registeredFile)
   )).toThrow(`Fast-test process isolation registration is stale: ${registeredFile}`);
-  expect(() => assertFastTestProcessPolicyInventory(
-    completeFastFiles.filter((file) => file !== FAST_TEST_PROCESS_POLICY_TEST_FILE)
-  )).toThrow(`Fast-test process policy test is absent: ${FAST_TEST_PROCESS_POLICY_TEST_FILE}`);
-
   const definition = FAST_TEST_PROCESS_ISOLATION_REGISTRY[0]!;
   expect(() => assertUniqueFastTestProcessIsolationDefinitions([definition, definition]))
     .toThrow(`Fast-test process isolation registration is duplicated: ${definition.file}`);
@@ -1118,7 +1113,7 @@ test.serial('passing managed execution emits no failure receipt', async () => {
 test.serial('failed explicit resource batch settles started siblings then emits one bounded plan-order receipt', async () => {
   const independentFiles = [
     'tests/integration/pipeline-kernel.test.ts',
-    'tests/integration/ticket-pipeline.test.ts'
+    'tests/integration/semantic-projections.test.ts'
   ];
   const expectedFirstBatchSize = Math.min(
     DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS['independent-process'],
@@ -1212,7 +1207,7 @@ test.serial('copied TCB recovery is one-file isolated and emits an exact diagnos
     });
     expect(receipt.failures).toHaveLength(1);
     expect(receipt.failures[0].selectedTestFiles).toEqual([file]);
-    expect(receipt.failures[0].effectiveArgv.filter(isSecRepositoryTestModulePath)).toEqual([file]);
+    expect(receipt.failures[0].effectiveArgv.filter(isSecRepositoryTestModulePath)).toEqual([`./${file}`]);
   } finally {
     console.error = originalError;
   }
@@ -1535,7 +1530,7 @@ test.serial('resource-class failure stops every later class', async () => {
 test.serial('deterministic resource-class owners run in class order', async () => {
   const code = await runFastTests([
     'tests/integration/pipeline-kernel.test.ts',
-    'tests/integration/ticket-pipeline.test.ts',
+    'tests/integration/semantic-projections.test.ts',
     'tests/unit/semantic-mutation-isolated-child-fence.test.ts'
   ]);
 
@@ -1551,7 +1546,7 @@ test.serial('deterministic resource-class owners run in class order', async () =
     {
       command: 'bun',
       args: [
-        'test', './tests/integration/ticket-pipeline.test.ts', ...DEFAULT_MANAGED_INNER_ARGS,
+        'test', './tests/integration/semantic-projections.test.ts', ...DEFAULT_MANAGED_INNER_ARGS,
         '--timeout', String(DEFAULT_TEST_TIMEOUT_MS)
       ]
     },
@@ -1665,27 +1660,6 @@ test.serial('exact slow selection bypasses the fast invocation runtime', async (
   expect(devCommandCalls).toHaveLength(priorCalls + 1);
   expect(devCommandEnvironments.at(-1)?.SEC_STATE_HOME).toBeUndefined();
   expect(devCommandEnvironments.at(-1)?.SEC_CACHE_HOME).toBeUndefined();
-});
-
-test.serial('contract freeze uses the same fast invocation runtime owner', async () => {
-  const code = await runContractFreeze([{
-    command: 'bun test tests/contract/contract-freeze.test.ts',
-    contractId: 'verification.contract-freeze',
-    file: 'tests/contract/contract-freeze.test.ts'
-  }]);
-
-  expect(code).toBe(0);
-  expect(devCommandCalls).toEqual([{
-    command: 'bun',
-    args: ['test', 'tests/contract/contract-freeze.test.ts', '--timeout', '180000']
-  }]);
-  const environment = devCommandEnvironments[0]!;
-  expect(path.basename(environment.SEC_STATE_HOME!)).toBe('contract-freeze-001');
-  expect(path.basename(environment.SEC_CACHE_HOME!)).toBe('contract-freeze-001');
-  expect(testDependencyBootstrapCalls).toBe(0);
-  const runtimeRoots = fastInvocationRunRoots(environment);
-  await expect(fs.access(runtimeRoots.stateRoot)).rejects.toThrow();
-  await expect(fs.access(runtimeRoots.cacheRoot)).rejects.toThrow();
 });
 
 test.serial('failed fast children leave no run-owned workspace residue', async () => {
@@ -2142,7 +2116,7 @@ test.serial('thrown isolated child waits for its bounded siblings before parent 
   materializeTestWorkspace = true;
   const selectedFiles = [
     'tests/integration/pipeline-kernel.test.ts',
-    'tests/integration/ticket-pipeline.test.ts'
+    'tests/integration/semantic-projections.test.ts'
   ];
   const expectedFirstBatchSize = Math.min(
     DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS['independent-process'],

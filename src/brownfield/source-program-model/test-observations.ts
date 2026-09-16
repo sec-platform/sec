@@ -29,6 +29,7 @@ import { resolveSecRepositoryModuleImportCandidates } from './module-graph.ts';
 import {
   compileSecRepositoryModuleGraph,
   isCompiledTypeScriptSourceProgramModel,
+  sourceProgramTypeScriptIdentifierInitializer,
   sourceProgramTypeScriptIdentifierIsAmbientGlobal,
   sourceProgramTypeScriptIdentifierResolvesToImport,
   sourceProgramTypeScriptSourceFile,
@@ -66,6 +67,10 @@ export type SourceProgramTestSemanticClass =
 export interface SourceProgramTestAssertionObservation {
   readonly span: SourceProgramSpan;
   readonly matcher: string;
+  readonly negated: boolean;
+  readonly actualFromProductionSubject: boolean;
+  readonly expectedFromProductionSubject: boolean;
+  readonly expectedSharesActualProductionRoute: boolean;
   readonly versionIdentityOnly: boolean;
   readonly importedFunctionArity: boolean;
   readonly productionPathLayoutTarget: string | null;
@@ -893,13 +898,22 @@ function localProgramInvocationArgument(
 function assertionMatcher(node: ts.CallExpression): Readonly<{
   actual: ts.Expression;
   matcher: string;
+  negated: boolean;
 }> | null {
   if (!ts.isPropertyAccessExpression(node.expression)) return null;
   let target: ts.Expression = node.expression.expression;
-  while (ts.isPropertyAccessExpression(target)) target = target.expression;
+  let negated = false;
+  while (ts.isPropertyAccessExpression(target)) {
+    if (target.name.text === 'not') negated = true;
+    target = target.expression;
+  }
   if (!ts.isCallExpression(target) || callIdentity(target.expression) !== 'expect') return null;
   const actual = target.arguments[0];
-  return actual === undefined ? null : Object.freeze({ actual, matcher: node.expression.name.text });
+  return actual === undefined ? null : Object.freeze({
+    actual,
+    matcher: node.expression.name.text,
+    negated
+  });
 }
 
 function expressionIdentityName(expression: ts.Expression): string | null {
@@ -1129,6 +1143,76 @@ function importedFunctionArityAssertion(
     && expected !== null
     && (ts.isNumericLiteral(expected)
       || (ts.isPrefixUnaryExpression(expected) && ts.isNumericLiteral(expected.operand)));
+}
+
+function expressionReferenceTargets(
+  sourceFile: ts.SourceFile,
+  expression: ts.Expression,
+  references: readonly SourceProgramReference[],
+  model: SourceProgramModel,
+  repositoryPath: string,
+  resolving: ReadonlySet<number> = new Set()
+): ReadonlySet<string> {
+  const current = unwrap(expression);
+  const start = current.getStart(sourceFile, false);
+  const end = current.getEnd();
+  const targets = new Set(recordsWithinSpan(references, start, end)
+    .map(({ targetObservationId }) => targetObservationId)
+    .filter((targetObservationId): targetObservationId is string => targetObservationId !== null));
+  if (ts.isIdentifier(current)) {
+    const initializer = sourceProgramTypeScriptIdentifierInitializer(
+      model,
+      repositoryPath,
+      current
+    );
+    const initializerStart = initializer?.getStart(sourceFile, false) ?? null;
+    if (initializer !== null
+        && initializerStart !== null
+        && !resolving.has(initializerStart)) {
+      for (const target of expressionReferenceTargets(
+        sourceFile,
+        initializer,
+        references,
+        model,
+        repositoryPath,
+        new Set([...resolving, initializerStart])
+      )) targets.add(target);
+    }
+  }
+  ts.forEachChild(current, (child) => {
+    if (!ts.isExpression(child)) return;
+    for (const target of expressionReferenceTargets(
+      sourceFile,
+      child,
+      references,
+      model,
+      repositoryPath,
+      resolving
+    )) targets.add(target);
+  });
+  return targets;
+}
+
+function reachableReferenceTargets(
+  seeds: ReadonlySet<string>,
+  containedDeclarationIdsByObservation: ReadonlyMap<string, readonly string[]>,
+  callTargetIdsBySourceObservation: ReadonlyMap<string, readonly string[]>,
+  operation: SourceProgramCompilationOperation
+): ReadonlySet<string> {
+  const reachable = new Set(seeds);
+  const queue = [...seeds];
+  for (let index = 0; index < queue.length; index += 1) {
+    checkpoint(operation);
+    for (const target of [
+      ...(containedDeclarationIdsByObservation.get(queue[index]!) ?? []),
+      ...(callTargetIdsBySourceObservation.get(queue[index]!) ?? [])
+    ]) {
+      if (reachable.has(target)) continue;
+      reachable.add(target);
+      queue.push(target);
+    }
+  }
+  return reachable;
 }
 
 function registrationCallback(node: ts.CallExpression): ts.FunctionLikeDeclaration | null {
@@ -1618,9 +1702,43 @@ function compileSourceProgramTestObservationsInternal(
             break;
           }
         }
+        const actualTargets = expressionReferenceTargets(
+          sourceFile,
+          shape.actual,
+          fileReferences,
+          input.productionModel,
+          file.path
+        );
+        const expectedTargets = new Set(assertion.arguments.flatMap((argument) =>
+          [...expressionReferenceTargets(
+            sourceFile,
+            argument,
+            fileReferences,
+            input.productionModel,
+            file.path
+          )]));
+        const productionTargets = (targets: ReadonlySet<string>): Set<string> => new Set(
+          [...targets].filter((target) => {
+            const declaration = declarationsByObservation.get(target);
+            return declaration !== undefined && productionPaths.has(declaration.path);
+          })
+        );
+        const actualProductionTargets = productionTargets(actualTargets);
+        const expectedProductionTargets = productionTargets(expectedTargets);
+        const actualRouteProductionTargets = productionTargets(reachableReferenceTargets(
+          actualTargets,
+          reachability.containedDeclarationIdsByObservation,
+          reachability.callTargetIdsBySourceObservation,
+          input.operation
+        ));
         return Object.freeze({
           span: spanFor(sourceFile, assertion),
           matcher: shape.matcher,
+          negated: shape.negated,
+          actualFromProductionSubject: actualProductionTargets.size > 0,
+          expectedFromProductionSubject: expectedProductionTargets.size > 0,
+          expectedSharesActualProductionRoute: [...expectedProductionTargets].some((target) =>
+            actualRouteProductionTargets.has(target)),
           versionIdentityOnly: versionIdentityAssertion(assertion),
           importedFunctionArity: importedFunctionArityAssertion(assertion, importedNames),
           productionPathLayoutTarget

@@ -227,7 +227,29 @@ test('legal custom Git attribute values remain fail-closed policy input instead 
     const report = await runCensus(root);
     expect(report.classificationCounts.unknown).toBe(1);
     expect(report.flaggedEntries.find((entry) => entry.path === 'committed.ts')?.anomalies)
-      .toContain('attributes-missing');
+      .toContain('attributes-unsupported');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('text census treats NUL in declared text as a terminal fail-closed finding', async () => {
+  const root = await createRepository('sec-dev-text-nul-');
+  try {
+    await fs.writeFile(path.join(root, 'committed.ts'), new Uint8Array([
+      0x65, 0x78, 0x70, 0x6f, 0x72, 0x74, 0x00, 0x0a
+    ]));
+    git(root, ['add', 'committed.ts']);
+    git(root, ['commit', '--quiet', '-m', 'nul-text']);
+
+    const report = await runCensus(root);
+    const entry = report.flaggedEntries.find(({ path: entryPath }) => entryPath === 'committed.ts');
+    expect(report.failClosed).toBe(true);
+    expect(report.classificationCounts.unknown).toBe(1);
+    expect(entry).toMatchObject({
+      classification: 'unknown',
+      anomalies: ['nul-byte']
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -1,9 +1,14 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { describe, expect, test } from 'bun:test';
+
+function independentRawSha256(value: string): `sha256:${string}` {
+  return `sha256:${createHash('sha256').update(value, 'utf8').digest('hex')}`;
+}
 
 import { createMainHealthRepairWorkPackagePath } from '../../src/control/main-health/contract.ts';
 import type { SecCurrentWorkLifecycle } from '../../src/control/work-selection/contract.ts';
@@ -1009,7 +1014,7 @@ describe('work-selection live contract', () => {
     ));
     const changedLiveRevision = rawSha256(`${roadmapSource}\n<!-- unrelated live change -->\n`);
 
-    expect(observation.roadmapRevision).toBe(rawSha256(observation.source));
+    expect(observation.roadmapRevision).toBe(independentRawSha256(observation.source));
     expect(changedSynthetic.roadmapRevision).not.toBe(observation.roadmapRevision);
     expect(changedLiveRevision).not.toBe(rawSha256(roadmapSource));
     expect(transitionCatalog().roadmapRevision).toBe(observation.roadmapRevision);

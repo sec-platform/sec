@@ -8,6 +8,7 @@ import {
 } from './compilation-operation.ts';
 import type { SourceProgramSupersessionReceipt } from './contract.ts';
 import { compileRepositorySourceProgramModel } from './repository.ts';
+import { compileSourceProgramTestRewriteDispositions } from './test-disposition-decisions.ts';
 import {
   compileSourceProgramTestBaselineEvidence,
   compileSourceProgramTestValue,
@@ -120,6 +121,37 @@ test('test-value compilation derives behavior, effects, failures, and properties
   expect(result.records.every(({ observedProductionPaths }) =>
     observedProductionPaths.includes('src/example/index.ts'))).toBe(true);
   expect(result.findings).toEqual([]);
+});
+
+test('test-value blocks production-derived oracles while retaining fixed independent expectations', () => {
+  const result = compile({
+    'src/example/contract.ts': [
+      "export interface Contract { status: 'active' }",
+      "export function buildContract(): Contract { return { status: 'active' }; }"
+    ].join('\n'),
+    'tests/testkit/contract-route.ts': [
+      "import { buildContract } from '../../src/example/contract.ts';",
+      'export function invokeContractRoute() { return buildContract(); }'
+    ].join('\n'),
+    'tests/unit/contract.test.ts': [
+      "import { expect, test } from 'bun:test';",
+      "import { buildContract } from '../../src/example/contract.ts';",
+      "import { invokeContractRoute } from '../testkit/contract-route.ts';",
+      "test('self-derived oracle', () => {",
+      '  const actual = invokeContractRoute();',
+      '  const expected = buildContract();',
+      '  expect(actual).toEqual(expected);',
+      '});',
+      "test('fixed oracle', () => {",
+      "  expect(buildContract()).toEqual({ status: 'active' });",
+      '});'
+    ].join('\n')
+  });
+
+  expect(result.findings.map(({ code, path }) => ({ code, path }))).toEqual([{
+    code: 'test-oracle-derived-from-production-subject',
+    path: 'tests/unit/contract.test.ts'
+  }]);
 });
 
 test('test-value compilation blocks missing modules and implementation-shape mirrors', () => {
@@ -274,6 +306,71 @@ test('caller-authored DELETE and MERGE cannot bypass Source Program supersession
       extra: true
     }]
   })).toThrow('unknown field');
+});
+
+test('repository rewrite decisions bind stable paths and reasons to exact current evidence', () => {
+  const deletedPath = 'tests/unit/deleted.test.ts';
+  const replacementPath = 'tests/unit/replacement.test.ts';
+  const files = {
+    'src/example/index.ts': 'export const value = 1;\n',
+    [replacementPath]: [
+      "import { expect, test } from 'bun:test';",
+      "import { value } from '../../src/example/index.ts';",
+      "test('replacement', () => expect(value).toBe(1));"
+    ].join('\n')
+  };
+  const baselineTestPaths = [deletedPath];
+  const baselineEvidence = [Object.freeze({
+    path: deletedPath,
+    baselineRevision: sha256('baseline-revision'),
+    observationStatus: 'resolved' as const,
+    observationReason: null,
+    observationDigest: sha256('baseline-observation'),
+    census: Object.freeze({ producerCount: 0, consumerCount: 2, externalContractCount: 0 })
+  })];
+  const observed = compile(files, [], { baselineTestPaths, baselineEvidence });
+  const batch = Object.freeze({
+    baselineDigest: observed.baselineDigest,
+    owner: 'repository-test-value',
+    decisions: Object.freeze([Object.freeze({
+      path: deletedPath,
+      replacementPaths: Object.freeze([replacementPath]),
+      reason: 'The stronger replacement preserves the public behavior and its failure boundary.'
+    })])
+  });
+  const dispositions = compileSourceProgramTestRewriteDispositions({
+    compilation: observed,
+    baselineEvidence,
+    batches: [batch]
+  });
+  const compiled = compile(files, [], { baselineTestPaths, baselineEvidence, dispositions });
+
+  expect(dispositions).toEqual([expect.objectContaining({
+    path: deletedPath,
+    disposition: 'rewrite',
+    evidence: expect.objectContaining({
+      owner: 'repository-test-value',
+      sourceRevision: observed.sourceRevision,
+      replacementTestIds: [observed.records[0]!.testId],
+      census: baselineEvidence[0]!.census,
+      ownerDecisionDigest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u)
+    })
+  })]);
+  expect(compiled.findings.some(({ code, path }) =>
+    path === deletedPath && code === 'test-module-disposition-unknown')).toBe(false);
+  expect(compileSourceProgramTestRewriteDispositions({
+    compilation: observed,
+    baselineEvidence,
+    batches: [{ ...batch, baselineDigest: sha256('another-baseline') }]
+  })).toEqual([]);
+  expect(() => compileSourceProgramTestRewriteDispositions({
+    compilation: observed,
+    baselineEvidence,
+    batches: [{
+      ...batch,
+      decisions: [{ ...batch.decisions[0]!, replacementPaths: ['tests/unit/missing.test.ts'] }]
+    }]
+  })).toThrow('no current test registrations');
 });
 
 test('baseline Git census stays UNKNOWN without Source Program retirement proof', () => {

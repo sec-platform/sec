@@ -1878,9 +1878,7 @@ test('hosted coordinator and composer preserve four physical terminals while coo
     const terminalStatus = provider.providerStatusReadbacks[0]!.statuses[1]!;
     expect(terminalStatus.state).toBe('success');
     expect(terminalStatus.description).toBe(
-      verificationActionProviderTerminalDescription(
-        provider.terminalAnchorObservations[0]!.payload!.anchorDigest
-      )
+      `v2 terminal ${provider.terminalAnchorObservations[0]!.payload!.anchorDigest}`
     );
     expect(terminalStatus.description).not.toContain(status);
   }

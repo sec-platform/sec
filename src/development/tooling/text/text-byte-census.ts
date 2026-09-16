@@ -6,13 +6,12 @@ import {
   type GitReadSessionBudget
 } from '../../../external-capabilities/git-read/runtime/session.ts';
 import {
+  TEXT_BYTE_ANOMALIES,
   TEXT_BYTE_CENSUS_SCHEMA,
   classifyBlobBytes,
   createEmptyCensusReport,
-  type TextByteAnomaly,
   type TextByteCensusEntry,
-  type TextByteCensusReport,
-  type TextByteClassification
+  type TextByteCensusReport
 } from '../../../runtime-state/text-byte-census.ts';
 import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
 import {
@@ -131,58 +130,6 @@ function compareCodeUnits(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-export function formatTextByteCensusReport(report: TextByteCensusReport): string {
-  const lines: string[] = [];
-  lines.push('Text Byte Census Report');
-  lines.push('  schema: ' + report.schema);
-  lines.push('  generatedAt: ' + report.generatedAt);
-  lines.push('  repositoryRoot: ' + report.repositoryRoot);
-  lines.push('  gitattributesBlobSha: ' + (report.gitattributesBlobSha ?? '<none>'));
-  lines.push('  totalFiles: ' + report.totalFiles);
-  lines.push('');
-  lines.push('  Classification counts:');
-  const classifications: TextByteClassification[] = ['canonical-lf', 'explicit-crlf', 'binary', 'preserve-external', 'unknown'];
-  for (const classification of classifications) {
-    lines.push('    ' + classification + ': ' + report.classificationCounts[classification]);
-  }
-  lines.push('');
-  lines.push('  Anomaly counts:');
-  const anomalies: TextByteAnomaly[] = [
-    'crlf-in-canonical-lf-blob',
-    'lf-in-explicit-crlf-blob',
-    'mixed-endings',
-    'utf8-bom',
-    'nul-byte',
-    'unknown-encoding',
-    'attributes-missing',
-    'attributes-conflict'
-  ];
-  let anyAnomaly = false;
-  for (const anomaly of anomalies) {
-    const count = report.anomalyCounts[anomaly];
-    if (count > 0) {
-      lines.push('    ' + anomaly + ': ' + count);
-      anyAnomaly = true;
-    }
-  }
-  if (!anyAnomaly) lines.push('    (none)');
-  lines.push('');
-  lines.push('  failClosed: ' + report.failClosed);
-  if (report.flaggedEntries.length > 0) {
-    lines.push('');
-    lines.push('  Flagged entries (' + report.flaggedEntries.length + '):');
-    const maxShow = Math.min(report.flaggedEntries.length, 50);
-    for (let index = 0; index < maxShow; index += 1) {
-      const entry = report.flaggedEntries[index]!;
-      lines.push('    ' + entry.path + ' [' + entry.classification + '/' + entry.lineEnding + '] anomalies: ' + (entry.anomalies.length === 0 ? '(none)' : entry.anomalies.join(', ')));
-    }
-    if (report.flaggedEntries.length > maxShow) {
-      lines.push('    ... and ' + (report.flaggedEntries.length - maxShow) + ' more');
-    }
-  }
-  return lines.join('\n');
-}
-
 async function runCensusWithSession(
   session: GitReadSession,
   repositoryRoot = DEFAULT_REPOSITORY_ROOT
@@ -232,10 +179,7 @@ async function runCensusWithSession(
   });
 
   const failClosed = base.classificationCounts.unknown > 0
-    || base.anomalyCounts['crlf-in-canonical-lf-blob'] > 0
-    || base.anomalyCounts['mixed-endings'] > 0
-    || base.anomalyCounts['unknown-encoding'] > 0
-    || base.anomalyCounts['attributes-missing'] > 0;
+    || TEXT_BYTE_ANOMALIES.some((anomaly) => base.anomalyCounts[anomaly] > 0);
   flaggedEntries.sort((left, right) => compareCodeUnits(left.path, right.path));
 
   return {

@@ -19,8 +19,8 @@ export interface GitTreeBlobEntry {
 }
 
 export interface GitTextAttributes {
-  readonly textAttr: 'set' | 'unset' | 'unspecified';
-  readonly eolAttr: 'lf' | 'crlf' | 'unspecified';
+  readonly textAttr: 'set' | 'unset' | 'unspecified' | 'unsupported';
+  readonly eolAttr: 'lf' | 'crlf' | 'unspecified' | 'unsupported';
 }
 
 export interface GitBlobBatchLimits {
@@ -370,12 +370,14 @@ export async function readBlobEntryBatch(
 function parseTextAttribute(value: string): GitTextAttributes['textAttr'] {
   if (value === 'set') return 'set';
   if (value === 'unset') return 'unset';
-  return 'unspecified';
+  if (value === 'unspecified') return 'unspecified';
+  return 'unsupported';
 }
 
 function parseEolAttribute(value: string): GitTextAttributes['eolAttr'] {
   if (value === 'lf' || value === 'crlf') return value;
-  return 'unspecified';
+  if (value === 'unspecified') return 'unspecified';
+  return 'unsupported';
 }
 
 interface IsolatedAttributeReader {

@@ -111,6 +111,7 @@ import { buildSourceProgramAggregateImportReductionPatch, compileSourceProgramAg
 import { compileRepositorySourceProgramWithCache } from '../source-program-model/repository-compilation-cache-session.ts';
 import { compileRepositorySourceProgramCompilation } from '../source-program-model/repository-compilation.ts';
 import { compileSourceProgramOwnerIntentEvidence, summarizeSourceProgramTopology } from '../source-program-model/repository.ts';
+import { compileSourceProgramTestRewriteDispositions } from '../source-program-model/test-disposition-decisions.ts';
 import { compileSourceProgramTestBaselineEvidence, compileSourceProgramTestValue, reconcileSourceProgramTestValueWithSupersession, SOURCE_PROGRAM_BLOCKING_TEST_FINDING_CODES, summarizeSourceProgramTestUnknownDispositionClusters, type SourceProgramTestBaselineEvidence, type SourceProgramTestFinding } from '../source-program-model/test-value.ts';
 import {
   observeSourceProgramTypeScriptSyntax,
@@ -143,6 +144,7 @@ import {
   type SourceProgramAuditOperationResult,
   type SourceProgramAuditReduction
 } from './source-program-audit-operation.ts';
+import { REPOSITORY_TEST_REWRITE_DECISION_BATCHES } from './test-disposition-decisions.ts';
 import {
   compileRepositoryAuditWorkerRequest,
   encodeRepositoryAuditWorkerRequest,
@@ -1600,7 +1602,7 @@ async function prepareWorkingTreeSourceProgramAudit(
   const architectureEvolution = compileSourceProgramArchitectureEvolutionReference({
     reconciliation
   });
-  const testValue = compileSourceProgramTestValue({
+  const observedTestValue = compileSourceProgramTestValue({
     repositoryRoot: DEFAULT_REPOSITORY_ROOT,
     files: worktreeAudit.sourceFiles,
     model,
@@ -1608,6 +1610,22 @@ async function prepareWorkingTreeSourceProgramAudit(
     baselineEvidence: worktreeAudit.baselineTestEvidence,
     operation: worktreeAudit.compilationOperation
   });
+  const rewriteDispositions = compileSourceProgramTestRewriteDispositions({
+    compilation: observedTestValue,
+    baselineEvidence: worktreeAudit.baselineTestEvidence,
+    batches: REPOSITORY_TEST_REWRITE_DECISION_BATCHES
+  });
+  const testValue = rewriteDispositions.length === 0
+    ? observedTestValue
+    : compileSourceProgramTestValue({
+        repositoryRoot: DEFAULT_REPOSITORY_ROOT,
+        files: worktreeAudit.sourceFiles,
+        model,
+        baselineTestPaths: worktreeAudit.baselineTestPaths,
+        baselineEvidence: worktreeAudit.baselineTestEvidence,
+        dispositions: rewriteDispositions,
+        operation: worktreeAudit.compilationOperation
+      });
   const currentSupersessionEvidence = compileSourceProgramSupersessionEvidence({
     model,
     tests: testValue,

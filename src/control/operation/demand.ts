@@ -10,7 +10,6 @@ export const SEC_OPERATION_KINDS = [
   'imports-apply',
   'imports-check',
   'imports-freeze',
-  'test-contract-freeze',
   'test-direct-ambiguous',
   'test-direct-fast',
   'test-direct-slow',
@@ -72,7 +71,6 @@ export interface SecOperationDemandGraph {
 }
 
 const TEST_OPERATIONS_REQUIRING_PROCESS_ISOLATION = new Set<SecOperationKind>([
-  'test-contract-freeze',
   'test-direct-ambiguous',
   'test-direct-fast',
   'test-fast',

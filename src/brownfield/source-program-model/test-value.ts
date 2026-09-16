@@ -34,6 +34,7 @@ export type SourceProgramTestFindingCode =
   | 'test-reads-production-source-text'
   | 'test-mirrors-production-path-layout'
   | 'test-mirrors-imported-function-arity'
+  | 'test-oracle-derived-from-production-subject'
   | 'test-asserts-only-version-identity';
 
 export const SOURCE_PROGRAM_BLOCKING_TEST_FINDING_CODES = Object.freeze([
@@ -49,6 +50,7 @@ export const SOURCE_PROGRAM_BLOCKING_TEST_FINDING_CODES = Object.freeze([
   'test-reads-production-source-text',
   'test-mirrors-production-path-layout',
   'test-mirrors-imported-function-arity',
+  'test-oracle-derived-from-production-subject',
   'test-asserts-only-version-identity'
 ] as const satisfies readonly SourceProgramTestFindingCode[]);
 
@@ -80,6 +82,8 @@ interface SourceProgramTestDispositionEvidence {
     readonly baselineTestId: string;
     readonly proof: 'consumer-zero' | 'strict-observation-superset';
   }> | null;
+  /** Exact digest of a repository-owner REWRITE decision, otherwise null. */
+  readonly ownerDecisionDigest: string | null;
 }
 
 /**
@@ -412,7 +416,8 @@ function dispositionFromEvidence(
     sourceRevision,
     replacementTestIds: Object.freeze([...replacementTestIds].sort(compareCodeUnits)),
     census: Object.freeze({ ...census }),
-    supersession
+    supersession,
+    ownerDecisionDigest: null
   });
   const normalized = {
     path: pathValue,
@@ -598,7 +603,10 @@ function parseSourceProgramTestDisposition(
   const evidenceRecord = exactRecord(record.evidence, 'disposition.evidence');
   exactKeys(
     evidenceRecord,
-    ['owner', 'sourceRevision', 'replacementTestIds', 'census', 'supersession'],
+    [
+      'owner', 'sourceRevision', 'replacementTestIds', 'census', 'supersession',
+      'ownerDecisionDigest'
+    ],
     'disposition.evidence'
   );
   if (evidenceRecord.supersession !== undefined && evidenceRecord.supersession !== null) {
@@ -635,7 +643,13 @@ function parseSourceProgramTestDisposition(
         censusRecord, 'externalContractCount', 'disposition.evidence.census'
       )
     }),
-    supersession: null
+    supersession: null,
+    ownerDecisionDigest: evidenceRecord.ownerDecisionDigest === undefined
+      || evidenceRecord.ownerDecisionDigest === null
+      ? null
+      : requiredString(
+          evidenceRecord, 'ownerDecisionDigest', 'disposition.evidence', DIGEST
+        )
   });
   const baselineDigest = sourceProgramTestBaselineDigest(baselineTestPaths);
   const normalized = {
@@ -892,6 +906,26 @@ export function compileSourceProgramTestValue(
           registration.title === null
             ? 'test mirrors the JavaScript arity of an imported implementation'
             : `${registration.title}: mirrors the JavaScript arity of an imported implementation`,
+          assertion.span
+        ));
+      }
+      for (const assertion of registration.assertions.filter(({
+        actualFromProductionSubject,
+        expectedFromProductionSubject,
+        expectedSharesActualProductionRoute,
+        matcher,
+        negated
+      }) => expectedFromProductionSubject
+        && !actualFromProductionSubject
+        && expectedSharesActualProductionRoute
+        && !negated
+        && (matcher === 'toBe' || matcher === 'toEqual'))) {
+        findings.push(testFinding(
+          'test-oracle-derived-from-production-subject',
+          registration.path,
+          registration.title === null
+            ? 'test expectation is derived from the production subject it is meant to verify'
+            : `${registration.title}: expectation is derived from the production subject it is meant to verify`,
           assertion.span
         ));
       }

@@ -21,6 +21,12 @@ test('one demand compiler derives terminal transition and no ambient execution c
 });
 
 test('all executable operations derive the same compiler dependency capability', () => {
+  const processIsolatedOperations = new Set([
+    'test-direct-ambiguous',
+    'test-direct-fast',
+    'test-fast',
+    'test-full'
+  ]);
   for (const operation of [
     'check-affected',
     'check-fast',
@@ -33,13 +39,14 @@ test('all executable operations derive the same compiler dependency capability',
     'test-full',
     'test-direct-slow',
     'test-direct-ambiguous',
-    'test-contract-freeze',
     'typecheck'
   ] as const) {
     const graph = compileSecOperationDemandGraph({ operation, terminalWorkIds: [] });
     expect(graph.capabilityDemands).toEqual(['compiler-dependency-tree']);
-    if (operation.startsWith('test-')) {
+    if (processIsolatedOperations.has(operation)) {
       expect(graph.verificationObligations).toContain('test-process-isolation');
+    } else {
+      expect(graph.verificationObligations).not.toContain('test-process-isolation');
     }
   }
 });

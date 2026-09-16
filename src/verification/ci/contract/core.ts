@@ -149,9 +149,7 @@ const fullLaneCommands = [
   'bun run test:affected',
   'bun run test:fast',
   platformCommand('test', 'budget', '--json', '--compact'),
-  'bun run test:contract-freeze',
   ...fullSlowSuiteCommands,
-  platformCommand('benchmark', 'suite', '--json', '--compact'),
   platformCommand('deps', 'warmup'),
   platformCommand('resolve'),
   platformCommand('compose'),
@@ -229,13 +227,6 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
     purpose: 'Expose the slow-suite budget before selecting CI gates.',
     produces: []
   },
-  {
-    id: 'contract-freeze',
-    phase: 'quality',
-    command: 'bun run test:contract-freeze',
-    purpose: 'Run the contract freeze suite declared by platform contract freeze.',
-    produces: []
-  },
   ...fullSlowSuiteCommands.map((command) => {
     const suiteId = command.split('--suite ')[1];
     return {
@@ -246,13 +237,6 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
       produces: []
     };
   }),
-  {
-    id: 'benchmark-task-suite',
-    phase: 'quality',
-    command: platformCommand('benchmark', 'suite', '--json', '--compact'),
-    purpose: 'Expose the benchmark task-suite contract and scoring dimensions for release quality jobs.',
-    produces: []
-  },
   {
     id: 'reference-drift',
     phase: 'quality',
