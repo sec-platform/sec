@@ -128,6 +128,12 @@ function slowFileSuite(
 // highest useful parallelism while PR risk gates run only the impacted files.
 const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze([
   slowPathSuite(
+    'unit-dependency-rollover-capacity',
+    'tests/unit/dependency-rollover-capacity.test.ts',
+    'compiler-dependency-transition-rollover',
+    300_000
+  ),
+  slowPathSuite(
     'integration-shared-runtime-dependencies',
     'tests/integration/project-dependency-runtime.test.ts',
     'shared-runtime-dependency-integration',

@@ -7,6 +7,8 @@ import { generatedStateDigest } from '../../src/runtime-state/generated-state/co
 import {
   createGeneratedStateCleanupOperationSession,
   generatedStateProducerHooks,
+  type GeneratedStateProducerHookSet,
+  type GeneratedStateProducerQuarantineHook,
   type GeneratedStateWorktreeRetirementEffectAuthority
 } from '../../src/runtime-state/generated-state/lifecycle.ts';
 import {
@@ -46,7 +48,9 @@ import { withTempWorkspace } from '../testkit/workspace.ts';
 // ordinary compiler fixtures. These external-tool fixtures therefore use an
 // exact, run-owned OS-temp child while state/cache remain invocation-isolated.
 const LINKED_WORKTREE_TEMP_PREFIX = 'sec-cdep-wt-';
-type IsolatedGeneratedStateLifecycle = ReturnType<typeof generatedStateProducerHooks>;
+type IsolatedGeneratedStateLifecycle = Readonly<
+  GeneratedStateProducerHookSet & GeneratedStateProducerQuarantineHook
+>;
 const generatedStateFixtureRoots = new WeakMap<IsolatedGeneratedStateLifecycle, string>();
 
 async function isolatedGeneratedStateLifecycle(

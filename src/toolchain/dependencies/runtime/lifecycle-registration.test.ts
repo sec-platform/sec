@@ -49,6 +49,9 @@ function lifecycleOptions(input: Readonly<{
   return {
     generatedStateLifecycle: {
       born: input.born ?? (async () => undefined),
+      inspect: async () => {
+        throw new Error('inventory inspection is outside this test boundary');
+      },
       bind: input.bind,
       retired: input.retired ?? (async () => undefined),
       disposed: async () => {

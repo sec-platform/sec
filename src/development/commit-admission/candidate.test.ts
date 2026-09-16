@@ -61,3 +61,31 @@ test('development commit candidate binds the retained index and rejects clones o
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('development commit candidate rejects an empty staged tree before commit object creation', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'sec-development-commit-empty-candidate-test-'));
+  try {
+    git(root, ['init', '--quiet']);
+    git(root, ['config', 'user.name', 'SEC Tests']);
+    git(root, ['config', 'user.email', 'tests@example.com']);
+    await writeFile(path.join(root, 'base.txt'), 'base\n');
+    git(root, ['add', '.']);
+    git(root, ['commit', '--quiet', '-m', 'base']);
+    const request: DevelopmentCommitRequest = Object.freeze({
+      repositoryRoot: path.resolve(root),
+      message: 'must-not-exist\n',
+      author: Object.freeze({ name: 'SEC Tests', email: 'tests@example.com', date: '1700000100 +0000' }),
+      committer: Object.freeze({ name: 'SEC Tests', email: 'tests@example.com', date: '1700000100 +0000' })
+    });
+    await withAuthorityGitReadSession(
+      { cwd: request.repositoryRoot, budget: GIT_READ_OPERATION_BUDGET },
+      async (session) => {
+        await expect(freezeDevelopmentCommitCandidate({ request, session }))
+          .rejects.toThrow('has no staged tree delta');
+      }
+    );
+    expect(git(root, ['rev-list', '--count', 'HEAD'])).toBe('1');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

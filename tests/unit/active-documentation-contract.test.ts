@@ -51,7 +51,9 @@ test('current documentation paths and stable identities come from the SEC-086 id
     await readFile(path.join(ROOT, '.documentation/documents.json'), 'utf8')
   );
   expect(currentActiveDocumentationPaths()).toEqual([
+    '.documentation/baseline.json',
     '.documentation/documents.json',
+    '.documentation/source-manifest.json',
     ...registry.documents.map(({ path }) => path)
   ].sort());
   expect(isActiveDocumentationPath('docs/维护/文档身份与重组协议.md')).toBe(true);

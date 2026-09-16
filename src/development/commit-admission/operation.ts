@@ -42,7 +42,7 @@ import {
 
 const OPERATION = 'development.commit';
 const REQUIREMENT = 'repository.commit';
-const DEVELOPMENT_COMMIT_EXECUTION_PROCESS_COUNT = 11;
+const DEVELOPMENT_COMMIT_EXECUTION_PROCESS_COUNT = 12;
 const ADMISSION_DEADLINE_MS = 30_000;
 
 const effectGrantAuthority = createSecOperationEffectGrantAuthority({

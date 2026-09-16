@@ -805,7 +805,8 @@ test('machine cutover exposes its exact double-dot receipt publication candidate
     const receiptLockName = runtimeStateJournalMutationLeaseName(stateRoot, receiptPath);
     const candidatePath = mutationPublicationCandidate({
       directoryPath: path.dirname(receiptPath),
-      leaseName: receiptLockName
+      leaseName: receiptLockName,
+      bytes: ''
     });
     expect(path.basename(candidatePath).startsWith('..journal-mutation-')).toBe(true);
     try {
