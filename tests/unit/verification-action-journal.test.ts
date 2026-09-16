@@ -805,8 +805,7 @@ test('machine cutover exposes its exact double-dot receipt publication candidate
     const receiptLockName = runtimeStateJournalMutationLeaseName(stateRoot, receiptPath);
     const candidatePath = mutationPublicationCandidate({
       directoryPath: path.dirname(receiptPath),
-      leaseName: receiptLockName,
-      bytes: ''
+      leaseName: receiptLockName
     });
     expect(path.basename(candidatePath).startsWith('..journal-mutation-')).toBe(true);
     try {
@@ -823,6 +822,35 @@ test('machine cutover exposes its exact double-dot receipt publication candidate
       .toBe(1);
   } finally {
     rmSync(stateRoot, { recursive: true, force: true });
+  }
+});
+
+test('machine cutover classifies same-lock dead and malformed publications from evidence', () => {
+  for (const candidateCase of [
+    { name: 'dead', pid: 2_147_483_647, bytes: undefined, expected: 'stale mutation publication candidate' },
+    { name: 'malformed', pid: process.pid, bytes: '', expected: 'malformed mutation publication candidate' }
+  ] as const) {
+    const stateRoot = mkdtempSync(path.join(tmpdir(), `sec-action-machine-same-lock-${candidateCase.name}-`));
+    try {
+      const receiptPath = path.join(
+        stateRoot,
+        VERIFICATION_ACTION_JOURNAL_DIRECTORY,
+        VERIFICATION_ACTION_MACHINE_CUTOVER_FILE
+      );
+      const receiptLockName = runtimeStateJournalMutationLeaseName(stateRoot, receiptPath);
+      const candidatePath = mutationPublicationCandidate({
+        directoryPath: path.dirname(receiptPath),
+        leaseName: receiptLockName,
+        pid: candidateCase.pid,
+        ...(candidateCase.bytes === undefined ? {} : { bytes: candidateCase.bytes })
+      });
+      expect(() => ensureVerificationActionMachineGlobalCutover(journalFs(stateRoot)))
+        .toThrow(candidateCase.expected);
+      expect(existsSync(candidatePath)).toBeTrue();
+      expect(existsSync(receiptPath)).toBeFalse();
+    } finally {
+      rmSync(stateRoot, { recursive: true, force: true });
+    }
   }
 });
 

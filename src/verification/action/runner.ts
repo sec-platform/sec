@@ -713,9 +713,13 @@ async function waitForJoinedActionTerminal(input: Readonly<{
 async function ensureMachineCutoverBeforeAdmission(
   fs: RuntimeStateJournalFileSystem
 ): Promise<void> {
-  const attempt = (): 'complete' | 'contended' => {
+  const attempt = (
+    allowIncompleteReceiptPublication: boolean
+  ): 'complete' | 'contended' | 'incomplete' => {
     try {
-      ensureVerificationActionMachineGlobalCutover(fs);
+      ensureVerificationActionMachineGlobalCutover(fs, {
+        allowIncompleteReceiptPublication
+      });
       return 'complete';
     } catch (error) {
       if (error instanceof VerificationActionJournalError
@@ -723,22 +727,50 @@ async function ensureMachineCutoverBeforeAdmission(
           && error.message.endsWith('machine cutover mutation is contended.')) {
         return 'contended';
       }
+      if (error instanceof VerificationActionJournalError
+          && error.kind === 'recovery-required'
+          && error.message.endsWith('machine cutover mutation publication is incomplete.')) {
+        return 'incomplete';
+      }
       throw error;
     }
   };
-  if (attempt() === 'complete') return;
+  if (attempt(true) === 'complete') return;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30_000);
   const directory = path.join(fs.rootPath, VERIFICATION_ACTION_JOURNAL_DIRECTORY);
   const events = watchFileSystem(directory, { signal: controller.signal })[Symbol.asyncIterator]();
+  let pendingEvent: Promise<Awaited<ReturnType<typeof events.next>>> | null = null;
+  const nextEvent = (): Promise<Awaited<ReturnType<typeof events.next>>> => {
+    pendingEvent ??= events.next().finally(() => { pendingEvent = null; });
+    return pendingEvent;
+  };
   try {
     // The watcher is live before re-observation, closing the completion event
     // race without polling or opening a second cutover coordinator.
-    if (attempt() === 'complete') return;
+    let state = attempt(true);
+    if (state === 'complete') return;
     while (true) {
       let event: Awaited<ReturnType<typeof events.next>>;
       try {
-        event = await events.next();
+        if (state === 'incomplete') {
+          let stabilityTimer: ReturnType<typeof setTimeout> | undefined;
+          const observed = await Promise.race([
+            nextEvent().then((value) => Object.freeze({ kind: 'event' as const, value })),
+            new Promise<Readonly<{ kind: 'stable' }>>((resolve) => {
+              stabilityTimer = setTimeout(() => resolve(Object.freeze({ kind: 'stable' as const })), 250);
+            })
+          ]);
+          if (observed.kind === 'stable') {
+            state = attempt(false);
+            if (state === 'complete') return;
+            continue;
+          }
+          if (stabilityTimer !== undefined) clearTimeout(stabilityTimer);
+          event = observed.value;
+        } else {
+          event = await nextEvent();
+        }
       } catch (error) {
         if (controller.signal.aborted) {
           throw new VerificationActionJournalError(
@@ -754,7 +786,8 @@ async function ensureMachineCutoverBeforeAdmission(
           'machine cutover event source closed before completion.'
         );
       }
-      if (attempt() === 'complete') return;
+      state = attempt(true);
+      if (state === 'complete') return;
     }
   } finally {
     clearTimeout(timer);

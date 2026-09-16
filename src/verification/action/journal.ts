@@ -2115,18 +2115,13 @@ function classifyMutationPublicationCandidate(input: Readonly<{
   entry: NoFollowDirectoryTreeEntry;
   deadline: number;
   machineReceiptLockName: string;
+  allowIncompleteReceiptPublication: boolean;
 }>): never {
   const match = MUTATION_LEASE_CANDIDATE_PATTERN.exec(input.fileName);
   if (match === null) {
     fail(`machine cutover found malformed mutation publication residue at ${input.inventoryPath}.`, 'recovery-required');
   }
-  // The receipt writer creates its same-lock candidate before filling the
-  // retained bytes. Seeing that exact publication name is joinable
-  // contention; parsing a concurrently written candidate would turn a normal
-  // in-flight Effect into false recovery-required residue.
-  if (match[1]!.slice(1) === input.machineReceiptLockName) {
-    fail('machine cutover mutation is contended.', 'recovery-required');
-  }
+  const isReceiptPublication = match[1]!.slice(1) === input.machineReceiptLockName;
   const candidate = observedInventoryFile(
     input.absolutePath,
     input.inventoryPath,
@@ -2136,6 +2131,9 @@ function classifyMutationPublicationCandidate(input: Readonly<{
   try {
     owner = mutationPublicationOwner(candidate.text);
   } catch {
+    if (isReceiptPublication && input.allowIncompleteReceiptPublication) {
+      fail('machine cutover mutation publication is incomplete.', 'recovery-required');
+    }
     fail(`machine cutover found malformed mutation publication candidate at ${input.inventoryPath}.`, 'recovery-required');
   }
   if (owner.host !== hostname()) {
@@ -2143,6 +2141,9 @@ function classifyMutationPublicationCandidate(input: Readonly<{
   }
   const liveness = localProcessLiveness(owner.pid);
   if (liveness === 'alive') {
+    if (isReceiptPublication) {
+      fail('machine cutover mutation is contended.', 'recovery-required');
+    }
     fail(`machine cutover observed an active physical mutation publication at ${input.inventoryPath}.`, 'recovery-required');
   }
   if (liveness === 'dead') {
@@ -2164,6 +2165,7 @@ function classifyMachineCutoverFile(input: Readonly<{
   entry: NoFollowDirectoryTreeEntry;
   deadline: number;
   machineReceiptLockName: string;
+  allowIncompleteReceiptPublication: boolean;
   global: boolean;
 }>): void {
   if (input.global && input.domain === 'terminal-bound') {
@@ -2276,6 +2278,7 @@ function scanMachineCutoverTree(input: Readonly<{
   quarantines: MachineCutoverObservedQuarantine[];
   deadline: number;
   machineReceiptLockName: string;
+  allowIncompleteReceiptPublication: boolean;
 }>): void {
   const presence = inspectExactNoFollowDirectoryPresence(
     input.rootPath,
@@ -2440,6 +2443,7 @@ function scanMachineCutoverTree(input: Readonly<{
       entry,
       deadline: input.deadline,
       machineReceiptLockName: input.machineReceiptLockName,
+      allowIncompleteReceiptPublication: input.allowIncompleteReceiptPublication,
       global: input.mode === 'global'
     });
   }
@@ -2740,7 +2744,8 @@ function mergeMachineCutoverCandidate(
 function collectMachineCutoverCensus(
   fs: RuntimeStateJournalFileSystem,
   deadline: number,
-  machineReceiptLockName: string
+  machineReceiptLockName: string,
+  allowIncompleteReceiptPublication: boolean
 ): MachineCutoverCensus {
   const groups = new Map<string, MachineCutoverActionGroup>();
   const evidence: MachineCutoverObservedFile[] = [];
@@ -2753,7 +2758,8 @@ function collectMachineCutoverCensus(
     evidence,
     quarantines,
     deadline,
-    machineReceiptLockName
+    machineReceiptLockName,
+    allowIncompleteReceiptPublication
   });
   scanMachineCutoverTree({
     fs,
@@ -2763,7 +2769,8 @@ function collectMachineCutoverCensus(
     evidence,
     quarantines,
     deadline,
-    machineReceiptLockName
+    machineReceiptLockName,
+    allowIncompleteReceiptPublication
   });
   const inventory = evidence
     .map((entry) => Object.freeze({
@@ -2980,7 +2987,11 @@ function machineCutoverPlanDigest(
  * rescan workspace history or retain a dual-read compatibility path.
  */
 export function ensureVerificationActionMachineGlobalCutover(
-  fs: RuntimeStateJournalFileSystem
+  fs: RuntimeStateJournalFileSystem,
+  // Runner-only observation seam: an empty same-lock candidate is allowed one
+  // bounded filesystem-settlement window, then the strict classifier decides.
+  // It never grants owner identity, liveness, or mutation authority.
+  options: Readonly<{ allowIncompleteReceiptPublication?: boolean }> = {}
 ): VerificationActionMachineCutoverReceipt {
   const receiptPath = machineCutoverReceiptPath(fs);
   const existing = observeJournalSource(
@@ -3002,10 +3013,20 @@ export function ensureVerificationActionMachineGlobalCutover(
       (current) => {
       if (current.length > 0) return `${encodeVerificationActionData(parseMachineCutoverReceipt(current))}\n`;
       const deadline = performance.now() + JOURNAL_READ_BOUNDS.durationMs;
-      const initial = collectMachineCutoverCensus(fs, deadline, receiptLockName);
+      const initial = collectMachineCutoverCensus(
+        fs,
+        deadline,
+        receiptLockName,
+        options.allowIncompleteReceiptPublication === true
+      );
       const initialPlan = planMachineCutoverTargets(initial);
       publishMachineCutoverTargets(fs, initial, initialPlan);
-      const final = collectMachineCutoverCensus(fs, deadline, receiptLockName);
+      const final = collectMachineCutoverCensus(
+        fs,
+        deadline,
+        receiptLockName,
+        options.allowIncompleteReceiptPublication === true
+      );
       if (final.sourceInventoryDigest !== initial.sourceInventoryDigest
           || final.sourceRecordCount !== initial.sourceRecordCount
           || final.sourceByteLength !== initial.sourceByteLength) {

@@ -1308,15 +1308,28 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
   const initialWorktrees = await requireText(run, 'git', [
     'worktree', 'list', '--porcelain', '-z'
   ], repositoryRoot, 'initial worktree observation');
-  const worktreeEvidenceGc = await gcCompletedWorktreePhysicalCloseoutEvidence(repositoryRoot);
+  const initialWorktreeEvidenceGc = await gcCompletedWorktreePhysicalCloseoutEvidence(repositoryRoot);
   const store = acquireBranchRecoveryStore({
     repositoryRoot,
     commonDir,
     worktreeRoots: parseWorktreeRoots(initialWorktrees),
     ...(input.recoveryRoot === undefined ? {} : { recoveryRoot: input.recoveryRoot })
   });
-  const retireDefaultRecoveryRoot = input.recoveryRoot === undefined
-    && process.env.SEC_BRANCH_RECOVERY_ROOT === undefined;
+  const retireRecoveryRoot = (input.recoveryRoot === undefined
+    && process.env.SEC_BRANCH_RECOVERY_ROOT === undefined)
+    || store.createdByAcquisition;
+  const mergeWorktreeEvidenceGc = (
+    initial: WorktreePhysicalCloseoutEvidenceGcResult,
+    final: WorktreePhysicalCloseoutEvidenceGcResult
+  ): WorktreePhysicalCloseoutEvidenceGcResult => Object.freeze({
+    schema: 'sec-worktree-physical-closeout-evidence-gc-v1' as const,
+    retiredOperationIds: Object.freeze([...new Set([
+      ...initial.retiredOperationIds,
+      ...final.retiredOperationIds
+    ])].sort((left, right) => left.localeCompare(right))),
+    ownerRetired: initial.ownerRetired || final.ownerRetired,
+    retained: final.retained
+  });
 
   const settleAuthorization = async (
     authorization: LocalBranchResidueAuthorization,
@@ -1426,7 +1439,12 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
       observation: current,
       completed: [completed]
     });
-    const recoveryRootRetired = retireDefaultRecoveryRoot && store.retireIfEmpty();
+    const recoveryRootRetired = retireRecoveryRoot && store.retireIfEmpty();
+    const finalWorktreeEvidenceGc = initialWorktreeEvidenceGc.retained.some(
+      ({ reason }) => reason === 'branch-live'
+    )
+      ? await gcCompletedWorktreePhysicalCloseoutEvidence(repositoryRoot)
+      : initialWorktreeEvidenceGc;
     return Object.freeze({
       schema: 'sec-local-branch-residue-closeout-result-v2' as const,
       settled: Object.freeze(authorization.entries.map(({ branch }) => branch)),
@@ -1436,7 +1454,10 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
       receiptPath: null,
       retiredRecoveryFiles: retirement.files,
       recoveryRootRetired,
-      worktreeEvidenceGc
+      worktreeEvidenceGc: mergeWorktreeEvidenceGc(
+        initialWorktreeEvidenceGc,
+        finalWorktreeEvidenceGc
+      )
     });
   };
 
@@ -1498,8 +1519,8 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
       authorizationPath: null,
       receiptPath: null,
       retiredRecoveryFiles: retiredBefore.files,
-      recoveryRootRetired: retireDefaultRecoveryRoot && store.retireIfEmpty(),
-      worktreeEvidenceGc
+      recoveryRootRetired: retireRecoveryRoot && store.retireIfEmpty(),
+      worktreeEvidenceGc: initialWorktreeEvidenceGc
     });
   }
   const exactRemoteMain = remoteMainSha(first);

@@ -20,6 +20,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { executeMergedLocalBranchResidueCloseout } from '../../src/control/branch-lifecycle/branch-local-residue-closeout.ts';
 import {
   WorktreePhysicalCloseoutConsumptionToken,
   assertTrustedCompletedWorktreePhysicalCloseout,
@@ -246,6 +247,91 @@ test('completed worktree evidence is retained while the branch is live and recla
     rmSync(value.root, { recursive: true, force: true });
   }
 }, 30_000);
+
+test('one branch settlement retires the completed worktree evidence it makes eligible', async () => {
+  const value = fixture();
+  try {
+    const authorization = await prepareWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
+    });
+    const receipt = await executeWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
+      authorizationPath: authorization.authorizationPath
+    });
+    expect(receipt.terminal).toBe('completed');
+    const mainSha = git(value.repository, ['rev-parse', 'refs/remotes/origin/main']);
+    git(value.repository, ['remote', 'set-url', 'origin', 'https://github.com/sec-platform/sec.git']);
+    const run = (command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => {
+      if (command === 'gh' && args[0] === 'repo') {
+        return {
+          status: 0,
+          stdout: Buffer.from(JSON.stringify({
+            nameWithOwner: 'sec-platform/sec',
+            defaultBranchRef: { name: 'main' }
+          })),
+          stderr: Buffer.alloc(0)
+        };
+      }
+      if (command === 'gh') {
+        return {
+          status: 0,
+          stdout: Buffer.from(JSON.stringify([{
+            number: 99,
+            headRefName: value.branch,
+            headRefOid: value.headSha,
+            baseRefName: 'main',
+            state: 'MERGED',
+            mergeCommit: { oid: mainSha },
+            url: 'https://github.com/sec-platform/sec/pull/99'
+          }])),
+          stderr: Buffer.alloc(0)
+        };
+      }
+      if (args.includes('ls-remote')) {
+        return {
+          status: 0,
+          stdout: Buffer.from(`${mainSha}\trefs/heads/main\n`),
+          stderr: Buffer.alloc(0)
+        };
+      }
+      const result = spawnSync('git', [...args], {
+        cwd,
+        ...(input === undefined ? {} : { input: Buffer.from(input, 'utf8') }),
+        encoding: null,
+        windowsHide: true
+      });
+      return {
+        status: result.status,
+        stdout: Buffer.from(result.stdout ?? ''),
+        stderr: Buffer.from(result.stderr ?? result.error?.message ?? '')
+      };
+    };
+    const result = await executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: value.repository,
+      recoveryRoot: path.join(value.root, 'branch-recovery'),
+      run,
+      now: () => new Date('2026-09-16T00:00:00.000Z')
+    });
+    expect(result.settled).toEqual([value.branch]);
+    expect(result.worktreeEvidenceGc.retiredOperationIds).toEqual([authorization.operationId]);
+    expect(result.worktreeEvidenceGc.retained).toEqual([]);
+    expect(result.worktreeEvidenceGc.ownerRetired).toBeTrue();
+    expect(existsSync(path.dirname(authorization.authorizationPath))).toBeFalse();
+    expect(existsSync(authorization.proofRoot.path)).toBeFalse();
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+}, 40_000);
 
 test('prepared worktree evidence remains a recovery root', async () => {
   const value = fixture();
