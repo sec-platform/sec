@@ -2,9 +2,14 @@ import { platformCommand } from '../../interface/cli/contract/command.ts';
 import { uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { CI_ARTIFACT_FILES } from '../ci-artifacts/contract/manifest.ts';
 
-export const BENCHMARK_CONTRACT_STATUS_ACTIVE = 'active' as const;
+export const BENCHMARK_CATALOG_STATUS_ACTIVE = 'active' as const;
 
-export type BenchmarkTask = {
+/**
+ * Descriptive benchmark scenarios only. This catalog neither executes tasks
+ * nor carries measurements, baselines, regressions, or verification evidence.
+ */
+
+export type BenchmarkCatalogTask = {
   id: string;
   goal: string;
   gate: string;
@@ -15,20 +20,19 @@ export type BenchmarkTask = {
   scoreFocus: string[];
 };
 
-export type BenchmarkTaskSuiteContract = {
-  suiteId: string;
-  status: typeof BENCHMARK_CONTRACT_STATUS_ACTIVE;
+export type BenchmarkTaskCatalog = {
+  catalogId: string;
+  status: typeof BENCHMARK_CATALOG_STATUS_ACTIVE;
   command: string;
-  runnerCommand: string;
   taskCount: number;
-  tasks: BenchmarkTask[];
+  tasks: BenchmarkCatalogTask[];
   artifactPathCount: number;
   artifactPaths: string[];
   scoreDimensionCount: number;
   scoreDimensions: string[];
 };
 
-const benchmarkTasks: Array<Omit<BenchmarkTask, 'artifactPathCount' | 'scoreFocusCount'>> = [
+const benchmarkTasks: Array<Omit<BenchmarkCatalogTask, 'artifactPathCount' | 'scoreFocusCount'>> = [
   {
     id: 'add-block',
     goal: 'install one capability block into a clean workspace',
@@ -118,13 +122,12 @@ const scoreDimensions = [
   'machine-recoverability'
 ];
 
-export function buildBenchmarkTaskSuiteContract(): BenchmarkTaskSuiteContract {
+export function buildBenchmarkTaskCatalog(): BenchmarkTaskCatalog {
   const artifactPaths = uniqueSorted(benchmarkTasks.flatMap((task) => task.artifactPaths));
   return {
-    suiteId: 'engineering-compiler-core',
-    status: BENCHMARK_CONTRACT_STATUS_ACTIVE,
-    command: platformCommand('benchmark', 'suite', '--json'),
-    runnerCommand: 'bun run test:benchmark-contract',
+    catalogId: 'engineering-compiler-core',
+    status: BENCHMARK_CATALOG_STATUS_ACTIVE,
+    command: platformCommand('benchmark', 'catalog', '--json'),
     taskCount: benchmarkTasks.length,
     tasks: benchmarkTasks.map((task) => ({
       ...task,
@@ -140,19 +143,18 @@ export function buildBenchmarkTaskSuiteContract(): BenchmarkTaskSuiteContract {
   };
 }
 
-export function formatBenchmarkTaskSuiteContract(contract: BenchmarkTaskSuiteContract): string {
+export function formatBenchmarkTaskCatalog(catalog: BenchmarkTaskCatalog): string {
   const lines = [
-    `Benchmark suite ${contract.suiteId} (${contract.status})`,
-    `Command: ${contract.command}`,
-    `Runner command: ${contract.runnerCommand}`,
-    `Tasks: ${contract.taskCount}`,
-    `Artifact paths: ${contract.artifactPathCount}`,
-    `Artifact path list: ${contract.artifactPaths.join(', ')}`,
-    `Score dimension count: ${contract.scoreDimensionCount}`,
-    `Score dimensions: ${contract.scoreDimensions.join(', ')}`
+    `Benchmark catalog ${catalog.catalogId} (${catalog.status})`,
+    `Command: ${catalog.command}`,
+    `Tasks: ${catalog.taskCount}`,
+    `Artifact paths: ${catalog.artifactPathCount}`,
+    `Artifact path list: ${catalog.artifactPaths.join(', ')}`,
+    `Score dimension count: ${catalog.scoreDimensionCount}`,
+    `Score dimensions: ${catalog.scoreDimensions.join(', ')}`
   ];
 
-  for (const task of contract.tasks) {
+  for (const task of catalog.tasks) {
     lines.push(
       `Task ${task.id}: ${task.goal}; gate=${task.gate}; command=${task.command}; artifactCount=${task.artifactPathCount}; artifacts=${task.artifactPaths.join(', ')}; scoreFocusCount=${task.scoreFocusCount}; score=${task.scoreFocus.join(', ')}`
     );

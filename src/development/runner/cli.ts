@@ -123,7 +123,7 @@ export async function runTypecheckCommand(args: readonly string[]): Promise<numb
 }
 
 function usage(): never {
-  console.error('Usage: bun ./src/development/runner/cli.ts <commit <message>|commit:recover <absolute-journal-path>|workspace-transition <post-checkout|post-merge|post-rewrite> [hook-args...]|deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:check [--all|--candidate-base <sha>] [--remove-unused]|imports:check --staged [--candidate-base <sha>]|imports:apply [--all|--candidate-base <sha>] [--remove-unused]|imports:apply --staged [--candidate-base <sha>]|imports:freeze|generated-state:inspect|generated-state:plan|generated-state:cleanup|environment:workspace-settle> [args...]');
+  console.error('Usage: bun ./src/development/runner/cli.ts <commit <message>|commit:recover <absolute-journal-path>|workspace-transition <post-checkout|post-merge|post-rewrite> [hook-args...]|deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|imports:check [--all|--candidate-base <sha>] [--remove-unused]|imports:check --staged [--candidate-base <sha>]|imports:apply [--all|--candidate-base <sha>] [--remove-unused]|imports:apply --staged [--candidate-base <sha>]|imports:freeze|generated-state:inspect|generated-state:plan|generated-state:cleanup|environment:workspace-settle> [args...]');
   process.exit(1);
 }
 
@@ -156,19 +156,6 @@ async function runRepositoryZeroWriteCommand(
   });
 }
 
-
-/** Standalone checks have no enclosing affected-selection operation to borrow.
- * Their repository owner compiles the missing read-only observation binding;
- * the command's own providers and the native zero-write observer still admit
- * their respective effects. This is not a fallback that skips an authority.
- */
-async function runStandaloneRepositoryZeroWriteCommand(
-  commandId: string,
-  operation: () => Promise<number>
-): Promise<number> {
-  const { runStandaloneRepositoryZeroWriteOperation } = await import('./repository-mutation-fence.ts');
-  return runStandaloneRepositoryZeroWriteOperation(commandId, operation);
-}
 
 function parseImportOperationArgs(
   args: readonly string[],
@@ -509,14 +496,13 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (!['contract-freeze', 'test', 'test:full', 'test:fast', 'test:slow'].includes(target)) usage();
+  if (!['test', 'test:full', 'test:fast', 'test:slow'].includes(target)) usage();
 
   const {
     executePreparedSlowTestSuiteExecutions,
     isExactSlowTestRunnerSelection,
     isSelectorlessTestRunnerSelection,
     prepareSlowTestSuiteExecutions,
-    runContractFreeze,
     runFastTests,
     runSlowTests,
     runTests
@@ -536,15 +522,13 @@ async function main(): Promise<void> {
     process.exitCode = fastCode === 0 ? await runPreparedSlowSuites(args) : fastCode;
     return;
   }
-  process.exitCode = target === 'contract-freeze'
-    ? await runStandaloneRepositoryZeroWriteCommand(target, () => runContractFreeze())
-    : target === 'test' || target === 'test:full'
-      ? await runTests(args)
-      : target === 'test:fast'
-        ? await runFastTests(args)
-        : target === 'test:slow'
-          ? await runSlowTests(args)
-          : usage();
+  process.exitCode = target === 'test' || target === 'test:full'
+    ? await runTests(args)
+    : target === 'test:fast'
+      ? await runFastTests(args)
+      : target === 'test:slow'
+        ? await runSlowTests(args)
+        : usage();
 }
 
 if (import.meta.main) await main();

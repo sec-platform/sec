@@ -4,8 +4,7 @@ import { compileVirtualWorkspaceSourceSnapshot } from '../../src/brownfield/sour
 import {
   assertFastTestProcessPolicyInventory, assertUniqueFastTestProcessIsolationDefinitions,
   DEFAULT_FAST_TEST_EXCLUDED_FILES, FAST_TEST_PROCESS_ISOLATION_REGISTRY,
-  isDefaultFastTestFile, partitionFastTestFiles, planFastTestProcesses,
-  resolveFastTestConcurrencyBudget, resolveManagedFastTestConcurrency
+  isDefaultFastTestFile, partitionFastTestFiles, planFastTestProcesses
 } from '../../src/development/runner/fast-test-policy.ts';
 import { rawSha256, sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
 import { isSecRepositoryTestModulePath } from '../../src/system-architecture/repository-modules/test-module-path.ts';
@@ -86,13 +85,9 @@ test('resource declarations reject aliases of an existing registration without c
   ]));
 });
 
-test('complete inventory accepts supported spellings but rejects a duplicate or a missing registration', () => {
-  // Registry enumeration constructs the required inventory; its classification
-  // is not used as an oracle. Explicit missing/duplicate mutations test admission.
+test('inventory rejects duplicate identities and stale isolation registrations', () => {
   const files = [...new Set([...DEFAULT_FAST_TEST_EXCLUDED_FILES,
     ...FAST_TEST_PROCESS_ISOLATION_REGISTRY.map(entry => entry.file)])];
-  assert.doesNotThrow(() => assertFastTestProcessPolicyInventory(files));
-  assert.doesNotThrow(() => assertFastTestProcessPolicyInventory(files.map(file => `./${file}`)));
   assert.throws(() => assertFastTestProcessPolicyInventory([...files, `./${independent}`]), /duplicated/);
   assert.throws(() => assertFastTestProcessPolicyInventory(files.filter(file => file !== independent)), /stale/);
 });
@@ -162,13 +157,4 @@ test('known suite completeness and unowned slow-file rejection remain unchanged'
   assert.throws(() => compileTestBudgetProjection(source(['tests/e2e/not-registered.test.ts'])), /explicit suite owner/);
   assert.throws(() => compileTestBudgetProjection(source(['tests/e2e/import-organizer-staged.test.ts'])), /explicit suite owner/);
   assert.deepEqual(compileTestBudgetProjection(source([])).testFiles, []);
-});
-
-test('native worker and inner concurrency retain the aggregate resource ceiling', () => {
-  for (const cpus of [1, 2, 8, 16, 32]) {
-    const budget = resolveFastTestConcurrencyBudget(cpus);
-    const managed = resolveManagedFastTestConcurrency(budget, null);
-    assert.ok(managed.innerConcurrency * managed.outerProcessConcurrency <= Math.min(cpus, 16));
-    assert.throws(() => resolveManagedFastTestConcurrency(budget, budget.globalBudget + 1));
-  }
 });

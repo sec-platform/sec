@@ -6,6 +6,8 @@ import {
   issueTestSuiteExecutionPolicy
 } from '../../src/development/runner/test-execution-policy.ts';
 import { compileTestBudgetProjection, slowTestPrRiskBaselineSuiteIds } from '../../src/verification/test-impact/contract/budget.ts';
+import { hasTestImpactForFile } from '../../src/verification/test-impact/runtime/impact.ts';
+import { CodexDevelopmentCreateTestImpactTransitionObservation } from '../../src/verification/test-impact/runtime/transition.ts';
 import { selectSlowTestRiskClosure as selectSlowTestClosureWithProvider } from '../../src/verification/test-impact/slow-risk-selection.ts';
 import { compilerRoot } from '../../src/workspace/runtime/paths.ts';
 import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
@@ -72,6 +74,108 @@ test('repository configuration resolves only through the snapshot-bound owner pr
     expect(selection.reasons).not.toContain('changed-files-unresolved');
     expect(selection.reasons).toContain('ownership-impact');
   }
+});
+
+test('owner-issued projection maps source and managed-hook changes to their canonical slow suites', () => {
+  const sourceSelection = selectSlowTestRiskClosure([
+    'src/compiler/verify/run-runtime-verification.ts'
+  ]);
+  expect(sourceSelection).toMatchObject({ resolved: true });
+  expect(sourceSelection.affectedSlowTests).toContain('tests/e2e/dry-run-plan.test.ts');
+  expect(sourceSelection.suites).toContain('e2e-dry-run-plan');
+
+  const hookSelection = selectSlowTestRiskClosure(['.githooks/post-merge']);
+  expect(hookSelection).toMatchObject({ resolved: true });
+  expect(hookSelection.owners).toContain('development.hooks');
+  expect(hookSelection.affectedSlowTests).toContain('tests/e2e/install-git-hooks.test.ts');
+  expect(hookSelection.suites).toContain('e2e-install-git-hooks');
+});
+
+test('selection and direct impact queries consume the same owner-issued projection', () => {
+  const resolvedFile = 'src/compiler/verify/run-runtime-verification.ts';
+  const unresolvedFile = 'fixtures/nonexistent-affected-test.txt';
+  expect(hasTestImpactForFile(resolvedFile, provider)).toBe(true);
+  expect(selectSlowTestRiskClosure([resolvedFile]).resolved).toBe(true);
+  expect(hasTestImpactForFile(unresolvedFile, provider)).toBe(false);
+  expect(selectSlowTestRiskClosure([unresolvedFile])).toMatchObject({
+    resolved: false,
+    unresolvedPaths: [unresolvedFile]
+  });
+  for (const path of [
+    'platform/shared/new-owner.ts',
+    'src/development/tooling/new-runtime-owner.ts',
+    'scripts/codex/new-control-sink.ts'
+  ]) {
+    expect(hasTestImpactForFile(path, provider)).toBe(false);
+  }
+});
+
+test('heterogeneous owned inputs form one resolved union', () => {
+  const selection = selectSlowTestRiskClosure([
+    'package.json',
+    'src/compiler/verify/run-runtime-verification.ts'
+  ]);
+  expect(selection.resolved).toBe(true);
+  expect(selection.owners.length).toBeGreaterThan(0);
+  expect(selection.suites).toContain('e2e-dry-run-plan');
+});
+
+test('compile-only test inputs resolve without inventing runtime tests', () => {
+  for (const path of [
+    'tests/unit/architecture-contracts.typecheck.ts',
+    'tests/unit/workspace-action.typecheck.ts'
+  ]) {
+    expect(selectSlowTestRiskClosure([path])).toMatchObject({
+      resolved: true,
+      unresolvedPaths: [],
+      slowTests: []
+    });
+  }
+
+  for (const path of [
+    'src/compiler/foreign.typecheck.ts',
+    'tests/unit/absent.typecheck.ts'
+  ]) {
+    expect(selectSlowTestRiskClosure([path])).toMatchObject({
+      resolved: false,
+      unresolvedPaths: [path]
+    });
+  }
+});
+
+test('deleted and renamed slow paths preserve transition identity without becoming free-running children', () => {
+  expect(selectSlowTestRiskClosure(['tests/e2e/deleted-unknown.test.ts'])).toMatchObject({
+    resolved: false,
+    owners: expect.arrayContaining(['bounded-slow-risk']),
+    reasons: expect.arrayContaining(['changed-files-unresolved']),
+    slowTests: ['tests/e2e/deleted-unknown.test.ts'],
+    unresolvedPaths: ['tests/e2e/deleted-unknown.test.ts']
+  });
+
+  const transition = CodexDevelopmentCreateTestImpactTransitionObservation({
+    baseSha: 'a'.repeat(40),
+    headSha: 'b'.repeat(40),
+    records: [{
+      status: 'renamed',
+      previousPath: 'tests/e2e/old-graph-name.test.ts',
+      path: 'tests/e2e/graph.test.ts'
+    }],
+    readPathBlob: () => null
+  });
+  const selection = selectSlowTestClosureWithProvider([
+    'tests/e2e/old-graph-name.test.ts',
+    'tests/e2e/graph.test.ts'
+  ], provider, transition);
+  expect(selection).toMatchObject({
+    resolved: true,
+    suites: ['e2e-graph'],
+    slowTests: [],
+    affectedSlowTests: [
+      'tests/e2e/graph.test.ts',
+      'tests/e2e/old-graph-name.test.ts'
+    ],
+    unresolvedPaths: []
+  });
 });
 
 test('long suite admission retains its exact issued test inventory and finite revalidation deadline', () => {

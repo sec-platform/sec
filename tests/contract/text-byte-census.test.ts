@@ -1,14 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import {
-  BINARY_EXTENSIONS,
-  GOVERNED_TEXT_EXTENSIONS,
-  UTF8_BOM,
-  classifyBlobBytes,
-  createEmptyCensusReport,
-  type TextByteAnomaly,
-  type TextByteClassification
-} from '../../src/runtime-state/text-byte-census.ts';
+import { UTF8_BOM, classifyBlobBytes } from '../../src/runtime-state/text-byte-census.ts';
 
 function toBytes(text: string): Uint8Array {
   return new TextEncoder().encode(text);
@@ -61,27 +53,26 @@ test('classifyBlobBytes classifies preserve-external for ungoverned extension', 
   expect(result.anomalies).toEqual([]);
 });
 
-test('classifyBlobBytes classifies unknown with attributes-missing for governed extension', () => {
+test('unmatched files preserve bytes because committed Git attributes are the sole policy authority', () => {
   const result = classifyBlobBytes({
     path: 'src/file.ts',
     bytes: toBytes('content\n'),
     textAttr: 'unspecified',
     eolAttr: 'unspecified'
   });
-  expect(result.classification).toBe('unknown');
-  expect(result.anomalies).toContain('attributes-missing');
+  expect(result.classification).toBe('preserve-external');
+  expect(result.anomalies).toEqual([]);
 });
 
-test('classifyBlobBytes classifies unknown with attributes-missing for binary extension', () => {
-  const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0]);
+test('unsupported committed Git attribute values fail closed', () => {
   const result = classifyBlobBytes({
-    path: 'photo.jpg',
-    bytes,
-    textAttr: 'unspecified',
+    path: 'src/file.ts',
+    bytes: toBytes('content\n'),
+    textAttr: 'unsupported',
     eolAttr: 'unspecified'
   });
   expect(result.classification).toBe('unknown');
-  expect(result.anomalies).toContain('attributes-missing');
+  expect(result.anomalies).toEqual(['attributes-unsupported']);
 });
 
 test('classifyBlobBytes detects crlf-in-canonical-lf-blob anomaly', () => {
@@ -128,7 +119,29 @@ test('classifyBlobBytes detects nul-byte anomaly', () => {
     textAttr: 'set',
     eolAttr: 'lf'
   });
+  expect(result.classification).toBe('unknown');
   expect(result.anomalies).toContain('nul-byte');
+});
+
+test('explicit CRLF rejects both pure LF and mixed line endings', () => {
+  for (const [source, lineEnding, anomalies] of [
+    ['line1\nline2\n', 'lf', ['lf-in-explicit-crlf-blob']],
+    [
+      'line1\r\nline2\n',
+      'mixed',
+      ['mixed-endings', 'lf-in-explicit-crlf-blob']
+    ]
+  ] as const) {
+    const result = classifyBlobBytes({
+      path: 'windows.cmd',
+      bytes: toBytes(source),
+      textAttr: 'set',
+      eolAttr: 'crlf'
+    });
+    expect(result.classification).toBe('explicit-crlf');
+    expect(result.lineEnding).toBe(lineEnding);
+    expect(result.anomalies).toEqual([...anomalies]);
+  }
 });
 
 test('classifyBlobBytes detects unknown-encoding anomaly and classifies unknown', () => {
@@ -176,44 +189,4 @@ test('classifyBlobBytes handles blob with no line endings', () => {
   expect(result.lineEnding).toBe('none');
   expect(result.classification).toBe('canonical-lf');
   expect(result.anomalies).toEqual([]);
-});
-
-test('createEmptyCensusReport returns zero counts for all classifications', () => {
-  const report = createEmptyCensusReport();
-  const classifications: TextByteClassification[] = ['canonical-lf', 'explicit-crlf', 'binary', 'preserve-external', 'unknown'];
-  for (const c of classifications) {
-    expect(report.classificationCounts[c]).toBe(0);
-  }
-});
-
-test('createEmptyCensusReport returns zero counts for all anomalies', () => {
-  const report = createEmptyCensusReport();
-  const anomalies: TextByteAnomaly[] = [
-    'crlf-in-canonical-lf-blob',
-    'lf-in-explicit-crlf-blob',
-    'mixed-endings',
-    'utf8-bom',
-    'nul-byte',
-    'unknown-encoding',
-    'attributes-missing',
-    'attributes-conflict'
-  ];
-  for (const a of anomalies) {
-    expect(report.anomalyCounts[a]).toBe(0);
-  }
-});
-
-test('GOVERNED_TEXT_EXTENSIONS covers core source extensions', () => {
-  expect(GOVERNED_TEXT_EXTENSIONS.has('ts')).toBe(true);
-  expect(GOVERNED_TEXT_EXTENSIONS.has('js')).toBe(true);
-  expect(GOVERNED_TEXT_EXTENSIONS.has('json')).toBe(true);
-  expect(GOVERNED_TEXT_EXTENSIONS.has('yaml')).toBe(true);
-  expect(GOVERNED_TEXT_EXTENSIONS.has('md')).toBe(true);
-});
-
-test('BINARY_EXTENSIONS covers core binary extensions', () => {
-  expect(BINARY_EXTENSIONS.has('png')).toBe(true);
-  expect(BINARY_EXTENSIONS.has('jpg')).toBe(true);
-  expect(BINARY_EXTENSIONS.has('zip')).toBe(true);
-  expect(BINARY_EXTENSIONS.has('woff2')).toBe(true);
 });

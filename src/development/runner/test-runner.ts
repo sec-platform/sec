@@ -26,7 +26,6 @@ import { uniqueSortedLines } from '../../system-architecture/foundation/runtime/
 import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
 import { isSecRepositoryTestModulePath, normalizeSecRepositoryTestModulePath } from '../../system-architecture/repository-modules/test-module-path.ts';
 import type { RetainedCompilerDependencyReadGeneration } from '../../toolchain/dependencies/runtime.ts';
-import { buildContractFreezeRunnerInvocations, type ContractFreezeTarget } from '../../verification/freeze.ts';
 import {
   classifyAffectedSelectionTrustBoundary,
   CodexDevelopmentAffectedInventoryInputs,
@@ -64,7 +63,6 @@ import {
   runDevCommand,
   type DevCommandObservation
 } from './command-runner.ts';
-import { DEV_COMMAND_MAX_DURATION_MS } from './contract.ts';
 import {
   ensureOperationDependencies,
   reuseOperationDependencies,
@@ -97,7 +95,6 @@ import type { RepositoryMutationFenceExecutionContext } from './repository-mutat
 import {
   admitFastTestBatchExecutionPolicy,
   admitTestSuiteExecutionPolicy,
-  compileTestInvocationExecutionPolicy,
   issueFastTestBatchExecutionPolicy,
   issueTestSuiteExecutionPolicy,
   withDefaultTestTimeout,
@@ -191,10 +188,6 @@ function selectMatchingTestFiles(availableFiles: string[], selectors: string[], 
 function managedBunTestArgs(args: readonly string[]): string[] {
   if (args[0] !== 'test') throw new Error('Managed Bun test invocation must begin with "test".');
   return ['test', ...withDefaultTestTimeout(args.slice(1))];
-}
-
-function testSupervisorTimeoutMs(args: readonly string[]): number {
-  return compileTestInvocationExecutionPolicy(args, DEV_COMMAND_MAX_DURATION_MS).supervisorTimeoutMs;
 }
 
 export type FastTestInvocationQueue = 'parallel' | FastTestProcessResourceClass;
@@ -1104,37 +1097,6 @@ async function runWithParentOwnedProcessTemp<TResult>(
   return outcome.value;
 }
 
-async function runWithTestInvocationRuntime(
-  environment: NodeJS.ProcessEnv,
-  run: (runtime: TestInvocationRuntimeRoots | null) => Promise<number>
-): Promise<number> {
-  let runtime: TestInvocationRuntimeRoots | null = null;
-  let exitCode = 1;
-  let hasPrimaryFailure = false;
-  let primaryFailure: unknown;
-  try {
-    if (testInvocationRuntimeIsolationModeForPlatform(process.platform) === 'retained') {
-      runtime = await createTestInvocationRuntimeRoots({
-        repositoryRoot: compilerRoot,
-        hostTempRoot: tmpdir(),
-        environment: { ...secRuntimeStateEnvironment(), ...environment }
-      });
-    }
-    exitCode = await run(runtime);
-  } catch (error) {
-    hasPrimaryFailure = true;
-    primaryFailure = error;
-  }
-  try {
-    await runtime?.cleanup();
-  } catch (error) {
-    console.error(`Test invocation runtime cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
-    if (!hasPrimaryFailure && exitCode === 0) exitCode = 1;
-  }
-  if (hasPrimaryFailure) throw primaryFailure;
-  return exitCode;
-}
-
 function affectedTestSelection(
   files: string[],
   budgetProjection: TestBudgetProjection,
@@ -1976,24 +1938,4 @@ export async function executePreparedSlowTestSuiteExecutions(
     if (code !== 0) return code;
   }
   return 0;
-}
-
-export async function runContractFreeze(targets?: ContractFreezeTarget[]): Promise<number> {
-  let exitCode = 0;
-  await withOperationDependencies('test-contract-freeze', async ({ binPath }) => {
-    const environment = pathEnv(binPath);
-    exitCode = await runWithTestInvocationRuntime(environment, async (runtime) => {
-      for (const [index, invocation] of buildContractFreezeRunnerInvocations(targets).entries()) {
-        const invocationArgs = managedBunTestArgs(invocation.args);
-        const code = await runWithParentOwnedProcessTemp(
-          runtime, environment, `contract-freeze:${String(index + 1).padStart(3, '0')}`, (prepared) =>
-          runDevCommand('bun', invocationArgs, prepared, {
-            timeoutMs: testSupervisorTimeoutMs(invocationArgs)
-          }));
-        if (code !== 0) return code;
-      }
-      return 0;
-    });
-  });
-  return exitCode;
 }

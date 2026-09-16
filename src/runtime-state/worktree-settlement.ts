@@ -100,17 +100,27 @@ export function detectLineEnding(bytes: Uint8Array): 'lf' | 'crlf' | 'mixed' | '
  * Check if two byte arrays differ only in line endings (CRLF vs LF).
  */
 export function differsOnlyInLineEnding(blobBytes: Uint8Array, worktreeBytes: Uint8Array): boolean {
-  // Quick check: if lengths match, they are identical
-  if (blobBytes.length === worktreeBytes.length) {
-    return false;
+  let blobOffset = 0;
+  let worktreeOffset = 0;
+  let observedLineEndingWidthDifference = false;
+
+  while (blobOffset < blobBytes.length && worktreeOffset < worktreeBytes.length) {
+    const blobIsCrlf = blobBytes[blobOffset] === 0x0D && blobBytes[blobOffset + 1] === 0x0A;
+    const worktreeIsCrlf = worktreeBytes[worktreeOffset] === 0x0D
+      && worktreeBytes[worktreeOffset + 1] === 0x0A;
+    const blobValue = blobIsCrlf ? 0x0A : blobBytes[blobOffset];
+    const worktreeValue = worktreeIsCrlf ? 0x0A : worktreeBytes[worktreeOffset];
+
+    if (blobValue !== worktreeValue) return false;
+
+    const blobWidth = blobIsCrlf ? 2 : 1;
+    const worktreeWidth = worktreeIsCrlf ? 2 : 1;
+    if (blobWidth !== worktreeWidth) observedLineEndingWidthDifference = true;
+    blobOffset += blobWidth;
+    worktreeOffset += worktreeWidth;
   }
-  // Normalize both to LF and compare
-  const normalizeToLf = (bytes: Uint8Array): string => {
-    return new TextDecoder('utf-8', { fatal: false }).decode(bytes).replaceAll('\r\n', '\n');
-  };
-  try {
-    return normalizeToLf(blobBytes) === normalizeToLf(worktreeBytes);
-  } catch {
-    return false;
-  }
+
+  return blobOffset === blobBytes.length
+    && worktreeOffset === worktreeBytes.length
+    && observedLineEndingWidthDifference;
 }

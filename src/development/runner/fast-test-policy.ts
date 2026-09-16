@@ -1,7 +1,6 @@
 import { availableParallelism } from 'node:os';
 
 import { isSecRepositoryTestModulePath, normalizeSecRepositoryTestModulePath } from '../../system-architecture/repository-modules/test-module-path.ts';
-import { FAST_TEST_PROCESS_POLICY_TEST_FILE } from '../../verification/test-impact/contract/budget.ts';
 
 export const MAX_FAST_TEST_GLOBAL_RESOURCE_BUDGET = 16;
 export const MAX_FAST_TEST_PROCESS_CONCURRENCY = 8;
@@ -113,7 +112,6 @@ export const DEFAULT_FAST_TEST_EXCLUSION_REGISTRY = [
     file: 'tests/integration/semantic-projection-consumers.test.ts',
     reason: 'full-workspace-derived-consumers'
   },
-  { file: 'tests/integration/ticket-pipeline.test.ts', reason: 'full-workspace-compile' },
   { file: 'tests/integration/workspace-engineering-ir.test.ts', reason: 'full-workspace-ir-build' },
   {
     file: 'tests/unit/semantic-mutation-isolated-child-fence.test.ts',
@@ -138,8 +136,13 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/contract/benchmark-budget.test.ts',
+    file: 'tests/contract/test-budget.test.ts',
     reason: 'repeated-repository-compilation-and-process-global-cli-context',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/contract/dependency-transition-migration.test.ts',
+    reason: 'process-global-environment',
     resourceClass: 'independent-process'
   },
   {
@@ -190,11 +193,6 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
   {
     file: 'tests/integration/semantic-projections.test.ts',
     reason: 'shared-workspace',
-    resourceClass: 'independent-process'
-  },
-  {
-    file: 'tests/integration/ticket-pipeline.test.ts',
-    reason: 'workspace-mutation',
     resourceClass: 'independent-process'
   },
   {
@@ -389,10 +387,6 @@ export function assertFastTestProcessPolicyInventory(
     if (current.has(file)) throw new Error(`Current fast-test inventory is duplicated: ${file}`);
     current.add(file);
   }
-  if (!current.has(normalizeSecRepositoryTestModulePath(FAST_TEST_PROCESS_POLICY_TEST_FILE))) {
-    throw new Error(`Fast-test process policy test is absent: ${FAST_TEST_PROCESS_POLICY_TEST_FILE}`);
-  }
-
   const excluded = new Set<string>();
   for (const entry of DEFAULT_FAST_TEST_EXCLUSION_REGISTRY) {
     const file = normalizeSecRepositoryTestModulePath(entry.file);

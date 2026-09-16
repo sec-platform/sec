@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/1",
-  "source_set_sha256": "ebfaa96247ec5080fd9c3c02d02465e74dbc61a62459435b00d1383966cee4c4",
+  "source_set_sha256": "ac6c0ca876ccd87671d5fe20508f1de1b7a3db28f8a7b0577e19a4e72702da66",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -29,8 +29,8 @@
     },
     {
       "path": "AGENTS.md",
-      "bytes": 4346,
-      "sha256": "35d2e87703b4dc61f71884c6ee9693fa352bb3602a6df40ac927f39458b8898b"
+      "bytes": 4618,
+      "sha256": "148e65d118e9b42b10f006352dc97632ea21cc1756b115a8b0ee9db34aec946e"
     },
     {
       "path": "README.md",
@@ -514,8 +514,8 @@
     },
     {
       "path": "docs/开发/AI协作/规则装载与任务恢复.md",
-      "bytes": 18690,
-      "sha256": "e254e21fa8c6c31ab842ba8dae900fe64c026c085d07facf08802b7737ec299d"
+      "bytes": 19368,
+      "sha256": "90c28ecb99c6d9c7f48497e94ffffba84503bd9ca5f335172b58e8a081bea668"
     },
     {
       "path": "docs/开发/AI协作/需求与作者上下文.md",
@@ -574,8 +574,8 @@
     },
     {
       "path": "docs/开发/测试发现与执行.md",
-      "bytes": 11240,
-      "sha256": "e49d9eb756a564374234458fa1e27cf0a16ff17ac5eb2abf3a45e9717143eb8c"
+      "bytes": 12325,
+      "sha256": "88a94ea270490056ea42e705c508e66baab8e02fd747dd18daeaa83e783ed735"
     },
     {
       "path": "docs/开发/用途与任务范围.md",

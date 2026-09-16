@@ -48,8 +48,7 @@ export type TextByteLineEnding = 'lf' | 'crlf' | 'mixed' | 'none';
  * - utf8-bom: blob starts with UTF-8 BOM (EF BB BF).
  * - nul-byte: blob contains NUL (0x00), indicating binary content.
  * - unknown-encoding: blob is not valid UTF-8 and not declared binary.
- * - attributes-missing: governed extension has no matching .gitattributes rule.
- * - attributes-conflict: multiple conflicting .gitattributes rules match.
+ * - attributes-unsupported: Git resolved an attribute value outside the SEC policy vocabulary.
  */
 export type TextByteAnomaly =
   | 'crlf-in-canonical-lf-blob'
@@ -58,8 +57,17 @@ export type TextByteAnomaly =
   | 'utf8-bom'
   | 'nul-byte'
   | 'unknown-encoding'
-  | 'attributes-missing'
-  | 'attributes-conflict';
+  | 'attributes-unsupported';
+
+export const TEXT_BYTE_ANOMALIES = [
+  'crlf-in-canonical-lf-blob',
+  'lf-in-explicit-crlf-blob',
+  'mixed-endings',
+  'utf8-bom',
+  'nul-byte',
+  'unknown-encoding',
+  'attributes-unsupported'
+] as const satisfies readonly TextByteAnomaly[];
 
 /**
  * Census entry for a single tracked file.
@@ -103,36 +111,6 @@ export interface TextByteCensusReport {
 }
 
 /**
- * Extensions governed by SEC's .gitattributes policy. Files with these
- * extensions MUST have a matching .gitattributes rule; missing rule is
- * an attributes-missing anomaly (fail-closed).
- */
-export const GOVERNED_TEXT_EXTENSIONS: ReadonlySet<string> = new Set([
-  'ts', 'tsx', 'js', 'mjs', 'cjs', 'jsx',
-  'json', 'jsonc',
-  'yaml', 'yml',
-  'md', 'markdown',
-  'html', 'htm', 'css',
-  'toml', 'txt',
-  'ejs', 'template',
-  'prisma',
-  'dot', 'mmd',
-  'py', 'sh'
-]);
-
-/**
- * Extensions always treated as binary (must be declared `-text` in .gitattributes).
- */
-export const BINARY_EXTENSIONS: ReadonlySet<string> = new Set([
-  'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ico', 'webp',
-  'pdf', 'zip', 'tar', 'gz', 'tgz', '7z', 'rar',
-  'woff', 'woff2', 'ttf', 'otf', 'eot',
-  'db', 'sqlite', 'sqlite3',
-  'node', 'wasm',
-  'exe', 'dll', 'so', 'dylib'
-]);
-
-/**
  * UTF-8 BOM prefix bytes.
  */
 export const UTF8_BOM = new Uint8Array([0xEF, 0xBB, 0xBF]);
@@ -146,11 +124,11 @@ export const UTF8_BOM = new Uint8Array([0xEF, 0xBB, 0xBF]);
 export function classifyBlobBytes(input: {
   path: string;
   bytes: Uint8Array;
-  textAttr: 'set' | 'unset' | 'unspecified';
-  eolAttr: 'lf' | 'crlf' | 'unspecified';
+  textAttr: 'set' | 'unset' | 'unspecified' | 'unsupported';
+  eolAttr: 'lf' | 'crlf' | 'unspecified' | 'unsupported';
 }): { classification: TextByteClassification; lineEnding: TextByteLineEnding; anomalies: TextByteAnomaly[] } {
   const anomalies: TextByteAnomaly[] = [];
-  const { bytes, textAttr, eolAttr, path } = input;
+  const { bytes, textAttr, eolAttr } = input;
 
   // Detect NUL byte (binary indicator)
   const hasNul = bytes.indexOf(0) >= 0;
@@ -195,36 +173,31 @@ export function classifyBlobBytes(input: {
     }
   }
 
-  // Classify by .gitattributes declaration
+  // Classify only from Git's resolution of the committed .gitattributes
+  // policy. File-extension copies here would create a competing authority.
   let classification: TextByteClassification;
-  if (textAttr === 'unset') {
+  if (textAttr === 'unsupported' || eolAttr === 'unsupported'
+      || (textAttr === 'unspecified' && eolAttr !== 'unspecified')) {
+    anomalies.push('attributes-unsupported');
+    classification = 'unknown';
+  } else if (textAttr === 'unset') {
     classification = 'binary';
   } else if (textAttr === 'set' && eolAttr === 'lf') {
     classification = 'canonical-lf';
     if (hasCrlf) anomalies.push('crlf-in-canonical-lf-blob');
   } else if (textAttr === 'set' && eolAttr === 'crlf') {
     classification = 'explicit-crlf';
-    if (hasLf && !hasCrlf) anomalies.push('lf-in-explicit-crlf-blob');
+    if (hasLf) anomalies.push('lf-in-explicit-crlf-blob');
   } else if (textAttr === 'set' && eolAttr === 'unspecified') {
     // text without explicit eol; treat as canonical-lf by default
     classification = 'canonical-lf';
     if (hasCrlf) anomalies.push('crlf-in-canonical-lf-blob');
   } else {
-    // textAttr unspecified — check if extension is governed
-    const ext = path.match(/\.([^.\/]+)$/u)?.[1]?.toLowerCase();
-    if (ext && GOVERNED_TEXT_EXTENSIONS.has(ext)) {
-      anomalies.push('attributes-missing');
-      classification = 'unknown';
-    } else if (ext && BINARY_EXTENSIONS.has(ext)) {
-      anomalies.push('attributes-missing');
-      classification = 'unknown';
-    } else {
-      classification = 'preserve-external';
-    }
+    classification = 'preserve-external';
   }
 
-  // Override to unknown if unknown encoding and not binary
-  if (unknownEncoding && classification !== 'binary') {
+  // NUL is a terminal text-policy violation even though it is valid UTF-8.
+  if ((unknownEncoding || hasNul) && classification !== 'binary') {
     classification = 'unknown';
   }
 
@@ -253,8 +226,7 @@ export function createEmptyCensusReport(): {
       'utf8-bom': 0,
       'nul-byte': 0,
       'unknown-encoding': 0,
-      'attributes-missing': 0,
-      'attributes-conflict': 0
+      'attributes-unsupported': 0
     }
   };
 }

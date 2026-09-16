@@ -48,8 +48,6 @@
     "test:slow": "\"$npm_execpath\" ./src/development/runner/cli.ts test:slow",
     "test:full": "\"$npm_execpath\" ./src/development/runner/cli.ts test",
     "test:budget": "\"$npm_execpath\" run sec -- test budget --json",
-    "test:contract-freeze": "\"$npm_execpath\" ./src/development/runner/cli.ts contract-freeze",
-    "test:benchmark-contract": "\"$npm_execpath\" run sec -- benchmark suite --json",
     "imports:check": "\"$npm_execpath\" ./src/development/runner/cli.ts imports:check",
     "imports:apply": "\"$npm_execpath\" ./src/development/runner/cli.ts imports:apply",
     "imports:freeze": "\"$npm_execpath\" ./src/development/runner/cli.ts imports:freeze",

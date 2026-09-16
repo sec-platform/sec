@@ -1737,12 +1737,13 @@ export function compileSourceProgramTestRetirementReceipt(
     input.currentTestCompilation,
     input.supersession
   );
-  const mergedTestPaths = new Set(supersessionDisposition.dispositions
-    .filter(({ disposition, evidence }) => disposition === 'merge'
-      && evidence.supersession?.receiptDigest === input.supersession.receiptDigest)
+  const resolvedTestPaths = new Set(supersessionDisposition.dispositions
+    .filter(({ disposition, evidence }) => disposition === 'rewrite'
+      || (disposition === 'merge'
+        && evidence.supersession?.receiptDigest === input.supersession.receiptDigest))
     .map(({ path }) => path));
   const removedTestPaths = baselineTestPaths.filter((testPath) =>
-    !currentTestPaths.has(testPath) && !mergedTestPaths.has(testPath));
+    !currentTestPaths.has(testPath) && !resolvedTestPaths.has(testPath));
   const knownPaths = new Set([
     ...input.baselineFiles.map(({ path }) => path),
     ...input.currentFiles.map(({ path }) => path)
@@ -1879,6 +1880,7 @@ export function projectSourceProgramTestRetirementDispositions(
       sourceRevision: projection.sourceRevision,
       replacementTestIds: Object.freeze([] as string[]),
       census: proof.census,
+      ownerDecisionDigest: null,
       supersession: Object.freeze({
         receiptDigest: receipt.receiptDigest,
         baselineTestId: proof.baselineTestIds.length === 1

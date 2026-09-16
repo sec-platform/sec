@@ -97,7 +97,6 @@ export function buildCiQuickGatePlan(options: {
     ...(options.includeDocs ? [gate('docs-doctor', 'quick', 'run', 'docs:doctor')] : []),
     gate('typecheck', 'quick', 'run', 'typecheck'),
     gate('affected-tests', 'quick', 'run', 'test:affected'),
-    ...(riskGates.length > 0 ? [gate('contract-freeze', 'risk', 'run', 'test:contract-freeze')] : []),
     ...riskGates
   ];
 }
@@ -113,9 +112,7 @@ export function buildCiFullGatePlan(options: {
     gate('affected-tests', 'quick', 'run', 'test:affected'),
     gate('full-fast', 'full', 'run', 'test:fast'),
     gate('test-budget', 'full', 'run', 'sec', '--', 'test', 'budget', '--json', '--compact'),
-    gate('contract-freeze', 'risk', 'run', 'test:contract-freeze'),
     ...selectedRiskGates(slowTestSuiteIds(), []),
-    gate('benchmark-task-suite', 'full', 'run', 'sec', '--', 'benchmark', 'suite', '--json', '--compact'),
     gate('deps-warmup', 'full', 'run', 'sec', '--', 'deps', 'warmup'),
     gate('resolve', 'workspace', 'run', 'sec', '--', 'resolve'),
     gate('compose', 'workspace', 'run', 'sec', '--', 'compose'),

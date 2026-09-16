@@ -1,8 +1,8 @@
 import type { Command } from 'commander';
-import type { TextByteCensusReport, TextByteClassification } from '../../runtime-state/text-byte-census.ts';
+import type { TextByteClassification } from '../../runtime-state/text-byte-census.ts';
 import type { WorktreeSettlementReceipt } from '../../runtime-state/worktree-settlement.ts';
 import type { DependencyCleanOptions } from '../../toolchain/dependencies/environment.ts';
-import { buildBenchmarkTaskSuiteContract, formatBenchmarkTaskSuiteContract } from '../../verification/benchmark/contract.ts';
+import { buildBenchmarkTaskCatalog, formatBenchmarkTaskCatalog } from '../../verification/benchmark/catalog.ts';
 import { addJsonFlags, commandPath, jsonOpts, usageError, type JsonOpts } from './command-options.ts';
 import { platformCommand } from './contract/command.ts';
 import { printJsonOrText } from './format-utils.ts';
@@ -10,6 +10,7 @@ import { loadDependencyEnvironmentDomain, loadReferenceCheckDomain, loadTestBudg
 import { registerInspectionCommands } from './register-inspection-commands.ts';
 import { registerWorkspaceCommands } from './register-workspace-commands.ts';
 import { withSpinner } from './runtime/spinner.ts';
+import { formatTextByteCensusReport } from './text-byte-census-format.ts';
 
 type DependencyEnvironmentModule = typeof import('../../toolchain/dependencies/environment.ts');
 
@@ -32,41 +33,6 @@ export type CliCommandDomainLoaders = Readonly<{
 
 function runWithOptionalSpinner<T>(text: string, output: JsonOpts, fn: () => Promise<T>): Promise<T> {
   return output.json ? fn() : withSpinner(text, fn);
-}
-
-function formatTextCensusReport(report: TextByteCensusReport): string {
-  const lines: string[] = [];
-  lines.push('Text Byte Census');
-  lines.push(`  totalFiles: ${report.totalFiles}`);
-  lines.push(`  failClosed: ${report.failClosed}`);
-  lines.push('  classifications:');
-  const classifications: TextByteClassification[] = ['canonical-lf', 'explicit-crlf', 'binary', 'preserve-external', 'unknown'];
-  for (const c of classifications) {
-    if (report.classificationCounts[c] > 0) {
-      lines.push(`    ${c}: ${report.classificationCounts[c]}`);
-    }
-  }
-  lines.push('  anomalies:');
-  let anyAnomaly = false;
-  for (const [a, count] of Object.entries(report.anomalyCounts)) {
-    if (count > 0) {
-      lines.push(`    ${a}: ${count}`);
-      anyAnomaly = true;
-    }
-  }
-  if (!anyAnomaly) lines.push('    (none)');
-  if (report.flaggedEntries.length > 0) {
-    lines.push(`  flagged: ${report.flaggedEntries.length} file(s)`);
-    const maxShow = Math.min(report.flaggedEntries.length, 20);
-    for (let i = 0; i < maxShow; i += 1) {
-      const e = report.flaggedEntries[i]!;
-      lines.push(`    ${e.path} [${e.classification}] ${e.anomalies.length === 0 ? '(none)' : e.anomalies.join(', ')}`);
-    }
-    if (report.flaggedEntries.length > maxShow) {
-      lines.push(`    ... and ${report.flaggedEntries.length - maxShow} more`);
-    }
-  }
-  return lines.join('\n');
 }
 
 function formatSettlementReceipt(r: WorktreeSettlementReceipt): string {
@@ -156,9 +122,9 @@ export function registerCommands(
   });
 
   const benchmarkCmd = program.command('benchmark');
-  addJsonFlags(benchmarkCmd.command('suite')).action(async (opts: Record<string, unknown>) => {
+  addJsonFlags(benchmarkCmd.command('catalog')).action(async (opts: Record<string, unknown>) => {
     const output = jsonOpts(opts);
-    printJsonOrText(buildBenchmarkTaskSuiteContract(), output, formatBenchmarkTaskSuiteContract);
+    printJsonOrText(buildBenchmarkTaskCatalog(), output, formatBenchmarkTaskCatalog);
   });
 
   addJsonFlags(program.command('test').command('budget')).action(async (opts: Record<string, unknown>) => {
@@ -186,7 +152,7 @@ export function registerCommands(
         throw usageError(`Text census --fail-on must be any or one of: ${classifications.join(', ')}`);
       }
       const report = await runWithOptionalSpinner('Scanning text bytes', output, () => runCensus(process.cwd()));
-      printJsonOrText(report, output, formatTextCensusReport);
+      printJsonOrText(report, output, formatTextByteCensusReport);
       const failed = failOn === 'any'
         ? report.failClosed
         : failOn !== undefined && report.classificationCounts[failOn as TextByteClassification] > 0;

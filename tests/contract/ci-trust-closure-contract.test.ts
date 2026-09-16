@@ -92,12 +92,12 @@ test('Quick and Full plan topology remains deterministic behind the Action norma
     includeDocs: true,
     selectedSlowSuites: ['e2e-artifacts']
   }).map(({ id }) => id)).toEqual([
-    'imports', 'docs-doctor', 'typecheck', 'affected-tests', 'contract-freeze', 'slow-suite-e2e-artifacts'
+    'imports', 'docs-doctor', 'typecheck', 'affected-tests', 'slow-suite-e2e-artifacts'
   ]);
   const fullGateIds = buildCiFullGatePlan().map(({ id }) => id);
   expect(fullGateIds).toEqual(expect.arrayContaining([
     'imports', 'typecheck', 'docs-doctor', 'affected-tests', 'full-fast', 'test-budget',
-    'contract-freeze', 'benchmark-task-suite', 'deps-warmup', 'resolve', 'compose',
+    'deps-warmup', 'resolve', 'compose',
     'verify-all', 'lock', 'explain', 'reference-check'
   ]));
   expect(fullGateIds.filter((id) => id.startsWith('slow-suite-')).sort()).toEqual(

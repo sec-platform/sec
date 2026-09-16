@@ -1423,6 +1423,23 @@ export function sourceProgramTypeScriptIdentifierResolvesToImport(
   });
 }
 
+/** Resolve one local identifier reference to its exact variable initializer. */
+export function sourceProgramTypeScriptIdentifierInitializer(
+  model: SourceProgramModel,
+  repositoryPath: string,
+  node: ts.Identifier
+): ts.Expression | null {
+  const exact = exactGenerationIdentifier(model, repositoryPath, node, node.text);
+  if (exact === null) return null;
+  const symbol = exact.generation.checker.getSymbolAtLocation(node);
+  const declaration = symbol?.valueDeclaration;
+  return declaration !== undefined
+      && ts.isVariableDeclaration(declaration)
+      && declaration.initializer !== undefined
+    ? declaration.initializer
+    : null;
+}
+
 /** Syntax validity is projected from the exact compiler generation; consumers do not reparse source. */
 export function observeSourceProgramTypeScriptSyntax(
   model: SourceProgramModel,

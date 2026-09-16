@@ -616,7 +616,8 @@ describe('Source Program audit domain operation', () => {
         owner: 'verification.tests', sourceRevision: facts.sourceProgram.sourceRevision,
         replacementTestIds: Object.freeze([]),
         census: Object.freeze({ producerCount: 0, consumerCount: 0, externalContractCount: 0 }),
-        supersession: null
+        supersession: null,
+        ownerDecisionDigest: null
       }),
       baselineDigest: digest('baseline'),
       evidenceDigest: digest('evidence')
