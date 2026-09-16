@@ -7,6 +7,7 @@ export const TEST_IMPACT_SOURCE_KINDS = [
   'git-hook',
   'active-documentation',
   'agent-skill',
+  'agent-role',
   'repository-config'
 ] as const;
 
@@ -39,6 +40,7 @@ const TEST_IMPACT_SOURCE_KIND_MODULES: Readonly<
 > = Object.freeze({
   'active-documentation': Object.freeze(['control.documentation']),
   'agent-skill': Object.freeze(['control.agent']),
+  'agent-role': Object.freeze(['control.agent']),
   manifest: Object.freeze(['compiler.registry', 'compiler']),
   'semantic-contract': Object.freeze(['product.semantic-model', 'compiler']),
   'source-model': Object.freeze(['product.semantic-model', 'compiler']),
@@ -61,6 +63,7 @@ export function classifyTestImpactSource(
   if (activeDocumentationPath(file)) return 'active-documentation';
   if (gitHookEntrypointPath(file)) return 'git-hook';
   if (/^\.agents\/skills\/[^/]+\/SKILL\.md$/u.test(file)) return 'agent-skill';
+  if (/^\.codex\/agents\/[^/]+\.toml$/u.test(file)) return 'agent-role';
   if (/^docs\//u.test(file)) return null;
   if (/(?:^|\/)contracts\/[^/]+\.ya?ml$/u.test(file)) return 'semantic-contract';
   if (/(?:^|\/)(?:block\.)?manifest\.ya?ml$/u.test(file) || /(?:^|\/)[^/]+\.manifest\.ya?ml$/u.test(file)) return 'manifest';
