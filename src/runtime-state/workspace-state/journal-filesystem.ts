@@ -45,6 +45,8 @@ export interface RuntimeStateJournalFileSystem {
   mutateTextFsync(filePath: string, initialText: string, maximumBytes: number,
     mutate: (currentText: string) => string): string;
   replaceFsync(filePath: string, text: string): void;
+  /** Deletes one exact retained journal generation and reads back namespace absence. */
+  deleteFsyncCas(filePath: string, expectedText: string): boolean;
   deleteIfPresent(filePath: string): boolean;
 }
 
@@ -328,6 +330,52 @@ export function createRuntimeStateJournalFileSystem(
         });
       });
       if (replaced === null) throw new Error('Runtime State journal mutation is contended.');
+    },
+    deleteFsyncCas(filePath: string, expectedText: string): boolean {
+      const deleted = withMutationLease(filePath, () => {
+        const retained = fileParent(filePath, false);
+        if (retained === null) return false;
+        const parentChain = inspectNoFollowDirectoryChain(
+          retained.parent.path,
+          'Runtime State journal CAS deletion parent'
+        );
+        let file: RetainedNoFollowOrdinaryFile;
+        try {
+          file = retainNoFollowOrdinaryFile(
+            parentChain,
+            retained.name,
+            undefined,
+            'Runtime State journal CAS deletion source'
+          );
+        } catch (error) {
+          if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') {
+            return false;
+          }
+          throw error;
+        }
+        const physical = file.physical;
+        let matches = false;
+        try {
+          matches = Buffer.from(file.readBytes()).equals(Buffer.from(expectedText, 'utf8'));
+        } finally {
+          file.dispose();
+        }
+        if (!matches) return false;
+        deleteRetainedNoFollowEntry({
+          root: retained.parent,
+          relativePath: retained.name,
+          kind: 'file',
+          device: physical.device,
+          inode: physical.inode,
+          ancestorDirectories: []
+        });
+        if (inspectNoFollowOrdinaryFileEntry(retained.parent, retained.name) !== null) {
+          throw new Error('Runtime State journal CAS deletion absence readback failed.');
+        }
+        return true;
+      });
+      if (deleted === null) throw new Error('Runtime State journal deletion is contended.');
+      return deleted;
     },
     deleteIfPresent(filePath: string): boolean {
       const deleted = withMutationLease(filePath, () => {

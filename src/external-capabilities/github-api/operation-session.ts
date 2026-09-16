@@ -14,6 +14,7 @@ export {
   currentGitHubApiCapability,
   executeGitHubApiOperation,
   inspectGitHubApiCapability,
+  withGitHubApiBranchCloseoutWriteSession,
   withGitHubApiMergeWriteSession,
   withGitHubApiReadOperationBudget,
   withGitHubApiReadSession,

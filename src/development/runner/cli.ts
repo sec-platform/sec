@@ -123,7 +123,7 @@ export async function runTypecheckCommand(args: readonly string[]): Promise<numb
 }
 
 function usage(): never {
-  console.error('Usage: bun ./src/development/runner/cli.ts <commit <message>|commit:recover <absolute-journal-path>|workspace-transition <post-checkout|post-merge|post-rewrite> [hook-args...]|deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|imports:check [--all|--candidate-base <sha>] [--remove-unused]|imports:check --staged [--candidate-base <sha>]|imports:apply [--all|--candidate-base <sha>] [--remove-unused]|imports:apply --staged [--candidate-base <sha>]|imports:freeze|generated-state:inspect|generated-state:plan|generated-state:cleanup|environment:workspace-settle> [args...]');
+  console.error('Usage: bun ./src/development/runner/cli.ts <commit <message>|commit:recover <absolute-journal-path>|commit:recover --retire-merged-pr <owner/name> <number>|workspace-transition <post-checkout|post-merge|post-rewrite> [hook-args...]|deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|imports:check [--all|--candidate-base <sha>] [--remove-unused]|imports:check --staged [--candidate-base <sha>]|imports:apply [--all|--candidate-base <sha>] [--remove-unused]|imports:apply --staged [--candidate-base <sha>]|imports:freeze|generated-state:inspect|generated-state:plan|generated-state:cleanup|environment:workspace-settle> [args...]');
   process.exit(1);
 }
 

@@ -2,6 +2,8 @@ import { spawnSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 
+import { parseGitHubRepositoryIdentityFromRemoteUrl } from '../../system-architecture/foundation/contract/git-reference.ts';
+
 import {
   requireActiveWorkPackageOwnerObservation,
   type ActiveWorkPackageOwnerObservation
@@ -21,6 +23,7 @@ import {
 import {
   BRANCH_LIFECYCLE_INVENTORY_SCHEMA,
   assertGitBranchName,
+  assertGitSha,
   type BranchActiveWorkPackageObservation,
   type BranchCloseoutReceiptObservation,
   type BranchLifecycleInventory,
@@ -50,6 +53,16 @@ export interface BranchLifecycleInventoryScope {
   readonly repositoryFullName?: string;
   readonly defaultBranch?: string;
   readonly activeWorkPackageObservation?: ActiveWorkPackageOwnerObservation;
+}
+
+export interface BranchLifecycleCloseoutTargetScope
+  extends Omit<BranchLifecycleInventoryScope, 'defaultBranch'> {
+  readonly targetBranch: string;
+  readonly pullRequestNumber: number;
+  /** Fresh exact PR observation produced by the authenticated provider owner. */
+  readonly exactPullRequest: BranchPullRequestObservation;
+  /** The one full preparation inventory; only non-effect policy facts are reused. */
+  readonly preparedInventory: BranchLifecycleInventory;
 }
 
 type InventoryRuntime = BranchLifecycleInventoryScope;
@@ -115,9 +128,7 @@ function stableSortWorktrees(entries: BranchWorktreeObservation[]): BranchWorktr
 }
 
 export function parseRepositoryFullName(remoteUrl: string): string | null {
-  const normalized = remoteUrl.trim().replace(/\.git$/u, '');
-  const match = /(?:github\.com[/:])([^/\s:]+)\/([^/\s]+)$/iu.exec(normalized);
-  return match ? `${match[1]}/${match[2]}` : null;
+  return parseGitHubRepositoryIdentityFromRemoteUrl(remoteUrl);
 }
 
 export function resolveRealPath(value: string): string {
@@ -168,16 +179,26 @@ function resolveRepositoryFullName(
   remoteUrl: string,
   unknowns: string[]
 ): string {
-  if (ctx.repositoryFullName) return ctx.repositoryFullName;
   const fromRemote = parseRepositoryFullName(remoteUrl);
-  if (fromRemote !== null) return fromRemote;
+  if (fromRemote !== null) {
+    if (ctx.repositoryFullName !== undefined && ctx.repositoryFullName !== fromRemote) {
+      throw new Error('repositoryFullName differs from the observed origin remote identity');
+    }
+    return fromRemote;
+  }
   const fromGh = optionalInventoryCommandText(
     ctx,
     'gh',
     ['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'],
     repositoryRoot
   );
-  if (fromGh !== null && /^[^/\s]+\/[^/\s]+$/u.test(fromGh)) return fromGh;
+  if (fromGh !== null
+      && parseGitHubRepositoryIdentityFromRemoteUrl(`https://github.com/${fromGh}.git`) === fromGh) {
+    if (ctx.repositoryFullName !== undefined && ctx.repositoryFullName !== fromGh) {
+      throw new Error('repositoryFullName differs from the provider-observed repository identity');
+    }
+    return fromGh;
+  }
   unknowns.push('repository full name could not be resolved from remote URL or gh');
   return '<unknown>/<unknown>';
 }
@@ -297,6 +318,68 @@ function listWorktrees(
       prunable: record.prunable,
       observation: 'resolved',
       reason: null
+    };
+  }));
+}
+
+function listTargetLocalBranches(
+  ctx: InventoryRuntime,
+  repositoryRoot: string,
+  branches: readonly string[]
+): BranchRefObservation[] {
+  const result = runInventoryCommand(ctx, 'git', [
+    'for-each-ref',
+    '--format=%(refname:short)%00%(objectname)%00',
+    ...branches.map((branch) => `refs/heads/${branch}`)
+  ], repositoryRoot);
+  if (result.status !== 0) {
+    throw new Error(`target local branch inventory failed: ${decodeBranchLifecycleChildError(result)}`);
+  }
+  return parseLocalBranchRefs(result.stdout);
+}
+
+function listTargetRemoteBranches(
+  ctx: InventoryRuntime,
+  repositoryRoot: string,
+  remote: string,
+  branches: readonly string[]
+): BranchRefObservation[] {
+  const result = runInventoryCommand(ctx, 'git', [
+    ...createBranchLifecycleGitHubCredentialArgs(),
+    'ls-remote', '--heads', remote,
+    ...branches.map((branch) => `refs/heads/${branch}`)
+  ], repositoryRoot);
+  if (result.status !== 0) {
+    throw new Error(`target remote branch inventory failed: ${decodeBranchLifecycleChildError(result)}`);
+  }
+  return parseRemoteHeadRefs(decodeBranchLifecycleChildStdout(result));
+}
+
+function listCloseoutTargetWorktrees(
+  ctx: InventoryRuntime,
+  repositoryRoot: string,
+  targetBranch: string,
+  unknowns: string[]
+): BranchWorktreeObservation[] {
+  const result = runInventoryCommand(ctx, 'git', ['worktree', 'list', '--porcelain', '-z'], repositoryRoot);
+  if (result.status !== 0) {
+    unknowns.push(`worktree registry inventory failed: ${decodeBranchLifecycleChildError(result)}`);
+    return [];
+  }
+  return stableSortWorktrees(parseWorktreePorcelain(result.stdout).map((record) => {
+    const worktreePath = resolveRealPath(record.path!);
+    return {
+      path: worktreePath,
+      headSha: record.headSha,
+      branch: record.branch,
+      dirtyCount: null,
+      untrackedCount: null,
+      locked: record.locked,
+      prunable: record.prunable,
+      observation: 'unknown' as const,
+      reason: record.branch === targetBranch
+        ? 'target worktree registry binding blocks closeout without status inspection'
+        : 'unrelated worktree status is outside the exact closeout target'
     };
   }));
 }
@@ -679,6 +762,102 @@ function resolvePruneConfiguration(
     remotePrune: readBooleanConfig(ctx, repositoryRoot, `remote.${remote}.prune`),
     fetchPruneTags: readBooleanConfig(ctx, repositoryRoot, 'fetch.pruneTags'),
     reason: null
+  };
+}
+
+/**
+ * Fresh execution-fence inventory for one closed-unmerged closeout target.
+ * The authenticated production owner supplies the exact PR observation; this
+ * producer independently re-observes every local/Git fact that can authorize
+ * the target Effect without rescanning unrelated PRs or worktree contents.
+ */
+export function collectBranchLifecycleCloseoutTargetInventory(
+  input: Readonly<BranchLifecycleCloseoutTargetScope>
+): BranchLifecycleInventory {
+  assertGitBranchName(input.targetBranch, 'closeout target branch');
+  if (!Number.isSafeInteger(input.pullRequestNumber) || input.pullRequestNumber < 1) {
+    throw new Error('closeout target pull request number must be a positive safe integer');
+  }
+  const activeWorkPackageObservation = input.activeWorkPackageObservation === undefined
+    ? undefined
+    : requireActiveWorkPackageOwnerObservation(input.activeWorkPackageObservation);
+  const ctx: InventoryRuntime = { ...input, activeWorkPackageObservation };
+  const unknowns: string[] = [];
+  const repositoryRoot = resolveRepositoryRoot(ctx);
+  const commonDir = resolveCommonDir(ctx, repositoryRoot);
+  const remote = ctx.remote ?? DEFAULT_REMOTE;
+  assertGitBranchName(remote, 'remote name');
+  const remoteUrl = resolveRemoteUrl(ctx, repositoryRoot, remote);
+  const fullName = resolveRepositoryFullName(ctx, repositoryRoot, remoteUrl, unknowns);
+  const defaultBranch = resolveDefaultBranch(ctx, repositoryRoot, remote, unknowns);
+  const preparedRepository = input.preparedInventory.repository;
+  if (preparedRepository.root !== repositoryRoot
+    || preparedRepository.commonDir !== commonDir
+    || preparedRepository.fullName !== fullName
+    || preparedRepository.remote !== remote
+    || preparedRepository.remoteUrl !== remoteUrl
+    || preparedRepository.defaultBranch !== defaultBranch) {
+    throw new Error('target-scoped closeout repository identity differs from preparation');
+  }
+
+  const exactPullRequest = structuredClone(input.exactPullRequest);
+  if (exactPullRequest.number !== input.pullRequestNumber
+    || exactPullRequest.headBranch !== input.targetBranch
+    || exactPullRequest.state !== 'closed'
+    || exactPullRequest.headSha === null
+    || exactPullRequest.baseBranch !== defaultBranch
+    || exactPullRequest.baseSha === null
+    || exactPullRequest.baseSha === undefined
+    || exactPullRequest.isCrossRepository
+    || exactPullRequest.url !== `https://github.com/${fullName}/pull/${input.pullRequestNumber}`) {
+    throw new Error('authenticated exact PR observation differs from the closeout target');
+  }
+  assertGitSha(exactPullRequest.headSha, 'authenticated exact PR head');
+  assertGitSha(exactPullRequest.baseSha, 'authenticated exact PR base');
+  const branches = [...new Set([defaultBranch, input.targetBranch])];
+  let localBranches: BranchRefObservation[] = [];
+  let remoteBranches: BranchRefObservation[] = [];
+  try {
+    localBranches = listTargetLocalBranches(ctx, repositoryRoot, branches);
+  } catch (error) {
+    unknowns.push(error instanceof Error ? error.message : String(error));
+  }
+  try {
+    remoteBranches = listTargetRemoteBranches(ctx, repositoryRoot, remote, branches);
+  } catch (error) {
+    unknowns.push(error instanceof Error ? error.message : String(error));
+  }
+  const worktrees = listCloseoutTargetWorktrees(
+    ctx,
+    repositoryRoot,
+    input.targetBranch,
+    unknowns
+  );
+  const remoteDefaultSha = remoteBranches.find(({ branch }) => branch === defaultBranch)?.sha ?? null;
+  const activeWorkPackage = bindActiveWorkPackageObservation(
+    ctx.activeWorkPackageObservation,
+    fullName,
+    defaultBranch,
+    remoteDefaultSha,
+    unknowns
+  );
+
+  return {
+    schema: BRANCH_LIFECYCLE_INVENTORY_SCHEMA,
+    observedAt: new Date().toISOString(),
+    repository: { root: repositoryRoot, commonDir, fullName, remote, remoteUrl, defaultBranch },
+    main: {
+      localSha: localBranches.find(({ branch }) => branch === defaultBranch)?.sha ?? null,
+      remoteSha: remoteDefaultSha
+    },
+    localBranches,
+    remoteBranches,
+    worktrees,
+    pullRequests: [exactPullRequest],
+    activeWorkPackage,
+    repositorySetting: structuredClone(input.preparedInventory.repositorySetting),
+    pruneConfiguration: structuredClone(input.preparedInventory.pruneConfiguration),
+    unknowns: [...new Set(unknowns)].sort((left, right) => left.localeCompare(right))
   };
 }
 

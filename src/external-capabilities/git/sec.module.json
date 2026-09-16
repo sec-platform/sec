@@ -72,6 +72,25 @@
           "recovery": null
         }
       ]
+    },
+    {
+      "capability": "git.ref-effect",
+      "operations": [
+        "deleteExactGitRef"
+      ],
+      "effectKinds": [
+        "filesystem",
+        "process"
+      ],
+      "operationRoles": [
+        {
+          "operation": "deleteExactGitRef",
+          "role": "terminal-issuer",
+          "semanticOperation": "external-capabilities.git.ref-delete",
+          "requirementId": null,
+          "recovery": null
+        }
+      ]
     }
   ],
   "operationObligations": [
@@ -279,6 +298,60 @@
           {
             "resource": "processes",
             "maximum": 2
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "git.ref-effect",
+        "operation": "deleteExactGitRef"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "control.branch-lifecycle"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem",
+          "process"
+        ],
+        "failureKinds": [
+          "filesystem.write-failed",
+          "process.cancelled",
+          "process.deadline-exhausted",
+          "process.output-budget-exhausted",
+          "process.settlement-unproven",
+          "process.unavailable"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 120000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 0
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 1048576
+          },
+          {
+            "resource": "processes",
+            "maximum": 4
           }
         ]
       },

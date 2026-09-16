@@ -16,6 +16,8 @@ import {
 
 const TOKEN = 'test-token-0123456789';
 const SHA = '1'.repeat(40);
+const REPOSITORY_NODE_ID = 'R_kgDOExactRepository';
+const CLOSEOUT_BRANCH = 'feat/exact-closeout';
 const PRINCIPAL: GitHubApiPrincipal = Object.freeze({
   transport: 'github-rest-token',
   login: 'maintainer',
@@ -25,7 +27,7 @@ const PRINCIPAL: GitHubApiPrincipal = Object.freeze({
 });
 
 function capability(input: Readonly<{
-  effect: 'read' | 'status-write' | 'merge-write' | 'runner-admin';
+  effect: 'read' | 'status-write' | 'merge-write' | 'runner-admin' | 'branch-closeout-write';
   transport: GitHubApiTransport;
   principal?: GitHubApiPrincipal;
 }>): GitHubApiCapability {
@@ -153,6 +155,199 @@ test('status-write authority remains unable to merge a pull request', async () =
     })
   })).rejects.toThrow('requires merge-write authority');
   expect(transportCalls).toBe(0);
+});
+
+test('branch-closeout authority binds updateRefs CAS to its observed repository node', async () => {
+  const observations: Array<Readonly<{ url: string; method: string | undefined; body: unknown }>> = [];
+  const api = capability({
+    effect: 'branch-closeout-write',
+    transport: async (target, init) => {
+      observations.push(Object.freeze({
+        url: String(target),
+        method: init?.method,
+        body: init?.body === undefined ? null : JSON.parse(String(init.body))
+      }));
+      return String(target).endsWith('/repos/sec-platform/sec')
+        ? Response.json({ full_name: 'sec-platform/sec', node_id: REPOSITORY_NODE_ID })
+        : Response.json({ data: { updateRefs: { clientMutationId: null } } });
+    }
+  });
+  await expect(withGitHubApiTestSession({
+    capability: api,
+    operation: async () => await executeGitHubApiOperation(api, {
+      kind: 'delete-ref-cas',
+      branch: CLOSEOUT_BRANCH,
+      expectedOldSha: SHA
+    })
+  })).resolves.toEqual({ data: { updateRefs: { clientMutationId: null } } });
+  expect(observations).toEqual([
+    {
+      url: 'https://api.github.com/repos/sec-platform/sec',
+      method: 'GET',
+      body: null
+    },
+    {
+      url: 'https://api.github.com/graphql',
+      method: 'POST',
+      body: {
+        query: 'mutation($repositoryId:ID!,$name:GitRefname!,$beforeOid:GitObjectID!,$afterOid:GitObjectID!){updateRefs(input:{repositoryId:$repositoryId,refUpdates:[{name:$name,beforeOid:$beforeOid,afterOid:$afterOid,force:true}]}){clientMutationId}}',
+        variables: {
+          repositoryId: REPOSITORY_NODE_ID,
+          name: `refs/heads/${CLOSEOUT_BRANCH}`,
+          beforeOid: SHA,
+          afterOid: '0'.repeat(40)
+        }
+      }
+    }
+  ]);
+});
+
+test('branch-closeout comment operations use only the bound repository and fixed endpoints', async () => {
+  const observations: Array<Readonly<{ url: string; method: string | undefined; body: unknown }>> = [];
+  const api = capability({
+    effect: 'branch-closeout-write',
+    transport: async (target, init) => {
+      observations.push(Object.freeze({
+        url: String(target),
+        method: init?.method,
+        body: init?.body === undefined ? null : JSON.parse(String(init.body))
+      }));
+      return Response.json(init?.method === 'POST'
+        ? { id: 44, body: 'closeout receipt' }
+        : String(target).includes('/issues/comments/44')
+          ? { id: 44, body: 'closeout receipt' }
+          : []);
+    }
+  });
+  await withGitHubApiTestSession({
+    capability: api,
+    operation: async () => {
+      await executeGitHubApiOperation(api, { kind: 'issue-comments', issueNumber: 593, page: 2 });
+      await executeGitHubApiOperation(api, { kind: 'issue-comment', commentId: 44 });
+      await executeGitHubApiOperation(api, {
+        kind: 'create-issue-comment',
+        issueNumber: 593,
+        body: 'closeout receipt'
+      });
+    }
+  });
+  expect(observations).toEqual([
+    {
+      url: 'https://api.github.com/repos/sec-platform/sec/issues/593/comments?per_page=100&page=2',
+      method: 'GET',
+      body: null
+    },
+    {
+      url: 'https://api.github.com/repos/sec-platform/sec/issues/comments/44',
+      method: 'GET',
+      body: null
+    },
+    {
+      url: 'https://api.github.com/repos/sec-platform/sec/issues/593/comments',
+      method: 'POST',
+      body: { body: 'closeout receipt' }
+    }
+  ]);
+});
+
+test('wrong effects cannot invoke branch closeout or unrelated write operations', async () => {
+  let transportCalls = 0;
+  const readApi = capability({
+    effect: 'read',
+    transport: async () => {
+      transportCalls += 1;
+      return Response.json({});
+    }
+  });
+  await expect(withGitHubApiTestSession({
+    capability: readApi,
+    operation: async () => await executeGitHubApiOperation(readApi, {
+      kind: 'delete-ref-cas',
+      branch: CLOSEOUT_BRANCH,
+      expectedOldSha: SHA
+    })
+  })).rejects.toThrow('requires branch-closeout-write authority');
+
+  const closeoutApi = capability({
+    effect: 'branch-closeout-write',
+    transport: async () => {
+      transportCalls += 1;
+      return Response.json({});
+    }
+  });
+  for (const operation of [
+    {
+      kind: 'create-commit-status' as const,
+      sha: SHA,
+      status: {
+        state: 'success' as const,
+        context: 'sec/test',
+        description: 'passed',
+        targetUrl: 'https://github.com/sec-platform/sec/actions/runs/1'
+      }
+    },
+    {
+      kind: 'merge-pull' as const,
+      pullRequestNumber: 593,
+      headSha: SHA,
+      title: 'forbidden',
+      message: 'forbidden'
+    },
+    { kind: 'create-runner-registration-token' as const }
+  ]) {
+    await expect(withGitHubApiTestSession({
+      capability: closeoutApi,
+      operation: async () => await executeGitHubApiOperation(closeoutApi, operation)
+    })).rejects.toThrow('permits only fixed closeout observations and effects');
+  }
+  expect(transportCalls).toBe(0);
+});
+
+test('delete-ref-cas rejects GraphQL 200 errors and repository identity drift', async () => {
+  for (const repositoryResponse of [
+    { full_name: 'other/repository', node_id: 'R_other' },
+    { full_name: 'sec-platform/sec', node_id: REPOSITORY_NODE_ID }
+  ]) {
+    let calls = 0;
+    const api = capability({
+      effect: 'branch-closeout-write',
+      transport: async () => {
+        calls += 1;
+        return calls === 1
+          ? Response.json(repositoryResponse)
+          : Response.json({ errors: [{ type: 'UNPROCESSABLE', message: 'beforeOid mismatch' }] });
+      }
+    });
+    await expect(withGitHubApiTestSession({
+      capability: api,
+      operation: async () => await executeGitHubApiOperation(api, {
+        kind: 'delete-ref-cas',
+        branch: CLOSEOUT_BRANCH,
+        expectedOldSha: SHA
+      })
+    })).rejects.toThrow(repositoryResponse.full_name === 'sec-platform/sec'
+      ? 'returned GraphQL errors'
+      : 'repository identity differs');
+    expect(calls).toBe(repositoryResponse.full_name === 'sec-platform/sec' ? 2 : 1);
+  }
+});
+
+test('branch-closeout capability cannot escape its exact operation session', async () => {
+  const api = capability({
+    effect: 'branch-closeout-write',
+    transport: async () => Response.json([])
+  });
+  await withGitHubApiTestSession({
+    capability: api,
+    operation: async () => {
+      await executeGitHubApiOperation(api, { kind: 'issue-comments', issueNumber: 593, page: 1 });
+    }
+  });
+  await expect(executeGitHubApiOperation(api, {
+    kind: 'issue-comments',
+    issueNumber: 593,
+    page: 1
+  })).rejects.toThrow('requires the active exact operation session');
 });
 
 test('read authority cannot register or delete runners', async () => {

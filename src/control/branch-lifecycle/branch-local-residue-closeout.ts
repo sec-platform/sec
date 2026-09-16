@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from '
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { settleDevelopmentCommitJournalsForRef } from '../../development/commit/operation.ts';
 import { inspectNoFollowDirectoryChain, type PhysicalDirectoryChain } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { runCommandBytes } from '../../runtime-state/physical/runtime/process.ts';
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease } from '../../workspace/lease.ts';
@@ -1576,6 +1577,63 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
       );
       for (const entry of authorization.entries) assertRecoveryBytes(store, entry);
       if (state === 'present') {
+        for (const entry of authorization.entries) {
+          await settleDevelopmentCommitJournalsForRef({ repositoryRoot, ref: `refs/heads/${entry.branch}` });
+        }
+        await assertWorkspaceWriteLease(repositoryRoot, lease);
+        const postJournalProvider = await observeRepositoryProvider(
+          run,
+          repositoryRoot,
+          repository
+        );
+        assertAuthorizationIdentity({
+          authorization,
+          repository,
+          repositoryRoot,
+          commonDir,
+          remote,
+          remoteUrl,
+          provider: postJournalProvider,
+          store
+        });
+        const postJournalObservation = await observe(
+          run,
+          repositoryRoot,
+          repository,
+          authorization.defaultBranch
+        );
+        assertRecoverySeparatedFromWorktrees(store, postJournalObservation);
+        if (assertAuthorizedObservation(authorization, postJournalObservation) !== 'present') {
+          throw new Error('Authorized local refs disappeared while development commit journals settled.');
+        }
+        await assertMergeCommitsReachable(
+          run,
+          repositoryRoot,
+          authorization.remoteMainSha,
+          authorization.entries
+        );
+        for (const entry of authorization.entries) {
+          await verifyRecovery(run, repositoryRoot, store, entry);
+        }
+        await assertWorkspaceWriteLease(repositoryRoot, lease);
+        const postJournalWorktrees = await observeWorktreeState(run, repositoryRoot);
+        for (const entry of authorization.entries) {
+          if (postJournalWorktrees.branches.includes(entry.branch)) {
+            throw new Error(`Worktree acquired branch after development commit journal settlement: ${entry.branch}.`);
+          }
+        }
+        store.assertPhysicallyDisjointFrom(postJournalWorktrees.roots);
+        assertPhysicalDirectoryBinding(
+          authorization.repositoryPhysical,
+          inspectNoFollowDirectoryChain(repositoryRoot, 'Post-journal ref effect repository root'),
+          'Repository root'
+        );
+        assertPhysicalDirectoryBinding(
+          authorization.commonDirPhysical,
+          inspectNoFollowDirectoryChain(commonDir, 'Post-journal ref effect Git common directory'),
+          'Git common directory'
+        );
+        for (const entry of authorization.entries) assertRecoveryBytes(store, entry);
         await deleteExactTransaction(run, repositoryRoot, authorization.entries);
         input.faults?.afterDelete?.();
       }

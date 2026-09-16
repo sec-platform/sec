@@ -50,13 +50,19 @@ export {
   type BranchPullRequestObservation
 } from './branch-lifecycle-types.ts';
 export {
-  resolveProductionClosedUnmergedCloseoutEffectProvider,
-  type ProductionClosedUnmergedCloseoutProviderResolution
+  observeClosedSupersessionEvidence,
+  parseClosedSupersessionReview,
+  type ClosedSupersessionEvidence,
+  type ClosedSupersessionReview
+} from './closed-supersession-review.ts';
+export {
+  executeProductionClosedUnmergedCloseout,
+  observeProductionClosedUnmergedPullRequest,
+  type ProductionClosedUnmergedCompileContext
 } from './closed-unmerged-closeout-production.ts';
 export {
   compileClosedUnmergedCloseoutOperation,
   createClosedSupersededDispositionEvidence,
-  createEvidenceCloseDispositionEvidence,
   executeClosedUnmergedCloseoutOperation,
   issueClosedUnmergedCloseoutEffectProvider,
   type ClosedUnmergedCloseoutEffectAdapter,

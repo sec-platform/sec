@@ -8,6 +8,7 @@
  */
 
 import { assertGitBranchName } from '../../system-architecture/foundation/contract/git-reference.ts';
+export { parseGitHubRepositoryIdentityFromRemoteUrl } from '../../system-architecture/foundation/contract/git-reference.ts';
 
 export interface GitHubOpenInventoryCounts {
   readonly pullRequests: number;
@@ -142,13 +143,6 @@ export function buildGitHubDefaultBranchRefArgs(
     '-F',
     `qualifiedName=refs/heads/${defaultBranch}`
   ]);
-}
-
-export function parseGitHubRepositoryIdentityFromRemoteUrl(remoteUrl: string): string | null {
-  const normalized = remoteUrl.trim().replace(/\.git$/iu, '');
-  const match = /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/iu
-    .exec(normalized);
-  return match === null ? null : `${match[1]}/${match[2]}`;
 }
 
 export function buildGitHubOpenPullRequestsArgs(

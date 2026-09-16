@@ -23,7 +23,10 @@ import {
   createBranchLifecycleGitChildEnvironment,
   createBranchLifecycleGitHubCredentialArgs
 } from '../../src/control/branch-lifecycle/branch-lifecycle-command.ts';
-import { collectBranchLifecycleInventory } from '../../src/control/branch-lifecycle/branch-lifecycle-inventory.ts';
+import {
+  collectBranchLifecycleCloseoutTargetInventory,
+  collectBranchLifecycleInventory
+} from '../../src/control/branch-lifecycle/branch-lifecycle-inventory.ts';
 import {
   issueActiveWorkPackageOwnerObservation,
   type ActiveWorkPackageOwnerObservation
@@ -142,15 +145,44 @@ function activeWorkObservation(
   });
 }
 
+function noActiveWorkObservation(
+  fixture: ReturnType<typeof repositoryFixture>
+): ActiveWorkPackageOwnerObservation {
+  return issueActiveWorkPackageOwnerObservation({
+    repository: 'sec-platform/sec',
+    defaultBranch: 'main',
+    defaultSha: fixture.mainSha,
+    observedAt: new Date().toISOString(),
+    state: 'none',
+    branch: null,
+    manifest: null,
+    reason: 'no active Work Package'
+  });
+}
+
 function installGitHubObservationShim(
   fixture: ReturnType<typeof repositoryFixture>,
-  pullRequests: readonly Readonly<Record<string, unknown>>[] = []
+  pullRequests: readonly Readonly<Record<string, unknown>>[] = [],
+  captureGitCommands = false
 ): () => void {
   const shimRoot = path.join(fixture.root, 'command-shims');
+  const commandLog = path.join(fixture.root, 'gh-command-log.jsonl');
+  const gitCommandLog = path.join(fixture.root, 'git-command-log.jsonl');
+  const gitLocator = captureGitCommands
+    ? spawnSync(process.platform === 'win32' ? 'where.exe' : 'which', ['git'], {
+        encoding: 'utf8', windowsHide: true
+      })
+    : null;
+  const realGit = String(gitLocator?.stdout ?? '').split(/\r?\n/u).find(Boolean);
+  if (captureGitCommands && (gitLocator?.status !== 0 || realGit === undefined)) {
+    throw new Error('cannot resolve test Git executable');
+  }
   mkdirSync(shimRoot, { recursive: true });
   const program = path.join(shimRoot, 'gh-shim.ts');
   writeFileSync(program, `
+import { appendFileSync } from 'node:fs';
 const args = process.argv.slice(2);
+appendFileSync(${JSON.stringify(commandLog)}, JSON.stringify(args) + '\\n');
 if (args[0] === 'pr' && args[1] === 'list') {
   process.stdout.write(${JSON.stringify(JSON.stringify(pullRequests))});
   process.exit(0);
@@ -159,8 +191,21 @@ if (args[0] === 'api' && args[1] === '/repos/sec-platform/sec') {
   process.stdout.write('true');
   process.exit(0);
 }
+if (args[0] === 'repo' && args[1] === 'view') {
+  process.stdout.write(args.includes('defaultBranchRef') ? 'main' : 'sec-platform/sec');
+  process.exit(0);
+}
 process.stderr.write('unsupported test gh observation: ' + args.join(' '));
 process.exit(1);
+`, 'utf8');
+  const gitProgram = path.join(shimRoot, 'git-shim.ts');
+  if (captureGitCommands) writeFileSync(gitProgram, `
+import { appendFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+const args = process.argv.slice(2);
+appendFileSync(${JSON.stringify(gitCommandLog)}, JSON.stringify(args) + '\\n');
+const result = spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit', windowsHide: true });
+process.exit(result.status ?? 1);
 `, 'utf8');
   if (process.platform === 'win32') {
     const compiled = spawnSync('bun', [
@@ -173,10 +218,23 @@ process.exit(1);
     if (compiled.status !== 0) {
       throw new Error(`cannot compile bounded gh.exe test shim: ${compiled.stderr || compiled.stdout}`);
     }
+    if (captureGitCommands) {
+      const gitCompiled = spawnSync('bun', [
+        'build', '--compile', gitProgram, '--outfile', path.join(shimRoot, 'git.exe')
+      ], { encoding: 'utf8', windowsHide: true });
+      if (gitCompiled.status !== 0) {
+        throw new Error(`cannot compile bounded git.exe test shim: ${gitCompiled.stderr || gitCompiled.stdout}`);
+      }
+    }
   } else {
     const shellShim = path.join(shimRoot, 'gh');
     writeFileSync(shellShim, `#!/usr/bin/env sh\nexec bun "$(dirname "$0")/gh-shim.ts" "$@"\n`, 'utf8');
     chmodSync(shellShim, 0o755);
+    if (captureGitCommands) {
+      const gitShim = path.join(shimRoot, 'git');
+      writeFileSync(gitShim, `#!/usr/bin/env sh\nexec bun "$(dirname "$0")/git-shim.ts" "$@"\n`, 'utf8');
+      chmodSync(gitShim, 0o755);
+    }
   }
   const priorPath = process.env.PATH;
   process.env.PATH = `${shimRoot}${path.delimiter}${priorPath ?? ''}`;
@@ -185,6 +243,128 @@ process.exit(1);
     else process.env.PATH = priorPath;
   };
 }
+
+test('target-scoped closeout inventory observes only target effects and retains unrelated roots', () => {
+  const fixture = repositoryFixture();
+  const restorePath = installGitHubObservationShim(fixture, [], true);
+  const unrelatedWorktree = path.join(fixture.root, 'unrelated-worktree');
+  try {
+    git(fixture.repository, ['worktree', 'add', '--detach', unrelatedWorktree, 'main']);
+    writeFileSync(path.join(unrelatedWorktree, 'unrelated.tmp'), 'unrelated dirty state\n');
+    const activeWorkPackageObservation = noActiveWorkObservation(fixture);
+    const preparedInventory = collectBranchLifecycleInventory({
+      repositoryRoot: fixture.repository,
+      repositoryFullName: 'sec-platform/sec',
+      defaultBranch: 'main',
+      activeWorkPackageObservation
+    });
+    const ghCommandLog = path.join(fixture.root, 'gh-command-log.jsonl');
+    const gitCommandLog = path.join(fixture.root, 'git-command-log.jsonl');
+    writeFileSync(ghCommandLog, '');
+    writeFileSync(gitCommandLog, '');
+    writeFileSync(path.join(fixture.repository, 'target-untracked.tmp'), 'target dirty state\n');
+    const exactPullRequest = {
+      number: 42,
+      headBranch: fixture.branch,
+      headSha: fixture.headSha,
+      baseBranch: 'main',
+      baseSha: fixture.mainSha,
+      state: 'closed' as const,
+      isDraft: false,
+      isCrossRepository: false,
+      url: 'https://github.com/sec-platform/sec/pull/42'
+    };
+    const scoped = collectBranchLifecycleCloseoutTargetInventory({
+      repositoryRoot: fixture.repository,
+      repositoryFullName: 'sec-platform/sec',
+      activeWorkPackageObservation,
+      targetBranch: fixture.branch,
+      pullRequestNumber: 42,
+      exactPullRequest,
+      preparedInventory
+    });
+
+    expect(scoped.pullRequests.map(({ number }) => number)).toEqual([42]);
+    expect(scoped.localBranches.map(({ branch }) => branch).sort())
+      .toEqual(['feat/v6-closeout', 'main']);
+    expect(scoped.remoteBranches.map(({ branch }) => branch).sort())
+      .toEqual(['feat/v6-closeout', 'main']);
+    expect(scoped.main).toEqual({ localSha: fixture.mainSha, remoteSha: fixture.mainSha });
+    expect(scoped.activeWorkPackage.state).toBe('none');
+    expect(scoped.repositorySetting).toEqual(preparedInventory.repositorySetting);
+    expect(scoped.pruneConfiguration).toEqual(preparedInventory.pruneConfiguration);
+    expect(scoped.unknowns).toEqual([]);
+    const unrelated = scoped.worktrees.find(({ path: root }) => root === unrelatedWorktree)!;
+    expect(unrelated).toMatchObject({
+      path: unrelatedWorktree,
+      headSha: fixture.mainSha,
+      branch: null,
+      dirtyCount: null,
+      untrackedCount: null,
+      observation: 'unknown',
+      reason: 'unrelated worktree status is outside the exact closeout target'
+    });
+    expect(scoped.worktrees.find(({ branch }) => branch === fixture.branch)).toMatchObject({
+      headSha: fixture.headSha,
+      dirtyCount: null,
+      untrackedCount: null,
+      observation: 'unknown',
+      reason: 'target worktree registry binding blocks closeout without status inspection'
+    });
+    const fenceProviderCommands = readFileSync(ghCommandLog, 'utf8').trim().split('\n')
+      .filter(Boolean).map((line) => JSON.parse(line) as string[]);
+    expect(fenceProviderCommands.length).toBeGreaterThan(0);
+    expect(fenceProviderCommands.every(([group, action]) => group === 'repo' && action === 'view'))
+      .toBeTrue();
+    expect(fenceProviderCommands.some(([group, action]) => group === 'pr' && action === 'list'))
+      .toBeFalse();
+    expect(fenceProviderCommands.some(([group]) => group === 'api')).toBeFalse();
+    const fenceGitCommands = readFileSync(gitCommandLog, 'utf8').trim().split('\n')
+      .filter(Boolean).map((line) => JSON.parse(line) as string[]);
+    const localRefCommand = fenceGitCommands.find(([command]) => command === 'for-each-ref');
+    expect(localRefCommand).toEqual([
+      'for-each-ref', '--format=%(refname:short)%00%(objectname)%00',
+      'refs/heads/main', `refs/heads/${fixture.branch}`
+    ]);
+    const remoteRefCommand = fenceGitCommands.find((args) => args.includes('ls-remote'))!;
+    expect(remoteRefCommand.slice(-2)).toEqual([
+      'refs/heads/main', `refs/heads/${fixture.branch}`
+    ]);
+    expect(fenceGitCommands.some((args) => args.includes('status'))).toBeFalse();
+    expect(fenceGitCommands.some((args) => (
+      args[0] === 'worktree' && args[1] === 'list'
+    ))).toBeTrue();
+
+    expect(() => collectBranchLifecycleCloseoutTargetInventory({
+      repositoryRoot: fixture.repository,
+      repositoryFullName: 'sec-platform/sec',
+      activeWorkPackageObservation,
+      targetBranch: fixture.branch,
+      pullRequestNumber: 42,
+      exactPullRequest: { ...exactPullRequest, headBranch: 'other/branch' },
+      preparedInventory
+    })).toThrow('authenticated exact PR observation differs from the closeout target');
+
+    git(fixture.repository, [
+      'push', '--force', 'origin', `${fixture.headSha}:refs/heads/main`
+    ]);
+    const mainDrift = collectBranchLifecycleCloseoutTargetInventory({
+      repositoryRoot: fixture.repository,
+      repositoryFullName: 'sec-platform/sec',
+      activeWorkPackageObservation,
+      targetBranch: fixture.branch,
+      pullRequestNumber: 42,
+      exactPullRequest,
+      preparedInventory
+    });
+    expect(mainDrift.main.remoteSha).toBe(fixture.headSha);
+    expect(mainDrift.activeWorkPackage.state).toBe('unresolved');
+    expect(mainDrift.unknowns).toContain('active-work-owner-observation-default-sha-mismatch');
+  } finally {
+    restorePath();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+}, 180_000);
 
 test('V6 branch preparation is recovery-only and leaves exact local/remote refs intact', () => {
   const fixture = repositoryFixture();
