@@ -5,8 +5,12 @@ import path from 'node:path';
 
 import { buildReleaseArtifact } from '../../src/release/release-artifact.ts';
 
-test('release publication rejects a non-directory accepted destination before source preparation', async () => {
-  if (process.platform !== 'linux' && process.platform !== 'win32') return;
+const retainedPlatformTest = test.skipIf(
+  process.platform !== 'linux' && process.platform !== 'win32'
+);
+const linuxTest = test.skipIf(process.platform !== 'linux');
+
+retainedPlatformTest('release publication rejects a non-directory accepted destination before source preparation', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-release-destination-file-'));
   try {
     const parent = path.join(root, 'package');
@@ -22,8 +26,7 @@ test('release publication rejects a non-directory accepted destination before so
   }
 });
 
-test('release publication rejects a symlinked destination parent before source preparation', async () => {
-  if (process.platform !== 'linux') return;
+linuxTest('release publication rejects a symlinked destination parent before source preparation', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-release-destination-link-'));
   try {
     const physicalParent = path.join(root, 'physical-package');
