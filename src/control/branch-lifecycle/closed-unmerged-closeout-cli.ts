@@ -102,7 +102,7 @@ export async function runClosedUnmergedCloseoutCli(argv: readonly string[]): Pro
           ? completedPreparation ?? prepareClosedUnmergedPullRequestCloseout({
               repositoryRoot, repositoryFullName: input.repository,
               activeWorkPackageObservation: await observeActiveWorkPackage(repositoryRoot) }, {
-              number: pull.number, state: 'closed',
+              number: pull.number,
               refState: headRef.state,
               headBranch: pull.headBranch, headSha: pull.headSha,
               baseBranch: pull.baseBranch, baseSha: pull.baseSha,

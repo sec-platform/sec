@@ -36,9 +36,7 @@ export const CLOSED_UNMERGED_CLOSEOUT_OPERATION_SCHEMA =
 export const CLOSED_UNMERGED_CLOSEOUT_EFFECT_START_SCHEMA =
   'sec-closed-unmerged-closeout-effect-start-v1' as const;
 
-export type ClosedUnmergedCloseoutDisposition =
-  | 'evidence-close'
-  | 'closed-superseded';
+export type ClosedUnmergedCloseoutDisposition = 'closed-superseded';
 
 interface ClosedUnmergedCloseoutEvidenceBase {
   readonly schema: typeof CLOSED_UNMERGED_CLOSEOUT_EVIDENCE_SCHEMA;
@@ -59,11 +57,6 @@ interface ClosedUnmergedCloseoutEvidenceBase {
   readonly evidenceDigest: `sha256:${string}`;
 }
 
-export interface EvidenceCloseDispositionEvidence
-  extends ClosedUnmergedCloseoutEvidenceBase {
-  readonly disposition: 'evidence-close';
-}
-
 export interface ClosedSupersededDispositionEvidence
   extends ClosedUnmergedCloseoutEvidenceBase {
   readonly disposition: 'closed-superseded';
@@ -71,9 +64,7 @@ export interface ClosedSupersededDispositionEvidence
   readonly supersessionReference: string;
 }
 
-export type ClosedUnmergedCloseoutEvidence =
-  | EvidenceCloseDispositionEvidence
-  | ClosedSupersededDispositionEvidence;
+export type ClosedUnmergedCloseoutEvidence = ClosedSupersededDispositionEvidence;
 
 export interface ClosedUnmergedCloseoutOperation {
   readonly schema: typeof CLOSED_UNMERGED_CLOSEOUT_OPERATION_SCHEMA;
@@ -127,15 +118,6 @@ export interface ClosedUnmergedCloseoutEffectAdapter {
   publishEffectStart(
     receipt: ClosedUnmergedCloseoutEffectStartReceipt
   ): Promise<ClosedUnmergedProviderMutation>;
-  closePullRequest(input: Readonly<{
-    operationId: `sha256:${string}`;
-    repository: string;
-    pullRequestNumber: number;
-    expectedHeadBranch: string;
-    expectedHeadSha: string;
-    expectedBaseBranch: string;
-    expectedBaseSha: string;
-  }>): Promise<ClosedUnmergedProviderMutation>;
   deleteRemoteRefCas(input: Readonly<{
     operationId: `sha256:${string}`;
     repository: string;
@@ -256,26 +238,6 @@ function validateEvidenceInput(input: Omit<
   boundedText(input.durableGoal.reference, 'Closed-unmerged durable goal reference');
 }
 
-export function createEvidenceCloseDispositionEvidence(input: Omit<
-  EvidenceCloseDispositionEvidence,
-  'schema' | 'disposition' | 'evidenceDigest'
->): EvidenceCloseDispositionEvidence {
-  validateEvidenceInput(input);
-  if (input.headTreeSha !== input.currentMainTreeSha) {
-    throw new Error('Evidence-close requires exact branch/main tree parity.');
-  }
-  if (input.durableGoal.kind !== 'evidence') {
-    throw new Error('Evidence-close must retain a canonical Evidence goal.');
-  }
-  const payload = evidencePayload({ ...input, disposition: 'evidence-close' });
-  const evidence = Object.freeze({
-    ...payload,
-    evidenceDigest: branchLifecycleDigest(payload)
-  }) as EvidenceCloseDispositionEvidence;
-  issuedEvidence.add(evidence);
-  return evidence;
-}
-
 export function createClosedSupersededDispositionEvidence(input: Omit<
   ClosedSupersededDispositionEvidence,
   'schema' | 'disposition' | 'evidenceDigest' | 'consumerClosureDigest' | 'supersessionReference'
@@ -326,20 +288,6 @@ function closeoutRequest(evidence: ClosedUnmergedCloseoutEvidence) {
     disposition: 'closed-superseded' as const,
     durableGoal: { ...evidence.durableGoal }
   });
-}
-
-function projectedClosedInventory(
-  inventory: BranchLifecycleInventory,
-  evidence: ClosedUnmergedCloseoutEvidence
-): BranchLifecycleInventory {
-  return {
-    ...inventory,
-    pullRequests: inventory.pullRequests.map((pullRequest) => (
-      pullRequest.number === evidence.pullRequestNumber
-        ? { ...pullRequest, state: 'closed' as const }
-        : pullRequest
-    ))
-  };
 }
 
 function exactCurrentBlockers(input: {
@@ -414,17 +362,10 @@ export function compileClosedUnmergedCloseoutOperation(input: {
     prepared: input.prepared,
     evidence,
     inventory: input.prepared.before,
-    allowedPrStates: preparation.pullRequestStateAtPreparation === 'closed'
-      ? ['closed']
-      : ['open']
+    allowedPrStates: ['closed']
   });
-  const preparationStateIsSupported = preparation.pullRequestStateAtPreparation === 'open'
-    || preparation.pullRequestStateAtPreparation === 'closed';
-  const preparationRefLaneIsSupported = preparation.refState === 'present'
-    || (preparation.refState === 'absent'
-      && preparation.pullRequestStateAtPreparation === 'closed');
-  if (!preparationStateIsSupported
-    || !preparationRefLaneIsSupported
+  if (preparation.pullRequestStateAtPreparation !== 'closed'
+    || (preparation.refState !== 'present' && preparation.refState !== 'absent')
     || preparation.pullRequestNumber !== evidence.pullRequestNumber
     || preparation.branch !== evidence.branch
     || preparation.expectedHeadSha !== evidence.headSha
@@ -436,12 +377,11 @@ export function compileClosedUnmergedCloseoutOperation(input: {
   if (preparation.preparationDigest !== input.prepared.preparation.preparationDigest) {
     blockers.push('preparation digest changed');
   }
-  const projected = projectedClosedInventory(input.prepared.before, evidence);
   const authorization = authorizeBranchCloseout({
     preparation,
     request: closeoutRequest(evidence),
     before: input.prepared.before,
-    current: projected,
+    current: input.prepared.before,
     expectedHeadTreeSha: evidence.headTreeSha
   });
   blockers.push(...authorization.blockers);
@@ -653,6 +593,102 @@ function currentAuthorization(
     current: inventory, expectedHeadTreeSha: operation.evidence.headTreeSha });
 }
 
+function terminalConvergenceBlockers(input: Readonly<{
+  operation: ClosedUnmergedCloseoutOperation;
+  inventory: BranchLifecycleInventory;
+}>): Readonly<{ blockers: readonly string[]; residue: readonly string[] }> {
+  const { operation, inventory } = input;
+  const { preparation } = operation.prepared;
+  const { evidence } = operation;
+  const blockers: string[] = [];
+  const residue: string[] = [];
+  if (inventory.repository.root !== preparation.repository.root
+      || inventory.repository.commonDir !== preparation.repository.commonDir
+      || inventory.repository.fullName !== preparation.repository.fullName
+      || inventory.repository.fullName !== evidence.repository
+      || inventory.repository.remote !== preparation.repository.remote
+      || inventory.repository.defaultBranch !== preparation.repository.defaultBranch) {
+    blockers.push('terminal repository identity differs from the prepared repository');
+  }
+  const currentMain = inventory.remoteBranches.find(
+    ({ branch }) => branch === inventory.repository.defaultBranch
+  );
+  if (inventory.main.remoteSha === null || currentMain?.sha !== inventory.main.remoteSha) {
+    blockers.push('terminal current main identity is unresolved');
+  }
+  if (inventory.unknowns.length > 0) blockers.push('inventory contains unresolved facts');
+  if (inventory.activeWorkPackage.state === 'invalid'
+      || inventory.activeWorkPackage.state === 'unresolved') {
+    blockers.push('active Work Package readback is invalid or unresolved');
+  } else if (inventory.activeWorkPackage.state === 'active'
+      && inventory.activeWorkPackage.branch === evidence.branch) {
+    residue.push('active Work Package still selects the terminal branch');
+  }
+  const pullRequest = exactPullRequest(inventory, evidence);
+  if (pullRequest === undefined) blockers.push('exact pull request is absent');
+  else {
+    if (pullRequest.state !== 'closed') blockers.push(`pull request state changed to ${pullRequest.state}`);
+    if (pullRequest.headBranch !== evidence.branch || pullRequest.headSha !== evidence.headSha) {
+      blockers.push('pull request head identity changed');
+    }
+    if (pullRequest.baseBranch !== evidence.baseBranch || pullRequest.baseSha !== evidence.baseSha) {
+      blockers.push('pull request base identity changed');
+    }
+  }
+  try {
+    assertDurableRecoveryAuthority(preparation.recovery, inventory);
+  } catch (error) {
+    blockers.push(error instanceof Error ? error.message : String(error));
+  }
+  if (inventory.remoteBranches.some(({ branch }) => branch === evidence.branch)) {
+    residue.push('remote branch exists after the terminal receipt');
+  }
+  if (inventory.localBranches.some(({ branch }) => branch === evidence.branch)) {
+    residue.push('local branch exists after the terminal receipt');
+  }
+  if (inventory.worktrees.some(({ branch }) => branch === evidence.branch)) {
+    residue.push('registered worktree still binds the terminal branch');
+  }
+  return Object.freeze({
+    blockers: Object.freeze([...new Set(blockers)].sort((left, right) => left.localeCompare(right))),
+    residue: Object.freeze([...new Set(residue)].sort((left, right) => left.localeCompare(right)))
+  });
+}
+
+async function settleClosedUnmergedTerminal(
+  operation: ClosedUnmergedCloseoutOperation,
+  adapter: ClosedUnmergedCloseoutEffectAdapter,
+  terminal: ClosedUnmergedTerminal,
+  expectedPublicationDigest?: `sha256:${string}`
+): Promise<ClosedUnmergedCloseoutExecutionResult> {
+  if (!terminalMatches(operation, terminal)
+    || (expectedPublicationDigest !== undefined
+      && terminal.receipt.publicationDigest !== expectedPublicationDigest)) {
+    return blocked(operation, 'terminal-readback', [
+      expectedPublicationDigest === undefined
+        ? 'terminal receipt conflicts with the exact operation'
+        : 'terminal receipt differs from the exact published receipt'
+    ]);
+  }
+  const inventoryObservation = await providerCall(operation, 'terminal-live-readback', () => (
+    adapter.observeInventory()
+  ));
+  if (isExecutionResult(inventoryObservation)) return inventoryObservation;
+  if (inventoryObservation.status !== 'observed') {
+    return preserve(operation, 'terminal-live-readback', inventoryObservation.detail);
+  }
+  const convergence = terminalConvergenceBlockers({
+    operation,
+    inventory: inventoryObservation.value
+  });
+  if (convergence.blockers.length > 0) {
+    return blocked(operation, 'terminal-live-readback', convergence.blockers);
+  }
+  return convergence.residue.length > 0
+    ? preserve(operation, 'terminal-live-readback', ...convergence.residue)
+    : issueCompletedSettlement(operation, terminal.receipt);
+}
+
 export async function executeClosedUnmergedCloseoutOperation(input: {
   operation: ClosedUnmergedCloseoutOperation;
   provider: ClosedUnmergedCloseoutEffectProvider;
@@ -687,26 +723,7 @@ export async function executeClosedUnmergedCloseoutOperation(input: {
     return preserve(operation, 'terminal-readback', terminalObservation.detail);
   }
   if (terminalObservation.value !== null) {
-    if (!terminalMatches(operation, terminalObservation.value)) {
-      return blocked(operation, 'terminal-readback', ['terminal receipt conflicts with the exact operation']);
-    }
-    const terminalInventory = await observeExactInventory(operation, adapter,
-      'terminal-live-readback', ['closed']);
-    if (isExecutionResult(terminalInventory)) return terminalInventory;
-    const terminalAuthorization = currentAuthorization(operation, terminalInventory);
-    if (terminalAuthorization.blockers.length > 0) {
-      return blocked(operation, 'terminal-live-readback', terminalAuthorization.blockers);
-    }
-    const recreatedRefs = [
-      terminalInventory.remoteBranches.some(({ branch }) => branch === operation.evidence.branch)
-        ? 'remote branch exists after the terminal receipt' : null,
-      terminalInventory.localBranches.some(({ branch }) => branch === operation.evidence.branch)
-        ? 'local branch exists after the terminal receipt' : null
-    ].filter((reason): reason is string => reason !== null);
-    if (recreatedRefs.length > 0) {
-      return preserve(operation, 'terminal-live-readback', ...recreatedRefs);
-    }
-    return issueCompletedSettlement(operation, terminalObservation.value.receipt);
+    return settleClosedUnmergedTerminal(operation, adapter, terminalObservation.value);
   }
 
   const expectedEffectStart = createEffectStartReceipt(operation, adapter.providerIdentity);
@@ -722,12 +739,11 @@ export async function executeClosedUnmergedCloseoutOperation(input: {
   const attempts: BranchCloseoutAttempt[] = [...operation.prepared.attempts];
   if (effectStart === null) {
     const beforeStart = await observeExactInventory(operation, adapter,
-      'effect-start-precondition', ['open', 'closed']);
+      'effect-start-precondition', ['closed']);
     if (isExecutionResult(beforeStart)) return beforeStart;
-    const projectedAuthorization = currentAuthorization(operation,
-      projectedClosedInventory(beforeStart, operation.evidence));
-    if (projectedAuthorization.blockers.length > 0) {
-      return blocked(operation, 'effect-start-precondition', projectedAuthorization.blockers);
+    const startAuthorization = currentAuthorization(operation, beforeStart);
+    if (startAuthorization.blockers.length > 0) {
+      return blocked(operation, 'effect-start-precondition', startAuthorization.blockers);
     }
     const publication = await providerCall(operation, 'effect-start-publication', () => (
       adapter.publishEffectStart(expectedEffectStart)
@@ -755,38 +771,6 @@ export async function executeClosedUnmergedCloseoutOperation(input: {
   }
 
   let inventory = await observeExactInventory(operation, adapter,
-    'pull-request-close-precondition', ['open', 'closed']);
-  if (isExecutionResult(inventory)) return inventory;
-  const beforeClosePr = exactPullRequest(inventory, operation.evidence)!;
-  if (beforeClosePr.state === 'open') {
-    const projectedAuthorization = currentAuthorization(operation,
-      projectedClosedInventory(inventory, operation.evidence));
-    if (projectedAuthorization.blockers.length > 0) {
-      return blocked(operation, 'pull-request-close-precondition', projectedAuthorization.blockers);
-    }
-    const close = await providerCall(operation, 'pull-request-close', () => (
-      adapter.closePullRequest({ operationId: operation.operationId,
-        repository: operation.evidence.repository,
-        pullRequestNumber: operation.evidence.pullRequestNumber,
-        expectedHeadBranch: operation.evidence.branch,
-        expectedHeadSha: operation.evidence.headSha,
-        expectedBaseBranch: operation.evidence.baseBranch,
-        expectedBaseSha: operation.evidence.baseSha })
-    ));
-    if (isExecutionResult(close)) return close;
-    if (close.status === 'ambiguous') {
-      await providerCall(operation, 'pull-request-close-readback', () => adapter.observeInventory());
-      return preserve(operation, 'pull-request-close', close.detail);
-    }
-    if (close.status !== 'applied' && close.status !== 'already-applied') {
-      return preserve(operation, 'pull-request-close', close.detail);
-    }
-    inventory = await observeExactInventory(operation, adapter,
-      'pull-request-close-readback', ['closed']);
-    if (isExecutionResult(inventory)) return inventory;
-  }
-
-  inventory = await observeExactInventory(operation, adapter,
     'remote-delete-precondition', ['closed']);
   if (isExecutionResult(inventory)) return inventory;
   let authorization = currentAuthorization(operation, inventory);
@@ -911,9 +895,10 @@ export async function executeClosedUnmergedCloseoutOperation(input: {
     return preserve(operation, 'terminal-readback',
       terminalReadback.status === 'observed' ? 'terminal receipt is absent after publication' : terminalReadback.detail);
   }
-  if (!terminalMatches(operation, terminalReadback.value)
-    || terminalReadback.value.receipt.publicationDigest !== published.publicationDigest) {
-    return blocked(operation, 'terminal-readback', ['terminal receipt differs from the exact published receipt']);
-  }
-  return issueCompletedSettlement(operation, terminalReadback.value.receipt);
+  return settleClosedUnmergedTerminal(
+    operation,
+    adapter,
+    terminalReadback.value,
+    published.publicationDigest
+  );
 }

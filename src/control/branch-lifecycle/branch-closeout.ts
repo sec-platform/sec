@@ -110,7 +110,6 @@ export interface PrepareBranchCloseoutInput {
 
 export interface PrepareClosedUnmergedPullRequestCloseoutInput {
   number: number;
-  state: 'open' | 'closed';
   refState: 'present' | 'absent';
   headBranch: string;
   headSha: string;
@@ -124,7 +123,6 @@ type BranchCloseoutPreparationAdmission =
   | { kind: 'active-work-package' }
   | {
       kind: 'closed-unmerged';
-      expectedState: 'open' | 'closed';
       expectedBaseBranch: string;
       expectedBaseSha: string;
       exactPullRequest: BranchPullRequestObservation;
@@ -439,9 +437,9 @@ function prepareBranchCloseoutInternal(
   }
   if (pullRequest) {
     if (admission.kind === 'closed-unmerged') {
-      if (pullRequest.state !== admission.expectedState) {
+      if (pullRequest.state !== 'closed') {
         throw new Error(
-          `Closed-unmerged preparation requires an exact ${admission.expectedState} PR, observed ${pullRequest.state}.`
+          `Closed-unmerged preparation requires an exact closed PR, observed ${pullRequest.state}.`
         );
       }
       if (
@@ -568,7 +566,7 @@ export function prepareBranchCloseout(
 }
 
 /**
- * Produces only durable recovery/preparation for an exact open or closed PR
+ * Produces only durable recovery/preparation for an exact closed PR
  * that has no active Work Package. It cannot close the PR or mutate refs; the separate
  * closed-unmerged operation compiler must still prove disposition and obtain
  * the opaque Effect provider before any external mutation.
@@ -577,14 +575,8 @@ export function prepareClosedUnmergedPullRequestCloseout(
   scope: BranchCloseoutScope,
   input: PrepareClosedUnmergedPullRequestCloseoutInput
 ): PreparedBranchCloseoutEnvelope {
-  if (input.state !== 'open' && input.state !== 'closed') {
-    throw new Error('Closed-unmerged PR state must be open or closed.');
-  }
   if (input.refState !== 'present' && input.refState !== 'absent') {
     throw new Error('Closed-unmerged ref state must be present or absent.');
-  }
-  if (input.state === 'open' && input.refState === 'absent') {
-    throw new Error('An open closed-unmerged PR requires its exact remote ref to be present.');
   }
   assertGitBranchName(input.headBranch);
   assertGitSha(input.headSha, 'closed-unmerged PR head');
@@ -598,7 +590,6 @@ export function prepareClosedUnmergedPullRequestCloseout(
     pullRequestNumber: input.number
   }, {
     kind: 'closed-unmerged',
-    expectedState: input.state,
     expectedBaseBranch: input.baseBranch,
     expectedBaseSha: input.baseSha,
     exactPullRequest: input.exactPullRequest

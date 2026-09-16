@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 import { issueDevelopmentCommitAdmission } from '../commit-admission/operation.ts';
-import { acknowledgeDevelopmentCommitResult, runDevelopmentCommit } from '../commit/operation.ts';
+import { acknowledgeDevelopmentCommitResult, acknowledgeNotAppliedDevelopmentCommitResult, runDevelopmentCommit } from '../commit/operation.ts';
 
 /** Public CLI orchestration; all decisions and Effects remain in their domain owners. */
 export async function runDevelopmentCommitCommand(args: readonly string[]): Promise<number> {
@@ -15,5 +15,6 @@ export async function runDevelopmentCommitCommand(args: readonly string[]): Prom
   const result = await runDevelopmentCommit(prepared.request, prepared.admission);
   console.log(JSON.stringify(result, null, 2));
   if (result.disposition === 'applied') acknowledgeDevelopmentCommitResult(result);
+  else if (result.disposition === 'not-applied') await acknowledgeNotAppliedDevelopmentCommitResult(result);
   return result.disposition === 'applied' ? 0 : 1;
 }

@@ -1,6 +1,9 @@
 import path from 'node:path';
 
-import { settleDevelopmentCommitJournalsForRef } from '../../development/commit/operation.ts';
+import {
+  CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUEST_CEILING,
+  settleDevelopmentCommitJournalsForRef
+} from '../../development/commit/operation.ts';
 import { GIT_READ_OPERATION_BUDGET } from '../../development/tooling/git/git-read.ts';
 import { withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
 import { assertGitPhysicalProviderReceipt, closeGitPhysicalProvider, openGitPhysicalProvider } from '../../external-capabilities/git/physical-provider.ts';
@@ -20,10 +23,10 @@ import { bindSecSemanticOperation, compileSecCapabilityBinding, compileSecSemant
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease } from '../../workspace/lease.ts';
 import { observeActiveWorkPackage } from '../documentation/document-control-plane.ts';
 import {
-  assertPreparedBranchCloseoutEnvelope,
+  parsePreparedBranchCloseoutEnvelope,
   type PreparedBranchCloseoutEnvelope
 } from './branch-closeout.ts';
-import { collectBranchLifecycleInventory } from './branch-lifecycle-inventory.ts';
+import { collectBranchLifecycleCloseoutTargetInventory } from './branch-lifecycle-inventory.ts';
 import { parsePullRequestObservations } from './branch-lifecycle-parsers.ts';
 import type { BranchLifecycleInventory, BranchPullRequestObservation } from './branch-lifecycle-types.ts';
 import {
@@ -58,16 +61,21 @@ const COMMENT_OBSERVATION_COUNT = 4;
 const COMMENT_PUBLICATION_COUNT = 2;
 const COMMENT_PAGE_SESSION_COUNT = MAX_COMMENT_PAGES;
 const REMOTE_CAS_SESSION_COUNT = 1;
+const RETIREMENT_SESSION_COUNT = 1;
+const RETIREMENT_GIT_READ_COUNT = 2;
 const ENROLLED_SINGLE_READ_REQUESTS = 3;
 const ENROLLED_REVIEW_REQUESTS = 4;
 const ENROLLED_PUBLICATION_READBACK_REQUESTS = 4;
 const ENROLLED_REMOTE_CAS_REQUESTS = 4;
+const ENROLLED_RETIREMENT_REQUESTS = 2
+  + CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUEST_CEILING;
 const WORKFLOW_SESSION_LIMIT = COMPILE_FIXED_SESSION_COUNT
   + COMPLETED_PREPARATION_OBSERVATION_COUNT * COMMENT_PAGE_SESSION_COUNT
   + EXECUTION_INVENTORY_COUNT
   + COMMENT_OBSERVATION_COUNT * COMMENT_PAGE_SESSION_COUNT
   + COMMENT_PUBLICATION_COUNT * (COMMENT_PAGE_SESSION_COUNT + 1)
-  + REMOTE_CAS_SESSION_COUNT;
+  + REMOTE_CAS_SESSION_COUNT
+  + RETIREMENT_SESSION_COUNT;
 const WORKFLOW_REQUEST_LIMIT = 2 * ENROLLED_SINGLE_READ_REQUESTS + ENROLLED_REVIEW_REQUESTS
   + COMPLETED_PREPARATION_OBSERVATION_COUNT
     * COMMENT_PAGE_SESSION_COUNT * ENROLLED_SINGLE_READ_REQUESTS
@@ -77,9 +85,11 @@ const WORKFLOW_REQUEST_LIMIT = 2 * ENROLLED_SINGLE_READ_REQUESTS + ENROLLED_REVI
     COMMENT_PAGE_SESSION_COUNT * ENROLLED_SINGLE_READ_REQUESTS
     + ENROLLED_PUBLICATION_READBACK_REQUESTS
   )
-  + REMOTE_CAS_SESSION_COUNT * ENROLLED_REMOTE_CAS_REQUESTS;
+  + REMOTE_CAS_SESSION_COUNT * ENROLLED_REMOTE_CAS_REQUESTS
+  + RETIREMENT_SESSION_COUNT * ENROLLED_RETIREMENT_REQUESTS;
 const WORKFLOW_DURATION_LIMIT_MS = WORKFLOW_SESSION_LIMIT * GITHUB_API_REQUEST_TIMEOUT_MS
-  + (COMPILE_FIXED_SESSION_COUNT + EXECUTION_INVENTORY_COUNT) * GIT_READ_OPERATION_BUDGET.deadlineMs
+  + (COMPILE_FIXED_SESSION_COUNT + EXECUTION_INVENTORY_COUNT + RETIREMENT_GIT_READ_COUNT)
+    * GIT_READ_OPERATION_BUDGET.deadlineMs
   + 2 * LOCAL_EFFECT_DURATION_MS;
 
 type CommentRecord = Readonly<{ id: number; body: string; authorNodeId: string }>;
@@ -166,13 +176,18 @@ function createWorkflowSessions(input: Readonly<{
     observeHeadRef: (branch) => withSession({ requestCeiling: ENROLLED_SINGLE_READ_REQUESTS, operation: async (capability) => {
       try {
         const value = await executeGitHubApiOperation(capability, { kind: 'git-ref', branch });
+        const record = value !== null && typeof value === 'object' && !Array.isArray(value)
+          ? value as Record<string, unknown>
+          : null;
         const object = value !== null && typeof value === 'object' && !Array.isArray(value)
           ? (value as Record<string, unknown>).object
           : null;
         const sha = object !== null && typeof object === 'object' && !Array.isArray(object)
           ? (object as Record<string, unknown>).sha
           : null;
-        if (typeof sha !== 'string' || !/^[0-9a-f]{40}$/u.test(sha)) {
+        if (record?.ref !== `refs/heads/${branch}`
+            || (object as Record<string, unknown> | null)?.type !== 'commit'
+            || typeof sha !== 'string' || !/^[0-9a-f]{40}$/u.test(sha)) {
           throw new Error('GitHub exact head ref response is invalid.');
         }
         return Object.freeze({ state: 'present' as const, sha });
@@ -242,12 +257,6 @@ export async function observeProductionClosedUnmergedPullRequest(input: Readonly
   );
 }
 
-function mergeExactPullRequest(inventory: BranchLifecycleInventory, exact: BranchPullRequestObservation): BranchLifecycleInventory {
-  return Object.freeze({ ...inventory, pullRequests: [
-    ...inventory.pullRequests.filter(({ number }) => number !== exact.number), exact
-  ].sort((left, right) => left.number - right.number) });
-}
-
 function commentRecord(value: unknown): CommentRecord {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('GitHub issue comment response is invalid.');
   const comment = value as Record<string, unknown>;
@@ -284,12 +293,13 @@ async function observeMarked<T extends { operationId: string }>(input: Readonly<
   try {
     const matches: T[] = [];
     for (const comment of await listComments(input.withSession, input.pullRequestNumber)) {
+      if (comment.authorNodeId !== input.principalNodeId) continue;
       if (!comment.body.startsWith(input.marker)) continue;
       let parsed: T;
       try { parsed = JSON.parse(comment.body.slice(input.marker.length)) as T; }
       catch { return Object.freeze({ status: 'ambiguous', detail: 'operation marker has invalid JSON' }); }
       if (parsed?.operationId !== input.operationId) continue;
-      if (comment.authorNodeId !== input.principalNodeId || comment.body !== renderComment(input.marker, parsed)) {
+      if (comment.body !== renderComment(input.marker, parsed)) {
         return Object.freeze({ status: 'ambiguous', detail: 'operation comment provenance is invalid' });
       }
       matches.push(parsed);
@@ -310,24 +320,25 @@ async function observeCompletedPreparation(input: Readonly<{
   if (input.principalNodeId.length === 0) {
     throw new Error('Closed-unmerged workflow principal is not established.');
   }
-  const matches: PreparedBranchCloseoutEnvelope[] = [];
+  const matches: unknown[] = [];
   for (const comment of await listComments(input.withSession, input.pullRequestNumber)) {
+    if (comment.authorNodeId !== input.principalNodeId) continue;
     if (!comment.body.startsWith(TERMINAL_MARKER)) continue;
     let terminal: ClosedUnmergedTerminal;
     try { terminal = JSON.parse(comment.body.slice(TERMINAL_MARKER.length)) as ClosedUnmergedTerminal; }
     catch { throw new Error('Closed-unmerged terminal marker has invalid JSON.'); }
     if (terminal.evidenceDigest !== input.evidenceDigest) continue;
-    if (comment.authorNodeId !== input.principalNodeId
-        || comment.body !== renderComment(TERMINAL_MARKER, terminal)) {
+    if (comment.body !== renderComment(TERMINAL_MARKER, terminal)) {
       throw new Error('Closed-unmerged completed terminal provenance is invalid.');
     }
-    assertPreparedBranchCloseoutEnvelope(terminal.prepared);
     matches.push(terminal.prepared);
   }
   if (matches.length > 1) {
     throw new Error('Closed-unmerged completed terminal is ambiguous for the exact evidence.');
   }
-  return matches[0] ?? null;
+  const prepared = matches[0];
+  if (prepared === undefined) return null;
+  return parsePreparedBranchCloseoutEnvelope(JSON.stringify(prepared));
 }
 
 async function publishMarked<T extends { operationId: string }>(input: Readonly<{
@@ -442,6 +453,8 @@ function createProductionClosedUnmergedCloseoutAdapter(input: Readonly<{
   repositoryRoot: string;
   repository: string;
   pullRequestNumber: number;
+  targetBranch: string;
+  preparedInventory: BranchLifecycleInventory;
   binding: WorkflowBinding;
   withSession: BoundGitHubSession;
   assertWorkflowCurrent(): void;
@@ -459,9 +472,15 @@ function createProductionClosedUnmergedCloseoutAdapter(input: Readonly<{
           observeProductionClosedUnmergedPullRequest({ capability, pullRequestNumber: input.pullRequestNumber })
         ) })
       ]);
-      return Object.freeze({ status: 'observed', value: mergeExactPullRequest(
-        collectBranchLifecycleInventory({ repositoryRoot, repositoryFullName: input.repository, activeWorkPackageObservation }), pull
-      ) });
+      return Object.freeze({ status: 'observed', value: collectBranchLifecycleCloseoutTargetInventory({
+        repositoryRoot,
+        repositoryFullName: input.repository,
+        activeWorkPackageObservation,
+        targetBranch: input.targetBranch,
+        pullRequestNumber: input.pullRequestNumber,
+        exactPullRequest: pull,
+        preparedInventory: input.preparedInventory
+      }) });
     } catch (error) { return Object.freeze({ status: 'unavailable', detail: error instanceof Error ? error.message : String(error) }); }
   };
   return Object.freeze<ClosedUnmergedCloseoutEffectAdapter>({
@@ -472,20 +491,10 @@ function createProductionClosedUnmergedCloseoutAdapter(input: Readonly<{
     publishEffectStart: async (receipt) => { input.assertWorkflowCurrent(); await input.assertWriteLease(); return publishMarked({
       withSession: input.withSession, pullRequestNumber: input.pullRequestNumber,
       value: receipt, marker: START_MARKER, principalNodeId: binding.principal.nodeId }); },
-    closePullRequest: async () => Object.freeze({
-      status: 'rejected', detail: 'production closeout admits only an already-closed pull request'
-    }),
     deleteRemoteRefCas: async (request) => {
       input.assertWorkflowCurrent();
       await input.assertWriteLease();
       if (request.repository !== input.repository) return Object.freeze({ status: 'rejected', detail: 'remote ref delete repository differs' });
-      try {
-        await settleDevelopmentCommitJournalsForRef({ repositoryRoot, ref: `refs/heads/${request.branch}` });
-      } catch (error) {
-        return Object.freeze({ status: 'rejected', detail: `development commit journals are not settled: ${error instanceof Error ? error.message : String(error)}` });
-      }
-      input.assertWorkflowCurrent();
-      await input.assertWriteLease();
       try {
         await input.withSession({ requestCeiling: ENROLLED_REMOTE_CAS_REQUESTS, operation: async (capability) => {
           await executeGitHubApiOperation(capability, { kind: 'delete-ref-cas', branch: request.branch, expectedOldSha: request.expectedOldSha });
@@ -497,9 +506,6 @@ function createProductionClosedUnmergedCloseoutAdapter(input: Readonly<{
       input.assertWorkflowCurrent();
       await input.assertWriteLease();
       try {
-        await settleDevelopmentCommitJournalsForRef({ repositoryRoot, ref: `refs/heads/${request.branch}` });
-        input.assertWorkflowCurrent();
-        await input.assertWriteLease();
         const disposition = await deleteLocalGitRef({ repositoryRoot, operationId: request.operationId,
           ref: `refs/remotes/${request.remote}/${request.branch}`, expectedOldSha: request.expectedOldSha });
         return Object.freeze({ status: disposition === 'deleted' ? 'applied' : 'already-applied', detail: `remote-tracking ref ${disposition}` });
@@ -541,6 +547,8 @@ export async function executeProductionClosedUnmergedCloseout(input: Readonly<{
     const completed = await executeClosedUnmergedCloseoutOperation({ operation,
       provider: issueClosedUnmergedCloseoutEffectProvider(createProductionClosedUnmergedCloseoutAdapter({
         repositoryRoot, repository: input.repository, pullRequestNumber: operation.evidence.pullRequestNumber,
+        targetBranch: operation.evidence.branch,
+        preparedInventory: operation.prepared.before,
         binding: workflow.binding(), withSession: workflow.withSession,
         assertWorkflowCurrent: workflow.assertCurrent,
         assertWriteLease: () => assertWorkspaceWriteLease(repositoryRoot, lease)
@@ -551,9 +559,11 @@ export async function executeProductionClosedUnmergedCloseout(input: Readonly<{
     await assertRemoteTrackingRefAbsent({ repositoryRoot,
       remote: operation.prepared.preparation.repository.remote,
       branch: operation.evidence.branch });
-    let retirement: ReturnType<typeof retireClosedUnmergedRecoveryFamily>;
+    let retirement: Awaited<ReturnType<typeof retireClosedUnmergedRecoveryFamily>>;
     try {
-      retirement = retireClosedUnmergedRecoveryFamily({ operation, completed });
+      retirement = await workflow.withSession({ requestCeiling: ENROLLED_RETIREMENT_REQUESTS, operation: (capability) => (
+        retireClosedUnmergedRecoveryFamily({ operation, completed, capability })
+      ) });
     } catch (error) {
       return Object.freeze({ status: 'preserved' as const, operationId: operation.operationId,
         stage: 'recovery-retirement', reasons: Object.freeze([

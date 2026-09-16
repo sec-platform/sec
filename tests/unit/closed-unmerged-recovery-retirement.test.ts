@@ -15,7 +15,7 @@ import { branchLifecycleDigest } from '../../src/control/branch-lifecycle/branch
 import type { BranchLifecycleInventory } from '../../src/control/branch-lifecycle/branch-lifecycle-types.ts';
 import {
   compileClosedUnmergedCloseoutOperation,
-  createEvidenceCloseDispositionEvidence,
+  createClosedSupersededDispositionEvidence,
   executeClosedUnmergedCloseoutOperation,
   issueClosedUnmergedCloseoutEffectProvider,
   type ClosedUnmergedCloseoutEffectAdapter,
@@ -24,10 +24,24 @@ import {
   type ClosedUnmergedTerminal
 } from '../../src/control/branch-lifecycle/closed-unmerged-closeout.ts';
 import { retireClosedUnmergedRecoveryFamily } from '../../src/control/branch-lifecycle/closed-unmerged-recovery-retirement.ts';
+import type { GitHubApiPrincipal } from '../../src/external-capabilities/github-api/operation-session.ts';
+import {
+  issueGitHubApiTestCapability,
+  withGitHubApiTestSession,
+  type GitHubApiTransport
+} from '../../src/external-capabilities/github-api/test/operation-session.ts';
+import { observeTestClosedSupersessionEvidence } from '../helpers/closed-supersession-evidence.ts';
 
 const REPOSITORY = 'sec-platform/sec';
 const BRANCH = 'codex/retired-closed-branch';
 const PR_NUMBER = 593;
+const GITHUB_PRINCIPAL: GitHubApiPrincipal = Object.freeze({
+  transport: 'github-rest-token',
+  login: 'maintainer',
+  nodeId: 'MDQ6VXNlcjU5Mw==',
+  userId: 593,
+  permission: 'maintain'
+});
 
 function git(root: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], { cwd: root, encoding: 'utf8', windowsHide: true });
@@ -48,22 +62,26 @@ function fixture(): Readonly<{
   git(parent, ['init', '--quiet', '--initial-branch=main', root]);
   git(root, ['config', 'user.name', 'SEC Tests']);
   git(root, ['config', 'user.email', 'tests@example.com']);
-  writeFileSync(path.join(root, 'tracked.txt'), 'tracked\n', 'utf8');
+  git(root, ['remote', 'add', 'origin', `https://github.com/${REPOSITORY}.git`]);
+  writeFileSync(path.join(root, 'tracked.txt'), 'closed branch behavior\n', 'utf8');
   git(root, ['add', 'tracked.txt']);
-  git(root, ['commit', '--quiet', '-m', 'fixture']);
-  const head = git(root, ['rev-parse', 'HEAD']);
+  git(root, ['commit', '--quiet', '-m', 'closed branch head']);
+  const headSha = git(root, ['rev-parse', 'HEAD']);
+  writeFileSync(path.join(root, 'tracked.txt'), 'current main replacement\n', 'utf8');
+  git(root, ['commit', '--quiet', '-am', 'current main replacement']);
+  const mainSha = git(root, ['rev-parse', 'HEAD']);
   const commonDir = path.resolve(root, '.git');
   const inventory: BranchLifecycleInventory = {
     schema: 'sec-branch-lifecycle-inventory-v1', observedAt: '2026-09-16T00:00:00.000Z',
     repository: { root, commonDir, fullName: REPOSITORY, remote: 'origin',
       remoteUrl: `https://github.com/${REPOSITORY}.git`, defaultBranch: 'main' },
-    main: { localSha: head, remoteSha: head },
-    localBranches: [{ branch: 'main', sha: head }],
-    remoteBranches: [{ branch: 'main', sha: head }],
-    worktrees: [{ path: root, headSha: head, branch: 'main', dirtyCount: 0,
+    main: { localSha: mainSha, remoteSha: mainSha },
+    localBranches: [{ branch: 'main', sha: mainSha }],
+    remoteBranches: [{ branch: 'main', sha: mainSha }],
+    worktrees: [{ path: root, headSha: mainSha, branch: 'main', dirtyCount: 0,
       untrackedCount: 0, locked: false, prunable: false, observation: 'resolved', reason: null }],
-    pullRequests: [{ number: PR_NUMBER, headBranch: BRANCH, headSha: head,
-      baseBranch: 'main', baseSha: head, state: 'closed', isDraft: false,
+    pullRequests: [{ number: PR_NUMBER, headBranch: BRANCH, headSha,
+      baseBranch: 'main', baseSha: headSha, state: 'closed', isDraft: false,
       isCrossRepository: false, url: `https://github.com/${REPOSITORY}/pull/${PR_NUMBER}`,
       closeoutReceipt: { requirement: 'not-required', status: 'not-required', receipt: null, reason: null } }],
     activeWorkPackage: { state: 'none', branch: null, manifest: null, reason: null },
@@ -80,8 +98,8 @@ function fixture(): Readonly<{
   const preparation = createBranchCloseoutPreparation({
     preparedAt: '2026-09-16T00:01:00.000Z',
     repository: inventory.repository, branch: BRANCH, refState: 'absent',
-    expectedHeadSha: head, expectedRemoteSha: head, expectedLocalSha: null,
-    expectedPrHeadSha: head, pullRequestNumber: PR_NUMBER,
+    expectedHeadSha: headSha, expectedRemoteSha: headSha, expectedLocalSha: null,
+    expectedPrHeadSha: headSha, pullRequestNumber: PR_NUMBER,
     pullRequestStateAtPreparation: 'closed',
     recovery: { kind: 'bundle', path: bundlePath, sha256: `sha256:${bundleDigest}`,
       verified: true, verifyOutput: 'verified fixture bundle' },
@@ -98,13 +116,35 @@ async function completed(input: ReturnType<typeof fixture>): Promise<Readonly<{
   operation: ClosedUnmergedCloseoutOperation;
   completed: ClosedUnmergedCloseoutExecutionResult;
 }>> {
-  const head = input.inventory.main.remoteSha;
-  if (head === null) throw new Error('Retirement fixture must observe a main commit.');
-  const tree = git(input.root, ['rev-parse', 'HEAD^{tree}']);
-  const evidence = createEvidenceCloseDispositionEvidence({ repository: REPOSITORY,
-    pullRequestNumber: PR_NUMBER, branch: BRANCH, headSha: head, headTreeSha: tree,
-    baseBranch: 'main', baseSha: head, currentMainSha: head, currentMainTreeSha: tree,
-    durableGoal: { kind: 'evidence', reference: 'exact-tree-parity-retirement-fixture' } });
+  const pullRequest = input.inventory.pullRequests[0]!;
+  if (pullRequest.headSha === null || pullRequest.baseSha == null) {
+    throw new Error('Retirement fixture requires exact PR head and base commits.');
+  }
+  const currentMainSha = input.inventory.main.remoteSha;
+  if (currentMainSha === null) throw new Error('Retirement fixture must observe a main commit.');
+  const headTreeSha = git(input.root, ['rev-parse', `${pullRequest.headSha}^{tree}`]);
+  const currentMainTreeSha = git(input.root, ['rev-parse', `${currentMainSha}^{tree}`]);
+  const supersession = await observeTestClosedSupersessionEvidence({
+    repositoryRoot: input.root,
+    repository: REPOSITORY,
+    pullRequestNumber: PR_NUMBER,
+    commentId: 5931,
+    headSha: pullRequest.headSha,
+    headTreeSha,
+    currentMainSha,
+    currentMainTreeSha,
+    paths: [{
+      path: 'tracked.txt', disposition: 'superseded',
+      reason: 'Current main replaces the closed branch behavior.'
+    }]
+  });
+  const evidence = createClosedSupersededDispositionEvidence({ repository: REPOSITORY,
+    pullRequestNumber: PR_NUMBER, branch: BRANCH,
+    headSha: pullRequest.headSha, headTreeSha,
+    baseBranch: 'main', baseSha: pullRequest.baseSha,
+    currentMainSha, currentMainTreeSha,
+    durableGoal: { kind: 'evidence', reference: 'closed-superseded-retirement-fixture' },
+    supersession });
   const compiled = compileClosedUnmergedCloseoutOperation({ prepared: input.prepared, evidence });
   if (compiled.status !== 'ready') throw new Error(compiled.blockers.join(' | '));
   const starts = new Map<string, Parameters<ClosedUnmergedCloseoutEffectAdapter['publishEffectStart']>[0]>();
@@ -114,7 +154,6 @@ async function completed(input: ReturnType<typeof fixture>): Promise<Readonly<{
     async observeInventory() { return { status: 'observed', value: structuredClone(input.inventory) }; },
     async observeEffectStart(operationId) { return { status: 'observed', value: starts.get(operationId) ?? null }; },
     async publishEffectStart(receipt) { starts.set(receipt.operationId, receipt); return { status: 'applied', detail: 'persisted' }; },
-    async closePullRequest() { return { status: 'already-applied', detail: 'closed' }; },
     async deleteRemoteRefCas() { return { status: 'already-applied', detail: 'absent' }; },
     async deleteLocalRefCas() { return { status: 'already-applied', detail: 'absent' }; },
     async pruneRemote() { return { status: 'applied', detail: 'tracking absent' }; },
@@ -127,11 +166,56 @@ async function completed(input: ReturnType<typeof fixture>): Promise<Readonly<{
   return Object.freeze({ operation: compiled.operation, completed: result });
 }
 
+async function retireWithGitHubObservation(
+  fixtureValue: ReturnType<typeof fixture>,
+  input: Omit<Parameters<typeof retireClosedUnmergedRecoveryFamily>[0], 'capability'>
+) {
+  const pullRequest = fixtureValue.inventory.pullRequests.find(({ number }) => number === PR_NUMBER);
+  if (pullRequest === undefined) throw new Error('Retirement fixture PR is missing.');
+  const capability = issueGitHubApiTestCapability({
+    repository: REPOSITORY,
+    token: 'closed-unmerged-recovery-retirement-test-token',
+    principal: GITHUB_PRINCIPAL,
+    effect: 'read',
+    transport: (async (target) => {
+      const pathname = new URL(String(target)).pathname;
+      if (pathname === `/repos/${REPOSITORY}`) {
+        return Response.json({ full_name: REPOSITORY, default_branch: 'main' });
+      }
+      if (pathname === `/repos/${REPOSITORY}/pulls/${PR_NUMBER}`) {
+        return Response.json({
+          number: PR_NUMBER,
+          state: 'closed',
+          merged: false,
+          head: {
+            ref: pullRequest.headBranch,
+            sha: pullRequest.headSha,
+            repo: { full_name: REPOSITORY }
+          },
+          base: {
+            ref: pullRequest.baseBranch,
+            sha: pullRequest.baseSha,
+            repo: { full_name: REPOSITORY }
+          }
+        });
+      }
+      if (pathname === `/repos/${REPOSITORY}/git/ref/heads/${BRANCH}`) {
+        return Response.json({ message: 'Not Found' }, { status: 404 });
+      }
+      return Response.json({ message: `Unexpected path ${pathname}` }, { status: 500 });
+    }) satisfies GitHubApiTransport
+  });
+  return await withGitHubApiTestSession({
+    capability,
+    operation: async () => await retireClosedUnmergedRecoveryFamily({ ...input, capability })
+  });
+}
+
 test('closed-unmerged terminal retires its exact recovery family and default empty root', async () => {
   const value = fixture();
   try {
     const settlement = await completed(value);
-    const result = retireClosedUnmergedRecoveryFamily(settlement);
+    const result = await retireWithGitHubObservation(value, settlement);
     expect(result.status).toBe('completed');
     expect(result.retired).toEqual([
       value.bundlePath, `${value.bundlePath}.sha256`, `${value.bundlePath}.preparation.json`
@@ -139,7 +223,7 @@ test('closed-unmerged terminal retires its exact recovery family and default emp
     expect(result.retained).toEqual([]);
     expect(result.recoveryRootRetired).toBe(true);
     expect(existsSync(value.recoveryRoot)).toBe(false);
-    const repeated = retireClosedUnmergedRecoveryFamily(settlement);
+    const repeated = await retireWithGitHubObservation(value, settlement);
     expect(repeated).toEqual({
       status: 'already-retired',
       retired: [],
@@ -151,7 +235,7 @@ test('closed-unmerged terminal retires its exact recovery family and default emp
   } finally {
     rmSync(path.dirname(value.root), { recursive: true, force: true });
   }
-});
+}, 30_000);
 
 test('retirement rejects copied settlement and unknown family consumer before the first delete', async () => {
   for (const mode of ['copy', 'sidecar'] as const) {
@@ -160,9 +244,11 @@ test('retirement rejects copied settlement and unknown family consumer before th
       const settlement = await completed(value);
       if (mode === 'sidecar') writeFileSync(`${value.bundlePath}.consumer.json`, '{}\n', 'utf8');
       const candidate = mode === 'copy' ? { ...settlement.completed } : settlement.completed;
-      expect(() => retireClosedUnmergedRecoveryFamily({
+      await expect(retireWithGitHubObservation(value, {
         operation: settlement.operation, completed: candidate
-      })).toThrow(mode === 'copy' ? /owner-issued completed settlement/u : /active or unknown consumers/u);
+      })).rejects.toThrow(
+        mode === 'copy' ? /owner-issued completed settlement/u : /active or unknown consumers/u
+      );
       expect(existsSync(value.bundlePath)).toBe(true);
       expect(existsSync(`${value.bundlePath}.sha256`)).toBe(true);
       expect(existsSync(`${value.bundlePath}.preparation.json`)).toBe(true);
@@ -170,14 +256,17 @@ test('retirement rejects copied settlement and unknown family consumer before th
       rmSync(path.dirname(value.root), { recursive: true, force: true });
     }
   }
-});
+}, 30_000);
 
 test('ordered partial retirement resumes safely and preserves an explicit shared root', async () => {
   const value = fixture();
   try {
     const settlement = await completed(value);
     unlinkSync(value.bundlePath);
-    const result = retireClosedUnmergedRecoveryFamily({ ...settlement, recoveryRoot: value.recoveryRoot });
+    const result = await retireWithGitHubObservation(value, {
+      ...settlement,
+      recoveryRoot: value.recoveryRoot
+    });
     expect(result.status).toBe('completed');
     expect(result.retired).toEqual([
       `${value.bundlePath}.sha256`, `${value.bundlePath}.preparation.json`
@@ -188,4 +277,4 @@ test('ordered partial retirement resumes safely and preserves an explicit shared
   } finally {
     rmSync(path.dirname(value.root), { recursive: true, force: true });
   }
-});
+}, 30_000);

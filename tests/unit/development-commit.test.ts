@@ -11,8 +11,15 @@ import {
   type DevelopmentCommitRequest
 } from '../../src/development/commit-admission/operation.ts';
 import {
+  acknowledgeClosedAbsentDevelopmentCommitJournalRetirement,
   acknowledgeDevelopmentCommitResult,
+  acknowledgeNotAppliedDevelopmentCommitResult,
+  CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_CONTRACT_DIGEST,
+  CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_PROVIDER_IDENTITY_DIGEST,
+  CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUIREMENT_ID,
+  CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_RESOURCE_CEILINGS,
   DevelopmentCommitLostHandleError,
+  prepareClosedAbsentDevelopmentCommitJournalRetirement,
   readDevelopmentCommitOutcome,
   recoverDevelopmentCommit,
   retireMergedDevelopmentCommitJournals,
@@ -31,6 +38,15 @@ import {
   withGitHubApiTestSession,
   type GitHubApiTransport
 } from '../../src/external-capabilities/github-api/test/operation-session.ts';
+import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { issueSecOperationRequirementBindingContext } from '../../src/system-architecture/operation/requirement-binding-context.ts';
+import {
+  bindSecSemanticOperation,
+  compileSecCapabilityBinding,
+  compileSecSemanticOperationPlan,
+  issueSecSemanticOperationAttemptContext,
+  type SecOperationDigest
+} from '../../src/system-architecture/operation/semantic.ts';
 
 const GITHUB_REPOSITORY = 'sec-platform/sec';
 const GITHUB_TOKEN = 'development-commit-test-token';
@@ -98,6 +114,39 @@ async function fixture(): Promise<Readonly<{
         date: '1700000100 +0000'
       })
     })
+  });
+}
+
+function closedAbsentRetirementBinding() {
+  const intentDigest = sha256({ fixture: 'closed-absent-development-commit-retirement' }) as SecOperationDigest;
+  const deadlineAtUnixMs = Date.now() + 30_000;
+  const operation = bindSecSemanticOperation(compileSecSemanticOperationPlan({
+    operation: 'control.branch-lifecycle.closed-absent-development-commit-retirement',
+    intentDigest,
+    decisionDigest: intentDigest,
+    deadlineAtUnixMs,
+    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: intentDigest }),
+    aggregateBudgets: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_RESOURCE_CEILINGS,
+    requirements: [{
+      id: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUIREMENT_ID,
+      contractDigest: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_CONTRACT_DIGEST,
+      effectKinds: ['filesystem', 'process', 'provider'],
+      failureKinds: [
+        'filesystem.identity-drift',
+        'filesystem.write-failed',
+        'process.settlement-unproven',
+        'process.unavailable'
+      ]
+    }]
+  }), [compileSecCapabilityBinding({
+    requirementId: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUIREMENT_ID,
+    contractDigest: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_CONTRACT_DIGEST,
+    providerIdentityDigest: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_PROVIDER_IDENTITY_DIGEST
+  })]);
+  return issueSecOperationRequirementBindingContext({
+    operation,
+    requirementId: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUIREMENT_ID,
+    resourceCeilings: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_RESOURCE_CEILINGS
   });
 }
 
@@ -348,6 +397,134 @@ test('development.commit retires a merged PR journal as a consumed transport wit
   }
 }, 40_000);
 
+test('development.commit retires only an owner-planned closed-absent PR journal family', async () => {
+  const { root, request } = await fixture();
+  try {
+    git(root, ['branch', '-m', 'main']);
+    git(root, ['remote', 'add', 'origin', `https://github.com/${GITHUB_REPOSITORY}.git`]);
+    const preimage = git(root, ['rev-parse', 'HEAD']);
+    const topic = 'closed-absent-topic';
+    git(root, ['switch', '--quiet', '-c', topic]);
+    const prepared = await issueDevelopmentCommitAdmission({ request });
+    const committed = await runDevelopmentCommit(request, prepared.admission);
+    const journalSource = await readFile(committed.journalPath, 'utf8');
+    git(root, ['switch', '--quiet', 'main']);
+    git(root, ['update-ref', '-d', `refs/heads/${topic}`]);
+
+    const capability = (headSha: string) => issueGitHubApiTestCapability({
+      repository: GITHUB_REPOSITORY,
+      token: GITHUB_TOKEN,
+      principal: GITHUB_PRINCIPAL,
+      effect: 'read',
+      transport: (async (target) => {
+        const pathname = new URL(String(target)).pathname;
+        if (pathname === `/repos/${GITHUB_REPOSITORY}`) {
+          return Response.json({ full_name: GITHUB_REPOSITORY, default_branch: 'main' });
+        }
+        if (pathname === `/repos/${GITHUB_REPOSITORY}/pulls/601`) {
+          return Response.json({
+            number: 601,
+            state: 'closed',
+            merged: false,
+            head: { ref: topic, sha: headSha, repo: { full_name: GITHUB_REPOSITORY } },
+            base: { ref: 'main', repo: { full_name: GITHUB_REPOSITORY } }
+          });
+        }
+        if (pathname === `/repos/${GITHUB_REPOSITORY}/git/ref/heads/${topic}`) {
+          return Response.json({ message: 'Not Found' }, { status: 404 });
+        }
+        return Response.json({ message: `Unexpected path ${pathname}` }, { status: 500 });
+      }) satisfies GitHubApiTransport
+    });
+    const prepare = async (api: ReturnType<typeof capability>) =>
+      await prepareClosedAbsentDevelopmentCommitJournalRetirement({
+        repositoryRoot: root,
+        ref: `refs/heads/${topic}`,
+        capability: api,
+        pullRequestNumber: 601,
+        requirementBindingContext: closedAbsentRetirementBinding()
+      });
+
+    const wrongHeadCapability = capability(preimage);
+    await withGitHubApiTestSession({
+      capability: wrongHeadCapability,
+      operation: async () => {
+        await expect(prepare(wrongHeadCapability)).rejects.toThrow('did not consume this exact journal target');
+      }
+    });
+    expect(await readFile(committed.journalPath, 'utf8')).toBe(journalSource);
+
+    const unknownPath = path.join(path.dirname(committed.journalPath), `${'c'.repeat(64)}.json`);
+    const unknown = { ...JSON.parse(journalSource) as Record<string, unknown>, terminal: 'unknown' };
+    const unknownSource = `${JSON.stringify(unknown)}\n`;
+    await writeFile(unknownPath, unknownSource, 'utf8');
+    const unknownCapability = capability(committed.target);
+    await withGitHubApiTestSession({
+      capability: unknownCapability,
+      operation: async () => {
+        await expect(prepare(unknownCapability)).rejects.toThrow('nonterminal or unknown');
+      }
+    });
+    expect(await readFile(committed.journalPath, 'utf8')).toBe(journalSource);
+    expect(await readFile(unknownPath, 'utf8')).toBe(unknownSource);
+    await rm(unknownPath);
+
+    const retirementCapability = capability(committed.target);
+    await withGitHubApiTestSession({
+      capability: retirementCapability,
+      operation: async () => {
+        const plan = await prepare(retirementCapability);
+        await expect(acknowledgeClosedAbsentDevelopmentCommitJournalRetirement(
+          { ...plan }
+        )).rejects.toThrow('owner-issued plan');
+        await writeFile(committed.journalPath, `${journalSource} `, 'utf8');
+        await expect(acknowledgeClosedAbsentDevelopmentCommitJournalRetirement(plan))
+          .rejects.toThrow();
+        expect(await readFile(committed.journalPath, 'utf8')).toBe(`${journalSource} `);
+        await writeFile(committed.journalPath, journalSource, 'utf8');
+        expect(await acknowledgeClosedAbsentDevelopmentCommitJournalRetirement(plan)).toEqual({
+          ref: `refs/heads/${topic}`,
+          observed: 1,
+          retired: 1
+        });
+        await expect(acknowledgeClosedAbsentDevelopmentCommitJournalRetirement(plan))
+          .rejects.toThrow('owner-issued plan');
+      }
+    });
+    await expect(lstat(committed.journalPath)).rejects.toMatchObject({ code: 'ENOENT' });
+
+    const noWorkCapability = issueGitHubApiTestCapability({
+      repository: GITHUB_REPOSITORY,
+      token: GITHUB_TOKEN,
+      principal: GITHUB_PRINCIPAL,
+      effect: 'read',
+      transport: async () => Response.json(
+        { message: 'zero-work retirement must not use provider transport' },
+        { status: 500 }
+      )
+    });
+    await withGitHubApiTestSession({
+      capability: noWorkCapability,
+      operation: async () => {
+        const emptyPlan = await prepareClosedAbsentDevelopmentCommitJournalRetirement({
+          repositoryRoot: root,
+          ref: `refs/heads/${topic}`,
+          capability: noWorkCapability,
+          pullRequestNumber: 601,
+          requirementBindingContext: closedAbsentRetirementBinding()
+        });
+        expect(await acknowledgeClosedAbsentDevelopmentCommitJournalRetirement(emptyPlan)).toEqual({
+          ref: `refs/heads/${topic}`,
+          observed: 0,
+          retired: 0
+        });
+      }
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 50_000);
+
 test('development.commit exact-ref settlement classifies every matching lost-handle journal before retirement', async () => {
   const { root, request } = await fixture();
   try {
@@ -430,6 +607,94 @@ test('development.commit applied retry retires every exact not-applied predecess
     await rm(root, { recursive: true, force: true });
   }
 }, 30_000);
+
+test('development.commit retry reserves the exact-ref journal ceiling before ref publication', async () => {
+  const { root, request } = await fixture();
+  try {
+    const preimage = git(root, ['rev-parse', 'HEAD']);
+    const prepared = await issueDevelopmentCommitAdmission({ request });
+    let predecessorPath = '';
+    await expect(runDevelopmentCommitForTests(request, prepared.admission, {
+      afterObjectJournaled: (journalPath) => {
+        predecessorPath = journalPath;
+        throw new Error('retain not-applied ceiling fixture');
+      }
+    })).rejects.toThrow('retain not-applied ceiling fixture');
+    const recovery = await recoverDevelopmentCommit({ repositoryRoot: root, journalPath: predecessorPath });
+    expect(recovery.result.disposition).toBe('not-applied');
+    const predecessorSource = await readFile(predecessorPath, 'utf8');
+    const copies: string[] = [];
+    for (let index = 1; index <= 11; index += 1) {
+      const copy = path.join(path.dirname(predecessorPath), `${index.toString(16).padStart(64, '0')}.json`);
+      await writeFile(copy, predecessorSource, 'utf8');
+      copies.push(copy);
+    }
+
+    const blockedAdmission = await issueDevelopmentCommitAdmission({ request });
+    await expect(retryDevelopmentCommit({ request, admission: blockedAdmission.admission, recovery }))
+      .rejects.toThrow('exact-ref attempt ceiling is already full');
+    expect(git(root, ['rev-parse', 'HEAD'])).toBe(preimage);
+    expect(await readFile(predecessorPath, 'utf8')).toBe(predecessorSource);
+
+    await rm(copies.pop()!);
+    const boundaryAdmission = await issueDevelopmentCommitAdmission({ request });
+    const boundary = await retryDevelopmentCommit({
+      request,
+      admission: boundaryAdmission.admission,
+      recovery
+    });
+    expect(boundary.disposition).toBe('applied');
+    acknowledgeDevelopmentCommitResult(boundary);
+    await expect(lstat(predecessorPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(git(root, ['rev-parse', 'HEAD'])).toBe(boundary.target);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 40_000);
+
+test('development.commit cancels delivered not-applied only while fresh native proof remains exact', async () => {
+  const { root, request } = await fixture();
+  try {
+    const prepared = await issueDevelopmentCommitAdmission({ request });
+    let journalPath = '';
+    await expect(runDevelopmentCommitForTests(request, prepared.admission, {
+      afterObjectJournaled: (candidateJournalPath) => {
+        journalPath = candidateJournalPath;
+        throw new Error('retain delivered not-applied fixture');
+      }
+    })).rejects.toThrow('retain delivered not-applied fixture');
+    const recovery = await recoverDevelopmentCommit({ repositoryRoot: root, journalPath });
+    expect(recovery.result.disposition).toBe('not-applied');
+    await expect(acknowledgeNotAppliedDevelopmentCommitResult({ ...recovery.result }))
+      .rejects.toThrow('owner-issued unacknowledged result');
+    await acknowledgeNotAppliedDevelopmentCommitResult(recovery.result);
+    await expect(lstat(journalPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(acknowledgeNotAppliedDevelopmentCommitResult(recovery.result))
+      .rejects.toThrow('owner-issued unacknowledged result');
+
+    const secondPrepared = await issueDevelopmentCommitAdmission({ request });
+    let advancedJournalPath = '';
+    await expect(runDevelopmentCommitForTests(request, secondPrepared.admission, {
+      afterObjectJournaled: (candidateJournalPath) => {
+        advancedJournalPath = candidateJournalPath;
+        throw new Error('retain advanced not-applied fixture');
+      }
+    })).rejects.toThrow('retain advanced not-applied fixture');
+    const advancedRecovery = await recoverDevelopmentCommit({ repositoryRoot: root, journalPath: advancedJournalPath });
+    expect(advancedRecovery.result.disposition).toBe('not-applied');
+    git(root, ['commit', '--quiet', '-m', 'advance without publishing retained target']);
+    await expect(acknowledgeNotAppliedDevelopmentCommitResult(advancedRecovery.result))
+      .rejects.toThrow('fresh readback is unknown');
+    expect(await readFile(advancedJournalPath, 'utf8')).toContain('"terminal":"not-applied"');
+    const unknown = await recoverDevelopmentCommit({ repositoryRoot: root, journalPath: advancedJournalPath });
+    expect(unknown.result.disposition).toBe('unknown');
+    await expect(acknowledgeNotAppliedDevelopmentCommitResult(unknown.result))
+      .rejects.toThrow('requires not-applied readback');
+    expect(await readFile(advancedJournalPath, 'utf8')).toContain('"terminal":"unknown"');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 40_000);
 
 test('development.commit recovers an exact historical ref transition after ref advance and checkout, then retires on delivery', async () => {
   const { root, request } = await fixture();

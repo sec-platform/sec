@@ -1,7 +1,23 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
+import {
+  acknowledgeClosedAbsentDevelopmentCommitJournalRetirement,
+  CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_CONTRACT_DIGEST,
+  CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_PROVIDER_IDENTITY_DIGEST,
+  CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUIREMENT_ID,
+  CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_RESOURCE_CEILINGS,
+  prepareClosedAbsentDevelopmentCommitJournalRetirement
+} from '../../development/commit/operation.ts';
+import type { GitHubApiCapability } from '../../external-capabilities/github-api/operation-session.ts';
 import { inspectExactNoFollowDirectoryPresence } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { issueSecOperationRequirementBindingContext } from '../../system-architecture/operation/requirement-binding-context.ts';
+import {
+  bindSecSemanticOperation,
+  compileSecCapabilityBinding,
+  compileSecSemanticOperationPlan,
+  issueSecSemanticOperationAttemptContext
+} from '../../system-architecture/operation/semantic.ts';
 import {
   assertPreparedBranchCloseoutEnvelope,
   parsePreparedBranchCloseoutEnvelope,
@@ -38,16 +54,79 @@ function remainingFamily(
     .map((name) => path.join(store.root.path, name)));
 }
 
+function compileCommitJournalRetirementOperation(
+  operation: ClosedUnmergedCloseoutOperation,
+  completed: Extract<ClosedUnmergedCloseoutExecutionResult, { status: 'completed' }>
+) {
+  const deadlineAtUnixMs = Date.now()
+    + CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_RESOURCE_CEILINGS
+      .find(({ resource }) => resource === 'duration-ms')!.maximum;
+  const plan = compileSecSemanticOperationPlan({
+    operation: 'control.branch-lifecycle.closed-unmerged-commit-journal-retirement',
+    intentDigest: operation.operationId,
+    decisionDigest: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_CONTRACT_DIGEST,
+    deadlineAtUnixMs,
+    attempt: issueSecSemanticOperationAttemptContext({
+      authorityGrantDigest: completed.receipt.publicationDigest
+    }),
+    aggregateBudgets: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_RESOURCE_CEILINGS,
+    requirements: [Object.freeze({
+      id: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUIREMENT_ID,
+      contractDigest: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_CONTRACT_DIGEST,
+      effectKinds: Object.freeze(['filesystem', 'process', 'provider'] as const),
+      failureKinds: Object.freeze([
+        'development.commit.readback-invalid',
+        'development.commit.readback-unknown'
+      ])
+    })]
+  });
+  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+    requirementId: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUIREMENT_ID,
+    contractDigest: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_CONTRACT_DIGEST,
+    providerIdentityDigest:
+      CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_PROVIDER_IDENTITY_DIGEST
+  })]);
+}
+
+async function retireCommitJournalConsumers(input: Readonly<{
+  operation: ClosedUnmergedCloseoutOperation;
+  completed: Extract<ClosedUnmergedCloseoutExecutionResult, { status: 'completed' }>;
+  capability: GitHubApiCapability;
+}>): Promise<void> {
+  const semanticOperation = compileCommitJournalRetirementOperation(
+    input.operation,
+    input.completed
+  );
+  const plan = await prepareClosedAbsentDevelopmentCommitJournalRetirement({
+    repositoryRoot: input.operation.prepared.preparation.repository.root,
+    ref: `refs/heads/${input.operation.evidence.branch}`,
+    capability: input.capability,
+    pullRequestNumber: input.operation.evidence.pullRequestNumber,
+    requirementBindingContext: issueSecOperationRequirementBindingContext({
+      operation: semanticOperation,
+      requirementId: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUIREMENT_ID,
+      resourceCeilings:
+        CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_RESOURCE_CEILINGS
+    })
+  });
+  const settlement = await acknowledgeClosedAbsentDevelopmentCommitJournalRetirement(plan);
+  if (settlement.ref !== `refs/heads/${input.operation.evidence.branch}`
+      || settlement.retired !== settlement.observed) {
+    throw new Error('Closed-unmerged commit journal retirement settlement differs.');
+  }
+}
+
 /**
  * Retire only the recovery family consumed by one exact completed
  * closed-unmerged operation. The provider terminal remains the durable
  * recovery route if this ordered local deletion is interrupted.
  */
-export function retireClosedUnmergedRecoveryFamily(input: Readonly<{
+export async function retireClosedUnmergedRecoveryFamily(input: Readonly<{
   readonly operation: ClosedUnmergedCloseoutOperation;
   readonly completed: ClosedUnmergedCloseoutExecutionResult;
+  readonly capability: GitHubApiCapability;
   readonly recoveryRoot?: string;
-}>): ClosedUnmergedRecoveryRetirementResult {
+}>): Promise<ClosedUnmergedRecoveryRetirementResult> {
   assertClosedUnmergedCloseoutCompletedSettlement(input.operation, input.completed);
   assertPreparedBranchCloseoutEnvelope(input.operation.prepared);
   const preparation = input.operation.prepared.preparation;
@@ -61,6 +140,11 @@ export function retireClosedUnmergedRecoveryFamily(input: Readonly<{
     'Closed-unmerged recovery retirement root'
   );
   if (rootPresence.state === 'absent') {
+    await retireCommitJournalConsumers({
+      operation: input.operation,
+      completed: input.completed,
+      capability: input.capability
+    });
     return Object.freeze({
       status: 'already-retired',
       retired: Object.freeze([]),
@@ -132,6 +216,16 @@ export function retireClosedUnmergedRecoveryFamily(input: Readonly<{
       throw new Error(`Closed-unmerged recovery bundle live verification failed: ${verification.detail}`);
     }
   }
+
+  // The exact recovery family remains untouched until the commit owner has
+  // classified and retired every matching journal under this same live
+  // GitHub capability. A failed or ambiguous acknowledgement therefore
+  // preserves the only durable cross-domain continuation.
+  await retireCommitJournalConsumers({
+    operation: input.operation,
+    completed: input.completed,
+    capability: input.capability
+  });
 
   const retired: string[] = [];
   let failure: string | null = null;

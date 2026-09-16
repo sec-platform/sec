@@ -63,7 +63,6 @@ export {
 export {
   compileClosedUnmergedCloseoutOperation,
   createClosedSupersededDispositionEvidence,
-  createEvidenceCloseDispositionEvidence,
   executeClosedUnmergedCloseoutOperation,
   issueClosedUnmergedCloseoutEffectProvider,
   type ClosedUnmergedCloseoutEffectAdapter,
