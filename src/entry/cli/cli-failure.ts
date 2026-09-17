@@ -1,6 +1,7 @@
 import type { ErrorProtocol } from '../../application/error-protocol.ts';
-import { formatCompilerFailure, inspectFailureValue } from '../../compiler/errors.ts';
-import { formatJson } from '../../entry/cli/format-utils.ts';
+import { formatFailure } from '../../contracts/failure-format.ts';
+import { inspectFailureValue } from '../../contracts/failure-inspection.ts';
+import { formatJson } from './format-utils.ts';
 
 type FailurePresentation = Readonly<{
   write: (line: string) => void;
@@ -35,6 +36,6 @@ export function reportCliFailure(
       emit(rendered, 'dim');
     }
   } catch {
-    emit(`[Failure protocol could not be rendered]\n${formatCompilerFailure(error)}`, 'error');
+    emit(`[Failure protocol could not be rendered]\n${formatFailure(error)}`, 'error');
   }
 }

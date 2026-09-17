@@ -1,8 +1,8 @@
 import { Argument, type Command } from 'commander';
 import { addJsonFlags, commandPath, jsonOpts, usageError } from './command-options.ts';
-import type { CommandValue } from '../../entry/cli/command-value.ts';
-import { printJsonOrText } from '../../entry/cli/format-utils.ts';
-import { captureJsonOutputInput } from '../../entry/cli/json-output-options.ts';
+import type { CommandValue } from './command-value.ts';
+import { printJsonOrText } from './format-utils.ts';
+import { captureJsonOutputInput } from './json-output-options.ts';
 
 type NamedInspection = () => CommandValue | PromiseLike<CommandValue>;
 

@@ -12,6 +12,38 @@ export interface PipelineCompileRequest {
 
 export const PIPELINE_DEFAULT_VERIFICATION_LANE = 'all' as const;
 
+export const PIPELINE_VERIFICATION_LANE_OPTION = Object.freeze({
+  name: 'lane',
+  flags: '--lane <lane>',
+  description: 'Verification lane'
+} as const);
+
+const PIPELINE_VERIFICATION_LANE_DESCRIPTION = VERIFICATION_LANES.map((lane, index) =>
+  index === VERIFICATION_LANES.length - 1 ? `or ${lane}` : lane
+).join(', ');
+
+export function rejectPipelineOutputIssue(message: string): never {
+  throw new CompilerError('PIPELINE-USAGE-003', message);
+}
+
+export function bindPipelineCliInvocation(input: Readonly<{
+  from?: unknown;
+  through?: unknown;
+  verificationLane?: unknown;
+}>) {
+  const selection = selectPipelineStageRange(input.from, input.through);
+  const configured = input.verificationLane;
+  if (!isVerificationLane(configured)) {
+    throw new CompilerError('PIPELINE-USAGE-002', `--lane must be ${PIPELINE_VERIFICATION_LANE_DESCRIPTION}`);
+  }
+  return Object.freeze({
+    source: 'cli' as const,
+    ...(selection.from === undefined ? {} : { from: selection.from }),
+    ...(selection.through === undefined ? {} : { through: selection.through }),
+    verificationLane: configured
+  });
+}
+
 function stage(value: unknown, field: 'from' | 'through'): PipelineStageId | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== 'string' || !PIPELINE_STAGE_IDS.includes(value as PipelineStageId)) {

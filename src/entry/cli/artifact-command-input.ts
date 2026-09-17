@@ -1,7 +1,7 @@
-import { CI_ARTIFACT_KINDS, isCiArtifactKind } from '../../assurance/verification/ci-artifacts/contract/types.ts';
-import { decodeBooleanFlag } from '../../entry/cli/boolean-option.ts';
+import { admitArtifactKind } from '../../application/artifact-request.ts';
+import { decodeBooleanFlag } from './boolean-option.ts';
 import { jsonOpts, usageError } from './command-options.ts';
-import { captureCliOptions } from '../../entry/cli/own-options.ts';
+import { captureCliOptions } from './own-options.ts';
 
 export const ARTIFACT_PATHS_OPTION = Object.freeze({
   name: 'paths', flags: '--paths', description: 'List artifact paths', defaultValue: false
@@ -21,9 +21,10 @@ export function parseArtifactCommandInput(mode: unknown, options: Readonly<Recor
   // A filter has no effect on generation. Preserve that behavior without reading it.
   if (!paths) return Object.freeze({ kind: 'generate' as const, output });
   const filter = captureCliOptions(options, [{ name: ARTIFACT_KIND_OPTION.name, scope: 'own-enumerable' }])[ARTIFACT_KIND_OPTION.name];
-  if (filter !== undefined && !isCiArtifactKind(filter)) {
-    throw usageError(`--kind must be one of: ${CI_ARTIFACT_KINDS.join(', ')}`);
+  const admission = admitArtifactKind(filter);
+  if (!admission.accepted) {
+    throw usageError(`--kind must be one of: ${admission.choices.join(', ')}`);
   }
-  return Object.freeze({ kind: 'paths' as const, output, filter });
+  return Object.freeze({ kind: 'paths' as const, output, filter: admission.kind });
 }
 export type ArtifactCommandInput = ReturnType<typeof parseArtifactCommandInput>;

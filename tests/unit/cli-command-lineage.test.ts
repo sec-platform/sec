@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 import type { Command } from 'commander';
 import assert from 'node:assert/strict';
-import { commandFromRoot, commandPath } from '../../src/bootstrap/cli/command-options.ts';
+import { commandFromRoot, commandPath } from '../../src/entry/cli/command-options.ts';
 
 function command(name: string, parent?: Command): Command { return { name: () => name, parent } as Command; }
 

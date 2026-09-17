@@ -1,4 +1,4 @@
-import type { JsonOpts } from './command-options.ts';
+import type { JsonOpts } from '../../entry/cli/command-options.ts';
 
 export async function runWithOptionalSpinner<T>(text: string, output: JsonOpts, fn: () => Promise<T>): Promise<T> {
   if (output.json) return fn();

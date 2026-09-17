@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { formatJson, printJsonOrText } from '../../src/entry/cli/format-utils.ts';
 import { captureJsonOutputInput } from '../../src/entry/cli/json-output-options.ts';
 import { captureCliOptions } from '../../src/entry/cli/own-options.ts';
-import { parseWorkspaceViewCommandInput } from '../../src/bootstrap/cli/workspace-command-input.ts';
+import { parseWorkspaceViewCommandInput } from '../../src/entry/cli/workspace-command-input.ts';
 
 test('property and own-enumerable fields retain explicitly different transport boundaries', () => {
   const input = Object.create({ inherited: true });

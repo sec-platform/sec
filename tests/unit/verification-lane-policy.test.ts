@@ -1,10 +1,10 @@
 import { test } from 'bun:test';
 import { Command } from 'commander';
 import assert from 'node:assert/strict';
-import { parsePipelineCompileOptions } from '../../src/bootstrap/cli/pipeline-command-input.ts';
-import { registerPipelineCommands } from '../../src/bootstrap/cli/register-pipeline-commands.ts';
+import { parsePipelineCompileOptions } from '../../src/entry/cli/pipeline-command-input.ts';
+import { registerPipelineCommands } from '../../src/entry/cli/register-pipeline-commands.ts';
 import { registerWorkspaceCommands } from '../../src/bootstrap/cli/register-workspace-commands.ts';
-import { parseVerifyCommandInput } from '../../src/bootstrap/cli/workspace-command-input.ts';
+import { parseVerifyCommandInput } from '../../src/entry/cli/workspace-command-input.ts';
 import {
   isVerificationLane,
   shouldExecuteRuntimeVerification,
@@ -36,6 +36,11 @@ for (const [lane, runFast, runtimeMode, scope] of [
   });
 }
 
+const inertPipelineOperations = {
+  compile: async () => { throw new Error('pipeline compile operation must not run'); },
+  inspect: async () => { throw new Error('pipeline inspect operation must not run'); }
+} as const;
+
 test('unknown, prototype and non-string lanes never become an execution recipe', () => {
   for (const value of [undefined, null, 0, {}, [], 'FAST', '', 'toString', '__proto__', new String('all')]) {
     assert.equal(isVerificationLane(value), false);
@@ -58,7 +63,7 @@ test('selection rejects without invoking coercion or conversion callbacks', () =
 
 test('standalone and pipeline defaults remain independently registered', () => {
   const root = new Command().name('sec');
-  registerWorkspaceCommands(root); registerPipelineCommands(root);
+  registerWorkspaceCommands(root); registerPipelineCommands(root, inertPipelineOperations);
   const option = (name: string) => root.commands.find((c) => c.name() === name)!.options.find((o) => o.long === '--lane')!;
   assert.equal(option('verify').defaultValue, 'fast');
   assert.equal(option('compile').defaultValue, 'all');
@@ -84,7 +89,7 @@ test('inherited lane cannot silently enter the standalone own-input boundary', (
 test('real verify and compile actions reject lanes before loading their execution domain', async () => {
   for (const name of ['verify', 'compile']) {
     const root = new Command().name('sec').exitOverride().configureOutput({ writeOut() {}, writeErr() {} });
-    registerWorkspaceCommands(root); registerPipelineCommands(root);
+    registerWorkspaceCommands(root); registerPipelineCommands(root, inertPipelineOperations);
     const command = root.commands.find((c) => c.name() === name)!;
     command.setOptionValue('lane', 'unknown');
     await assert.rejects(root.parseAsync([name], { from: 'user' }), (error: unknown) =>

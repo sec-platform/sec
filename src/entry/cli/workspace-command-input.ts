@@ -1,7 +1,7 @@
-import { decodeBooleanFlag } from '../../entry/cli/boolean-option.ts';
+import { decodeBooleanFlag } from './boolean-option.ts';
 import { jsonOpts, usageError } from './command-options.ts';
-import { captureJsonOutputInput } from '../../entry/cli/json-output-options.ts';
-import { captureCliOptions } from '../../entry/cli/own-options.ts';
+import { captureJsonOutputInput } from './json-output-options.ts';
+import { captureCliOptions } from './own-options.ts';
 import { parseVerificationLaneOption } from './verification-lane-option.ts';
 
 // Own field spelling and defaults here; command-specific help stays at registration.
@@ -58,7 +58,8 @@ export function parseUpgradeCommandInput(
 }
 
 // A standalone verification request and a pipeline compile have independent defaults.
-export const VERIFY_COMMAND_DEFAULT_LANE = 'fast' as const;
+export { STANDALONE_VERIFICATION_DEFAULT_LANE as VERIFY_COMMAND_DEFAULT_LANE } from '../../application/verification-request.ts';
+
 
 export function parseVerifyCommandInput(options: RawOptions) {
   const { json, compact, lane } = captureCliOptions(options, [

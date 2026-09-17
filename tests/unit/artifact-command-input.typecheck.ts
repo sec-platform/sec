@@ -1,4 +1,4 @@
-import { parseArtifactCommandInput } from '../../src/bootstrap/cli/artifact-command-input.ts';
+import { parseArtifactCommandInput } from '../../src/entry/cli/artifact-command-input.ts';
 import { verificationLaneProfile, type VerificationLane } from '../../src/assurance/verification/contract/lanes.ts';
 
 function inputContract() {

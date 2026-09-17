@@ -9,7 +9,7 @@ import { parseReviewSummaryJson } from '../../assurance/verification/review/cont
 import type { ReviewSummary } from '../../assurance/verification/review/contract/types.ts';
 import { readJson } from "../../adapters/filesystem/files.ts";
 import { resolveWorkspaceArtifactPath } from "../../adapters/workspace-context.ts";
-import type { JsonOpts } from './command-options.ts';
+import type { JsonOpts } from '../../entry/cli/command-options.ts';
 import { printJsonOrText } from '../../entry/cli/format-utils.ts';
 
 export async function readRequiredJson<T>(filePath: string, missingMessage: string): Promise<T> {

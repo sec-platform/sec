@@ -1,5 +1,5 @@
 import type { CiArtifactManifest } from '../../assurance/verification/ci-artifacts/contract/types.ts';
-import type { ArtifactCommandInput } from './artifact-command-input.ts';
+import type { ArtifactCommandInput } from '../../entry/cli/artifact-command-input.ts';
 import { formatJson, printJsonOrText } from '../../entry/cli/format-utils.ts';
 import { observeWorkspaceArtifacts, writeWorkspaceArtifacts } from './lazy-command-domains.ts';
 

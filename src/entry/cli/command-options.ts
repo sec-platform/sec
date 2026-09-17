@@ -1,8 +1,8 @@
 import { Argument, type Command } from 'commander';
-import { CompilerError } from '../../compiler/errors.ts';
-import { JSON_OUTPUT_OPTIONS, parseJsonOutputOptions, type JsonOutputIssue, type JsonOutputOptions } from '../../entry/cli/json-output-options.ts';
+import { SecError } from '../../contracts/failure.ts';
+import { JSON_OUTPUT_OPTIONS, parseJsonOutputOptions, type JsonOutputIssue, type JsonOutputOptions } from './json-output-options.ts';
 
-export type { JsonOutputOptions as JsonOpts } from '../../entry/cli/json-output-options.ts';
+export type { JsonOutputOptions as JsonOpts } from './json-output-options.ts';
 
 export function jsonOpts(opts: Readonly<Record<string, unknown>>): JsonOutputOptions {
   return parseJsonOutputOptions(opts, rejectJsonOutputIssue);
@@ -35,8 +35,8 @@ export function commandFromRoot(cmd: Command, ...segments: readonly string[]): s
   return [root.name(), ...segments].filter((segment) => segment.length > 0).join(' ');
 }
 
-export function usageError(message: string): CompilerError {
-  return new CompilerError('CLI-USAGE-001', message);
+export function usageError(message: string): SecError {
+  return new SecError('CLI-USAGE-001', message);
 }
 
 function rejectJsonOutputIssue(issue: JsonOutputIssue, cmd?: Command): never {

@@ -1,33 +1,22 @@
 #!/usr/bin/env bun
-import { Command } from 'commander';
 import packageMetadata from '../../../package.json' with { type: 'json' };
-import { buildErrorProtocol } from '../../application/error-protocol.ts';
-import { reportCliFailure } from './cli-failure.ts';
+import { runCli } from '../../entry/cli/cli.ts';
+import { registerPipelineCommands } from '../../entry/cli/register-pipeline-commands.ts';
 import { registerCommands } from './register-commands.ts';
-import { registerPipelineCommands } from './register-pipeline-commands.ts';
-import { cli } from '../../entry/cli/runtime/output.ts';
 
-const program = new Command();
-program
-  .name('sec')
-  .description('Spec Engineering Compiler CLI')
-  .version(packageMetadata.version);
-
-registerCommands(program);
-registerPipelineCommands(program);
-
-program.action(() => {
-  program.help();
-});
-
-program.parseAsync().catch((error: unknown) => {
-  try {
-    reportCliFailure(error, buildErrorProtocol, {
-      write: (line) => console.error(line),
-      error: (line) => cli.error(line),
-      dim: (line) => cli.dim(line)
+await runCli({
+  version: packageMetadata.version,
+  register: (program) => {
+    registerCommands(program);
+    registerPipelineCommands(program, {
+      compile: async (workspaceRoot, invocation) => {
+        const { compileWorkspace } = await import('../engineering/pipeline-orchestrator.ts');
+        return compileWorkspace(workspaceRoot, invocation);
+      },
+      inspect: async (workspaceRoot) => {
+        const { readPipelineJournal } = await import('../../adapters/compilation/pipeline/journal.ts');
+        return readPipelineJournal(workspaceRoot);
+      }
     });
-  } finally {
-    process.exit(1);
   }
 });

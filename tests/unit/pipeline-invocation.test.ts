@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { bindPipelineCompileRequest, PIPELINE_DEFAULT_VERIFICATION_LANE, selectPipelineStageRange } from '../../src/application/pipeline-request.ts';
 import { PIPELINE_STAGE_IDS } from '../../src/compiler/pipeline/stages.ts';
-import { parsePipelineCompileOptions, PIPELINE_COMPILE_DEFAULT_LANE } from '../../src/bootstrap/cli/pipeline-command-input.ts';
+import { parsePipelineCompileOptions, PIPELINE_COMPILE_DEFAULT_LANE } from '../../src/entry/cli/pipeline-command-input.ts';
 
 function code(expected: string) { return (error: unknown) => (error as {code?: string})?.code === expected; }
 

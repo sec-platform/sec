@@ -2,14 +2,19 @@ import { test } from 'bun:test';
 import { Command } from 'commander';
 import assert from 'node:assert/strict';
 
-import { registerPipelineCommands } from '../../src/bootstrap/cli/register-pipeline-commands.ts';
+import { registerPipelineCommands } from '../../src/entry/cli/register-pipeline-commands.ts';
+
+const inertPipelineOperations = {
+  compile: async () => { throw new Error('pipeline compile operation must not run'); },
+  inspect: async () => { throw new Error('pipeline inspect operation must not run'); }
+} as const;
 
 function program() {
   let text = '';
   const command = new Command().name('sec').exitOverride().configureOutput({
     writeOut: (value) => { text += value; }, writeErr: (value) => { text += value; }
   });
-  registerPipelineCommands(command);
+  registerPipelineCommands(command, inertPipelineOperations);
   return { command, output: () => text };
 }
 

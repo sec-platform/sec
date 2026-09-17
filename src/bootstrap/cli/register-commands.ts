@@ -3,7 +3,7 @@ import type { TextByteClassification } from '../../adapters/runtime-state/text-b
 import type { WorktreeSettlementReceipt } from '../../adapters/runtime-state/worktree-settlement.ts';
 import type { DependencyCleanOptions } from '../../adapters/toolchain/dependencies/environment.ts';
 import { buildBenchmarkTaskCatalog, formatBenchmarkTaskCatalog } from '../../adapters/verification/platform/benchmark/catalog.ts';
-import { addJsonFlags, commandPath, jsonOpts, usageError, type JsonOpts } from './command-options.ts';
+import { addJsonFlags, commandPath, jsonOpts, usageError, type JsonOpts } from '../../entry/cli/command-options.ts';
 import { platformCommand } from '../../adapters/verification/platform/sec-command.ts';
 import { printJsonOrText } from '../../entry/cli/format-utils.ts';
 import { loadDependencyEnvironmentDomain, loadReferenceCheckDomain, loadTestBudgetDomain, observeLocalContainerEngineReadiness, runCensus, runSettlement } from './lazy-command-domains.ts';

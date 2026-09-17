@@ -4,13 +4,13 @@ import type { AcceptanceCoverageReport } from '../../assurance/acceptance/covera
 import type { ProvenanceFile } from '../../semantics/provenance/types.ts';
 import type { RuntimeVerificationLaneReport, VerificationReport } from '../../assurance/verification/contract/types.ts';
 import type { ReviewSummary } from '../../assurance/verification/review/contract/types.ts';
-import { addJsonFlags, commandFromRoot, jsonOpts } from './command-options.ts';
+import { addJsonFlags, commandFromRoot, jsonOpts } from '../../entry/cli/command-options.ts';
 import { runWithOptionalSpinner } from './command-progress.ts';
 import type { BlockUsageMap, InstallManifestEntry, PostgresContract } from './formatters.ts';
-import { inspectionValue, registerInspectionQuery, type InspectionContext } from './inspection-query.ts';
+import { inspectionValue, registerInspectionQuery, type InspectionContext } from '../../entry/cli/inspection-query.ts';
 import { captureJsonOutputInput } from '../../entry/cli/json-output-options.ts';
 import { loadProjectOverviewDomain } from './lazy-command-domains.ts';
-import { registerNamedInspectionQuery } from './named-inspection-query.ts';
+import { registerNamedInspectionQuery } from '../../entry/cli/named-inspection-query.ts';
 import type { ProjectOverview } from './project-overview.ts';
 
 type ArtifactKey = keyof typeof import('../../assurance/verification/ci-artifacts/contract/manifest.ts').CI_ARTIFACT_FILES;

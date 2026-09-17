@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 
 import type { PassStatus } from '../../src/compiler/contract/pass-status.ts';
 import type { PipelineJournal } from '../../src/adapters/compilation-protocol/journal-types.ts';
-import { formatPipelineCompilation, formatPipelineJournal } from '../../src/bootstrap/cli/pipeline-command-presentation.ts';
+import { projectPipelineCompilation, projectPipelineJournal } from '../../src/application/pipeline-view.ts';
+import { formatPipelineCompilation, formatPipelineJournal } from '../../src/entry/cli/pipeline-command-presentation.ts';
 
 function passStatus(): PassStatus {
   return {
@@ -14,7 +15,7 @@ function passStatus(): PassStatus {
 
 test('compilation display preserves result order and legacy text byte-for-byte', () => {
   const value = { transactionId: 'tx-123', completedStages: ['compose', 'verify'] as ['compose', 'verify'], lock: { passStatus: passStatus() } };
-  assert.equal(formatPipelineCompilation(value), [
+  assert.equal(formatPipelineCompilation(projectPipelineCompilation(value)), [
     'Compilation transaction tx-123 succeeded', 'Stages: compose -> verify',
     'Lock: parse=succeeded, align=succeeded, resolve=succeeded, compose=succeeded, verify=succeeded, repair=skipped, lock=succeeded, emit=succeeded'
   ].join('\n'));
@@ -22,7 +23,7 @@ test('compilation display preserves result order and legacy text byte-for-byte',
 });
 
 test('empty journal preserves absent transaction markers', () => {
-  assert.equal(formatPipelineJournal({ formatVersion: '2', transactions: [] }), [
+  assert.equal(formatPipelineJournal(projectPipelineJournal({ formatVersion: '2', transactions: [] })), [
     'Pipeline journal 2', 'Active transaction: none', 'Last committed transaction: none', 'Transactions: 0'
   ].join('\n'));
 });
@@ -39,7 +40,7 @@ test('journal shows the latest transaction and preserves its observed failure st
     ]
   };
   const before = JSON.stringify(journal);
-  assert.equal(formatPipelineJournal(journal), [
+  assert.equal(formatPipelineJournal(projectPipelineJournal(journal)), [
     'Pipeline journal 2', 'Active transaction: active', 'Last committed transaction: committed', 'Transactions: 2',
     'Latest: latest failed source=cli', 'Passes: compose=succeeded, verify=failed'
   ].join('\n'));
@@ -50,7 +51,7 @@ test('empty pass records use the existing none marker, not a success inference',
   const journal: PipelineJournal = { formatVersion: '2', transactions: [
     { id: 'pending', source: 'repair', requestedStages: [], status: 'running', startedAt: 'now', passRecords: [] }
   ] };
-  assert.match(formatPipelineJournal(journal), /Latest: pending running source=repair\nPasses: none$/);
+  assert.match(formatPipelineJournal(projectPipelineJournal(journal)), /Latest: pending running source=repair\nPasses: none$/);
 });
 
 test('presentation accepts an immutable minimal result without compiler-internal fields', () => {
@@ -59,13 +60,13 @@ test('presentation accepts an immutable minimal result without compiler-internal
     completedStages: Object.freeze(['verify'] as const),
     lock: Object.freeze({ passStatus: Object.freeze(passStatus()) })
   });
-  assert.match(formatPipelineCompilation(value), /^Compilation transaction minimal succeeded\nStages: verify\nLock: /);
+  assert.match(formatPipelineCompilation(projectPipelineCompilation(value)), /^Compilation transaction minimal succeeded\nStages: verify\nLock: /);
   assert.equal(value.lock.passStatus.verify, 'succeeded');
 });
 
 test('optional build-ir pass state is displayed rather than silently dropped', () => {
   const states: PassStatus = { ...passStatus(), 'build-ir': 'blocked' };
-  const rendered = formatPipelineCompilation({ transactionId: 'partial', completedStages: [], lock: { passStatus: states } });
+  const rendered = formatPipelineCompilation(projectPipelineCompilation({ transactionId: 'partial', completedStages: [], lock: { passStatus: states } }));
   assert.match(rendered, /, build-ir=blocked$/);
 });
 
@@ -73,7 +74,7 @@ test('journal rendering preserves present empty identities rather than treating 
   const journal: PipelineJournal = {
     formatVersion: '2', activeTransactionId: '', lastCommittedTransactionId: '', transactions: []
   };
-  assert.equal(formatPipelineJournal(journal), [
+  assert.equal(formatPipelineJournal(projectPipelineJournal(journal)), [
     'Pipeline journal 2', 'Active transaction: ', 'Last committed transaction: ', 'Transactions: 0'
   ].join('\n'));
 });

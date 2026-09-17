@@ -1,74 +1,39 @@
 import type { Command } from 'commander';
 import type { LockFile } from '../../compiler/contract.ts';
 import { CompilerError } from '../../compiler/errors.ts';
-import { ARTIFACT_KIND_OPTION, ARTIFACT_PATHS_OPTION, parseArtifactCommandInput } from './artifact-command-input.ts';
-import { addJsonFlags, commandPath, jsonOpts, optionalModeCommand } from './command-options.ts';
-import { runWithOptionalSpinner } from './command-progress.ts';
-import { commandValue } from '../../entry/cli/command-value.ts';
+import { registerAdvancedWorkspaceCommands } from '../../entry/cli/register-advanced-workspace-commands.ts';
+import { registerCoreWorkspaceCommands } from '../../entry/cli/register-core-workspace-commands.ts';
 import { printJsonOrText } from '../../entry/cli/format-utils.ts';
-import { addBlock, composeWorkspace, explainWorkspace, initWorkspace, lockWorkspace, repairWorkspace, resolveWorkspace, upgradeWorkspace, verifyWorkspace } from './lazy-command-domains.ts';
-import { VERIFICATION_LANE_OPTION } from './verification-lane-option.ts';
-import { registerWorkspaceAction } from './workspace-action.ts';
-import {
-  COMPOSE_LOCK_OPTION,
-  VERIFY_COMMAND_DEFAULT_LANE,
-  WORKSPACE_DRY_RUN_OPTION,
-  WORKSPACE_INSPECTION_MODES,
-  parseComposeCommandInput, parseRepairCommandInput, parseUpgradeCommandInput,
-  parseVerifyCommandInput,
-  parseWorkspaceViewCommandInput
-} from './workspace-command-input.ts';
+import { runWithOptionalSpinner } from './command-progress.ts';
+import { explainWorkspace, lockWorkspace, repairWorkspace, upgradeWorkspace } from './lazy-command-domains.ts';
 
 export function registerWorkspaceCommands(program: Command): void {
-  // These commands have one execution and one result, without CLI-level recovery.
-  const textOutput = jsonOpts({});
-  registerWorkspaceAction(program.command('init').description('Initialize project workspace'), {
-    decode: () => ({ request: undefined, output: textOutput }),
-    execute: (root) => initWorkspace(root),
-    view: () => commandValue(undefined, () => 'Initialized project workspace')
+  registerCoreWorkspaceCommands(program, {
+    progress: runWithOptionalSpinner,
+    init: async (root) => {
+      const { initWorkspace } = await import('./lazy-command-domains.ts');
+      return initWorkspace(root);
+    },
+    add: async (root, blockId) => {
+      const { addBlock } = await import('./lazy-command-domains.ts');
+      return addBlock(root, blockId);
+    },
+    resolve: async (root) => {
+      const { resolveWorkspace } = await import('./lazy-command-domains.ts');
+      return resolveWorkspace(root);
+    },
+    compose: async (root, request) => {
+      const { composeWorkspace } = await import('./lazy-command-domains.ts');
+      return composeWorkspace(root, { lock: request.lock });
+    },
+    verify: async (root, request) => {
+      const { verifyWorkspace } = await import('./lazy-command-domains.ts');
+      return verifyWorkspace(root, request);
+    }
   });
 
-  registerWorkspaceAction(program.command('add <block-id>').description('Add a block to the project'), {
-    decode: (blockId: string) => ({ request: blockId, output: textOutput }),
-    execute: (root, blockId) => addBlock(root, blockId),
-    view: (result) => commandValue(result, (value) => {
-      const selected = value.selectedBlock;
-      return `${value.changed ? 'Added' : 'Selected'} block ${selected.id}@${selected.version} from ${selected.registrySourceId} (${selected.registryKind})`;
-    })
-  });
-
-  registerWorkspaceAction(program.command('resolve').description('Resolve block dependencies'), {
-    decode: () => ({ request: undefined, output: textOutput }),
-    progress: 'Resolving block dependencies',
-    execute: (root) => resolveWorkspace(root),
-    view: (result) => commandValue(result, (value) => `Resolved ${value.lock.resolvedBlocks.length} blocks`)
-  });
-
-  registerWorkspaceAction(program.command('compose')
-    .description('Compose project')
-    .option(COMPOSE_LOCK_OPTION.flags, 'Lock project files as read-only'), {
-    decode: (rawOptions: Record<string, unknown>) => ({ request: parseComposeCommandInput(rawOptions), output: textOutput }),
-    progress: 'Composing project',
-    execute: (root, input) => composeWorkspace(root, { lock: input.lock }),
-    view: () => commandValue(undefined, () => 'Composed project')
-  });
-
-  registerWorkspaceAction(addJsonFlags(program.command('verify'))
-    .description('Run verification')
-    .option(VERIFICATION_LANE_OPTION.flags, VERIFICATION_LANE_OPTION.description, VERIFY_COMMAND_DEFAULT_LANE), {
-    decode: parseVerifyCommandInput,
-    progress: 'Running verification',
-    execute: (root, request) => verifyWorkspace(root, request),
-    view: ({ report }) => commandValue(report, (value) => `Verification ${value.summary.status} (${value.summary.requestedLane})`)
-  });
-
-  addJsonFlags(optionalModeCommand(program.command('repair'), 'mode', ['plan']))
-    .description('Run repair')
-    .option(WORKSPACE_DRY_RUN_OPTION.flags, 'Dry run repair')
-    .action(async (mode: string | undefined, rawOptions: Record<string, unknown>, cmd: Command) => {
-      const cwd = process.cwd();
-      const invocationPath = commandPath(cmd);
-      const input = parseRepairCommandInput(mode, rawOptions);
+  registerAdvancedWorkspaceCommands(program, {
+    repair: async ({ workspaceRoot: cwd, invocationPath, input }) => {
       const { output } = input;
       const { CI_ARTIFACT_FILES } = await import('../../assurance/verification/ci-artifacts/contract/manifest.ts');
       const { pathExists } = await import('../../adapters/filesystem/files.ts');
@@ -81,7 +46,7 @@ export function registerWorkspaceCommands(program: Command): void {
           repairPlanPath,
           `Repair plan not found; run ${invocationPath} --dry-run first`
         );
-        printJsonOrText(repairPlan, output, (p) => formatRepairSummary(p, true));
+        printJsonOrText(repairPlan, output, (plan) => formatRepairSummary(plan, true));
         return;
       }
       const { runRepairWithFailureReadback } = await import('./repair-command-execution.ts');
@@ -95,28 +60,14 @@ export function registerWorkspaceCommands(program: Command): void {
           const repairPlanPath = resolveWorkspaceArtifactPath(cwd, CI_ARTIFACT_FILES.repairPlan);
           if (await pathExists(repairPlanPath)) {
             const plan = readRequiredRepairPlan(repairPlanPath, 'Repair plan disappeared before it could be read back.');
-            printJsonOrText(plan, output, (p) => formatRepairSummary(p, input.request.dryRun));
+            printJsonOrText(plan, output, (value) => formatRepairSummary(value, input.request.dryRun));
           }
         }
       );
-      // A successful execution followed by presentation failure must not trigger failure readback.
-      printJsonOrText(repairPlan, output, (p) => formatRepairSummary(p, input.request.dryRun));
-    });
+      printJsonOrText(repairPlan, output, (plan) => formatRepairSummary(plan, input.request.dryRun));
+    },
 
-  addJsonFlags(program.command('upgrade')
-    .argument('[subject]')
-    .argument('[target-version]'))
-    .description('Run upgrade')
-    .option(WORKSPACE_DRY_RUN_OPTION.flags, 'Dry run upgrade')
-    .action(async (
-      subject: string | undefined,
-      targetVersion: string | undefined,
-      rawOptions: Record<string, unknown>,
-      cmd: Command
-    ) => {
-      const cwd = process.cwd();
-      const invocationPath = commandPath(cmd);
-      const input = parseUpgradeCommandInput(subject, targetVersion, rawOptions, invocationPath);
+    upgrade: async ({ workspaceRoot: cwd, invocationPath, input }) => {
       const { output } = input;
       if (input.kind === 'plan') {
         const { readUpgradeArtifactSet } = await import('../../adapters/upgrade/artifact-readback.ts');
@@ -128,11 +79,7 @@ export function registerWorkspaceCommands(program: Command): void {
             `Upgrade plan not found; run ${invocationPath} <block-id> <target-version>`
           );
         }
-        printJsonOrText(
-          upgradePlan,
-          output,
-          (plan) => formatUpgradePlan(plan, upgradeExecutionTerminal)
-        );
+        printJsonOrText(upgradePlan, output, (plan) => formatUpgradePlan(plan, upgradeExecutionTerminal));
         return;
       }
       if (input.kind === 'diagnostics') {
@@ -157,65 +104,53 @@ export function registerWorkspaceCommands(program: Command): void {
       if (result.resultKind === 'preview') {
         printJsonOrText(result.upgradePlan, output, formatUpgradePreview);
       } else {
-        printJsonOrText(
-          result.upgradePlan,
-          output,
-          (plan) => formatUpgradePlan(plan, result.upgradeExecutionTerminal)
-        );
+        printJsonOrText(result.upgradePlan, output, (plan) => formatUpgradePlan(plan, result.upgradeExecutionTerminal));
       }
-    });
+    },
 
-  addJsonFlags(optionalModeCommand(program.command('lock'), 'mode', [WORKSPACE_INSPECTION_MODES.lock]))
-    .description('Lock project')
-    .action(async (mode: string | undefined, rawOptions: Record<string, unknown>, cmd: Command) => {
-      const cwd = process.cwd();
-      const invocationPath = commandPath(cmd);
-      const input = parseWorkspaceViewCommandInput('lock', mode, rawOptions);
+    view: async ({ command, workspaceRoot: cwd, invocationPath, input }) => {
       const { output } = input;
-      if (input.kind === 'inspect') {
-        const { resolveWorkspaceLockPath } = await import('../../adapters/workspace-context.ts');
-        const { formatLockInspect } = await import('./formatters.ts');
-        const { printRequiredJson } = await import('./artifact-command-read.ts');
-        const lockPath = await resolveWorkspaceLockPath(cwd);
-        await printRequiredJson<LockFile>(lockPath, `Graph lock not found; run ${invocationPath} first`, output, formatLockInspect);
+      if (command === 'lock') {
+        if (input.kind === 'inspect') {
+          const { resolveWorkspaceLockPath } = await import('../../adapters/workspace-context.ts');
+          const { formatLockInspect } = await import('./formatters.ts');
+          const { printRequiredJson } = await import('./artifact-command-read.ts');
+          const lockPath = await resolveWorkspaceLockPath(cwd);
+          await printRequiredJson<LockFile>(lockPath, `Graph lock not found; run ${invocationPath} first`, output, formatLockInspect);
+          return;
+        }
+        await runWithOptionalSpinner('Locking project', output, () => lockWorkspace(cwd));
+        printJsonOrText({ status: 'locked' as const }, output, () => 'Locked project');
         return;
       }
-      await runWithOptionalSpinner('Locking project', output, () => lockWorkspace(cwd));
-      printJsonOrText({ status: 'locked' as const }, output, () => 'Locked project');
-    });
 
-  addJsonFlags(optionalModeCommand(program.command('explain'), 'mode', [WORKSPACE_INSPECTION_MODES.explain]))
-    .description('Explain project')
-    .action(async (mode: string | undefined, rawOptions: Record<string, unknown>, cmd: Command) => {
-      const cwd = process.cwd();
-      const invocationPath = commandPath(cmd);
-      const input = parseWorkspaceViewCommandInput('explain', mode, rawOptions);
-      const { output } = input;
       if (input.kind === 'inspect') {
         const { formatExplainGraphInspect } = await import('./formatters.ts');
         const { CI_ARTIFACT_FILES } = await import('../../assurance/verification/ci-artifacts/contract/manifest.ts');
         const { resolveWorkspaceArtifactPath } = await import('../../adapters/workspace-context.ts');
         const { printWorkspaceJson } = await import('./artifact-command-read.ts');
         await printWorkspaceJson<import('../../semantics/projection/explain.ts').ExplainGraph>(
-          cwd, (root) => resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.explainGraph), `Explain graph not found; run ${invocationPath} first`, output, formatExplainGraphInspect
+          cwd,
+          (root) => resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.explainGraph),
+          `Explain graph not found; run ${invocationPath} first`,
+          output,
+          formatExplainGraphInspect
         );
         return;
       }
       const { buildE2eMatrix } = await import('../../adapters/verification/platform/review/runtime/matrix.ts');
       const { formatExplainSummary } = await import('./formatters.ts');
       const { graph, reviewSummary } = await runWithOptionalSpinner('Explaining project', output, () => explainWorkspace(cwd));
-      printJsonOrText({ graph, reviewSummary, e2eMatrix: buildE2eMatrix(reviewSummary) }, output, (s) => formatExplainSummary(s.graph, s.reviewSummary));
-    });
+      printJsonOrText(
+        { graph, reviewSummary, e2eMatrix: buildE2eMatrix(reviewSummary) },
+        output,
+        (summary) => formatExplainSummary(summary.graph, summary.reviewSummary)
+      );
+    },
 
-  addJsonFlags(optionalModeCommand(program.command('artifacts'), 'mode', ['manifest']))
-    .description('Manage CI artifacts')
-    .option(ARTIFACT_PATHS_OPTION.flags, ARTIFACT_PATHS_OPTION.description)
-    .option(ARTIFACT_KIND_OPTION.flags, ARTIFACT_KIND_OPTION.description)
-    .action(async (mode: string | undefined, rawOptions: Record<string, unknown>, cmd: Command) => {
-      const cwd = process.cwd();
-      const invocationPath = commandPath(cmd);
-      const input = parseArtifactCommandInput(mode, rawOptions);
+    artifacts: async ({ workspaceRoot, invocationPath, input }) => {
       const { executeArtifactCommand } = await import('./artifact-command-execution.ts');
-      await executeArtifactCommand(cwd, invocationPath, input);
-    });
+      await executeArtifactCommand(workspaceRoot, invocationPath, input);
+    }
+  });
 }

@@ -3,13 +3,13 @@ import { Command } from 'commander';
 import assert from 'node:assert/strict';
 
 import { decodeBooleanFlag } from '../../src/entry/cli/boolean-option.ts';
-import { jsonOpts } from '../../src/bootstrap/cli/command-options.ts';
-import { parsePipelineOutputOptions } from '../../src/bootstrap/cli/pipeline-command-input.ts';
+import { jsonOpts } from '../../src/entry/cli/command-options.ts';
+import { parsePipelineOutputOptions } from '../../src/entry/cli/pipeline-command-input.ts';
 import { registerWorkspaceCommands } from '../../src/bootstrap/cli/register-workspace-commands.ts';
 import {
   COMPOSE_LOCK_OPTION, WORKSPACE_DRY_RUN_OPTION,
   parseComposeCommandInput, parseRepairCommandInput, parseUpgradeCommandInput
-} from '../../src/bootstrap/cli/workspace-command-input.ts';
+} from '../../src/entry/cli/workspace-command-input.ts';
 
 const usage = (error: unknown) => (error as { code: string }).code === 'CLI-USAGE-001';
 const denied = [null, 0, 1, '', 'false', 'true', [], {}, new Boolean(false), Symbol('flag'), 1n, () => false];
