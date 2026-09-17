@@ -1,0 +1,120 @@
+name: sec086-reviewed-source-transfer
+
+on:
+  push:
+    branches: [refactor/sec086-architecture]
+    paths: [.github/workflows/sec086-refactor-apply.yml]
+
+permissions: {}
+
+concurrency:
+  group: sec086-reviewed-source-transfer
+  cancel-in-progress: false
+
+jobs:
+  transfer:
+    if: github.repository == 'sec-platform/sec' && github.ref == 'refs/heads/refactor/sec086-architecture'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Capture the exact branch candidate without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Require the reviewed parent before any source transformation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^)" = 5f78c782711435ba7c84dd5bf183c078d7089d12
+          git diff --exit-code
+      - name: Setup the repository-pinned Bun runtime
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version-file: .bun-version
+      - name: Install frozen tool inputs without lifecycle scripts
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Decode the locally replayed exact transformation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code
+          python3 - <<'PY'
+          import base64, gzip, hashlib, json, os, pathlib
+          encoded = ''.join(pathlib.Path(f'.github/sec086-transfer/part{i}.b64').read_text() for i in (1, 2, 3))
+          raw = gzip.decompress(base64.b64decode(encoded, validate=True))
+          assert hashlib.sha256(raw).hexdigest() == '87faaeec1b54c2a062fec8d4a479b3362e77d048b744a6edb99eafad76273fdf'
+          files = json.loads(raw)
+          assert set(files) == {'before.py', 'core.ts', 'relocate.ts', 'flatten.json', 'policy.py', 'after.py'}
+          target = pathlib.Path(os.environ['RUNNER_TEMP']) / 'sec086-transfer'
+          target.mkdir()
+          for name, content in files.items():
+              assert isinstance(content, str)
+              (target / name).write_text(content)
+          (target / 'node_modules').symlink_to(pathlib.Path.cwd() / 'node_modules', target_is_directory=True)
+          PY
+          python3 "$RUNNER_TEMP/sec086-transfer/before.py"
+          bun "$RUNNER_TEMP/sec086-transfer/core.ts"
+          bun "$RUNNER_TEMP/sec086-transfer/relocate.ts" "$RUNNER_TEMP/sec086-transfer/flatten.json"
+          python3 "$RUNNER_TEMP/sec086-transfer/policy.py"
+          python3 "$RUNNER_TEMP/sec086-transfer/after.py"
+          git add -A -- src tests
+          tree=$(git write-tree)
+          test "$(git rev-parse "$tree:src")" = 376f2c5973184fb1213da79fc62b4523d08227e9
+          test "$(git rev-parse "$tree:tests")" = a406e246da7470e24fa548aad929bcfbe58afe96
+          python3 - <<'PY'
+          import subprocess
+          paths = subprocess.check_output(['git', 'diff', '--cached', '--name-only', '-z']).decode().split('\0')
+          assert all(not p or p.startswith(('src/', 'tests/')) for p in paths)
+          PY
+      - name: Native whole-repository typecheck of the exact source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun node_modules/@typescript/native/bin/tsc --noEmit -p tsconfig.json 2>&1 | tee "$RUNNER_TEMP/sec086-typecheck.log"
+      - name: Real focused behavioral and architecture tests, not a merge Gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun test src/contracts/failure.test.ts src/contracts/directed-graph.test.ts src/contracts/exact-json.test.ts tests/unit/engineering-ir.test.ts tests/unit/workspace-containment-hardening.test.ts tests/unit/workspace-native-paths.test.ts tests/unit/validated-engineering-ir.test.ts tests/unit/verification-invocation-contract.test.ts tests/unit/workspace-semantic-linker.test.ts tests/unit/semantic-contract-responsibility.test.ts tests/unit/semantic-compiler.test.ts tests/unit/semantic-mutation-source-adapter.test.ts tests/unit/logger-record-hardening.test.ts src/system-architecture/repository-modules/dependency-policy.test.ts src/adapters/formats/yaml.test.ts 2>&1 | tee "$RUNNER_TEMP/sec086-focused.log"
+          git diff --exit-code -- src tests
+          tree=$(git write-tree)
+          test "$(git rev-parse "$tree:src")" = 376f2c5973184fb1213da79fc62b4523d08227e9
+          test "$(git rev-parse "$tree:tests")" = a406e246da7470e24fa548aad929bcfbe58afe96
+      - name: Commit the reviewed source changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'refactor: establish contracts and semantic owners with migrated consumers' -m 'Separate pure contracts, semantic normalization/linking/provenance, diagnostic adapters, and task execution. Retire obsolete source paths and enforce migrated import boundaries. Preserve existing compiler behavior and exact source Lock ownership. Native TypeScript and focused real tests passed for the checked source/test trees; no full-suite or trusted-Gate claim.'
+      - name: Publish only a fast-forward of the exact refactor branch and read it back
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          authorization=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $authorization"
+          branch=refs/heads/refactor/sec086-architecture
+          test "$(git ls-remote origin "$branch" | cut -f1)" = "$GITHUB_SHA"
+          git push origin "HEAD:$branch"
+          candidate=$(git rev-parse HEAD)
+          test "$(git ls-remote origin "$branch" | cut -f1)" = "$candidate"
+          printf 'commit=%s\ntree=%s\nsourceTree=%s\ntestTree=%s\n' "$candidate" "$(git rev-parse HEAD^{tree})" "$(git rev-parse HEAD:src)" "$(git rev-parse HEAD:tests)" > "$RUNNER_TEMP/sec086-readback.txt"
+          cat "$RUNNER_TEMP/sec086-readback.txt"
+      - name: Preserve exact native verification and publication results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: sec086-core-native-verification
+          path: |
+            ${{ runner.temp }}/sec086-typecheck.log
+            ${{ runner.temp }}/sec086-focused.log
+            ${{ runner.temp }}/sec086-readback.txt
+          if-no-files-found: ignore
+          retention-days: 7
