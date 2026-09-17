@@ -4,7 +4,7 @@ import type {
   UpgradePlan,
   UpgradePreview
 } from '../../semantics/upgrade/upgrade-artifact.ts';
-import type { InstallPlanStep, LockFile } from '../../compiler/contract.ts';
+import type { LockFile } from '../../compiler/contract.ts';
 import type { PolicyReport } from '../../semantics/policies/types.ts';
 import type { AcceptanceCoverageEntry, AcceptanceCoverageReport } from '../../assurance/acceptance/coverage.ts';
 import type { ExplainGraph } from '../../semantics/projection/explain.ts';
@@ -41,8 +41,6 @@ export type ArtifactUploadPathContract = {
   missingReasonCounts: CiArtifactManifest['summary']['missingReasonCounts'];
   missing: CiArtifactManifest['missing'];
 };
-
-export type InstallManifestEntry = InstallPlanStep & { status: 'installed' };
 
 export type PostgresContract = {
   formatVersion: string;
@@ -152,16 +150,6 @@ export function buildArtifactUploadPathContract(
     missingReasonCounts: manifest.summary.missingReasonCounts,
     missing: manifest.missing
   };
-}
-
-export function formatInstallManifest(manifest: InstallManifestEntry[]): string {
-  return [
-    `Install manifest ${manifest.length} steps`,
-    `Blocks: ${formatList(uniqueSorted(manifest.map((entry) => entry.blockId)))}`,
-    `Actions: ${formatCounts(manifest.map((entry) => entry.action))}`,
-    `Registry kinds: ${formatCounts(manifest.map((entry) => entry.registryKind))}`,
-    `Statuses: ${formatCounts(manifest.map((entry) => entry.status))}`
-  ].join('\n');
 }
 
 export function formatPostgresContract(contract: PostgresContract): string {

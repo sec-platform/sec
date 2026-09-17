@@ -7,7 +7,8 @@ import type { ReviewSummary } from '../../assurance/verification/review/contract
 import { addJsonFlags, commandFromRoot, jsonOpts } from '../../entry/cli/command-options.ts';
 import { runWithOptionalSpinner } from './command-progress.ts';
 import type { BlockUsageMapView } from '../../application/block-usage-map.ts';
-import type { InstallManifestEntry, PostgresContract } from './formatters.ts';
+import type { InstalledManifestEntry } from '../../application/install-manifest.ts';
+import type { PostgresContract } from './formatters.ts';
 import { inspectionValue, registerInspectionQuery, type InspectionContext } from '../../entry/cli/inspection-query.ts';
 import { captureJsonOutputInput } from '../../entry/cli/json-output-options.ts';
 import { loadProjectOverviewDomain } from './lazy-command-domains.ts';
@@ -151,10 +152,11 @@ export function registerInspectionCommands(program: Command): void {
   }).description('Contract inspection');
 
   registerInspectionQuery(program.command('install'), {
-    read: artifactReader<InstallManifestEntry[]>('installManifest', (c) => `Install manifest not found; run ${c.rootCommand} compose first`),
+    read: artifactReader<InstalledManifestEntry[]>('installManifest', (c) => `Install manifest not found; run ${c.rootCommand} compose first`),
     view: async (report) => {
-      const { formatInstallManifest } = await import('./formatters.ts');
-      return inspectionValue(report, formatInstallManifest);
+      const { projectInstallManifest } = await import('../../application/install-manifest.ts');
+      const { formatInstallManifest } = await import('../../entry/cli/install-manifest.ts');
+      return inspectionValue(projectInstallManifest(report), formatInstallManifest);
     }
   });
 
