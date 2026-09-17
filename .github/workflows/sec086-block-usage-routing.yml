@@ -41,14 +41,8 @@ jobs:
           new="import type { BlockUsageMapView } from '../../application/block-usage-map.ts';\nimport type { InstallManifestEntry, PostgresContract } from './formatters.ts';\n"
           assert text.count(old)==1
           text=text.replace(old,new)
-          old_block="""  registerInspectionQuery(program.command('blocks'), {
-            read: artifactReader<BlockUsageMap>('blockUsageMap', (c) => `Block usage map not found; run ${c.rootCommand} compose first`),
-            view: async (report) => {
-              const { formatBlockUsageMap } = await import('./formatters.ts');
-              return inspectionValue(report, formatBlockUsageMap);
-            }
-          });
-          """
+          start=text.index("  registerInspectionQuery(program.command('blocks'), {")
+          end=text.index("\n\n  addJsonFlags(program.command('postgres'))", start)
           new_block="""  registerInspectionQuery(program.command('blocks'), {
             read: artifactReader<BlockUsageMapView>('blockUsageMap', (c) => `Block usage map not found; run ${c.rootCommand} compose first`),
             view: async (report) => {
@@ -58,8 +52,7 @@ jobs:
             }
           });
           """
-          assert text.count(old_block)==1
-          p.write_text(text.replace(old_block,new_block))
+          p.write_text(text[:start]+new_block+text[end:])
 
           p=Path('src/bootstrap/cli/formatters.ts')
           text=p.read_text()
