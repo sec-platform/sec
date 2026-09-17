@@ -21,19 +21,25 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout exact transport commit
+      - name: Checkout exact repaired transport commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Decode exact reviewed patch and restore verified baseline
+      - name: Reconstruct exact reviewed patch and restore verified baseline
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = 6b8c09316d24260e62933bdc0eabf4e5fc8cd6a3
-          base64 -d .github/sec086-resume-transfer/payload.xz.b64 | xz -d > "$RUNNER_TEMP/sec086-resume.patch"
-          echo '5f576a1b1599df164695e70897aebb7d51968cf16a3ca4d4edc2c1a7367555ae  '"$RUNNER_TEMP/sec086-resume.patch" | sha256sum -c -
+          test "$(git rev-parse HEAD^)" = 462755fd0144bfbfe3260837319f9f172146dc28
+          printf '%s  %s\n' \
+            667653af0dac4466cf244b716df8baa285070dbc171a11d835e36fbad94ac13d .github/sec086-resume-transfer/chunk0.xz.part \
+            f52768699aec91eb82c9559314995b538b3ad7e9d544114b855833276ae662e9 .github/sec086-resume-transfer/chunk1.xz.part \
+            331901f02d62effe4a3f9a9c6c58c5d1de0c3313ed3d024145802dfa6dbf3c26 .github/sec086-resume-transfer/chunk2.xz.part \
+            d64e4fcd8fc6f9428d58101329c2213a8b7c661e789d264fc752cc5ba5ef1031 .github/sec086-resume-transfer/chunk3.xz.part \
+            | sha256sum -c -
+          cat .github/sec086-resume-transfer/chunk{0,1,2,3}.xz.part | xz -d > "$RUNNER_TEMP/sec086-resume.patch"
+          echo '5fbff1d7c5f7fc192355a2d6f2299c1e37fc88db17b0a9a16921fbcd5d20b090  '"$RUNNER_TEMP/sec086-resume.patch" | sha256sum -c -
           cp .github/workflows/sec086-resume-snapshot.yml "$RUNNER_TEMP/sec086-resume-snapshot.yml"
           git checkout --detach f185b7208013904aa3224c948c96ce6e33ee27ed
           git apply --index --binary "$RUNNER_TEMP/sec086-resume.patch"
@@ -91,7 +97,7 @@ jobs:
             tests/integration/pipeline-kernel.test.ts
       - name: Build frozen release artifact
         run: bun run build
-      - name: Publish source tree while retaining only this workflow for transport closeout
+      - name: Publish source tree while retaining only this workflow for closeout
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -106,7 +112,7 @@ jobs:
           test "$(git ls-remote origin "$branch" | cut -f1)" = "$GITHUB_SHA"
           git push origin "$publish:$branch"
           test "$(git ls-remote origin "$branch" | cut -f1)" = "$publish"
-          printf 'commit=%s\ntree=%s\nsrc=%s\ntests=%s\n' "$publish" "$tree" "$(git rev-parse HEAD:src)" "$(git rev-parse HEAD:tests)" > "$RUNNER_TEMP/sec086-readback.txt"
+          printf 'commit=%s\ntree=%s\nsrc=%s\ntests=%s\n' "$publish" "$tree" "$(git rev-parse HEAD:src)" "$(git rev-parse HEAD:tests)" | tee "$RUNNER_TEMP/sec086-readback.txt"
       - name: Preserve exact hosted readback
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
