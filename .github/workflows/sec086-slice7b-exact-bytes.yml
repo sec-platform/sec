@@ -33,7 +33,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          base64 -d .github/sec086-slice7b-target.tar.xz.b64 > "$RUNNER_TEMP/sec086-slice7b-target.tar.xz"
+          cat .github/sec086-slice7b-parts/part{0,1,2,3}.b64 | base64 -d > "$RUNNER_TEMP/sec086-slice7b-target.tar.xz"
           echo '1ce4367c9e9e1f07fdded14c8fa7995909c9efb03a0282ff9adb6361cf01c6d7  '"$RUNNER_TEMP/sec086-slice7b-target.tar.xz" | sha256sum -c -
           tar -xJf "$RUNNER_TEMP/sec086-slice7b-target.tar.xz" -C .
           test "$(git hash-object src/bootstrap/cli/register-inspection-commands.ts)" = fb38a4b3f2ad5c5902808bfe55eca75f912030ab
