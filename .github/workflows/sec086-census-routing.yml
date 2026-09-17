@@ -1,0 +1,223 @@
+name: sec086-census-routing
+
+on:
+  push:
+    branches: [refactor/sec086-architecture]
+    paths: [.github/workflows/sec086-census-routing.yml]
+
+permissions: {}
+
+jobs:
+  verify-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require exact presentation-boundary baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:src)" = 659b721ae1f7f35674aa424031e9822406e92b01
+          test "$(git rev-parse HEAD:tests)" = 69191ac1c9dafe9ab193729107a3a95079ef0815
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Route census admission and presentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p=Path('src/adapters/runtime-state/text-byte-census.ts')
+          text=p.read_text()
+          needle="""export type TextByteClassification =
+            | 'canonical-lf'
+            | 'explicit-crlf'
+            | 'binary'
+            | 'preserve-external'
+            | 'unknown';
+          """
+          replacement=needle+"""
+          export const TEXT_BYTE_CLASSIFICATIONS = [
+            'canonical-lf',
+            'explicit-crlf',
+            'binary',
+            'preserve-external',
+            'unknown'
+          ] as const satisfies readonly TextByteClassification[];
+          """
+          assert text.count(needle)==1
+          p.write_text(text.replace(needle,replacement))
+
+          p=Path('src/application/text-byte-census.ts')
+          text=p.read_text()
+          addition="""
+
+          export type TextByteCensusThresholdAdmission<C extends string> =
+            | Readonly<{ status: 'absent' }>
+            | Readonly<{ status: 'accepted'; threshold: 'any' | C }>
+            | Readonly<{ status: 'rejected'; value: string }>;
+
+          export function admitTextByteCensusThreshold<C extends string>(
+            value: string | undefined,
+            classifications: readonly C[]
+          ): TextByteCensusThresholdAdmission<C> {
+            if (value === undefined) return { status: 'absent' };
+            if (value === 'any') return { status: 'accepted', threshold: 'any' };
+            const classification = classifications.find((candidate) => candidate === value);
+            return classification === undefined
+              ? { status: 'rejected', value }
+              : { status: 'accepted', threshold: classification };
+          }
+
+          export function textByteCensusThresholdMatched<C extends string>(
+            report: Readonly<{
+              failClosed: boolean;
+              classificationCounts: Readonly<Record<C, number>>;
+            }>,
+            threshold: 'any' | NoInfer<C>
+          ): boolean {
+            return threshold === 'any'
+              ? report.failClosed
+              : report.classificationCounts[threshold] > 0;
+          }
+          """
+          assert 'TextByteCensusThresholdAdmission' not in text
+          p.write_text(text+addition)
+
+          p=Path('src/bootstrap/cli/register-commands.ts')
+          text=p.read_text()
+          old="import type { TextByteClassification } from '../../adapters/runtime-state/text-byte-census.ts';\n"
+          new="import { TEXT_BYTE_ANOMALIES, TEXT_BYTE_CLASSIFICATIONS } from '../../adapters/runtime-state/text-byte-census.ts';\nimport { admitTextByteCensusThreshold, projectTextByteCensusReport, textByteCensusThresholdMatched } from '../../application/text-byte-census.ts';\n"
+          assert text.count(old)==1
+          text=text.replace(old,new)
+          marker="import { printJsonOrText } from '../../entry/cli/format-utils.ts';\n"
+          assert text.count(marker)==1
+          text=text.replace(marker,marker+"import { formatTextByteCensus } from '../../entry/cli/text-byte-census.ts';\n")
+          old="import { formatTextByteCensusReport } from './text-byte-census-format.ts';\n"
+          assert text.count(old)==1
+          text=text.replace(old,'')
+          old_block="""      const failOn = opts.failOn as string | undefined;
+                const classifications: readonly TextByteClassification[] = [
+                  'canonical-lf', 'explicit-crlf', 'binary', 'preserve-external', 'unknown'
+                ];
+                if (failOn !== undefined && failOn !== 'any'
+                  && !classifications.includes(failOn as TextByteClassification)) {
+                  throw usageError(`Text census --fail-on must be any or one of: ${classifications.join(', ')}`);
+                }
+                const report = await runWithOptionalSpinner('Scanning text bytes', output, () => runCensus(process.cwd()));
+                printJsonOrText(report, output, formatTextByteCensusReport);
+                const failed = failOn === 'any'
+                  ? report.failClosed
+                  : failOn !== undefined && report.classificationCounts[failOn as TextByteClassification] > 0;
+                if (failed) throw new Error(`Text census --fail-on ${failOn} threshold matched.`);
+          """
+          new_block="""      const thresholdAdmission = admitTextByteCensusThreshold(
+                  opts.failOn as string | undefined,
+                  TEXT_BYTE_CLASSIFICATIONS
+                );
+                if (thresholdAdmission.status === 'rejected') {
+                  throw usageError(`Text census --fail-on must be any or one of: ${TEXT_BYTE_CLASSIFICATIONS.join(', ')}`);
+                }
+                const report = await runWithOptionalSpinner('Scanning text bytes', output, () => runCensus(process.cwd()));
+                printJsonOrText(report, output, (value) => formatTextByteCensus(projectTextByteCensusReport(value, {
+                  classifications: TEXT_BYTE_CLASSIFICATIONS,
+                  anomalies: TEXT_BYTE_ANOMALIES
+                })));
+                const failed = thresholdAdmission.status === 'accepted'
+                  && textByteCensusThresholdMatched(report, thresholdAdmission.threshold);
+                if (failed) throw new Error(`Text census --fail-on ${thresholdAdmission.threshold} threshold matched.`);
+          """
+          assert text.count(old_block)==1
+          p.write_text(text.replace(old_block,new_block))
+
+          Path('src/bootstrap/cli/text-byte-census-format.ts').unlink()
+
+          p=Path('tests/unit/text-byte-census-presentation.test.ts')
+          text=p.read_text()
+          old="import { projectTextByteCensusReport } from '../../src/application/text-byte-census.ts';"
+          new="import { admitTextByteCensusThreshold, projectTextByteCensusReport, textByteCensusThresholdMatched } from '../../src/application/text-byte-census.ts';"
+          assert text.count(old)==1
+          text=text.replace(old,new)
+          addition="""
+
+            test('application admits finite fail-on thresholds and evaluates them without CLI casts', () => {
+              expect(admitTextByteCensusThreshold(undefined, classifications)).toEqual({ status: 'absent' });
+              expect(admitTextByteCensusThreshold('any', classifications)).toEqual({
+                status: 'accepted',
+                threshold: 'any'
+              });
+              expect(admitTextByteCensusThreshold('unknown', classifications)).toEqual({
+                status: 'accepted',
+                threshold: 'unknown'
+              });
+              expect(admitTextByteCensusThreshold('invalid', classifications)).toEqual({
+                status: 'rejected',
+                value: 'invalid'
+              });
+              const report = {
+                failClosed: true,
+                classificationCounts: {
+                  'canonical-lf': 2,
+                  'explicit-crlf': 0,
+                  binary: 0,
+                  'preserve-external': 0,
+                  unknown: 1
+                }
+              };
+              expect(textByteCensusThresholdMatched(report, 'any')).toBe(true);
+              expect(textByteCensusThresholdMatched(report, 'unknown')).toBe(true);
+              expect(textByteCensusThresholdMatched(report, 'binary')).toBe(false);
+            });
+          """
+          marker='\n});\n'
+          pos=text.rfind(marker)
+          assert pos!=-1
+          p.write_text(text[:pos]+addition+text[pos:])
+          PY
+          git add -A src tests
+          git diff --cached --check
+          tree=$(git write-tree)
+          test "$(git rev-parse "$tree:src")" = 0681b8d1a12c282ada766e9226aa223f9181ba2a
+          test "$(git rev-parse "$tree:tests")" = edf831e40b601f19008422a23b0d5018a7d6e9de
+      - name: Verify census slice
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun node_modules/@typescript/native/bin/tsc --noEmit -p tsconfig.json
+          bun test --timeout 20000 tests/unit/text-byte-census-presentation.test.ts tests/contract/text-byte-census.test.ts
+          set +e
+          output=$(bun src/bootstrap/cli/cli.ts text census --fail-on invalid --json 2>&1)
+          code=$?
+          set -e
+          test "$code" -ne 0
+          printf '%s' "$output" | grep -F 'Text census --fail-on must be any or one of:' >/dev/null
+          bun run docs:doctor
+          bun run audit:module-topology
+          bun -e 'const r=await Bun.build({entrypoints:["src/bootstrap/cli/cli.ts"],target:"bun",write:false}); if(!r.success){console.error(r.logs);process.exit(1)}'
+      - name: Commit source and tests only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'refactor: route text byte census presentation through entry'
+          test "$(git rev-parse HEAD:src)" = 0681b8d1a12c282ada766e9226aa223f9181ba2a
+          test "$(git rev-parse HEAD:tests)" = edf831e40b601f19008422a23b0d5018a7d6e9de
+      - name: Fast-forward isolated branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          authorization=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $authorization"
+          branch=refs/heads/refactor/sec086-architecture
+          test "$(git ls-remote origin "$branch" | cut -f1)" = "$GITHUB_SHA"
+          git push origin "HEAD:$branch"
