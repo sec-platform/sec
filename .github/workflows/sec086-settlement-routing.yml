@@ -1,0 +1,91 @@
+name: sec086-settlement-routing
+
+on:
+  push:
+    branches: [refactor/sec086-architecture]
+    paths: [.github/workflows/sec086-settlement-routing.yml]
+
+permissions: {}
+
+jobs:
+  verify-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require exact presentation-boundary baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:src)" = 9b74e5a7f3bad0f759d8c108a6e4bf175a77eff0
+          test "$(git rev-parse HEAD:tests)" = 2626ed5512505349f4a653314cc22ea4ee74a1bd
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Route live settlement output and remove duplicate formatter
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/bootstrap/cli/register-commands.ts')
+          text=p.read_text()
+          old_import="import type { WorktreeSettlementReceipt } from '../../adapters/runtime-state/worktree-settlement.ts';\n"
+          new_import="import { projectWorktreeSettlementReceipt } from '../../application/worktree-settlement.ts';\n"
+          assert text.count(old_import)==1
+          text=text.replace(old_import,new_import)
+          marker="import { printJsonOrText } from '../../entry/cli/format-utils.ts';\n"
+          addition=marker+"import { formatWorktreeSettlement } from '../../entry/cli/worktree-settlement.ts';\n"
+          assert text.count(marker)==1
+          text=text.replace(marker,addition)
+          start=text.index('function formatSettlementReceipt(')
+          end=text.index('\n\nexport function registerCommands',start)
+          text=text[:start]+text[end+2:]
+          old="      printJsonOrText(receipt, output, formatSettlementReceipt);"
+          new="      printJsonOrText(receipt, output, (value) => formatWorktreeSettlement(projectWorktreeSettlementReceipt(value)));"
+          assert text.count(old)==1
+          p.write_text(text.replace(old,new))
+
+          p=Path('src/adapters/self-hosting/development/tooling/workspace/worktree-settlement.ts')
+          text=p.read_text()
+          start=text.index('export function formatWorktreeSettlementReceipt(')
+          end=text.index('\n\nasync function runSettlementWithSession',start)
+          p.write_text(text[:start]+text[end+2:])
+          PY
+          git add src/bootstrap/cli/register-commands.ts src/adapters/self-hosting/development/tooling/workspace/worktree-settlement.ts
+          git diff --cached --check
+          tree=$(git write-tree)
+          test "$(git rev-parse "$tree:src")" = 4e7f837c8f984c62a5935199c5042c5af28aa8b0
+          test "$(git rev-parse "$tree:tests")" = 2626ed5512505349f4a653314cc22ea4ee74a1bd
+      - name: Verify slice
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun node_modules/@typescript/native/bin/tsc --noEmit -p tsconfig.json
+          bun test --timeout 20000 tests/unit/worktree-settlement-presentation.test.ts tests/contract/worktree-settlement.test.ts tests/unit/sec-dev-worktree-settlement-root.test.ts
+          bun run docs:doctor
+          bun run audit:module-topology
+      - name: Commit source only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'refactor: route settlement presentation through entry'
+          test "$(git rev-parse HEAD:src)" = 4e7f837c8f984c62a5935199c5042c5af28aa8b0
+      - name: Fast-forward isolated branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          authorization=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $authorization"
+          branch=refs/heads/refactor/sec086-architecture
+          test "$(git ls-remote origin "$branch" | cut -f1)" = "$GITHUB_SHA"
+          git push origin "HEAD:$branch"
