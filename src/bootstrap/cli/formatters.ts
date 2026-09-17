@@ -81,20 +81,8 @@ export type RuntimeStepsInspect = {
   steps: RuntimeStepInspect[];
 };
 
-export type DemoChecklistItem = {
-  id: string;
-  status: 'passed' | 'missing';
-  artifactPath: string;
-  command: string;
-};
-
-export type DemoChecklist = {
-  status: 'passed' | 'attention';
-  itemCount: number;
-  missingCount: number;
-  items: DemoChecklistItem[];
-  nextCommand: string;
-};
+export type { DemoChecklist, DemoChecklistItem } from '../../application/demo-checklist.ts';
+export { formatDemoChecklist } from '../../entry/cli/demo-checklist.ts';
 
 export function formatCiArtifactManifest(manifest: CiArtifactManifest): string {
   return [
@@ -233,22 +221,6 @@ export function formatExplainGraphInspect(graph: ExplainGraph): string {
     `Edge types: ${formatCounts(graph.edges.map((edge) => edge.type))}`,
     `Coverage overlay: ${graph.overlays.coverage.blocks.length} blocks`,
     `Provenance overlay: ${graph.overlays.provenance.length} artifacts`
-  ].join('\n');
-}
-
-export function formatDemoChecklist(checklist: DemoChecklist): string {
-  return [
-    formatFields([
-      `Demo checklist ${checklist.status}`,
-      `items=${checklist.itemCount}`,
-      `missing=${checklist.missingCount}`
-    ]),
-    ...checklist.items.map((item) => formatFields([
-      `${item.id}: ${item.status}`,
-      item.artifactPath,
-      `command=${item.command}`
-    ])),
-    `Next command: ${checklist.nextCommand}`
   ].join('\n');
 }
 
