@@ -44,13 +44,6 @@ export type ArtifactUploadPathContract = {
 
 export type InstallManifestEntry = InstallPlanStep & { status: 'installed' };
 
-export type BlockUsageMap = {
-  blocks: Array<{
-    id: string;
-    installOrder: number;
-  }>;
-};
-
 export type PostgresContract = {
   formatVersion: string;
   provider: string;
@@ -168,16 +161,6 @@ export function formatInstallManifest(manifest: InstallManifestEntry[]): string 
     `Actions: ${formatCounts(manifest.map((entry) => entry.action))}`,
     `Registry kinds: ${formatCounts(manifest.map((entry) => entry.registryKind))}`,
     `Statuses: ${formatCounts(manifest.map((entry) => entry.status))}`
-  ].join('\n');
-}
-
-export function formatBlockUsageMap(usageMap: BlockUsageMap): string {
-  const blocks = usageMap.blocks
-    .slice()
-    .sort((left, right) => left.installOrder - right.installOrder || compareCodeUnits(left.id, right.id));
-  return [
-    `Block usage map ${blocks.length} blocks`,
-    `Install order: ${formatList(blocks.map((block) => `${block.installOrder}:${block.id}`))}`
   ].join('\n');
 }
 

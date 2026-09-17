@@ -6,7 +6,8 @@ import type { RuntimeVerificationLaneReport, VerificationReport } from '../../as
 import type { ReviewSummary } from '../../assurance/verification/review/contract/types.ts';
 import { addJsonFlags, commandFromRoot, jsonOpts } from '../../entry/cli/command-options.ts';
 import { runWithOptionalSpinner } from './command-progress.ts';
-import type { BlockUsageMap, InstallManifestEntry, PostgresContract } from './formatters.ts';
+import type { BlockUsageMapView } from '../../application/block-usage-map.ts';
+import type { InstallManifestEntry, PostgresContract } from './formatters.ts';
 import { inspectionValue, registerInspectionQuery, type InspectionContext } from '../../entry/cli/inspection-query.ts';
 import { captureJsonOutputInput } from '../../entry/cli/json-output-options.ts';
 import { loadProjectOverviewDomain } from './lazy-command-domains.ts';
@@ -158,10 +159,11 @@ export function registerInspectionCommands(program: Command): void {
   });
 
   registerInspectionQuery(program.command('blocks'), {
-    read: artifactReader<BlockUsageMap>('blockUsageMap', (c) => `Block usage map not found; run ${c.rootCommand} compose first`),
+    read: artifactReader<BlockUsageMapView>('blockUsageMap', (c) => `Block usage map not found; run ${c.rootCommand} compose first`),
     view: async (report) => {
-      const { formatBlockUsageMap } = await import('./formatters.ts');
-      return inspectionValue(report, formatBlockUsageMap);
+      const { projectBlockUsageMap } = await import('../../application/block-usage-map.ts');
+      const { formatBlockUsageMap } = await import('../../entry/cli/block-usage-map.ts');
+      return inspectionValue(projectBlockUsageMap(report), formatBlockUsageMap);
     }
   });
 
