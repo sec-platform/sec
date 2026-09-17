@@ -10,7 +10,7 @@ import {
   readNoFollowOrdinaryFile,
   replaceDurableCanonicalFile,
   type PhysicalDirectoryIdentity
-} from '../../runtime-state/physical/runtime/physical-no-follow.ts';
+} from '../runtime-state/physical/runtime/physical-no-follow.ts';
 import { isCanonicalPortableLogicalPath } from '../../contracts/logical-path.ts';
 import type { CommitFence } from "../../contracts/commit-fence.ts";
 

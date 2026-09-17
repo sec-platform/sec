@@ -11,12 +11,12 @@ import {
   extractHeuristicBehaviorCandidates,
   repositoryAuditShouldFail,
   repositoryAuditSupersessionShouldBlock
-} from '../../src/brownfield/repository-audit/cli.ts';
+} from '../../src/adapters/repository/repository-audit/cli.ts';
 import {
   SEC_AGENT_SKILL_IDS,
   SEC_REPOSITORY_HEURISTIC_BEHAVIOR_IDS,
   SEC_REPOSITORY_HEURISTIC_ROUTES
-} from '../../src/control/agent/skill.ts';
+} from '../../src/adapters/self-hosting/control/agent/skill.ts';
 
 function git(repositoryRoot: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], {

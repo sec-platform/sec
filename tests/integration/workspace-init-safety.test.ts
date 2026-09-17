@@ -4,10 +4,10 @@ import * as path from 'node:path';
 
 import { writeProvenance } from '../../src/adapters/compilation/emit/write-provenance.ts';
 import { readLockFile } from "../../src/adapters/workspace/lock.ts";
-import { initWorkspace } from '../../src/application/engineering/workspace-orchestrator.ts';
+import { initWorkspace } from '../../src/bootstrap/engineering/workspace-orchestrator.ts';
 import { loadPlan } from '../../src/adapters/workspace/sources/load-plan.ts';
 import { readOptionalProvenanceFile } from '../../src/adapters/workspace/provenance-reader.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import {
   acquireWorkspaceWriteLease,
   WorkspaceWriteLeaseError

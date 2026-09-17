@@ -1,13 +1,13 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { emptyOverrideManifest, PROVENANCE_FORMAT_VERSION } from '../../semantics/provenance/types.ts';
-import { buildRuntimePackageManifest, loadRuntimeDependencySpec } from '../../toolchain/dependencies/contract/runtime-dependency-spec.ts';
-import { compilerRuntimeResources } from '../../toolchain/runtime/layout.ts';
+import { buildRuntimePackageManifest, loadRuntimeDependencySpec } from '../toolchain/dependencies/contract/runtime-dependency-spec.ts';
+import { compilerRuntimeResources } from '../toolchain/runtime/layout.ts';
 import {
   CI_ARTIFACT_FILES,
   fixedCiArtifactPaths,
   uniqueSortedCiArtifactPaths
-} from '../../verification/ci-artifacts/contract/manifest.ts';
+} from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import { ensureDir, pathExists, writeJson, writeText } from "../filesystem/files.ts";
 import { type CommitFence } from "../../contracts/commit-fence.ts";
 import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../workspace-context.ts";

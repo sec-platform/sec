@@ -7,7 +7,7 @@ import {
   assertWindowsAppContainerExecutionCapability,
   issueWindowsAppContainerExecutionCapability as issuePhysicalWindowsAppContainerExecutionCapability,
   WindowsAppContainerExecutionCapabilityError
-} from '../../src/runtime-state/physical/contract/windows-appcontainer-execution-capability.ts';
+} from '../../src/adapters/runtime-state/physical/contract/windows-appcontainer-execution-capability.ts';
 import {
   acquireWorkspaceWriteLease,
   issueWindowsAppContainerExecutionCapability

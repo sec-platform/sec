@@ -1,6 +1,6 @@
 import path from 'node:path';
 import ts from 'typescript';
-import { withProjectDependencyBridge } from '../../toolchain/dependencies/runtime.ts';
+import { withProjectDependencyBridge } from '../toolchain/dependencies/runtime.ts';
 import { pathExists } from "../filesystem/files.ts";
 import { compilerRoot, tsconfigRelativePath } from "../workspace-context.ts";
 import { isPathInside } from "../../contracts/relative-path.ts";

@@ -3,8 +3,8 @@ import { SUPPORTED_STACK } from '../../src/compiler/contract.ts';
 import { buildReviewSummary } from '../../src/adapters/compilation/emit/write-review-summary.ts';
 import type { AcceptanceCoverageReport } from '../../src/assurance/acceptance/coverage.ts';
 import type { ProvenanceFile } from '../../src/semantics/provenance/types.ts';
-import type { VerificationReport } from '../../src/verification/contract/types.ts';
-import type { ReviewSummary } from '../../src/verification/review/contract/types.ts';
+import type { VerificationReport } from '../../src/assurance/verification/contract/types.ts';
+import type { ReviewSummary } from '../../src/assurance/verification/review/contract/types.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 import { emptyVerificationLogs } from './verification-fixtures.ts';
 

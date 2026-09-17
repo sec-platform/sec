@@ -1,4 +1,4 @@
-import type { VerificationReport } from '../../verification/contract/types.ts';
+import type { VerificationReport } from '../../assurance/verification/contract/types.ts';
 import { PIPELINE_VERIFY_STAGE_IDS } from '../compilation-protocol/types.ts';
 import type { WorkspaceSemanticBundle } from '../workspace/semantic-bundle.ts';
 import { sha256 } from '../../compiler/semantic-mutation/canonical.ts';

@@ -1,18 +1,18 @@
 import { expect, test } from 'bun:test';
 
-import { compileSecRepositoryModuleGraph } from '../../src/brownfield/source-program-model/typescript.ts';
+import { compileSecRepositoryModuleGraph } from '../../src/adapters/repository/source-program-model/typescript.ts';
 import {
   executeGitHubApiOperation,
   inspectGitHubApiCapability,
   type GitHubApiCapability,
   type GitHubApiPrincipal
-} from '../../src/external-capabilities/github-api/operation-session.ts';
+} from '../../src/adapters/providers/github-api/operation-session.ts';
 import {
   issueGitHubApiTestCapability,
   withGitHubApiTestEnrollmentSession,
   withGitHubApiTestSession,
   type GitHubApiTransport
-} from '../../src/external-capabilities/github-api/test/operation-session.ts';
+} from '../../src/adapters/providers/github-api/test/operation-session.ts';
 
 const TOKEN = 'test-token-0123456789';
 const SHA = '1'.repeat(40);
@@ -39,13 +39,13 @@ function capability(input: Readonly<{
 }
 
 test('production surface excludes test issuers and the repository graph rejects their import', async () => {
-  const production = await import('../../src/external-capabilities/github-api/operation-session.ts');
+  const production = await import('../../src/adapters/providers/github-api/operation-session.ts');
   expect(Object.keys(production).sort()).not.toContain('issueGitHubApiTestCapability');
   expect(Object.keys(production).sort()).not.toContain('withGitHubApiTestSession');
   expect(() => compileSecRepositoryModuleGraph({
     files: [
-      'src/external-capabilities/github-api/production-consumer.ts',
-      'src/external-capabilities/github-api/test/operation-session.ts'
+      'src/adapters/providers/github-api/production-consumer.ts',
+      'src/adapters/providers/github-api/test/operation-session.ts'
     ],
     readSource: (file) => file.endsWith('/production-consumer.ts')
       ? "import { issueGitHubApiTestCapability } from './test/operation-session.ts';"

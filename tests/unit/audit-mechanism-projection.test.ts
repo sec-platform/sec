@@ -10,8 +10,8 @@ import {
   parseSourceProgramAuditOperationInput,
   parseSourceProgramAuditOperationResult,
   type CompileSourceProgramAuditOperationInput
-} from '../../src/brownfield/repository-audit/source-program-audit-operation.ts';
-import type { SourceProgramModel } from '../../src/brownfield/source-program-model/contract.ts';
+} from '../../src/adapters/repository/repository-audit/source-program-audit-operation.ts';
+import type { SourceProgramModel } from '../../src/adapters/repository/source-program-model/contract.ts';
 import { rawSha256, sha256 } from '../../src/contracts/canonical.ts';
 
 const digest = (value: unknown): `sha256:${string}` => sha256(value) as `sha256:${string}`;

@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { compileRepositoryObservationOperation, resolveRepositoryObservationRoots } from '../../src/development/runner/repository-observation.ts';
+import { compileRepositoryObservationOperation, resolveRepositoryObservationRoots } from '../../src/adapters/self-hosting/development/runner/repository-observation.ts';
 import { compilerRoot } from "../../src/adapters/workspace-context.ts";
 
 // Actual owner compilation, production Git/session issuance and retained root

@@ -9,8 +9,8 @@ import {
   lockWorkspace,
   resolveWorkspace,
   verifyWorkspace
-} from '../../src/application/engineering/cli.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+} from '../../src/bootstrap/engineering/cli.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { readJson } from "../../src/adapters/filesystem/files.ts";
 import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { expectGraphEdge, expectGraphNode, expectNoGraphEdge } from '../helpers/graph-assertions.ts';

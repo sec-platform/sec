@@ -1,19 +1,19 @@
 import { lstat, open, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 
-import { runObservedCommand, type ObservedCommandOutcome } from '../../runtime-state/physical/runtime/observed-process.ts';
-import { buildIsolatedProcessEnvironment, ensureIsolatedProcessDirectories, ISOLATED_VERIFICATION_ENV_KEY, runCommand, type CommandResult } from '../../runtime-state/physical/runtime/process.ts';
+import { runObservedCommand, type ObservedCommandOutcome } from '../runtime-state/physical/runtime/observed-process.ts';
+import { buildIsolatedProcessEnvironment, ensureIsolatedProcessDirectories, ISOLATED_VERIFICATION_ENV_KEY, runCommand, type CommandResult } from '../runtime-state/physical/runtime/process.ts';
 import type { AcceptanceCoverageReport } from '../../assurance/acceptance/coverage.ts';
 import { isSemanticMutationStagingWorkspace } from '../../workspace/contract/semantic-mutation-staging.ts';
 import { cloneAndDeepFreeze, rawSha256 } from '../../contracts/canonical.ts';
-import { ensureSharedDepsReady } from '../../toolchain/dependencies/runtime.ts';
+import { ensureSharedDepsReady } from '../toolchain/dependencies/runtime.ts';
 import {
   compilerRuntimeLayout,
   compilerRuntimeResources, loadCanonicalBunRuntimeVersion
-} from '../../toolchain/runtime.ts';
-import type { CurrentCanonicalVerificationReport } from '../../verification/artifact/contract/artifact.ts';
-import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
-import type { RuntimeVerificationLaneReport, SemanticMutationVerificationCapabilityPlan } from '../../verification/contract/types.ts';
+} from '../toolchain/runtime.ts';
+import type { CurrentCanonicalVerificationReport } from '../../assurance/verification/artifact/contract/artifact.ts';
+import { CI_ARTIFACT_FILES } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
+import type { RuntimeVerificationLaneReport, SemanticMutationVerificationCapabilityPlan } from '../../assurance/verification/contract/types.ts';
 import { modelRelativePath } from '../../workspace/contract/types.ts';
 import { pathExists } from "../filesystem/files.ts";
 import { type CommitFence } from "../../contracts/commit-fence.ts";
@@ -1052,7 +1052,7 @@ async function buildIsolatedRunnerBundle(): Promise<Uint8Array> {
   );
   const sourceBundle = await readSemanticMutationIsolatedRunnerBuildOutput(
     () => Bun.build({
-      entrypoints: ['src/application/engineering/semantic-mutation-isolated-verification-runner.ts'],
+      entrypoints: ['src/bootstrap/engineering/semantic-mutation-isolated-verification-runner.ts'],
       format: 'esm',
       minify: {
         whitespace: true,

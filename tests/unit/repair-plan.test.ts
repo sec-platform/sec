@@ -16,7 +16,7 @@ import {
   REPAIR_PLAN_FORMAT_VERSION,
   type RepairPlan
 } from '../../src/semantics/repair/types.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { readJson, writeJson } from "../../src/adapters/filesystem/files.ts";
 import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { buildPassingReviewReport } from '../helpers/review-fixtures.ts';

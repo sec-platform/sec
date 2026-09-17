@@ -1,7 +1,7 @@
 import { open, readdir, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 
-import { compilerRuntimeLayout } from '../../../toolchain/runtime.ts';
+import { compilerRuntimeLayout } from '../../toolchain/runtime.ts';
 
 import { getErrorCode } from '../../../compiler/errors.ts';
 import { sortedKeys } from '../../../compiler/semantic-mutation/canonical.ts';
@@ -9,9 +9,9 @@ import { sortedKeys } from '../../../compiler/semantic-mutation/canonical.ts';
 export const SEMANTIC_MUTATION_ISOLATED_PROGRESS_FORMAT =
   'semantic-mutation-isolated-progress-v1' as const;
 export const SEMANTIC_MUTATION_ISOLATED_BOOTSTRAP_RELATIVE_PATH =
-  '.isolated-compiler/src/application/engineering/semantic-mutation-isolated-verification-bootstrap.mjs' as const;
+  '.isolated-compiler/src/bootstrap/engineering/semantic-mutation-isolated-verification-bootstrap.mjs' as const;
 export const SEMANTIC_MUTATION_ISOLATED_STAGED_LOADER_RELATIVE_PATH =
-  '.isolated-compiler/src/application/engineering/semantic-mutation-isolated-verification-loader.mjs' as const;
+  '.isolated-compiler/src/bootstrap/engineering/semantic-mutation-isolated-verification-loader.mjs' as const;
 export const SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH =
   `.isolated-compiler/${compilerRuntimeLayout.artifactEntrypointRelativePath}`;
 

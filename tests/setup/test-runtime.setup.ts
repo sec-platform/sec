@@ -1,6 +1,6 @@
 import { tmpdir } from 'node:os';
 
-import { prepareTestInvocationRuntime } from '../../src/development/runner/test-process-temp.ts';
+import { prepareTestInvocationRuntime } from '../../src/adapters/self-hosting/development/runner/test-process-temp.ts';
 import { compilerRoot } from "../../src/adapters/workspace-context.ts";
 
 declare const afterAll: (callback: () => void | Promise<void>) => void;

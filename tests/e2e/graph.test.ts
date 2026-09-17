@@ -8,7 +8,7 @@ import type { PolicyReport } from '../../src/semantics/policies/types.ts';
 import { buildSemanticViewSet } from '../../src/compiler/projection/build-semantic-view-set.ts';
 import type { AcceptanceCoverageReport } from '../../src/assurance/acceptance/coverage.ts';
 import type { ProvenanceFile } from '../../src/semantics/provenance/types.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { readJson, writeJson } from "../../src/adapters/filesystem/files.ts";
 import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { expectGraphEdge, expectGraphNode } from '../helpers/graph-assertions.ts';

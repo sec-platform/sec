@@ -7,20 +7,20 @@ import {
   addBlock,
   compileWorkspace,
   initWorkspace
-} from '../../src/application/engineering/cli.ts';
+} from '../../src/bootstrap/engineering/cli.ts';
 import {
   assertPipelineCompletionProofInvariant,
   buildPipelineCompletionProof,
   createPipelineCompletionProof,
   type PipelineCompletionProofEvidence,
   type PipelineCompletionProofStageEvidence
-} from '../../src/application/engineering/pipeline-orchestrator.ts';
+} from '../../src/bootstrap/engineering/pipeline-orchestrator.ts';
 import { readPipelineJournal } from '../../src/adapters/compilation/pipeline/journal.ts';
 import { getPipelineStageDefinition } from '../../src/adapters/compilation/pipeline/pass-registry.ts';
 import { PIPELINE_STAGE_IDS } from '../../src/adapters/compilation-protocol/types.ts';
 import type { ProvenanceArtifact, ProvenanceFile } from '../../src/semantics/provenance/types.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import type { ReviewSummary } from '../../src/verification/review/contract/types.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import type { ReviewSummary } from '../../src/assurance/verification/review/contract/types.ts';
 import { formatJsonFile } from "../../src/contracts/json-text.ts";
 import { readJson } from "../../src/adapters/filesystem/files.ts";
 import { acquireWorkspaceWriteLease } from '../../src/adapters/filesystem/write-lease.ts';

@@ -4,7 +4,7 @@ import { expect, test } from 'bun:test';
 
 import {
   querySemanticMutationRequest
-} from '../../src/application/engineering/cli.ts';
+} from '../../src/bootstrap/engineering/cli.ts';
 import { semanticMutationStagedRebuildDiagnostic } from '../../src/adapters/mutation/derive-staged-mutation.ts';
 import {
   appendSemanticMutationRecoveryRecord,

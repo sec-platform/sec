@@ -5,7 +5,7 @@ import {
   CI_ARTIFACT_FILES,
   CI_ARTIFACT_ROOT_RELATIVE_PATH,
   isCiArtifactPath
-} from '../../src/verification/ci-artifacts/contract/manifest.ts';
+} from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { getWorkspacePaths, isCanonicalWorkspaceArtifactPath, resolveWorkspaceArtifactPath, resolveWorkspaceLockPath, resolveWorkspacePlanPath, resolveWorkspaceProvenancePath, toWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 
 // Use a native absolute root; a Windows drive spelling is relative on POSIX.

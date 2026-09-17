@@ -1,4 +1,4 @@
-import { readOptionalCanonicalVerificationArtifactSet } from '../../../verification/artifact/runtime/authority.ts';
+import { readOptionalCanonicalVerificationArtifactSet } from '../../verification/platform/artifact/runtime/authority.ts';
 import type { CommitFence } from "../../../contracts/commit-fence.ts";
 import type { LockFile } from '../../../compiler/contract.ts';
 import { CompilerError } from '../../../compiler/errors.ts';

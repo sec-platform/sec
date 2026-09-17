@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test';
 
 import type { PolicyReport } from '../../src/semantics/policies/types.ts';
-import type { FastVerificationLaneReport, RuntimeVerificationLaneReport } from '../../src/verification/contract/types.ts';
-import { buildExpectedProductFastGate, buildExpectedProductPolicyGate, buildExpectedProductRuntimeGate, buildExpectedProductVerificationClaimSummary, PRODUCT_POLICY_CLAIM_ID } from '../../src/verification/profile/contract/product.ts';
+import type { FastVerificationLaneReport, RuntimeVerificationLaneReport } from '../../src/assurance/verification/contract/types.ts';
+import { buildExpectedProductFastGate, buildExpectedProductPolicyGate, buildExpectedProductRuntimeGate, buildExpectedProductVerificationClaimSummary, PRODUCT_POLICY_CLAIM_ID } from '../../src/assurance/verification/profile/contract/product.ts';
 import { productVerificationObservationsFixture } from '../helpers/verification-fixtures.ts';
 
 function emptyPolicyReport(): PolicyReport {

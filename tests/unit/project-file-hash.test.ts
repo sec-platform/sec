@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { PhysicalNoFollowError } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { PhysicalNoFollowError } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   calculateCanonicalProjectFileHash,
   calculateProjectFileHash

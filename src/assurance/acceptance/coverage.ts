@@ -1,4 +1,4 @@
-import type { VerificationStatus } from '../../verification/contract/types.ts';
+import type { VerificationStatus } from '../verification/contract/types.ts';
 
 export const ACCEPTANCE_COVERAGE_FORMAT_VERSION = '1' as const;
 

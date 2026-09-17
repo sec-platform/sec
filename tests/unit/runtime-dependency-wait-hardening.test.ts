@@ -8,7 +8,7 @@ import {
   runtimeDependencyOperationOptions,
   runtimeDependencyOperationRemainingMs,
   waitForRuntimeDependencyOperation
-} from '../../src/toolchain/dependencies/runtime/operation-context.ts';
+} from '../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
 
 const deadlineFailure = (error: unknown): boolean =>
   error instanceof SecError && error.code === 'RUNTIME-DEPS-003';

@@ -7,12 +7,12 @@ import {
   assertReferenceCheckClean,
   formatReferenceCheck,
   projectReferenceCheckReport
-} from '../../src/reference/application/check.ts';
+} from '../../src/bootstrap/reference/application/check.ts';
 import {
   parseReferenceGitPathRecords,
   scanReferenceDrift
-} from '../../src/reference/runtime/drift-scan.ts';
-import { runCommand } from '../../src/runtime-state/physical/runtime/process.ts';
+} from '../../src/bootstrap/reference/runtime/drift-scan.ts';
+import { runCommand } from '../../src/adapters/runtime-state/physical/runtime/process.ts';
 
 function bytes(value: string): Uint8Array {
   return new TextEncoder().encode(value);

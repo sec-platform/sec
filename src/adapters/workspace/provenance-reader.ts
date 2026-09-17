@@ -1,4 +1,4 @@
-import { readOptionalRetainedJson } from '../../runtime-state/physical/runtime/retained-file-read.ts';
+import { readOptionalRetainedJson } from '../runtime-state/physical/runtime/retained-file-read.ts';
 import { validateProvenanceFile } from '../../semantics/provenance/authority.ts';
 import type { ProvenanceFile } from '../../semantics/provenance/types.ts';
 

@@ -1,9 +1,9 @@
 import { test } from 'bun:test';
 import { Command } from 'commander';
 import assert from 'node:assert/strict';
-import { ARTIFACT_KIND_OPTION, ARTIFACT_PATHS_OPTION, parseArtifactCommandInput } from '../../src/interface/cli/artifact-command-input.ts';
-import { registerWorkspaceCommands } from '../../src/interface/cli/register-workspace-commands.ts';
-import { CI_ARTIFACT_KINDS, isCiArtifactKind } from '../../src/verification/ci-artifacts/contract/types.ts';
+import { ARTIFACT_KIND_OPTION, ARTIFACT_PATHS_OPTION, parseArtifactCommandInput } from '../../src/bootstrap/cli/artifact-command-input.ts';
+import { registerWorkspaceCommands } from '../../src/bootstrap/cli/register-workspace-commands.ts';
+import { CI_ARTIFACT_KINDS, isCiArtifactKind } from '../../src/assurance/verification/ci-artifacts/contract/types.ts';
 
 const usage = (error: unknown) => (error as { code: string }).code === 'CLI-USAGE-001';
 

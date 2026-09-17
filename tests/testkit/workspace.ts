@@ -5,7 +5,7 @@ import { availableParallelism } from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleepMs } from 'node:timers/promises';
 
-import { getTestWorkspaceTemplateRoot, getTestWorkspaceTempRoot } from '../../src/development/runner/env-manager.ts';
+import { getTestWorkspaceTemplateRoot, getTestWorkspaceTempRoot } from '../../src/adapters/self-hosting/development/runner/env-manager.ts';
 import { createConcurrencyLimit } from '../../src/execution/task-group.ts';
 import { getErrorCode } from '../../src/contracts/failure-inspection.ts';
 import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
@@ -87,7 +87,7 @@ async function prepareWorkspacePipeline(
   options: WorkspacePipelineFixtureOptions,
   target: WorkspaceTemplateKind
 ): Promise<void> {
-  const { addBlock, compileWorkspace, initWorkspace } = await import('../../src/application/engineering/cli.ts');
+  const { addBlock, compileWorkspace, initWorkspace } = await import('../../src/bootstrap/engineering/cli.ts');
   await initWorkspace(workspaceRoot, { template: 'reference-customer' });
   const pipelineTarget = workspaceTemplatePipeline(target);
   if (!pipelineTarget) return;

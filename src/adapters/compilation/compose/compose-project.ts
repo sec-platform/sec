@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { throwIfNativeAborted } from '../../../contracts/native-abort.ts';
 
-import { CI_ARTIFACT_FILES } from '../../../verification/ci-artifacts/contract/manifest.ts';
+import { CI_ARTIFACT_FILES } from '../../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import { ensureProjectBase } from '../../workspace/project-base.ts';
 import { checkProjectWriteBoundary } from '../../workspace/project-write-boundary.ts';
 import { ensureDir, writeJson } from "../../filesystem/files.ts";

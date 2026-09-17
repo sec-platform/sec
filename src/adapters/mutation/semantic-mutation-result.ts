@@ -1,5 +1,5 @@
 import { SEMANTIC_MUTATION_CONTRACT_VERSION, type SemanticMutationBase, type SemanticMutationDiagnostic, type SemanticMutationPlan, type SemanticMutationResult, type SemanticMutationVerificationExecutionRef } from '../../semantics/mutation/types.ts';
-import type { SemanticMutationVerificationReport } from '../../verification/contract/types.ts';
+import type { SemanticMutationVerificationReport } from '../../assurance/verification/contract/types.ts';
 import { assertSemanticMutationVerificationReportInvariant } from '../verification/semantic-mutation-verification-adapter.ts';
 import {
   canonicalDiagnostics,

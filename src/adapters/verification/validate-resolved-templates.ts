@@ -1,9 +1,9 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { ISOLATED_VERIFICATION_ENV_KEY } from '../../runtime-state/physical/runtime/process.ts';
-import { ensureProjectDependencies } from '../../toolchain/dependencies/runtime.ts';
-import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
+import { ISOLATED_VERIFICATION_ENV_KEY } from '../runtime-state/physical/runtime/process.ts';
+import { ensureProjectDependencies } from '../toolchain/dependencies/runtime.ts';
+import { CI_ARTIFACT_FILES } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import { ensureProjectBase } from '../workspace/project-base.ts';
 import { pathExists, removeDir, writeJson } from "../filesystem/files.ts";
 import { type CommitFence } from "../../contracts/commit-fence.ts";

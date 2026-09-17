@@ -1,7 +1,7 @@
 import { lstat, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
-import { ISOLATED_VERIFICATION_ENV_KEY } from '../../runtime-state/physical/runtime/process.ts';
+import { ISOLATED_VERIFICATION_ENV_KEY } from '../runtime-state/physical/runtime/process.ts';
 import { isSemanticMutationStagingWorkspace } from '../../workspace/contract/semantic-mutation-staging.ts';
 import { compareCodeUnits } from '../../contracts/canonical.ts';
 import { WORKSPACE_WRITE_LEASE_DIRECTORY_NAME, inspectWorkspaceWriteLease, withWorkspaceWriteLeaseControlPlaneQuiesced, type WorkspaceWriteLeaseToken } from '../filesystem/write-lease.ts';

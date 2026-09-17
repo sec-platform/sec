@@ -12,7 +12,7 @@ import {
   inspectNoFollowOrdinaryFileEntry,
   retainNoFollowFileTransaction,
   scanNoFollowDirectoryDirectMetadata
-} from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+} from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 
 
 test.skipIf(process.platform !== 'win32')('Windows retained file transaction transfers a cross-parent file and retires its exact successor', async () => {

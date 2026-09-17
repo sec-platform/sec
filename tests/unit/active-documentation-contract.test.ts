@@ -9,7 +9,7 @@ import {
   isDocumentationVerificationInputPath,
   parseDocumentationIdentityRegistry,
   parseDocumentationVerificationBaseline
-} from '../../src/control/documentation/active.ts';
+} from '../../src/adapters/self-hosting/control/documentation/active.ts';
 
 const ROOT = path.resolve(import.meta.dir, '../..');
 

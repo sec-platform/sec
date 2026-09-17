@@ -4,7 +4,7 @@ import path from 'node:path';
 import { failureMessage } from '../../../contracts/failure-inspection.ts';
 import { parseYamlValue } from '../../formats/yaml.ts';
 
-import { assertSameNoFollowDirectoryIdentity, inspectNoFollowDirectoryChain, PhysicalNoFollowError } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { assertSameNoFollowDirectoryIdentity, inspectNoFollowDirectoryChain, PhysicalNoFollowError } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { isCanonicalBlockId, isCanonicalRegistryVersion } from '../../../semantics/identity/block.ts';
 import { compareCodeUnits, rawSha256 } from '../../../contracts/canonical.ts';
 import { pathExists } from "../../filesystem/files.ts";

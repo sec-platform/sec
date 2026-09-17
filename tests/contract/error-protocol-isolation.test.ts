@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { buildErrorProtocol } from '../../src/application/engineering/error-protocol.ts';
+import { buildErrorProtocol } from '../../src/bootstrap/engineering/error-protocol.ts';
 
 test('unknown thrown values always have a string diagnostic code and message', () => {
   const revoked = Proxy.revocable({}, {}); revoked.revoke();

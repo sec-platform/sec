@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
-import { buildErrorProtocol } from '../../src/application/engineering/error-protocol.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { buildErrorProtocol } from '../../src/bootstrap/engineering/error-protocol.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { expectCliVariants } from '../testkit/cli.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 

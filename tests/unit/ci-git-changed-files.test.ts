@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { CodexDevelopmentAssertTestImpactTransitionSelection, CodexDevelopmentCreateTestImpactTransitionObservation, CodexDevelopmentTestImpactTransitionDigest, decodeGitPathOutput, gitChangedFileDiffArgs, gitIndexChangedFileDiffArgs, gitPathBlobArgs, gitUntrackedFileArgs, gitWorkingTreeStatusArgs, gitWorktreeChangedFileDiffArgs, parseGitChangedFileOutput, parseGitPathBlobOutput, parseGitUntrackedFileOutput } from '../../src/verification/test-impact/runtime/transition.ts';
+import { CodexDevelopmentAssertTestImpactTransitionSelection, CodexDevelopmentCreateTestImpactTransitionObservation, CodexDevelopmentTestImpactTransitionDigest, decodeGitPathOutput, gitChangedFileDiffArgs, gitIndexChangedFileDiffArgs, gitPathBlobArgs, gitUntrackedFileArgs, gitWorkingTreeStatusArgs, gitWorktreeChangedFileDiffArgs, parseGitChangedFileOutput, parseGitPathBlobOutput, parseGitUntrackedFileOutput } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 
 function utf8(value: string): Uint8Array {
   return new TextEncoder().encode(value);
@@ -148,7 +148,7 @@ test('transition selection binds canonical records, derived files, and exact bas
   const headSha = 'b'.repeat(40);
   const repositoryPath = 'docs/evidence/retired.json';
   const records = [
-    { status: 'changed' as const, path: 'src/verification/ci/verification.ts' },
+    { status: 'changed' as const, path: 'src/adapters/verification/platform/ci/verification.ts' },
     { status: 'removed' as const, path: repositoryPath }
   ];
   const transition = CodexDevelopmentCreateTestImpactTransitionObservation({
@@ -163,13 +163,13 @@ test('transition selection binds canonical records, derived files, and exact bas
   expect(CodexDevelopmentAssertTestImpactTransitionSelection({
     baseSha,
     headSha,
-    changedPaths: [repositoryPath, 'src/verification/ci/verification.ts'],
+    changedPaths: [repositoryPath, 'src/adapters/verification/platform/ci/verification.ts'],
     records,
     observation: transition
   })).toBe(digest);
   for (const input of [
-    { baseSha: 'd'.repeat(40), headSha, changedPaths: [repositoryPath, 'src/verification/ci/verification.ts'] },
-    { baseSha, headSha: 'e'.repeat(40), changedPaths: [repositoryPath, 'src/verification/ci/verification.ts'] },
+    { baseSha: 'd'.repeat(40), headSha, changedPaths: [repositoryPath, 'src/adapters/verification/platform/ci/verification.ts'] },
+    { baseSha, headSha: 'e'.repeat(40), changedPaths: [repositoryPath, 'src/adapters/verification/platform/ci/verification.ts'] },
     { baseSha, headSha, changedPaths: [repositoryPath] }
   ]) {
     expect(() => CodexDevelopmentAssertTestImpactTransitionSelection({
@@ -181,7 +181,7 @@ test('transition selection binds canonical records, derived files, and exact bas
   expect(() => CodexDevelopmentAssertTestImpactTransitionSelection({
     baseSha,
     headSha,
-    changedPaths: [repositoryPath, 'src/verification/ci/verification.ts'],
+    changedPaths: [repositoryPath, 'src/adapters/verification/platform/ci/verification.ts'],
     records: [{ status: 'added', path: repositoryPath }, records[0]!],
     observation: transition
   })).toThrow('exact candidate selection input');

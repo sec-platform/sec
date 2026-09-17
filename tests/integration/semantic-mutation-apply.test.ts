@@ -10,11 +10,11 @@ import {
   planSemanticMutationTransaction,
   querySemanticMutationRequest,
   resolveWorkspace
-} from '../../src/application/engineering/cli.ts';
+} from '../../src/bootstrap/engineering/cli.ts';
 import {
   applySemanticMutationWithTestDependencies,
   planSemanticMutationTransactionWithTestDependencies
-} from '../../src/application/engineering/semantic-mutation-orchestrator.ts';
+} from '../../src/bootstrap/engineering/semantic-mutation-orchestrator.ts';
 import { buildWorkspaceSemanticBundle } from '../../src/adapters/workspace/semantic-bundle.ts';
 import {
   atomicPublishSemanticMutationSource,

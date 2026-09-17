@@ -1,8 +1,8 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import type { ErrorProtocol } from '../../src/application/engineering/error-protocol.ts';
-import { reportCliFailure } from '../../src/interface/cli/cli-failure.ts';
-import { runRepairWithFailureReadback } from '../../src/interface/cli/repair-command-execution.ts';
+import type { ErrorProtocol } from '../../src/bootstrap/engineering/error-protocol.ts';
+import { reportCliFailure } from '../../src/bootstrap/cli/cli-failure.ts';
+import { runRepairWithFailureReadback } from '../../src/bootstrap/cli/repair-command-execution.ts';
 
 function protocol(details?: unknown): ErrorProtocol {
   return { code: 'REPAIR-BLOCKED-001', message: 'repair failed', recoverable: true, issueType: 'composition',

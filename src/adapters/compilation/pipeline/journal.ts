@@ -7,12 +7,12 @@ import {
   replaceDurableCanonicalFile,
   type NoFollowDirectoryTreeEntry,
   type PhysicalDirectoryIdentity
-} from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+} from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   decodeExactUtf8,
   readOptionalRetainedOrdinaryFile,
   retainOptionalDirectory
-} from '../../../runtime-state/physical/runtime/retained-file-read.ts';
+} from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import { parseExactJson } from '../../../contracts/exact-json.ts';
 import { formatJsonFile } from "../../../contracts/json-text.ts";
 import { publishExistingParentCanonicalWorkspaceFile } from "../../filesystem/file-publication.ts";

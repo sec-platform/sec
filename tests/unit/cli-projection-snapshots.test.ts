@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildAcceptanceTargetInspect, buildPolicySourceInspect, buildReviewDiagnosticsInspect,
   buildRuntimeStepsInspect, formatCiArtifactManifest, formatProvenanceRegistry
-} from '../../src/interface/cli/formatters.ts';
+} from '../../src/bootstrap/cli/formatters.ts';
 
 type PolicyInput = Parameters<typeof buildPolicySourceInspect>[0];
 type CoverageInput = Parameters<typeof buildAcceptanceTargetInspect>[0];

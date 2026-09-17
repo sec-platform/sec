@@ -13,9 +13,9 @@ import type { EngineeringIR } from '../../src/semantics/engineering-ir/root-type
 import type { ValidatedEngineeringIRSnapshot } from '../../src/semantics/engineering-ir/validated-types.ts';
 import { type SemanticMutationAuthorizationContext, type SemanticMutationInput, type SemanticMutationPlan, type SemanticMutationRequest } from '../../src/semantics/mutation/types.ts';
 import type { SemanticViewSet } from '../../src/semantics/projection/types.ts';
-import type { CiArtifactManifest } from '../../src/verification/ci-artifacts/contract/types.ts';
-import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION, type VerificationReport } from '../../src/verification/contract/types.ts';
-import type { ReviewSummary } from '../../src/verification/review/contract/types.ts';
+import type { CiArtifactManifest } from '../../src/assurance/verification/ci-artifacts/contract/types.ts';
+import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION, type VerificationReport } from '../../src/assurance/verification/contract/types.ts';
+import type { ReviewSummary } from '../../src/assurance/verification/review/contract/types.ts';
 import { semanticMutationVerificationReportFixture } from '../helpers/semantic-mutation-verification-report.ts';
 
 function request(): SemanticMutationRequest {

@@ -2,8 +2,8 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { applySemanticMutation } from '../../src/application/engineering/cli.ts';
-import type { IsolatedVerificationCapability } from '../../src/application/engineering/isolated-verification-capability.ts';
+import { applySemanticMutation } from '../../src/bootstrap/engineering/cli.ts';
+import type { IsolatedVerificationCapability } from '../../src/bootstrap/engineering/isolated-verification-capability.ts';
 import {
   type PipelineExecutionContext
 } from '../../src/adapters/compilation-protocol/types.ts';

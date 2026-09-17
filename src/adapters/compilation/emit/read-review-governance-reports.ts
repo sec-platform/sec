@@ -1,10 +1,10 @@
 import path from 'node:path';
 
-import type { UpgradeDiagnostics, UpgradeExecutionTerminal, UpgradePlan } from '../../../change-management/upgrade/contract/upgrade-artifact.ts';
-import { readUpgradeArtifactSet } from '../../../change-management/upgrade/runtime/artifact-readback.ts';
-import { decodeExactUtf8, readOptionalRetainedOrdinaryLeaf, retainOptionalDirectory } from '../../../runtime-state/physical/runtime/retained-file-read.ts';
+import type { UpgradeDiagnostics, UpgradeExecutionTerminal, UpgradePlan } from '../../../semantics/upgrade/upgrade-artifact.ts';
+import { readUpgradeArtifactSet } from '../../upgrade/artifact-readback.ts';
+import { decodeExactUtf8, readOptionalRetainedOrdinaryLeaf, retainOptionalDirectory } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import { parseRepairPlanJson, type RepairPlan } from '../../../semantics/repair/types.ts';
-import { CI_ARTIFACT_FILES } from '../../../verification/ci-artifacts/contract/manifest.ts';
+import { CI_ARTIFACT_FILES } from '../../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import { resolveWorkspaceArtifactPath } from "../../workspace-context.ts";
 import type { PolicyReport } from '../../../semantics/policies/types.ts';
 import { readOptionalPolicyReport } from "../../artifacts/policy-report.ts";

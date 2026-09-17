@@ -1,5 +1,5 @@
-import type { UpgradeMigrationEntry } from '../../src/change-management/upgrade/contract/manifest-types.ts';
-import { applyMigrationEntries as applyMigrationEntriesWithFence } from '../../src/change-management/upgrade/upgrade-workspace.ts';
+import type { UpgradeMigrationEntry } from '../../src/semantics/upgrade/manifest-types.ts';
+import { applyMigrationEntries as applyMigrationEntriesWithFence } from '../../src/bootstrap/upgrade/upgrade-workspace.ts';
 
 const testCommitFence = async (): Promise<void> => undefined;
 

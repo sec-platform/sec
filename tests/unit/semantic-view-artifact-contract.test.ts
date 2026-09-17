@@ -9,11 +9,11 @@ import {
   semanticViewArtifactsAreCurrent
 } from '../../src/adapters/compilation/emit/semantic-view-artifact-contract.ts';
 import { buildSemanticViewSummary } from '../../src/adapters/compilation/emit/write-review-summary.ts';
-import { writeWorkspaceArtifacts } from '../../src/application/engineering/cli.ts';
+import { writeWorkspaceArtifacts } from '../../src/bootstrap/engineering/cli.ts';
 import type { ExplainGraph } from '../../src/semantics/projection/explain.ts';
 import { semanticViewFactIds, type SemanticView } from '../../src/semantics/projection/types.ts';
-import { CI_ARTIFACT_FILES, CI_EMIT_ARTIFACT_PATHS } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { CI_ARTIFACT_MISSING_REASON } from '../../src/verification/ci-artifacts/contract/types.ts';
+import { CI_ARTIFACT_FILES, CI_EMIT_ARTIFACT_PATHS } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import { CI_ARTIFACT_MISSING_REASON } from '../../src/assurance/verification/ci-artifacts/contract/types.ts';
 import { writeJson } from "../../src/adapters/filesystem/files.ts";
 import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { buildReviewLock } from '../helpers/review-fixtures.ts';

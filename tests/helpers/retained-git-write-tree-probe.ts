@@ -3,8 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { isolatedGitReadEnvironment } from '../../src/external-capabilities/git-read/runtime/session.ts';
-import { inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFileForChildProcess } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { isolatedGitReadEnvironment } from '../../src/adapters/providers/git-read/runtime/session.ts';
+import { inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFileForChildProcess } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 
 function git(repositoryRoot: string, ...args: string[]) {
   return spawnSync('git', args, {

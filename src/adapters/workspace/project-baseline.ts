@@ -1,7 +1,7 @@
 import path from 'node:path';
 
-import { PhysicalNoFollowError } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
+import { PhysicalNoFollowError } from '../runtime-state/physical/runtime/physical-no-follow.ts';
+import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../runtime-state/physical/runtime/retained-file-read.ts';
 import { canonicalEquals } from '../../contracts/canonical.ts';
 import {
   PROJECT_BASELINE_FORMAT_VERSION,

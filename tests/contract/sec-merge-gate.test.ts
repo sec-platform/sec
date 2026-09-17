@@ -14,15 +14,15 @@ import {
   assertCanonicalMergeMessage,
   createMergeGateProvenance,
   type CodexDevelopmentMergeGateInput
-} from '../../src/control/integration/merge-gate.ts';
-import { createMainHealthLedger } from '../../src/control/main-health/contract.ts';
-import { createScopeAuthorization } from '../../src/control/scope/authorization.ts';
-import { encodeVerificationActionData } from '../../src/verification/action/contract/action.ts';
-import { buildCiVerificationActionPlanClosure, type CiVerificationActionCandidate } from '../../src/verification/action/contract/ci.ts';
-import { CodexDevelopmentAssertVerificationSessionArtifactCurrent, CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, CodexDevelopmentFinalizeVerificationSessionArtifact, CodexDevelopmentRefreshVerificationSessionArtifact } from '../../src/verification/ci/contract/evidence.ts';
-import { CodexDevelopmentBuildVerificationGateResult } from '../../src/verification/result/contract/result.ts';
-import { REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY, createReviewSnapshotDigest, createReviewStabilityReceipt, renderIndependentReviewTrailer } from '../../src/verification/review/contract/stability.ts';
-import { createVerificationSession } from '../../src/verification/session/contract/session.ts';
+} from '../../src/adapters/self-hosting/control/integration/merge-gate.ts';
+import { createMainHealthLedger } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
+import { createScopeAuthorization } from '../../src/adapters/self-hosting/control/scope/authorization.ts';
+import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
+import { buildCiVerificationActionPlanClosure, type CiVerificationActionCandidate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
+import { CodexDevelopmentAssertVerificationSessionArtifactCurrent, CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, CodexDevelopmentFinalizeVerificationSessionArtifact, CodexDevelopmentRefreshVerificationSessionArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
+import { CodexDevelopmentBuildVerificationGateResult } from '../../src/assurance/verification/result/contract/result.ts';
+import { REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY, createReviewSnapshotDigest, createReviewStabilityReceipt, renderIndependentReviewTrailer } from '../../src/adapters/verification/platform/review/contract/stability.ts';
+import { createVerificationSession } from '../../src/adapters/verification/platform/session/contract/session.ts';
 
 const BASE = '1'.repeat(40);
 const BASE_TREE = '2'.repeat(40);
@@ -83,7 +83,7 @@ function review(options: {
       integrationPrincipalNodeId: 'USER_integrator'
     },
     producer: {
-      identity: 'src/verification/ci/runtime/verification-session-github.ts',
+      identity: 'src/adapters/verification/platform/ci/runtime/verification-session-github.ts',
       executionIdentity: `github-review-observer:${REPOSITORY}:${PR}:${HEAD}`,
       providerIdentity: 'github',
       candidateWriteCapability: 'read-only',
@@ -180,7 +180,7 @@ function fixture(resultStatus: 'passed' | 'failed' = 'passed'): CodexDevelopment
     trustRevision: BASE,
     observedAt: '2026-08-09T00:00:00.000Z',
     producer: {
-      identity: 'src/control/main-health/main-health-observation.ts',
+      identity: 'src/adapters/self-hosting/control/main-health/main-health-observation.ts',
       trustRevision: BASE,
       sourceTransport: 'github-api',
       sourceRunId: 'health-1',
@@ -354,7 +354,7 @@ function fixture(resultStatus: 'passed' | 'failed' = 'passed'): CodexDevelopment
     trustRevision: BASE,
     observedAt: '2026-08-09T00:15:00.000Z',
     producer: {
-      identity: 'src/control/main-health/main-health-observation.ts',
+      identity: 'src/adapters/self-hosting/control/main-health/main-health-observation.ts',
       trustRevision: BASE,
       sourceTransport: 'github-api',
       sourceRunId: provenance.sourceRunId,
@@ -546,7 +546,7 @@ test('fresh MainHealth receipt may change provenance while stable health semanti
     trustRevision: BASE,
     observedAt: '2026-08-09T00:15:00.000Z',
     producer: {
-      identity: 'src/control/main-health/main-health-observation.ts',
+      identity: 'src/adapters/self-hosting/control/main-health/main-health-observation.ts',
       trustRevision: BASE,
       sourceTransport: 'github-api',
       sourceRunId: 'health-merge-fresh',

@@ -5,8 +5,8 @@ import {
   createLocalContinuationCheckpoint,
   parseLocalContinuationCheckpoint,
   type LocalContinuationObservation
-} from '../../src/control/continuation/checkpoint.ts';
-import { encodeVerificationActionData } from '../../src/verification/action/contract/action.ts';
+} from '../../src/adapters/self-hosting/control/continuation/checkpoint.ts';
+import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
 
 const BASE = '1'.repeat(40);
 const BASE_TREE = '2'.repeat(40);

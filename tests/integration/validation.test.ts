@@ -2,18 +2,18 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { upgradeWorkspace } from '../../src/change-management/upgrade/orchestration.ts';
-import { runUpgradeWorkspaceWithLease } from '../../src/change-management/upgrade/upgrade-workspace.ts';
+import { upgradeWorkspace } from '../../src/bootstrap/upgrade/orchestration.ts';
+import { runUpgradeWorkspaceWithLease } from '../../src/bootstrap/upgrade/upgrade-workspace.ts';
 import {
   inspectNoFollowDirectoryChain,
   inspectNoFollowDirectoryLeaf,
   PhysicalNoFollowError,
   retireNoFollowDirectoryTree,
   scanNoFollowDirectoryTreeInventory
-} from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { settlePhysicalResourcesAsync } from '../../src/runtime-state/physical/runtime/resource-settlement.ts';
+} from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { settlePhysicalResourcesAsync } from '../../src/adapters/runtime-state/physical/runtime/resource-settlement.ts';
 import { readOptionalProvenanceFile } from '../../src/adapters/workspace/provenance-reader.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { writeJson } from "../../src/adapters/filesystem/files.ts";
 import { createWorkspaceWriteLeaseManager } from '../../src/adapters/filesystem/write-lease.ts';
 import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";

@@ -5,26 +5,26 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { currentDocumentationVerificationBaseline } from '../../src/control/documentation/active.ts';
+import { currentDocumentationVerificationBaseline } from '../../src/adapters/self-hosting/control/documentation/active.ts';
 import {
   GitReadAuthorityError,
   withAuthorityGitReadOperation,
   withAuthorityGitReadSession
-} from '../../src/external-capabilities/git-read/authority.ts';
-import { GIT_READ_DEFAULT_OPERATION_BUDGET } from '../../src/external-capabilities/git-read/runtime/session.ts';
+} from '../../src/adapters/providers/git-read/authority.ts';
+import { GIT_READ_DEFAULT_OPERATION_BUDGET } from '../../src/adapters/providers/git-read/runtime/session.ts';
 import {
   bindDocumentationVerificationGateInput,
   CodexDevelopmentBuildVerificationPlan
-} from '../../src/verification/ci/contract/plan.ts';
+} from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import {
   CodexDevelopmentDefaultChangedPaths,
   CodexDevelopmentDefaultGitRevision,
   CodexDevelopmentDefaultTrackedTreeIsClean,
   CodexDevelopmentExactGitWorkspaceSourceSnapshot,
   CodexDevelopmentTestImpactSourceProviderFromSnapshot
-} from '../../src/verification/ci/runtime/ci-orchestration-core.ts';
-import { selectTestsForSources } from '../../src/verification/test-impact/runtime/impact.ts';
-import { selectSlowTestRiskClosure } from '../../src/verification/test-impact/slow-risk-selection.ts';
+} from '../../src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts';
+import { selectTestsForSources } from '../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
+import { selectSlowTestRiskClosure } from '../../src/adapters/verification/platform/test-impact/slow-risk-selection.ts';
 
 function git(repositoryRoot: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], {

@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { upgradeWorkspace } from '../../src/change-management/upgrade/orchestration.ts';
+import { upgradeWorkspace } from '../../src/bootstrap/upgrade/orchestration.ts';
 import { writeJson } from "../../src/adapters/filesystem/files.ts";
 import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
 import { applyMigrationEntries } from '../helpers/apply-migration-entries.ts';

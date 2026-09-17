@@ -5,10 +5,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { publishVerificationArtifactSet } from '../../src/adapters/verification/verification-artifact-publication.ts';
-import { isCanonicalVerificationArtifactSet } from '../../src/verification/artifact/contract/artifact.ts';
-import { readOptionalCanonicalVerificationArtifactSet } from '../../src/verification/artifact/runtime/authority.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { buildBlockedProductVerificationClaimSummary } from '../../src/verification/profile/contract/product.ts';
+import { isCanonicalVerificationArtifactSet } from '../../src/assurance/verification/artifact/contract/artifact.ts';
+import { readOptionalCanonicalVerificationArtifactSet } from '../../src/adapters/verification/platform/artifact/runtime/authority.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import { buildBlockedProductVerificationClaimSummary } from '../../src/assurance/verification/profile/contract/product.ts';
 import { ensureProjectBase } from '../../src/adapters/workspace/project-base.ts';
 import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { buildReviewLock } from '../helpers/review-fixtures.ts';

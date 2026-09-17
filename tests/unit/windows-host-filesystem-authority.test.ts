@@ -11,14 +11,14 @@ import {
   sealExistingWindowsReadOnlyTreeAuthority,
   sealWindowsReadOnlyTreeGeneration,
   WindowsHostDirectoryAuthorityError
-} from '../../src/runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
+} from '../../src/adapters/runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
 import {
   observeWindowsAclSessionLifecycleForTests,
   proveWindowsHostDirectoryAuthorityForTests
-} from '../../src/runtime-state/physical/test/windows-host-filesystem.ts';
+} from '../../src/adapters/runtime-state/physical/test/windows-host-filesystem.ts';
 import {
   acquireSecRuntimeStatePhysicalAuthority
-} from '../../src/runtime-state/workspace-state/physical-authority.ts';
+} from '../../src/adapters/runtime-state/workspace-state/physical-authority.ts';
 
 
 function windowsRuntimeAuthorityInput(root: string): Readonly<{

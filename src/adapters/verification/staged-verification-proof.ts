@@ -1,7 +1,7 @@
 import type { AcceptanceCoverageReport } from '../../assurance/acceptance/coverage.ts';
 import { cloneAndDeepFreeze, deepFreeze, rawSha256 } from '../../contracts/canonical.ts';
-import { assertCanonicalVerificationArtifactSet, type CanonicalVerificationArtifactSet } from '../../verification/artifact/contract/artifact.ts';
-import type { RuntimeVerificationLaneReport, VerificationReport } from '../../verification/contract/types.ts';
+import { assertCanonicalVerificationArtifactSet, type CanonicalVerificationArtifactSet } from '../../assurance/verification/artifact/contract/artifact.ts';
+import type { RuntimeVerificationLaneReport, VerificationReport } from '../../assurance/verification/contract/types.ts';
 import type { LockFile } from '../../compiler/contract.ts';
 import type { PolicyReport } from '../../semantics/policies/types.ts';
 import { stagedVerificationProjectInputDigest } from './semantic-mutation-staged-project-input.ts';

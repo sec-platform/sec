@@ -3,9 +3,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import type { LockFile } from '../../src/compiler/contract.ts';
-import { verifyWorkspace } from '../../src/application/engineering/cli.ts';
+import { verifyWorkspace } from '../../src/bootstrap/engineering/cli.ts';
 import type { AcceptanceCoverageReport } from '../../src/assurance/acceptance/coverage.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { readJson } from "../../src/adapters/filesystem/files.ts";
 import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { prepareComposedWorkspace } from '../testkit/workspace.ts';

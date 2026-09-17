@@ -17,12 +17,12 @@ import { fileURLToPath } from 'node:url';
 
 import {
   createBranchLifecycleGitChildEnvironment
-} from '../../src/control/branch-lifecycle/branch-lifecycle-command.ts';
-import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { createBoundedProcessDiagnosticObjectStore } from '../../src/runtime-state/workspace-state/bounded-process-diagnostic-object.ts';
-import { createRuntimeStateJournalFileSystem } from '../../src/runtime-state/workspace-state/journal-filesystem.ts';
-import { resolveSecWorkspaceRuntimeRoots } from '../../src/runtime-state/workspace-state/paths.ts';
-import { acquireSecRuntimeJournalAuthority } from '../../src/runtime-state/workspace-state/physical-authority.ts';
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts';
+import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { createBoundedProcessDiagnosticObjectStore } from '../../src/adapters/runtime-state/workspace-state/bounded-process-diagnostic-object.ts';
+import { createRuntimeStateJournalFileSystem } from '../../src/adapters/runtime-state/workspace-state/journal-filesystem.ts';
+import { resolveSecWorkspaceRuntimeRoots } from '../../src/adapters/runtime-state/workspace-state/paths.ts';
+import { acquireSecRuntimeJournalAuthority } from '../../src/adapters/runtime-state/workspace-state/physical-authority.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
@@ -32,9 +32,9 @@ import {
   issueSecNormalOwnerTerminalJoinReceipt,
   issueSecProviderSettlementReceipt,
   issueSecSemanticOperationAttemptContext
-} from '../../src/system-architecture/operation/semantic.ts';
-import { createVerificationActionKey, createVerificationActionPlan, createVerificationActionTerminal, issueNonProcessVerificationActionTerminalSettlement, issueVerificationActionOwnerTerminalReceipt, type VerificationActionKey, type VerificationActionKeyDigest, type VerificationActionKeyInput } from '../../src/verification/action/contract/action.ts';
-import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, createCiVerificationLocalExecutionEnvironment, type CiVerificationActionCandidate, type CiVerificationProducerGate } from '../../src/verification/action/contract/ci.ts';
+} from '../../src/execution/operation/semantic.ts';
+import { createVerificationActionKey, createVerificationActionPlan, createVerificationActionTerminal, issueNonProcessVerificationActionTerminalSettlement, issueVerificationActionOwnerTerminalReceipt, type VerificationActionKey, type VerificationActionKeyDigest, type VerificationActionKeyInput } from '../../src/adapters/verification/platform/action/contract/action.ts';
+import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, createCiVerificationLocalExecutionEnvironment, type CiVerificationActionCandidate, type CiVerificationProducerGate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import {
   acquireVerificationActionClaim,
   appendVerificationActionJournalEvent as appendJournalEvent,
@@ -42,12 +42,12 @@ import {
   readVerificationActionJournal as readJournal,
   VERIFICATION_ACTION_JOURNAL_DIRECTORY,
   VERIFICATION_ACTION_MACHINE_CUTOVER_FILE
-} from '../../src/verification/action/journal.ts';
+} from '../../src/adapters/verification/platform/action/journal.ts';
 import {
   executeLocalVerificationActionDag,
   issueVerificationActionTestProcessIssuerForTests,
   VerificationActionRunner
-} from '../../src/verification/action/runner.ts';
+} from '../../src/adapters/verification/platform/action/runner.ts';
 import { runRetainedBunTestProcess } from '../testkit/process-resource.ts';
 
 const DIGEST_A = `sha256:${'a'.repeat(64)}` as const;

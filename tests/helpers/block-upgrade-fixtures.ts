@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { defaultInstallRegistry } from '../../src/adapters/compilation/compose/install-strategies.ts';
 import type { PlanFile } from '../../src/compiler/contract.ts';
 import { resolveGraph } from '../../src/adapters/workspace/resolve-graph.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { ensureCanonicalWorkspaceArtifactParents } from '../../src/adapters/workspace/project-base.ts';
 import { writeJson } from "../../src/adapters/filesystem/files.ts";
 import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";

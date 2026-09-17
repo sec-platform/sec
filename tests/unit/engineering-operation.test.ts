@@ -5,7 +5,7 @@ import {
   applyEngineeringOperations,
   type EngineeringOperation
 } from '../../src/adapters/compilation/operations/engineering-operation.ts';
-import { initWorkspace } from '../../src/application/engineering/workspace-orchestrator.ts';
+import { initWorkspace } from '../../src/bootstrap/engineering/workspace-orchestrator.ts';
 import {
   assertWorkspaceWriteLease,
   withWorkspaceWriteLease

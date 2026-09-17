@@ -5,7 +5,7 @@ import {
   addBlock,
   compileWorkspace,
   initWorkspace
-} from '../../src/application/engineering/cli.ts';
+} from '../../src/bootstrap/engineering/cli.ts';
 import {
   readPipelineJournal,
   REFERENCE_PIPELINE_TRANSACTION_ID

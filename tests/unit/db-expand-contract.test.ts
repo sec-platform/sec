@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { applyMigrationEntries } from '../../src/change-management/upgrade/upgrade-workspace.ts';
+import { applyMigrationEntries } from '../../src/bootstrap/upgrade/upgrade-workspace.ts';
 import { WorkspaceWriteLeaseError } from '../../src/adapters/filesystem/write-lease.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 

@@ -3,16 +3,16 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { assertWindowsAppContainerExecutionCapability } from '../../src/runtime-state/physical/contract/windows-appcontainer-execution-capability.ts';
+import { assertWindowsAppContainerExecutionCapability } from '../../src/adapters/runtime-state/physical/contract/windows-appcontainer-execution-capability.ts';
 import {
   loadWindowsAppContainerProbeAssetSet,
   stageWindowsAppContainerProbeAssetSet,
   WINDOWS_APPCONTAINER_EXECUTION_CONFORMANCE_RESULT_RELATIVE_PATH,
   windowsAppContainerProbeAssetRelativePath
-} from '../../src/runtime-state/physical/runtime/windows-appcontainer/probe-assets.ts';
+} from '../../src/adapters/runtime-state/physical/runtime/windows-appcontainer/probe-assets.ts';
 import {
   redactWindowsAppContainerProbeCapabilityForTests
-} from '../../src/runtime-state/physical/runtime/windows-appcontainer/probe-conformance.ts';
+} from '../../src/adapters/runtime-state/physical/runtime/windows-appcontainer/probe-conformance.ts';
 import {
   probeWindowsAppContainerCapabilityForTests,
   runWindowsAppContainerChild,
@@ -20,7 +20,7 @@ import {
   windowsAppContainerCapability,
   WindowsAppContainerExecutionError,
   type WindowsAppContainerProbeCapabilityProvider
-} from '../../src/runtime-state/physical/test/windows-appcontainer.ts';
+} from '../../src/adapters/runtime-state/physical/test/windows-appcontainer.ts';
 import {
   acquireWorkspaceWriteLease,
   issueWindowsAppContainerExecutionCapability

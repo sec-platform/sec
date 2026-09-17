@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
-import { decodeExactUtf8 } from '../../runtime-state/physical/runtime/retained-file-read.ts';
+import { decodeExactUtf8 } from '../runtime-state/physical/runtime/retained-file-read.ts';
 import { parseYamlValue, type YamlValueAdmission } from '../formats/yaml.ts';
 import { writeText } from "../filesystem/files.ts";
 import { type CommitFence } from "../../contracts/commit-fence.ts";

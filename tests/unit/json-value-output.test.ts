@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { formatJson } from '../../src/interface/cli/format-utils.ts';
+import { formatJson } from '../../src/entry/cli/format-utils.ts';
 import { stringifyJsonValue } from '../../src/contracts/json-text.ts';
 import { formatJsonFile } from "../../src/contracts/json-text.ts";
 

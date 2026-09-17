@@ -2,8 +2,8 @@ import { expect, test } from 'bun:test';
 
 import {
   createMainHealthLedger
-} from '../../src/control/main-health/contract.ts';
-import { compileMainHealthRepairDecision } from '../../src/control/main-health/repair.ts';
+} from '../../src/adapters/self-hosting/control/main-health/contract.ts';
+import { compileMainHealthRepairDecision } from '../../src/adapters/self-hosting/control/main-health/repair.ts';
 import { sha256 } from '../../src/contracts/canonical.ts';
 
 const MAIN = '1'.repeat(40);

@@ -7,9 +7,9 @@ import {
   buildWorkspaceEngineeringIR,
   initWorkspace,
   resolveWorkspace
-} from '../../src/application/engineering/cli.ts';
+} from '../../src/bootstrap/engineering/cli.ts';
 import { runPolicyGate } from '../../src/adapters/verification/run-policy-gate.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { pathExists, writeJson } from "../../src/adapters/filesystem/files.ts";
 import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { writeYaml } from '../../src/adapters/workspace/yaml.ts';

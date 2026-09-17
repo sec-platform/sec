@@ -11,13 +11,13 @@ import {
   querySemanticMutationRequest,
   recoverSemanticMutationWorkspace,
   resolveWorkspace
-} from '../../src/application/engineering/cli.ts';
+} from '../../src/bootstrap/engineering/cli.ts';
 import {
   applySemanticMutationWithAfterPreparedTestCrash,
   applySemanticMutationWithTestDependencies,
   planSemanticMutationTransactionWithTestDependencies,
   recoverSemanticMutationWorkspaceWithTestDependencies
-} from '../../src/application/engineering/semantic-mutation-orchestrator.ts';
+} from '../../src/bootstrap/engineering/semantic-mutation-orchestrator.ts';
 import { buildWorkspaceSemanticBundle } from '../../src/adapters/workspace/semantic-bundle.ts';
 import { sha256 } from '../../src/compiler/semantic-mutation/canonical.ts';
 import { expectationFromFactDelta } from '../../src/compiler/semantic-mutation/match-expectation.ts';

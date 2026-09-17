@@ -1,17 +1,17 @@
 import { test } from 'bun:test';
 import { Command } from 'commander';
 import assert from 'node:assert/strict';
-import { parsePipelineCompileOptions } from '../../src/interface/cli/pipeline-command-input.ts';
-import { registerPipelineCommands } from '../../src/interface/cli/register-pipeline-commands.ts';
-import { registerWorkspaceCommands } from '../../src/interface/cli/register-workspace-commands.ts';
-import { parseVerifyCommandInput } from '../../src/interface/cli/workspace-command-input.ts';
+import { parsePipelineCompileOptions } from '../../src/bootstrap/cli/pipeline-command-input.ts';
+import { registerPipelineCommands } from '../../src/bootstrap/cli/register-pipeline-commands.ts';
+import { registerWorkspaceCommands } from '../../src/bootstrap/cli/register-workspace-commands.ts';
+import { parseVerifyCommandInput } from '../../src/bootstrap/cli/workspace-command-input.ts';
 import {
   isVerificationLane,
   shouldExecuteRuntimeVerification,
   VERIFICATION_LANE_PROFILES,
   VERIFICATION_LANES,
   verificationLaneProfile
-} from '../../src/verification/contract/lanes.ts';
+} from '../../src/assurance/verification/contract/lanes.ts';
 
 for (const [lane, runFast, runtimeMode, scope] of [
   ['fast', true, 'service', 'partial'], ['runtime', false, 'service', 'partial'], ['all', true, 'full', 'complete']

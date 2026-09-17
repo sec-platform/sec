@@ -13,10 +13,10 @@ import {
   upgradeDiagnosticsDigest,
   upgradePlanDigest,
   type UpgradePlan
-} from '../../src/change-management/upgrade/contract/upgrade-artifact.ts';
+} from '../../src/semantics/upgrade/upgrade-artifact.ts';
 import { readReviewGovernanceReports } from '../../src/adapters/compilation/emit/read-review-governance-reports.ts';
 import { sha256 } from '../../src/contracts/canonical.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { checkProjectWriteBoundary } from '../../src/adapters/workspace/project-write-boundary.ts';
 import { writeJson, writeText } from "../../src/adapters/filesystem/files.ts";
 import {

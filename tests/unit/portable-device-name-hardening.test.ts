@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { isWindowsReservedLogicalComponent } from '../../src/contracts/logical-path-component.ts';
 import { isCanonicalPortableLogicalPath } from '../../src/contracts/logical-path.ts';
-import { isCanonicalCiArtifactPath } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { isCanonicalCiArtifactPath } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 
 test('Win32 COM/LPT superscript device aliases and their extensions are rejected', () => {
   for (const stem of ['COM', 'LPT', 'com', 'lpt']) {

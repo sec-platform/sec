@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import {
   publishImportTransformTransaction
-} from '../../src/development/runner/import-transform-transaction.ts';
+} from '../../src/adapters/self-hosting/development/runner/import-transform-transaction.ts';
 
 async function withWorkspace(run: (root: string) => Promise<void>): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-import-transaction-'));

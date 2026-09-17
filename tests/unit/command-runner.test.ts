@@ -8,8 +8,8 @@ import {
   boundedUtf8TextTail,
   devCommandObservationExitCode,
   runDevCommand
-} from '../../src/development/runner/command-runner.ts';
-import { DEV_COMMAND_MAX_DURATION_MS, DEV_COMMAND_MAX_STDIN_BYTES } from '../../src/development/runner/contract.ts';
+} from '../../src/adapters/self-hosting/development/runner/command-runner.ts';
+import { DEV_COMMAND_MAX_DURATION_MS, DEV_COMMAND_MAX_STDIN_BYTES } from '../../src/adapters/self-hosting/development/runner/contract.ts';
 import { compilerRoot } from "../../src/adapters/workspace-context.ts";
 
 let originalStdoutWrite: typeof process.stdout.write;

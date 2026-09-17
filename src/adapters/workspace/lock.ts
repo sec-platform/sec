@@ -1,6 +1,6 @@
 import path from 'node:path';
-import { createNoFollowDirectoryChain, inspectNoFollowDirectoryChain, PhysicalNoFollowError, readNoFollowOrdinaryFile, replaceDurableCanonicalFile, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { CI_ARTIFACT_FILES, expandCiGeneratedArtifactPaths } from '../../verification/ci-artifacts/contract/manifest.ts';
+import { createNoFollowDirectoryChain, inspectNoFollowDirectoryChain, PhysicalNoFollowError, readNoFollowOrdinaryFile, replaceDurableCanonicalFile, type PhysicalDirectoryIdentity } from '../runtime-state/physical/runtime/physical-no-follow.ts';
+import { CI_ARTIFACT_FILES, expandCiGeneratedArtifactPaths } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import { formatJsonFile } from "../../contracts/json-text.ts";
 import { type CommitFence } from "../../contracts/commit-fence.ts";
 import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../workspace-context.ts";

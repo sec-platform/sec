@@ -1,11 +1,11 @@
 import { expect, test } from 'bun:test';
 
-import type { DependencyEnvironmentCommandDomain } from '../../src/interface/cli/register-commands.ts';
+import type { DependencyEnvironmentCommandDomain } from '../../src/bootstrap/cli/register-commands.ts';
 import type {
   DependencyCleanOptions,
   DependencyEnvironmentStatus
-} from '../../src/toolchain/dependencies/environment.ts';
-import * as dependencyEnvironmentDomain from '../../src/toolchain/dependencies/environment.ts';
+} from '../../src/adapters/toolchain/dependencies/environment.ts';
+import * as dependencyEnvironmentDomain from '../../src/adapters/toolchain/dependencies/environment.ts';
 import {
   runCliInProcess as runCli,
   type CliResult,

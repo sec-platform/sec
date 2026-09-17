@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { buildProvenance } from '../../src/adapters/compilation/emit/write-provenance.ts';
-import { addBlock, compileWorkspace, initWorkspace, resolveWorkspace } from '../../src/application/engineering/cli.ts';
+import { addBlock, compileWorkspace, initWorkspace, resolveWorkspace } from '../../src/bootstrap/engineering/cli.ts';
 
 export async function prepareTicketSemanticRuntime(workspaceRoot: string) {
   await initWorkspace(workspaceRoot, { template: 'reference-customer' });

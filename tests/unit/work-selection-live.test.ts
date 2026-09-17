@@ -10,8 +10,8 @@ function independentRawSha256(value: string): `sha256:${string}` {
   return `sha256:${createHash('sha256').update(value, 'utf8').digest('hex')}`;
 }
 
-import { createMainHealthRepairWorkPackagePath } from '../../src/control/main-health/contract.ts';
-import type { SecCurrentWorkLifecycle } from '../../src/control/work-selection/contract.ts';
+import { createMainHealthRepairWorkPackagePath } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
+import type { SecCurrentWorkLifecycle } from '../../src/adapters/self-hosting/control/work-selection/contract.ts';
 import {
   SEC_ROADMAP_WORK_CATALOG_BEGIN,
   SEC_ROADMAP_WORK_CATALOG_END,
@@ -37,7 +37,7 @@ import {
   type SecRoadmapWorkCatalog,
   type SecWorkCurrentSpecObservation,
   type SecWorkRegistryObservation
-} from '../../src/control/work-selection/live-contract.ts';
+} from '../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
 import {
   isExactWorkSelectionActiveIdentity,
   isWorkSelectionProspectiveTransport,
@@ -46,7 +46,7 @@ import {
   observeSecWorkSelectionWithProviderV1,
   requireResolvedSecWorkDecisionReceipt,
   type SecWorkSelectionProvider
-} from '../../src/control/work-selection/runtime.ts';
+} from '../../src/adapters/self-hosting/control/work-selection/runtime.ts';
 import { rawSha256, sha256 } from '../../src/contracts/canonical.ts';
 
 const exactMain = 'a'.repeat(40);

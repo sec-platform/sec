@@ -10,7 +10,7 @@ import {
   createLocalMainCloseoutBinding,
   executeLocalMainCloseout,
   inspectLocalMainCloseout
-} from '../../src/control/branch-lifecycle/local-main-closeout.ts';
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/local-main-closeout.ts';
 import { withWorkspaceWriteLease } from '../../src/adapters/filesystem/write-lease.ts';
 
 function git(repoRoot: string, args: readonly string[]): string {

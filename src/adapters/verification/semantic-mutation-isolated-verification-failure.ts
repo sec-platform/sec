@@ -1,4 +1,4 @@
-import type { ObservedCommandOutcome } from '../../runtime-state/physical/runtime/observed-process.ts';
+import type { ObservedCommandOutcome } from '../runtime-state/physical/runtime/observed-process.ts';
 import type { PipelineExecutionBoundary } from '../compilation-protocol/types.ts';
 import type { SemanticMutationIsolatedChildFailureStage } from './isolation/isolated-verification-child-outcome.ts';
 import type {

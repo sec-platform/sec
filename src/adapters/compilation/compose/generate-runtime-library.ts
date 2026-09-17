@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../../runtime-state/physical/runtime/retained-file-read.ts';
+import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import { isCanonicalPortableLogicalPath, portableLogicalPathCollisionKey } from '../../../contracts/logical-path.ts';
 import { uniqueSorted } from '../../../contracts/canonical.ts';
 import { createTaskGroupEffectFence, mapTaskGroup } from '../../../execution/task-group.ts';

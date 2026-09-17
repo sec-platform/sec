@@ -1,6 +1,6 @@
 import { isUtf8 } from 'node:buffer';
 
-import { readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
+import { readOptionalRetainedOrdinaryFile } from '../runtime-state/physical/runtime/retained-file-read.ts';
 import { digest } from '../../contracts/canonical.ts';
 
 function readProjectFileBytes(absolutePath: string): Uint8Array | undefined {

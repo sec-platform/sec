@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { GitReadAuthorityError, withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
+import { GitReadAuthorityError, withAuthorityGitReadSession } from '../providers/git-read/authority.ts';
 import { sha256 } from '../../contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
@@ -9,7 +9,7 @@ import {
   issueSecSemanticOperationAttemptContext,
   type SecBoundSemanticOperation,
   type SecOperationDigest
-} from '../../system-architecture/operation/semantic.ts';
+} from '../../execution/operation/semantic.ts';
 import { decodeTrackedProjectPathInventory, isTrackedProjectRepositoryAbsent } from './tracked-path-inventory.ts';
 
 const TRACKED_PROJECT_PATH_DURATION_MS = 30_000;

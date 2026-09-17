@@ -1,4 +1,4 @@
-import { parseRepairCommandInput, parseUpgradeCommandInput } from '../../src/interface/cli/workspace-command-input.ts';
+import { parseRepairCommandInput, parseUpgradeCommandInput } from '../../src/bootstrap/cli/workspace-command-input.ts';
 
 // Compile-only: a read-only route cannot acquire a write request by accident.
 function upgradeInputTypes() {

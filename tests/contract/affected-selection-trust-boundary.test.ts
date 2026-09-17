@@ -3,9 +3,9 @@ import { describe, expect, test } from 'bun:test';
 import {
   buildLocalAffectedCheckPlan,
   type AffectedTestPlan
-} from '../../src/development/runner/affected-plan-contract.ts';
+} from '../../src/adapters/self-hosting/development/runner/affected-plan-contract.ts';
 import { sha256 } from '../../src/contracts/canonical.ts';
-import { CodexDevelopmentAssertVerificationGateResult } from '../../src/verification/result/contract/result.ts';
+import { CodexDevelopmentAssertVerificationGateResult } from '../../src/assurance/verification/result/contract/result.ts';
 import {
   classifyAffectedSelectionTrustBoundary,
   defaultAffectedSelectionProjectionContext,
@@ -13,7 +13,7 @@ import {
   projectAffectedSelectionToVerificationGateResult,
   type AffectedSelectionClassificationInput,
   type AffectedSelectionTrustBoundary
-} from '../../src/verification/test-impact/affected.ts';
+} from '../../src/adapters/verification/platform/test-impact/affected.ts';
 
 const TEST_INPUT_DIGEST = sha256({
   contract: 'affected-selection-trust-boundary',

@@ -19,16 +19,16 @@ tasks:
       - docs/work/
       - docs/work-packages/
       - package.json
-      - src/brownfield/repository-audit/cli.ts
-      - src/control/agent/
-      - src/control/continuation/checkpoint.ts
-      - src/control/documentation/
-      - src/control/issues/disposition.ts
-      - src/control/main-health/
-      - src/control/task/contract/work-package.ts
-      - src/control/work-selection/
-      - src/runtime-state/workspace-state/layout.test.ts
-      - src/verification/
+      - src/adapters/repository/repository-audit/cli.ts
+      - src/adapters/self-hosting/control/agent/
+      - src/adapters/self-hosting/control/continuation/checkpoint.ts
+      - src/adapters/self-hosting/control/documentation/
+      - src/adapters/self-hosting/control/issues/disposition.ts
+      - src/adapters/self-hosting/control/main-health/
+      - src/adapters/self-hosting/control/task/contract/work-package.ts
+      - src/adapters/self-hosting/control/work-selection/
+      - src/adapters/runtime-state/workspace-state/layout.test.ts
+      - src/adapters/verification/platform/
       - tests/
       - tools/
 forbiddenPaths:

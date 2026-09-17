@@ -10,7 +10,7 @@ import {
   SOURCE_RUNTIME_MODULE_RELATIVE_PATH,
   parseCompilerPackageEntrypointBinding,
   resolveCompilerRuntimeLayout
-} from '../../src/toolchain/runtime/layout.ts';
+} from '../../src/adapters/toolchain/runtime/layout.ts';
 
 function manifest(source: unknown = './src/cli.ts', artifact: unknown = './dist/index.js') {
   return { source, bin: { sec: artifact }, scripts: { sec: PACKAGE_SOURCE_LAUNCHER_SCRIPT } };

@@ -16,7 +16,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import type { FastTestBatchExecutionAdmission } from '../../src/development/runner/test-execution-policy.ts';
+import type { FastTestBatchExecutionAdmission } from '../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
 import {
   consumeTestProcessTempAssignmentV1,
   createTestInvocationRuntimeRoots,
@@ -24,8 +24,8 @@ import {
   prepareTestInvocationRuntime,
   testInvocationRuntimeIsolationModeForPlatform,
   TestProcessTempLifecycleError
-} from '../../src/development/runner/test-process-temp.ts';
-import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+} from '../../src/adapters/self-hosting/development/runner/test-process-temp.ts';
+import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 
 function generation(prefix: string): string {
   return mkdtempSync(path.join(tmpdir(), prefix));

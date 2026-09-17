@@ -2,16 +2,16 @@ import { afterAll, expect, test } from 'bun:test';
 import {
   currentActiveDocumentationPaths,
   currentDocumentationVerificationBaseline
-} from '../../src/control/documentation/active.ts';
+} from '../../src/adapters/self-hosting/control/documentation/active.ts';
 
-import { buildCiContract } from '../../src/verification/ci/contract/core.ts';
-import { bindDocumentationVerificationGateInput, buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentBuildVerificationPlan as buildVerificationPlanWithProvider, CodexDevelopmentCanonicalChangedFiles, type CodexDevelopmentVerificationPlanProfile } from '../../src/verification/ci/contract/plan.ts';
+import { buildCiContract } from '../../src/adapters/verification/platform/ci/contract/core.ts';
+import { bindDocumentationVerificationGateInput, buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentBuildVerificationPlan as buildVerificationPlanWithProvider, CodexDevelopmentCanonicalChangedFiles, type CodexDevelopmentVerificationPlanProfile } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import {
   CodexDevelopmentChangedFilesFromRecords,
   CodexDevelopmentCreateNotRunGate
-} from '../../src/verification/ci/runtime/ci-orchestration-core.ts';
-import { compileTestBudgetProjection, getSlowTestSuitesSync as getSnapshotSlowTestSuites, slowTestSuiteIds, slowTestPrRiskBaselineSuiteIds as snapshotBaselineSuiteIds } from '../../src/verification/test-impact/contract/budget.ts';
-import { parseGitChangedFileOutput } from '../../src/verification/test-impact/runtime/transition.ts';
+} from '../../src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts';
+import { compileTestBudgetProjection, getSlowTestSuitesSync as getSnapshotSlowTestSuites, slowTestSuiteIds, slowTestPrRiskBaselineSuiteIds as snapshotBaselineSuiteIds } from '../../src/adapters/verification/platform/test-impact/contract/budget.ts';
+import { parseGitChangedFileOutput } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
 import {
   expectFullLaneCoversCorrectnessBackstop,

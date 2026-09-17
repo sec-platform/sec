@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 
 import type { LockFile } from '../../src/compiler/contract.ts';
 import { buildProvenance } from '../../src/adapters/compilation/emit/write-provenance.ts';
-import { CI_PROVENANCE_PROJECTION_ARTIFACT_PATHS } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { CI_PROVENANCE_PROJECTION_ARTIFACT_PATHS } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { writeText } from "../../src/adapters/filesystem/files.ts";
 import { resolvePathInside } from "../../src/contracts/relative-path.ts";
 import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";

@@ -1,14 +1,14 @@
 import { validateProvenanceFile } from '../../../semantics/provenance/authority.ts';
 import { PROVENANCE_FORMAT_VERSION, type ProvenanceArtifact, type ProvenanceFile } from '../../../semantics/provenance/types.ts';
 import { compareCodeUnits, uniqueSorted } from '../../../contracts/canonical.ts';
-import { readOptionalCanonicalVerificationArtifactSet } from '../../../verification/artifact/runtime/authority.ts';
+import { readOptionalCanonicalVerificationArtifactSet } from '../../verification/platform/artifact/runtime/authority.ts';
 import {
   CI_ARTIFACT_FILES,
   CI_ARTIFACT_MANIFEST_PATH,
   CI_EXPLAIN_GRAPH_ARTIFACT_PATHS,
   CI_PROVENANCE_PROJECTION_ARTIFACT_PATHS
-} from '../../../verification/ci-artifacts/contract/manifest.ts';
-import type { VerificationReport } from '../../../verification/contract/types.ts';
+} from '../../../assurance/verification/ci-artifacts/contract/manifest.ts';
+import type { VerificationReport } from '../../../assurance/verification/contract/types.ts';
 import { modelRelativePath } from '../../../workspace/contract/types.ts';
 import { formatJsonFile } from "../../../contracts/json-text.ts";
 import { publishExistingParentCanonicalWorkspaceFile } from "../../filesystem/file-publication.ts";

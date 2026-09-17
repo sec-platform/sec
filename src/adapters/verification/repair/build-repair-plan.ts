@@ -6,8 +6,8 @@ import {
   type RepairPlan
 } from '../../../semantics/repair/types.ts';
 import { uniqueSorted } from '../../../contracts/canonical.ts';
-import { CI_ARTIFACT_FILES } from '../../../verification/ci-artifacts/contract/manifest.ts';
-import type { VerificationReport } from '../../../verification/contract/types.ts';
+import { CI_ARTIFACT_FILES } from '../../../assurance/verification/ci-artifacts/contract/manifest.ts';
+import type { VerificationReport } from '../../../assurance/verification/contract/types.ts';
 import { writeJson } from "../../filesystem/files.ts";
 import { type CommitFence } from "../../../contracts/commit-fence.ts";
 import { resolveWorkspaceArtifactPath, testsRelativePath } from "../../workspace-context.ts";

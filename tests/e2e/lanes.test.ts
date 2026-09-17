@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { lockWorkspace, verifyWorkspace } from '../../src/application/engineering/cli.ts';
+import { lockWorkspace, verifyWorkspace } from '../../src/bootstrap/engineering/cli.ts';
 import { prepareComposedWorkspace } from '../testkit/workspace.ts';
 
 test('fast lane alone does not unlock the workspace', async () => {

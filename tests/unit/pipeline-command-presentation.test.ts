@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import type { PassStatus } from '../../src/compiler/contract/pass-status.ts';
 import type { PipelineJournal } from '../../src/adapters/compilation-protocol/journal-types.ts';
-import { formatPipelineCompilation, formatPipelineJournal } from '../../src/interface/cli/pipeline-command-presentation.ts';
+import { formatPipelineCompilation, formatPipelineJournal } from '../../src/bootstrap/cli/pipeline-command-presentation.ts';
 
 function passStatus(): PassStatus {
   return {

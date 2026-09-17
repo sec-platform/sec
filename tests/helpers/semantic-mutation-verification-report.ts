@@ -1,6 +1,6 @@
 import { sha256 } from '../../src/compiler/semantic-mutation/canonical.ts';
 import type { SemanticMutationBase, VerificationRequirement } from '../../src/semantics/mutation/types.ts';
-import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION, type SemanticMutationVerificationReport } from '../../src/verification/contract/types.ts';
+import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION, type SemanticMutationVerificationReport } from '../../src/assurance/verification/contract/types.ts';
 
 export function semanticMutationVerificationReportFixture(input: {
   readonly adapterId: string;

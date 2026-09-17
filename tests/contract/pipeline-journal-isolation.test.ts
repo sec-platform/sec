@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { readPipelineJournal } from '../../src/adapters/compilation/pipeline/journal.ts';
-import { PhysicalNoFollowError } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { PhysicalNoFollowError } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
 import { withTempWorkspace } from '../testkit/workspace.ts';
 

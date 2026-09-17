@@ -1,9 +1,9 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { canonicalCommitTreeInput, captureGitDevelopmentCommitContract, gitCommitEnvironment } from '../../src/external-capabilities/git-read/runtime/commit-contract.ts';
-import { captureGitReadArguments } from '../../src/external-capabilities/git-read/runtime/read-command.ts';
-import { captureGitScratchIndexDelta, formatGitScratchIndexRecord } from '../../src/external-capabilities/git-read/runtime/scratch-input.ts';
+import { canonicalCommitTreeInput, captureGitDevelopmentCommitContract, gitCommitEnvironment } from '../../src/adapters/providers/git-read/runtime/commit-contract.ts';
+import { captureGitReadArguments } from '../../src/adapters/providers/git-read/runtime/read-command.ts';
+import { captureGitScratchIndexDelta, formatGitScratchIndexRecord } from '../../src/adapters/providers/git-read/runtime/scratch-input.ts';
 import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../src/contracts/repository-path.ts';
 
 const person = () => ({ name: 'Maintainer', email: 'maintainer@example.test', date: '0 +0000' });

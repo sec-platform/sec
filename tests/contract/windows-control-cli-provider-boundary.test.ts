@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { resolveWindowsControlCliSession } from '../../src/external-capabilities/windows-control-cli/runtime/session.ts';
+import { resolveWindowsControlCliSession } from '../../src/adapters/providers/windows-control-cli/runtime/session.ts';
 
 function request() {
   return Object.freeze({

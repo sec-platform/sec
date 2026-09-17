@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 
-import { createRepositoryCompilationCacheProvider } from '../../src/brownfield/source-program-model/repository-compilation-cache-provider.ts';
-import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { openContentAddressedWorkspaceCacheSession } from '../../src/runtime-state/workspace-state/content-addressed-workspace-cache.ts';
+import { createRepositoryCompilationCacheProvider } from '../../src/adapters/repository/source-program-model/repository-compilation-cache-provider.ts';
+import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { openContentAddressedWorkspaceCacheSession } from '../../src/adapters/runtime-state/workspace-state/content-addressed-workspace-cache.ts';
 import { sha256 } from '../../src/contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
@@ -10,7 +10,7 @@ import {
   compileSecSemanticOperationPlan,
   issueSecSemanticOperationAttemptContext,
   type SecOperationDigest
-} from '../../src/system-architecture/operation/semantic.ts';
+} from '../../src/execution/operation/semantic.ts';
 
 const marker = 'SEC_GENERATION_RESULT=';
 const payloadPath = process.env.SEC_GENERATION_PAYLOAD;
@@ -20,8 +20,8 @@ if (payloadPath === undefined || mode !== 'load' && mode !== 'publish') {
 }
 const payload = JSON.parse(readFileSync(payloadPath, 'utf8')) as Readonly<{
   repositoryRoot: string;
-  generation: import('../../src/brownfield/source-program-model/repository-compilation-cache.ts').RepositoryCompilationGenerationReceipt;
-  shards: readonly import('../../src/brownfield/source-program-model/typescript-fact-shards.ts').TypeScriptSourceProgramFactShard[];
+  generation: import('../../src/adapters/repository/source-program-model/repository-compilation-cache.ts').RepositoryCompilationGenerationReceipt;
+  shards: readonly import('../../src/adapters/repository/source-program-model/typescript-fact-shards.ts').TypeScriptSourceProgramFactShard[];
 }>;
 const requirementId = 'brownfield.repository-compilation-cache.test-worker';
 const contractDigest = sha256({ requirementId }) as SecOperationDigest;

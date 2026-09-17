@@ -7,12 +7,12 @@ import { encodeCanonicalBlockPhysicalKey } from '../semantics/identity/block.ts'
 import {
   COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS,
   compilerRuntimeLayout
-} from '../toolchain/runtime/layout.ts';
+} from './toolchain/runtime/layout.ts';
 import {
   CI_ARTIFACT_FILES,
   CI_ARTIFACT_ROOT_RELATIVE_PATH,
   isCanonicalCiArtifactPath
-} from '../verification/ci-artifacts/contract/manifest.ts';
+} from '../assurance/verification/ci-artifacts/contract/manifest.ts';
 import {
   localStateRelativePath,
   resolveWorkspaceLocalStateRoot

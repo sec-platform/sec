@@ -1,15 +1,15 @@
 import { lstatSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 
-import { buildIsolatedProcessEnvironment, ensureIsolatedProcessDirectories, runCommand } from '../../runtime-state/physical/runtime/process.ts';
+import { buildIsolatedProcessEnvironment, ensureIsolatedProcessDirectories, runCommand } from '../runtime-state/physical/runtime/process.ts';
 import { defaultLogger } from '../diagnostics/json-logger.ts';
 import { compareCodeUnits } from '../../contracts/canonical.ts';
 import {
   dependencyAuthorityPaths,
   ensureProjectDependencies,
   withProjectDependencyBridge
-} from '../../toolchain/dependencies/runtime.ts';
-import type { RuntimeVerificationLaneReport, VerificationStatus, VerificationStepReport } from '../../verification/contract/types.ts';
+} from '../toolchain/dependencies/runtime.ts';
+import type { RuntimeVerificationLaneReport, VerificationStatus, VerificationStepReport } from '../../assurance/verification/contract/types.ts';
 import type { CommitFence } from "../../contracts/commit-fence.ts";
 import { writeText } from "../filesystem/files.ts";
 import { listFilesRecursive } from '../filesystem/discovery.ts';

@@ -29,7 +29,7 @@ import {
   type CodexDevelopmentInitiallyAbsentTupleEntry,
   type CodexDevelopmentInitiallyAbsentTuplePlatform,
   type CodexDevelopmentInitiallyAbsentTupleState
-} from '../../src/control/documentation/document-control-plane-contract.ts';
+} from '../../src/adapters/self-hosting/control/documentation/document-control-plane-contract.ts';
 import {
   CodexDevelopmentDurabilityBarrierError,
   CodexDevelopmentUnsafeAnchoredPathError,
@@ -41,18 +41,18 @@ import {
   type CodexDevelopmentDurabilityEvent,
   type CodexDevelopmentFreezeFault,
   type CodexDevelopmentFreezeResult
-} from '../../src/control/documentation/document-control-plane.ts';
+} from '../../src/adapters/self-hosting/control/documentation/document-control-plane.ts';
 import {
   createMainHealthLedger,
   createMainHealthRepairWorkPackagePath
-} from '../../src/control/main-health/contract.ts';
-import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../src/control/main-health/provider-policy.ts';
-import { compileMainHealthRepairDecision } from '../../src/control/main-health/repair.ts';
+} from '../../src/adapters/self-hosting/control/main-health/contract.ts';
+import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
+import { compileMainHealthRepairDecision } from '../../src/adapters/self-hosting/control/main-health/repair.ts';
 import {
   requireActiveWorkPackageOwnerObservation,
   type ActiveWorkPackageOwnerObservation
-} from '../../src/control/task/contract/active-work-observation.ts';
-import { CodexDevelopmentWorkPackageManifestDigest } from '../../src/control/task/contract/work-package.ts';
+} from '../../src/adapters/self-hosting/control/task/contract/active-work-observation.ts';
+import { CodexDevelopmentWorkPackageManifestDigest } from '../../src/adapters/self-hosting/control/task/contract/work-package.ts';
 import {
   SEC_ROADMAP_WORK_CATALOG_BEGIN,
   SEC_ROADMAP_WORK_CATALOG_END,
@@ -63,12 +63,12 @@ import {
   currentSpecRevisionFromBody,
   parseSecRoadmapWorkCatalog,
   renderSecWorkRollingPlan
-} from '../../src/control/work-selection/live-contract.ts';
+} from '../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
 import {
   issueGitHubApiTestCapability,
   withGitHubApiTestSession,
   type GitHubApiTransport
-} from '../../src/external-capabilities/github-api/test/operation-session.ts';
+} from '../../src/adapters/providers/github-api/test/operation-session.ts';
 import { digest, rawSha256 } from '../../src/contracts/canonical.ts';
 import {
   SEC_DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_MAX_BYTES_V1,
@@ -500,7 +500,7 @@ interface FreezeFixture {
 function currentStateSource(remoteName = 'origin'): string {
   return `schema: sec-current-state-live-v1
 resolver:
-  command: bun src/control/documentation/document-control-plane.ts status --json
+  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
   remote: ${remoteName}
   defaultBranch: main
@@ -1016,7 +1016,7 @@ matchingDefaultBlob: none
   expect(() => CodexDevelopmentParseCurrentStateSpec(`
 schema: sec-current-state-live-v1
 resolver:
-  command: bun src/control/documentation/document-control-plane.ts status --json
+  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
   remote: origin
   defaultBranch: main
@@ -1028,7 +1028,7 @@ stableFacts: {}
   const validSpec = CodexDevelopmentParseCurrentStateSpec(`
 schema: sec-current-state-live-v1
 resolver:
-  command: bun src/control/documentation/document-control-plane.ts status --json
+  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
   remote: origin
   defaultBranch: main
@@ -1041,7 +1041,7 @@ stableFacts: {}
   const requiredWorkSelectionSpec = CodexDevelopmentParseCurrentStateSpec(`
 schema: sec-current-state-live-v1
 resolver:
-  command: bun src/control/documentation/document-control-plane.ts status --json
+  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
   remote: origin
   defaultBranch: main
@@ -1073,7 +1073,7 @@ stableFacts:
       `
 schema: sec-current-state-live-v1
 resolver:
-  command: bun src/control/documentation/document-control-plane.ts status --json
+  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
   remote: origin
   defaultBranch: main
@@ -5104,7 +5104,7 @@ test('repository controls use the shared live resolver and preserve one bounded 
   const activePackageId = path.basename(pointer.manifest, '.md');
 
   expect(currentState.resolver).toEqual({
-    command: 'bun src/control/documentation/document-control-plane.ts status --json',
+    command: 'bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json',
     repository: 'sec-platform/sec',
     remote: 'origin',
     defaultBranch: 'main',

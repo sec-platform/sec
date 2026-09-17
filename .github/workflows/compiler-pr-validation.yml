@@ -998,7 +998,7 @@ jobs:
         run: |
           set -euo pipefail
           bun -e '
-            import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1 } from "./src/verification/ci/contract/revision.ts";
+            import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1 } from "./src/adapters/verification/platform/ci/contract/revision.ts";
             const capability = JSON.parse(await Bun.file(".tmp/codex/sut-capability/hosted-sut-capability.json").text());
             const resolution = JSON.parse(await Bun.file(".tmp/codex/hosted-action-resolution.json").text());
             const keys = Object.keys(capability).sort();

@@ -4,12 +4,12 @@ import {
   compileSourceProgramFindingDelta as compare,
   summarizeSourceProgramFindingDelta as summarize,
   sourceProgramFindingDeltaIsUnresolved as unresolved
-} from '../../src/brownfield/source-program-model/reconciliation-findings.ts';
-import { captureRepositoryAnalysisPolicy as policy } from '../../src/brownfield/source-program-model/repository-analysis-policy.ts';
-import { compileVirtualRepositorySourceProgramCompilation } from '../../src/brownfield/source-program-model/repository-compilation.ts';
-import { compileVirtualWorkspaceSourceSnapshot } from '../../src/brownfield/source-program-model/workspace-source-snapshot.ts';
+} from '../../src/adapters/repository/source-program-model/reconciliation-findings.ts';
+import { captureRepositoryAnalysisPolicy as policy } from '../../src/adapters/repository/source-program-model/repository-analysis-policy.ts';
+import { compileVirtualRepositorySourceProgramCompilation } from '../../src/adapters/repository/source-program-model/repository-compilation.ts';
+import { compileVirtualWorkspaceSourceSnapshot } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
 import { rawSha256, sha256 } from '../../src/contracts/canonical.ts';
-import { compileSecRepositoryModuleMembershipSnapshot } from '../../src/system-architecture/repository-modules/contract.ts';
+import { compileSecRepositoryModuleMembershipSnapshot } from '../../src/adapters/repository/architecture/contract.ts';
 
 type Snapshot = Parameters<typeof compare>[0];
 const digest = (s: string) => sha256(s) as `sha256:${string}`;

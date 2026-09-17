@@ -1,6 +1,6 @@
-import { isCanonicalVerificationArtifactSet } from '../../../verification/artifact/contract/artifact.ts';
-import type { VerificationReport } from '../../../verification/contract/types.ts';
-import { CodexDevelopmentSnapshotVerificationData, type VerificationResultStatus } from '../../../verification/result/contract/result.ts';
+import { isCanonicalVerificationArtifactSet } from '../../../assurance/verification/artifact/contract/artifact.ts';
+import type { VerificationReport } from '../../../assurance/verification/contract/types.ts';
+import { CodexDevelopmentSnapshotVerificationData, type VerificationResultStatus } from '../../../assurance/verification/result/contract/result.ts';
 import type { WorkspaceSemanticBundle } from '../../workspace/semantic-bundle.ts';
 
 /**

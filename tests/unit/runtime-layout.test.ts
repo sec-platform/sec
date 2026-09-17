@@ -14,7 +14,7 @@ import {
   resolveCompilerRuntimeLayout,
   resolveCompilerRuntimeResources,
   SOURCE_RUNTIME_MODULE_RELATIVE_PATH
-} from '../../src/toolchain/runtime.ts';
+} from '../../src/adapters/toolchain/runtime.ts';
 
 const FIXTURE_ENTRYPOINT = Object.freeze({
   artifact: 'output/cli.js',

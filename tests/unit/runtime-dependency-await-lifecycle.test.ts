@@ -7,7 +7,7 @@ import {
   runtimeDependencyOperationEffectFence,
   runtimeDependencyOperationOptions,
   waitForRuntimeDependencyOperation
-} from '../../src/toolchain/dependencies/runtime/operation-context.ts';
+} from '../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
 
 type Outcome = { kind: 'fulfilled' } | { kind: 'rejected'; error: unknown };
 function observed(work: Promise<void>): { outcome: () => Outcome | undefined; settled: Promise<Outcome> } {

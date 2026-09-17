@@ -2,8 +2,8 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { upgradeWorkspace } from '../../src/change-management/upgrade/orchestration.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { upgradeWorkspace } from '../../src/bootstrap/upgrade/orchestration.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { readYaml, writeYaml } from '../../src/adapters/workspace/yaml.ts';
 import { expectFileUnchanged } from '../helpers/assertion-helpers.ts';

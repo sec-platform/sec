@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { isPathInside } from "../../contracts/relative-path.ts";
 
-import { inspectExactNoFollowDirectoryPresence, scanNoFollowDirectoryTreeMetadata } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { inspectExactNoFollowDirectoryPresence, scanNoFollowDirectoryTreeMetadata } from '../runtime-state/physical/runtime/physical-no-follow.ts';
 import { createTaskGroupEffectFence, mapTaskGroup } from '../../execution/task-group.ts';
 import { throwIfNativeAborted } from '../../contracts/native-abort.ts';
 import { ensureDir, prepareOrdinaryFileWrite } from "./files.ts";

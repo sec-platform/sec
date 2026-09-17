@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import { Command } from 'commander';
 import assert from 'node:assert/strict';
 
-import { registerPipelineCommands } from '../../src/interface/cli/register-pipeline-commands.ts';
+import { registerPipelineCommands } from '../../src/bootstrap/cli/register-pipeline-commands.ts';
 
 function program() {
   let text = '';

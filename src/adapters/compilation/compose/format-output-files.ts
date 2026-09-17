@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import prettier from 'prettier';
 
-import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../../runtime-state/physical/runtime/retained-file-read.ts';
+import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import { portableLogicalPathCollisionKey } from '../../../contracts/logical-path.ts';
 import { createTaskGroupEffectFence, mapTaskGroup } from '../../../execution/task-group.ts';
 import { throwIfNativeAborted } from '../../../contracts/native-abort.ts';

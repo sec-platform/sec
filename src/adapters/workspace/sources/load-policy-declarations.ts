@@ -3,10 +3,10 @@ import path from 'node:path';
 import { parseYamlValue } from '../../formats/yaml.ts';
 import { PolicySpecSchema } from '../../../semantics/policies/source-schema.ts';
 
-import { inspectExactNoFollowDirectoryPresence, scanNoFollowDirectoryTreeMetadata } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../../runtime-state/physical/runtime/retained-file-read.ts';
+import { inspectExactNoFollowDirectoryPresence, scanNoFollowDirectoryTreeMetadata } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import { compareCodeUnits, uniqueSorted } from '../../../contracts/canonical.ts';
-import { compilerRuntimeResources } from '../../../toolchain/runtime/layout.ts';
+import { compilerRuntimeResources } from '../../toolchain/runtime/layout.ts';
 import { getWorkspacePaths, officialPoliciesRelativePath, policiesRelativePath } from "../../workspace-context.ts";
 import { posixPath, relativePosixPath } from '../../../contracts/relative-path.ts';
 import type { PolicyRule, PolicySourceFileReport, PolicySourceScope, PolicySpec } from '../../../semantics/policies/types.ts';

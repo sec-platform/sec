@@ -4,8 +4,8 @@ import path from 'node:path';
 
 import { z } from 'zod';
 
-import { copyNoFollowDirectoryTreesBulk, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, relocateRetainedNoFollowDirectory, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { decodeExactUtf8, readOptionalRetainedJson, readOptionalRetainedOrdinaryFile } from '../../../runtime-state/physical/runtime/retained-file-read.ts';
+import { copyNoFollowDirectoryTreesBulk, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, relocateRetainedNoFollowDirectory, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { decodeExactUtf8, readOptionalRetainedJson, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import { canonicalEquals, compareCodeUnits } from '../../../contracts/canonical.ts';
 import { createConcurrencyLimit } from '../../../execution/task-group.ts';
 import { isYamlParseFailure, parseYamlValue } from '../../formats/yaml.ts';

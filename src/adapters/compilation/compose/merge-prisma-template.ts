@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../../runtime-state/physical/runtime/retained-file-read.ts';
+import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import { publishExclusiveCanonicalWorkspaceFile, publishExpectedCanonicalWorkspaceFile } from "../../filesystem/file-publication.ts";
 import { type CommitFence } from "../../../contracts/commit-fence.ts";
 import { getWorkspacePaths } from "../../workspace-context.ts";

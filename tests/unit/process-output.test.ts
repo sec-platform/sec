@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test';
 import path from 'node:path';
 
-import { inspectNoFollowDirectoryChain, PhysicalNoFollowError, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { issueRetainedCommandBoundary, RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, RetainedCommandTransportError, runCommand, runCommandBytes, runRetainedCommand, runRetainedCommandBytes } from '../../src/runtime-state/physical/runtime/process.ts';
+import { inspectNoFollowDirectoryChain, PhysicalNoFollowError, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { issueRetainedCommandBoundary, RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, RetainedCommandTransportError, runCommand, runCommandBytes, runRetainedCommand, runRetainedCommandBytes } from '../../src/adapters/runtime-state/physical/runtime/process.ts';
 import { compilerRoot } from "../../src/adapters/workspace-context.ts";
 
 const splitUtf8Script = [

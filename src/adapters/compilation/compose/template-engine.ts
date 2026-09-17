@@ -1,8 +1,8 @@
 import {
   decodeExactUtf8,
   readOptionalRetainedOrdinaryFile
-} from '../../../runtime-state/physical/runtime/retained-file-read.ts';
-import { compilerRuntimeResources } from '../../../toolchain/runtime/layout.ts';
+} from '../../runtime-state/physical/runtime/retained-file-read.ts';
+import { compilerRuntimeResources } from '../../toolchain/runtime/layout.ts';
 import { resolvePathInside } from "../../../contracts/relative-path.ts";
 import { CompilerError } from '../../../compiler/errors.ts';
 import { renderTemplateString, TEMPLATE_MAX_INPUT_BYTES } from '../../../compiler/templates/render-template-string.ts';

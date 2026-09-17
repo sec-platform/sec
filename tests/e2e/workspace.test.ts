@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { readJson } from "../../src/adapters/filesystem/files.ts";
 import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { installPrivateBannerBlock } from '../helpers/private-registry-fixtures.ts';

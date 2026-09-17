@@ -18,7 +18,7 @@ function moduleHref(repositoryPath: string): string {
   return pathToFileURL(path.resolve(repositoryPath)).href;
 }
 
-mock.module(moduleHref('src/development/runner/dependency-bootstrap.ts'), () => ({
+mock.module(moduleHref('src/adapters/self-hosting/development/runner/dependency-bootstrap.ts'), () => ({
   DEV_RUNNER_FRESH_PROCESS_TRANSITION_ENV: 'SEC_DEV_RUNNER_FRESH_PROCESS_TRANSITION_V1',
   assertMaterializedOperationDependencyBootstrapResult: (dependencies: unknown) => {
     if (!dependencyReady || dependencies !== materializedDependencies) {
@@ -40,13 +40,13 @@ mock.module(moduleHref('src/development/runner/dependency-bootstrap.ts'), () => 
   }
 }));
 
-mock.module(moduleHref('src/toolchain/dependencies/runtime.ts'), () => ({
+mock.module(moduleHref('src/adapters/toolchain/dependencies/runtime.ts'), () => ({
   retainCompilerDependencyExecutionGeneration: async () => {
     throw new Error('TypeScript startup retained a dependency generation before Action admission.');
   }
 }));
 
-mock.module(moduleHref('src/development/runner/typecheck-runner.ts'), () => {
+mock.module(moduleHref('src/adapters/self-hosting/development/runner/typecheck-runner.ts'), () => {
   if (!dependencyReady) {
     throw new Error('TypeScript execution closure loaded before dependency bootstrap.');
   }
@@ -66,7 +66,7 @@ mock.module(moduleHref('src/development/runner/typecheck-runner.ts'), () => {
 });
 
 const { runTypecheckCommand } = await import(
-  `${moduleHref('src/development/runner/cli.ts')}?typecheck-startup-contract`
+  `${moduleHref('src/adapters/self-hosting/development/runner/cli.ts')}?typecheck-startup-contract`
 );
 const exitCode = await runTypecheckCommand(['--diagnostic-only']);
 process.stdout.write(JSON.stringify({ calls, exitCode }));

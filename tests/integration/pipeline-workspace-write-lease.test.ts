@@ -2,10 +2,10 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { initWorkspace } from '../../src/application/engineering/cli.ts';
-import { withMonitoredWorkspaceWriteLease } from '../../src/application/engineering/pipeline-orchestrator.ts';
+import { initWorkspace } from '../../src/bootstrap/engineering/cli.ts';
+import { withMonitoredWorkspaceWriteLease } from '../../src/bootstrap/engineering/pipeline-orchestrator.ts';
 import { executePipelineStage, withPipelineTransaction } from '../../src/adapters/compilation/pipeline/kernel.ts';
-import { runCommand } from '../../src/runtime-state/physical/runtime/process.ts';
+import { runCommand } from '../../src/adapters/runtime-state/physical/runtime/process.ts';
 import { pathExists, writeText } from "../../src/adapters/filesystem/files.ts";
 import {
   acquireWorkspaceWriteLease,
@@ -58,7 +58,7 @@ test('a child cannot reuse or release a live holder token copied from owner.json
     const { secRoot } = getWorkspacePaths(workspaceRoot);
     const ownerPath = await activeOwnerPath(path.join(secRoot, 'workspace-write-lease'));
     const resultPath = path.join(workspaceRoot, 'copied-token-attempt.json');
-    const orchestratorUrl = new URL('../../src/application/engineering/cli.ts', import.meta.url).href;
+    const orchestratorUrl = new URL('../../src/bootstrap/engineering/cli.ts', import.meta.url).href;
     const leaseModuleUrl = new URL('../../src/adapters/filesystem/write-lease.ts', import.meta.url).href;
     const childScript = `
       import { readFile } from 'node:fs/promises';

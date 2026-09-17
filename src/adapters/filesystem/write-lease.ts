@@ -6,9 +6,9 @@ import path from 'node:path';
 import {
   issueWindowsAppContainerExecutionCapability as issuePhysicalWindowsAppContainerExecutionCapability,
   type WindowsAppContainerExecutionCapability
-} from '../../runtime-state/physical/contract/windows-appcontainer-execution-capability.ts';
-import { assertSameNoFollowDirectoryIdentity, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectoryAcrossParents, scanNoFollowDirectoryTree, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { ISOLATED_VERIFICATION_ENV_KEY } from '../../runtime-state/physical/runtime/process.ts';
+} from '../runtime-state/physical/contract/windows-appcontainer-execution-capability.ts';
+import { assertSameNoFollowDirectoryIdentity, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectoryAcrossParents, scanNoFollowDirectoryTree, type PhysicalDirectoryIdentity } from '../runtime-state/physical/runtime/physical-no-follow.ts';
+import { ISOLATED_VERIFICATION_ENV_KEY } from '../runtime-state/physical/runtime/process.ts';
 import { isSemanticMutationStagingWorkspace } from '../../workspace/contract/semantic-mutation-staging.ts';
 import { canonicalEquals, digest, sha256 } from '../../contracts/canonical.ts';
 import { resolveWorkspaceLocalStateRoot } from '../../workspace/contract/local-state.ts';
@@ -166,7 +166,7 @@ export interface WorkspaceWriteLeaseHandle {
   relocate(nextWorkspaceRoot: string): Promise<void>;
   /** Exact active mutable subtree; valid only after `assertOwned()`. */
   ownedNamespace(): Promise<Readonly<{ workspaceRoot: string; relativePath: '.sec/workspace-write-lease' }>>;
-  retireOwnedNamespace(intentDigest: string, proofParent: import('../../runtime-state/physical/runtime/physical-no-follow.ts').PhysicalDirectoryIdentity): Promise<WorkspaceWriteLeaseRetirementReceipt>;
+  retireOwnedNamespace(intentDigest: string, proofParent: import('../runtime-state/physical/runtime/physical-no-follow.ts').PhysicalDirectoryIdentity): Promise<WorkspaceWriteLeaseRetirementReceipt>;
   release(): Promise<void>;
 }
 
@@ -903,7 +903,7 @@ function namespaceTombstoneName(transitionDigest: string): string {
   return `workspace-write-lease-retired-namespace-${transitionDigest.slice('sha256:'.length)}`;
 }
 
-function transitionEntries(entries: readonly import('../../runtime-state/physical/runtime/physical-no-follow.ts').NoFollowDirectoryTreeEntry[]) {
+function transitionEntries(entries: readonly import('../runtime-state/physical/runtime/physical-no-follow.ts').NoFollowDirectoryTreeEntry[]) {
   return entries.map((entry) => Object.freeze({ relativePath: entry.relativePath, kind: entry.kind, device: entry.device, inode: entry.inode, size: entry.size, bytes: entry.bytes === null ? null : Buffer.from(entry.bytes).toString('hex') }));
 }
 
@@ -956,7 +956,7 @@ function retirementFenceParent(workspaceRoot: string): string {
   return path.dirname(path.resolve(workspaceRoot));
 }
 
-function physicalWorkspaceIdentityDigest(workspace: Pick<import('../../runtime-state/physical/runtime/physical-no-follow.ts').PhysicalDirectoryIdentity, 'device' | 'inode'>): string {
+function physicalWorkspaceIdentityDigest(workspace: Pick<import('../runtime-state/physical/runtime/physical-no-follow.ts').PhysicalDirectoryIdentity, 'device' | 'inode'>): string {
   return sha256({
     domain: 'workspace-write-lease-physical-directory-identity-v2',
     dev: workspace.device,
@@ -1065,7 +1065,7 @@ function validateRetirementReceipt(receipt: unknown): WorkspaceWriteLeaseRetirem
 export function assertWorkspaceWriteLeaseRetirement(input: {
   readonly workspaceRoot: string;
   readonly receipt: WorkspaceWriteLeaseRetirementReceipt;
-}): Readonly<{ parent: import('../../runtime-state/physical/runtime/physical-no-follow.ts').PhysicalDirectoryIdentity; entry: import('../../runtime-state/physical/runtime/physical-no-follow.ts').NoFollowDirectoryTreeEntry }> {
+}): Readonly<{ parent: import('../runtime-state/physical/runtime/physical-no-follow.ts').PhysicalDirectoryIdentity; entry: import('../runtime-state/physical/runtime/physical-no-follow.ts').NoFollowDirectoryTreeEntry }> {
   const receipt = validateRetirementReceipt(input.receipt);
   const parent = inspectNoFollowDirectoryChain(retirementFenceParent(input.workspaceRoot), 'Workspace lease retirement fence parent').target;
   const workspace = inspectNoFollowDirectoryChain(input.workspaceRoot, 'Workspace lease retirement workspace').target;
@@ -1102,7 +1102,7 @@ export function assertWorkspaceWriteLeaseRetirement(input: {
  * changed, reparse, or foreign entry.
  */
 function assertRetirementLedgerNamespace(
-  namespace: import('../../runtime-state/physical/runtime/physical-no-follow.ts').PhysicalDirectoryIdentity,
+  namespace: import('../runtime-state/physical/runtime/physical-no-follow.ts').PhysicalDirectoryIdentity,
   receipt: WorkspaceWriteLeaseRetirementReceipt,
   transition: WorkspaceWriteLeaseRetirementTransition
 ): void {
@@ -1142,7 +1142,7 @@ function assertRetirementLedgerNamespace(
 }
 
 function readRetirementTransitionProof(
-  proofParent: import('../../runtime-state/physical/runtime/physical-no-follow.ts').PhysicalDirectoryIdentity,
+  proofParent: import('../runtime-state/physical/runtime/physical-no-follow.ts').PhysicalDirectoryIdentity,
   receipt: WorkspaceWriteLeaseRetirementReceipt
 ): WorkspaceWriteLeaseRetirementTransition {
   const bytes = readNoFollowOrdinaryFile(proofParent, retirementTransitionName(receipt.transitionDigest));
@@ -1170,7 +1170,7 @@ function readRetirementTransitionProof(
 export function assertWorkspaceWriteLeaseRetirementProof(input: {
   readonly workspaceRoot: string;
   readonly receipt: WorkspaceWriteLeaseRetirementReceipt;
-  readonly proofParent: import('../../runtime-state/physical/runtime/physical-no-follow.ts').PhysicalDirectoryIdentity;
+  readonly proofParent: import('../runtime-state/physical/runtime/physical-no-follow.ts').PhysicalDirectoryIdentity;
 }): WorkspaceWriteLeaseRetirementReceipt {
   const receipt = validateRetirementReceipt(input.receipt);
   const proofParent = assertSameNoFollowDirectoryIdentity(input.proofParent, 'Workspace lease retirement proof parent').target;
@@ -1239,7 +1239,7 @@ export function recoverWorkspaceWriteLeaseRetirement(input: WorkspaceWriteLeaseR
     throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease recovery proof parent differs from transition');
   }
   const externalNamespacePath = path.join(proofParent.path, receipt.namespaceTombstoneName);
-  let convergenceNamespace: import('../../runtime-state/physical/runtime/physical-no-follow.ts').PhysicalDirectoryIdentity | null = null;
+  let convergenceNamespace: import('../runtime-state/physical/runtime/physical-no-follow.ts').PhysicalDirectoryIdentity | null = null;
   const externalPresence = inspectExactNoFollowDirectoryPresence(externalNamespacePath, 'Workspace lease retirement recovery external namespace');
   if (namespacePresence.state === 'present' && externalPresence.state === 'present') {
     throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease retirement has both internal and external namespaces');
@@ -1305,7 +1305,7 @@ function readPreterminalRetirementReceipt(input: {
 function discardExactPreFenceTransition(input: {
   readonly workspaceRoot: string;
   readonly intentDigest: string;
-  readonly proofParent: import('../../runtime-state/physical/runtime/physical-no-follow.ts').PhysicalDirectoryIdentity;
+  readonly proofParent: import('../runtime-state/physical/runtime/physical-no-follow.ts').PhysicalDirectoryIdentity;
 }): void {
   const workspace = inspectNoFollowDirectoryChain(input.workspaceRoot, 'Pre-fence transition workspace').target;
   const parent = assertSameNoFollowDirectoryIdentity(input.proofParent, 'Pre-fence transition proof parent').target;
@@ -1420,7 +1420,7 @@ export function completeWorkspaceWriteLeaseRetirement(input: {
   // terminal shape the root cannot be reopened, so validate the receipt and
   // retained same-parent fence directly, while requiring literal ENOENT for
   // the former root.  Any reappearance remains a hard failure.
-  let validated: Readonly<{ parent: import('../../runtime-state/physical/runtime/physical-no-follow.ts').PhysicalDirectoryIdentity; entry: import('../../runtime-state/physical/runtime/physical-no-follow.ts').NoFollowDirectoryTreeEntry }>;
+  let validated: Readonly<{ parent: import('../runtime-state/physical/runtime/physical-no-follow.ts').PhysicalDirectoryIdentity; entry: import('../runtime-state/physical/runtime/physical-no-follow.ts').NoFollowDirectoryTreeEntry }>;
   const presence = inspectExactNoFollowDirectoryPresence(input.workspaceRoot, 'Workspace lease retirement completion workspace');
   if (presence.state === 'present') {
     validated = assertWorkspaceWriteLeaseRetirement(input);
@@ -2758,7 +2758,7 @@ export function createWorkspaceWriteLeaseManager(
         await assertHandle();
         return Object.freeze({ workspaceRoot: currentWorkspaceRoot, relativePath: '.sec/workspace-write-lease' as const });
       };
-      const retireOwnedNamespace = async (intentDigest: string, suppliedProofParent: import('../../runtime-state/physical/runtime/physical-no-follow.ts').PhysicalDirectoryIdentity): Promise<WorkspaceWriteLeaseRetirementReceipt> => {
+      const retireOwnedNamespace = async (intentDigest: string, suppliedProofParent: import('../runtime-state/physical/runtime/physical-no-follow.ts').PhysicalDirectoryIdentity): Promise<WorkspaceWriteLeaseRetirementReceipt> => {
         await assertHandle();
         if (!/^sha256:[0-9a-f]{64}$/u.test(intentDigest)) throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease retirement intent digest is invalid');
         return withControlPlaneLock(token, async () => {

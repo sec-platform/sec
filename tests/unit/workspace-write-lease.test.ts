@@ -4,8 +4,8 @@ import { link, lstat, mkdir, open, readFile, readdir, rename, rm, symlink, unlin
 import os from 'node:os';
 import path from 'node:path';
 
-import { initWorkspace } from '../../src/application/engineering/workspace-orchestrator.ts';
-import { inspectNoFollowDirectoryChain, scanNoFollowDirectoryTree } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { initWorkspace } from '../../src/bootstrap/engineering/workspace-orchestrator.ts';
+import { inspectNoFollowDirectoryChain, scanNoFollowDirectoryTree } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { sha256 as canonicalSha256 } from '../../src/contracts/canonical.ts';
 import { pathExists } from "../../src/adapters/filesystem/files.ts";
 import {

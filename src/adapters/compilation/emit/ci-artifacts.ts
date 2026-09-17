@@ -1,11 +1,11 @@
-import { readOptionalRetainedJson } from '../../../runtime-state/physical/runtime/retained-file-read.ts';
+import { readOptionalRetainedJson } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import type { ExplainGraph } from '../../../semantics/projection/explain.ts';
 import { compareCodeUnits } from '../../../contracts/canonical.ts';
 import { countMatching } from '../../../contracts/collections.ts';
-import { buildCiArtifactUploadGroups, CI_ARTIFACT_FILES, CI_ARTIFACT_MANIFEST_PATH, CI_ARTIFACT_PATHS, CI_ARTIFACT_ROOT_RELATIVE_PATH, CI_EMIT_ARTIFACT_PATHS, ciArtifactKindForPath, ciArtifactUploadName, countCiArtifactMissingReasons, countCiArtifactMissingReasonTypes, fixedCiArtifactPaths, isCanonicalCiArtifactPath, isCiContractArtifactPath, normalizeCiArtifactPath, uniqueSortedCiArtifactPaths } from '../../../verification/ci-artifacts/contract/manifest.ts';
-import type { CiArtifactEntry, CiArtifactManifest, CiArtifactMissingEntry } from '../../../verification/ci-artifacts/contract/types.ts';
-import { CI_ARTIFACT_FORMAT_VERSION, CI_ARTIFACT_MISSING_REASON } from '../../../verification/ci-artifacts/contract/types.ts';
-import { validateCiArtifactManifest } from '../../../verification/ci-artifacts/runtime/authority.ts';
+import { buildCiArtifactUploadGroups, CI_ARTIFACT_FILES, CI_ARTIFACT_MANIFEST_PATH, CI_ARTIFACT_PATHS, CI_ARTIFACT_ROOT_RELATIVE_PATH, CI_EMIT_ARTIFACT_PATHS, ciArtifactKindForPath, ciArtifactUploadName, countCiArtifactMissingReasons, countCiArtifactMissingReasonTypes, fixedCiArtifactPaths, isCanonicalCiArtifactPath, isCiContractArtifactPath, normalizeCiArtifactPath, uniqueSortedCiArtifactPaths } from '../../../assurance/verification/ci-artifacts/contract/manifest.ts';
+import type { CiArtifactEntry, CiArtifactManifest, CiArtifactMissingEntry } from '../../../assurance/verification/ci-artifacts/contract/types.ts';
+import { CI_ARTIFACT_FORMAT_VERSION, CI_ARTIFACT_MISSING_REASON } from '../../../assurance/verification/ci-artifacts/contract/types.ts';
+import { validateCiArtifactManifest } from '../../verification/platform/ci-artifacts/runtime/authority.ts';
 import { formatJsonFile } from "../../../contracts/json-text.ts";
 import { pathExists } from "../../filesystem/files.ts";
 import { publishCanonicalWorkspaceFile } from "../../filesystem/file-publication.ts";

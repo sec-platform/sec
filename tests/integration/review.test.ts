@@ -2,8 +2,8 @@ import { test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import type { ReviewSummary } from '../../src/verification/review/contract/types.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import type { ReviewSummary } from '../../src/assurance/verification/review/contract/types.ts';
 import { writeJson } from "../../src/adapters/filesystem/files.ts";
 import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { expectCliVariants } from '../testkit/cli.ts';

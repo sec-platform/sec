@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { canonicalJson } from '../../src/contracts/canonical.ts';
-import { dependencyTransitionRecordBytes, transitionRecordName } from '../../src/toolchain/dependencies/runtime/dependency-transition/codec.ts';
-import { inspectActiveDependencyTransitionRollover, recoverDependencyTransitionRollover } from '../../src/toolchain/dependencies/runtime/dependency-transition/rollover.ts';
-import { runtimeDependencyOperationControls } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
+import { dependencyTransitionRecordBytes, transitionRecordName } from '../../src/adapters/toolchain/dependencies/runtime/dependency-transition/codec.ts';
+import { inspectActiveDependencyTransitionRollover, recoverDependencyTransitionRollover } from '../../src/adapters/toolchain/dependencies/runtime/dependency-transition/rollover.ts';
+import { runtimeDependencyOperationControls } from '../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
 import { formatJsonFile } from "../../src/contracts/json-text.ts";
 import { createRolloverFixture } from '../helpers/rollover-fixture.ts';
 
@@ -159,7 +159,7 @@ test('a disposal inventory digest round-trips the existing v1 decoded projection
   const name = fs.readdirSync(f.prepared.retiredRecordsPath).find(n => n.startsWith('disposal-inventory-'))!;
   const source = fs.readFileSync(path.join(f.prepared.retiredRecordsPath, name));
   const inventory = JSON.parse(source.toString('utf8'));
-  const { generatedStateDigest } = await import('../../src/runtime-state/generated-state/contract.ts');
+  const { generatedStateDigest } = await import('../../src/adapters/runtime-state/generated-state/contract.ts');
   // Historical valid v1 bytes are hashed using this fixed outer field order
   // and the already-canonical nested object order. No second schema is needed.
   const expectedDigest = generatedStateDigest({ schema: inventory.schema, intentDigest: inventory.intentDigest,

@@ -1,10 +1,10 @@
 import type { AcceptanceCoverageReport } from '../../../assurance/acceptance/coverage.ts';
 import { validateProvenanceFile } from '../../../semantics/provenance/authority.ts';
 import type { ProvenanceFile } from '../../../semantics/provenance/types.ts';
-import { validateAcceptanceCoverageReport } from '../../../verification/acceptance/runtime/coverage-authority.ts';
-import { CI_ARTIFACT_FILES } from '../../../verification/ci-artifacts/contract/manifest.ts';
-import type { VerificationReport } from '../../../verification/contract/types.ts';
-import type { ReviewSummary } from '../../../verification/review/contract/types.ts';
+import { validateAcceptanceCoverageReport } from '../../verification/platform/acceptance/runtime/coverage-authority.ts';
+import { CI_ARTIFACT_FILES } from '../../../assurance/verification/ci-artifacts/contract/manifest.ts';
+import type { VerificationReport } from '../../../assurance/verification/contract/types.ts';
+import type { ReviewSummary } from '../../../assurance/verification/review/contract/types.ts';
 import { formatJsonFile } from "../../../contracts/json-text.ts";
 import { publishExistingParentCanonicalWorkspaceFile } from "../../filesystem/file-publication.ts";
 import { type CommitFence } from "../../../contracts/commit-fence.ts";

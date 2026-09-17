@@ -19,19 +19,19 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { encodeVerificationActionData, type VerificationActionKeyDigest } from '../../src/verification/action/contract/action.ts';
-import { buildCiVerificationActionPlan, buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationGateStep, type CiVerificationActionCandidate, type CiVerificationActionPlanClosure, type CiVerificationProducerGate } from '../../src/verification/action/contract/ci.ts';
-import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../src/verification/action/contract/environment.ts';
-import { createVerificationActionProviderStartMarker, createVerificationActionProviderTerminalAnchor, finalizeVerificationActionProviderStatusReadback, VERIFICATION_ACTION_PROVIDER_POLICY, verificationActionProviderRunTargetUrl, verificationActionProviderStartArtifactName, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderTerminalDescription, type VerificationActionProviderOrigin, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation } from '../../src/verification/action/contract/provider.ts';
-import { CodexDevelopmentAssertVerificationActionTerminalArtifact, CodexDevelopmentAssertVerificationEvidenceV4, CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentVerificationActionCandidateBytesDigest, CodexDevelopmentVerificationDigest, type CodexDevelopmentVerificationEvidenceV4 } from '../../src/verification/ci/contract/evidence.ts';
-import { CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentFinalizeHostedActionRawResult, CodexDevelopmentHostedSutCandidateEnvironment, type CodexDevelopmentHostedSutExecutionAuthorization } from '../../src/verification/ci/contract/hosted-sut-observation.ts';
-import { buildCiQuickGatePlan } from '../../src/verification/ci/contract/plan.ts';
-import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../src/verification/ci/contract/revision.ts';
-import type { VerificationSessionHostedRequest } from '../../src/verification/ci/contract/session-request.ts';
-import { CodexDevelopmentRunGateProcess, type CodexDevelopmentGateProcessSettlement } from '../../src/verification/ci/runtime/ci-orchestration-core.ts';
+import { encodeVerificationActionData, type VerificationActionKeyDigest } from '../../src/adapters/verification/platform/action/contract/action.ts';
+import { buildCiVerificationActionPlan, buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationGateStep, type CiVerificationActionCandidate, type CiVerificationActionPlanClosure, type CiVerificationProducerGate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
+import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../src/adapters/verification/platform/action/contract/environment.ts';
+import { createVerificationActionProviderStartMarker, createVerificationActionProviderTerminalAnchor, finalizeVerificationActionProviderStatusReadback, VERIFICATION_ACTION_PROVIDER_POLICY, verificationActionProviderRunTargetUrl, verificationActionProviderStartArtifactName, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderTerminalDescription, type VerificationActionProviderOrigin, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation } from '../../src/adapters/verification/platform/action/contract/provider.ts';
+import { CodexDevelopmentAssertVerificationActionTerminalArtifact, CodexDevelopmentAssertVerificationEvidenceV4, CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentVerificationActionCandidateBytesDigest, CodexDevelopmentVerificationDigest, type CodexDevelopmentVerificationEvidenceV4 } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
+import { CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentFinalizeHostedActionRawResult, CodexDevelopmentHostedSutCandidateEnvironment, type CodexDevelopmentHostedSutExecutionAuthorization } from '../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts';
+import { buildCiQuickGatePlan } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
+import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
+import type { VerificationSessionHostedRequest } from '../../src/adapters/verification/platform/ci/contract/session-request.ts';
+import { CodexDevelopmentRunGateProcess, type CodexDevelopmentGateProcessSettlement } from '../../src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts';
 import {
   VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA
-} from '../../src/verification/ci/runtime/verification-session-runtime.ts';
+} from '../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
 import {
   CI_VERIFICATION_ACTION_EXECUTION_TICKET_SCHEMA,
   CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA,
@@ -66,9 +66,9 @@ import {
   type CodexDevelopmentHostedActionResolution,
   type CodexDevelopmentHostedSutSandboxProcessObservation,
   type CodexDevelopmentHostedSutSandboxReceipt
-} from '../../src/verification/ci/verification.ts';
-import type { VerificationResultStatus } from '../../src/verification/result/contract/result.ts';
-import { CodexDevelopmentCreateTestImpactTransitionObservation } from '../../src/verification/test-impact/runtime/transition.ts';
+} from '../../src/adapters/verification/platform/ci/verification.ts';
+import type { VerificationResultStatus } from '../../src/assurance/verification/result/contract/result.ts';
+import { CodexDevelopmentCreateTestImpactTransitionObservation } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 
 const HEAD = '1'.repeat(40);
 const TREE = '2'.repeat(40);
@@ -216,7 +216,7 @@ tasks:
   - id: exact-verification
     owner: verification-writer
     ownedPaths:
-      - src/verification/ci/verification.ts
+      - src/adapters/verification/platform/ci/verification.ts
 forbiddenPaths:
   - src/compiler/
 acceptance:
@@ -761,7 +761,7 @@ test('CI runner accepts transition injection only with matching exact changed re
     const transition = CodexDevelopmentCreateTestImpactTransitionObservation({
       baseSha: BASE,
       headSha: HEAD,
-      records: [{ status: 'changed', path: 'src/application/engineering/cli.ts' }],
+      records: [{ status: 'changed', path: 'src/bootstrap/engineering/cli.ts' }],
       readPathBlob: () => null
     });
     expect(await CodexDevelopmentCiVerificationMainForTests({
@@ -773,7 +773,7 @@ test('CI runner accepts transition injection only with matching exact changed re
     void _changedFiles;
     expect(await CodexDevelopmentCiVerificationMainForTests({
       ...recordOptions,
-      changedRecords: () => [{ status: 'added', path: 'src/application/engineering/cli.ts' }],
+      changedRecords: () => [{ status: 'added', path: 'src/bootstrap/engineering/cli.ts' }],
       transitionObservation: transition,
       writeEvidence: () => undefined
     })).toBe(1);

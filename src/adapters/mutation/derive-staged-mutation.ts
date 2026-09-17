@@ -4,7 +4,7 @@ import type { FactDeltaEndpointContext } from '../../semantics/engineering-ir/de
 import type { SemanticMutationTransactionInput } from '../../semantics/mutation/transaction.ts';
 import type { SemanticMutationPlan, SemanticMutationRollbackManifest, SemanticMutationSourceEditPlan, VerificationRequirement } from '../../semantics/mutation/types.ts';
 import { SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION, SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION } from '../../semantics/mutation/types.ts';
-import type { SemanticMutationVerificationCapabilityPlan } from '../../verification/contract/types.ts';
+import type { SemanticMutationVerificationCapabilityPlan } from '../../assurance/verification/contract/types.ts';
 import { buildWorkspaceSemanticBundle } from '../workspace/semantic-bundle.ts';
 import { compareCodeUnits, mutationDiagnostic } from '../../compiler/semantic-mutation/canonical.ts';
 import { normalizeSemanticMutationRequest } from '../../compiler/semantic-mutation/normalize-request.ts';

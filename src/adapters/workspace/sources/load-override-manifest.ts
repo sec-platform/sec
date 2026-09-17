@@ -4,7 +4,7 @@ import { OverrideManifestSchema } from '../../../semantics/provenance/override-s
 import { failureMessage } from '../../../contracts/failure-inspection.ts';
 import { parseYamlValue } from '../../formats/yaml.ts';
 
-import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../../runtime-state/physical/runtime/retained-file-read.ts';
+import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import type { OverrideManifest } from '../../../semantics/provenance/types.ts';
 import { isCanonicalPortableLogicalPath, portableLogicalPathCollisionKey } from '../../../contracts/logical-path.ts';
 import { modelRelativePath } from '../../../workspace/contract/types.ts';

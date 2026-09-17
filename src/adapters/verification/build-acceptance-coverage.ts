@@ -1,10 +1,10 @@
 import { ACCEPTANCE_COVERAGE_FORMAT_VERSION, type AcceptanceCoverageEntry, type AcceptanceCoverageReport } from '../../assurance/acceptance/coverage.ts';
 import { type AcceptanceItem } from '../../semantics/acceptance/types.ts';
 import { canonicalEquals, compareCodeUnits, uniqueSorted } from '../../contracts/canonical.ts';
-import { acceptanceIdsProvenByVerificationReports } from '../../verification/acceptance/contract/proof.ts';
-import { validateAcceptanceCoverageReport } from '../../verification/acceptance/runtime/coverage-authority.ts';
-import { readOptionalCanonicalVerificationArtifactSet } from '../../verification/artifact/runtime/authority.ts';
-import type { FastVerificationLaneReport, RuntimeVerificationLaneReport } from '../../verification/contract/types.ts';
+import { acceptanceIdsProvenByVerificationReports } from '../../assurance/verification/acceptance/contract/proof.ts';
+import { validateAcceptanceCoverageReport } from './platform/acceptance/runtime/coverage-authority.ts';
+import { readOptionalCanonicalVerificationArtifactSet } from './platform/artifact/runtime/authority.ts';
+import type { FastVerificationLaneReport, RuntimeVerificationLaneReport } from '../../assurance/verification/contract/types.ts';
 import type { BlockManifest, LockFile } from '../../compiler/contract.ts';
 import { loadManifestForResolvedBlock } from '../workspace/sources/load-manifest.ts';
 

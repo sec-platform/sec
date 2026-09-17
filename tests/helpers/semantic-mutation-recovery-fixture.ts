@@ -14,7 +14,7 @@ import type { LoadedSemanticContract } from '../../src/semantics/definitions/typ
 import type { FactDeltaEndpointContext } from '../../src/semantics/engineering-ir/delta-types.ts';
 import type { SemanticMutationRecoveryRecord } from '../../src/semantics/mutation/transaction.ts';
 import { type SemanticMutationAuthorizationContext, type SemanticMutationDiagnostic, type SemanticMutationRequest, type VerificationRequirement } from '../../src/semantics/mutation/types.ts';
-import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION } from '../../src/verification/contract/types.ts';
+import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION } from '../../src/assurance/verification/contract/types.ts';
 import { semanticMutationVerificationReportFixture } from './semantic-mutation-verification-report.ts';
 
 export function digest(value: unknown): string {

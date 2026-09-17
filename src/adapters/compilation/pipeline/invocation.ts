@@ -1,4 +1,4 @@
-import { isVerificationLane, VERIFICATION_LANES, type VerificationLane } from '../../../verification/contract/lanes.ts';
+import { isVerificationLane, VERIFICATION_LANES, type VerificationLane } from '../../../assurance/verification/contract/lanes.ts';
 import { CompilerError } from '../../../compiler/errors.ts';
 import { requirePipelineSource } from './execution-context.ts';
 import type { PipelineSource } from '../../compilation-protocol/journal-types.ts';

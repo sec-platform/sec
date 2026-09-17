@@ -9,12 +9,12 @@ import {
   RUNTIME_DEPENDENCY_PACKAGE_NAMES,
   RUNTIME_DEPS_PREBOUND_BINDING_FILE,
   type RootPackageJson
-} from '../../toolchain/dependencies/contract/runtime-dependency-spec.ts';
+} from '../toolchain/dependencies/contract/runtime-dependency-spec.ts';
 import {
   COMPILER_RUNTIME_RESOURCE_POSIX_PATHS,
   compilerRuntimeLayout,
   type CompilerRuntimeResourceMap
-} from '../../toolchain/runtime/layout.ts';
+} from '../toolchain/runtime/layout.ts';
 import type { CommitFence } from "../../contracts/commit-fence.ts";
 import { compareCodeUnits, rawSha256, sha256 } from '../../compiler/semantic-mutation/canonical.ts';
 import {

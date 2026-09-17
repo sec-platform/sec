@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { inspectNoFollowDirectoryChain, PhysicalNoFollowError, readNoFollowOrdinaryFile } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { inspectNoFollowDirectoryChain, PhysicalNoFollowError, readNoFollowOrdinaryFile } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 
 export function readOptionalAuthorityBytes(
   filePath: string,

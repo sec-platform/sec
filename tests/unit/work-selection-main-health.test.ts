@@ -1,13 +1,13 @@
 import { expect, test } from 'bun:test';
-import { createMainHealthLedger } from '../../src/control/main-health/contract.ts';
+import { createMainHealthLedger } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
 import {
   resolveWorkSelectionMainHealthProviders
-} from '../../src/control/main-health/work-selection-main-health.ts';
+} from '../../src/adapters/self-hosting/control/main-health/work-selection-main-health.ts';
 import {
   withGitHubApiTestEnrollmentSession,
   withGitHubApiTestReadOperationBudget,
   withGitHubApiTestSession
-} from '../../src/external-capabilities/github-api/test/operation-session.ts';
+} from '../../src/adapters/providers/github-api/test/operation-session.ts';
 
 const MAIN = '1'.repeat(40);
 const TREE = '2'.repeat(40);
@@ -54,7 +54,7 @@ test('WorkSelection resolves only registered hosted repository health', () => {
     trustRevision: base.mainSha,
     observedAt: base.now,
     producer: {
-      identity: 'src/control/main-health/main-health-observation.ts',
+      identity: 'src/adapters/self-hosting/control/main-health/main-health-observation.ts',
       trustRevision: base.mainSha,
       sourceTransport: 'github-api',
       sourceRunId: '33109458351',

@@ -1,10 +1,10 @@
 import path from 'node:path';
 import type { AcceptanceCoverageReport } from '../../assurance/acceptance/coverage.ts';
-import { validateAcceptanceCoverageReport } from '../../verification/acceptance/runtime/coverage-authority.ts';
-import { assertCanonicalVerificationArtifactSet, type VerificationArtifactSet } from '../../verification/artifact/contract/artifact.ts';
-import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
-import type { RuntimeVerificationLaneReport, VerificationReport } from '../../verification/contract/types.ts';
-import { CodexDevelopmentSnapshotVerificationData, CodexDevelopmentVerificationDataEqual } from '../../verification/result/contract/result.ts';
+import { validateAcceptanceCoverageReport } from './platform/acceptance/runtime/coverage-authority.ts';
+import { assertCanonicalVerificationArtifactSet, type VerificationArtifactSet } from '../../assurance/verification/artifact/contract/artifact.ts';
+import { CI_ARTIFACT_FILES } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
+import type { RuntimeVerificationLaneReport, VerificationReport } from '../../assurance/verification/contract/types.ts';
+import { CodexDevelopmentSnapshotVerificationData, CodexDevelopmentVerificationDataEqual } from '../../assurance/verification/result/contract/result.ts';
 import { formatJsonFile } from "../../contracts/json-text.ts";
 import { publishExistingParentCanonicalWorkspaceFile } from "../filesystem/file-publication.ts";
 import { type CommitFence } from "../../contracts/commit-fence.ts";

@@ -22,8 +22,8 @@ import {
   TEST_WORKSPACE_NAMESPACE_ENV,
   TEST_WORKSPACE_RUN_CHILD_ENV,
   testWorkspaceCleanupModeForPlatform
-} from '../../src/development/runner/env-manager.ts';
-import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+} from '../../src/adapters/self-hosting/development/runner/env-manager.ts';
+import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { compilerRoot, getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
 
 const isolatedTestWorkspaceEnvironment = {
@@ -253,7 +253,7 @@ test('a real execution-snapshot consumer must spend the live supervisor challeng
     expect(() => server!.authorize(assignment)).toThrow('invalid or duplicated');
     const moduleUrl = pathToFileURL(path.join(
       executionSnapshotRoot,
-      path.relative(compilerRoot, fileURLToPath(new URL('../../src/development/runner/env-manager.ts', import.meta.url)))
+      path.relative(compilerRoot, fileURLToPath(new URL('../../src/adapters/self-hosting/development/runner/env-manager.ts', import.meta.url)))
     )).href;
     const source = `
       import path from 'node:path';

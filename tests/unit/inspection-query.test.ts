@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { inspectionValue, registerInspectionQuery, type InspectionContext } from '../../src/interface/cli/inspection-query.ts';
+import { inspectionValue, registerInspectionQuery, type InspectionContext } from '../../src/bootstrap/cli/inspection-query.ts';
 
 function program() {
   return new Command().name('sec').exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} });

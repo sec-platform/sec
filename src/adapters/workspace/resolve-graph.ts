@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { uniqueSorted } from '../../contracts/canonical.ts';
 import { mapTaskGroup } from '../../execution/task-group.ts';
-import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
+import { CI_ARTIFACT_FILES } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import { relativePosixPath } from '../../contracts/relative-path.ts';
 import type { PlanFile } from '../../compiler/contract.ts';
 import { LOCK_FILE_FORMAT_VERSION, type LockFile } from '../../compiler/contract.ts';

@@ -25,9 +25,9 @@ import path from 'node:path';
 
 import { runRetainedGitWriteTreeProbeV1 } from '../helpers/retained-git-write-tree-probe.ts';
 
-import type { LinuxNoFollowDirectoryCreateRaceActor, LinuxNoFollowDirectoryCreateRacePoint } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { assertRetainedNoFollowCapability, assertSameNoFollowDirectoryIdentity, copyNoFollowDirectoryTreesBulk, createExclusiveNoFollowDirectory, createLinuxNoFollowDirectoryCreateRaceActorForTests, createNoFollowDirectoryChain, createWindowsDurableCanonicalFileReplacementInterruptionActorForTests, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowDirectoryLeaf, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileDigest, inspectNoFollowOrdinaryFileEntry, PhysicalNoFollowError, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, recoverDurableCanonicalFileReplacement, relocateRetainedNoFollowDirectory, replaceDurableCanonicalFile, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, retainNoFollowOrdinaryFileForChildProcess, retainNoFollowSealedDirectoryGeneration, retireNoFollowDirectoryTree, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, scanNoFollowDirectoryTreeSelectedForest } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { sealExistingWindowsReadOnlyTreeAuthority } from '../../src/runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
+import type { LinuxNoFollowDirectoryCreateRaceActor, LinuxNoFollowDirectoryCreateRacePoint } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { assertRetainedNoFollowCapability, assertSameNoFollowDirectoryIdentity, copyNoFollowDirectoryTreesBulk, createExclusiveNoFollowDirectory, createLinuxNoFollowDirectoryCreateRaceActorForTests, createNoFollowDirectoryChain, createWindowsDurableCanonicalFileReplacementInterruptionActorForTests, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowDirectoryLeaf, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileDigest, inspectNoFollowOrdinaryFileEntry, PhysicalNoFollowError, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, recoverDurableCanonicalFileReplacement, relocateRetainedNoFollowDirectory, replaceDurableCanonicalFile, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, retainNoFollowOrdinaryFileForChildProcess, retainNoFollowSealedDirectoryGeneration, retireNoFollowDirectoryTree, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, scanNoFollowDirectoryTreeSelectedForest } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { sealExistingWindowsReadOnlyTreeAuthority } from '../../src/adapters/runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
 import { sha256 } from '../../src/contracts/canonical.ts';
 
 function fixtureRoot(): string {
@@ -661,7 +661,7 @@ test('Linux exact ordinary leaf rejects a FIFO without a blocking open', async (
   try {
     const created = Bun.spawnSync({ cmd: ['mkfifo', fifoPath], stdout: 'pipe', stderr: 'pipe' });
     expect(created.exitCode).toBe(0);
-    const moduleUrl = new URL('../../src/runtime-state/physical/runtime/physical-no-follow.ts', import.meta.url).href;
+    const moduleUrl = new URL('../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts', import.meta.url).href;
     const child = Bun.spawn({
       cmd: [process.execPath, '-e', `
         import { inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry } from ${JSON.stringify(moduleUrl)};

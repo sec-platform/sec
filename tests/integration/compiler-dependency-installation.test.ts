@@ -3,38 +3,38 @@ import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { generatedStateDigest } from '../../src/runtime-state/generated-state/contract.ts';
+import { generatedStateDigest } from '../../src/adapters/runtime-state/generated-state/contract.ts';
 import {
   createGeneratedStateCleanupOperationSession,
   generatedStateProducerHooks,
   type GeneratedStateProducerHookSet,
   type GeneratedStateProducerQuarantineHook,
   type GeneratedStateWorktreeRetirementEffectAuthority
-} from '../../src/runtime-state/generated-state/lifecycle.ts';
+} from '../../src/adapters/runtime-state/generated-state/lifecycle.ts';
 import {
   inspectNoFollowDirectoryChain,
   inspectNoFollowLinkEntry,
   materializeRetainedNoFollowProvenDirectoryGeneration,
   scanNoFollowDirectoryTreeInventory
-} from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { runCommand } from '../../src/runtime-state/physical/runtime/process.ts';
-import { runtimeDependencyOperationOptions } from '../../src/toolchain/dependencies/runtime/operation-context.ts';
-import { readRuntimeDependencyOperationTelemetry } from '../../src/toolchain/dependencies/runtime/operation-telemetry.ts';
+} from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { runCommand } from '../../src/adapters/runtime-state/physical/runtime/process.ts';
+import { runtimeDependencyOperationOptions } from '../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
+import { readRuntimeDependencyOperationTelemetry } from '../../src/adapters/toolchain/dependencies/runtime/operation-telemetry.ts';
 import {
   retainCompilerDependencyExecutionGeneration,
   retainCompilerDependencyReadGeneration
-} from '../../src/toolchain/dependencies/runtime/project-runtime.ts';
+} from '../../src/adapters/toolchain/dependencies/runtime/project-runtime.ts';
 import {
   RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
   RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES
-} from '../../src/toolchain/dependencies/runtime/source-generation.ts';
+} from '../../src/adapters/toolchain/dependencies/runtime/source-generation.ts';
 import {
   assertCompilerDependencyEnvironmentRetirementReceipt,
   compilerDependencyLocatorWorktreeRetirementProvider,
   disposeCompilerDependencyEnvironment,
   ensureCompilerDepsReady,
   observeCompilerDependencyExecutionGenerationAuthority
-} from '../../src/toolchain/dependencies/test/runtime.ts';
+} from '../../src/adapters/toolchain/dependencies/test/runtime.ts';
 import { readJson } from "../../src/adapters/filesystem/files.ts";
 import {
   effectfulTest,

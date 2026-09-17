@@ -4,11 +4,11 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { readLockFile } from "../../src/adapters/workspace/lock.ts";
-import { composeWorkspace, initWorkspace } from '../../src/application/engineering/cli.ts';
+import { composeWorkspace, initWorkspace } from '../../src/bootstrap/engineering/cli.ts';
 import {
   assertIsolatedVerificationCapability,
   mintIsolatedVerificationCapability
-} from '../../src/application/engineering/isolated-verification-capability.ts';
+} from '../../src/bootstrap/engineering/isolated-verification-capability.ts';
 import {
   commitPipelineTransaction,
   readPipelineJournal,

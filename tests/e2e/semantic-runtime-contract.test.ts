@@ -9,7 +9,7 @@ import {
   applySemanticMutation,
   querySemanticMutationRequest,
   recoverSemanticMutationWorkspace
-} from '../../src/application/engineering/cli.ts';
+} from '../../src/bootstrap/engineering/cli.ts';
 import { projectArchitectureView } from '../../src/compiler/projection/project-architecture-view.ts';
 import { projectScenarioView } from '../../src/compiler/projection/project-scenario-view.ts';
 import { projectStateView } from '../../src/compiler/projection/project-state-view.ts';
@@ -37,8 +37,8 @@ import {
   semanticMutationTransactionRoot
 } from '../../src/adapters/mutation/transaction-identity.ts';
 import { SEMANTIC_MUTATION_TERMINAL_RETENTION, type SemanticMutationRecoveryRecord } from '../../src/semantics/mutation/transaction.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import type { VerificationReport } from '../../src/verification/contract/types.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import type { VerificationReport } from '../../src/assurance/verification/contract/types.ts';
 import { readJson } from "../../src/adapters/filesystem/files.ts";
 import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import {

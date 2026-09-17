@@ -2,10 +2,10 @@ import { test } from 'bun:test';
 import { Command } from 'commander';
 import assert from 'node:assert/strict';
 
-import { addJsonFlags, jsonOpts } from '../../src/interface/cli/command-options.ts';
-import { JSON_OUTPUT_OPTIONS, parseJsonOutputOptions, type JsonOutputIssue } from '../../src/interface/cli/json-output-options.ts';
-import { parsePipelineOutputOptions } from '../../src/interface/cli/pipeline-command-input.ts';
-import { registerPipelineCommands } from '../../src/interface/cli/register-pipeline-commands.ts';
+import { addJsonFlags, jsonOpts } from '../../src/bootstrap/cli/command-options.ts';
+import { JSON_OUTPUT_OPTIONS, parseJsonOutputOptions, type JsonOutputIssue } from '../../src/entry/cli/json-output-options.ts';
+import { parsePipelineOutputOptions } from '../../src/bootstrap/cli/pipeline-command-input.ts';
+import { registerPipelineCommands } from '../../src/bootstrap/cli/register-pipeline-commands.ts';
 
 const reject = (issue: JsonOutputIssue): never => { throw issue; };
 

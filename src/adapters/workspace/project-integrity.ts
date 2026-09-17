@@ -1,7 +1,7 @@
-import { PhysicalNoFollowError } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { PhysicalNoFollowError } from '../runtime-state/physical/runtime/physical-no-follow.ts';
 import { readOptionalProvenanceFile } from './provenance-reader.ts';
 import type { ProvenanceFile } from '../../semantics/provenance/types.ts';
-import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
+import { CI_ARTIFACT_FILES } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import { ProjectIntegrityError } from '../../workspace/contract/project-integrity.ts';
 import { modelRelativePath } from '../../workspace/contract/types.ts';
 import { getWorkspacePaths, resolveWorkspaceArtifactPath, secRelativePath, tsconfigRelativePath, workspaceConfigRelativePath } from "../workspace-context.ts";

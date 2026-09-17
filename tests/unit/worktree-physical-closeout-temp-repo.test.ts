@@ -20,7 +20,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { executeMergedLocalBranchResidueCloseout } from '../../src/control/branch-lifecycle/branch-local-residue-closeout.ts';
+import { executeMergedLocalBranchResidueCloseout } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-local-residue-closeout.ts';
 import {
   WorktreePhysicalCloseoutConsumptionToken,
   assertTrustedCompletedWorktreePhysicalCloseout,
@@ -30,21 +30,21 @@ import {
   prepareDetachedScratchWorktreePhysicalCloseout,
   prepareTrustedWorktreePhysicalCloseout,
   prepareWorktreePhysicalCloseout
-} from '../../src/control/branch-lifecycle/worktree-physical-closeout.ts';
-import { generatedStateProducerHooks } from '../../src/runtime-state/generated-state/lifecycle.ts';
-import { inspectNoFollowDirectoryChain, relocateRetainedNoFollowDirectory } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/worktree-physical-closeout.ts';
+import { generatedStateProducerHooks } from '../../src/adapters/runtime-state/generated-state/lifecycle.ts';
+import { inspectNoFollowDirectoryChain, relocateRetainedNoFollowDirectory } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA,
   createWorktreePhysicalCloseoutReceipt,
   detailDigest
-} from '../../src/runtime-state/worktree-closeout-contract.ts';
+} from '../../src/adapters/runtime-state/worktree-closeout-contract.ts';
 import { sha256 } from '../../src/contracts/canonical.ts';
 import {
   assertCompilerDependencyEnvironmentRetirementReceipt,
   compilerDependencyLocatorWorktreeRetirementProvider,
   disposeCompilerDependencyEnvironment,
   ensureCompilerDepsReady
-} from '../../src/toolchain/dependencies/test/runtime.ts';
+} from '../../src/adapters/toolchain/dependencies/test/runtime.ts';
 import { acquireWorkspaceWriteLease, recoverWorkspaceWriteLeaseRetirement } from '../../src/adapters/filesystem/write-lease.ts';
 
 function git(cwd: string, args: readonly string[]): string {

@@ -4,17 +4,17 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { hostname, tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { PHYSICAL_MUTATION_LEASE_SCHEMA } from '../../src/runtime-state/physical/runtime/mutation-lease.ts';
-import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { createBoundedProcessDiagnosticObjectReceipt } from '../../src/runtime-state/workspace-state/bounded-process-diagnostic-contract.ts';
-import { createRuntimeStateJournalFileSystem, runtimeStateJournalMutationLeaseName } from '../../src/runtime-state/workspace-state/journal-filesystem.ts';
+import { PHYSICAL_MUTATION_LEASE_SCHEMA } from '../../src/adapters/runtime-state/physical/runtime/mutation-lease.ts';
+import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { createBoundedProcessDiagnosticObjectReceipt } from '../../src/adapters/runtime-state/workspace-state/bounded-process-diagnostic-contract.ts';
+import { createRuntimeStateJournalFileSystem, runtimeStateJournalMutationLeaseName } from '../../src/adapters/runtime-state/workspace-state/journal-filesystem.ts';
 import {
   createVerificationActionKey,
   createVerificationActionTerminal,
   encodeVerificationActionData,
   type VerificationActionKeyInput,
   type VerificationActionTerminal
-} from '../../src/verification/action/contract/action.ts';
+} from '../../src/adapters/verification/platform/action/contract/action.ts';
 import {
   acquireVerificationActionClaim,
   appendVerificationActionJournalEvent,
@@ -32,7 +32,7 @@ import {
   VERIFICATION_ACTION_LEGACY_QUARANTINE_SUFFIX,
   VERIFICATION_ACTION_MACHINE_CUTOVER_FILE,
   VerificationActionJournalError
-} from '../../src/verification/action/journal.ts';
+} from '../../src/adapters/verification/platform/action/journal.ts';
 
 const DIGEST_A = `sha256:${'a'.repeat(64)}` as const;
 const DIGEST_B = `sha256:${'b'.repeat(64)}` as const;

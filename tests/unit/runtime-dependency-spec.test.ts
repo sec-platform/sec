@@ -3,7 +3,7 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 
 import { canonicalJson, digest } from '../../src/contracts/canonical.ts';
-import { parseLegacyRuntimeDependencyMaterializationV2ForRecovery } from '../../src/toolchain/dependencies/contract/runtime-dependency-spec.ts';
+import { parseLegacyRuntimeDependencyMaterializationV2ForRecovery } from '../../src/adapters/toolchain/dependencies/contract/runtime-dependency-spec.ts';
 
 import {
   buildRuntimeDependencyMaterializationBinding,
@@ -11,7 +11,7 @@ import {
   isRuntimeDependencyMaterializationBinding,
   RUNTIME_DEPENDENCY_PACKAGE_NAMES,
   type RootPackageJson
-} from '../../src/toolchain/dependencies/contract/runtime-dependency-spec.ts';
+} from '../../src/adapters/toolchain/dependencies/contract/runtime-dependency-spec.ts';
 
 function rootPackage(): RootPackageJson {
   return {

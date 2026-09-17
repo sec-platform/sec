@@ -1,14 +1,14 @@
 import { afterAll, expect, test } from 'bun:test';
 
-import { AFFECTED_SELECTION_OPERATION_DURATION_MS } from '../../src/development/runner/affected-plan-contract.ts';
+import { AFFECTED_SELECTION_OPERATION_DURATION_MS } from '../../src/adapters/self-hosting/development/runner/affected-plan-contract.ts';
 import {
   admitTestSuiteExecutionPolicy,
   issueTestSuiteExecutionPolicy
-} from '../../src/development/runner/test-execution-policy.ts';
-import { compileTestBudgetProjection, slowTestPrRiskBaselineSuiteIds } from '../../src/verification/test-impact/contract/budget.ts';
-import { hasTestImpactForFile } from '../../src/verification/test-impact/runtime/impact.ts';
-import { CodexDevelopmentCreateTestImpactTransitionObservation } from '../../src/verification/test-impact/runtime/transition.ts';
-import { selectSlowTestRiskClosure as selectSlowTestClosureWithProvider } from '../../src/verification/test-impact/slow-risk-selection.ts';
+} from '../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
+import { compileTestBudgetProjection, slowTestPrRiskBaselineSuiteIds } from '../../src/adapters/verification/platform/test-impact/contract/budget.ts';
+import { hasTestImpactForFile } from '../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
+import { CodexDevelopmentCreateTestImpactTransitionObservation } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
+import { selectSlowTestRiskClosure as selectSlowTestClosureWithProvider } from '../../src/adapters/verification/platform/test-impact/slow-risk-selection.ts';
 import { compilerRoot } from "../../src/adapters/workspace-context.ts";
 import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
 
@@ -103,7 +103,7 @@ test('selection and direct impact queries consume the same owner-issued projecti
   });
   for (const path of [
     'platform/shared/new-owner.ts',
-    'src/development/tooling/new-runtime-owner.ts',
+    'src/adapters/self-hosting/development/tooling/new-runtime-owner.ts',
     'scripts/codex/new-control-sink.ts'
   ]) {
     expect(hasTestImpactForFile(path, provider)).toBe(false);

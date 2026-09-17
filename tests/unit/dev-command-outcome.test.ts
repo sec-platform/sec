@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { devCommandObservationExitCode, requireCommandExitCode, type DevCommandObservation } from '../../src/development/runner/command-outcome.ts';
+import { devCommandObservationExitCode, requireCommandExitCode, type DevCommandObservation } from '../../src/adapters/self-hosting/development/runner/command-outcome.ts';
 
 const observation = (exitCode: number): DevCommandObservation => ({ schema: 'sec-dev-command-observation-v1',
   effectiveArgv: ['bun'], terminal: { kind: 'exited', exitCode }, observationIntegrity: { kind: 'complete' },

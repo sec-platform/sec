@@ -6,28 +6,28 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { generatedStateDigest } from '../../src/runtime-state/generated-state/contract.ts';
+import { generatedStateDigest } from '../../src/adapters/runtime-state/generated-state/contract.ts';
 import {
   generatedStateProducerHooks,
   inspectGeneratedState
-} from '../../src/runtime-state/generated-state/lifecycle.ts';
-import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { resolveSecWorkspaceRuntimeRoots } from '../../src/runtime-state/workspace-state/paths.ts';
+} from '../../src/adapters/runtime-state/generated-state/lifecycle.ts';
+import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { resolveSecWorkspaceRuntimeRoots } from '../../src/adapters/runtime-state/workspace-state/paths.ts';
 import { canonicalJson } from '../../src/contracts/canonical.ts';
-import { compilerDependencyIdentity } from '../../src/toolchain/dependencies/runtime/compiler-materialization-input.ts';
+import { compilerDependencyIdentity } from '../../src/adapters/toolchain/dependencies/runtime/compiler-materialization-input.ts';
 import {
   advanceDependencyTransition,
   beginDependencyTransition,
   readDependencyTransition,
   transitionFailure
-} from '../../src/toolchain/dependencies/runtime/dependency-transition/operation.ts';
+} from '../../src/adapters/toolchain/dependencies/runtime/dependency-transition/operation.ts';
 import {
   runtimeDependencyOperationOptions
-} from '../../src/toolchain/dependencies/runtime/operation-context.ts';
+} from '../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
 import {
   runtimeDependencySourceGeneration
-} from '../../src/toolchain/dependencies/runtime/source-generation.ts';
-import { migrateDependencyTransitionJournal } from '../../src/toolchain/dependencies/test/runtime.ts';
+} from '../../src/adapters/toolchain/dependencies/runtime/source-generation.ts';
+import { migrateDependencyTransitionJournal } from '../../src/adapters/toolchain/dependencies/test/runtime.ts';
 import { formatJsonFile } from "../../src/contracts/json-text.ts";
 
 const LEGACY_SCHEMA = 'sec-dependency-transition-journal-v1' as const;

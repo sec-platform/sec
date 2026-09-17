@@ -1,4 +1,4 @@
-import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
+import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../runtime-state/physical/runtime/retained-file-read.ts';
 import { canonicalEquals, compareCodeUnits, uniqueSorted } from '../../contracts/canonical.ts';
 import { resolvePathInside } from "../../contracts/relative-path.ts";
 import { srcRelativePath } from "../workspace-context.ts";

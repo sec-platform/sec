@@ -5,8 +5,8 @@ import type { LockFile } from '../../src/compiler/contract.ts';
 import type { PolicyReport } from '../../src/semantics/policies/types.ts';
 import type { AcceptanceCoverageReport } from '../../src/assurance/acceptance/coverage.ts';
 import { sha256 } from '../../src/contracts/canonical.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import type { VerificationReport } from '../../src/verification/contract/types.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import type { VerificationReport } from '../../src/assurance/verification/contract/types.ts';
 import {
   buildExpectedProductVerificationClaimSummary,
   buildProductVerificationObservationBindings,
@@ -14,7 +14,7 @@ import {
   type ProductVerificationGateObservation,
   type ProductVerificationObservations,
   type ProductVerificationRuntimeMode
-} from '../../src/verification/profile/contract/product.ts';
+} from '../../src/assurance/verification/profile/contract/product.ts';
 import { readJson, writeJson } from "../../src/adapters/filesystem/files.ts";
 import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 
