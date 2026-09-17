@@ -8,7 +8,7 @@ import { composeWorkspace, initWorkspace } from '../../src/bootstrap/engineering
 import {
   assertIsolatedVerificationCapability,
   mintIsolatedVerificationCapability
-} from '../../src/bootstrap/engineering/isolated-verification-capability.ts';
+} from '../../src/execution/isolated-verification-capability.ts';
 import {
   commitPipelineTransaction,
   readPipelineJournal,

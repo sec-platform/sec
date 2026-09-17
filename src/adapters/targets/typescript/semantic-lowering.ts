@@ -9,7 +9,7 @@ import { resolvePathInside } from "../../../contracts/relative-path.ts";
 import { renderStateTransitionMapSource } from './state-transition-source.ts';
 import { CompilerError } from '../../../compiler/errors.ts';
 import { indexValidatedEngineeringIR } from '../../../compiler/ir/index-engineering-ir.ts';
-import type { PipelineSemanticContext } from '../../compilation-protocol/types.ts';
+import type { PipelineSemanticContext } from '../../../compiler/pipeline/semantic-context.ts';
 import { assertUniqueSemanticOutputPaths } from '../../../compiler/semantic-output-paths.ts';
 import { assertStateTransitionFunctions } from '../../../compiler/state-transition-plan.ts';
 export { renderStateTransitionMapSource } from './state-transition-source.ts';

@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { capturePipelineProofRecord, samePipelineSequence } from '../../src/adapters/compilation/pipeline/proof-data.ts';
+import { capturePipelineProofRecord, samePipelineSequence } from '../../src/assurance/verification/pipeline/proof-data.ts';
 
 for (const count of [0, 1, 6]) {
   test(`dense own sequences compare all ${count} positions`, () => {

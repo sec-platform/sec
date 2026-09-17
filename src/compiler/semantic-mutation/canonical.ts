@@ -56,6 +56,10 @@ export {
  * revision domains. Object insertion order is part of those identities.
  * A different serialization requires a new declared protocol/format revision.
  */
+export function semanticMutationByteDigest(bytes: Uint8Array): string {
+  return rawSha256(bytes);
+}
+
 export function sha256(value: unknown): string {
   const serialized = JSON.stringify(value);
   if (serialized === undefined) {

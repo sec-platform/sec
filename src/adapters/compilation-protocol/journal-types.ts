@@ -1,11 +1,10 @@
 import type { PassId } from '../../compiler/contract/pass-status.ts';
-import type { PipelineStageId } from './stages.ts';
+import type { PipelineStageId } from '../../compiler/pipeline/stages.ts';
+import type { PipelineSource } from '../../compiler/pipeline/source.ts';
 
 export const PIPELINE_JOURNAL_FORMAT_VERSION = '2' as const;
 export const PIPELINE_ADAPT_RETIREMENT_SCHEMA = 'sec-pipeline-adapt-retirement-v1' as const;
 
-export const PIPELINE_SOURCE_IDS = Object.freeze(['api', 'cli', 'reference', 'upgrade', 'repair', 'ci'] as const);
-export type PipelineSource = (typeof PIPELINE_SOURCE_IDS)[number];
 export type PipelineTransactionStatus = 'running' | 'succeeded' | 'failed';
 export type PipelinePassStatus = 'running' | 'succeeded' | 'failed' | 'blocked' | 'skipped';
 

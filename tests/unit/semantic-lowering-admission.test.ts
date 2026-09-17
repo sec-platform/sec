@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
-import type { PipelineSemanticContext } from '../../src/adapters/compilation-protocol/types.ts';
+import type { PipelineSemanticContext } from '../../src/compiler/pipeline/semantic-context.ts';
 import { lowerSemanticTasks, renderStateTransitionMapSource } from '../../src/adapters/targets/typescript/semantic-lowering.ts';
 import { assertUniqueSemanticOutputPaths } from '../../src/compiler/semantic-output-paths.ts';
 import { assertStateTransitionFunctions } from '../../src/compiler/state-transition-plan.ts';

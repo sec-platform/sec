@@ -12,7 +12,7 @@ import type { InstallPlanStep, LockFile } from '../../../compiler/contract.ts';
 import { addGeneratedPaths } from "../../../compiler/contract/lock-schema.ts";
 import { saveLock } from "../../workspace/lock.ts";
 import { loadOverrideManifest } from '../../workspace/sources/load-override-manifest.ts';
-import type { PipelineSemanticContext } from '../../compilation-protocol/types.ts';
+import type { PipelineSemanticContext } from '../../../compiler/pipeline/semantic-context.ts';
 import { lowerSemanticTasks } from '../../targets/typescript/semantic-lowering.ts';
 import { applyOverrides } from './apply-overrides.ts';
 import { formatOutputFiles } from './format-output-files.ts';

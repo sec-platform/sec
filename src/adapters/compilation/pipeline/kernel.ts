@@ -15,7 +15,7 @@ import {
   recordPipelinePassSuccess,
   startPipelineTransaction
 } from './journal.ts';
-import { getPipelineStageDefinition } from './pass-registry.ts';
+import { getPipelineStageDefinition } from '../../../compiler/pipeline/stage-definitions.ts';
 import { pipelineStageBlockers, pipelineStageStatePatch, type PipelineStageTransition } from './stage-state.ts';
 import type {
   PassId,

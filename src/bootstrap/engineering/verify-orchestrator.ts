@@ -1,4 +1,3 @@
-import type { CanonicalVerificationArtifactSet } from '../../assurance/verification/artifact/contract/artifact.ts';
 import { CI_ARTIFACT_FILES } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationLane, VerificationReport } from '../../assurance/verification/contract/types.ts';
 import { buildBlockedProductVerificationClaimSummary } from '../../assurance/verification/profile/contract/product.ts';
@@ -14,19 +13,17 @@ import { buildAcceptanceCoverage } from '../../adapters/verification/build-accep
 import { runPolicyGate } from '../../adapters/verification/run-policy-gate.ts';
 import { createSkippedRuntimeLane } from '../../adapters/verification/run-runtime-verification.ts';
 import {
-  revalidateStagedVerificationProof,
   type StagedVerificationProof
 } from '../../adapters/verification/staged-verification-proof.ts';
 import { publishVerificationArtifactSet } from '../../adapters/verification/verification-artifact-publication.ts';
 import {
-  assertStagedVerificationLiveContext,
   productVerificationObservationBindings,
   verifyProject
 } from '../../adapters/verification/verify-project.ts';
 import {
   assertIsolatedVerificationCapability,
   type IsolatedVerificationCapability
-} from './isolated-verification-capability.ts';
+} from '../../execution/isolated-verification-capability.ts';
 export type { StagedVerificationProof };
 
 export interface VerifyWorkspaceOptions {
@@ -35,20 +32,6 @@ export interface VerifyWorkspaceOptions {
   readonly lane?: VerificationLane;
   readonly signal?: AbortSignal;
   readonly stagedVerificationProof?: StagedVerificationProof;
-}
-
-export async function assertStagedVerificationProofAfterPipeline(
-  workspaceRoot: string,
-  lock: LockFile,
-  artifacts: CanonicalVerificationArtifactSet,
-  proof: StagedVerificationProof
-): Promise<void> {
-  await revalidateStagedVerificationProof(
-    workspaceRoot,
-    lock,
-    proof
-  );
-  await assertStagedVerificationLiveContext(workspaceRoot, lock, artifacts);
 }
 
 async function writeBlockedVerificationSnapshot(

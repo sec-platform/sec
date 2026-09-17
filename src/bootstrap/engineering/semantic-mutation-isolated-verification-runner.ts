@@ -24,7 +24,7 @@ import {
   withSemanticMutationIsolatedPhaseTelemetry
 } from '../../adapters/verification/isolation/isolated-verification-phase-telemetry.ts';
 import { assertIsolatedStagingTree } from '../../adapters/verification/assert-isolated-staging-tree.ts';
-import { mintIsolatedVerificationCapability } from './isolated-verification-capability.ts';
+import { mintIsolatedVerificationCapability } from '../../execution/isolated-verification-capability.ts';
 import { compileWorkspace } from './pipeline-orchestrator.ts';
 
 class SemanticMutationIsolatedCatchTreeFailure extends Error {

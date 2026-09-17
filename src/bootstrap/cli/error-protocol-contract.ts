@@ -1,4 +1,4 @@
-import { buildErrorProtocol, type ErrorProtocol } from '../engineering/error-protocol.ts';
+import { buildErrorProtocol, type ErrorProtocol } from '../../application/error-protocol.ts';
 import type { CompilerErrorDetails } from '../../compiler/errors.ts';
 import { uniqueSorted } from '../../contracts/canonical.ts';
 import { srcRelativePath } from "../../adapters/workspace-context.ts";

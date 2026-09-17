@@ -1,5 +1,5 @@
-import { PASS_INITIAL_STATES, type PassId } from '../../../compiler/contract/pass-status.ts';
-import { PIPELINE_STAGE_OWNERSHIP, type PipelineStageId } from '../../compilation-protocol/stages.ts';
+import { PASS_INITIAL_STATES, type PassId } from '../contract/pass-status.ts';
+import { PIPELINE_STAGE_OWNERSHIP, type PipelineStageId } from './stages.ts';
 
 export interface PassDefinition {
   readonly id: PassId;

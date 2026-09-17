@@ -1,5 +1,5 @@
 import { PASS_INITIAL_STATES, type PassId, type PassState, type PassStatus } from '../../../compiler/contract/pass-status.ts';
-import type { PipelineStageDefinition } from './pass-registry.ts';
+import type { PipelineStageDefinition } from '../../../compiler/pipeline/stage-definitions.ts';
 
 export type PipelineStageTransition =
   | Readonly<{ kind: 'started' | 'blocked' | 'succeeded' | 'preparation-failed' }>

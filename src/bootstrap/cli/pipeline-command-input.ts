@@ -1,5 +1,5 @@
 import { CompilerError } from '../../compiler/errors.ts';
-import { PIPELINE_DEFAULT_VERIFICATION_LANE, selectPipelineStageRange } from '../../adapters/compilation/pipeline/invocation.ts';
+import { PIPELINE_DEFAULT_VERIFICATION_LANE, selectPipelineStageRange } from '../../application/pipeline-request.ts';
 import { parseJsonOutputOptions, type JsonOutputIssue } from '../../entry/cli/json-output-options.ts';
 import { captureCliOptions } from '../../entry/cli/own-options.ts';
 import { parseVerificationLaneOption } from './verification-lane-option.ts';

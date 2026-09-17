@@ -16,7 +16,7 @@ import {
   type PipelineCompletionProofStageEvidence
 } from '../../src/bootstrap/engineering/pipeline-orchestrator.ts';
 import { readPipelineJournal } from '../../src/adapters/compilation/pipeline/journal.ts';
-import { getPipelineStageDefinition } from '../../src/adapters/compilation/pipeline/pass-registry.ts';
+import { getPipelineStageDefinition } from '../../src/compiler/pipeline/stage-definitions.ts';
 import { PIPELINE_STAGE_IDS } from '../../src/adapters/compilation-protocol/types.ts';
 import type { ProvenanceArtifact, ProvenanceFile } from '../../src/semantics/provenance/types.ts';
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';

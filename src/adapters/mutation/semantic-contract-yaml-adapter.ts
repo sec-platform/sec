@@ -5,7 +5,8 @@ import type { SemanticMutationOperation, SemanticMutationSourceLineEnding } from
 import { isYamlParseFailure, parseYamlDocument, type StrictYamlDocument } from '../formats/yaml.ts';
 import { SEMANTIC_CONTRACT_YAML_MAX_ALIAS_COUNT, SEMANTIC_CONTRACT_YAML_MAX_INPUT_BYTES } from '../workspace/sources/load-semantic-contract.ts';
 import { normalizeSemanticContract } from '../../semantics/definitions/normalize.ts';
-import { SemanticMutationContractError, canonicalEquals, compareCodeUnits, mutationDiagnostic, rawSha256 } from '../../compiler/semantic-mutation/canonical.ts';
+import { SemanticMutationContractError, canonicalEquals, compareCodeUnits, mutationDiagnostic, semanticMutationByteDigest } from '../../compiler/semantic-mutation/canonical.ts';
+export { semanticMutationByteDigest } from '../../compiler/semantic-mutation/canonical.ts';
 
 export interface SemanticContractYamlTransform {
   readonly stagedBytes: Uint8Array;
@@ -17,10 +18,6 @@ export interface SemanticContractYamlTransform {
 }
 
 const UTF8_BOM = new Uint8Array([0xef, 0xbb, 0xbf]);
-
-export function semanticMutationByteDigest(bytes: Uint8Array): string {
-  return rawSha256(bytes);
-}
 
 function transformFailure(message: string, operationId?: string): never {
   throw new SemanticMutationContractError(mutationDiagnostic(

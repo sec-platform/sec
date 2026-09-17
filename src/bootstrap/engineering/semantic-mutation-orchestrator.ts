@@ -14,10 +14,9 @@ import {
   writeSemanticMutationTransactionArtifacts
 } from '../../adapters/mutation/atomic-source-publish.ts';
 import {
-  canonicalDiagnostics,
-  diagnosticRevision,
   mutationDiagnostic,
   SemanticMutationContractError,
+  semanticMutationByteDigest,
   sha256
 } from '../../compiler/semantic-mutation/canonical.ts';
 import {
@@ -34,7 +33,6 @@ import {
 } from '../../adapters/mutation/mutation-recovery-record.ts';
 import { readRejectedSemanticMutationTerminal, writeRejectedSemanticMutationTerminal } from '../../adapters/mutation/mutation-terminal-record.ts';
 import { normalizeSemanticMutationRequest } from '../../compiler/semantic-mutation/normalize-request.ts';
-import { semanticMutationByteDigest } from '../../adapters/mutation/semantic-contract-yaml-adapter.ts';
 import {
   buildSemanticMutationResult,
   buildSemanticMutationVerificationExecutionRef
@@ -64,16 +62,26 @@ import {
 import {
   assertStagedVerificationProofBinding,
   issueStagedVerificationProof,
-  type StagedVerificationProof,
-  type StagedVerificationProofBinding
+  type StagedVerificationProof
 } from '../../adapters/verification/staged-verification-proof.ts';
+import {
+  buildStagedVerificationProofBinding
+} from '../../assurance/verification/staged-proof/contract.ts';
+import {
+  requireReadySemanticMutationPlan as readyPlan,
+  semanticMutationRequestRejected as requestRejected,
+  semanticMutationTerminalRecoveryOutcome as terminalRecoveryOutcome,
+  semanticMutationUntrustedRequestId as untrustedRequestId,
+  type ReadySemanticMutationPlan
+} from '../../application/semantic-mutation-state.ts';
+import {
+  advanceSemanticMutationRecoveryRecord as nextRecordDraft,
+  buildPreparedSemanticMutationRecoveryRecord,
+  exactPreparedSemanticMutationRecoveryBinding as exactPreparedRecoveryBinding
+} from '../../application/semantic-mutation-recovery.ts';
 import { compileWorkspace } from './pipeline-orchestrator.ts';
 
-type ReadyPlan = Extract<SemanticMutationPlan, { readonly status: 'ready' }>;
-type RecoveryRecordDraft = Omit<
-  SemanticMutationRecoveryRecord,
-  'formatRevision' | 'sequence' | 'previousRecordRevision' | 'terminalSequence' | 'recordRevision'
->;
+type ReadyPlan = ReadySemanticMutationPlan;
 
 interface SemanticMutationInternalApplyOptions {
   readonly testCrashPoint?: 'after-prepared';
@@ -147,20 +155,7 @@ function planningAdapter(
   } as const;
 }
 
-function requestRejected(
-  requestId: string,
-  requestRevision: string,
-  diagnostics: readonly SemanticMutationDiagnostic[]
-): SemanticMutationApplyOutcome {
-  const canonical = canonicalDiagnostics(diagnostics);
-  return {
-    status: 'request-rejected',
-    requestId,
-    requestRevision,
-    diagnostics: canonical,
-    diagnosticRevision: diagnosticRevision(canonical)
-  };
-}
+
 
 async function fencedWorkspaceWrite<Value>(
   workspaceRoot: string,
@@ -198,93 +193,11 @@ async function writeRejectedTerminalAndPrune(
   );
 }
 
-function terminalRecoveryOutcome(
-  outcome: Extract<SemanticMutationInternalRecoveryOutcome, { readonly status: 'recovery-required' }>
-): SemanticMutationApplyOutcome {
-  const result = outcome.record.result;
-  if (!result || result.status !== 'recovery-required') {
-    throw new Error('Recovery-required outcome is missing its durable terminal result');
-  }
-  return { status: 'terminal', result };
-}
 
-function untrustedRequestId(input: SemanticMutationApplyInput): string {
-  return typeof input.request?.requestId === 'string' ? input.request.requestId : '';
-}
 
-function recordDraft(
-  state: 'prepared',
-  input: SemanticMutationApplyInput,
-  derived: DerivedSemanticMutationTransaction & {
-    readonly plan: ReadyPlan;
-    readonly editPlan: NonNullable<DerivedSemanticMutationTransaction['editPlan']>;
-    readonly rollbackManifest: NonNullable<DerivedSemanticMutationTransaction['rollbackManifest']>;
-  },
-  transactionId: string,
-  requestIdentityDigest: string,
-  verification: SemanticMutationVerificationExecutionRef,
-  diagnostics: readonly SemanticMutationDiagnostic[] = []
-): RecoveryRecordDraft {
-  return {
-    state,
-    transactionId,
-    requestIdentityDigest,
-    requestRevision: derived.plan.requestRevision,
-    authorizationRevision: derived.plan.authorizationRevision,
-    expectedPlanRevision: input.expectedPlanRevision,
-    planRevision: derived.plan.planRevision,
-    editPlanRevision: derived.editPlan.editPlanRevision,
-    rollbackManifestDigest: derived.rollbackManifest.rollbackManifestDigest,
-    relativePath: derived.editPlan.relativePath,
-    beforeByteDigest: derived.editPlan.beforeByteDigest,
-    committedByteDigest: derived.editPlan.stagedByteDigest,
-    base: derived.plan.base,
-    staged: derived.plan.staged,
-    verificationExecutionRevision: verification.verificationExecutionRevision,
-    verificationReportRevision: verification.reportRevision,
-    request: input.request,
-    authorization: input.authorization,
-    plan: derived.plan,
-    verification,
-    diagnostics
-  };
-}
 
-function nextRecordDraft(
-  record: SemanticMutationRecoveryRecord,
-  state: Exclude<SemanticMutationRecoveryRecord['state'], 'prepared'>,
-  fields: {
-    readonly diagnostics?: readonly SemanticMutationDiagnostic[];
-    readonly result?: SemanticMutationResult;
-    readonly recoveryState?: SemanticMutationRecoveryFailureState;
-  } = {}
-): RecoveryRecordDraft {
-  return {
-    state,
-    transactionId: record.transactionId,
-    requestIdentityDigest: record.requestIdentityDigest,
-    requestRevision: record.requestRevision,
-    authorizationRevision: record.authorizationRevision,
-    expectedPlanRevision: record.expectedPlanRevision,
-    planRevision: record.planRevision,
-    editPlanRevision: record.editPlanRevision,
-    rollbackManifestDigest: record.rollbackManifestDigest,
-    relativePath: record.relativePath,
-    beforeByteDigest: record.beforeByteDigest,
-    committedByteDigest: record.committedByteDigest,
-    base: record.base,
-    staged: record.staged,
-    verificationExecutionRevision: record.verificationExecutionRevision,
-    verificationReportRevision: record.verificationReportRevision,
-    request: record.request,
-    authorization: record.authorization,
-    plan: record.plan,
-    verification: record.verification,
-    ...(fields.result === undefined ? {} : { result: fields.result }),
-    ...(fields.recoveryState === undefined ? {} : { recoveryState: fields.recoveryState }),
-    diagnostics: fields.diagnostics ?? record.diagnostics
-  };
-}
+
+
 
 function isolatedVerificationBlockedResult(
   failure?: SemanticMutationIsolatedVerificationFailure
@@ -387,7 +300,7 @@ async function runIsolatedVerification(
         candidate.evidenceDigest !== evidenceDigest)) {
       throw new Error('Passed isolated Verification does not own one exact staged proof source');
     }
-    const binding = stagedVerificationProofBinding(passedExecution, sha256(report));
+    const binding = buildStagedVerificationProofBinding(passedExecution, sha256(report));
     const proof = await issueStagedVerificationProof({
       source: passedArtifacts.stagedVerificationProofSource,
       evidenceDigest,
@@ -398,21 +311,6 @@ async function runIsolatedVerification(
     leaseContext.recordPassedVerificationProof?.(proof);
   }
   return execution;
-}
-
-function stagedVerificationProofBinding(
-  execution: SemanticMutationVerificationExecutionRef & { readonly status: 'passed' },
-  verificationReportDigest: string
-): StagedVerificationProofBinding {
-  return Object.freeze({
-    inputRevision: execution.attempted.inputRevision,
-    semanticRevision: execution.attempted.semanticRevision,
-    planRevision: execution.planRevision,
-    stagedSourceDigest: execution.stagedSourceDigest,
-    requiredVerificationDigest: execution.requiredVerificationDigest,
-    verificationExecutionRevision: execution.verificationExecutionRevision,
-    verificationReportDigest
-  });
 }
 
 async function liveRebuild(
@@ -481,10 +379,7 @@ function coordinatorDependencies(
     : { ...DEFAULT_SEMANTIC_MUTATION_COORDINATOR_DEPENDENCIES, ...overrides };
 }
 
-function readyPlan(record: SemanticMutationRecoveryRecord): ReadyPlan {
-  if (record.plan.status !== 'ready') throw new Error('Active recovery record does not bind a ready plan');
-  return record.plan;
-}
+
 
 async function markRecoveryRequired(
   workspaceRoot: string,
@@ -601,7 +496,7 @@ async function completeCommittedMutation(
     if (stagedVerificationProof) {
       assertStagedVerificationProofBinding(
         stagedVerificationProof,
-        stagedVerificationProofBinding(
+        buildStagedVerificationProofBinding(
           verifiedExecution,
           stagedVerificationProof.verificationReportDigest
         )
@@ -691,31 +586,7 @@ async function rejectPreparedRecovery(
   return { status: 'terminal', result };
 }
 
-function exactPreparedRecoveryBinding(
-  record: SemanticMutationRecoveryRecord,
-  derived: DerivedSemanticMutationTransaction,
-  verification: SemanticMutationVerificationExecutionRef,
-  artifacts: Awaited<ReturnType<typeof readSemanticMutationTransactionArtifacts>>
-): boolean {
-  if (derived.plan.status !== 'ready' || !derived.editPlan || !derived.rollbackManifest ||
-    !derived.originalBytes || !derived.stagedBytes || !derived.staged) return false;
-  return JSON.stringify(derived.plan) === JSON.stringify(record.plan) &&
-    derived.plan.planRevision === record.planRevision &&
-    derived.editPlan.editPlanRevision === record.editPlanRevision &&
-    derived.rollbackManifest.rollbackManifestDigest === record.rollbackManifestDigest &&
-    derived.editPlan.relativePath === record.relativePath &&
-    derived.editPlan.beforeByteDigest === record.beforeByteDigest &&
-    derived.editPlan.stagedByteDigest === record.committedByteDigest &&
-    JSON.stringify(derived.plan.base) === JSON.stringify(record.base) &&
-    JSON.stringify(derived.plan.staged) === JSON.stringify(record.staged) &&
-    JSON.stringify(verification) === JSON.stringify(record.verification) &&
-    JSON.stringify(artifacts.plan) === JSON.stringify(derived.editPlan) &&
-    JSON.stringify(artifacts.manifest) === JSON.stringify(derived.rollbackManifest) &&
-    semanticMutationByteDigest(artifacts.originalBytes) === record.beforeByteDigest &&
-    semanticMutationByteDigest(artifacts.stagedBytes) === record.committedByteDigest &&
-    semanticMutationByteDigest(derived.originalBytes) === record.beforeByteDigest &&
-    semanticMutationByteDigest(derived.stagedBytes) === record.committedByteDigest;
-}
+
 
 async function recoverRecord(
   workspaceRoot: string,
@@ -1290,18 +1161,15 @@ async function applySemanticMutationInternal(
     let record = await fencedWorkspaceWrite(workspaceRoot, token, (commitFence) =>
       dependencies.appendRecoveryRecord(
         transactionRoot,
-        recordDraft(
-          'prepared',
-          input,
-          derived as typeof derived & {
-            readonly plan: ReadyPlan;
-            readonly editPlan: NonNullable<typeof derived.editPlan>;
-            readonly rollbackManifest: NonNullable<typeof derived.rollbackManifest>;
-          },
+        buildPreparedSemanticMutationRecoveryRecord({
+          request: input,
+          plan: ready,
+          editPlan,
+          rollbackManifest,
           transactionId,
           requestIdentityDigest,
           verification
-        ),
+        }),
         commitFence
       )
     );

@@ -1,6 +1,5 @@
 import path from 'node:path';
 import { resolvePathInside } from '../contracts/relative-path.ts';
-import { POLICY_SOURCE_PATHS } from '../workspace/contract/policy-source-paths.ts';
 
 import type { RegistryLocation } from '../contracts/registry-source.ts';
 import { encodeCanonicalBlockPhysicalKey } from '../semantics/identity/block.ts';
@@ -13,32 +12,44 @@ import {
   CI_ARTIFACT_ROOT_RELATIVE_PATH,
   isCanonicalCiArtifactPath
 } from '../assurance/verification/ci-artifacts/contract/manifest.ts';
-import {
-  localStateRelativePath,
-  resolveWorkspaceLocalStateRoot
-} from '../workspace/contract/local-state.ts';
+import { resolveWorkspaceLocalStateRoot } from '../workspace/contract/local-state.ts';
 import type { WorkspacePaths } from '../workspace/contract/types.ts';
 import { modelRelativePath } from '../workspace/contract/types.ts';
+import {
+  cacheRelativePath,
+  modelBlocksRelativePath,
+  overridesRelativePath,
+  packageJsonRelativePath,
+  policiesRelativePath,
+  prismaRelativePath,
+  privateRegistryRelativePath,
+  srcRelativePath,
+  testsRelativePath,
+  tsconfigRelativePath,
+  workspaceConfigRelativePath,
+  workspaceWriteLeaseRelativePath
+} from '../workspace/paths.ts';
+export {
+  cacheRelativePath,
+  modelBlocksRelativePath,
+  overridesRelativePath,
+  packageJsonRelativePath,
+  policiesRelativePath,
+  prismaRelativePath,
+  privateRegistryRelativePath,
+  secRelativePath,
+  srcRelativePath,
+  testsRelativePath,
+  tsconfigRelativePath,
+  workspaceConfigRelativePath,
+  workspaceWriteLeaseRelativePath
+} from '../workspace/paths.ts';
 
-export { localStateRelativePath };
+export { localStateRelativePath } from '../workspace/contract/local-state.ts';
 
 export const compilerRoot = compilerRuntimeLayout.packageRoot;
 
-/** Native target-workspace roots. */
-export const workspaceConfigRelativePath = 'sec.yaml' as const;
-export const srcRelativePath = 'src' as const;
-export const testsRelativePath = 'tests' as const;
-export const packageJsonRelativePath = 'package.json' as const;
-export const tsconfigRelativePath = 'tsconfig.json' as const;
-export const prismaRelativePath = 'prisma' as const;
-export const secRelativePath = localStateRelativePath;
 export const artifactsRelativePath = CI_ARTIFACT_ROOT_RELATIVE_PATH;
-export const cacheRelativePath = path.join(secRelativePath, 'cache');
-export const workspaceWriteLeaseRelativePath = path.join(secRelativePath, 'workspace-write-lease');
-export const modelBlocksRelativePath = path.join(modelRelativePath, 'blocks');
-export const privateRegistryRelativePath = path.join(modelBlocksRelativePath, 'private');
-export const policiesRelativePath = path.join(...POLICY_SOURCE_PATHS.project.split('/'));
-export const overridesRelativePath = path.join(modelRelativePath, 'patches');
 
 /** Compiler-owned resources are outside the target workspace layout. */
 export const officialPoliciesRelativePath =

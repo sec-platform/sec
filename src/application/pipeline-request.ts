@@ -1,8 +1,7 @@
-import { isVerificationLane, VERIFICATION_LANES, type VerificationLane } from '../../../assurance/verification/contract/lanes.ts';
-import { CompilerError } from '../../../compiler/errors.ts';
-import { requirePipelineSource } from './execution-context.ts';
-import type { PipelineSource } from '../../compilation-protocol/journal-types.ts';
-import { PIPELINE_STAGE_IDS, type PipelineStageId } from '../../compilation-protocol/stages.ts';
+import { isVerificationLane, VERIFICATION_LANES, type VerificationLane } from '../assurance/verification/contract/lanes.ts';
+import { CompilerError } from '../compiler/errors.ts';
+import { requirePipelineSource, type PipelineSource } from '../compiler/pipeline/source.ts';
+import { PIPELINE_STAGE_IDS, type PipelineStageId } from '../compiler/pipeline/stages.ts';
 
 export interface PipelineCompileRequest {
   source?: PipelineSource;

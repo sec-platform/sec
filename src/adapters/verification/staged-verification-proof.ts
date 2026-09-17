@@ -1,60 +1,28 @@
-import type { AcceptanceCoverageReport } from '../../assurance/acceptance/coverage.ts';
 import { cloneAndDeepFreeze, deepFreeze, rawSha256 } from '../../contracts/canonical.ts';
 import { assertCanonicalVerificationArtifactSet, type CanonicalVerificationArtifactSet } from '../../assurance/verification/artifact/contract/artifact.ts';
-import type { RuntimeVerificationLaneReport, VerificationReport } from '../../assurance/verification/contract/types.ts';
 import type { LockFile } from '../../compiler/contract.ts';
-import type { PolicyReport } from '../../semantics/policies/types.ts';
+import {
+  STAGED_VERIFICATION_PROOF_FORMAT_REVISION as PROOF_FORMAT_REVISION,
+  STAGED_VERIFICATION_PROOF_SOURCE_FORMAT_REVISION as SOURCE_FORMAT_REVISION,
+  assertStagedVerificationDigest,
+  assertStagedVerificationLiveLockBinding,
+  assertStagedVerificationProofBindingShape,
+  stagedVerificationProofBindingMatches,
+  stagedVerificationRawArtifactSetDigest,
+  type StagedVerificationArtifactSet,
+  type StagedVerificationProof,
+  type StagedVerificationProofBinding,
+  type StagedVerificationProofSource,
+  type StagedVerificationRawArtifactDigests
+} from '../../assurance/verification/staged-proof/contract.ts';
+export type {
+  StagedVerificationArtifactSet,
+  StagedVerificationProof,
+  StagedVerificationProofBinding,
+  StagedVerificationProofSource,
+  StagedVerificationRawArtifactDigests
+} from '../../assurance/verification/staged-proof/contract.ts';
 import { stagedVerificationProjectInputDigest } from './semantic-mutation-staged-project-input.ts';
-
-const PROOF_FORMAT_REVISION = 'staged-verification-proof-v1' as const;
-const SOURCE_FORMAT_REVISION = 'staged-verification-proof-source-v1' as const;
-const DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/u;
-const PROOF_BINDING_KEYS = Object.freeze([
-  'inputRevision',
-  'semanticRevision',
-  'planRevision',
-  'stagedSourceDigest',
-  'requiredVerificationDigest',
-  'verificationExecutionRevision',
-  'verificationReportDigest'
-] as const);
-const SORTED_PROOF_BINDING_KEYS = Object.freeze([...PROOF_BINDING_KEYS].sort());
-
-export interface StagedVerificationArtifactSet {
-  readonly verificationReport: VerificationReport;
-  readonly runtimeReport: RuntimeVerificationLaneReport;
-  readonly policyReport: PolicyReport;
-  readonly acceptanceCoverage: AcceptanceCoverageReport;
-}
-
-export interface StagedVerificationRawArtifactDigests {
-  readonly verificationReport: string;
-  readonly runtimeReport: string;
-  readonly policyReport: string;
-  readonly acceptanceCoverage: string;
-}
-
-export interface StagedVerificationProofSource {
-  readonly formatRevision: typeof SOURCE_FORMAT_REVISION;
-}
-
-export interface StagedVerificationProofBinding {
-  readonly inputRevision: string;
-  readonly semanticRevision: string;
-  readonly planRevision: string;
-  readonly stagedSourceDigest: string;
-  readonly requiredVerificationDigest: string;
-  readonly verificationExecutionRevision: string;
-  readonly verificationReportDigest: string;
-}
-
-export interface StagedVerificationProof extends StagedVerificationProofBinding {
-  readonly formatRevision: typeof PROOF_FORMAT_REVISION;
-  readonly projectInputDigest: `sha256:${string}`;
-  readonly verificationArtifactDigest: `sha256:${string}`;
-  readonly rawArtifactSetDigest: `sha256:${string}`;
-  readonly artifactSetDigest: `sha256:${string}`;
-}
 
 interface SourceState {
   readonly artifacts: CanonicalVerificationArtifactSet;
@@ -94,59 +62,15 @@ function frozenArtifacts(artifacts: StagedVerificationArtifactSet): CanonicalVer
   return frozen;
 }
 
-function assertDigest(value: string, label: string): void {
-  if (!DIGEST_PATTERN.test(value)) throw new Error(`${label} must be one SHA-256 digest`);
-}
 
-function rawArtifactSetDigest(
-  digests: StagedVerificationRawArtifactDigests
-): `sha256:${string}` {
-  return rawSha256(JSON.stringify({
-    verificationReport: digests.verificationReport,
-    runtimeReport: digests.runtimeReport,
-    policyReport: digests.policyReport,
-    acceptanceCoverage: digests.acceptanceCoverage
-  }));
-}
 
-function assertBinding(binding: StagedVerificationProofBinding): void {
-  const keys = Object.keys(binding).sort();
-  if (keys.length !== SORTED_PROOF_BINDING_KEYS.length ||
-    !keys.every((key, index) => key === SORTED_PROOF_BINDING_KEYS[index])) {
-    throw new Error('Staged Verification proof binding must use the exact canonical fields');
-  }
-  for (const [value, label] of [
-    [binding.inputRevision, 'Staged Verification input revision'],
-    [binding.semanticRevision, 'Staged Verification semantic revision'],
-    [binding.planRevision, 'Staged Verification plan revision'],
-    [binding.stagedSourceDigest, 'Staged Verification source digest'],
-    [binding.requiredVerificationDigest, 'Staged Verification requirement digest'],
-    [binding.verificationExecutionRevision, 'Staged Verification execution revision'],
-    [binding.verificationReportDigest, 'Staged Verification report digest']
-  ] as const) assertDigest(value, label);
-}
 
-function proofBindingMatches(
-  proof: StagedVerificationProof,
-  binding: StagedVerificationProofBinding
-): boolean {
-  const keys = Object.keys(binding).sort();
-  if (keys.length !== SORTED_PROOF_BINDING_KEYS.length ||
-    !keys.every((key, index) => key === SORTED_PROOF_BINDING_KEYS[index])) {
-    return false;
-  }
-  return PROOF_BINDING_KEYS.every((key) => binding[key] === proof[key]);
-}
 
-function assertLiveLockBinding(lock: LockFile, proof: StagedVerificationProof): void {
-  if (!lock.semanticViews ||
-    lock.semanticViews.inputRevision !== proof.inputRevision ||
-    lock.semanticViews.semanticRevision !== proof.semanticRevision ||
-    (lock.semanticLoweringTasks ?? []).some((task) =>
-      task.inputRevision !== proof.inputRevision || task.semanticRevision !== proof.semanticRevision)) {
-    throw new Error('Live rebuild revisions do not match the staged Verification proof');
-  }
-}
+
+
+
+
+
 
 export async function issueStagedVerificationProofSource(input: {
   readonly stagingProjectRoot: string;
@@ -156,16 +80,16 @@ export async function issueStagedVerificationProofSource(input: {
   readonly rawArtifactDigests: StagedVerificationRawArtifactDigests;
   readonly artifacts: StagedVerificationArtifactSet;
 }): Promise<StagedVerificationProofSource> {
-  assertDigest(input.inputRevision, 'Staged Verification input revision');
-  assertDigest(input.semanticRevision, 'Staged Verification semantic revision');
-  assertDigest(input.evidenceDigest, 'Staged Verification evidence digest');
+  assertStagedVerificationDigest(input.inputRevision, 'Staged Verification input revision');
+  assertStagedVerificationDigest(input.semanticRevision, 'Staged Verification semantic revision');
+  assertStagedVerificationDigest(input.evidenceDigest, 'Staged Verification evidence digest');
   for (const [value, label] of [
     [input.rawArtifactDigests.verificationReport, 'verificationReport'],
     [input.rawArtifactDigests.runtimeReport, 'runtimeReport'],
     [input.rawArtifactDigests.policyReport, 'policyReport'],
     [input.rawArtifactDigests.acceptanceCoverage, 'acceptanceCoverage']
   ] as const) {
-    assertDigest(value, `Staged Verification raw ${label} digest`);
+    assertStagedVerificationDigest(value, `Staged Verification raw ${label} digest`);
   }
   const artifacts = frozenArtifacts(input.artifacts);
   const source = Object.freeze({ formatRevision: SOURCE_FORMAT_REVISION });
@@ -175,7 +99,7 @@ export async function issueStagedVerificationProofSource(input: {
     inputRevision: input.inputRevision,
     semanticRevision: input.semanticRevision,
     projectInputDigest: await stagedVerificationProjectInputDigest(input.stagingProjectRoot),
-    rawArtifactSetDigest: rawArtifactSetDigest(input.rawArtifactDigests),
+    rawArtifactSetDigest: stagedVerificationRawArtifactSetDigest(input.rawArtifactDigests),
     stagingProjectRoot: input.stagingProjectRoot,
     consumed: false
   });
@@ -188,7 +112,7 @@ async function registerProof(input: {
   readonly rawArtifactSetDigest: `sha256:${string}`;
   readonly artifacts: StagedVerificationArtifactSet;
 }): Promise<StagedVerificationProof> {
-  assertBinding(input.binding);
+  assertStagedVerificationProofBindingShape(input.binding);
   const artifacts = frozenArtifacts(input.artifacts);
   const proof = Object.freeze({
     formatRevision: PROOF_FORMAT_REVISION,
@@ -212,7 +136,7 @@ export async function issueStagedVerificationProof(input: {
   readonly binding: StagedVerificationProofBinding;
 }): Promise<StagedVerificationProof> {
   const source = issuedSources.get(input.source);
-  assertBinding(input.binding);
+  assertStagedVerificationProofBindingShape(input.binding);
   if (!source || source.consumed || input.source.formatRevision !== SOURCE_FORMAT_REVISION ||
     input.evidenceDigest !== source.evidenceDigest ||
     input.binding.inputRevision !== source.inputRevision ||
@@ -237,7 +161,7 @@ export function assertStagedVerificationProofBinding(
   binding: StagedVerificationProofBinding
 ): void {
   const state = issuedProofs.get(proof);
-  if (!state || !proofBindingMatches(proof, binding)) {
+  if (!state || !stagedVerificationProofBindingMatches(proof, binding)) {
     throw new Error('Staged Verification proof does not match the committed execution');
   }
 }
@@ -254,7 +178,7 @@ async function consumeProof(
   }
   state.consuming = true;
   try {
-    assertLiveLockBinding(lock, proof);
+    assertStagedVerificationLiveLockBinding(lock, proof);
     if (await stagedVerificationProjectInputDigest(liveProjectRoot) !== proof.projectInputDigest ||
       rawSha256(JSON.stringify(state.artifacts)) !== proof.artifactSetDigest ||
       rawSha256(JSON.stringify(state.artifacts.verificationReport)) !== proof.verificationArtifactDigest) {
@@ -284,7 +208,7 @@ async function revalidateProof(
   if (!state?.consumed) {
     throw new Error('Staged Verification proof was not consumed');
   }
-  assertLiveLockBinding(lock, proof);
+  assertStagedVerificationLiveLockBinding(lock, proof);
   if (await stagedVerificationProjectInputDigest(liveProjectRoot) !== proof.projectInputDigest) {
     throw new Error('Live rebuild inputs changed after staged Verification proof consumption');
   }

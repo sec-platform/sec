@@ -1,15 +1,10 @@
 import type { LockFile } from '../../../compiler/contract.ts';
 import { CompilerError } from '../../../compiler/errors.ts';
-import { PIPELINE_SOURCE_IDS, type PipelineSource } from '../../compilation-protocol/journal-types.ts';
-import { PIPELINE_STAGE_IDS, type PipelineStageId } from '../../compilation-protocol/stages.ts';
+import { requirePipelineSource } from '../../../compiler/pipeline/source.ts';
+import { PIPELINE_STAGE_IDS, type PipelineStageId } from '../../../compiler/pipeline/stages.ts';
 import type { PipelineExecutionContext } from '../../compilation-protocol/types.ts';
 
-export function requirePipelineSource(value: unknown): PipelineSource {
-  if (typeof value !== 'string' || !PIPELINE_SOURCE_IDS.includes(value as PipelineSource)) {
-    throw new CompilerError('PIPELINE-USAGE-004', 'Unknown pipeline invocation source');
-  }
-  return value as PipelineSource;
-}
+export { requirePipelineSource } from '../../../compiler/pipeline/source.ts';
 
 /** Preserve caller ordering, but not holes, accessors, duplicate or unknown IDs. */
 export function capturePipelineRequestedStages(value: readonly PipelineStageId[]): readonly PipelineStageId[] {

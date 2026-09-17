@@ -1,3 +1,4 @@
+import type { PipelineSource } from '../../../compiler/pipeline/source.ts';
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 
@@ -30,7 +31,6 @@ import {
   type PipelineJournal,
   type PipelinePassRecord,
   type PipelinePassStatus,
-  type PipelineSource,
   type PipelineStageId,
   type PipelineTransactionRecord,
   type PipelineTransactionStatus

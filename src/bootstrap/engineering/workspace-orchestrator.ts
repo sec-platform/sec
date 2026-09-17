@@ -4,17 +4,14 @@ import path from 'node:path';
 import { CI_ARTIFACT_FILES } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import { writeJson } from "../../adapters/filesystem/files.ts";
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease, WORKSPACE_WRITE_LEASE_DIRECTORY_NAME, WorkspaceWriteLeaseError, type WorkspaceWriteLeaseToken } from '../../adapters/filesystem/write-lease.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../adapters/workspace-context.ts";
+import { getWorkspacePaths, officialRegistryRelativePath, resolveWorkspaceArtifactPath } from "../../adapters/workspace-context.ts";
 import { writeYaml } from '../../adapters/workspace/yaml.ts';
 import { LOCK_FILE_FORMAT_VERSION, type LockFile } from '../../compiler/contract.ts';
 import { CompilerError } from '../../compiler/errors.ts';
+import { prepareWorkspaceCreate, type WorkspaceCreateTemplate } from '../../application/workspace-create.ts';
 import { saveLock } from "../../adapters/workspace/lock.ts";
 import { PASS_STATUS_PENDING } from '../../adapters/compilation/pipeline/defaults.ts';
-import {
-  buildWorkspaceCreatePlan,
-  materializeWorkspaceCreateTemplate,
-  type WorkspaceCreateTemplate
-} from './workspace-create-template.ts';
+import { materializeWorkspaceCreateTemplate } from './workspace-create-template.ts';
 
 export interface WorkspaceInitOptions {
   /** Explicit creation template. Ordinary init defaults to the minimal template. */
@@ -24,16 +21,6 @@ export interface WorkspaceInitOptions {
 function nativeErrorCode(error: unknown): string | undefined {
   if (!error || typeof error !== 'object' || !('code' in error)) return undefined;
   return typeof error.code === 'string' ? error.code.toUpperCase() : undefined;
-}
-
-function resolveCreateTemplate(value: unknown): WorkspaceCreateTemplate {
-  if (value === undefined) return 'minimal';
-  if (value === 'minimal' || value === 'reference-customer') return value;
-  throw new CompilerError(
-    'WORKSPACE-INIT-002',
-    `Unsupported workspace create template "${String(value)}"`,
-    { supportedTemplates: ['minimal', 'reference-customer'] }
-  );
 }
 
 async function bootstrapWorkspaceRoot(workspaceRoot: string): Promise<'created' | 'existing'> {
@@ -130,23 +117,13 @@ async function assertWorkspaceCreateSurfaceEmpty(
   }
 }
 
-function initialGeneratedPaths(template: WorkspaceCreateTemplate): string[] {
-  if (template === 'reference-customer') {
-    return [
-      CI_ARTIFACT_FILES.blockUsageMap,
-      CI_ARTIFACT_FILES.installManifest,
-      CI_ARTIFACT_FILES.verificationReport
-    ];
-  }
-  return [CI_ARTIFACT_FILES.verificationReport];
-}
-
 export async function initWorkspace(
   workspaceRoot = process.cwd(),
   options: WorkspaceInitOptions = {},
   workspaceWriteLease?: WorkspaceWriteLeaseToken
 ): Promise<{ planPath: string; lockPath: string }> {
-  const template = resolveCreateTemplate(options.template);
+  const prepared = prepareWorkspaceCreate(options.template, { officialRegistryRelativePath });
+  const { template, plan, initialGeneratedPaths } = prepared;
   if (workspaceWriteLease === undefined) {
     await bootstrapWorkspaceRoot(workspaceRoot);
     // No caller authority exists yet. Admit only an empty root or the exact
@@ -167,7 +144,6 @@ export async function initWorkspace(
     );
     await assertWorkspaceCreateSurfaceEmpty(workspaceRoot, token);
 
-    const plan = buildWorkspaceCreatePlan(template);
     await materializeWorkspaceCreateTemplate(workspaceRoot, template, commitFence);
     await writeYaml(planPath, plan, commitFence);
     const initialLock: LockFile = {
@@ -181,7 +157,7 @@ export async function initWorkspace(
       resolvedBlocks: [],
       resolvedCapabilities: [],
       installPlan: [],
-      generatedPaths: initialGeneratedPaths(template),
+      generatedPaths: [...initialGeneratedPaths],
       acceptancePlan: plan.acceptance.map((entry) => entry.id),
       passStatus: { ...PASS_STATUS_PENDING }
     };
