@@ -19,33 +19,34 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Require exact postgres-presentation baseline
+
+      - name: Require exact current postgres baseline
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD:src)" = c83486da7940bf0f700974954e51d4a8b997fe2d
-          test "$(git rev-parse HEAD:tests)" = 42032601492b0733e4ed17ef6114412a437f2ebd
+          test "$(git rev-parse HEAD:src)" = a851f1957d3f0c12869db607f0904ee25c9ed504
+          test "$(git rev-parse HEAD:tests)" = ac831a9875d98317690901522a98564cb2caebf7
+          test "$(git hash-object .github/sec086-slice8b-current.py)" = 2155871528966b828b4529e47a93f50876c2e296
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version-file: .bun-version
+
       - run: bun install --frozen-lockfile --ignore-scripts
-      - name: Apply exact reviewed patch bytes
+
+      - name: Apply current-tree postgres ownership transform
         shell: bash
         run: |
           set -euo pipefail
-          encoded="$RUNNER_TEMP/sec086-slice8b.patch.xz.b64"
-          git cat-file blob HEAD:.github/sec086-slice8b.patch.xz.b64 > "$encoded"
-          test "$(wc -c < "$encoded")" -eq 1424
-          test "$(git hash-object "$encoded")" = 073055ac6f30a42cabd841e7136b06b00ce3a6e5
-          base64 -d "$encoded" > "$RUNNER_TEMP/sec086-slice8b.patch.xz"
-          echo '02e73a0514d46605f07bfac408bd474f0a2dd9f7120ff284a91dc05a27f60d4a  '"$RUNNER_TEMP/sec086-slice8b.patch.xz" | sha256sum -c -
-          xz -dc "$RUNNER_TEMP/sec086-slice8b.patch.xz" > "$RUNNER_TEMP/sec086-slice8b.patch"
-          echo '690d0431cc0361595612b94c5b89d5906bdc2d22904c4e1d923778a97e1751e6  '"$RUNNER_TEMP/sec086-slice8b.patch" | sha256sum -c -
-          git apply --index "$RUNNER_TEMP/sec086-slice8b.patch"
+          python3 .github/sec086-slice8b-current.py
+          git add src/bootstrap/cli/register-inspection-commands.ts src/bootstrap/cli/formatters.ts
           git diff --cached --check
-          tree=$(git write-tree)
-          test "$(git rev-parse "$tree:src")" = c0cf0a8a1fecb6fcac61e1115832926dcad30c37
-          test "$(git rev-parse "$tree:tests")" = 42032601492b0733e4ed17ef6114412a437f2ebd
+          test "$(git rev-parse HEAD:tests)" = ac831a9875d98317690901522a98564cb2caebf7
+          grep -q "PostgresContractProjectionSource" src/bootstrap/cli/register-inspection-commands.ts
+          grep -q "../../entry/cli/postgres-contract.ts" src/bootstrap/cli/register-inspection-commands.ts
+          ! grep -q "export type PostgresContract" src/bootstrap/cli/formatters.ts
+          ! grep -q "export function formatPostgresContract" src/bootstrap/cli/formatters.ts
+
       - name: Verify postgres inspection slice
         shell: bash
         run: |
@@ -54,13 +55,14 @@ jobs:
           bun test --timeout 20000 tests/unit/postgres-contract-presentation.test.ts tests/unit/inspection-query.test.ts tests/unit/named-inspection-query.test.ts
           bun run docs:doctor
           bun run audit:module-topology
+
       - name: Commit source only
         shell: bash
         run: |
           set -euo pipefail
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'refactor: route postgres inspection through entry'
-          test "$(git rev-parse HEAD:src)" = c0cf0a8a1fecb6fcac61e1115832926dcad30c37
-          test "$(git rev-parse HEAD:tests)" = 42032601492b0733e4ed17ef6114412a437f2ebd
+          test "$(git rev-parse HEAD:tests)" = ac831a9875d98317690901522a98564cb2caebf7
+
       - name: Fast-forward isolated branch
         shell: bash
         env:
@@ -68,7 +70,9 @@ jobs:
         run: |
           set -euo pipefail
           authorization=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
-          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $authorization"
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $authorization"
           branch=refs/heads/refactor/sec086-architecture
           test "$(git ls-remote origin "$branch" | cut -f1)" = "$GITHUB_SHA"
           git push origin "HEAD:$branch"
