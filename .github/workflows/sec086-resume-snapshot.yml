@@ -31,7 +31,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = 462755fd0144bfbfe3260837319f9f172146dc28
+          test "$(git rev-parse HEAD^)" = 20d5c1f820eaa4eaa50df236bb7f8c5a745520dc
           printf '%s  %s\n' \
             667653af0dac4466cf244b716df8baa285070dbc171a11d835e36fbad94ac13d .github/sec086-resume-transfer/chunk0.xz.part \
             f52768699aec91eb82c9559314995b538b3ad7e9d544114b855833276ae662e9 .github/sec086-resume-transfer/chunk1.xz.part \
@@ -104,7 +104,7 @@ jobs:
         run: |
           set -euo pipefail
           tree=$(git rev-parse HEAD^{tree})
-          publish=$(printf '%s\n' 'refactor: publish verified use-case and proof ownership split' | git commit-tree "$tree" -p "$GITHUB_SHA")
+          publish=$(printf '%s\n' 'refactor: publish verified use-case and proof ownership split' | git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit-tree "$tree" -p "$GITHUB_SHA")
           authorization=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
           export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
           export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $authorization"
