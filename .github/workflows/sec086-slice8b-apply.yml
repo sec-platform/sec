@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -34,6 +34,13 @@ jobs:
 
       - run: bun install --frozen-lockfile --ignore-scripts
 
+      - name: Print baseline full topology
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== BASELINE FULL TOPOLOGY ==='
+          bun src/adapters/repository/repository-audit/cli.ts --worktree-module-topology --full
+
       - name: Apply current-tree postgres ownership transform
         shell: bash
         run: |
@@ -41,38 +48,18 @@ jobs:
           python3 .github/sec086-slice8b-current.py
           git add src/bootstrap/cli/register-inspection-commands.ts src/bootstrap/cli/formatters.ts
           git diff --cached --check
-          test "$(git rev-parse HEAD:tests)" = ac831a9875d98317690901522a98564cb2caebf7
-          grep -q "PostgresContractProjectionSource" src/bootstrap/cli/register-inspection-commands.ts
-          grep -q "../../entry/cli/postgres-contract.ts" src/bootstrap/cli/register-inspection-commands.ts
-          ! grep -q "export type PostgresContract" src/bootstrap/cli/formatters.ts
-          ! grep -q "export function formatPostgresContract" src/bootstrap/cli/formatters.ts
 
-      - name: Verify postgres inspection slice
+      - name: Print transformed full topology
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== TRANSFORMED FULL TOPOLOGY ==='
+          bun src/adapters/repository/repository-audit/cli.ts --worktree-module-topology --full
+
+      - name: Verify non-topology slice
         shell: bash
         run: |
           set -euo pipefail
           bun node_modules/@typescript/native/bin/tsc --noEmit -p tsconfig.json
           bun test --timeout 20000 tests/unit/postgres-contract-presentation.test.ts tests/unit/inspection-query.test.ts tests/unit/named-inspection-query.test.ts
           bun run docs:doctor
-          bun run audit:module-topology
-
-      - name: Commit source only
-        shell: bash
-        run: |
-          set -euo pipefail
-          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'refactor: route postgres inspection through entry'
-          test "$(git rev-parse HEAD:tests)" = ac831a9875d98317690901522a98564cb2caebf7
-
-      - name: Fast-forward isolated branch
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          authorization=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
-          export GIT_CONFIG_COUNT=1
-          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
-          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $authorization"
-          branch=refs/heads/refactor/sec086-architecture
-          test "$(git ls-remote origin "$branch" | cut -f1)" = "$GITHUB_SHA"
-          git push origin "HEAD:$branch"
