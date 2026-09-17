@@ -44,13 +44,13 @@ jobs:
           start=text.index("  registerInspectionQuery(program.command('blocks'), {")
           end=text.index("\n\n  addJsonFlags(program.command('postgres'))", start)
           new_block="""  registerInspectionQuery(program.command('blocks'), {
-            read: artifactReader<BlockUsageMapView>('blockUsageMap', (c) => `Block usage map not found; run ${c.rootCommand} compose first`),
-            view: async (report) => {
-              const { projectBlockUsageMap } = await import('../../application/block-usage-map.ts');
-              const { formatBlockUsageMap } = await import('../../entry/cli/block-usage-map.ts');
-              return inspectionValue(projectBlockUsageMap(report), formatBlockUsageMap);
-            }
-          });
+              read: artifactReader<BlockUsageMapView>('blockUsageMap', (c) => `Block usage map not found; run ${c.rootCommand} compose first`),
+              view: async (report) => {
+                const { projectBlockUsageMap } = await import('../../application/block-usage-map.ts');
+                const { formatBlockUsageMap } = await import('../../entry/cli/block-usage-map.ts');
+                return inspectionValue(projectBlockUsageMap(report), formatBlockUsageMap);
+              }
+            });
           """
           p.write_text(text[:start]+new_block+text[end:])
 
