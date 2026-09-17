@@ -1,7 +1,7 @@
 import { constants as fsConstants } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
+import { SecError } from '../../../contracts/failure.ts';
 import { isFileNotFoundError, pathExists, removeDir } from '../../../workspace/files.ts';
 import { compilerRoot, getWorkspacePaths, resolveWorkspacePlanPath } from '../../../workspace/runtime/paths.ts';
 import { loadRuntimeDependencySpec } from '../contract/runtime-dependency-spec.ts';

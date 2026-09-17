@@ -1,12 +1,12 @@
-import { SecError } from '../../system-architecture/foundation/contract/failure.ts';
+import { SecError } from '../../contracts/failure.ts';
 import {
   canonicalJson,
   compareCodeUnits,
   isPlainObject,
   rawSha256,
   sha256
-} from '../../system-architecture/foundation/runtime/canonical.ts';
-import { parseExactJson } from '../../system-architecture/foundation/runtime/exact-json.ts';
+} from '../../contracts/canonical.ts';
+import { parseExactJson } from '../../contracts/exact-json.ts';
 import type { SecOperationDigest } from '../../system-architecture/operation/semantic.ts';
 
 export const BOUNDED_PROCESS_DIAGNOSTIC_OBJECT_SCHEMA =

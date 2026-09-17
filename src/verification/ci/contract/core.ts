@@ -1,6 +1,6 @@
 import { CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST } from '../../../control/main-health/provider-policy.ts';
 import { platformCommand } from '../../../interface/cli/contract/command.ts';
-import { uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { uniqueSorted } from '../../../contracts/canonical.ts';
 import { CI_ARTIFACT_FILES, CI_ARTIFACT_MANIFEST_PATH, CI_EXPLAIN_GRAPH_ARTIFACT_PATHS } from '../../ci-artifacts/contract/manifest.ts';
 import type { CiArtifactKind } from '../../ci-artifacts/contract/types.ts';
 import { CI_ARTIFACT_KINDS } from '../../ci-artifacts/contract/types.ts';

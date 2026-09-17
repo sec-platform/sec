@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { deepFreeze, sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { deepFreeze, sha256 } from '../../../contracts/canonical.ts';
 import source from './anonymous-registry-profile.json' with { type: 'json' };
 
 export const packageRegistryPackageNameSchema = z.string()

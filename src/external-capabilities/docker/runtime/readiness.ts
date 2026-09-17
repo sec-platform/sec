@@ -12,7 +12,7 @@ import {
 import { createRuntimeStateJournalFileSystem } from '../../../runtime-state/workspace-state/journal-filesystem.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeJournalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
-import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../../contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,

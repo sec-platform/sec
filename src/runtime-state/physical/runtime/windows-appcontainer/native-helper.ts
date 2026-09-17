@@ -1,7 +1,7 @@
 import { writeFileSync, writeSync } from 'node:fs';
 import path from 'node:path';
 
-import { canonicalEquals } from '../../../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalEquals } from '../../../../contracts/canonical.ts';
 
 import {
   createWindowsAppContainerProfileForNativeHelper,

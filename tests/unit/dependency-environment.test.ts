@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { generatedStateProducerHooks } from '../../src/runtime-state/generated-state/lifecycle.ts';
-import { SecError } from '../../src/system-architecture/foundation/contract/failure.ts';
+import { SecError } from '../../src/contracts/failure.ts';
 import {
   cleanDependencyEnvironment,
   getDoctorReport

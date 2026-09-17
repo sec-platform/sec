@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
-import { SecError } from '../../src/system-architecture/foundation/contract/failure.ts';
+import { SecError } from '../../src/contracts/failure.ts';
 import { runtimeDependencyOperationOptions, runtimeDependencyOperationRemainingMs } from '../../src/toolchain/dependencies/runtime/operation-context.ts';
 import { measureRuntimeDependencyOperationPhase, measureRuntimeDependencyOperationPhaseAsync, readRuntimeDependencyOperationTelemetry } from '../../src/toolchain/dependencies/runtime/operation-telemetry.ts';
 

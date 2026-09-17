@@ -2,7 +2,7 @@ import { SOURCE_PROGRAM_COMPILATION_MAX_DURATION_MS } from '../../brownfield/sou
 import { isSourceProgramInputPath } from '../../brownfield/source-program-model/contract.ts';
 import { isDocumentationVerificationInputPath } from '../../control/documentation/active.ts';
 import type { GitReadProviderRoute } from '../../external-capabilities/git-read/runtime/session.ts';
-import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,

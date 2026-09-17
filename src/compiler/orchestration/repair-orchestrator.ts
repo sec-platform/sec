@@ -1,5 +1,5 @@
 import { readOptionalRetainedJson } from '../../runtime-state/physical/runtime/retained-file-read.ts';
-import type { RepairPlan } from '../../semantic/repair/contract/types.ts';
+import type { RepairPlan } from '../../semantics/repair/types.ts';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../verification/contract/types.ts';
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../workspace/lease.ts';

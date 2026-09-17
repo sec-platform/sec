@@ -1,8 +1,8 @@
 import ts from 'typescript';
 import { isMap, isScalar, isSeq } from 'yaml';
 
-import { rawSha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { parseYamlDocument } from '../../system-architecture/foundation/runtime/yaml.ts';
+import { rawSha256 } from '../../contracts/canonical.ts';
+import { parseYamlDocument } from '../../adapters/formats/yaml.ts';
 import type { SecRepositoryModuleGraphImport } from '../../system-architecture/repository-modules/contract.ts';
 import {
   isSourceProgramInputPath,

@@ -11,7 +11,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { canonicalJson, compareCodeUnits, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalJson, compareCodeUnits, rawSha256, sha256 } from '../../contracts/canonical.ts';
 import { parseGitChangedRecordsOutput, type CodexDevelopmentGitChangedRecord } from '../../verification/test-impact/runtime/transition.ts';
 import {
   hostedPublisherMatches,

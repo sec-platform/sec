@@ -16,7 +16,7 @@ import {
 import type { AuthorityGitReadOperation } from '../../external-capabilities/git-read/authority.ts';
 import { CodexDevelopmentListExactGitTreeEntries } from '../../external-capabilities/git-read/exact-blob.ts';
 import type { GitReadSession } from '../../external-capabilities/git-read/runtime/session.ts';
-import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,

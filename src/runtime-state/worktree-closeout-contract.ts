@@ -1,4 +1,4 @@
-import { canonicalJson, sha256 } from '../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalJson, sha256 } from '../contracts/canonical.ts';
 import {
   assertGeneratedStateWorktreeRetirement,
   type GeneratedStateWorktreeRetirement

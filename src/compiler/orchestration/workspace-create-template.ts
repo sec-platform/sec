@@ -3,7 +3,8 @@ import {
   ensureProjectBase
 } from '../../workspace/application/project-base.ts';
 import { ensureDir, type CommitFence } from '../../workspace/files.ts';
-import { getWorkspacePaths, officialRegistryRelativePath, posixPath, privateRegistryRelativePath } from '../../workspace/runtime/paths.ts';
+import { getWorkspacePaths, officialRegistryRelativePath, privateRegistryRelativePath } from '../../workspace/runtime/paths.ts';
+import { posixPath } from '../../contracts/relative-path.ts';
 import type { PlanFile } from '../contract.ts';
 import { SUPPORTED_STACK } from '../contract.ts';
 

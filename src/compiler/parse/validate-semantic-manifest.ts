@@ -1,7 +1,7 @@
-import { isCanonicalAcceptanceId } from '../../semantic/acceptance/contract/identity.ts';
-import { SEMANTIC_GENERATOR_ARTIFACT_KINDS, SEMANTIC_GENERATOR_CONSUME_KINDS, SEMANTIC_GENERATOR_KINDS, type StateTransitionMapManifestGenerator } from '../../semantic/generation/contract/types.ts';
-import { isCanonicalBlockId } from '../../semantic/identity/contract/block.ts';
-import { isCanonicalPortableLogicalPath } from '../../system-architecture/foundation/contract/logical-path.ts';
+import { isCanonicalAcceptanceId } from '../../semantics/acceptance/identity.ts';
+import { SEMANTIC_GENERATOR_ARTIFACT_KINDS, SEMANTIC_GENERATOR_CONSUME_KINDS, SEMANTIC_GENERATOR_KINDS, type StateTransitionMapManifestGenerator } from '../../semantics/generation/types.ts';
+import { isCanonicalBlockId } from '../../semantics/identity/block.ts';
+import { isCanonicalPortableLogicalPath } from '../../contracts/logical-path.ts';
 import type { BlockManifest } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
 

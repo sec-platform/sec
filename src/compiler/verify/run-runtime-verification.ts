@@ -2,8 +2,8 @@ import { lstatSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 
 import { buildIsolatedProcessEnvironment, ensureIsolatedProcessDirectories, runCommand } from '../../runtime-state/physical/runtime/process.ts';
-import { defaultLogger } from '../../system-architecture/foundation/logger.ts';
-import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { defaultLogger } from '../../adapters/diagnostics/json-logger.ts';
+import { compareCodeUnits } from '../../contracts/canonical.ts';
 import {
   dependencyAuthorityPaths,
   ensureProjectDependencies,
@@ -13,7 +13,8 @@ import type { RuntimeVerificationLaneReport, VerificationStatus, VerificationSte
 import type { CommitFence } from '../../workspace/files.ts';
 import { writeText } from '../../workspace/files.ts';
 import { listFilesRecursive } from '../../workspace/runtime/discovery.ts';
-import { compilerRoot, getWorkspacePaths, relativePosixPath } from '../../workspace/runtime/paths.ts';
+import { compilerRoot, getWorkspacePaths } from '../../workspace/runtime/paths.ts';
+import { relativePosixPath } from '../../contracts/relative-path.ts';
 import {
   withSemanticMutationIsolatedPhaseTelemetry,
   type SemanticMutationIsolatedPhase

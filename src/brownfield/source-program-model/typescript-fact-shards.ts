@@ -4,7 +4,7 @@ import {
   compareCodeUnits,
   isPlainObject,
   sha256
-} from '../../system-architecture/foundation/runtime/canonical.ts';
+} from '../../contracts/canonical.ts';
 import { normalizeSecRepositoryPath } from '../../system-architecture/repository-modules/contract.ts';
 import type {
   SourceProgramCapabilityInvocation,

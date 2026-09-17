@@ -1,13 +1,9 @@
 import path from 'node:path';
 
-import type { SemanticGeneratorPlanTask, SemanticGeneratorTask } from '../semantic/generation/contract/types.ts';
-import { uniqueSorted } from '../system-architecture/foundation/runtime/canonical.ts';
+import type { SemanticGeneratorPlanTask, SemanticGeneratorTask } from '../semantics/generation/types.ts';
+import { uniqueSorted } from '../contracts/canonical.ts';
 import { writeText, type CommitFence } from '../workspace/files.ts';
-import {
-  isCanonicalWorkspaceArtifactPath,
-  resolvePathInside,
-  resolveWorkspaceArtifactPath
-} from '../workspace/runtime/paths.ts';
+import { isCanonicalWorkspaceArtifactPath, resolvePathInside, resolveWorkspaceArtifactPath } from '../workspace/runtime/paths.ts';
 import { renderStateTransitionMapSource } from './codegen/state-transition-source.ts';
 import { CompilerError } from './errors.ts';
 import { indexValidatedEngineeringIR } from './ir/index-engineering-ir.ts';

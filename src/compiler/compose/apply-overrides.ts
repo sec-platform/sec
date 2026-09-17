@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
-import type { OverrideEntry } from '../../semantic/provenance/contract/types.ts';
+import type { OverrideEntry } from '../../semantics/provenance/types.ts';
 import type { CommitFence } from '../../workspace/files.ts';
 import {
   deleteExpectedCanonicalWorkspaceFile,

@@ -47,7 +47,7 @@ import {
   requireResolvedSecWorkDecisionReceipt,
   type SecWorkSelectionProvider
 } from '../../src/control/work-selection/runtime.ts';
-import { rawSha256, sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { rawSha256, sha256 } from '../../src/contracts/canonical.ts';
 
 const exactMain = 'a'.repeat(40);
 const exactMainTree = 'b'.repeat(40);

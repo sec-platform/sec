@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { throwIfNativeAborted } from '../../system-architecture/foundation/runtime/native-abort.ts';
+import { throwIfNativeAborted } from '../../contracts/native-abort.ts';
 
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import { ensureProjectBase } from '../../workspace/application/project-base.ts';

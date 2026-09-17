@@ -3,8 +3,8 @@ import path from 'node:path';
 import { ANONYMOUS_PACKAGE_REGISTRY_PROFILE } from '../../../external-capabilities/package-registry/contract/anonymous-registry.ts';
 import { queryAnonymousPackageRegistryLatestVersions } from '../../../external-capabilities/package-registry/runtime/anonymous-registry.ts';
 import { readOptionalRetainedOrdinaryFile } from '../../../runtime-state/physical/runtime/retained-file-read.ts';
-import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
-import { parseExactJsonBytes } from '../../../system-architecture/foundation/runtime/exact-json.ts';
+import { sha256 } from '../../../contracts/canonical.ts';
+import { parseExactJsonBytes } from '../../../contracts/exact-json.ts';
 import { compilerRoot } from '../../../workspace/runtime/paths.ts';
 import type { DependencyCapabilityPackageManifest } from '../contract/dependency-capability-contract.ts';
 import type {

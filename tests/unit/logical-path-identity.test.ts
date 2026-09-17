@@ -1,11 +1,8 @@
 import { expect, test } from 'bun:test';
 
 import { validateOverrideManifest } from '../../src/compiler/parse/load-override-manifest.ts';
-import { assertCanonicalPortableLogicalPath, isCanonicalPortableLogicalPath, isCanonicalPortableLogicalPathPrefix, portableLogicalPathCollisionKey } from '../../src/system-architecture/foundation/contract/logical-path.ts';
-import {
-  secRelativePath,
-  workspaceConfigRelativePath
-} from '../../src/workspace/runtime/paths.ts';
+import { assertCanonicalPortableLogicalPath, isCanonicalPortableLogicalPath, isCanonicalPortableLogicalPathPrefix, portableLogicalPathCollisionKey } from '../../src/contracts/logical-path.ts';
+import { secRelativePath, workspaceConfigRelativePath } from '../../src/workspace/runtime/paths.ts';
 
 test('portable logical paths accept canonical project-relative POSIX spellings', () => {
   expect(isCanonicalPortableLogicalPath('src/installed/entity/customer-service.ts')).toBe(true);

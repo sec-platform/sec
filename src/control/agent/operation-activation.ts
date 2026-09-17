@@ -1,5 +1,5 @@
-import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../system-architecture/foundation/contract/repository-path.ts';
-import { canonicalJson, compareCodeUnits, deepFreeze, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../contracts/repository-path.ts';
+import { canonicalJson, compareCodeUnits, deepFreeze, sha256 } from '../../contracts/canonical.ts';
 import { type SecDigest } from './task-capsule.ts';
 
 export const SEC_AGENT_OPERATION_ACTIVATION_REQUEST_SCHEMA =

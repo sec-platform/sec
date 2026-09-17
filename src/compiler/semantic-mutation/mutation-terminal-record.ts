@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { link, mkdir, open, readdir, readFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { SEMANTIC_MUTATION_REJECTED_TERMINAL_RECORD_REVISION, type SemanticMutationRejectedTerminalRecord } from '../../semantic/mutation/contract/transaction.ts';
-import type { SemanticMutationResult } from '../../semantic/mutation/contract/types.ts';
+import { SEMANTIC_MUTATION_REJECTED_TERMINAL_RECORD_REVISION, type SemanticMutationRejectedTerminalRecord } from '../../semantics/mutation/transaction.ts';
+import type { SemanticMutationResult } from '../../semantics/mutation/types.ts';
 import {
   canonicalDiagnostics,
   canonicalEquals,

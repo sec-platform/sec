@@ -16,7 +16,7 @@ import {
   type BoundedProcessDiagnosticObjectReadbackReceipt,
   type BoundedProcessDiagnosticPublishedObject
 } from '../../../runtime-state/workspace-state/bounded-process-diagnostic-contract.ts';
-import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../../contracts/canonical.ts';
 import {
   assertSecDomainReadbackReceipt,
   assertSecOwnerTerminalJoinReceipt,

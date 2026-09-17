@@ -9,11 +9,11 @@ import {
 } from '../../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   SecError
-} from '../../../../system-architecture/foundation/contract/failure.ts';
+} from '../../../../contracts/failure.ts';
 import {
   canonicalJson
-} from '../../../../system-architecture/foundation/runtime/canonical.ts';
-import { failureMessage, getErrorCode } from '../../../../system-architecture/foundation/runtime/failure-inspection.ts';
+} from '../../../../contracts/canonical.ts';
+import { failureMessage, getErrorCode } from '../../../../contracts/failure-inspection.ts';
 import {
   type RuntimeDependencyEffectFenceInput,
   runtimeDependencyEffectFenceOptions,

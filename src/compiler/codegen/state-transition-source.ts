@@ -1,5 +1,5 @@
-import type { StateTransitionMapGeneratorPlanTask } from '../../semantic/generation/contract/types.ts';
-import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
+import type { StateTransitionMapGeneratorPlanTask } from '../../semantics/generation/types.ts';
+import { compareCodeUnits } from '../../contracts/canonical.ts';
 import { assertStateTransitionFunctions } from '../state-transition-plan.ts';
 import { CodeBuilder } from './code-builder.ts';
 

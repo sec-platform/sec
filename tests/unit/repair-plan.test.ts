@@ -15,7 +15,7 @@ import {
   parseRepairPlanJson,
   REPAIR_PLAN_FORMAT_VERSION,
   type RepairPlan
-} from '../../src/semantic/repair/contract/types.ts';
+} from '../../src/semantics/repair/types.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { readJson, writeJson } from '../../src/workspace/files.ts';
 import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';

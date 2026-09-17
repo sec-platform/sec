@@ -20,7 +20,7 @@ import {
   semanticMutationStagedTransactionId,
   semanticMutationTransactionRoot
 } from '../../src/compiler/semantic-mutation/transaction-identity.ts';
-import { type SemanticMutationRecoveryRecord } from '../../src/semantic/mutation/contract/transaction.ts';
+import { type SemanticMutationRecoveryRecord } from '../../src/semantics/mutation/transaction.ts';
 import {
   digest,
   recoveryDraft,

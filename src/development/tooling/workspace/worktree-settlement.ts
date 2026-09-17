@@ -13,7 +13,7 @@ import {
   type WorktreeMaterializationEntry,
   type WorktreeSettlementReceipt
 } from '../../../runtime-state/worktree-settlement.ts';
-import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../../contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,

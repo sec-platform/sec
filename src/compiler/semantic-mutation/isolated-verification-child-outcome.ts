@@ -6,7 +6,7 @@
 import { open, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 
-import { parseExactJsonBytes } from '../../system-architecture/foundation/runtime/exact-json.ts';
+import { parseExactJsonBytes } from '../../contracts/exact-json.ts';
 import {
   PIPELINE_EXECUTION_BOUNDARIES,
   type PipelineExecutionBoundary

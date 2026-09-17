@@ -25,7 +25,7 @@ import {
   type RuntimeEndpointResidueReceipt,
   type RuntimeGenerationCensusReceipt
 } from '../../../runtime-state/physical/runtime/runtime-endpoint-residue.ts';
-import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../../contracts/canonical.ts';
 import { issueSecOperationRequirementBindingContext } from '../../../system-architecture/operation/requirement-binding-context.ts';
 import {
   assertSecSemanticOperationProjection,

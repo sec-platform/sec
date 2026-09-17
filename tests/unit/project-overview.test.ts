@@ -7,9 +7,9 @@ import {
   buildProjectOverviewFromWorkspace,
   formatProjectOverview
 } from '../../src/interface/cli/project-overview.ts';
-import type { AcceptanceCoverageReport } from '../../src/semantic/acceptance/contract/types.ts';
-import type { ExplainGraph } from '../../src/semantic/projection/contract/explain.ts';
-import type { ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
+import type { AcceptanceCoverageReport } from '../../src/assurance/acceptance/coverage.ts';
+import type { ExplainGraph } from '../../src/semantics/projection/explain.ts';
+import type { ProvenanceFile } from '../../src/semantics/provenance/types.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import type { CiArtifactManifest } from '../../src/verification/ci-artifacts/contract/types.ts';
 import type { VerificationReport } from '../../src/verification/contract/types.ts';

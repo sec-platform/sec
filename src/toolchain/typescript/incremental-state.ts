@@ -15,7 +15,7 @@ import {
   type RetainedNoFollowChildProcessDirectory
 } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { settlePhysicalResources, type PhysicalResourceSettlementFailure } from '../../runtime-state/physical/runtime/resource-settlement.ts';
-import { isNativeAborted } from '../../system-architecture/foundation/runtime/native-abort.ts';
+import { isNativeAborted } from '../../contracts/native-abort.ts';
 import {
   BUILD_INFO_FILE_NAME, BUILD_INFO_MAXIMUM_BYTES, STABLE_SEED_MAXIMUM_BYTES,
   assertSeedBindingDigest, encodeStableSeed, parseStableSeed

@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { acquirePhysicalMutationLease } from '../runtime-state/physical/runtime/mutation-lease.ts';
 import { assertSameNoFollowDirectoryIdentity, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, relocateRetainedNoFollowDirectory, relocateRetainedNoFollowDirectoryAcrossParents, type PhysicalDirectoryIdentity } from '../runtime-state/physical/runtime/physical-no-follow.ts';
-import { digest, sha256 } from '../system-architecture/foundation/runtime/canonical.ts';
+import { digest, sha256 } from '../contracts/canonical.ts';
 import {
   COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS
 } from '../toolchain/runtime.ts';

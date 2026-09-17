@@ -22,7 +22,7 @@ import {
   type RetainedTypeScriptExecutionGeneration,
   type RetainedTypeScriptExecutionGenerationCleanupReceipt
 } from '../../runtime-state/physical/runtime/typescript-execution-generation.ts';
-import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../contracts/canonical.ts';
 
 const typeScriptExecutionGenerationBrand: unique symbol = Symbol(
   'typescript-execution-generation'

@@ -1,5 +1,5 @@
 import { readOptionalRetainedJson } from '../../../runtime-state/physical/runtime/retained-file-read.ts';
-import { canonicalEquals, deepFreeze } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalEquals, deepFreeze } from '../../../contracts/canonical.ts';
 import {
   buildCiArtifactUploadGroups,
   ciArtifactKindForPath,

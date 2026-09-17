@@ -1,4 +1,4 @@
-import { canonicalEquals, sha256 as canonicalSha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalEquals, sha256 as canonicalSha256 } from '../../../contracts/canonical.ts';
 import { encodeVerificationActionData, parseVerificationActionPlan, type VerificationActionKeyDigest, type VerificationActionPlan } from '../../action/contract/action.ts';
 import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationNormalizedOperationArgv, parseCiVerificationNormalizedOperation, type CiVerificationExecutionEnvironment, type CiVerificationNormalizedOperation } from '../../action/contract/ci.ts';
 import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../../action/contract/environment.ts';

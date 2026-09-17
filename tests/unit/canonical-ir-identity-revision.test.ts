@@ -8,7 +8,7 @@ import { artifactEntityId, normalizedArtifactTarget } from '../../src/compiler/i
 import { digest } from '../../src/compiler/ir/ir-revision.ts';
 import { normalizePlan, validatePlan } from '../../src/compiler/parse/load-plan.ts';
 import { TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE } from '../../src/compiler/policies/contract/rules.ts';
-import type { LoadedSemanticContract } from '../../src/semantic/contracts/contract/types.ts';
+import type { LoadedSemanticContract } from '../../src/semantics/definitions/types.ts';
 
 function semanticContract(): LoadedSemanticContract {
   return {

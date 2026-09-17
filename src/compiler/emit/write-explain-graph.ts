@@ -1,9 +1,9 @@
 import type { UpgradeDiagnostics, UpgradePlan } from '../../change-management/upgrade/contract/upgrade-artifact.ts';
-import type { AcceptanceCoverageReport } from '../../semantic/acceptance/contract/types.ts';
-import type { ExplainEdgeType, ExplainGraph, ExplainGraphEdge, ExplainGraphNode, ExplainNodeType } from '../../semantic/projection/contract/explain.ts';
-import type { SemanticViewSet, ViewReference } from '../../semantic/projection/contract/types.ts';
-import type { ProvenanceFile } from '../../semantic/provenance/contract/types.ts';
-import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
+import type { AcceptanceCoverageReport } from '../../assurance/acceptance/coverage.ts';
+import type { ExplainEdgeType, ExplainGraph, ExplainGraphEdge, ExplainGraphNode, ExplainNodeType } from '../../semantics/projection/explain.ts';
+import type { SemanticViewSet, ViewReference } from '../../semantics/projection/types.ts';
+import type { ProvenanceFile } from '../../semantics/provenance/types.ts';
+import { compareCodeUnits } from '../../contracts/canonical.ts';
 import { readOptionalAcceptanceCoverageReport } from '../../verification/acceptance/runtime/coverage-authority.ts';
 import { CI_ARTIFACT_FILES, CI_EXPLAIN_GRAPH_ARTIFACT_PATHS } from '../../verification/ci-artifacts/contract/manifest.ts';
 import { formatJsonFile, publishExistingParentCanonicalWorkspaceFile, type CommitFence } from '../../workspace/files.ts';

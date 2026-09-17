@@ -4,8 +4,8 @@ import {
   type RepairBlocker,
   type RepairFailurePoint,
   type RepairPlan
-} from '../../semantic/repair/contract/types.ts';
-import { uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+} from '../../semantics/repair/types.ts';
+import { uniqueSorted } from '../../contracts/canonical.ts';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../verification/contract/types.ts';
 import { writeJson, type CommitFence } from '../../workspace/files.ts';

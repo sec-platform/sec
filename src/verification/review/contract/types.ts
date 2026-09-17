@@ -1,8 +1,8 @@
 import type { PolicySeverity, PolicySourceScope } from '../../../compiler/policies/contract/types.ts';
-import type { RegistryKind, RegistryLocation } from '../../../compiler/registry/contract/types.ts';
-import type { SemanticViewKind, SemanticViewSet } from '../../../semantic/projection/contract/types.ts';
-import type { OverrideStatus, ProvenanceOriginType } from '../../../semantic/provenance/contract/types.ts';
-import type { RepairTaskCategory } from '../../../semantic/repair/contract/types.ts';
+import type { RegistryKind, RegistryLocation } from '../../../contracts/registry-source.ts';
+import type { SemanticViewKind, SemanticViewSet } from '../../../semantics/projection/types.ts';
+import type { OverrideStatus, ProvenanceOriginType } from '../../../semantics/provenance/types.ts';
+import type { RepairTaskCategory } from '../../../semantics/repair/types.ts';
 import type { VerificationStatus } from '../../contract/types.ts';
 
 export const REVIEW_SUMMARY_FORMAT_VERSION = '2' as const;

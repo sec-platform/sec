@@ -1,17 +1,11 @@
 import path from 'node:path';
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
-import { isCanonicalPortableLogicalPath, portableLogicalPathCollisionKey } from '../../system-architecture/foundation/contract/logical-path.ts';
-import { uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { createTaskGroupEffectFence, mapTaskGroup } from '../../system-architecture/foundation/runtime/concurrency.ts';
-import { throwIfNativeAborted } from '../../system-architecture/foundation/runtime/native-abort.ts';
+import { isCanonicalPortableLogicalPath, portableLogicalPathCollisionKey } from '../../contracts/logical-path.ts';
+import { uniqueSorted } from '../../contracts/canonical.ts';
+import { createTaskGroupEffectFence, mapTaskGroup } from '../../execution/task-group.ts';
+import { throwIfNativeAborted } from '../../contracts/native-abort.ts';
 import { publishExclusiveCanonicalWorkspaceFile, publishExpectedCanonicalWorkspaceFile, type CommitFence } from '../../workspace/files.ts';
-import {
-  packageJsonRelativePath,
-  resolvePathInside,
-  srcRelativePath,
-  testsRelativePath,
-  tsconfigRelativePath
-} from '../../workspace/runtime/paths.ts';
+import { packageJsonRelativePath, resolvePathInside, srcRelativePath, testsRelativePath, tsconfigRelativePath } from '../../workspace/runtime/paths.ts';
 import type { LockFile } from '../contract.ts';
 import { TemplateEngine } from './template-engine.ts';
 

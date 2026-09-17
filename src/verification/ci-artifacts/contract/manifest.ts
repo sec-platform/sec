@@ -1,6 +1,6 @@
-import { isCanonicalPortableLogicalPath } from '../../../system-architecture/foundation/contract/logical-path.ts';
-import { uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
-import { countPositiveValues } from '../../../system-architecture/foundation/runtime/collections.ts';
+import { isCanonicalPortableLogicalPath } from '../../../contracts/logical-path.ts';
+import { uniqueSorted } from '../../../contracts/canonical.ts';
+import { countPositiveValues } from '../../../contracts/collections.ts';
 import {
   CI_ARTIFACT_FORMAT_VERSION,
   CI_ARTIFACT_KINDS,

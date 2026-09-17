@@ -1,7 +1,7 @@
 import { mkdir, open, readdir, readFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { SEMANTIC_MUTATION_RECOVERY_RECORD_REVISION, SEMANTIC_MUTATION_RECOVERY_TRANSITIONS, SEMANTIC_MUTATION_REQUEST_RECORD_VIEW_REVISION, SEMANTIC_MUTATION_TERMINAL_RETENTION, type SemanticMutationRecoveryRecord, type SemanticMutationRecoveryState, type SemanticMutationRejectedTerminalRecord, type SemanticMutationRequestIdentity, type SemanticMutationRequestRecord, type SemanticMutationRequestRecordView } from '../../semantic/mutation/contract/transaction.ts';
-import type { SemanticMutationDiagnostic } from '../../semantic/mutation/contract/types.ts';
+import { SEMANTIC_MUTATION_RECOVERY_RECORD_REVISION, SEMANTIC_MUTATION_RECOVERY_TRANSITIONS, SEMANTIC_MUTATION_REQUEST_RECORD_VIEW_REVISION, SEMANTIC_MUTATION_TERMINAL_RETENTION, type SemanticMutationRecoveryRecord, type SemanticMutationRecoveryState, type SemanticMutationRejectedTerminalRecord, type SemanticMutationRequestIdentity, type SemanticMutationRequestRecord, type SemanticMutationRequestRecordView } from '../../semantics/mutation/transaction.ts';
+import type { SemanticMutationDiagnostic } from '../../semantics/mutation/types.ts';
 import {
   canonicalDiagnostics,
   canonicalEquals,

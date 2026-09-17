@@ -9,7 +9,7 @@ import {
   SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH,
   SEC_LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH
 } from '../../src/external-capabilities/linux-verification/contract.ts';
-import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../src/contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,

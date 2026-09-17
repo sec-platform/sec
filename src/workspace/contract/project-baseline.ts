@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
-import { isCanonicalPortableLogicalPath } from '../../system-architecture/foundation/contract/logical-path.ts';
-import { deepFreeze } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { parseExactJson } from '../../system-architecture/foundation/runtime/exact-json.ts';
+import { isCanonicalPortableLogicalPath } from '../../contracts/logical-path.ts';
+import { deepFreeze } from '../../contracts/canonical.ts';
+import { parseExactJson } from '../../contracts/exact-json.ts';
 import { captureProjectPathInventory } from './project-path-inventory.ts';
 
 export const PROJECT_BASELINE_FORMAT_VERSION = '1' as const;

@@ -2,20 +2,17 @@ import path from 'node:path';
 import { z } from 'zod';
 
 import { createNoFollowDirectoryChain, inspectNoFollowDirectoryChain, PhysicalNoFollowError, readNoFollowOrdinaryFile, replaceDurableCanonicalFile, type PhysicalDirectoryIdentity } from '../runtime-state/physical/runtime/physical-no-follow.ts';
-import { SEMANTIC_ENTITY_KINDS } from '../semantic/engineering-ir/contract/entity-types.ts';
-import { FACT_PROVENANCE_KINDS, SEMANTIC_AUTHORITIES, SEMANTIC_PREDICATES } from '../semantic/engineering-ir/contract/fact-types.ts';
-import { SEMANTIC_GENERATOR_ARTIFACT_KINDS, SEMANTIC_GENERATOR_CONSUME_KINDS, SEMANTIC_GENERATOR_KINDS, SEMANTIC_GENERATOR_TASK_STATUSES } from '../semantic/generation/contract/types.ts';
-import { AUTHORITY_OVERLAY_STATUSES, INSPECTOR_SECTION_IDS, SEMANTIC_VIEW_FORMAT_VERSION, SEMANTIC_VIEW_KINDS, SEMANTIC_VIEW_SET_FORMAT_VERSION, VIEW_BADGES, VIEW_REFERENCE_KINDS, type SemanticViewSet } from '../semantic/projection/contract/types.ts';
-import { uniqueSorted } from '../system-architecture/foundation/runtime/canonical.ts';
+import { SEMANTIC_ENTITY_KINDS } from '../semantics/engineering-ir/entity-types.ts';
+import { FACT_PROVENANCE_KINDS, SEMANTIC_AUTHORITIES, SEMANTIC_PREDICATES } from '../semantics/engineering-ir/fact-types.ts';
+import { SEMANTIC_GENERATOR_ARTIFACT_KINDS, SEMANTIC_GENERATOR_CONSUME_KINDS, SEMANTIC_GENERATOR_KINDS, SEMANTIC_GENERATOR_TASK_STATUSES } from '../semantics/generation/types.ts';
+import { AUTHORITY_OVERLAY_STATUSES, INSPECTOR_SECTION_IDS, SEMANTIC_VIEW_FORMAT_VERSION, SEMANTIC_VIEW_KINDS, SEMANTIC_VIEW_SET_FORMAT_VERSION, VIEW_BADGES, VIEW_REFERENCE_KINDS, type SemanticViewSet } from '../semantics/projection/types.ts';
+import { uniqueSorted } from '../contracts/canonical.ts';
 import {
   CI_ARTIFACT_FILES,
   expandCiGeneratedArtifactPaths
 } from '../verification/ci-artifacts/contract/manifest.ts';
 import { formatJsonFile, type CommitFence } from '../workspace/files.ts';
-import {
-  getWorkspacePaths,
-  resolveWorkspaceArtifactPath
-} from '../workspace/runtime/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../workspace/runtime/paths.ts';
 import {
   LOCK_APP_TARGETS,
   LOCK_FILE_FORMAT_VERSION,
@@ -25,7 +22,7 @@ import {
   type PassState,
   type PassStatus
 } from './contract.ts';
-import { REGISTRY_KINDS, REGISTRY_LOCATIONS } from './registry/contract/types.ts';
+import { REGISTRY_KINDS, REGISTRY_LOCATIONS } from '../contracts/registry-source.ts';
 
 const stringArraySchema = z.array(z.string());
 const semanticValueSchema: z.ZodType<unknown> = z.lazy(() => z.union([

@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { canonicalJson } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { canonicalJson } from '../../src/contracts/canonical.ts';
 import { dependencyTransitionRecordBytes, transitionRecordName } from '../../src/toolchain/dependencies/runtime/dependency-transition/codec.ts';
 import { inspectActiveDependencyTransitionRollover, recoverDependencyTransitionRollover } from '../../src/toolchain/dependencies/runtime/dependency-transition/rollover.ts';
 import { runtimeDependencyOperationControls } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';

@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import ts from 'typescript';
 
-import { rawSha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { rawSha256 } from '../../contracts/canonical.ts';
 import {
   compileVirtualWorkspaceSourceSnapshot,
   compileWorkspaceTypeScriptProjectInput

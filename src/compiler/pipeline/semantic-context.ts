@@ -1,6 +1,6 @@
-import type { ValidatedEngineeringIRSnapshot } from '../../semantic/engineering-ir/contract/validated-types.ts';
-import type { SemanticGeneratorPlan } from '../../semantic/generation/contract/types.ts';
-import type { SemanticViewSet } from '../../semantic/projection/contract/types.ts';
+import type { ValidatedEngineeringIRSnapshot } from '../../semantics/engineering-ir/validated-types.ts';
+import type { SemanticGeneratorPlan } from '../../semantics/generation/types.ts';
+import type { SemanticViewSet } from '../../semantics/projection/types.ts';
 import { CompilerError } from '../errors.ts';
 import type { PipelineExecutionContext, PipelineSemanticContext } from './types.ts';
 

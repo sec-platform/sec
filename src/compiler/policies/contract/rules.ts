@@ -1,4 +1,4 @@
-import type { SemanticPredicate } from '../../../semantic/engineering-ir/contract/fact-types.ts';
+import type { SemanticPredicate } from '../../../semantics/engineering-ir/fact-types.ts';
 
 export const TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE =
   'tenant_context_must_flow_to_query' as const;

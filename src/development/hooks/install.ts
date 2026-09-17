@@ -21,7 +21,7 @@ import {
 import { acquirePhysicalMutationLease, type PhysicalMutationLeaseHandle, type PhysicalMutationLeaseOwner } from '../../runtime-state/physical/runtime/mutation-lease.ts';
 import { createExclusiveNoFollowDirectory, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, PhysicalNoFollowError, publishExclusiveDurableCanonicalFile, replaceDurableCanonicalFile, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryChain, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import type { ProcessResourceSession } from '../../runtime-state/physical/runtime/process-resource-session.ts';
-import { canonicalJson, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalJson, sha256 } from '../../contracts/canonical.ts';
 import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
 
 const MANAGED_HOOKS_PATH = '.githooks';

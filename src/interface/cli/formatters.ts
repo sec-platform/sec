@@ -6,12 +6,12 @@ import type {
 } from '../../change-management/upgrade/contract/upgrade-artifact.ts';
 import type { InstallPlanStep, LockFile } from '../../compiler/contract.ts';
 import type { PolicyReport } from '../../compiler/policies/contract/types.ts';
-import type { AcceptanceCoverageEntry, AcceptanceCoverageReport } from '../../semantic/acceptance/contract/types.ts';
-import type { ExplainGraph } from '../../semantic/projection/contract/explain.ts';
-import type { ProvenanceFile } from '../../semantic/provenance/contract/types.ts';
-import type { RepairPlan } from '../../semantic/repair/contract/types.ts';
-import { compareCodeUnits, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { countMatching } from '../../system-architecture/foundation/runtime/collections.ts';
+import type { AcceptanceCoverageEntry, AcceptanceCoverageReport } from '../../assurance/acceptance/coverage.ts';
+import type { ExplainGraph } from '../../semantics/projection/explain.ts';
+import type { ProvenanceFile } from '../../semantics/provenance/types.ts';
+import type { RepairPlan } from '../../semantics/repair/types.ts';
+import { compareCodeUnits, uniqueSorted } from '../../contracts/canonical.ts';
+import { countMatching } from '../../contracts/collections.ts';
 import { buildCiArtifactUploadGroups, CI_ARTIFACT_MANIFEST_PATH } from '../../verification/ci-artifacts/contract/manifest.ts';
 import type { CiArtifactKind, CiArtifactManifest, CiArtifactUploadGroup } from '../../verification/ci-artifacts/contract/types.ts';
 import type { RuntimeVerificationLaneReport, VerificationReport } from '../../verification/contract/types.ts';

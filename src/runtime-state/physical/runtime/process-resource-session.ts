@@ -2,7 +2,7 @@ import {
   deepFreeze,
   rawSha256,
   sha256
-} from '../../../system-architecture/foundation/runtime/canonical.ts';
+} from '../../../contracts/canonical.ts';
 import {
   consumeSecOperationRequirementBindingContext,
   type SecOperationRequirementBindingContext,

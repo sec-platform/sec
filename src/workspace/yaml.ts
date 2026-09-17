@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { decodeExactUtf8 } from '../runtime-state/physical/runtime/retained-file-read.ts';
-import { parseYamlValue, type YamlValueAdmission } from '../system-architecture/foundation/runtime/yaml.ts';
+import { parseYamlValue, type YamlValueAdmission } from '../adapters/formats/yaml.ts';
 import { writeText, type CommitFence } from './files.ts';
 
 // Generic file-read defaults, not an authority grant or a shared limit for

@@ -41,7 +41,7 @@ import {
   type RetainedNoFollowFileTransaction
 } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { runCommandBytes, type ByteCommandResult } from '../../runtime-state/physical/runtime/process.ts';
-import { digest, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { digest, rawSha256, sha256 } from '../../contracts/canonical.ts';
 import { compileSecRepositoryModuleMembership } from '../../system-architecture/repository-modules/contract.ts';
 import { withWorkspaceWriteLease } from '../../workspace/lease.ts';
 import {

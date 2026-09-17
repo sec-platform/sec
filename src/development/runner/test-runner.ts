@@ -21,8 +21,8 @@ import { createAuthorityGitReadSession, type GitReadSession, type GitReadSession
 import type { ProcessResourceSession } from '../../runtime-state/physical/runtime/process-resource-session.ts';
 import { settlePhysicalResourcesAsync } from '../../runtime-state/physical/runtime/resource-settlement.ts';
 import { secRuntimeStateEnvironment } from '../../runtime-state/workspace-state/layout.ts';
-import { deepFreeze, rawSha256, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { uniqueSortedLines } from '../../system-architecture/foundation/runtime/collections.ts';
+import { deepFreeze, rawSha256, uniqueSorted } from '../../contracts/canonical.ts';
+import { uniqueSortedLines } from '../../contracts/collections.ts';
 import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
 import { isSecRepositoryTestModulePath, normalizeSecRepositoryTestModulePath } from '../../system-architecture/repository-modules/test-module-path.ts';
 import type { RetainedCompilerDependencyReadGeneration } from '../../toolchain/dependencies/runtime.ts';
@@ -43,7 +43,8 @@ import {
 import { createRepositoryTestImpactSourceProvider, formatSlowImpactNotice, type CodexDevelopmentTestImpactSourceProvider } from '../../verification/test-impact/runtime/impact.ts';
 import { CodexDevelopmentCreateTestImpactTransitionObservation, gitChangedFileDiffArgs, gitIndexChangedFileDiffArgs, gitPathBlobBatchArgs, gitUntrackedFileArgs, gitWorkingTreeStatusArgs, gitWorktreeChangedFileDiffArgs, parseGitChangedRecordsOutput, parseGitPathBlobBatchOutput, parseGitUntrackedFileOutput, type CodexDevelopmentTestImpactTransitionObservation } from '../../verification/test-impact/runtime/transition.ts';
 import { selectSlowTestRiskClosure } from '../../verification/test-impact/slow-risk-selection.ts';
-import { compilerRoot, posixPath } from '../../workspace/runtime/paths.ts';
+import { compilerRoot } from '../../workspace/runtime/paths.ts';
+import { posixPath } from '../../contracts/relative-path.ts';
 import { GIT_READ_OPERATION_BUDGET } from '../tooling/git/git-read.ts';
 import {
   AFFECTED_GIT_REVALIDATION_AGGREGATE_CEILING,

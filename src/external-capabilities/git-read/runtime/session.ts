@@ -1,8 +1,8 @@
 import path from 'node:path';
 import { parseGitLineReply, parseGitObjectIdReply } from '../../../runtime-state/physical/contract/git-worktree-observation.ts';
 import { settlePhysicalResources, type PhysicalResourceSettlementFailure } from '../../../runtime-state/physical/runtime/resource-settlement.ts';
-import { snapshotByteView } from '../../../system-architecture/foundation/runtime/byte-snapshot.ts';
-import { failureMessage } from '../../../system-architecture/foundation/runtime/failure-inspection.ts';
+import { snapshotByteView } from '../../../contracts/byte-snapshot.ts';
+import { failureMessage } from '../../../contracts/failure-inspection.ts';
 import { boundedGitReadDeadlineAt, resolveGitReadSessionBudget, type GitReadSessionBudget } from './budget.ts';
 import {
   canonicalCommitTreeInput, captureGitDevelopmentCommitContract, compileGitDevelopmentCommitContractDigest, gitCommitEnvironment,
@@ -20,7 +20,7 @@ import { PhysicalNoFollowError, inspectNoFollowDirectoryChain, inspectNoFollowOr
 import { assertProcessResourceSessionReceipt, openProcessResourceSession, type ProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
 import { RetainedCommandTransportError, resolveExecutableLocator, type ByteCommandResult } from '../../../runtime-state/physical/runtime/process.ts';
 import type { RetainedCommandAuxiliaryInput } from '../../../runtime-state/physical/runtime/retained-command-boundary.ts';
-import { rawSha256, sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { issueSecOperationRequirementBindingContext } from '../../../system-architecture/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,

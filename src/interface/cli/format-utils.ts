@@ -1,6 +1,6 @@
-import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { mergeCountSummaries, summarizeCounts } from '../../system-architecture/foundation/runtime/collections.ts';
-import { stringifyJsonValue } from '../../system-architecture/foundation/runtime/json-text.ts';
+import { compareCodeUnits } from '../../contracts/canonical.ts';
+import { mergeCountSummaries, summarizeCounts } from '../../contracts/collections.ts';
+import { stringifyJsonValue } from '../../contracts/json-text.ts';
 import type { JsonOutputOptions } from './json-output-options.ts';
 
 export function formatList(values: string[], fallback = 'none'): string {

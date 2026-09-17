@@ -1,5 +1,6 @@
-import { ACCEPTANCE_COVERAGE_FORMAT_VERSION, type AcceptanceCoverageEntry, type AcceptanceCoverageReport, type AcceptanceItem } from '../../semantic/acceptance/contract/types.ts';
-import { canonicalEquals, compareCodeUnits, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { ACCEPTANCE_COVERAGE_FORMAT_VERSION, type AcceptanceCoverageEntry, type AcceptanceCoverageReport } from '../../assurance/acceptance/coverage.ts';
+import { type AcceptanceItem } from '../../semantics/acceptance/types.ts';
+import { canonicalEquals, compareCodeUnits, uniqueSorted } from '../../contracts/canonical.ts';
 import { acceptanceIdsProvenByVerificationReports } from '../../verification/acceptance/contract/proof.ts';
 import { validateAcceptanceCoverageReport } from '../../verification/acceptance/runtime/coverage-authority.ts';
 import { readOptionalCanonicalVerificationArtifactSet } from '../../verification/artifact/runtime/authority.ts';

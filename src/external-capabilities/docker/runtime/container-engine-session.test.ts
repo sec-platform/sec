@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { issueRuntimeGenerationCensusReceiptForTests } from '../../../runtime-state/physical/runtime/runtime-endpoint-residue.ts';
-import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../../contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,

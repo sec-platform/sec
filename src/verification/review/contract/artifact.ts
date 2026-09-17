@@ -1,4 +1,4 @@
-import { countPositiveValues } from '../../../system-architecture/foundation/runtime/collections.ts';
+import { countPositiveValues } from '../../../contracts/collections.ts';
 import type { CiArtifactMissingEntry, CiArtifactSummary, CiArtifactUploadGroup } from '../../ci-artifacts/contract/types.ts';
 
 export type ReviewArtifactMissingEntry = CiArtifactMissingEntry;

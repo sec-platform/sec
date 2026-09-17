@@ -4,7 +4,7 @@ import {
 import {
   openRetainedWindowsRuntimeStateDirectory
 } from '../../../runtime-state/physical/runtime/retained-runtime-state-directory.ts';
-import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../../contracts/canonical.ts';
 import type { SecOperationDigest } from '../../../system-architecture/operation/semantic.ts';
 import {
   DOCKER_DESKTOP_LOGIN_START_CONFIGURATION_OWNER,

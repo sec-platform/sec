@@ -17,7 +17,7 @@ import {
   assertProcessResourceSessionReceipt,
   openProcessResourceSession
 } from '../../runtime-state/physical/runtime/process-resource-session.ts';
-import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../contracts/canonical.ts';
 import { issueSecOperationRequirementBindingContext } from '../../system-architecture/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,

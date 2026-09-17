@@ -13,7 +13,7 @@ import {
   readOptionalRetainedOrdinaryFile,
   retainOptionalDirectory
 } from '../../runtime-state/physical/runtime/retained-file-read.ts';
-import { parseExactJson } from '../../system-architecture/foundation/runtime/exact-json.ts';
+import { parseExactJson } from '../../contracts/exact-json.ts';
 import { formatJsonFile, publishExistingParentCanonicalWorkspaceFile } from '../../workspace/files.ts';
 import { getWorkspacePaths } from '../../workspace/runtime/paths.ts';
 import { PASS_SEQUENCE } from './defaults.ts';

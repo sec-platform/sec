@@ -4,7 +4,7 @@ import type { BlockManifest, PlanFile } from '../../src/compiler/contract.ts';
 import { SUPPORTED_STACK } from '../../src/compiler/contract.ts';
 import { validatePlan } from '../../src/compiler/parse/load-plan.ts';
 import { normalizeAndValidateSemanticManifestFields } from '../../src/compiler/parse/validate-semantic-manifest.ts';
-import { isCanonicalAcceptanceId } from '../../src/semantic/acceptance/contract/identity.ts';
+import { isCanonicalAcceptanceId } from '../../src/semantics/acceptance/identity.ts';
 
 function basePlan(acceptanceIds: readonly string[]): PlanFile {
   return {

@@ -1,5 +1,22 @@
-import { throwIfNativeAborted } from '../../system-architecture/foundation/runtime/native-abort.ts';
-import type { VerifyProjectOptions } from './verify-project.ts';
+import { throwIfNativeAborted } from '../../contracts/native-abort.ts';
+import type { Logger } from '../../contracts/logging.ts';
+import type { PipelineEventHandler } from '../pipeline/types.ts';
+import type { IsolatedStagingTreeOptions } from './assert-isolated-staging-tree.ts';
+import type { StagedVerificationProof } from './staged-verification-proof.ts';
+
+export interface VerifyProjectOptions {
+  readonly beforeCommit?: () => Promise<void>;
+  readonly emitTiming?: boolean;
+  readonly isolated?: boolean;
+  readonly logger?: Logger;
+  readonly pipelineObserver?: Readonly<{
+    readonly onEvent: PipelineEventHandler;
+    readonly transactionId: string;
+  }>;
+  readonly signal?: AbortSignal;
+  readonly stagedVerificationProof?: StagedVerificationProof;
+  readonly stagingTreeOptions?: IsolatedStagingTreeOptions;
+}
 
 /** Only request/environment references are captured here. Proof, lease and
  * isolated-tree validity remain with their issuers. In particular a snapshot

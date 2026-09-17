@@ -1,12 +1,12 @@
 import { z } from 'zod';
 
-import { isCanonicalPortableLogicalPath } from '../../../system-architecture/foundation/contract/logical-path.ts';
-import { deepFreeze, sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { isCanonicalPortableLogicalPath } from '../../../contracts/logical-path.ts';
+import { deepFreeze, sha256 } from '../../../contracts/canonical.ts';
 import {
   ExactJsonError,
   parseExactJson,
   type ExactJsonFailureKind
-} from '../../../system-architecture/foundation/runtime/exact-json.ts';
+} from '../../../contracts/exact-json.ts';
 
 export const UPGRADE_PLAN_FORMAT_VERSION = '1' as const;
 export const UPGRADE_EXECUTION_TERMINAL_FORMAT_VERSION = '1' as const;

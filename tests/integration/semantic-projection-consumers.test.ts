@@ -5,7 +5,7 @@ import { loadWorkspaceEngineeringIRBuildInput } from '../../src/compiler/ir/load
 import { buildValidatedEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
 import { explainWorkspace } from '../../src/compiler/orchestration/cli.ts';
 import { buildSemanticViewSet } from '../../src/compiler/projection/build-semantic-view-set.ts';
-import type { ExplainGraph } from '../../src/semantic/projection/contract/explain.ts';
+import type { ExplainGraph } from '../../src/semantics/projection/explain.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import type { ReviewSummary } from '../../src/verification/review/contract/types.ts';
 import { readJson, writeJson } from '../../src/workspace/files.ts';

@@ -1,6 +1,6 @@
 import nodePath from 'node:path';
 
-import { assertCanonicalPortableLogicalPath } from '../../system-architecture/foundation/contract/logical-path.ts';
+import { assertCanonicalPortableLogicalPath } from '../../contracts/logical-path.ts';
 import type {
   SecRepositoryModuleGraph, SecRepositoryModuleGraphImportObservation,
   SecRepositoryModuleGraphReference

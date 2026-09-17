@@ -1,5 +1,5 @@
-import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../system-architecture/foundation/contract/repository-path.ts';
-import { compareCodeUnits, deepFreeze, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../contracts/repository-path.ts';
+import { compareCodeUnits, deepFreeze, sha256 } from '../../contracts/canonical.ts';
 
 export const SEC_TASK_CAPSULE_COMPILE_REQUEST_SCHEMA =
   'sec-task-capsule-compile-request-v2' as const;

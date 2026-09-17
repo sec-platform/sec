@@ -1,4 +1,4 @@
-import { compareCodeUnits, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { compareCodeUnits, uniqueSorted } from '../../contracts/canonical.ts';
 import type { BlockManifest, LockFile } from '../contract.ts';
 import { loadManifestForResolvedBlock } from '../parse/load-manifest.ts';
 

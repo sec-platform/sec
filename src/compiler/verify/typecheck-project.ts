@@ -2,7 +2,8 @@ import path from 'node:path';
 import ts from 'typescript';
 import { withProjectDependencyBridge } from '../../toolchain/dependencies/runtime.ts';
 import { pathExists } from '../../workspace/files.ts';
-import { compilerRoot, isPathInside, relativePosixPath, tsconfigRelativePath } from '../../workspace/runtime/paths.ts';
+import { compilerRoot, isPathInside, tsconfigRelativePath } from '../../workspace/runtime/paths.ts';
+import { relativePosixPath } from '../../contracts/relative-path.ts';
 import { CompilerError } from '../errors.ts';
 import { captureTypecheckInvocation, type TypecheckProjectOptions } from './typecheck-invocation.ts';
 

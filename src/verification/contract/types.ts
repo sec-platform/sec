@@ -1,5 +1,5 @@
 import type { PolicyReport, PolicyViolation } from '../../compiler/policies/contract/types.ts';
-import type { SemanticMutationBase, SemanticMutationVerificationCapability, VerificationRequirement } from '../../semantic/mutation/contract/types.ts';
+import type { SemanticMutationBase, SemanticMutationVerificationCapability, VerificationRequirement } from '../../semantics/mutation/types.ts';
 import type { VerificationAggregateResult, VerificationGateResult } from '../result/contract/result.ts';
 import type { VerificationLane } from './lanes.ts';
 export type { VerificationLane } from './lanes.ts';

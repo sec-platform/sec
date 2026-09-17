@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import { PhysicalNoFollowError } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
-import { canonicalEquals } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalEquals } from '../../contracts/canonical.ts';
 import {
   PROJECT_BASELINE_FORMAT_VERSION,
   parseProjectBaseline,
@@ -16,13 +16,7 @@ import { captureProjectPathInventory } from '../contract/project-path-inventory.
 import { modelRelativePath } from '../contract/types.ts';
 import { publishExclusiveCanonicalWorkspaceFile, publishExpectedCanonicalWorkspaceFile } from './file-publication.ts';
 import { ensureDir, formatJsonFile, type CommitFence } from './files.ts';
-import {
-  getWorkspacePaths,
-  resolvePathInside,
-  secRelativePath,
-  tsconfigRelativePath,
-  workspaceConfigRelativePath
-} from './paths.ts';
+import { getWorkspacePaths, resolvePathInside, secRelativePath, tsconfigRelativePath, workspaceConfigRelativePath } from './paths.ts';
 import { calculateProjectFileHash } from './project-file-hash.ts';
 
 export interface ProjectBaselineAssertionOptions {

@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { sha256 as canonicalSha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { sha256 as canonicalSha256 } from '../../src/contracts/canonical.ts';
 import type { VerificationActionKeyDigest } from '../../src/verification/action/contract/action.ts';
 import { buildCiVerificationActionPlanClosure, ciVerificationGateStep, type CiVerificationActionCandidate } from '../../src/verification/action/contract/ci.ts';
 import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../../src/verification/action/contract/environment.ts';

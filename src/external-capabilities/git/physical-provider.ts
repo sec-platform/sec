@@ -20,7 +20,7 @@ import type {
   RetainedCommandAuxiliaryInput,
   RetainedCommandBoundary
 } from '../../runtime-state/physical/runtime/retained-command-boundary.ts';
-import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../contracts/canonical.ts';
 import type {
   SecBoundSemanticOperation,
   SecOperationDigest

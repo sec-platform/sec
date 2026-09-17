@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 import type { GeneratedStatePhysicalIdentity } from '../../../runtime-state/generated-state/contract.ts';
-import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
+import { SecError } from '../../../contracts/failure.ts';
 import { captureRuntimeDependencyLifecycle, type CapturedRuntimeDependencyLifecycle, type RuntimeDependencyLifecycleInput } from './lifecycle-capabilities.ts';
 import {
   runtimeDependencyEffectFenceOptions,

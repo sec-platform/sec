@@ -1,7 +1,7 @@
 import { lstat, open, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
-import { SEMANTIC_MUTATION_SOURCE_PATH_EVIDENCE_REVISION, type SemanticMutationSourcePathEvidence, type SemanticMutationWindowsFileAttributes } from '../../semantic/mutation/contract/types.ts';
+import { SEMANTIC_MUTATION_SOURCE_PATH_EVIDENCE_REVISION, type SemanticMutationSourcePathEvidence, type SemanticMutationWindowsFileAttributes } from '../../semantics/mutation/types.ts';
 import {
   SemanticMutationContractError,
   canonicalEquals,

@@ -8,7 +8,7 @@ import {
   GIT_READ_DEFAULT_OPERATION_BUDGET,
   type GitReadSession
 } from '../../external-capabilities/git-read/runtime/session.ts';
-import { canonicalJson } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalJson } from '../../contracts/canonical.ts';
 import { resolveProspectiveWorkerOperation } from './operation-read-plan.ts';
 import {
   compileSecOperationReadPlan,

@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
-import { compileClosedDirectedGraphStrongComponents as scc, type DirectedGraphEdge } from '../../src/system-architecture/foundation/runtime/directed-graph.ts';
+import { compileClosedDirectedGraphStrongComponents as scc, type DirectedGraphEdge } from '../../src/contracts/directed-graph.ts';
 
 function chain(size: number): { nodes: string[]; edges: DirectedGraphEdge[] } {
   const nodes = Array.from({ length: size }, (_, index) => String(index).padStart(6, '0'));

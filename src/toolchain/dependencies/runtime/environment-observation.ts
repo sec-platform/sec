@@ -1,8 +1,8 @@
 import type { BigIntStats } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
-import { getErrorCode } from '../../../system-architecture/foundation/runtime/failure-inspection.ts';
+import { SecError } from '../../../contracts/failure.ts';
+import { getErrorCode } from '../../../contracts/failure-inspection.ts';
 
 export type DependencyEnvironmentMode = 'cold' | 'warm-shared' | 'warm-project' | 'dirty' | 'stale';
 export type DependencyEntryKind = 'missing' | 'physical' | 'link';

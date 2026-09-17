@@ -1,6 +1,6 @@
 import type { PolicyReport } from '../../../compiler/policies/contract/types.ts';
 import { validatePolicyReport } from '../../../compiler/policies/runtime/report-authority.ts';
-import { compareCodeUnits, uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { compareCodeUnits, uniqueSorted } from '../../../contracts/canonical.ts';
 import type { ReviewPolicySourceSummary, ReviewPolicySummary, ReviewPolicyViolationSummary } from './types.ts';
 
 function policySourceSummaryKey(summary: ReviewPolicySourceSummary): string {

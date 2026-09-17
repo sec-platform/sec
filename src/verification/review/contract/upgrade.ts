@@ -6,8 +6,8 @@ import type {
   UpgradePlan,
   UpgradePreflightCheck
 } from '../../../change-management/upgrade/contract/upgrade-artifact.ts';
-import { compareCodeUnits, uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
-import { countMatching } from '../../../system-architecture/foundation/runtime/collections.ts';
+import { compareCodeUnits, uniqueSorted } from '../../../contracts/canonical.ts';
+import { countMatching } from '../../../contracts/collections.ts';
 
 export interface ReviewUpgradePreflightSummary {
   group: string;

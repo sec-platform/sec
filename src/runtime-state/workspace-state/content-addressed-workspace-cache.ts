@@ -1,8 +1,8 @@
 import path from 'node:path';
 
-import { SecError } from '../../system-architecture/foundation/contract/failure.ts';
-import { canonicalJson, compareCodeUnits, isPlainObject, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { parseExactJson } from '../../system-architecture/foundation/runtime/exact-json.ts';
+import { SecError } from '../../contracts/failure.ts';
+import { canonicalJson, compareCodeUnits, isPlainObject, rawSha256, sha256 } from '../../contracts/canonical.ts';
+import { parseExactJson } from '../../contracts/exact-json.ts';
 import {
   assertSecSemanticOperationProjection,
   type SecBoundSemanticOperation,

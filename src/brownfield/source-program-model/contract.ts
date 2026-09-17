@@ -1,4 +1,4 @@
-import type { SemanticResponsibilityTargetKind } from '../../semantic/contracts/contract/types.ts';
+import type { SemanticResponsibilityTargetKind } from '../../semantics/definitions/types.ts';
 import type {
   SecModuleCausalRelation,
   SecModuleOperationObligation,

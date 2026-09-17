@@ -3,11 +3,8 @@ import { defaultInstallRegistry } from '../../src/compiler/compose/install-strat
 import type { BlockManifest, InstallPlanStep } from '../../src/compiler/contract.ts';
 import { validateManifest } from '../../src/compiler/parse/load-manifest.ts';
 import { loadPlan } from '../../src/compiler/parse/load-plan.ts';
-import {
-  getWorkspacePaths,
-  posixPath,
-  privateRegistryRelativePath
-} from '../../src/workspace/runtime/paths.ts';
+import { getWorkspacePaths, privateRegistryRelativePath } from '../../src/workspace/runtime/paths.ts';
+import { posixPath } from '../../src/contracts/relative-path.ts';
 import { writeYaml } from '../../src/workspace/yaml.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 

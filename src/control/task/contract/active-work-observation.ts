@@ -1,4 +1,4 @@
-import { assertGitBranchName } from '../../../system-architecture/foundation/contract/git-reference.ts';
+import { assertGitBranchName } from '../../../contracts/git-reference.ts';
 
 export type ActiveWorkPackageObservationState = 'active' | 'none' | 'invalid' | 'unresolved';
 

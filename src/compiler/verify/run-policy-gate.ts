@@ -1,11 +1,11 @@
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
-import { canonicalEquals, compareCodeUnits, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalEquals, compareCodeUnits, uniqueSorted } from '../../contracts/canonical.ts';
 import { resolvePathInside, srcRelativePath } from '../../workspace/runtime/paths.ts';
 import type { InstallPlanStep, LockFile } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
 import { artifactEntityId, capabilityEntityId } from '../ir/ir-identity.ts';
 import { loadWorkspaceEngineeringIRBuildInput } from '../ir/load-workspace-engineering-ir-input.ts';
-import { PREDICATE_SIGNATURE_REGISTRY } from '../ir/predicate-signatures.ts';
+import { PREDICATE_SIGNATURE_REGISTRY } from '../../semantics/engineering-ir/predicate-signatures.ts';
 import { buildValidatedEngineeringIR } from '../ir/validate-engineering-ir.ts';
 import {
   loadPolicyDeclarations,

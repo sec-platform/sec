@@ -1,14 +1,14 @@
 import { z } from 'zod';
 
-import { SecError } from '../../system-architecture/foundation/contract/failure.ts';
+import { SecError } from '../../contracts/failure.ts';
 import {
   canonicalJson,
   compareCodeUnits,
   deepFreeze,
   sha256,
   uniqueSorted
-} from '../../system-architecture/foundation/runtime/canonical.ts';
-import { parseExactJson } from '../../system-architecture/foundation/runtime/exact-json.ts';
+} from '../../contracts/canonical.ts';
+import { parseExactJson } from '../../contracts/exact-json.ts';
 import { normalizeSecRepositoryPath } from '../../system-architecture/repository-modules/contract.ts';
 import type {
   SourceProgramEntrypointKind,

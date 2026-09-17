@@ -6,8 +6,8 @@ import { loadWorkspaceEngineeringIRBuildInput } from '../../src/compiler/ir/load
 import { buildValidatedEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
 import type { PolicyReport } from '../../src/compiler/policies/contract/types.ts';
 import { buildSemanticViewSet } from '../../src/compiler/projection/build-semantic-view-set.ts';
-import type { AcceptanceCoverageReport } from '../../src/semantic/acceptance/contract/types.ts';
-import type { ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
+import type { AcceptanceCoverageReport } from '../../src/assurance/acceptance/coverage.ts';
+import type { ProvenanceFile } from '../../src/semantics/provenance/types.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { readJson, writeJson } from '../../src/workspace/files.ts';
 import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';

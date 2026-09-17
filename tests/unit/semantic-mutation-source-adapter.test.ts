@@ -10,7 +10,7 @@ import {
   buildSemanticContractSourceCandidate,
   loadAuthoringSemanticContractSources
 } from '../../src/compiler/parse/load-authoring-semantic-contracts.ts';
-import { normalizeSemanticContract } from '../../src/compiler/parse/load-semantic-contract.ts';
+import { normalizeSemanticContract } from '../../src/semantics/definitions/normalize.ts';
 import { normalizeSemanticMutationRequest, semanticMutationAuthorizationRevision } from '../../src/compiler/semantic-mutation/normalize-request.ts';
 import { planSemanticMutationSourceEdit, renderSemanticMutationSourceEdit } from '../../src/compiler/semantic-mutation/plan-source-edit.ts';
 import { preflightSemanticMutation } from '../../src/compiler/semantic-mutation/preflight-semantic-mutation.ts';
@@ -21,9 +21,9 @@ import {
 import { resolveSemanticMutationSource } from '../../src/compiler/semantic-mutation/source-adapter-registry.ts';
 import { readSemanticMutationSource } from '../../src/compiler/semantic-mutation/source-path-boundary.ts';
 import { buildTrustedLocalSemanticMutationAuthorization, type TrustedLocalSemanticMutationPolicyDraft } from '../../src/compiler/semantic-mutation/trusted-authorization-ingress.ts';
-import type { LoadedSemanticContract } from '../../src/semantic/contracts/contract/types.ts';
-import type { FactDeltaEndpointContext } from '../../src/semantic/engineering-ir/contract/delta-types.ts';
-import { SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION, SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION, type SemanticMutationAuthorizationContext, type SemanticMutationLoadedSourceCandidate, type SemanticMutationRequest } from '../../src/semantic/mutation/contract/types.ts';
+import type { LoadedSemanticContract } from '../../src/semantics/definitions/types.ts';
+import type { FactDeltaEndpointContext } from '../../src/semantics/engineering-ir/delta-types.ts';
+import { SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION, SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION, type SemanticMutationAuthorizationContext, type SemanticMutationLoadedSourceCandidate, type SemanticMutationRequest } from '../../src/semantics/mutation/types.ts';
 import { modelRelativePath } from '../../src/workspace/contract/types.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 

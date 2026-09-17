@@ -7,7 +7,7 @@ import {
   compileTypeScriptSourceProgramModel,
   sourceProgramTypeScriptRequiredApiClosure
 } from '../../brownfield/source-program-model/typescript.ts';
-import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { rawSha256, sha256 } from '../../contracts/canonical.ts';
 import { DEPENDENCY_CAPABILITY_SPECS } from '../dependencies/contract/dependency-capability-contract.ts';
 import { parseRuntimeDependencyPackageReference } from '../dependencies/contract/runtime-dependency-spec.ts';
 import {

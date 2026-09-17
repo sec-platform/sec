@@ -1,4 +1,4 @@
-import { compareCodeUnits, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { compareCodeUnits, sha256 } from '../../contracts/canonical.ts';
 
 type Digest = `sha256:${string}`;
 

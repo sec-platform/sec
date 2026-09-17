@@ -1,4 +1,4 @@
-import type { EngineeringIR } from '../../semantic/engineering-ir/contract/root-types.ts';
+import type { EngineeringIR } from '../../semantics/engineering-ir/root-types.ts';
 import { createWorkspaceWriteCommitFence } from '../../workspace/lease.ts';
 import type { LockFile } from '../contract.ts';
 import { buildEngineeringIR } from '../ir/build-engineering-ir.ts';

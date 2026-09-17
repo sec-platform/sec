@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import { GitReadAuthorityError, withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
 import { type GitReadSession } from '../../external-capabilities/git-read/runtime/session.ts';
-import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { rawSha256, sha256 } from '../../contracts/canonical.ts';
 import {
   parseOpenPullRequestList,
   projectWorkPackageRegistry

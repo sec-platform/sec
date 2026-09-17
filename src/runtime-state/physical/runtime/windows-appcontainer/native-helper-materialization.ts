@@ -2,7 +2,7 @@ import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { rawSha256 } from '../../../../system-architecture/foundation/runtime/canonical.ts';
+import { rawSha256 } from '../../../../contracts/canonical.ts';
 
 export type WindowsAppContainerNativeHelperMaterializationFailure =
   | 'native-helper-build'

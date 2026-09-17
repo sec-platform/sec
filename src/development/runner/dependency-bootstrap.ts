@@ -5,7 +5,7 @@ import {
   assertSecOperationDemandGraph,
   type SecOperationDemandGraph
 } from '../../control/operation/demand.ts';
-import { canonicalJson, digest } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalJson, digest } from '../../contracts/canonical.ts';
 import type {
   VerificationActionKey,
   VerificationActionKeyDigest,

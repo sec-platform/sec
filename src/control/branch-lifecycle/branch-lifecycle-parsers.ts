@@ -1,4 +1,4 @@
-import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { compareCodeUnits } from '../../contracts/canonical.ts';
 import {
   BRANCH_CLOSEOUT_RECEIPT_COMMENT_MARKER
 } from './branch-closeout-receipt.ts';

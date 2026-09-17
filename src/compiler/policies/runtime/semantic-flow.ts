@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import ts from 'typescript';
 
-import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../../contracts/canonical.ts';
 import type { PolicySemanticRuleDefinition } from '../contract/rules.ts';
 
 export const POLICY_SEMANTIC_FLOW_PROVIDER_ID = 'sec-policy-typescript-data-flow' as const;

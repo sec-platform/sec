@@ -1,4 +1,4 @@
-import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../contracts/canonical.ts';
 
 export const ENVIRONMENT_MATERIALIZATION_SPEC_SCHEMA =
   'sec-environment-materialization-spec-v1' as const;

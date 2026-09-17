@@ -3,7 +3,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { compareCodeUnits, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { compareCodeUnits, sha256 } from '../../contracts/canonical.ts';
 import { DOCUMENTATION_IDENTITY_PATH } from '../documentation/active.ts';
 import {
   resolveSecAgentOperationActivation,

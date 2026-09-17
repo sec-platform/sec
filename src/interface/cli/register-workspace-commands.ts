@@ -196,7 +196,7 @@ export function registerWorkspaceCommands(program: Command): void {
         const { CI_ARTIFACT_FILES } = await import('../../verification/ci-artifacts/contract/manifest.ts');
         const { resolveWorkspaceArtifactPath } = await import('../../workspace/runtime/paths.ts');
         const { printWorkspaceJson } = await import('./artifact-command-read.ts');
-        await printWorkspaceJson<import('../../semantic/projection/contract/explain.ts').ExplainGraph>(
+        await printWorkspaceJson<import('../../semantics/projection/explain.ts').ExplainGraph>(
           cwd, (root) => resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.explainGraph), `Explain graph not found; run ${invocationPath} first`, output, formatExplainGraphInspect
         );
         return;

@@ -15,7 +15,7 @@ import {
   type PreparedWindowsRepositoryChangeObserver,
   type WindowsRepositoryChangeObserverSettlement
 } from '../../runtime-state/physical/runtime/windows-repository-change-observer.ts';
-import { observeOptionalDiagnostic } from '../../system-architecture/foundation/runtime/optional-diagnostic.ts';
+import { observeOptionalDiagnostic } from '../../execution/optional-diagnostic.ts';
 import { issueSecOperationRequirementBindingContext } from '../../system-architecture/operation/requirement-binding-context.ts';
 import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
 import { compilerRoot } from '../../workspace/runtime/paths.ts';

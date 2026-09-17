@@ -1,6 +1,6 @@
-import type { ValidatedEngineeringIRSnapshot } from '../semantic/engineering-ir/contract/validated-types.ts';
-import type { SemanticGeneratorDeclaration, SemanticGeneratorPlan } from '../semantic/generation/contract/types.ts';
-import type { SemanticViewSet } from '../semantic/projection/contract/types.ts';
+import type { ValidatedEngineeringIRSnapshot } from '../semantics/engineering-ir/validated-types.ts';
+import type { SemanticGeneratorDeclaration, SemanticGeneratorPlan } from '../semantics/generation/types.ts';
+import type { SemanticViewSet } from '../semantics/projection/types.ts';
 import type { BuildEngineeringIRInput } from './ir/build-engineering-ir.ts';
 import { buildValidatedEngineeringIR } from './ir/validate-engineering-ir.ts';
 import { buildSemanticViewSet } from './projection/build-semantic-view-set.ts';

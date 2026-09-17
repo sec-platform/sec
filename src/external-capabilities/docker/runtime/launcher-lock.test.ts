@@ -11,7 +11,7 @@ import {
   secUserExternalProviderCoordinationPath,
   withExternalProviderCoordinationLeaseAtOwnerIssuedRoot
 } from '../../../runtime-state/workspace-state/external-provider-coordination-lease.ts';
-import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../../contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,

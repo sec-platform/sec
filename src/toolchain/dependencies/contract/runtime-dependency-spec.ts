@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { readOptionalRetainedJson } from '../../../runtime-state/physical/runtime/retained-file-read.ts';
-import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
-import { canonicalEquals, canonicalJson, compareCodeUnits, deepFreeze, digest, sortedKeys } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { SecError } from '../../../contracts/failure.ts';
+import { canonicalEquals, canonicalJson, compareCodeUnits, deepFreeze, digest, sortedKeys } from '../../../contracts/canonical.ts';
 import { compilerRoot } from '../../../workspace/runtime/paths.ts';
 import { generatedRuntimeDependencyCapabilityNames } from './dependency-capability-contract.ts';
 

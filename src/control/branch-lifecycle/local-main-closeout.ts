@@ -3,7 +3,7 @@
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 
-import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../contracts/canonical.ts';
 import { assertWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../workspace/lease.ts';
 
 export const LOCAL_MAIN_CLOSEOUT_BINDING_SCHEMA = 'sec-local-main-closeout-binding-v3' as const;

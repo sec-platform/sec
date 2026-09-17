@@ -19,8 +19,8 @@ import {
   RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
   issueRetainedCommandBoundary
 } from '../../runtime-state/physical/runtime/process.ts';
-import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { parseExactJson } from '../../system-architecture/foundation/runtime/exact-json.ts';
+import { rawSha256, sha256 } from '../../contracts/canonical.ts';
+import { parseExactJson } from '../../contracts/exact-json.ts';
 import {
   assertSecSemanticOperationProjection,
   type SecBoundSemanticOperation

@@ -1,5 +1,5 @@
 import path from 'node:path';
-import type { AcceptanceCoverageReport } from '../../semantic/acceptance/contract/types.ts';
+import type { AcceptanceCoverageReport } from '../../assurance/acceptance/coverage.ts';
 import { validateAcceptanceCoverageReport } from '../../verification/acceptance/runtime/coverage-authority.ts';
 import { assertCanonicalVerificationArtifactSet, type VerificationArtifactSet } from '../../verification/artifact/contract/artifact.ts';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';

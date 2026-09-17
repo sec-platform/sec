@@ -1,10 +1,10 @@
-import { inspectFailureValue } from '../system-architecture/foundation/runtime/failure-inspection.ts';
-export { getErrorCode, inspectFailureValue } from '../system-architecture/foundation/runtime/failure-inspection.ts';
+import { inspectFailureValue } from '../contracts/failure-inspection.ts';
+export { getErrorCode, inspectFailureValue } from '../contracts/failure-inspection.ts';
 
 import {
   SecError,
   type SecErrorDetails
-} from '../system-architecture/foundation/contract/failure.ts';
+} from '../contracts/failure.ts';
 
 export { SecError as CompilerError };
 export type CompilerErrorDetails = SecErrorDetails;
@@ -29,12 +29,4 @@ export function formatCompilerFailure(error: unknown): string {
     // Even instanceof, stack access or String() can throw for supplied values.
     return inspectFailureValue(error);
   }
-}
-
-/**
- * Throw a `CompilerError` — shared factory used across compiler modules
- * to avoid redefining the same `fail` wrapper.
- */
-export function fail(code: string, message: string, details: CompilerErrorDetails = {}): never {
-  throw new SecError(code, message, details);
 }

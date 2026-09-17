@@ -1,12 +1,13 @@
 import path from 'node:path';
-import { failureMessage } from '../../system-architecture/foundation/runtime/failure-inspection.ts';
-import { parseYamlValue } from '../../system-architecture/foundation/runtime/yaml.ts';
+import { failureMessage } from '../../contracts/failure-inspection.ts';
+import { parseYamlValue } from '../../adapters/formats/yaml.ts';
 import { AppModeSchema, PackageManagerSchema, PlanInputSchema, PlanRegistrySourceSchema, type PlanRegistrySourceInput } from '../contract/plan-schema.ts';
 
-import { isCanonicalAcceptanceId } from '../../semantic/acceptance/contract/identity.ts';
-import { isCanonicalBlockId, isCanonicalRegistryVersion } from '../../semantic/identity/contract/block.ts';
-import { isCanonicalPortableLogicalPath } from '../../system-architecture/foundation/contract/logical-path.ts';
-import { getWorkspacePaths, officialRegistryRelativePath, posixPath, privateRegistryRelativePath } from '../../workspace/runtime/paths.ts';
+import { isCanonicalAcceptanceId } from '../../semantics/acceptance/identity.ts';
+import { isCanonicalBlockId, isCanonicalRegistryVersion } from '../../semantics/identity/block.ts';
+import { isCanonicalPortableLogicalPath } from '../../contracts/logical-path.ts';
+import { getWorkspacePaths, officialRegistryRelativePath, privateRegistryRelativePath } from '../../workspace/runtime/paths.ts';
+import { posixPath } from '../../contracts/relative-path.ts';
 import type { PlanFile, PlanRegistry, PlanRegistrySource } from '../contract.ts';
 import { SUPPORTED_STACK } from '../contract.ts';
 import { CompilerError } from '../errors.ts';

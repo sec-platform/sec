@@ -1,5 +1,5 @@
-import type { ValidatedEngineeringIRSnapshot } from '../../semantic/engineering-ir/contract/validated-types.ts';
-import type { SemanticMutationBase, SemanticMutationVerificationCapability, VerificationRequirement } from '../../semantic/mutation/contract/types.ts';
+import type { ValidatedEngineeringIRSnapshot } from '../../semantics/engineering-ir/validated-types.ts';
+import type { SemanticMutationBase, SemanticMutationVerificationCapability, VerificationRequirement } from '../../semantics/mutation/types.ts';
 import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION, SEMANTIC_MUTATION_VERIFICATION_CAPABILITY_PLAN_REVISION, SEMANTIC_MUTATION_VERIFICATION_REPORT_REVISION, type SemanticMutationVerificationCapabilityPlan, type SemanticMutationVerificationReport, type SemanticMutationVerifyAllRunner } from '../../verification/contract/types.ts';
 import { cloneAndDeepFreeze, compareCodeUnits, sha256 } from '../semantic-mutation/canonical.ts';
 import { forwardSemanticMutationIsolatedRuntimePlanBinding } from './semantic-mutation-isolated-runtime-binding.ts';

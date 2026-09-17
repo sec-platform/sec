@@ -4,10 +4,10 @@ import {
   deepFreeze,
   isPlainObject,
   sha256
-} from '../../system-architecture/foundation/runtime/canonical.ts';
+} from '../../contracts/canonical.ts';
 import {
   parseExactJsonBytes
-} from '../../system-architecture/foundation/runtime/exact-json.ts';
+} from '../../contracts/exact-json.ts';
 import type { SecRepositoryModuleArchitectureProjection } from '../../system-architecture/repository-modules/contract.ts';
 import type {
   SourceProgramCandidate,

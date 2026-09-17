@@ -1,10 +1,10 @@
 import documentationBaselineSource from '../../../.documentation/baseline.json' with { type: 'json' };
 import documentationIdentitySource from '../../../.documentation/documents.json' with { type: 'json' };
 
-import { portableLogicalPathCollisionKey } from '../../system-architecture/foundation/contract/logical-path.ts';
-import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../system-architecture/foundation/contract/repository-path.ts';
-import { compareCodeUnits, isPlainObject } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { parseExactJson } from '../../system-architecture/foundation/runtime/exact-json.ts';
+import { portableLogicalPathCollisionKey } from '../../contracts/logical-path.ts';
+import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../contracts/repository-path.ts';
+import { compareCodeUnits, isPlainObject } from '../../contracts/canonical.ts';
+import { parseExactJson } from '../../contracts/exact-json.ts';
 
 export const DOCUMENTATION_IDENTITY_PATH = '.documentation/documents.json' as const;
 export const DOCUMENTATION_IDENTITY_SCHEMA = 'sec.documentation-identity/1' as const;

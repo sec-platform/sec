@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { emptyOverrideManifest, PROVENANCE_FORMAT_VERSION } from '../../semantic/provenance/contract/types.ts';
+import { emptyOverrideManifest, PROVENANCE_FORMAT_VERSION } from '../../semantics/provenance/types.ts';
 import { buildRuntimePackageManifest, loadRuntimeDependencySpec } from '../../toolchain/dependencies/contract/runtime-dependency-spec.ts';
 import { compilerRuntimeResources } from '../../toolchain/runtime/layout.ts';
 import {

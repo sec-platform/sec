@@ -27,7 +27,7 @@ import {
   type WorktreePhysicalInventory,
   type WorktreePorcelainRecord
 } from '../../runtime-state/worktree-closeout-contract.ts';
-import { canonicalJson, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalJson, sha256 } from '../../contracts/canonical.ts';
 import { compilerDependencyLocatorWorktreeRetirementProvider } from '../../toolchain/dependencies/runtime.ts';
 import { acquireWorkspaceWriteLease, assertWorkspaceWriteLease, assertWorkspaceWriteLeaseRetirement, assertWorkspaceWriteLeaseRetirementProof, completeWorkspaceWriteLeaseRetirement, recoverWorkspaceWriteLeaseRetirement, resumeWorkspaceWriteLeaseRetirement, withWorkspaceWriteLease, type WorkspaceWriteLeaseRetirementReceipt } from '../../workspace/lease.ts';
 import { createBranchLifecycleGitChildEnvironment } from './branch-lifecycle-command.ts';

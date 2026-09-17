@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import { assertCanonicalPortableLogicalPath } from '../../../system-architecture/foundation/contract/logical-path.ts';
+import { assertCanonicalPortableLogicalPath } from '../../../contracts/logical-path.ts';
 import { isSecRepositoryTestModulePath } from '../../../system-architecture/repository-modules/test-module-path.ts';
 import { VERIFICATION_GATE_RESULT_SCHEMA } from '../../result/contract/schema.ts';
 import {

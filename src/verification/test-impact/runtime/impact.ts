@@ -2,8 +2,8 @@ import {
   assertIssuedTestImpactProjection,
   type IssuedTestImpactProjection
 } from '../../../brownfield/source-program-model/test-impact-projection.ts';
-import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
-import { uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { SecError } from '../../../contracts/failure.ts';
+import { uniqueSorted } from '../../../contracts/canonical.ts';
 import {
   normalizeSecRepositoryPath,
   type SecRepositoryModuleGraph

@@ -7,7 +7,7 @@ import { expect, test } from 'bun:test';
 
 import { settlePhysicalResourcesAsync } from '../../../runtime-state/physical/runtime/resource-settlement.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
-import { digest } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { digest } from '../../../contracts/canonical.ts';
 
 import {
   assertCompilerDependencyExecutionRetirementReceipt,

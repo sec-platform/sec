@@ -1,5 +1,5 @@
-import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../system-architecture/foundation/contract/repository-path.ts';
-import { canonicalJson, compareCodeUnits, deepFreeze, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../contracts/repository-path.ts';
+import { canonicalJson, compareCodeUnits, deepFreeze, sha256 } from '../../contracts/canonical.ts';
 import {
   isSecAgentSkillId,
   type SecAgentSkillId,

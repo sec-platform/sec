@@ -27,8 +27,8 @@ import {
   type RetainedSealedPhysicalExecutionTreeGeneration,
   type SealedPhysicalExecutionTreeRetirementReceipt
 } from '../../runtime-state/physical/runtime/sealed-execution-tree-generation.ts';
-import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { parseExactJson } from '../../system-architecture/foundation/runtime/exact-json.ts';
+import { sha256 } from '../../contracts/canonical.ts';
+import { parseExactJson } from '../../contracts/exact-json.ts';
 import { issueSecOperationRequirementBindingContext } from '../../system-architecture/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,

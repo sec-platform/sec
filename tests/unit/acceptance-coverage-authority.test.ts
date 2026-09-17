@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { ACCEPTANCE_COVERAGE_FORMAT_VERSION } from '../../src/semantic/acceptance/contract/types.ts';
+import { ACCEPTANCE_COVERAGE_FORMAT_VERSION } from '../../src/assurance/acceptance/coverage.ts';
 import { validateAcceptanceCoverageReport } from '../../src/verification/acceptance/runtime/coverage-authority.ts';
 
 function canonicalCoverage() {

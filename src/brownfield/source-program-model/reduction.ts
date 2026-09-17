@@ -2,7 +2,7 @@ import { createTwoFilesPatch } from 'diff';
 import nodePath from 'node:path';
 import ts from 'typescript';
 
-import { compareCodeUnits, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { compareCodeUnits, rawSha256, sha256 } from '../../contracts/canonical.ts';
 import { isCanonicalSecOperationBudgetMaximum } from '../../system-architecture/operation/semantic.ts';
 import type {
   SecRepositoryModuleArchitectureProjection,

@@ -8,7 +8,7 @@ import {
   type PhysicalWorkspaceSourceSnapshot,
   type StagedWorkspaceSourceSelection
 } from '../../brownfield/source-program-model/workspace-source-snapshot.ts';
-import { deepFreeze, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { deepFreeze, sha256 } from '../../contracts/canonical.ts';
 import {
   createVerificationActionKey,
   type VerificationActionKey,

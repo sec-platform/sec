@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { UpgradeDiagnostics, UpgradeExecutionTerminal, UpgradePlan } from '../../change-management/upgrade/contract/upgrade-artifact.ts';
 import { readUpgradeArtifactSet } from '../../change-management/upgrade/runtime/artifact-readback.ts';
 import { decodeExactUtf8, readOptionalRetainedOrdinaryLeaf, retainOptionalDirectory } from '../../runtime-state/physical/runtime/retained-file-read.ts';
-import { parseRepairPlanJson, type RepairPlan } from '../../semantic/repair/contract/types.ts';
+import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import { resolveWorkspaceArtifactPath } from '../../workspace/runtime/paths.ts';
 import type { PolicyReport } from '../policies/contract/types.ts';

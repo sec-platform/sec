@@ -13,7 +13,7 @@ import {
   type TextByteCensusEntry,
   type TextByteCensusReport
 } from '../../../runtime-state/text-byte-census.ts';
-import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../../contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,

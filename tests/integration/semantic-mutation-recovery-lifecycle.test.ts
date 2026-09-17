@@ -30,9 +30,9 @@ import {
   semanticMutationTransactionRoot
 } from '../../src/compiler/semantic-mutation/transaction-identity.ts';
 import { semanticMutationRequiredVerificationDigest } from '../../src/compiler/semantic-mutation/verification-policy.ts';
-import type { FactDeltaEndpointContext } from '../../src/semantic/engineering-ir/contract/delta-types.ts';
-import type { SemanticMutationRecoveryState } from '../../src/semantic/mutation/contract/transaction.ts';
-import { type SemanticMutationAuthorizationContext, type SemanticMutationBase, type SemanticMutationRequest } from '../../src/semantic/mutation/contract/types.ts';
+import type { FactDeltaEndpointContext } from '../../src/semantics/engineering-ir/delta-types.ts';
+import type { SemanticMutationRecoveryState } from '../../src/semantics/mutation/transaction.ts';
+import { type SemanticMutationAuthorizationContext, type SemanticMutationBase, type SemanticMutationRequest } from '../../src/semantics/mutation/types.ts';
 import { installPrivateBannerBlock } from '../helpers/private-registry-fixtures.ts';
 import { semanticMutationVerificationReportFixture } from '../helpers/semantic-mutation-verification-report.ts';
 import { copyWorkspaceFixture, withTempWorkspace } from '../testkit/workspace.ts';

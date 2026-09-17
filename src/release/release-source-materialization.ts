@@ -10,8 +10,8 @@ import {
 } from '../runtime-state/physical/runtime/process-resource-session.ts';
 import { RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, issueRetainedCommandBoundary } from '../runtime-state/physical/runtime/process.ts';
 import { settlePhysicalResources } from '../runtime-state/physical/runtime/resource-settlement.ts';
-import { SecError } from '../system-architecture/foundation/contract/failure.ts';
-import { digest, sha256 } from '../system-architecture/foundation/runtime/canonical.ts';
+import { SecError } from '../contracts/failure.ts';
+import { digest, sha256 } from '../contracts/canonical.ts';
 import { issueSecOperationRequirementBindingContext } from '../system-architecture/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,

@@ -1,6 +1,6 @@
-import { deepFreeze } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { deepFreeze } from '../../contracts/canonical.ts';
 import type { ManifestEntry } from '../contract.ts';
-import type { RegistryKind, RegistryLocation } from '../registry/contract/types.ts';
+import type { RegistryKind, RegistryLocation } from '../../contracts/registry-source.ts';
 
 export interface ManifestCacheKey {
   readonly workspaceRoot: string;

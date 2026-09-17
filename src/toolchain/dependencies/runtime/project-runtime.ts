@@ -13,9 +13,9 @@ import {
   parseGitWorktreeAdminLocator,
   parseGitWorktreeAdminPath
 } from '../../../runtime-state/worktree-closeout-contract.ts';
-import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
-import { canonicalEquals, canonicalJson, compareCodeUnits, digest, sortedKeys, uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
-import { parseExactJson } from '../../../system-architecture/foundation/runtime/exact-json.ts';
+import { SecError } from '../../../contracts/failure.ts';
+import { canonicalEquals, canonicalJson, compareCodeUnits, digest, sortedKeys, uniqueSorted } from '../../../contracts/canonical.ts';
+import { parseExactJson } from '../../../contracts/exact-json.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,

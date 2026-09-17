@@ -1,10 +1,10 @@
 import path from 'node:path';
-import type { AcceptanceCoverageReport } from '../../semantic/acceptance/contract/types.ts';
-import type { Logger } from '../../system-architecture/foundation/logger.ts';
-import { defaultLogger } from '../../system-architecture/foundation/logger.ts';
-import { canonicalEquals, compareCodeUnits, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { isNativeAborted, throwIfNativeAborted } from '../../system-architecture/foundation/runtime/native-abort.ts';
-import { observeOptionalDiagnostic } from '../../system-architecture/foundation/runtime/optional-diagnostic.ts';
+import type { AcceptanceCoverageReport } from '../../assurance/acceptance/coverage.ts';
+import type { Logger } from '../../contracts/logging.ts';
+import { defaultLogger } from '../../adapters/diagnostics/json-logger.ts';
+import { canonicalEquals, compareCodeUnits, sha256 } from '../../contracts/canonical.ts';
+import { isNativeAborted, throwIfNativeAborted } from '../../contracts/native-abort.ts';
+import { observeOptionalDiagnostic } from '../../execution/optional-diagnostic.ts';
 import { ensureProjectDependencies } from '../../toolchain/dependencies/runtime.ts';
 import type { CanonicalVerificationArtifactSet } from '../../verification/artifact/contract/artifact.ts';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
@@ -14,29 +14,26 @@ import { buildExpectedProductVerificationClaimSummary, buildProductVerificationO
 import { CodexDevelopmentSnapshotVerificationData } from '../../verification/result/contract/result.ts';
 import { checkProjectBeforeVerify } from '../../workspace/application/project-integrity.ts';
 import { listFilesRecursive } from '../../workspace/runtime/discovery.ts';
-import { getWorkspacePaths, relativePosixPath } from '../../workspace/runtime/paths.ts';
+import { getWorkspacePaths } from '../../workspace/runtime/paths.ts';
+import { relativePosixPath } from '../../contracts/relative-path.ts';
 import type { LockFile } from '../contract.ts';
 import { CompilerError, formatCompilerFailure } from '../errors.ts';
 import { addGeneratedPaths, assertPassStatus } from '../lock.ts';
 import { emitPipelineExecutionBoundary } from '../pipeline/journal.ts';
-import type { PipelineEventHandler, PipelineExecutionBoundary } from '../pipeline/types.ts';
+import type { PipelineExecutionBoundary } from '../pipeline/types.ts';
 import type { PolicyReport } from '../policies/contract/types.ts';
-import {
-  assertIsolatedStagingTree,
-  type IsolatedStagingTreeOptions
-} from './assert-isolated-staging-tree.ts';
+import { assertIsolatedStagingTree } from './assert-isolated-staging-tree.ts';
 import { buildAcceptanceCoverage } from './build-acceptance-coverage.ts';
 import { runPolicyGate } from './run-policy-gate.ts';
 import { createSkippedRuntimeLane, runRuntimeVerification } from './run-runtime-verification.ts';
 import { runSuiteFiles } from './run-suite-files.ts';
 import {
   consumeStagedVerificationProof,
-  revalidateStagedVerificationProof,
-  type StagedVerificationProof
+  revalidateStagedVerificationProof
 } from './staged-verification-proof.ts';
 import { typecheckProject } from './typecheck-project.ts';
 import { publishVerificationArtifactSet } from './verification-artifact-publication.ts';
-import { captureVerifyProjectOptions } from './verify-invocation.ts';
+import { captureVerifyProjectOptions, type VerifyProjectOptions } from './verify-invocation.ts';
 
 export function productVerificationSubjectRevision(lock: LockFile): string {
   return sha256({
@@ -98,20 +95,6 @@ function observedExecution(
       failureFingerprint: status === 'failed' ? outputDigest : null
     }
   };
-}
-
-export interface VerifyProjectOptions {
-  readonly beforeCommit?: () => Promise<void>;
-  readonly emitTiming?: boolean;
-  readonly isolated?: boolean;
-  readonly logger?: Logger;
-  readonly pipelineObserver?: Readonly<{
-    readonly onEvent: PipelineEventHandler;
-    readonly transactionId: string;
-  }>;
-  readonly signal?: AbortSignal;
-  readonly stagedVerificationProof?: StagedVerificationProof;
-  readonly stagingTreeOptions?: IsolatedStagingTreeOptions;
 }
 
 async function emitVerifyBoundary(

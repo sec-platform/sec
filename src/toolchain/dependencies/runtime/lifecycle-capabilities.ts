@@ -7,7 +7,7 @@ import type {
   GeneratedStateRegistration
 } from '../../../runtime-state/generated-state/contract.ts';
 import type { GeneratedStateRetirementObservation } from '../../../runtime-state/generated-state/lifecycle.ts';
-import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
+import { SecError } from '../../../contracts/failure.ts';
 
 /** Generated-state methods owned by the dependency lifecycle boundary. */
 export type RuntimeDependencyGeneratedStateLifecycle = Readonly<{

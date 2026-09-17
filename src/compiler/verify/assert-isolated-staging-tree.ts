@@ -2,8 +2,8 @@ import { lstat, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 import { ISOLATED_VERIFICATION_ENV_KEY } from '../../runtime-state/physical/runtime/process.ts';
-import { isSemanticMutationStagingWorkspace } from '../../semantic/mutation/runtime/staging-boundary.ts';
-import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { isSemanticMutationStagingWorkspace } from '../../workspace/contract/semantic-mutation-staging.ts';
+import { compareCodeUnits } from '../../contracts/canonical.ts';
 import { WORKSPACE_WRITE_LEASE_DIRECTORY_NAME, inspectWorkspaceWriteLease, withWorkspaceWriteLeaseControlPlaneQuiesced, type WorkspaceWriteLeaseToken } from '../../workspace/lease.ts';
 import { CompilerError } from '../errors.ts';
 

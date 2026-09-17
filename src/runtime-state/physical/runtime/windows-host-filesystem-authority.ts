@@ -4,7 +4,7 @@ import path from 'node:path';
 import {
   compareCodeUnits,
   rawSha256
-} from '../../../system-architecture/foundation/runtime/canonical.ts';
+} from '../../../contracts/canonical.ts';
 
 type DirectoryIdentity = Readonly<{
   changeTime: string;

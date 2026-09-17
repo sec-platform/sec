@@ -3,7 +3,7 @@ import {
   RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
   RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID
 } from '../../runtime-state/physical/runtime/windows-repository-change-observer.ts';
-import { deepFreeze, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { deepFreeze, sha256 } from '../../contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
   compileSecSemanticOperationPlan,

@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { canonicalJson, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalJson, rawSha256, sha256 } from '../../contracts/canonical.ts';
 import { compileSecRepositoryModuleMembershipSnapshot } from '../../system-architecture/repository-modules/contract.ts';
 import { compileRepositorySourceProgramModelFromWorkspaceSnapshot } from './repository.ts';
 import {

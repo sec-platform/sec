@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { SecError } from '../../../../system-architecture/foundation/contract/failure.ts';
+import { SecError } from '../../../../contracts/failure.ts';
 import { runtimeDependencyOperationOptions } from '../operation-context.ts';
 import { DEPENDENCY_TRANSITION_SCHEMA } from './contract.ts';
 import { advanceDependencyTransition } from './operation.ts';

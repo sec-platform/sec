@@ -1,9 +1,10 @@
 import { isMap, isSeq, type Node, type YAMLSeq } from 'yaml';
 
-import type { LoadedSemanticContract, SemanticContract, SemanticContractTransition } from '../../semantic/contracts/contract/types.ts';
-import type { SemanticMutationOperation, SemanticMutationSourceLineEnding } from '../../semantic/mutation/contract/types.ts';
-import { isYamlParseFailure, parseYamlDocument, type StrictYamlDocument } from '../../system-architecture/foundation/runtime/yaml.ts';
-import { SEMANTIC_CONTRACT_YAML_MAX_ALIAS_COUNT, SEMANTIC_CONTRACT_YAML_MAX_INPUT_BYTES, normalizeSemanticContract } from '../parse/load-semantic-contract.ts';
+import type { LoadedSemanticContract, SemanticContract, SemanticContractTransition } from '../../semantics/definitions/types.ts';
+import type { SemanticMutationOperation, SemanticMutationSourceLineEnding } from '../../semantics/mutation/types.ts';
+import { isYamlParseFailure, parseYamlDocument, type StrictYamlDocument } from '../../adapters/formats/yaml.ts';
+import { SEMANTIC_CONTRACT_YAML_MAX_ALIAS_COUNT, SEMANTIC_CONTRACT_YAML_MAX_INPUT_BYTES } from '../parse/load-semantic-contract.ts';
+import { normalizeSemanticContract } from '../../semantics/definitions/normalize.ts';
 import { SemanticMutationContractError, canonicalEquals, compareCodeUnits, mutationDiagnostic, rawSha256 } from './canonical.ts';
 
 export interface SemanticContractYamlTransform {

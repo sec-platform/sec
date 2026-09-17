@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
-import { assertGitBranchName } from '../../system-architecture/foundation/contract/git-reference.ts';
+import { assertGitBranchName } from '../../contracts/git-reference.ts';
 import type {
   BranchAuditSeverity,
   BranchLifecycleAuditFinding,

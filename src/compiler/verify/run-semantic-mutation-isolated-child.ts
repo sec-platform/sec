@@ -3,9 +3,9 @@ import path from 'node:path';
 
 import { runObservedCommand, type ObservedCommandOutcome } from '../../runtime-state/physical/runtime/observed-process.ts';
 import { buildIsolatedProcessEnvironment, ensureIsolatedProcessDirectories, ISOLATED_VERIFICATION_ENV_KEY, runCommand, type CommandResult } from '../../runtime-state/physical/runtime/process.ts';
-import type { AcceptanceCoverageReport } from '../../semantic/acceptance/contract/types.ts';
-import { isSemanticMutationStagingWorkspace } from '../../semantic/mutation/runtime/staging-boundary.ts';
-import { cloneAndDeepFreeze, rawSha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import type { AcceptanceCoverageReport } from '../../assurance/acceptance/coverage.ts';
+import { isSemanticMutationStagingWorkspace } from '../../workspace/contract/semantic-mutation-staging.ts';
+import { cloneAndDeepFreeze, rawSha256 } from '../../contracts/canonical.ts';
 import { ensureSharedDepsReady } from '../../toolchain/dependencies/runtime.ts';
 import {
   compilerRuntimeLayout,
@@ -18,15 +18,8 @@ import { modelRelativePath } from '../../workspace/contract/types.ts';
 import { pathExists, type CommitFence } from '../../workspace/files.ts';
 import { createWorkspaceWriteCommitFence, isCanonicalWorkspaceWriteCommitFence, type WorkspaceWriteLeaseToken } from '../../workspace/lease.ts';
 import { listFilesRecursive } from '../../workspace/runtime/discovery.ts';
-import {
-  compilerRoot,
-  officialRegistryRelativePath,
-  posixPath,
-  resolveWorkspaceArtifactPath,
-  resolveWorkspaceLockPath,
-  resolveWorkspacePlanPath,
-  srcRelativePath
-} from '../../workspace/runtime/paths.ts';
+import { compilerRoot, officialRegistryRelativePath, resolveWorkspaceArtifactPath, resolveWorkspaceLockPath, resolveWorkspacePlanPath, srcRelativePath } from '../../workspace/runtime/paths.ts';
+import { posixPath } from '../../contracts/relative-path.ts';
 import { getErrorCode } from '../errors.ts';
 import { readLockFile } from '../lock.ts';
 import { loadWorkspacePlan } from '../parse/load-plan.ts';

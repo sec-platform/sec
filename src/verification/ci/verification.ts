@@ -14,7 +14,7 @@ import {
   rmSync, writeFileSync
 } from 'node:fs';
 import path from 'node:path';
-import { uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { uniqueSorted } from '../../contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,

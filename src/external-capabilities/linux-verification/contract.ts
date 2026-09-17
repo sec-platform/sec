@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../contracts/canonical.ts';
 import source from './environment-spec.json' with { type: 'json' };
 
 const digest = z.string().regex(/^sha256:[0-9a-f]{64}$/u)

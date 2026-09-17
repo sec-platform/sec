@@ -1,7 +1,7 @@
 import type { Command } from 'commander';
 import type { PolicyReport } from '../../compiler/policies/contract/types.ts';
-import type { AcceptanceCoverageReport } from '../../semantic/acceptance/contract/types.ts';
-import type { ProvenanceFile } from '../../semantic/provenance/contract/types.ts';
+import type { AcceptanceCoverageReport } from '../../assurance/acceptance/coverage.ts';
+import type { ProvenanceFile } from '../../semantics/provenance/types.ts';
 import type { RuntimeVerificationLaneReport, VerificationReport } from '../../verification/contract/types.ts';
 import type { ReviewSummary } from '../../verification/review/contract/types.ts';
 import { addJsonFlags, commandFromRoot, jsonOpts } from './command-options.ts';

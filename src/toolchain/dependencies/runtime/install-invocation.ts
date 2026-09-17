@@ -1,4 +1,4 @@
-import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
+import { SecError } from '../../../contracts/failure.ts';
 import type { RuntimeDependencyInstallRequest } from '../contract/install-request.ts';
 import { isRuntimeDependencyInstallMode } from '../contract/install-request.ts';
 import { assertRuntimeDependencyTestMaterialization } from './materialization-fixture-capability.ts';

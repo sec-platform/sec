@@ -11,7 +11,7 @@ import {
   PhysicalResourceCompositeSettlementError,
   settlePhysicalResources
 } from '../../../runtime-state/physical/runtime/resource-settlement.ts';
-import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
+import { SecError } from '../../../contracts/failure.ts';
 
 type InstallResource = 'executable' | 'working-directory' | 'process-session';
 export type CompilerInstallResourceFailure = Readonly<{ resource: InstallResource; reason: unknown }>;

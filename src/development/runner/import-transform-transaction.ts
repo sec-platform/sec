@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { CompilerError } from '../../compiler/errors.ts';
-import { canonicalJson, digest } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalJson, digest } from '../../contracts/canonical.ts';
 import { resolveWorkspaceLocalStateRoot } from '../../workspace/contract/local-state.ts';
 import { ensureDir } from '../../workspace/files.ts';
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease } from '../../workspace/lease.ts';

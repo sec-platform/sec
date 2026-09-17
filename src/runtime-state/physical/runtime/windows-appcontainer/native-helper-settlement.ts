@@ -1,4 +1,4 @@
-import { rawSha256 } from '../../../../system-architecture/foundation/runtime/canonical.ts';
+import { rawSha256 } from '../../../../contracts/canonical.ts';
 
 import type { ObservedCommandOutcome } from '../observed-process.ts';
 

@@ -3,7 +3,7 @@ import { lstat, mkdir, mkdtemp, rename, rm, stat, symlink, unlink, writeFile } f
 import os from 'node:os';
 import path from 'node:path';
 
-import { canonicalJson } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalJson } from '../../contracts/canonical.ts';
 import { compilerDependencyLocatorWorktreeRetirementProvider } from '../../toolchain/dependencies/test/runtime.ts';
 import { runCommandBytes } from '../physical/runtime/process.ts';
 import { generatedStateDomainProviderMaterialDigest } from './contract.ts';

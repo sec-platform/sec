@@ -1,4 +1,4 @@
-import type { ProvenanceArtifact } from '../../semantic/provenance/contract/types.ts';
+import type { ProvenanceArtifact } from '../../semantics/provenance/types.ts';
 import { resolvePathInside } from '../runtime/paths.ts';
 import { calculateCanonicalProjectFileHash } from '../runtime/project-file-hash.ts';
 

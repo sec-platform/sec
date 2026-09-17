@@ -4,7 +4,7 @@ import type { PlanFile } from '../../src/compiler/contract.ts';
 import { SUPPORTED_STACK } from '../../src/compiler/contract.ts';
 import { loadManifestById, resolveRegistrySources } from '../../src/compiler/parse/load-manifest.ts';
 import { normalizePlan, validatePlan } from '../../src/compiler/parse/load-plan.ts';
-import { isCanonicalBlockId, isCanonicalRegistryVersion } from '../../src/semantic/identity/contract/block.ts';
+import { isCanonicalBlockId, isCanonicalRegistryVersion } from '../../src/semantics/identity/block.ts';
 
 test('canonical block identity is cross-platform path-safe and injective', () => {
   for (const value of [

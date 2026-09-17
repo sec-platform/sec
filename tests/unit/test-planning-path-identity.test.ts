@@ -6,7 +6,7 @@ import {
   DEFAULT_FAST_TEST_EXCLUDED_FILES, FAST_TEST_PROCESS_ISOLATION_REGISTRY,
   isDefaultFastTestFile, partitionFastTestFiles, planFastTestProcesses
 } from '../../src/development/runner/fast-test-policy.ts';
-import { rawSha256, sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { rawSha256, sha256 } from '../../src/contracts/canonical.ts';
 import { isSecRepositoryTestModulePath } from '../../src/system-architecture/repository-modules/test-module-path.ts';
 import {
   type IssuedTestInventoryProjection,

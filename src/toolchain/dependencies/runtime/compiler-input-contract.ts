@@ -1,7 +1,7 @@
-import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
-import { snapshotByteView } from '../../../system-architecture/foundation/runtime/byte-snapshot.ts';
-import { compareCodeUnits, digest } from '../../../system-architecture/foundation/runtime/canonical.ts';
-import { parseExactJson } from '../../../system-architecture/foundation/runtime/exact-json.ts';
+import { SecError } from '../../../contracts/failure.ts';
+import { snapshotByteView } from '../../../contracts/byte-snapshot.ts';
+import { compareCodeUnits, digest } from '../../../contracts/canonical.ts';
+import { parseExactJson } from '../../../contracts/exact-json.ts';
 
 export type CompilerDependencyManifestAuthority = Readonly<{
   declaredBunVersion: string;

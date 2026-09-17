@@ -1,5 +1,5 @@
 import { platformCommand } from '../../interface/cli/contract/command.ts';
-import { uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { uniqueSorted } from '../../contracts/canonical.ts';
 import { CI_ARTIFACT_FILES } from '../ci-artifacts/contract/manifest.ts';
 
 export const BENCHMARK_CATALOG_STATUS_ACTIVE = 'active' as const;

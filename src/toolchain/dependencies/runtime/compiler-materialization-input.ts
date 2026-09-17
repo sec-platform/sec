@@ -11,12 +11,12 @@ import {
   inspectNoFollowOrdinaryFileEntry,
   readNoFollowOrdinaryFile
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
+import { SecError } from '../../../contracts/failure.ts';
 import {
   canonicalJson,
   digest,
   sortedKeys
-} from '../../../system-architecture/foundation/runtime/canonical.ts';
+} from '../../../contracts/canonical.ts';
 import { compilerRoot } from '../../../workspace/runtime/paths.ts';
 import { loadCanonicalBunRuntimeVersion } from '../../runtime.ts';
 import { sameHostPath } from './host-path.ts';

@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { sha256 } from '../foundation/runtime/canonical.ts';
+import { sha256 } from '../../contracts/canonical.ts';
 import {
   createSecOperationEffectGrantAuthority,
   SecOperationEffectGrantError,

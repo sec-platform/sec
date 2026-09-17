@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { SecError } from '../../../../system-architecture/foundation/contract/failure.ts';
+import { SecError } from '../../../../contracts/failure.ts';
 import { sameGeneratedStateIdentity } from './contract.ts';
 import type { DependencyTransitionRolloverIntent } from './rollover-phase.ts';
 import {

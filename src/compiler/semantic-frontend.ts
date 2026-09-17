@@ -1,4 +1,4 @@
-import type { SemanticMutationLoadedSourceCandidate } from '../semantic/mutation/contract/types.ts';
+import type { SemanticMutationLoadedSourceCandidate } from '../semantics/mutation/types.ts';
 import type { LockFile } from './contract.ts';
 import { loadWorkspaceEngineeringIRBuildInput } from './ir/load-workspace-engineering-ir-input.ts';
 import { compileSemanticInput, type SemanticCompilation } from './semantic-compiler.ts';

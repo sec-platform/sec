@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import ts from 'typescript';
 
-import { compareCodeUnits, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { compareCodeUnits, rawSha256, sha256 } from '../../contracts/canonical.ts';
 import {
   normalizeSecRepositoryPath,
   type SecModuleImportKind,

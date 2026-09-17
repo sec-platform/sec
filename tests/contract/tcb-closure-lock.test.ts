@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { compileRepositorySourceProgramModel } from '../../src/brownfield/source-program-model/repository.ts';
-import { rawSha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { rawSha256 } from '../../src/contracts/canonical.ts';
 import { compileSecRepositoryModuleMembershipSnapshot } from '../../src/system-architecture/repository-modules/contract.ts';
 import {
   TCB_REVIEWED_NETWORK_DISPATCHERS,

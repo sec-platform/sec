@@ -14,7 +14,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import type { Pointer } from 'bun:ffi';
-import { canonicalEquals, compareCodeUnits, digest, rawSha256 } from '../../../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalEquals, compareCodeUnits, digest, rawSha256 } from '../../../../contracts/canonical.ts';
 import {
   assertWindowsAppContainerExecutionBindingReceipt,
   assertWindowsAppContainerExecutionCapability,

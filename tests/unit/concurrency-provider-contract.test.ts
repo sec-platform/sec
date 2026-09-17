@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
-import { createConcurrencyLimit, defaultLimit, getDefaultLimit } from '../../src/system-architecture/foundation/runtime/concurrency.ts';
+import { createConcurrencyLimit, defaultLimit, getDefaultLimit } from '../../src/execution/task-group.ts';
 
 const tick = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 function latch(): { promise: Promise<void>; release: () => void } {

@@ -1,7 +1,7 @@
-import type { SemanticEntity } from '../../semantic/engineering-ir/contract/entity-types.ts';
-import type { SemanticFact, SemanticValue } from '../../semantic/engineering-ir/contract/fact-types.ts';
-import type { ScenarioDefinition, ScenarioStepDefinition } from '../../semantic/engineering-ir/contract/scenario-types.ts';
-import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
+import type { SemanticEntity } from '../../semantics/engineering-ir/entity-types.ts';
+import type { SemanticFact, SemanticValue } from '../../semantics/engineering-ir/fact-types.ts';
+import type { ScenarioDefinition, ScenarioStepDefinition } from '../../semantics/engineering-ir/scenario-types.ts';
+import { compareCodeUnits } from '../../contracts/canonical.ts';
 import { CompilerError } from '../errors.ts';
 
 function entityObjectId(fact: SemanticFact): string | undefined {

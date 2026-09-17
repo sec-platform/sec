@@ -523,7 +523,7 @@ test('repository module causal relations bind semantic subjects to exact module 
     subject: 'semantic.repair-plan',
     relation: 'parses',
     symbol: {
-      path: 'src/semantic/repair/contract/types.ts',
+      path: 'src/semantics/repair/types.ts',
       name: 'parseRepairPlanJson'
     },
     operation: null
@@ -533,7 +533,7 @@ test('repository module causal relations bind semantic subjects to exact module 
     externalEntrypoints: [],
     causalRelations: [relation]
   } as const;
-  expect(parseSecModuleDescriptor(descriptor, 'src/semantic/repair/sec.module.json')
+  expect(parseSecModuleDescriptor(descriptor, 'src/semantics/repair/sec.module.json')
     .causalRelations).toEqual([relation]);
   expect(() => parseSecModuleDescriptor({
     ...descriptor,
@@ -541,18 +541,18 @@ test('repository module causal relations bind semantic subjects to exact module 
       ...relation,
       symbol: { ...relation.symbol, path: 'src/interface/cli/register-commands.ts' }
     }]
-  }, 'src/semantic/repair/sec.module.json')).toThrow('must remain inside the declaring module root');
+  }, 'src/semantics/repair/sec.module.json')).toThrow('must remain inside the declaring module root');
   expect(() => parseSecModuleDescriptor({
     ...descriptor,
     causalRelations: [relation, relation]
-  }, 'src/semantic/repair/sec.module.json')).toThrow('relations must be unique');
+  }, 'src/semantics/repair/sec.module.json')).toThrow('relations must be unique');
   expect(() => parseSecModuleDescriptor({
     ...descriptor,
     causalRelations: [{
       ...relation,
       operation: { semanticOperation: 'invalid', requirementId: null }
     }]
-  }, 'src/semantic/repair/sec.module.json')).toThrow('has an invalid format');
+  }, 'src/semantics/repair/sec.module.json')).toThrow('has an invalid format');
 });
 
 test('repository module compiler prevents production from importing test authority', () => {

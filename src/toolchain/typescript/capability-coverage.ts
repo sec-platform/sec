@@ -2,8 +2,8 @@ import {
   assertSourceProgramTypeScriptRequiredApiClosure,
   type SourceProgramTypeScriptRequiredApiClosure
 } from '../../brownfield/source-program-model/typescript.ts';
-import { compareCodeUnits, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { parseExactJsonBytes } from '../../system-architecture/foundation/runtime/exact-json.ts';
+import { compareCodeUnits, rawSha256, sha256 } from '../../contracts/canonical.ts';
+import { parseExactJsonBytes } from '../../contracts/exact-json.ts';
 import {
   assertTypeScriptNativeChecker,
   type InstalledTypeScriptNativeChecker

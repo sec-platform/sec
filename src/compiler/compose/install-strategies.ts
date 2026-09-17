@@ -1,15 +1,10 @@
 import path from 'node:path';
-import { assertCanonicalPortableLogicalPath } from '../../system-architecture/foundation/contract/logical-path.ts';
-import { createTaskGroupEffectFence, mapTaskGroup } from '../../system-architecture/foundation/runtime/concurrency.ts';
-import { throwIfNativeAborted } from '../../system-architecture/foundation/runtime/native-abort.ts';
+import { assertCanonicalPortableLogicalPath } from '../../contracts/logical-path.ts';
+import { createTaskGroupEffectFence, mapTaskGroup } from '../../execution/task-group.ts';
+import { throwIfNativeAborted } from '../../contracts/native-abort.ts';
 import type { CommitFence } from '../../workspace/files.ts';
 import { copyRecursive } from '../../workspace/runtime/discovery.ts';
-import {
-  isCanonicalWorkspaceArtifactPath,
-  resolvePathInside,
-  resolveRegistryRoot,
-  resolveWorkspaceArtifactPath
-} from '../../workspace/runtime/paths.ts';
+import { isCanonicalWorkspaceArtifactPath, resolvePathInside, resolveRegistryRoot, resolveWorkspaceArtifactPath } from '../../workspace/runtime/paths.ts';
 import type { InstallPlanStep, LockFile } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
 import { materializePrismaSource } from './merge-prisma-template.ts';

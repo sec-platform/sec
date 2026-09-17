@@ -1,5 +1,5 @@
-import { assertCanonicalPortableLogicalPath } from '../../../system-architecture/foundation/contract/logical-path.ts';
-import { canonicalEquals, uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { assertCanonicalPortableLogicalPath } from '../../../contracts/logical-path.ts';
+import { canonicalEquals, uniqueSorted } from '../../../contracts/canonical.ts';
 import { isSecRepositoryTestModulePath } from '../../../system-architecture/repository-modules/test-module-path.ts';
 import type { FastVerificationLaneReport, RuntimeVerificationLaneReport } from '../../contract/types.ts';
 

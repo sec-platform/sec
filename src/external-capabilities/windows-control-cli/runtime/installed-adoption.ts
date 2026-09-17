@@ -15,7 +15,7 @@ import {
   RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
   RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR
 } from '../../../runtime-state/physical/runtime/process.ts';
-import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../../contracts/canonical.ts';
 import {
   getSecWindowsControlCliExecutableBindingV1,
   type WindowsControlCliEnvironmentSpec,

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { PreparedWindowsRepositoryChangeObserver } from '../../runtime-state/physical/runtime/windows-repository-change-observer.ts';
-import { snapshotByteView } from '../../system-architecture/foundation/runtime/byte-snapshot.ts';
+import { snapshotByteView } from '../../contracts/byte-snapshot.ts';
 import { DEV_COMMAND_MAX_DURATION_MS, DEV_COMMAND_MAX_STDIN_BYTES } from './contract.ts';
 import {
   assertIssuedTestSuiteExecutionAdmission,

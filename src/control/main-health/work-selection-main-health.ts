@@ -10,7 +10,7 @@ import {
   withGitHubApiReadSession,
   type GitHubApiCapability
 } from '../../external-capabilities/github-api/operation-session.ts';
-import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { rawSha256, sha256 } from '../../contracts/canonical.ts';
 import { encodeVerificationActionData } from '../../verification/action/contract/action.ts';
 import {
   createMainHealthLedger,

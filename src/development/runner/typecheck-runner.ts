@@ -19,7 +19,7 @@ import {
 import { WINDOWS_READ_ONLY_TREE_ADMISSION_POLICY } from '../../runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
 import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateEnvironment } from '../../runtime-state/workspace-state/layout.ts';
 import { acquireSecRuntimeCachePhysicalAuthority } from '../../runtime-state/workspace-state/physical-authority.ts';
-import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../contracts/canonical.ts';
 import {
   issueSecOperationRequirementBindingContext
 } from '../../system-architecture/operation/requirement-binding-context.ts';

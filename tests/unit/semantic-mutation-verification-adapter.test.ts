@@ -15,7 +15,7 @@ import {
   executeSemanticMutationVerification,
   planSemanticMutationVerificationCapabilities
 } from '../../src/compiler/verify/semantic-mutation-verification-adapter.ts';
-import type { VerificationRequirement } from '../../src/semantic/mutation/contract/types.ts';
+import type { VerificationRequirement } from '../../src/semantics/mutation/types.ts';
 import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION, SEMANTIC_MUTATION_VERIFICATION_REPORT_REVISION } from '../../src/verification/contract/types.ts';
 import { buildExpectedProductVerificationClaimSummary } from '../../src/verification/profile/contract/product.ts';
 import { productVerificationObservationsFixture } from '../helpers/verification-fixtures.ts';

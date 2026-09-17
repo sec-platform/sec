@@ -1,9 +1,9 @@
 import path from 'node:path';
-import { portableLogicalPathCollisionKey } from '../../system-architecture/foundation/contract/logical-path.ts';
-import { uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { mapTaskGroup } from '../../system-architecture/foundation/runtime/concurrency.ts';
+import { portableLogicalPathCollisionKey } from '../../contracts/logical-path.ts';
+import { uniqueSorted } from '../../contracts/canonical.ts';
+import { mapTaskGroup } from '../../execution/task-group.ts';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
-import { relativePosixPath } from '../../workspace/runtime/paths.ts';
+import { relativePosixPath } from '../../contracts/relative-path.ts';
 import type { PlanFile } from '../contract.ts';
 import { LOCK_FILE_FORMAT_VERSION, type LockFile } from '../contract.ts';
 import { CompilerError } from '../errors.ts';

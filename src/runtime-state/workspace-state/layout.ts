@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../contracts/canonical.ts';
 
 export const SEC_RUNTIME_STATE_LAYOUT_SCHEMA = 'sec-runtime-state-layout-v1' as const;
 

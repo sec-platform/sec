@@ -1,16 +1,10 @@
 import { PhysicalNoFollowError } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { readOptionalProvenanceFile } from '../../semantic/provenance/authority.ts';
-import type { ProvenanceFile } from '../../semantic/provenance/contract/types.ts';
+import { readOptionalProvenanceFile } from '../../adapters/workspace/provenance-reader.ts';
+import type { ProvenanceFile } from '../../semantics/provenance/types.ts';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import { ProjectIntegrityError } from '../contract/project-integrity.ts';
 import { modelRelativePath } from '../contract/types.ts';
-import {
-  getWorkspacePaths,
-  resolveWorkspaceArtifactPath,
-  secRelativePath,
-  tsconfigRelativePath,
-  workspaceConfigRelativePath
-} from '../runtime/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath, secRelativePath, tsconfigRelativePath, workspaceConfigRelativePath } from '../runtime/paths.ts';
 import { assertProjectBaseline, readProjectBaseline } from '../runtime/project-baseline.ts';
 import { listTrackedProjectPaths } from '../runtime/project-tracked-files.ts';
 import { inspectProvenanceArtifacts } from './project-provenance-inspection.ts';

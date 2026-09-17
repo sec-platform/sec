@@ -1,5 +1,5 @@
-import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../system-architecture/foundation/contract/repository-path.ts';
-import { sha256, uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../contracts/repository-path.ts';
+import { sha256, uniqueSorted } from '../../../contracts/canonical.ts';
 
 export type CodexDevelopmentGitChangedRecord = {
   status: 'added' | 'changed' | 'removed' | 'renamed' | 'copied';

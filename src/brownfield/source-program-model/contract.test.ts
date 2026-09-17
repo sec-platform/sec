@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 
 import type { BuildEngineeringIRInput } from '../../compiler/ir/build-engineering-ir.ts';
 import { buildValidatedEngineeringIR } from '../../compiler/ir/validate-engineering-ir.ts';
-import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { rawSha256, sha256 } from '../../contracts/canonical.ts';
 import {
   compileSecRepositoryModuleArchitectureProjection,
   compileSecRepositoryModuleMembershipSnapshot
@@ -2910,7 +2910,7 @@ function compileCausalReaderFixture(
   additionalSources: Readonly<Record<string, string>> = Object.freeze({})
 ) {
   const sources = {
-    'src/semantic/repair/contract/types.ts': [
+    'src/semantics/repair/types.ts': [
       'export interface RepairPlan { readonly status: string; }',
       'export function parseRepairPlanJson(source: string): RepairPlan { return JSON.parse(source) as RepairPlan; }'
     ].join('\n'),
@@ -2919,19 +2919,19 @@ function compileCausalReaderFixture(
     ...additionalSources
   };
   const descriptorSources = [{
-    descriptorPath: 'src/semantic/repair/sec.module.json',
+    descriptorPath: 'src/semantics/repair/sec.module.json',
     source: JSON.stringify({
       importGraph: 'runtime',
       externalEntrypoints: [],
       causalRelations: [{
         subject: 'semantic.repair-plan',
         relation: 'declares',
-        symbol: { path: 'src/semantic/repair/contract/types.ts', name: 'RepairPlan' },
+        symbol: { path: 'src/semantics/repair/types.ts', name: 'RepairPlan' },
         operation: null
       }, {
         subject: 'semantic.repair-plan',
         relation: 'parses',
-        symbol: { path: 'src/semantic/repair/contract/types.ts', name: 'parseRepairPlanJson' },
+        symbol: { path: 'src/semantics/repair/types.ts', name: 'parseRepairPlanJson' },
         operation: null
       }]
     })
@@ -3043,11 +3043,11 @@ test('causal readback provenance follows stable relays and owner helpers', () =>
     "import type { RepairPlan } from '../../semantic/repair/contract/types.ts';",
     'function readRequiredRepairPlan(source: string): RepairPlan { return readThroughOwner(source); }'
   ].join('\n'), {
-    'src/semantic/repair/runtime/read.ts': [
+    'src/semantics/repair/runtime/read.ts': [
       "import { parseRepairPlanJson, type RepairPlan } from '../contract/types.ts';",
       'export function readThroughOwner(source: string): RepairPlan { return parseRepairPlanJson(source); }'
     ].join('\n'),
-    'src/semantic/repair/runtime/index.ts': "export { readThroughOwner } from './read.ts';\n"
+    'src/semantics/repair/runtime/index.ts': "export { readThroughOwner } from './read.ts';\n"
   });
   expect(crossFileReexport.candidates).not.toContainEqual(expect.objectContaining({
     code: 'causal-relation-owner-bypass'

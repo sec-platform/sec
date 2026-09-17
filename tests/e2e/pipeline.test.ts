@@ -18,7 +18,7 @@ import {
 import { readPipelineJournal } from '../../src/compiler/pipeline/journal.ts';
 import { getPipelineStageDefinition } from '../../src/compiler/pipeline/pass-registry.ts';
 import { PIPELINE_STAGE_IDS } from '../../src/compiler/pipeline/types.ts';
-import type { ProvenanceArtifact, ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
+import type { ProvenanceArtifact, ProvenanceFile } from '../../src/semantics/provenance/types.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import type { ReviewSummary } from '../../src/verification/review/contract/types.ts';
 import { formatJsonFile, readJson } from '../../src/workspace/files.ts';

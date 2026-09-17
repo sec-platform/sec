@@ -2,7 +2,7 @@ import {
   compareCodeUnits,
   deepFreeze,
   sha256
-} from '../../system-architecture/foundation/runtime/canonical.ts';
+} from '../../contracts/canonical.ts';
 import {
   compileSecRepositoryModuleArchitectureProjection,
   type SecModuleCausalRelationKind,

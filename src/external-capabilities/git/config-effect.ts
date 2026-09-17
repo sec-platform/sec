@@ -6,7 +6,7 @@ import {
   inspectNoFollowOrdinaryFileEntry,
   retainNoFollowOrdinaryFile
 } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { rawSha256, sha256 } from '../../contracts/canonical.ts';
 import type { SecOperationDigest } from '../../system-architecture/operation/semantic.ts';
 import {
   assertGitPhysicalResourceAdmissionInternal,

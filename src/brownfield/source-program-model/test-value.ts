@@ -1,4 +1,4 @@
-import { compareCodeUnits, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { compareCodeUnits, sha256 } from '../../contracts/canonical.ts';
 import { isSecRepositoryTestModulePath } from '../../system-architecture/repository-modules/test-module-path.ts';
 import {
   resolveSourceProgramCompilationOperation,

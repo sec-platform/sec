@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync } from 'node:fs
 import os from 'node:os';
 import path from 'node:path';
 
-import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { rawSha256, sha256 } from '../../contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,

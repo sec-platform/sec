@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { deepFreeze, sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { deepFreeze, sha256 } from '../../../contracts/canonical.ts';
 import source from './windows-installation-profile.json' with { type: 'json' };
 
 const childDescriptor = z.number().int().min(5).max(64);

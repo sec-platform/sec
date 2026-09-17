@@ -1,4 +1,4 @@
-import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
+import { SecError } from '../../../contracts/failure.ts';
 import type { CommitFence } from '../../../workspace/files.ts';
 
 export const RUNTIME_DEPENDENCY_INSTALL_MODES = Object.freeze([

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 
 import { canonicalGitChildEnvironment } from '../../src/external-capabilities/git/environment.ts';
-import { assertGitBranchName } from '../../src/system-architecture/foundation/contract/git-reference.ts';
+import { assertGitBranchName } from '../../src/contracts/git-reference.ts';
 
 const environment = canonicalGitChildEnvironment({}, process.env);
 

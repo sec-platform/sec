@@ -3,7 +3,7 @@ import {
   deepFreeze,
   sha256,
   uniqueSorted
-} from '../../system-architecture/foundation/runtime/canonical.ts';
+} from '../../contracts/canonical.ts';
 
 /** Read-only view of facts already compiled by Source Program, not a second parser or graph. */
 export interface MechanismReviewModel {

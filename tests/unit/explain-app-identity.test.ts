@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 
 import type { LockFile } from "../../src/compiler/contract.ts";
 import { buildExplainGraph } from "../../src/compiler/emit/write-explain-graph.ts";
-import type { AcceptanceCoverageReport } from '../../src/semantic/acceptance/contract/types.ts';
-import type { ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
+import type { AcceptanceCoverageReport } from '../../src/assurance/acceptance/coverage.ts';
+import type { ProvenanceFile } from '../../src/semantics/provenance/types.ts';
 import { buildSemanticViewFixture } from "../helpers/semantic-view-fixtures.ts";
 
 function lock(name: string): LockFile {

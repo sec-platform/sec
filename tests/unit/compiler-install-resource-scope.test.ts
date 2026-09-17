@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import type { RetainedNoFollowChildProcessDirectory, RetainedNoFollowOrdinaryFile } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 import { openProcessResourceSession, type ProcessResourceSession } from '../../src/runtime-state/physical/runtime/process-resource-session.ts';
-import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../src/contracts/canonical.ts';
 import { issueSecOperationRequirementBindingContext } from '../../src/system-architecture/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation, compileSecCapabilityBinding, compileSecSemanticOperationPlan,

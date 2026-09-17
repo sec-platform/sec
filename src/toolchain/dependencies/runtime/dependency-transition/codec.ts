@@ -4,11 +4,11 @@ import {
 } from '../../../../runtime-state/generated-state/contract.ts';
 import {
   SecError
-} from '../../../../system-architecture/foundation/contract/failure.ts';
+} from '../../../../contracts/failure.ts';
 import {
   canonicalJson,
   deepFreeze
-} from '../../../../system-architecture/foundation/runtime/canonical.ts';
+} from '../../../../contracts/canonical.ts';
 import {
   formatJsonFile
 } from '../../../../workspace/files.ts';

@@ -44,7 +44,7 @@ import { createNoFollowDirectoryChain, deleteRetainedNoFollowEntry, inspectExact
 import { settlePhysicalResourcesAsync } from '../../../runtime-state/physical/runtime/resource-settlement.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeCachePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
-import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../../contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,

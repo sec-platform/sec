@@ -5,7 +5,7 @@ import type {
   GitReadProviderResolutionFailure,
   GitReadSessionFailure
 } from '../../external-capabilities/git-read/runtime/session.ts';
-import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,

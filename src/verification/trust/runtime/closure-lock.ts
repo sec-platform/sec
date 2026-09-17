@@ -32,7 +32,7 @@ import path from 'node:path';
 
 import ts from 'typescript';
 
-import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../system-architecture/foundation/contract/repository-path.ts';
+import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../contracts/repository-path.ts';
 import { compilerRoot } from '../../../workspace/runtime/paths.ts';
 import { createVerificationActionKey, createVerificationActionPlan, type VerificationActionPlan } from '../../action/contract/action.ts';
 import {

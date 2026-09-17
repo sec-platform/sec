@@ -1,6 +1,6 @@
 import { parse as parseYaml } from 'yaml';
 
-import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { rawSha256, sha256 } from '../../contracts/canonical.ts';
 import type { MainHealthRepairDecision } from '../main-health/repair.ts';
 import {
   CodexDevelopmentParseCurrentWorkPackageManifest,

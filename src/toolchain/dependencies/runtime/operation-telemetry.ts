@@ -1,5 +1,5 @@
-import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
-import { isNativeAborted } from '../../../system-architecture/foundation/runtime/native-abort.ts';
+import { SecError } from '../../../contracts/failure.ts';
+import { isNativeAborted } from '../../../contracts/native-abort.ts';
 import {
   runtimeDependencyOperationContext,
   type BoundRuntimeDependencyOperationControls,

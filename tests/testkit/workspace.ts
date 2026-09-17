@@ -6,8 +6,8 @@ import path from 'node:path';
 import { setTimeout as sleepMs } from 'node:timers/promises';
 
 import { getTestWorkspaceTemplateRoot, getTestWorkspaceTempRoot } from '../../src/development/runner/env-manager.ts';
-import { createConcurrencyLimit } from '../../src/system-architecture/foundation/runtime/concurrency.ts';
-import { getErrorCode } from '../../src/system-architecture/foundation/runtime/failure-inspection.ts';
+import { createConcurrencyLimit } from '../../src/execution/task-group.ts';
+import { getErrorCode } from '../../src/contracts/failure-inspection.ts';
 import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
 import { captureWorkspacePipelineOptions, createTemplatePreparation, workspaceTemplatePipeline, type WorkspacePipelineFixtureOptions, type WorkspaceTemplateKind } from './template-preparation.ts';
 import { captureWorkspaceRetention, createWorkspaceWithDeferredCleanup, removeWorkspaceDirectoryWithRetry, settleWorkspaceCallback, settleWorkspaceCleanups, workspaceTemporaryPrefix } from './workspace-cleanup.ts';

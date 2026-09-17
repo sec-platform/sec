@@ -1,9 +1,9 @@
-import type { FactDelta, FactDeltaEndpointContext } from '../../semantic/engineering-ir/contract/delta-types.ts';
-import type { SemanticEntity } from '../../semantic/engineering-ir/contract/entity-types.ts';
-import type { SemanticFact } from '../../semantic/engineering-ir/contract/fact-types.ts';
-import { IMPACT_CONTRACT_VERSION, IMPACT_PROPAGATION_RULE_REVISION, IMPACT_SCOPE, type ImpactBasis, type ImpactOccurrence, type ImpactPathStep, type ImpactPropagationInput, type ImpactSeed, type ImpactUncertainty, type SemanticImpactPropagation, type VerificationReason, type VerificationRecommendation } from '../../semantic/impact/contract/types.ts';
-import { canonicalJson, compareCodeUnits, deepFreeze, sha256, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { fail } from '../errors.ts';
+import type { FactDelta, FactDeltaEndpointContext } from '../../semantics/engineering-ir/delta-types.ts';
+import type { SemanticEntity } from '../../semantics/engineering-ir/entity-types.ts';
+import type { SemanticFact } from '../../semantics/engineering-ir/fact-types.ts';
+import { IMPACT_CONTRACT_VERSION, IMPACT_PROPAGATION_RULE_REVISION, IMPACT_SCOPE, type ImpactBasis, type ImpactOccurrence, type ImpactPathStep, type ImpactPropagationInput, type ImpactSeed, type ImpactUncertainty, type SemanticImpactPropagation, type VerificationReason, type VerificationRecommendation } from '../../semantics/impact/types.ts';
+import { canonicalJson, compareCodeUnits, deepFreeze, sha256, uniqueSorted } from '../../contracts/canonical.ts';
+import { fail } from '../../contracts/failure.ts';
 import { buildFactDelta } from '../ir/build-fact-delta.ts';
 import {
   indexValidatedEngineeringIR,

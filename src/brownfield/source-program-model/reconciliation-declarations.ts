@@ -1,4 +1,4 @@
-import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { compareCodeUnits } from '../../contracts/canonical.ts';
 import type { SourceProgramDeclaration } from './contract.ts';
 
 type Relation = Readonly<{ subject: string; relation: string; declaration: SourceProgramDeclaration | null }>;

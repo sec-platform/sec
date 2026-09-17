@@ -38,7 +38,7 @@ import {
   createWorktreePhysicalCloseoutReceipt,
   detailDigest
 } from '../../src/runtime-state/worktree-closeout-contract.ts';
-import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../src/contracts/canonical.ts';
 import {
   assertCompilerDependencyEnvironmentRetirementReceipt,
   compilerDependencyLocatorWorktreeRetirementProvider,

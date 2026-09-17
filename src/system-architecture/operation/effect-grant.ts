@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { deepFreeze, sha256 } from '../foundation/runtime/canonical.ts';
+import { deepFreeze, sha256 } from '../../contracts/canonical.ts';
 import { SEC_SEMANTIC_OPERATION_ID_PATTERN } from './identity.ts';
 import {
   assertSecSemanticOperationPlan,

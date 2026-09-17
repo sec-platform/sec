@@ -1,4 +1,4 @@
-import { snapshotByteView } from '../../system-architecture/foundation/runtime/byte-snapshot.ts';
+import { snapshotByteView } from '../../contracts/byte-snapshot.ts';
 import { captureProjectPathInventory } from '../contract/project-path-inventory.ts';
 
 /** Decode Git's exact NUL protocol without renaming the observed files.

@@ -13,7 +13,7 @@ import {
 } from '../../src/runtime-state/generated-state/lifecycle.ts';
 import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../src/runtime-state/workspace-state/paths.ts';
-import { canonicalJson } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { canonicalJson } from '../../src/contracts/canonical.ts';
 import { compilerDependencyIdentity } from '../../src/toolchain/dependencies/runtime/compiler-materialization-input.ts';
 import {
   advanceDependencyTransition,

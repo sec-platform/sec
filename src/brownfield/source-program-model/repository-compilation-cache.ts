@@ -1,4 +1,4 @@
-import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../contracts/canonical.ts';
 
 import type { TypeScriptSourceProgramFactShard } from './typescript-fact-shards.ts';
 import {

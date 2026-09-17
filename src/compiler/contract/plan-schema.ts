@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { REGISTRY_KINDS, REGISTRY_LOCATIONS } from '../registry/contract/types.ts';
+import { REGISTRY_KINDS, REGISTRY_LOCATIONS } from '../../contracts/registry-source.ts';
 
 // Structural values only. Uniqueness, supported stacks, canonical paths,
 // capability selection and authority remain decisions of their existing owners.

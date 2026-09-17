@@ -1,14 +1,8 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import {
-  getWorkspacePaths,
-  isPathInside,
-  isSafeRelativePath,
-  resolvePathInside,
-  resolveRegistryRoot,
-  resolveWorkspaceArtifactPath
-} from '../../src/workspace/runtime/paths.ts';
+import { getWorkspacePaths, isPathInside, resolvePathInside, resolveRegistryRoot, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+import { isSafeRelativePath } from '../../src/contracts/relative-path.ts';
 
 const root = path.resolve('containment-fixture');
 

@@ -11,7 +11,7 @@ import {
 } from '../../external-capabilities/git-read/runtime/session.ts';
 import { inspectNoFollowDirectoryChain } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { createRuntimeStateJournalFileSystem } from '../../runtime-state/workspace-state/journal-filesystem.ts';
-import { canonicalJson, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalJson, sha256 } from '../../contracts/canonical.ts';
 import {
   compileSecProviderSettlementSet,
   issueSecNormalDomainReadbackReceipt,

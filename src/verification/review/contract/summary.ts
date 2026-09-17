@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-import { deepFreeze } from '../../../system-architecture/foundation/runtime/canonical.ts';
-import { parseExactJson } from '../../../system-architecture/foundation/runtime/exact-json.ts';
+import { deepFreeze } from '../../../contracts/canonical.ts';
+import { parseExactJson } from '../../../contracts/exact-json.ts';
 import { REVIEW_SUMMARY_FORMAT_VERSION, type ReviewSummary } from './types.ts';
 
 const text = z.string();

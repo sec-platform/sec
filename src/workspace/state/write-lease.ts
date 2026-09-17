@@ -9,8 +9,8 @@ import {
 } from '../../runtime-state/physical/contract/windows-appcontainer-execution-capability.ts';
 import { assertSameNoFollowDirectoryIdentity, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectoryAcrossParents, scanNoFollowDirectoryTree, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { ISOLATED_VERIFICATION_ENV_KEY } from '../../runtime-state/physical/runtime/process.ts';
-import { isSemanticMutationStagingWorkspace } from '../../semantic/mutation/runtime/staging-boundary.ts';
-import { canonicalEquals, digest, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { isSemanticMutationStagingWorkspace } from '../contract/semantic-mutation-staging.ts';
+import { canonicalEquals, digest, sha256 } from '../../contracts/canonical.ts';
 import { resolveWorkspaceLocalStateRoot } from '../contract/local-state.ts';
 import { ensureDir, type CommitFence } from '../runtime/files.ts';
 

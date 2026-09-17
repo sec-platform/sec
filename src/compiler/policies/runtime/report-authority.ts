@@ -1,8 +1,9 @@
 import { readOptionalRetainedJson } from '../../../runtime-state/physical/runtime/retained-file-read.ts';
-import { isCanonicalBlockId } from '../../../semantic/identity/contract/block.ts';
-import { isCanonicalPortableLogicalPath } from '../../../system-architecture/foundation/contract/logical-path.ts';
-import { canonicalEquals, compareCodeUnits, deepFreeze, uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
-import { officialPoliciesRelativePath, policiesRelativePath, posixPath } from '../../../workspace/runtime/paths.ts';
+import { isCanonicalBlockId } from '../../../semantics/identity/block.ts';
+import { isCanonicalPortableLogicalPath } from '../../../contracts/logical-path.ts';
+import { canonicalEquals, compareCodeUnits, deepFreeze, uniqueSorted } from '../../../contracts/canonical.ts';
+import { officialPoliciesRelativePath, policiesRelativePath } from '../../../workspace/runtime/paths.ts';
+import { posixPath } from '../../../contracts/relative-path.ts';
 import { isCanonicalPolicyId } from '../contract/identity.ts';
 import { isPolicyRuleId } from '../contract/rules.ts';
 import type {

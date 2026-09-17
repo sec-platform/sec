@@ -18,7 +18,7 @@ import { compileSecOperationDemandGraph } from '../../src/control/operation/dema
 import type { SecWorkSelectionLiveResult } from '../../src/control/work-selection/live-contract.ts';
 import { projectSecWorkSelectionCli } from '../../src/control/work-selection/runtime.ts';
 import { shouldReportDevRunnerSuccess } from '../../src/development/runner/cli.ts';
-import { rawSha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { rawSha256 } from '../../src/contracts/canonical.ts';
 import {
   compileSecRepositoryModuleMembershipSnapshot,
   compileSecRepositoryModuleTopologyProjection,

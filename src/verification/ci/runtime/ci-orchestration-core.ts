@@ -39,7 +39,7 @@ import {
   RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
   RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR
 } from '../../../runtime-state/physical/runtime/process.ts';
-import { uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { uniqueSorted } from '../../../contracts/canonical.ts';
 import { issueSecOperationRequirementBindingContext } from '../../../system-architecture/operation/requirement-binding-context.ts';
 import type { SecBoundSemanticOperation } from '../../../system-architecture/operation/semantic.ts';
 import { issueTestInventoryProjection } from '../../test-impact/contract/budget.ts';

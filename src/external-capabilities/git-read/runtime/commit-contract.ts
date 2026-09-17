@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../../contracts/canonical.ts';
 import type { SecOperationDigest } from '../../../system-architecture/operation/semantic.ts';
 
 export type GitCommitIdentity = Readonly<{

@@ -1,4 +1,4 @@
-import { canonicalEquals, compareCodeUnits, deepFreeze, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalEquals, compareCodeUnits, deepFreeze, sha256 } from '../../contracts/canonical.ts';
 
 export const SEC_OPERATION_DEMAND_GRAPH_SCHEMA =
   'sec-operation-demand-graph-v1' as const;

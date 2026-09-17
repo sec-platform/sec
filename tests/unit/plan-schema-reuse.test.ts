@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { SUPPORTED_STACK, type PlanFile } from '../../src/compiler/contract.ts';
 import { AppModeSchema, PackageManagerSchema, PlanAppSchema, PlanRegistrySourceSchema } from '../../src/compiler/contract/plan-schema.ts';
 import { normalizePlan, validatePlan } from '../../src/compiler/parse/load-plan.ts';
-import { REGISTRY_KINDS, REGISTRY_LOCATIONS } from '../../src/compiler/registry/contract/types.ts';
+import { REGISTRY_KINDS, REGISTRY_LOCATIONS } from '../../src/contracts/registry-source.ts';
 
 const input = () => ({ app: { id: 'app', name: 'Application', stack: SUPPORTED_STACK } });
 const normalize = (value: unknown) => normalizePlan(value as PlanFile);

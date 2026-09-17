@@ -2,9 +2,9 @@ import { expect, test } from 'bun:test';
 
 import { CompilerError } from '../../src/compiler/errors.ts';
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
-import { normalizeSemanticContract } from '../../src/compiler/parse/load-semantic-contract.ts';
-import { linkWorkspaceSemanticContracts } from '../../src/compiler/semantic-linker.ts';
-import type { LoadedSemanticContract, SemanticContract } from '../../src/semantic/contracts/contract/types.ts';
+import { normalizeSemanticContract } from '../../src/semantics/definitions/normalize.ts';
+import { linkWorkspaceSemanticContracts } from '../../src/semantics/definitions/link.ts';
+import type { LoadedSemanticContract, SemanticContract } from '../../src/semantics/definitions/types.ts';
 
 function contract(
   blockId: string,

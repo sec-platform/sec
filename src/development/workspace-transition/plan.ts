@@ -1,4 +1,4 @@
-import { compareCodeUnits, deepFreeze, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { compareCodeUnits, deepFreeze, sha256 } from '../../contracts/canonical.ts';
 import {
   WORKSPACE_TRANSITION_OBSERVATION_DISPOSITIONS,
   WorkspaceTransitionContractError,

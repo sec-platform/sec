@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 import { ISOLATED_VERIFICATION_ENV_KEY } from '../../runtime-state/physical/runtime/process.ts';
-import { isSemanticMutationStagingWorkspace } from '../../semantic/mutation/runtime/staging-boundary.ts';
+import { isSemanticMutationStagingWorkspace } from '../../workspace/contract/semantic-mutation-staging.ts';
 import { pathExists } from '../../workspace/files.ts';
 import { listFilesRecursive } from '../../workspace/runtime/discovery.ts';
 import { readProjectBaseline } from '../../workspace/runtime/project-baseline.ts';

@@ -4,10 +4,7 @@ import path from 'node:path';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import { writeJson } from '../../workspace/files.ts';
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease, WORKSPACE_WRITE_LEASE_DIRECTORY_NAME, WorkspaceWriteLeaseError, type WorkspaceWriteLeaseToken } from '../../workspace/lease.ts';
-import {
-  getWorkspacePaths,
-  resolveWorkspaceArtifactPath
-} from '../../workspace/runtime/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../workspace/runtime/paths.ts';
 import { writeYaml } from '../../workspace/yaml.ts';
 import { LOCK_FILE_FORMAT_VERSION, type LockFile } from '../contract.ts';
 import { CompilerError } from '../errors.ts';

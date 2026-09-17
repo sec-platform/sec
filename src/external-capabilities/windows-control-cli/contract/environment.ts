@@ -1,4 +1,4 @@
-import { deepFreeze, sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { deepFreeze, sha256 } from '../../../contracts/canonical.ts';
 import source from '../profile/sec-windows-control-cli-v1.json' with { type: 'json' };
 
 export const SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SCHEMA =

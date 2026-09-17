@@ -1,4 +1,4 @@
-import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../../contracts/canonical.ts';
 
 export const DOCKER_ENDPOINT_IDENTITY_SCHEMA = 'sec-docker-endpoint-identity-v1' as const;
 

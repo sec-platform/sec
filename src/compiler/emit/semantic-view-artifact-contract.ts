@@ -1,5 +1,5 @@
-import type { ExplainGraph } from '../../semantic/projection/contract/explain.ts';
-import type { SemanticViewSet } from '../../semantic/projection/contract/types.ts';
+import type { ExplainGraph } from '../../semantics/projection/explain.ts';
+import type { SemanticViewSet } from '../../semantics/projection/types.ts';
 import type { LockFile } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
 import { requireSemanticViewSetSchema } from '../lock.ts';

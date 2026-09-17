@@ -14,13 +14,13 @@ import {
 } from '../../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   SecError
-} from '../../../../system-architecture/foundation/contract/failure.ts';
+} from '../../../../contracts/failure.ts';
 import {
   canonicalJson,
   compareCodeUnits,
   deepFreeze
-} from '../../../../system-architecture/foundation/runtime/canonical.ts';
-import { readonlyMapSnapshot } from '../../../../system-architecture/foundation/runtime/collections.ts';
+} from '../../../../contracts/canonical.ts';
+import { readonlyMapSnapshot } from '../../../../contracts/collections.ts';
 import {
   formatJsonFile
 } from '../../../../workspace/files.ts';

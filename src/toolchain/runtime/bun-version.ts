@@ -1,9 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { SecError } from '../../system-architecture/foundation/contract/failure.ts';
-import { isPlainObject } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { parseExactJson } from '../../system-architecture/foundation/runtime/exact-json.ts';
+import { SecError } from '../../contracts/failure.ts';
+import { isPlainObject } from '../../contracts/canonical.ts';
+import { parseExactJson } from '../../contracts/exact-json.ts';
 import { compilerRuntimeLayout } from './layout.ts';
 
 const compilerRoot = compilerRuntimeLayout.packageRoot;

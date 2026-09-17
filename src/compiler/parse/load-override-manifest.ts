@@ -1,20 +1,14 @@
 import path from 'node:path';
 
-import { OverrideManifestSchema } from '../../semantic/provenance/contract/override-schema.ts';
-import { failureMessage } from '../../system-architecture/foundation/runtime/failure-inspection.ts';
-import { parseYamlValue } from '../../system-architecture/foundation/runtime/yaml.ts';
+import { OverrideManifestSchema } from '../../semantics/provenance/override-schema.ts';
+import { failureMessage } from '../../contracts/failure-inspection.ts';
+import { parseYamlValue } from '../../adapters/formats/yaml.ts';
 
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
-import type { OverrideManifest } from '../../semantic/provenance/contract/types.ts';
-import { isCanonicalPortableLogicalPath, portableLogicalPathCollisionKey } from '../../system-architecture/foundation/contract/logical-path.ts';
+import type { OverrideManifest } from '../../semantics/provenance/types.ts';
+import { isCanonicalPortableLogicalPath, portableLogicalPathCollisionKey } from '../../contracts/logical-path.ts';
 import { modelRelativePath } from '../../workspace/contract/types.ts';
-import {
-  getWorkspacePaths,
-  packageJsonRelativePath,
-  secRelativePath,
-  tsconfigRelativePath,
-  workspaceConfigRelativePath
-} from '../../workspace/runtime/paths.ts';
+import { getWorkspacePaths, packageJsonRelativePath, secRelativePath, tsconfigRelativePath, workspaceConfigRelativePath } from '../../workspace/runtime/paths.ts';
 import { CompilerError } from '../errors.ts';
 
 const BLOCKED_OVERRIDE_TARGET_PREFIXES = [

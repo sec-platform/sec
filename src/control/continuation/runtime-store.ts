@@ -5,7 +5,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { decodeExactUtf8 } from '../../runtime-state/physical/runtime/retained-file-read.ts';
-import { parseExactJson } from '../../system-architecture/foundation/runtime/exact-json.ts';
+import { parseExactJson } from '../../contracts/exact-json.ts';
 import { waitForHeavyVerificationGateLease, withAcquiredHeavyVerificationGateLease } from '../../verification/gate/state/heavy-lease-lifecycle.ts';
 
 import { deleteRetainedNoFollowEntry, inspectNoFollowDirectoryChild, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, replaceDurableCanonicalFile, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';

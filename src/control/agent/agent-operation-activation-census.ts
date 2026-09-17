@@ -1,4 +1,4 @@
-import { canonicalJson, compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalJson, compareCodeUnits } from '../../contracts/canonical.ts';
 import {
   CodexDevelopmentClassifyWorkPackageCensus,
   type CodexDevelopmentWorkPackageCensusEntry

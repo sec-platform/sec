@@ -1,7 +1,7 @@
 import { rename } from 'node:fs/promises';
 import path from 'node:path';
 
-import type { SemanticMutationWindowsFileAttributes } from '../../semantic/mutation/contract/types.ts';
+import type { SemanticMutationWindowsFileAttributes } from '../../semantics/mutation/types.ts';
 
 import { canonicalEquals } from './canonical.ts';
 

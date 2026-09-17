@@ -1,9 +1,9 @@
 import { chmod, copyFile, lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { FactDeltaEndpointContext } from '../../semantic/engineering-ir/contract/delta-types.ts';
-import type { SemanticMutationTransactionInput } from '../../semantic/mutation/contract/transaction.ts';
-import type { SemanticMutationPlan, SemanticMutationRollbackManifest, SemanticMutationSourceEditPlan, VerificationRequirement } from '../../semantic/mutation/contract/types.ts';
-import { SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION, SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION } from '../../semantic/mutation/contract/types.ts';
+import type { FactDeltaEndpointContext } from '../../semantics/engineering-ir/delta-types.ts';
+import type { SemanticMutationTransactionInput } from '../../semantics/mutation/transaction.ts';
+import type { SemanticMutationPlan, SemanticMutationRollbackManifest, SemanticMutationSourceEditPlan, VerificationRequirement } from '../../semantics/mutation/types.ts';
+import { SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION, SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION } from '../../semantics/mutation/types.ts';
 import type { SemanticMutationVerificationCapabilityPlan } from '../../verification/contract/types.ts';
 import { buildWorkspaceSemanticBundle } from '../semantic-frontend.ts';
 import { compareCodeUnits, mutationDiagnostic } from './canonical.ts';

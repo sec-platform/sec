@@ -6,9 +6,9 @@ import { z } from 'zod';
 
 import { copyNoFollowDirectoryTreesBulk, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, relocateRetainedNoFollowDirectory, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { decodeExactUtf8, readOptionalRetainedJson, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
-import { canonicalEquals, compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { createConcurrencyLimit } from '../../system-architecture/foundation/runtime/concurrency.ts';
-import { isYamlParseFailure, parseYamlValue } from '../../system-architecture/foundation/runtime/yaml.ts';
+import { canonicalEquals, compareCodeUnits } from '../../contracts/canonical.ts';
+import { createConcurrencyLimit } from '../../execution/task-group.ts';
+import { isYamlParseFailure, parseYamlValue } from '../../adapters/formats/yaml.ts';
 import { ensureDir, isFileNotFoundError, pathEntryExists, pathExists, writeJson, type CommitFence } from '../../workspace/files.ts';
 import { getWorkspacePaths } from '../../workspace/runtime/paths.ts';
 import { CompilerError } from '../errors.ts';

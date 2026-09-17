@@ -1,7 +1,7 @@
 import type { PolicyReport } from '../../../compiler/policies/contract/types.ts';
 import { validatePolicyReport } from '../../../compiler/policies/runtime/report-authority.ts';
-import type { AcceptanceCoverageReport } from '../../../semantic/acceptance/contract/types.ts';
-import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import type { AcceptanceCoverageReport } from '../../../assurance/acceptance/coverage.ts';
+import { sha256 } from '../../../contracts/canonical.ts';
 import type { FastVerificationLaneReport, RuntimeVerificationLaneReport, VerificationClaimSummary, VerificationLane, VerificationStatus, VerificationStepReport } from '../../contract/types.ts';
 import { CodexDevelopmentAggregateVerificationClaims, CodexDevelopmentBuildVerificationGateResult, CodexDevelopmentVerificationEnvironmentIdentity, mapProductVerificationStatus, type ProductVerificationMappingContext, type VerificationApplicability, type VerificationClaimDefinition, type VerificationGateEnvironment, type VerificationGateExecution, type VerificationGateResult, type VerificationReasonCode, type VerificationResultStatus } from '../../result/contract/result.ts';
 

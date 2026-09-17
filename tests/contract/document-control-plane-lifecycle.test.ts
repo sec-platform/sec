@@ -69,7 +69,7 @@ import {
   withGitHubApiTestSession,
   type GitHubApiTransport
 } from '../../src/external-capabilities/github-api/test/operation-session.ts';
-import { digest, rawSha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { digest, rawSha256 } from '../../src/contracts/canonical.ts';
 import {
   SEC_DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_MAX_BYTES_V1,
   SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1,

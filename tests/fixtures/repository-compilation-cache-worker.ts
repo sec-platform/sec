@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { createRepositoryCompilationCacheProvider } from '../../src/brownfield/source-program-model/repository-compilation-cache-provider.ts';
 import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 import { openContentAddressedWorkspaceCacheSession } from '../../src/runtime-state/workspace-state/content-addressed-workspace-cache.ts';
-import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../src/contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,

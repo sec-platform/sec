@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { chmod, mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
-import type { SemanticMutationRollbackManifest, SemanticMutationSourceEditPlan } from '../../semantic/mutation/contract/types.ts';
+import type { SemanticMutationRollbackManifest, SemanticMutationSourceEditPlan } from '../../semantics/mutation/types.ts';
 import {
   SemanticMutationContractError,
   canonicalEquals,

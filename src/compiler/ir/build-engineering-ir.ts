@@ -1,12 +1,12 @@
-import type { LoadedSemanticContract } from '../../semantic/contracts/contract/types.ts';
-import { type SemanticEntity } from '../../semantic/engineering-ir/contract/entity-types.ts';
-import { type SemanticFact } from '../../semantic/engineering-ir/contract/fact-types.ts';
-import { ENGINEERING_IR_FORMAT_VERSION, type EngineeringIR } from '../../semantic/engineering-ir/contract/root-types.ts';
-import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
+import type { LoadedSemanticContract } from '../../semantics/definitions/types.ts';
+import { type SemanticEntity } from '../../semantics/engineering-ir/entity-types.ts';
+import { type SemanticFact } from '../../semantics/engineering-ir/fact-types.ts';
+import { ENGINEERING_IR_FORMAT_VERSION, type EngineeringIR } from '../../semantics/engineering-ir/root-types.ts';
+import { compareCodeUnits } from '../../contracts/canonical.ts';
 import type { BlockManifest, ResolvedBlock } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
 import type { PolicyRule } from '../policies/contract/types.ts';
-import { linkWorkspaceSemanticContracts } from '../semantic-linker.ts';
+import { linkWorkspaceSemanticContracts } from '../../semantics/definitions/link.ts';
 import { appendSemanticContract, type BuildSink } from './append-semantic-contract.ts';
 import { addFact as addFactToStore } from './ir-fact-store.ts';
 import {
@@ -30,7 +30,7 @@ import {
   semanticRevisionPayload,
   type InputRevisionDomain
 } from './ir-revision.ts';
-import { assertEngineeringIRPredicateSignatures } from './predicate-signatures.ts';
+import { assertEngineeringIRPredicateSignatures } from '../../semantics/engineering-ir/predicate-signatures.ts';
 import { deriveScenarioDefinitions } from './scenario-facts.ts';
 
 export interface EngineeringIRManifestInput {

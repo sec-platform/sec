@@ -27,9 +27,9 @@ import {
   RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
   RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID
 } from '../../runtime-state/physical/runtime/windows-repository-change-observer.ts';
-import { snapshotByteTail } from '../../system-architecture/foundation/runtime/byte-snapshot.ts';
-import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { failureMessage } from '../../system-architecture/foundation/runtime/failure-inspection.ts';
+import { snapshotByteTail } from '../../contracts/byte-snapshot.ts';
+import { rawSha256, sha256 } from '../../contracts/canonical.ts';
+import { failureMessage } from '../../contracts/failure-inspection.ts';
 import { issueSecOperationRequirementBindingContext } from '../../system-architecture/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,

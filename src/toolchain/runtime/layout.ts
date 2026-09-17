@@ -2,8 +2,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { SecError } from '../../system-architecture/foundation/contract/failure.ts';
-import { isCanonicalPortableLogicalPath } from '../../system-architecture/foundation/contract/logical-path.ts';
+import { SecError } from '../../contracts/failure.ts';
+import { isCanonicalPortableLogicalPath } from '../../contracts/logical-path.ts';
 
 export const SOURCE_RUNTIME_MODULE_RELATIVE_PATH = path.join(
   'src',

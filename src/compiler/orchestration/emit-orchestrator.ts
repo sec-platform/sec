@@ -1,16 +1,13 @@
 import { readOptionalRetainedJson } from '../../runtime-state/physical/runtime/retained-file-read.ts';
-import type { ExplainGraph } from '../../semantic/projection/contract/explain.ts';
-import { readOptionalProvenanceFile } from '../../semantic/provenance/authority.ts';
-import type { ProvenanceFile } from '../../semantic/provenance/contract/types.ts';
+import type { ExplainGraph } from '../../semantics/projection/explain.ts';
+import { readOptionalProvenanceFile } from '../../adapters/workspace/provenance-reader.ts';
+import type { ProvenanceFile } from '../../semantics/provenance/types.ts';
 import { readOptionalCanonicalVerificationArtifactSet } from '../../verification/artifact/runtime/authority.ts';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../verification/contract/types.ts';
 import type { ReviewSummary } from '../../verification/review/contract/types.ts';
 import { createWorkspaceWriteCommitFence, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../workspace/lease.ts';
-import {
-  resolveWorkspaceArtifactPath,
-  resolveWorkspaceProvenancePath
-} from '../../workspace/runtime/paths.ts';
+import { resolveWorkspaceArtifactPath, resolveWorkspaceProvenancePath } from '../../workspace/runtime/paths.ts';
 import type { LockFile } from '../contract.ts';
 import { buildCiArtifactManifest, writeCiArtifactManifest } from '../emit/ci-artifacts.ts';
 import { lockProject } from '../emit/lock-project.ts';

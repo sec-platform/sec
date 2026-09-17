@@ -1,8 +1,9 @@
 import path from 'node:path';
 
-import type { SemanticGeneratorDeclaration } from '../../semantic/generation/contract/types.ts';
-import type { SemanticMutationLoadedSourceCandidate } from '../../semantic/mutation/contract/types.ts';
-import { getWorkspacePaths, posixPath } from '../../workspace/runtime/paths.ts';
+import type { SemanticGeneratorDeclaration } from '../../semantics/generation/types.ts';
+import type { SemanticMutationLoadedSourceCandidate } from '../../semantics/mutation/types.ts';
+import { getWorkspacePaths } from '../../workspace/runtime/paths.ts';
+import { posixPath } from '../../contracts/relative-path.ts';
 import type { LockFile, ManifestEntry } from '../contract.ts';
 import { readLockFile } from '../lock.ts';
 import {

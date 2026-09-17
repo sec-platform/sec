@@ -3,15 +3,11 @@ import path from 'node:path';
 import prettier from 'prettier';
 
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
-import { portableLogicalPathCollisionKey } from '../../system-architecture/foundation/contract/logical-path.ts';
-import { createTaskGroupEffectFence, mapTaskGroup } from '../../system-architecture/foundation/runtime/concurrency.ts';
-import { throwIfNativeAborted } from '../../system-architecture/foundation/runtime/native-abort.ts';
+import { portableLogicalPathCollisionKey } from '../../contracts/logical-path.ts';
+import { createTaskGroupEffectFence, mapTaskGroup } from '../../execution/task-group.ts';
+import { throwIfNativeAborted } from '../../contracts/native-abort.ts';
 import { publishExpectedCanonicalWorkspaceFile, type CommitFence } from '../../workspace/files.ts';
-import {
-  isCanonicalWorkspaceArtifactPath,
-  resolvePathInside,
-  resolveWorkspaceArtifactPath
-} from '../../workspace/runtime/paths.ts';
+import { isCanonicalWorkspaceArtifactPath, resolvePathInside, resolveWorkspaceArtifactPath } from '../../workspace/runtime/paths.ts';
 import { CompilerError } from '../errors.ts';
 
 const FORMATTABLE_EXTENSIONS = new Set([

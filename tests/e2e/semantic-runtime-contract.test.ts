@@ -36,7 +36,7 @@ import {
   semanticMutationRequestIdentityDigest,
   semanticMutationTransactionRoot
 } from '../../src/compiler/semantic-mutation/transaction-identity.ts';
-import { SEMANTIC_MUTATION_TERMINAL_RETENTION, type SemanticMutationRecoveryRecord } from '../../src/semantic/mutation/contract/transaction.ts';
+import { SEMANTIC_MUTATION_TERMINAL_RETENTION, type SemanticMutationRecoveryRecord } from '../../src/semantics/mutation/transaction.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../src/verification/contract/types.ts';
 import { readJson } from '../../src/workspace/files.ts';

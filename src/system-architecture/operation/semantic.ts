@@ -3,7 +3,7 @@ import {
   compareCodeUnits,
   deepFreeze,
   sha256
-} from '../foundation/runtime/canonical.ts';
+} from '../../contracts/canonical.ts';
 import { SEC_SEMANTIC_OPERATION_ID_PATTERN } from './identity.ts';
 
 export type SecOperationDigest = `sha256:${string}`;

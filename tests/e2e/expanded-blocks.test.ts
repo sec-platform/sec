@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import type { LockFile } from '../../src/compiler/contract.ts';
 import { verifyWorkspace } from '../../src/compiler/orchestration/cli.ts';
-import type { AcceptanceCoverageReport } from '../../src/semantic/acceptance/contract/types.ts';
+import type { AcceptanceCoverageReport } from '../../src/assurance/acceptance/coverage.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { readJson } from '../../src/workspace/files.ts';
 import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';

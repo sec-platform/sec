@@ -1,6 +1,6 @@
 import registrySource from './registry.json' with { type: 'json' };
 
-import { canonicalEquals, rawSha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalEquals, rawSha256 } from '../../contracts/canonical.ts';
 
 export const GENERATED_STATE_REGISTRY_SCHEMA = 'sec-generated-state-registry-v1' as const;
 export const GENERATED_STATE_REGISTRATION_SCHEMA = 'sec-generated-state-registration-v1' as const;

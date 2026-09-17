@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { CompilerError } from '../../src/compiler/errors.ts';
-import type { ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
+import type { ProvenanceFile } from '../../src/semantics/provenance/types.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { checkReferenceDrift } from '../../src/workspace/application/project-integrity.ts';
 import { ensureDir, writeJson, writeText } from '../../src/workspace/files.ts';

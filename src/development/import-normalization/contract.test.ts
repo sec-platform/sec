@@ -16,7 +16,7 @@ import {
   acquireExactGitTreeWorkspaceSourceSnapshot
 } from '../../brownfield/source-program-model/workspace-source-snapshot.ts';
 import { withAuthorityGitReadOperation, withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
-import { rawSha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { rawSha256 } from '../../contracts/canonical.ts';
 import { GIT_READ_OPERATION_BUDGET } from '../tooling/git/git-read.ts';
 import {
   CANDIDATE_NORMALIZATION_DURATION_MS,

@@ -4,7 +4,7 @@ import {
   buildLocalAffectedCheckPlan,
   type AffectedTestPlan
 } from '../../src/development/runner/affected-plan-contract.ts';
-import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../src/contracts/canonical.ts';
 import { CodexDevelopmentAssertVerificationGateResult } from '../../src/verification/result/contract/result.ts';
 import {
   classifyAffectedSelectionTrustBoundary,

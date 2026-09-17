@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import nodePath from 'node:path';
 
-import { compileClosedDirectedGraphStrongComponents } from '../foundation/runtime/directed-graph.ts';
-import { parseExactJson } from '../foundation/runtime/exact-json.ts';
+import { compileClosedDirectedGraphStrongComponents } from '../../contracts/directed-graph.ts';
+import { parseExactJson } from '../../contracts/exact-json.ts';
 import { SEC_SEMANTIC_OPERATION_ID_PATTERN } from '../operation/identity.ts';
 import {
   isCanonicalSecOperationBudgetMaximum,
@@ -191,6 +191,10 @@ export type SecRepositoryModuleGraph = Readonly<{
 export type SecRepositoryModuleBoundaryViolationCode =
   | 'authority-mint-export-unclassified'
   | 'compiler-no-upward-entrypoint-deps'
+  | 'contracts-no-domain-deps'
+  | 'core-no-host-io'
+  | 'execution-no-domain-deps'
+  | 'semantics-no-upward-deps'
   | 'cross-package-aggregate-surface'
   | 'module-dependency-cycle'
   | 'no-registry-to-compiler'
@@ -1367,7 +1371,11 @@ const PRODUCT_SOURCE_DOMAINS = new Set([
   'reference',
   'release',
   'runtime-state',
-  'semantic',
+  'semantics',
+  'contracts',
+  'execution',
+  'adapters',
+  'assurance',
   'toolchain',
   'workspace'
 ]);
@@ -1398,19 +1406,38 @@ function repositorySourceAddress(value: string): RepositorySourceAddress | null 
 function collectRepositoryImportPolicyViolations(
   reference: SecRepositoryModuleGraphReference
 ): readonly SecRepositoryModuleBoundaryViolation[] {
-  if (reference.resolvedTarget === null) return Object.freeze([]);
   const source = repositorySourceAddress(reference.from);
-  const target = repositorySourceAddress(reference.resolvedTarget);
-  if (source === null || target === null) return Object.freeze([]);
+  if (source === null) return Object.freeze([]);
+  const target = reference.resolvedTarget === null ? null : repositorySourceAddress(reference.resolvedTarget);
   const violations: SecRepositoryModuleBoundaryViolation[] = [];
   const add = (code: SecRepositoryModuleBoundaryViolationCode): void => {
     violations.push(Object.freeze({
       code,
       from: source.path,
-      to: target.path,
-      detail: `${code}: ${source.path} imports ${target.path}`
+      to: target?.path ?? reference.specifier,
+      detail: `${code}: ${source.path} imports ${target?.path ?? reference.specifier}`
     }));
   };
+
+
+  // Enforce the responsibilities already migrated to SEC-086. Domain objects
+  // remain in their owners; a lower owner cannot import an upper implementation.
+  if ((source.domain === 'contracts' || source.domain === 'semantics')
+      && /^(?:node:)?(?:fs(?:\/promises)?|child_process|net|http|https|http2|tls|dgram|worker_threads)$|^bun:ffi$/u.test(reference.specifier)) {
+    add('core-no-host-io');
+  }
+  if (target === null) return Object.freeze(violations);
+  if (source.domain === 'contracts' && target.domain !== 'contracts') {
+    add('contracts-no-domain-deps');
+  }
+  if (source.domain === 'semantics'
+      && target.domain !== 'semantics' && target.domain !== 'contracts') {
+    add('semantics-no-upward-deps');
+  }
+  if (source.domain === 'execution'
+      && target.domain !== 'execution' && target.domain !== 'contracts') {
+    add('execution-no-domain-deps');
+  }
 
   if (source.domain === 'compiler'
       && source.area !== 'orchestration'

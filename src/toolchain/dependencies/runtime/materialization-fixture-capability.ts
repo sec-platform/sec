@@ -1,5 +1,5 @@
 import type { CommandResult } from '../../../runtime-state/physical/runtime/process.ts';
-import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
+import { SecError } from '../../../contracts/failure.ts';
 
 declare const RUNTIME_DEPENDENCY_TEST_MATERIALIZATION_CAPABILITY: unique symbol;
 

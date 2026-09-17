@@ -7,11 +7,11 @@ import {
   readOptionalRetainedJson,
   readOptionalRetainedOrdinaryFile
 } from '../../runtime-state/physical/runtime/retained-file-read.ts';
-import type { AcceptanceCoverageReport } from '../../semantic/acceptance/contract/types.ts';
-import type { ExplainGraph } from '../../semantic/projection/contract/explain.ts';
-import { readOptionalProvenanceFile } from '../../semantic/provenance/authority.ts';
-import type { ProvenanceFile } from '../../semantic/provenance/contract/types.ts';
-import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
+import type { AcceptanceCoverageReport } from '../../assurance/acceptance/coverage.ts';
+import type { ExplainGraph } from '../../semantics/projection/explain.ts';
+import { readOptionalProvenanceFile } from '../../adapters/workspace/provenance-reader.ts';
+import type { ProvenanceFile } from '../../semantics/provenance/types.ts';
+import { compareCodeUnits } from '../../contracts/canonical.ts';
 import { readOptionalCanonicalVerificationArtifactSet } from '../../verification/artifact/runtime/authority.ts';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import type { CiArtifactManifest } from '../../verification/ci-artifacts/contract/types.ts';
@@ -19,11 +19,8 @@ import { readOptionalCiArtifactManifest } from '../../verification/ci-artifacts/
 import type { VerificationReport } from '../../verification/contract/types.ts';
 import { parseReviewSummaryJson } from '../../verification/review/contract/summary.ts';
 import type { ReviewRegressionRisk, ReviewSummary } from '../../verification/review/contract/types.ts';
-import {
-  getWorkspacePaths,
-  relativePosixPath,
-  resolveWorkspaceArtifactPath
-} from '../../workspace/runtime/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../workspace/runtime/paths.ts';
+import { relativePosixPath } from '../../contracts/relative-path.ts';
 import { platformCommand } from './contract/command.ts';
 
 export type ProjectOverviewStatusValue = 'passed' | 'attention' | 'failed' | 'not-run' | 'unknown';

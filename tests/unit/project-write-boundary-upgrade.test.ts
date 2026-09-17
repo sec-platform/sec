@@ -15,7 +15,7 @@ import {
   type UpgradePlan
 } from '../../src/change-management/upgrade/contract/upgrade-artifact.ts';
 import { readReviewGovernanceReports } from '../../src/compiler/emit/read-review-governance-reports.ts';
-import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../src/contracts/canonical.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { checkProjectWriteBoundary } from '../../src/workspace/application/project-write-boundary.ts';
 import { writeJson, writeText } from '../../src/workspace/files.ts';

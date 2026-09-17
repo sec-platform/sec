@@ -11,7 +11,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 
-import { canonicalEquals, sha256 as canonicalSha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalEquals, sha256 as canonicalSha256 } from '../../../contracts/canonical.ts';
 import {
   CodexDevelopmentReduceHostedSutObservation,
   type CodexDevelopmentHostedSutExecutionProof

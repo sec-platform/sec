@@ -6,7 +6,7 @@ import { writeProvenance } from '../../src/compiler/emit/write-provenance.ts';
 import { readLockFile } from '../../src/compiler/lock.ts';
 import { initWorkspace } from '../../src/compiler/orchestration/workspace-orchestrator.ts';
 import { loadPlan } from '../../src/compiler/parse/load-plan.ts';
-import { readOptionalProvenanceFile } from '../../src/semantic/provenance/authority.ts';
+import { readOptionalProvenanceFile } from '../../src/adapters/workspace/provenance-reader.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import {
   acquireWorkspaceWriteLease,

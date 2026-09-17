@@ -10,10 +10,10 @@ import { preflightSemanticMutation } from '../../src/compiler/semantic-mutation/
 import { buildSemanticMutationResult, buildSemanticMutationVerificationExecutionRef } from '../../src/compiler/semantic-mutation/semantic-mutation-result.ts';
 import { semanticMutationRequestIdentityDigest } from '../../src/compiler/semantic-mutation/transaction-identity.ts';
 import { buildSemanticMutationVerificationPlanningContext, semanticMutationRequiredVerificationDigest } from '../../src/compiler/semantic-mutation/verification-policy.ts';
-import type { LoadedSemanticContract } from '../../src/semantic/contracts/contract/types.ts';
-import type { FactDeltaEndpointContext } from '../../src/semantic/engineering-ir/contract/delta-types.ts';
-import type { SemanticMutationRecoveryRecord } from '../../src/semantic/mutation/contract/transaction.ts';
-import { type SemanticMutationAuthorizationContext, type SemanticMutationDiagnostic, type SemanticMutationRequest, type VerificationRequirement } from '../../src/semantic/mutation/contract/types.ts';
+import type { LoadedSemanticContract } from '../../src/semantics/definitions/types.ts';
+import type { FactDeltaEndpointContext } from '../../src/semantics/engineering-ir/delta-types.ts';
+import type { SemanticMutationRecoveryRecord } from '../../src/semantics/mutation/transaction.ts';
+import { type SemanticMutationAuthorizationContext, type SemanticMutationDiagnostic, type SemanticMutationRequest, type VerificationRequirement } from '../../src/semantics/mutation/types.ts';
 import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION } from '../../src/verification/contract/types.ts';
 import { semanticMutationVerificationReportFixture } from './semantic-mutation-verification-report.ts';
 

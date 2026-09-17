@@ -13,8 +13,8 @@ import {
 } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import type { ProcessResourceSession } from '../../runtime-state/physical/runtime/process-resource-session.ts';
 import { settlePhysicalResources, settlePhysicalResourcesAsync, type PhysicalResourceSettlementFailure } from '../../runtime-state/physical/runtime/resource-settlement.ts';
-import { SecError } from '../../system-architecture/foundation/contract/failure.ts';
-import { rawSha256, sha256, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { SecError } from '../../contracts/failure.ts';
+import { rawSha256, sha256, uniqueSorted } from '../../contracts/canonical.ts';
 import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
 
 import { compilerRoot } from '../../workspace/runtime/paths.ts';

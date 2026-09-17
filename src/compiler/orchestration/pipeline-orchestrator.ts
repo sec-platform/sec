@@ -3,9 +3,9 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pipelineStageBoundary } from '../pipeline/execution-boundaries.ts';
 
-import type { ExplainGraph } from '../../semantic/projection/contract/explain.ts';
-import type { ProvenanceFile } from '../../semantic/provenance/contract/types.ts';
-import { rawSha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import type { ExplainGraph } from '../../semantics/projection/explain.ts';
+import type { ProvenanceFile } from '../../semantics/provenance/types.ts';
+import { rawSha256 } from '../../contracts/canonical.ts';
 import { assertCanonicalVerificationArtifactSet } from '../../verification/artifact/contract/artifact.ts';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../verification/contract/types.ts';

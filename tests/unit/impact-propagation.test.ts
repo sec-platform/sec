@@ -10,10 +10,10 @@ import {
   IMPACT_PROPAGATION_RULES,
   type ImpactPropagationRule
 } from '../../src/compiler/semantic-impact/propagation-rules.ts';
-import type { FactDeltaEndpointContext } from '../../src/semantic/engineering-ir/contract/delta-types.ts';
-import type { SemanticEntity, SemanticEntityKind } from '../../src/semantic/engineering-ir/contract/entity-types.ts';
-import type { SemanticAuthority, SemanticFact, SemanticPredicate } from '../../src/semantic/engineering-ir/contract/fact-types.ts';
-import type { ValidatedEngineeringIRSnapshot } from '../../src/semantic/engineering-ir/contract/validated-types.ts';
+import type { FactDeltaEndpointContext } from '../../src/semantics/engineering-ir/delta-types.ts';
+import type { SemanticEntity, SemanticEntityKind } from '../../src/semantics/engineering-ir/entity-types.ts';
+import type { SemanticAuthority, SemanticFact, SemanticPredicate } from '../../src/semantics/engineering-ir/fact-types.ts';
+import type { ValidatedEngineeringIRSnapshot } from '../../src/semantics/engineering-ir/validated-types.ts';
 
 const APP_ID = 'app:impact';
 const GRAPH_ID = 'graph:impact';

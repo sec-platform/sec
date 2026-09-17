@@ -1,11 +1,11 @@
 import type { UpgradeDiagnostics } from '../../change-management/upgrade/contract/upgrade-artifact.ts';
-import type { AcceptanceCoverageEntry, AcceptanceCoverageReport } from '../../semantic/acceptance/contract/types.ts';
-import { semanticViewFactIds } from '../../semantic/projection/contract/types.ts';
-import type { OverrideStatus, ProvenanceFile, ProvenanceOriginType } from '../../semantic/provenance/contract/types.ts';
-import type { RepairPlan, RepairTaskCategory } from '../../semantic/repair/contract/types.ts';
-import { isCanonicalPortableLogicalPath } from '../../system-architecture/foundation/contract/logical-path.ts';
-import { compareCodeUnits, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { countMatching, summarizeCounts } from '../../system-architecture/foundation/runtime/collections.ts';
+import type { AcceptanceCoverageEntry, AcceptanceCoverageReport } from '../../assurance/acceptance/coverage.ts';
+import { semanticViewFactIds } from '../../semantics/projection/types.ts';
+import type { OverrideStatus, ProvenanceFile, ProvenanceOriginType } from '../../semantics/provenance/types.ts';
+import type { RepairPlan, RepairTaskCategory } from '../../semantics/repair/types.ts';
+import { isCanonicalPortableLogicalPath } from '../../contracts/logical-path.ts';
+import { compareCodeUnits, uniqueSorted } from '../../contracts/canonical.ts';
+import { countMatching, summarizeCounts } from '../../contracts/collections.ts';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../verification/contract/types.ts';
 import { buildReviewPolicySummary } from '../../verification/review/contract/policy.ts';
@@ -14,11 +14,8 @@ import { REVIEW_SUMMARY_FORMAT_VERSION } from '../../verification/review/contrac
 import { buildReviewUpgradeSummary, upgradeDiagnosticsAttributionParts } from '../../verification/review/contract/upgrade.ts';
 import { buildReviewChainSummary } from '../../verification/review/runtime/matrix.ts';
 import { modelRelativePath } from '../../workspace/contract/types.ts';
-import {
-  isCanonicalWorkspaceArtifactPath,
-  policiesRelativePath,
-  posixPath,
-} from '../../workspace/runtime/paths.ts';
+import { isCanonicalWorkspaceArtifactPath, policiesRelativePath } from '../../workspace/runtime/paths.ts';
+import { posixPath } from '../../contracts/relative-path.ts';
 import type { LockFile } from '../contract.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
 import { readReviewArtifactSummary } from './read-review-artifact-summary.ts';

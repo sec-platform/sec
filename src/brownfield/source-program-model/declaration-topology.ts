@@ -1,5 +1,5 @@
-import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { compileClosedDirectedGraphStrongComponents } from '../../system-architecture/foundation/runtime/directed-graph.ts';
+import { sha256 } from '../../contracts/canonical.ts';
+import { compileClosedDirectedGraphStrongComponents } from '../../contracts/directed-graph.ts';
 import type {
   SourceProgramDeclaration,
   SourceProgramReferenceKind

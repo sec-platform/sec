@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { snapshotByteView } from '../../system-architecture/foundation/runtime/byte-snapshot.ts';
+import { snapshotByteView } from '../../contracts/byte-snapshot.ts';
 
 import {
   createNoFollowDirectoryChain,
@@ -11,7 +11,7 @@ import {
   replaceDurableCanonicalFile,
   type PhysicalDirectoryIdentity
 } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { isCanonicalPortableLogicalPath } from '../../system-architecture/foundation/contract/logical-path.ts';
+import { isCanonicalPortableLogicalPath } from '../../contracts/logical-path.ts';
 import type { CommitFence } from './files.ts';
 
 export interface CanonicalWorkspaceFilePublicationInput {

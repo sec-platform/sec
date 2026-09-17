@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../contracts/canonical.ts';
 import type { SourceProgramEntrypointAddress } from '../source-program-model/contract.ts';
 import {
   compileRepositoryAuditWorkerHandshakeCandidate,

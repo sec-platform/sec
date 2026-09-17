@@ -59,7 +59,7 @@ import {
   type SealedPhysicalExecutionTreeRetirementReceipt
 } from '../../runtime-state/physical/runtime/sealed-execution-tree-generation.ts';
 import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateEnvironment } from '../../runtime-state/workspace-state/layout.ts';
-import { canonicalJson, compareCodeUnits, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalJson, compareCodeUnits, rawSha256, sha256 } from '../../contracts/canonical.ts';
 import { issueSecOperationRequirementBindingContext } from '../../system-architecture/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,

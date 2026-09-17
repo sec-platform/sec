@@ -1,4 +1,4 @@
-import { canonicalEquals, canonicalJson, compareCodeUnits, deepFreeze, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalEquals, canonicalJson, compareCodeUnits, deepFreeze, rawSha256, sha256 } from '../../contracts/canonical.ts';
 import { createMainHealthRepairWorkPackagePath } from '../main-health/contract.ts';
 import {
   compileSecOperationDemandGraph,

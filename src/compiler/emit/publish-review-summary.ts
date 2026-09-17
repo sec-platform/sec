@@ -1,6 +1,6 @@
-import type { AcceptanceCoverageReport } from '../../semantic/acceptance/contract/types.ts';
-import { validateProvenanceFile } from '../../semantic/provenance/authority.ts';
-import type { ProvenanceFile } from '../../semantic/provenance/contract/types.ts';
+import type { AcceptanceCoverageReport } from '../../assurance/acceptance/coverage.ts';
+import { validateProvenanceFile } from '../../semantics/provenance/authority.ts';
+import type { ProvenanceFile } from '../../semantics/provenance/types.ts';
 import { validateAcceptanceCoverageReport } from '../../verification/acceptance/runtime/coverage-authority.ts';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../verification/contract/types.ts';

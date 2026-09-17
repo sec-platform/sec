@@ -1,4 +1,4 @@
-import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { compareCodeUnits } from '../../contracts/canonical.ts';
 import {
   auditBranchLifecycle as auditBranchLifecycleCore
 } from './branch-lifecycle-audit.ts';

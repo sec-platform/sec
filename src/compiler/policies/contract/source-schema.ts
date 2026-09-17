@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { isCanonicalBlockId } from '../../../semantic/identity/contract/block.ts';
-import { canonicalEquals, uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { isCanonicalBlockId } from '../../../semantics/identity/block.ts';
+import { canonicalEquals, uniqueSorted } from '../../../contracts/canonical.ts';
 import { isCanonicalPolicyId } from './identity.ts';
 import { POLICY_RULE_IDS } from './rules.ts';
 

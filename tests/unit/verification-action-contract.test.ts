@@ -3,7 +3,7 @@ import { expect, test } from 'bun:test';
 import {
   createBoundedProcessDiagnosticObjectReceipt
 } from '../../src/runtime-state/workspace-state/bounded-process-diagnostic-contract.ts';
-import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../src/contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,

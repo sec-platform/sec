@@ -3,7 +3,7 @@ import type { LockFile } from '../../compiler/contract.ts';
 import { getErrorCode } from '../../compiler/errors.ts';
 import { readLockFile } from '../../compiler/lock.ts';
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
-import { parseRepairPlanJson, type RepairPlan } from '../../semantic/repair/contract/types.ts';
+import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';
 import { isCiContractArtifactPath } from '../../verification/ci-artifacts/contract/manifest.ts';
 import { parseReviewSummaryJson } from '../../verification/review/contract/summary.ts';
 import type { ReviewSummary } from '../../verification/review/contract/types.ts';

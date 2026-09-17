@@ -1,4 +1,4 @@
-import { uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { uniqueSorted } from '../../contracts/canonical.ts';
 import { CodexDevelopmentBuildAffectedTestInventory } from './affected.ts';
 import {
   compileTestBudgetProjection,

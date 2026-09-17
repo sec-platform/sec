@@ -1,4 +1,4 @@
-import { uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { uniqueSorted } from '../../contracts/canonical.ts';
 import { type VerificationGateResult } from '../result/contract/result.ts';
 import { VERIFICATION_GATE_RESULT_SCHEMA } from '../result/contract/schema.ts';
 import { isFastTestFile, isSlowTestFile } from './contract/budget.ts';

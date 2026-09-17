@@ -1,16 +1,18 @@
 import path from 'node:path';
 import { z } from 'zod';
 
-import type { LoadedSemanticContract, SemanticContract } from '../../semantic/contracts/contract/types.ts';
-import type { SemanticMutationLoadedSourceCandidate, SemanticMutationSourceKind } from '../../semantic/mutation/contract/types.ts';
-import { compareCodeUnits, deepFreeze, digest } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { mapTaskGroup } from '../../system-architecture/foundation/runtime/concurrency.ts';
-import { getErrorCode } from '../../system-architecture/foundation/runtime/failure-inspection.ts';
+import type { LoadedSemanticContract, SemanticContract } from '../../semantics/definitions/types.ts';
+import type { SemanticMutationLoadedSourceCandidate, SemanticMutationSourceKind } from '../../semantics/mutation/types.ts';
+import { compareCodeUnits, deepFreeze, digest } from '../../contracts/canonical.ts';
+import { mapTaskGroup } from '../../execution/task-group.ts';
+import { getErrorCode } from '../../contracts/failure-inspection.ts';
 import { modelRelativePath } from '../../workspace/contract/types.ts';
-import { isSafeRelativePath, posixPath, resolvePathInside } from '../../workspace/runtime/paths.ts';
+import { isSafeRelativePath, posixPath } from '../../contracts/relative-path.ts';
+import { resolvePathInside } from '../../workspace/runtime/paths.ts';
 import { readYaml } from '../../workspace/yaml.ts';
 import { CompilerError } from '../errors.ts';
-import { normalizeSemanticContract, SEMANTIC_CONTRACT_YAML_MAX_ALIAS_COUNT, SEMANTIC_CONTRACT_YAML_MAX_INPUT_BYTES } from './load-semantic-contract.ts';
+import { normalizeSemanticContract } from '../../semantics/definitions/normalize.ts';
+import { SEMANTIC_CONTRACT_YAML_MAX_ALIAS_COUNT, SEMANTIC_CONTRACT_YAML_MAX_INPUT_BYTES } from './load-semantic-contract.ts';
 
 export const AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH =
   `${modelRelativePath}/semantic-contracts.yaml` as const;

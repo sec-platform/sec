@@ -1,6 +1,6 @@
 import path from 'node:path';
-import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../system-architecture/foundation/contract/repository-path.ts';
-import { snapshotByteView } from '../../../system-architecture/foundation/runtime/byte-snapshot.ts';
+import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../contracts/repository-path.ts';
+import { snapshotByteView } from '../../../contracts/byte-snapshot.ts';
 
 export interface WorktreePorcelainRecord {
   readonly path: string;

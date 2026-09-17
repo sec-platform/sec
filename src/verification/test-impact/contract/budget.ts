@@ -9,7 +9,7 @@ import {
   deepFreeze,
   sha256,
   uniqueSorted
-} from '../../../system-architecture/foundation/runtime/canonical.ts';
+} from '../../../contracts/canonical.ts';
 import { isSecRepositoryTestModulePath, normalizeSecRepositoryTestModulePath } from '../../../system-architecture/repository-modules/test-module-path.ts';
 
 export type TestBudgetLane = {

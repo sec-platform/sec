@@ -12,7 +12,7 @@ import {
   scanNoFollowDirectoryTreeInventory
 } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 import { settlePhysicalResourcesAsync } from '../../src/runtime-state/physical/runtime/resource-settlement.ts';
-import { readOptionalProvenanceFile } from '../../src/semantic/provenance/authority.ts';
+import { readOptionalProvenanceFile } from '../../src/adapters/workspace/provenance-reader.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { writeJson } from '../../src/workspace/files.ts';
 import { createWorkspaceWriteLeaseManager } from '../../src/workspace/lease.ts';

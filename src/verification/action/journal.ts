@@ -32,7 +32,7 @@ import {
   type RuntimeStateJournalFileSystem,
   type RuntimeStateJournalRetainedText
 } from '../../runtime-state/workspace-state/journal-filesystem.ts';
-import { parseExactJson } from '../../system-architecture/foundation/runtime/exact-json.ts';
+import { parseExactJson } from '../../contracts/exact-json.ts';
 import {
   createVerificationActionTerminal,
   encodeVerificationActionData,

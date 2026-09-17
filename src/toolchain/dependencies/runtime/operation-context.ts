@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
+import { SecError } from '../../../contracts/failure.ts';
 import type { CommitFence } from '../../../workspace/files.ts';
 import { assertCapturedRuntimeDependencyInstallRequest, type RuntimeDependencyInstallRequest } from '../contract/install-request.ts';
 import type { RuntimeDependencyLifecycleInput } from './lifecycle-capabilities.ts';

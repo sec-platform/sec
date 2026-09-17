@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
-import { assertNativeAbortSignal, linkNativeAbortSignals, throwIfNativeAborted } from '../../../system-architecture/foundation/runtime/native-abort.ts';
+import { assertNativeAbortSignal, linkNativeAbortSignals, throwIfNativeAborted } from '../../../contracts/native-abort.ts';
 
-import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
+import { SecError } from '../../../contracts/failure.ts';
 
 // A default and a ceiling are independent decisions, even when equal today.
 const DEFAULT_DEPENDENCY_LOCK_TIMEOUT_MS = 300_000;

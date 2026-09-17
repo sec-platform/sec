@@ -8,7 +8,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { GIT_READ_OPERATION_BUDGET } from '../../development/tooling/git/git-read.ts';
 import { withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
 import { inspectNoFollowDirectoryChain } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { rawSha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { rawSha256 } from '../../contracts/canonical.ts';
 import { retainCompilerDependencyExecutionGeneration } from '../../toolchain/dependencies/runtime.ts';
 import {
   issueCompilerDependencyFixtureOperation,

@@ -15,7 +15,7 @@ import {
   RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
   issueRetainedCommandBoundary
 } from '../../../runtime-state/physical/runtime/process.ts';
-import { rawSha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { rawSha256 } from '../../../contracts/canonical.ts';
 import {
   assertDockerCommandProviderCapability,
   claimDockerCommandProviderCapability,

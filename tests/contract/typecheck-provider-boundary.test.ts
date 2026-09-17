@@ -35,7 +35,7 @@ import {
 import { sealExistingWindowsReadOnlyTreeAuthority } from '../../src/runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
 import { createBoundedProcessDiagnosticObjectReceipt } from '../../src/runtime-state/workspace-state/bounded-process-diagnostic-contract.ts';
 import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateEnvironment } from '../../src/runtime-state/workspace-state/layout.ts';
-import { rawSha256, sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { rawSha256, sha256 } from '../../src/contracts/canonical.ts';
 import { issueSecOperationRequirementBindingContext } from '../../src/system-architecture/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,

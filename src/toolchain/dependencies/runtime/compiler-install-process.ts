@@ -20,7 +20,7 @@ import {
   RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
   type CommandResult
 } from '../../../runtime-state/physical/runtime/process.ts';
-import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
+import { SecError } from '../../../contracts/failure.ts';
 import { issueSecOperationRequirementBindingContext } from '../../../system-architecture/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,

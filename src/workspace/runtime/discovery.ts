@@ -3,8 +3,8 @@ import path from 'node:path';
 import { isPathInside } from './paths.ts';
 
 import { inspectExactNoFollowDirectoryPresence, scanNoFollowDirectoryTreeMetadata } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { createTaskGroupEffectFence, mapTaskGroup } from '../../system-architecture/foundation/runtime/concurrency.ts';
-import { throwIfNativeAborted } from '../../system-architecture/foundation/runtime/native-abort.ts';
+import { createTaskGroupEffectFence, mapTaskGroup } from '../../execution/task-group.ts';
+import { throwIfNativeAborted } from '../../contracts/native-abort.ts';
 import {
   ensureDir,
   prepareOrdinaryFileWrite,

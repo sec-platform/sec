@@ -1,8 +1,8 @@
 import { readOptionalRetainedJson } from '../../../runtime-state/physical/runtime/retained-file-read.ts';
-import { isCanonicalAcceptanceId } from '../../../semantic/acceptance/contract/identity.ts';
-import { ACCEPTANCE_COVERAGE_FORMAT_VERSION, type AcceptanceCoverageEntry, type AcceptanceCoverageReport } from '../../../semantic/acceptance/contract/types.ts';
-import { isCanonicalBlockId } from '../../../semantic/identity/contract/block.ts';
-import { canonicalEquals, deepFreeze, uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { isCanonicalAcceptanceId } from '../../../semantics/acceptance/identity.ts';
+import { ACCEPTANCE_COVERAGE_FORMAT_VERSION, type AcceptanceCoverageEntry, type AcceptanceCoverageReport } from '../../../assurance/acceptance/coverage.ts';
+import { isCanonicalBlockId } from '../../../semantics/identity/block.ts';
+import { canonicalEquals, deepFreeze, uniqueSorted } from '../../../contracts/canonical.ts';
 import type { VerificationStatus } from '../../contract/types.ts';
 
 const ROOT_KEYS = new Set([

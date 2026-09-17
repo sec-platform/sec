@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../../contracts/canonical.ts';
 import type { TypeScriptCapabilityCoverageDecision } from '../../typescript/capability-coverage.ts';
 import { DEPENDENCY_CAPABILITY_SPECS } from '../contract/dependency-capability-contract.ts';
 import { parseRuntimeDependencyPackageReference } from '../contract/runtime-dependency-spec.ts';

@@ -1,4 +1,4 @@
-import { canonicalEquals, compareCodeUnits, deepFreeze, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalEquals, compareCodeUnits, deepFreeze, sha256 } from '../../contracts/canonical.ts';
 import type { MainHealthRoutingState } from '../main-health/contract.ts';
 
 export const SEC_WORK_SELECTION_INPUT_SCHEMA = 'sec-work-selection-input-v1' as const;

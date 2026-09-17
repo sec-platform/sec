@@ -1,6 +1,6 @@
 import { buildErrorProtocol, type ErrorProtocol } from '../../compiler/error-protocol.ts';
 import type { CompilerErrorDetails } from '../../compiler/errors.ts';
-import { uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { uniqueSorted } from '../../contracts/canonical.ts';
 import { srcRelativePath } from '../../workspace/runtime/paths.ts';
 import { platformCommand } from './contract/command.ts';
 

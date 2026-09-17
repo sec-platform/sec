@@ -3,7 +3,7 @@ import { type ByteCommandResult } from '../../runtime-state/physical/runtime/pro
 import {
   sha256,
   uniqueSorted
-} from '../../system-architecture/foundation/runtime/canonical.ts';
+} from '../../contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,

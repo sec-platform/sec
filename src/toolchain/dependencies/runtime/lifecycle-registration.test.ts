@@ -4,7 +4,7 @@ import type {
   GeneratedStatePhysicalIdentity,
   GeneratedStateRegistration
 } from '../../../runtime-state/generated-state/contract.ts';
-import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
+import { SecError } from '../../../contracts/failure.ts';
 import {
   bindAndRetireCompilerDependencyPreimage,
   bindExistingCompilerDependencyGeneration,

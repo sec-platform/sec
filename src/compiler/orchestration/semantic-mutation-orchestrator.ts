@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
-import type { FactDeltaEndpointContext } from '../../semantic/engineering-ir/contract/delta-types.ts';
-import { type SemanticMutationApplyInput, type SemanticMutationApplyOutcome, type SemanticMutationInternalRecoveryOutcome, type SemanticMutationRecoveryFailureState, type SemanticMutationRecoveryOutcome, type SemanticMutationRecoveryRecord, type SemanticMutationRequestIdentity, type SemanticMutationRequestRecordView, type SemanticMutationTransactionInput } from '../../semantic/mutation/contract/transaction.ts';
-import type { NormalizedSemanticMutationRequest, SemanticMutationBase, SemanticMutationDiagnostic, SemanticMutationPlan, SemanticMutationResult, SemanticMutationVerificationExecutionRef } from '../../semantic/mutation/contract/types.ts';
+import type { FactDeltaEndpointContext } from '../../semantics/engineering-ir/delta-types.ts';
+import { type SemanticMutationApplyInput, type SemanticMutationApplyOutcome, type SemanticMutationInternalRecoveryOutcome, type SemanticMutationRecoveryFailureState, type SemanticMutationRecoveryOutcome, type SemanticMutationRecoveryRecord, type SemanticMutationRequestIdentity, type SemanticMutationRequestRecordView, type SemanticMutationTransactionInput } from '../../semantics/mutation/transaction.ts';
+import type { NormalizedSemanticMutationRequest, SemanticMutationBase, SemanticMutationDiagnostic, SemanticMutationPlan, SemanticMutationResult, SemanticMutationVerificationExecutionRef } from '../../semantics/mutation/types.ts';
 import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION, type SemanticMutationVerificationCapabilityPlan } from '../../verification/contract/types.ts';
 import { acquireWorkspaceWriteLease, assertWorkspaceWriteLease, createWorkspaceWriteCommitFence, withWorkspaceWriteLease, WorkspaceWriteLeaseError, type WorkspaceWriteLeaseToken } from '../../workspace/lease.ts';
 import { buildWorkspaceSemanticBundle } from '../semantic-frontend.ts';

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { throwIfNativeAborted } from '../../system-architecture/foundation/runtime/native-abort.ts';
+import { throwIfNativeAborted } from '../../contracts/native-abort.ts';
 import { CompilerError } from '../errors.ts';
 
 interface SuiteModule {

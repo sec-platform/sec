@@ -1,4 +1,4 @@
-import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../../contracts/canonical.ts';
 import {
   SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
   SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_DIGEST,

@@ -21,7 +21,7 @@ import {
   openContentAddressedWorkspaceCacheSession,
   type ContentAddressedWorkspaceCacheSession
 } from '../../runtime-state/workspace-state/content-addressed-workspace-cache.ts';
-import { canonicalJson, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalJson, rawSha256, sha256 } from '../../contracts/canonical.ts';
 import { issueSecOperationRequirementBindingContext } from '../../system-architecture/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,

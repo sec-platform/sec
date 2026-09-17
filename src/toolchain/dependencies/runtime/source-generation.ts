@@ -9,7 +9,7 @@ import {
   inspectNoFollowDirectoryChain,
   scanNoFollowDirectoryTreeInventory
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
+import { SecError } from '../../../contracts/failure.ts';
 import {
   generatedStatePhysicalIdentity,
   isSha256Digest,

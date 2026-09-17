@@ -1,7 +1,7 @@
 import { readOptionalRetainedJson } from '../../runtime-state/physical/runtime/retained-file-read.ts';
-import type { ExplainGraph } from '../../semantic/projection/contract/explain.ts';
-import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { countMatching } from '../../system-architecture/foundation/runtime/collections.ts';
+import type { ExplainGraph } from '../../semantics/projection/explain.ts';
+import { compareCodeUnits } from '../../contracts/canonical.ts';
+import { countMatching } from '../../contracts/collections.ts';
 import { buildCiArtifactUploadGroups, CI_ARTIFACT_FILES, CI_ARTIFACT_MANIFEST_PATH, CI_ARTIFACT_PATHS, CI_ARTIFACT_ROOT_RELATIVE_PATH, CI_EMIT_ARTIFACT_PATHS, ciArtifactKindForPath, ciArtifactUploadName, countCiArtifactMissingReasons, countCiArtifactMissingReasonTypes, fixedCiArtifactPaths, isCanonicalCiArtifactPath, isCiContractArtifactPath, normalizeCiArtifactPath, uniqueSortedCiArtifactPaths } from '../../verification/ci-artifacts/contract/manifest.ts';
 import type { CiArtifactEntry, CiArtifactManifest, CiArtifactMissingEntry } from '../../verification/ci-artifacts/contract/types.ts';
 import { CI_ARTIFACT_FORMAT_VERSION, CI_ARTIFACT_MISSING_REASON } from '../../verification/ci-artifacts/contract/types.ts';

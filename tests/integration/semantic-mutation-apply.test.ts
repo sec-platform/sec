@@ -37,9 +37,9 @@ import { semanticMutationRequiredVerificationDigest } from '../../src/compiler/s
 import {
   SEMANTIC_MUTATION_ISOLATED_VERIFICATION_TIMEOUT_MS
 } from '../../src/compiler/verify/run-semantic-mutation-isolated-child.ts';
-import type { FactDeltaEndpointContext } from '../../src/semantic/engineering-ir/contract/delta-types.ts';
-import type { SemanticMutationApplyInput, SemanticMutationRecoveryState } from '../../src/semantic/mutation/contract/transaction.ts';
-import { type SemanticMutationAuthorizationContext, type SemanticMutationPlan, type SemanticMutationRequest } from '../../src/semantic/mutation/contract/types.ts';
+import type { FactDeltaEndpointContext } from '../../src/semantics/engineering-ir/delta-types.ts';
+import type { SemanticMutationApplyInput, SemanticMutationRecoveryState } from '../../src/semantics/mutation/transaction.ts';
+import { type SemanticMutationAuthorizationContext, type SemanticMutationPlan, type SemanticMutationRequest } from '../../src/semantics/mutation/types.ts';
 import { semanticMutationVerificationReportFixture } from '../helpers/semantic-mutation-verification-report.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 

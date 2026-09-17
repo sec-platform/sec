@@ -10,8 +10,8 @@ import {
   loadAuthoringSemanticContractSources,
   semanticContractSourceRevision
 } from '../../src/compiler/parse/load-authoring-semantic-contracts.ts';
-import { SEMANTIC_CONTRACT_FORMAT_VERSION, type LoadedSemanticContract, type SemanticContract } from '../../src/semantic/contracts/contract/types.ts';
-import { YamlInputLimitError, YamlSyntaxError } from '../../src/system-architecture/foundation/runtime/yaml.ts';
+import { SEMANTIC_CONTRACT_FORMAT_VERSION, type LoadedSemanticContract, type SemanticContract } from '../../src/semantics/definitions/types.ts';
+import { YamlInputLimitError, YamlSyntaxError } from '../../src/adapters/formats/yaml.ts';
 import { modelRelativePath } from '../../src/workspace/contract/types.ts';
 
 function contract(id = 'contract-a') {

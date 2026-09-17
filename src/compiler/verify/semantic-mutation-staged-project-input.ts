@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { lstat, open, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
-import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { compareCodeUnits } from '../../contracts/canonical.ts';
 
 const PROJECT_ROOT_EXCLUSIONS = new Set([
   '.runtime-deps.stamp.json',

@@ -1,10 +1,10 @@
 import path from 'node:path';
 import ts from 'typescript';
 
-import { SEMANTIC_RESPONSIBILITY_TARGET_KINDS, type SemanticResponsibilityTargetKind } from '../../semantic/contracts/contract/types.ts';
-import type { SemanticEntity } from '../../semantic/engineering-ir/contract/entity-types.ts';
-import type { ValidatedEngineeringIRSnapshot } from '../../semantic/engineering-ir/contract/validated-types.ts';
-import { compareCodeUnits, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { SEMANTIC_RESPONSIBILITY_TARGET_KINDS, type SemanticResponsibilityTargetKind } from '../../semantics/definitions/types.ts';
+import type { SemanticEntity } from '../../semantics/engineering-ir/entity-types.ts';
+import type { ValidatedEngineeringIRSnapshot } from '../../semantics/engineering-ir/validated-types.ts';
+import { compareCodeUnits, sha256 } from '../../contracts/canonical.ts';
 import type { SecRepositoryModuleMembership } from '../../system-architecture/repository-modules/contract.ts';
 import {
   resolveSourceProgramCompilationOperation,

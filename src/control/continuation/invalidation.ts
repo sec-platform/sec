@@ -1,4 +1,4 @@
-import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../contracts/canonical.ts';
 
 export const CONTINUATION_INVALIDATION_DECISION_SCHEMA =
   'sec-continuation-invalidation-decision-v1' as const;

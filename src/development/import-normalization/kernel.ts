@@ -4,7 +4,7 @@ import ts from 'typescript';
 import {
   canonicalEquals,
   rawSha256
-} from '../../system-architecture/foundation/runtime/canonical.ts';
+} from '../../contracts/canonical.ts';
 
 /**
  * Pure TypeScript import-normalization kernel. Snapshot and publication

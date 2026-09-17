@@ -5,12 +5,8 @@ import type { PolicyReport } from '../../src/compiler/policies/contract/types.ts
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { buildReviewPolicySummary } from '../../src/verification/review/contract/policy.ts';
 import { writeJson } from '../../src/workspace/files.ts';
-import {
-  policiesRelativePath,
-  posixPath,
-  resolveWorkspaceArtifactPath,
-  srcRelativePath
-} from '../../src/workspace/runtime/paths.ts';
+import { policiesRelativePath, resolveWorkspaceArtifactPath, srcRelativePath } from '../../src/workspace/runtime/paths.ts';
+import { posixPath } from '../../src/contracts/relative-path.ts';
 import {
   buildPassingReviewReport,
   buildReviewSummaryInTempWorkspace

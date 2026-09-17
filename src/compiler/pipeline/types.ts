@@ -1,6 +1,6 @@
-import type { ValidatedEngineeringIRSnapshot } from '../../semantic/engineering-ir/contract/validated-types.ts';
-import type { SemanticGeneratorPlan } from '../../semantic/generation/contract/types.ts';
-import type { SemanticViewSet } from '../../semantic/projection/contract/types.ts';
+import type { ValidatedEngineeringIRSnapshot } from '../../semantics/engineering-ir/validated-types.ts';
+import type { SemanticGeneratorPlan } from '../../semantics/generation/types.ts';
+import type { SemanticViewSet } from '../../semantics/projection/types.ts';
 import type { WorkspaceWriteLeaseToken } from '../../workspace/lease.ts';
 import type { PassId } from '../contract/pass-status.ts';
 import type { PipelineSource } from './journal-types.ts';

@@ -1,7 +1,8 @@
 import path from 'node:path';
+import { isSafeRelativePath } from '../../contracts/relative-path.ts';
 
-import type { RegistryLocation } from '../../compiler/registry/contract/types.ts';
-import { encodeCanonicalBlockPhysicalKey } from '../../semantic/identity/contract/block.ts';
+import type { RegistryLocation } from '../../contracts/registry-source.ts';
+import { encodeCanonicalBlockPhysicalKey } from '../../semantics/identity/block.ts';
 import {
   COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS,
   compilerRuntimeLayout
@@ -43,25 +44,6 @@ export const officialPoliciesRelativePath =
   COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS.officialPolicies;
 export const officialRegistryRelativePath =
   COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS.officialRegistry;
-
-export function posixPath(value: string): string {
-  return value.replaceAll('\\', '/');
-}
-
-export function relativePosixPath(from: string, to: string): string {
-  return posixPath(path.relative(from, to));
-}
-
-export function isSafeRelativePath(value: string, options: { allowEmpty?: boolean } = {}): boolean {
-  if (value.length === 0) {
-    return options.allowEmpty === true;
-  }
-  const normalized = posixPath(value);
-  if (value.includes('\0') || path.isAbsolute(value) || /^[A-Za-z]:/.test(value) || normalized.startsWith('//')) {
-    return false;
-  }
-  return !normalized.split('/').includes('..');
-}
 
 export function isPathInside(root: string, targetPath: string): boolean {
   const resolvedRoot = path.resolve(root);

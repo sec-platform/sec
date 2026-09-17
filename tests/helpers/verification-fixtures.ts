@@ -3,8 +3,8 @@ import path from 'node:path';
 
 import type { LockFile } from '../../src/compiler/contract.ts';
 import type { PolicyReport } from '../../src/compiler/policies/contract/types.ts';
-import type { AcceptanceCoverageReport } from '../../src/semantic/acceptance/contract/types.ts';
-import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import type { AcceptanceCoverageReport } from '../../src/assurance/acceptance/coverage.ts';
+import { sha256 } from '../../src/contracts/canonical.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../src/verification/contract/types.ts';
 import {

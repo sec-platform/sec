@@ -1,4 +1,4 @@
-import { countMatching } from '../../../system-architecture/foundation/runtime/collections.ts';
+import { countMatching } from '../../../contracts/collections.ts';
 import type { VerificationReport } from '../../contract/types.ts';
 import { reviewArtifactMissingReasonTypeCount, reviewArtifactUploadGroupCount } from '../contract/artifact.ts';
 import type { ReviewChainStageId, ReviewSummary } from '../contract/types.ts';

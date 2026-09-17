@@ -20,8 +20,8 @@ import {
   compareCodeUnits,
   rawSha256,
   sha256
-} from '../../system-architecture/foundation/runtime/canonical.ts';
-import { createConcurrencyLimit } from '../../system-architecture/foundation/runtime/concurrency.ts';
+} from '../../contracts/canonical.ts';
+import { createConcurrencyLimit } from '../../execution/task-group.ts';
 import type { SecRepositoryModuleGraph } from '../../system-architecture/repository-modules/contract.ts';
 import {
   compileSecRepositoryModuleMembershipSnapshot,

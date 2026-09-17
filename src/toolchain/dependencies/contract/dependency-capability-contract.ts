@@ -1,4 +1,4 @@
-import { compareCodeUnits, deepFreeze } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { compareCodeUnits, deepFreeze } from '../../../contracts/canonical.ts';
 
 export type DependencyManifestSection = 'dependencies' | 'devDependencies';
 export type GeneratedRuntimeProjection = 'dependency' | 'devDependency' | 'none';

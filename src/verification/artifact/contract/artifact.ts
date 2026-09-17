@@ -1,7 +1,7 @@
 import type { PolicyReport } from '../../../compiler/policies/contract/types.ts';
 import { validatePolicyReport } from '../../../compiler/policies/runtime/report-authority.ts';
-import type { AcceptanceCoverageReport } from '../../../semantic/acceptance/contract/types.ts';
-import { canonicalEquals, uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import type { AcceptanceCoverageReport } from '../../../assurance/acceptance/coverage.ts';
+import { canonicalEquals, uniqueSorted } from '../../../contracts/canonical.ts';
 import { acceptanceIdsProvenByVerificationReports } from '../../acceptance/contract/proof.ts';
 import { validateAcceptanceCoverageReport } from '../../acceptance/runtime/coverage-authority.ts';
 import type { FastVerificationLaneReport, RuntimeVerificationLaneReport, VerificationClaimSummary, VerificationReport, VerificationStatus } from '../../contract/types.ts';

@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import path from 'node:path';
 
-import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../../contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,

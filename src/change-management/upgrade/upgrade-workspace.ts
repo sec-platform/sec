@@ -32,20 +32,14 @@ import {
 } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { settlePhysicalResourcesAsync } from '../../runtime-state/physical/runtime/resource-settlement.ts';
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
-import { isCanonicalRegistryVersion } from '../../semantic/identity/contract/block.ts';
-import { uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { isCanonicalRegistryVersion } from '../../semantics/identity/block.ts';
+import { uniqueSorted } from '../../contracts/canonical.ts';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import { ensureDir, formatJsonFile, pathExists, publishExistingParentCanonicalWorkspaceFile, readJson, readOptionalJson, removeDir, writeJson, type CommitFence } from '../../workspace/files.ts';
 import { assertWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../workspace/lease.ts';
 import { copyRecursive } from '../../workspace/runtime/discovery.ts';
 import { classifyCanonicalWorkspacePublicationFailure } from '../../workspace/runtime/file-publication.ts';
-import {
-  getWorkspacePaths,
-  resolvePathInside,
-  resolveWorkspaceArtifactPath,
-  resolveWorkspaceLockPath,
-  secRelativePath
-} from '../../workspace/runtime/paths.ts';
+import { getWorkspacePaths, resolvePathInside, resolveWorkspaceArtifactPath, resolveWorkspaceLockPath, secRelativePath } from '../../workspace/runtime/paths.ts';
 import { withProjectWriteAuthorization } from '../../workspace/runtime/project-write-authorization.ts';
 import { writeYaml } from '../../workspace/yaml.ts';
 import type { UpgradeMigrationEntry } from './contract/manifest-types.ts';

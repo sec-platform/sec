@@ -2,9 +2,7 @@ import { expect, test } from 'bun:test';
 
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { removeDir, writeJson } from '../../src/workspace/files.ts';
-import {
-  resolveWorkspaceArtifactPath
-} from '../../src/workspace/runtime/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
 import { buildOfficialResolvedBlock } from '../helpers/lock-fixtures.ts';
 import { buildRepairPlanArtifact, buildRepairTask } from '../helpers/repair-fixtures.ts';
 import type { ReviewInputsOptions } from '../helpers/review-fixtures.ts';

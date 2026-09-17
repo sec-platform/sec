@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { formatJson } from '../../src/interface/cli/format-utils.ts';
-import { stringifyJsonValue } from '../../src/system-architecture/foundation/runtime/json-text.ts';
+import { stringifyJsonValue } from '../../src/contracts/json-text.ts';
 import { formatJsonFile } from '../../src/workspace/runtime/files.ts';
 
 for (const value of [undefined, () => 1, Symbol('value'), { toJSON() { return undefined; } }]) {

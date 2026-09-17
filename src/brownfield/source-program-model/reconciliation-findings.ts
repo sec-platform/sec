@@ -1,4 +1,4 @@
-import { compareCodeUnits, deepFreeze, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { compareCodeUnits, deepFreeze, sha256 } from '../../contracts/canonical.ts';
 import type { SourceProgramCandidate } from './contract.ts';
 import { repositoryAnalysisPolicyDigest } from './repository-analysis-policy.ts';
 import type { RepositorySourceProgramCompilationReceipt } from './repository-compilation.ts';

@@ -8,7 +8,7 @@ import { loadManifestById, MANIFEST_YAML_MAX_INPUT_BYTES } from '../../src/compi
 import { loadOverrideManifest, OVERRIDE_YAML_MAX_INPUT_BYTES } from '../../src/compiler/parse/load-override-manifest.ts';
 import { loadPlan, PLAN_YAML_MAX_INPUT_BYTES } from '../../src/compiler/parse/load-plan.ts';
 import { manifestCache } from '../../src/compiler/parse/manifest-cache.ts';
-import { parseYamlDocument, parseYamlValue, YamlInputLimitError, YamlSyntaxError } from '../../src/system-architecture/foundation/runtime/yaml.ts';
+import { parseYamlDocument, parseYamlValue, YamlInputLimitError, YamlSyntaxError } from '../../src/adapters/formats/yaml.ts';
 import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
 
 // These tests deliberately retain the real yaml/Zod and retained readers. They

@@ -8,12 +8,7 @@ import { ensureProjectBase } from '../../workspace/application/project-base.ts';
 import { pathExists, removeDir, writeJson, type CommitFence } from '../../workspace/files.ts';
 import { WorkspaceWriteLeaseError } from '../../workspace/lease.ts';
 import { copyRecursive } from '../../workspace/runtime/discovery.ts';
-import {
-  getWorkspacePaths,
-  isPathInside,
-  resolvePathInside,
-  resolveWorkspaceArtifactPath
-} from '../../workspace/runtime/paths.ts';
+import { getWorkspacePaths, isPathInside, resolvePathInside, resolveWorkspaceArtifactPath } from '../../workspace/runtime/paths.ts';
 import { composeProject } from '../compose/compose-project.ts';
 import type { LockFile } from '../contract.ts';
 import { CompilerError, formatCompilerFailure } from '../errors.ts';

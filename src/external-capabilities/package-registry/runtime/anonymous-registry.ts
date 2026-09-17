@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { parseExactJsonBytes } from '../../../system-architecture/foundation/runtime/exact-json.ts';
+import { parseExactJsonBytes } from '../../../contracts/exact-json.ts';
 import {
   ANONYMOUS_PACKAGE_REGISTRY_PROFILE,
   exactPackageReleaseSchema,

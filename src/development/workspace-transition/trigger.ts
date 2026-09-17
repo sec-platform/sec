@@ -1,4 +1,4 @@
-import { deepFreeze } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { deepFreeze } from '../../contracts/canonical.ts';
 import {
   WorkspaceTransitionContractError,
   type GitObjectId,

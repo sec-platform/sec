@@ -1,4 +1,4 @@
-import { countMatching } from '../../system-architecture/foundation/runtime/collections.ts';
+import { countMatching } from '../../contracts/collections.ts';
 import { CI_ARTIFACT_FILES, CI_EXPLAIN_GRAPH_ARTIFACTS } from '../../verification/ci-artifacts/contract/manifest.ts';
 import { pathExists } from '../../workspace/files.ts';
 import { resolveWorkspaceArtifactPath } from '../../workspace/runtime/paths.ts';

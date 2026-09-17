@@ -1,17 +1,18 @@
 import type { Dirent } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { failureMessage } from '../../system-architecture/foundation/runtime/failure-inspection.ts';
-import { parseYamlValue } from '../../system-architecture/foundation/runtime/yaml.ts';
+import { failureMessage } from '../../contracts/failure-inspection.ts';
+import { parseYamlValue } from '../../adapters/formats/yaml.ts';
 
 import { assertSameNoFollowDirectoryIdentity, inspectNoFollowDirectoryChain, PhysicalNoFollowError } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { isCanonicalBlockId, isCanonicalRegistryVersion } from '../../semantic/identity/contract/block.ts';
-import { compareCodeUnits, rawSha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { isCanonicalBlockId, isCanonicalRegistryVersion } from '../../semantics/identity/block.ts';
+import { compareCodeUnits, rawSha256 } from '../../contracts/canonical.ts';
 import { pathExists } from '../../workspace/files.ts';
-import { blockDirName, isSafeRelativePath, officialRegistryRelativePath, posixPath, resolvePathInside, resolveRegistryRoot } from '../../workspace/runtime/paths.ts';
+import { blockDirName, officialRegistryRelativePath, resolvePathInside, resolveRegistryRoot } from '../../workspace/runtime/paths.ts';
+import { isSafeRelativePath, posixPath } from '../../contracts/relative-path.ts';
 import type { BlockManifest, ManifestEntry, PlanRegistrySource, ResolvedBlock } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
-import type { RegistryKind, RegistryLocation } from '../registry/contract/types.ts';
+import type { RegistryKind, RegistryLocation } from '../../contracts/registry-source.ts';
 import { manifestCache, type ManifestCacheKey } from './manifest-cache.ts';
 import { decodeExactAuthorityUtf8, readOptionalAuthorityBytes } from './read-authority-source.ts';
 import { normalizeAndValidateSemanticManifestFields } from './validate-semantic-manifest.ts';

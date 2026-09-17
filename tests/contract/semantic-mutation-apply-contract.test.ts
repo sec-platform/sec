@@ -15,8 +15,8 @@ import {
   type SemanticMutationIsolatedVerificationEvidence
 } from '../../src/compiler/verify/semantic-mutation-isolated-verification-evidence.ts';
 import { assertSemanticMutationVerificationReportInvariant, executeSemanticMutationVerification, planSemanticMutationVerificationCapabilities } from '../../src/compiler/verify/semantic-mutation-verification-adapter.ts';
-import { type SemanticMutationApplyOutcome, type SemanticMutationRequestRecordView } from '../../src/semantic/mutation/contract/transaction.ts';
-import { isSemanticMutationStagingWorkspace } from '../../src/semantic/mutation/runtime/staging-boundary.ts';
+import { type SemanticMutationApplyOutcome, type SemanticMutationRequestRecordView } from '../../src/semantics/mutation/transaction.ts';
+import { isSemanticMutationStagingWorkspace } from '../../src/workspace/contract/semantic-mutation-staging.ts';
 
 test('semantic mutation staging layout is exactly the canonical transaction workspace', () => {
   const workspaceRoot = path.resolve('contract-workspace');

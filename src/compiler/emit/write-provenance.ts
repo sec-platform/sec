@@ -1,6 +1,6 @@
-import { validateProvenanceFile } from '../../semantic/provenance/authority.ts';
-import { PROVENANCE_FORMAT_VERSION, type ProvenanceArtifact, type ProvenanceFile } from '../../semantic/provenance/contract/types.ts';
-import { compareCodeUnits, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { validateProvenanceFile } from '../../semantics/provenance/authority.ts';
+import { PROVENANCE_FORMAT_VERSION, type ProvenanceArtifact, type ProvenanceFile } from '../../semantics/provenance/types.ts';
+import { compareCodeUnits, uniqueSorted } from '../../contracts/canonical.ts';
 import { readOptionalCanonicalVerificationArtifactSet } from '../../verification/artifact/runtime/authority.ts';
 import {
   CI_ARTIFACT_FILES,
@@ -11,21 +11,8 @@ import {
 import type { VerificationReport } from '../../verification/contract/types.ts';
 import { modelRelativePath } from '../../workspace/contract/types.ts';
 import { formatJsonFile, publishExistingParentCanonicalWorkspaceFile, type CommitFence } from '../../workspace/files.ts';
-import {
-  isCanonicalWorkspaceArtifactPath,
-  isPathInside,
-  isSafeRelativePath,
-  packageJsonRelativePath,
-  posixPath,
-  prismaRelativePath,
-  resolvePathInside,
-  resolveWorkspaceArtifactPath,
-  secRelativePath,
-  srcRelativePath,
-  testsRelativePath,
-  tsconfigRelativePath,
-  workspaceConfigRelativePath
-} from '../../workspace/runtime/paths.ts';
+import { isCanonicalWorkspaceArtifactPath, isPathInside, packageJsonRelativePath, prismaRelativePath, resolvePathInside, resolveWorkspaceArtifactPath, secRelativePath, srcRelativePath, testsRelativePath, tsconfigRelativePath, workspaceConfigRelativePath } from '../../workspace/runtime/paths.ts';
+import { isSafeRelativePath, posixPath } from '../../contracts/relative-path.ts';
 import { calculateCanonicalProjectFileHash } from '../../workspace/runtime/project-file-hash.ts';
 import type { LockFile } from '../contract.ts';
 import { CompilerError } from '../errors.ts';

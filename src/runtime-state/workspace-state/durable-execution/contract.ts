@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-import { canonicalJson, sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
-import { parseExactJson } from '../../../system-architecture/foundation/runtime/exact-json.ts';
+import { canonicalJson, sha256 } from '../../../contracts/canonical.ts';
+import { parseExactJson } from '../../../contracts/exact-json.ts';
 
 export const SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA =
   'sec-durable-local-execution-record' as const;

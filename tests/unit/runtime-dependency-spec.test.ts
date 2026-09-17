@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { canonicalJson, digest } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { canonicalJson, digest } from '../../src/contracts/canonical.ts';
 import { parseLegacyRuntimeDependencyMaterializationV2ForRecovery } from '../../src/toolchain/dependencies/contract/runtime-dependency-spec.ts';
 
 import {

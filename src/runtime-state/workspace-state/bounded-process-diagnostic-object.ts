@@ -4,7 +4,7 @@ import {
   compareCodeUnits,
   rawSha256,
   sha256
-} from '../../system-architecture/foundation/runtime/canonical.ts';
+} from '../../contracts/canonical.ts';
 import {
   assertSecSemanticOperationProjection,
   type SecBoundSemanticOperation,
