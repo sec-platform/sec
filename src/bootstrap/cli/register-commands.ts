@@ -1,11 +1,12 @@
 import type { Command } from 'commander';
 import type { TextByteClassification } from '../../adapters/runtime-state/text-byte-census.ts';
-import type { WorktreeSettlementReceipt } from '../../adapters/runtime-state/worktree-settlement.ts';
+import { projectWorktreeSettlementReceipt } from '../../application/worktree-settlement.ts';
 import type { DependencyCleanOptions } from '../../adapters/toolchain/dependencies/environment.ts';
 import { buildBenchmarkTaskCatalog, formatBenchmarkTaskCatalog } from '../../adapters/verification/platform/benchmark/catalog.ts';
 import { addJsonFlags, commandPath, jsonOpts, usageError, type JsonOpts } from '../../entry/cli/command-options.ts';
 import { platformCommand } from '../../adapters/verification/platform/sec-command.ts';
 import { printJsonOrText } from '../../entry/cli/format-utils.ts';
+import { formatWorktreeSettlement } from '../../entry/cli/worktree-settlement.ts';
 import { loadDependencyEnvironmentDomain, loadReferenceCheckDomain, loadTestBudgetDomain, observeLocalContainerEngineReadiness, runCensus, runSettlement } from './lazy-command-domains.ts';
 import { registerInspectionCommands } from './register-inspection-commands.ts';
 import { registerWorkspaceCommands } from './register-workspace-commands.ts';
@@ -33,28 +34,6 @@ export type CliCommandDomainLoaders = Readonly<{
 
 function runWithOptionalSpinner<T>(text: string, output: JsonOpts, fn: () => Promise<T>): Promise<T> {
   return output.json ? fn() : withSpinner(text, fn);
-}
-
-function formatSettlementReceipt(r: WorktreeSettlementReceipt): string {
-  const lines: string[] = [];
-  lines.push('Worktree Settlement');
-  lines.push(`  status: ${r.status}`);
-  lines.push(`  totalFiles: ${r.totalFiles}`);
-  lines.push(`  dirty: ${r.dirtyCount}, untracked: ${r.untrackedCount}, drift: ${r.driftEntries.length}`);
-  lines.push(`  core.autocrlf: ${r.coreAutocrlf}, core.eol: ${r.coreEol}`);
-  lines.push(`  summary: ${r.summary}`);
-  if (r.driftEntries.length > 0) {
-    lines.push('  drift:');
-    const maxShow = Math.min(r.driftEntries.length, 20);
-    for (let i = 0; i < maxShow; i += 1) {
-      const e = r.driftEntries[i]!;
-      lines.push(`    ${e.path} [declared=${e.declared} blob=${e.blobLineEnding} worktree=${e.worktreeLineEnding}]`);
-    }
-    if (r.driftEntries.length > maxShow) {
-      lines.push(`    ... and ${r.driftEntries.length - maxShow} more`);
-    }
-  }
-  return lines.join('\n');
 }
 
 export function registerCommands(
@@ -184,7 +163,7 @@ export function registerCommands(
     .action(async (opts: Record<string, unknown>) => {
       const output = jsonOpts(opts);
       const receipt = await runWithOptionalSpinner('Settling worktree', output, () => runSettlement(process.cwd(), { fix: !!opts.fix }));
-      printJsonOrText(receipt, output, formatSettlementReceipt);
+      printJsonOrText(receipt, output, (value) => formatWorktreeSettlement(projectWorktreeSettlementReceipt(value)));
       if (receipt.status !== 'settled') {
         throw new Error(`Worktree not settled: ${receipt.status}`);
       }

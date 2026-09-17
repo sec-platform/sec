@@ -322,38 +322,6 @@ function makeReceipt(input: Omit<WorktreeSettlementReceipt, 'schema' | 'generate
   };
 }
 
-export function formatWorktreeSettlementReceipt(receipt: WorktreeSettlementReceipt): string {
-  const lines: string[] = [];
-  lines.push('Worktree Settlement Receipt');
-  lines.push('  schema: ' + receipt.schema);
-  lines.push('  generatedAt: ' + receipt.generatedAt);
-  lines.push('  repositoryRoot: ' + receipt.repositoryRoot);
-  lines.push('  status: ' + receipt.status);
-  lines.push('  gitVersion: ' + receipt.gitVersion);
-  lines.push('  coreAutocrlf: ' + receipt.coreAutocrlf);
-  lines.push('  coreEol: ' + receipt.coreEol);
-  lines.push('  gitattributesBlobSha: ' + (receipt.gitattributesBlobSha ?? '<none>'));
-  lines.push('  totalFiles: ' + receipt.totalFiles);
-  lines.push('  untrackedCount: ' + receipt.untrackedCount);
-  lines.push('  dirtyCount: ' + receipt.dirtyCount);
-  lines.push('  driftEntries: ' + receipt.driftEntries.length);
-  lines.push('');
-  lines.push('  summary: ' + receipt.summary);
-  if (receipt.driftEntries.length > 0) {
-    lines.push('');
-    lines.push('  Drift entries:');
-    const maxShow = Math.min(receipt.driftEntries.length, 30);
-    for (let index = 0; index < maxShow; index += 1) {
-      const entry = receipt.driftEntries[index]!;
-      lines.push('    ' + entry.path + ' [declared=' + entry.declared + ' blob=' + entry.blobLineEnding + ' worktree=' + entry.worktreeLineEnding + ' lineEndingOnly=' + entry.lineEndingOnlyDifference + ']');
-    }
-    if (receipt.driftEntries.length > maxShow) {
-      lines.push('    ... and ' + (receipt.driftEntries.length - maxShow) + ' more');
-    }
-  }
-  return lines.join('\n');
-}
-
 async function runSettlementWithSession(
   session: GitReadSession,
   repositoryRoot = DEFAULT_REPOSITORY_ROOT,
