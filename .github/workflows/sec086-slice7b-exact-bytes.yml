@@ -1,0 +1,71 @@
+name: sec086-slice7b-exact-bytes
+
+on:
+  push:
+    branches: [refactor/sec086-architecture]
+    paths: [.github/workflows/sec086-slice7b-exact-bytes.yml]
+
+permissions: {}
+
+jobs:
+  verify-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require exact install-manifest presentation baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:src)" = ccba3dad4097e108462ddfafa4ad2cb89d276043
+          test "$(git rev-parse HEAD:tests)" = ef14a7077cf5a1e95d5ae918695eb78ba6d2649c
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Materialize exact reviewed file bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 -d .github/sec086-slice7b-target.tar.xz.b64 > "$RUNNER_TEMP/sec086-slice7b-target.tar.xz"
+          echo '1ce4367c9e9e1f07fdded14c8fa7995909c9efb03a0282ff9adb6361cf01c6d7  '"$RUNNER_TEMP/sec086-slice7b-target.tar.xz" | sha256sum -c -
+          tar -xJf "$RUNNER_TEMP/sec086-slice7b-target.tar.xz" -C .
+          test "$(git hash-object src/bootstrap/cli/register-inspection-commands.ts)" = fb38a4b3f2ad5c5902808bfe55eca75f912030ab
+          test "$(git hash-object src/bootstrap/cli/formatters.ts)" = 27bc0504b9d3b7284a1eb2b35b51333c1114bb6a
+          git add src/bootstrap/cli/register-inspection-commands.ts src/bootstrap/cli/formatters.ts
+          git diff --cached --check
+          tree=$(git write-tree)
+          test "$(git rev-parse "$tree:src")" = fceac537d71d0fb7e02214bd364159482d5a344d
+          test "$(git rev-parse "$tree:tests")" = ef14a7077cf5a1e95d5ae918695eb78ba6d2649c
+      - name: Verify install-manifest slice
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun node_modules/@typescript/native/bin/tsc --noEmit -p tsconfig.json
+          bun test --timeout 20000 tests/unit/install-manifest-presentation.test.ts tests/unit/inspection-query.test.ts tests/unit/named-inspection-query.test.ts
+          bun run docs:doctor
+          bun run audit:module-topology
+      - name: Commit source only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'refactor: route install manifest inspection through entry'
+          test "$(git rev-parse HEAD:src)" = fceac537d71d0fb7e02214bd364159482d5a344d
+          test "$(git rev-parse HEAD:tests)" = ef14a7077cf5a1e95d5ae918695eb78ba6d2649c
+      - name: Fast-forward isolated branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          authorization=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $authorization"
+          branch=refs/heads/refactor/sec086-architecture
+          test "$(git ls-remote origin "$branch" | cut -f1)" = "$GITHUB_SHA"
+          git push origin "HEAD:$branch"
