@@ -43,7 +43,7 @@ import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/
 import type { PreparedWindowsRepositoryChangeObserver } from '../../src/runtime-state/physical/runtime/windows-repository-change-observer.ts';
 import { isSecRepositoryTestModulePath, normalizeSecRepositoryTestModulePath } from '../../src/system-architecture/repository-modules/test-module-path.ts';
 import { compileTestBudgetProjection, FAST_TEST_PROCESS_POLICY_TEST_FILE, TEST_ARCHITECTURE_POLICY_TEST_FILE } from '../../src/verification/test-impact/contract/budget.ts';
-import { compilerRoot } from '../../src/workspace/runtime/paths.ts';
+import { compilerRoot } from "../../src/adapters/workspace-context.ts";
 import { createExactGitTreeTestRunnerFixture } from '../helpers/test-impact-provider.ts';
 
 const actualCommandRunner = await import('../../src/development/runner/command-runner.ts');
@@ -139,7 +139,7 @@ let previousChangedBase: string | undefined;
 let previousConsoleLog: typeof console.log;
 let previousConsoleError: typeof console.error;
 
-mock.module('../../src/workspace/files.ts', () => ({
+mock.module('../../src/adapters/filesystem/files.ts', () => ({
   pathExists: async (targetPath: string) => {
     try {
       await fs.access(targetPath);

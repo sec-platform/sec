@@ -8,7 +8,7 @@ import { setTimeout as sleepMs } from 'node:timers/promises';
 import { getTestWorkspaceTemplateRoot, getTestWorkspaceTempRoot } from '../../src/development/runner/env-manager.ts';
 import { createConcurrencyLimit } from '../../src/execution/task-group.ts';
 import { getErrorCode } from '../../src/contracts/failure-inspection.ts';
-import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
+import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
 import { captureWorkspacePipelineOptions, createTemplatePreparation, workspaceTemplatePipeline, type WorkspacePipelineFixtureOptions, type WorkspaceTemplateKind } from './template-preparation.ts';
 import { captureWorkspaceRetention, createWorkspaceWithDeferredCleanup, removeWorkspaceDirectoryWithRetry, settleWorkspaceCallback, settleWorkspaceCleanups, workspaceTemporaryPrefix } from './workspace-cleanup.ts';
 import { copyWorkspaceFixture } from './workspace-files.ts';
@@ -87,7 +87,7 @@ async function prepareWorkspacePipeline(
   options: WorkspacePipelineFixtureOptions,
   target: WorkspaceTemplateKind
 ): Promise<void> {
-  const { addBlock, compileWorkspace, initWorkspace } = await import('../../src/compiler/orchestration/cli.ts');
+  const { addBlock, compileWorkspace, initWorkspace } = await import('../../src/application/engineering/cli.ts');
   await initWorkspace(workspaceRoot, { template: 'reference-customer' });
   const pipelineTarget = workspaceTemplatePipeline(target);
   if (!pipelineTarget) return;

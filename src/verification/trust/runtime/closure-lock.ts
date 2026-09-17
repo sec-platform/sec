@@ -33,7 +33,7 @@ import path from 'node:path';
 import ts from 'typescript';
 
 import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../contracts/repository-path.ts';
-import { compilerRoot } from '../../../workspace/runtime/paths.ts';
+import { compilerRoot } from "../../../adapters/workspace-context.ts";
 import { createVerificationActionKey, createVerificationActionPlan, type VerificationActionPlan } from '../../action/contract/action.ts';
 import {
   SEC_TRUSTED_BOOTSTRAP_REGISTRY,

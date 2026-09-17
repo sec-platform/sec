@@ -2,28 +2,29 @@ import { expect, test } from 'bun:test';
 import { Buffer } from 'node:buffer';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 
-import { buildProvenanceSummary } from '../../src/compiler/emit/write-review-summary.ts';
+import { buildProvenanceSummary } from '../../src/adapters/compilation/emit/write-review-summary.ts';
 import {
   addBlock,
   compileWorkspace,
   initWorkspace
-} from '../../src/compiler/orchestration/cli.ts';
+} from '../../src/application/engineering/cli.ts';
 import {
   assertPipelineCompletionProofInvariant,
   buildPipelineCompletionProof,
   createPipelineCompletionProof,
   type PipelineCompletionProofEvidence,
   type PipelineCompletionProofStageEvidence
-} from '../../src/compiler/orchestration/pipeline-orchestrator.ts';
-import { readPipelineJournal } from '../../src/compiler/pipeline/journal.ts';
-import { getPipelineStageDefinition } from '../../src/compiler/pipeline/pass-registry.ts';
-import { PIPELINE_STAGE_IDS } from '../../src/compiler/pipeline/types.ts';
+} from '../../src/application/engineering/pipeline-orchestrator.ts';
+import { readPipelineJournal } from '../../src/adapters/compilation/pipeline/journal.ts';
+import { getPipelineStageDefinition } from '../../src/adapters/compilation/pipeline/pass-registry.ts';
+import { PIPELINE_STAGE_IDS } from '../../src/adapters/compilation-protocol/types.ts';
 import type { ProvenanceArtifact, ProvenanceFile } from '../../src/semantics/provenance/types.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import type { ReviewSummary } from '../../src/verification/review/contract/types.ts';
-import { formatJsonFile, readJson } from '../../src/workspace/files.ts';
-import { acquireWorkspaceWriteLease } from '../../src/workspace/lease.ts';
-import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+import { formatJsonFile } from "../../src/contracts/json-text.ts";
+import { readJson } from "../../src/adapters/filesystem/files.ts";
+import { acquireWorkspaceWriteLease } from '../../src/adapters/filesystem/write-lease.ts';
+import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 const staleRevision = `sha256:${'0'.repeat(64)}`;

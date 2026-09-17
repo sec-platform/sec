@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { buildExplainGraph } from '../../src/compiler/emit/write-explain-graph.ts';
+import { buildExplainGraph } from '../../src/adapters/compilation/emit/write-explain-graph.ts';
 import type { AcceptanceCoverageReport } from '../../src/assurance/acceptance/coverage.ts';
 import type { ViewEdge, ViewNode } from '../../src/semantics/projection/types.ts';
 import type { ProvenanceFile } from '../../src/semantics/provenance/types.ts';

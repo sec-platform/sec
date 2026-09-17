@@ -2,18 +2,18 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { initWorkspace } from '../../src/compiler/orchestration/cli.ts';
-import { withMonitoredWorkspaceWriteLease } from '../../src/compiler/orchestration/pipeline-orchestrator.ts';
-import { executePipelineStage, withPipelineTransaction } from '../../src/compiler/pipeline/kernel.ts';
+import { initWorkspace } from '../../src/application/engineering/cli.ts';
+import { withMonitoredWorkspaceWriteLease } from '../../src/application/engineering/pipeline-orchestrator.ts';
+import { executePipelineStage, withPipelineTransaction } from '../../src/adapters/compilation/pipeline/kernel.ts';
 import { runCommand } from '../../src/runtime-state/physical/runtime/process.ts';
-import { pathExists, writeText } from '../../src/workspace/files.ts';
+import { pathExists, writeText } from "../../src/adapters/filesystem/files.ts";
 import {
   acquireWorkspaceWriteLease,
   assertWorkspaceWriteLease,
   createWorkspaceWriteLeaseManager,
   WorkspaceWriteLeaseError
-} from '../../src/workspace/lease.ts';
-import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
+} from '../../src/adapters/filesystem/write-lease.ts';
+import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 async function activeOwnerPath(leaseRoot: string): Promise<string> {
@@ -58,8 +58,8 @@ test('a child cannot reuse or release a live holder token copied from owner.json
     const { secRoot } = getWorkspacePaths(workspaceRoot);
     const ownerPath = await activeOwnerPath(path.join(secRoot, 'workspace-write-lease'));
     const resultPath = path.join(workspaceRoot, 'copied-token-attempt.json');
-    const orchestratorUrl = new URL('../../src/compiler/orchestration/cli.ts', import.meta.url).href;
-    const leaseModuleUrl = new URL('../../src/workspace/state/write-lease.ts', import.meta.url).href;
+    const orchestratorUrl = new URL('../../src/application/engineering/cli.ts', import.meta.url).href;
+    const leaseModuleUrl = new URL('../../src/adapters/filesystem/write-lease.ts', import.meta.url).href;
     const childScript = `
       import { readFile } from 'node:fs/promises';
       import { compileWorkspace } from ${JSON.stringify(orchestratorUrl)};
@@ -236,7 +236,7 @@ test('an aborted live command terminates both the direct Windows child and its d
 test('workspace writer lease contends with and reclaims an orphaned child process', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const signalPath = path.join(workspaceRoot, 'child-lease-ready');
-    const moduleUrl = new URL('../../src/workspace/state/write-lease.ts', import.meta.url).href;
+    const moduleUrl = new URL('../../src/adapters/filesystem/write-lease.ts', import.meta.url).href;
     const childScript = `
       import { createWorkspaceWriteLeaseManager } from ${JSON.stringify(moduleUrl)};
       const manager = createWorkspaceWriteLeaseManager({ heartbeatIntervalMs: 25, staleAfterMs: 100 });

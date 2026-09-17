@@ -4,10 +4,10 @@ import { link, lstat, mkdir, open, readFile, readdir, rename, rm, symlink, unlin
 import os from 'node:os';
 import path from 'node:path';
 
-import { initWorkspace } from '../../src/compiler/orchestration/workspace-orchestrator.ts';
+import { initWorkspace } from '../../src/application/engineering/workspace-orchestrator.ts';
 import { inspectNoFollowDirectoryChain, scanNoFollowDirectoryTree } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 import { sha256 as canonicalSha256 } from '../../src/contracts/canonical.ts';
-import { pathExists } from '../../src/workspace/files.ts';
+import { pathExists } from "../../src/adapters/filesystem/files.ts";
 import {
   WorkspaceWriteLeaseError,
   completeWorkspaceWriteLeaseRetirement,
@@ -16,7 +16,7 @@ import {
   recoverWorkspaceWriteLeaseRetirement,
   resumeWorkspaceWriteLeaseRetirement,
   type WorkspaceWriteLeaseToken
-} from '../../src/workspace/lease.ts';
+} from '../../src/adapters/filesystem/write-lease.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('retirement recovery and physically absent completion ignore an oversized unrelated sibling', async () => {

@@ -5,21 +5,19 @@ import { expect, test } from 'bun:test';
 
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
 import { buildValidatedEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
-import {
-  AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH,
-  buildSemanticContractSourceCandidate,
-  loadAuthoringSemanticContractSources
-} from '../../src/compiler/parse/load-authoring-semantic-contracts.ts';
+import { AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH } from "../../src/workspace/contract/authoring-index.ts";
+import { buildSemanticContractSourceCandidate } from "../../src/semantics/provenance/source-candidate.ts";
+import { loadAuthoringSemanticContractSources } from "../../src/adapters/workspace/sources/load-authoring-semantic-contracts.ts";
 import { normalizeSemanticContract } from '../../src/semantics/definitions/normalize.ts';
 import { normalizeSemanticMutationRequest, semanticMutationAuthorizationRevision } from '../../src/compiler/semantic-mutation/normalize-request.ts';
-import { planSemanticMutationSourceEdit, renderSemanticMutationSourceEdit } from '../../src/compiler/semantic-mutation/plan-source-edit.ts';
+import { planSemanticMutationSourceEdit, renderSemanticMutationSourceEdit } from '../../src/adapters/mutation/plan-source-edit.ts';
 import { preflightSemanticMutation } from '../../src/compiler/semantic-mutation/preflight-semantic-mutation.ts';
 import {
   renderSemanticContractYamlEdit,
   semanticMutationByteDigest
-} from '../../src/compiler/semantic-mutation/semantic-contract-yaml-adapter.ts';
+} from '../../src/adapters/mutation/semantic-contract-yaml-adapter.ts';
 import { resolveSemanticMutationSource } from '../../src/compiler/semantic-mutation/source-adapter-registry.ts';
-import { readSemanticMutationSource } from '../../src/compiler/semantic-mutation/source-path-boundary.ts';
+import { readSemanticMutationSource } from '../../src/adapters/mutation/source-path-boundary.ts';
 import { buildTrustedLocalSemanticMutationAuthorization, type TrustedLocalSemanticMutationPolicyDraft } from '../../src/compiler/semantic-mutation/trusted-authorization-ingress.ts';
 import type { LoadedSemanticContract } from '../../src/semantics/definitions/types.ts';
 import type { FactDeltaEndpointContext } from '../../src/semantics/engineering-ir/delta-types.ts';

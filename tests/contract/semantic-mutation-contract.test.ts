@@ -6,7 +6,7 @@ import { sha256 } from '../../src/compiler/semantic-mutation/canonical.ts';
 import { normalizeSemanticMutationRequest } from '../../src/compiler/semantic-mutation/normalize-request.ts';
 import { planSemanticMutation, semanticMutationPlanRevision } from '../../src/compiler/semantic-mutation/plan-semantic-mutation.ts';
 import { preflightSemanticMutation } from '../../src/compiler/semantic-mutation/preflight-semantic-mutation.ts';
-import { buildSemanticMutationVerificationExecutionRef, semanticMutationResultRevision } from '../../src/compiler/semantic-mutation/semantic-mutation-result.ts';
+import { buildSemanticMutationVerificationExecutionRef, semanticMutationResultRevision } from '../../src/adapters/mutation/semantic-mutation-result.ts';
 import { semanticMutationRequiredVerificationDigest } from '../../src/compiler/semantic-mutation/verification-policy.ts';
 import type { FactDeltaEndpointContext } from '../../src/semantics/engineering-ir/delta-types.ts';
 import type { EngineeringIR } from '../../src/semantics/engineering-ir/root-types.ts';

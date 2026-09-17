@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { inspectNoFollowDirectoryChain, type PhysicalDirectoryChain } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { runCommandBytes } from '../../runtime-state/physical/runtime/process.ts';
-import { assertWorkspaceWriteLease, withWorkspaceWriteLease } from '../../workspace/lease.ts';
+import { assertWorkspaceWriteLease, withWorkspaceWriteLease } from '../../adapters/filesystem/write-lease.ts';
 import {
   parseBranchCloseoutOperationJournal,
   parseBranchCloseoutOperationReceipt,

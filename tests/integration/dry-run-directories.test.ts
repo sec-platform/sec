@@ -2,8 +2,8 @@ import { expect, test } from 'bun:test';
 import path from 'node:path';
 
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { writeJson } from '../../src/workspace/files.ts';
-import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+import { writeJson } from "../../src/adapters/filesystem/files.ts";
+import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { prepareBlockUpgradeDryRunFixture } from '../helpers/block-upgrade-fixtures.ts';
 import { expectUpgradeDryRunFailureWithDiagnostics } from './upgrade-diagnostics-fixtures.ts';
 import { runPlannedBlockUpgradeDryRun } from './upgrade-dry-run-fixtures.ts';

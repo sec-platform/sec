@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import { CompilerError } from '../../src/compiler/errors.ts';
-import { PIPELINE_EXECUTION_BOUNDARIES, PIPELINE_STAGE_IDS, PIPELINE_VERIFY_STAGE_IDS } from '../../src/compiler/pipeline/types.ts';
+import { PIPELINE_EXECUTION_BOUNDARIES, PIPELINE_STAGE_IDS, PIPELINE_VERIFY_STAGE_IDS } from '../../src/adapters/compilation-protocol/types.ts';
 import { parsePipelineCompileOptions, parsePipelineOutputOptions } from '../../src/interface/cli/pipeline-command-input.ts';
 
 function code(expected: string): (error: unknown) => boolean {

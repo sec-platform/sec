@@ -1,6 +1,6 @@
 import type { LockFile } from '../../src/compiler/contract.ts';
 import { SUPPORTED_STACK } from '../../src/compiler/contract.ts';
-import { buildReviewSummary } from '../../src/compiler/emit/write-review-summary.ts';
+import { buildReviewSummary } from '../../src/adapters/compilation/emit/write-review-summary.ts';
 import type { AcceptanceCoverageReport } from '../../src/assurance/acceptance/coverage.ts';
 import type { ProvenanceFile } from '../../src/semantics/provenance/types.ts';
 import type { VerificationReport } from '../../src/verification/contract/types.ts';

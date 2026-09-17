@@ -1,7 +1,7 @@
 import { countMatching } from '../../contracts/collections.ts';
 import { CI_ARTIFACT_FILES, CI_EXPLAIN_GRAPH_ARTIFACTS } from '../../verification/ci-artifacts/contract/manifest.ts';
-import { pathExists } from '../../workspace/files.ts';
-import { resolveWorkspaceArtifactPath } from '../../workspace/runtime/paths.ts';
+import { pathExists } from "../../adapters/filesystem/files.ts";
+import { resolveWorkspaceArtifactPath } from "../../adapters/workspace-context.ts";
 import { platformCommand } from './contract/command.ts';
 import type { DemoChecklist, DemoChecklistItem } from './formatters.ts';
 

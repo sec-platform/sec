@@ -1,11 +1,11 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { PASS_INITIAL_STATES } from '../../src/compiler/contract/pass-status.ts';
-import { PIPELINE_EXECUTION_BOUNDARIES, pipelineStageBoundary } from '../../src/compiler/pipeline/execution-boundaries.ts';
-import { PIPELINE_STAGE_DEFINITIONS, getPipelineStageDefinition } from '../../src/compiler/pipeline/pass-registry.ts';
-import { pipelineStageBlockers, pipelineStageStatePatch } from '../../src/compiler/pipeline/stage-state.ts';
-import { PIPELINE_STAGE_IDS } from '../../src/compiler/pipeline/stages.ts';
-import { PIPELINE_EXECUTION_BOUNDARIES as publicBoundaries } from '../../src/compiler/pipeline/types.ts';
+import { PIPELINE_EXECUTION_BOUNDARIES, pipelineStageBoundary } from '../../src/adapters/compilation-protocol/execution-boundaries.ts';
+import { PIPELINE_STAGE_DEFINITIONS, getPipelineStageDefinition } from '../../src/adapters/compilation/pipeline/pass-registry.ts';
+import { pipelineStageBlockers, pipelineStageStatePatch } from '../../src/adapters/compilation/pipeline/stage-state.ts';
+import { PIPELINE_STAGE_IDS } from '../../src/adapters/compilation-protocol/stages.ts';
+import { PIPELINE_EXECUTION_BOUNDARIES as publicBoundaries } from '../../src/adapters/compilation-protocol/types.ts';
 
 for (const definition of Object.values(PIPELINE_STAGE_DEFINITIONS)) {
   test(`${definition.id} transition patches preserve current start, block, success and failure behavior`, () => {

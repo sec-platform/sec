@@ -71,8 +71,8 @@ export function registerWorkspaceCommands(program: Command): void {
       const input = parseRepairCommandInput(mode, rawOptions);
       const { output } = input;
       const { CI_ARTIFACT_FILES } = await import('../../verification/ci-artifacts/contract/manifest.ts');
-      const { pathExists } = await import('../../workspace/files.ts');
-      const { resolveWorkspaceArtifactPath } = await import('../../workspace/runtime/paths.ts');
+      const { pathExists } = await import('../../adapters/filesystem/files.ts');
+      const { resolveWorkspaceArtifactPath } = await import('../../adapters/workspace-context.ts');
       const { formatRepairSummary } = await import('./formatters.ts');
       const { readRequiredRepairPlan } = await import('./artifact-command-read.ts');
       if (input.kind === 'plan') {
@@ -173,7 +173,7 @@ export function registerWorkspaceCommands(program: Command): void {
       const input = parseWorkspaceViewCommandInput('lock', mode, rawOptions);
       const { output } = input;
       if (input.kind === 'inspect') {
-        const { resolveWorkspaceLockPath } = await import('../../workspace/runtime/paths.ts');
+        const { resolveWorkspaceLockPath } = await import('../../adapters/workspace-context.ts');
         const { formatLockInspect } = await import('./formatters.ts');
         const { printRequiredJson } = await import('./artifact-command-read.ts');
         const lockPath = await resolveWorkspaceLockPath(cwd);
@@ -194,7 +194,7 @@ export function registerWorkspaceCommands(program: Command): void {
       if (input.kind === 'inspect') {
         const { formatExplainGraphInspect } = await import('./formatters.ts');
         const { CI_ARTIFACT_FILES } = await import('../../verification/ci-artifacts/contract/manifest.ts');
-        const { resolveWorkspaceArtifactPath } = await import('../../workspace/runtime/paths.ts');
+        const { resolveWorkspaceArtifactPath } = await import('../../adapters/workspace-context.ts');
         const { printWorkspaceJson } = await import('./artifact-command-read.ts');
         await printWorkspaceJson<import('../../semantics/projection/explain.ts').ExplainGraph>(
           cwd, (root) => resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.explainGraph), `Explain graph not found; run ${invocationPath} first`, output, formatExplainGraphInspect

@@ -761,7 +761,7 @@ test('CI runner accepts transition injection only with matching exact changed re
     const transition = CodexDevelopmentCreateTestImpactTransitionObservation({
       baseSha: BASE,
       headSha: HEAD,
-      records: [{ status: 'changed', path: 'src/compiler/orchestration/cli.ts' }],
+      records: [{ status: 'changed', path: 'src/application/engineering/cli.ts' }],
       readPathBlob: () => null
     });
     expect(await CodexDevelopmentCiVerificationMainForTests({
@@ -773,7 +773,7 @@ test('CI runner accepts transition injection only with matching exact changed re
     void _changedFiles;
     expect(await CodexDevelopmentCiVerificationMainForTests({
       ...recordOptions,
-      changedRecords: () => [{ status: 'added', path: 'src/compiler/orchestration/cli.ts' }],
+      changedRecords: () => [{ status: 'added', path: 'src/application/engineering/cli.ts' }],
       transitionObservation: transition,
       writeEvidence: () => undefined
     })).toBe(1);

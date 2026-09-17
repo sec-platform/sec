@@ -25,7 +25,7 @@ import {
   type SemanticMutationPlanProducerSeamForTest
 } from '../../src/compiler/semantic-mutation/plan-semantic-mutation.ts';
 import { preflightSemanticMutation } from '../../src/compiler/semantic-mutation/preflight-semantic-mutation.ts';
-import { assertSemanticMutationResultInvariant, buildSemanticMutationResult, buildSemanticMutationVerificationExecutionRef, semanticMutationResultRevision } from '../../src/compiler/semantic-mutation/semantic-mutation-result.ts';
+import { assertSemanticMutationResultInvariant, buildSemanticMutationResult, buildSemanticMutationVerificationExecutionRef, semanticMutationResultRevision } from '../../src/adapters/mutation/semantic-mutation-result.ts';
 import {
   buildSemanticMutationVerificationPlanningContext, evaluateSemanticMutationVerificationPlanning,
   semanticMutationRequiredVerificationDigest

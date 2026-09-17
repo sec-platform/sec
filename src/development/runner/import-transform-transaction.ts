@@ -6,8 +6,8 @@ import path from 'node:path';
 import { CompilerError } from '../../compiler/errors.ts';
 import { canonicalJson, digest } from '../../contracts/canonical.ts';
 import { resolveWorkspaceLocalStateRoot } from '../../workspace/contract/local-state.ts';
-import { ensureDir } from '../../workspace/files.ts';
-import { assertWorkspaceWriteLease, withWorkspaceWriteLease } from '../../workspace/lease.ts';
+import { ensureDir } from "../../adapters/filesystem/files.ts";
+import { assertWorkspaceWriteLease, withWorkspaceWriteLease } from '../../adapters/filesystem/write-lease.ts';
 
 export type ImportTransformWrite = Readonly<{
   relativePath: string;

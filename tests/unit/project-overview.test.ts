@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import type { LockFile } from '../../src/compiler/contract.ts';
-import type { PolicyReport } from '../../src/compiler/policies/contract/types.ts';
+import type { PolicyReport } from '../../src/semantics/policies/types.ts';
 import {
   buildProjectOverview,
   buildProjectOverviewFromWorkspace,

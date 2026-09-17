@@ -1,6 +1,6 @@
 import type { PassStatus } from '../../compiler/contract/pass-status.ts';
-import type { PipelineJournal } from '../../compiler/pipeline/journal-types.ts';
-import type { PipelineStageId } from '../../compiler/pipeline/stages.ts';
+import type { PipelineJournal } from '../../adapters/compilation-protocol/journal-types.ts';
+import type { PipelineStageId } from '../../adapters/compilation-protocol/stages.ts';
 
 /** Presentation reads results; it neither loads an executor nor decides success. */
 export function formatPipelineCompilation(

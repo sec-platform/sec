@@ -6,7 +6,7 @@ import {
   assertEngineeringIRPredicateSignatures,
   assertPredicateSignatureRegistry,
 } from "../../src/semantics/engineering-ir/predicate-signatures.ts";
-import { TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE, policySemanticRule } from '../../src/compiler/policies/contract/rules.ts';
+import { TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE, policySemanticRule } from '../../src/semantics/policies/rules.ts';
 import { type SemanticEntity, type SemanticEntityKind } from '../../src/semantics/engineering-ir/entity-types.ts';
 import { SEMANTIC_PREDICATES, type SemanticFact, type SemanticFactObject, type SemanticPredicate } from '../../src/semantics/engineering-ir/fact-types.ts';
 

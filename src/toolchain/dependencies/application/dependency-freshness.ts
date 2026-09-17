@@ -5,7 +5,7 @@ import { queryAnonymousPackageRegistryLatestVersions } from '../../../external-c
 import { readOptionalRetainedOrdinaryFile } from '../../../runtime-state/physical/runtime/retained-file-read.ts';
 import { sha256 } from '../../../contracts/canonical.ts';
 import { parseExactJsonBytes } from '../../../contracts/exact-json.ts';
-import { compilerRoot } from '../../../workspace/runtime/paths.ts';
+import { compilerRoot } from "../../../adapters/workspace-context.ts";
 import type { DependencyCapabilityPackageManifest } from '../contract/dependency-capability-contract.ts';
 import type {
   DependencyFreshnessDecision,

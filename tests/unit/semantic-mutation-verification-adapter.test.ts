@@ -7,14 +7,14 @@ import {
   classifySemanticMutationIsolatedVerificationArtifactSet,
   classifySemanticMutationIsolatedVerificationOutcome,
   type SemanticMutationIsolatedVerificationArtifactSet
-} from '../../src/compiler/semantic-mutation/isolated-verification-classifier.ts';
+} from '../../src/adapters/verification/isolation/isolated-verification-classifier.ts';
 import {
   type SemanticMutationIsolationCapabilityProbe
-} from '../../src/compiler/verify/semantic-mutation-isolation-capability.ts';
+} from '../../src/adapters/verification/semantic-mutation-isolation-capability.ts';
 import {
   executeSemanticMutationVerification,
   planSemanticMutationVerificationCapabilities
-} from '../../src/compiler/verify/semantic-mutation-verification-adapter.ts';
+} from '../../src/adapters/verification/semantic-mutation-verification-adapter.ts';
 import type { VerificationRequirement } from '../../src/semantics/mutation/types.ts';
 import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION, SEMANTIC_MUTATION_VERIFICATION_REPORT_REVISION } from '../../src/verification/contract/types.ts';
 import { buildExpectedProductVerificationClaimSummary } from '../../src/verification/profile/contract/product.ts';

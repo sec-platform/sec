@@ -1,12 +1,12 @@
 import { expect, test } from 'bun:test';
 
 import type { LockFile } from '../../src/compiler/contract.ts';
-import { verifyWorkspace } from '../../src/compiler/orchestration/cli.ts';
-import type { PolicyReport } from '../../src/compiler/policies/contract/types.ts';
+import { verifyWorkspace } from '../../src/application/engineering/cli.ts';
+import type { PolicyReport } from '../../src/semantics/policies/types.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../src/verification/contract/types.ts';
-import { readJson } from '../../src/workspace/files.ts';
-import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+import { readJson } from "../../src/adapters/filesystem/files.ts";
+import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { prepareComposedWorkspace } from '../testkit/workspace.ts';
 
 test('smoke: business lanes and semantic Policy authority pass together', async () => {

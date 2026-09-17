@@ -2,7 +2,7 @@ import { expect } from 'bun:test';
 import { Command } from 'commander';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-import { buildErrorProtocol } from '../../src/compiler/error-protocol.ts';
+import { buildErrorProtocol } from '../../src/application/engineering/error-protocol.ts';
 import type { CompilerErrorDetails } from '../../src/compiler/errors.ts';
 import {
   registerCommands,

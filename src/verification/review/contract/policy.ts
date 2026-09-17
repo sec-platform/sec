@@ -1,5 +1,5 @@
-import type { PolicyReport } from '../../../compiler/policies/contract/types.ts';
-import { validatePolicyReport } from '../../../compiler/policies/runtime/report-authority.ts';
+import type { PolicyReport } from '../../../semantics/policies/types.ts';
+import { validatePolicyReport } from "../../../assurance/policies/report.ts";
 import { compareCodeUnits, uniqueSorted } from '../../../contracts/canonical.ts';
 import type { ReviewPolicySourceSummary, ReviewPolicySummary, ReviewPolicyViolationSummary } from './types.ts';
 

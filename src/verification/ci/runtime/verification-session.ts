@@ -36,7 +36,7 @@ import {
   type IssueDispositionDigest,
   type IssueDispositionPlan
 } from '../../../control/issues/disposition.ts';
-import { assertWorkspaceWriteLease, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../../workspace/lease.ts';
+import { assertWorkspaceWriteLease, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../../adapters/filesystem/write-lease.ts';
 
 import {
   BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME,

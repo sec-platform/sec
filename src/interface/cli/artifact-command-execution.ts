@@ -8,7 +8,7 @@ export async function executeArtifactCommand(workspaceRoot: string, commandPath:
   switch (input.kind) {
     case 'manifest': {
       const { CI_ARTIFACT_FILES } = await import('../../verification/ci-artifacts/contract/manifest.ts');
-      const { resolveWorkspaceArtifactPath } = await import('../../workspace/runtime/paths.ts');
+      const { resolveWorkspaceArtifactPath } = await import('../../adapters/workspace-context.ts');
       const { printWorkspaceJson } = await import('./artifact-command-read.ts');
       const { formatCiArtifactManifest } = await import('./formatters.ts');
       await printWorkspaceJson<CiArtifactManifest>(workspaceRoot,

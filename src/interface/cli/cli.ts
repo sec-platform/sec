@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { Command } from 'commander';
 import packageMetadata from '../../../package.json' with { type: 'json' };
-import { buildErrorProtocol } from '../../compiler/error-protocol.ts';
+import { buildErrorProtocol } from '../../application/engineering/error-protocol.ts';
 import { reportCliFailure } from './cli-failure.ts';
 import { registerCommands } from './register-commands.ts';
 import { registerPipelineCommands } from './register-pipeline-commands.ts';

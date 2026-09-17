@@ -1,7 +1,7 @@
-import { buildErrorProtocol, type ErrorProtocol } from '../../compiler/error-protocol.ts';
+import { buildErrorProtocol, type ErrorProtocol } from '../../application/engineering/error-protocol.ts';
 import type { CompilerErrorDetails } from '../../compiler/errors.ts';
 import { uniqueSorted } from '../../contracts/canonical.ts';
-import { srcRelativePath } from '../../workspace/runtime/paths.ts';
+import { srcRelativePath } from "../../adapters/workspace-context.ts";
 import { platformCommand } from './contract/command.ts';
 
 const ERROR_PROTOCOL_CONTRACT_STATUS_ACTIVE = 'active' as const;

@@ -5,7 +5,7 @@ import { ENGINEERING_IR_FORMAT_VERSION, type EngineeringIR } from '../../semanti
 import { compareCodeUnits } from '../../contracts/canonical.ts';
 import type { BlockManifest, ResolvedBlock } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
-import type { PolicyRule } from '../policies/contract/types.ts';
+import type { PolicyRule } from '../../semantics/policies/types.ts';
 import { linkWorkspaceSemanticContracts } from '../../semantics/definitions/link.ts';
 import { appendSemanticContract, type BuildSink } from './append-semantic-contract.ts';
 import { addFact as addFactToStore } from './ir-fact-store.ts';

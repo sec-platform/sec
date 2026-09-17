@@ -4,9 +4,9 @@ import path from 'node:path';
 import { CompilerError } from '../../src/compiler/errors.ts';
 import type { ProvenanceFile } from '../../src/semantics/provenance/types.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { checkReferenceDrift } from '../../src/workspace/application/project-integrity.ts';
-import { ensureDir, writeJson, writeText } from '../../src/workspace/files.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+import { checkReferenceDrift } from '../../src/adapters/workspace/project-integrity.ts';
+import { ensureDir, writeJson, writeText } from "../../src/adapters/filesystem/files.ts";
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function computeHash(content: string): string {

@@ -8,10 +8,10 @@ import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/
 import {
   checkProjectBeforeCompile,
   checkProjectBeforeVerify
-} from '../../src/workspace/application/project-integrity.ts';
-import { ensureDir, writeJson, writeText } from '../../src/workspace/files.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
-import { writeProjectBaseline } from '../../src/workspace/runtime/project-baseline.ts';
+} from '../../src/adapters/workspace/project-integrity.ts';
+import { ensureDir, writeJson, writeText } from "../../src/adapters/filesystem/files.ts";
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
+import { writeProjectBaseline } from '../../src/adapters/workspace/project-baseline.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function digest(content: string): string {

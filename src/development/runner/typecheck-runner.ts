@@ -64,7 +64,8 @@ import type {
   VerificationReasonCode,
   VerificationResultStatus
 } from '../../verification/result/contract/result.ts';
-import { compilerRoot, isPathInside } from '../../workspace/runtime/paths.ts';
+import { compilerRoot } from "../../adapters/workspace-context.ts";
+import { isPathInside } from "../../contracts/relative-path.ts";
 import { GIT_READ_OPERATION_BUDGET } from '../tooling/git/git-read.ts';
 import {
   assertMaterializedOperationDependencyBootstrapResult,

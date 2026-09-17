@@ -14,7 +14,7 @@ import {
   disposeCanonicalSharedDependencies,
   migrateDependencyTransitionJournal
 } from '../../src/toolchain/dependencies/runtime/project-runtime.ts';
-import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
+import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 async function withDependencyRetirementFixture(

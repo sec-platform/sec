@@ -64,14 +64,14 @@ test('CI verification plans execute canonical affected Quick and ordered Full wo
 
 test('CI translates owner-issued selection into executable plan gates', () => {
   const pipeline = CodexDevelopmentBuildVerificationPlan('quick', [
-    'src/compiler/compose/generate-runtime-library.ts'
+    'src/adapters/compilation/compose/generate-runtime-library.ts'
   ]);
   expect(pipeline.selectionResolved).toBe(true);
   expect(pipeline.selectionReasons).toEqual(['ownership-impact']);
   expect(pipeline.affectedOwners).toContain('compiler');
 
   const runtime = CodexDevelopmentBuildVerificationPlan('quick', [
-    'src/compiler/verify/run-runtime-verification.ts'
+    'src/adapters/verification/run-runtime-verification.ts'
   ]);
   expect(runtime.selectionResolved).toBe(true);
   expect(runtime.selectionReasons).toEqual(['ownership-impact']);

@@ -1,4 +1,4 @@
-import { withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../workspace/lease.ts';
+import { withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../adapters/filesystem/write-lease.ts';
 import { planUpgradeWorkspace, runUpgradeWorkspaceWithLease } from './upgrade-workspace.ts';
 
 export type UpgradeWorkspaceResult =

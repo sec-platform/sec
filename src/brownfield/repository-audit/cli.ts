@@ -90,7 +90,7 @@ import {
   SEC_TCB_CLOSURE_RUNTIME_PATH,
   SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH
 } from '../../verification/trust/contract/root.ts';
-import { tsconfigRelativePath } from '../../workspace/runtime/paths.ts';
+import { tsconfigRelativePath } from "../../adapters/workspace-context.ts";
 import {
   createSourceProgramCompilationOperation,
   SourceProgramCompilationInterruptedError,

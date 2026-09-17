@@ -30,13 +30,13 @@ function lazyFunction<Module extends object, Key extends FunctionKey<Module>>(
   })) as LazyFacade<Fn>;
 }
 
-const loadBlockOrchestrator = memoizedModule(() => import('../../compiler/orchestration/block-orchestrator.ts'));
-const loadComposeOrchestrator = memoizedModule(() => import('../../compiler/orchestration/compose-orchestrator.ts'));
-const loadEmitOrchestrator = memoizedModule(() => import('../../compiler/orchestration/emit-orchestrator.ts'));
-const loadRepairOrchestrator = memoizedModule(() => import('../../compiler/orchestration/repair-orchestrator.ts'));
+const loadBlockOrchestrator = memoizedModule(() => import('../../application/engineering/block-orchestrator.ts'));
+const loadComposeOrchestrator = memoizedModule(() => import('../../application/engineering/compose-orchestrator.ts'));
+const loadEmitOrchestrator = memoizedModule(() => import('../../application/engineering/emit-orchestrator.ts'));
+const loadRepairOrchestrator = memoizedModule(() => import('../../application/engineering/repair-orchestrator.ts'));
 const loadUpgradeOrchestrator = memoizedModule(() => import('../../change-management/upgrade/orchestration.ts'));
-const loadVerifyOrchestrator = memoizedModule(() => import('../../compiler/orchestration/verify-orchestrator.ts'));
-const loadWorkspaceOrchestrator = memoizedModule(() => import('../../compiler/orchestration/workspace-orchestrator.ts'));
+const loadVerifyOrchestrator = memoizedModule(() => import('../../application/engineering/verify-orchestrator.ts'));
+const loadWorkspaceOrchestrator = memoizedModule(() => import('../../application/engineering/workspace-orchestrator.ts'));
 const loadLocalContainerEngineReadiness = memoizedModule(
   () => import('../../external-capabilities/docker/runtime/readiness.ts')
 );

@@ -2,9 +2,9 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { readPipelineJournal } from '../../src/compiler/pipeline/journal.ts';
+import { readPipelineJournal } from '../../src/adapters/compilation/pipeline/journal.ts';
 import { PhysicalNoFollowError } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
+import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function journalPath(workspaceRoot: string): string {

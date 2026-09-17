@@ -18,7 +18,7 @@ import {
 import { observeOptionalDiagnostic } from '../../execution/optional-diagnostic.ts';
 import { issueSecOperationRequirementBindingContext } from '../../system-architecture/operation/requirement-binding-context.ts';
 import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
-import { compilerRoot } from '../../workspace/runtime/paths.ts';
+import { compilerRoot } from "../../adapters/workspace-context.ts";
 import { requireCommandExitCode } from './command-outcome.ts';
 import { DEV_COMMAND_MAX_DURATION_MS } from './contract.ts';
 import { RepositoryObservationError, resolveRepositoryObservationRoots } from './repository-observation.ts';

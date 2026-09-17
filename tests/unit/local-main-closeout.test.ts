@@ -11,7 +11,7 @@ import {
   executeLocalMainCloseout,
   inspectLocalMainCloseout
 } from '../../src/control/branch-lifecycle/local-main-closeout.ts';
-import { withWorkspaceWriteLease } from '../../src/workspace/lease.ts';
+import { withWorkspaceWriteLease } from '../../src/adapters/filesystem/write-lease.ts';
 
 function git(repoRoot: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], { cwd: repoRoot, encoding: 'utf8', windowsHide: true });

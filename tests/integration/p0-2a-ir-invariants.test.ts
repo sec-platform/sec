@@ -1,7 +1,7 @@
 import { beforeAll, expect, test } from "bun:test";
 
 import { type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
-import { loadWorkspaceEngineeringIRBuildInput } from '../../src/compiler/ir/load-workspace-engineering-ir-input.ts';
+import { loadWorkspaceEngineeringIRBuildInput } from '../../src/adapters/workspace/engineering-input.ts';
 import {
   PREDICATE_SIGNATURE_REGISTRY,
   assertEngineeringIRPredicateSignatures,

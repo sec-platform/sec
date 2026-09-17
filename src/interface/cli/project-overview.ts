@@ -1,7 +1,7 @@
 
 import type { LockFile } from '../../compiler/contract.ts';
 import { CompilerError } from '../../compiler/errors.ts';
-import type { PolicyReport } from '../../compiler/policies/contract/types.ts';
+import type { PolicyReport } from '../../semantics/policies/types.ts';
 import {
   decodeExactUtf8,
   readOptionalRetainedJson,
@@ -19,7 +19,7 @@ import { readOptionalCiArtifactManifest } from '../../verification/ci-artifacts/
 import type { VerificationReport } from '../../verification/contract/types.ts';
 import { parseReviewSummaryJson } from '../../verification/review/contract/summary.ts';
 import type { ReviewRegressionRisk, ReviewSummary } from '../../verification/review/contract/types.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../workspace/runtime/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../adapters/workspace-context.ts";
 import { relativePosixPath } from '../../contracts/relative-path.ts';
 import { platformCommand } from './contract/command.ts';
 

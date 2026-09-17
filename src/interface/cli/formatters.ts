@@ -5,7 +5,7 @@ import type {
   UpgradePreview
 } from '../../change-management/upgrade/contract/upgrade-artifact.ts';
 import type { InstallPlanStep, LockFile } from '../../compiler/contract.ts';
-import type { PolicyReport } from '../../compiler/policies/contract/types.ts';
+import type { PolicyReport } from '../../semantics/policies/types.ts';
 import type { AcceptanceCoverageEntry, AcceptanceCoverageReport } from '../../assurance/acceptance/coverage.ts';
 import type { ExplainGraph } from '../../semantics/projection/explain.ts';
 import type { ProvenanceFile } from '../../semantics/provenance/types.ts';
@@ -19,7 +19,7 @@ import { reviewArtifactMissingReasonTypeCount, reviewArtifactUploadGroupCount } 
 import type { ReviewSummary } from '../../verification/review/contract/types.ts';
 import { upgradeDiagnosticsAttributionParts } from '../../verification/review/contract/upgrade.ts';
 import { buildE2eMatrix, type E2eMatrix } from '../../verification/review/runtime/matrix.ts';
-import { toWorkspaceArtifactPath } from '../../workspace/runtime/paths.ts';
+import { toWorkspaceArtifactPath } from "../../adapters/workspace-context.ts";
 import { formatCountRecord, formatCounts, formatFields, formatList, formatMergedSummaryEntries, formatSummaryEntries, optionalFields } from './format-utils.ts';
 
 type ArtifactPathUploadGroup = CiArtifactUploadGroup;

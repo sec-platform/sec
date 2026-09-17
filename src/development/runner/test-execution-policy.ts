@@ -18,7 +18,7 @@ import {
   type IssuedTestInventoryProjection,
   type TestBudgetProjection
 } from '../../verification/test-impact/contract/budget.ts';
-import { compilerRoot } from '../../workspace/runtime/paths.ts';
+import { compilerRoot } from "../../adapters/workspace-context.ts";
 import { AFFECTED_SELECTION_OPERATION_DURATION_MS } from './affected-plan-contract.ts';
 import { DEV_COMMAND_MAX_DURATION_MS } from './contract.ts';
 import {

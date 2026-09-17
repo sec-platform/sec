@@ -6,7 +6,7 @@ import {
   retainOptionalDirectory
 } from '../../../runtime-state/physical/runtime/retained-file-read.ts';
 import { CI_ARTIFACT_FILES } from '../../../verification/ci-artifacts/contract/manifest.ts';
-import { resolveWorkspaceArtifactPath } from '../../../workspace/runtime/paths.ts';
+import { resolveWorkspaceArtifactPath } from "../../../adapters/workspace-context.ts";
 import {
   parseUpgradeDiagnosticsJson,
   parseUpgradeExecutionTerminalJson,

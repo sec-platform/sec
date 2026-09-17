@@ -6,7 +6,7 @@ import { canonicalJson } from '../../src/contracts/canonical.ts';
 import { dependencyTransitionRecordBytes, transitionRecordName } from '../../src/toolchain/dependencies/runtime/dependency-transition/codec.ts';
 import { inspectActiveDependencyTransitionRollover, recoverDependencyTransitionRollover } from '../../src/toolchain/dependencies/runtime/dependency-transition/rollover.ts';
 import { runtimeDependencyOperationControls } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
-import { formatJsonFile } from '../../src/workspace/files.ts';
+import { formatJsonFile } from "../../src/contracts/json-text.ts";
 import { createRolloverFixture } from '../helpers/rollover-fixture.ts';
 
 type Fixture = ReturnType<typeof createRolloverFixture>;

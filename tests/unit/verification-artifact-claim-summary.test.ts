@@ -3,7 +3,7 @@ import { expect, test } from 'bun:test';
 import {
   classifySemanticMutationIsolatedVerificationArtifactSet,
   type SemanticMutationIsolatedVerificationArtifactSet
-} from '../../src/compiler/semantic-mutation/isolated-verification-classifier.ts';
+} from '../../src/adapters/verification/isolation/isolated-verification-classifier.ts';
 import { ACCEPTANCE_COVERAGE_FORMAT_VERSION, type AcceptanceCoverageReport } from '../../src/assurance/acceptance/coverage.ts';
 import { isCanonicalVerificationArtifactSet } from '../../src/verification/artifact/contract/artifact.ts';
 import { buildExpectedProductVerificationClaimSummary, PRODUCT_FAST_GATE_ID, PRODUCT_POLICY_CLAIM_ID, PRODUCT_POLICY_GATE_ID } from '../../src/verification/profile/contract/product.ts';

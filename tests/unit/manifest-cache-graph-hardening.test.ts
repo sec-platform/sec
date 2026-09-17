@@ -1,7 +1,7 @@
 import { afterEach, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import type { ManifestEntry } from '../../src/compiler/contract/plan-manifest.ts';
-import { manifestCache, type ManifestCacheKey } from '../../src/compiler/parse/manifest-cache.ts';
+import { manifestCache, type ManifestCacheKey } from '../../src/adapters/workspace/sources/manifest-cache.ts';
 
 function key(sourceDigest: `sha256:${string}` = 'sha256:first'): ManifestCacheKey {
   return {

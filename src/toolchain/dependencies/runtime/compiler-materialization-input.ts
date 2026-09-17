@@ -17,7 +17,7 @@ import {
   digest,
   sortedKeys
 } from '../../../contracts/canonical.ts';
-import { compilerRoot } from '../../../workspace/runtime/paths.ts';
+import { compilerRoot } from "../../../adapters/workspace-context.ts";
 import { loadCanonicalBunRuntimeVersion } from '../../runtime.ts';
 import { sameHostPath } from './host-path.ts';
 import { runtimeDependencyOperationControls, runtimeDependencyOperationRemainingMs, type RuntimeDependencyOperationControlInput } from './operation-controls.ts';

@@ -19,7 +19,7 @@ import {
 import type { DependencyTransitionRolloverIntent } from '../../src/toolchain/dependencies/runtime/dependency-transition/rollover.ts';
 import { dependencyTransitionLedgerDigest, dependencyTransitionNamespacePaths } from '../../src/toolchain/dependencies/runtime/dependency-transition/store.ts';
 import { runtimeDependencyOperationControls } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
-import { formatJsonFile } from '../../src/workspace/files.ts';
+import { formatJsonFile } from "../../src/contracts/json-text.ts";
 
 /** Deliberately constructs persisted protocol inputs, not an authorization or a
  * replacement parser. Recovery revalidates their exact bytes and physical roots.

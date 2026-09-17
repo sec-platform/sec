@@ -6,7 +6,7 @@ import {
   CI_ARTIFACT_ROOT_RELATIVE_PATH,
   isCiArtifactPath
 } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { getWorkspacePaths, isCanonicalWorkspaceArtifactPath, resolveWorkspaceArtifactPath, resolveWorkspaceLockPath, resolveWorkspacePlanPath, resolveWorkspaceProvenancePath, toWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+import { getWorkspacePaths, isCanonicalWorkspaceArtifactPath, resolveWorkspaceArtifactPath, resolveWorkspaceLockPath, resolveWorkspacePlanPath, resolveWorkspaceProvenancePath, toWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 
 // Use a native absolute root; a Windows drive spelling is relative on POSIX.
 const WORKSPACE_ROOT = path.resolve(path.parse(process.cwd()).root, 'fixtures', 'native-target');

@@ -5,9 +5,9 @@ import { expect, test } from 'bun:test';
 
 import type { ProvenanceFile } from '../../src/semantics/provenance/types.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { checkProjectWriteBoundary } from '../../src/workspace/application/project-write-boundary.ts';
-import { ensureDir, writeJson, writeText } from '../../src/workspace/files.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+import { checkProjectWriteBoundary } from '../../src/adapters/workspace/project-write-boundary.ts';
+import { ensureDir, writeJson, writeText } from "../../src/adapters/filesystem/files.ts";
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function digest(content: string): string {

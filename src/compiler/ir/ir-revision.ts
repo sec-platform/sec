@@ -6,7 +6,7 @@ import { type ScenarioDefinition } from '../../semantics/engineering-ir/scenario
 import type { ManifestGenerator } from '../../semantics/generation/types.ts';
 import { compareCodeUnits, digest, normalizedArtifactTarget, stableById, uniqueSorted, uniqueSortedByKey } from '../../contracts/canonical.ts';
 import type { BlockManifest, ManifestPin, ResolvedBlock } from '../contract.ts';
-import type { PolicyRule } from '../policies/contract/types.ts';
+import type { PolicyRule } from '../../semantics/policies/types.ts';
 
 export { digest };
 

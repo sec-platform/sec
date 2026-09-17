@@ -191,7 +191,9 @@ export type SecRepositoryModuleGraph = Readonly<{
 export type SecRepositoryModuleBoundaryViolationCode =
   | 'authority-mint-export-unclassified'
   | 'compiler-no-upward-entrypoint-deps'
+  | 'compiler-no-effect-implementation-deps'
   | 'contracts-no-domain-deps'
+  | 'workspace-no-domain-deps'
   | 'core-no-host-io'
   | 'execution-no-domain-deps'
   | 'semantics-no-upward-deps'
@@ -1366,6 +1368,7 @@ type RepositorySourceAddress = Readonly<{
 }>;
 
 const PRODUCT_SOURCE_DOMAINS = new Set([
+  'application',
   'compiler',
   'external-capabilities',
   'reference',
@@ -1422,7 +1425,7 @@ function collectRepositoryImportPolicyViolations(
 
   // Enforce the responsibilities already migrated to SEC-086. Domain objects
   // remain in their owners; a lower owner cannot import an upper implementation.
-  if ((source.domain === 'contracts' || source.domain === 'semantics')
+  if ((source.domain === 'contracts' || source.domain === 'semantics' || source.domain === 'compiler' || source.domain === 'workspace')
       && /^(?:node:)?(?:fs(?:\/promises)?|child_process|net|http|https|http2|tls|dgram|worker_threads)$|^bun:ffi$/u.test(reference.specifier)) {
     add('core-no-host-io');
   }
@@ -1439,6 +1442,13 @@ function collectRepositoryImportPolicyViolations(
     add('execution-no-domain-deps');
   }
 
+  if (source.domain === 'workspace' && !['workspace', 'contracts'].includes(target.domain)) {
+    add('workspace-no-domain-deps');
+  }
+  if (source.domain === 'compiler'
+      && !['compiler', 'contracts', 'workspace', 'semantics'].includes(target.domain)) {
+    add('compiler-no-effect-implementation-deps');
+  }
   if (source.domain === 'compiler'
       && source.area !== 'orchestration'
       && (target.domain === 'interface' && target.area === 'cli'
@@ -1446,8 +1456,8 @@ function collectRepositoryImportPolicyViolations(
         || target.domain === 'development' && target.area === 'runner')) {
     add('compiler-no-upward-entrypoint-deps');
   }
-  if (source.domain === 'compiler'
-      && source.area === 'orchestration'
+  if ((source.domain === 'compiler' && source.area === 'orchestration'
+        || source.domain === 'application' && source.area === 'engineering')
       && (target.domain === 'interface' && target.area === 'cli'
         || target.domain === 'development' && target.area === 'runner')) {
     add('orchestrator-no-cli-or-dev-runner');
@@ -1458,7 +1468,7 @@ function collectRepositoryImportPolicyViolations(
       && target.area !== 'task') {
     add('product-no-codex-control-plane');
   }
-  if (source.domain !== 'compiler'
+  if (!['compiler', 'application', 'adapters'].includes(source.domain)
       && !(source.domain === 'change-management' && source.area === 'upgrade')
       && target.domain === 'compiler'
       && target.area !== null
@@ -1467,7 +1477,7 @@ function collectRepositoryImportPolicyViolations(
   }
   if (source.domain === 'compiler'
       && source.area === 'semantic-mutation'
-      && (target.domain === 'workspace'
+      && (target.domain === 'workspace' && target.area !== 'contract'
         || target.domain === 'change-management' && target.area === 'upgrade'
         || target.domain === 'compiler' && (target.area === 'orchestration' || target.area === 'repair'))) {
     add('semantic-mutation-no-upward-layer-deps');
@@ -1548,8 +1558,9 @@ export function collectSecRepositoryModuleBoundaryViolations(
         if (reference.from !== source) continue;
         // Dynamic import is the explicit post-bootstrap loading boundary. The
         // pre-dependency closure contains only modules evaluated by static
-        // import/require before dependency admission completes.
-        if (reference.kind === 'dynamic') continue;
+        // value import/require before dependency admission completes. Type-only
+        // edges still participate in declaration/layer checks, not evaluation.
+        if (reference.kind === 'dynamic' || reference.typeOnly) continue;
         if (reference.resolvedTarget !== null) {
           pending.push(reference.resolvedTarget);
           continue;

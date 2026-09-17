@@ -1,5 +1,5 @@
-import type { PolicyReport } from '../../../compiler/policies/contract/types.ts';
-import { validatePolicyReport } from '../../../compiler/policies/runtime/report-authority.ts';
+import type { PolicyReport } from '../../../semantics/policies/types.ts';
+import { validatePolicyReport } from "../../../assurance/policies/report.ts";
 import type { AcceptanceCoverageReport } from '../../../assurance/acceptance/coverage.ts';
 import { sha256 } from '../../../contracts/canonical.ts';
 import type { FastVerificationLaneReport, RuntimeVerificationLaneReport, VerificationClaimSummary, VerificationLane, VerificationStatus, VerificationStepReport } from '../../contract/types.ts';

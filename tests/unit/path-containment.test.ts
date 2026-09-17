@@ -1,11 +1,11 @@
 import { expect, test } from 'bun:test';
-import { defaultInstallRegistry } from '../../src/compiler/compose/install-strategies.ts';
+import { defaultInstallRegistry } from '../../src/adapters/compilation/compose/install-strategies.ts';
 import type { BlockManifest, InstallPlanStep } from '../../src/compiler/contract.ts';
-import { validateManifest } from '../../src/compiler/parse/load-manifest.ts';
-import { loadPlan } from '../../src/compiler/parse/load-plan.ts';
-import { getWorkspacePaths, privateRegistryRelativePath } from '../../src/workspace/runtime/paths.ts';
+import { validateManifest } from '../../src/adapters/workspace/sources/load-manifest.ts';
+import { loadPlan } from '../../src/adapters/workspace/sources/load-plan.ts';
+import { getWorkspacePaths, privateRegistryRelativePath } from "../../src/adapters/workspace-context.ts";
 import { posixPath } from '../../src/contracts/relative-path.ts';
-import { writeYaml } from '../../src/workspace/yaml.ts';
+import { writeYaml } from '../../src/adapters/workspace/yaml.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('plan validation rejects registry paths that traverse outside their base root', async () => {

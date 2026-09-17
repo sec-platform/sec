@@ -1,4 +1,4 @@
-import type { ErrorProtocol } from '../../compiler/error-protocol.ts';
+import type { ErrorProtocol } from '../../application/engineering/error-protocol.ts';
 import { formatCompilerFailure, inspectFailureValue } from '../../compiler/errors.ts';
 import { formatJson } from './format-utils.ts';
 

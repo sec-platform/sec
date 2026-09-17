@@ -2,8 +2,8 @@ import { expect, test } from 'bun:test';
 
 import type { PlanFile } from '../../src/compiler/contract.ts';
 import { SUPPORTED_STACK } from '../../src/compiler/contract.ts';
-import { loadManifestById, resolveRegistrySources } from '../../src/compiler/parse/load-manifest.ts';
-import { normalizePlan, validatePlan } from '../../src/compiler/parse/load-plan.ts';
+import { loadManifestById, resolveRegistrySources } from '../../src/adapters/workspace/sources/load-manifest.ts';
+import { normalizePlan, validatePlan } from '../../src/adapters/workspace/sources/load-plan.ts';
 import { isCanonicalBlockId, isCanonicalRegistryVersion } from '../../src/semantics/identity/block.ts';
 
 test('canonical block identity is cross-platform path-safe and injective', () => {

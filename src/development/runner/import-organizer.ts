@@ -10,8 +10,8 @@ import { inspectNoFollowDirectoryChain, retainNoFollowDirectoryForChildProcess, 
 
 import { CompilerError } from '../../compiler/errors.ts';
 import { canonicalEquals, rawSha256, sha256 } from '../../contracts/canonical.ts';
-import { ensureDir } from '../../workspace/files.ts';
-import { compilerRoot } from '../../workspace/runtime/paths.ts';
+import { ensureDir } from "../../adapters/filesystem/files.ts";
+import { compilerRoot } from "../../adapters/workspace-context.ts";
 import { relativePosixPath } from '../../contracts/relative-path.ts';
 import {
   normalizeImportSnapshots,

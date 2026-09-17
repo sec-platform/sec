@@ -1,15 +1,15 @@
 import { expect, test } from 'bun:test';
 
-import { readLockFile, saveLock } from '../../src/compiler/lock.ts';
+import { readLockFile, saveLock } from "../../src/adapters/workspace/lock.ts";
 import {
   addBlock,
   compileWorkspace,
   initWorkspace
-} from '../../src/compiler/orchestration/cli.ts';
+} from '../../src/application/engineering/cli.ts';
 import {
   readPipelineJournal,
   REFERENCE_PIPELINE_TRANSACTION_ID
-} from '../../src/compiler/pipeline/journal.ts';
+} from '../../src/adapters/compilation/pipeline/journal.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('Ticket canonical compile binds one validated semantic snapshot to each transaction', async () => {

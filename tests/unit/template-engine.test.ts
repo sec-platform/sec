@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { TemplateEngine } from '../../src/compiler/compose/template-engine.ts';
+import { TemplateEngine } from '../../src/adapters/compilation/compose/template-engine.ts';
 
 test('template conditionals are exactly paired, nested, and boolean-owned', () => {
   const source = [

@@ -14,10 +14,10 @@ import {
 import { settlePhysicalResourcesAsync } from '../../src/runtime-state/physical/runtime/resource-settlement.ts';
 import { readOptionalProvenanceFile } from '../../src/adapters/workspace/provenance-reader.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { writeJson } from '../../src/workspace/files.ts';
-import { createWorkspaceWriteLeaseManager } from '../../src/workspace/lease.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
-import { calculateCanonicalProjectFileHash } from '../../src/workspace/runtime/project-file-hash.ts';
+import { writeJson } from "../../src/adapters/filesystem/files.ts";
+import { createWorkspaceWriteLeaseManager } from '../../src/adapters/filesystem/write-lease.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
+import { calculateCanonicalProjectFileHash } from '../../src/adapters/workspace/project-file-hash.ts';
 import { prepareBlockUpgradeDryRunFixture, writeBlockUpgradeFixture } from '../helpers/block-upgrade-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 import { expectUpgradeDryRunFailure, expectUpgradeDryRunFailureWithDiagnostics } from './upgrade-diagnostics-fixtures.ts';

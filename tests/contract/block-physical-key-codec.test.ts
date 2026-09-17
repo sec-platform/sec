@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 
 
 import { encodeCanonicalBlockPhysicalKey, isCanonicalBlockId, matchesCanonicalBlockPhysicalKey } from '../../src/semantics/identity/block.ts';
-import { blockDirName } from '../../src/workspace/runtime/paths.ts';
+import { blockDirName } from "../../src/adapters/workspace-context.ts";
 
 test('canonical Block physical key codec is injective over accepted logical identities', () => {
   const ids = [

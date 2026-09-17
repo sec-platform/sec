@@ -1,7 +1,7 @@
 import { lstatSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
-import { acquireWorkspaceWriteLease } from '../../workspace/lease.ts';
+import { acquireWorkspaceWriteLease } from '../../adapters/filesystem/write-lease.ts';
 import {
   parseWorktreePorcelainZ,
   parseWorktreeStatusPorcelainZ,

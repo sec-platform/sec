@@ -1,6 +1,6 @@
 import { CompilerError } from '../../compiler/errors.ts';
 import { runDevCommand } from '../../development/runner/command-runner.ts';
-import { compilerRoot } from '../../workspace/runtime/paths.ts';
+import { compilerRoot } from "../../adapters/workspace-context.ts";
 import {
   REFERENCE_TRACKED_DIFF_ARGS,
   REFERENCE_UNTRACKED_SCAN_ARGS,

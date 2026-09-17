@@ -2,17 +2,17 @@ import { expect, test } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { writeProvenance } from '../../src/compiler/emit/write-provenance.ts';
-import { readLockFile } from '../../src/compiler/lock.ts';
-import { initWorkspace } from '../../src/compiler/orchestration/workspace-orchestrator.ts';
-import { loadPlan } from '../../src/compiler/parse/load-plan.ts';
+import { writeProvenance } from '../../src/adapters/compilation/emit/write-provenance.ts';
+import { readLockFile } from "../../src/adapters/workspace/lock.ts";
+import { initWorkspace } from '../../src/application/engineering/workspace-orchestrator.ts';
+import { loadPlan } from '../../src/adapters/workspace/sources/load-plan.ts';
 import { readOptionalProvenanceFile } from '../../src/adapters/workspace/provenance-reader.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import {
   acquireWorkspaceWriteLease,
   WorkspaceWriteLeaseError
-} from '../../src/workspace/lease.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+} from '../../src/adapters/filesystem/write-lease.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { createWorkspace } from '../testkit/workspace.ts';
 
 test('init creates the minimal workspace on an empty root', async () => {

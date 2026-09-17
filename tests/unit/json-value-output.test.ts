@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { formatJson } from '../../src/interface/cli/format-utils.ts';
 import { stringifyJsonValue } from '../../src/contracts/json-text.ts';
-import { formatJsonFile } from '../../src/workspace/runtime/files.ts';
+import { formatJsonFile } from "../../src/contracts/json-text.ts";
 
 for (const value of [undefined, () => 1, Symbol('value'), { toJSON() { return undefined; } }]) {
   test('CLI and file output reject missing root values through the same standard-JSON boundary', () => {

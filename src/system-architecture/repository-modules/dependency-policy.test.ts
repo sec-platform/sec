@@ -38,6 +38,16 @@ function violationsForEdge([from, to]: readonly [from: string, to: string]) {
 
 const policyEdges = [
   {
+    code: 'workspace-no-domain-deps',
+    forbidden: ['src/workspace/contract/project.ts', 'src/adapters/filesystem/files.ts'],
+    allowed: ['src/workspace/contract/project.ts', 'src/contracts/json-text.ts']
+  },
+  {
+    code: 'compiler-no-effect-implementation-deps',
+    forbidden: ['src/compiler/semantic-compiler.ts', 'src/adapters/workspace/lock.ts'],
+    allowed: ['src/compiler/semantic-compiler.ts', 'src/semantics/engineering-ir/root-types.ts']
+  },
+  {
     code: 'contracts-no-domain-deps',
     forbidden: ['src/contracts/values.ts', 'src/semantics/definitions/check.ts'],
     allowed: ['src/contracts/values.ts', 'src/contracts/failure.ts']
@@ -170,7 +180,7 @@ test('dependency boundary projection is byte-identical for equivalent source sna
 
 
 test('contract and semantic owners reject direct host IO imports, including type-only leakage', () => {
-  for (const domain of ['contracts', 'semantics']) {
+  for (const domain of ['contracts', 'semantics', 'compiler', 'workspace']) {
     for (const specifier of ['node:fs', 'fs', 'node:fs/promises', 'node:child_process', 'node:net', 'node:worker_threads', 'bun:ffi']) {
       for (const prefix of ['import', 'import type']) {
         const source = `src/${domain}/example.ts`;
@@ -189,4 +199,16 @@ test('contract and semantic owners reject direct host IO imports, including type
   });
   expect(collectSecRepositoryModuleBoundaryViolations(graph, membership))
     .not.toContainEqual(expect.objectContaining({ code: 'core-no-host-io' }));
+});
+
+
+test('migrated engineering coordination cannot depend on CLI or repository runner entrypoints', () => {
+  for (const target of ['src/interface/cli/cli.ts', 'src/development/runner/cli.ts']) {
+    expect(violationsForEdge(['src/application/engineering/pipeline-orchestrator.ts', target]))
+      .toContainEqual(expect.objectContaining({ code: 'orchestrator-no-cli-or-dev-runner' }));
+  }
+  for (const consumer of ['application/engineering/semantic-orchestrator', 'adapters/workspace/resolve-graph']) {
+    expect(violationsForEdge([`src/${consumer}.ts`, 'src/compiler/resolve/resolve-plan.ts']))
+      .not.toContainEqual(expect.objectContaining({ code: 'platform-compiler-facade-boundary' }));
+  }
 });

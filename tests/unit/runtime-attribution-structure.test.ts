@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import type { LockFile } from '../../src/compiler/contract.ts';
-import { buildRuntimeAttributions } from '../../src/compiler/emit/runtime-attribution.ts';
+import { buildRuntimeAttributions } from '../../src/adapters/compilation/emit/runtime-attribution.ts';
 import {
   buildOfficialCopyInstallStep,
   buildOfficialResolvedBlock

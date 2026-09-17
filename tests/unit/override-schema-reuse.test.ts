@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { validateOverrideManifest } from '../../src/compiler/parse/load-override-manifest.ts';
+import { validateOverrideManifest } from '../../src/adapters/workspace/sources/load-override-manifest.ts';
 import { OverrideManifestSchema, OverrideSourceSchema } from '../../src/semantics/provenance/override-schema.ts';
 import { emptyOverrideManifest, type OverrideManifest, type OverrideSource } from '../../src/semantics/provenance/types.ts';
 

@@ -7,7 +7,7 @@ import {
   CI_ARTIFACT_MISSING_REASON,
   type CiArtifactManifest
 } from '../../src/verification/ci-artifacts/contract/types.ts';
-import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { expectCliJson } from '../testkit/cli.ts';
 import { withWorkspaceScenario } from '../testkit/workspace.ts';
 

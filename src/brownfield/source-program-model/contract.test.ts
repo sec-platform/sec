@@ -2914,7 +2914,7 @@ function compileCausalReaderFixture(
       'export interface RepairPlan { readonly status: string; }',
       'export function parseRepairPlanJson(source: string): RepairPlan { return JSON.parse(source) as RepairPlan; }'
     ].join('\n'),
-    'src/workspace/runtime/files.ts': 'export async function readJson<T>(_path: string): Promise<T> { throw new Error(); }\n',
+    'src/adapters/filesystem/files.ts': 'export async function readJson<T>(_path: string): Promise<T> { throw new Error(); }\n',
     'src/interface/cli/register-commands.ts': readerBody,
     ...additionalSources
   };

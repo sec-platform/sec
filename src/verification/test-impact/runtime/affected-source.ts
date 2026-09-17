@@ -13,7 +13,7 @@ import {
 import type { GitReadSession } from '../../../external-capabilities/git-read/runtime/session.ts';
 import { rawSha256, sha256, uniqueSorted } from '../../../contracts/canonical.ts';
 import { assertRetainedCompilerDependencyReadGeneration, type RetainedCompilerDependencyReadGeneration } from '../../../toolchain/dependencies/runtime.ts';
-import { tsconfigRelativePath } from '../../../workspace/runtime/paths.ts';
+import { tsconfigRelativePath } from "../../../adapters/workspace-context.ts";
 import { issueTestInventoryProjection, type IssuedTestInventoryProjection } from '../contract/budget.ts';
 import {
   CodexDevelopmentCreateTestImpactTransitionObservation,

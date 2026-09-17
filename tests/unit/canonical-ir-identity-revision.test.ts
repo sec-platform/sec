@@ -6,8 +6,8 @@ import { CompilerError } from '../../src/compiler/errors.ts';
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
 import { artifactEntityId, normalizedArtifactTarget } from '../../src/compiler/ir/ir-identity.ts';
 import { digest } from '../../src/compiler/ir/ir-revision.ts';
-import { normalizePlan, validatePlan } from '../../src/compiler/parse/load-plan.ts';
-import { TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE } from '../../src/compiler/policies/contract/rules.ts';
+import { normalizePlan, validatePlan } from '../../src/adapters/workspace/sources/load-plan.ts';
+import { TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE } from '../../src/semantics/policies/rules.ts';
 import type { LoadedSemanticContract } from '../../src/semantics/definitions/types.ts';
 
 function semanticContract(): LoadedSemanticContract {

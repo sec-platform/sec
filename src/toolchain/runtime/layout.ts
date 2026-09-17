@@ -1,3 +1,4 @@
+import { POLICY_SOURCE_PATHS } from '../../workspace/contract/policy-source-paths.ts';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,8 +21,8 @@ export const PACKAGE_SOURCE_LAUNCHER_RELATIVE_PATH = path.join(
 export const PACKAGE_SOURCE_LAUNCHER_SCRIPT =
   `\"$npm_execpath\" ./${PACKAGE_SOURCE_LAUNCHER_RELATIVE_PATH.replaceAll('\\', '/')}`;
 export const COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS = Object.freeze({
-  composeTemplates: path.join('src', 'compiler', 'compose', 'templates'),
-  officialPolicies: path.join('catalog', 'policies', 'official'),
+  composeTemplates: path.join('src', 'adapters', 'compilation', 'compose', 'templates'),
+  officialPolicies: path.join(...POLICY_SOURCE_PATHS.official.split('/')),
   officialRegistry: path.join('catalog', 'registry', 'official')
 });
 

@@ -1,14 +1,14 @@
 import path from 'node:path';
 import type { LockFile } from '../../compiler/contract.ts';
 import { getErrorCode } from '../../compiler/errors.ts';
-import { readLockFile } from '../../compiler/lock.ts';
+import { readLockFile } from "../../adapters/workspace/lock.ts";
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';
 import { isCiContractArtifactPath } from '../../verification/ci-artifacts/contract/manifest.ts';
 import { parseReviewSummaryJson } from '../../verification/review/contract/summary.ts';
 import type { ReviewSummary } from '../../verification/review/contract/types.ts';
-import { readJson } from '../../workspace/files.ts';
-import { resolveWorkspaceArtifactPath } from '../../workspace/runtime/paths.ts';
+import { readJson } from "../../adapters/filesystem/files.ts";
+import { resolveWorkspaceArtifactPath } from "../../adapters/workspace-context.ts";
 import type { JsonOpts } from './command-options.ts';
 import { printJsonOrText } from './format-utils.ts';
 

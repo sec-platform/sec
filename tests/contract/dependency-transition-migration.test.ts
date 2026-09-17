@@ -28,7 +28,7 @@ import {
   runtimeDependencySourceGeneration
 } from '../../src/toolchain/dependencies/runtime/source-generation.ts';
 import { migrateDependencyTransitionJournal } from '../../src/toolchain/dependencies/test/runtime.ts';
-import { formatJsonFile } from '../../src/workspace/files.ts';
+import { formatJsonFile } from "../../src/contracts/json-text.ts";
 
 const LEGACY_SCHEMA = 'sec-dependency-transition-journal-v1' as const;
 const LEGACY_NAMESPACE = '.dependency-transition-v1';

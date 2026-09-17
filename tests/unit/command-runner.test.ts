@@ -10,7 +10,7 @@ import {
   runDevCommand
 } from '../../src/development/runner/command-runner.ts';
 import { DEV_COMMAND_MAX_DURATION_MS, DEV_COMMAND_MAX_STDIN_BYTES } from '../../src/development/runner/contract.ts';
-import { compilerRoot } from '../../src/workspace/runtime/paths.ts';
+import { compilerRoot } from "../../src/adapters/workspace-context.ts";
 
 let originalStdoutWrite: typeof process.stdout.write;
 let originalStderrWrite: typeof process.stderr.write;

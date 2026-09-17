@@ -4,7 +4,7 @@ import {
   buildMinimalWorkspacePlan,
   buildReferenceWorkspacePlan,
   buildWorkspaceCreatePlan
-} from '../../src/compiler/orchestration/workspace-create-template.ts';
+} from '../../src/application/engineering/workspace-create-template.ts';
 
 test('ordinary workspace creation defaults to business-neutral minimal Plan data', () => {
   const minimal = buildMinimalWorkspacePlan();

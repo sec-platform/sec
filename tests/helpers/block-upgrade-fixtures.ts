@@ -2,14 +2,14 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { defaultInstallRegistry } from '../../src/compiler/compose/install-strategies.ts';
+import { defaultInstallRegistry } from '../../src/adapters/compilation/compose/install-strategies.ts';
 import type { PlanFile } from '../../src/compiler/contract.ts';
-import { resolveGraph } from '../../src/compiler/resolve/resolve-graph.ts';
+import { resolveGraph } from '../../src/adapters/workspace/resolve-graph.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { ensureCanonicalWorkspaceArtifactParents } from '../../src/workspace/application/project-base.ts';
-import { writeJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
-import { readYaml, writeYaml } from '../../src/workspace/yaml.ts';
+import { ensureCanonicalWorkspaceArtifactParents } from '../../src/adapters/workspace/project-base.ts';
+import { writeJson } from "../../src/adapters/filesystem/files.ts";
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
+import { readYaml, writeYaml } from '../../src/adapters/workspace/yaml.ts';
 import { createWorkspace } from '../testkit/workspace.ts';
 import { buildPrivatePlanRegistrySource, buildSingleTenantPlanApp } from './plan-fixtures.ts';
 

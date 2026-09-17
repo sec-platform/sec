@@ -13,7 +13,7 @@ import {
 import type { GitReadSession } from '../../external-capabilities/git-read/runtime/session.ts';
 import { assertRetainedCompilerDependencyReadGeneration, type RetainedCompilerDependencyReadGeneration } from '../../toolchain/dependencies/runtime.ts';
 import { issueTestInventoryProjection, type IssuedTestInventoryProjection } from '../../verification/test-impact/contract/budget.ts';
-import { tsconfigRelativePath } from '../../workspace/runtime/paths.ts';
+import { tsconfigRelativePath } from "../../adapters/workspace-context.ts";
 
 export type AffectedTestImpactProjectionIssuer = (
   input: Readonly<{

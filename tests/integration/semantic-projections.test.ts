@@ -1,7 +1,7 @@
 import { beforeAll, expect, test } from 'bun:test';
 
 import { type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
-import { loadWorkspaceEngineeringIRBuildInput } from '../../src/compiler/ir/load-workspace-engineering-ir-input.ts';
+import { loadWorkspaceEngineeringIRBuildInput } from '../../src/adapters/workspace/engineering-input.ts';
 import { buildValidatedEngineeringIR, validateEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
 import { buildSemanticViewSet } from '../../src/compiler/projection/build-semantic-view-set.ts';
 import { projectArchitectureView } from '../../src/compiler/projection/project-architecture-view.ts';

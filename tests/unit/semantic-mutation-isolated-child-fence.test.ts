@@ -5,9 +5,9 @@ import { expect, test } from 'bun:test';
 import {
   buildSemanticMutationIsolatedVerificationEnvironment,
   createSemanticMutationIsolatedVerificationSupervisor
-} from '../../src/compiler/verify/run-semantic-mutation-isolated-child.ts';
-import { SEMANTIC_MUTATION_ISOLATED_BUNFIG_RELATIVE_PATH } from '../../src/compiler/verify/semantic-mutation-isolated-runtime-plan.ts';
-import type { WorkspaceWriteLeaseToken } from '../../src/workspace/lease.ts';
+} from '../../src/adapters/verification/run-semantic-mutation-isolated-child.ts';
+import { SEMANTIC_MUTATION_ISOLATED_BUNFIG_RELATIVE_PATH } from '../../src/adapters/verification/semantic-mutation-isolated-runtime-plan.ts';
+import type { WorkspaceWriteLeaseToken } from '../../src/adapters/filesystem/write-lease.ts';
 
 test('isolated semantic verification environment contains no ambient network or credential authority', () => {
   const root = path.resolve('.tmp', 'isolated-runtime-environment');

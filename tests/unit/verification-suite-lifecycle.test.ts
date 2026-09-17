@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { runSuiteFiles } from '../../src/compiler/verify/run-suite-files.ts';
+import { runSuiteFiles } from '../../src/adapters/verification/run-suite-files.ts';
 
 function fixture() {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-suite-lifecycle-'));

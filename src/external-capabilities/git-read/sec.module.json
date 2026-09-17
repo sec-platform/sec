@@ -85,7 +85,7 @@
           "reference",
           "release",
           "runtime-state.generated-state",
-          "workspace.runtime"
+          "adapters.workspace"
         ]
       },
       "effect": {

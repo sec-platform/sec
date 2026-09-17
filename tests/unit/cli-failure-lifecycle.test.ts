@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import type { ErrorProtocol } from '../../src/compiler/error-protocol.ts';
+import type { ErrorProtocol } from '../../src/application/engineering/error-protocol.ts';
 import { reportCliFailure } from '../../src/interface/cli/cli-failure.ts';
 import { runRepairWithFailureReadback } from '../../src/interface/cli/repair-command-execution.ts';
 

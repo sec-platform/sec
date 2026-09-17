@@ -7,7 +7,7 @@ import { ProjectIntegrityError } from '../../src/workspace/contract/project-inte
 import {
   getProjectBaselinePath,
   readProjectBaseline
-} from '../../src/workspace/runtime/project-baseline.ts';
+} from '../../src/adapters/workspace/project-baseline.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 async function writeRawBaseline(workspaceRoot: string, value: unknown): Promise<void> {

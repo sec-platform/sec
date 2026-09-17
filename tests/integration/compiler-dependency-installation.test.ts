@@ -35,7 +35,7 @@ import {
   ensureCompilerDepsReady,
   observeCompilerDependencyExecutionGenerationAuthority
 } from '../../src/toolchain/dependencies/test/runtime.ts';
-import { readJson } from '../../src/workspace/files.ts';
+import { readJson } from "../../src/adapters/filesystem/files.ts";
 import {
   effectfulTest,
   settleEffectfulTestCleanup,

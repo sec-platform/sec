@@ -16,7 +16,7 @@ import { expect, test } from 'bun:test';
 import {
   assertSemanticMutationRuntimeDestinationManifestForTests,
   runSemanticMutationRuntimeCanonicalBatchesForTests
-} from '../../src/compiler/verify/semantic-mutation-isolated-runtime-plan.ts';
+} from '../../src/adapters/verification/semantic-mutation-isolated-runtime-plan.ts';
 
 function deferred(): {
   readonly promise: Promise<void>;

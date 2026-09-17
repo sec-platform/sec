@@ -23,8 +23,11 @@ import {
   issueSecSemanticOperationAttemptContext,
   type SecBoundSemanticOperation
 } from '../../../system-architecture/operation/semantic.ts';
-import { formatJsonFile, isFileNotFoundError, readJson, type CommitFence } from '../../../workspace/files.ts';
-import { compilerRoot, isPathInside } from '../../../workspace/runtime/paths.ts';
+import { formatJsonFile } from "../../../contracts/json-text.ts";
+import { isFileNotFoundError, readJson } from "../../../adapters/filesystem/files.ts";
+import { type CommitFence } from "../../../contracts/commit-fence.ts";
+import { compilerRoot } from "../../../adapters/workspace-context.ts";
+import { isPathInside } from "../../../contracts/relative-path.ts";
 import { loadCanonicalBunRuntimeVersion } from '../../runtime.ts';
 import type { DependencyFreshnessLockObservation } from '../contract/dependency-freshness.ts';
 import {

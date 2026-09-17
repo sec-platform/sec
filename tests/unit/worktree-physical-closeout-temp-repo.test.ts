@@ -45,7 +45,7 @@ import {
   disposeCompilerDependencyEnvironment,
   ensureCompilerDepsReady
 } from '../../src/toolchain/dependencies/test/runtime.ts';
-import { acquireWorkspaceWriteLease, recoverWorkspaceWriteLeaseRetirement } from '../../src/workspace/lease.ts';
+import { acquireWorkspaceWriteLease, recoverWorkspaceWriteLeaseRetirement } from '../../src/adapters/filesystem/write-lease.ts';
 
 function git(cwd: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], { cwd, encoding: 'utf8', windowsHide: true });

@@ -1,4 +1,4 @@
-import { compileWorkspace } from '../compiler/orchestration/pipeline-orchestrator.ts';
+import { compileWorkspace } from '../application/engineering/pipeline-orchestrator.ts';
 import { referenceWorkspaceRoot } from './workspace.ts';
 
 try {

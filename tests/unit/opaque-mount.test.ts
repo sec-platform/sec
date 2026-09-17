@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { installOpaqueModules } from '../../src/compiler/compose/install-opaque-modules.ts';
-import { resolveOpaqueModuleMaterializationMode } from '../../src/compiler/compose/opaque-module-materialization.ts';
-import { pathExists, readJson, writeJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
-import { writeYaml } from '../../src/workspace/yaml.ts';
+import { installOpaqueModules } from '../../src/adapters/compilation/compose/install-opaque-modules.ts';
+import { resolveOpaqueModuleMaterializationMode } from '../../src/compiler/target-materialization.ts';
+import { pathExists, readJson, writeJson } from "../../src/adapters/filesystem/files.ts";
+import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
+import { writeYaml } from '../../src/adapters/workspace/yaml.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 describe('resolveOpaqueModuleMaterializationMode', () => {

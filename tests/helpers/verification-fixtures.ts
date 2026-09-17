@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import type { LockFile } from '../../src/compiler/contract.ts';
-import type { PolicyReport } from '../../src/compiler/policies/contract/types.ts';
+import type { PolicyReport } from '../../src/semantics/policies/types.ts';
 import type { AcceptanceCoverageReport } from '../../src/assurance/acceptance/coverage.ts';
 import { sha256 } from '../../src/contracts/canonical.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
@@ -15,8 +15,8 @@ import {
   type ProductVerificationObservations,
   type ProductVerificationRuntimeMode
 } from '../../src/verification/profile/contract/product.ts';
-import { readJson, writeJson } from '../../src/workspace/files.ts';
-import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+import { readJson, writeJson } from "../../src/adapters/filesystem/files.ts";
+import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 
 export function emptyVerificationLogs(): VerificationReport['logs'] {
   return { stdout: '', stderr: '' };

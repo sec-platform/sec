@@ -20,3 +20,25 @@ export function isSafeRelativePath(value: string, options: { allowEmpty?: boolea
   return !normalized.split('/').includes('..');
 }
 
+
+export function isPathInside(root: string, targetPath: string): boolean {
+  const resolvedRoot = path.resolve(root);
+  const resolvedTarget = path.resolve(targetPath);
+  const relative = path.relative(resolvedRoot, resolvedTarget);
+  // This is lexical containment, not symlink/reparse-point admission. Only
+  // a complete parent segment escapes; a child named '..cache' does not.
+  return relative === '' || (
+    relative !== '..' &&
+    !relative.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relative)
+  );
+}
+
+export function resolvePathInside(root: string, relativePath: string, options: { allowEmpty?: boolean } = {}): string | null {
+  if (!isSafeRelativePath(relativePath, options)) {
+    return null;
+  }
+  const resolvedPath = path.resolve(root, relativePath);
+  return isPathInside(root, resolvedPath) ? resolvedPath : null;
+}
+

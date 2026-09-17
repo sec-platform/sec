@@ -39,7 +39,7 @@ import {
   type SecBoundSemanticOperation,
   type SecOperationDigest
 } from '../../system-architecture/operation/semantic.ts';
-import { compilerRoot } from '../../workspace/runtime/paths.ts';
+import { compilerRoot } from "../../adapters/workspace-context.ts";
 import {
   captureDevCommandInput,
   type DevCommandOptions, type ObserveDevCommandOptions

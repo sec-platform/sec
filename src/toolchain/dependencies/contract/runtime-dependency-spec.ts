@@ -2,7 +2,7 @@ import path from 'node:path';
 import { readOptionalRetainedJson } from '../../../runtime-state/physical/runtime/retained-file-read.ts';
 import { SecError } from '../../../contracts/failure.ts';
 import { canonicalEquals, canonicalJson, compareCodeUnits, deepFreeze, digest, sortedKeys } from '../../../contracts/canonical.ts';
-import { compilerRoot } from '../../../workspace/runtime/paths.ts';
+import { compilerRoot } from "../../../adapters/workspace-context.ts";
 import { generatedRuntimeDependencyCapabilityNames } from './dependency-capability-contract.ts';
 
 export interface RootPackageJson {

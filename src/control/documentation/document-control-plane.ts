@@ -43,7 +43,7 @@ import {
 import { runCommandBytes, type ByteCommandResult } from '../../runtime-state/physical/runtime/process.ts';
 import { digest, rawSha256, sha256 } from '../../contracts/canonical.ts';
 import { compileSecRepositoryModuleMembership } from '../../system-architecture/repository-modules/contract.ts';
-import { withWorkspaceWriteLease } from '../../workspace/lease.ts';
+import { withWorkspaceWriteLease } from '../../adapters/filesystem/write-lease.ts';
 import {
   assertMainHealthPublicationAuthorityStable,
   observeCanonicalMainHealthForDocumentControlTestingV2,

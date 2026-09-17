@@ -6,3 +6,7 @@ export function stringifyJsonValue(value: unknown, space: number, label = 'JSON 
   if (typeof serialized !== 'string') throw new TypeError(`${label} must contain one JSON value`);
   return serialized;
 }
+
+export function formatJsonFile(value: unknown): string {
+  return `${stringifyJsonValue(value, 2, 'JSON file')}\n`;
+}

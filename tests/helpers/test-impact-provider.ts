@@ -44,7 +44,7 @@ import {
   CodexDevelopmentCreateTestImpactTransitionObservation,
   type CodexDevelopmentTestImpactTransitionObservation
 } from '../../src/verification/test-impact/runtime/transition.ts';
-import { tsconfigRelativePath } from '../../src/workspace/runtime/paths.ts';
+import { tsconfigRelativePath } from "../../src/adapters/workspace-context.ts";
 
 const GIT_OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const FIXTURE_ROOT_PREFIX = 'sec-test-impact-exact-tree-';

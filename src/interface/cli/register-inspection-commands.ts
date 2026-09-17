@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import type { PolicyReport } from '../../compiler/policies/contract/types.ts';
+import type { PolicyReport } from '../../semantics/policies/types.ts';
 import type { AcceptanceCoverageReport } from '../../assurance/acceptance/coverage.ts';
 import type { ProvenanceFile } from '../../semantics/provenance/types.ts';
 import type { RuntimeVerificationLaneReport, VerificationReport } from '../../verification/contract/types.ts';
@@ -19,7 +19,7 @@ type ArtifactKey = keyof typeof import('../../verification/ci-artifacts/contract
 function artifactReader<T>(key: ArtifactKey, missing: (context: InspectionContext) => string) {
   return async (context: InspectionContext): Promise<T> => {
     const { CI_ARTIFACT_FILES } = await import('../../verification/ci-artifacts/contract/manifest.ts');
-    const { resolveWorkspaceArtifactPath } = await import('../../workspace/runtime/paths.ts');
+    const { resolveWorkspaceArtifactPath } = await import('../../adapters/workspace-context.ts');
     const { readRequiredJson } = await import('./artifact-command-read.ts');
     return readRequiredJson<T>(resolveWorkspaceArtifactPath(context.workspaceRoot, CI_ARTIFACT_FILES[key]), missing(context));
   };
@@ -78,7 +78,7 @@ export function registerInspectionCommands(program: Command): void {
   registerInspectionQuery(program.command('provenance'), {
     description: 'Provenance inspection',
     read: async ({ workspaceRoot }): Promise<ProvenanceFile> => {
-      const { resolveWorkspaceProvenancePath } = await import('../../workspace/runtime/paths.ts');
+      const { resolveWorkspaceProvenancePath } = await import('../../adapters/workspace-context.ts');
       const { readRequiredJson } = await import('./artifact-command-read.ts');
       return readRequiredJson<ProvenanceFile>(await resolveWorkspaceProvenancePath(workspaceRoot), 'Provenance registry not found');
     },
@@ -92,7 +92,7 @@ export function registerInspectionCommands(program: Command): void {
     description: 'Review inspection',
     read: async (c): Promise<ReviewSummary> => {
       const { CI_ARTIFACT_FILES } = await import('../../verification/ci-artifacts/contract/manifest.ts');
-      const { resolveWorkspaceArtifactPath } = await import('../../workspace/runtime/paths.ts');
+      const { resolveWorkspaceArtifactPath } = await import('../../adapters/workspace-context.ts');
       const { readRequiredReviewSummary } = await import('./artifact-command-read.ts');
       return readRequiredReviewSummary(resolveWorkspaceArtifactPath(c.workspaceRoot, CI_ARTIFACT_FILES.reviewSummary),
         `Review summary not found; run ${c.rootCommand} explain first`);

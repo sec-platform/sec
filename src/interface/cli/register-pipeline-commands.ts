@@ -15,7 +15,7 @@ export function registerPipelineCommands(program: Command): void {
     .action(async (opts: Record<string, unknown>) => {
       const workspaceRoot = process.cwd();
       const { output, invocation } = parsePipelineCompileOptions(opts);
-      const { compileWorkspace } = await import('../../compiler/orchestration/pipeline-orchestrator.ts');
+      const { compileWorkspace } = await import('../../application/engineering/pipeline-orchestrator.ts');
       const result = await compileWorkspace(workspaceRoot, invocation);
       printJsonOrText(result, output, formatPipelineCompilation);
     });
@@ -29,7 +29,7 @@ export function registerPipelineCommands(program: Command): void {
       const workspaceRoot = process.cwd();
       const output = parsePipelineOutputOptions(opts);
       // Help and invalid options must not initialize journal or lease owners.
-      const { readPipelineJournal } = await import('../../compiler/pipeline/journal.ts');
+      const { readPipelineJournal } = await import('../../adapters/compilation/pipeline/journal.ts');
       const journal = await readPipelineJournal(workspaceRoot);
       printJsonOrText(journal, output, formatPipelineJournal);
     });

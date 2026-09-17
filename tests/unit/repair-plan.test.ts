@@ -6,19 +6,19 @@ import {
   LOCK_FILE_FORMAT_VERSION,
   type LockFile
 } from '../../src/compiler/contract.ts';
-import { readReviewGovernanceReports } from '../../src/compiler/emit/read-review-governance-reports.ts';
+import { readReviewGovernanceReports } from '../../src/adapters/compilation/emit/read-review-governance-reports.ts';
 import {
   buildRepairPlan,
   writeRepairPlan
-} from '../../src/compiler/repair/build-repair-plan.ts';
+} from '../../src/adapters/verification/repair/build-repair-plan.ts';
 import {
   parseRepairPlanJson,
   REPAIR_PLAN_FORMAT_VERSION,
   type RepairPlan
 } from '../../src/semantics/repair/types.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { readJson, writeJson } from '../../src/workspace/files.ts';
-import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+import { readJson, writeJson } from "../../src/adapters/filesystem/files.ts";
+import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { buildPassingReviewReport } from '../helpers/review-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 

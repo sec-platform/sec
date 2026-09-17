@@ -9,9 +9,7 @@ import {
   canonicalJson,
   deepFreeze
 } from '../../../../contracts/canonical.ts';
-import {
-  formatJsonFile
-} from '../../../../workspace/files.ts';
+import { formatJsonFile } from "../../../../contracts/json-text.ts";
 import {
   DEPENDENCY_TRANSITION_SCHEMA,
   hasExactObjectKeys,

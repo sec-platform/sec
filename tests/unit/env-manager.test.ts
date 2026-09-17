@@ -24,7 +24,7 @@ import {
   testWorkspaceCleanupModeForPlatform
 } from '../../src/development/runner/env-manager.ts';
 import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { compilerRoot, getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
+import { compilerRoot, getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
 
 const isolatedTestWorkspaceEnvironment = {
   [TEST_WORKSPACE_NAMESPACE_ENV]: undefined,

@@ -17,7 +17,7 @@ import { SecError } from '../../contracts/failure.ts';
 import { rawSha256, sha256, uniqueSorted } from '../../contracts/canonical.ts';
 import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
 
-import { compilerRoot } from '../../workspace/runtime/paths.ts';
+import { compilerRoot } from "../../adapters/workspace-context.ts";
 
 const OBSERVATION_BUDGET = Object.freeze({
   // GitRead remains inside its canonical provider ceiling. A standalone

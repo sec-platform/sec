@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { compileSecRepositoryModuleGraph } from '../../brownfield/source-program-model/typescript.ts';
-import { compilerRoot } from '../../workspace/runtime/paths.ts';
+import { compilerRoot } from "../../adapters/workspace-context.ts";
 import {
   assertSecRepositoryModuleArchitectureBoundaries,
   assertSecRepositoryModuleImportBoundaries,
@@ -1139,4 +1139,42 @@ test('source-program ownership excludes colocated tests and binds public entrypo
     ...facts,
     files: facts.files.filter(({ path }) => path !== 'src/unowned/service.ts')
   }, membershipFor(declared))).not.toThrow();
+});
+
+
+test('pre-dependency evaluation excludes erased type imports without exempting runtime imports', () => {
+  const descriptor = parseSecModuleDescriptor({
+    importGraph: 'runtime',
+    externalEntrypoints: ['src/bootstrap/cli.ts'],
+    preDependencyBootstrap: true
+  }, 'src/bootstrap/sec.module.json');
+  const membership = {
+    descriptors: [descriptor], graphRoots: ['src/bootstrap'],
+    moduleRoots: ['src/bootstrap'], moduleForPath: () => descriptor
+  };
+  for (const source of [
+    "import type { Shape } from 'unmaterialized-package'; export type View = Shape;",
+    "import { type Shape } from 'unmaterialized-package'; export type View = Shape;",
+    "import type { Shape } from './lazy.ts'; export type View = Shape;"
+  ]) {
+    const graph = compileSecRepositoryModuleGraph({
+      files: ['src/bootstrap/cli.ts', 'src/bootstrap/lazy.ts'],
+      readSource: file => file.endsWith('/cli.ts') ? source
+        : "import 'unmaterialized-package'; export interface Shape { readonly id: string; }"
+    });
+    expect(collectSecRepositoryModuleBoundaryViolations(graph, membership)
+      .filter(({ code }) => code === 'pre-dependency-bootstrap-unavailable-package')).toEqual([]);
+  }
+  for (const source of [
+    "import { value, type Shape } from 'unmaterialized-package'; console.log(value);",
+    "import { value } from './lazy.ts'; console.log(value);"
+  ]) {
+    const graph = compileSecRepositoryModuleGraph({
+      files: ['src/bootstrap/cli.ts', 'src/bootstrap/lazy.ts'],
+      readSource: file => file.endsWith('/cli.ts') ? source
+        : "import 'unmaterialized-package'; export const value = 1;"
+    });
+    expect(collectSecRepositoryModuleBoundaryViolations(graph, membership))
+      .toContainEqual(expect.objectContaining({ code: 'pre-dependency-bootstrap-unavailable-package' }));
+  }
 });

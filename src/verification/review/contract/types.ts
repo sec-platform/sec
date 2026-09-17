@@ -1,4 +1,4 @@
-import type { PolicySeverity, PolicySourceScope } from '../../../compiler/policies/contract/types.ts';
+import type { PolicySeverity, PolicySourceScope } from '../../../semantics/policies/types.ts';
 import type { RegistryKind, RegistryLocation } from '../../../contracts/registry-source.ts';
 import type { SemanticViewKind, SemanticViewSet } from '../../../semantics/projection/types.ts';
 import type { OverrideStatus, ProvenanceOriginType } from '../../../semantics/provenance/types.ts';

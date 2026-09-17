@@ -29,7 +29,8 @@ import {
   issueSecSemanticOperationAttemptContext,
   type SecBoundSemanticOperation
 } from '../../../system-architecture/operation/semantic.ts';
-import { writeText, type CommitFence } from '../../../workspace/files.ts';
+import { writeText } from "../../../adapters/filesystem/files.ts";
+import { type CommitFence } from "../../../contracts/commit-fence.ts";
 import {
   currentRuntimeExecutableIdentity,
   type RuntimeExecutableIdentity

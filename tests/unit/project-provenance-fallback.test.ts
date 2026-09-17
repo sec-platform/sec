@@ -6,9 +6,9 @@ import { expect, test } from 'bun:test';
 import { runCommand } from '../../src/runtime-state/physical/runtime/process.ts';
 import type { ProvenanceFile } from '../../src/semantics/provenance/types.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { checkProvenanceFallback } from '../../src/workspace/application/project-integrity.ts';
-import { ensureDir, writeJson, writeText } from '../../src/workspace/files.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+import { checkProvenanceFallback } from '../../src/adapters/workspace/project-integrity.ts';
+import { ensureDir, writeJson, writeText } from "../../src/adapters/filesystem/files.ts";
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function provenanceFor(artifactPath: string): ProvenanceFile {

@@ -7,7 +7,7 @@ import { HeavyVerificationGateBusyError, onceHeavyVerificationGateRelease, waitF
 
 import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateEnvironment } from '../../../runtime-state/workspace-state/layout.ts';
 import { digest } from '../../../contracts/canonical.ts';
-import { compilerRoot } from '../../../workspace/runtime/paths.ts';
+import { compilerRoot } from "../../../adapters/workspace-context.ts";
 
 type HeavyVerificationGateOwner = Readonly<{
   command: readonly string[];

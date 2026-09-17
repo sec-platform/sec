@@ -11,7 +11,7 @@ import {
 import {
   acquireWorkspaceWriteLease,
   issueWindowsAppContainerExecutionCapability
-} from '../../src/workspace/lease.ts';
+} from '../../src/adapters/filesystem/write-lease.ts';
 
 function operationDeadline(timeoutMs: number): Readonly<{
   deadlineAtUnixMs: number;

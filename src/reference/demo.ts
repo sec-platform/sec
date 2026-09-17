@@ -3,11 +3,11 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 
-import { compileWorkspace } from '../compiler/orchestration/pipeline-orchestrator.ts';
-import { initWorkspace } from '../compiler/orchestration/workspace-orchestrator.ts';
+import { compileWorkspace } from '../application/engineering/pipeline-orchestrator.ts';
+import { initWorkspace } from '../application/engineering/workspace-orchestrator.ts';
 import { runDevCommand } from '../development/runner/command-runner.ts';
 import { compilerCliEntrypoint } from '../toolchain/runtime/layout.ts';
-import { compilerRoot } from '../workspace/runtime/paths.ts';
+import { compilerRoot } from "../adapters/workspace-context.ts";
 
 type ReferenceDemoMode = 'quickstart' | 'governance' | 'closed-loop';
 

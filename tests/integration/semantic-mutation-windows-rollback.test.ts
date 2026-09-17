@@ -8,16 +8,16 @@ import {
   atomicRestoreSemanticMutationSource,
   readSemanticMutationTransactionArtifacts,
   writeSemanticMutationTransactionArtifacts
-} from '../../src/compiler/semantic-mutation/atomic-source-publish.ts';
+} from '../../src/adapters/mutation/atomic-source-publish.ts';
 import { SemanticMutationContractError, sha256 } from '../../src/compiler/semantic-mutation/canonical.ts';
-import { assertSemanticMutationRollbackManifestInvariant } from '../../src/compiler/semantic-mutation/plan-source-edit.ts';
-import { semanticMutationByteDigest } from '../../src/compiler/semantic-mutation/semantic-contract-yaml-adapter.ts';
-import { readSemanticMutationSource } from '../../src/compiler/semantic-mutation/source-path-boundary.ts';
-import { semanticMutationTransactionRoot } from '../../src/compiler/semantic-mutation/transaction-identity.ts';
+import { assertSemanticMutationRollbackManifestInvariant } from '../../src/adapters/mutation/plan-source-edit.ts';
+import { semanticMutationByteDigest } from '../../src/adapters/mutation/semantic-contract-yaml-adapter.ts';
+import { readSemanticMutationSource } from '../../src/adapters/mutation/source-path-boundary.ts';
+import { semanticMutationTransactionRoot } from '../../src/adapters/mutation/transaction-identity.ts';
 import {
   applySemanticMutationWindowsFileAttributes,
   readSemanticMutationWindowsFileAttributes
-} from '../../src/compiler/semantic-mutation/windows-file-attributes.ts';
+} from '../../src/adapters/mutation/windows-file-attributes.ts';
 import { SEMANTIC_CONTRACT_YAML_ADAPTER_ID, SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION, SEMANTIC_MUTATION_OPERATION_REGISTRY_REVISION, SEMANTIC_MUTATION_ROLLBACK_MANIFEST_REVISION, SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION, SEMANTIC_MUTATION_SOURCE_EDIT_PLAN_REVISION, SEMANTIC_MUTATION_SOURCE_PATH_EVIDENCE_REVISION, type SemanticMutationRollbackManifest, type SemanticMutationSourceEditPlan, type SemanticMutationWindowsFileAttributes } from '../../src/semantics/mutation/types.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 

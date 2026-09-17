@@ -29,7 +29,7 @@ import {
 } from '../../runtime-state/worktree-closeout-contract.ts';
 import { canonicalJson, sha256 } from '../../contracts/canonical.ts';
 import { compilerDependencyLocatorWorktreeRetirementProvider } from '../../toolchain/dependencies/runtime.ts';
-import { acquireWorkspaceWriteLease, assertWorkspaceWriteLease, assertWorkspaceWriteLeaseRetirement, assertWorkspaceWriteLeaseRetirementProof, completeWorkspaceWriteLeaseRetirement, recoverWorkspaceWriteLeaseRetirement, resumeWorkspaceWriteLeaseRetirement, withWorkspaceWriteLease, type WorkspaceWriteLeaseRetirementReceipt } from '../../workspace/lease.ts';
+import { acquireWorkspaceWriteLease, assertWorkspaceWriteLease, assertWorkspaceWriteLeaseRetirement, assertWorkspaceWriteLeaseRetirementProof, completeWorkspaceWriteLeaseRetirement, recoverWorkspaceWriteLeaseRetirement, resumeWorkspaceWriteLeaseRetirement, withWorkspaceWriteLease, type WorkspaceWriteLeaseRetirementReceipt } from '../../adapters/filesystem/write-lease.ts';
 import { createBranchLifecycleGitChildEnvironment } from './branch-lifecycle-command.ts';
 
 const MAX_BUFFER = 64 * 1024 * 1024;

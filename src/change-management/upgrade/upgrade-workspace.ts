@@ -7,13 +7,14 @@ import type {
   PlanFile,
   UpgradeMigration
 } from '../../compiler/contract.ts';
-import { writeProvenance } from '../../compiler/emit/write-provenance.ts';
+import { writeProvenance } from '../../adapters/compilation/emit/write-provenance.ts';
 import { CompilerError } from '../../compiler/errors.ts';
-import { addGeneratedPaths, readLockFile } from '../../compiler/lock.ts';
-import { compileWorkspace } from '../../compiler/orchestration/pipeline-orchestrator.ts';
-import { loadManifestById } from '../../compiler/parse/load-manifest.ts';
-import { loadOverrideManifest } from '../../compiler/parse/load-override-manifest.ts';
-import { loadWorkspacePlan } from '../../compiler/parse/load-plan.ts';
+import { addGeneratedPaths } from "../../compiler/contract/lock-schema.ts";
+import { readLockFile } from "../../adapters/workspace/lock.ts";
+import { compileWorkspace } from '../../application/engineering/pipeline-orchestrator.ts';
+import { loadManifestById } from '../../adapters/workspace/sources/load-manifest.ts';
+import { loadOverrideManifest } from '../../adapters/workspace/sources/load-override-manifest.ts';
+import { loadWorkspacePlan } from '../../adapters/workspace/sources/load-plan.ts';
 import {
   assertSameNoFollowDirectoryIdentity,
   copyNoFollowDirectoryTreesBulk,
@@ -35,13 +36,17 @@ import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime
 import { isCanonicalRegistryVersion } from '../../semantics/identity/block.ts';
 import { uniqueSorted } from '../../contracts/canonical.ts';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
-import { ensureDir, formatJsonFile, pathExists, publishExistingParentCanonicalWorkspaceFile, readJson, readOptionalJson, removeDir, writeJson, type CommitFence } from '../../workspace/files.ts';
-import { assertWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../workspace/lease.ts';
-import { copyRecursive } from '../../workspace/runtime/discovery.ts';
-import { classifyCanonicalWorkspacePublicationFailure } from '../../workspace/runtime/file-publication.ts';
-import { getWorkspacePaths, resolvePathInside, resolveWorkspaceArtifactPath, resolveWorkspaceLockPath, secRelativePath } from '../../workspace/runtime/paths.ts';
-import { withProjectWriteAuthorization } from '../../workspace/runtime/project-write-authorization.ts';
-import { writeYaml } from '../../workspace/yaml.ts';
+import { ensureDir, pathExists, readJson, readOptionalJson, removeDir, writeJson } from "../../adapters/filesystem/files.ts";
+import { formatJsonFile } from "../../contracts/json-text.ts";
+import { publishExistingParentCanonicalWorkspaceFile } from "../../adapters/filesystem/file-publication.ts";
+import { type CommitFence } from "../../contracts/commit-fence.ts";
+import { assertWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../adapters/filesystem/write-lease.ts';
+import { copyRecursive } from '../../adapters/filesystem/discovery.ts';
+import { classifyCanonicalWorkspacePublicationFailure } from '../../adapters/filesystem/file-publication.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath, resolveWorkspaceLockPath, secRelativePath } from "../../adapters/workspace-context.ts";
+import { resolvePathInside } from "../../contracts/relative-path.ts";
+import { withProjectWriteAuthorization } from '../../adapters/workspace/project-write-authorization.ts';
+import { writeYaml } from '../../adapters/workspace/yaml.ts';
 import type { UpgradeMigrationEntry } from './contract/manifest-types.ts';
 import {
   createUpgradeExecutionAttempt,

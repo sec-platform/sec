@@ -1,5 +1,5 @@
-import type { PolicyReport } from '../../../compiler/policies/contract/types.ts';
-import { validatePolicyReport } from '../../../compiler/policies/runtime/report-authority.ts';
+import type { PolicyReport } from '../../../semantics/policies/types.ts';
+import { validatePolicyReport } from "../../../assurance/policies/report.ts";
 import type { AcceptanceCoverageReport } from '../../../assurance/acceptance/coverage.ts';
 import { canonicalEquals, uniqueSorted } from '../../../contracts/canonical.ts';
 import { acceptanceIdsProvenByVerificationReports } from '../../acceptance/contract/proof.ts';

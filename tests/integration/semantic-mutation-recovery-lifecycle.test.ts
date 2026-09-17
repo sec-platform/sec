@@ -11,24 +11,24 @@ import {
   querySemanticMutationRequest,
   recoverSemanticMutationWorkspace,
   resolveWorkspace
-} from '../../src/compiler/orchestration/cli.ts';
+} from '../../src/application/engineering/cli.ts';
 import {
   applySemanticMutationWithAfterPreparedTestCrash,
   applySemanticMutationWithTestDependencies,
   planSemanticMutationTransactionWithTestDependencies,
   recoverSemanticMutationWorkspaceWithTestDependencies
-} from '../../src/compiler/orchestration/semantic-mutation-orchestrator.ts';
-import { buildWorkspaceSemanticBundle } from '../../src/compiler/semantic-frontend.ts';
+} from '../../src/application/engineering/semantic-mutation-orchestrator.ts';
+import { buildWorkspaceSemanticBundle } from '../../src/adapters/workspace/semantic-bundle.ts';
 import { sha256 } from '../../src/compiler/semantic-mutation/canonical.ts';
 import { expectationFromFactDelta } from '../../src/compiler/semantic-mutation/match-expectation.ts';
-import { loadSemanticMutationRecoveryRecords } from '../../src/compiler/semantic-mutation/mutation-recovery-record.ts';
+import { loadSemanticMutationRecoveryRecords } from '../../src/adapters/mutation/mutation-recovery-record.ts';
 import { semanticMutationAuthorizationRevision } from '../../src/compiler/semantic-mutation/normalize-request.ts';
-import { renderSemanticContractYamlEdit } from '../../src/compiler/semantic-mutation/semantic-contract-yaml-adapter.ts';
-import { buildSemanticMutationVerificationExecutionRef } from '../../src/compiler/semantic-mutation/semantic-mutation-result.ts';
+import { renderSemanticContractYamlEdit } from '../../src/adapters/mutation/semantic-contract-yaml-adapter.ts';
+import { buildSemanticMutationVerificationExecutionRef } from '../../src/adapters/mutation/semantic-mutation-result.ts';
 import {
   semanticMutationRequestIdentityDigest,
   semanticMutationTransactionRoot
-} from '../../src/compiler/semantic-mutation/transaction-identity.ts';
+} from '../../src/adapters/mutation/transaction-identity.ts';
 import { semanticMutationRequiredVerificationDigest } from '../../src/compiler/semantic-mutation/verification-policy.ts';
 import type { FactDeltaEndpointContext } from '../../src/semantics/engineering-ir/delta-types.ts';
 import type { SemanticMutationRecoveryState } from '../../src/semantics/mutation/transaction.ts';

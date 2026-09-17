@@ -29,7 +29,7 @@ import {
   projectCompilerDepsReadyState,
   type CompilerDepsReadyState
 } from '../../src/toolchain/dependencies/runtime.ts';
-import { compilerRoot } from '../../src/workspace/runtime/paths.ts';
+import { compilerRoot } from "../../src/adapters/workspace-context.ts";
 
 const CROSS_PROCESS_BOOTSTRAP_ROOT = process.env.SEC_DEPENDENCY_BOOTSTRAP_ROOT;
 const CROSS_PROCESS_ATTEMPT_LOG = process.env.SEC_DEPENDENCY_BOOTSTRAP_ATTEMPT_LOG;

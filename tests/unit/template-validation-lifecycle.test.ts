@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { LockFile } from '../../src/compiler/contract.ts';
 import { CompilerError } from '../../src/compiler/errors.ts';
-import { validateResolvedTemplates } from '../../src/compiler/verify/validate-resolved-templates.ts';
+import { validateResolvedTemplates } from '../../src/adapters/verification/validate-resolved-templates.ts';
 import { ISOLATED_VERIFICATION_ENV_KEY } from '../../src/runtime-state/physical/runtime/process.ts';
 
 // Native execution keeps real workspace providers. Interruption fences stop at

@@ -4,22 +4,22 @@ import { expect, test } from 'bun:test';
 
 import {
   querySemanticMutationRequest
-} from '../../src/compiler/orchestration/cli.ts';
-import { semanticMutationStagedRebuildDiagnostic } from '../../src/compiler/semantic-mutation/derive-staged-mutation.ts';
+} from '../../src/application/engineering/cli.ts';
+import { semanticMutationStagedRebuildDiagnostic } from '../../src/adapters/mutation/derive-staged-mutation.ts';
 import {
   appendSemanticMutationRecoveryRecord,
   assertSemanticMutationRecoveryRecordInvariant,
   loadSemanticMutationRecoveryRecords,
   semanticMutationRecoveryRecordRevision
-} from '../../src/compiler/semantic-mutation/mutation-recovery-record.ts';
+} from '../../src/adapters/mutation/mutation-recovery-record.ts';
 import {
   writeRejectedSemanticMutationTerminal
-} from '../../src/compiler/semantic-mutation/mutation-terminal-record.ts';
+} from '../../src/adapters/mutation/mutation-terminal-record.ts';
 import {
   semanticMutationRequestIdentityDigest,
   semanticMutationStagedTransactionId,
   semanticMutationTransactionRoot
-} from '../../src/compiler/semantic-mutation/transaction-identity.ts';
+} from '../../src/adapters/mutation/transaction-identity.ts';
 import { type SemanticMutationRecoveryRecord } from '../../src/semantics/mutation/transaction.ts';
 import {
   digest,

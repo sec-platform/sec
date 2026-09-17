@@ -2,8 +2,8 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { buildProvenance } from '../../src/compiler/emit/write-provenance.ts';
-import { writeText } from '../../src/workspace/files.ts';
+import { buildProvenance } from '../../src/adapters/compilation/emit/write-provenance.ts';
+import { writeText } from "../../src/adapters/filesystem/files.ts";
 import { semanticArtifactLock } from '../testkit/semantic-lock.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
