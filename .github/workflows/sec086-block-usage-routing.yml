@@ -1,0 +1,102 @@
+name: sec086-block-usage-routing
+
+on:
+  push:
+    branches: [refactor/sec086-architecture]
+    paths: [.github/workflows/sec086-block-usage-routing.yml]
+
+permissions: {}
+
+jobs:
+  verify-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require exact block-usage presentation baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:src)" = 68ba354f7edab19d07666e496817026081340210
+          test "$(git rev-parse HEAD:tests)" = 764361fd529c7fb19241b264e26e5d6397556559
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Route block usage inspection to application and entry
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/bootstrap/cli/register-inspection-commands.ts')
+          text=p.read_text()
+          old="import type { BlockUsageMap, InstallManifestEntry, PostgresContract } from './formatters.ts';\n"
+          new="import type { BlockUsageMapView } from '../../application/block-usage-map.ts';\nimport type { InstallManifestEntry, PostgresContract } from './formatters.ts';\n"
+          assert text.count(old)==1
+          text=text.replace(old,new)
+          old_block="""  registerInspectionQuery(program.command('blocks'), {
+            read: artifactReader<BlockUsageMap>('blockUsageMap', (c) => `Block usage map not found; run ${c.rootCommand} compose first`),
+            view: async (report) => {
+              const { formatBlockUsageMap } = await import('./formatters.ts');
+              return inspectionValue(report, formatBlockUsageMap);
+            }
+          });
+          """
+          new_block="""  registerInspectionQuery(program.command('blocks'), {
+            read: artifactReader<BlockUsageMapView>('blockUsageMap', (c) => `Block usage map not found; run ${c.rootCommand} compose first`),
+            view: async (report) => {
+              const { projectBlockUsageMap } = await import('../../application/block-usage-map.ts');
+              const { formatBlockUsageMap } = await import('../../entry/cli/block-usage-map.ts');
+              return inspectionValue(projectBlockUsageMap(report), formatBlockUsageMap);
+            }
+          });
+          """
+          assert text.count(old_block)==1
+          p.write_text(text.replace(old_block,new_block))
+
+          p=Path('src/bootstrap/cli/formatters.ts')
+          text=p.read_text()
+          start=text.index('export type BlockUsageMap = {')
+          end=text.index('export type PostgresContract = {', start)
+          text=text[:start]+text[end:]
+          start=text.index('export function formatBlockUsageMap(')
+          end=text.index('export function formatPostgresContract(', start)
+          p.write_text(text[:start]+text[end:])
+          PY
+          git add src/bootstrap/cli/register-inspection-commands.ts src/bootstrap/cli/formatters.ts
+          git diff --cached --check
+          tree=$(git write-tree)
+          test "$(git rev-parse "$tree:src")" = a2af2a1f953159d352b9d19be2d759cdbec98be5
+          test "$(git rev-parse "$tree:tests")" = 764361fd529c7fb19241b264e26e5d6397556559
+      - name: Verify block usage slice
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun node_modules/@typescript/native/bin/tsc --noEmit -p tsconfig.json
+          bun test --timeout 20000 tests/unit/block-usage-map-presentation.test.ts tests/unit/inspection-query.test.ts tests/unit/named-inspection-query.test.ts
+          bun run docs:doctor
+          bun run audit:module-topology
+      - name: Commit source only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'refactor: route block usage inspection through entry'
+          test "$(git rev-parse HEAD:src)" = a2af2a1f953159d352b9d19be2d759cdbec98be5
+      - name: Fast-forward isolated branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          authorization=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $authorization"
+          branch=refs/heads/refactor/sec086-architecture
+          test "$(git ls-remote origin "$branch" | cut -f1)" = "$GITHUB_SHA"
+          git push origin "HEAD:$branch"
