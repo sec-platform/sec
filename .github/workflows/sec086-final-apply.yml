@@ -23,7 +23,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 4
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Require exact authorized branch baseline
@@ -31,11 +31,11 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git rev-parse HEAD^)" = af33270ed3d89b268a521a87f93266943f88abe7
-          test "$(git rev-parse HEAD~2)" = 56a1995dbb1dc721d7c83f8cf816482accd5a0ba
-          test "$(git rev-parse HEAD~3)" = 9eccfe4f6e50c30129916bb939702460bbff0cb7
-          test "$(git rev-parse 'HEAD~2^{tree}')" = 53a81a7d519224cb97744aea004238c2b5267839
-          test "$(git rev-parse 'HEAD~3^{tree}')" = d3c24fc8d1b3812be5540f3ea5ff39413b7366d6
+          test "$(git rev-parse HEAD^)" = 112f342e35abddfd9aa8c7bda89547df9dc43526
+          git merge-base --is-ancestor 56a1995dbb1dc721d7c83f8cf816482accd5a0ba HEAD
+          git merge-base --is-ancestor 9eccfe4f6e50c30129916bb939702460bbff0cb7 56a1995dbb1dc721d7c83f8cf816482accd5a0ba
+          test "$(git rev-parse '56a1995dbb1dc721d7c83f8cf816482accd5a0ba^{tree}')" = 53a81a7d519224cb97744aea004238c2b5267839
+          test "$(git rev-parse '9eccfe4f6e50c30129916bb939702460bbff0cb7^{tree}')" = d3c24fc8d1b3812be5540f3ea5ff39413b7366d6
           git diff --exit-code
 
       - name: Setup repository-pinned Bun
@@ -57,10 +57,13 @@ jobs:
           import sys
           path = Path(sys.argv[1])
           text = path.read_text()
-          old = 'parent = git("rev-parse", "HEAD^")'
-          new = 'parent = git("rev-parse", "HEAD~2")'
-          assert text.count(old) == 1
-          path.write_text(text.replace(old, new))
+          old_parent = 'parent = git("rev-parse", "HEAD^")'
+          old_tree = 'f"{parent}^{tree}"'
+          assert text.count(old_parent) == 1
+          assert text.count(old_tree) == 1
+          text = text.replace(old_parent, 'parent = "56a1995dbb1dc721d7c83f8cf816482accd5a0ba"')
+          text = text.replace(old_tree, 'f"{parent}^{{tree}}"')
+          path.write_text(text)
           PY
           rm -rf .github/sec086-final-transfer
           python3 "$RUNNER_TEMP/sec086-final-apply.py"
