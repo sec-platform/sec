@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { projectTextByteCensusReport } from '../../src/application/text-byte-census.ts';
+import { admitTextByteCensusThreshold, projectTextByteCensusReport, textByteCensusThresholdMatched } from '../../src/application/text-byte-census.ts';
 import { formatTextByteCensus } from '../../src/entry/cli/text-byte-census.ts';
 
 const classifications = [
@@ -90,4 +90,34 @@ describe('text byte census presentation boundary', () => {
     expect(text).toContain('    ... and 1 more');
     expect(text).not.toContain('src/20.ts');
   });
+
+  test('application admits finite fail-on thresholds and evaluates them without CLI casts', () => {
+    expect(admitTextByteCensusThreshold(undefined, classifications)).toEqual({ status: 'absent' });
+    expect(admitTextByteCensusThreshold('any', classifications)).toEqual({
+      status: 'accepted',
+      threshold: 'any'
+    });
+    expect(admitTextByteCensusThreshold('unknown', classifications)).toEqual({
+      status: 'accepted',
+      threshold: 'unknown'
+    });
+    expect(admitTextByteCensusThreshold('invalid', classifications)).toEqual({
+      status: 'rejected',
+      value: 'invalid'
+    });
+    const report = {
+      failClosed: true,
+      classificationCounts: {
+        'canonical-lf': 2,
+        'explicit-crlf': 0,
+        binary: 0,
+        'preserve-external': 0,
+        unknown: 1
+      }
+    };
+    expect(textByteCensusThresholdMatched(report, 'any')).toBe(true);
+    expect(textByteCensusThresholdMatched(report, 'unknown')).toBe(true);
+    expect(textByteCensusThresholdMatched(report, 'binary')).toBe(false);
+  });
+
 });

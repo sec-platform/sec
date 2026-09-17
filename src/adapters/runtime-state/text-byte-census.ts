@@ -29,6 +29,14 @@ export type TextByteClassification =
   | 'preserve-external'
   | 'unknown';
 
+export const TEXT_BYTE_CLASSIFICATIONS = [
+  'canonical-lf',
+  'explicit-crlf',
+  'binary',
+  'preserve-external',
+  'unknown'
+] as const satisfies readonly TextByteClassification[];
+
 /**
  * Observed line-ending shape in blob bytes.
  *

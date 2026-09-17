@@ -1,17 +1,18 @@
 import type { Command } from 'commander';
-import type { TextByteClassification } from '../../adapters/runtime-state/text-byte-census.ts';
+import { TEXT_BYTE_ANOMALIES, TEXT_BYTE_CLASSIFICATIONS } from '../../adapters/runtime-state/text-byte-census.ts';
+import { admitTextByteCensusThreshold, projectTextByteCensusReport, textByteCensusThresholdMatched } from '../../application/text-byte-census.ts';
 import { projectWorktreeSettlementReceipt } from '../../application/worktree-settlement.ts';
 import type { DependencyCleanOptions } from '../../adapters/toolchain/dependencies/environment.ts';
 import { buildBenchmarkTaskCatalog, formatBenchmarkTaskCatalog } from '../../adapters/verification/platform/benchmark/catalog.ts';
 import { addJsonFlags, commandPath, jsonOpts, usageError, type JsonOpts } from '../../entry/cli/command-options.ts';
 import { platformCommand } from '../../adapters/verification/platform/sec-command.ts';
 import { printJsonOrText } from '../../entry/cli/format-utils.ts';
+import { formatTextByteCensus } from '../../entry/cli/text-byte-census.ts';
 import { formatWorktreeSettlement } from '../../entry/cli/worktree-settlement.ts';
 import { loadDependencyEnvironmentDomain, loadReferenceCheckDomain, loadTestBudgetDomain, observeLocalContainerEngineReadiness, runCensus, runSettlement } from './lazy-command-domains.ts';
 import { registerInspectionCommands } from './register-inspection-commands.ts';
 import { registerWorkspaceCommands } from './register-workspace-commands.ts';
 import { withSpinner } from './runtime/spinner.ts';
-import { formatTextByteCensusReport } from './text-byte-census-format.ts';
 
 type DependencyEnvironmentModule = typeof import('../../adapters/toolchain/dependencies/environment.ts');
 
@@ -122,20 +123,21 @@ export function registerCommands(
     .option('--fail-on <threshold>', 'Exit non-zero for any fail-closed result or one classification')
     .action(async (opts: Record<string, unknown>) => {
       const output = jsonOpts(opts);
-      const failOn = opts.failOn as string | undefined;
-      const classifications: readonly TextByteClassification[] = [
-        'canonical-lf', 'explicit-crlf', 'binary', 'preserve-external', 'unknown'
-      ];
-      if (failOn !== undefined && failOn !== 'any'
-        && !classifications.includes(failOn as TextByteClassification)) {
-        throw usageError(`Text census --fail-on must be any or one of: ${classifications.join(', ')}`);
+      const thresholdAdmission = admitTextByteCensusThreshold(
+        opts.failOn as string | undefined,
+        TEXT_BYTE_CLASSIFICATIONS
+      );
+      if (thresholdAdmission.status === 'rejected') {
+        throw usageError(`Text census --fail-on must be any or one of: ${TEXT_BYTE_CLASSIFICATIONS.join(', ')}`);
       }
       const report = await runWithOptionalSpinner('Scanning text bytes', output, () => runCensus(process.cwd()));
-      printJsonOrText(report, output, formatTextByteCensusReport);
-      const failed = failOn === 'any'
-        ? report.failClosed
-        : failOn !== undefined && report.classificationCounts[failOn as TextByteClassification] > 0;
-      if (failed) throw new Error(`Text census --fail-on ${failOn} threshold matched.`);
+      printJsonOrText(report, output, (value) => formatTextByteCensus(projectTextByteCensusReport(value, {
+        classifications: TEXT_BYTE_CLASSIFICATIONS,
+        anomalies: TEXT_BYTE_ANOMALIES
+      })));
+      const failed = thresholdAdmission.status === 'accepted'
+        && textByteCensusThresholdMatched(report, thresholdAdmission.threshold);
+      if (failed) throw new Error(`Text census --fail-on ${thresholdAdmission.threshold} threshold matched.`);
     });
 
   const envCmd = program.command('environment').description('Environment settlement inspection');

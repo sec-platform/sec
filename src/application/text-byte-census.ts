@@ -54,3 +54,33 @@ export function projectTextByteCensusReport<C extends string, A extends string>(
     }))
   };
 }
+
+
+export type TextByteCensusThresholdAdmission<C extends string> =
+  | Readonly<{ status: 'absent' }>
+  | Readonly<{ status: 'accepted'; threshold: 'any' | C }>
+  | Readonly<{ status: 'rejected'; value: string }>;
+
+export function admitTextByteCensusThreshold<C extends string>(
+  value: string | undefined,
+  classifications: readonly C[]
+): TextByteCensusThresholdAdmission<C> {
+  if (value === undefined) return { status: 'absent' };
+  if (value === 'any') return { status: 'accepted', threshold: 'any' };
+  const classification = classifications.find((candidate) => candidate === value);
+  return classification === undefined
+    ? { status: 'rejected', value }
+    : { status: 'accepted', threshold: classification };
+}
+
+export function textByteCensusThresholdMatched<C extends string>(
+  report: Readonly<{
+    failClosed: boolean;
+    classificationCounts: Readonly<Record<C, number>>;
+  }>,
+  threshold: 'any' | NoInfer<C>
+): boolean {
+  return threshold === 'any'
+    ? report.failClosed
+    : report.classificationCounts[threshold] > 0;
+}
