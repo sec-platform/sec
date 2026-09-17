@@ -33,14 +33,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat \
-            .github/sec086-slice7b-parts/part0.b64 \
-            .github/sec086-slice7b-parts/part1a.b64 \
-            .github/sec086-slice7b-parts/part1b.b64 \
-            .github/sec086-slice7b-parts/part2.b64 \
-            .github/sec086-slice7b-parts/part3.b64 \
-            | base64 -d > "$RUNNER_TEMP/sec086-slice7b-target.tar.xz"
-          echo '1ce4367c9e9e1f07fdded14c8fa7995909c9efb03a0282ff9adb6361cf01c6d7  '"$RUNNER_TEMP/sec086-slice7b-target.tar.xz" | sha256sum -c -
+          python3 - "$RUNNER_TEMP/sec086-slice7b-target.tar.xz" <<'PY'
+          from pathlib import Path
+          import base64, hashlib, sys
+          parts = [
+              Path('.github/sec086-slice7b-parts/part0.b64'),
+              Path('.github/sec086-slice7b-parts/part1a.b64'),
+              Path('.github/sec086-slice7b-parts/part1b.b64'),
+              Path('.github/sec086-slice7b-parts/part2.b64'),
+              Path('.github/sec086-slice7b-parts/part3.b64'),
+          ]
+          encoded = ''.join(path.read_text() for path in parts)
+          assert len(encoded) == 12512, len(encoded)
+          assert hashlib.sha256(encoded.encode()).hexdigest() == 'b0f70a76c322ebb959912a222cfa81275771a429526844d87fa96bed6242b391'
+          raw = base64.b64decode(encoded, validate=True)
+          assert len(raw) == 9384, len(raw)
+          assert hashlib.sha256(raw).hexdigest() == '1ce4367c9e9e1f07fdded14c8fa7995909c9efb03a0282ff9adb6361cf01c6d7'
+          Path(sys.argv[1]).write_bytes(raw)
+          PY
           tar -xJf "$RUNNER_TEMP/sec086-slice7b-target.tar.xz" -C .
           test "$(git hash-object src/bootstrap/cli/register-inspection-commands.ts)" = fb38a4b3f2ad5c5902808bfe55eca75f912030ab
           test "$(git hash-object src/bootstrap/cli/formatters.ts)" = 27bc0504b9d3b7284a1eb2b35b51333c1114bb6a
