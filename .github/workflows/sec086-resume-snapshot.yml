@@ -1,0 +1,37 @@
+name: sec086-resume-snapshot
+
+on:
+  push:
+    branches: [refactor/sec086-architecture]
+    paths: [.github/workflows/sec086-resume-snapshot.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact verified architecture baseline
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: f185b7208013904aa3224c948c96ce6e33ee27ed
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Export exact tracked source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = f185b7208013904aa3224c948c96ce6e33ee27ed
+          mkdir -p "$RUNNER_TEMP/sec086-resume"
+          git archive --format=tar HEAD | gzip -n > "$RUNNER_TEMP/sec086-resume/source.tar.gz"
+          git show -s --format='%H%n%T' HEAD > "$RUNNER_TEMP/sec086-resume/identity.txt"
+          (cd "$RUNNER_TEMP/sec086-resume" && sha256sum source.tar.gz > SHA256SUMS)
+      - name: Upload exact baseline
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: sec086-resume-f185b720
+          path: ${{ runner.temp }}/sec086-resume/
+          retention-days: 1
+          if-no-files-found: error
