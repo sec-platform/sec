@@ -38,7 +38,9 @@ jobs:
           for part in \
             .github/sec086-slice7b-parts/part0.b64 \
             .github/sec086-slice7b-parts/part1a.b64 \
-            .github/sec086-slice7b-parts/part1b.b64 \
+            .github/sec086-slice7b-parts/part1b0.b64 \
+            .github/sec086-slice7b-parts/part1b1.b64 \
+            .github/sec086-slice7b-parts/part1b2.b64 \
             .github/sec086-slice7b-parts/part2.b64 \
             .github/sec086-slice7b-parts/part3.b64
           do
