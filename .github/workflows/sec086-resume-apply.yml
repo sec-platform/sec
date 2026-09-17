@@ -1,0 +1,94 @@
+name: sec086-compiler-workspace-migration
+on:
+  push:
+    branches: [refactor/sec086-architecture]
+    paths: [.github/workflows/sec086-resume-apply.yml]
+permissions: {}
+concurrency:
+  group: sec086-resume-apply
+  cancel-in-progress: false
+jobs:
+  apply:
+    if: github.repository == 'sec-platform/sec' && github.ref == 'refs/heads/refactor/sec086-architecture'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 3
+          persist-credentials: false
+      - name: Require the exact authorized branch parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^)" = 0192c31bf266c99c506ac52a3adacf4534b71aa2
+          test "$(git rev-parse HEAD^^)" = bb83c8619bfe99eefc21cf02919e9059f5f609ad
+          git diff --exit-code
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version-file: .bun-version
+      - name: Install only frozen dependencies without lifecycle scripts
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Preserve the exact baseline and apply the independently replayed source transformation
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/sec086-before" "$RUNNER_TEMP/sec086-verification"
+          git archive bb83c8619bfe99eefc21cf02919e9059f5f609ad | tar -x -C "$RUNNER_TEMP/sec086-before"
+          ln -s "$PWD/node_modules" "$RUNNER_TEMP/sec086-before/node_modules"
+          python3 .github/sec086-resume-transfer/apply.py | tee "$RUNNER_TEMP/sec086-verification/applied-tree.json"
+      - name: Native whole-repository typecheck
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun node_modules/@typescript/native/bin/tsc --noEmit -p tsconfig.json 2>&1 | tee "$RUNNER_TEMP/sec086-verification/typecheck.log"
+      - name: Compare the same 58 real test files against the frozen baseline
+        run: python3 .github/sec086-resume-transfer/compare.py
+      - name: Check documentation and real CLI startup and bundling
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun run docs:doctor > "$RUNNER_TEMP/sec086-verification/docs-doctor.log" 2>&1
+          bun src/interface/cli/cli.ts --help > "$RUNNER_TEMP/sec086-verification/cli-help.log" 2>&1
+          bun -e 'const r=await Bun.build({entrypoints:["src/interface/cli/cli.ts"],target:"bun",write:false}); console.log(JSON.stringify({success:r.success,outputs:r.outputs.map(o=>({kind:o.kind,path:o.path,size:o.size}))})); if(!r.success){console.error(r.logs);process.exit(1)}' > "$RUNNER_TEMP/sec086-verification/bundle.log" 2>&1
+      - name: Verify exact tree closure before committing only the source changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code
+          tree=$(git write-tree)
+          test "$(git rev-parse "$tree:src")" = 7751d0c63f40a45643c09f5ba5fd458a793751b6
+          test "$(git rev-parse "$tree:tests")" = f40d2b991208f5ac29af29de3fdf749977abc113
+          test "$(git rev-parse "$tree:knip.json")" = 6a5428b246dd46d0af9f92e52eb53a1342c4badf
+          python3 - <<'PY'
+          import subprocess
+          paths=subprocess.check_output(['git','diff','--cached','--name-only','-z']).decode().split('\0')
+          assert all(not p or p.startswith(('src/','tests/')) or p=='knip.json' for p in paths)
+          PY
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'refactor: separate compiler and workspace kernels from host effects' -m 'Migrate concrete IO, leases, authorization, pipeline integration and target tools to explicit adapter owners; separate Lock schema, source fingerprints, resolve planning and report validation. Preserve capability identities and migrate consumers. Native typecheck, docs validation, CLI startup and bundle passed. Selected baseline comparison retains the same two existing failures; no full-suite or trusted-Gate claim.'
+      - name: Fast-forward only this exact branch and read back the result
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          authorization=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $authorization"
+          branch=refs/heads/refactor/sec086-architecture
+          test "$(git ls-remote origin "$branch" | cut -f1)" = "$GITHUB_SHA"
+          git push origin "HEAD:$branch"
+          candidate=$(git rev-parse HEAD)
+          test "$(git ls-remote origin "$branch" | cut -f1)" = "$candidate"
+          printf 'commit=%s\ntree=%s\nsourceTree=%s\ntestTree=%s\n' "$candidate" "$(git rev-parse HEAD^{tree})" "$(git rev-parse HEAD:src)" "$(git rev-parse HEAD:tests)" | tee "$RUNNER_TEMP/sec086-verification/readback.txt"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: sec086-compiler-workspace-verification
+          path: ${{ runner.temp }}/sec086-verification/
+          retention-days: 7
+          if-no-files-found: error
