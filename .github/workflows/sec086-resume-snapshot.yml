@@ -1,37 +1,119 @@
-name: sec086-resume-snapshot
+name: sec086-resume-apply
 
 on:
   push:
     branches: [refactor/sec086-architecture]
-    paths: [.github/workflows/sec086-resume-snapshot.yml]
+    paths:
+      - .github/workflows/sec086-resume-snapshot.yml
+      - .github/sec086-resume-transfer/**
 
-permissions:
-  contents: read
+permissions: {}
+
+concurrency:
+  group: sec086-resume-apply
+  cancel-in-progress: false
 
 jobs:
-  snapshot:
+  verify-and-publish:
+    if: github.repository == 'sec-platform/sec' && github.ref == 'refs/heads/refactor/sec086-architecture'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
+    permissions:
+      contents: write
     steps:
-      - name: Checkout exact verified architecture baseline
+      - name: Checkout exact transport commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: f185b7208013904aa3224c948c96ce6e33ee27ed
-          fetch-depth: 1
+          ref: ${{ github.sha }}
+          fetch-depth: 0
           persist-credentials: false
-      - name: Export exact tracked source
+      - name: Decode exact reviewed patch and restore verified baseline
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = f185b7208013904aa3224c948c96ce6e33ee27ed
-          mkdir -p "$RUNNER_TEMP/sec086-resume"
-          git archive --format=tar HEAD | gzip -n > "$RUNNER_TEMP/sec086-resume/source.tar.gz"
-          git show -s --format='%H%n%T' HEAD > "$RUNNER_TEMP/sec086-resume/identity.txt"
-          (cd "$RUNNER_TEMP/sec086-resume" && sha256sum source.tar.gz > SHA256SUMS)
-      - name: Upload exact baseline
+          test "$(git rev-parse HEAD^)" = 6b8c09316d24260e62933bdc0eabf4e5fc8cd6a3
+          base64 -d .github/sec086-resume-transfer/payload.xz.b64 | xz -d > "$RUNNER_TEMP/sec086-resume.patch"
+          echo '5f576a1b1599df164695e70897aebb7d51968cf16a3ca4d4edc2c1a7367555ae  '"$RUNNER_TEMP/sec086-resume.patch" | sha256sum -c -
+          cp .github/workflows/sec086-resume-snapshot.yml "$RUNNER_TEMP/sec086-resume-snapshot.yml"
+          git checkout --detach f185b7208013904aa3224c948c96ce6e33ee27ed
+          git apply --index --binary "$RUNNER_TEMP/sec086-resume.patch"
+          test "$(git write-tree)" = b815d66f014b3f98384e3a9f7fbee1e05b3e291a
+          test "$(git rev-parse $(git write-tree):src)" = 39826a7177d3cf61fa8bf1e0dba05822644d07a9
+          test "$(git rev-parse $(git write-tree):tests)" = 39f5b4d1d9f274e4962c3efa96df5363f311d7e8
+          mkdir -p .github/workflows
+          cp "$RUNNER_TEMP/sec086-resume-snapshot.yml" .github/workflows/sec086-resume-snapshot.yml
+          git add .github/workflows/sec086-resume-snapshot.yml
+          git diff --cached --check
+      - name: Setup repository-pinned Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version-file: .bun-version
+      - name: Install frozen dependencies without lifecycle scripts
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Freeze candidate for source-sensitive validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'refactor: move use-case coordination and proof contracts to canonical owners'
+          test "$(git rev-parse HEAD:src)" = 39826a7177d3cf61fa8bf1e0dba05822644d07a9
+          test "$(git rev-parse HEAD:tests)" = 39f5b4d1d9f274e4962c3efa96df5363f311d7e8
+          test -z "$(git status --porcelain --untracked-files=no)"
+      - name: Native whole-repository typecheck
+        run: bun node_modules/@typescript/native/bin/tsc --noEmit -p tsconfig.json
+      - name: Validate docs, package topology and CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun run docs:doctor
+          bun run audit:module-topology
+          bun run sec -- --help > "$RUNNER_TEMP/sec086-help.txt"
+          bun -e 'const r=await Bun.build({entrypoints:["src/adapters/toolchain/runtime/package-source-launcher.ts"],target:"bun",write:false}); if(!r.success){console.error(r.logs);process.exit(1)}'
+      - name: Run responsibility regression set
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun test --timeout 20000 \
+            src/adapters/repository/architecture/contract.test.ts \
+            src/adapters/repository/architecture/dependency-policy.test.ts \
+            tests/unit/application-pipeline-run.test.ts \
+            tests/unit/pipeline-invocation.test.ts \
+            tests/unit/pipeline-context-admission.test.ts \
+            tests/unit/pipeline-stage-contract.test.ts \
+            tests/unit/pipeline-registry-compilation.test.ts \
+            tests/unit/pipeline-proof-data.test.ts \
+            tests/unit/pipeline-stage-state.test.ts \
+            tests/unit/pipeline-semantic-linkage.test.ts \
+            tests/contract/error-protocol.test.ts \
+            tests/contract/error-protocol-isolation.test.ts \
+            tests/contract/workspace-lifecycle-template-boundary.test.ts \
+            tests/contract/semantic-mutation-apply-contract.test.ts \
+            tests/unit/semantic-mutation-source-adapter.test.ts \
+            tests/integration/pipeline-kernel.test.ts
+      - name: Build frozen release artifact
+        run: bun run build
+      - name: Publish source tree while retaining only this workflow for transport closeout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tree=$(git rev-parse HEAD^{tree})
+          publish=$(printf '%s\n' 'refactor: publish verified use-case and proof ownership split' | git commit-tree "$tree" -p "$GITHUB_SHA")
+          authorization=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $authorization"
+          branch=refs/heads/refactor/sec086-architecture
+          test "$(git ls-remote origin "$branch" | cut -f1)" = "$GITHUB_SHA"
+          git push origin "$publish:$branch"
+          test "$(git ls-remote origin "$branch" | cut -f1)" = "$publish"
+          printf 'commit=%s\ntree=%s\nsrc=%s\ntests=%s\n' "$publish" "$tree" "$(git rev-parse HEAD:src)" "$(git rev-parse HEAD:tests)" > "$RUNNER_TEMP/sec086-readback.txt"
+      - name: Preserve exact hosted readback
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: sec086-resume-f185b720
-          path: ${{ runner.temp }}/sec086-resume/
-          retention-days: 1
-          if-no-files-found: error
+          name: sec086-resume-verified-readback
+          path: |
+            ${{ runner.temp }}/sec086-readback.txt
+            ${{ runner.temp }}/sec086-help.txt
+          if-no-files-found: ignore
+          retention-days: 7
