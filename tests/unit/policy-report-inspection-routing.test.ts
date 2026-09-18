@@ -13,34 +13,12 @@ import { withTempWorkspace } from '../testkit/workspace.ts';
 test('policy inspection routes retained report through application summary projection and entry rendering while preserving JSON', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const report: PolicyReport = {
-      status: 'passed',
-      official: {
-        policies: ['policy:one'],
-        sources: [{ path: 'official/policy-one.yaml', policyIds: ['policy:one'] }],
-        violations: []
-      },
-      project: {
-        policies: [],
-        sources: [],
-        violations: []
-      },
-      merged: {
-        policies: [{
-          id: 'policy:one',
-          sourceScope: 'official',
-          sourcePath: 'official/policy-one.yaml',
-          targets: ['src/**']
-        }]
-      },
+      status: 'skipped',
+      official: { policies: [], sources: [], violations: [] },
+      project: { policies: [], sources: [], violations: [] },
+      merged: { policies: [] },
       violations: [],
-      diagnostics: [],
-      evaluation: {
-        providerId: 'fixture',
-        providerRevision: '1',
-        assurance: 'semantic',
-        requiredSemanticPredicates: [],
-        unsupportedSemanticPredicates: []
-      }
+      diagnostics: []
     };
 
     const reportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.policyReport);
