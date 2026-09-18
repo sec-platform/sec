@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import type { LockFile } from '../../compiler/contract.ts';
+import type { LockInspectProjectionSource } from '../../application/lock-inspect.ts';
 import { CompilerError } from '../../compiler/errors.ts';
 import { registerAdvancedWorkspaceCommands } from '../../entry/cli/register-advanced-workspace-commands.ts';
 import { registerCoreWorkspaceCommands } from '../../entry/cli/register-core-workspace-commands.ts';
@@ -113,10 +113,16 @@ export function registerWorkspaceCommands(program: Command): void {
       if (command === 'lock') {
         if (input.kind === 'inspect') {
           const { resolveWorkspaceLockPath } = await import('../../adapters/workspace-context.ts');
-          const { formatLockInspect } = await import('./formatters.ts');
+          const { projectLockInspect } = await import('../../application/lock-inspect.ts');
+          const { formatLockInspect } = await import('../../entry/cli/lock-inspect.ts');
           const { printRequiredJson } = await import('./artifact-command-read.ts');
           const lockPath = await resolveWorkspaceLockPath(cwd);
-          await printRequiredJson<LockFile>(lockPath, `Graph lock not found; run ${invocationPath} first`, output, formatLockInspect);
+          await printRequiredJson<LockInspectProjectionSource>(
+            lockPath,
+            `Graph lock not found; run ${invocationPath} first`,
+            output,
+            (lock) => formatLockInspect(projectLockInspect(lock))
+          );
           return;
         }
         await runWithOptionalSpinner('Locking project', output, () => lockWorkspace(cwd));

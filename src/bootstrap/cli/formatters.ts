@@ -4,7 +4,6 @@ import type {
   UpgradePlan,
   UpgradePreview
 } from '../../semantics/upgrade/upgrade-artifact.ts';
-import type { LockFile } from '../../compiler/contract.ts';
 import type { PolicyReport } from '../../semantics/policies/types.ts';
 import type { AcceptanceCoverageEntry, AcceptanceCoverageReport } from '../../assurance/acceptance/coverage.ts';
 import type { ExplainGraph } from '../../semantics/projection/explain.ts';
@@ -139,26 +138,6 @@ export function buildArtifactUploadPathContract(
     missingReasonCounts: manifest.summary.missingReasonCounts,
     missing: manifest.missing
   };
-}
-
-export function formatLockInspect(lock: LockFile): string {
-  return [
-    `Graph lock ${lock.app.name}`,
-    formatFields([
-      `stack=${lock.app.stack}`,
-      `mode=${lock.app.mode}`,
-      `blocks=${lock.resolvedBlocks.length}`,
-      `generated=${lock.generatedPaths.length}`,
-      `acceptance=${lock.acceptancePlan.length}`
-    ]),
-    `Block order: ${formatList(
-      lock.resolvedBlocks
-        .slice()
-        .sort((left, right) => left.installOrder - right.installOrder || compareCodeUnits(left.id, right.id))
-        .map((block) => `${block.installOrder}:${block.id}@${block.version}`)
-    )}`,
-    `Pass status: ${formatCounts(Object.values(lock.passStatus))}`
-  ].join('\n');
 }
 
 export function formatExplainGraphInspect(graph: ExplainGraph): string {
