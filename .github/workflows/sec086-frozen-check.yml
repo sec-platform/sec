@@ -1,0 +1,51 @@
+name: sec086-frozen-check
+on:
+  push:
+    branches: [refactor/sec086-architecture]
+    paths: [.github/workflows/sec086-frozen-check.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 491ec1146d95f293f852a12df7d5229f353b563d
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version-file: .bun-version
+      - name: Bind source and establish owned dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^{tree})" = ed2ef40a5e76b96ae68499374747dae79a8a681c
+          mkdir -p /tmp/sec-checks
+          git bundle create /tmp/sec-checks/commits.bundle refs/remotes/origin/refactor/sec086-architecture ^c30bf2fabfc970994e9c5ed622557919f69b5d65
+          git rev-parse HEAD HEAD^{tree} > /tmp/sec-checks/source.txt
+          bun run deps:ensure 2>&1 | tee /tmp/sec-checks/deps.log
+      - name: Focused tests, types, documentation and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun test tests/unit/workspace-root-capture.test.ts tests/unit/add-block-application.test.ts tests/unit/add-block-workspace.test.ts tests/unit/spinner-loading.test.ts tests/unit/progress-lifecycle.test.ts tests/unit/optional-diagnostic.test.ts 2>&1 | tee /tmp/sec-checks/tests.log
+          bun node_modules/@typescript/native/bin/tsc --noEmit -p tsconfig.json 2>&1 | tee /tmp/sec-checks/types.log
+          bun run docs:doctor 2>&1 | tee /tmp/sec-checks/docs.log
+          bun run build 2>&1 | tee /tmp/sec-checks/build.log
+          test -z "$(git status --porcelain)"
+      - name: Full selection resource diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          free -m > /tmp/sec-checks/memory.txt
+          /usr/bin/time -v timeout 210s bun test --timeout 180000 tests/contract/ci-lanes.test.ts > /tmp/sec-checks/ci-lanes.log 2>&1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: sec086-frozen-checks
+          path: /tmp/sec-checks/
+          retention-days: 7
+          if-no-files-found: error
