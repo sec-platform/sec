@@ -52,8 +52,8 @@ export function registerInspectionCommands(program: Command): void {
       const { projectAcceptanceCoverage } = await import('../../application/acceptance-inspection.ts');
       const { formatAcceptanceCoverage } = await import('../../entry/cli/acceptance-inspection.ts');
       return inspectionValue(
-        projectAcceptanceCoverage(report),
-        formatAcceptanceCoverage
+        report,
+        (value) => formatAcceptanceCoverage(projectAcceptanceCoverage(value))
       );
     },
     modes: { blocks: async (report) => {
