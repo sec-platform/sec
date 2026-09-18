@@ -15,24 +15,24 @@ type RuntimeInspectionStepSource = Readonly<{
   command: string | null;
 }>;
 
-export type RuntimeInspectionStepView = Readonly<{
+export type RuntimeInspectionStepView = {
   id: RuntimeInspectionStepId;
   status: string;
   passedCount: number;
   failedCount: number;
   command: string | null;
-  passed: readonly string[];
-  failed: readonly string[];
-}>;
+  passed: string[];
+  failed: string[];
+};
 
-export type RuntimeInspectionView = Readonly<{
+export type RuntimeInspectionView = {
   status: string;
   stepCount: number;
   passedCount: number;
   failedCount: number;
   skippedCount: number;
-  steps: readonly RuntimeInspectionStepView[];
-}>;
+  steps: RuntimeInspectionStepView[];
+};
 
 function projectStep(
   id: RuntimeInspectionStepId,

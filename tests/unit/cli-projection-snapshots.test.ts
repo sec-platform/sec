@@ -2,12 +2,13 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import {
   buildAcceptanceTargetInspect, buildPolicySourceInspect, buildReviewDiagnosticsInspect,
-  buildRuntimeStepsInspect, formatCiArtifactManifest, formatProvenanceRegistry
+  formatCiArtifactManifest, formatProvenanceRegistry
 } from '../../src/bootstrap/cli/formatters.ts';
+import { projectRuntimeInspection } from '../../src/application/runtime-inspection.ts';
 
 type PolicyInput = Parameters<typeof buildPolicySourceInspect>[0];
 type CoverageInput = Parameters<typeof buildAcceptanceTargetInspect>[0];
-type RuntimeInput = Parameters<typeof buildRuntimeStepsInspect>[0];
+type RuntimeInput = Parameters<typeof projectRuntimeInspection>[0];
 type ReviewInput = Parameters<typeof buildReviewDiagnosticsInspect>[0];
 type ProvenanceInput = Parameters<typeof formatProvenanceRegistry>[0];
 type ManifestInput = Parameters<typeof formatCiArtifactManifest>[0];
@@ -93,7 +94,7 @@ test('coverage projection does not acquire later-added targets', () => {
 });
 
 test('all runtime step details are copied, without freezing the provider result', () => {
-  const source = runtime(), projected = buildRuntimeStepsInspect(source as RuntimeInput);
+  const source = runtime(), projected = projectRuntimeInspection(source as RuntimeInput);
   for (const key of ['build', 'unit', 'acceptance'] as const) {
     source[key].passed.push('later'); source[key].failed.push('later');
   }
@@ -109,7 +110,7 @@ test('runtime getters are read once for each count/list pair', () => {
     passed: { get() { passed++; return passed === 1 ? ['one'] : []; } },
     failed: { get() { failed++; return failed === 1 ? ['failure'] : []; } }
   });
-  const projected = buildRuntimeStepsInspect(source as RuntimeInput).steps[0]!;
+  const projected = projectRuntimeInspection(source as RuntimeInput).steps[0]!;
   assert.deepEqual([passed, failed], [1, 1]);
   assert.equal(projected.passedCount, projected.passed.length);
   assert.equal(projected.failedCount, projected.failed.length);

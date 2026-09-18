@@ -20,20 +20,22 @@ test('runtime inspection routes text through application and entry while preserv
       unit: { status: 'failed', passed: ['unit:a'], failed: ['unit:b'], command: 'bun test' },
       acceptance: { status: 'skipped', passed: [], failed: [], command: null },
       logs: { stdout: 'out', stderr: 'err' }
-    } as const;
+    };
     const reportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.runtimeReport);
     await fs.mkdir(path.dirname(reportPath), { recursive: true });
     await fs.writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 
     const view = projectRuntimeInspection(report);
     await expectCliSuccess(workspaceRoot, ['runtime'], `${formatRuntimeReport(view)}\n`);
-    expect(await expectCliJson(workspaceRoot, ['runtime', '--json'])).toEqual(report);
+    const rawJson = await expectCliJson<typeof report>(workspaceRoot, ['runtime', '--json']);
+    expect(rawJson).toEqual(report);
 
     await expectCliSuccess(
       workspaceRoot,
       ['runtime', 'steps'],
       `${formatRuntimeStepsInspect(view)}\n`
     );
-    expect(await expectCliJson(workspaceRoot, ['runtime', 'steps', '--json'])).toEqual(view);
+    const stepsJson = await expectCliJson<typeof view>(workspaceRoot, ['runtime', 'steps', '--json']);
+    expect(stepsJson).toEqual(view);
   });
 });
