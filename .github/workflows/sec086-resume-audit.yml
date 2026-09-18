@@ -8,45 +8,65 @@ on:
 permissions: {}
 
 jobs:
-  inspect:
+  verify-and-land:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     permissions:
-      contents: read
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 75763009ad42e153bc34aca4f0f5c0eeaea10c64
           fetch-depth: 0
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version-file: .bun-version
-      - run: bun install --frozen-lockfile --ignore-scripts
-      - name: Capture exact repository and continuation facts
+      - name: Prepare exact bounded candidate
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 75763009ad42e153bc34aca4f0f5c0eeaea10c64
-          mkdir -p /tmp/sec086-resume
-          git archive --format=tar HEAD > /tmp/sec086-resume/source.tar
-          git log -45 --format='%H %s' > /tmp/sec086-resume/commits.txt
-          git rev-parse HEAD HEAD^{tree} origin/main > /tmp/sec086-resume/refs.txt
-          git status --porcelain=v1 > /tmp/sec086-resume/status.txt
-          set +e
-          bun run dev:status -- --json > /tmp/sec086-resume/dev-status.json 2> /tmp/sec086-resume/dev-status.err
-          printf '%s\n' "$?" > /tmp/sec086-resume/dev-status.exit
-          bun src/adapters/repository/repository-audit/cli.ts --worktree-module-topology --full > /tmp/sec086-resume/topology.json 2> /tmp/sec086-resume/topology.err
-          printf '%s\n' "$?" > /tmp/sec086-resume/topology.exit
-          set -e
-          tar -czf /tmp/sec086-resume/dependencies.tar.gz node_modules
-          cp "$(command -v bun)" /tmp/sec086-resume/bun
-          cat /tmp/sec086-resume/refs.txt
-          cat /tmp/sec086-resume/dev-status.exit /tmp/sec086-resume/topology.exit
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: sec086-resume-7576300
-          path: /tmp/sec086-resume/
-          retention-days: 1
-          compression-level: 1
-          if-no-files-found: error
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git config user.name QzCrane
+          git config user.email 107861762+QzCrane@users.noreply.github.com
+          helper=.github/workflows/sec086-resume-audit.yml
+          git rm --cached "$helper"
+          test "$(git write-tree)" = 65f0878cda04b0ef0e3c25e3d236d9a0403a427a
+          git add "$helper"
+          printf '%s' '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' | base64 --decode | gzip --decompress > /tmp/slice.patch
+          git apply --check /tmp/slice.patch
+          git apply --index /tmp/slice.patch
+          candidate_with_helper=$(git write-tree)
+          echo "CANDIDATE_WITH_HELPER=$candidate_with_helper" >> "$GITHUB_ENV"
+          git rm --cached "$helper"
+          candidate_tree=$(git write-tree)
+          test "$candidate_tree" = 9361c7d37b69c9435d2dc394e6cf2937c6f8484d
+          verify_commit=$(printf '%s\n' 'refactor(cli): artifact paths exact source verification' | git commit-tree "$candidate_tree" -p 75763009ad42e153bc34aca4f0f5c0eeaea10c64)
+          git checkout --detach --force "$verify_commit"
+          echo "VERIFY_COMMIT=$verify_commit" >> "$GITHUB_ENV"
+          test -z "$(git status --porcelain)"
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Verify bounded source and production consumers
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun node_modules/@typescript/native/bin/tsc --noEmit -p tsconfig.json
+          bun test --timeout 30000 tests/unit/artifact-upload-paths.test.ts tests/unit/artifact-command-input.test.ts tests/unit/artifact-command-read.test.ts tests/unit/workspace-native-paths.test.ts tests/unit/ci-artifact-manifest-inspect-presentation.test.ts tests/unit/ci-artifact-manifest-inspect-routing.test.ts
+          bun run docs:doctor
+          bun src/adapters/repository/repository-audit/cli.ts --worktree-module-topology --full > /tmp/topology.json
+          bun -e 'const x=JSON.parse(await Bun.file("/tmp/topology.json").text()); if(x.unresolvedFiles.length||x.topology.violations.length) throw new Error(JSON.stringify(x)); console.log(JSON.stringify({files:x.files,references:x.references,unresolved:0,violations:0}))'
+          bun run build
+          test -z "$(git status --porcelain)"
+      - name: Land only the verified source on the authorized branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          candidate=$(printf '%s\n' 'refactor(cli): separate artifact path selection from presentation' | git commit-tree "$CANDIDATE_WITH_HELPER" -p "$GITHUB_SHA")
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          remote=$(git -c http.https://github.com/.extraheader="$auth" ls-remote origin refs/heads/refactor/sec086-architecture | cut -f1)
+          test "$remote" = "$GITHUB_SHA"
+          git -c http.https://github.com/.extraheader="$auth" push origin "$candidate:refs/heads/refactor/sec086-architecture"
+          readback=$(git -c http.https://github.com/.extraheader="$auth" ls-remote origin refs/heads/refactor/sec086-architecture | cut -f1)
+          test "$readback" = "$candidate"
+          printf 'verified_commit=%s\nverified_clean_tree=%s\npublished_commit=%s\n' "$VERIFY_COMMIT" 9361c7d37b69c9435d2dc394e6cf2937c6f8484d "$candidate"
