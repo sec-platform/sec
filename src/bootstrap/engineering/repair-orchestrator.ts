@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { publishRepairPlanResult } from '../../application/repair-plan-publication.ts';
 import { readOptionalRetainedJson } from '../../adapters/runtime-state/physical/runtime/retained-file-read.ts';
 import type { RepairPlan } from '../../semantics/repair/types.ts';
 import { CI_ARTIFACT_FILES } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
@@ -70,25 +71,9 @@ export async function repairWorkspace(
 
   return withWorkspaceWriteLease(workspaceRoot, workspaceWriteLease, async (token) => {
     const commitFence = () => assertWorkspaceWriteLease(workspaceRoot, token);
-    const { lock, repairPlan } = loadRepairInputs(workspaceRoot);
-
-    try {
-      if (repairPlan.status === 'blocked') {
-        lock.passStatus.repair = 'failed';
-        await writeRepairPlan(workspaceRoot, repairPlan, lock, commitFence);
-        throw new CompilerError(
-          'REPAIR-BLOCKED-001',
-          repairPlan.blockers?.[0]?.reason ?? 'Repair is blocked for current verification failure',
-          { blockers: repairPlan.blockers ?? [] }
-        );
-      }
-      lock.passStatus.repair = 'skipped';
-      await writeRepairPlan(workspaceRoot, repairPlan, lock, commitFence);
-      return { lock, repairPlan };
-    } catch (error) {
-      lock.passStatus.repair = 'failed';
-      await saveLock(workspaceRoot, lock, commitFence);
-      throw error;
-    }
+    return publishRepairPlanResult(loadRepairInputs(workspaceRoot), {
+      publish: (repairPlan, lock) => writeRepairPlan(workspaceRoot, repairPlan, lock, commitFence),
+      recordFailure: (lock) => saveLock(workspaceRoot, lock, commitFence)
+    });
   });
 }
