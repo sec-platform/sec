@@ -1,3 +1,4 @@
+import { requireCanonicalCiArtifactPath } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { describe, expect, test } from 'bun:test';
 import path from 'node:path';
 
@@ -6,7 +7,7 @@ import {
   CI_ARTIFACT_ROOT_RELATIVE_PATH,
   isCiArtifactPath
 } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
-import { getWorkspacePaths, isCanonicalWorkspaceArtifactPath, resolveWorkspaceArtifactPath, resolveWorkspaceLockPath, resolveWorkspacePlanPath, resolveWorkspaceProvenancePath, toWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
+import { getWorkspacePaths, isCanonicalWorkspaceArtifactPath, resolveWorkspaceArtifactPath, resolveWorkspaceLockPath, resolveWorkspacePlanPath, resolveWorkspaceProvenancePath } from "../../src/adapters/workspace-context.ts";
 
 // Use a native absolute root; a Windows drive spelling is relative on POSIX.
 const WORKSPACE_ROOT = path.resolve(path.parse(process.cwd()).root, 'fixtures', 'native-target');
@@ -38,7 +39,7 @@ describe('native target workspace paths', () => {
     for (const artifactPath of Object.values(CI_ARTIFACT_FILES)) {
       expect(isCiArtifactPath(artifactPath)).toBe(true);
       expect(isCanonicalWorkspaceArtifactPath(artifactPath)).toBe(true);
-      expect(toWorkspaceArtifactPath(artifactPath)).toBe(artifactPath);
+      expect(requireCanonicalCiArtifactPath(artifactPath)).toBe(artifactPath);
       expect(resolveWorkspaceArtifactPath(WORKSPACE_ROOT, artifactPath)).toBe(
         path.join(paths.artifactsRoot, ...artifactPath.slice(`${CI_ARTIFACT_ROOT_RELATIVE_PATH}/`.length).split('/'))
       );
@@ -56,7 +57,7 @@ describe('native target workspace paths', () => {
       '.sec/artifacts\\evidence\\report.json'
     ]) {
       expect(isCanonicalWorkspaceArtifactPath(artifactPath)).toBe(false);
-      expect(() => toWorkspaceArtifactPath(artifactPath)).toThrow('canonical .sec/artifacts path');
+      expect(() => requireCanonicalCiArtifactPath(artifactPath)).toThrow('canonical .sec/artifacts path');
       expect(() => resolveWorkspaceArtifactPath(WORKSPACE_ROOT, artifactPath)).toThrow(
         'canonical .sec/artifacts path'
       );

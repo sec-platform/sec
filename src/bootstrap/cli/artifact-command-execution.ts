@@ -22,10 +22,11 @@ export async function executeArtifactCommand(workspaceRoot: string, commandPath:
       return;
     }
     case 'paths': {
-      const { buildArtifactUploadPathContract } = await import('./formatters.ts');
+      const { buildArtifactUploadPathContract } = await import('../../application/artifact-upload-paths.ts');
+      const { formatArtifactUploadPaths } = await import('../../entry/cli/artifact-upload-paths.ts');
       const manifest = await observeWorkspaceArtifacts(workspaceRoot);
       const contract = buildArtifactUploadPathContract(manifest, input.filter);
-      printJsonOrText(contract, input.output, (value) => value.paths.join('\n'));
+      printJsonOrText(contract, input.output, formatArtifactUploadPaths);
       return;
     }
     case 'generate': {

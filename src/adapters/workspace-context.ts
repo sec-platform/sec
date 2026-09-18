@@ -10,7 +10,8 @@ import {
 import {
   CI_ARTIFACT_FILES,
   CI_ARTIFACT_ROOT_RELATIVE_PATH,
-  isCanonicalCiArtifactPath
+  isCanonicalCiArtifactPath,
+  requireCanonicalCiArtifactPath
 } from '../assurance/verification/ci-artifacts/contract/manifest.ts';
 import { resolveWorkspaceLocalStateRoot } from '../workspace/contract/local-state.ts';
 import type { WorkspacePaths } from '../workspace/contract/types.ts';
@@ -107,9 +108,7 @@ export async function resolveWorkspaceProvenancePath(workspaceRoot = process.cwd
 
 export function resolveWorkspaceArtifactPath(workspaceRoot: string, artifactPath: string): string {
   const { artifactsRoot } = getWorkspacePaths(workspaceRoot);
-  if (!isCanonicalWorkspaceArtifactPath(artifactPath)) {
-    throw new Error(`Workspace artifact path "${artifactPath}" is not a canonical .sec/artifacts path`);
-  }
+  requireCanonicalCiArtifactPath(artifactPath);
   if (artifactPath === CI_ARTIFACT_ROOT_RELATIVE_PATH) {
     return artifactsRoot;
   }
@@ -119,13 +118,6 @@ export function resolveWorkspaceArtifactPath(workspaceRoot: string, artifactPath
     throw new Error(`Workspace artifact path "${artifactPath}" escapes its allowed root`);
   }
   return resolvedPath;
-}
-
-export function toWorkspaceArtifactPath(artifactPath: string): string {
-  if (!isCanonicalWorkspaceArtifactPath(artifactPath)) {
-    throw new Error(`Workspace artifact path "${artifactPath}" is not a canonical .sec/artifacts path`);
-  }
-  return artifactPath;
 }
 
 export function blockDirName(blockId: string): string {

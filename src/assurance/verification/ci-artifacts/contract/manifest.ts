@@ -111,6 +111,14 @@ export function isCanonicalCiArtifactPath(value: string): boolean {
   return isCanonicalPortableLogicalPath(value);
 }
 
+/** Validate the logical artifact identity without resolving or accessing a workspace. */
+export function requireCanonicalCiArtifactPath(artifactPath: string): string {
+  if (!isCanonicalCiArtifactPath(artifactPath)) {
+    throw new Error(`Workspace artifact path "${artifactPath}" is not a canonical .sec/artifacts path`);
+  }
+  return artifactPath;
+}
+
 export function uniqueSortedCiArtifactPaths(values: readonly string[]): string[] {
   return uniqueSorted(values.map(normalizeCiArtifactPath));
 }
