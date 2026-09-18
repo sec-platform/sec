@@ -1,0 +1,42 @@
+name: sec086-build-cache
+on:
+  push:
+    branches: [refactor/sec086-architecture]
+    paths: [.github/workflows/sec086-build-cache.yml]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ae467d4e9c8305e8c505a3be1e92632b194fc691
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Retain package cache without credentials
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD^{tree})" = da758d604ae63ab13407b697910847c5b8590e75
+          mkdir /tmp/sec086-build
+          tar -czf /tmp/sec086-build/bun-cache.tar.gz -C "$HOME/.bun/install" cache
+          git rev-parse HEAD HEAD^{tree} > /tmp/sec086-build/source.txt
+          sha256sum package.json bun.lock .bun-version > /tmp/sec086-build/inputs.sha256
+      - name: Build exact frozen source
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun run build 2>&1 | tee /tmp/sec086-build/build.log
+          test -z "$(git status --porcelain)"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: sec086-build-cache-ae467d4
+          path: /tmp/sec086-build/
+          retention-days: 7
+          if-no-files-found: error
