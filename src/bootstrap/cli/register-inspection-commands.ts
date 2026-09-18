@@ -8,7 +8,7 @@ import { addJsonFlags, commandFromRoot, jsonOpts } from '../../entry/cli/command
 import { runWithOptionalSpinner } from './command-progress.ts';
 import type { BlockUsageMapView } from '../../application/block-usage-map.ts';
 import type { InstalledManifestEntry } from '../../application/install-manifest.ts';
-import type { PostgresContract } from './formatters.ts';
+import type { PostgresContractProjectionSource } from '../../application/postgres-contract.ts';
 import { inspectionValue, registerInspectionQuery, type InspectionContext } from '../../entry/cli/inspection-query.ts';
 import { captureJsonOutputInput } from '../../entry/cli/json-output-options.ts';
 import { loadProjectOverviewDomain } from './lazy-command-domains.ts';
@@ -170,16 +170,17 @@ export function registerInspectionCommands(program: Command): void {
   });
 
   addJsonFlags(program.command('postgres')).action(async (rawOptions: Record<string, unknown>, cmd: Command) => {
-      const cwd = process.cwd();
-      const output = jsonOpts(captureJsonOutputInput(rawOptions, 'own-enumerable'));
-      const missingMessage = `Postgres contract not found; run ${commandFromRoot(cmd, 'compose')} first`;
-      const { formatPostgresContract } = await import('./formatters.ts');
-      const { printGeneratedContract } = await import('./artifact-command-read.ts');
-    await printGeneratedContract<PostgresContract>(
+    const cwd = process.cwd();
+    const output = jsonOpts(captureJsonOutputInput(rawOptions, 'own-enumerable'));
+    const missingMessage = `Postgres contract not found; run ${commandFromRoot(cmd, 'compose')} first`;
+    const { projectPostgresContract } = await import('../../application/postgres-contract.ts');
+    const { formatPostgresContract } = await import('../../entry/cli/postgres-contract.ts');
+    const { printGeneratedContract } = await import('./artifact-command-read.ts');
+    await printGeneratedContract<PostgresContractProjectionSource>(
       cwd,
       missingMessage,
       output,
-      formatPostgresContract,
+      (contract) => formatPostgresContract(projectPostgresContract(contract)),
       (contract) => contract.provider === 'postgres'
     );
   });

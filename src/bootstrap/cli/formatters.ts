@@ -42,17 +42,6 @@ export type ArtifactUploadPathContract = {
   missing: CiArtifactManifest['missing'];
 };
 
-export type PostgresContract = {
-  formatVersion: string;
-  provider: string;
-  persistenceMode: string;
-  tables: Array<{
-    name: string;
-    tenantScoped: boolean;
-    columns: string[];
-  }>;
-};
-
 type RuntimeStepInspect = {
   id: 'build' | 'unit' | 'acceptance';
   status: RuntimeVerificationLaneReport['status'];
@@ -150,19 +139,6 @@ export function buildArtifactUploadPathContract(
     missingReasonCounts: manifest.summary.missingReasonCounts,
     missing: manifest.missing
   };
-}
-
-export function formatPostgresContract(contract: PostgresContract): string {
-  const tenantScopedCount = countMatching(contract.tables, (table) => table.tenantScoped);
-  return [
-    `Postgres contract ${contract.provider}`,
-    formatFields([
-      `mode=${contract.persistenceMode}`,
-      `tables=${contract.tables.length}`,
-      `tenantScoped=${tenantScopedCount}`
-    ]),
-    `Table list: ${formatList(contract.tables.map((table) => table.name))}`
-  ].join('\n');
 }
 
 export function formatLockInspect(lock: LockFile): string {
