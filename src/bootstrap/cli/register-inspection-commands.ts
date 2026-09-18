@@ -138,8 +138,9 @@ export function registerInspectionCommands(program: Command): void {
         return inspectionValue(buildE2eMatrix(report), formatE2eMatrix);
       },
       diagnostics: async (report) => {
-        const { buildReviewDiagnosticsInspect, formatReviewDiagnosticsInspect } = await import('./formatters.ts');
-        return inspectionValue(buildReviewDiagnosticsInspect(report), formatReviewDiagnosticsInspect);
+        const { projectReviewDiagnostics } = await import('../../application/review-diagnostics-inspect.ts');
+        const { formatReviewDiagnostics } = await import('../../entry/cli/review-diagnostics-inspect.ts');
+        return inspectionValue(projectReviewDiagnostics(report), formatReviewDiagnostics);
       }
     }
   });
