@@ -1,0 +1,49 @@
+name: sec086-slice17b-clean-verify
+
+on:
+  push:
+    branches: [refactor/sec086-architecture]
+    paths: [.github/workflows/sec086-slice17b-clean-verify.yml]
+
+permissions: {}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 5592bd3fc15207464513df28571f488e02e3fcfc
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require exact clean slice
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 5592bd3fc15207464513df28571f488e02e3fcfc
+          test -z "$(find .github -maxdepth 2 -type f -name 'sec086-slice17b*' -print)"
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Verify slice 17b
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun node_modules/@typescript/native/bin/tsc --noEmit -p tsconfig.json
+          bun test --timeout 30000 tests/unit/review-diagnostics-inspect-presentation.test.ts tests/unit/review-diagnostics-inspect-routing.test.ts tests/unit/inspection-query.test.ts
+          bun run docs:doctor
+      - name: Require clean topology
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun src/adapters/repository/repository-audit/cli.ts --worktree-module-topology --full > /tmp/topology.json
+          bun -e "const x=JSON.parse(await Bun.file('/tmp/topology.json').text()); if (x.unresolvedFiles.length !== 0) throw new Error('unresolved=' + JSON.stringify(x.unresolvedFiles)); if (x.topology.violations.length !== 0) throw new Error('violations=' + JSON.stringify(x.topology.violations)); console.log(JSON.stringify({files:x.files,references:x.references,unresolved:x.unresolvedFiles.length,violations:x.topology.violations.length}))"
+      - name: Build release artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun run build
