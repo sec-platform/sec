@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { addBlockToPlan } from '../../application/add-block.ts';
+import { resolveWorkspacePlan } from '../../application/resolve-workspace.ts';
 import { createWorkspaceWriteCommitFence, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../adapters/filesystem/write-lease.ts';
 import { getWorkspacePaths } from "../../adapters/workspace-context.ts";
 import { writeYaml } from '../../adapters/workspace/yaml.ts';
@@ -47,19 +48,19 @@ async function resolveWorkspaceCore(
 ): Promise<{ plan: PlanFile; lock: LockFile }> {
   const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, context.workspaceWriteLease);
   const { workspaceConfigPath } = getWorkspacePaths(workspaceRoot);
-  const { plan, selection } = await runPipelinePass('parse', async () => {
-    const plan = await loadPlan(workspaceConfigPath);
-    return { plan, selection: captureManifestSelection(workspaceRoot, plan) };
+  return resolveWorkspacePlan({
+    runPass: runPipelinePass,
+    readInput: async () => {
+      const plan = await loadPlan(workspaceConfigPath);
+      return { plan, selection: captureManifestSelection(workspaceRoot, plan) };
+    },
+    align: ({ plan, selection }) => alignInterfaces(
+      plan, new Map(selection.explicitEntries.map(entry => [entry.manifest.id, entry]))
+    ),
+    resolve: resolveCapturedManifestSelection,
+    validateTemplates: (lock) => validateResolvedTemplates(workspaceRoot, lock, commitFence),
+    persistLock: (lock) => saveLock(workspaceRoot, lock, commitFence)
   });
-  const manifestMap = new Map(selection.explicitEntries.map(entry => [entry.manifest.id, entry]));
-  await runPipelinePass('align', () => alignInterfaces(plan, manifestMap));
-  const lock = await runPipelinePass('resolve', async () => {
-    const resolved = await resolveCapturedManifestSelection(selection);
-    await validateResolvedTemplates(workspaceRoot, resolved, commitFence);
-    await saveLock(workspaceRoot, resolved, commitFence);
-    return resolved;
-  });
-  return { plan, lock };
 }
 
 export async function resolveWorkspace(
