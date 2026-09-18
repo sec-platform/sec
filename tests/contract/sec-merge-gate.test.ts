@@ -358,7 +358,7 @@ function fixture(resultStatus: 'passed' | 'failed' = 'passed'): CodexDevelopment
       trustRevision: BASE,
       sourceTransport: 'github-api',
       sourceRunId: provenance.sourceRunId,
-      sourceRef: provenance.workflowRef,
+      sourceRef: `github-check-runs:${REPOSITORY}@${BASE}`,
       sourceDigest: D('2')
     }
   });
@@ -550,7 +550,7 @@ test('fresh MainHealth receipt may change provenance while stable health semanti
       trustRevision: BASE,
       sourceTransport: 'github-api',
       sourceRunId: 'health-merge-fresh',
-      sourceRef: base.provenance.workflowRef,
+      sourceRef: `github-check-runs:${REPOSITORY}@${BASE}`,
       sourceDigest: D('f')
     }
   });
@@ -559,6 +559,24 @@ test('fresh MainHealth receipt may change provenance while stable health semanti
   const result = CodexDevelopmentEvaluateMergeGate({ ...base, mainHealth: fresh });
   expect(result.mainHealth.ledgerDigest).toBe(fresh.ledgerDigest);
   expect(result.authorization.mainHealthReceiptDigest).toBe(fresh.ledgerDigest);
+});
+
+test('fresh MainHealth provenance rejects workflow references, wrong revisions and foreign producers', () => {
+  const base = fixture();
+  const invalidProducers = [
+    { ...base.mainHealth.producer, sourceRef: base.provenance.workflowRef },
+    { ...base.mainHealth.producer, sourceRef: `github-check-runs:${REPOSITORY}@${HEAD}` },
+    { ...base.mainHealth.producer, sourceRef: `github-check-runs:other/repository@${BASE}` },
+    { ...base.mainHealth.producer, identity: 'caller-supplied-health-observer' }
+  ];
+  for (const producer of invalidProducers) {
+    const mainHealth = createMainHealthLedger({ ...base.mainHealth, producer });
+    // Recompute a valid content digest: provenance, not incidental tampering,
+    // must be what prevents an otherwise matching receipt from authorizing.
+    expect(mainHealth.healthRevision).toBe(base.mainHealth.healthRevision);
+    expect(() => CodexDevelopmentEvaluateMergeGate({ ...base, mainHealth }))
+      .toThrow('fresh MainHealth producer provenance is not bound to the trusted authorization runtime');
+  }
 });
 
 test('expired authority receipts re-finalize fresh V4 Evidence while reusing exact Action Results', () => {
