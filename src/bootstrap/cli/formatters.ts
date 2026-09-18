@@ -1,5 +1,4 @@
 import type {
-  UpgradeDiagnostics,
   UpgradeExecutionTerminal,
   UpgradePlan,
   UpgradePreview
@@ -129,23 +128,6 @@ function formatUpgradeMigrationDetails(
     ]),
     `requiresVerification=${migration.requiresVerification}`
   ];
-}
-
-export function formatUpgradeDiagnostics(diagnostics: UpgradeDiagnostics): string {
-  return [
-    `Upgrade diagnostics ${diagnostics.phase}`,
-    formatFields([
-      `Block: ${diagnostics.blockId}`,
-      `target: ${diagnostics.targetVersion}`,
-      `status: ${diagnostics.status}`
-    ]),
-    formatFields([
-      `Failed check: ${diagnostics.failedCheck}`,
-      `code: ${diagnostics.errorCode}`
-    ]),
-    `Message: ${diagnostics.message}`,
-    `Attribution: ${formatUpgradeDiagnosticsDetails(diagnostics.details)}`
-  ].join('\n');
 }
 
 type UpgradePlanningDisplay = UpgradePlan | UpgradePreview;

@@ -85,7 +85,8 @@ export function registerWorkspaceCommands(program: Command): void {
       }
       if (input.kind === 'diagnostics') {
         const { readUpgradeArtifactSet } = await import('../../adapters/upgrade/artifact-readback.ts');
-        const { formatUpgradeDiagnostics } = await import('./formatters.ts');
+        const { projectUpgradeDiagnostics } = await import('../../application/upgrade-diagnostics.ts');
+        const { formatUpgradeDiagnostics } = await import('../../entry/cli/upgrade-diagnostics.ts');
         const { diagnostics: upgradeDiagnostics } = readUpgradeArtifactSet(cwd);
         if (upgradeDiagnostics === null) {
           throw new CompilerError(
@@ -93,7 +94,11 @@ export function registerWorkspaceCommands(program: Command): void {
             `Upgrade diagnostics not found; run ${invocationPath} <block-id> <target-version>`
           );
         }
-        printJsonOrText(upgradeDiagnostics, output, formatUpgradeDiagnostics);
+        printJsonOrText(
+          upgradeDiagnostics,
+          output,
+          (diagnostics) => formatUpgradeDiagnostics(projectUpgradeDiagnostics(diagnostics))
+        );
         return;
       }
       const { formatUpgradePlan, formatUpgradePreview } = await import('./formatters.ts');
