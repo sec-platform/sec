@@ -1,0 +1,41 @@
+name: sec086-fast-regression
+on:
+  push:
+    branches: [refactor/sec086-architecture]
+    paths: [.github/workflows/sec086-fast-regression.yml]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 9d4bb451a4d6b3e5ac93bd1aa3047a11ee40ac33
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version-file: .bun-version
+      - name: Bind exact source and owned dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^{tree})" = ef70d53bf6dd533abc6d5a3df5860773db3967e6
+          mkdir -p /tmp/sec-regression
+          git rev-parse HEAD HEAD^{tree} > /tmp/sec-regression/source.txt
+          git bundle create /tmp/sec-regression/commits.bundle refs/remotes/origin/refactor/sec086-architecture ^af54dfbead4c3257713aa0a54aae7b409d3030cb
+          bun run deps:ensure 2>&1 | tee /tmp/sec-regression/deps.log
+      - name: Execute the existing canonical fast lane
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/time -v timeout 900s bun run test:fast > /tmp/sec-regression/fast.log 2>&1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: sec086-fast-regression
+          path: /tmp/sec-regression/
+          retention-days: 7
+          if-no-files-found: error
