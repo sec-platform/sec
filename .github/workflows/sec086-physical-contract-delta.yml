@@ -1,0 +1,51 @@
+name: sec086-physical-contract-delta
+on:
+  push:
+    branches: [refactor/sec086-architecture]
+    paths: [.github/workflows/sec086-physical-contract-delta.yml]
+permissions: {}
+jobs:
+  transfer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: b1784a5553ed9f9c3a83ea9e7b758bc1dc69e29e
+          persist-credentials: false
+      - name: Apply bounded reviewed patches and store exact blobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD^{tree})" = de991d6237d572b493df21e7d2ba071eb8792205
+          python3 - <<'PY'
+          import base64,json,subprocess
+          from pathlib import Path
+          for sha in ['c03e2c18e5d835d01c4c38cb5ff734079df69b7a','95f9587904f6db8249246f2a9a11d0b4e80121fe','63bed8999bff35d6aebbf07e39d5e49d355e2d54']:
+              raw=json.loads(subprocess.check_output(['gh','api',f'repos/sec-platform/sec/git/blobs/{sha}']))
+              patch=base64.b64decode(raw['content'])
+              assert subprocess.check_output(['git','hash-object','--stdin'],input=patch).decode().strip()==sha
+              subprocess.run(['git','apply','--check','-'],input=patch,check=True)
+              subprocess.run(['git','apply','-'],input=patch,check=True)
+          p=Path('tests/helpers/retained-git-write-tree-probe.ts');s=p.read_text()
+          old='/** Cross-platform probe for the exact three retained Git inputs used by docs-doctor. */\nexport function runRetainedGitWriteTreeProbeV1(): string {'
+          new='/** Probe immutable consumption separately from native cache-tree mutation.\n * This fixture is not an authorization or a production docs-doctor receipt. */\nexport function runRetainedGitWriteTreeProbeV1(warmIndex = true): string {'
+          assert s.count(old)==1;s=s.replace(old,new)
+          old="    requireSuccess(git(repositoryRoot, 'add', 'tracked.txt'), 'git add');\n    const indexCandidate"
+          new="    requireSuccess(git(repositoryRoot, 'add', 'tracked.txt'), 'git add');\n    // write-tree may populate a cold index even with GIT_OPTIONAL_LOCKS=0.\n    // Warm before retaining when testing read-only consumption; the negative\n    // cold-index case must still be rejected by the post-execution fence.\n    if (warmIndex) requireSuccess(git(repositoryRoot, 'write-tree'), 'warm Git index');\n    const indexCandidate"
+          assert s.count(old)==1;p.write_text(s.replace(old,new))
+          expected={
+              'src/adapters/runtime-state/physical/runtime/physical-no-follow.ts':'2206810b0dc9ca760cd5c4409d87b48ac435640f',
+              'src/adapters/runtime-state/physical/runtime/sealed-execution-tree-generation.test.ts':'e91b861b60fcd8f79530fd8e499382d0514124af',
+              'tests/unit/physical-no-follow.test.ts':'95ad8fcd661ea39c99196c57a2777ac8733f2401',
+              'tests/helpers/retained-git-write-tree-probe.ts':'4b3f74ea598d98c04d5416d45a337e6601370b5c'}
+          for name,sha in expected.items():
+              assert subprocess.check_output(['git','hash-object',name]).decode().strip()==sha
+              Path('/tmp/blob.json').write_text(json.dumps({'content':Path(name).read_text(),'encoding':'utf-8'}))
+              stored=subprocess.check_output(['gh','api','--method','POST','repos/sec-platform/sec/git/blobs','--input','/tmp/blob.json','--jq','.sha']).decode().strip()
+              assert stored==sha
+              print(name,stored)
+          PY
