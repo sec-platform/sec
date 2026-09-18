@@ -1,15 +1,16 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import {
-  buildPolicySourceInspect, buildReviewDiagnosticsInspect,
+  buildReviewDiagnosticsInspect,
   formatCiArtifactManifest
 } from '../../src/bootstrap/cli/formatters.ts';
+import { projectPolicySources } from '../../src/application/policy-source-inspection.ts';
 import { projectAcceptanceTargets } from '../../src/application/acceptance-inspection.ts';
 import { projectProvenanceRegistryInspect } from '../../src/application/provenance-registry-inspect.ts';
 import { projectRuntimeInspection } from '../../src/application/runtime-inspection.ts';
 import { formatProvenanceRegistry } from '../../src/entry/cli/provenance-registry-inspect.ts';
 
-type PolicyInput = Parameters<typeof buildPolicySourceInspect>[0];
+type PolicyInput = Parameters<typeof projectPolicySources>[0];
 type CoverageInput = {
   formatVersion: string;
   status: string;
@@ -53,7 +54,7 @@ function manifest(counts: Partial<ManifestInput['summary']['missingReasonCounts'
 }
 
 test('policy projection owns its arrays while preserving source order and counts', () => {
-  const source = policy(), projected = buildPolicySourceInspect(source as PolicyInput);
+  const source = policy(), projected = projectPolicySources(source as PolicyInput);
   assert.equal(projected.sourceCount, 2); assert.equal(projected.policyCount, 3);
   assert.deepEqual(projected.sources.map(value => value.scope), ['official', 'project']);
   source.official.sources[0]!.policyIds.push('later');
@@ -65,14 +66,14 @@ test('policy projection owns its arrays while preserving source order and counts
 test('policy list and count use one observation of a provider getter', () => {
   const source = policy(); let reads = 0;
   Object.defineProperty(source.official.sources[0], 'policyIds', { get() { reads++; return reads === 1 ? ['first'] : ['later', 'later']; } });
-  const projected = buildPolicySourceInspect(source as PolicyInput);
+  const projected = projectPolicySources(source as PolicyInput);
   assert.equal(reads, 1);
   assert.deepEqual(projected.sources[0]!.policyIds, ['first']);
   assert.equal(projected.sources[0]!.policyCount, 1);
 });
 
 test('editing a policy projection never changes the domain result', () => {
-  const source = policy(), projected = buildPolicySourceInspect(source as PolicyInput);
+  const source = policy(), projected = projectPolicySources(source as PolicyInput);
   projected.sources[0]!.policyIds.push('projection-only');
   assert.deepEqual(source.official.sources[0]!.policyIds, ['one']);
 });

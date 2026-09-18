@@ -37,8 +37,9 @@ export function registerInspectionCommands(program: Command): void {
       return inspectionValue(report, (value) => formatPolicyReport(buildReviewPolicySummary(value)));
     },
     modes: { sources: async (report) => {
-      const { buildPolicySourceInspect, formatPolicySources } = await import('./formatters.ts');
-      return inspectionValue(buildPolicySourceInspect(report), formatPolicySources);
+      const { projectPolicySources } = await import('../../application/policy-source-inspection.ts');
+      const { formatPolicySources } = await import('../../entry/cli/policy-source-inspection.ts');
+      return inspectionValue(projectPolicySources(report), formatPolicySources);
     } }
   });
 
