@@ -21,9 +21,9 @@ export async function addBlockToPlan(blockId: string, operations: AddBlockOperat
   if ([readPlan, selectManifest, writePlan].some(operation => typeof operation !== 'function')) {
     throw new TypeError('Block addition operations must be callable');
   }
-  const current = await readPlan();
+  const current = await readPlan.call(operations);
   const existing = current.blocks.find(entry => entry.id === blockId);
-  const selected = await selectManifest({
+  const selected = await selectManifest.call(operations, {
     blockId, version: existing?.version, registrySources: current.registry.sources
   });
   const selectedBlock = {
@@ -47,6 +47,6 @@ export async function addBlockToPlan(blockId: string, operations: AddBlockOperat
     blocks: [...current.blocks, { id: blockId, version: selected.manifest.version }],
     acceptance
   };
-  await writePlan(plan);
+  await writePlan.call(operations, plan);
   return { plan, changed: true, selectedBlock };
 }
