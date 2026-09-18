@@ -27,6 +27,7 @@ import {
 } from './repository-compilation.ts';
 import {
   assertPhysicalWorkspaceSourceSnapshot,
+  assertWorkspaceTypeScriptProjectInputMatchesSnapshot,
   type PhysicalWorkspaceSourceSnapshot
 } from './workspace-source-snapshot.ts';
 
@@ -145,6 +146,11 @@ export function compileRepositorySourceProgramWithCache(
   // Reject forged, cancelled or exhausted operations before opening optional
   // cache resources. This failure is not a cache miss and must not fall back.
   sourceProgramCompilationCheckpoint(operation, 'admission');
+  // A foreign or forged project input is an admission failure, not a cache
+  // miss. Validate it before acquiring any optional physical cache resources.
+  if (projectInput !== undefined) {
+    assertWorkspaceTypeScriptProjectInputMatchesSnapshot(projectInput, workspaceSnapshot);
+  }
   if (cacheAccess !== 'read-only' && cacheAccess !== 'read-write') {
     throw new Error('Repository compilation cache access must be read-only or read-write.');
   }
