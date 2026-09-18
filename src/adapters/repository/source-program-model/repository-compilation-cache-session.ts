@@ -16,6 +16,7 @@ import {
 } from '../../../execution/operation/semantic.ts';
 import {
   SOURCE_PROGRAM_COMPILATION_MAX_DURATION_MS,
+  sourceProgramCompilationCheckpoint,
   type SourceProgramCompilationOperation
 } from './compilation-operation.ts';
 import { createRepositoryCompilationCacheProvider } from './repository-compilation-cache-provider.ts';
@@ -138,18 +139,26 @@ export type CompileRepositorySourceProgramWithCacheInput = Omit<
 export function compileRepositorySourceProgramWithCache(
   input: CompileRepositorySourceProgramWithCacheInput
 ): RepositorySourceProgramCompilationReceipt {
-  assertPhysicalWorkspaceSourceSnapshot(input.workspaceSnapshot);
-  const deadlineAtUnixMs = input.operation.deadlineAtUnixMs;
-  if (!Number.isSafeInteger(deadlineAtUnixMs) || (deadlineAtUnixMs as number) <= Date.now()) {
+  const { workspaceSnapshot, operation, repositoryRoot, projectInput,
+    reviewedProcessDispatchers, unknowns, cacheAccess = 'read-write' } = input;
+  assertPhysicalWorkspaceSourceSnapshot(workspaceSnapshot);
+  // Reject forged, cancelled or exhausted operations before opening optional
+  // cache resources. This failure is not a cache miss and must not fall back.
+  sourceProgramCompilationCheckpoint(operation, 'admission');
+  if (cacheAccess !== 'read-only' && cacheAccess !== 'read-write') {
+    throw new Error('Repository compilation cache access must be read-only or read-write.');
+  }
+  const deadlineAtUnixMs = operation.deadlineAtUnixMs;
+  if (!Number.isSafeInteger(deadlineAtUnixMs) || deadlineAtUnixMs <= Date.now()) {
     throw new Error('Repository compilation cache composition requires one live finite compilation operation.');
   }
   let session: ContentAddressedWorkspaceCacheSession | null = null;
   let cacheProvider: ReturnType<typeof createRepositoryCompilationCacheProvider> | undefined;
   try {
     session = openRepositoryCompilationCacheSession({
-      repositoryRoot: input.repositoryRoot,
-      deadlineAtUnixMs: deadlineAtUnixMs as number,
-      workspaceSnapshot: input.workspaceSnapshot
+      repositoryRoot,
+      deadlineAtUnixMs,
+      workspaceSnapshot
     });
     cacheProvider = createRepositoryCompilationCacheProvider({ session });
   } catch {
@@ -166,8 +175,8 @@ export function compileRepositorySourceProgramWithCache(
   let primary: unknown;
   try {
     compilation = compileRepositorySourceProgramCompilation({
-      ...input,
-      cacheAccess: input.cacheAccess ?? 'read-write',
+      workspaceSnapshot, operation, repositoryRoot, projectInput,
+      reviewedProcessDispatchers, unknowns, cacheAccess,
       ...(cacheProvider === undefined ? {} : { cacheProvider })
     });
   } catch (error) {
