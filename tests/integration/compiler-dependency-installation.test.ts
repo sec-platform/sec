@@ -473,7 +473,7 @@ describe('compiler dependency installation', () => {
       const stagingRoots = new Set<string>();
       const materialize = async (args: string[], options: { cwd: string }) => {
         installCalls += 1;
-        expect(args).toEqual(['install', '--frozen-lockfile', '--ignore-scripts']);
+        expect(args).toEqual(['install', '--frozen-lockfile', '--ignore-scripts', '--backend=copyfile']);
         expect(options.cwd).not.toBe(tempRoot);
         const stagingName = path.basename(options.cwd);
         expect(stagingName.startsWith('c.staging-')).toBe(true);

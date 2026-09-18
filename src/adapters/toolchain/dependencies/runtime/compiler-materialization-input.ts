@@ -73,11 +73,16 @@ export type RuntimeExecutableIdentity = Readonly<{
   signature: string;
 }>;
 
+/** Sealing an owned generation must not chmod files shared with Bun's cache. */
+export const COMPILER_DEPENDENCY_INSTALL_ARGS = Object.freeze([
+  'install', '--frozen-lockfile', '--ignore-scripts', '--backend=copyfile'
+]);
+
 export function compilerInstallConfigSha256(bytes: Uint8Array | null): string {
   const install = bytes === null
     ? null
     : (Bun.TOML.parse(compilerInputText(bytes, 'Compiler installation configuration')) as Record<string, unknown>).install ?? null;
-  return digest(JSON.stringify(canonicalJson({ install })));
+  return digest(JSON.stringify(canonicalJson({ install, argv: COMPILER_DEPENDENCY_INSTALL_ARGS })));
 }
 
 // Only coalesce observations that are currently in flight. A settled

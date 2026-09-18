@@ -3436,11 +3436,14 @@ function linuxGenerationEntries(
           `${label} entry identity changed: ${entry.relativePath}`
         );
       }
-      if (seal && entry.kind !== 'link') fchmodSync(fd, entry.kind === 'directory' ? 0o555 : 0o444);
+      const predecessorMode = entry.predecessorMode ?? String(before.mode);
+      const sealedMode = entry.kind === 'directory'
+        ? 0o555 : 0o444 | Number(BigInt(predecessorMode) & 0o111n);
+      if (seal && entry.kind !== 'link') fchmodSync(fd, sealedMode);
       const after = fstatSync(fd, { bigint: true });
       const identity = linuxProvenIdentity(after);
       if ((entry.kind === 'directory' && (after.mode & 0o777n) !== 0o555n)
-          || (entry.kind === 'file' && (after.mode & 0o777n) !== 0o444n)) {
+          || (entry.kind === 'file' && (after.mode & 0o777n) !== BigInt(sealedMode))) {
         throw physicalError(
           'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
           `${label} entry is not read-only: ${entry.relativePath}`

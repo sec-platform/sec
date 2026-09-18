@@ -55,6 +55,7 @@ import {
   compilerDependencyInputFenceMatches,
   compilerDependencyManifestAuthority,
   compilerInstallConfigSha256,
+  COMPILER_DEPENDENCY_INSTALL_ARGS,
   currentRuntimeExecutableIdentity,
   observeCompilerDependencyIdentity,
   type CompilerDependencyIdentity
@@ -6362,7 +6363,7 @@ async function stageCompilerDependencyGeneration(
     await runBunInstall(
       stagingRoot,
       options,
-      ['install', '--frozen-lockfile', '--ignore-scripts'],
+      COMPILER_DEPENDENCY_INSTALL_ARGS,
       cacheDir,
       runtimeExecutable,
       compilerInputFence
