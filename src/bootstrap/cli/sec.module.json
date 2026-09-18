@@ -4,16 +4,6 @@
     "src/bootstrap/cli/cli.ts"
   ],
   "capabilityProviders": [],
-  "causalRelations": [
-    {
-      "subject": "semantic.repair-plan",
-      "relation": "reads-back",
-      "symbol": {
-        "path": "src/bootstrap/cli/artifact-command-read.ts",
-        "name": "readRequiredRepairPlan"
-      },
-      "operation": null
-    }
-  ],
+  "causalRelations": [],
   "preDependencyBootstrap": false
 }

@@ -2,35 +2,12 @@ import path from 'node:path';
 import type { LockFile } from '../../compiler/contract.ts';
 import { getErrorCode } from '../../compiler/errors.ts';
 import { readLockFile } from "../../adapters/workspace/lock.ts";
-import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../adapters/runtime-state/physical/runtime/retained-file-read.ts';
-import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';
 import { isCiContractArtifactPath } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
-import { parseReviewSummaryJson } from '../../assurance/verification/review/contract/summary.ts';
-import type { ReviewSummary } from '../../assurance/verification/review/contract/types.ts';
 import { readJson } from "../../adapters/filesystem/files.ts";
 import { resolveWorkspaceArtifactPath } from "../../adapters/workspace-context.ts";
 import type { JsonOpts } from '../../entry/cli/command-options.ts';
 import { printJsonOrText } from '../../entry/cli/format-utils.ts';
-
-export async function readRequiredJson<T>(filePath: string, missingMessage: string): Promise<T> {
-  try { return await readJson<T>(filePath); }
-  catch (error) {
-    if (getErrorCode(error) === 'ENOENT') throw new Error(missingMessage, { cause: error });
-    throw error;
-  }
-}
-
-export function readRequiredReviewSummary(filePath: string, missingMessage: string): ReviewSummary {
-  const bytes = readOptionalRetainedOrdinaryFile(filePath, 'Review summary');
-  if (bytes === null) throw new Error(missingMessage);
-  return parseReviewSummaryJson(decodeExactUtf8(bytes, 'Review summary'));
-}
-
-export function readRequiredRepairPlan(filePath: string, missingMessage: string): RepairPlan {
-  const bytes = readOptionalRetainedOrdinaryFile(filePath, 'Repair plan');
-  if (bytes === null) throw new Error(missingMessage);
-  return parseRepairPlanJson(decodeExactUtf8(bytes, 'Repair plan'));
-}
+import { readRequiredJson } from '../../adapters/workspace/required-artifact-read.ts';
 
 export async function printRequiredJson<T>(
   filePath: string, missingMessage: string, output: JsonOpts, formatText: (v: T) => string

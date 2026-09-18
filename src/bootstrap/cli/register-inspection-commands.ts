@@ -22,7 +22,7 @@ function artifactReader<T>(key: ArtifactKey, missing: (context: InspectionContex
   return async (context: InspectionContext): Promise<T> => {
     const { CI_ARTIFACT_FILES } = await import('../../assurance/verification/ci-artifacts/contract/manifest.ts');
     const { resolveWorkspaceArtifactPath } = await import('../../adapters/workspace-context.ts');
-    const { readRequiredJson } = await import('./artifact-command-read.ts');
+    const { readRequiredJson } = await import('../../adapters/workspace/required-artifact-read.ts');
     return readRequiredJson<T>(resolveWorkspaceArtifactPath(context.workspaceRoot, CI_ARTIFACT_FILES[key]), missing(context));
   };
 }
@@ -102,7 +102,7 @@ export function registerInspectionCommands(program: Command): void {
     description: 'Provenance inspection',
     read: async ({ workspaceRoot }): Promise<ProvenanceRegistryInspectProjectionSource> => {
       const { resolveWorkspaceProvenancePath } = await import('../../adapters/workspace-context.ts');
-      const { readRequiredJson } = await import('./artifact-command-read.ts');
+      const { readRequiredJson } = await import('../../adapters/workspace/required-artifact-read.ts');
       return readRequiredJson<ProvenanceRegistryInspectProjectionSource>(
         await resolveWorkspaceProvenancePath(workspaceRoot),
         'Provenance registry not found'
@@ -123,7 +123,7 @@ export function registerInspectionCommands(program: Command): void {
     read: async (c): Promise<ReviewSummary> => {
       const { CI_ARTIFACT_FILES } = await import('../../assurance/verification/ci-artifacts/contract/manifest.ts');
       const { resolveWorkspaceArtifactPath } = await import('../../adapters/workspace-context.ts');
-      const { readRequiredReviewSummary } = await import('./artifact-command-read.ts');
+      const { readRequiredReviewSummary } = await import('../../adapters/workspace/required-artifact-read.ts');
       return readRequiredReviewSummary(resolveWorkspaceArtifactPath(c.workspaceRoot, CI_ARTIFACT_FILES.reviewSummary),
         `Review summary not found; run ${c.rootCommand} explain first`);
     },

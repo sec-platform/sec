@@ -40,7 +40,7 @@ export function registerWorkspaceCommands(program: Command): void {
       const { resolveWorkspaceArtifactPath } = await import('../../adapters/workspace-context.ts');
       const { projectRepairSummary } = await import('../../application/repair-summary.ts');
       const { formatRepairSummary } = await import('../../entry/cli/repair-summary.ts');
-      const { readRequiredRepairPlan } = await import('./artifact-command-read.ts');
+      const { readRequiredRepairPlan } = await import('../../adapters/workspace/required-artifact-read.ts');
       if (input.kind === 'plan') {
         const repairPlanPath = resolveWorkspaceArtifactPath(cwd, CI_ARTIFACT_FILES.repairPlan);
         const repairPlan = readRequiredRepairPlan(

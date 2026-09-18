@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { printRequiredJson, readRequiredJson } from '../../src/bootstrap/cli/artifact-command-read.ts';
+import { printRequiredJson } from '../../src/bootstrap/cli/artifact-command-read.ts';
+import { readRequiredJson } from '../../src/adapters/workspace/required-artifact-read.ts';
 
 async function fixture(run: (root: string) => Promise<void>): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-artifact-read-'));
