@@ -1,6 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { formatCiArtifactManifest } from '../../src/bootstrap/cli/formatters.ts';
+import { projectCiArtifactManifest } from '../../src/application/ci-artifact-manifest-inspect.ts';
+import { formatCiArtifactManifest } from '../../src/entry/cli/ci-artifact-manifest-inspect.ts';
 import { projectReviewDiagnostics } from '../../src/application/review-diagnostics-inspect.ts';
 import { projectPolicySources } from '../../src/application/policy-source-inspection.ts';
 import { projectAcceptanceTargets } from '../../src/application/acceptance-inspection.ts';
@@ -24,7 +25,7 @@ type CoverageInput = {
 type RuntimeInput = Parameters<typeof projectRuntimeInspection>[0];
 type ReviewInput = Parameters<typeof projectReviewDiagnostics>[0];
 type ProvenanceInput = Parameters<typeof projectProvenanceRegistryInspect>[0];
-type ManifestInput = Parameters<typeof formatCiArtifactManifest>[0];
+type ManifestInput = Parameters<typeof projectCiArtifactManifest>[0];
 // Focused domain fixtures: these tests exercise projections, not domain parsers.
 function policy() {
   return { status: 'passed', official: { sources: [{ path: 'z', policyIds: ['one'] }] },
@@ -45,10 +46,11 @@ function manifest(counts: Partial<ManifestInput['summary']['missingReasonCounts'
     'stale-semantic-projection': 0,
     ...counts
   };
-  return { formatVersion: '2', root: 'workspace', artifacts: [], missing: [],
+  return {
     summary: { artifactStatus: 'passed', artifactCount: 1, missingCount: 1, uploadGroupCount: 0,
-      governanceCount: 1, testCount: 0, contractCount: 0, contractPaths: [], missingReasonTypeCount: 0,
-      missingReasonCounts }, uploadGroups: [] };
+      governanceCount: 1, testCount: 0, contractCount: 0, missingReasonCounts },
+    uploadGroups: []
+  };
 }
 
 test('policy projection owns its arrays while preserving source order and counts', () => {
@@ -156,20 +158,20 @@ test('an absent generating pass displays none, not an empty string identity', ()
 });
 
 test('manifest formatter consumes large aggregate counts without occurrence expansion', () => {
-  const output = formatCiArtifactManifest(manifest({ 'fixed-governance-missing': Number.MAX_SAFE_INTEGER,
-    'declared-generated-missing': 2 ** 40 }));
+  const output = formatCiArtifactManifest(projectCiArtifactManifest(manifest({ 'fixed-governance-missing': Number.MAX_SAFE_INTEGER,
+    'declared-generated-missing': 2 ** 40 })));
   assert.ok(output.includes(`Missing reasons: declared-generated-missing=${2 ** 40}, fixed-governance-missing=${Number.MAX_SAFE_INTEGER}`));
 });
 
 test('manifest zero/ordinary count presentation preserves existing sorted wording', () => {
-  assert.ok(formatCiArtifactManifest(manifest({ 'fixed-governance-missing': 2, 'declared-generated-missing': 1 }))
+  assert.ok(formatCiArtifactManifest(projectCiArtifactManifest(manifest({ 'fixed-governance-missing': 2, 'declared-generated-missing': 1 })))
     .includes('Missing reasons: declared-generated-missing=1, fixed-governance-missing=2'));
-  assert.ok(formatCiArtifactManifest(manifest({})).includes('Missing reasons: none'));
+  assert.ok(formatCiArtifactManifest(projectCiArtifactManifest(manifest({}))).includes('Missing reasons: none'));
 });
 
 test('manifest invalid aggregate counts fail explicitly instead of expanding malformed data', () => {
   for (const count of [-1, 0.5, Infinity, NaN]) {
-    assert.throws(() => formatCiArtifactManifest(manifest({ 'declared-generated-missing': count })), RangeError);
+    assert.throws(() => formatCiArtifactManifest(projectCiArtifactManifest(manifest({ 'declared-generated-missing': count }))), RangeError);
   }
 });
 

@@ -9,11 +9,16 @@ export async function executeArtifactCommand(workspaceRoot: string, commandPath:
     case 'manifest': {
       const { CI_ARTIFACT_FILES } = await import('../../assurance/verification/ci-artifacts/contract/manifest.ts');
       const { resolveWorkspaceArtifactPath } = await import('../../adapters/workspace-context.ts');
+      const { projectCiArtifactManifest } = await import('../../application/ci-artifact-manifest-inspect.ts');
+      const { formatCiArtifactManifest } = await import('../../entry/cli/ci-artifact-manifest-inspect.ts');
       const { printWorkspaceJson } = await import('./artifact-command-read.ts');
-      const { formatCiArtifactManifest } = await import('./formatters.ts');
-      await printWorkspaceJson<CiArtifactManifest>(workspaceRoot,
+      await printWorkspaceJson<CiArtifactManifest>(
+        workspaceRoot,
         (root) => resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.artifactManifest),
-        `Artifact manifest not found; run ${commandPath} --json first`, input.output, formatCiArtifactManifest);
+        `Artifact manifest not found; run ${commandPath} --json first`,
+        input.output,
+        (manifest) => formatCiArtifactManifest(projectCiArtifactManifest(manifest))
+      );
       return;
     }
     case 'paths': {

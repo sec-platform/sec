@@ -15,7 +15,7 @@ import type { ReviewSummary } from '../../assurance/verification/review/contract
 import { upgradeDiagnosticsAttributionParts } from '../../assurance/verification/review/contract/upgrade.ts';
 import { buildE2eMatrix, type E2eMatrix } from '../../adapters/verification/platform/review/runtime/matrix.ts';
 import { toWorkspaceArtifactPath } from "../../adapters/workspace-context.ts";
-import { formatCountRecord, formatCounts, formatFields, formatList, formatMergedSummaryEntries, formatSummaryEntries, optionalFields } from '../../entry/cli/format-utils.ts';
+import { formatCounts, formatFields, formatList, formatMergedSummaryEntries, formatSummaryEntries, optionalFields } from '../../entry/cli/format-utils.ts';
 
 type ArtifactPathUploadGroup = CiArtifactUploadGroup;
 
@@ -39,20 +39,6 @@ export type ArtifactUploadPathContract = {
 
 export type { DemoChecklist, DemoChecklistItem } from '../../application/demo-checklist.ts';
 export { formatDemoChecklist } from '../../entry/cli/demo-checklist.ts';
-
-export function formatCiArtifactManifest(manifest: CiArtifactManifest): string {
-  return [
-    `Artifact manifest ${manifest.summary.artifactStatus}`,
-    formatFields([
-      `artifacts=${manifest.summary.artifactCount}`,
-      `missing=${manifest.summary.missingCount}`,
-      `upload groups=${manifest.summary.uploadGroupCount}`
-    ]),
-    `Kinds: governance=${manifest.summary.governanceCount}, test=${manifest.summary.testCount}, contract=${manifest.summary.contractCount}`,
-    `Missing reasons: ${formatCountRecord(manifest.summary.missingReasonCounts)}`,
-    `Upload groups: ${formatList(manifest.uploadGroups.map((group) => `${group.kind}=${group.count}`))}`
-  ].join('\n');
-}
 
 function artifactUploadPathSummary(
   manifest: CiArtifactManifest,
