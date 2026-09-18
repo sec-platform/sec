@@ -21,8 +21,9 @@ function requireSuccess(result: ReturnType<typeof git>, label: string): string {
   return result.stdout.trim();
 }
 
-/** Cross-platform probe for the exact three retained Git inputs used by docs-doctor. */
-export function runRetainedGitWriteTreeProbeV1(): string {
+/** Probe immutable consumption separately from native cache-tree mutation.
+ * This fixture is not an authorization or a production docs-doctor receipt. */
+export function runRetainedGitWriteTreeProbeV1(warmIndex = true): string {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-git-write-tree-'));
   const repositoryRoot = path.join(root, 'repository');
   const snapshotRoot = path.join(root, 'snapshot');
@@ -32,6 +33,10 @@ export function runRetainedGitWriteTreeProbeV1(): string {
     requireSuccess(git(repositoryRoot, 'init'), 'git init');
     writeFileSync(path.join(repositoryRoot, 'tracked.txt'), 'retained Git input\n', 'utf8');
     requireSuccess(git(repositoryRoot, 'add', 'tracked.txt'), 'git add');
+    // write-tree may populate a cold index even with GIT_OPTIONAL_LOCKS=0.
+    // Warm before retaining when testing read-only consumption; the negative
+    // cold-index case must still be rejected by the post-execution fence.
+    if (warmIndex) requireSuccess(git(repositoryRoot, 'write-tree'), 'warm Git index');
     const indexCandidate = requireSuccess(
       git(repositoryRoot, 'rev-parse', '--git-path', 'index'),
       'git index path'

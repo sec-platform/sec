@@ -20,7 +20,8 @@ import {
   retainMutableSealedPhysicalExecutionProtectedRoot,
   SealedPhysicalExecutionTreeAdmissionError,
   SealedPhysicalExecutionTreeResidueError,
-  type RetainedSealedPhysicalExecutionProtectedRoot
+  type RetainedSealedPhysicalExecutionProtectedRoot,
+  type RetainedSealedPhysicalExecutionTreeGeneration
 } from './sealed-execution-tree-generation.ts';
 import {
   assertRetainedTypeScriptExecutionGeneration,
@@ -654,42 +655,80 @@ test('setup residue without a returned recovery capability is owner-reconciliati
     path: `src/value-${String(index).padStart(3, '0')}.ts`
   }));
   let injectedPath: string | null = null;
+  const returned: { generation?: RetainedSealedPhysicalExecutionTreeGeneration } = {};
+  let stopActor = async (): Promise<void> => {};
   try {
-    const mutation = (async () => {
-      for (let attempt = 0; attempt < 2_000; attempt += 1) {
-        const name = (await readdir(fixture.generationParent.path))
-          .find((entry) => entry.startsWith('setup-residue-'));
+    // Publication uses synchronous filesystem operations. A timer on this same
+    // event loop cannot race them; start an independent actor and await readiness.
+    const actor = Bun.spawn([process.execPath, '-e', String.raw`
+      const fs = require('node:fs');
+      const path = require('node:path');
+      const parent = process.argv[1];
+      const pause = new Int32Array(new SharedArrayBuffer(4));
+      const deadline = performance.now() + 2_000;
+      process.stdout.write('ready\n');
+      while (performance.now() < deadline) {
+        const name = fs.readdirSync(parent).find(entry => entry.startsWith('setup-residue-'));
         if (name !== undefined) {
-          injectedPath = path.join(fixture.generationParent.path, name, 'foreign.txt');
-          await writeFile(injectedPath, 'foreign\n');
-          return;
+          const target = path.join(parent, name, 'foreign.txt');
+          fs.writeFileSync(target, 'foreign\n', { flag: 'wx' });
+          process.stdout.write(JSON.stringify({ path: target }));
+          process.exit(0);
         }
-        await delay(1);
+        Atomics.wait(pause, 0, 0, 1);
       }
       throw new Error('Setup-residue actor did not observe the bounded generation');
+    `, fixture.generationParent.path], { stdout: 'pipe', stderr: 'pipe' });
+    const stderr = new Response(actor.stderr).text();
+    const guard = setTimeout(() => actor.kill(), 5_000);
+    stopActor = async () => {
+      clearTimeout(guard);
+      if (actor.exitCode === null) actor.kill();
+      await actor.exited;
+      await stderr;
+    };
+    const reader = actor.stdout.getReader();
+    const decoder = new TextDecoder();
+    let ready = '';
+    while (!ready.includes('\n')) {
+      const chunk = await reader.read();
+      if (chunk.done) throw new Error(`Residue actor exited before readiness: ${await stderr}`);
+      ready += decoder.decode(chunk.value, { stream: true });
+    }
+    expect(ready).toBe('ready\n');
+    const remainder = (async () => {
+      let output = '';
+      try {
+        for (;;) {
+          const chunk = await reader.read();
+          if (chunk.done) return output + decoder.decode();
+          output += decoder.decode(chunk.value, { stream: true });
+        }
+      } finally { reader.releaseLock(); }
     })();
     const materialization = materializeRetainedSealedPhysicalExecutionTreeGeneration({
       deadlineAtUnixMs: Date.now() + 30_000,
-      directoryNamePrefix: 'setup-residue-',
-      files,
+      directoryNamePrefix: 'setup-residue-', files,
       generationParent: fixture.generationParent,
-      links: [{ path: 'node_modules', source: fixture.dependency }],
-      maximumEntries: 256
-    }).then(() => null, (error: unknown) => error);
-    await mutation;
-    let residue: SealedPhysicalExecutionTreeResidueError | null = null;
-    const materializationError = await materialization;
-    if (materializationError !== null) {
-      const error = materializationError;
-      expect(error).toBeInstanceOf(SealedPhysicalExecutionTreeResidueError);
-      residue = error as SealedPhysicalExecutionTreeResidueError;
-    }
-    expect(residue!.residue.retryability).toBe('owner-reconciliation-required');
-    expect(residue!.residue.inventory.state).toBe('unknown');
+      links: [{ path: 'node_modules', source: fixture.dependency }], maximumEntries: 256
+    }).then((generation) => { returned.generation = generation; return null; }, (error: unknown) => error);
+    const [error, output, exitCode, diagnostic] = await Promise.all([
+      materialization, remainder, actor.exited, stderr
+    ]);
+    expect(exitCode, diagnostic).toBe(0);
+    injectedPath = (JSON.parse(output) as { path: string }).path;
+    expect(error).toBeInstanceOf(SealedPhysicalExecutionTreeResidueError);
+    const residue = error as SealedPhysicalExecutionTreeResidueError;
+    expect(residue.residue.retryability).toBe('owner-reconciliation-required');
+    expect(residue.residue.inventory.state).toBe('unknown');
     expect(injectedPath).not.toBeNull();
     fixture.dependency.assertCurrent();
     await fixture.dependency.assertAuthorityCurrent();
   } finally {
+    await stopActor();
+    if (injectedPath !== null) await rm(injectedPath, { force: true });
+    // A late actor must fail the assertion without leaking a returned capability.
+    await returned.generation?.retire();
     await fixture.dependency.retire();
     await rm(fixture.rootPath, { recursive: true, force: true });
   }

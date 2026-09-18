@@ -554,6 +554,9 @@ test('retained child-process file reads the observed inode after leaf replacemen
     try {
       expect(capability.physical).toEqual({ device: entry!.device, inode: entry!.inode });
       expect(capability.size).toBe(Buffer.byteLength('authorized-index\n'));
+      const expectedDigest = `sha256:${createHash('sha256').update('authorized-index\n').digest('hex')}` as const;
+      expect(capability.digest().byteDigest).toBe(expectedDigest);
+      capability.assertCurrent();
       if (process.platform === 'linux') {
         expect(capability.stdioSourceDescriptor).toEqual(expect.any(Number));
         expect(capability.stdioSourceDescriptor!).toBeGreaterThanOrEqual(5);
@@ -576,10 +579,15 @@ test('retained child-process file reads the observed inode after leaf replacemen
       });
       expect(child.status).toBe(0);
       expect(child.stdout).toBe('authorized-index\n');
-      expect(capability.digest().byteDigest).toBe(
-        `sha256:${createHash('sha256').update('authorized-index\n').digest('hex')}`
-      );
-      capability.assertCurrent();
+      if (process.platform === 'linux') {
+        // A retained descriptor can still read the old inode. That fact does
+        // not renew the current lexical/source binding after replacement.
+        expectPhysicalCode(() => capability.digest(), 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED');
+        expectPhysicalCode(() => capability.assertCurrent(), 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED');
+      } else {
+        expect(capability.digest().byteDigest).toBe(expectedDigest);
+        capability.assertCurrent();
+      }
     } finally {
       capability.dispose();
     }
@@ -1110,6 +1118,7 @@ test('retained ordinary-file digest rejects a same-size in-place rewrite', () =>
     expect(replacement.byteLength).toBe(original.byteLength);
     mkdirSync(target);
     writeFileSync(filePath, original);
+    chmodSync(filePath, 0o755);
     const parent = inspectNoFollowDirectoryChain(target, 'same-size rewrite parent');
     const capability = retainNoFollowOrdinaryFile(
       parent,
@@ -1199,7 +1208,7 @@ test.skipIf(process.platform !== 'win32')(
 );
 
 test.skipIf(process.platform !== 'linux')(
-  'executable role admission is typed-unavailable without sealed image support',
+  'Linux executable admission rejects non-executable files before issuing a sealed image',
   () => {
     const root = fixtureRoot();
     try {
@@ -1212,10 +1221,10 @@ test.skipIf(process.platform !== 'linux')(
         parent,
         'executable.bin',
         undefined,
-        'unsealed executable role admission',
+        'non-executable role admission',
         3,
         'executable'
-      )).toThrow('sealed image or mandatory writer-exclusion primitive');
+      )).toThrow('is not an executable ordinary file');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

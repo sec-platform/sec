@@ -1248,6 +1248,16 @@ function linuxOpenWatchedCanonicalDirectoryChain(
     expected.target.path,
     label
   );
+  // The actor is already issuer-validated above. An ancestor race must name
+  // an edge in this exact chain, then run once at that edge, not at every
+  // preceding directory encountered while opening the chain.
+  if (testOnlyRaceActor?.point === 'after-ancestor-open'
+      && !expected.ancestors.some((ancestor) => ancestor.path === testOnlyRaceActor.targetPath)) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `${label} Linux test race actor target is outside the retained ancestor chain.`
+    );
+  }
   const rootFd = linuxOpenRoot(label);
   const witnessFd = linuxOpenDirectoryMutationWitness(label);
   const ancestorEdges = new Map<number, string>();
@@ -1284,12 +1294,15 @@ function linuxOpenWatchedCanonicalDirectoryChain(
       const nextPath = path.join(currentPath, segment);
       const nextFd = linuxOpenAt(currentFd, segment, `${label} ancestor`);
       try {
-        linuxInvokeNoFollowDirectoryCreateRaceActor(
-          testOnlyRaceActor,
-          'after-ancestor-open',
-          nextPath,
-          `${label} ancestor`
-        );
+        if (testOnlyRaceActor?.point === 'after-ancestor-open'
+            && testOnlyRaceActor.targetPath === nextPath) {
+          linuxInvokeNoFollowDirectoryCreateRaceActor(
+            testOnlyRaceActor,
+            'after-ancestor-open',
+            nextPath,
+            `${label} ancestor`
+          );
+        }
       } catch (error) {
         closeSync(nextFd);
         throw error;
