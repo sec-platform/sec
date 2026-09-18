@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { createWorkspaceWriteCommitFence } from '../../adapters/filesystem/write-lease.ts';
 import { composeProject } from '../../adapters/compilation/compose/compose-project.ts';
 import {
@@ -78,6 +79,7 @@ export async function composeWorkspace(
   options?: ComposeWorkspaceOptions,
   context?: PipelineExecutionContext
 ): Promise<{ plan: PlanFile; lock: LockFile }> {
+  workspaceRoot = path.resolve(workspaceRoot);
   // Validate and resolve all ambient inputs before opening a Pipeline
   // transaction. Unsupported or conflicting inputs must remain zero-effect.
   assertComposeOptions(options);

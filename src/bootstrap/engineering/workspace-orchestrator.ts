@@ -122,6 +122,7 @@ export async function initWorkspace(
   options: WorkspaceInitOptions = {},
   workspaceWriteLease?: WorkspaceWriteLeaseToken
 ): Promise<{ planPath: string; lockPath: string }> {
+  workspaceRoot = path.resolve(workspaceRoot);
   const prepared = prepareWorkspaceCreate(options.template, { officialRegistryRelativePath });
   const { template, plan, initialGeneratedPaths } = prepared;
   if (workspaceWriteLease === undefined) {

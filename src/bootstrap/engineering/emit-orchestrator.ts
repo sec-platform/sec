@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { readOptionalRetainedJson } from '../../adapters/runtime-state/physical/runtime/retained-file-read.ts';
 import type { ExplainGraph } from '../../semantics/projection/explain.ts';
 import { readOptionalProvenanceFile } from '../../adapters/workspace/provenance-reader.ts';
@@ -76,6 +77,7 @@ export async function lockWorkspace(
   workspaceRoot = process.cwd(),
   context?: PipelineExecutionContext
 ): Promise<LockFile> {
+  workspaceRoot = path.resolve(workspaceRoot);
   return executePipelineStage(
     workspaceRoot,
     'lock',
@@ -132,6 +134,7 @@ export async function explainWorkspace(
   graph: ExplainGraph;
   reviewSummary: ReviewSummary;
 }> {
+  workspaceRoot = path.resolve(workspaceRoot);
   return executePipelineStage(
     workspaceRoot,
     'emit',
@@ -185,6 +188,7 @@ export async function writeWorkspaceArtifacts(
   manifest: Awaited<ReturnType<typeof writeCiArtifactManifest>>;
   reviewSummary: ReviewSummary | null;
 }> {
+  workspaceRoot = path.resolve(workspaceRoot);
   return withWorkspaceWriteLease(workspaceRoot, workspaceWriteLease, async (token) => {
     const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, token);
     await commitFence();

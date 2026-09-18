@@ -76,6 +76,7 @@ export async function resolveWorkspace(
   workspaceRoot = process.cwd(),
   context?: PipelineExecutionContext
 ): Promise<{ plan: PlanFile; lock: LockFile }> {
+  workspaceRoot = path.resolve(workspaceRoot);
   return executePipelineStage(
     workspaceRoot,
     'resolve',

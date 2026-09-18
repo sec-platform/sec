@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { EngineeringIR } from '../../semantics/engineering-ir/root-types.ts';
 import { createWorkspaceWriteCommitFence } from '../../adapters/filesystem/write-lease.ts';
 import type { LockFile } from '../../compiler/contract.ts';
@@ -21,6 +22,7 @@ export async function runWorkspaceSemanticFrontend(
   workspaceRoot: string,
   context: PipelineExecutionContext
 ): Promise<PipelineSemanticContext> {
+  workspaceRoot = path.resolve(workspaceRoot);
   let publishedLock: LockFile | undefined;
   return executePipelineStage(
     workspaceRoot,

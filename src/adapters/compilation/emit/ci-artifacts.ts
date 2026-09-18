@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { readOptionalRetainedJson } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import type { ExplainGraph } from '../../../semantics/projection/explain.ts';
 import { compareCodeUnits } from '../../../contracts/canonical.ts';
@@ -66,6 +67,7 @@ async function buildCiArtifactManifestWithPlannedPaths(
   workspaceRoot: string,
   plannedPaths: ReadonlySet<string>
 ): Promise<CiArtifactManifest> {
+  workspaceRoot = path.resolve(workspaceRoot);
   const generatedPathResult = readGeneratedPaths(workspaceRoot);
   const semanticEmitArtifactsCurrent = generatedPathResult.lock
     ? semanticEmitArtifactsAreCurrent(workspaceRoot, generatedPathResult.lock)
@@ -150,6 +152,7 @@ export async function writeCiArtifactManifest(
   workspaceRoot = process.cwd(),
   commitFence?: CommitFence
 ): Promise<CiArtifactManifest> {
+  workspaceRoot = path.resolve(workspaceRoot);
   const lockPath = resolveWorkspaceArtifactPath(
     workspaceRoot,
     CI_ARTIFACT_FILES.graphLock

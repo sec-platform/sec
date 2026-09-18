@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { CI_ARTIFACT_FILES } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationLane, VerificationReport } from '../../assurance/verification/contract/types.ts';
 import { buildBlockedProductVerificationClaimSummary } from '../../assurance/verification/profile/contract/product.ts';
@@ -141,6 +142,7 @@ export async function verifyWorkspace(
   options: VerifyWorkspaceOptions = {},
   context?: PipelineExecutionContext
 ): Promise<{ lock: LockFile; report: VerificationReport }> {
+  workspaceRoot = path.resolve(workspaceRoot);
   return executePipelineStage(
     workspaceRoot,
     'verify',

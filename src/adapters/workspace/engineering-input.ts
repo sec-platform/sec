@@ -30,6 +30,7 @@ export interface WorkspaceEngineeringIRBuildInput {
 export async function loadWorkspaceEngineeringIRBuildInput(
   workspaceRoot: string
 ): Promise<WorkspaceEngineeringIRBuildInput> {
+  workspaceRoot = path.resolve(workspaceRoot);
   const { workspaceConfigPath } = getWorkspacePaths(workspaceRoot);
   const plan = await loadPlan(workspaceConfigPath);
   const lock = readLockFile(workspaceRoot);

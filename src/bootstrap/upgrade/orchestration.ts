@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../adapters/filesystem/write-lease.ts';
 import { planUpgradeWorkspace, runUpgradeWorkspaceWithLease } from './upgrade-workspace.ts';
 
@@ -33,6 +34,7 @@ export async function upgradeWorkspace(
   options?: { dryRun?: boolean },
   workspaceWriteLease?: WorkspaceWriteLeaseToken
 ): Promise<UpgradeWorkspaceResult> {
+  workspaceRoot = path.resolve(workspaceRoot);
   if (options?.dryRun) {
     return planUpgradeWorkspace(workspaceRoot, blockId, targetVersion);
   }

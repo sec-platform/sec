@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { readOptionalRetainedJson } from '../../adapters/runtime-state/physical/runtime/retained-file-read.ts';
 import type { RepairPlan } from '../../semantics/repair/types.ts';
 import { CI_ARTIFACT_FILES } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
@@ -61,6 +62,7 @@ export async function repairWorkspace(
   options: { dryRun?: boolean } = {},
   workspaceWriteLease?: WorkspaceWriteLeaseToken
 ): Promise<{ lock: LockFile; repairPlan: RepairPlan }> {
+  workspaceRoot = path.resolve(workspaceRoot);
   if (options.dryRun) {
     const { lock, repairPlan } = await previewRepairWorkspace(workspaceRoot);
     return { lock, repairPlan };
