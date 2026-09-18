@@ -1,0 +1,107 @@
+name: sec086-native-failures
+on:
+  push:
+    branches: [refactor/sec086-regression-hardening]
+    paths: [.github/workflows/sec086-native-failures.yml]
+permissions: {}
+jobs:
+  inspect:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: a62be485427f0d7795a7ba99a637f7377cf88176
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version-file: .bun-version
+      - name: Apply exact test-only delta
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $dir=Join-Path $env:RUNNER_TEMP 'sec-native-checks'
+          New-Item -ItemType Directory -Path $dir | Out-Null
+          $blob=gh api repos/sec-platform/sec/git/blobs/0c0fc52c5fbc6f852ee683a980a60723dc4d085e | ConvertFrom-Json
+          [IO.File]::WriteAllBytes("$dir/delta.patch",[Convert]::FromBase64String($blob.content))
+          git apply --check "$dir/delta.patch"
+          if ($LASTEXITCODE -ne 0) { throw 'patch preimage mismatch' }
+          git apply --index "$dir/delta.patch"
+          $tree=git write-tree
+          if ($tree -ne '094be67c174c289336d7d1d535cead54fe82733c') { throw "tree mismatch $tree" }
+          @'
+          from pathlib import Path
+          import json,subprocess,sys
+          files=subprocess.check_output(['git','diff','--cached','--name-only']).decode().splitlines()
+          Path(sys.argv[1]).write_text(json.dumps({'base_tree':'109682a614c2181f8515a3a68a92c8fd65d1b6c3','tree':[{'path':p,'mode':'100644','type':'blob','content':Path(p).read_text()} for p in files]}))
+          '@ | Set-Content "$dir/tree.py"
+          python "$dir/tree.py" "$dir/tree.json"
+          $stored=gh api --method POST repos/sec-platform/sec/git/trees --input "$dir/tree.json" --jq .sha
+          if ($stored -ne $tree) { throw 'stored tree mismatch' }
+          git config user.name QzCrane
+          git config user.email 107861762+QzCrane@users.noreply.github.com
+          $candidate=git commit-tree $tree -p HEAD -m 'native fixture diagnostic candidate'
+          git checkout --detach $candidate
+          git rev-parse HEAD 'HEAD^{tree}' | Set-Content "$dir/source.txt"
+          git bundle create "$dir/commits.bundle" refs/remotes/origin/refactor/sec086-regression-hardening '^a62be485427f0d7795a7ba99a637f7377cf88176'
+          bun run deps:ensure *> "$dir/deps.log"
+          if ($LASTEXITCODE -ne 0) { Get-Content "$dir/deps.log"; exit 1 }
+          $temp=Join-Path $env:RUNNER_TEMP 'sec-native-temp'
+          New-Item -ItemType Directory -Path $temp | Out-Null
+          "TEMP=$temp" >> $env:GITHUB_ENV
+          "TMP=$temp" >> $env:GITHUB_ENV
+      - name: Observe remaining failures in isolated groups
+        shell: pwsh
+        run: |
+          $dir=Join-Path $env:RUNNER_TEMP 'sec-native-checks'
+          $groups=@(
+            @{name='hooks';argv=@('test','tests/unit/install-git-hooks.test.ts')},
+            @{name='installed';argv=@('test','tests/unit/windows-control-cli-installed-adoption.test.ts')},
+            @{name='removed';argv=@('test','tests/unit/removed-documentation-test-impact.test.ts')},
+            @{name='baseline';argv=@('test','tests/unit/project-baseline-phase.test.ts','tests/unit/project-provenance-fallback.test.ts','tests/unit/project-write-boundary-fallback.test.ts')},
+            @{name='types';argv=@('node_modules/@typescript/native/bin/tsc','--noEmit','-p','tsconfig.json')}
+          )
+          $results=@()
+          foreach ($group in $groups) {
+            $args=$group.argv
+            & bun @args *> "$dir/$($group.name).log"
+            $results+=@{name=$group.name;exitCode=$LASTEXITCODE}
+            Get-Content "$dir/$($group.name).log" -Tail 12
+          }
+          $results | ConvertTo-Json | Set-Content "$dir/results.json"
+      - name: Capture original launch errors only when baseline failed
+        shell: pwsh
+        run: |
+          $dir=Join-Path $env:RUNNER_TEMP 'sec-native-checks'
+          $results=Get-Content "$dir/results.json" | ConvertFrom-Json
+          if (($results | Where-Object {$_.name -eq 'baseline'}).exitCode -ne 0) {
+            @'
+          from pathlib import Path
+          p=Path('src/adapters/runtime-state/physical/runtime/observed-process.ts')
+          s=p.read_text()
+          for old,new in [
+           ('throw new Error(\'Windows observed process creation failed\');','throw new Error(`Windows observed process creation failed: ${kernel32.symbols.GetLastError()}`);'),
+           ('.then(() => true, () => false);','.then(() => true, error => { console.error("BEFORE_SPAWN", error); return false; });'),
+           ('if (error instanceof ObservedNativeLifecycleFailure && error.started) rootResource?.start();','console.error("NATIVE_SPAWN", error);\n    if (error instanceof ObservedNativeLifecycleFailure && error.started) rootResource?.start();')]:
+            assert s.count(old)==1,old
+            s=s.replace(old,new)
+          p.write_text(s)
+          '@ | Set-Content "$dir/instrument.py"
+            python "$dir/instrument.py"
+            if ($LASTEXITCODE -ne 0) { throw 'diagnostic instrumentation mismatch' }
+            bun test tests/unit/project-baseline-phase.test.ts --test-name-pattern 'current baseline accepts' *> "$dir/launch-diagnostic.log"
+            git diff -- src/adapters/runtime-state/physical/runtime/observed-process.ts > "$dir/instrumentation.diff"
+            Get-Content "$dir/launch-diagnostic.log" -Tail 60
+          }
+          if (@($results | Where-Object {$_.exitCode -ne 0}).Count -gt 0) { exit 1 }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: sec086-native-checks
+          path: ${{ runner.temp }}/sec-native-checks/
+          retention-days: 7
+          if-no-files-found: error
