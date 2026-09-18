@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { resolveWorkspaceArtifactPath } from '../../src/adapters/workspace-context.ts';
+import type { PolicyReport } from '../../src/semantics/policies/types.ts';
 import { projectPolicyReportInspection } from '../../src/application/policy-report-inspection.ts';
 import { formatPolicyReport } from '../../src/entry/cli/policy-report-inspection.ts';
 import { expectCliJson, expectCliSuccess } from '../testkit/cli.ts';
@@ -11,7 +12,7 @@ import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('policy inspection routes retained report through application summary projection and entry rendering while preserving JSON', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const report = {
+    const report: PolicyReport = {
       status: 'passed',
       official: {
         policies: ['policy:one'],
@@ -40,7 +41,7 @@ test('policy inspection routes retained report through application summary proje
         requiredSemanticPredicates: [],
         unsupportedSemanticPredicates: []
       }
-    } as const;
+    };
 
     const reportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.policyReport);
     await fs.mkdir(path.dirname(reportPath), { recursive: true });
