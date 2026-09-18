@@ -128,8 +128,12 @@ export function registerInspectionCommands(program: Command): void {
         `Review summary not found; run ${c.rootCommand} explain first`);
     },
     view: async (report) => {
-      const { formatReviewSummaryContract } = await import('./formatters.ts');
-      return inspectionValue(report, formatReviewSummaryContract);
+      const { projectReviewSummary } = await import('../../application/review-summary-inspect.ts');
+      const { formatReviewSummary } = await import('../../entry/cli/review-summary-inspect.ts');
+      return inspectionValue(
+        report,
+        (value) => formatReviewSummary(projectReviewSummary(value))
+      );
     },
     modes: {
       matrix: async (report) => {
