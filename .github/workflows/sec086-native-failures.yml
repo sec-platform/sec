@@ -3,12 +3,13 @@ on:
   push:
     branches: [refactor/sec086-regression-hardening]
     paths: [.github/workflows/sec086-native-failures.yml]
-permissions:
-  contents: read
+permissions: {}
 jobs:
   inspect:
     runs-on: windows-latest
-    timeout-minutes: 8
+    timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -18,53 +19,64 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version-file: .bun-version
-      - name: Bind source and dependencies
+      - name: Prepare exact transitive candidate
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          $dir=Join-Path $env:RUNNER_TEMP 'sec-cause'
+          $dir=Join-Path $env:RUNNER_TEMP 'sec-transitive'
           New-Item -ItemType Directory -Path $dir | Out-Null
-          if ((git rev-parse 'HEAD^{tree}') -ne '147b082d713372bec23a906c5b64523406b969e6') { throw 'source mismatch' }
+          foreach ($item in @(@{id='d5743ee9321d5c7acb17c3af18d0d8b44f3da11f';name='edit.py'},@{id='e875222b92e929a61e3a60cecc29f7375592a20f';name='test.patch'})) {
+            $blob=gh api repos/sec-platform/sec/git/blobs/$($item.id) | ConvertFrom-Json
+            [IO.File]::WriteAllBytes("$dir/$($item.name)",[Convert]::FromBase64String($blob.content))
+          }
+          python "$dir/edit.py"
+          if ($LASTEXITCODE -ne 0) { throw 'source preimage mismatch' }
+          git apply --check "$dir/test.patch"
+          if ($LASTEXITCODE -ne 0) { throw 'test preimage mismatch' }
+          git apply "$dir/test.patch"
+          git add -u
+          $tree=git write-tree
+          if ($tree -ne '7e960b61f43a22777c0cb443770d2b1888ab8e1e') { throw "tree mismatch $tree" }
+          @'
+          from pathlib import Path
+          import json,subprocess,sys
+          files=subprocess.check_output(['git','diff','--cached','--name-only']).decode().splitlines()
+          Path(sys.argv[1]).write_text(json.dumps({'base_tree':'147b082d713372bec23a906c5b64523406b969e6','tree':[{'path':p,'mode':'100644','type':'blob','content':Path(p).read_text()} for p in files]}))
+          '@ | Set-Content "$dir/tree.py"
+          python "$dir/tree.py" "$dir/tree.json"
+          $stored=gh api --method POST repos/sec-platform/sec/git/trees --input "$dir/tree.json" --jq .sha
+          if ($stored -ne $tree) { throw 'stored tree mismatch' }
+          git config user.name QzCrane
+          git config user.email 107861762+QzCrane@users.noreply.github.com
+          $candidate=git commit-tree $tree -p HEAD -m 'transitive closure verification candidate'
+          git checkout --detach $candidate
           git rev-parse HEAD 'HEAD^{tree}' | Set-Content "$dir/source.txt"
-          git bundle create "$dir/commits.bundle" refs/remotes/origin/refactor/sec086-regression-hardening '^d2224e95d44486f502608bf93e44633f68f42c20'
+          git bundle create "$dir/commits.bundle" refs/remotes/origin/refactor/sec086-regression-hardening '^6f544478dc1fc85857cc5b9c2e9f9c61e7b5780c'
           bun run deps:ensure *> "$dir/deps.log"
           if ($LASTEXITCODE -ne 0) { exit 1 }
-          $temp=Join-Path $env:RUNNER_TEMP 'sec-cause-temp'
+          $temp=Join-Path $env:RUNNER_TEMP 'sec-transitive-temp'
           New-Item -ItemType Directory -Path $temp | Out-Null
           "TEMP=$temp" >> $env:GITHUB_ENV
           "TMP=$temp" >> $env:GITHUB_ENV
-      - name: Observe nested retained command before instrumentation
+      - name: Test closure, types and the canonical nine-test subset separately
         shell: pwsh
         run: |
-          $dir=Join-Path $env:RUNNER_TEMP 'sec-cause'
-          bun -e 'import {runObservedCommand} from "./src/adapters/runtime-state/physical/runtime/observed-process.ts"; const args=["test","tests/unit/install-git-hooks.test.ts","tests/unit/project-baseline-phase.test.ts","tests/unit/project-provenance-fallback.test.ts","tests/unit/project-write-boundary-fallback.test.ts","--parallel=2","--isolate","--no-orphans"]; const result=await runObservedCommand(process.execPath,args,{cwd:process.cwd(),timeoutMs:60000,onOutput:(stream,bytes)=>process[stream].write(bytes)}); console.log(JSON.stringify(result));' *> "$dir/nested.log"
-          "exit=$LASTEXITCODE" | Set-Content "$dir/nested-exit.txt"
-          Get-Content "$dir/nested.log" -Tail 12
-      - name: Retain the first actual loader rejection, not only its outer category
-        shell: pwsh
-        run: |
-          $dir=Join-Path $env:RUNNER_TEMP 'sec-cause'
-          @'
-          from pathlib import Path
-          p=Path('src/adapters/providers/windows-control-cli/runtime/installed-adoption.ts')
-          s=p.read_text()
-          old="throw new WindowsControlCliInstalledAdoptionError(reason);"
-          assert s.count(old)==1
-          s=s.replace(old,"console.error('ADOPTION_REJECT', reason, new Error().stack);\n  "+old)
-          old='const imported = new Set(imports);'
-          assert s.count(old)==1
-          s=s.replace(old,"console.error('IMPORTS', JSON.stringify({id:binding.id,imports,declared:[...declaredModules.keys()]}));\n    "+old)
-          p.write_text(s)
-          '@ | Set-Content "$dir/instrument.py"
-          python "$dir/instrument.py"
-          if ($LASTEXITCODE -ne 0) { throw 'instrumentation mismatch' }
-          bun test tests/unit/windows-control-cli-installed-adoption.test.ts --test-name-pattern 'authenticates exact bytes' *> "$dir/loader.log"
-          "exit=$LASTEXITCODE" | Set-Content "$dir/loader-exit.txt"
-          git diff -- src/adapters/providers/windows-control-cli/runtime/installed-adoption.ts > "$dir/instrumentation.diff"
-          Get-Content "$dir/loader.log" -Tail 80
+          $dir=Join-Path $env:RUNNER_TEMP 'sec-transitive'
+          bun test tests/unit/windows-control-cli-installed-adoption.test.ts tests/unit/windows-control-cli-environment.test.ts tests/contract/windows-control-cli-provider-boundary.test.ts *> "$dir/closure.log"
+          $closure=$LASTEXITCODE
+          bun node_modules/@typescript/native/bin/tsc --noEmit -p tsconfig.json *> "$dir/types.log"
+          $types=$LASTEXITCODE
+          bun run test:fast tests/unit/install-git-hooks.test.ts tests/unit/project-baseline-phase.test.ts tests/unit/project-provenance-fallback.test.ts tests/unit/project-write-boundary-fallback.test.ts *> "$dir/canonical-subset.log"
+          $subset=$LASTEXITCODE
+          @{closure=$closure;types=$types;canonicalSubset=$subset} | ConvertTo-Json | Set-Content "$dir/results.json"
+          Get-Content "$dir/closure.log" -Tail 40
+          Get-Content "$dir/canonical-subset.log" -Tail 30
+          if ($closure -ne 0 -or $types -ne 0 -or $subset -ne 0) { exit 1 }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: sec086-native-cause
-          path: ${{ runner.temp }}/sec-cause/
+          name: sec086-transitive-checks
+          path: ${{ runner.temp }}/sec-transitive/
           retention-days: 7
           if-no-files-found: error
