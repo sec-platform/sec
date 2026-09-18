@@ -1,7 +1,7 @@
-import { countMatching } from '../../../../../contracts/collections.ts';
-import type { VerificationReport } from '../../../../../assurance/verification/contract/types.ts';
-import { reviewArtifactMissingReasonTypeCount, reviewArtifactUploadGroupCount } from '../../../../../assurance/verification/review/contract/artifact.ts';
-import type { ReviewChainStageId, ReviewSummary } from '../../../../../assurance/verification/review/contract/types.ts';
+import { countMatching } from '../../../contracts/collections.ts';
+import type { VerificationReport } from '../contract/types.ts';
+import { reviewArtifactMissingReasonTypeCount, reviewArtifactUploadGroupCount } from './contract/artifact.ts';
+import type { ReviewChainStageId, ReviewSummary } from './contract/types.ts';
 
 export type E2eMatrixRow = {
   stage: string;

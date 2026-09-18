@@ -13,7 +13,7 @@ import { REVIEW_SUMMARY_FORMAT_VERSION } from '../../../assurance/verification/r
 import { buildReviewUpgradeSummary, upgradeDiagnosticsAttributionParts } from '../../../assurance/verification/review/contract/upgrade.ts';
 import { buildProvenanceSummary, buildSemanticViewSummary } from '../../../assurance/verification/review/summary-derivations.ts';
 export { buildProvenanceSummary, buildSemanticViewSummary } from '../../../assurance/verification/review/summary-derivations.ts';
-import { buildReviewChainSummary } from '../../verification/platform/review/runtime/matrix.ts';
+import { buildReviewChainSummary } from '../../../assurance/verification/review/matrix.ts';
 import { modelRelativePath } from '../../../workspace/contract/types.ts';
 import { isCanonicalWorkspaceArtifactPath, policiesRelativePath } from "../../workspace-context.ts";
 import { posixPath } from '../../../contracts/relative-path.ts';

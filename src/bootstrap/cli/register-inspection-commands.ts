@@ -137,7 +137,7 @@ export function registerInspectionCommands(program: Command): void {
     },
     modes: {
       matrix: async (report) => {
-        const { buildE2eMatrix } = await import('../../adapters/verification/platform/review/runtime/matrix.ts');
+        const { buildE2eMatrix } = await import('../../assurance/verification/review/matrix.ts');
         const { projectE2eMatrix } = await import('../../application/e2e-matrix-inspect.ts');
         const { formatE2eMatrix } = await import('../../entry/cli/e2e-matrix-inspect.ts');
         return inspectionValue(projectE2eMatrix(buildE2eMatrix(report)), formatE2eMatrix);

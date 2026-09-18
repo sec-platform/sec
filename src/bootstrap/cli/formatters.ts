@@ -6,7 +6,7 @@ import type { CiArtifactKind, CiArtifactManifest, CiArtifactUploadGroup } from '
 import { reviewArtifactMissingReasonTypeCount, reviewArtifactUploadGroupCount } from '../../assurance/verification/review/contract/artifact.ts';
 import type { ReviewSummary } from '../../assurance/verification/review/contract/types.ts';
 import { upgradeDiagnosticsAttributionParts } from '../../assurance/verification/review/contract/upgrade.ts';
-import { buildE2eMatrix, type E2eMatrix } from '../../adapters/verification/platform/review/runtime/matrix.ts';
+import { buildE2eMatrix, type E2eMatrix } from '../../assurance/verification/review/matrix.ts';
 import { toWorkspaceArtifactPath } from "../../adapters/workspace-context.ts";
 import { formatCounts, formatFields, formatList, formatMergedSummaryEntries, formatSummaryEntries } from '../../entry/cli/format-utils.ts';
 

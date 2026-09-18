@@ -165,7 +165,7 @@ export function registerWorkspaceCommands(program: Command): void {
         );
         return;
       }
-      const { buildE2eMatrix } = await import('../../adapters/verification/platform/review/runtime/matrix.ts');
+      const { buildE2eMatrix } = await import('../../assurance/verification/review/matrix.ts');
       const { formatExplainSummary } = await import('./formatters.ts');
       const { graph, reviewSummary } = await runWithOptionalSpinner('Explaining project', output, () => explainWorkspace(cwd));
       printJsonOrText(
