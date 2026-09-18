@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { throwIfNativeAborted } from '../../contracts/native-abort.ts';
 import { CompilerError } from '../../compiler/errors.ts';
 
@@ -34,7 +34,13 @@ export async function runSuiteFiles(
     throwIfNativeAborted(signal);
     moduleUrl.searchParams.set('loader', import.meta.url);
     moduleUrl.searchParams.set('revision', String(++suiteModuleRevision));
-    const testModule = (await import(moduleUrl.href)) as SuiteModule;
+    // Bun discards file: URL queries when keying modules on both tested hosts.
+    // Native paths retain the discriminator; Node keeps the standard URL form.
+    // No shared cache is cleared and relative imports keep their original base.
+    const specifier = typeof Bun !== 'undefined'
+      ? fileURLToPath(moduleUrl) + moduleUrl.search
+      : moduleUrl.href;
+    const testModule = (await import(specifier)) as SuiteModule;
     throwIfNativeAborted(signal);
     const execute = testModule.runSuite;
     if (typeof execute !== 'function') throw new CompilerError('VERIFY-BUILD-002', `Test file "${file}" must export runSuite()`);
