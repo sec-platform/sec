@@ -35,11 +35,11 @@ const sourceProgramCompilationOperationBrand: unique symbol = Symbol(
 
 export type SourceProgramCompilationOperation = Readonly<{
   readonly [sourceProgramCompilationOperationBrand]: true;
-  readonly deadlineAtUnixMs: number | null;
+  readonly deadlineAtUnixMs: number;
 }>;
 
 type SourceProgramCompilationOperationState = {
-  readonly deadlineAtMonotonicMs: number | null;
+  readonly deadlineAtMonotonicMs: number;
   readonly signal: AbortSignal | null;
   readonly startedAtMonotonicMs: number;
   readonly events: SourceProgramCompilationPhaseEvent[];
@@ -78,23 +78,31 @@ export class SourceProgramCompilationInterruptedError extends Error {
 function issueSourceProgramCompilationOperation(
   control: SourceProgramCompilationControl | null
 ): SourceProgramCompilationOperation {
-  if (control !== null && (!Number.isSafeInteger(control.deadlineAtUnixMs)
-      || control.deadlineAtUnixMs <= 0)) {
+  // Omission selects this owner's finite ceiling, never an unbounded route.
+  // Read caller fields once; callbacks cannot extend the admitted operation.
+  const requestedDeadline = control?.deadlineAtUnixMs;
+  const signal = control?.signal ?? null;
+  const observePhase = control?.observePhase ?? null;
+  if (control !== null && (!Number.isSafeInteger(requestedDeadline)
+      || requestedDeadline! <= 0)) {
     throw new Error('Source Program compilation deadline must be a positive safe Unix timestamp');
   }
+  const startedAtUnixMs = Date.now();
   const startedAtMonotonicMs = performance.now();
+  const deadlineAtUnixMs = Math.min(
+    requestedDeadline ?? Number.MAX_SAFE_INTEGER,
+    startedAtUnixMs + SOURCE_PROGRAM_COMPILATION_MAX_DURATION_MS
+  );
   const operation = Object.freeze({
     [sourceProgramCompilationOperationBrand]: true as const,
-    deadlineAtUnixMs: control?.deadlineAtUnixMs ?? null
+    deadlineAtUnixMs
   });
   sourceProgramCompilationOperationStates.set(operation, {
-    deadlineAtMonotonicMs: control === null
-      ? null
-      : startedAtMonotonicMs + Math.max(0, control.deadlineAtUnixMs - Date.now()),
-    signal: control?.signal ?? null,
+    deadlineAtMonotonicMs: startedAtMonotonicMs + Math.max(0, deadlineAtUnixMs - startedAtUnixMs),
+    signal,
     startedAtMonotonicMs,
     events: [],
-    observePhase: control?.observePhase ?? null
+    observePhase
   });
   return operation;
 }
@@ -130,8 +138,7 @@ export function sourceProgramCompilationCheckpoint(
       operationState.events
     );
   }
-  if (operationState.deadlineAtMonotonicMs !== null
-      && now >= operationState.deadlineAtMonotonicMs) {
+  if (now >= operationState.deadlineAtMonotonicMs) {
     throw new SourceProgramCompilationInterruptedError(
       'source-program-compilation-deadline-exhausted',
       phase,
@@ -159,7 +166,7 @@ export function sourceProgramCompilationPhaseEvents(
   return Object.freeze([...sourceProgramCompilationOperationState(operation).events]);
 }
 
-/** Reuse one issued operation or issue the existing unbounded internal route. */
+/** Reuse the admitted operation unchanged, or issue the finite owner default. */
 export function resolveSourceProgramCompilationOperation(
   operation?: SourceProgramCompilationOperation
 ): SourceProgramCompilationOperation {
