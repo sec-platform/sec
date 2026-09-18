@@ -5,27 +5,20 @@ import path from 'node:path';
 
 import { TemplateEngine } from '../../src/adapters/compilation/compose/template-engine.ts';
 
-test('template conditionals are exactly paired, nested, and boolean-owned', () => {
-  const source = [
-    'before',
-    '/*#IF enabled*/',
-    'enabled',
-    '/*#IF !nested*/',
-    'not-nested',
-    '/*#ENDIF*/',
-    '/*#ENDIF*/',
-    'after'
-  ].join('\n');
-
-  expect(TemplateEngine.renderString(source, {
-    enabled: true,
-    nested: false
-  })).toBe('before\nenabled\nnot-nested\n\nafter');
-  expect(TemplateEngine.renderString(source, {
-    enabled: false,
-    nested: false
-  })).toBe('before\n\nafter');
-});
+for (const newline of ['\n', '\r\n']) {
+  test(`template conditionals preserve literal ${JSON.stringify(newline)} bytes around paired directives`, () => {
+    const source = [
+      'before', '/*#IF enabled*/', 'enabled', '/*#IF !nested*/',
+      'not-nested', '/*#ENDIF*/', '/*#ENDIF*/', 'after'
+    ].join(newline);
+    // Markers are syntax. Active text, including each surrounding newline,
+    // is content, not a formatter's permission to delete whitespace.
+    expect(TemplateEngine.renderString(source, { enabled: true, nested: false }))
+      .toBe(['before', '', 'enabled', '', 'not-nested', '', '', 'after'].join(newline));
+    expect(TemplateEngine.renderString(source, { enabled: false, nested: false }))
+      .toBe(['before', '', 'after'].join(newline));
+  });
+}
 
 test('unknown, inherited, non-boolean, and malformed conditions fail closed', () => {
   expect(() => TemplateEngine.renderString(
