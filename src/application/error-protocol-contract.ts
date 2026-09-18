@@ -101,15 +101,16 @@ const protocolExamples: Array<ErrorProtocolExample['input'] & { id: string }> = 
 ];
 
 export function buildErrorProtocolContract(command: string): ErrorProtocolContract {
-  const examples = protocolExamples.map((example) => ({
-    id: example.id,
-    input: {
+  const examples = protocolExamples.map((example) => {
+    // The catalog is private reusable data; only this result owns its copy.
+    // Real thrown error details still pass through buildErrorProtocol unchanged.
+    const input = {
       ...(example.code ? { code: example.code } : {}),
       message: example.message,
-      ...(example.details ? { details: example.details } : {})
-    },
-    output: buildErrorProtocol(example)
-  }));
+      ...(example.details ? { details: structuredClone(example.details) } : {})
+    };
+    return { id: example.id, input, output: buildErrorProtocol(input) };
+  });
   const issueTypes = uniqueSorted(examples.map((example) => example.output.issueType));
   const suggestedActions = new Set(examples.flatMap((example) => example.output.suggestedActions));
   const artifactPaths = uniqueSorted(examples.flatMap((example) => example.output.artifactPaths));
