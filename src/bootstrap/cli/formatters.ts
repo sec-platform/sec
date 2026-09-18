@@ -104,13 +104,6 @@ function formatE2eMatrixRow(row: E2eMatrix['rows'][number], prefix = ''): string
   return formatFields([`${prefix}${row.stage}: ${row.status}`, row.detail, `evidence=${row.evidence.join(', ') || 'none'}`]);
 }
 
-export function formatE2eMatrix(matrix: E2eMatrix): string {
-  return [
-    `E2E matrix ${matrix.status}; rows=${matrix.rowCount}`,
-    ...matrix.rows.map((row) => formatE2eMatrixRow(row))
-  ].join('\n');
-}
-
 function formatUpgradeDiagnosticsDetails(details: unknown): string {
   return formatList(upgradeDiagnosticsAttributionParts(details));
 }
