@@ -3,84 +3,68 @@ on:
   push:
     branches: [refactor/sec086-regression-hardening]
     paths: [.github/workflows/sec086-native-failures.yml]
-permissions: {}
+permissions:
+  contents: read
 jobs:
   inspect:
     runs-on: windows-latest
-    timeout-minutes: 10
-    permissions:
-      contents: write
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: a62be485427f0d7795a7ba99a637f7377cf88176
+          ref: bec45df7d636791f92a5087c046d0adc9fb1fc03
           fetch-depth: 0
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version-file: .bun-version
-      - name: Bind the exact five-file candidate
+      - name: Bind source and dependencies
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          $dir=Join-Path $env:RUNNER_TEMP 'sec-native-modes'
+          $dir=Join-Path $env:RUNNER_TEMP 'sec-cause'
           New-Item -ItemType Directory -Path $dir | Out-Null
-          foreach ($id in @('0c0fc52c5fbc6f852ee683a980a60723dc4d085e','fb0f427a598b4168775b77d286ceb48776b585b4')) {
-            $blob=gh api repos/sec-platform/sec/git/blobs/$id | ConvertFrom-Json
-            [IO.File]::WriteAllBytes("$dir/$id.patch",[Convert]::FromBase64String($blob.content))
-            git apply --check "$dir/$id.patch"
-            if ($LASTEXITCODE -ne 0) { throw 'patch preimage mismatch' }
-            git apply --index "$dir/$id.patch"
-          }
-          $tree=git write-tree
-          if ($tree -ne '147b082d713372bec23a906c5b64523406b969e6') { throw "tree mismatch $tree" }
-          @'
-          from pathlib import Path
-          import json,subprocess,sys
-          files=subprocess.check_output(['git','diff','--cached','--name-only']).decode().splitlines()
-          Path(sys.argv[1]).write_text(json.dumps({'base_tree':'109682a614c2181f8515a3a68a92c8fd65d1b6c3','tree':[{'path':p,'mode':'100644','type':'blob','content':Path(p).read_text()} for p in files]}))
-          '@ | Set-Content "$dir/tree.py"
-          python "$dir/tree.py" "$dir/tree.json"
-          $stored=gh api --method POST repos/sec-platform/sec/git/trees --input "$dir/tree.json" --jq .sha
-          if ($stored -ne $tree) { throw 'stored tree mismatch' }
-          git config user.name QzCrane
-          git config user.email 107861762+QzCrane@users.noreply.github.com
-          $candidate=git commit-tree $tree -p HEAD -m 'native closure and runner-mode candidate'
-          git checkout --detach $candidate
+          if ((git rev-parse 'HEAD^{tree}') -ne '147b082d713372bec23a906c5b64523406b969e6') { throw 'source mismatch' }
           git rev-parse HEAD 'HEAD^{tree}' | Set-Content "$dir/source.txt"
-          git bundle create "$dir/commits.bundle" refs/remotes/origin/refactor/sec086-regression-hardening '^58854dd0039aeea18ecf236ca3088df9003a08a3'
+          git bundle create "$dir/commits.bundle" refs/remotes/origin/refactor/sec086-regression-hardening '^d2224e95d44486f502608bf93e44633f68f42c20'
           bun run deps:ensure *> "$dir/deps.log"
-          if ($LASTEXITCODE -ne 0) { Get-Content "$dir/deps.log"; exit 1 }
-          $temp=Join-Path $env:RUNNER_TEMP 'sec-mode-temp'
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $temp=Join-Path $env:RUNNER_TEMP 'sec-cause-temp'
           New-Item -ItemType Directory -Path $temp | Out-Null
           "TEMP=$temp" >> $env:GITHUB_ENV
           "TMP=$temp" >> $env:GITHUB_ENV
-      - name: Compare only the previously failing groups
+      - name: Observe nested retained command before instrumentation
         shell: pwsh
         run: |
-          $dir=Join-Path $env:RUNNER_TEMP 'sec-native-modes'
-          $files=@('tests/unit/install-git-hooks.test.ts','tests/unit/project-baseline-phase.test.ts','tests/unit/project-provenance-fallback.test.ts','tests/unit/project-write-boundary-fallback.test.ts')
-          $groups=@(
-            @{name='installed';argv=@('test','tests/unit/windows-control-cli-installed-adoption.test.ts','tests/unit/windows-control-cli-environment.test.ts')},
-            @{name='no-orphans';argv=@('test')+$files+@('--no-orphans')},
-            @{name='parallel';argv=@('test')+$files+@('--parallel=2','--isolate')},
-            @{name='combined';argv=@('test')+$files+@('--parallel=2','--isolate','--no-orphans')},
-            @{name='types';argv=@('node_modules/@typescript/native/bin/tsc','--noEmit','-p','tsconfig.json')}
-          )
-          $results=@()
-          foreach ($group in $groups) {
-            $args=$group.argv
-            & bun @args *> "$dir/$($group.name).log"
-            $results+=@{name=$group.name;exitCode=$LASTEXITCODE}
-            Get-Content "$dir/$($group.name).log" -Tail 12
-          }
-          $results | ConvertTo-Json | Set-Content "$dir/results.json"
-          if (@($results | Where-Object {$_.exitCode -ne 0}).Count -gt 0) { exit 1 }
+          $dir=Join-Path $env:RUNNER_TEMP 'sec-cause'
+          bun -e 'import {runObservedCommand} from "./src/adapters/runtime-state/physical/runtime/observed-process.ts"; const args=["test","tests/unit/install-git-hooks.test.ts","tests/unit/project-baseline-phase.test.ts","tests/unit/project-provenance-fallback.test.ts","tests/unit/project-write-boundary-fallback.test.ts","--parallel=2","--isolate","--no-orphans"]; const result=await runObservedCommand(process.execPath,args,{cwd:process.cwd(),timeoutMs:60000,onOutput:(stream,bytes)=>process[stream].write(bytes)}); console.log(JSON.stringify(result));' *> "$dir/nested.log"
+          "exit=$LASTEXITCODE" | Set-Content "$dir/nested-exit.txt"
+          Get-Content "$dir/nested.log" -Tail 12
+      - name: Retain the first actual loader rejection, not only its outer category
+        shell: pwsh
+        run: |
+          $dir=Join-Path $env:RUNNER_TEMP 'sec-cause'
+          @'
+          from pathlib import Path
+          p=Path('src/adapters/providers/windows-control-cli/runtime/installed-adoption.ts')
+          s=p.read_text()
+          old="throw new WindowsControlCliInstalledAdoptionError(reason);"
+          assert s.count(old)==1
+          s=s.replace(old,"console.error('ADOPTION_REJECT', reason, new Error().stack);\n  "+old)
+          old='const imported = new Set(imports);'
+          assert s.count(old)==1
+          s=s.replace(old,"console.error('IMPORTS', JSON.stringify({id:binding.id,imports,declared:[...declaredModules.keys()]}));\n    "+old)
+          p.write_text(s)
+          '@ | Set-Content "$dir/instrument.py"
+          python "$dir/instrument.py"
+          if ($LASTEXITCODE -ne 0) { throw 'instrumentation mismatch' }
+          bun test tests/unit/windows-control-cli-installed-adoption.test.ts --test-name-pattern 'authenticates exact bytes' *> "$dir/loader.log"
+          "exit=$LASTEXITCODE" | Set-Content "$dir/loader-exit.txt"
+          git diff -- src/adapters/providers/windows-control-cli/runtime/installed-adoption.ts > "$dir/instrumentation.diff"
+          Get-Content "$dir/loader.log" -Tail 80
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: sec086-native-modes
-          path: ${{ runner.temp }}/sec-native-modes/
+          name: sec086-native-cause
+          path: ${{ runner.temp }}/sec-cause/
           retention-days: 7
           if-no-files-found: error
