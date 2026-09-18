@@ -1,20 +1,12 @@
 import { formatCompilerFailure } from '../../compiler/errors.ts';
+import { runRepairWithFailureReadback as executeRepair } from '../../application/repair-execution.ts';
 
-/** Repair may leave a diagnostic plan on failure; inspecting it is not a second repair. */
-export async function runRepairWithFailureReadback<T>(
+/** Assemble the repair use case with this CLI's non-authoritative diagnostics. */
+export function runRepairWithFailureReadback<T>(
   execute: () => Promise<T>,
   readback: () => Promise<void>
 ): Promise<T> {
-  try {
-    return await execute();
-  } catch (primary) {
-    try {
-      await readback();
-    } catch (secondary) {
-      try {
-        console.error(`Repair failure readback also failed: ${formatCompilerFailure(secondary)}`);
-      } catch { /* Even the diagnostic sink must not replace the original repair failure. */ }
-    }
-    throw primary;
-  }
+  return executeRepair(execute, readback, (secondary) => {
+    console.error(`Repair failure readback also failed: ${formatCompilerFailure(secondary)}`);
+  });
 }
