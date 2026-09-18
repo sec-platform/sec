@@ -25,166 +25,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          git config user.name QzCrane
-          git config user.email 107861762+QzCrane@users.noreply.github.com
-          helper=.github/workflows/sec086-resume-audit.yml
-          git rm --cached "$helper"
-          test "$(git write-tree)" = 65f0878cda04b0ef0e3c25e3d236d9a0403a427a
-          git add "$helper"
+          git show b545ca4cba71dbc6cc4c546c6bf8f36a73a2a374:.github/workflows/sec086-resume-audit.yml > /tmp/source-transform.yml
           python3 - <<'PY'
           from pathlib import Path
-          r=Path('.')
-          f=r/'src/bootstrap/cli/formatters.ts'
-          s=f.read_text()
-          start=s.index('type ArtifactPathUploadGroup')
-          end=s.index('function formatE2eMatrixRow')
-          body=s[start:end].replace('toWorkspaceArtifactPath','requireCanonicalCiArtifactPath')
-          body=body.replace('missingReasonCounts: manifest.summary.missingReasonCounts,','missingReasonCounts: { ...manifest.summary.missingReasonCounts },').replace('missing: manifest.missing\n','missing: manifest.missing.map((entry) => ({ ...entry }))\n')
-          (r/'src/application/artifact-upload-paths.ts').write_text("import { uniqueSorted } from '../contracts/canonical.ts';\nimport { buildCiArtifactUploadGroups, CI_ARTIFACT_MANIFEST_PATH, requireCanonicalCiArtifactPath } from '../assurance/verification/ci-artifacts/contract/manifest.ts';\nimport type { CiArtifactKind, CiArtifactManifest, CiArtifactUploadGroup } from '../assurance/verification/ci-artifacts/contract/types.ts';\n\n"+body)
-          f.write_text(s[:start]+s[end:])
-          s=f.read_text()
-          for line in ["import { uniqueSorted } from '../../contracts/canonical.ts';\n", "import { buildCiArtifactUploadGroups, CI_ARTIFACT_MANIFEST_PATH } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';\n", "import type { CiArtifactKind, CiArtifactManifest, CiArtifactUploadGroup } from '../../assurance/verification/ci-artifacts/contract/types.ts';\n", 'import { toWorkspaceArtifactPath } from "../../adapters/workspace-context.ts";\n']:
-            assert line in s
-            s=s.replace(line,'')
-          f.write_text(s)
-          f=r/'src/assurance/verification/ci-artifacts/contract/manifest.ts';s=f.read_text();pos=s.index('export function uniqueSortedCiArtifactPaths')
-          s=s[:pos]+'''/** Validate the logical artifact identity without resolving or accessing a workspace. */
-          export function requireCanonicalCiArtifactPath(artifactPath: string): string {
-            if (!isCanonicalCiArtifactPath(artifactPath)) {
-              throw new Error(`Workspace artifact path "${artifactPath}" is not a canonical .sec/artifacts path`);
-            }
-            return artifactPath;
-          }
-
-          '''+s[pos:];f.write_text(s)
-          f=r/'src/adapters/workspace-context.ts';s=f.read_text();s=s.replace('  isCanonicalCiArtifactPath\n','  isCanonicalCiArtifactPath,\n  requireCanonicalCiArtifactPath\n');s=s.replace('''  if (!isCanonicalWorkspaceArtifactPath(artifactPath)) {
-              throw new Error(`Workspace artifact path "${artifactPath}" is not a canonical .sec/artifacts path`);
-            }
-          ''','  requireCanonicalCiArtifactPath(artifactPath);\n');s=s.replace('''export function toWorkspaceArtifactPath(artifactPath: string): string {
-            requireCanonicalCiArtifactPath(artifactPath);
-            return artifactPath;
-          }
-
-          ''','');f.write_text(s)
-          (r/'src/entry/cli/artifact-upload-paths.ts').write_text('''import type { ArtifactUploadPathContract } from '../../application/artifact-upload-paths.ts';
-
-          export function formatArtifactUploadPaths(contract: Readonly<Pick<ArtifactUploadPathContract, 'paths'>>): string {
-            return contract.paths.join('\\n');
-          }
-          ''')
-          f=r/'src/bootstrap/cli/artifact-command-execution.ts';s=f.read_text().replace("const { buildArtifactUploadPathContract } = await import('./formatters.ts');","const { buildArtifactUploadPathContract } = await import('../../application/artifact-upload-paths.ts');\n      const { formatArtifactUploadPaths } = await import('../../entry/cli/artifact-upload-paths.ts');");s=s.replace("printJsonOrText(contract, input.output, (value) => value.paths.join('\\n'));","printJsonOrText(contract, input.output, formatArtifactUploadPaths);");f.write_text(s)
-          f=r/'tests/unit/workspace-native-paths.test.ts';s=f.read_text().replace(', toWorkspaceArtifactPath','').replace('toWorkspaceArtifactPath(', 'requireCanonicalCiArtifactPath(');s="import { requireCanonicalCiArtifactPath } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';\n"+s;f.write_text(s)
+          import textwrap
+          source=Path('/tmp/source-transform.yml').read_text()
+          preparation=source.split('      - name: Prepare exact bounded candidate\n',1)[1].split('        run: |\n',1)[1].split('\n      - run:',1)[0]
+          script=textwrap.dedent(preparation)
+          anchor='git add src/adapters/workspace-context.ts '
+          assert script.count(anchor)==1
+          fix='python3 -c "from pathlib import Path; p=Path(\'src/application/artifact-upload-paths.ts\'); p.write_text(p.read_text().rstrip()+chr(10))"\n'
+          script=script.replace(anchor,fix+anchor).replace('9361c7d37b69c9435d2dc394e6cf2937c6f8484d','01b63a5684ef5a1e6c7c5a5218af1cb9657d1312')
+          Path('/tmp/prepare.sh').write_text(script)
           PY
-          cat > tests/unit/artifact-upload-paths.test.ts <<'TS'
-          import { describe, expect, test } from 'bun:test';
-
-          import { buildArtifactUploadPathContract } from '../../src/application/artifact-upload-paths.ts';
-          import { formatArtifactUploadPaths } from '../../src/entry/cli/artifact-upload-paths.ts';
-          import {
-            CI_ARTIFACT_FILES,
-            ciArtifactUploadName,
-            emptyCiArtifactManifest
-          } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
-          import type { CiArtifactManifest } from '../../src/assurance/verification/ci-artifacts/contract/types.ts';
-
-          function fixture(): CiArtifactManifest {
-            const manifest = emptyCiArtifactManifest();
-            manifest.artifacts = [
-              { path: CI_ARTIFACT_FILES.reviewSummary, kind: 'governance', uploadName: 'review', exists: true },
-              { path: '.sec/artifacts/test-results/unit.xml', kind: 'test', uploadName: 'unit', exists: true },
-              // Contract membership comes from the declared paths, not this entry's kind.
-              { path: '.sec/artifacts/generated/customer-contract.json', kind: 'governance', uploadName: 'contract', exists: true },
-              { path: CI_ARTIFACT_FILES.reviewSummary, kind: 'governance', uploadName: 'duplicate', exists: true }
-            ];
-            manifest.summary.contractPaths = ['.sec/artifacts/generated/customer-contract.json'];
-            manifest.summary.artifactStatus = 'attention';
-            manifest.missing = [{
-              path: CI_ARTIFACT_FILES.graphLock,
-              reason: 'fixed-governance-missing',
-              declaredBy: 'artifact-manifest'
-            }];
-            manifest.summary.missingReasonCounts['fixed-governance-missing'] = 1;
-            manifest.summary.missingReasonTypeCount = 1;
-            return manifest;
-          }
-
-          describe('artifact upload paths application and presentation boundary', () => {
-            test('all paths include the manifest, deduplicate and group canonical identities without changing the source', () => {
-              const source = fixture();
-              const before = structuredClone(source);
-              const result = buildArtifactUploadPathContract(source);
-              expect(result.paths).toEqual([
-                CI_ARTIFACT_FILES.artifactManifest,
-                CI_ARTIFACT_FILES.reviewSummary,
-                '.sec/artifacts/generated/customer-contract.json',
-                '.sec/artifacts/test-results/unit.xml'
-              ]);
-              expect(result).toMatchObject({
-                formatVersion: '2', root: 'workspace', kind: 'all', artifactStatus: 'attention',
-                count: 4, byKind: { governance: 3, test: 1 }, uploadGroupCount: 2,
-                missingCount: 1, missingReasonTypeCount: 1
-              });
-              expect(result.uploadGroups).toEqual([
-                { kind: 'governance', count: 3, paths: result.paths.slice(0, 3) },
-                { kind: 'test', count: 1, paths: [result.paths[3]] }
-              ]);
-              expect(formatArtifactUploadPaths(result)).toBe(result.paths.join('\n'));
-              expect(source).toEqual(before);
-            });
-
-            test('contract filtering follows declared membership and relabels only the selected output', () => {
-              const result = buildArtifactUploadPathContract(fixture(), 'contract');
-              expect(result.paths).toEqual(['.sec/artifacts/generated/customer-contract.json']);
-              expect(result.byKind).toEqual({ contract: 1 });
-              expect(result.uploadGroups).toEqual([{ kind: 'contract', count: 1, paths: result.paths }]);
-              expect(result.missingCount).toBe(1);
-              expect(result.missing[0]?.path).toBe(CI_ARTIFACT_FILES.graphLock);
-              expect(buildArtifactUploadPathContract(fixture(), 'test').paths).toEqual([
-                '.sec/artifacts/test-results/unit.xml'
-              ]);
-              expect(buildArtifactUploadPathContract(fixture(), 'governance').paths).toContain(
-                CI_ARTIFACT_FILES.artifactManifest
-              );
-            });
-
-            test('empty selected paths remain empty, and missing diagnostics are detached from their input', () => {
-              expect(formatArtifactUploadPaths(buildArtifactUploadPathContract(emptyCiArtifactManifest(), 'test'))).toBe('');
-              expect(buildArtifactUploadPathContract(emptyCiArtifactManifest()).paths).toEqual([CI_ARTIFACT_FILES.artifactManifest]);
-              const source = fixture();
-              const result = buildArtifactUploadPathContract(source, 'test');
-              source.missing[0]!.path = CI_ARTIFACT_FILES.runtimeReport;
-              source.summary.missingReasonCounts['fixed-governance-missing'] = 9;
-              expect(result.missing[0]?.path).toBe(CI_ARTIFACT_FILES.graphLock);
-              expect(result.missingReasonCounts['fixed-governance-missing']).toBe(1);
-            });
-
-            test('invalid identities fail instead of being normalized into upload authority', () => {
-              for (const invalid of [
-                '../outside.json', '/tmp/private.json', '.sec/artifacts/../outside.json',
-                '.sec\\artifacts\\report.json', '.sec/artifacts//report.json'
-              ]) {
-                const source = emptyCiArtifactManifest();
-                source.artifacts = [{ path: invalid, kind: 'test', uploadName: ciArtifactUploadName(invalid), exists: true }];
-                expect(() => buildArtifactUploadPathContract(source)).toThrow('canonical .sec/artifacts path');
-                source.artifacts = [];
-                source.summary.contractPaths = [invalid];
-                expect(() => buildArtifactUploadPathContract(source, 'test')).toThrow('canonical .sec/artifacts path');
-              }
-            });
-          });
-          TS
-          git add src/adapters/workspace-context.ts src/application/artifact-upload-paths.ts src/assurance/verification/ci-artifacts/contract/manifest.ts src/bootstrap/cli/artifact-command-execution.ts src/bootstrap/cli/formatters.ts src/entry/cli/artifact-upload-paths.ts tests/unit/artifact-upload-paths.test.ts tests/unit/workspace-native-paths.test.ts
-          git diff --cached --check
-          candidate_with_helper=$(git write-tree)
-          echo "CANDIDATE_WITH_HELPER=$candidate_with_helper" >> "$GITHUB_ENV"
-          git rm --cached "$helper"
-          candidate_tree=$(git write-tree)
-          test "$candidate_tree" = 9361c7d37b69c9435d2dc394e6cf2937c6f8484d
-          verify_commit=$(printf '%s\n' 'refactor(cli): artifact paths exact source verification' | git commit-tree "$candidate_tree" -p 75763009ad42e153bc34aca4f0f5c0eeaea10c64)
-          git checkout --detach --force "$verify_commit"
-          echo "VERIFY_COMMIT=$verify_commit" >> "$GITHUB_ENV"
-          test -z "$(git status --porcelain)"
+          bash /tmp/prepare.sh
       - run: bun install --frozen-lockfile --ignore-scripts
       - name: Verify bounded source and production consumers
         shell: bash
@@ -210,4 +64,4 @@ jobs:
           git -c http.https://github.com/.extraheader="$auth" push origin "$candidate:refs/heads/refactor/sec086-architecture"
           readback=$(git -c http.https://github.com/.extraheader="$auth" ls-remote origin refs/heads/refactor/sec086-architecture | cut -f1)
           test "$readback" = "$candidate"
-          printf 'verified_commit=%s\nverified_clean_tree=%s\npublished_commit=%s\n' "$VERIFY_COMMIT" 9361c7d37b69c9435d2dc394e6cf2937c6f8484d "$candidate"
+          printf 'verified_commit=%s\nverified_clean_tree=%s\npublished_commit=%s\n' "$VERIFY_COMMIT" 01b63a5684ef5a1e6c7c5a5218af1cb9657d1312 "$candidate"
