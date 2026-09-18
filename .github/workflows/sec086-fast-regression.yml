@@ -7,7 +7,7 @@ permissions:
   contents: read
 jobs:
   regression:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -19,23 +19,31 @@ jobs:
         with:
           bun-version-file: .bun-version
       - name: Bind exact source and owned dependencies
-        shell: bash
+        shell: pwsh
         run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD^{tree})" = ef70d53bf6dd533abc6d5a3df5860773db3967e6
-          mkdir -p /tmp/sec-regression
-          git rev-parse HEAD HEAD^{tree} > /tmp/sec-regression/source.txt
-          git bundle create /tmp/sec-regression/commits.bundle refs/remotes/origin/refactor/sec086-architecture ^af54dfbead4c3257713aa0a54aae7b409d3030cb
-          bun run deps:ensure 2>&1 | tee /tmp/sec-regression/deps.log
-      - name: Execute the existing canonical fast lane
-        shell: bash
+          $dir = Join-Path $env:RUNNER_TEMP 'sec-regression'
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          if ((git rev-parse 'HEAD^{tree}') -ne 'ef70d53bf6dd533abc6d5a3df5860773db3967e6') { throw 'source tree mismatch' }
+          git rev-parse HEAD 'HEAD^{tree}' | Set-Content "$dir/source.txt"
+          git bundle create "$dir/commits.bundle" refs/remotes/origin/refactor/sec086-architecture '^af54dfbead4c3257713aa0a54aae7b409d3030cb'
+          if ($LASTEXITCODE -ne 0) { throw 'bundle failed' }
+          bun run deps:ensure *> "$dir/deps.log"
+          if ($LASTEXITCODE -ne 0) { Get-Content "$dir/deps.log"; exit 1 }
+      - name: Execute canonical fast lane with native observation
+        shell: pwsh
         run: |
-          set -euo pipefail
-          /usr/bin/time -v timeout 900s bun run test:fast > /tmp/sec-regression/fast.log 2>&1
+          $dir = Join-Path $env:RUNNER_TEMP 'sec-regression'
+          $elapsed = [System.Diagnostics.Stopwatch]::StartNew()
+          bun run test:fast *> "$dir/fast.log"
+          $code = $LASTEXITCODE
+          $elapsed.Stop()
+          "exit=$code`nelapsedMs=$($elapsed.ElapsedMilliseconds)" | Set-Content "$dir/terminal.txt"
+          Get-Content "$dir/fast.log" -Tail 60
+          exit $code
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: sec086-fast-regression
-          path: /tmp/sec-regression/
+          name: sec086-fast-regression-windows
+          path: ${{ runner.temp }}/sec-regression/
           retention-days: 7
           if-no-files-found: error
