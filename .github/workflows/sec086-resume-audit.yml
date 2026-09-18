@@ -36,6 +36,7 @@ jobs:
           assert script.count(anchor)==1
           fix='python3 -c "from pathlib import Path; p=Path(\'src/application/artifact-upload-paths.ts\'); p.write_text(p.read_text().rstrip()+chr(10))"\n'
           script=script.replace(anchor,fix+anchor).replace('9361c7d37b69c9435d2dc394e6cf2937c6f8484d','01b63a5684ef5a1e6c7c5a5218af1cb9657d1312')
+          script=script.replace('git checkout --detach --force', 'rm -- "$helper"\ngit checkout --detach --force')
           Path('/tmp/prepare.sh').write_text(script)
           PY
           bash /tmp/prepare.sh
