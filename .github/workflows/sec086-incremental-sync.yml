@@ -1,0 +1,26 @@
+name: sec086-incremental-sync
+on:
+  push:
+    branches: [refactor/sec086-architecture]
+    paths: [.github/workflows/sec086-incremental-sync.yml]
+permissions:
+  contents: read
+jobs:
+  delta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: |
+          set -eu
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git bundle create /tmp/sec086-delta.bundle HEAD refs/remotes/origin/main ^36b4532c5d77bc20e9d014d5a95e70c9f0ef8427
+          git bundle verify /tmp/sec086-delta.bundle
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sec086-missing-delta
+          path: /tmp/sec086-delta.bundle
+          retention-days: 7
