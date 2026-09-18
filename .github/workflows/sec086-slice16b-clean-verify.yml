@@ -16,14 +16,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 25f02018f926bee84a845164995e590ed7b18bf3
+          ref: ddd7d986bbea7492ddc293abc92ce044fc65ae9f
           fetch-depth: 0
           persist-credentials: false
       - name: Require exact slice
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 25f02018f926bee84a845164995e590ed7b18bf3
+          test "$(git rev-parse HEAD)" = ddd7d986bbea7492ddc293abc92ce044fc65ae9f
           test -z "$(find .github -maxdepth 2 -type f -name 'sec086-slice16b*' -print)"
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
