@@ -60,6 +60,13 @@ function checkpointDigest(value: unknown): `sha256:${string}` {
   return value as `sha256:${string}`;
 }
 
+function booleanFlag(value: unknown, label: string): boolean {
+  if (typeof value !== 'boolean') {
+    throw new Error(`Continuation invalidation ${label} must be a boolean.`);
+  }
+  return value;
+}
+
 function boundary(value: unknown): ContinuationExternalBoundary {
   if (typeof value !== 'string'
       || !CONTINUATION_EXTERNAL_BOUNDARIES.includes(value as ContinuationExternalBoundary)) {
@@ -89,9 +96,9 @@ export function compileContinuationInvalidation(
   const input = Object.freeze({
     checkpointDigest: checkpointDigest(raw.checkpointDigest),
     localState: localState(raw.localState),
-    externalChangeKnown: raw.externalChangeKnown === true,
+    externalChangeKnown: booleanFlag(raw.externalChangeKnown, 'externalChangeKnown'),
     externalBoundary: boundary(raw.externalBoundary),
-    sessionTerminal: raw.sessionTerminal === true
+    sessionTerminal: booleanFlag(raw.sessionTerminal, 'sessionTerminal')
   });
   let disposition: ContinuationInvalidationDecision['disposition'];
   let checkpointLifecycle: ContinuationInvalidationDecision['checkpointLifecycle'];
