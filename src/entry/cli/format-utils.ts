@@ -1,5 +1,5 @@
 import { compareCodeUnits } from '../../contracts/canonical.ts';
-import { mergeCountSummaries, summarizeCounts } from '../../contracts/collections.ts';
+import { summarizeCounts } from '../../contracts/collections.ts';
 import { stringifyJsonValue } from '../../contracts/json-text.ts';
 import type { JsonOutputOptions } from './json-output-options.ts';
 
@@ -33,22 +33,11 @@ export function printJsonOrText<T>(
   console.log(options.json ? formatJson(value, options) : formatText(value));
 }
 
-function summarizeById(
-  entries: Array<{ id: string; count: number }>
-): Array<{ id: string; count: number }> {
-  return mergeCountSummaries(entries);
-}
-
 export function formatSummaryEntries(entries: Array<{ id: string; count: number }>): string {
   return entries.length > 0
     ? entries.map((entry) => `${entry.id}=${entry.count}`).join(', ')
     : 'none';
 }
-
-export function formatMergedSummaryEntries(entries: Array<{ id: string; count: number }>): string {
-  return formatSummaryEntries(summarizeById(entries));
-}
-
 
 /** Format already-aggregated non-negative counts without expanding them into
  * one value per occurrence. Zero entries retain the old absent-display rule. */

@@ -1,45 +1,32 @@
-import type { ExplainGraph } from '../../semantics/projection/explain.ts';
-import { countMatching } from '../../contracts/collections.ts';
-import { reviewArtifactMissingReasonTypeCount, reviewArtifactUploadGroupCount } from '../../assurance/verification/review/contract/artifact.ts';
-import type { ReviewSummary } from '../../assurance/verification/review/contract/types.ts';
-import { upgradeDiagnosticsAttributionParts } from '../../assurance/verification/review/contract/upgrade.ts';
-import { buildE2eMatrix, type E2eMatrix } from '../../assurance/verification/review/matrix.ts';
-import { formatCounts, formatFields, formatList, formatMergedSummaryEntries, formatSummaryEntries } from '../../entry/cli/format-utils.ts';
+import type { ExplainSummaryView } from '../../application/explain-summary.ts';
+import { formatFields, formatList, formatSummaryEntries } from './format-utils.ts';
 
-function formatE2eMatrixRow(row: E2eMatrix['rows'][number], prefix = ''): string {
+function formatE2eMatrixRow(row: ExplainSummaryView['e2eMatrix']['rows'][number], prefix = ''): string {
   return formatFields([`${prefix}${row.stage}: ${row.status}`, row.detail, `evidence=${row.evidence.join(', ') || 'none'}`]);
 }
 
-function formatUpgradeDiagnosticsDetails(details: unknown): string {
-  return formatList(upgradeDiagnosticsAttributionParts(details));
-}
-
-export function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary): string {
+export function formatExplainSummary(view: ExplainSummaryView): string {
   const {
     artifactSummary,
+    graph,
+    blockCount,
+    uncoveredBlocks,
+    e2eMatrix,
     chainSummary,
     ciSummary,
     coverageSummary,
     installImpactSummary,
     provenanceSummary
-  } = reviewSummary;
-  const uncoveredBlocks = coverageSummary?.uncoveredBlockCount ?? countMatching(
-    graph.overlays.coverage.blocks,
-    (block) => block.coveredBy.length === 0
-  );
-  const blockCount = coverageSummary?.blockCount ?? graph.overlays.coverage.blocks.length;
-  const e2eMatrix = buildE2eMatrix(reviewSummary);
+  } = view;
   const lines = [
-    `Explain graph ${graph.nodes.length} nodes ${graph.edges.length} edges`,
-    `Node types: ${formatCounts(graph.nodes.map((node) => node.type))}`,
-    `Edge types: ${formatCounts(graph.edges.map((edge) => edge.type))}`,
+    `Explain graph ${graph.nodeCount} nodes ${graph.edgeCount} edges`,
+    `Node types: ${formatSummaryEntries(graph.nodeTypeCounts)}`,
+    `Edge types: ${formatSummaryEntries(graph.edgeTypeCounts)}`,
     formatFields([
       `Coverage: ${blockCount} blocks`,
       `uncovered blocks=${uncoveredBlocks}`
     ]),
-    `Provenance origins: ${formatCounts(
-      graph.overlays.provenance.map((artifact) => artifact.originType)
-    )}`,
+    `Provenance origins: ${formatSummaryEntries(graph.provenanceOriginCounts)}`,
     formatFields([
       `CI status: ${ciSummary.status}`,
       `failures: ${ciSummary.failureCount}`,
@@ -91,24 +78,24 @@ export function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewS
   }
 
   if (artifactSummary) {
-    const uploadGroups = artifactSummary.uploadGroups?.map(
+    const uploadGroups = artifactSummary.uploadGroups.map(
       (group) => `${group.kind}=${group.count}`
-    ) ?? [];
+    );
     lines.push(
       formatFields([
-        `Artifacts: ${artifactSummary.artifactStatus ?? 'passed'}`,
+        `Artifacts: ${artifactSummary.artifactStatus}`,
         `total: ${artifactSummary.artifactCount}`,
         `missing: ${artifactSummary.missingCount}`,
-        `missing reason types: ${reviewArtifactMissingReasonTypeCount(artifactSummary)}`,
-        `contracts: ${artifactSummary.contractCount ?? 0}`,
-        `upload groups: ${reviewArtifactUploadGroupCount(artifactSummary)}`
+        `missing reason types: ${artifactSummary.missingReasonTypeCount}`,
+        `contracts: ${artifactSummary.contractCount}`,
+        `upload groups: ${artifactSummary.uploadGroupCount}`
       ]),
       `Upload groups: ${formatList(uploadGroups)}`
     );
   }
 
-  if (reviewSummary.policySummary) {
-    const policy = reviewSummary.policySummary;
+  if (view.policySummary) {
+    const policy = view.policySummary;
     lines.push(
       formatFields([
         `Policy: ${policy.status}`,
@@ -120,8 +107,8 @@ export function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewS
     );
   }
 
-  if (reviewSummary.repairSummary) {
-    const repair = reviewSummary.repairSummary;
+  if (view.repairSummary) {
+    const repair = view.repairSummary;
     lines.push(
       formatFields([
         `Repair: ${repair.status}`,
@@ -131,20 +118,15 @@ export function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewS
         `requires verification: ${repair.requiresVerification}`,
         `trace: ${repair.verificationTrace.pendingReason}->${repair.verificationTrace.nextAction}`,
         `categories: ${formatSummaryEntries(repair.taskCategorySummaries)}`,
-        `issues: ${formatSummaryEntries(repair.failureTaxonomy.issueTypeSummaries)}`,
-        `targets: ${formatMergedSummaryEntries(
-          repair.targetSummaries.map((target) => ({
-            id: target.targetType,
-            count: target.count
-          }))
-        )}`,
-        `repairability: ${formatSummaryEntries(repair.failureTaxonomy.repairabilitySummaries)}`
+        `issues: ${formatSummaryEntries(repair.issueTypeSummaries)}`,
+        `targets: ${formatSummaryEntries(repair.targetSummaries)}`,
+        `repairability: ${formatSummaryEntries(repair.repairabilitySummaries)}`
       ])
     );
   }
 
-  if (reviewSummary.upgradeSummary) {
-    const upgrade = reviewSummary.upgradeSummary;
+  if (view.upgradeSummary) {
+    const upgrade = view.upgradeSummary;
     const versionRange = upgrade.fromVersion
       ? `${upgrade.fromVersion} -> ${upgrade.toVersion}`
       : `target ${upgrade.toVersion}`;
@@ -157,9 +139,7 @@ export function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewS
         `preflight evidence: ${upgrade.preflightEvidenceCount}`,
         `impacts: ${upgrade.impactCount}`,
         `operations: ${upgrade.migrationOperationCount}`,
-        `operation roles: ${formatMergedSummaryEntries(
-          upgrade.migrationOperationSummaries.map((operation) => ({ id: operation.role, count: 1 }))
-        )}`,
+        `operation roles: ${formatSummaryEntries(upgrade.operationRoleSummaries)}`,
         `sources: ${upgrade.sourceMigrationCount}`,
         `requires verification: ${upgrade.requiresVerification}`,
         `verification: ${formatSummaryEntries(upgrade.verificationSummaries)}`
@@ -172,7 +152,7 @@ export function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewS
           upgrade.diagnostics.failedCheck,
           upgrade.diagnostics.errorCode,
           upgrade.diagnostics.message,
-          `attribution: ${formatUpgradeDiagnosticsDetails(upgrade.diagnostics.details)}`
+          `attribution: ${formatList(upgrade.diagnostics.attribution)}`
         ])
       );
     }

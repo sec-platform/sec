@@ -166,12 +166,13 @@ export function registerWorkspaceCommands(program: Command): void {
         return;
       }
       const { buildE2eMatrix } = await import('../../assurance/verification/review/matrix.ts');
-      const { formatExplainSummary } = await import('./formatters.ts');
+      const { projectExplainSummary } = await import('../../application/explain-summary.ts');
+      const { formatExplainSummary } = await import('../../entry/cli/explain-summary.ts');
       const { graph, reviewSummary } = await runWithOptionalSpinner('Explaining project', output, () => explainWorkspace(cwd));
       printJsonOrText(
         { graph, reviewSummary, e2eMatrix: buildE2eMatrix(reviewSummary) },
         output,
-        (summary) => formatExplainSummary(summary.graph, summary.reviewSummary)
+        (summary) => formatExplainSummary(projectExplainSummary(summary.graph, summary.reviewSummary, summary.e2eMatrix))
       );
     },
 
