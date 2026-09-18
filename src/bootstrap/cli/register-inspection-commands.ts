@@ -155,7 +155,7 @@ export function registerInspectionCommands(program: Command): void {
       return buildDemoChecklist(workspaceRoot);
     },
     view: async (report) => {
-      const { formatDemoChecklist } = await import('./formatters.ts');
+      const { formatDemoChecklist } = await import('../../entry/cli/demo-checklist.ts');
       return inspectionValue(report, formatDemoChecklist);
     }
   });

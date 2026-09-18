@@ -37,9 +37,6 @@ export type ArtifactUploadPathContract = {
   missing: CiArtifactManifest['missing'];
 };
 
-export type { DemoChecklist, DemoChecklistItem } from '../../application/demo-checklist.ts';
-export { formatDemoChecklist } from '../../entry/cli/demo-checklist.ts';
-
 function artifactUploadPathSummary(
   manifest: CiArtifactManifest,
   kind?: ArtifactPathKind
