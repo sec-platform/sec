@@ -34,11 +34,11 @@ test('explain inspect routes artifact text through application projection and en
 
     await expectCliSuccess(
       workspaceRoot,
-      ['explain', 'inspect'],
+      ['explain', 'graph'],
       `${formatExplainGraphInspect(projectExplainGraphInspect(graph))}\n`
     );
 
-    const json = await expectCliJson(workspaceRoot, ['explain', 'inspect', '--json']);
+    const json = await expectCliJson(workspaceRoot, ['explain', 'graph', '--json']);
     expect(json).toEqual(graph);
   });
 });
