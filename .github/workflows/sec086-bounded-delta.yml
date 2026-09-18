@@ -1,0 +1,59 @@
+name: sec086-bounded-delta
+on:
+  push:
+    branches: [refactor/sec086-architecture]
+    paths: [.github/workflows/sec086-bounded-delta.yml]
+permissions: {}
+jobs:
+  transfer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 0eb202891bc324bbf6b4f7927aa0881f5d96d67b
+          persist-credentials: false
+      - name: Store the locally verified blob without updating a branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD)" = 0eb202891bc324bbf6b4f7927aa0881f5d96d67b
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          p=Path('tests/contract/sec-merge-gate.test.ts')
+          s=p.read_text()
+          for old in ['sourceRef: provenance.workflowRef,','sourceRef: base.provenance.workflowRef,']:
+              assert s.count(old)==1
+              s=s.replace(old,'sourceRef: `github-check-runs:${REPOSITORY}@${BASE}`,')
+          anchor="test('expired authority receipts re-finalize fresh V4 Evidence while reusing exact Action Results', () => {"
+          assert s.count(anchor)==1
+          case='''test('fresh MainHealth provenance rejects workflow references, wrong revisions and foreign producers', () => {
+            const base = fixture();
+            const invalidProducers = [
+              { ...base.mainHealth.producer, sourceRef: base.provenance.workflowRef },
+              { ...base.mainHealth.producer, sourceRef: `github-check-runs:${REPOSITORY}@${HEAD}` },
+              { ...base.mainHealth.producer, sourceRef: `github-check-runs:other/repository@${BASE}` },
+              { ...base.mainHealth.producer, identity: 'caller-supplied-health-observer' }
+            ];
+            for (const producer of invalidProducers) {
+              const mainHealth = createMainHealthLedger({ ...base.mainHealth, producer });
+              // Recompute a valid content digest: provenance, not incidental tampering,
+              // must be what prevents an otherwise matching receipt from authorizing.
+              expect(mainHealth.healthRevision).toBe(base.mainHealth.healthRevision);
+              expect(() => CodexDevelopmentEvaluateMergeGate({ ...base, mainHealth }))
+                .toThrow('fresh MainHealth producer provenance is not bound to the trusted authorization runtime');
+            }
+          });
+
+          '''
+          p.write_text(s.replace(anchor,case+anchor))
+          Path('/tmp/blob.json').write_text(json.dumps({'content':p.read_text(),'encoding':'utf-8'}))
+          PY
+          test "$(git hash-object tests/contract/sec-merge-gate.test.ts)" = 4ea3fe40c38fa6b37da4d16e676c4ffb2120d7f9
+          result=$(gh api --method POST repos/sec-platform/sec/git/blobs --input /tmp/blob.json --jq .sha)
+          test "$result" = 4ea3fe40c38fa6b37da4d16e676c4ffb2120d7f9
+          printf 'verified_blob=%s\n' "$result"
