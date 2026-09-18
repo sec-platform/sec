@@ -250,7 +250,8 @@ test('process sessions require one process Effect and complete bound resource ce
     { resource: 'duration-ms', maximum: 15_000 },
     { resource: 'input-bytes', maximum: 3 },
     { resource: 'output-bytes', maximum: 6 },
-    { resource: 'processes', maximum: 3 }
+    // Windows uses a separate native stdin worker for the first run.
+    { resource: 'processes', maximum: process.platform === 'win32' ? 3 : 2 }
   ] });
   const session = openProcessResourceSession({
     operation,

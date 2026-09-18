@@ -1533,6 +1533,8 @@ export async function runObservedCommand(
   const stdout = emptyStreamEvidence();
   const stderr = emptyStreamEvidence();
   let child: ChildProcess | undefined;
+  let spawnObserved = false;
+  let spawnFailureObserved = false;
   let childCloseObserved = false;
   let streamsDrained = false;
   let exitCode: number | null = null;
@@ -1639,7 +1641,8 @@ export async function runObservedCommand(
       detached: dependencies.platform !== 'win32',
       ...(inputCapability === undefined ? {} : { observedInput: inputCapability })
     });
-    rootResource?.start();
+    spawnObserved = child.pid !== undefined;
+    if (spawnObserved) rootResource?.start();
   } catch (error) {
     if (error instanceof ObservedNativeLifecycleFailure && error.started) rootResource?.start();
     rootResource?.settle();
@@ -1649,7 +1652,7 @@ export async function runObservedCommand(
 
   return new Promise<ObservedCommandOutcome>((resolve) => {
     const runningChild = child!;
-    const outputDrained = { stdout: runningChild.stdout === null, stderr: runningChild.stderr === null };
+    const outputDrained = { stdout: runningChild.stdout == null, stderr: runningChild.stderr == null };
     const nativeStdinController = windowsObservedStdinControllers.get(runningChild);
     let stdinFinished = false;
     let stdinFailed = false;
@@ -1666,7 +1669,7 @@ export async function runObservedCommand(
       resolveStandardStdin(value);
     };
     const stdinSettlement = nativeStdinController === undefined
-      ? runningChild.stdin === null
+      ? runningChild.stdin == null
         ? Promise.resolve(commandInput === null)
         : standardStdinSettlement
       : nativeStdinController.settlement.then((value) => {
@@ -1674,7 +1677,7 @@ export async function runObservedCommand(
           stdinFailed = !value;
           return value;
         });
-    if (nativeStdinController === undefined && runningChild.stdin === null) {
+    if (nativeStdinController === undefined && runningChild.stdin == null) {
       stdinFinished = commandInput === null;
       stdinFailed = commandInput !== null;
     }
@@ -1717,7 +1720,7 @@ export async function runObservedCommand(
           ...(trigger
             ? { trigger }
             : settlementFenceLost ? { trigger: 'fence-lost' as const } : {}),
-          started: runningChild.pid !== undefined,
+          started: spawnObserved || runningChild.pid !== undefined,
           exitCode,
           signal: exitSignal,
           durationMs: Math.max(0, dependencies.monotonicNowMs() - startedAt),
@@ -1751,13 +1754,23 @@ export async function runObservedCommand(
       if (settled || trigger !== undefined) return;
       trigger = reason;
       nativeStdinController?.abort();
-      if (runningChild.stdin !== null && !runningChild.stdin.destroyed) {
+      if (runningChild.stdin != null && !runningChild.stdin.destroyed) {
         runningChild.stdin.destroy();
       }
       if (timeoutTimer !== undefined) dependencies.clearTimer(timeoutTimer);
       const deadlineAtMs = settlementDeadlineAtMs();
+      // An error without an observed spawn/PID proves admission failure, not a
+      // running tree. Still await native close and pipe settlement; missing
+      // close evidence must remain termination-unproven.
+      const failedBeforeSpawn = spawnFailureObserved && !spawnObserved && runningChild.pid === undefined;
       const termination = await raceWithDeadline(
-        Promise.resolve().then(() => dependencies.terminateProcessTree({
+        failedBeforeSpawn
+          ? waitForChildClose(Math.max(0, deadlineAtMs - dependencies.monotonicNowMs())).then((closed) => ({
+              gracefulAttempted: false,
+              forcedAttempted: false,
+              treeClosed: closed && !spawnObserved && runningChild.pid === undefined
+            }))
+          : Promise.resolve().then(() => dependencies.terminateProcessTree({
           child: runningChild,
           deadlineAtMs,
           graceMs: terminationGraceMs,
@@ -1772,7 +1785,7 @@ export async function runObservedCommand(
       const stdinClosed = await raceWithDeadline(stdinSettlement, deadlineAtMs, dependencies);
       updateStreamsDrained();
       const evidence: ObservedCommandTerminationEvidence = {
-        requested: true,
+        requested: !failedBeforeSpawn,
         gracefulAttempted: termination?.gracefulAttempted ?? false,
         forcedAttempted: termination?.forcedAttempted ?? false,
         childCloseObserved,
@@ -1783,7 +1796,7 @@ export async function runObservedCommand(
           && stdinClosed !== null
       };
       settle(evidence.treeClosed
-        ? settlementFenceLost ? 'fence-lost' : reason
+        ? settlementFenceLost ? 'fence-lost' : failedBeforeSpawn ? 'spawn-failed' : reason
         : 'termination-unproven', evidence);
     };
     const observeChunk = (
@@ -1863,6 +1876,10 @@ export async function runObservedCommand(
     runningChild.stderr?.once('error', () => {
       void requestTermination('lifecycle-failed');
     });
+    runningChild.once('spawn', () => {
+      spawnObserved = true;
+      if (!settled) rootResource?.start();
+    });
     runningChild.once('error', (error) => {
       if (trigger !== undefined) return;
       if (error instanceof ObservedNativeLifecycleFailure) {
@@ -1872,12 +1889,14 @@ export async function runObservedCommand(
         settle(error.status, error.termination, error.diagnostic);
         return;
       }
+      spawnFailureObserved = !spawnObserved && runningChild.pid === undefined;
       void requestTermination('lifecycle-failed');
     });
     runningChild.once('close', (code, signal) => {
       childCloseObserved = true;
-      exitCode = code;
-      exitSignal = signal;
+      // Native close can carry a negative spawn errno when no process ran.
+      exitCode = spawnObserved ? code : null;
+      exitSignal = spawnObserved ? signal : null;
       updateStreamsDrained();
       for (const waiter of [...closeWaiters]) waiter(true);
       if (trigger !== undefined || settled) return;
@@ -1925,10 +1944,10 @@ export async function runObservedCommand(
 
     options.signal?.addEventListener('abort', onAbort, { once: true });
     if (options.signal?.aborted) onAbort();
-    if (trigger === undefined && nativeStdinController === undefined && runningChild.stdin !== null) {
+    if (trigger === undefined && nativeStdinController === undefined && runningChild.stdin != null) {
       runningChild.stdin.end(commandInput ?? undefined);
     } else if (commandInput !== null
-        && runningChild.stdin === null
+        && runningChild.stdin == null
         && nativeStdinController === undefined) {
       void requestTermination('lifecycle-failed');
     }
