@@ -9,6 +9,7 @@ import { formatCompilerFailure } from '../../compiler/errors.ts';
 import { addGeneratedPaths } from "../../compiler/contract/lock-schema.ts";
 import { readLockFile } from "../../adapters/workspace/lock.ts";
 import { executePipelineStage } from '../../adapters/compilation/pipeline/kernel.ts';
+import { settlePipelineFailure } from '../../adapters/compilation/pipeline/failure.ts';
 import type { PipelineExecutionContext } from '../../adapters/compilation-protocol/types.ts';
 import { buildAcceptanceCoverage } from '../../adapters/verification/build-acceptance-coverage.ts';
 import { runPolicyGate } from '../../adapters/verification/run-policy-gate.ts';
@@ -131,7 +132,10 @@ async function verifyWorkspaceCore(
     return { lock, report };
   } catch (error) {
     if (lane !== 'runtime' && error instanceof ProjectIntegrityError) {
-      await writeBlockedVerificationSnapshot(workspaceRoot, lock, lane, error, beforeCommit);
+      return settlePipelineFailure(error, [{
+        operation: 'verification-blocked-snapshot',
+        run: () => writeBlockedVerificationSnapshot(workspaceRoot, lock, lane, error, beforeCommit)
+      }]);
     }
     throw error;
   }
