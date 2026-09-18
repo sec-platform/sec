@@ -1,10 +1,5 @@
-import type {
-  UpgradeExecutionTerminal,
-  UpgradePlan,
-  UpgradePreview
-} from '../../semantics/upgrade/upgrade-artifact.ts';
 import type { ExplainGraph } from '../../semantics/projection/explain.ts';
-import { compareCodeUnits, uniqueSorted } from '../../contracts/canonical.ts';
+import { uniqueSorted } from '../../contracts/canonical.ts';
 import { countMatching } from '../../contracts/collections.ts';
 import { buildCiArtifactUploadGroups, CI_ARTIFACT_MANIFEST_PATH } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { CiArtifactKind, CiArtifactManifest, CiArtifactUploadGroup } from '../../assurance/verification/ci-artifacts/contract/types.ts';
@@ -13,7 +8,7 @@ import type { ReviewSummary } from '../../assurance/verification/review/contract
 import { upgradeDiagnosticsAttributionParts } from '../../assurance/verification/review/contract/upgrade.ts';
 import { buildE2eMatrix, type E2eMatrix } from '../../adapters/verification/platform/review/runtime/matrix.ts';
 import { toWorkspaceArtifactPath } from "../../adapters/workspace-context.ts";
-import { formatCounts, formatFields, formatList, formatMergedSummaryEntries, formatSummaryEntries, optionalFields } from '../../entry/cli/format-utils.ts';
+import { formatCounts, formatFields, formatList, formatMergedSummaryEntries, formatSummaryEntries } from '../../entry/cli/format-utils.ts';
 
 type ArtifactPathUploadGroup = CiArtifactUploadGroup;
 
@@ -104,90 +99,6 @@ function formatE2eMatrixRow(row: E2eMatrix['rows'][number], prefix = ''): string
 
 function formatUpgradeDiagnosticsDetails(details: unknown): string {
   return formatList(upgradeDiagnosticsAttributionParts(details));
-}
-
-function formatUpgradeMigrationDetails(
-  migration: UpgradePlan['migrationSummaries'][number],
-  operation: UpgradePlan['migrationOperations'][number] | undefined
-): string[] {
-  return [
-    `Migration ${migration.id}: ${migration.kind}`,
-    `target=${migration.target}`,
-    ...optionalFields([
-      [migration.source, `source=${migration.source}`],
-      [operation?.role, `role=${operation?.role}`],
-      [operation?.path, `path=${operation?.path?.join('.')}`],
-      [operation?.updateCount, `updates=${operation?.updateCount}`],
-      [operation?.itemCount, `items=${operation?.itemCount}`],
-      [operation?.valueKeyCount, `valueKeys=${operation?.valueKeyCount}`],
-      [operation?.contentLength, `contentLength=${operation?.contentLength}`],
-      [operation?.searchLength, `searchLength=${operation?.searchLength}`],
-      [operation?.replacementLength, `replacementLength=${operation?.replacementLength}`],
-      [operation?.pattern, `pattern=${operation?.pattern}`],
-      [operation?.flags, `flags=${operation?.flags}`]
-    ]),
-    `requiresVerification=${migration.requiresVerification}`
-  ];
-}
-
-type UpgradePlanningDisplay = UpgradePlan | UpgradePreview;
-
-function formatUpgradePlanningSummary(
-  upgradePlan: UpgradePlanningDisplay,
-  presentation: 'preview' | 'planned' | 'applied'
-): string {
-  const suffix = presentation === 'preview' ? ' (dry-run)' : '';
-  const migrationKinds = Object.entries(upgradePlan.migrationKindCounts)
-    .sort(([left], [right]) => compareCodeUnits(left, right))
-    .map(([kind, count]) => `${kind}=${count}`);
-  const requiresVerificationCount = countMatching(
-    upgradePlan.migrationSummaries,
-    (migration) => migration.requiresVerification
-  );
-  const preflightEvidenceCount = upgradePlan.preflightChecks.reduce(
-    (count, check) => count + check.evidence.length,
-    0
-  );
-  const lines = [
-    `Upgrade ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}${suffix}`,
-    formatFields([
-      `Status: ${presentation}`,
-      `migrations: ${upgradePlan.migrations.length}`,
-      `preflight checks: ${upgradePlan.preflightChecks.length}`
-    ]),
-    `Migration kinds: ${formatList(migrationKinds)}`,
-    `Operation roles: ${formatCounts(upgradePlan.migrationOperations.map((operation) => operation.role))}`,
-    `Impacts: ${formatList(upgradePlan.impacts)}`,
-    `Preflight evidence: ${preflightEvidenceCount}`,
-    `Requires verification: ${requiresVerificationCount > 0} (${requiresVerificationCount} migrations)`
-  ];
-  const operationsById = new Map(upgradePlan.migrationOperations.map((operation) => [operation.id, operation]));
-  for (const migration of upgradePlan.migrationSummaries.slice(0, 3)) {
-    lines.push(formatFields(formatUpgradeMigrationDetails(migration, operationsById.get(migration.id))));
-  }
-  for (const check of upgradePlan.preflightChecks.slice(0, 3)) {
-    lines.push(
-      formatFields([
-        `Preflight ${check.id}: ${check.status}`,
-        `evidence=${check.evidence.length}`
-      ])
-    );
-  }
-  return lines.join('\n');
-}
-
-export function formatUpgradePreview(upgradePreview: UpgradePreview): string {
-  return formatUpgradePlanningSummary(upgradePreview, 'preview');
-}
-
-export function formatUpgradePlan(
-  upgradePlan: UpgradePlan,
-  executionTerminal: UpgradeExecutionTerminal | null
-): string {
-  return formatUpgradePlanningSummary(
-    upgradePlan,
-    executionTerminal?.settlement === 'applied' ? 'applied' : 'planned'
-  );
 }
 
 export function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary): string {

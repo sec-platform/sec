@@ -72,7 +72,8 @@ export function registerWorkspaceCommands(program: Command): void {
       const { output } = input;
       if (input.kind === 'plan') {
         const { readUpgradeArtifactSet } = await import('../../adapters/upgrade/artifact-readback.ts');
-        const { formatUpgradePlan } = await import('./formatters.ts');
+        const { projectUpgradePlan } = await import('../../application/upgrade-planning.ts');
+        const { formatUpgradePlanning } = await import('../../entry/cli/upgrade-planning.ts');
         const { plan: upgradePlan, executionTerminal: upgradeExecutionTerminal } = readUpgradeArtifactSet(cwd);
         if (upgradePlan === null) {
           throw new CompilerError(
@@ -80,7 +81,11 @@ export function registerWorkspaceCommands(program: Command): void {
             `Upgrade plan not found; run ${invocationPath} <block-id> <target-version>`
           );
         }
-        printJsonOrText(upgradePlan, output, (plan) => formatUpgradePlan(plan, upgradeExecutionTerminal));
+        printJsonOrText(
+          upgradePlan,
+          output,
+          (plan) => formatUpgradePlanning(projectUpgradePlan(plan, upgradeExecutionTerminal))
+        );
         return;
       }
       if (input.kind === 'diagnostics') {
@@ -101,16 +106,25 @@ export function registerWorkspaceCommands(program: Command): void {
         );
         return;
       }
-      const { formatUpgradePlan, formatUpgradePreview } = await import('./formatters.ts');
+      const { projectUpgradePlan, projectUpgradePreview } = await import('../../application/upgrade-planning.ts');
+      const { formatUpgradePlanning } = await import('../../entry/cli/upgrade-planning.ts');
       const result = await runWithOptionalSpinner(
         input.request.dryRun ? 'Previewing upgrade' : 'Running upgrade',
         output,
         () => upgradeWorkspace(cwd, input.subject, input.targetVersion, { dryRun: input.request.dryRun })
       );
       if (result.resultKind === 'preview') {
-        printJsonOrText(result.upgradePlan, output, formatUpgradePreview);
+        printJsonOrText(
+          result.upgradePlan,
+          output,
+          (preview) => formatUpgradePlanning(projectUpgradePreview(preview))
+        );
       } else {
-        printJsonOrText(result.upgradePlan, output, (plan) => formatUpgradePlan(plan, result.upgradeExecutionTerminal));
+        printJsonOrText(
+          result.upgradePlan,
+          output,
+          (plan) => formatUpgradePlanning(projectUpgradePlan(plan, result.upgradeExecutionTerminal))
+        );
       }
     },
 
