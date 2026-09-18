@@ -1,9 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import {
-  buildReviewDiagnosticsInspect,
-  formatCiArtifactManifest
-} from '../../src/bootstrap/cli/formatters.ts';
+import { formatCiArtifactManifest } from '../../src/bootstrap/cli/formatters.ts';
+import { projectReviewDiagnostics } from '../../src/application/review-diagnostics-inspect.ts';
 import { projectPolicySources } from '../../src/application/policy-source-inspection.ts';
 import { projectAcceptanceTargets } from '../../src/application/acceptance-inspection.ts';
 import { projectProvenanceRegistryInspect } from '../../src/application/provenance-registry-inspect.ts';
@@ -24,7 +22,7 @@ type CoverageInput = {
   uncoveredBlocks: string[];
 };
 type RuntimeInput = Parameters<typeof projectRuntimeInspection>[0];
-type ReviewInput = Parameters<typeof buildReviewDiagnosticsInspect>[0];
+type ReviewInput = Parameters<typeof projectReviewDiagnostics>[0];
 type ProvenanceInput = Parameters<typeof projectProvenanceRegistryInspect>[0];
 type ManifestInput = Parameters<typeof formatCiArtifactManifest>[0];
 // Focused domain fixtures: these tests exercise projections, not domain parsers.
@@ -136,7 +134,7 @@ test('missing block identities do not manufacture an empty block', () => {
     { kind: 'fixture', message: 'unbound' }, { kind: 'fixture', message: 'empty', blockId: '' },
     { kind: 'fixture', message: 'bound', blockId: 'valid' }, { kind: 'fixture', message: 'duplicate', blockId: 'valid' }
   ] };
-  const projected = buildReviewDiagnosticsInspect(source as unknown as ReviewInput);
+  const projected = projectReviewDiagnostics(source as unknown as ReviewInput);
   assert.deepEqual(projected.blocks, ['valid']); assert.equal(projected.blockCount, 1);
   assert.equal(projected.diagnosticCount, 4); // No diagnostic is removed with its absent identity.
 });
@@ -144,7 +142,7 @@ test('missing block identities do not manufacture an empty block', () => {
 test('block index derives from the emitted diagnostic rather than re-reading raw risks', () => {
   const risk = { kind: 'fixture', message: 'bound', get blockId() { return ++reads === 1 ? 'initial' : reads === 2 ? 'emitted' : 'different'; } };
   let reads = 0;
-  const projected = buildReviewDiagnosticsInspect({ ciSummary: { status: 'passed' }, failurePoints: [], conflictHints: [], regressionRisks: [risk] } as unknown as ReviewInput);
+  const projected = projectReviewDiagnostics({ ciSummary: { status: 'passed' }, failurePoints: [], conflictHints: [], regressionRisks: [risk] } as unknown as ReviewInput);
   assert.deepEqual(projected.blocks, ['emitted']); assert.equal(reads, 2);
   assert.equal((projected.diagnostics[0] as {blockId?: string}).blockId, 'emitted');
 });
