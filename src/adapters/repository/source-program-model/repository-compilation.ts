@@ -162,7 +162,13 @@ function compileRepositorySourceProgramCompilationCore(
     }
   }
   const { projectInput, cacheProvider, repositoryRoot, reviewedProcessDispatchers,
-    unknowns: requestedUnknowns, operation: requestedOperation } = input;
+    unknowns: requestedUnknowns, operation: requestedOperation, cacheAccess = 'read-write' } = input;
+  // Bind the effect mode before compiler telemetry or cache providers execute.
+  // The direct physical and virtual entrypoints must not treat malformed input
+  // as write permission, even when the physical cache wrapper is not used.
+  if (cacheAccess !== 'read-only' && cacheAccess !== 'read-write') {
+    throw new Error('Repository compilation cache access must be read-only or read-write.');
+  }
   const analysisPolicy = captureRepositoryAnalysisPolicy(reviewedProcessDispatchers);
   const unknowns = requestedUnknowns === undefined ? undefined : deepFreeze(structuredClone(requestedUnknowns));
   const operation = resolveSourceProgramCompilationOperation(requestedOperation);
@@ -267,7 +273,7 @@ function compileRepositorySourceProgramCompilationCore(
   // result without admitting the optional cache Effect.
   if (cacheHint !== null
       && exactLoaded?.status !== 'hit'
-      && input.cacheAccess !== 'read-only') {
+      && cacheAccess === 'read-write') {
     sourceProgramCompilationCheckpoint(operation, 'cache-publish', 'start');
     try {
       const published = cacheHint.publish(typeScriptCompilation.state.factShards);
