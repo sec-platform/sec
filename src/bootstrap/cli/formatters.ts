@@ -5,7 +5,6 @@ import type {
   UpgradePreview
 } from '../../semantics/upgrade/upgrade-artifact.ts';
 import type { ExplainGraph } from '../../semantics/projection/explain.ts';
-import type { RepairPlan } from '../../semantics/repair/types.ts';
 import { compareCodeUnits, uniqueSorted } from '../../contracts/canonical.ts';
 import { countMatching } from '../../contracts/collections.ts';
 import { buildCiArtifactUploadGroups, CI_ARTIFACT_MANIFEST_PATH } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
@@ -106,72 +105,6 @@ function formatE2eMatrixRow(row: E2eMatrix['rows'][number], prefix = ''): string
 
 function formatUpgradeDiagnosticsDetails(details: unknown): string {
   return formatList(upgradeDiagnosticsAttributionParts(details));
-}
-
-function repairTaskReview(task: RepairPlan['tasks'][number]): NonNullable<RepairPlan['tasks'][number]['review']> {
-  const failureTargets = uniqueSorted(task.failurePoints.flatMap((point) => point.targetIds ?? []));
-  return task.review ?? {
-    allowedPathCount: task.allowedPaths.length,
-    requiredSymbolCount: task.requiredSymbols.length,
-    forbiddenOperationCount: task.forbiddenOperations.length,
-    testCount: task.testsToPass.length,
-    failureTargetCount: failureTargets.length,
-    writeBounds: [...task.allowedPaths],
-    requiredSymbols: [...task.requiredSymbols],
-    forbiddenOperations: [...task.forbiddenOperations],
-    testsToPass: [...task.testsToPass],
-    failureTargets
-  };
-}
-
-function formatRepairFailurePoint(failure: RepairPlan['tasks'][number]['failurePoints'][number]): string {
-  return formatFields([
-    `Failure ${failure.lane}/${failure.kind}`,
-    `issue=${failure.issueType}`,
-    `repairable=${failure.repairable}`,
-    failure.message
-  ]);
-}
-
-export function formatRepairSummary(repairPlan: RepairPlan, dryRun: boolean): string {
-  const suffix = repairPlan.status === 'applied' ? '; verify pending' : dryRun ? ' (dry-run)' : '';
-  const lines = [
-    `Repair ${repairPlan.status} (${repairPlan.tasks.length} tasks, ${repairPlan.blockers?.length ?? 0} blockers)${suffix}`,
-    `Source verification: ${repairPlan.sourceVerificationStatus}; requires verification: ${repairPlan.requiresVerification}`
-  ];
-  for (const task of repairPlan.tasks.slice(0, 3)) {
-    const review = repairTaskReview(task);
-    lines.push(`Task ${task.taskId}: ${task.targetBlock} -> ${task.targetFile}`);
-    lines.push(
-      formatFields([
-        `Review ${task.taskId}: writeBounds=${formatList(review.writeBounds)}`,
-        `symbols=${formatList(review.requiredSymbols)}`,
-        `tests=${formatList(review.testsToPass)}`,
-        `forbidden=${formatList(review.forbiddenOperations)}`,
-        `failureTargets=${formatList(review.failureTargets)}`
-      ])
-    );
-    if (task.preview) {
-      lines.push(
-        formatFields([
-          `Preview ${task.taskId}: changed=${task.preview.changed}`,
-          `+${task.preview.addedLines}`,
-          `-${task.preview.removedLines}`,
-          `${task.preview.beforeLines}->${task.preview.afterLines} lines`
-        ])
-      );
-    }
-    for (const failure of task.failurePoints.slice(0, 2)) {
-      lines.push(formatRepairFailurePoint(failure));
-    }
-  }
-  for (const blocker of repairPlan.blockers?.slice(0, 3) ?? []) {
-    lines.push(`Blocker ${blocker.blockerId}: ${blocker.boundary}; ${blocker.reason}`);
-    for (const failure of blocker.failurePoints.slice(0, 2)) {
-      lines.push(formatRepairFailurePoint(failure));
-    }
-  }
-  return lines.join('\n');
 }
 
 function formatUpgradeMigrationDetails(

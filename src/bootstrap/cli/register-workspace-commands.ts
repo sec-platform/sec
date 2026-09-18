@@ -38,7 +38,8 @@ export function registerWorkspaceCommands(program: Command): void {
       const { CI_ARTIFACT_FILES } = await import('../../assurance/verification/ci-artifacts/contract/manifest.ts');
       const { pathExists } = await import('../../adapters/filesystem/files.ts');
       const { resolveWorkspaceArtifactPath } = await import('../../adapters/workspace-context.ts');
-      const { formatRepairSummary } = await import('./formatters.ts');
+      const { projectRepairSummary } = await import('../../application/repair-summary.ts');
+      const { formatRepairSummary } = await import('../../entry/cli/repair-summary.ts');
       const { readRequiredRepairPlan } = await import('./artifact-command-read.ts');
       if (input.kind === 'plan') {
         const repairPlanPath = resolveWorkspaceArtifactPath(cwd, CI_ARTIFACT_FILES.repairPlan);
@@ -46,7 +47,7 @@ export function registerWorkspaceCommands(program: Command): void {
           repairPlanPath,
           `Repair plan not found; run ${invocationPath} --dry-run first`
         );
-        printJsonOrText(repairPlan, output, (plan) => formatRepairSummary(plan, true));
+        printJsonOrText(repairPlan, output, (plan) => formatRepairSummary(projectRepairSummary(plan, true)));
         return;
       }
       const { runRepairWithFailureReadback } = await import('./repair-command-execution.ts');
@@ -60,11 +61,11 @@ export function registerWorkspaceCommands(program: Command): void {
           const repairPlanPath = resolveWorkspaceArtifactPath(cwd, CI_ARTIFACT_FILES.repairPlan);
           if (await pathExists(repairPlanPath)) {
             const plan = readRequiredRepairPlan(repairPlanPath, 'Repair plan disappeared before it could be read back.');
-            printJsonOrText(plan, output, (value) => formatRepairSummary(value, input.request.dryRun));
+            printJsonOrText(plan, output, (value) => formatRepairSummary(projectRepairSummary(value, input.request.dryRun)));
           }
         }
       );
-      printJsonOrText(repairPlan, output, (plan) => formatRepairSummary(plan, input.request.dryRun));
+      printJsonOrText(repairPlan, output, (plan) => formatRepairSummary(projectRepairSummary(plan, input.request.dryRun)));
     },
 
     upgrade: async ({ workspaceRoot: cwd, invocationPath, input }) => {
