@@ -13,7 +13,6 @@ import { compareCodeUnits, uniqueSorted } from '../../contracts/canonical.ts';
 import { countMatching } from '../../contracts/collections.ts';
 import { buildCiArtifactUploadGroups, CI_ARTIFACT_MANIFEST_PATH } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { CiArtifactKind, CiArtifactManifest, CiArtifactUploadGroup } from '../../assurance/verification/ci-artifacts/contract/types.ts';
-import type { VerificationReport } from '../../assurance/verification/contract/types.ts';
 import { reviewArtifactMissingReasonTypeCount, reviewArtifactUploadGroupCount } from '../../assurance/verification/review/contract/artifact.ts';
 import type { ReviewSummary } from '../../assurance/verification/review/contract/types.ts';
 import { upgradeDiagnosticsAttributionParts } from '../../assurance/verification/review/contract/upgrade.ts';
@@ -484,29 +483,6 @@ export function formatAcceptanceCoverage(report: AcceptanceCoverageReport): stri
     ]),
     `Uncovered blocks: ${formatList(blockTargets.uncoveredIds)}`,
     ...blockTargets.targets.slice(0, 3).map((target) => formatAcceptanceTarget('Block', target))
-  ].join('\n');
-}
-
-export function formatVerificationReport(report: VerificationReport): string {
-  return [
-    formatFields([
-      `Verification report ${report.summary.status}`,
-      `requestedLane=${report.summary.requestedLane}`,
-      `failedLanes=${formatList(report.summary.failedLanes)}`
-    ]),
-    formatFields([
-      `Fast: ${report.fast.status}`,
-      `build=${report.fast.build.status}`,
-      `unit=${report.fast.unit.status}`,
-      `acceptance=${report.fast.acceptance.status}`,
-      `policy=${report.fast.policy.status}`
-    ]),
-    formatFields([
-      `Runtime: ${report.runtime.status}`,
-      `build=${report.runtime.build.status}`,
-      `unit=${report.runtime.unit.status}`,
-      `acceptance=${report.runtime.acceptance.status}`
-    ])
   ].join('\n');
 }
 

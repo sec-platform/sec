@@ -74,8 +74,12 @@ export function registerInspectionCommands(program: Command): void {
     description: 'Verification inspection',
     read: artifactReader<VerificationReport>('verificationReport', () => 'Verification report not found'),
     view: async (report) => {
-      const { formatVerificationReport } = await import('./formatters.ts');
-      return inspectionValue(report, formatVerificationReport);
+      const { projectVerificationReportInspect } = await import('../../application/verification-report-inspect.ts');
+      const { formatVerificationReport } = await import('../../entry/cli/verification-report-inspect.ts');
+      return inspectionValue(
+        report,
+        (value) => formatVerificationReport(projectVerificationReportInspect(value))
+      );
     }
   });
 
