@@ -157,6 +157,10 @@ export function sourceProgramCompilationCheckpoint(
     // Reuse the execution owner's non-blocking observation rule for both
     // synchronous throws and accidentally returned rejecting thenables.
     observeOptionalDiagnostic(() => operationState.observePhase?.(event));
+    // A synchronous observer may cancel the live signal or consume the remaining
+    // deadline. Re-enter without an event: no observer runs again, and guarded
+    // work cannot continue using the pre-observer admission check.
+    sourceProgramCompilationCheckpoint(operation, phase);
   }
 }
 
