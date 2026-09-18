@@ -1,3 +1,5 @@
+import { observeOptionalDiagnostic } from '../../../execution/optional-diagnostic.ts';
+
 export type SourceProgramCompilationPhase =
   | 'admission'
   | 'cache-read'
@@ -152,11 +154,9 @@ export function sourceProgramCompilationCheckpoint(
       elapsedMs: now - operationState.startedAtMonotonicMs
     });
     operationState.events.push(event);
-    try {
-      operationState.observePhase?.(event);
-    } catch {
-      // Process-local telemetry cannot alter compilation semantics.
-    }
+    // Reuse the execution owner's non-blocking observation rule for both
+    // synchronous throws and accidentally returned rejecting thenables.
+    observeOptionalDiagnostic(() => operationState.observePhase?.(event));
   }
 }
 
