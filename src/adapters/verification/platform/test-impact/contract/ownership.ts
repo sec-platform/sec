@@ -38,15 +38,15 @@ export type ResolvedTestOwnership = {
 const TEST_IMPACT_SOURCE_KIND_MODULES: Readonly<
   Partial<Record<TestImpactSourceKind, readonly string[]>>
 > = Object.freeze({
-  'active-documentation': Object.freeze(['control.documentation']),
-  'agent-skill': Object.freeze(['control.agent']),
-  'agent-role': Object.freeze(['control.agent']),
-  manifest: Object.freeze(['compiler.registry', 'compiler']),
-  'semantic-contract': Object.freeze(['product.semantic-model', 'compiler']),
-  'source-model': Object.freeze(['product.semantic-model', 'compiler']),
-  workflow: Object.freeze(['verification']),
-  'git-hook': Object.freeze(['development.hooks']),
-  'repository-config': Object.freeze(['development.runner', 'toolchain', 'compiler'])
+  'active-documentation': Object.freeze(['adapters.self-hosting.control.documentation']),
+  'agent-skill': Object.freeze(['adapters.self-hosting.control.agent']),
+  'agent-role': Object.freeze(['adapters.self-hosting.control.agent']),
+  manifest: Object.freeze(['compiler.registry', 'compiler', 'adapters.workspace', 'semantics.definitions']),
+  'semantic-contract': Object.freeze(['semantics.definitions', 'compiler', 'adapters.workspace']),
+  'source-model': Object.freeze(['semantics.definitions', 'compiler', 'adapters.workspace']),
+  workflow: Object.freeze(['assurance', 'adapters.verification', 'adapters.verification.platform.ci']),
+  'git-hook': Object.freeze(['adapters.self-hosting.development.hooks']),
+  'repository-config': Object.freeze(['adapters.self-hosting.development.runner', 'adapters.toolchain', 'compiler'])
 });
 
 export function testImpactModuleIdsForSourceKind(

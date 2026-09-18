@@ -116,8 +116,8 @@ test('repository sources route by semantic kind and module identity', () => {
   }]);
   expect(resolveTestOwnership(['.codex/agents/worker.toml'], provider)).toEqual([{
     source: '.codex/agents/worker.toml',
-    owner: 'control.agent',
-    identity: { kind: 'module', id: 'control.agent' }
+    owner: 'adapters.self-hosting.control.agent',
+    identity: { kind: 'module', id: 'adapters.self-hosting.control.agent' }
   }]);
   expect(selectTestsForSources(['.codex/agents/worker.toml'], provider).fast)
     .toEqual(['tests/unit/agent-fixture.test.ts']);
@@ -138,8 +138,8 @@ test('observed git-hook entrypoints route through development hooks ownership', 
 
   expect(resolveTestOwnership(['.githooks/post-merge'], provider)).toEqual([{
     source: '.githooks/post-merge',
-    owner: 'development.hooks',
-    identity: { kind: 'module', id: 'development.hooks' }
+    owner: 'adapters.self-hosting.development.hooks',
+    identity: { kind: 'module', id: 'adapters.self-hosting.development.hooks' }
   }]);
   expect(selectTestsForSources(['.githooks/post-merge'], provider).fast)
     .toContain('tests/unit/install-hooks-fixture.test.ts');
@@ -273,7 +273,7 @@ test('non-code product inputs reach tests through semantic module owners', () =>
     'tests/unit/virtual-manifest-consumer.test.ts': "import { manifestConsumer } from '../../src/compiler/virtual-manifest-consumer.ts'; void manifestConsumer;"
   });
   const documentation = selectTestsForSources(['docs/产品/产品要求与工作约束.md'], provider);
-  expect(documentation.owners).toContain('control.documentation');
+  expect(documentation.owners).toContain('adapters.self-hosting.control.documentation');
   expect(documentation.fast).toEqual([]);
   expect(documentation.slow).toEqual([]);
 

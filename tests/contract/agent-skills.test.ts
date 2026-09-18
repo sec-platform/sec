@@ -227,14 +227,14 @@ test('documentation and Agent trust-root kinds have focused governance ownership
     isActiveDocumentationPath
   );
   expect(skillKind).toBe('agent-skill');
-  expect(testImpactModuleIdsForSourceKind(skillKind)).toEqual(['control.agent']);
+  expect(testImpactModuleIdsForSourceKind(skillKind)).toEqual(['adapters.self-hosting.control.agent']);
 
   const documentationKind = classifyTestImpactSource(
     '.documentation/documents.json',
     isActiveDocumentationPath
   );
   expect(documentationKind).toBe('active-documentation');
-  expect(testImpactModuleIdsForSourceKind(documentationKind)).toEqual(['control.documentation']);
+  expect(testImpactModuleIdsForSourceKind(documentationKind)).toEqual(['adapters.self-hosting.control.documentation']);
 });
 
 test('external capability ledger binds repository authority and keeps rejected standing providers retired', async () => {

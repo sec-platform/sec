@@ -68,7 +68,7 @@ test('CI translates owner-issued selection into executable plan gates', () => {
   ]);
   expect(pipeline.selectionResolved).toBe(true);
   expect(pipeline.selectionReasons).toEqual(['ownership-impact']);
-  expect(pipeline.affectedOwners).toContain('compiler');
+  expect(pipeline.affectedOwners).toContain('adapters.compilation');
 
   const runtime = CodexDevelopmentBuildVerificationPlan('quick', [
     'src/adapters/verification/run-runtime-verification.ts'
@@ -102,7 +102,7 @@ test('Quick docs gate follows the canonical documentation lifecycle owner', () =
   for (const file of currentActiveDocumentationPaths()) {
     const plan = CodexDevelopmentBuildVerificationPlan('quick', [file]);
     expect(plan.selectionResolved).toBe(true);
-    expect(plan.affectedOwners).toContain('control.documentation');
+    expect(plan.affectedOwners).toContain('adapters.self-hosting.control.documentation');
     expect(plan.affectedOwners).not.toContain('bounded-slow-risk');
     expect(plan.gates.map(({ id }) => id)).toContain('docs-doctor');
   }
@@ -111,7 +111,7 @@ test('Quick docs gate follows the canonical documentation lifecycle owner', () =
     'docs/unregistered.manifest.yaml'
   ]);
   expect(unknownDocsYaml.selectionResolved).toBe(false);
-  expect(unknownDocsYaml.affectedOwners).not.toContain('control.documentation');
+  expect(unknownDocsYaml.affectedOwners).not.toContain('adapters.self-hosting.control.documentation');
   expect(unknownDocsYaml.gates.map(({ id }) => id)).toContain('docs-doctor');
   expect(unknownDocsYaml.gates.filter(({ id }) => id.startsWith('slow-suite-')))
     .toHaveLength(slowTestPrRiskBaselineSuiteIds().length);
@@ -168,7 +168,7 @@ test('Ticket semantic Contract reaches CI through the owner-issued plan boundary
     selectionResolved: true
   });
   expect(selection.affectedOwners).toContain('compiler');
-  expect(selection.affectedOwners).toContain('product.semantic-model');
+  expect(selection.affectedOwners).toContain('semantics.definitions');
   expect(selection.affectedOwners).not.toContain('bounded-slow-risk');
 });
 
