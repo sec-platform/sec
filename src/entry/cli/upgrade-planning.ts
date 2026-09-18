@@ -1,8 +1,7 @@
-import type { CountSummary } from '../../contracts/collections.ts';
 import type { UpgradePlanningView } from '../../application/upgrade-planning.ts';
 import { formatFields, formatList, optionalFields } from './format-utils.ts';
 
-function formatCountSummaries(entries: readonly CountSummary<string>[]): string {
+function formatCountSummaries(entries: UpgradePlanningView['migrationKindCounts']): string {
   return formatList(entries.map((entry) => `${entry.id}=${entry.count}`));
 }
 

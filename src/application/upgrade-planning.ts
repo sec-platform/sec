@@ -1,5 +1,5 @@
 import { compareCodeUnits } from '../contracts/canonical.ts';
-import { summarizeCounts, type CountSummary } from '../contracts/collections.ts';
+import { summarizeCounts } from '../contracts/collections.ts';
 import type {
   UpgradeExecutionTerminal,
   UpgradePlan,
@@ -7,6 +7,8 @@ import type {
 } from '../semantics/upgrade/upgrade-artifact.ts';
 
 type UpgradePlanningMaterial = UpgradePlan | UpgradePreview;
+
+type CountView = Readonly<{ id: string; count: number }>;
 
 type UpgradeMigrationView = Readonly<{
   id: string;
@@ -39,8 +41,8 @@ export type UpgradePlanningView = Readonly<{
   presentation: 'preview' | 'planned' | 'applied';
   migrationCount: number;
   preflightCheckCount: number;
-  migrationKindCounts: readonly CountSummary<string>[];
-  operationRoleCounts: readonly CountSummary<string>[];
+  migrationKindCounts: readonly CountView[];
+  operationRoleCounts: readonly CountView[];
   impacts: readonly string[];
   preflightEvidenceCount: number;
   requiresVerificationCount: number;
@@ -48,7 +50,7 @@ export type UpgradePlanningView = Readonly<{
   preflightChecks: readonly UpgradePreflightView[];
 }>;
 
-function projectCountRecord(record: Readonly<Record<string, number>>): readonly CountSummary<string>[] {
+function projectCountRecord(record: Readonly<Record<string, number>>): readonly CountView[] {
   return Object.entries(record)
     .sort(([left], [right]) => compareCodeUnits(left, right))
     .map(([id, count]) => ({ id, count }));
