@@ -1,0 +1,51 @@
+name: sec086-install-delta
+on:
+  push:
+    branches: [refactor/sec086-architecture]
+    paths: [.github/workflows/sec086-install-delta.yml]
+permissions: {}
+jobs:
+  transfer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 7c26b59711b3b4498f4dc7ae19a0f37368ea28e6
+          persist-credentials: false
+      - name: Store exact source deltas without updating refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, subprocess
+          files={}
+          def edit(name, old, new):
+              s=files.get(name,Path(name).read_text())
+              assert s.count(old)==1,(name,old)
+              files[name]=s.replace(old,new)
+          p='src/adapters/runtime-state/physical/runtime/physical-no-follow.ts'
+          edit(p,"      if (seal && entry.kind !== 'link') fchmodSync(fd, entry.kind === 'directory' ? 0o555 : 0o444);", "      const predecessorMode = entry.predecessorMode ?? String(before.mode);\n      const sealedMode = entry.kind === 'directory'\n        ? 0o555 : 0o444 | Number(BigInt(predecessorMode) & 0o111n);\n      if (seal && entry.kind !== 'link') fchmodSync(fd, sealedMode);")
+          edit(p,"(entry.kind === 'file' && (after.mode & 0o777n) !== 0o444n)","(entry.kind === 'file' && (after.mode & 0o777n) !== BigInt(sealedMode))")
+          p='src/adapters/toolchain/dependencies/runtime/compiler-materialization-input.ts'
+          anchor='export function compilerInstallConfigSha256'
+          edit(p,anchor,"/** Sealing an owned generation must not chmod files shared with Bun's cache. */\nexport const COMPILER_DEPENDENCY_INSTALL_ARGS = Object.freeze([\n  'install', '--frozen-lockfile', '--ignore-scripts', '--backend=copyfile'\n]);\n\n"+anchor)
+          edit(p,'canonicalJson({ install })','canonicalJson({ install, argv: COMPILER_DEPENDENCY_INSTALL_ARGS })')
+          p='src/adapters/toolchain/dependencies/runtime/project-runtime.ts'
+          edit(p,'  compilerInstallConfigSha256,\n','  compilerInstallConfigSha256,\n  COMPILER_DEPENDENCY_INSTALL_ARGS,\n')
+          edit(p,"      ['install', '--frozen-lockfile', '--ignore-scripts'],","      COMPILER_DEPENDENCY_INSTALL_ARGS,")
+          p='tests/integration/compiler-dependency-installation.test.ts'
+          edit(p,"expect(args).toEqual(['install', '--frozen-lockfile', '--ignore-scripts']);","expect(args).toEqual(['install', '--frozen-lockfile', '--ignore-scripts', '--backend=copyfile']);")
+          expected=['7cf4ef34cce006c4889e850e48ad5d01e27f2d63','eff6346df69ac982447fc78effebc3304f57105d','36a2ee2d78f58327b2db3aa31aee437c232261c8','85c2212b6ef1b6ace00e9647c0d8c5040727845b']
+          for (name,content),sha in zip(files.items(),expected,strict=True):
+              actual=subprocess.check_output(['git','hash-object','--stdin'],input=content.encode()).decode().strip()
+              assert actual==sha,(name,actual)
+              Path('/tmp/blob.json').write_text(json.dumps({'content':content,'encoding':'utf-8'}))
+              stored=subprocess.check_output(['gh','api','--method','POST','repos/sec-platform/sec/git/blobs','--input','/tmp/blob.json','--jq','.sha']).decode().strip()
+              assert stored==sha
+              print(name,stored)
+          PY
