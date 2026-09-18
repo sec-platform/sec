@@ -1,4 +1,4 @@
-import { summarizeCounts, type CountSummary } from '../contracts/collections.ts';
+import { summarizeCounts } from '../contracts/collections.ts';
 
 export type ExplainGraphInspectProjectionSource = Readonly<{
   nodes: readonly Readonly<{ type: string }>[];
@@ -9,11 +9,16 @@ export type ExplainGraphInspectProjectionSource = Readonly<{
   }>;
 }>;
 
+export type ExplainGraphInspectCountEntry = Readonly<{
+  id: string;
+  count: number;
+}>;
+
 export type ExplainGraphInspectView = Readonly<{
   nodeCount: number;
   edgeCount: number;
-  nodeTypeCounts: readonly CountSummary<string>[];
-  edgeTypeCounts: readonly CountSummary<string>[];
+  nodeTypeCounts: readonly ExplainGraphInspectCountEntry[];
+  edgeTypeCounts: readonly ExplainGraphInspectCountEntry[];
   coverageBlockCount: number;
   provenanceArtifactCount: number;
 }>;

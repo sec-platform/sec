@@ -1,8 +1,10 @@
-import type { CountSummary } from '../../contracts/collections.ts';
-import type { ExplainGraphInspectView } from '../../application/explain-graph-inspect.ts';
+import type {
+  ExplainGraphInspectCountEntry,
+  ExplainGraphInspectView
+} from '../../application/explain-graph-inspect.ts';
 import { formatList } from './format-utils.ts';
 
-function formatCountSummaries(entries: readonly CountSummary<string>[]): string {
+function formatCountSummaries(entries: readonly ExplainGraphInspectCountEntry[]): string {
   return formatList(entries.map((entry) => `${entry.id}=${entry.count}`));
 }
 
