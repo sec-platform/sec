@@ -4,7 +4,6 @@ import type {
   UpgradePlan,
   UpgradePreview
 } from '../../semantics/upgrade/upgrade-artifact.ts';
-import type { PolicyReport } from '../../semantics/policies/types.ts';
 import type { ExplainGraph } from '../../semantics/projection/explain.ts';
 import type { RepairPlan } from '../../semantics/repair/types.ts';
 import { compareCodeUnits, uniqueSorted } from '../../contracts/canonical.ts';
