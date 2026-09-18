@@ -127,6 +127,20 @@ function slowFileSuite(
 // Slow e2e suites are file-granular by default so CI can shard them with the
 // highest useful parallelism while PR risk gates run only the impacted files.
 const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze([
+  // These suites acquire the full repository semantic graph. Keep them out of
+  // fast batches and serialize their resource-heavy execution through this owner.
+  slowPathSuite('contract-ci-lanes', 'tests/contract/ci-lanes.test.ts', 'ci-plan-and-selection', 180_000, {
+    resourceClass: 'runtime-heavy'
+  }),
+  slowPathSuite('contract-ci-trust-closure', 'tests/contract/ci-trust-closure-contract.test.ts', 'ci-trust-closure', 180_000, {
+    resourceClass: 'runtime-heavy'
+  }),
+  slowPathSuite('unit-slow-test-selection', 'tests/unit/slow-test-selection.test.ts', 'test-impact-selection', 180_000, {
+    resourceClass: 'runtime-heavy'
+  }),
+  slowPathSuite('unit-verification-session-runtime', 'tests/unit/verification-session-runtime.test.ts', 'verification-session-runtime', 180_000, {
+    resourceClass: 'runtime-heavy'
+  }),
   slowPathSuite(
     'source-program-workspace-snapshot',
     'src/adapters/repository/source-program-model/workspace-source-snapshot.test.ts',
