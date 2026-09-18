@@ -1,0 +1,46 @@
+name: sec086-loader-probe
+on:
+  push:
+    branches: [refactor/sec086-architecture]
+    paths: [.github/workflows/sec086-loader-probe.yml]
+permissions: {}
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 3
+    steps:
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.0
+      - name: Compare fresh native module specifiers without changing repository state
+        shell: pwsh
+        run: |
+          @'
+          import {mkdtemp,writeFile,rm} from 'node:fs/promises';
+          import {pathToFileURL} from 'node:url';
+          import path from 'node:path';
+          const root=await mkdtemp(path.join(process.env.RUNNER_TEMP,'import-probe-'));
+          const forms={url:p=>pathToFileURL(p).href,native:p=>p,posix:p=>p.replaceAll('\\','/')};
+          const results=[];
+          try {
+            for(const [form,format] of Object.entries(forms)) for(const suffix of ['query','fragment','nested']) {
+              const p=path.join(root,form+'-'+suffix+'.mjs');
+              await writeFile(p,'globalThis.probeCount++; export const value = globalThis.probeCount;');
+              globalThis.probeCount=0;
+              try {
+                const url=n=>format(p)+(suffix==='fragment'?'#revision='+n:suffix==='query'?'?revision='+n:'?loader='+encodeURIComponent(import.meta.url)+'&revision='+n);
+                const a=await import(url(1)),b=await import(url(2));
+                results.push({form,suffix,evaluations:globalThis.probeCount,same:a===b});
+              } catch(e) { results.push({form,suffix,error:String(e)}); }
+            }
+            console.log(JSON.stringify({bun:Bun.version,platform:process.platform,results},null,2));
+          } finally {await rm(root,{recursive:true,force:true});}
+          '@ | Set-Content "$env:RUNNER_TEMP/probe.ts"
+          bun "$env:RUNNER_TEMP/probe.ts" *> "$env:RUNNER_TEMP/probe.json"
+          Get-Content "$env:RUNNER_TEMP/probe.json"
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sec086-native-loader-probe
+          path: ${{ runner.temp }}/probe.json
+          retention-days: 7
