@@ -7,7 +7,6 @@ import type {
 import type { PolicyReport } from '../../semantics/policies/types.ts';
 import type { AcceptanceCoverageEntry, AcceptanceCoverageReport } from '../../assurance/acceptance/coverage.ts';
 import type { ExplainGraph } from '../../semantics/projection/explain.ts';
-import type { ProvenanceFile } from '../../semantics/provenance/types.ts';
 import type { RepairPlan } from '../../semantics/repair/types.ts';
 import { compareCodeUnits, uniqueSorted } from '../../contracts/canonical.ts';
 import { countMatching } from '../../contracts/collections.ts';
@@ -484,47 +483,6 @@ export function formatAcceptanceCoverage(report: AcceptanceCoverageReport): stri
     `Uncovered blocks: ${formatList(blockTargets.uncoveredIds)}`,
     ...blockTargets.targets.slice(0, 3).map((target) => formatAcceptanceTarget('Block', target))
   ].join('\n');
-}
-
-export function formatProvenanceRegistry(provenance: ProvenanceFile): string {
-  const registryArtifacts = provenance.artifacts.filter((artifact) => artifact.registrySourceId);
-  const unverifiedArtifacts = provenance.artifacts.filter((artifact) => artifact.verifiedBy.length === 0);
-  const overrideArtifacts = provenance.artifacts.filter((artifact) => artifact.overrideStatus !== 'none');
-  const generatedPasses = uniqueSorted(
-    provenance.artifacts.flatMap((artifact) => {
-      const pass = artifact.generatedByPass;
-      return pass ? [pass] : [];
-    })
-  );
-  const lines = [
-    formatFields([
-      'Provenance registry',
-      `artifacts=${provenance.artifacts.length}`,
-      `registry=${registryArtifacts.length}`,
-      `overrides=${overrideArtifacts.length}`,
-      `unverified=${unverifiedArtifacts.length}`
-    ]),
-    `Origins: ${formatCounts(provenance.artifacts.map((artifact) => artifact.originType))}`,
-    `Registry sources: ${formatCounts(registryArtifacts.map((artifact) => artifact.registrySourceId ?? 'unknown'))}`,
-    `Generated passes: ${formatList(generatedPasses)}`
-  ];
-  const sampleArtifacts = [
-    ...provenance.artifacts.filter((artifact) => artifact.originType === 'block').slice(0, 2),
-    ...provenance.artifacts.filter((artifact) => artifact.originType === 'override').slice(0, 2),
-    ...provenance.artifacts.filter((artifact) => artifact.originType === 'generated').slice(0, 2)
-  ].slice(0, 5);
-  for (const artifact of sampleArtifacts) {
-    lines.push(
-      formatFields([
-        `Artifact ${artifact.path}`,
-        `origin=${artifact.originType}:${artifact.originId}`,
-        `registry=${artifact.registrySourceId ?? 'none'}`,
-        `verifiedBy=${formatList(artifact.verifiedBy)}`,
-        `override=${artifact.overrideStatus}`
-      ])
-    );
-  }
-  return lines.join('\n');
 }
 
 export function formatReviewSummaryContract(summary: ReviewSummary): string {

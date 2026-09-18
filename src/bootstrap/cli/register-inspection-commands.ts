@@ -1,7 +1,7 @@
 import type { Command } from 'commander';
 import type { PolicyReport } from '../../semantics/policies/types.ts';
 import type { AcceptanceCoverageReport } from '../../assurance/acceptance/coverage.ts';
-import type { ProvenanceFile } from '../../semantics/provenance/types.ts';
+import type { ProvenanceRegistryInspectProjectionSource } from '../../application/provenance-registry-inspect.ts';
 import type { RuntimeVerificationLaneReport, VerificationReport } from '../../assurance/verification/contract/types.ts';
 import type { ReviewSummary } from '../../assurance/verification/review/contract/types.ts';
 import { addJsonFlags, commandFromRoot, jsonOpts } from '../../entry/cli/command-options.ts';
@@ -85,14 +85,21 @@ export function registerInspectionCommands(program: Command): void {
 
   registerInspectionQuery(program.command('provenance'), {
     description: 'Provenance inspection',
-    read: async ({ workspaceRoot }): Promise<ProvenanceFile> => {
+    read: async ({ workspaceRoot }): Promise<ProvenanceRegistryInspectProjectionSource> => {
       const { resolveWorkspaceProvenancePath } = await import('../../adapters/workspace-context.ts');
       const { readRequiredJson } = await import('./artifact-command-read.ts');
-      return readRequiredJson<ProvenanceFile>(await resolveWorkspaceProvenancePath(workspaceRoot), 'Provenance registry not found');
+      return readRequiredJson<ProvenanceRegistryInspectProjectionSource>(
+        await resolveWorkspaceProvenancePath(workspaceRoot),
+        'Provenance registry not found'
+      );
     },
     view: async (report) => {
-      const { formatProvenanceRegistry } = await import('./formatters.ts');
-      return inspectionValue(report, formatProvenanceRegistry);
+      const { projectProvenanceRegistryInspect } = await import('../../application/provenance-registry-inspect.ts');
+      const { formatProvenanceRegistry } = await import('../../entry/cli/provenance-registry-inspect.ts');
+      return inspectionValue(
+        report,
+        (value) => formatProvenanceRegistry(projectProvenanceRegistryInspect(value))
+      );
     }
   });
 
