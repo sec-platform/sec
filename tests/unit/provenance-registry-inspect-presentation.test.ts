@@ -19,7 +19,7 @@ describe('provenance registry inspection presentation boundary', () => {
           path: 'src/block-b.ts',
           originType: 'block',
           originId: 'block-b',
-          verifiedBy: [],
+          verifiedBy: [] as string[],
           overrideStatus: 'none'
         },
         {
@@ -34,7 +34,7 @@ describe('provenance registry inspection presentation boundary', () => {
           originType: 'generated',
           originId: 'generated-a',
           generatedByPass: 'emit',
-          verifiedBy: [],
+          verifiedBy: [] as string[],
           overrideStatus: 'none'
         },
         {
@@ -42,7 +42,7 @@ describe('provenance registry inspection presentation boundary', () => {
           originType: 'generated',
           originId: 'generated-b',
           generatedByPass: 'compose',
-          verifiedBy: [],
+          verifiedBy: [] as string[],
           overrideStatus: 'none'
         }
       ]
@@ -75,7 +75,7 @@ describe('provenance registry inspection presentation boundary', () => {
           path: 'src/block-b.ts',
           originType: 'block',
           originId: 'block-b',
-          verifiedBy: [],
+          verifiedBy: [] as string[],
           overrideStatus: 'none'
         },
         {
@@ -89,14 +89,14 @@ describe('provenance registry inspection presentation boundary', () => {
           path: 'src/generated-a.ts',
           originType: 'generated',
           originId: 'generated-a',
-          verifiedBy: [],
+          verifiedBy: [] as string[],
           overrideStatus: 'none'
         },
         {
           path: 'src/generated-b.ts',
           originType: 'generated',
           originId: 'generated-b',
-          verifiedBy: [],
+          verifiedBy: [] as string[],
           overrideStatus: 'none'
         }
       ]
