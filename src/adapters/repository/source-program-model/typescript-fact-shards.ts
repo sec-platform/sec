@@ -401,10 +401,12 @@ export function compileTypeScriptSourceProgramFactShard(input: Readonly<{
 export function encodeTypeScriptSourceProgramFactShard(
   shard: TypeScriptSourceProgramFactShard
 ): Uint8Array {
-  const parsed = parseTypeScriptSourceProgramFactShard(
-    new TextEncoder().encode(JSON.stringify(canonicalJson(shard)))
-  );
-  return new TextEncoder().encode(JSON.stringify(canonicalJson(parsed)));
+  const bytes = new TextEncoder().encode(JSON.stringify(canonicalJson(shard)));
+  // The parser proves these exact bytes equal its canonical, digest-bound
+  // encoding. Keep that full validation, but do not serialize and allocate
+  // an identical second byte buffer for every shard in the fact pack.
+  parseTypeScriptSourceProgramFactShard(bytes);
+  return bytes;
 }
 
 export function parseTypeScriptSourceProgramFactShard(
