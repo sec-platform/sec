@@ -1,5 +1,6 @@
 import { afterAll, expect, test } from 'bun:test';
 
+import { DEFAULT_FAST_TEST_MAX_CONCURRENCY } from '../../src/adapters/self-hosting/development/runner/fast-test-policy.ts';
 import { AFFECTED_SELECTION_OPERATION_DURATION_MS } from '../../src/adapters/self-hosting/development/runner/affected-plan-contract.ts';
 import {
   admitTestSuiteExecutionPolicy,
@@ -86,7 +87,7 @@ test('owner-issued projection maps source and managed-hook changes to their cano
 
   const hookSelection = selectSlowTestRiskClosure(['.githooks/post-merge']);
   expect(hookSelection).toMatchObject({ resolved: true });
-  expect(hookSelection.owners).toContain('development.hooks');
+  expect(hookSelection.owners).toContain('adapters.self-hosting.development.hooks');
   expect(hookSelection.affectedSlowTests).toContain('tests/e2e/install-git-hooks.test.ts');
   expect(hookSelection.suites).toContain('e2e-install-git-hooks');
 });
@@ -244,7 +245,7 @@ test('long suite admission retains its exact issued test inventory and finite re
     workingDirectory: compilerRoot
   });
   expect(concurrentPolicy.canonicalArgv).toEqual([
-    'bun', 'test', ...suite.files, '--concurrent', '--max-concurrency', '3',
+    'bun', 'test', ...suite.files, '--concurrent', '--max-concurrency', String(DEFAULT_FAST_TEST_MAX_CONCURRENCY),
     '--timeout', '180000'
   ]);
 

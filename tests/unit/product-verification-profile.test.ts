@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 
+import { POLICY_SOURCE_PATHS } from '../../src/workspace/contract/policy-source-paths.ts';
 import type { PolicyReport } from '../../src/semantics/policies/types.ts';
 import type { FastVerificationLaneReport, RuntimeVerificationLaneReport } from '../../src/assurance/verification/contract/types.ts';
 import { buildExpectedProductFastGate, buildExpectedProductPolicyGate, buildExpectedProductRuntimeGate, buildExpectedProductVerificationClaimSummary, PRODUCT_POLICY_CLAIM_ID } from '../../src/assurance/verification/profile/contract/product.ts';
@@ -31,14 +32,14 @@ function shadowedPolicyReport(
     },
     project: {
       policies: ['tenant-policy'],
-      sources: [{ path: 'project/policies/c.yaml', policyIds: ['tenant-policy'] }],
+      sources: [{ path: `${POLICY_SOURCE_PATHS.project}/c.yaml`, policyIds: ['tenant-policy'] }],
       violations: []
     },
     merged: {
       policies: [{
         id: 'tenant-policy',
         sourceScope: 'project',
-        sourcePath: 'project/policies/c.yaml',
+        sourcePath: `${POLICY_SOURCE_PATHS.project}/c.yaml`,
         targets
       }]
     },
@@ -202,4 +203,13 @@ test('full runtime pass requires nonempty physical inventories and complete cove
     },
     productVerificationObservationsFixture().runtime
   ).status).toBe('invalidated');
+});
+
+
+test('project policy declarations outside the canonical author root cannot authorize a claim', () => {
+  const report = shadowedPolicyReport();
+  report.project.sources[0]!.path = 'project/policies/c.yaml';
+  report.merged.policies[0]!.sourcePath = 'project/policies/c.yaml';
+  expect(buildExpectedProductPolicyGate(report, productVerificationObservationsFixture().policy).status)
+    .toBe('invalidated');
 });

@@ -48,18 +48,18 @@ async function commitFixture(
   note: string,
   projectConfig = '{"compilerOptions":{"noEmit":true}}\n'
 ): Promise<string> {
-  await mkdir(path.join(root, 'src', 'development', 'import-normalization'), { recursive: true });
+  await mkdir(path.join(root, 'src', 'adapters', 'self-hosting', 'development', 'import-normalization'), { recursive: true });
   await Promise.all([
     writeFile(path.join(root, 'tsconfig.json'), projectConfig),
     writeFile(path.join(root, 'note.txt'), `${note}\n`),
     writeFile(path.join(root, 'src', 'subject.ts'), 'export const subject = true;\n'),
-    writeFile(path.join(root, 'src', 'development', 'import-normalization', 'kernel.ts'), kernel),
+    writeFile(path.join(root, 'src', 'adapters', 'self-hosting', 'development', 'import-normalization', 'kernel.ts'), kernel),
     writeFile(
-      path.join(root, 'src', 'development', 'import-normalization', 'runtime.ts'),
+      path.join(root, 'src', 'adapters', 'self-hosting', 'development', 'import-normalization', 'runtime.ts'),
       "import { normalize } from './kernel.ts';\nexport const verifyCandidateImportNormalization = normalize;\n"
     ),
     writeFile(
-      path.join(root, 'src', 'development', 'import-normalization', 'sec.module.json'),
+      path.join(root, 'src', 'adapters', 'self-hosting', 'development', 'import-normalization', 'sec.module.json'),
       `${JSON.stringify({
         importGraph: 'runtime',
         externalEntrypoints: ['src/adapters/self-hosting/development/import-normalization/runtime.ts'],
@@ -318,7 +318,7 @@ test('terminal observes candidate A instead of staged index B', async () => {
     );
 
     await writeFile(
-      path.join(root, 'src', 'development', 'import-normalization', 'kernel.ts'),
+      path.join(root, 'src', 'adapters', 'self-hosting', 'development', 'import-normalization', 'kernel.ts'),
       "import fs from 'node:fs';\nimport path from 'node:path';\nexport function normalize(): void { void fs; void path; }\n"
     );
     git(root, ['add', 'src/adapters/self-hosting/development/import-normalization/kernel.ts']);
