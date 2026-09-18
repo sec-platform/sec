@@ -143,6 +143,13 @@ export async function verifyWorkspace(
   context?: PipelineExecutionContext
 ): Promise<{ lock: LockFile; report: VerificationReport }> {
   workspaceRoot = path.resolve(workspaceRoot);
+  const { isolatedVerificationCapability, lane, signal, stagedVerificationProof } = options;
+  // Capture request values, not new authority. Capability owners still admit
+  // the original references; an AbortSignal must remain live rather than cloned.
+  options = Object.freeze({
+    isolatedVerificationCapability, lane, signal, stagedVerificationProof,
+    emitTiming: isolatedVerificationCapability === undefined ? options.emitTiming : undefined
+  });
   return executePipelineStage(
     workspaceRoot,
     'verify',

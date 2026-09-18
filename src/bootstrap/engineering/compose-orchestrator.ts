@@ -37,14 +37,17 @@ function readRequiredComposeLock(workspaceRoot: string): LockFile {
   }
 }
 
-function assertComposeOptions(options?: ComposeWorkspaceOptions): void {
-  options?.signal?.throwIfAborted();
-  if (options?.lock) {
+function captureComposeOptions(options?: ComposeWorkspaceOptions): ComposeWorkspaceOptions {
+  const signal = options?.signal;
+  signal?.throwIfAborted();
+  const lock = options?.lock;
+  if (lock) {
     throw new CompilerError(
       'COMPOSE-LOCK-001',
       'compose --lock is unavailable until a retained permission provider can prove no-follow ownership and readback; OS chmod is not a SEC authority boundary.'
     );
   }
+  return Object.freeze({ lock, signal, opaqueModuleMaterializationMode: options?.opaqueModuleMaterializationMode });
 }
 
 function resolveComposeMaterializationMode(
@@ -82,7 +85,7 @@ export async function composeWorkspace(
   workspaceRoot = path.resolve(workspaceRoot);
   // Validate and resolve all ambient inputs before opening a Pipeline
   // transaction. Unsupported or conflicting inputs must remain zero-effect.
-  assertComposeOptions(options);
+  options = captureComposeOptions(options);
   const materializationMode = resolveComposeMaterializationMode(options);
   if (!context) {
     return withPipelineTransaction(
