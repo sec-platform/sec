@@ -1,3 +1,5 @@
+import path from 'node:path';
+import { addBlockToPlan } from '../../application/add-block.ts';
 import { createWorkspaceWriteCommitFence, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../adapters/filesystem/write-lease.ts';
 import { getWorkspacePaths } from "../../adapters/workspace-context.ts";
 import { writeYaml } from '../../adapters/workspace/yaml.ts';
@@ -25,35 +27,17 @@ export async function addBlock(
     readonly registryKind: ManifestEntry['registryKind'];
   };
 }> {
+  workspaceRoot = path.resolve(workspaceRoot);
   return withWorkspaceWriteLease(workspaceRoot, workspaceWriteLease, async (token) => {
     const { workspaceConfigPath } = getWorkspacePaths(workspaceRoot);
-    const plan = await loadPlan(workspaceConfigPath);
-    const existingBlock = plan.blocks.find((entry) => entry.id === blockId);
-    const manifestEntry = await loadManifestById(blockId, {
-      workspaceRoot,
-      version: existingBlock?.version,
-      registrySources: plan.registry.sources
+    return addBlockToPlan(blockId, {
+      readPlan: () => loadPlan(workspaceConfigPath),
+      selectManifest: ({ blockId: id, version, registrySources }) =>
+        loadManifestById(id, { workspaceRoot, version, registrySources }),
+      writePlan: (plan) => writeYaml(
+        workspaceConfigPath, plan, createWorkspaceWriteCommitFence(workspaceRoot, token)
+      )
     });
-    const selectedBlock = {
-      id: blockId,
-      version: manifestEntry.manifest.version,
-      registrySourceId: manifestEntry.registrySourceId,
-      registryKind: manifestEntry.registryKind
-    } as const;
-    if (existingBlock) {
-      return { plan, changed: false, selectedBlock };
-    }
-    plan.blocks.push({ id: blockId, version: manifestEntry.manifest.version });
-    const declaredAcceptanceIds = new Set(plan.acceptance.map((entry) => entry.id));
-    for (const acceptance of manifestEntry.manifest.acceptance) {
-      if (!declaredAcceptanceIds.has(acceptance.id)) {
-        plan.acceptance.push({ id: acceptance.id });
-        declaredAcceptanceIds.add(acceptance.id);
-      }
-    }
-    const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, token);
-    await writeYaml(workspaceConfigPath, plan, commitFence);
-    return { plan, changed: true, selectedBlock };
   });
 }
 
