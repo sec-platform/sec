@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
-import { buildE2eMatrix } from '../../src/adapters/verification/platform/review/runtime/matrix.ts';
+import { buildE2eMatrix } from '../../src/assurance/verification/review/matrix.ts';
 import { resolveWorkspaceArtifactPath } from '../../src/adapters/workspace-context.ts';
 import { projectE2eMatrix } from '../../src/application/e2e-matrix-inspect.ts';
 import { formatE2eMatrix } from '../../src/entry/cli/e2e-matrix-inspect.ts';
