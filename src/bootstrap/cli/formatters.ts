@@ -325,44 +325,6 @@ function formatUpgradeMigrationDetails(
   ];
 }
 
-export function formatPolicyReport(report: NonNullable<ReviewSummary['policySummary']>): string {
-  const severity = Object.entries(report.severityCounts)
-    .sort(([left], [right]) => compareCodeUnits(left, right))
-    .map(([level, count]) => `${level}=${count}`);
-  const lines = [
-    formatFields([
-      `Policy report ${report.status}`,
-      `official=${report.officialPolicyCount}`,
-      `project=${report.projectPolicyCount}`,
-      `merged=${report.mergedPolicyCount}`,
-      `violations=${report.violationCount}`
-    ]),
-    `Sources: ${report.sourceCount}`,
-    `Severity: ${formatList(severity)}`
-  ];
-  for (const policy of report.mergedSummaries.slice(0, 3)) {
-    lines.push(
-      formatFields([
-        `Policy ${policy.id}`,
-        `scope=${policy.sourceScope}`,
-        `source=${policy.sourcePath}`,
-        `targets=${formatList(policy.targets)}`
-      ])
-    );
-  }
-  for (const violation of report.violationSummaries.slice(0, 3)) {
-    lines.push(
-      formatFields([
-        `Violation ${violation.id}`,
-        `severity=${violation.severity}`,
-        `files=${formatList(violation.files)}`,
-        violation.message
-      ])
-    );
-  }
-  return lines.join('\n');
-}
-
 export function formatReviewSummaryContract(summary: ReviewSummary): string {
   const coverage = summary.coverageSummary;
   const provenance = summary.provenanceSummary;

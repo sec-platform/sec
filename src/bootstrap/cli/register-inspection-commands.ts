@@ -32,9 +32,12 @@ export function registerInspectionCommands(program: Command): void {
     description: 'Policy inspection',
     read: artifactReader<PolicyReport>('policyReport', (c) => `Policy report not found; run ${c.rootCommand} verify first`),
     view: async (report) => {
-      const { formatPolicyReport } = await import('./formatters.ts');
-      const { buildReviewPolicySummary } = await import('../../assurance/verification/review/contract/policy.ts');
-      return inspectionValue(report, (value) => formatPolicyReport(buildReviewPolicySummary(value)));
+      const { projectPolicyReportInspection } = await import('../../application/policy-report-inspection.ts');
+      const { formatPolicyReport } = await import('../../entry/cli/policy-report-inspection.ts');
+      return inspectionValue(
+        report,
+        (value) => formatPolicyReport(projectPolicyReportInspection(value))
+      );
     },
     modes: { sources: async (report) => {
       const { projectPolicySources } = await import('../../application/policy-source-inspection.ts');

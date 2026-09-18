@@ -1,3 +1,5 @@
+import type { PolicyReport } from '../semantics/policies/types.ts';
+import { buildReviewPolicySummary } from '../assurance/verification/review/contract/policy.ts';
 import { compareCodeUnits } from '../contracts/canonical.ts';
 
 export type PolicyReportInspectionSource = Readonly<{
@@ -70,4 +72,8 @@ export function projectPolicyReportInspect(source: PolicyReportInspectionSource)
       message: violation.message
     }))
   };
+}
+
+export function projectPolicyReportInspection(report: PolicyReport): PolicyReportInspectView {
+  return projectPolicyReportInspect(buildReviewPolicySummary(report));
 }
