@@ -10,7 +10,18 @@ import { projectRuntimeInspection } from '../../src/application/runtime-inspecti
 import { formatProvenanceRegistry } from '../../src/entry/cli/provenance-registry-inspect.ts';
 
 type PolicyInput = Parameters<typeof buildPolicySourceInspect>[0];
-type CoverageInput = Parameters<typeof projectAcceptanceTargets>[0];
+type CoverageInput = {
+  formatVersion: string;
+  status: string;
+  acceptancePassed: string[];
+  blocks: Array<{
+    id: string;
+    declaredAcceptance: string[];
+    coveredBy: string[];
+    uncovered: boolean;
+  }>;
+  uncoveredBlocks: string[];
+};
 type RuntimeInput = Parameters<typeof projectRuntimeInspection>[0];
 type ReviewInput = Parameters<typeof buildReviewDiagnosticsInspect>[0];
 type ProvenanceInput = Parameters<typeof projectProvenanceRegistryInspect>[0];
