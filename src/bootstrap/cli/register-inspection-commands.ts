@@ -1,6 +1,6 @@
 import type { Command } from 'commander';
 import type { PolicyReport } from '../../semantics/policies/types.ts';
-import type { AcceptanceCoverageReport } from '../../assurance/acceptance/coverage.ts';
+import type { AcceptanceInspectionProjectionSource } from '../../application/acceptance-inspection.ts';
 import type { ProvenanceRegistryInspectProjectionSource } from '../../application/provenance-registry-inspect.ts';
 import type { RuntimeVerificationLaneReport, VerificationReport } from '../../assurance/verification/contract/types.ts';
 import type { ReviewSummary } from '../../assurance/verification/review/contract/types.ts';
@@ -44,14 +44,25 @@ export function registerInspectionCommands(program: Command): void {
 
   registerInspectionQuery(program.command('acceptance'), {
     description: 'Acceptance inspection',
-    read: artifactReader<AcceptanceCoverageReport>('acceptanceCoverage', (c) => `Acceptance coverage report not found; run ${c.rootCommand} verify first`),
+    read: artifactReader<AcceptanceInspectionProjectionSource>(
+      'acceptanceCoverage',
+      (c) => `Acceptance coverage report not found; run ${c.rootCommand} verify first`
+    ),
     view: async (report) => {
-      const { formatAcceptanceCoverage } = await import('./formatters.ts');
-      return inspectionValue(report, formatAcceptanceCoverage);
+      const { projectAcceptanceCoverage } = await import('../../application/acceptance-inspection.ts');
+      const { formatAcceptanceCoverage } = await import('../../entry/cli/acceptance-inspection.ts');
+      return inspectionValue(
+        projectAcceptanceCoverage(report),
+        formatAcceptanceCoverage
+      );
     },
     modes: { blocks: async (report) => {
-      const { buildAcceptanceTargetInspect, formatAcceptanceTargets } = await import('./formatters.ts');
-      return inspectionValue(buildAcceptanceTargetInspect(report), formatAcceptanceTargets);
+      const { projectAcceptanceTargets } = await import('../../application/acceptance-inspection.ts');
+      const { formatAcceptanceTargets } = await import('../../entry/cli/acceptance-inspection.ts');
+      return inspectionValue(
+        projectAcceptanceTargets(report),
+        formatAcceptanceTargets
+      );
     } }
   });
 

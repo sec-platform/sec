@@ -5,7 +5,6 @@ import type {
   UpgradePreview
 } from '../../semantics/upgrade/upgrade-artifact.ts';
 import type { PolicyReport } from '../../semantics/policies/types.ts';
-import type { AcceptanceCoverageEntry, AcceptanceCoverageReport } from '../../assurance/acceptance/coverage.ts';
 import type { ExplainGraph } from '../../semantics/projection/explain.ts';
 import type { RepairPlan } from '../../semantics/repair/types.ts';
 import { compareCodeUnits, uniqueSorted } from '../../contracts/canonical.ts';
@@ -412,77 +411,6 @@ export function formatPolicyReport(report: NonNullable<ReviewSummary['policySumm
     );
   }
   return lines.join('\n');
-}
-
-export type AcceptanceTargetInspect = {
-  status: AcceptanceCoverageReport['status'];
-  targetKind: 'blocks';
-  targetCount: number;
-  coveredCount: number;
-  uncoveredCount: number;
-  uncoveredIds: string[];
-  targets: Array<AcceptanceCoverageEntry & { declaredAcceptanceCount: number; coveredByCount: number }>;
-};
-
-export function buildAcceptanceTargetInspect(
-  report: AcceptanceCoverageReport
-): AcceptanceTargetInspect {
-  const targets = [...report.blocks].map((entry) => {
-    const captured = { ...entry };
-    const declaredAcceptance = [...captured.declaredAcceptance];
-    const coveredBy = [...captured.coveredBy];
-    return { ...captured, declaredAcceptance, coveredBy,
-      declaredAcceptanceCount: declaredAcceptance.length, coveredByCount: coveredBy.length };
-  });
-  const uncoveredIds = [...report.uncoveredBlocks];
-  return {
-    status: report.status,
-    targetKind: 'blocks',
-    targetCount: targets.length,
-    coveredCount: countMatching(targets, (target) => !target.uncovered),
-    uncoveredCount: uncoveredIds.length,
-    uncoveredIds,
-    targets
-  };
-}
-
-function formatAcceptanceTarget(
-  label: 'Target' | 'Block',
-  target: AcceptanceTargetInspect['targets'][number]
-): string {
-  return formatFields([
-    `${label} ${target.id}`,
-    `declared=${target.declaredAcceptanceCount}`,
-    `coveredBy=${formatList(target.coveredBy)}`,
-    `uncovered=${target.uncovered}`
-  ]);
-}
-
-export function formatAcceptanceTargets(report: AcceptanceTargetInspect): string {
-  return [
-    `Acceptance coverage blocks ${report.status}`,
-    formatFields([
-      `targets=${report.targetCount}`,
-      `covered=${report.coveredCount}`,
-      `uncovered=${report.uncoveredCount}`
-    ]),
-    `Uncovered: ${formatList(report.uncoveredIds)}`,
-    ...report.targets.slice(0, 5).map((target) => formatAcceptanceTarget('Target', target))
-  ].join('\n');
-}
-
-export function formatAcceptanceCoverage(report: AcceptanceCoverageReport): string {
-  const blockTargets = buildAcceptanceTargetInspect(report);
-  return [
-    formatFields([
-      `Acceptance coverage ${report.status}`,
-      `acceptancePassed=${report.acceptancePassed.length}`,
-      `blocks=${blockTargets.coveredCount}/${blockTargets.targetCount}`,
-      `uncoveredBlocks=${blockTargets.uncoveredCount}`
-    ]),
-    `Uncovered blocks: ${formatList(blockTargets.uncoveredIds)}`,
-    ...blockTargets.targets.slice(0, 3).map((target) => formatAcceptanceTarget('Block', target))
-  ].join('\n');
 }
 
 export function formatReviewSummaryContract(summary: ReviewSummary): string {
