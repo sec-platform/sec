@@ -29,6 +29,7 @@ function artifactReader<T>(key: ArtifactKey, missing: (context: InspectionContex
 
 export function registerInspectionCommands(program: Command): void {
   registerInspectionQuery(program.command('policy'), {
+    defaultMode: 'report',
     description: 'Policy inspection',
     read: artifactReader<PolicyReport>('policyReport', (c) => `Policy report not found; run ${c.rootCommand} verify first`),
     view: async (report) => {
@@ -47,6 +48,7 @@ export function registerInspectionCommands(program: Command): void {
   });
 
   registerInspectionQuery(program.command('acceptance'), {
+    defaultMode: 'coverage',
     description: 'Acceptance inspection',
     read: artifactReader<AcceptanceInspectionProjectionSource>(
       'acceptanceCoverage',
@@ -71,6 +73,7 @@ export function registerInspectionCommands(program: Command): void {
   });
 
   registerInspectionQuery(program.command('runtime'), {
+    defaultMode: 'report',
     description: 'Runtime inspection',
     read: artifactReader<RuntimeVerificationLaneReport>('runtimeReport', (c) => `Runtime report not found; run ${c.rootCommand} verify first`),
     view: async (report) => {
@@ -86,6 +89,7 @@ export function registerInspectionCommands(program: Command): void {
   });
 
   registerInspectionQuery(program.command('verification'), {
+    defaultMode: 'report',
     description: 'Verification inspection',
     read: artifactReader<VerificationReport>('verificationReport', () => 'Verification report not found'),
     view: async (report) => {
@@ -99,6 +103,7 @@ export function registerInspectionCommands(program: Command): void {
   });
 
   registerInspectionQuery(program.command('provenance'), {
+    defaultMode: 'registry',
     description: 'Provenance inspection',
     read: async ({ workspaceRoot }): Promise<ProvenanceRegistryInspectProjectionSource> => {
       const { resolveWorkspaceProvenancePath } = await import('../../adapters/workspace-context.ts');
@@ -151,6 +156,7 @@ export function registerInspectionCommands(program: Command): void {
   });
 
   registerInspectionQuery(program.command('demo'), {
+    defaultMode: 'checklist',
     read: async ({ workspaceRoot }) => {
       const { buildDemoChecklist } = await import('./demo-checklist.ts');
       return buildDemoChecklist(workspaceRoot);

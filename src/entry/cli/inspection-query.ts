@@ -19,16 +19,23 @@ type InspectionView<T> = (value: T, context: InspectionContext) => Awaitable<Com
  * not grant capabilities, add retries, or wrap write/rollback operations. */
 export function registerInspectionQuery<T>(command: Command, definition: Readonly<{
   description?: string;
+  defaultMode?: string;
   read: (context: InspectionContext) => Awaitable<T>;
   view: InspectionView<T>;
   modes?: Readonly<Record<string, InspectionView<T>>>;
 }>): Command {
-  const { description, read, view } = definition;
+  const { description, defaultMode, read, view } = definition;
   const name = command.name();
   const modes = new Map(Object.entries(definition.modes ?? {}));
   if (typeof read !== 'function' || typeof view !== 'function'
       || [...modes.values()].some((project) => typeof project !== 'function')) {
     throw new TypeError('Inspection query readers and views must be callable');
+  }
+  if (defaultMode !== undefined) {
+    if (typeof defaultMode !== 'string' || defaultMode.length === 0 || modes.has(defaultMode)) {
+      throw new TypeError('Inspection default mode must be a non-empty, distinct name');
+    }
+    modes.set(defaultMode, view);
   }
   if (command.registeredArguments.length > 0) {
     throw new TypeError('Inspection query expects a command without predeclared arguments');
