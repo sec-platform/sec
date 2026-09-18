@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { withProgressLifecycle } from '../../src/bootstrap/cli/runtime/progress-lifecycle.ts';
+import { withProgressLifecycle } from '../../src/execution/progress-lifecycle.ts';
 import { observeOptionalDiagnostic } from '../../src/execution/optional-diagnostic.ts';
 
 for (const reason of [undefined, null, false, 0, new Error('display')]) test(`diagnostic synchronous rejection ${String(reason)} is non-authoritative`, () => {

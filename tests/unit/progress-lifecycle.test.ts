@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { withProgressLifecycle, type ProgressObserver } from '../../src/bootstrap/cli/runtime/progress-lifecycle.ts';
+import { withProgressLifecycle, type ProgressObserver } from '../../src/execution/progress-lifecycle.ts';
 
 function observer(events: string[], broken?: string, reason: unknown = new Error('display')): ProgressObserver {
   const handle = {

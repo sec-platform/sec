@@ -1,4 +1,4 @@
-import { withProgressLifecycle, type ProgressObserver } from './progress-lifecycle.ts';
+import { withProgressLifecycle, type ProgressObserver } from '../../../execution/progress-lifecycle.ts';
 
 export async function withSpinner<T>(text: string, fn: () => Promise<T>): Promise<T> {
   let create: () => ProgressObserver;

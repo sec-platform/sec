@@ -1,4 +1,4 @@
-import { observeOptionalDiagnostic as observe } from '../../../execution/optional-diagnostic.ts';
+import { observeOptionalDiagnostic as observe } from './optional-diagnostic.ts';
 
 /** Progress is an observer, never the authority for the action's result.
  * Providers implement synchronous UI methods. Any accidentally returned
