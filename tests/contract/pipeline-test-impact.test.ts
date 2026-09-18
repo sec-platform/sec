@@ -25,16 +25,7 @@ function pipelineProvider(sources: Readonly<Record<string, string>>) {
     git(root, ['init', '--quiet']);
     git(root, ['config', 'user.email', 'test-impact@sec.invalid']);
     git(root, ['config', 'user.name', 'SEC Test Impact']);
-    const fixtureSources = {
-      ...sources,
-      ...(Object.keys(sources).some((repositoryPath) => repositoryPath.startsWith('src/compiler/'))
-        ? { 'src/compiler/sec.module.json': '{"importGraph":"runtime","externalEntrypoints":[]}' }
-        : {}),
-      ...(Object.keys(sources).some((repositoryPath) => repositoryPath.startsWith('src/bootstrap/change-management/upgrade/'))
-        ? { 'src/bootstrap/upgrade/sec.module.json': '{"importGraph":"runtime","externalEntrypoints":[]}' }
-        : {})
-    };
-    for (const [repositoryPath, source] of Object.entries(fixtureSources)) {
+    for (const [repositoryPath, source] of Object.entries(sources)) {
       const filePath = path.join(root, ...repositoryPath.split('/'));
       mkdirSync(path.dirname(filePath), { recursive: true });
       writeFileSync(filePath, source, 'utf8');
@@ -65,17 +56,18 @@ test('compiler pipeline changes select their real transitive consumers', () => {
   const source = 'src/adapters/compilation/pipeline/kernel.ts';
   const consumer = 'tests/integration/pipeline-kernel.test.ts';
   const provider = pipelineProvider({
+    'src/adapters/compilation/sec.module.json': '{"importGraph":"runtime","externalEntrypoints":[]}',
     [source]: 'export const kernel = true;',
     [consumer]: "import { kernel } from '../../src/adapters/compilation/pipeline/kernel.ts'; void kernel;"
   });
   const selection = selectTestsForSources([source], provider);
 
-  expect(selection.owners).toEqual(['compiler']);
+  expect(selection.owners).toEqual(['adapters.compilation']);
   expect(selection.fast).toEqual([consumer]);
   expect(resolveTestOwnership([source], provider)).toEqual([{
     source,
-    owner: 'compiler',
-    identity: { kind: 'module', id: 'compiler' }
+    owner: 'adapters.compilation',
+    identity: { kind: 'module', id: 'adapters.compilation' }
   }]);
 });
 
@@ -84,13 +76,14 @@ test('upgrade changes select upgrade behavior without a central path table', () 
   const fastConsumer = 'tests/unit/upgrade-summary.test.ts';
   const slowConsumer = 'tests/e2e/upgrade.test.ts';
   const provider = pipelineProvider({
+    'src/bootstrap/upgrade/sec.module.json': '{"importGraph":"runtime","externalEntrypoints":[]}',
     [source]: 'export const upgradeWorkspace = true;',
     [fastConsumer]: "import { upgradeWorkspace } from '../../src/bootstrap/upgrade/upgrade-workspace.ts'; void upgradeWorkspace;",
     [slowConsumer]: "import { upgradeWorkspace } from '../../src/bootstrap/upgrade/upgrade-workspace.ts'; void upgradeWorkspace;"
   });
   const selection = selectTestsForSources([source], provider);
 
-  expect(selection.owners).toEqual(['change-management.upgrade']);
+  expect(selection.owners).toEqual(['bootstrap.upgrade']);
   expect(selection.fast).toEqual([fastConsumer]);
   expect(selection.slow).toEqual([slowConsumer]);
 });

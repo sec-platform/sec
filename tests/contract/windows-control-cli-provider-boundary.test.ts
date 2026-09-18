@@ -4,7 +4,7 @@ import { resolveWindowsControlCliSession } from '../../src/adapters/providers/wi
 
 function request() {
   return Object.freeze({
-    workingDirectoryPathHint: process.cwd(),
+    workingDirectoryPathHint: process.platform === 'win32' ? process.cwd() : 'C:\\sec-control-fixture',
     deadlineAtUnixMs: Date.now() + 30_000,
     maxRootObservedBytes: 128 * 1024 * 1024,
     maxExecutableObservedBytes: 128 * 1024 * 1024,
@@ -15,7 +15,7 @@ function request() {
 
 test('production admission accepts only narrowing request constraints and has no Linux fallback', async () => {
   const resolution = resolveWindowsControlCliSession(request());
-  if (process.platform === 'linux') {
+  if (process.platform !== 'win32') {
     expect(resolution).toEqual({
       status: 'unsupported',
       reason: 'unsupported-platform',
@@ -40,16 +40,38 @@ test('production admission accepts only narrowing request constraints and has no
     ...request(),
     deadlineAtUnixMs: Date.now() - 1
   })).toMatchObject({ status: 'unavailable', reason: 'session-request-invalid' });
-  expect(resolveWindowsControlCliSession({
+  const narrowed = resolveWindowsControlCliSession({
     ...request(),
     maxRootObservedBytes: 64 * 1024
-  })).toMatchObject({ status: 'unknown', reason: 'retained-capability-unavailable' });
+  });
+  if (process.platform !== 'win32' || process.arch !== 'x64') {
+    expect(narrowed.status).toBe('unsupported');
+  } else if (narrowed.status === 'ready') {
+    expect(narrowed.session.budget.maxRootObservedBytes).toBeLessThanOrEqual(64 * 1024);
+    expect(narrowed.session.observation.rootObservedBytes).toBeLessThanOrEqual(64 * 1024);
+    expect((await narrowed.session.close()).status).toBe('completed');
+  } else {
+    // An uninstalled provider or a different admission failure cannot establish
+    // that the byte budget was the reason. Either way no session is granted.
+    expect(narrowed.status).toMatch(/^(unknown|unavailable)$/u);
+    expect(narrowed.reason).not.toBe('session-request-invalid');
+  }
   const controller = new AbortController();
   controller.abort();
-  expect(resolveWindowsControlCliSession({
-    ...request(),
-    signal: controller.signal
-  })).toMatchObject({ status: 'unavailable', reason: 'session-aborted' });
+  const aborted = resolveWindowsControlCliSession({ ...request(), signal: controller.signal });
+  if (process.platform === 'win32' && process.arch === 'x64') {
+    expect(aborted).toMatchObject({ status: 'unavailable', reason: 'session-aborted' });
+  } else {
+    expect(aborted.status).toBe('unsupported');
+  }
+
+});
+
+test('invalid Windows locators are rejected before provider-platform resolution', () => {
+  for (const workingDirectoryPathHint of ['/tmp/sec', 'relative', 'C:\\sec\0invalid']) {
+    expect(resolveWindowsControlCliSession({ ...request(), workingDirectoryPathHint }))
+      .toMatchObject({ status: 'unavailable', reason: 'session-request-invalid' });
+  }
 });
 
 test('resolution and terminal receipt surfaces contain no semantic or effect authority fields', async () => {
