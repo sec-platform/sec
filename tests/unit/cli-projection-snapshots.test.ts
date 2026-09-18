@@ -1,15 +1,16 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import {
-  buildAcceptanceTargetInspect, buildPolicySourceInspect, buildReviewDiagnosticsInspect,
+  buildPolicySourceInspect, buildReviewDiagnosticsInspect,
   formatCiArtifactManifest
 } from '../../src/bootstrap/cli/formatters.ts';
+import { projectAcceptanceTargets } from '../../src/application/acceptance-inspection.ts';
 import { projectProvenanceRegistryInspect } from '../../src/application/provenance-registry-inspect.ts';
 import { projectRuntimeInspection } from '../../src/application/runtime-inspection.ts';
 import { formatProvenanceRegistry } from '../../src/entry/cli/provenance-registry-inspect.ts';
 
 type PolicyInput = Parameters<typeof buildPolicySourceInspect>[0];
-type CoverageInput = Parameters<typeof buildAcceptanceTargetInspect>[0];
+type CoverageInput = Parameters<typeof projectAcceptanceTargets>[0];
 type RuntimeInput = Parameters<typeof projectRuntimeInspection>[0];
 type ReviewInput = Parameters<typeof buildReviewDiagnosticsInspect>[0];
 type ProvenanceInput = Parameters<typeof projectProvenanceRegistryInspect>[0];
@@ -66,7 +67,7 @@ test('editing a policy projection never changes the domain result', () => {
 });
 
 test('coverage copies declared, covered and uncovered arrays in both directions', () => {
-  const source = coverage(), projected = buildAcceptanceTargetInspect(source);
+  const source = coverage(), projected = projectAcceptanceTargets(source);
   source.blocks[0]!.declaredAcceptance.push('later'); source.uncoveredBlocks.length = 0;
   projected.targets[0]!.coveredBy.push('projection-only');
   assert.deepEqual(projected.targets[0]!.declaredAcceptance, ['declared']);
@@ -82,7 +83,7 @@ test('coverage summary and target fields use the same captured observations', ()
     coveredBy: { enumerable: true, get() { coveredReads++; return ['coverage']; } },
     uncovered: { enumerable: true, get() { uncoveredReads++; return false; } }
   });
-  const projected = buildAcceptanceTargetInspect(source);
+  const projected = projectAcceptanceTargets(source);
   assert.deepEqual([declaredReads, coveredReads, uncoveredReads], [1, 1, 1]);
   assert.equal(projected.coveredCount, 1); assert.equal(projected.targets[0]!.uncovered, false);
   assert.equal(projected.targets[0]!.declaredAcceptanceCount, projected.targets[0]!.declaredAcceptance.length);
@@ -90,7 +91,7 @@ test('coverage summary and target fields use the same captured observations', ()
 });
 
 test('coverage projection does not acquire later-added targets', () => {
-  const source = coverage(), projected = buildAcceptanceTargetInspect(source);
+  const source = coverage(), projected = projectAcceptanceTargets(source);
   source.blocks.push({ ...source.blocks[0]!, id: 'later' });
   assert.equal(projected.targetCount, 1); assert.deepEqual(projected.targets.map(v => v.id), ['block']);
 });
@@ -165,7 +166,7 @@ test('manifest invalid aggregate counts fail explicitly instead of expanding mal
 test('coverage preserves existing JSON field order while detaching source arrays', () => {
   const entry = { coveredBy: ['coverage'], id: 'block', declaredAcceptance: ['declared'], uncovered: false };
   const source: CoverageInput = { formatVersion: '1', status: 'passed', acceptancePassed: [], blocks: [entry], uncoveredBlocks: [] };
-  const projected = buildAcceptanceTargetInspect(source).targets[0]!;
+  const projected = projectAcceptanceTargets(source).targets[0]!;
   const expected = { ...entry, declaredAcceptanceCount: 1, coveredByCount: 1 };
   assert.equal(JSON.stringify(projected), JSON.stringify(expected));
   assert.notEqual(projected.coveredBy, entry.coveredBy);
