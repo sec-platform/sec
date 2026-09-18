@@ -1,3 +1,4 @@
+import { assertManifestStackCompatibility } from '../align/align-interfaces.ts';
 import { portableLogicalPathCollisionKey } from '../../contracts/logical-path.ts';
 import { relativePosixPath } from '../../contracts/relative-path.ts';
 import type { PlanFile, LockFile, ManifestEntry } from '../contract.ts';
@@ -54,6 +55,11 @@ export function prepareManifestResolution(
   allEntries: readonly ManifestEntry[]
 ) {
   const graph = resolveManifestGraph(explicitEntries, allEntries);
+  // Closure discovery can add providers that were not in the author's plan.
+  // Validate the actual selected set before resource lookup or a successful lock.
+  for (const { manifest } of graph.entries) {
+    assertManifestStackCompatibility(manifest.id, manifest.stackProfiles);
+  }
   const resolvedBlocks = graph.entries.map((entry, index) => ({
     id: entry.manifest.id,
     version: entry.manifest.version,
