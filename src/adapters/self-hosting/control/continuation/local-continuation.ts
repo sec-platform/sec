@@ -257,9 +257,12 @@ export async function observeLocalContinuation(input: Readonly<{
   observation: LocalContinuationObservation;
   admission: LocalContinuationAdmission;
 }>> {
+  const captured = Object.freeze({
+    cwd: path.resolve(input.cwd), checkpointSource: input.checkpointSource
+  });
   return withAuthorityGitReadSession(
-    { cwd: input.cwd, budget: GIT_READ_DEFAULT_OPERATION_BUDGET },
-    async (session) => observeLocalContinuationWithSession(session, input)
+    { cwd: captured.cwd, budget: GIT_READ_DEFAULT_OPERATION_BUDGET },
+    async (session) => observeLocalContinuationWithSession(session, captured)
   );
 }
 
@@ -336,8 +339,16 @@ export async function continueLocalDevelopment(input: Readonly<{
   cwd: string;
   options: ContinueOptions;
 }>): Promise<ManagedDevelopmentContinuation> {
+  // Freeze the request decisions, not the observed repository state. Caller
+  // mutation during Git IO must not switch the handoff or retire a live session.
+  const cwd = path.resolve(input.cwd);
+  const { handoffPath, boundary, externalChanged, terminal, json } = input.options;
+  const options = Object.freeze({
+    handoffPath: handoffPath === null ? null : path.resolve(handoffPath),
+    boundary, externalChanged, terminal, json
+  });
   return withAuthorityGitReadSession({
-    cwd: input.cwd,
+    cwd,
     budget: GIT_READ_DEFAULT_OPERATION_BUDGET
   }, async (session) => {
   const root = await repositoryRoot(session);
@@ -345,8 +356,8 @@ export async function continueLocalDevelopment(input: Readonly<{
   let importedAdmission: LocalContinuationAdmission | null = null;
   let layout: SecRuntimeStateLayout;
 
-  if (input.options.handoffPath !== null) {
-    const source = readFileSync(input.options.handoffPath, 'utf8');
+  if (options.handoffPath !== null) {
+    const source = readFileSync(options.handoffPath, 'utf8');
     const admitted = await observeLocalContinuationWithSession(session, {
       cwd: root,
       checkpointSource: source
@@ -373,14 +384,14 @@ export async function continueLocalDevelopment(input: Readonly<{
   const invalidation = compileContinuationInvalidation({
     checkpointDigest: checkpoint.checkpointDigest,
     localState: local.state,
-    externalChangeKnown: input.options.externalChanged,
-    externalBoundary: input.options.boundary,
-    sessionTerminal: input.options.terminal
+    externalChangeKnown: options.externalChanged,
+    externalBoundary: options.boundary,
+    sessionTerminal: options.terminal
   });
 
   let gc: Readonly<{ scanned: number; removed: number; retained: number }> =
     Object.freeze({ scanned: 0, removed: 0, retained: 0 });
-  if (input.options.externalChanged
+  if (options.externalChanged
       || invalidation.checkpointLifecycle === 'terminal'
       || invalidation.disposition === 'invalidate-control') {
     await clearActiveContinuation({ layout, repositoryRoot: root });
