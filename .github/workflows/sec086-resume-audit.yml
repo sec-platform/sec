@@ -1,0 +1,52 @@
+name: sec086-resume-audit
+
+on:
+  push:
+    branches: [refactor/sec086-architecture]
+    paths: [.github/workflows/sec086-resume-audit.yml]
+
+permissions: {}
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 75763009ad42e153bc34aca4f0f5c0eeaea10c64
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Capture exact repository and continuation facts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 75763009ad42e153bc34aca4f0f5c0eeaea10c64
+          mkdir -p /tmp/sec086-resume
+          git archive --format=tar HEAD > /tmp/sec086-resume/source.tar
+          git log -45 --format='%H %s' > /tmp/sec086-resume/commits.txt
+          git rev-parse HEAD HEAD^{tree} origin/main > /tmp/sec086-resume/refs.txt
+          git status --porcelain=v1 > /tmp/sec086-resume/status.txt
+          set +e
+          bun run dev:status -- --json > /tmp/sec086-resume/dev-status.json 2> /tmp/sec086-resume/dev-status.err
+          printf '%s\n' "$?" > /tmp/sec086-resume/dev-status.exit
+          bun src/adapters/repository/repository-audit/cli.ts --worktree-module-topology --full > /tmp/sec086-resume/topology.json 2> /tmp/sec086-resume/topology.err
+          printf '%s\n' "$?" > /tmp/sec086-resume/topology.exit
+          set -e
+          tar -czf /tmp/sec086-resume/dependencies.tar.gz node_modules
+          cp "$(command -v bun)" /tmp/sec086-resume/bun
+          cat /tmp/sec086-resume/refs.txt
+          cat /tmp/sec086-resume/dev-status.exit /tmp/sec086-resume/topology.exit
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sec086-resume-7576300
+          path: /tmp/sec086-resume/
+          retention-days: 1
+          compression-level: 1
+          if-no-files-found: error
