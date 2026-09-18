@@ -54,9 +54,10 @@ test('local-state projection keeps only the declared snapshots and excludes tran
 test('ordinary symlinks keep their textual target instead of copying the referred external content', () => using(async (root, source, target) => {
   await fs.writeFile(path.join(root, 'outside'), 'external');
   await fs.symlink('../outside', path.join(source, 'link'), 'file');
+  const originalTarget = await fs.readlink(path.join(source, 'link'));
   await copyWorkspaceFixture(source, target);
   assert.equal((await fs.lstat(path.join(target, 'link'))).isSymbolicLink(), true);
-  assert.equal(await fs.readlink(path.join(target, 'link')), '../outside');
+  assert.equal(await fs.readlink(path.join(target, 'link')), originalTarget);
   assert.equal(await fs.readFile(path.join(root, 'outside'), 'utf8'), 'external');
 }));
 

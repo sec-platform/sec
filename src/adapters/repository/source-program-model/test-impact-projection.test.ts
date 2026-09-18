@@ -12,7 +12,7 @@ import {
 } from './test-impact-projection.ts';
 import { compileVirtualWorkspaceSourceSnapshot } from './workspace-source-snapshot.ts';
 
-const membership = compileSecRepositoryModuleMembership(path.resolve(import.meta.dir, '../../..'));
+const membership = compileSecRepositoryModuleMembership(path.resolve(import.meta.dir, '../../../..'));
 
 function fixture(sources: Readonly<Record<string, string>>) {
   const sourceRevision = rawSha256(JSON.stringify(sources));
