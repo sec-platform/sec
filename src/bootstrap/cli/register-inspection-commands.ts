@@ -59,12 +59,14 @@ export function registerInspectionCommands(program: Command): void {
     description: 'Runtime inspection',
     read: artifactReader<RuntimeVerificationLaneReport>('runtimeReport', (c) => `Runtime report not found; run ${c.rootCommand} verify first`),
     view: async (report) => {
-      const { formatRuntimeReport } = await import('./formatters.ts');
-      return inspectionValue(report, formatRuntimeReport);
+      const { projectRuntimeInspection } = await import('../../application/runtime-inspection.ts');
+      const { formatRuntimeReport } = await import('../../entry/cli/runtime-inspection.ts');
+      return inspectionValue(report, (value) => formatRuntimeReport(projectRuntimeInspection(value)));
     },
     modes: { steps: async (report) => {
-      const { buildRuntimeStepsInspect, formatRuntimeStepsInspect } = await import('./formatters.ts');
-      return inspectionValue(buildRuntimeStepsInspect(report), formatRuntimeStepsInspect);
+      const { projectRuntimeInspection } = await import('../../application/runtime-inspection.ts');
+      const { formatRuntimeStepsInspect } = await import('../../entry/cli/runtime-inspection.ts');
+      return inspectionValue(projectRuntimeInspection(report), formatRuntimeStepsInspect);
     } }
   });
 

@@ -13,7 +13,7 @@ import { compareCodeUnits, uniqueSorted } from '../../contracts/canonical.ts';
 import { countMatching } from '../../contracts/collections.ts';
 import { buildCiArtifactUploadGroups, CI_ARTIFACT_MANIFEST_PATH } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { CiArtifactKind, CiArtifactManifest, CiArtifactUploadGroup } from '../../assurance/verification/ci-artifacts/contract/types.ts';
-import type { RuntimeVerificationLaneReport, VerificationReport } from '../../assurance/verification/contract/types.ts';
+import type { VerificationReport } from '../../assurance/verification/contract/types.ts';
 import { reviewArtifactMissingReasonTypeCount, reviewArtifactUploadGroupCount } from '../../assurance/verification/review/contract/artifact.ts';
 import type { ReviewSummary } from '../../assurance/verification/review/contract/types.ts';
 import { upgradeDiagnosticsAttributionParts } from '../../assurance/verification/review/contract/upgrade.ts';
@@ -39,25 +39,6 @@ export type ArtifactUploadPathContract = {
   missingReasonTypeCount: number;
   missingReasonCounts: CiArtifactManifest['summary']['missingReasonCounts'];
   missing: CiArtifactManifest['missing'];
-};
-
-type RuntimeStepInspect = {
-  id: 'build' | 'unit' | 'acceptance';
-  status: RuntimeVerificationLaneReport['status'];
-  passedCount: number;
-  failedCount: number;
-  command: string | null;
-  passed: string[];
-  failed: string[];
-};
-
-export type RuntimeStepsInspect = {
-  status: RuntimeVerificationLaneReport['status'];
-  stepCount: number;
-  passedCount: number;
-  failedCount: number;
-  skippedCount: number;
-  steps: RuntimeStepInspect[];
 };
 
 export type { DemoChecklist, DemoChecklistItem } from '../../application/demo-checklist.ts';
@@ -503,74 +484,6 @@ export function formatAcceptanceCoverage(report: AcceptanceCoverageReport): stri
     ]),
     `Uncovered blocks: ${formatList(blockTargets.uncoveredIds)}`,
     ...blockTargets.targets.slice(0, 3).map((target) => formatAcceptanceTarget('Block', target))
-  ].join('\n');
-}
-
-function buildRuntimeStepInspect(
-  id: RuntimeStepInspect['id'],
-  step: RuntimeVerificationLaneReport['build']
-): RuntimeStepInspect {
-  const passed = [...step.passed];
-  const failed = [...step.failed];
-  return {
-    id,
-    status: step.status,
-    passedCount: passed.length,
-    failedCount: failed.length,
-    command: step.command,
-    passed,
-    failed
-  };
-}
-
-export function buildRuntimeStepsInspect(report: RuntimeVerificationLaneReport): RuntimeStepsInspect {
-  const steps = [
-    buildRuntimeStepInspect('build', report.build),
-    buildRuntimeStepInspect('unit', report.unit),
-    buildRuntimeStepInspect('acceptance', report.acceptance)
-  ];
-  return {
-    status: report.status,
-    stepCount: steps.length,
-    passedCount: countMatching(steps, (step) => step.status === 'passed'),
-    failedCount: countMatching(steps, (step) => step.status === 'failed'),
-    skippedCount: countMatching(steps, (step) => step.status === 'skipped'),
-    steps
-  };
-}
-
-function formatRuntimeStep(step: RuntimeStepInspect, label: string = step.id): string {
-  return formatFields([
-    `${label}: ${step.status}`,
-    `passed=${step.passedCount}`,
-    `failed=${step.failedCount}`,
-    `command=${step.command ?? 'none'}`
-  ]);
-}
-
-export function formatRuntimeStepsInspect(inspect: RuntimeStepsInspect): string {
-  return [
-    formatFields([
-      `Runtime steps ${inspect.status}`,
-      `steps=${inspect.stepCount}`,
-      `passed=${inspect.passedCount}`,
-      `failed=${inspect.failedCount}`,
-      `skipped=${inspect.skippedCount}`
-    ]),
-    ...inspect.steps.map((step) => formatRuntimeStep(step))
-  ].join('\n');
-}
-
-export function formatRuntimeReport(report: RuntimeVerificationLaneReport): string {
-  const inspect = buildRuntimeStepsInspect(report);
-  const labels: Record<RuntimeStepInspect['id'], string> = {
-    build: 'Build',
-    unit: 'Unit',
-    acceptance: 'Acceptance'
-  };
-  return [
-    `Runtime report ${report.status}`,
-    ...inspect.steps.map((step) => formatRuntimeStep(step, labels[step.id]))
   ].join('\n');
 }
 
