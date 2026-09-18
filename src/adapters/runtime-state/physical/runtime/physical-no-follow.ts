@@ -1029,7 +1029,11 @@ function linuxOpenRoot(label: string): number {
 function linuxIdentity(fd: number, absolutePath: string): PhysicalDirectoryIdentity {
   const stats = fstatSync(fd, { bigint: true });
   if (!stats.isDirectory()) throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${absolutePath} is not an ordinary directory.`);
-  const objectId = `linux:${String(stats.dev)}:${String(stats.ino)}:${String(stats.mode)}`;
+  // Directory identity must survive an owner-authorized chmod (sealing and
+  // retirement). Permission/ctime drift is checked by the generation proof,
+  // not encoded as a different physical object. Version the identifier so an
+  // older persisted observation cannot silently acquire the new semantics.
+  const objectId = `linux-directory-v2:${String(stats.dev)}:${String(stats.ino)}`;
   return identityFromStats({ absolutePath, finalPath: absolutePath, device: stats.dev, inode: stats.ino, objectId });
 }
 
@@ -3608,6 +3612,9 @@ export async function materializeRetainedNoFollowProvenDirectoryGeneration(input
       || (input.proofText === null && input.inventory === undefined)) {
     throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Proven generation binding is invalid.');
   }
+  // Reject stale/foreign roots before any mode or ACL effect. The content
+  // inventory alone need not contain an entry for the root itself.
+  assertSameNoFollowDirectoryIdentity(input.root, 'Proven generation admission root');
   let authority: WindowsReadOnlyTreeAuthority;
   let proofText: string;
   let proofStatus: 'created' | 'reused';
@@ -8748,8 +8755,12 @@ export function publishExclusiveNoFollowProvenDirectoryLink(input: Readonly<{
     });
   }
   ensureLeafName(input.name);
-  if (input.source.stdioSourceDescriptor === null
-      || input.source.childPath !== `/proc/self/fd/${input.source.stdioSourceDescriptor}`) {
+  // The parent retains a high-numbered source fd; the process boundary maps
+  // it to the bounded child slot named by childPath. Those numbers need not
+  // (and normally do not) match.
+  const childSlot = /^\/proc\/self\/fd\/([1-9][0-9]*)$/u.exec(input.source.childPath);
+  if (input.source.stdioSourceDescriptor === null || childSlot === null
+      || Number(childSlot[1]) < 3 || Number(childSlot[1]) > 64) {
     throw physicalError(
       'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
       'Linux proven generation has no canonical inherited dirfd path.'
