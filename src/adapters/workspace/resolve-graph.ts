@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { uniqueSorted } from '../../contracts/canonical.ts';
+import { deepFreeze, uniqueSorted } from '../../contracts/canonical.ts';
 import { mapTaskGroup } from '../../execution/task-group.ts';
 import { CI_ARTIFACT_FILES } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import { relativePosixPath } from '../../contracts/relative-path.ts';
@@ -9,15 +9,29 @@ import { loadAllManifests, loadManifestById, resolveManifestResource } from './s
 import { PASS_INITIAL_STATES as PASS_STATUS_PENDING } from '../../compiler/contract/pass-status.ts';
 import { captureResolvePlan, prepareManifestResolution } from '../../compiler/resolve/resolve-plan.ts';
 
-export async function resolveGraph(workspaceRoot: string, plan: PlanFile): Promise<LockFile> {
+/** Capture the explicit selection once. These are invocation-local source
+ * observations, not an atomic filesystem snapshot or a write capability. */
+export function captureManifestSelection(workspaceRoot: string, plan: PlanFile) {
   workspaceRoot = path.resolve(workspaceRoot);
   const input = captureResolvePlan(plan);
-  // Retained explicit lookup is synchronous: Promise.all cannot parallelize it.
-  // Keep the original complete catalog validation rather than silently omitting
-  // errors in unselected sources as a cache shortcut.
   const explicitEntries = input.blocks.map(block => loadManifestById(block.id, {
     workspaceRoot, version: block.version, registrySources: input.sources
   }));
+  return Object.freeze({ workspaceRoot, input,
+    explicitEntries: deepFreeze(structuredClone(explicitEntries)) });
+}
+
+export type CapturedManifestSelection = ReturnType<typeof captureManifestSelection>;
+
+export async function resolveGraph(workspaceRoot: string, plan: PlanFile): Promise<LockFile> {
+  return resolveCapturedManifestSelection(captureManifestSelection(workspaceRoot, plan));
+}
+
+/** Continue from the exact explicit selection that the align pass inspected.
+ * Catalog enumeration still validates all configured sources, including
+ * unselected entries; it cannot replace an already selected block revision. */
+export async function resolveCapturedManifestSelection(selection: CapturedManifestSelection): Promise<LockFile> {
+  const { workspaceRoot, input, explicitEntries } = selection;
   const allEntries = await loadAllManifests({ workspaceRoot, registrySources: input.sources });
   // Reject conflicting ownership before any resource lookup starts.
   const { resolvedBlocks, resolvedCapabilities, installDescriptors } = prepareManifestResolution(

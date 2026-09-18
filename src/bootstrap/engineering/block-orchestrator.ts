@@ -10,7 +10,7 @@ import { loadManifestById } from '../../adapters/workspace/sources/load-manifest
 import { loadPlan } from '../../adapters/workspace/sources/load-plan.ts';
 import { executePipelineStage, runPipelinePass } from '../../adapters/compilation/pipeline/kernel.ts';
 import type { PipelineExecutionContext } from '../../adapters/compilation-protocol/types.ts';
-import { resolveGraph } from '../../adapters/workspace/resolve-graph.ts';
+import { captureManifestSelection, resolveCapturedManifestSelection } from '../../adapters/workspace/resolve-graph.ts';
 import { validateResolvedTemplates } from '../../adapters/verification/validate-resolved-templates.ts';
 
 export async function addBlock(
@@ -47,24 +47,14 @@ async function resolveWorkspaceCore(
 ): Promise<{ plan: PlanFile; lock: LockFile }> {
   const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, context.workspaceWriteLease);
   const { workspaceConfigPath } = getWorkspacePaths(workspaceRoot);
-  const { plan, manifestMap } = await runPipelinePass('parse', async () => {
-    const parsedPlan = await loadPlan(workspaceConfigPath);
-    const parsedManifests = new Map<string, ManifestEntry>();
-    for (const block of parsedPlan.blocks) {
-      parsedManifests.set(
-        block.id,
-        await loadManifestById(block.id, {
-          workspaceRoot,
-          version: block.version,
-          registrySources: parsedPlan.registry.sources
-        })
-      );
-    }
-    return { plan: parsedPlan, manifestMap: parsedManifests };
+  const { plan, selection } = await runPipelinePass('parse', async () => {
+    const plan = await loadPlan(workspaceConfigPath);
+    return { plan, selection: captureManifestSelection(workspaceRoot, plan) };
   });
+  const manifestMap = new Map(selection.explicitEntries.map(entry => [entry.manifest.id, entry]));
   await runPipelinePass('align', () => alignInterfaces(plan, manifestMap));
   const lock = await runPipelinePass('resolve', async () => {
-    const resolved = await resolveGraph(workspaceRoot, plan);
+    const resolved = await resolveCapturedManifestSelection(selection);
     await validateResolvedTemplates(workspaceRoot, resolved, commitFence);
     await saveLock(workspaceRoot, resolved, commitFence);
     return resolved;
