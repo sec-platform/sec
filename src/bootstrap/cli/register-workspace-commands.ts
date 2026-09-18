@@ -131,16 +131,17 @@ export function registerWorkspaceCommands(program: Command): void {
       }
 
       if (input.kind === 'inspect') {
-        const { formatExplainGraphInspect } = await import('./formatters.ts');
+        const { projectExplainGraphInspect } = await import('../../application/explain-graph-inspect.ts');
+        const { formatExplainGraphInspect } = await import('../../entry/cli/explain-graph-inspect.ts');
         const { CI_ARTIFACT_FILES } = await import('../../assurance/verification/ci-artifacts/contract/manifest.ts');
         const { resolveWorkspaceArtifactPath } = await import('../../adapters/workspace-context.ts');
         const { printWorkspaceJson } = await import('./artifact-command-read.ts');
-        await printWorkspaceJson<import('../../semantics/projection/explain.ts').ExplainGraph>(
+        await printWorkspaceJson<import('../../application/explain-graph-inspect.ts').ExplainGraphInspectProjectionSource>(
           cwd,
           (root) => resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.explainGraph),
           `Explain graph not found; run ${invocationPath} first`,
           output,
-          formatExplainGraphInspect
+          (graph) => formatExplainGraphInspect(projectExplainGraphInspect(graph))
         );
         return;
       }

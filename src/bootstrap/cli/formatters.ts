@@ -140,16 +140,6 @@ export function buildArtifactUploadPathContract(
   };
 }
 
-export function formatExplainGraphInspect(graph: ExplainGraph): string {
-  return [
-    `Explain graph ${graph.nodes.length} nodes ${graph.edges.length} edges`,
-    `Node types: ${formatCounts(graph.nodes.map((node) => node.type))}`,
-    `Edge types: ${formatCounts(graph.edges.map((edge) => edge.type))}`,
-    `Coverage overlay: ${graph.overlays.coverage.blocks.length} blocks`,
-    `Provenance overlay: ${graph.overlays.provenance.length} artifacts`
-  ].join('\n');
-}
-
 function formatE2eMatrixRow(row: E2eMatrix['rows'][number], prefix = ''): string {
   return formatFields([`${prefix}${row.stage}: ${row.status}`, row.detail, `evidence=${row.evidence.join(', ') || 'none'}`]);
 }
