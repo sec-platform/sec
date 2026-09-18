@@ -266,11 +266,6 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/verification-session-runtime.test.ts',
-    reason: 'process-global-environment',
-    resourceClass: 'independent-process'
-  },
-  {
     file: 'tests/unit/windows-appcontainer-executor.test.ts',
     reason: 'production-host-and-runtime-lifecycle',
     resourceClass: 'shared-host-runtime'
