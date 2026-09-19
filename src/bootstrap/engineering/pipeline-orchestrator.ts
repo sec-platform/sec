@@ -138,6 +138,6 @@ export async function compileWorkspace(
           } : {})
         }),
         workspaceWriteLease
-      ).then(projectWorkspaceCompilationResult);
+      ).then(projectWorkspaceCompilationResult)
   });
 }
