@@ -3,6 +3,7 @@ import type { LockInspectProjectionSource } from '../../application/lock-inspect
 import { CompilerError, formatCompilerFailure } from '../../compiler/errors.ts';
 import {
   bindRepairCommandHandler,
+  bindUpgradeCommandHandler,
   registerAdvancedWorkspaceCommands
 } from '../../entry/cli/register-advanced-workspace-commands.ts';
 import { registerCoreWorkspaceCommands } from '../../entry/cli/register-core-workspace-commands.ts';
@@ -80,65 +81,62 @@ export function registerWorkspaceCommands(program: Command): void {
       formatFailure: formatCompilerFailure
     }),
 
-    upgrade: async ({ workspaceRoot: cwd, invocationPath, input }) => {
-      const { output } = input;
-      if (input.kind === 'plan') {
+    upgrade: bindUpgradeCommandHandler({
+      readPlan: async (workspaceRoot, missingMessage) => {
         const { readUpgradeArtifactSet } = await import('../../adapters/upgrade/artifact-readback.ts');
         const { projectUpgradePlan } = await import('../../application/upgrade-planning.ts');
         const { formatUpgradePlanning } = await import('../../entry/cli/upgrade-planning.ts');
-        const { plan: upgradePlan, executionTerminal: upgradeExecutionTerminal } = readUpgradeArtifactSet(cwd);
-        if (upgradePlan === null) {
-          throw new CompilerError(
-            'UPGRADE-BLOCKED-003',
-            `Upgrade plan not found; run ${invocationPath} <block-id> <target-version>`
-          );
+        const { plan, executionTerminal } = readUpgradeArtifactSet(workspaceRoot);
+        if (plan === null) {
+          throw new CompilerError('UPGRADE-BLOCKED-003', missingMessage);
         }
-        printJsonOrText(
-          upgradePlan,
-          output,
-          (plan) => formatUpgradePlanning(projectUpgradePlan(plan, upgradeExecutionTerminal))
-        );
-        return;
-      }
-      if (input.kind === 'diagnostics') {
+        return {
+          value: plan,
+          text: formatUpgradePlanning(projectUpgradePlan(plan, executionTerminal))
+        };
+      },
+      readDiagnostics: async (workspaceRoot, missingMessage) => {
         const { readUpgradeArtifactSet } = await import('../../adapters/upgrade/artifact-readback.ts');
         const { projectUpgradeDiagnostics } = await import('../../application/upgrade-diagnostics.ts');
         const { formatUpgradeDiagnostics } = await import('../../entry/cli/upgrade-diagnostics.ts');
-        const { diagnostics: upgradeDiagnostics } = readUpgradeArtifactSet(cwd);
-        if (upgradeDiagnostics === null) {
-          throw new CompilerError(
-            'UPGRADE-BLOCKED-003',
-            `Upgrade diagnostics not found; run ${invocationPath} <block-id> <target-version>`
-          );
+        const { diagnostics } = readUpgradeArtifactSet(workspaceRoot);
+        if (diagnostics === null) {
+          throw new CompilerError('UPGRADE-BLOCKED-003', missingMessage);
         }
-        printJsonOrText(
-          upgradeDiagnostics,
-          output,
-          (diagnostics) => formatUpgradeDiagnostics(projectUpgradeDiagnostics(diagnostics))
+        return {
+          value: diagnostics,
+          text: formatUpgradeDiagnostics(projectUpgradeDiagnostics(diagnostics))
+        };
+      },
+      execute: async (workspaceRoot, blockId, targetVersion, dryRun) => {
+        const { projectUpgradePlan, projectUpgradePreview } =
+          await import('../../application/upgrade-planning.ts');
+        const { formatUpgradePlanning } =
+          await import('../../entry/cli/upgrade-planning.ts');
+        const result = await upgradeWorkspace(
+          workspaceRoot,
+          blockId,
+          targetVersion,
+          { dryRun }
         );
-        return;
-      }
-      const { projectUpgradePlan, projectUpgradePreview } = await import('../../application/upgrade-planning.ts');
-      const { formatUpgradePlanning } = await import('../../entry/cli/upgrade-planning.ts');
-      const result = await runWithOptionalSpinner(
-        input.request.dryRun ? 'Previewing upgrade' : 'Running upgrade',
-        output,
-        () => upgradeWorkspace(cwd, input.subject, input.targetVersion, { dryRun: input.request.dryRun })
-      );
-      if (result.resultKind === 'preview') {
-        printJsonOrText(
-          result.upgradePlan,
-          output,
-          (preview) => formatUpgradePlanning(projectUpgradePreview(preview))
-        );
-      } else {
-        printJsonOrText(
-          result.upgradePlan,
-          output,
-          (plan) => formatUpgradePlanning(projectUpgradePlan(plan, result.upgradeExecutionTerminal))
-        );
-      }
-    },
+        if (result.resultKind === 'preview') {
+          return {
+            value: result.upgradePlan,
+            text: formatUpgradePlanning(projectUpgradePreview(result.upgradePlan))
+          };
+        }
+        return {
+          value: result.upgradePlan,
+          text: formatUpgradePlanning(
+            projectUpgradePlan(
+              result.upgradePlan,
+              result.upgradeExecutionTerminal
+            )
+          )
+        };
+      },
+      progress: runWithOptionalSpinner
+    }),
 
     view: async ({ command, workspaceRoot: cwd, invocationPath, input }) => {
       const { output } = input;
