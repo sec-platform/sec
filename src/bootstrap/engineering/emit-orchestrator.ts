@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { explainWorkspaceResult, publishWorkspaceArtifactSet, refreshWorkspaceReview } from '../../application/explain-workspace.ts';
+import { lockWorkspaceResult } from '../../application/lock-workspace.ts';
 import { createWorkspaceWriteCommitFence, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../adapters/filesystem/write-lease.ts';
 import type { LockFile } from '../../compiler/contract.ts';
 import { readLockFile } from '../../adapters/workspace/lock.ts';
@@ -22,11 +23,12 @@ export async function lockWorkspace(
   context?: PipelineExecutionContext
 ): Promise<LockFile> {
   workspaceRoot = path.resolve(workspaceRoot);
-  return executePipelineStage(workspaceRoot, 'lock', context, async stageContext => {
-    const lock = readLockFile(workspaceRoot);
+  return executePipelineStage(workspaceRoot, 'lock', context, stageContext => {
     const fence = createWorkspaceWriteCommitFence(workspaceRoot, stageContext.workspaceWriteLease);
-    await lockProject(workspaceRoot, lock, fence);
-    return lock;
+    return lockWorkspaceResult({
+      readLock: () => readLockFile(workspaceRoot),
+      publishLock: lock => lockProject(workspaceRoot, lock, fence)
+    });
   }, { extractLock: lock => lock });
 }
 
