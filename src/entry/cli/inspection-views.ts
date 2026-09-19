@@ -4,26 +4,25 @@ import type { InstalledManifestEntry } from '../../application/install-manifest.
 import type { PostgresContractProjectionSource } from '../../application/postgres-contract.ts';
 import type { ProjectOverview } from '../../application/project-overview.ts';
 import type { ProvenanceRegistryInspectProjectionSource } from '../../application/provenance-registry-inspect.ts';
-import type { E2eMatrix } from '../../assurance/verification/review/matrix.ts';
-import type {
-  RuntimeVerificationLaneReport,
-  VerificationReport
-} from '../../assurance/verification/contract/types.ts';
-import type { ReviewSummary } from '../../assurance/verification/review/contract/types.ts';
+import type { E2eMatrixProjectionSource } from '../../application/e2e-matrix-inspect.ts';
+import type { RuntimeInspectionProjectionSource } from '../../application/runtime-inspection.ts';
+import type { VerificationReportInspectProjectionSource } from '../../application/verification-report-inspect.ts';
+import type { ReviewSummaryProjectionSource } from '../../application/review-summary-inspect.ts';
+import type { ReviewDiagnosticsProjectionSource } from '../../application/review-diagnostics-inspect.ts';
 import type { DemoChecklist } from '../../application/demo-checklist.ts';
-import type { PolicyReport } from '../../semantics/policies/types.ts';
+import type { PolicyReportProjectionSource } from '../../application/policy-report-inspection.ts';
 import type { ErrorProtocolContract } from '../../application/error-protocol-contract.ts';
-import type { CiContract } from '../../adapters/verification/platform/ci/contract/core.ts';
+import type { CiContractInspectionSource } from '../../application/ci-contract-inspect.ts';
 import type { ProjectOverviewPresentation } from './project-overview.ts';
 import { commandValue, type CommandValue } from './command-value.ts';
 
-export async function policyReportInspectionView(report: PolicyReport): Promise<CommandValue> {
+export async function policyReportInspectionView(report: PolicyReportProjectionSource): Promise<CommandValue> {
   const { projectPolicyReportInspection } = await import('../../application/policy-report-inspection.ts');
   const { formatPolicyReport } = await import('./policy-report-inspection.ts');
   return commandValue(report, value => formatPolicyReport(projectPolicyReportInspection(value)));
 }
 
-export async function policySourcesInspectionView(report: PolicyReport): Promise<CommandValue> {
+export async function policySourcesInspectionView(report: PolicyReportProjectionSource): Promise<CommandValue> {
   const { projectPolicySources } = await import('../../application/policy-source-inspection.ts');
   const { formatPolicySources } = await import('./policy-source-inspection.ts');
   const value = projectPolicySources(report);
@@ -51,7 +50,7 @@ export async function acceptanceTargetsInspectionView(
 }
 
 export async function runtimeReportInspectionView(
-  report: RuntimeVerificationLaneReport
+  report: RuntimeInspectionProjectionSource
 ): Promise<CommandValue> {
   const { projectRuntimeInspection } = await import('../../application/runtime-inspection.ts');
   const { formatRuntimeReport } = await import('./runtime-inspection.ts');
@@ -59,7 +58,7 @@ export async function runtimeReportInspectionView(
 }
 
 export async function runtimeStepsInspectionView(
-  report: RuntimeVerificationLaneReport
+  report: RuntimeInspectionProjectionSource
 ): Promise<CommandValue> {
   const { projectRuntimeInspection } = await import('../../application/runtime-inspection.ts');
   const { formatRuntimeStepsInspect } = await import('./runtime-inspection.ts');
@@ -103,7 +102,7 @@ export async function reviewMatrixInspectionView(
   const { projectE2eMatrix } = await import('../../application/e2e-matrix-inspect.ts');
   const { formatE2eMatrix } = await import('./e2e-matrix-inspect.ts');
   const value = projectE2eMatrix(matrix);
-  return commandValue(value, formatE2eMatrix);
+  return commandValue(value, formatE2eMatrixProjectionSource);
 }
 
 export async function reviewDiagnosticsInspectionView(
@@ -167,9 +166,8 @@ export async function errorProtocolContractInspectionView(
 }
 
 export async function ciContractInspectionView(
-  contract: CiContract
+  contract: CiContractInspectionSource
 ): Promise<CommandValue> {
-  const { formatCiContract } =
-    await import('../../adapters/verification/platform/ci/contract/core.ts');
+  const { formatCiContract } = await import('./ci-contract.ts');
   return commandValue(contract, formatCiContract);
 }
