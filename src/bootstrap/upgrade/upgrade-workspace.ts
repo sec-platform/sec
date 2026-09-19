@@ -37,7 +37,7 @@ import {
 import { compileWorkspace } from '../engineering/pipeline-orchestrator.ts';
 import { loadManifestById } from '../../adapters/workspace/sources/load-manifest.ts';
 import { loadWorkspacePlan } from '../../adapters/workspace/sources/load-plan.ts';
-import { settlePhysicalResourcesAsync } from '../../adapters/runtime-state/physical/runtime/resource-settlement.ts';
+import { settleResourcesAsync } from '../../execution/resource-settlement.ts';
 import { CI_ARTIFACT_FILES } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import { readOptionalJson, removeDir } from "../../adapters/filesystem/files.ts";
 import { assertWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../adapters/filesystem/write-lease.ts';
@@ -257,7 +257,7 @@ export async function runUpgradeWorkspaceWithLease(
           resultLock,
           commitFence
         ),
-      retireBackup: (backup, primaryFailure) => settlePhysicalResourcesAsync({
+      retireBackup: (backup, primaryFailure) => settleResourcesAsync({
         ...(primaryFailure === null ? {} : {
           primary: { label: 'upgrade-apply', error: primaryFailure }
         }),
