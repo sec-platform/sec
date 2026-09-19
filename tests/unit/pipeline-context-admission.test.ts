@@ -1,6 +1,8 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { capturePipelineRequestedStages, requirePipelineSource, sealPipelineExecutionContext } from '../../src/adapters/compilation/pipeline/execution-context.ts';
+import { requirePipelineSource, sealPipelineExecutionContext } from '../../src/adapters/compilation/pipeline/execution-context.ts';
+import { capturePipelineRequestedStages } from '../../src/compiler/pipeline/stages.ts';
+import { capturePipelineStageExecutionOptions } from '../../src/application/pipeline-stage-lifecycle.ts';
 
 const context = () => ({ transactionId: 'tx:one', source: 'api' as const, workspaceWriteLease: {} as never });
 
@@ -45,7 +47,6 @@ test('stage capture ignores a custom iterator and refuses accessor slots', () =>
   assert.throws(() => capturePipelineRequestedStages(values as never));
 });
 
-import { capturePipelineStageExecutionOptions } from '../../src/adapters/compilation/pipeline/execution-context.ts';
 test('the kernel option binder preserves class private state and captures the method before replacement', async () => {
   const expected = { passStatus: {} };
   class Options {
