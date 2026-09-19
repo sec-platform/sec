@@ -8,7 +8,8 @@ import { runWithOptionalSpinner } from './command-progress.ts';
 import type { BlockUsageMapView } from '../../application/block-usage-map.ts';
 import type { InstalledManifestEntry } from '../../application/install-manifest.ts';
 import type { PostgresContractProjectionSource } from '../../application/postgres-contract.ts';
-import { inspectionValue, registerInspectionQuery, type InspectionContext } from '../../entry/cli/inspection-query.ts';
+import { inspectionValue, type InspectionContext } from '../../entry/cli/inspection-query.ts';
+import { registerStandardInspectionCommands } from '../../entry/cli/register-standard-inspection-commands.ts';
 import { loadProjectOverviewDomain } from './lazy-command-domains.ts';
 import { registerContractInspectionCommand } from '../../entry/cli/register-contract-inspection-command.ts';
 import { registerPostgresInspectionCommand } from '../../entry/cli/register-postgres-inspection-command.ts';
@@ -27,9 +28,8 @@ function artifactReader<T>(key: ArtifactKey, missing: (context: InspectionContex
 }
 
 export function registerInspectionCommands(program: Command): void {
-  registerInspectionQuery(program.command('policy'), {
-    defaultMode: 'report',
-    description: 'Policy inspection',
+  registerStandardInspectionCommands(program, {
+  policy: {
     read: artifactReader<PolicyReport>('policyReport', (c) => `Policy report not found; run ${c.rootCommand} verify first`),
     view: async (report) => {
       const { projectPolicyReportInspection } = await import('../../application/policy-report-inspection.ts');
@@ -44,11 +44,8 @@ export function registerInspectionCommands(program: Command): void {
       const { formatPolicySources } = await import('../../entry/cli/policy-source-inspection.ts');
       return inspectionValue(projectPolicySources(report), formatPolicySources);
     } }
-  });
-
-  registerInspectionQuery(program.command('acceptance'), {
-    defaultMode: 'coverage',
-    description: 'Acceptance inspection',
+  },
+  acceptance: {
     read: artifactReader<AcceptanceInspectionProjectionSource>(
       'acceptanceCoverage',
       (c) => `Acceptance coverage report not found; run ${c.rootCommand} verify first`
@@ -69,11 +66,8 @@ export function registerInspectionCommands(program: Command): void {
         formatAcceptanceTargets
       );
     } }
-  });
-
-  registerInspectionQuery(program.command('runtime'), {
-    defaultMode: 'report',
-    description: 'Runtime inspection',
+  },
+  runtime: {
     read: artifactReader<RuntimeVerificationLaneReport>('runtimeReport', (c) => `Runtime report not found; run ${c.rootCommand} verify first`),
     view: async (report) => {
       const { projectRuntimeInspection } = await import('../../application/runtime-inspection.ts');
@@ -85,11 +79,8 @@ export function registerInspectionCommands(program: Command): void {
       const { formatRuntimeStepsInspect } = await import('../../entry/cli/runtime-inspection.ts');
       return inspectionValue(projectRuntimeInspection(report), formatRuntimeStepsInspect);
     } }
-  });
-
-  registerInspectionQuery(program.command('verification'), {
-    defaultMode: 'report',
-    description: 'Verification inspection',
+  },
+  verification: {
     read: artifactReader<VerificationReport>('verificationReport', () => 'Verification report not found'),
     view: async (report) => {
       const { projectVerificationReportInspect } = await import('../../application/verification-report-inspect.ts');
@@ -99,11 +90,8 @@ export function registerInspectionCommands(program: Command): void {
         (value) => formatVerificationReport(projectVerificationReportInspect(value))
       );
     }
-  });
-
-  registerInspectionQuery(program.command('provenance'), {
-    defaultMode: 'registry',
-    description: 'Provenance inspection',
+  },
+  provenance: {
     read: async ({ workspaceRoot }): Promise<ProvenanceRegistryInspectProjectionSource> => {
       const { resolveWorkspaceProvenancePath } = await import('../../adapters/workspace-context.ts');
       const { readRequiredJson } = await import('../../adapters/workspace/required-artifact-read.ts');
@@ -120,10 +108,8 @@ export function registerInspectionCommands(program: Command): void {
         (value) => formatProvenanceRegistry(projectProvenanceRegistryInspect(value))
       );
     }
-  });
-
-  registerInspectionQuery(program.command('review'), {
-    description: 'Review inspection',
+  },
+  review: {
     read: async (c): Promise<ReviewSummary> => {
       const { CI_ARTIFACT_FILES } = await import('../../assurance/verification/ci-artifacts/contract/manifest.ts');
       const { resolveWorkspaceArtifactPath } = await import('../../adapters/workspace-context.ts');
@@ -152,10 +138,8 @@ export function registerInspectionCommands(program: Command): void {
         return inspectionValue(projectReviewDiagnostics(report), formatReviewDiagnostics);
       }
     }
-  });
-
-  registerInspectionQuery(program.command('demo'), {
-    defaultMode: 'checklist',
+  },
+  demo: {
     read: async ({ workspaceRoot }) => {
       const { buildDemoChecklist } = await import('./demo-checklist.ts');
       return buildDemoChecklist(workspaceRoot);
@@ -164,10 +148,8 @@ export function registerInspectionCommands(program: Command): void {
       const { formatDemoChecklist } = await import('../../entry/cli/demo-checklist.ts');
       return inspectionValue(report, formatDemoChecklist);
     }
-  });
-
-  registerInspectionQuery(program.command('overview'), {
-    description: 'Project overview',
+  },
+  overview: {
     read: async (c): Promise<ProjectOverview> => {
       const domain = await loadProjectOverviewDomain();
       return runWithOptionalSpinner('Building project overview', c.output,
@@ -177,6 +159,23 @@ export function registerInspectionCommands(program: Command): void {
       const domain = await loadProjectOverviewDomain();
       return inspectionValue(report, domain.formatProjectOverview);
     }
+  },
+  install: {
+    read: artifactReader<InstalledManifestEntry[]>('installManifest', (c) => `Install manifest not found; run ${c.rootCommand} compose first`),
+    view: async (report) => {
+      const { projectInstallManifest } = await import('../../application/install-manifest.ts');
+      const { formatInstallManifest } = await import('../../entry/cli/install-manifest.ts');
+      return inspectionValue(projectInstallManifest(report), formatInstallManifest);
+    }
+  },
+  blocks: {
+    read: artifactReader<BlockUsageMapView>('blockUsageMap', (c) => `Block usage map not found; run ${c.rootCommand} compose first`),
+    view: async (report) => {
+      const { projectBlockUsageMap } = await import('../../application/block-usage-map.ts');
+      const { formatBlockUsageMap } = await import('../../entry/cli/block-usage-map.ts');
+      return inspectionValue(projectBlockUsageMap(report), formatBlockUsageMap);
+    }
+  },
   });
 
   registerContractInspectionCommand(program, {
@@ -192,24 +191,6 @@ export function registerInspectionCommands(program: Command): void {
       const { buildCiContract, formatCiContract } =
         await import('../../adapters/verification/platform/ci/contract/core.ts');
       return inspectionValue(buildCiContract(), formatCiContract);
-    }
-  });
-
-  registerInspectionQuery(program.command('install'), {
-    read: artifactReader<InstalledManifestEntry[]>('installManifest', (c) => `Install manifest not found; run ${c.rootCommand} compose first`),
-    view: async (report) => {
-      const { projectInstallManifest } = await import('../../application/install-manifest.ts');
-      const { formatInstallManifest } = await import('../../entry/cli/install-manifest.ts');
-      return inspectionValue(projectInstallManifest(report), formatInstallManifest);
-    }
-  });
-
-  registerInspectionQuery(program.command('blocks'), {
-    read: artifactReader<BlockUsageMapView>('blockUsageMap', (c) => `Block usage map not found; run ${c.rootCommand} compose first`),
-    view: async (report) => {
-      const { projectBlockUsageMap } = await import('../../application/block-usage-map.ts');
-      const { formatBlockUsageMap } = await import('../../entry/cli/block-usage-map.ts');
-      return inspectionValue(projectBlockUsageMap(report), formatBlockUsageMap);
     }
   });
 

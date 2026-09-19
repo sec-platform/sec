@@ -12,18 +12,24 @@ export interface InspectionContext {
 }
 
 type Awaitable<T> = T | PromiseLike<T>;
-type InspectionView<T> = (value: T, context: InspectionContext) => Awaitable<CommandValue>;
+export type InspectionView<T> =
+  (value: T, context: InspectionContext) => Awaitable<CommandValue>;
+
+export interface InspectionQueryDefinition<T> {
+  readonly description?: string;
+  readonly defaultMode?: string;
+  readonly read: (context: InspectionContext) => Awaitable<T>;
+  readonly view: InspectionView<T>;
+  readonly modes?: Readonly<Record<string, InspectionView<T>>>;
+}
 
 /** One lifecycle for read-only inspection: admit, capture, read, project, print.
  * Domain reads retain their existing parsers and physical policies. This does
  * not grant capabilities, add retries, or wrap write/rollback operations. */
-export function registerInspectionQuery<T>(command: Command, definition: Readonly<{
-  description?: string;
-  defaultMode?: string;
-  read: (context: InspectionContext) => Awaitable<T>;
-  view: InspectionView<T>;
-  modes?: Readonly<Record<string, InspectionView<T>>>;
-}>): Command {
+export function registerInspectionQuery<T>(
+  command: Command,
+  definition: Readonly<InspectionQueryDefinition<T>>
+): Command {
   const { description, defaultMode, read, view } = definition;
   const name = command.name();
   const modes = new Map(Object.entries(definition.modes ?? {}));
