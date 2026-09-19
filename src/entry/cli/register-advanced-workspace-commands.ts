@@ -1,6 +1,9 @@
 import type { Command } from 'commander';
 import { ARTIFACT_KIND_OPTION, ARTIFACT_PATHS_OPTION, parseArtifactCommandInput } from './artifact-command-input.ts';
 import { addJsonFlags, commandPath, optionalModeCommand } from './command-options.ts';
+import { printJsonOrText } from './format-utils.ts';
+import { reportRepairFailureReadback } from './repair-failure-readback.ts';
+import { runRepairWithFailureReadback } from '../../application/repair-execution.ts';
 import {
   WORKSPACE_DRY_RUN_OPTION,
   WORKSPACE_INSPECTION_MODES,
@@ -18,6 +21,82 @@ interface CommandContext<Input> {
   readonly workspaceRoot: string;
   readonly invocationPath: string;
   readonly input: Input;
+}
+
+export type RepairCommandProjection = Readonly<{
+  value: unknown;
+  text: string;
+}>;
+
+export interface RepairCommandOperations {
+  readPlan(
+    workspaceRoot: string,
+    missingMessage: string
+  ): Promise<RepairCommandProjection>;
+  readPlanIfPresent(workspaceRoot: string): Promise<RepairCommandProjection | null>;
+  execute(
+    workspaceRoot: string,
+    dryRun: boolean
+  ): Promise<RepairCommandProjection>;
+  progress<T>(
+    text: string,
+    output: RepairInput['output'],
+    operation: () => Promise<T>
+  ): Promise<T>;
+  formatFailure(error: unknown): string;
+}
+
+export function bindRepairCommandHandler(
+  operations: RepairCommandOperations
+): AdvancedWorkspaceCommandHandlers['repair'] {
+  const required = [
+    operations.readPlan,
+    operations.readPlanIfPresent,
+    operations.execute,
+    operations.progress,
+    operations.formatFailure
+  ];
+  if (required.some(operation => typeof operation !== 'function')) {
+    throw new TypeError('Repair command operations must be callable');
+  }
+
+  return async ({ workspaceRoot, invocationPath, input }) => {
+    if (input.kind === 'plan') {
+      const projection = await operations.readPlan.call(
+        operations,
+        workspaceRoot,
+        `Repair plan not found; run ${invocationPath} --dry-run first`
+      );
+      printJsonOrText(projection.value, input.output, () => projection.text);
+      return;
+    }
+
+    const projection = await runRepairWithFailureReadback(
+      () => operations.progress.call(
+        operations,
+        input.request.dryRun ? 'Previewing repair' : 'Running repair',
+        input.output,
+        () => operations.execute.call(
+          operations,
+          workspaceRoot,
+          input.request.dryRun
+        )
+      ),
+      async () => {
+        const retained = await operations.readPlanIfPresent.call(
+          operations,
+          workspaceRoot
+        );
+        if (retained !== null) {
+          printJsonOrText(retained.value, input.output, () => retained.text);
+        }
+      },
+      secondary => reportRepairFailureReadback(
+        operations.formatFailure.call(operations, secondary)
+      )
+    );
+    printJsonOrText(projection.value, input.output, () => projection.text);
+  };
 }
 
 export interface AdvancedWorkspaceCommandHandlers {
