@@ -21,7 +21,6 @@ import {
   installManifestInspectionView,
   policyReportInspectionView,
   policySourcesInspectionView,
-  postgresContractInspectionView,
   projectOverviewInspectionView,
   provenanceRegistryInspectionView,
   reviewDiagnosticsInspectionView,
@@ -194,24 +193,15 @@ export function registerInspectionCommands(program: Command): void {
     }
   });
 
-  registerPostgresInspectionCommand(
-    program,
-    async ({ workspaceRoot, output, missingMessage }) => {
+  registerPostgresInspectionCommand(program, {
+    read: async ({ workspaceRoot, missingMessage }) => {
       const { readGeneratedContract } =
         await import('../../adapters/workspace/generated-contract-read.ts');
-      const { printJsonOrText } =
-        await import('../../entry/cli/format-utils.ts');
-      const contract = await readGeneratedContract<PostgresContractProjectionSource>(
+      return readGeneratedContract<PostgresContractProjectionSource>(
         workspaceRoot,
         missingMessage,
         value => value.provider === 'postgres'
       );
-      const projection = await postgresContractInspectionView(contract);
-      printJsonOrText(
-        projection.value,
-        output,
-        projection.formatText
-      );
     }
-  );
+  });
 }
