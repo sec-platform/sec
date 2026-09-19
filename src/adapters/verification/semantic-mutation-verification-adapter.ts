@@ -2,6 +2,14 @@ import type { ValidatedEngineeringIRSnapshot } from '../../semantics/engineering
 import type { SemanticMutationBase, SemanticMutationVerificationCapability, VerificationRequirement } from '../../semantics/mutation/types.ts';
 import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION, SEMANTIC_MUTATION_VERIFICATION_CAPABILITY_PLAN_REVISION, SEMANTIC_MUTATION_VERIFICATION_REPORT_REVISION, type SemanticMutationVerificationCapabilityPlan, type SemanticMutationVerificationReport, type SemanticMutationVerifyAllRunner } from '../../assurance/verification/contract/types.ts';
 import { cloneAndDeepFreeze, compareCodeUnits, sha256 } from '../../compiler/semantic-mutation/canonical.ts';
+import { semanticMutationRequiredVerificationDigest } from '../../compiler/semantic-mutation/verification-policy.ts';
+import {
+  assertSemanticMutationVerificationReportInvariant,
+  isCanonicalSemanticMutationVerificationSelector,
+  isExactSemanticMutationVerificationRequirement,
+  normalizeSemanticMutationVerificationRequirement,
+  semanticMutationVerificationRequirementKey
+} from '../../assurance/verification/semantic-mutation/report-contract.ts';
 import { forwardSemanticMutationIsolatedRuntimePlanBinding } from './semantic-mutation-isolated-runtime-binding.ts';
 import {
   hasProvenSemanticMutationIsolationCapability,
@@ -9,26 +17,10 @@ import {
   type SemanticMutationIsolationCapabilityProbe
 } from './semantic-mutation-isolation-capability.ts';
 
-const SHA256_PATTERN = /^sha256:[0-9a-f]{64}$/u;
-const SAFE_SELECTOR = /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/u;
 const issuedRunnableCapabilityPlans = new WeakSet<object>();
 
-function requirementKey(requirement: VerificationRequirement): string {
-  if (requirement.kind === 'acceptance') return `acceptance\u0000${requirement.acceptanceEntityId}`;
-  if (requirement.kind === 'selector') return `selector\u0000${requirement.selector}`;
-  return `pass\u0000${requirement.passId}`;
-}
-
-function normalizeRequirement(requirement: VerificationRequirement): VerificationRequirement {
-  if (requirement.kind === 'acceptance') {
-    return { kind: 'acceptance', acceptanceEntityId: requirement.acceptanceEntityId };
-  }
-  if (requirement.kind === 'selector') return { kind: 'selector', selector: requirement.selector };
-  return { kind: 'pass', passId: requirement.passId };
-}
-
 function selectorIsAuthoritative(snapshot: ValidatedEngineeringIRSnapshot, selector: string): boolean {
-  return SAFE_SELECTOR.test(selector) && snapshot.ir.facts.some((fact) => {
+  return isCanonicalSemanticMutationVerificationSelector(selector) && snapshot.ir.facts.some((fact) => {
     if (fact.predicate !== 'VERIFIED_BY' || fact.object.kind !== 'value' ||
       fact.object.value === null || typeof fact.object.value !== 'object' ||
       Array.isArray(fact.object.value)) {
@@ -68,7 +60,7 @@ function capabilityFor(
   const externalIrreversibleEffect = hasExternalIrreversibleEffect(snapshot);
   const available = runnable && !externalIrreversibleEffect && isolationProven;
   return {
-    requirement: normalizeRequirement(requirement),
+    requirement: normalizeSemanticMutationVerificationRequirement(requirement),
     status: available ? 'runnable' : 'non-runnable',
     isolated: available
   };
@@ -92,13 +84,13 @@ export async function planSemanticMutationVerificationCapabilities(input: {
   const capabilities = input.requirements
     .map((requirement) => capabilityFor(input.snapshot, requirement, isolationProven))
     .sort((left, right) => compareCodeUnits(
-      requirementKey(left.requirement),
-      requirementKey(right.requirement)
+      semanticMutationVerificationRequirementKey(left.requirement),
+      semanticMutationVerificationRequirementKey(right.requirement)
     ));
   const blockedKeys = new Set<string>();
   let previous = '';
   for (const capability of capabilities) {
-    const key = requirementKey(capability.requirement);
+    const key = semanticMutationVerificationRequirementKey(capability.requirement);
     if (key === previous || capability.status !== 'runnable' || !capability.isolated) blockedKeys.add(key);
     previous = key;
   }
@@ -124,78 +116,20 @@ export async function planSemanticMutationVerificationCapabilities(input: {
   return plan;
 }
 
-function requiredVerificationDigest(requirements: readonly VerificationRequirement[]): string {
-  return sha256({ domain: 'semantic-mutation-required-verification-v1', requirements });
-}
+const SHA256_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 
 function exactKeys(value: unknown, expected: readonly string[]): value is Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const actual = Object.keys(value).sort(compareCodeUnits);
   const sortedExpected = [...expected].sort(compareCodeUnits);
-  return actual.length === sortedExpected.length && actual.every((key, index) => key === sortedExpected[index]);
+  return actual.length === sortedExpected.length &&
+    actual.every((key, index) => key === sortedExpected[index]);
 }
 
 function exactEndpoint(value: unknown): value is SemanticMutationBase {
   return exactKeys(value, ['transactionId', 'inputRevision', 'semanticRevision']) &&
     typeof value.transactionId === 'string' && value.transactionId.length > 0 &&
-    SHA256_PATTERN.test(String(value.inputRevision)) && SHA256_PATTERN.test(String(value.semanticRevision));
-}
-
-function exactRequirement(value: unknown): value is VerificationRequirement {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const requirement = value as Record<string, unknown>;
-  if (requirement.kind === 'pass') {
-    return exactKeys(value, ['kind', 'passId']) && requirement.passId === 'verify';
-  }
-  if (requirement.kind === 'acceptance') {
-    return exactKeys(value, ['kind', 'acceptanceEntityId']) &&
-      typeof requirement.acceptanceEntityId === 'string' && requirement.acceptanceEntityId.length > 0;
-  }
-  return requirement.kind === 'selector' && exactKeys(value, ['kind', 'selector']) &&
-    typeof requirement.selector === 'string' && SAFE_SELECTOR.test(requirement.selector);
-}
-
-export function assertSemanticMutationVerificationReportInvariant(
-  value: unknown
-): asserts value is SemanticMutationVerificationReport {
-  if (!exactKeys(value, [
-    'formatRevision', 'adapterId', 'adapterRevision', 'planRevision', 'attempted',
-    'stagedSourceDigest', 'requiredVerificationDigest', 'executions', 'status', 'reportRevision'
-  ])) {
-    throw new Error('Semantic Mutation Verification report has a non-canonical schema');
-  }
-  const report = value as unknown as SemanticMutationVerificationReport;
-  const statuses = ['passed', 'failed', 'blocked'] as const;
-  if (report.formatRevision !== SEMANTIC_MUTATION_VERIFICATION_REPORT_REVISION ||
-    report.adapterId !== SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID ||
-    report.adapterRevision !== SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION ||
-    !SHA256_PATTERN.test(report.planRevision) || !exactEndpoint(report.attempted) ||
-    !SHA256_PATTERN.test(report.stagedSourceDigest) ||
-    !SHA256_PATTERN.test(report.requiredVerificationDigest) ||
-    !statuses.includes(report.status) || !Array.isArray(report.executions) || report.executions.length === 0) {
-    throw new Error('Semantic Mutation Verification report is invalid');
-  }
-  const requirements: VerificationRequirement[] = [];
-  for (const execution of report.executions) {
-    if (!exactKeys(execution, ['requirement', 'runner', 'status', 'evidenceDigest']) ||
-      !exactRequirement(execution.requirement) || execution.runner !== 'verify-all' ||
-      execution.status !== report.status || typeof execution.evidenceDigest !== 'string' ||
-      !SHA256_PATTERN.test(execution.evidenceDigest)) {
-      throw new Error('Semantic Mutation Verification report execution is invalid');
-    }
-    requirements.push(normalizeRequirement(execution.requirement));
-  }
-  const sortedRequirements = [...requirements].sort((left, right) =>
-    compareCodeUnits(requirementKey(left), requirementKey(right)));
-  if (JSON.stringify(requirements) !== JSON.stringify(sortedRequirements) ||
-    new Set(requirements.map(requirementKey)).size !== requirements.length ||
-    report.requiredVerificationDigest !== requiredVerificationDigest(requirements)) {
-    throw new Error('Semantic Mutation Verification report requirement union is invalid');
-  }
-  const { reportRevision, ...withoutRevision } = report;
-  if (reportRevision !== sha256({ domain: 'semantic-mutation-verification-report-v1', ...withoutRevision })) {
-    throw new Error('Semantic Mutation Verification report revision is stale or forged');
-  }
+    digest.test(String(value.inputRevision)) && digest.test(String(value.semanticRevision));
 }
 
 function assertExecutionBinding(input: {
@@ -208,9 +142,9 @@ function assertExecutionBinding(input: {
 }): VerificationRequirement[] {
   const suppliedRequirements = Array.isArray(input.requirements) ? input.requirements : [];
   const exactSuppliedRequirements = suppliedRequirements.length > 0 &&
-    suppliedRequirements.every((requirement) => exactRequirement(requirement));
+    suppliedRequirements.every((requirement) => isExactSemanticMutationVerificationRequirement(requirement));
   const requirements = suppliedRequirements.map(normalizeRequirement)
-    .sort((left, right) => compareCodeUnits(requirementKey(left), requirementKey(right)));
+    .sort((left, right) => compareCodeUnits(semanticMutationVerificationRequirementKey(left), semanticMutationVerificationRequirementKey(right)));
   const plannedRequirements = input.capabilityPlan.capabilities.map((entry) => entry.requirement);
   const plannedRequirementKeys = plannedRequirements.map(requirementKey);
   const { capabilityPlanRevision: suppliedPlanRevision, ...capabilityPlanWithoutRevision } = input.capabilityPlan;
@@ -221,7 +155,7 @@ function assertExecutionBinding(input: {
   ]) && input.capabilityPlan.formatRevision === SEMANTIC_MUTATION_VERIFICATION_CAPABILITY_PLAN_REVISION &&
     Array.isArray(input.capabilityPlan.capabilities) && input.capabilityPlan.capabilities.length > 0 &&
     input.capabilityPlan.capabilities.every((entry) =>
-      exactKeys(entry, ['requirement', 'status', 'isolated']) && exactRequirement(entry.requirement) &&
+      exactKeys(entry, ['requirement', 'status', 'isolated']) && isExactSemanticMutationVerificationRequirement(entry.requirement) &&
       entry.status === 'runnable' && entry.isolated === true) &&
     new Set(plannedRequirementKeys).size === plannedRequirementKeys.length &&
     Array.isArray(input.capabilityPlan.blockedRequirementKeys) &&
@@ -239,7 +173,7 @@ function assertExecutionBinding(input: {
     input.attempted.inputRevision !== input.capabilityPlan.snapshotInputRevision ||
     input.attempted.semanticRevision !== input.capabilityPlan.snapshotSemanticRevision ||
     JSON.stringify(requirements) !== JSON.stringify(plannedRequirements) ||
-    input.requiredVerificationDigest !== requiredVerificationDigest(requirements) ||
+    input.requiredVerificationDigest !== semanticMutationRequiredVerificationDigest(requirements) ||
     !SHA256_PATTERN.test(input.planRevision) || !SHA256_PATTERN.test(input.stagedSourceDigest)) {
     throw new Error('Semantic Mutation Verification execution binding is invalid or blocked');
   }

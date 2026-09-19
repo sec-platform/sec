@@ -6,7 +6,7 @@ import {
 } from '../../../compiler/semantic-mutation/result.ts';
 import {
   assertSemanticMutationVerificationReportInvariant
-} from '../../../adapters/verification/semantic-mutation-verification-adapter.ts';
+} from './report-contract.ts';
 
 export function buildSemanticMutationVerificationExecutionRef(
   report: SemanticMutationVerificationReport
