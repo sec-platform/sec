@@ -10,7 +10,7 @@ import { lockProject } from '../../adapters/compilation/emit/lock-project.ts';
 import { publishReviewSummary } from '../../adapters/compilation/emit/publish-review-summary.ts';
 import { semanticViewArtifactsAreCurrent } from '../../adapters/compilation/emit/semantic-view-artifact-contract.ts';
 import { writeExplainGraph } from '../../adapters/compilation/emit/write-explain-graph.ts';
-import { executePipelineStage } from '../../adapters/compilation/pipeline/kernel.ts';
+import { executePipelineStage } from './pipeline-kernel.ts';
 import type { PipelineExecutionContext } from '../../adapters/compilation-protocol/types.ts';
 
 /** Public observation: no publication is inferred from an inventory read. */
