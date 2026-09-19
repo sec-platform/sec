@@ -6,12 +6,11 @@ import type {
 } from '../../compiler/contract.ts';
 import { CompilerError } from '../../compiler/errors.ts';
 import {
-  isEmptyDiagnosticsDetails,
-  isPlainObjectDetails,
-  normalizeCauseDetails,
   throwUpgradeFailureWithSecondaryFailures,
-  upgradeFailureWithSecondaryFailures
+  upgradeFailureWithSecondaryFailures,
+  withRollbackDiagnostics
 } from '../../compiler/upgrade/failure.ts';
+import { publishUpgradeFailureArtifacts } from '../../application/upgrade-failure-publication.ts';
 import {
   assertUpgradeAllowed,
   buildUpgradePreflightChecks,
@@ -67,39 +66,6 @@ import {
   type UpgradePreflightCheck,
   type UpgradePreview
 } from '../../semantics/upgrade/upgrade-artifact.ts';
-
-function withRollbackDiagnostics(error: CompilerError): CompilerError {
-  const rollbackDetails = { rollbackStatus: 'restored' };
-  if (isEmptyDiagnosticsDetails(error.details)) {
-    return new CompilerError(error.code, error.message, rollbackDetails, { cause: error });
-  }
-  if (isPlainObjectDetails(error.details)) {
-    return new CompilerError(error.code, error.message, {
-      ...error.details,
-      ...rollbackDetails
-    }, { cause: error });
-  }
-  return new CompilerError(error.code, error.message, {
-    ...rollbackDetails,
-    causeDetails: normalizeCauseDetails(error.details)
-  }, { cause: error });
-}
-
-async function publishUpgradeFailureArtifacts(
-  primary: Error,
-  publications: readonly (() => Promise<void>)[],
-  message: string
-): Promise<never> {
-  const secondaryFailures: unknown[] = [];
-  for (const publish of publications) {
-    try {
-      await publish();
-    } catch (error) {
-      secondaryFailures.push(error);
-    }
-  }
-  throwUpgradeFailureWithSecondaryFailures(primary, secondaryFailures, message);
-}
 
 type UpgradePlanningOptions = {
   blockId: string;

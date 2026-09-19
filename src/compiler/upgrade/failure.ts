@@ -75,3 +75,20 @@ export function withMigrationManifestDetails(migration: UpgradeMigration, error:
     causeDetails: normalizeCauseDetails(error.details)
   });
 }
+
+export function withRollbackDiagnostics(error: CompilerError): CompilerError {
+  const rollbackDetails = { rollbackStatus: 'restored' };
+  if (isEmptyDiagnosticsDetails(error.details)) {
+    return new CompilerError(error.code, error.message, rollbackDetails, { cause: error });
+  }
+  if (isPlainObjectDetails(error.details)) {
+    return new CompilerError(error.code, error.message, {
+      ...error.details,
+      ...rollbackDetails
+    }, { cause: error });
+  }
+  return new CompilerError(error.code, error.message, {
+    ...rollbackDetails,
+    causeDetails: normalizeCauseDetails(error.details)
+  }, { cause: error });
+}
