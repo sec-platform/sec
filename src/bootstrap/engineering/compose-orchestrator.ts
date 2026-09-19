@@ -9,7 +9,6 @@ import { createWorkspaceWriteCommitFence } from '../../adapters/filesystem/write
 import { composeProject } from '../../adapters/compilation/compose/compose-project.ts';
 import { opaqueModuleMaterializationEnvironment } from '../../compiler/target-materialization.ts';
 import type { LockFile, PlanFile } from '../../compiler/contract.ts';
-import { CompilerError } from '../../compiler/errors.ts';
 import { readLockFile } from '../../adapters/workspace/lock.ts';
 import { loadWorkspacePlan } from '../../adapters/workspace/sources/load-plan.ts';
 import { executePipelineStage, withPipelineTransaction } from '../../adapters/compilation/pipeline/kernel.ts';
@@ -18,19 +17,6 @@ import type { PipelineExecutionContext, PipelineSemanticContext } from '../../ad
 import { runWorkspaceSemanticFrontend } from './semantic-orchestrator.ts';
 
 export type { ComposeWorkspaceOptions } from '../../application/compose-workspace.ts';
-
-function readRequiredComposeLock(workspaceRoot: string): LockFile {
-  try {
-    return readLockFile(workspaceRoot);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
-      throw new CompilerError('COMPOSE-BLOCKED-001', 'graph.lock.json is missing', {
-        cause: error instanceof Error ? error.message : String(error)
-      });
-    }
-    throw error;
-  }
-}
 
 async function composeWorkspaceCore(
   workspaceRoot: string,
@@ -41,7 +27,7 @@ async function composeWorkspaceCore(
   const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, context.workspaceWriteLease);
   return composeWorkspaceResult(semanticContext, request, {
     readPlan: () => loadWorkspacePlan(workspaceRoot),
-    readLock: () => readRequiredComposeLock(workspaceRoot),
+    readLock: () => readLockFile(workspaceRoot),
     compose: (lock, semantic, prepared) => composeProject(workspaceRoot, lock, semantic, {
       commitFence,
       signal: prepared.signal,

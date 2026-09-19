@@ -52,6 +52,22 @@ export function prepareComposeWorkspaceRequest(
   });
 }
 
+function readRequiredComposeLock(readLock: () => LockFile): LockFile {
+  try {
+    return readLock();
+  } catch (error) {
+    const code = error !== null && typeof error === 'object'
+      ? (error as { readonly code?: unknown }).code
+      : undefined;
+    if (code === 'ENOENT') {
+      throw new CompilerError('COMPOSE-BLOCKED-001', 'graph.lock.json is missing', {
+        cause: error instanceof Error ? error.message : String(error)
+      });
+    }
+    throw error;
+  }
+}
+
 /** Coordinate the already admitted compose use case. Physical readers,
  * target effects, commit fences and semantic linkage admission stay injected. */
 export async function composeWorkspaceResult(
@@ -65,7 +81,7 @@ export async function composeWorkspaceResult(
   }
   throwIfNativeAborted(request.signal);
   const plan = readPlan.call(operations);
-  const lock = readLock.call(operations);
+  const lock = readRequiredComposeLock(() => readLock.call(operations));
   await compose.call(operations, lock, semanticContext, request);
   throwIfNativeAborted(request.signal);
   return { plan, lock };
