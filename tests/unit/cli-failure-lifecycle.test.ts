@@ -2,7 +2,9 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import type { ErrorProtocol } from '../../src/application/error-protocol.ts';
 import { reportCliFailure } from '../../src/entry/cli/cli-failure.ts';
-import { runRepairWithFailureReadback } from '../../src/bootstrap/cli/repair-command-execution.ts';
+import { runRepairWithFailureReadback } from '../../src/application/repair-execution.ts';
+import { reportRepairFailureReadback } from '../../src/entry/cli/repair-failure-readback.ts';
+import { formatCompilerFailure } from '../../src/compiler/errors.ts';
 
 function protocol(details?: unknown): ErrorProtocol {
   return { code: 'REPAIR-BLOCKED-001', message: 'repair failed', recoverable: true, issueType: 'composition',
@@ -80,7 +82,11 @@ test('failure of protocol construction reports the original value instead of its
 
 test('successful repair runs once without invoking failure readback', async () => {
   let calls = 0; const result = {};
-  assert.equal(await runRepairWithFailureReadback(async () => { calls++; return result; }, async () => assert.fail('readback')), result);
+  assert.equal(await runRepairWithFailureReadback(
+    async () => { calls++; return result; },
+    async () => assert.fail('readback'),
+    () => assert.fail('secondary reporter')
+  ), result);
   assert.equal(calls, 1);
 });
 
@@ -89,7 +95,11 @@ for (const primary of [null, undefined, 'primary', new Error('primary'), Object.
     const events: string[] = [];
     let thrown = false;
     try {
-      await runRepairWithFailureReadback(async () => { events.push('execute'); throw primary; }, async () => { events.push('readback'); });
+      await runRepairWithFailureReadback(
+        async () => { events.push('execute'); throw primary; },
+        async () => { events.push('readback'); },
+        () => undefined
+      );
     } catch (error) { thrown = true; assert.equal(error, primary); }
     assert.ok(thrown); assert.deepEqual(events, ['execute', 'readback']);
   });
@@ -99,7 +109,11 @@ test('secondary readback failure is reported without masking the original repair
   const primary = {}, secondary = new Error('readback'); const lines: unknown[][] = [];
   const previous = console.error; console.error = (...args) => { lines.push(args); };
   try {
-    await assert.rejects(runRepairWithFailureReadback(async () => { throw primary; }, async () => { throw secondary; }), (e) => e === primary);
+    await assert.rejects(runRepairWithFailureReadback(
+      async () => { throw primary; },
+      async () => { throw secondary; },
+      failure => reportRepairFailureReadback(formatCompilerFailure(failure))
+    ), (e) => e === primary);
     assert.equal(lines.length, 1); assert.match(String(lines[0]![0]), /readback/);
   } finally { console.error = previous; }
 });
@@ -109,14 +123,22 @@ test('even a secondary failure and a broken diagnostic sink cannot change the or
   const revoked = Proxy.revocable({}, {}); revoked.revoke();
   const previous = console.error; console.error = () => { throw new Error('sink'); };
   try {
-    await assert.rejects(runRepairWithFailureReadback(async () => { throw primary; }, async () => { throw revoked.proxy; }), (e) => e === primary);
+    await assert.rejects(runRepairWithFailureReadback(
+      async () => { throw primary; },
+      async () => { throw revoked.proxy; },
+      failure => reportRepairFailureReadback(formatCompilerFailure(failure))
+    ), (e) => e === primary);
   } finally { console.error = previous; }
 });
 
 test('a presentation failure after successful repair does not start failure readback', async () => {
   const failure = new Error('format'); let reads = 0;
   await assert.rejects((async () => {
-    await runRepairWithFailureReadback(async () => 7, async () => { reads++; });
+    await runRepairWithFailureReadback(
+      async () => 7,
+      async () => { reads++; },
+      () => undefined
+    );
     throw failure;
   })(), (e) => e === failure);
   assert.equal(reads, 0);
