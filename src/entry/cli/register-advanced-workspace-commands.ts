@@ -9,18 +9,18 @@ import {
   type RepairSummarySource
 } from '../../application/repair-summary.ts';
 import {
-  projectUpgradePlanSource,
-  projectUpgradePreviewSource,
+  projectUpgradePlan,
+  projectUpgradePreview,
   type UpgradeExecutionTerminalSource,
   type UpgradePlanSource,
   type UpgradePreviewSource
 } from '../../application/upgrade-planning.ts';
 import {
-  projectUpgradeDiagnosticsSource,
+  projectUpgradeDiagnostics,
   type UpgradeDiagnosticsSource
 } from '../../application/upgrade-diagnostics.ts';
 import { formatUpgradePlanning } from './upgrade-planning.ts';
-import { formatUpgradeDiagnosticsSource } from './upgrade-diagnostics.ts';
+import { formatUpgradeDiagnostics } from './upgrade-diagnostics.ts';
 import {
   projectLockInspect,
   type LockInspectProjectionSource
@@ -196,7 +196,7 @@ export function bindUpgradeCommandHandler(
       printJsonOrText(
         plan,
         input.output,
-        value => formatUpgradePlanning(projectUpgradePlanSource(value, executionTerminal))
+        value => formatUpgradePlanning(projectUpgradePlan(value, executionTerminal))
       );
       return;
     }
@@ -209,7 +209,7 @@ export function bindUpgradeCommandHandler(
       printJsonOrText(
         diagnostics,
         input.output,
-        value => formatUpgradeDiagnosticsSource(projectUpgradeDiagnosticsSource(value))
+        value => formatUpgradeDiagnostics(projectUpgradeDiagnostics(value))
       );
       return;
     }
@@ -229,7 +229,7 @@ export function bindUpgradeCommandHandler(
       printJsonOrText(
         result.upgradePlan,
         input.output,
-        value => formatUpgradePlanning(projectUpgradePreviewSource(value))
+        value => formatUpgradePlanning(projectUpgradePreview(value))
       );
       return;
     }
@@ -237,7 +237,7 @@ export function bindUpgradeCommandHandler(
       result.upgradePlan,
       input.output,
       value => formatUpgradePlanning(
-        projectUpgradePlanSource(value, result.upgradeExecutionTerminal)
+        projectUpgradePlan(value, result.upgradeExecutionTerminal)
       )
     );
   };
