@@ -96,6 +96,57 @@ export function rejectSemanticMutationWorkspaceWriterAdmission(
   );
 }
 
+export interface SemanticMutationWriterLeaseHandle<TLease> {
+  readonly lease: TLease;
+  release(): Promise<void>;
+}
+
+export interface SemanticMutationApplyAdmissionOperations<TLease> {
+  acquire(): Promise<SemanticMutationWriterLeaseHandle<TLease>>;
+  isWriterAdmissionFailure(error: unknown): boolean;
+  execute(
+    prepared: PreparedSemanticMutationApply,
+    lease: TLease
+  ): Promise<SemanticMutationApplyOutcome>;
+}
+
+/**
+ * Own request preparation plus writer-admission lifetime without depending on
+ * the physical lease implementation. The injected adapter classifies only its
+ * concrete acquisition failure; application owns the stable rejection and
+ * guarantees release after every admitted execution path.
+ */
+export async function executeSemanticMutationApplyAdmission<TLease>(
+  input: SemanticMutationApplyInput,
+  operations: SemanticMutationApplyAdmissionOperations<TLease>
+): Promise<SemanticMutationApplyOutcome> {
+  if (typeof operations.acquire !== 'function' ||
+      typeof operations.isWriterAdmissionFailure !== 'function' ||
+      typeof operations.execute !== 'function') {
+    throw new TypeError('Semantic Mutation apply admission operations must be callable');
+  }
+
+  const preparation = prepareSemanticMutationApply(input);
+  if (preparation.status === 'rejected') return preparation.outcome;
+  const prepared = preparation.prepared;
+
+  let handle: SemanticMutationWriterLeaseHandle<TLease>;
+  try {
+    handle = await operations.acquire.call(operations);
+  } catch (error) {
+    if (operations.isWriterAdmissionFailure.call(operations, error)) {
+      return rejectSemanticMutationWorkspaceWriterAdmission(prepared);
+    }
+    throw error;
+  }
+
+  try {
+    return await operations.execute.call(operations, prepared, handle.lease);
+  } finally {
+    await handle.release();
+  }
+}
+
 function preparedValue(
   preparation: SemanticMutationApplyPreparation
 ): PreparedSemanticMutationApply {
