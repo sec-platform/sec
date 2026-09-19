@@ -5,6 +5,7 @@ import { projectWorktreeSettlementReceipt } from '../../application/worktree-set
 import type { DependencyCleanOptions } from '../../adapters/toolchain/dependencies/environment.ts';
 import { buildBenchmarkTaskCatalog, formatBenchmarkTaskCatalog } from '../../adapters/verification/platform/benchmark/catalog.ts';
 import { addJsonFlags, commandPath, jsonOpts, usageError } from '../../entry/cli/command-options.ts';
+import { registerReferenceCommands } from '../../entry/cli/register-reference-commands.ts';
 import { platformCommand } from '../../adapters/verification/platform/sec-command.ts';
 import { printJsonOrText } from '../../entry/cli/format-utils.ts';
 import { formatTextByteCensus } from '../../entry/cli/text-byte-census.ts';
@@ -102,14 +103,18 @@ export function registerCommands(
       console.log(`Cleaned ${removed.length} dependency paths`);
     });
 
-  const referenceCmd = program.command('reference').description('Reference workspace operations');
-  addJsonFlags(referenceCmd.command('check')).action(async (opts: Record<string, unknown>) => {
-    const output = jsonOpts(opts);
-    const domain = await loadReferenceCheckDomain();
-    const report = await domain.buildReferenceCheckReport();
-    const command = platformCommand('reference', 'check', '--json');
-    printJsonOrText({ ...report, command }, output, () => formatReferenceCheck(report, command));
-    assertReferenceCheckClean(report);
+  registerReferenceCommands(program, {
+    check: async ({ output }) => {
+      const domain = await loadReferenceCheckDomain();
+      const report = await domain.buildReferenceCheckReport();
+      const command = platformCommand('reference', 'check', '--json');
+      printJsonOrText(
+        { ...report, command },
+        output,
+        () => formatReferenceCheck(report, command)
+      );
+      assertReferenceCheckClean(report);
+    }
   });
 
   const benchmarkCmd = program.command('benchmark');
