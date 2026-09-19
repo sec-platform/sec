@@ -1,0 +1,63 @@
+name: session-resilient-repository-mirror
+
+on:
+  push:
+    branches:
+      - transport/session-resilient-mirror
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact target HEAD
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ac57bcac4a84dde7bcdbd661b82fbdea7bfdda4b
+          path: mirror
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify exact source identity and archive mirror
+        shell: bash
+        env:
+          EXPECTED_HEAD: ac57bcac4a84dde7bcdbd661b82fbdea7bfdda4b
+          EXPECTED_TREE: 781d6b5ef3e2c9a0bdc8efc3ea98f604cde78609
+          TARGET_REF: refactor/sec086-architecture
+        run: |
+          set -euo pipefail
+          ACTUAL_HEAD="$(git -C mirror rev-parse HEAD)"
+          ACTUAL_TREE="$(git -C mirror rev-parse 'HEAD^{tree}')"
+          test "$ACTUAL_HEAD" = "$EXPECTED_HEAD"
+          test "$ACTUAL_TREE" = "$EXPECTED_TREE"
+          test -z "$(git -C mirror status --porcelain=v1 --untracked-files=all)"
+
+          ARCHIVE="$RUNNER_TEMP/sec-platform-sec-${EXPECTED_HEAD}.tar.gz"
+          METADATA="$RUNNER_TEMP/sec-platform-sec-${EXPECTED_HEAD}.metadata.txt"
+          tar -C mirror -czf "$ARCHIVE" .
+          ARCHIVE_SHA256="$(sha256sum "$ARCHIVE" | awk '{print $1}')"
+          {
+            printf 'repository=%s\n' 'sec-platform/sec'
+            printf 'target_ref=%s\n' "$TARGET_REF"
+            printf 'expected_head=%s\n' "$EXPECTED_HEAD"
+            printf 'actual_head=%s\n' "$ACTUAL_HEAD"
+            printf 'expected_tree=%s\n' "$EXPECTED_TREE"
+            printf 'actual_tree=%s\n' "$ACTUAL_TREE"
+            printf 'archive_sha256=%s\n' "$ARCHIVE_SHA256"
+            printf 'git_shallow=%s\n' "$(git -C mirror rev-parse --is-shallow-repository)"
+            printf 'git_commit_count=%s\n' "$(git -C mirror rev-list --count HEAD)"
+            printf 'git_status_porcelain_b64=%s\n' "$(git -C mirror status --porcelain=v1 --untracked-files=all | base64 -w0)"
+          } > "$METADATA"
+
+      - name: Upload exact-head repository mirror
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sec-repo-mirror-ac57bcac4a84dde7bcdbd661b82fbdea7bfdda4b
+          path: |
+            ${{ runner.temp }}/sec-platform-sec-ac57bcac4a84dde7bcdbd661b82fbdea7bfdda4b.tar.gz
+            ${{ runner.temp }}/sec-platform-sec-ac57bcac4a84dde7bcdbd661b82fbdea7bfdda4b.metadata.txt
+          if-no-files-found: error
+          retention-days: 1
