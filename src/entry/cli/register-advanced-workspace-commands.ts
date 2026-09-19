@@ -4,21 +4,23 @@ import { addJsonFlags, commandPath, optionalModeCommand } from './command-option
 import { printJsonOrText } from './format-utils.ts';
 import { reportRepairFailureReadback } from './repair-failure-readback.ts';
 import { runRepairWithFailureReadback } from '../../application/repair-execution.ts';
-import { projectRepairSummary } from '../../application/repair-summary.ts';
-import type { RepairPlan } from '../../semantics/repair/types.ts';
-import type {
-  UpgradeDiagnostics,
-  UpgradeExecutionTerminal,
-  UpgradePlan,
-  UpgradePreview
-} from '../../semantics/upgrade/upgrade-artifact.ts';
 import {
-  projectUpgradePlan,
-  projectUpgradePreview
+  projectRepairSummary,
+  type RepairSummarySource
+} from '../../application/repair-summary.ts';
+import {
+  projectUpgradePlanSource,
+  projectUpgradePreviewSource,
+  type UpgradeExecutionTerminalSource,
+  type UpgradePlanSource,
+  type UpgradePreviewSource
 } from '../../application/upgrade-planning.ts';
-import { projectUpgradeDiagnostics } from '../../application/upgrade-diagnostics.ts';
+import {
+  projectUpgradeDiagnosticsSource,
+  type UpgradeDiagnosticsSource
+} from '../../application/upgrade-diagnostics.ts';
 import { formatUpgradePlanning } from './upgrade-planning.ts';
-import { formatUpgradeDiagnostics } from './upgrade-diagnostics.ts';
+import { formatUpgradeDiagnosticsSource } from './upgrade-diagnostics.ts';
 import {
   projectLockInspect,
   type LockInspectProjectionSource
@@ -27,10 +29,10 @@ import {
   projectExplainGraphInspect,
   type ExplainGraphInspectProjectionSource
 } from '../../application/explain-graph-inspect.ts';
-import { projectExplainSummary } from '../../application/explain-summary.ts';
-import type { ExplainGraph } from '../../semantics/projection/explain.ts';
-import type { ReviewSummary } from '../../assurance/verification/review/contract/types.ts';
-import type { E2eMatrix } from '../../assurance/verification/review/matrix.ts';
+import {
+  projectExplainSummary,
+  type ExplainSummarySource
+} from '../../application/explain-summary.ts';
 import { formatLockInspect } from './lock-inspect.ts';
 import { formatExplainGraphInspect } from './explain-graph-inspect.ts';
 import { formatExplainSummary } from './explain-summary.ts';
@@ -58,14 +60,14 @@ export interface RepairCommandOperations {
   readPlan(
     workspaceRoot: string,
     missingMessage: string
-  ): Promise<RepairPlan>;
+  ): Promise<RepairSummarySource>;
   readPlanIfPresent(
     workspaceRoot: string
-  ): Promise<RepairPlan | null>;
+  ): Promise<RepairSummarySource | null>;
   execute(
     workspaceRoot: string,
     dryRun: boolean
-  ): Promise<RepairPlan>;
+  ): Promise<RepairSummarySource>;
   progress<T>(
     text: string,
     output: RepairInput['output'],
@@ -89,7 +91,7 @@ export function bindRepairCommandHandler(
   }
 
   const present = (
-    plan: RepairPlan,
+    plan: RepairSummarySource,
     dryRun: boolean,
     output: RepairInput['output']
   ): void => {
@@ -144,24 +146,24 @@ export interface UpgradeCommandOperations {
     workspaceRoot: string,
     missingMessage: string
   ): Promise<Readonly<{
-    plan: UpgradePlan;
-    executionTerminal: UpgradeExecutionTerminal | null;
+    plan: UpgradePlanSource;
+    executionTerminal: UpgradeExecutionTerminalSource | null;
   }>>;
   readDiagnostics(
     workspaceRoot: string,
     missingMessage: string
-  ): Promise<UpgradeDiagnostics>;
+  ): Promise<UpgradeDiagnosticsSource>;
   execute(
     workspaceRoot: string,
     blockId: string,
     targetVersion: string,
     dryRun: boolean
   ): Promise<
-    | Readonly<{ resultKind: 'preview'; upgradePlan: UpgradePreview }>
+    | Readonly<{ resultKind: 'preview'; upgradePlan: UpgradePreviewSource }>
     | Readonly<{
         resultKind: 'applied';
-        upgradePlan: UpgradePlan;
-        upgradeExecutionTerminal: UpgradeExecutionTerminal;
+        upgradePlan: UpgradePlanSource;
+        upgradeExecutionTerminal: UpgradeExecutionTerminalSource;
       }>
   >;
   progress<T>(
@@ -194,7 +196,7 @@ export function bindUpgradeCommandHandler(
       printJsonOrText(
         plan,
         input.output,
-        value => formatUpgradePlanning(projectUpgradePlan(value, executionTerminal))
+        value => formatUpgradePlanning(projectUpgradePlanSource(value, executionTerminal))
       );
       return;
     }
@@ -207,7 +209,7 @@ export function bindUpgradeCommandHandler(
       printJsonOrText(
         diagnostics,
         input.output,
-        value => formatUpgradeDiagnostics(projectUpgradeDiagnostics(value))
+        value => formatUpgradeDiagnosticsSource(projectUpgradeDiagnosticsSource(value))
       );
       return;
     }
@@ -227,7 +229,7 @@ export function bindUpgradeCommandHandler(
       printJsonOrText(
         result.upgradePlan,
         input.output,
-        value => formatUpgradePlanning(projectUpgradePreview(value))
+        value => formatUpgradePlanning(projectUpgradePreviewSource(value))
       );
       return;
     }
@@ -235,7 +237,7 @@ export function bindUpgradeCommandHandler(
       result.upgradePlan,
       input.output,
       value => formatUpgradePlanning(
-        projectUpgradePlan(value, result.upgradeExecutionTerminal)
+        projectUpgradePlanSource(value, result.upgradeExecutionTerminal)
       )
     );
   };
@@ -251,11 +253,7 @@ export interface WorkspaceViewCommandOperations {
     workspaceRoot: string,
     missingMessage: string
   ): Promise<ExplainGraphInspectProjectionSource>;
-  explain(workspaceRoot: string): Promise<Readonly<{
-    graph: ExplainGraph;
-    reviewSummary: ReviewSummary;
-    e2eMatrix: E2eMatrix;
-  }>>;
+  explain(workspaceRoot: string): Promise<ExplainSummarySource>;
   progress<T>(
     text: string,
     output: WorkspaceViewInput['output'],
