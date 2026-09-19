@@ -66,7 +66,9 @@ export function buildReferenceWorkspacePlan(resources: WorkspaceCreateResources)
       { id: 'tenant/basic-workspace', version: '0.1.0' },
       { id: 'entity/customer-basic', version: '0.1.0' }
     ],
-    acceptance: [...REFERENCE_ACCEPTANCE]
+    // A returned author plan owns its entries; array copying alone would let
+    // one workspace mutate the defaults used by every later workspace.
+    acceptance: REFERENCE_ACCEPTANCE.map(entry => ({ ...entry }))
   };
 }
 
