@@ -6,9 +6,9 @@ import type { VerificationReport } from '../../assurance/verification/contract/t
 import { type ReviewSummary } from '../../assurance/verification/review/contract/types.ts';
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../adapters/filesystem/write-lease.ts';
 import type { LockFile, PlanFile } from '../../compiler/contract.ts';
-import { readLockFile } from "../../adapters/workspace/lock.ts";
+import { readLockFile } from '../../adapters/workspace/lock.ts';
 import { bindPipelineCompileRequest, type PipelineCompileRequest } from '../../application/pipeline-request.ts';
-import { coordinatePipelineStages } from '../../application/pipeline-run.ts';
+import { completeWorkspaceCompilationTransaction } from '../../application/compile-workspace.ts';
 import { emitPipelineExecutionBoundary } from '../../adapters/compilation/pipeline/journal.ts';
 import { withPipelineTransaction } from '../../adapters/compilation/pipeline/kernel.ts';
 import { withLeaseObservationMonitor } from '../../adapters/compilation/pipeline/lease-monitor.ts';
@@ -80,8 +80,6 @@ export async function compileWorkspace(
   if (onEvent !== undefined && typeof onEvent !== 'function') {
     throw new TypeError('Pipeline event handler must be callable');
   }
-  // Capture capability identities before any callback or await. This snapshot
-  // grants nothing: existing capability, lease and proof owners still validate.
   const bindings = Object.freeze({ onEvent, isolatedVerificationCapability, stagedVerificationProof, requestedLease });
   const { stages } = request;
   if (bindings.isolatedVerificationCapability) {
@@ -92,26 +90,25 @@ export async function compileWorkspace(
     PIPELINE_PENDING_TRANSACTION_ID,
     'pipeline-lease-bind'
   );
-  return withWorkspaceWriteLease(workspaceRoot, bindings.requestedLease, async (workspaceWriteLease) => {
+  return withWorkspaceWriteLease(workspaceRoot, bindings.requestedLease, async workspaceWriteLease => {
     await emitPipelineExecutionBoundary(
       bindings.onEvent,
       PIPELINE_PENDING_TRANSACTION_ID,
       'pipeline-lease-bound'
     );
-    return withMonitoredWorkspaceWriteLease(workspaceRoot, workspaceWriteLease, async (leaseSignal) => {
+    return withMonitoredWorkspaceWriteLease(workspaceRoot, workspaceWriteLease, async leaseSignal => {
       await emitPipelineExecutionBoundary(
         bindings.onEvent,
         PIPELINE_PENDING_TRANSACTION_ID,
         'pipeline-transaction-bootstrap'
       );
       return withPipelineTransaction(
-      workspaceRoot,
-      request.source,
-      stages,
-      bindings.onEvent,
-      async (context) => {
-        const stageResult = await coordinatePipelineStages(stages, {
-          beforeStage: async (stage) => {
+        workspaceRoot,
+        request.source,
+        stages,
+        bindings.onEvent,
+        async context => completeWorkspaceCompilationTransaction(context.transactionId, stages, {
+          beforeStage: async stage => {
             await assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease);
             await emitPipelineExecutionBoundary(context.onEvent, context.transactionId, pipelineStageBoundary(stage));
           },
@@ -145,56 +142,42 @@ export async function compileWorkspace(
           emit: async () => {
             requirePipelineSemanticContext(context);
             return explainWorkspace(workspaceRoot, context);
-          }
-        });
-        const {
-          completedStages,
-          semanticContext,
-          plan,
-          verificationReport,
-          emittedLock,
-          emittedProvenance,
-          explainGraph,
-          reviewSummary
-        } = stageResult;
-
-        const lock = await readLockFile(workspaceRoot);
-        const completionProof = await buildPipelineCompletionProof(
-          workspaceRoot,
-          {
-            transactionId: context.transactionId,
-            completedStages,
-            semanticContext,
-            lock: emittedLock,
-            verificationReport,
-            provenance: emittedProvenance,
-            explainGraph,
-            reviewSummary
-          }
-        );
-        if (bindings.stagedVerificationProof) {
-          await assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease);
-          await revalidateStagedVerificationProofAfterPipeline(
-            workspaceRoot,
-            lock,
-            bindings.stagedVerificationProof
-          );
-          await assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease);
-        }
-        return {
-          transactionId: context.transactionId,
-          completedStages: [...completedStages],
-          ...(semanticContext ? { semanticContext } : {}),
-          ...(plan ? { plan } : {}),
-          lock,
-          ...(verificationReport ? { verificationReport } : {}),
-          ...(explainGraph ? { explainGraph } : {}),
-          ...(reviewSummary ? { reviewSummary } : {}),
-          ...(completionProof ? { completionProof } : {})
-        };
-      },
-      workspaceWriteLease
-      );
+          },
+          readLock: () => readLockFile(workspaceRoot),
+          buildCompletionProof: result => buildPipelineCompletionProof(workspaceRoot, {
+            transactionId: result.transactionId,
+            completedStages: result.completedStages,
+            semanticContext: result.semanticContext,
+            lock: result.emittedLock,
+            verificationReport: result.verificationReport,
+            provenance: result.emittedProvenance,
+            explainGraph: result.explainGraph,
+            reviewSummary: result.reviewSummary
+          }),
+          ...(bindings.stagedVerificationProof ? {
+            revalidateStagedProof: async lock => {
+              await assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease);
+              await revalidateStagedVerificationProofAfterPipeline(
+                workspaceRoot,
+                lock,
+                bindings.stagedVerificationProof!
+              );
+              await assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease);
+            }
+          } : {})
+        }),
+        workspaceWriteLease
+      ).then(result => ({
+        transactionId: result.transactionId,
+        completedStages: [...result.completedStages],
+        ...(result.semanticContext ? { semanticContext: result.semanticContext } : {}),
+        ...(result.plan ? { plan: result.plan } : {}),
+        lock: result.lock,
+        ...(result.verificationReport ? { verificationReport: result.verificationReport } : {}),
+        ...(result.explainGraph ? { explainGraph: result.explainGraph } : {}),
+        ...(result.reviewSummary ? { reviewSummary: result.reviewSummary } : {}),
+        ...(result.completionProof ? { completionProof: result.completionProof } : {})
+      }));
     });
   });
 }
