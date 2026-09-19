@@ -13,6 +13,8 @@ import { publishUpgradeFailureArtifacts } from '../../application/upgrade-failur
 import {
   buildUpgradeExecutionTerminal,
   executePlannedWorkspaceUpgrade,
+  publishAppliedUpgradeTerminal,
+  type AppliedUpgradeTerminalPublicationOperations,
   type UpgradeExecutionTerminalReadbackOperations
 } from '../../application/upgrade-apply.ts';
 import {
@@ -125,6 +127,14 @@ export async function runUpgradeWorkspaceWithLease(
     readPersistedPlan: () => requirePersistedUpgradePlan(workspaceRoot),
     readWorkspacePlan: () => loadWorkspacePlan(workspaceRoot)
   });
+  const appliedTerminalPublicationOperations:
+    AppliedUpgradeTerminalPublicationOperations = Object.freeze({
+      publish: terminal => publishUpgradeExecutionTerminal(workspaceRoot, terminal, commitFence),
+      resolvePublication: terminal =>
+        resolveUpgradeExecutionTerminalPublication(workspaceRoot, terminal),
+      isBeforeEffectFailure: error =>
+        classifyCanonicalWorkspacePublicationFailure(error) === 'before-effect'
+    });
   const readableLockPath = await resolveWorkspaceLockPath(workspaceRoot);
   const existingLock = await readOptionalJson<LockFile>(readableLockPath);
   const currentBlock = plan.blocks.find((block) => block.id === blockId);
@@ -251,23 +261,20 @@ export async function runUpgradeWorkspaceWithLease(
         resultLock: lock,
         settlement: 'applied'
       }, terminalReadbackOperations);
-    let terminal: UpgradeExecutionTerminal;
-    try {
-      terminal = await publishUpgradeExecutionTerminal(workspaceRoot, expectedTerminal, commitFence);
-      appliedTerminalCommitted = true;
-    } catch (publicationFailure) {
-      const resolution = resolveUpgradeExecutionTerminalPublication(workspaceRoot, expectedTerminal);
-      if (resolution === 'committed') {
-        appliedTerminalCommitted = true;
-        appliedTerminalDurabilityUncertain = true;
-        retainBackupForRecovery = true;
-        terminal = expectedTerminal;
-        postCommitFailures.push(publicationFailure);
-      } else {
-        appliedTerminalCommitUnknown = resolution === 'unknown'
-          || classifyCanonicalWorkspacePublicationFailure(publicationFailure) !== 'before-effect';
-        throw publicationFailure;
-      }
+    const terminalPublication = await publishAppliedUpgradeTerminal(
+      expectedTerminal,
+      appliedTerminalPublicationOperations
+    );
+    if (terminalPublication.status === 'not-committed') {
+      appliedTerminalCommitUnknown = terminalPublication.commitUnknown;
+      throw terminalPublication.publicationFailure;
+    }
+    appliedTerminalCommitted = true;
+    const terminal = terminalPublication.terminal;
+    if (terminalPublication.durability === 'uncertain') {
+      appliedTerminalDurabilityUncertain = true;
+      retainBackupForRecovery = true;
+      postCommitFailures.push(terminalPublication.publicationFailure);
     }
     if (terminal.settlement !== 'applied') {
       throw new CompilerError('UPGRADE-BLOCKED-005', 'Upgrade execution did not settle as applied');

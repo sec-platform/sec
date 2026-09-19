@@ -67,3 +67,71 @@ export async function buildUpgradeExecutionTerminal(
     workspacePlan
   });
 }
+
+
+export type AppliedUpgradeTerminalPublicationOutcome =
+  | Readonly<{
+      status: 'committed';
+      durability: 'settled';
+      terminal: UpgradeExecutionTerminal;
+    }>
+  | Readonly<{
+      status: 'committed';
+      durability: 'uncertain';
+      terminal: UpgradeExecutionTerminal;
+      publicationFailure: unknown;
+    }>
+  | Readonly<{
+      status: 'not-committed';
+      commitUnknown: boolean;
+      publicationFailure: unknown;
+    }>;
+
+export interface AppliedUpgradeTerminalPublicationOperations {
+  publish(terminal: UpgradeExecutionTerminal): Promise<UpgradeExecutionTerminal>;
+  resolvePublication(
+    expected: UpgradeExecutionTerminal
+  ): 'committed' | 'absent' | 'unknown';
+  isBeforeEffectFailure(error: unknown): boolean;
+}
+
+/**
+ * Resolve publication of an applied Upgrade terminal without guessing whether
+ * a failed physical write took effect. A matching readback is committed but
+ * durability-uncertain; absent + proven-before-effect is safely not committed;
+ * every other failure retains an unknown-commit recovery obligation.
+ */
+export async function publishAppliedUpgradeTerminal(
+  expected: UpgradeExecutionTerminal,
+  operations: AppliedUpgradeTerminalPublicationOperations
+): Promise<AppliedUpgradeTerminalPublicationOutcome> {
+  if (typeof operations.publish !== 'function' ||
+      typeof operations.resolvePublication !== 'function' ||
+      typeof operations.isBeforeEffectFailure !== 'function') {
+    throw new TypeError('Applied Upgrade terminal publication operations must be callable');
+  }
+  try {
+    return Object.freeze({
+      status: 'committed' as const,
+      durability: 'settled' as const,
+      terminal: await operations.publish.call(operations, expected)
+    });
+  } catch (publicationFailure) {
+    const resolution = operations.resolvePublication.call(operations, expected);
+    if (resolution === 'committed') {
+      return Object.freeze({
+        status: 'committed' as const,
+        durability: 'uncertain' as const,
+        terminal: expected,
+        publicationFailure
+      });
+    }
+    return Object.freeze({
+      status: 'not-committed' as const,
+      commitUnknown:
+        resolution === 'unknown' ||
+        !operations.isBeforeEffectFailure.call(operations, publicationFailure),
+      publicationFailure
+    });
+  }
+}
