@@ -19,9 +19,8 @@ import {
   type PipelineStageExecutionOptions
 } from './execution-context.ts';
 import {
-  describePipelineFailure,
-  settlePipelineFailure
-} from '../../../application/pipeline-failure.ts';
+  executePipelineTransactionLifecycle
+} from '../../../application/pipeline-transaction-lifecycle.ts';
 import {
   executePipelineStageLifecycle
 } from '../../../application/pipeline-stage-lifecycle.ts';
@@ -140,54 +139,46 @@ export async function withPipelineTransaction<T>(
   if (typeof execute !== 'function') {
     throw new TypeError('Pipeline executor must be callable');
   }
+
   return withWorkspaceWriteLease(
     workspaceRoot,
     workspaceWriteLease,
-    async lease => {
+    lease => {
       const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, lease);
-      await commitFence();
-      const transactionId = await startPipelineTransaction(
-        workspaceRoot,
-        source,
-        stages,
-        commitFence,
-        onEvent
-      );
-      const context: PipelineExecutionContext = {
-        transactionId,
-        source,
-        ...(onEvent ? { onEvent } : {}),
-        workspaceWriteLease: lease
-      };
-      sealPipelineExecutionContext(context);
-
-      try {
-        const result = await execute(context);
-        await commitFence();
-        await commitPipelineTransaction(
+      return executePipelineTransactionLifecycle({
+        assertWrite: commitFence,
+        start: () => startPipelineTransaction(
+          workspaceRoot,
+          source,
+          stages,
+          commitFence,
+          onEvent
+        ),
+        createContext: transactionId => {
+          const context: PipelineExecutionContext = {
+            transactionId,
+            source,
+            ...(onEvent ? { onEvent } : {}),
+            workspaceWriteLease: lease
+          };
+          return sealPipelineExecutionContext(context);
+        },
+        execute,
+        commit: transactionId => commitPipelineTransaction(
           workspaceRoot,
           transactionId,
           commitFence,
           onEvent
-        );
-        return result;
-      } catch (error) {
-        const failure = describePipelineFailure(error);
-        return settlePipelineFailure(error, [{
-          operation: 'transaction-failed',
-          run: async () => {
-            await commitFence();
-            await failPipelineTransaction(
-              workspaceRoot,
-              transactionId,
-              failure.code,
-              failure.message,
-              commitFence,
-              onEvent
-            );
-          }
-        }]);
-      }
+        ),
+        fail: (transactionId, code, message) => failPipelineTransaction(
+          workspaceRoot,
+          transactionId,
+          code,
+          message,
+          commitFence,
+          onEvent
+        )
+      });
     }
   );
 }
