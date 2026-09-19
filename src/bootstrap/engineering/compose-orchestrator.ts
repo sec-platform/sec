@@ -11,7 +11,7 @@ import { opaqueModuleMaterializationEnvironment } from '../../compiler/target-ma
 import type { LockFile, PlanFile } from '../../compiler/contract.ts';
 import { readLockFile } from '../../adapters/workspace/lock.ts';
 import { loadWorkspacePlan } from '../../adapters/workspace/sources/load-plan.ts';
-import { executePipelineStage, withPipelineTransaction } from '../../adapters/compilation/pipeline/kernel.ts';
+import { executePipelineStage, withPipelineTransaction } from './pipeline-kernel.ts';
 import { requirePipelineSemanticContext } from '../../adapters/compilation/pipeline/semantic-context.ts';
 import type { PipelineExecutionContext, PipelineSemanticContext } from '../../adapters/compilation-protocol/types.ts';
 import { runWorkspaceSemanticFrontend } from './semantic-orchestrator.ts';
