@@ -10,7 +10,7 @@ import {
 } from '../../application/compile-workspace.ts';
 import { emitPipelineExecutionBoundary } from '../../adapters/compilation/pipeline/journal.ts';
 import { withPipelineTransaction } from '../../adapters/compilation/pipeline/kernel.ts';
-import { withLeaseObservationMonitor } from '../../adapters/compilation/pipeline/lease-monitor.ts';
+import { withLeaseObservationMonitor } from '../../execution/lease-observation-monitor.ts';
 import { requirePipelineSemanticContext } from '../../adapters/compilation/pipeline/semantic-context.ts';
 import { buildPipelineCompletionProof } from '../../adapters/verification/pipeline-completion-proof.ts';
 import { revalidateStagedVerificationProofAfterPipeline } from '../../adapters/verification/pipeline-staged-proof.ts';
