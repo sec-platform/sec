@@ -2,6 +2,46 @@ import type { VerificationLane, VerificationReport } from '../assurance/verifica
 import type { LockFile } from '../compiler/contract.ts';
 import { ProjectIntegrityError } from '../workspace/contract/project-integrity.ts';
 
+export interface WorkspaceVerificationRequestOptions<
+  Capability = unknown,
+  StagedProof = unknown
+> {
+  readonly emitTiming?: boolean;
+  readonly isolatedVerificationCapability?: Capability;
+  readonly lane?: VerificationLane;
+  readonly signal?: AbortSignal;
+  readonly stagedVerificationProof?: StagedProof;
+}
+
+export interface PreparedWorkspaceVerificationRequest<
+  Capability = unknown,
+  StagedProof = unknown
+> {
+  readonly emitTiming?: boolean;
+  readonly isolatedVerificationCapability?: Capability;
+  readonly lane: VerificationLane;
+  readonly signal?: AbortSignal;
+  readonly stagedVerificationProof?: StagedProof;
+}
+
+/**
+ * Capture one verification request before any transaction or provider call.
+ * The original AbortSignal remains live; isolated verification deliberately
+ * does not inherit ordinary timing emission.
+ */
+export function prepareWorkspaceVerificationRequest<Capability, StagedProof>(
+  options: WorkspaceVerificationRequestOptions<Capability, StagedProof> = {}
+): PreparedWorkspaceVerificationRequest<Capability, StagedProof> {
+  const isolatedVerificationCapability = options.isolatedVerificationCapability;
+  return Object.freeze({
+    isolatedVerificationCapability,
+    lane: options.lane ?? 'all',
+    signal: options.signal,
+    stagedVerificationProof: options.stagedVerificationProof,
+    emitTiming: isolatedVerificationCapability === undefined ? options.emitTiming : undefined
+  });
+}
+
 export interface WorkspaceVerificationOperations {
   readLock(): LockFile;
   admit?(): void;
