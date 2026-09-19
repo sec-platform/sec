@@ -11,6 +11,7 @@ import {
   withRollbackDiagnostics
 } from '../../compiler/upgrade/failure.ts';
 import { publishUpgradeFailureArtifacts } from '../../application/upgrade-failure-publication.ts';
+import { executePlannedWorkspaceUpgrade } from '../../application/upgrade-apply.ts';
 import {
   assertUpgradeAllowed,
   buildUpgradePreflightChecks,
@@ -202,46 +203,6 @@ export async function planUpgradeWorkspace(
   return { resultKind: 'preview', plan, lock, upgradePlan: plannedUpgrade.upgradePreview };
 }
 
-type UpgradeApplyContext = PlannedWorkspaceUpgrade & {
-  commitFence: CommitFence;
-  plan: PlanFile;
-  targetVersion: string;
-  workspaceWriteLease: WorkspaceWriteLeaseToken;
-  workspaceRoot: string;
-};
-
-async function applyPlannedWorkspaceUpgrade(context: UpgradeApplyContext): Promise<LockFile> {
-  const {
-    commitFence,
-    impacts,
-    migrationEntries,
-    plan,
-    currentBlock,
-    targetManifestRoot,
-    targetVersion,
-    workspaceWriteLease,
-    workspaceRoot
-  } = context;
-
-  currentBlock.version = targetVersion;
-  await writeYaml(getWorkspacePaths(workspaceRoot).workspaceConfigPath, plan, commitFence);
-  await applyMigrationEntries(
-    workspaceRoot,
-    targetManifestRoot,
-    impacts,
-    migrationEntries,
-    commitFence
-  );
-
-  const { lock } = await compileWorkspace(workspaceRoot, {
-    source: 'upgrade',
-    through: 'lock',
-    verificationLane: 'all',
-    workspaceWriteLease
-  });
-  return lock;
-}
-
 async function buildUpgradeExecutionTerminal(input: {
   workspaceRoot: string;
   plan: UpgradePlan;
@@ -375,14 +336,33 @@ export async function runUpgradeWorkspaceWithLease(
         impactPaths: upgradePlan.impacts,
         beforeCommit: commitFence
       },
-      () => applyPlannedWorkspaceUpgrade({
-        ...plannedUpgrade,
-        commitFence,
-        plan,
-        targetVersion,
-        workspaceWriteLease,
-        workspaceRoot
-      })
+      () => executePlannedWorkspaceUpgrade(
+        {
+          currentBlock: plannedUpgrade.currentBlock,
+          plan,
+          targetVersion
+        },
+        {
+          publishWorkspacePlan: () =>
+            writeYaml(getWorkspacePaths(workspaceRoot).workspaceConfigPath, plan, commitFence),
+          applyMigrations: () => applyMigrationEntries(
+            workspaceRoot,
+            plannedUpgrade.targetManifestRoot,
+            plannedUpgrade.impacts,
+            plannedUpgrade.migrationEntries,
+            commitFence
+          ),
+          compileLock: async () => {
+            const { lock } = await compileWorkspace(workspaceRoot, {
+              source: 'upgrade',
+              through: 'lock',
+              verificationLane: 'all',
+              workspaceWriteLease
+            });
+            return lock;
+          }
+        }
+      )
     );
     const expectedTerminal = await buildUpgradeExecutionTerminal({
         workspaceRoot,
