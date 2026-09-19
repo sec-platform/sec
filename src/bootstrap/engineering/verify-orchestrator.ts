@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { CI_ARTIFACT_FILES } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationLane, VerificationReport } from '../../assurance/verification/contract/types.ts';
-import { buildBlockedProductVerificationClaimSummary } from '../../assurance/verification/profile/contract/product.ts';
+import { buildBlockedVerificationReport } from '../../assurance/verification/contract/blocked-report.ts';
 import { ProjectIntegrityError } from '../../workspace/contract/project-integrity.ts';
 import { assertWorkspaceWriteLease } from '../../adapters/filesystem/write-lease.ts';
 import type { LockFile } from '../../compiler/contract.ts';
@@ -46,35 +46,11 @@ async function writeBlockedVerificationSnapshot(
   const policyReport = await runPolicyGate(workspaceRoot);
   const runtime = createSkippedRuntimeLane();
   const message = formatCompilerFailure(failure);
-  const fast: VerificationReport['fast'] = {
-    status: 'failed',
-    build: { status: 'skipped' },
-    unit: { status: 'skipped', passed: [] },
-    acceptance: { status: 'skipped', passed: [], failed: [] },
-    policy: { status: policyReport.status, violations: policyReport.violations },
-    policyReport,
-    logs: { stdout: `policy:${policyReport.status}`, stderr: message }
-  };
-  const claimSummary = buildBlockedProductVerificationClaimSummary(
-    lane,
-    productVerificationObservationBindings(lock, lane, 'service')
-  );
-  const report: VerificationReport = {
-    build: fast.build,
-    unit: fast.unit,
-    acceptance: fast.acceptance,
-    policy: fast.policy,
-    fast,
-    runtime,
-    summary: {
-      status: 'failed',
-      requestedLane: lane,
-      failedLanes: ['fast'],
-      claimSummary
-    },
-    logs: { stdout: fast.logs.stdout, stderr: message }
-  };
-  const coverage = await buildAcceptanceCoverage(workspaceRoot, lock, runtime, fast);
+  const report = buildBlockedVerificationReport({
+    lane, policyReport, runtime, message,
+    observations: productVerificationObservationBindings(lock, lane, 'service')
+  });
+  const coverage = await buildAcceptanceCoverage(workspaceRoot, lock, runtime, report.fast);
 
   addGeneratedPaths(lock, [
     CI_ARTIFACT_FILES.verificationReport,
