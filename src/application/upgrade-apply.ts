@@ -13,6 +13,7 @@ import {
   type UpgradePlan
 } from '../semantics/upgrade/upgrade-artifact.ts';
 import type { PlannedWorkspaceUpgrade } from './upgrade-planning.ts';
+import { publishUpgradeApplyFailureArtifacts } from './upgrade-failure-publication.ts';
 
 export interface PlannedUpgradeApplyInput {
   readonly currentBlock: PlanFile['blocks'][number];
@@ -314,4 +315,194 @@ export function bindPlannedUpgradeExecution(
     ownerFileIdentityDigest: lease.ownerFileIdentityDigest
   });
   return Object.freeze({ upgradePlan, attempt });
+}
+
+
+export type UpgradeAppliedWorkspaceResult = Readonly<{
+  resultKind: 'applied';
+  plan: PlanFile;
+  lock: LockFile;
+  upgradePlan: UpgradePlan;
+  upgradeExecutionTerminal: UpgradeExecutionTerminal;
+}>;
+
+export interface UpgradeApplyLifecycleOperations<TBackup> {
+  snapshot(): Promise<TBackup>;
+  recoverySnapshot(backup: TBackup): UpgradeRecoverySnapshotLocator;
+  clearExecutionTerminal(): Promise<void>;
+  clearDiagnostics(): Promise<void>;
+  publishPlan(plan: UpgradePlan): Promise<unknown>;
+  apply(): Promise<LockFile>;
+  readonly terminalReadback: UpgradeExecutionTerminalReadbackOperations;
+  readonly terminalPublication: AppliedUpgradeTerminalPublicationOperations;
+  recordGeneratedArtifacts(lock: LockFile): Promise<void>;
+  restore(backup: TBackup): Promise<void>;
+  publishExecutionTerminal(
+    terminal: UpgradeExecutionTerminal
+  ): Promise<UpgradeExecutionTerminal>;
+  publishDiagnostics(input: Readonly<{
+    phase: 'apply' | 'recovery';
+    terminal: UpgradeExecutionTerminal;
+    failure: CompilerError;
+    resultLock: LockFile | null;
+  }>): Promise<void>;
+  retireBackup(backup: TBackup, primaryFailure: Error | null): Promise<void>;
+}
+
+/**
+ * Own the complete post-planning Upgrade apply lifecycle. Physical snapshot,
+ * publication, authorization, compiler, restore and cleanup effects remain
+ * injected; application owns the transaction ordering and all decisions about
+ * committed/unknown publication, rollback, recovery and backup retention.
+ */
+export async function executeUpgradeApplyLifecycle<TBackup>(
+  input: Readonly<{
+    plan: PlanFile;
+    existingLock: LockFile | null;
+    upgradePlan: UpgradePlan;
+    attempt: UpgradeExecutionTerminal['attempt'];
+  }>,
+  operations: UpgradeApplyLifecycleOperations<TBackup>
+): Promise<UpgradeAppliedWorkspaceResult> {
+  const requiredOperations = [
+    operations.snapshot,
+    operations.recoverySnapshot,
+    operations.clearExecutionTerminal,
+    operations.clearDiagnostics,
+    operations.publishPlan,
+    operations.apply,
+    operations.recordGeneratedArtifacts,
+    operations.restore,
+    operations.publishExecutionTerminal,
+    operations.publishDiagnostics,
+    operations.retireBackup
+  ];
+  if (requiredOperations.some(operation => typeof operation !== 'function')) {
+    throw new TypeError('Upgrade apply lifecycle operations must be callable');
+  }
+
+  const backup = await operations.snapshot.call(operations);
+  const recoverySnapshot = operations.recoverySnapshot.call(operations, backup);
+  let pendingApplyFailure: Error | null = null;
+  let retainBackupForRecovery = false;
+  let appliedTerminalCommitted = false;
+  let appliedTerminalCommitUnknown = false;
+  let appliedTerminalDurabilityUncertain = false;
+  const postCommitFailures: unknown[] = [];
+
+  try {
+    await operations.clearExecutionTerminal.call(operations);
+    await operations.clearDiagnostics.call(operations);
+    await operations.publishPlan.call(operations, input.upgradePlan);
+    const lock = await operations.apply.call(operations);
+    const expectedTerminal = await buildUpgradeExecutionTerminal({
+      plan: input.upgradePlan,
+      attempt: input.attempt,
+      resultLock: lock,
+      settlement: 'applied'
+    }, operations.terminalReadback);
+    const terminalPublication = await publishAppliedUpgradeTerminal(
+      expectedTerminal,
+      operations.terminalPublication
+    );
+    if (terminalPublication.status === 'not-committed') {
+      appliedTerminalCommitUnknown = terminalPublication.commitUnknown;
+      throw terminalPublication.publicationFailure;
+    }
+
+    appliedTerminalCommitted = true;
+    const terminal = terminalPublication.terminal;
+    if (terminalPublication.durability === 'uncertain') {
+      appliedTerminalDurabilityUncertain = true;
+      retainBackupForRecovery = true;
+      postCommitFailures.push(terminalPublication.publicationFailure);
+    }
+    if (terminal.settlement !== 'applied') {
+      throw new CompilerError(
+        'UPGRADE-BLOCKED-005',
+        'Upgrade execution did not settle as applied'
+      );
+    }
+    if (appliedTerminalDurabilityUncertain) {
+      const publicationFailure = postCommitFailures[0];
+      throw publicationFailure instanceof Error
+        ? publicationFailure
+        : new Error(String(publicationFailure));
+    }
+
+    await operations.recordGeneratedArtifacts.call(operations, lock);
+    return Object.freeze({
+      resultKind: 'applied' as const,
+      plan: input.plan,
+      lock,
+      upgradePlan: input.upgradePlan,
+      upgradeExecutionTerminal: terminal
+    });
+  } catch (error) {
+    if (appliedTerminalCommitted) {
+      pendingApplyFailure = buildUpgradeCommittedFailure({
+        failure: error,
+        durabilityUncertain: appliedTerminalDurabilityUncertain,
+        recoverySnapshot,
+        postCommitFailures
+      });
+      throw pendingApplyFailure;
+    }
+
+    const rollback = await resolveUpgradeRollback(
+      {
+        applyFailure: error,
+        appliedTerminalCommitUnknown,
+        recoverySnapshot
+      },
+      {
+        restore: () => operations.restore.call(operations, backup)
+      }
+    );
+    if (rollback.retainBackupForRecovery) retainBackupForRecovery = true;
+
+    try {
+      await publishUpgradeApplyFailureArtifacts(
+        rollback.diagnosticFailure,
+        appliedTerminalCommitUnknown,
+        {
+          buildTerminal: () => buildUpgradeExecutionTerminal({
+            plan: input.upgradePlan,
+            attempt: input.attempt,
+            resultLock: rollback.settlement === 'rolled-back'
+              ? input.existingLock
+              : null,
+            settlement: rollback.settlement
+          }, operations.terminalReadback),
+          publishTerminal: terminal =>
+            operations.publishExecutionTerminal.call(operations, terminal),
+          publishDiagnostics: terminal => operations.publishDiagnostics.call(
+            operations,
+            {
+              phase: rollback.settlement === 'rolled-back' ? 'apply' : 'recovery',
+              terminal,
+              failure: rollback.diagnosticFailure,
+              resultLock: rollback.settlement === 'rolled-back'
+                ? null
+                : input.existingLock
+            }
+          )
+        }
+      );
+      throw new Error('Upgrade failure publication returned unexpectedly');
+    } catch (failure) {
+      pendingApplyFailure = failure instanceof Error
+        ? failure
+        : new Error(String(failure));
+      throw pendingApplyFailure;
+    }
+  } finally {
+    if (!retainBackupForRecovery) {
+      await operations.retireBackup.call(
+        operations,
+        backup,
+        pendingApplyFailure
+      );
+    }
+  }
 }

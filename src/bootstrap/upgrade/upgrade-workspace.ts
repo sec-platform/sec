@@ -3,19 +3,12 @@ import type {
   PlanFile
 } from '../../compiler/contract.ts';
 import { CompilerError } from '../../compiler/errors.ts';
-import {
-  publishUpgradeApplyFailureArtifacts,
-  publishUpgradePlanningFailure
-} from '../../application/upgrade-failure-publication.ts';
+import { publishUpgradePlanningFailure } from '../../application/upgrade-failure-publication.ts';
 import {
   bindPlannedUpgradeExecution,
-  buildUpgradeCommittedFailure,
-  buildUpgradeExecutionTerminal,
   executePlannedWorkspaceUpgrade,
-  publishAppliedUpgradeTerminal,
-  resolveUpgradeRollback,
-  type AppliedUpgradeTerminalPublicationOperations,
-  type UpgradeExecutionTerminalReadbackOperations
+  executeUpgradeApplyLifecycle,
+  type UpgradeAppliedWorkspaceResult
 } from '../../application/upgrade-apply.ts';
 import {
   planWorkspaceUpgrade,
@@ -28,8 +21,7 @@ import { matchesUpgradeVersionRange } from '../../adapters/upgrade/version-range
 import {
   restoreWorkspace,
   retireUpgradeBackup,
-  snapshotWorkspace,
-  type UpgradeWorkspaceSnapshot
+  snapshotWorkspace
 } from '../../adapters/upgrade/workspace-snapshot.ts';
 import {
   applyMigrationEntries,
@@ -51,17 +43,12 @@ import { loadWorkspacePlan } from '../../adapters/workspace/sources/load-plan.ts
 import { settlePhysicalResourcesAsync } from '../../adapters/runtime-state/physical/runtime/resource-settlement.ts';
 import { CI_ARTIFACT_FILES } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import { readOptionalJson, removeDir } from "../../adapters/filesystem/files.ts";
-import { type CommitFence } from "../../contracts/commit-fence.ts";
 import { assertWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../adapters/filesystem/write-lease.ts';
 import { classifyCanonicalWorkspacePublicationFailure } from '../../adapters/filesystem/file-publication.ts';
 import { getWorkspacePaths, resolveWorkspaceArtifactPath, resolveWorkspaceLockPath } from "../../adapters/workspace-context.ts";
 import { withProjectWriteAuthorization } from '../../adapters/workspace/project-write-authorization.ts';
 import { writeYaml } from '../../adapters/workspace/yaml.ts';
-import type {
-  UpgradeExecutionTerminal,
-  UpgradePlan,
-  UpgradePreview
-} from '../../semantics/upgrade/upgrade-artifact.ts';
+import type { UpgradePreview } from '../../semantics/upgrade/upgrade-artifact.ts';
 
 const UPGRADE_PLANNING_OPERATIONS: UpgradePlanningUseCaseOperations = Object.freeze({
   loadTargetManifest: ({ blockId, targetVersion, workspaceRoot, registrySources }) =>
@@ -109,30 +96,12 @@ export async function runUpgradeWorkspaceWithLease(
   blockId: string,
   targetVersion: string,
   workspaceWriteLease: WorkspaceWriteLeaseToken
-): Promise<{
-  resultKind: 'applied';
-  plan: PlanFile;
-  lock: LockFile;
-  upgradePlan: UpgradePlan;
-  upgradeExecutionTerminal: UpgradeExecutionTerminal;
-}> {
+): Promise<UpgradeAppliedWorkspaceResult> {
   const commitFence = () => assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease);
   await commitFence();
   workspaceRoot = getWorkspacePaths(workspaceRoot).workspaceRoot;
   const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
   const plan = await loadWorkspacePlan(workspaceRoot);
-  const terminalReadbackOperations: UpgradeExecutionTerminalReadbackOperations = Object.freeze({
-    readPersistedPlan: () => requirePersistedUpgradePlan(workspaceRoot),
-    readWorkspacePlan: () => loadWorkspacePlan(workspaceRoot)
-  });
-  const appliedTerminalPublicationOperations:
-    AppliedUpgradeTerminalPublicationOperations = Object.freeze({
-      publish: terminal => publishUpgradeExecutionTerminal(workspaceRoot, terminal, commitFence),
-      resolvePublication: terminal =>
-        resolveUpgradeExecutionTerminalPublication(workspaceRoot, terminal),
-      isBeforeEffectFailure: error =>
-        classifyCanonicalWorkspacePublicationFailure(error) === 'before-effect'
-    });
   const readableLockPath = await resolveWorkspaceLockPath(workspaceRoot);
   const existingLock = await readOptionalJson<LockFile>(readableLockPath);
   const currentBlock = plan.blocks.find((block) => block.id === blockId);
@@ -189,188 +158,124 @@ export async function runUpgradeWorkspaceWithLease(
     }
   );
 
-  const backup = await snapshotWorkspace(workspaceRoot, lockPath, commitFence);
-  let pendingApplyFailure: Error | null = null;
-  let retainBackupForRecovery = false;
-  let appliedTerminalCommitted = false;
-  let appliedTerminalCommitUnknown = false;
-  let appliedTerminalDurabilityUncertain = false;
-  const postCommitFailures: unknown[] = [];
-
-  try {
-    await removeDir(
-      resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeExecutionTerminal),
-      commitFence
-    );
-    await removeDir(
-      resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
-      commitFence
-    );
-    await publishUpgradePlan(workspaceRoot, upgradePlan, commitFence);
-    const lock = await withProjectWriteAuthorization(
-      {
-        workspaceRoot,
-        operation: 'change.upgrade',
-        impactPaths: upgradePlan.impacts,
-        beforeCommit: commitFence
-      },
-      () => executePlannedWorkspaceUpgrade(
-        {
-          currentBlock: plannedUpgrade.currentBlock,
-          plan,
-          targetVersion
-        },
-        {
-          publishWorkspacePlan: () =>
-            writeYaml(getWorkspacePaths(workspaceRoot).workspaceConfigPath, plan, commitFence),
-          applyMigrations: () => applyMigrationEntries(
-            workspaceRoot,
-            plannedUpgrade.targetManifestRoot,
-            plannedUpgrade.impacts,
-            plannedUpgrade.migrationEntries,
-            commitFence
-          ),
-          compileLock: async () => {
-            const { lock } = await compileWorkspace(workspaceRoot, {
-              source: 'upgrade',
-              through: 'lock',
-              verificationLane: 'all',
-              workspaceWriteLease
-            });
-            return lock;
-          }
-        }
-      )
-    );
-    const expectedTerminal = await buildUpgradeExecutionTerminal({
-        plan: upgradePlan,
-        attempt,
-        resultLock: lock,
-        settlement: 'applied'
-      }, terminalReadbackOperations);
-    const terminalPublication = await publishAppliedUpgradeTerminal(
-      expectedTerminal,
-      appliedTerminalPublicationOperations
-    );
-    if (terminalPublication.status === 'not-committed') {
-      appliedTerminalCommitUnknown = terminalPublication.commitUnknown;
-      throw terminalPublication.publicationFailure;
-    }
-    appliedTerminalCommitted = true;
-    const terminal = terminalPublication.terminal;
-    if (terminalPublication.durability === 'uncertain') {
-      appliedTerminalDurabilityUncertain = true;
-      retainBackupForRecovery = true;
-      postCommitFailures.push(terminalPublication.publicationFailure);
-    }
-    if (terminal.settlement !== 'applied') {
-      throw new CompilerError('UPGRADE-BLOCKED-005', 'Upgrade execution did not settle as applied');
-    }
-    if (appliedTerminalDurabilityUncertain) {
-      const publicationFailure = postCommitFailures[0];
-      throw publicationFailure instanceof Error
-        ? publicationFailure
-        : new Error(String(publicationFailure));
-    }
-    await recordUpgradeGeneratedArtifact(
-      workspaceRoot,
-      lock,
-      [CI_ARTIFACT_FILES.upgradePlan, CI_ARTIFACT_FILES.upgradeExecutionTerminal],
-      commitFence
-    );
-    return {
-      resultKind: 'applied',
+  return executeUpgradeApplyLifecycle(
+    {
       plan,
-      lock,
+      existingLock,
       upgradePlan,
-      upgradeExecutionTerminal: terminal
-    };
-  } catch (error) {
-    if (appliedTerminalCommitted) {
-      pendingApplyFailure = buildUpgradeCommittedFailure({
-        failure: error,
-        durabilityUncertain: appliedTerminalDurabilityUncertain,
-        recoverySnapshot: {
-          path: backup.backup.path,
-          device: backup.backup.device,
-          inode: backup.backup.inode,
-          parentPath: backup.temporaryParent.path,
-          parentDevice: backup.temporaryParent.device,
-          parentInode: backup.temporaryParent.inode,
-          status: 'retained-locator-only'
-        },
-        postCommitFailures
-      });
-      throw pendingApplyFailure;
-    }
-    const rollback = await resolveUpgradeRollback(
-      {
-        applyFailure: error,
-        appliedTerminalCommitUnknown,
-        recoverySnapshot: {
-          path: backup.backup.path,
-          device: backup.backup.device,
-          inode: backup.backup.inode,
-          parentPath: backup.temporaryParent.path,
-          parentDevice: backup.temporaryParent.device,
-          parentInode: backup.temporaryParent.inode,
-          status: 'retained-locator-only'
-        }
-      },
-      {
-        restore: async () => {
-          await commitFence();
-          await restoreWorkspace(backup, lockPath, commitFence);
-        }
-      }
-    );
-    const settlement = rollback.settlement;
-    if (rollback.retainBackupForRecovery) retainBackupForRecovery = true;
-    const diagnosticFailure = rollback.diagnosticFailure;
-    try {
-      await publishUpgradeApplyFailureArtifacts(
-        diagnosticFailure,
-        appliedTerminalCommitUnknown,
+      attempt
+    },
+    {
+      snapshot: () => snapshotWorkspace(workspaceRoot, lockPath, commitFence),
+      recoverySnapshot: backup => ({
+        path: backup.backup.path,
+        device: backup.backup.device,
+        inode: backup.backup.inode,
+        parentPath: backup.temporaryParent.path,
+        parentDevice: backup.temporaryParent.device,
+        parentInode: backup.temporaryParent.inode,
+        status: 'retained-locator-only'
+      }),
+      clearExecutionTerminal: () => removeDir(
+        resolveWorkspaceArtifactPath(
+          workspaceRoot,
+          CI_ARTIFACT_FILES.upgradeExecutionTerminal
+        ),
+        commitFence
+      ),
+      clearDiagnostics: () => removeDir(
+        resolveWorkspaceArtifactPath(
+          workspaceRoot,
+          CI_ARTIFACT_FILES.upgradeDiagnostics
+        ),
+        commitFence
+      ),
+      publishPlan: planToPublish =>
+        publishUpgradePlan(workspaceRoot, planToPublish, commitFence),
+      apply: () => withProjectWriteAuthorization(
         {
-          buildTerminal: () => buildUpgradeExecutionTerminal({
-            plan: upgradePlan,
-            attempt,
-            resultLock: settlement === 'rolled-back' ? existingLock : null,
-            settlement
-          }, terminalReadbackOperations),
-          publishTerminal: terminal =>
-            publishUpgradeExecutionTerminal(workspaceRoot, terminal, commitFence),
-          publishDiagnostics: terminal => writeUpgradeDiagnostics(
-            workspaceRoot,
-            blockId,
-            targetVersion,
-            {
-              phase: settlement === 'rolled-back' ? 'apply' : 'recovery',
-              plan: upgradePlan,
-              terminal
-            },
-            diagnosticFailure,
-            settlement === 'rolled-back' ? null : existingLock,
-            commitFence
-          )
-        }
-      );
-      throw new Error('Upgrade failure publication returned unexpectedly');
-    } catch (failure) {
-      pendingApplyFailure = failure instanceof Error ? failure : new Error(String(failure));
-      throw pendingApplyFailure;
-    }
-  } finally {
-    if (!retainBackupForRecovery) {
-      await settlePhysicalResourcesAsync({
-        ...(pendingApplyFailure === null ? {} : {
-          primary: { label: 'upgrade-apply', error: pendingApplyFailure }
+          workspaceRoot,
+          operation: 'change.upgrade',
+          impactPaths: upgradePlan.impacts,
+          beforeCommit: commitFence
+        },
+        () => executePlannedWorkspaceUpgrade(
+          {
+            currentBlock: plannedUpgrade.currentBlock,
+            plan,
+            targetVersion
+          },
+          {
+            publishWorkspacePlan: () => writeYaml(
+              getWorkspacePaths(workspaceRoot).workspaceConfigPath,
+              plan,
+              commitFence
+            ),
+            applyMigrations: () => applyMigrationEntries(
+              workspaceRoot,
+              plannedUpgrade.targetManifestRoot,
+              plannedUpgrade.impacts,
+              plannedUpgrade.migrationEntries,
+              commitFence
+            ),
+            compileLock: async () => {
+              const { lock } = await compileWorkspace(workspaceRoot, {
+                source: 'upgrade',
+                through: 'lock',
+                verificationLane: 'all',
+                workspaceWriteLease
+              });
+              return lock;
+            }
+          }
+        )
+      ),
+      terminalReadback: {
+        readPersistedPlan: () => requirePersistedUpgradePlan(workspaceRoot),
+        readWorkspacePlan: () => loadWorkspacePlan(workspaceRoot)
+      },
+      terminalPublication: {
+        publish: terminal =>
+          publishUpgradeExecutionTerminal(workspaceRoot, terminal, commitFence),
+        resolvePublication: terminal =>
+          resolveUpgradeExecutionTerminalPublication(workspaceRoot, terminal),
+        isBeforeEffectFailure: error =>
+          classifyCanonicalWorkspacePublicationFailure(error) === 'before-effect'
+      },
+      recordGeneratedArtifacts: lock => recordUpgradeGeneratedArtifact(
+        workspaceRoot,
+        lock,
+        [
+          CI_ARTIFACT_FILES.upgradePlan,
+          CI_ARTIFACT_FILES.upgradeExecutionTerminal
+        ],
+        commitFence
+      ),
+      restore: async backup => {
+        await commitFence();
+        await restoreWorkspace(backup, lockPath, commitFence);
+      },
+      publishExecutionTerminal: terminal =>
+        publishUpgradeExecutionTerminal(workspaceRoot, terminal, commitFence),
+      publishDiagnostics: ({ phase, terminal, failure, resultLock }) =>
+        writeUpgradeDiagnostics(
+          workspaceRoot,
+          blockId,
+          targetVersion,
+          { phase, plan: upgradePlan, terminal },
+          failure,
+          resultLock,
+          commitFence
+        ),
+      retireBackup: (backup, primaryFailure) => settlePhysicalResourcesAsync({
+        ...(primaryFailure === null ? {} : {
+          primary: { label: 'upgrade-apply', error: primaryFailure }
         }),
         cleanup: [{
           label: `upgrade-backup:${backup.backup.path}`,
           settle: () => retireUpgradeBackup(backup)
         }]
-      });
+      })
     }
-  }
+  );
 }
