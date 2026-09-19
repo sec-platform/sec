@@ -1,27 +1,7 @@
-import type { LockFile } from '../../../compiler/contract.ts';
-import { CompilerError } from '../../../compiler/errors.ts';
 import { requirePipelineSource } from '../../../compiler/pipeline/source.ts';
-import { PIPELINE_STAGE_IDS, type PipelineStageId } from '../../../compiler/pipeline/stages.ts';
 import type { PipelineExecutionContext } from '../../compilation-protocol/types.ts';
 
 export { requirePipelineSource } from '../../../compiler/pipeline/source.ts';
-
-/** Preserve caller ordering, but not holes, accessors, duplicate or unknown IDs. */
-export function capturePipelineRequestedStages(value: readonly PipelineStageId[]): readonly PipelineStageId[] {
-  if (!Array.isArray(value)) throw new CompilerError('PIPELINE-USAGE-001', 'Pipeline stages must be an array');
-  const result: PipelineStageId[] = [];
-  const seen = new Set<PipelineStageId>();
-  const length = value.length;
-  for (let index = 0; index < length; index += 1) {
-    const slot = Object.getOwnPropertyDescriptor(value, index);
-    const stage: unknown = slot && 'value' in slot ? slot.value : undefined;
-    if (typeof stage !== 'string' || !PIPELINE_STAGE_IDS.includes(stage as PipelineStageId) || seen.has(stage as PipelineStageId)) {
-      throw new CompilerError('PIPELINE-USAGE-001', 'Pipeline stages must be dense, known and unique');
-    }
-    result.push(stage as PipelineStageId); seen.add(stage as PipelineStageId);
-  }
-  return Object.freeze(result);
-}
 
 /** Enforce the existing readonly identity contract on both API and internal
  * contexts. Keep the real context object so its semantic producer is shared.
@@ -51,19 +31,4 @@ export function sealPipelineExecutionContext(context: PipelineExecutionContext):
   if (values.onEvent !== undefined && typeof values.onEvent !== 'function') throw new TypeError('Pipeline observer must be callable');
   Object.defineProperties(context, descriptors);
   return context;
-}
-
-export interface PipelineStageExecutionOptions<T> {
-  extractLock?: (result: T) => LockFile | Promise<LockFile>;
-  preserveOwnedPassStates?: boolean;
-}
-
-/** Capture method identity and policy independently of its legitimate receiver. */
-export function capturePipelineStageExecutionOptions<T>(options: PipelineStageExecutionOptions<T>) {
-  const { extractLock, preserveOwnedPassStates } = options;
-  if (extractLock !== undefined && typeof extractLock !== 'function') throw new TypeError('Pipeline lock extractor must be callable');
-  if (preserveOwnedPassStates !== undefined && typeof preserveOwnedPassStates !== 'boolean') throw new TypeError('Pipeline preserveOwnedPassStates must be boolean');
-  return Object.freeze({ preserveOwnedPassStates,
-    extractLock: extractLock === undefined ? undefined : (result: T): LockFile | Promise<LockFile> => Reflect.apply(extractLock, options, [result])
-  });
 }
