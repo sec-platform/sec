@@ -1,6 +1,40 @@
 import type { Command } from 'commander';
 
 import { addJsonFlags, jsonOpts, type JsonOpts } from './command-options.ts';
+import { printJsonOrText } from './format-utils.ts';
+
+export type VerificationToolingProjection = Readonly<{
+  value: unknown;
+  text: string;
+}>;
+
+export interface VerificationToolingCommandOperations {
+  benchmarkCatalog(): Promise<VerificationToolingProjection> | VerificationToolingProjection;
+  testBudget(): Promise<VerificationToolingProjection>;
+}
+
+export function bindVerificationToolingCommandHandlers(
+  operations: VerificationToolingCommandOperations
+): VerificationToolingCommandHandlers {
+  if (typeof operations.benchmarkCatalog !== 'function' ||
+      typeof operations.testBudget !== 'function') {
+    throw new TypeError('Verification tooling command operations must be callable');
+  }
+  const present = (
+    output: JsonOpts,
+    projection: VerificationToolingProjection
+  ): void => {
+    printJsonOrText(projection.value, output, () => projection.text);
+  };
+  return Object.freeze({
+    benchmarkCatalog: async ({ output }) => {
+      present(output, await operations.benchmarkCatalog.call(operations));
+    },
+    testBudget: async ({ output }) => {
+      present(output, await operations.testBudget.call(operations));
+    }
+  });
+}
 
 export interface VerificationToolingCommandHandlers {
   benchmarkCatalog(context: Readonly<{ output: JsonOpts }>): Promise<void> | void;
