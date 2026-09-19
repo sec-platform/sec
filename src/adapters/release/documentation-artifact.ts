@@ -33,14 +33,18 @@ export interface DocumentationArtifactManifest {
   readonly sourceCommit: string;
   readonly sourceTree: string;
   readonly documentationSourceSetDigest: `sha256:${string}`;
-  readonly license: Readonly<{
-    readonly spdx: 'CC-BY-4.0';
-    readonly textPath: 'LICENSES/CC-BY-4.0.txt';
-    readonly softwareLicenseTextPath: 'LICENSE';
+  readonly licensing: Readonly<{
     readonly classificationPath: 'REUSE.toml';
-    readonly creator: typeof DOCUMENTATION_RELEASE_CREATOR;
-    readonly work: 'Engineering Workspace Compiler (SEC)';
-    readonly source: 'https://github.com/sec-platform/sec';
+    readonly licenses: readonly ['MPL-2.0', 'CC-BY-4.0'];
+    readonly textPaths: Readonly<{
+      readonly mpl: 'LICENSE';
+      readonly ccBy: 'LICENSES/CC-BY-4.0.txt';
+    }>;
+    readonly documentationAttribution: Readonly<{
+      readonly creator: typeof DOCUMENTATION_RELEASE_CREATOR;
+      readonly work: 'Engineering Workspace Compiler (SEC)';
+      readonly source: 'https://github.com/sec-platform/sec';
+    }>;
   }>;
   readonly files: readonly DocumentationArtifactFile[];
   readonly contentDigest: `sha256:${string}`;
@@ -173,15 +177,15 @@ export async function readDocumentationArtifactManifest(
     throw new Error('Documentation artifact manifest schema is invalid');
   }
   if (
-    manifest.license?.spdx !== 'CC-BY-4.0'
-    || manifest.license.textPath !== 'LICENSES/CC-BY-4.0.txt'
-    || manifest.license.softwareLicenseTextPath !== 'LICENSE'
-    || manifest.license.classificationPath !== 'REUSE.toml'
-    || manifest.license.creator !== DOCUMENTATION_RELEASE_CREATOR
-    || manifest.license.work !== 'Engineering Workspace Compiler (SEC)'
-    || manifest.license.source !== 'https://github.com/sec-platform/sec'
+    manifest.licensing?.classificationPath !== 'REUSE.toml'
+    || JSON.stringify(manifest.licensing.licenses) !== JSON.stringify(['MPL-2.0', 'CC-BY-4.0'])
+    || manifest.licensing.textPaths?.mpl !== 'LICENSE'
+    || manifest.licensing.textPaths.ccBy !== 'LICENSES/CC-BY-4.0.txt'
+    || manifest.licensing.documentationAttribution?.creator !== DOCUMENTATION_RELEASE_CREATOR
+    || manifest.licensing.documentationAttribution.work !== 'Engineering Workspace Compiler (SEC)'
+    || manifest.licensing.documentationAttribution.source !== 'https://github.com/sec-platform/sec'
   ) {
-    throw new Error('Documentation artifact license/attribution contract is invalid');
+    throw new Error('Documentation artifact REUSE licensing/attribution contract is invalid');
   }
   if (!/^sha256:[0-9a-f]{64}$/u.test(manifest.documentationSourceSetDigest)) {
     throw new Error('Documentation artifact source-set digest is invalid');
@@ -195,9 +199,9 @@ export async function readDocumentationArtifactManifest(
     throw new Error('Documentation artifact physical file inventory differs from its manifest');
   }
   if (
-    !files.some((file) => file.path === manifest.license.textPath)
-    || !files.some((file) => file.path === manifest.license.softwareLicenseTextPath)
-    || !files.some((file) => file.path === manifest.license.classificationPath)
+    !files.some((file) => file.path === manifest.licensing.textPaths.ccBy)
+    || !files.some((file) => file.path === manifest.licensing.textPaths.mpl)
+    || !files.some((file) => file.path === manifest.licensing.classificationPath)
   ) {
     throw new Error('Documentation artifact legal metadata is absent');
   }
@@ -225,14 +229,18 @@ async function writeDocumentationManifest(
     sourceCommit: input.sourceCommit,
     sourceTree: input.sourceTree,
     documentationSourceSetDigest: input.documentationSourceSetDigest,
-    license: Object.freeze({
-      spdx: 'CC-BY-4.0' as const,
-      textPath: 'LICENSES/CC-BY-4.0.txt' as const,
-      softwareLicenseTextPath: 'LICENSE' as const,
+    licensing: Object.freeze({
       classificationPath: 'REUSE.toml' as const,
-      creator: input.creator,
-      work: 'Engineering Workspace Compiler (SEC)' as const,
-      source: 'https://github.com/sec-platform/sec' as const
+      licenses: Object.freeze(['MPL-2.0', 'CC-BY-4.0'] as const),
+      textPaths: Object.freeze({
+        mpl: 'LICENSE' as const,
+        ccBy: 'LICENSES/CC-BY-4.0.txt' as const
+      }),
+      documentationAttribution: Object.freeze({
+        creator: input.creator,
+        work: 'Engineering Workspace Compiler (SEC)' as const,
+        source: 'https://github.com/sec-platform/sec' as const
+      })
     }),
     files: input.files
   });
