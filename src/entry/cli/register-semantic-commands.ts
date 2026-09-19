@@ -8,17 +8,19 @@ import { registerWorkspaceAction } from './workspace-action.ts';
  * injected, not performed by transport code or an implicit write pipeline. */
 export function registerSemanticCommands(
   program: Command,
-  query: (root: string, purpose: SemanticQueryPurpose) => Promise<SemanticQueryResult>
+  query: (root: string, purpose: SemanticQueryPurpose, inputFile?: string) => Promise<SemanticQueryResult>
 ): void {
   registerWorkspaceAction(addJsonFlags(optionalModeCommand(
-    program.command('semantic').description('Analyze or generate semantic artifacts in memory without writing the workspace'),
+    program.command('semantic')
+      .description('Analyze or generate semantic artifacts in memory without writing the workspace')
+      .option('--input <file>', 'Read closed semantic input JSON instead of workspace artifacts'),
     'mode', ['analyze', 'generate']
   )), {
     decode: (mode: unknown, options: Record<string, unknown>) => ({
-      request: requireSemanticQueryPurpose(mode === undefined ? 'analyze' : mode),
+      request: { purpose: requireSemanticQueryPurpose(mode === undefined ? 'analyze' : mode), inputFile: options.input as string | undefined },
       output: jsonOpts(options)
     }),
-    execute: query,
+    execute: (root, request) => query(root, request.purpose, request.inputFile),
     view: result => commandValue(result, value => value.purpose === 'generate'
       ? `Generated ${value.artifacts.members.length} semantic artifacts in memory; no files written\n${value.artifacts.members.map(member => member.task.target).join('\n')}`
       : `Analyzed ${value.compilation.snapshot.ir.entities.length} entities and ${value.compilation.snapshot.ir.facts.length} facts; no files written`)
