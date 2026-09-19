@@ -11,10 +11,8 @@ import {
   readLockFile,
   saveLock
 } from '../../workspace/lock.ts';
-import {
-  requirePipelineSource,
-  sealPipelineExecutionContext
-} from './execution-context.ts';
+import { sealPipelineExecutionContext } from './execution-context.ts';
+import { requirePipelineSource } from '../../../compiler/pipeline/source.ts';
 import { capturePipelineRequestedStages } from '../../../compiler/pipeline/stages.ts';
 import {
   capturePipelineStageExecutionOptions,
