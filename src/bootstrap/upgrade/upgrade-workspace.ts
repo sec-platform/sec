@@ -10,14 +10,17 @@ import {
   withRollbackDiagnostics
 } from '../../compiler/upgrade/failure.ts';
 import { publishUpgradeFailureArtifacts } from '../../application/upgrade-failure-publication.ts';
-import { executePlannedWorkspaceUpgrade } from '../../application/upgrade-apply.ts';
+import {
+  buildUpgradeExecutionTerminal,
+  executePlannedWorkspaceUpgrade,
+  type UpgradeExecutionTerminalReadbackOperations
+} from '../../application/upgrade-apply.ts';
 import {
   planWorkspaceUpgrade,
   type PlannedWorkspaceUpgrade,
   type UpgradePlanningUseCaseOperations
 } from '../../application/upgrade-planning.ts';
 import { planningRequestRevision } from '../../compiler/upgrade/planning.ts';
-import { compileUpgradeExecutionTerminal } from '../../compiler/upgrade/execution-terminal.ts';
 import { readLockFile } from "../../adapters/workspace/lock.ts";
 import { matchesUpgradeVersionRange } from '../../adapters/upgrade/version-range.ts';
 import {
@@ -101,30 +104,6 @@ export async function planUpgradeWorkspace(
   return { resultKind: 'preview', plan, lock, upgradePlan: plannedUpgrade.upgradePreview };
 }
 
-async function buildUpgradeExecutionTerminal(input: {
-  workspaceRoot: string;
-  plan: UpgradePlan;
-  attempt: UpgradeExecutionTerminal['attempt'];
-  resultLock: LockFile | null;
-  settlement: UpgradeExecutionTerminal['settlement'];
-}): Promise<UpgradeExecutionTerminal> {
-  const persistedPlan = requirePersistedUpgradePlan(input.workspaceRoot);
-  let workspacePlan: PlanFile | null = null;
-  try {
-    workspacePlan = await loadWorkspacePlan(input.workspaceRoot);
-  } catch (error) {
-    if (input.settlement !== 'recovery-required') throw error;
-  }
-  return compileUpgradeExecutionTerminal({
-    plan: input.plan,
-    attempt: input.attempt,
-    resultLock: input.resultLock,
-    settlement: input.settlement,
-    persistedPlanRevision: persistedPlan.planRevision,
-    workspacePlan
-  });
-}
-
 export async function runUpgradeWorkspaceWithLease(
   workspaceRoot: string,
   blockId: string,
@@ -142,6 +121,10 @@ export async function runUpgradeWorkspaceWithLease(
   workspaceRoot = getWorkspacePaths(workspaceRoot).workspaceRoot;
   const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
   const plan = await loadWorkspacePlan(workspaceRoot);
+  const terminalReadbackOperations: UpgradeExecutionTerminalReadbackOperations = Object.freeze({
+    readPersistedPlan: () => requirePersistedUpgradePlan(workspaceRoot),
+    readWorkspacePlan: () => loadWorkspacePlan(workspaceRoot)
+  });
   const readableLockPath = await resolveWorkspaceLockPath(workspaceRoot);
   const existingLock = await readOptionalJson<LockFile>(readableLockPath);
   const currentBlock = plan.blocks.find((block) => block.id === blockId);
@@ -263,12 +246,11 @@ export async function runUpgradeWorkspaceWithLease(
       )
     );
     const expectedTerminal = await buildUpgradeExecutionTerminal({
-        workspaceRoot,
         plan: upgradePlan,
         attempt,
         resultLock: lock,
         settlement: 'applied'
-      });
+      }, terminalReadbackOperations);
     let terminal: UpgradeExecutionTerminal;
     try {
       terminal = await publishUpgradeExecutionTerminal(workspaceRoot, expectedTerminal, commitFence);
@@ -410,12 +392,11 @@ export async function runUpgradeWorkspaceWithLease(
         terminal = await publishUpgradeExecutionTerminal(
           workspaceRoot,
           await buildUpgradeExecutionTerminal({
-            workspaceRoot,
             plan: upgradePlan,
             attempt,
             resultLock: settlement === 'rolled-back' ? existingLock : null,
             settlement
-          }),
+          }, terminalReadbackOperations),
           commitFence
         );
       } catch (publicationFailure) {
