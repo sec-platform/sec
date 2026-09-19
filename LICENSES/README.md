@@ -16,6 +16,10 @@ Repository-owned Markdown, the `docs/**` and `alternatives/**` design corpora, `
 
 When sharing or adapting this material, credit **Jeremy Yang**, identify the work as **Engineering Workspace Compiler (SEC)**, link to `https://github.com/sec-platform/sec` and `https://creativecommons.org/licenses/by/4.0/`, and indicate whether changes were made. Attribution must not imply endorsement.
 
+## Release packaging
+
+Packaging does not relicense repository material. The SEC common release set records the runtime member as `MPL-2.0` and the documentation member as `CC-BY-4.0`; the documentation artifact includes the CC BY 4.0 license text and the required Jeremy Yang / Engineering Workspace Compiler (SEC) attribution. A common archive or root manifest therefore does not collapse the two licensing boundaries. Generated machine-readable release manifests are release/build metadata and follow the software/executable-material classification when copyright applies.
+
 ## Machine-readable classification
 
 [`REUSE.toml`](../REUSE.toml) records the repository-wide SPDX classification. A more specific per-file SPDX notice or an applicable third-party notice takes precedence for that material.
