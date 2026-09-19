@@ -21,6 +21,7 @@ import {
   lockStateRevision,
   planningRequestRevision,
 } from '../../compiler/upgrade/planning.ts';
+import { compileUpgradeExecutionTerminal } from '../../compiler/upgrade/execution-terminal.ts';
 import { readLockFile } from "../../adapters/workspace/lock.ts";
 import {
   restoreWorkspace,
@@ -58,7 +59,6 @@ import { writeYaml } from '../../adapters/workspace/yaml.ts';
 import type { UpgradeMigrationEntry } from '../../semantics/upgrade/manifest-types.ts';
 import {
   createUpgradeExecutionAttempt,
-  createUpgradeExecutionTerminal,
   createUpgradePlan,
   createUpgradePreview,
   requireUpgradeDigest,
@@ -314,28 +314,13 @@ async function buildUpgradeExecutionTerminal(input: {
   } catch (error) {
     if (input.settlement !== 'recovery-required') throw error;
   }
-  const workspaceBlockVersion = workspacePlan?.blocks.find((block) => block.id === input.plan.blockId)?.version ?? null;
-  const resolvedBlockVersion = input.resultLock?.resolvedBlocks
-    .find((block) => block.id === input.plan.blockId)?.version ?? null;
-  return createUpgradeExecutionTerminal({
-    workspaceIdentityDigest: input.plan.workspaceIdentityDigest,
-    operationIdentityDigest: input.plan.operationIdentityDigest,
-    planRevision: input.plan.planRevision,
+  return compileUpgradeExecutionTerminal({
+    plan: input.plan,
     attempt: input.attempt,
-    receipts: {
-      workspacePlanRevision: upgradeArtifactDigest({
-        domain: 'sec.upgrade.workspace-plan-readback',
-        state: workspacePlan === null ? 'unresolved' : 'observed',
-        plan: workspacePlan
-      }),
-      resultLockRevision: lockStateRevision(input.resultLock),
-      planArtifactRevision: persistedPlan.planRevision
-    },
+    resultLock: input.resultLock,
     settlement: input.settlement,
-    readback: {
-      workspaceBlockVersion,
-      resolvedBlockVersion
-    }
+    persistedPlanRevision: persistedPlan.planRevision,
+    workspacePlan
   });
 }
 
