@@ -52,15 +52,19 @@ export async function coordinatePipelineStages(
   let explainGraph: ExplainGraph | undefined;
   let reviewSummary: ReviewSummary | undefined;
   const completedStages: PipelineStageId[] = [];
+  const selectedStages = [...stages];
+  const selectedOperations = new Map<PipelineStageId, PipelineUseCaseOperations[PipelineStageId]>();
+  const invoke = <Stage extends PipelineStageId>(stage: Stage): ReturnType<PipelineUseCaseOperations[Stage]> =>
+    Reflect.apply(selectedOperations.get(stage)!, operations, []) as ReturnType<PipelineUseCaseOperations[Stage]>;
 
   const executeStage: Readonly<Record<PipelineStageId, () => Promise<void>>> = Object.freeze({
-    resolve: async () => { plan = (await operations.resolve()).plan; },
-    semantic: async () => { semanticContext = await operations.semantic(); },
-    compose: async () => { plan = (await operations.compose()).plan; },
-    verify: async () => { verificationReport = (await operations.verify()).report; },
-    lock: operations.lock,
+    resolve: async () => { plan = (await invoke('resolve')).plan; },
+    semantic: async () => { semanticContext = await invoke('semantic'); },
+    compose: async () => { plan = (await invoke('compose')).plan; },
+    verify: async () => { verificationReport = (await invoke('verify')).report; },
+    lock: async () => { await invoke('lock'); },
     emit: async () => {
-      const result = await operations.emit();
+      const result = await invoke('emit');
       emittedLock = result.lock;
       emittedProvenance = result.provenance;
       explainGraph = result.graph;
@@ -68,8 +72,23 @@ export async function coordinatePipelineStages(
     }
   });
 
-  for (const stage of stages) {
-    await operations.beforeStage(stage);
+  // Bind the admitted schedule and only its selected ports before the first
+  // callback or suspension. A hook cannot append work or replace later methods.
+  for (const stage of selectedStages) {
+    if (!Object.hasOwn(executeStage, stage)) throw new TypeError(`Unknown pipeline stage: ${String(stage)}`);
+  }
+  for (const stage of selectedStages) {
+    if (selectedOperations.has(stage)) continue;
+    const operation = operations[stage];
+    if (typeof operation !== 'function') throw new TypeError(`Pipeline ${stage} operation must be callable`);
+    selectedOperations.set(stage, operation);
+  }
+  const beforeStage = selectedStages.length === 0 ? undefined : operations.beforeStage;
+  if (selectedStages.length > 0 && typeof beforeStage !== 'function') {
+    throw new TypeError('Pipeline beforeStage operation must be callable');
+  }
+  for (const stage of selectedStages) {
+    await beforeStage!.call(operations, stage);
     await executeStage[stage]();
     completedStages.push(stage);
   }
