@@ -5,7 +5,6 @@ import { relativePosixPath } from '../../contracts/relative-path.ts';
 import { platformCommand } from '../../adapters/verification/platform/sec-command.ts';
 import { buildProjectOverview as buildApplicationProjectOverview } from '../../application/project-overview.ts';
 import type { BuildProjectOverviewInput as ApplicationOverviewInput, ProjectOverview, ProjectOverviewWorkspace } from '../../application/project-overview.ts';
-import { formatProjectOverview as formatEntryProjectOverview } from '../../entry/cli/project-overview.ts';
 
 export type {
   ProjectOverview,
@@ -54,13 +53,4 @@ export function buildProjectOverview(input: BuildProjectOverviewInput): ProjectO
 
 export function buildProjectOverviewFromWorkspace(workspaceRoot = process.cwd()): ProjectOverview {
   return buildProjectOverview(readProjectOverviewArtifacts(workspaceRoot, platformCommand('explain')));
-}
-
-export function formatProjectOverview(overview: ProjectOverview): string {
-  return formatEntryProjectOverview(overview, {
-    explainCommand: platformCommand('explain'),
-    verifyCompactCommand: platformCommand('verify', '--json', '--compact'),
-    graphArtifactPath: CI_ARTIFACT_FILES.explainGraph,
-    reviewArtifactPath: CI_ARTIFACT_FILES.reviewSummary
-  });
 }
