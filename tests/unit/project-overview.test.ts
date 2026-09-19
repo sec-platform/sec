@@ -4,9 +4,10 @@ import type { LockFile } from '../../src/compiler/contract.ts';
 import type { PolicyReport } from '../../src/semantics/policies/types.ts';
 import {
   buildProjectOverview,
-  buildProjectOverviewFromWorkspace,
-  formatProjectOverview
+  buildProjectOverviewFromWorkspace
 } from '../../src/bootstrap/cli/project-overview.ts';
+import { formatProjectOverview } from '../../src/entry/cli/project-overview.ts';
+import { platformCommand } from '../../src/adapters/verification/platform/sec-command.ts';
 import type { AcceptanceCoverageReport } from '../../src/assurance/acceptance/coverage.ts';
 import type { ExplainGraph } from '../../src/semantics/projection/explain.ts';
 import type { ProvenanceFile } from '../../src/semantics/provenance/types.ts';
@@ -465,9 +466,15 @@ test('buildProjectOverview summarizes shared project status and review prioritie
       reasons: ['unverified provenance']
     }
   ]);
-  expect(formatProjectOverview(overview)).toContain('Project overview attention');
-  expect(formatProjectOverview(overview)).toContain('Graph: 3 nodes / 2 edges; blocks=2');
-  expect(formatProjectOverview(overview)).toContain(
+  const presentation = {
+    explainCommand: platformCommand('explain'),
+    verifyCompactCommand: platformCommand('verify', '--json', '--compact'),
+    graphArtifactPath: CI_ARTIFACT_FILES.explainGraph,
+    reviewArtifactPath: CI_ARTIFACT_FILES.reviewSummary
+  };
+  expect(formatProjectOverview(overview, presentation)).toContain('Project overview attention');
+  expect(formatProjectOverview(overview, presentation)).toContain('Graph: 3 nodes / 2 edges; blocks=2');
+  expect(formatProjectOverview(overview, presentation)).toContain(
     'Risks: failures=0; regressions=1; conflicts=0; missingArtifacts=1'
   );
 });
