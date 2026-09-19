@@ -63,7 +63,10 @@ import {
   buildPreparedSemanticMutationRecoveryRecord
 } from '../../application/semantic-mutation-recovery.ts';
 import { planSemanticMutation } from '../../application/semantic-mutation-plan.ts';
-import { coordinateSemanticMutationRecovery } from '../../application/semantic-mutation-recovery-coordinator.ts';
+import {
+  coordinateSemanticMutationRecovery,
+  projectSemanticMutationRecoveryOutcome
+} from '../../application/semantic-mutation-recovery-coordinator.ts';
 import {
   recoverSemanticMutationRecord,
   type SemanticMutationPreparedRecoveryDerivation,
@@ -408,9 +411,7 @@ export async function recoverSemanticMutationWorkspace(
       DEFAULT_SEMANTIC_MUTATION_COORDINATOR_DEPENDENCIES
     )
   );
-  return outcome.status === 'recovery-required'
-    ? { status: 'recovery-required', record: projectSemanticMutationRequestRecordView(outcome.record) }
-    : outcome;
+  return projectSemanticMutationRecoveryOutcome(outcome);
 }
 
 /** Internal deterministic recovery seam. Deliberately absent from every public facade. */
@@ -427,9 +428,7 @@ export async function recoverSemanticMutationWorkspaceWithTestDependencies(
       coordinatorDependencies(testDependencies)
     )
   );
-  return outcome.status === 'recovery-required'
-    ? { status: 'recovery-required', record: projectSemanticMutationRequestRecordView(outcome.record) }
-    : outcome;
+  return projectSemanticMutationRecoveryOutcome(outcome);
 }
 
 export function querySemanticMutationRequest(

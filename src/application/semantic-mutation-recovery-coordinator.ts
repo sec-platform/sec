@@ -1,7 +1,9 @@
 import type {
   SemanticMutationInternalRecoveryOutcome,
+  SemanticMutationRecoveryOutcome,
   SemanticMutationRecoveryRecord
 } from '../semantics/mutation/transaction.ts';
+import { projectSemanticMutationRequestRecordView } from './semantic-mutation-query.ts';
 
 type Awaitable<T> = T | PromiseLike<T>;
 
@@ -54,4 +56,19 @@ export async function coordinateSemanticMutationRecovery(
   }
   await prune.call(operations);
   return last;
+}
+
+
+/** Project internal durable recovery authority into the public recovery result.
+ * Application owns the returned record view; bootstrap only owns lease/effect
+ * composition. */
+export function projectSemanticMutationRecoveryOutcome(
+  outcome: SemanticMutationInternalRecoveryOutcome
+): SemanticMutationRecoveryOutcome {
+  return outcome.status === 'recovery-required'
+    ? {
+        status: 'recovery-required',
+        record: projectSemanticMutationRequestRecordView(outcome.record)
+      }
+    : outcome;
 }
