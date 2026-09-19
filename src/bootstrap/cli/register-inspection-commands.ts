@@ -11,7 +11,7 @@ import { runWithOptionalSpinner } from './command-progress.ts';
 import type { BlockUsageMapView } from '../../application/block-usage-map.ts';
 import type { InstalledManifestEntry } from '../../application/install-manifest.ts';
 import type { PostgresContractProjectionSource } from '../../application/postgres-contract.ts';
-import { inspectionValue, type InspectionContext } from '../../entry/cli/inspection-query.ts';
+import type { InspectionContext } from '../../entry/cli/inspection-query.ts';
 import { registerStandardInspectionCommands } from '../../entry/cli/register-standard-inspection-commands.ts';
 import {
   acceptanceCoverageInspectionView,
@@ -179,17 +179,14 @@ export function registerInspectionCommands(program: Command): void {
 
   registerContractInspectionCommand(program, {
     errors: async () => {
-      const { buildErrorProtocolContract, formatErrorProtocolContract } =
+      const { buildErrorProtocolContract } =
         await import('./error-protocol-contract.ts');
-      return inspectionValue(
-        buildErrorProtocolContract(),
-        formatErrorProtocolContract
-      );
+      return buildErrorProtocolContract();
     },
     ci: async () => {
-      const { buildCiContract, formatCiContract } =
+      const { buildCiContract } =
         await import('../../adapters/verification/platform/ci/contract/core.ts');
-      return inspectionValue(buildCiContract(), formatCiContract);
+      return buildCiContract();
     }
   });
 
