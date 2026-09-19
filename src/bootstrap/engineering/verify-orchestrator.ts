@@ -38,7 +38,8 @@ function verifyWorkspaceCore(
   context: PipelineExecutionContext
 ) {
   const lane = request.lane;
-  const isolated = request.isolatedVerificationCapability !== undefined;
+  const isolatedVerificationCapability = request.isolatedVerificationCapability;
+  const isolated = isolatedVerificationCapability !== undefined;
   const beforeCommit = () => assertWorkspaceWriteLease(workspaceRoot, context.workspaceWriteLease);
   return verifyWorkspaceResult(lane, {
     readLock: () => readLockFile(workspaceRoot),
@@ -46,7 +47,7 @@ function verifyWorkspaceCore(
       ? {
           admit: () => assertIsolatedVerificationCapability(
             workspaceRoot,
-            request.isolatedVerificationCapability
+            isolatedVerificationCapability
           )
         }
       : {}),

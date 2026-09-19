@@ -17,11 +17,11 @@ export interface PreparedWorkspaceVerificationRequest<
   Capability = unknown,
   StagedProof = unknown
 > {
-  readonly emitTiming?: boolean;
-  readonly isolatedVerificationCapability?: Capability;
+  readonly emitTiming: boolean | undefined;
+  readonly isolatedVerificationCapability: Capability | undefined;
   readonly lane: VerificationLane;
-  readonly signal?: AbortSignal;
-  readonly stagedVerificationProof?: StagedProof;
+  readonly signal: AbortSignal | undefined;
+  readonly stagedVerificationProof: StagedProof | undefined;
 }
 
 /**
