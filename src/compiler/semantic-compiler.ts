@@ -6,7 +6,7 @@ import { buildValidatedEngineeringIR } from './ir/validate-engineering-ir.ts';
 import { buildSemanticViewSet } from './projection/build-semantic-view-set.ts';
 import { buildSemanticGeneratorPlan } from './semantic-plan.ts';
 
-interface SemanticCompilationInput {
+export interface SemanticCompilationInput {
   readonly engineeringIRInput: BuildEngineeringIRInput;
   readonly generatorDeclarations: readonly SemanticGeneratorDeclaration[];
 }

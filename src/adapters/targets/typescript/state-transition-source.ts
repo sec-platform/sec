@@ -1,4 +1,5 @@
-import type { StateTransitionMapGeneratorPlanTask } from '../../../semantics/generation/types.ts';
+import { CompilerError } from '../../../compiler/errors.ts';
+import type { SemanticGeneratorPlanTask, StateTransitionMapGeneratorPlanTask } from '../../../semantics/generation/types.ts';
 import { compareCodeUnits } from '../../../contracts/canonical.ts';
 import { assertStateTransitionFunctions } from '../../../compiler/state-transition-plan.ts';
 import { CodeBuilder } from './code-builder.ts';
@@ -47,3 +48,11 @@ export function renderStateTransitionMapSource(
     .getText();
 }
 
+
+/** Shared target method for in-memory generation and workspace publication. */
+export function renderTypeScriptSemanticTask(task: SemanticGeneratorPlanTask): string {
+  switch (task.kind) {
+    case 'generate-state-transition-map': return renderStateTransitionMapSource(task);
+    default: throw new CompilerError('GENERATOR-LOWER-009', 'Unsupported Semantic Generator task kind');
+  }
+}
