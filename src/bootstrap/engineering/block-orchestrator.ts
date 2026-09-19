@@ -9,7 +9,7 @@ import type { LockFile, ManifestEntry, PlanFile } from '../../compiler/contract.
 import { saveLock } from "../../adapters/workspace/lock.ts";
 import { loadManifestById } from '../../adapters/workspace/sources/load-manifest.ts';
 import { loadPlan } from '../../adapters/workspace/sources/load-plan.ts';
-import { executePipelineStage } from '../../adapters/compilation/pipeline/kernel.ts';
+import { executePipelineStage } from './pipeline-kernel.ts';
 import { runPipelinePass } from '../../application/pipeline-pass.ts';
 import type { PipelineExecutionContext } from '../../adapters/compilation-protocol/types.ts';
 import { captureManifestSelection, resolveCapturedManifestSelection } from '../../adapters/workspace/resolve-graph.ts';
