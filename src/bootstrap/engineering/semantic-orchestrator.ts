@@ -1,9 +1,9 @@
 import path from 'node:path';
+import { buildWorkspaceEngineeringIRResult } from '../../application/workspace-engineering-ir.ts';
 import { publishSemanticCompilation } from '../../application/semantic-publication.ts';
 import type { EngineeringIR } from '../../semantics/engineering-ir/root-types.ts';
 import { createWorkspaceWriteCommitFence } from '../../adapters/filesystem/write-lease.ts';
 import type { LockFile } from '../../compiler/contract.ts';
-import { buildEngineeringIR } from '../../compiler/ir/build-engineering-ir.ts';
 import { loadWorkspaceEngineeringIRBuildInput } from '../../adapters/workspace/engineering-input.ts';
 import { saveLock } from "../../adapters/workspace/lock.ts";
 import { executePipelineStage } from '../../adapters/compilation/pipeline/kernel.ts';
@@ -14,9 +14,11 @@ import type {
 } from '../../adapters/compilation-protocol/types.ts';
 import { buildWorkspaceSemanticBundle } from '../../adapters/workspace/semantic-bundle.ts';
 
-export async function buildWorkspaceEngineeringIR(workspaceRoot = process.cwd()): Promise<EngineeringIR> {
-  const { engineeringIRInput } = await loadWorkspaceEngineeringIRBuildInput(workspaceRoot);
-  return buildEngineeringIR(engineeringIRInput);
+export function buildWorkspaceEngineeringIR(workspaceRoot = process.cwd()): Promise<EngineeringIR> {
+  workspaceRoot = path.resolve(workspaceRoot);
+  return buildWorkspaceEngineeringIRResult({
+    readInput: () => loadWorkspaceEngineeringIRBuildInput(workspaceRoot)
+  });
 }
 
 export async function runWorkspaceSemanticFrontend(
@@ -29,7 +31,7 @@ export async function runWorkspaceSemanticFrontend(
     workspaceRoot,
     'semantic',
     context,
-    async (stageContext) => {
+    async stageContext => {
       const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, stageContext.workspaceWriteLease);
       const bundle = await buildWorkspaceSemanticBundle(workspaceRoot);
       const published = await publishSemanticCompilation(bundle.sourceLock, bundle, {
