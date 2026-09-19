@@ -1,17 +1,30 @@
 import path from 'node:path';
-import { createWorkspaceWriteCommitFence, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../filesystem/write-lease.ts';
+
+import {
+  createWorkspaceWriteCommitFence,
+  withWorkspaceWriteLease,
+  type WorkspaceWriteLeaseToken
+} from '../../filesystem/write-lease.ts';
 import type { LockFile } from '../../../compiler/contract.ts';
-import { CompilerError, getErrorCode } from '../../../compiler/errors.ts';
-import { readLockFile, saveLock } from "../../workspace/lock.ts";
-import { capturePipelineRequestedStages, capturePipelineStageExecutionOptions, requirePipelineSource, sealPipelineExecutionContext, type PipelineStageExecutionOptions } from './execution-context.ts';
+import { getErrorCode } from '../../../compiler/errors.ts';
+import {
+  readLockFile,
+  saveLock
+} from '../../workspace/lock.ts';
+import {
+  capturePipelineRequestedStages,
+  capturePipelineStageExecutionOptions,
+  requirePipelineSource,
+  sealPipelineExecutionContext,
+  type PipelineStageExecutionOptions
+} from './execution-context.ts';
 import {
   describePipelineFailure,
   settlePipelineFailure
 } from '../../../application/pipeline-failure.ts';
 import {
-  isPipelinePassFailure,
-  runPipelinePass
-} from '../../../application/pipeline-pass.ts';
+  executePipelineStageLifecycle
+} from '../../../application/pipeline-stage-lifecycle.ts';
 export { runPipelinePass } from '../../../application/pipeline-pass.ts';
 import {
   commitPipelineTransaction,
@@ -22,14 +35,7 @@ import {
   recordPipelinePassSuccess,
   startPipelineTransaction
 } from './journal.ts';
-import { getPipelineStageDefinition } from '../../../compiler/pipeline/stage-definitions.ts';
-import {
-  pipelineStageBlockers,
-  pipelineStageStatePatch,
-  type PipelineStageTransition
-} from '../../../compiler/pipeline/stage-state.ts';
 import type {
-  PassId,
   PipelineEventHandler,
   PipelineExecutionContext,
   PipelineSource,
@@ -47,128 +53,74 @@ function readExistingLock(workspaceRoot: string): LockFile | null {
   }
 }
 
-function assertStageRequirements(lock: LockFile | null, stageId: PipelineStageId, requires: readonly PassId[]): void {
-  if (requires.length === 0) return;
-  if (!lock) {
-    throw new CompilerError('PIPELINE-BLOCKED-001', `Pipeline stage "${stageId}" requires an existing graph lock`, {
-      stageId,
-      requires
-    });
-  }
-  const blockers = pipelineStageBlockers(lock.passStatus, requires);
-  if (blockers.length > 0) {
-    throw new CompilerError('PIPELINE-BLOCKED-002', `Pipeline stage "${stageId}" has unsatisfied pass dependencies`, {
-      stageId, blockers
-    });
-  }
-}
-
-function transitionStageState(
-  lock: LockFile,
-  definition: ReturnType<typeof getPipelineStageDefinition>,
-  transition: PipelineStageTransition
-): void {
-  Object.assign(lock.passStatus, pipelineStageStatePatch(definition, transition));
-}
-
+/**
+ * Bind one Application-owned stage lifecycle to the concrete workspace lock,
+ * journal, lease and commit-fence providers.
+ *
+ * The preflight flag preserves the historical distinction between a stage
+ * entered through an existing transaction context and a standalone stage whose
+ * enclosing transaction has just been admitted and fenced.
+ */
 async function executeStageWithContext<T>(
   workspaceRoot: string,
   stageId: PipelineStageId,
   context: PipelineExecutionContext,
   execute: (effectiveContext: PipelineExecutionContext) => Promise<T>,
-  commitFence: () => Promise<void>,
-  options: StageExecutionOptions<T>
+  options: StageExecutionOptions<T>,
+  preflightFence: boolean
 ): Promise<T> {
-  const definition = getPipelineStageDefinition(stageId);
-  // A root stage rebuilds derived state from canonical inputs. Parsing a stale
-  // derived lock before the rebuild would let the retired artifact veto its
-  // only producer and make schema retirement impossible without a dual reader.
-  const previousLock = definition.requires.length === 0
-    ? null
-    : readExistingLock(workspaceRoot);
+  const commitFence = createWorkspaceWriteCommitFence(
+    workspaceRoot,
+    context.workspaceWriteLease
+  );
+  if (preflightFence) await commitFence();
 
-  try {
-    assertStageRequirements(previousLock, stageId, definition.requires);
-  } catch (error) {
-    const failure = describePipelineFailure(error);
-    return settlePipelineFailure(error, [
-      { operation: 'lock-blocked', run: async () => {
-        if (previousLock) {
-          transitionStageState(previousLock, definition, { kind: 'blocked' });
-          await commitFence();
-          await saveLock(workspaceRoot, previousLock, commitFence);
-        }
-      } },
-      { operation: 'journal-blocked', run: async () => {
-        await commitFence();
-        await recordPipelinePassBlocked(workspaceRoot, context.transactionId, definition.primaryPass,
-          failure.code, failure.message, commitFence, context.onEvent);
-      } }
-    ]);
-  }
-
-  let startAttempted = false;
-  let executionStarted = false;
-  try {
-    if (previousLock) {
-      transitionStageState(previousLock, definition, { kind: 'started' });
-      await commitFence();
-      await saveLock(workspaceRoot, previousLock, commitFence);
-    }
-    await commitFence();
-    startAttempted = true;
-    await recordPipelinePassStart(
-      workspaceRoot,
-      context.transactionId,
-      definition.primaryPass,
-      commitFence,
-      context.onEvent
-    );
-
-    executionStarted = true;
-    const result = await execute(context);
-    const lock = options.extractLock
-      ? await options.extractLock(result)
-      : readExistingLock(workspaceRoot);
-    if (lock && !options.preserveOwnedPassStates) {
-      transitionStageState(lock, definition, { kind: 'succeeded' });
-      await commitFence();
-      await saveLock(workspaceRoot, lock, commitFence);
-    }
-    await commitFence();
-    await recordPipelinePassSuccess(
-      workspaceRoot,
-      context.transactionId,
-      definition.primaryPass,
-      commitFence,
-      context.onEvent
-    );
-    return result;
-  } catch (error) {
-    const failure = describePipelineFailure(error);
-    return settlePipelineFailure(error, [
-      { operation: 'lock-failed', run: async () => {
-        const lock = definition.requires.length === 0 ? null : readExistingLock(workspaceRoot);
-        if (lock) {
-          transitionStageState(lock, definition, executionStarted
-            ? { kind: 'failed', originPass: isPipelinePassFailure(error) ? error.originPass : definition.primaryPass }
-            : { kind: startAttempted ? 'preparation-failed' : 'blocked' });
-          await commitFence();
-          await saveLock(workspaceRoot, lock, commitFence);
-        }
-      } },
-      { operation: startAttempted ? 'journal-failed' : 'journal-preparation-blocked', run: async () => {
-        await commitFence();
-        // Before calling the start owner there cannot be a running record. A
-        // rejected start may already have persisted one; retain that owner's
-        // failure, including an absent-running-record settlement error, rather
-        // than guessing whether a partial publication occurred.
-        const settle = startAttempted ? recordPipelinePassFailure : recordPipelinePassBlocked;
-        await settle(workspaceRoot, context.transactionId, definition.primaryPass,
-          failure.code, failure.message, commitFence, context.onEvent);
-      } }
-    ]);
-  }
+  return executePipelineStageLifecycle(
+    stageId,
+    {
+      readExistingLock: () => readExistingLock(workspaceRoot),
+      assertWrite: commitFence,
+      saveLock: lock => saveLock(workspaceRoot, lock, commitFence),
+      recordBlocked: (passId, code, message) =>
+        recordPipelinePassBlocked(
+          workspaceRoot,
+          context.transactionId,
+          passId,
+          code,
+          message,
+          commitFence,
+          context.onEvent
+        ),
+      recordStart: passId =>
+        recordPipelinePassStart(
+          workspaceRoot,
+          context.transactionId,
+          passId,
+          commitFence,
+          context.onEvent
+        ),
+      recordSuccess: passId =>
+        recordPipelinePassSuccess(
+          workspaceRoot,
+          context.transactionId,
+          passId,
+          commitFence,
+          context.onEvent
+        ),
+      recordFailure: (passId, code, message) =>
+        recordPipelinePassFailure(
+          workspaceRoot,
+          context.transactionId,
+          passId,
+          code,
+          message,
+          commitFence,
+          context.onEvent
+        ),
+      execute: () => execute(context)
+    },
+    options
+  );
 }
 
 export async function withPipelineTransaction<T>(
@@ -180,42 +132,64 @@ export async function withPipelineTransaction<T>(
   workspaceWriteLease?: WorkspaceWriteLeaseToken
 ): Promise<T> {
   workspaceRoot = path.resolve(workspaceRoot);
-  // A caller cannot change the journal request while lease admission is suspended.
   const stages = capturePipelineRequestedStages(requestedStages);
   source = requirePipelineSource(source);
-  if (onEvent !== undefined && typeof onEvent !== 'function') throw new TypeError('Pipeline observer must be callable');
-  if (typeof execute !== 'function') throw new TypeError('Pipeline executor must be callable');
-  return withWorkspaceWriteLease(workspaceRoot, workspaceWriteLease, async (lease) => {
-    const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, lease);
-    await commitFence();
-    const transactionId = await startPipelineTransaction(
-      workspaceRoot,
-      source,
-      stages,
-      commitFence,
-      onEvent
-    );
-    const context: PipelineExecutionContext = {
-      transactionId,
-      source,
-      ...(onEvent ? { onEvent } : {}),
-      workspaceWriteLease: lease
-    };
-    sealPipelineExecutionContext(context);
-
-    try {
-      const result = await execute(context);
+  if (onEvent !== undefined && typeof onEvent !== 'function') {
+    throw new TypeError('Pipeline observer must be callable');
+  }
+  if (typeof execute !== 'function') {
+    throw new TypeError('Pipeline executor must be callable');
+  }
+  return withWorkspaceWriteLease(
+    workspaceRoot,
+    workspaceWriteLease,
+    async lease => {
+      const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, lease);
       await commitFence();
-      await commitPipelineTransaction(workspaceRoot, transactionId, commitFence, onEvent);
-      return result;
-    } catch (error) {
-      const failure = describePipelineFailure(error);
-      return settlePipelineFailure(error, [{ operation: 'transaction-failed', run: async () => {
+      const transactionId = await startPipelineTransaction(
+        workspaceRoot,
+        source,
+        stages,
+        commitFence,
+        onEvent
+      );
+      const context: PipelineExecutionContext = {
+        transactionId,
+        source,
+        ...(onEvent ? { onEvent } : {}),
+        workspaceWriteLease: lease
+      };
+      sealPipelineExecutionContext(context);
+
+      try {
+        const result = await execute(context);
         await commitFence();
-        await failPipelineTransaction(workspaceRoot, transactionId, failure.code, failure.message, commitFence, onEvent);
-      } }]);
+        await commitPipelineTransaction(
+          workspaceRoot,
+          transactionId,
+          commitFence,
+          onEvent
+        );
+        return result;
+      } catch (error) {
+        const failure = describePipelineFailure(error);
+        return settlePipelineFailure(error, [{
+          operation: 'transaction-failed',
+          run: async () => {
+            await commitFence();
+            await failPipelineTransaction(
+              workspaceRoot,
+              transactionId,
+              failure.code,
+              failure.message,
+              commitFence,
+              onEvent
+            );
+          }
+        }]);
+      }
     }
-  });
+  );
 }
 
 export async function executePipelineStage<T>(
@@ -227,22 +201,35 @@ export async function executePipelineStage<T>(
 ): Promise<T> {
   workspaceRoot = path.resolve(workspaceRoot);
   const effectiveOptions = capturePipelineStageExecutionOptions(options);
-  if (typeof execute !== 'function') throw new TypeError('Pipeline stage executor must be callable');
-  getPipelineStageDefinition(stageId);
+  if (typeof execute !== 'function') {
+    throw new TypeError('Pipeline stage executor must be callable');
+  }
+
   if (context !== undefined) {
     sealPipelineExecutionContext(context);
-    const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, context.workspaceWriteLease);
-    await commitFence();
-    return executeStageWithContext(workspaceRoot, stageId, context, execute, commitFence, effectiveOptions);
-  }
-  return withPipelineTransaction(workspaceRoot, 'api', [stageId], undefined, (transaction) =>
-    executeStageWithContext(
+    return executeStageWithContext(
       workspaceRoot,
       stageId,
-      transaction,
+      context,
       execute,
-      createWorkspaceWriteCommitFence(workspaceRoot, transaction.workspaceWriteLease),
-      effectiveOptions
-    )
+      effectiveOptions,
+      true
+    );
+  }
+
+  return withPipelineTransaction(
+    workspaceRoot,
+    'api',
+    [stageId],
+    undefined,
+    transaction =>
+      executeStageWithContext(
+        workspaceRoot,
+        stageId,
+        transaction,
+        execute,
+        effectiveOptions,
+        false
+      )
   );
 }
