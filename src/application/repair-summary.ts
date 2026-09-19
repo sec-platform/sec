@@ -1,6 +1,8 @@
 import { uniqueSorted } from '../contracts/canonical.ts';
 import type { RepairPlan } from '../semantics/repair/types.ts';
 
+export type RepairSummarySource = RepairPlan;
+
 type RepairFailureView = Readonly<{
   lane: string;
   kind: string;
