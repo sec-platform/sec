@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/1",
-  "source_set_sha256": "d505af06e8a30adde93705bdc7a85e58580479be62d5931ac47738db9e0c9b5f",
+  "source_set_sha256": "df0f8273b86e7b4f26f802bf31d2f008514d99040f242d894562d66cdb36af70",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -184,8 +184,8 @@
     },
     {
       "path": "docs/作者/成品/产品族与共同发行.md",
-      "bytes": 4394,
-      "sha256": "e41efc5de67456e1fdf7bf749f4287f7a527961f89dc945f5fb8f92a587715ad"
+      "bytes": 4925,
+      "sha256": "5c02162f673071531d234448f8a345cf44a19b975d7a3f7f7a08e991f29024e6"
     },
     {
       "path": "docs/作者/成品/共同数据与完整性.md",
@@ -669,8 +669,8 @@
     },
     {
       "path": "docs/演进/实施/安全构建发布与环境.md",
-      "bytes": 8481,
-      "sha256": "1602cbf581fc8e41fe312e0b0d33dae4b8fad757037e9b85879594fd949fbe5f"
+      "bytes": 9852,
+      "sha256": "95a9bfe87384c4eaa9b959d146d3babd7b8e7cd23b94c01122f13ecbd3f45b89"
     },
     {
       "path": "docs/演进/实施/独立能力的实施单元.md",
