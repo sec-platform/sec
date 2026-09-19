@@ -79,7 +79,11 @@ import {
 import {
   advanceSemanticMutationRecoveryRecord as nextRecordDraft,
   buildPreparedSemanticMutationRecoveryRecord,
-  exactPreparedSemanticMutationRecoveryBinding as exactPreparedRecoveryBinding
+  exactPreparedSemanticMutationRecoveryBinding as exactPreparedRecoveryBinding,
+  prepareSemanticMutationAcceptedTransition,
+  prepareSemanticMutationPreparedRejection,
+  prepareSemanticMutationRecoveryRequiredTransition,
+  prepareSemanticMutationRolledBackTransition
 } from '../../application/semantic-mutation-recovery.ts';
 import { planSemanticMutation } from '../../application/semantic-mutation-plan.ts';
 import { coordinateSemanticMutationRecovery } from '../../application/semantic-mutation-recovery-coordinator.ts';
@@ -395,22 +399,13 @@ async function markRecoveryRequired(
   dependencies: SemanticMutationCoordinatorDependencies =
     DEFAULT_SEMANTIC_MUTATION_COORDINATOR_DEPENDENCIES
 ): Promise<Extract<SemanticMutationInternalRecoveryOutcome, { readonly status: 'recovery-required' }>> {
-  const plan = readyPlan(record);
-  const result = buildSemanticMutationResult(plan, {
-    status: 'recovery-required',
-    transactionId: record.transactionId,
-    attempted: plan.staged,
-    verification: record.verification as SemanticMutationVerificationExecutionRef & { readonly status: 'passed' },
+  const transition = prepareSemanticMutationRecoveryRequiredTransition(
+    record,
     recoveryState,
-    diagnostics: [diagnostic]
-  });
-  if (result.status !== 'recovery-required') throw new Error('Recovery-required evidence did not form a recovery result');
-  const terminal = await fencedWorkspaceWrite(workspaceRoot, token, (commitFence) =>
-    dependencies.appendRecoveryRecord(transactionRoot, nextRecordDraft(
-      record,
-      'recovery-required',
-      { recoveryState, result, diagnostics: [diagnostic] }
-    ), commitFence)
+    diagnostic
+  );
+  const terminal = await fencedWorkspaceWrite(workspaceRoot, token, commitFence =>
+    dependencies.appendRecoveryRecord(transactionRoot, transition.draft, commitFence)
   );
   return { status: 'recovery-required', record: terminal };
 }
@@ -448,22 +443,11 @@ async function rollbackCommittedMutation(
         dependencies
       );
     }
-    const result = buildSemanticMutationResult(plan, {
-      status: 'rolled-back',
-      transactionId: record.transactionId,
-      attempted: plan.staged,
-      verification: record.verification as SemanticMutationVerificationExecutionRef & { readonly status: 'passed' },
-      diagnostics: [cause]
-    });
-    if (result.status !== 'rolled-back') throw new Error('Rollback evidence did not form a rolled-back result');
-    await fencedWorkspaceWrite(workspaceRoot, token, (commitFence) =>
-      dependencies.appendRecoveryRecord(
-        transactionRoot,
-        nextRecordDraft(record, 'rolled-back', { result, diagnostics: [cause] }),
-        commitFence
-      )
+    const transition = prepareSemanticMutationRolledBackTransition(record, cause);
+    await fencedWorkspaceWrite(workspaceRoot, token, commitFence =>
+      dependencies.appendRecoveryRecord(transactionRoot, transition.draft, commitFence)
     );
-    return { status: 'terminal', result };
+    return { status: 'terminal', result: transition.result };
   } catch (error) {
     if (error instanceof WorkspaceWriteLeaseError) throw error;
     const concurrent = error instanceof Error && error.message.includes('not committed by this transaction');
@@ -513,15 +497,7 @@ async function completeCommittedMutation(
       semanticMutationByteDigest(liveSource.bytes) !== record.committedByteDigest) {
       throw new Error('Live rebuild does not exactly match staged revisions and committed source digest');
     }
-    const candidate = buildSemanticMutationResult(plan, {
-      status: 'accepted',
-      transactionId: record.transactionId,
-      attempted: plan.staged,
-      accepted,
-      verification: verifiedExecution
-    });
-    if (candidate.status !== 'accepted') throw new Error('Accepted evidence did not form an accepted result');
-    result = candidate;
+    result = prepareSemanticMutationAcceptedTransition(record, accepted).result;
   } catch (error) {
     if (error instanceof WorkspaceWriteLeaseError) throw error;
     return rollbackCommittedMutation(
@@ -538,14 +514,11 @@ async function completeCommittedMutation(
     );
   }
   try {
-    await fencedWorkspaceWrite(workspaceRoot, token, (commitFence) =>
-      dependencies.appendRecoveryRecord(
-        transactionRoot,
-        nextRecordDraft(record, 'verified', { result, diagnostics: [] }),
-        commitFence
-      )
+    const transition = prepareSemanticMutationAcceptedTransition(record, result.accepted);
+    await fencedWorkspaceWrite(workspaceRoot, token, commitFence =>
+      dependencies.appendRecoveryRecord(transactionRoot, transition.draft, commitFence)
     );
-    return { status: 'terminal', result };
+    return { status: 'terminal', result: transition.result };
   } catch (error) {
     if (error instanceof WorkspaceWriteLeaseError) throw error;
     return markRecoveryRequired(
@@ -567,17 +540,7 @@ async function rejectPreparedRecovery(
   token: WorkspaceWriteLeaseToken,
   diagnostic: SemanticMutationDiagnostic
 ): Promise<SemanticMutationInternalRecoveryOutcome> {
-  const plan = readyPlan(record);
-  const result = buildSemanticMutationResult(plan, {
-    status: 'rejected',
-    transactionId: record.transactionId,
-    attempted: plan.staged,
-    verification: record.verification,
-    diagnostics: [diagnostic]
-  });
-  if (result.status !== 'rejected') {
-    throw new Error('Prepared recovery rejection did not form a rejected terminal result');
-  }
+  const result = prepareSemanticMutationPreparedRejection(record, diagnostic);
   await writeRejectedTerminalAndPrune(
     workspaceRoot,
     transactionRoot,
@@ -771,22 +734,14 @@ async function recoverRecord(
         dependencies
       );
     }
-    const result = buildSemanticMutationResult(plan, {
-      status: 'rolled-back',
-      transactionId: record.transactionId,
-      attempted: plan.staged,
-      verification: record.verification as SemanticMutationVerificationExecutionRef & { readonly status: 'passed' },
-      diagnostics: [recoveryDiagnostic('Crash recovery verified an already-restored source')]
-    });
-    if (result.status !== 'rolled-back') throw new Error('Restored recovery did not form rolled-back result');
-    await fencedWorkspaceWrite(workspaceRoot, token, (commitFence) =>
-      dependencies.appendRecoveryRecord(
-        transactionRoot,
-        nextRecordDraft(record, 'rolled-back', { result, diagnostics: result.diagnostics }),
-        commitFence
-      )
+    const transition = prepareSemanticMutationRolledBackTransition(
+      record,
+      recoveryDiagnostic('Crash recovery verified an already-restored source')
     );
-    return { status: 'terminal', result };
+    await fencedWorkspaceWrite(workspaceRoot, token, commitFence =>
+      dependencies.appendRecoveryRecord(transactionRoot, transition.draft, commitFence)
+    );
+    return { status: 'terminal', result: transition.result };
   }
   return completeCommittedMutation(
     workspaceRoot,

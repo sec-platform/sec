@@ -1,10 +1,12 @@
 import { semanticMutationByteDigest } from '../compiler/semantic-mutation/canonical.ts';
+import { buildSemanticMutationResult } from '../compiler/semantic-mutation/result.ts';
 import type {
   SemanticMutationApplyInput,
   SemanticMutationRecoveryFailureState,
   SemanticMutationRecoveryRecord
 } from '../semantics/mutation/transaction.ts';
 import type {
+  SemanticMutationBase,
   SemanticMutationDiagnostic,
   SemanticMutationPlan,
   SemanticMutationResult,
@@ -132,3 +134,104 @@ export function exactPreparedSemanticMutationRecoveryBinding(
     semanticMutationByteDigest(derived.originalBytes) === record.beforeByteDigest &&
     semanticMutationByteDigest(derived.stagedBytes) === record.committedByteDigest;
 }
+
+function readyRecoveryPlan(record: SemanticMutationRecoveryRecord): ReadySemanticMutationPlan {
+  if (record.plan.status !== 'ready') {
+    throw new Error('Active recovery record does not bind a ready plan');
+  }
+  return record.plan;
+}
+
+export function prepareSemanticMutationRecoveryRequiredTransition(
+  record: SemanticMutationRecoveryRecord,
+  recoveryState: SemanticMutationRecoveryFailureState,
+  diagnostic: SemanticMutationDiagnostic
+) {
+  const plan = readyRecoveryPlan(record);
+  const result = buildSemanticMutationResult(plan, {
+    status: 'recovery-required',
+    transactionId: record.transactionId,
+    attempted: plan.staged,
+    verification: record.verification as SemanticMutationVerificationExecutionRef & { readonly status: 'passed' },
+    recoveryState,
+    diagnostics: [diagnostic]
+  });
+  if (result.status !== 'recovery-required') {
+    throw new Error('Recovery-required evidence did not form a recovery result');
+  }
+  return Object.freeze({
+    result,
+    draft: advanceSemanticMutationRecoveryRecord(record, 'recovery-required', {
+      recoveryState,
+      result,
+      diagnostics: [diagnostic]
+    })
+  });
+}
+
+export function prepareSemanticMutationRolledBackTransition(
+  record: SemanticMutationRecoveryRecord,
+  diagnostic: SemanticMutationDiagnostic
+) {
+  const plan = readyRecoveryPlan(record);
+  const result = buildSemanticMutationResult(plan, {
+    status: 'rolled-back',
+    transactionId: record.transactionId,
+    attempted: plan.staged,
+    verification: record.verification as SemanticMutationVerificationExecutionRef & { readonly status: 'passed' },
+    diagnostics: [diagnostic]
+  });
+  if (result.status !== 'rolled-back') {
+    throw new Error('Rollback evidence did not form a rolled-back result');
+  }
+  return Object.freeze({
+    result,
+    draft: advanceSemanticMutationRecoveryRecord(record, 'rolled-back', {
+      result,
+      diagnostics: [diagnostic]
+    })
+  });
+}
+
+export function prepareSemanticMutationAcceptedTransition(
+  record: SemanticMutationRecoveryRecord,
+  accepted: SemanticMutationBase
+) {
+  const plan = readyRecoveryPlan(record);
+  const result = buildSemanticMutationResult(plan, {
+    status: 'accepted',
+    transactionId: record.transactionId,
+    attempted: plan.staged,
+    accepted,
+    verification: record.verification as SemanticMutationVerificationExecutionRef & { readonly status: 'passed' }
+  });
+  if (result.status !== 'accepted') {
+    throw new Error('Accepted evidence did not form an accepted result');
+  }
+  return Object.freeze({
+    result,
+    draft: advanceSemanticMutationRecoveryRecord(record, 'verified', {
+      result,
+      diagnostics: []
+    })
+  });
+}
+
+export function prepareSemanticMutationPreparedRejection(
+  record: SemanticMutationRecoveryRecord,
+  diagnostic: SemanticMutationDiagnostic
+) {
+  const plan = readyRecoveryPlan(record);
+  const result = buildSemanticMutationResult(plan, {
+    status: 'rejected',
+    transactionId: record.transactionId,
+    attempted: plan.staged,
+    verification: record.verification,
+    diagnostics: [diagnostic]
+  });
+  if (result.status !== 'rejected') {
+    throw new Error('Prepared recovery rejection did not form a rejected terminal result');
+  }
+  return result;
+}
+
