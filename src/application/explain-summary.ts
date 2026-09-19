@@ -6,6 +6,12 @@ import { upgradeDiagnosticsAttributionParts } from '../assurance/verification/re
 import type { E2eMatrix } from '../assurance/verification/review/matrix.ts';
 import { projectE2eMatrix } from './e2e-matrix-inspect.ts';
 
+export type ExplainSummarySource = Readonly<{
+  graph: ExplainGraph;
+  reviewSummary: ReviewSummary;
+  e2eMatrix: E2eMatrix;
+}>;
+
 function copyCounts(entries: readonly { id: string; count: number }[]) {
   return entries.map(({ id, count }) => ({ id, count }));
 }
