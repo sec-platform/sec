@@ -24,20 +24,23 @@ test('release set binds runtime and documentation as one exact revision with sep
     packageVersion: '1.2.3',
     sourceCommit: 'c'.repeat(40),
     sourceTree: 'd'.repeat(40),
+    sourceRepository: 'https://github.com/sec-platform/sec',
     members: {
       runtime: {
         path: 'runtime',
         manifestPath: 'runtime/release-artifact-manifest.json',
         manifestDigest: DIGEST_A,
         fileCount: 7,
-        license: 'MPL-2.0'
+        license: 'MPL-2.0',
+        licenseTextPath: 'runtime/LICENSE'
       },
       documentation: {
         path: 'documentation',
         manifestPath: 'documentation/documentation-artifact-manifest.json',
         manifestDigest: DIGEST_B,
         fileCount: 11,
-        license: 'CC-BY-4.0'
+        license: 'CC-BY-4.0',
+        licenseTextPath: 'documentation/LICENSES/CC-BY-4.0.txt'
       }
     }
   });
