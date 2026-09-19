@@ -12,6 +12,8 @@ import type {
 import type { ReviewSummary } from '../../assurance/verification/review/contract/types.ts';
 import type { DemoChecklist } from '../../application/demo-checklist.ts';
 import type { PolicyReport } from '../../semantics/policies/types.ts';
+import type { ErrorProtocolContract } from '../../application/error-protocol-contract.ts';
+import type { CiContract } from '../../adapters/verification/platform/ci/contract/core.ts';
 import type { ProjectOverviewPresentation } from './project-overview.ts';
 import { commandValue, type CommandValue } from './command-value.ts';
 
@@ -155,4 +157,19 @@ export async function postgresContractInspectionView(
     contract,
     value => formatPostgresContract(projectPostgresContract(value))
   );
+}
+
+export async function errorProtocolContractInspectionView(
+  contract: ErrorProtocolContract
+): Promise<CommandValue> {
+  const { formatErrorProtocolContract } = await import('./error-protocol-contract.ts');
+  return commandValue(contract, formatErrorProtocolContract);
+}
+
+export async function ciContractInspectionView(
+  contract: CiContract
+): Promise<CommandValue> {
+  const { formatCiContract } =
+    await import('../../adapters/verification/platform/ci/contract/core.ts');
+  return commandValue(contract, formatCiContract);
 }
