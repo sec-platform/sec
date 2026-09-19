@@ -1,3 +1,4 @@
+import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { buildDocumentationArtifact } from '../../adapters/release/documentation-artifact.ts';
@@ -9,10 +10,19 @@ const repositorySourceRoot = compilerRuntimeLayout.repositorySourceRoot;
 if (repositorySourceRoot === null) {
   throw new Error('Documentation release build requires the SEC repository source layout');
 }
+const requestedDestination = process.argv[2];
 const destinationRoot = path.resolve(
   repositorySourceRoot,
-  process.argv[2] ?? '.tmp/documentation-artifact'
+  requestedDestination ?? '.tmp/documentation-artifact'
 );
+if (requestedDestination === undefined) {
+  const defaultParent = path.dirname(destinationRoot);
+  try {
+    await fs.mkdir(defaultParent);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+  }
+}
 
 await runReleaseBuildProcess({
   execute: () => executeReleaseBuild(
