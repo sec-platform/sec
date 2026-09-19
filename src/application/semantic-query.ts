@@ -1,4 +1,5 @@
 import { cloneAndDeepFreeze } from '../contracts/canonical.ts';
+import { readAuthorCandidate, type AuthorCandidate, type AuthorWorkspace } from '../workspace/author-candidate.ts';
 import { assertNativeAbortSignal, throwIfNativeAborted } from '../contracts/native-abort.ts';
 import { SecError } from '../contracts/failure.ts';
 import { compileSemanticInput, type SemanticCompilation, type SemanticCompilationInput } from '../compiler/semantic-compiler.ts';
@@ -6,11 +7,13 @@ import { prepareSemanticLowering, renderSemanticArtifacts, type SemanticArtifact
 import type { SemanticGeneratorPlanTask } from '../semantics/generation/types.ts';
 
 export type SemanticQueryPurpose = 'analyze' | 'generate';
-export interface SemanticQueryRequest {
-  readonly purpose: SemanticQueryPurpose;
-  readonly input: SemanticCompilationInput;
-  readonly signal?: AbortSignal;
-}
+export type SemanticQueryRequest = Readonly<{
+  purpose: SemanticQueryPurpose;
+  signal?: AbortSignal;
+}> & (
+  | Readonly<{ input: SemanticCompilationInput; candidate?: never }>
+  | Readonly<{ candidate: AuthorCandidate<SemanticCompilationInput>; input?: never }>
+);
 export type SemanticQueryResult =
   | Readonly<{ purpose: 'analyze'; compilation: SemanticCompilation }>
   | Readonly<{ purpose: 'generate'; compilation: SemanticCompilation; artifacts: SemanticArtifactSet }>;
@@ -23,11 +26,16 @@ export function requireSemanticQueryPurpose(value: unknown): SemanticQueryPurpos
 /** Own source values at the request boundary; retain the original live signal.
  * This prepared query carries no workspace locator or publication permission. */
 export function prepareSemanticQuery(request: SemanticQueryRequest) {
-  const { purpose: requestedPurpose, input, signal } = request;
+  const { purpose: requestedPurpose, input, candidate, signal } = request;
   const purpose = requireSemanticQueryPurpose(requestedPurpose);
   if (signal !== undefined) assertNativeAbortSignal(signal);
   throwIfNativeAborted(signal);
-  const captured = cloneAndDeepFreeze(input);
+  if ((input === undefined) === (candidate === undefined)) {
+    throw new SecError('SEMANTIC-QUERY-004', 'Semantic query requires exactly one input or candidate');
+  }
+  // A workspace candidate is already owned and immutable. Reuse its source;
+  // one-shot callers still transfer a copy at this boundary.
+  const captured = candidate === undefined ? cloneAndDeepFreeze(input!) : readAuthorCandidate(candidate);
   throwIfNativeAborted(signal);
   return Object.freeze({ purpose, input: captured, signal });
 }
@@ -73,6 +81,7 @@ export interface SemanticRuntime {
     target: 'typescript-runtime-contract';
     maximumPendingQueries: number;
   }>;
+  workspace(input: SemanticCompilationInput): AuthorWorkspace<SemanticCompilationInput>;
   handle(request: SemanticQueryRequest): Promise<SemanticQueryResult>;
   close(): Promise<void>;
 }

@@ -1,3 +1,5 @@
+import { createAuthorWorkspace } from '../workspace/author-candidate.ts';
+import type { SemanticCompilationInput } from '../compiler/semantic-compiler.ts';
 import { SecError } from '../contracts/failure.ts';
 import { evaluateSemanticQuery, prepareSemanticQuery, type SemanticQueryRequest, type SemanticQueryResult, type SemanticRuntime, type SemanticRuntimeOptions } from '../application/semantic-query.ts';
 
@@ -51,6 +53,12 @@ export function createRuntime(options: SemanticRuntimeOptions = {}): SemanticRun
 
   return Object.freeze({
     capabilities,
+    workspace: (input: SemanticCompilationInput) => {
+      if (!accepting) throw new SecError('RUNTIME-CLOSED-001', 'Semantic runtime is closed');
+      const workspace = createAuthorWorkspace(input);
+      if (!accepting) throw new SecError('RUNTIME-CLOSED-001', 'Semantic runtime is closed');
+      return workspace;
+    },
     handle,
     close: () => {
       accepting = false;
