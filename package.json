@@ -65,7 +65,7 @@
     "text:census": "\"$npm_execpath\" run sec -- text census --json",
     "environment:settle": "\"$npm_execpath\" run sec -- environment settle",
     "environment:settle:fix": "\"$npm_execpath\" run sec -- environment settle --fix",
-    "docs:package": "\"$npm_execpath\" ./src/bootstrap/release/build-documentation.ts .tmp/documentation-artifact",
+    "docs:package": "\"$npm_execpath\" ./src/bootstrap/release/build-documentation.ts",
     "docs:refresh": "\"$(\"$npm_execpath\" --print \"process.platform === 'win32' ? 'python' : 'python3'\")\" -B tools/source_inventory.py --write",
     "docs:doctor": "\"$(\"$npm_execpath\" --print \"process.platform === 'win32' ? 'python' : 'python3'\")\" -B -m unittest discover -s tools -p 'test_check_*.py' -q && \"$(\"$npm_execpath\" --print \"process.platform === 'win32' ? 'python' : 'python3'\")\" -B tools/check_docs.py && \"$npm_execpath\" src/adapters/verification/platform/provider/capability-ledger-validation.ts",
     "check": "\"$npm_execpath\" run check:fast",
