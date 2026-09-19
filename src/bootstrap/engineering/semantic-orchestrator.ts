@@ -5,7 +5,7 @@ import type { EngineeringIR } from '../../semantics/engineering-ir/root-types.ts
 import { createWorkspaceWriteCommitFence } from '../../adapters/filesystem/write-lease.ts';
 import { loadWorkspaceEngineeringIRBuildInput } from '../../adapters/workspace/engineering-input.ts';
 import { saveLock } from "../../adapters/workspace/lock.ts";
-import { executePipelineStage } from '../../adapters/compilation/pipeline/kernel.ts';
+import { executePipelineStage } from './pipeline-kernel.ts';
 import { bindPipelineSemanticContext } from '../../adapters/compilation/pipeline/semantic-context.ts';
 import type {
   PipelineExecutionContext,
