@@ -1,0 +1,71 @@
+name: SEC exact-head source mirror transport
+
+on:
+  push:
+    branches:
+      - transport/sec-mirror-bdfc3108
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout captured target head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: bdfc310854d8d7cc343b84a0466c3c8d71ec4fdc
+          fetch-depth: 1
+          path: mirror/source
+          persist-credentials: false
+          show-progress: false
+          lfs: false
+          submodules: false
+
+      - name: Build exact-head source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          target='bdfc310854d8d7cc343b84a0466c3c8d71ec4fdc'
+          target_ref='refactor/sec086-architecture'
+          repo='sec-platform/sec'
+          mkdir -p mirror/out
+          cd mirror/source
+          actual_head="$(git rev-parse HEAD)"
+          actual_tree="$(git rev-parse 'HEAD^{tree}')"
+          test "$actual_head" = "$target"
+          test -z "$(git status --porcelain)"
+          cd ..
+          archive="sec-source-mirror-$target.tar.gz"
+          tar -czf "out/$archive" source
+          archive_sha="$(sha256sum "out/$archive" | awk '{print $1}')"
+          jq -n \
+            --arg repository "$repo" \
+            --arg targetRef "$target_ref" \
+            --arg targetHead "$actual_head" \
+            --arg targetTree "$actual_tree" \
+            --arg archive "$archive" \
+            --arg archiveSha256 "sha256:$archive_sha" \
+            --arg gitStatus "" \
+            '{
+              repository: $repository,
+              targetRef: $targetRef,
+              targetHead: $targetHead,
+              targetTree: $targetTree,
+              archive: $archive,
+              archiveSha256: $archiveSha256,
+              gitStatus: $gitStatus,
+              gitFetchDepth: 1,
+              includesGitDirectory: true
+            }' > out/mirror-metadata.json
+
+      - name: Upload exact-head source mirror
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sec-source-mirror-bdfc310854d8d7cc343b84a0466c3c8d71ec4fdc
+          path: mirror/out
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
