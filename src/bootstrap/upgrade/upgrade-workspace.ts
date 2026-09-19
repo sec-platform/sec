@@ -2,7 +2,6 @@ import type {
   LockFile,
   PlanFile
 } from '../../compiler/contract.ts';
-import { executeUpgradePlanningWithFailurePublication } from '../../application/upgrade-failure-publication.ts';
 import {
   bindPlannedUpgradeExecution,
   executePlannedWorkspaceUpgrade,
@@ -11,11 +10,9 @@ import {
 } from '../../application/upgrade-apply.ts';
 import {
   planUpgradeWorkspaceFromWorkspace,
-  planWorkspaceUpgrade,
-  type PlannedWorkspaceUpgrade,
+  prepareUpgradeApplyPlanning,
   type UpgradePlanningUseCaseOperations
 } from '../../application/upgrade-planning.ts';
-import { planningRequestRevision } from '../../compiler/upgrade/planning.ts';
 import { readLockFile } from "../../adapters/workspace/lock.ts";
 import { matchesUpgradeVersionRange } from '../../adapters/upgrade/version-range.ts';
 import {
@@ -101,54 +98,45 @@ export async function runUpgradeWorkspaceWithLease(
   await commitFence();
   workspaceRoot = getWorkspacePaths(workspaceRoot).workspaceRoot;
   const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
-  const plan = await loadWorkspacePlan(workspaceRoot);
-  const readableLockPath = await resolveWorkspaceLockPath(workspaceRoot);
-  const existingLock = await readOptionalJson<LockFile>(readableLockPath);
-  const currentBlock = plan.blocks.find((block) => block.id === blockId);
-  const requestRevision = planningRequestRevision({
-    workspaceIdentityDigest: workspaceWriteLease.workspaceIdentityDigest,
-    blockId,
-    targetVersion,
-    plan,
-    lock: existingLock
-  });
-  const plannedUpgrade: PlannedWorkspaceUpgrade =
-    await executeUpgradePlanningWithFailurePublication(
-      () => planWorkspaceUpgrade({
-        blockId,
-        currentBlock,
-        lock: existingLock,
-        plan,
-        targetVersion,
-        workspaceRoot
-      }, UPGRADE_PLANNING_OPERATIONS),
-      {
-        clearPlan: () => removeDir(
-          resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan),
-          commitFence
-        ),
-        clearExecutionTerminal: () => removeDir(
-          resolveWorkspaceArtifactPath(
-            workspaceRoot,
-            CI_ARTIFACT_FILES.upgradeExecutionTerminal
-          ),
-          commitFence
-        ),
-        publishDiagnostics: failure => writeUpgradeDiagnostics(
+  const { plan, existingLock, plannedUpgrade } = await prepareUpgradeApplyPlanning(
+    {
+      workspaceRoot,
+      blockId,
+      targetVersion,
+      workspaceIdentityDigest: workspaceWriteLease.workspaceIdentityDigest
+    },
+    UPGRADE_PLANNING_OPERATIONS,
+    {
+      loadWorkspacePlan,
+      readLockFile,
+      readOptionalLock: async root =>
+        readOptionalJson<LockFile>(await resolveWorkspaceLockPath(root)),
+      clearPlan: () => removeDir(
+        resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan),
+        commitFence
+      ),
+      clearExecutionTerminal: () => removeDir(
+        resolveWorkspaceArtifactPath(
           workspaceRoot,
-          blockId,
-          targetVersion,
-          {
-            phase: 'planning',
-            workspaceIdentityDigest: workspaceWriteLease.workspaceIdentityDigest,
-            planningRequestRevision: requestRevision
-          },
-          failure,
-          existingLock,
-          commitFence
-        )
-      }
-    );
+          CI_ARTIFACT_FILES.upgradeExecutionTerminal
+        ),
+        commitFence
+      ),
+      publishDiagnostics: (failure, context) => writeUpgradeDiagnostics(
+        workspaceRoot,
+        context.blockId,
+        context.targetVersion,
+        {
+          phase: 'planning',
+          workspaceIdentityDigest: context.workspaceIdentityDigest,
+          planningRequestRevision: context.planningRequestRevision
+        },
+        failure,
+        context.existingLock,
+        commitFence
+      )
+    }
+  );
 
   const { upgradePlan, attempt } = bindPlannedUpgradeExecution(
     plannedUpgrade,
