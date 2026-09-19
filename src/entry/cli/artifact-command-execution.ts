@@ -1,15 +1,15 @@
-import type { CiArtifactManifest } from '../../assurance/verification/ci-artifacts/contract/types.ts';
+import type { CiArtifactManifestInspectionSourceInspectionSource } from '../../application/ci-artifact-manifest-inspect.ts';
 import { buildArtifactUploadPathContract } from '../../application/artifact-upload-paths.ts';
-import { projectCiArtifactManifest } from '../../application/ci-artifact-manifest-inspect.ts';
+import { projectCiArtifactManifestInspectionSource } from '../../application/ci-artifact-manifest-inspect.ts';
 import type { ArtifactCommandInput } from './artifact-command-input.ts';
 import { formatArtifactUploadPaths } from './artifact-upload-paths.ts';
-import { formatCiArtifactManifest } from './ci-artifact-manifest-inspect.ts';
+import { formatCiArtifactManifestInspectionSource } from './ci-artifact-manifest-inspect.ts';
 import { printJson, printJsonOrText } from './format-utils.ts';
 
 export interface ArtifactCommandOperations {
-  readManifest(): Promise<CiArtifactManifest>;
-  observeManifest(): Promise<CiArtifactManifest>;
-  generate(): Promise<CiArtifactManifest>;
+  readManifest(): Promise<CiArtifactManifestInspectionSource>;
+  observeManifest(): Promise<CiArtifactManifestInspectionSource>;
+  generate(): Promise<CiArtifactManifestInspectionSource>;
 }
 
 /** Entry owns artifact sub-operation routing, projection and output protocol. */
@@ -29,7 +29,7 @@ export async function executeArtifactCommandInput(
       printJsonOrText(
         manifest,
         input.output,
-        value => formatCiArtifactManifest(projectCiArtifactManifest(value))
+        value => formatCiArtifactManifestInspectionSource(projectCiArtifactManifestInspectionSource(value))
       );
       return;
     }
