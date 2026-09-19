@@ -3,18 +3,19 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 
-import { compileWorkspace } from '../engineering/pipeline-orchestrator.ts';
-import { initWorkspace } from '../engineering/workspace-orchestrator.ts';
+import {
+  runReferenceDemo,
+  type ReferenceDemoOperations
+} from '../../application/reference-demo.ts';
 import { runDevCommand } from '../../adapters/self-hosting/development/runner/command-runner.ts';
 import { compilerCliEntrypoint } from '../../adapters/toolchain/runtime/layout.ts';
-import { compilerRoot } from "../../adapters/workspace-context.ts";
-
-type ReferenceDemoMode = 'quickstart' | 'governance' | 'closed-loop';
-
-function mode(value: unknown): ReferenceDemoMode {
-  if (value === 'quickstart' || value === 'governance' || value === 'closed-loop') return value;
-  throw new Error('Usage: bun src/bootstrap/reference/demo.ts <quickstart|governance|closed-loop>');
-}
+import { compilerRoot } from '../../adapters/workspace-context.ts';
+import {
+  announceReferenceDemoWorkspace,
+  readReferenceDemoMode
+} from '../../entry/reference-demo.ts';
+import { compileWorkspace } from '../engineering/pipeline-orchestrator.ts';
+import { initWorkspace } from '../engineering/workspace-orchestrator.ts';
 
 async function runCli(workspaceRoot: string, args: readonly string[]): Promise<void> {
   const code = await runDevCommand('bun', [compilerCliEntrypoint, ...args], process.env, {
@@ -26,27 +27,28 @@ async function runCli(workspaceRoot: string, args: readonly string[]): Promise<v
   }
 }
 
-export async function runReferenceDemo(selectedMode: ReferenceDemoMode): Promise<void> {
-  const demoParent = path.join(compilerRoot, '.tmp');
-  await mkdir(demoParent, { recursive: true });
-  const workspaceRoot = await mkdtemp(path.join(demoParent, 'reference-demo-'));
-  try {
-    console.log(`Reference demo: isolated workspace ${workspaceRoot}`);
-    await initWorkspace(workspaceRoot, { template: 'reference-customer' });
+const operations: ReferenceDemoOperations = Object.freeze({
+  createWorkspace: async () => {
+    const demoParent = path.join(compilerRoot, '.tmp');
+    await mkdir(demoParent, { recursive: true });
+    return mkdtemp(path.join(demoParent, 'reference-demo-'));
+  },
+  announceWorkspace: announceReferenceDemoWorkspace,
+  initializeWorkspace: workspaceRoot =>
+    initWorkspace(workspaceRoot, { template: 'reference-customer' }).then(() => undefined),
+  compileWorkspace: async (workspaceRoot, through) => {
     await compileWorkspace(workspaceRoot, {
       source: 'reference',
-      ...(selectedMode === 'closed-loop' ? {} : { through: 'compose' as const })
+      ...(through === 'compose' ? { through: 'compose' as const } : {})
     });
-    if (selectedMode === 'governance' || selectedMode === 'closed-loop') {
-      if (selectedMode === 'closed-loop') await runCli(workspaceRoot, ['verify', '--lane', 'all']);
-      await runCli(workspaceRoot, ['artifacts', '--paths', '--kind', 'governance']);
-    }
-    if (selectedMode === 'closed-loop') {
-      await runCli(workspaceRoot, ['explain', '--json', '--compact']);
-    }
-  } finally {
-    await rm(workspaceRoot, { recursive: true, force: true });
-  }
-}
+  },
+  verifyAll: workspaceRoot => runCli(workspaceRoot, ['verify', '--lane', 'all']),
+  listGovernanceArtifacts: workspaceRoot =>
+    runCli(workspaceRoot, ['artifacts', '--paths', '--kind', 'governance']),
+  explainCompactJson: workspaceRoot => runCli(workspaceRoot, ['explain', '--json', '--compact']),
+  removeWorkspace: workspaceRoot => rm(workspaceRoot, { recursive: true, force: true })
+});
 
-if (import.meta.main) await runReferenceDemo(mode(process.argv[2]));
+if (import.meta.main) {
+  await runReferenceDemo(readReferenceDemoMode(), operations);
+}
