@@ -7,7 +7,10 @@ import { addJsonFlags, jsonOpts, usageError } from '../../entry/cli/command-opti
 import { registerReferenceCommands } from '../../entry/cli/register-reference-commands.ts';
 import { registerVerificationToolingCommands } from '../../entry/cli/register-verification-tooling-commands.ts';
 import { registerTextCommands } from '../../entry/cli/register-text-commands.ts';
-import { registerEnvironmentCommands } from '../../entry/cli/register-environment-commands.ts';
+import {
+  bindEnvironmentCommandHandlers,
+  registerEnvironmentCommands
+} from '../../entry/cli/register-environment-commands.ts';
 import {
   bindDependencyCommandHandlers,
   registerDependencyCommands
@@ -154,35 +157,29 @@ export function registerCommands(
     }
   });
 
-  registerEnvironmentCommands(program, {
-    containerEngine: async ({ workspaceRoot, output, start }) => {
-      const result = await observeLocalContainerEngineReadiness({
+  registerEnvironmentCommands(program, bindEnvironmentCommandHandlers({
+    containerEngine: async ({ workspaceRoot, start }) => {
+      const value = await observeLocalContainerEngineReadiness({
         cwd: workspaceRoot,
         mode: start ? 'ensure-started' : 'observe'
       });
-      printJsonOrText(
-        result,
-        output,
-        value => value.status === 'ready'
+      return {
+        value,
+        text: value.status === 'ready'
           ? `Container Engine ready: ${value.endpoint.contextName} (${value.endpoint.daemonId})`
-          : `Container Engine unavailable: ${value.reason} (${value.phase})`
-      );
-      if (result.status !== 'ready') process.exitCode = 1;
+          : `Container Engine unavailable: ${value.reason} (${value.phase})`,
+        status: value.status,
+        successful: value.status === 'ready'
+      };
     },
-    settle: async ({ workspaceRoot, output, fix }) => {
-      const receipt = await runWithOptionalSpinner(
-        'Settling worktree',
-        output,
-        () => runSettlement(workspaceRoot, { fix })
-      );
-      printJsonOrText(
-        receipt,
-        output,
-        value => formatWorktreeSettlement(projectWorktreeSettlementReceipt(value))
-      );
-      if (receipt.status !== 'settled') {
-        throw new Error(`Worktree not settled: ${receipt.status}`);
-      }
+    settle: async ({ workspaceRoot, fix }) => {
+      const value = await runSettlement(workspaceRoot, { fix });
+      return {
+        value,
+        text: formatWorktreeSettlement(projectWorktreeSettlementReceipt(value)),
+        status: value.status,
+        successful: value.status === 'settled'
+      };
     }
-  });
+  }));
 }
