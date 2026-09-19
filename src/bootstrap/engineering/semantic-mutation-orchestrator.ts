@@ -79,6 +79,7 @@ import {
   buildPreparedSemanticMutationRecoveryRecord,
   exactPreparedSemanticMutationRecoveryBinding as exactPreparedRecoveryBinding
 } from '../../application/semantic-mutation-recovery.ts';
+import { planSemanticMutation } from '../../application/semantic-mutation-plan.ts';
 import { compileWorkspace } from './pipeline-orchestrator.ts';
 
 type ReadyPlan = ReadySemanticMutationPlan;
@@ -935,22 +936,17 @@ async function planSemanticMutationTransactionInternal(
   input: SemanticMutationTransactionInput,
   isolationCapabilityProbe: SemanticMutationIsolationCapabilityProbeFactory
 ): Promise<SemanticMutationPlan> {
-  return withWorkspaceWriteLease(workspaceRoot, undefined, async (token) => {
-    const recoveryAuthority = await inspectSemanticMutationRecoveryAuthority(workspaceRoot);
-    if (recoveryAuthority.unfinished.length !== 0 || recoveryAuthority.blocked !== undefined) {
-      throw new Error(
-        'Semantic Mutation planning is blocked by unfinished or recovery-required workspace state'
-      );
-    }
-    return (await fencedWorkspaceWrite(workspaceRoot, token, (commitFence) =>
+  return withWorkspaceWriteLease(workspaceRoot, undefined, token => planSemanticMutation({
+    inspectRecovery: () => inspectSemanticMutationRecoveryAuthority(workspaceRoot),
+    derive: () => fencedWorkspaceWrite(workspaceRoot, token, commitFence =>
       deriveStagedSemanticMutation(
         workspaceRoot,
         input,
         planningAdapter(workspaceRoot, token, isolationCapabilityProbe),
         commitFence
       )
-    )).plan;
-  });
+    )
+  }));
 }
 
 export async function planSemanticMutationTransaction(
