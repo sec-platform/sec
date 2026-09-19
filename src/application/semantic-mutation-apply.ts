@@ -11,7 +11,13 @@ import type {
   SemanticMutationRequestIdentity,
   SemanticMutationRequestRecord
 } from '../semantics/mutation/transaction.ts';
-import type { NormalizedSemanticMutationRequest } from '../semantics/mutation/types.ts';
+import type {
+  NormalizedSemanticMutationRequest,
+  SemanticMutationPlan,
+  SemanticMutationResult,
+  SemanticMutationVerificationExecutionRef
+} from '../semantics/mutation/types.ts';
+import { buildSemanticMutationResult } from '../compiler/semantic-mutation/result.ts';
 import {
   semanticMutationRequestRejected,
   semanticMutationTerminalRecoveryOutcome,
@@ -125,3 +131,84 @@ export function resolveSemanticMutationRetainedRequest(
   }
   return null;
 }
+
+export type SemanticMutationRejectedPlanDecision =
+  | Readonly<{ status: 'request-rejected'; outcome: SemanticMutationApplyOutcome }>
+  | Readonly<{
+      status: 'terminal-rejected';
+      result: Extract<SemanticMutationResult, { readonly status: 'rejected' }>;
+      planRevision: string;
+    }>;
+
+export function resolveSemanticMutationRejectedPlan(
+  preparation: SemanticMutationApplyPreparation,
+  plan: Extract<SemanticMutationPlan, { readonly status: 'rejected' }>
+): SemanticMutationRejectedPlanDecision {
+  const prepared = preparedValue(preparation);
+  if (plan.rejectedAt === 'request') {
+    return Object.freeze({
+      status: 'request-rejected' as const,
+      outcome: semanticMutationRequestRejected(
+        plan.requestId ?? prepared.normalized.requestId,
+        prepared.normalized.requestRevision,
+        plan.diagnostics
+      )
+    });
+  }
+  const result = buildSemanticMutationResult(plan);
+  if (result.status !== 'rejected') {
+    throw new Error('Rejected plan did not form a rejected result');
+  }
+  return Object.freeze({
+    status: 'terminal-rejected' as const,
+    result,
+    planRevision: plan.planRevision
+  });
+}
+
+export function resolveSemanticMutationPlanCas(
+  preparation: SemanticMutationApplyPreparation,
+  plan: Extract<SemanticMutationPlan, { readonly status: 'ready' }>
+): Extract<SemanticMutationResult, { readonly status: 'rejected' }> | null {
+  const prepared = preparedValue(preparation);
+  if (plan.planRevision === prepared.input.expectedPlanRevision) return null;
+  const result = buildSemanticMutationResult(plan, {
+    status: 'rejected',
+    diagnostics: [mutationDiagnostic(
+      'SEMANTIC-MUTATION-007',
+      'cas',
+      'Expected plan revision does not match the lease-recomputed plan'
+    )]
+  });
+  if (result.status !== 'rejected') {
+    throw new Error('Plan CAS rejection did not form rejected result');
+  }
+  return result;
+}
+
+export function buildSemanticMutationVerificationRejection(input: Readonly<{
+  plan: Extract<SemanticMutationPlan, { readonly status: 'ready' }>;
+  transactionId: string;
+  verification: SemanticMutationVerificationExecutionRef;
+  isolatedVerificationFailure?: unknown;
+}>): Extract<SemanticMutationResult, { readonly status: 'rejected' }> {
+  const result = buildSemanticMutationResult(input.plan, {
+    status: 'rejected',
+    transactionId: input.transactionId,
+    attempted: input.plan.staged,
+    verification: input.verification,
+    diagnostics: [mutationDiagnostic(
+      'SEMANTIC-MUTATION-010',
+      'impact-verification',
+      'Isolated Semantic Mutation Verification did not pass',
+      input.isolatedVerificationFailure === undefined
+        ? {}
+        : { details: { isolatedVerification: input.isolatedVerificationFailure } }
+    )]
+  });
+  if (result.status !== 'rejected') {
+    throw new Error('Verification rejection did not form rejected result');
+  }
+  return result;
+}
+

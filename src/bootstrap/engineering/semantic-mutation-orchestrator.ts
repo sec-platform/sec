@@ -88,7 +88,10 @@ import { publishRejectedSemanticMutationTerminal } from '../../application/seman
 import { querySemanticMutationRequestView } from '../../application/semantic-mutation-query.ts';
 import {
   prepareSemanticMutationApply,
+  buildSemanticMutationVerificationRejection,
   resolveSemanticMutationApplyRecovery,
+  resolveSemanticMutationPlanCas,
+  resolveSemanticMutationRejectedPlan,
   resolveSemanticMutationRetainedRequest
 } from '../../application/semantic-mutation-apply.ts';
 import { compileWorkspace } from './pipeline-orchestrator.ts';
@@ -901,26 +904,18 @@ async function applySemanticMutationInternal(
       )
     );
     if (derived.plan.status === 'rejected') {
-      const rejectedPlan = derived.plan;
-      if (rejectedPlan.rejectedAt === 'request') {
-        return requestRejected(
-          rejectedPlan.requestId ?? normalized.requestId,
-          normalized.requestRevision,
-          rejectedPlan.diagnostics
-        );
-      }
-      const result = buildSemanticMutationResult(rejectedPlan);
-      if (result.status !== 'rejected') throw new Error('Rejected plan did not form a rejected result');
+      const decision = resolveSemanticMutationRejectedPlan(preparation, derived.plan);
+      if (decision.status === 'request-rejected') return decision.outcome;
       await writeRejectedTerminalAndPrune(
         workspaceRoot,
         transactionRoot,
         token,
         requestIdentityDigest,
         normalized.requestRevision,
-        rejectedPlan.planRevision,
-        result
+        decision.planRevision,
+        decision.result
       );
-      return { status: 'terminal', result };
+      return { status: 'terminal', result: decision.result };
     }
     if (!derived.transactionRoot || !derived.stagingWorkspaceRoot || !derived.editPlan ||
       !derived.rollbackManifest || !derived.originalBytes || !derived.stagedBytes || !derived.staged ||
@@ -932,16 +927,8 @@ async function applySemanticMutationInternal(
     const rollbackManifest = derived.rollbackManifest;
     const originalBytes = derived.originalBytes;
     const stagedBytes = derived.stagedBytes;
-    if (ready.planRevision !== input.expectedPlanRevision) {
-      const result = buildSemanticMutationResult(ready, {
-        status: 'rejected',
-        diagnostics: [mutationDiagnostic(
-          'SEMANTIC-MUTATION-007',
-          'cas',
-          'Expected plan revision does not match the lease-recomputed plan'
-        )]
-      });
-      if (result.status !== 'rejected') throw new Error('Plan CAS rejection did not form rejected result');
+    const casRejection = resolveSemanticMutationPlanCas(preparation, ready);
+    if (casRejection !== null) {
       await writeRejectedTerminalAndPrune(
         workspaceRoot,
         transactionRoot,
@@ -949,9 +936,9 @@ async function applySemanticMutationInternal(
         requestIdentityDigest,
         normalized.requestRevision,
         ready.planRevision,
-        result
+        casRejection
       );
-      return { status: 'terminal', result };
+      return { status: 'terminal', result: casRejection };
     }
 
     let isolatedVerificationFailure: SemanticMutationIsolatedVerificationFailure | undefined;
@@ -976,21 +963,14 @@ async function applySemanticMutationInternal(
     );
     const transactionId = `tx:semantic-mutation-live:${randomUUID()}`;
     if (verification.status !== 'passed') {
-      const result = buildSemanticMutationResult(ready, {
-        status: 'rejected',
+      const result = buildSemanticMutationVerificationRejection({
+        plan: ready,
         transactionId,
-        attempted: ready.staged,
         verification,
-        diagnostics: [mutationDiagnostic(
-          'SEMANTIC-MUTATION-010',
-          'impact-verification',
-          'Isolated Semantic Mutation Verification did not pass',
-          isolatedVerificationFailure === undefined
-            ? {}
-            : { details: { isolatedVerification: isolatedVerificationFailure } }
-        )]
+        ...(isolatedVerificationFailure === undefined
+          ? {}
+          : { isolatedVerificationFailure })
       });
-      if (result.status !== 'rejected') throw new Error('Verification rejection did not form rejected result');
       await writeRejectedTerminalAndPrune(
         workspaceRoot,
         transactionRoot,
