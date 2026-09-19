@@ -10,6 +10,7 @@ import {
 } from '../../compiler/upgrade/failure.ts';
 import { publishUpgradeFailureArtifacts } from '../../application/upgrade-failure-publication.ts';
 import {
+  buildUpgradeCommittedFailure,
   buildUpgradeExecutionTerminal,
   executePlannedWorkspaceUpgrade,
   publishAppliedUpgradeTerminal,
@@ -310,31 +311,20 @@ export async function runUpgradeWorkspaceWithLease(
     };
   } catch (error) {
     if (appliedTerminalCommitted) {
-      const primary = error instanceof Error ? error : new Error(String(error));
-      const postCommitFailure = appliedTerminalDurabilityUncertain
-        ? new CompilerError(
-            'UPGRADE-BLOCKED-005',
-            `Upgrade applied terminal is externally visible but its durability did not settle: ${primary.message}`,
-            {
-              rollbackStatus: 'recovery-required',
-              recoverySnapshot: {
-                path: backup.backup.path,
-                device: backup.backup.device,
-                inode: backup.backup.inode,
-                parentPath: backup.temporaryParent.path,
-                parentDevice: backup.temporaryParent.device,
-                parentInode: backup.temporaryParent.inode,
-                status: 'retained-locator-only'
-              }
-            },
-            { cause: primary }
-          )
-        : primary;
-      pendingApplyFailure = upgradeFailureWithSecondaryFailures(
-        postCommitFailure,
-        postCommitFailures.filter((failure) => failure !== error),
-        'Upgrade applied terminal committed but post-commit work failed'
-      );
+      pendingApplyFailure = buildUpgradeCommittedFailure({
+        failure: error,
+        durabilityUncertain: appliedTerminalDurabilityUncertain,
+        recoverySnapshot: {
+          path: backup.backup.path,
+          device: backup.backup.device,
+          inode: backup.backup.inode,
+          parentPath: backup.temporaryParent.path,
+          parentDevice: backup.temporaryParent.device,
+          parentInode: backup.temporaryParent.inode,
+          status: 'retained-locator-only'
+        },
+        postCommitFailures
+      });
       throw pendingApplyFailure;
     }
     const rollback = await resolveUpgradeRollback(

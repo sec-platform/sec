@@ -1,6 +1,9 @@
 import type { LockFile, PlanFile } from '../compiler/contract.ts';
 import { CompilerError } from '../compiler/errors.ts';
-import { withRollbackDiagnostics } from '../compiler/upgrade/failure.ts';
+import {
+  upgradeFailureWithSecondaryFailures,
+  withRollbackDiagnostics
+} from '../compiler/upgrade/failure.ts';
 import { compileUpgradeExecutionTerminal } from '../compiler/upgrade/execution-terminal.ts';
 import type {
   UpgradeExecutionTerminal,
@@ -242,4 +245,37 @@ export async function resolveUpgradeRollback(
     retainBackupForRecovery,
     diagnosticFailure
   });
+}
+
+
+/**
+ * Once an applied terminal is externally committed, later failures are
+ * post-commit failures and rollback is no longer admissible. If publication
+ * durability is uncertain, retain the recovery locator in the primary error.
+ */
+export function buildUpgradeCommittedFailure(input: Readonly<{
+  failure: unknown;
+  durabilityUncertain: boolean;
+  recoverySnapshot: UpgradeRecoverySnapshotLocator;
+  postCommitFailures: readonly unknown[];
+}>): Error {
+  const primary = input.failure instanceof Error
+    ? input.failure
+    : new Error(String(input.failure));
+  const postCommitFailure = input.durabilityUncertain
+    ? new CompilerError(
+        'UPGRADE-BLOCKED-005',
+        `Upgrade applied terminal is externally visible but its durability did not settle: ${primary.message}`,
+        {
+          rollbackStatus: 'recovery-required',
+          recoverySnapshot: input.recoverySnapshot
+        },
+        { cause: primary }
+      )
+    : primary;
+  return upgradeFailureWithSecondaryFailures(
+    postCommitFailure,
+    input.postCommitFailures.filter(failure => failure !== input.failure),
+    'Upgrade applied terminal committed but post-commit work failed'
+  );
 }
