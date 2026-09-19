@@ -35,6 +35,8 @@ export interface DocumentationArtifactManifest {
   readonly license: Readonly<{
     readonly spdx: 'CC-BY-4.0';
     readonly textPath: 'LICENSES/CC-BY-4.0.txt';
+    readonly softwareLicenseTextPath: 'LICENSE';
+    readonly classificationPath: 'REUSE.toml';
     readonly creator: typeof DOCUMENTATION_RELEASE_CREATOR;
     readonly work: 'Engineering Workspace Compiler (SEC)';
     readonly source: 'https://github.com/sec-platform/sec';
@@ -82,7 +84,12 @@ function documentationCleanupFinding(
 export function isDocumentationReleasePath(relativePath: string): boolean {
   const normalized = relativePath.replaceAll('\\', '/');
   if (normalized.endsWith('.md')) return true;
-  if (normalized === 'CITATION.cff' || normalized === 'NOTICE') return true;
+  if (
+    normalized === 'CITATION.cff'
+    || normalized === 'NOTICE'
+    || normalized === 'LICENSE'
+    || normalized === 'REUSE.toml'
+  ) return true;
   if (normalized === 'LICENSES/CC-BY-4.0.txt') return true;
   return normalized.startsWith('docs/')
     || normalized.startsWith('alternatives/')
@@ -167,8 +174,14 @@ async function materializeDocumentationFiles(
   }
 
   await walk(sourceRoot, '');
-  if (!files.some((file) => file.path === 'LICENSES/CC-BY-4.0.txt')) {
-    throw new Error('Documentation release artifact requires the CC BY 4.0 license text');
+  for (const requiredLegalPath of [
+    'LICENSES/CC-BY-4.0.txt',
+    'LICENSE',
+    'REUSE.toml'
+  ] as const) {
+    if (!files.some((file) => file.path === requiredLegalPath)) {
+      throw new Error(`Documentation release artifact requires legal metadata: ${requiredLegalPath}`);
+    }
   }
   return Object.freeze(files);
 }
@@ -230,6 +243,8 @@ export async function readDocumentationArtifactManifest(
   if (
     manifest.license?.spdx !== 'CC-BY-4.0'
     || manifest.license.textPath !== 'LICENSES/CC-BY-4.0.txt'
+    || manifest.license.softwareLicenseTextPath !== 'LICENSE'
+    || manifest.license.classificationPath !== 'REUSE.toml'
     || manifest.license.creator !== DOCUMENTATION_RELEASE_CREATOR
     || manifest.license.work !== 'Engineering Workspace Compiler (SEC)'
     || manifest.license.source !== 'https://github.com/sec-platform/sec'
@@ -244,8 +259,12 @@ export async function readDocumentationArtifactManifest(
   if (sha256(files) !== sha256(manifest.files)) {
     throw new Error('Documentation artifact physical file inventory differs from its manifest');
   }
-  if (!files.some((file) => file.path === manifest.license.textPath)) {
-    throw new Error('Documentation artifact license text is absent');
+  if (
+    !files.some((file) => file.path === manifest.license.textPath)
+    || !files.some((file) => file.path === manifest.license.softwareLicenseTextPath)
+    || !files.some((file) => file.path === manifest.license.classificationPath)
+  ) {
+    throw new Error('Documentation artifact legal metadata is absent');
   }
   return Object.freeze(manifest);
 }
@@ -268,6 +287,8 @@ async function writeDocumentationManifest(
     license: Object.freeze({
       spdx: 'CC-BY-4.0' as const,
       textPath: 'LICENSES/CC-BY-4.0.txt' as const,
+      softwareLicenseTextPath: 'LICENSE' as const,
+      classificationPath: 'REUSE.toml' as const,
       creator: input.creator,
       work: 'Engineering Workspace Compiler (SEC)' as const,
       source: 'https://github.com/sec-platform/sec' as const
