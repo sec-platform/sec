@@ -5,9 +5,9 @@ import * as path from 'node:path';
 
 import {
   assertReferenceCheckClean,
-  formatReferenceCheck,
   projectReferenceCheckReport
-} from '../../src/bootstrap/reference/application/check.ts';
+} from '../../src/application/reference-check.ts';
+import { formatReferenceCheck } from '../../src/entry/reference-check.ts';
 import {
   parseReferenceGitPathRecords,
   scanReferenceDrift
@@ -42,6 +42,10 @@ test('reference check blocks tracked and untracked workspace drift', async () =>
     const drift = await scanReferenceDrift(root);
     const report = projectReferenceCheckReport({
       root,
+      runnerCommand: 'bun run reference:check',
+      refreshCommand: 'bun run reference:refresh',
+      diffCommand: 'git diff --name-only --exit-code -z -- examples/reference-workspace',
+      untrackedScanCommand: 'git ls-files -z --others --exclude-standard -- examples/reference-workspace',
       refreshExitCode: 0,
       drift
     });
@@ -61,6 +65,10 @@ test('reference check blocks tracked and untracked workspace drift', async () =>
 test('reference check never reports clean when refresh or Git observation fails', async () => {
   const refreshFailed = projectReferenceCheckReport({
     root: path.join(os.tmpdir(), 'sec-reference-root-must-not-be-read'),
+    runnerCommand: 'bun run reference:check',
+    refreshCommand: 'bun run reference:refresh',
+    diffCommand: 'git diff --name-only --exit-code -z -- examples/reference-workspace',
+    untrackedScanCommand: 'git ls-files -z --others --exclude-standard -- examples/reference-workspace',
     refreshExitCode: 2,
     drift: {
       exitCode: -1,
@@ -76,6 +84,10 @@ test('reference check never reports clean when refresh or Git observation fails'
     const drift = await scanReferenceDrift(nonRepositoryRoot);
     const gitFailed = projectReferenceCheckReport({
       root: nonRepositoryRoot,
+      runnerCommand: 'bun run reference:check',
+      refreshCommand: 'bun run reference:refresh',
+      diffCommand: 'git diff --name-only --exit-code -z -- examples/reference-workspace',
+      untrackedScanCommand: 'git ls-files -z --others --exclude-standard -- examples/reference-workspace',
       refreshExitCode: 0,
       drift
     });

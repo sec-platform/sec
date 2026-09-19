@@ -46,7 +46,7 @@ const loadLocalContainerEngineReadiness = memoizedModule(
 // projection helpers into Promise-returning public facades.
 export const loadDependencyEnvironmentDomain = memoizedModule(() => import('../../adapters/toolchain/dependencies/environment.ts'));
 export const loadProjectOverviewDomain = memoizedModule(() => import('./project-overview.ts'));
-export const loadReferenceCheckDomain = memoizedModule(() => import('../reference/application/check.ts'));
+export const loadReferenceCheckDomain = memoizedModule(() => import('../reference/check.ts'));
 export const loadTestBudgetDomain = memoizedModule(() => import('../../adapters/verification/platform/test-impact/contract/budget.ts'));
 
 // Provider-neutral SEC development tooling is the canonical execution owner;

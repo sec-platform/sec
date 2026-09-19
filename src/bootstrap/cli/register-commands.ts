@@ -12,6 +12,8 @@ import { formatWorktreeSettlement } from '../../entry/cli/worktree-settlement.ts
 import { loadDependencyEnvironmentDomain, loadReferenceCheckDomain, loadTestBudgetDomain, observeLocalContainerEngineReadiness, runCensus, runSettlement } from './lazy-command-domains.ts';
 import { registerInspectionCommands } from './register-inspection-commands.ts';
 import { registerWorkspaceCommands } from './register-workspace-commands.ts';
+import { assertReferenceCheckClean } from '../../application/reference-check.ts';
+import { formatReferenceCheck } from '../../entry/reference-check.ts';
 import { runWithOptionalSpinner } from './command-progress.ts';
 
 type DependencyEnvironmentModule = typeof import('../../adapters/toolchain/dependencies/environment.ts');
@@ -106,8 +108,8 @@ export function registerCommands(
     const domain = await loadReferenceCheckDomain();
     const report = await domain.buildReferenceCheckReport();
     const command = platformCommand('reference', 'check', '--json');
-    printJsonOrText({ ...report, command }, output, () => domain.formatReferenceCheck(report, command));
-    domain.assertReferenceCheckClean(report);
+    printJsonOrText({ ...report, command }, output, () => formatReferenceCheck(report, command));
+    assertReferenceCheckClean(report);
   });
 
   const benchmarkCmd = program.command('benchmark');
