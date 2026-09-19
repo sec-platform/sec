@@ -1,6 +1,5 @@
 import type { VerificationReport } from '../contract/types.ts';
 import { PIPELINE_VERIFY_STAGE_IDS } from '../../../adapters/compilation-protocol/types.ts';
-import type { WorkspaceSemanticBundle } from '../../../adapters/workspace/semantic-bundle.ts';
 import { sha256 } from '../../../compiler/semantic-mutation/canonical.ts';
 import type { SemanticMutationIsolatedVerificationFailure } from '../../../adapters/verification/semantic-mutation-isolated-verification-failure.ts';
 
@@ -14,7 +13,14 @@ export interface SemanticMutationIsolatedVerificationEvidenceArtifacts {
     readonly runtimeReport: string;
     readonly verificationReport: string;
   };
-  readonly semanticBundle: WorkspaceSemanticBundle;
+  readonly semanticBundle: Readonly<{
+    readonly snapshot: Readonly<{
+      readonly ir: Readonly<{
+        readonly inputRevision: string;
+        readonly semanticRevision: string;
+      }>;
+    }>;
+  }>;
   readonly verificationReport: VerificationReport;
 }
 
