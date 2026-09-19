@@ -88,7 +88,7 @@ import {
   type SemanticMutationIsolationFailureObservation
 } from '../../application/semantic-mutation-isolated-verification.ts';
 import { compileWorkspace } from './pipeline-orchestrator.ts';
-import { executeWorkspaceWriteEffect } from '../../execution/workspace-write-effect.ts';
+import { executeWorkspaceWriteEffect } from '../../adapters/filesystem/workspace-write-effect.ts';
 import { projectSemanticMutationLiveRebuild } from '../../application/semantic-mutation-live-rebuild.ts';
 
 type ReadyPlan = ReadySemanticMutationPlan;

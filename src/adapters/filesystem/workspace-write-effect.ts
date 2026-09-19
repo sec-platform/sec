@@ -1,8 +1,8 @@
-import type { CommitFence } from '../contracts/commit-fence.ts';
+import type { CommitFence } from '../../contracts/commit-fence.ts';
 import {
   createWorkspaceWriteCommitFence,
   type WorkspaceWriteLeaseToken
-} from '../adapters/filesystem/write-lease.ts';
+} from './write-lease.ts';
 
 /** Execute one already-authorized workspace write effect. This helper does not
  * acquire a lease or retry: it binds the existing lease to one commit fence,

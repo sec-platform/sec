@@ -1,7 +1,6 @@
 import type { VerificationReport } from '../contract/types.ts';
-import { PIPELINE_VERIFY_STAGE_IDS } from '../../../adapters/compilation-protocol/types.ts';
+import { PIPELINE_VERIFY_STAGE_IDS } from '../../../compiler/pipeline/stages.ts';
 import { sha256 } from '../../../compiler/semantic-mutation/canonical.ts';
-import type { SemanticMutationIsolatedVerificationFailure } from '../../../adapters/verification/semantic-mutation-isolated-verification-failure.ts';
 
 const ISOLATED_VERIFICATION_EVIDENCE_DOMAIN =
   'semantic-mutation-isolated-verification-evidence-v1' as const;
@@ -24,6 +23,10 @@ export interface SemanticMutationIsolatedVerificationEvidenceArtifacts {
   readonly verificationReport: VerificationReport;
 }
 
+export type SemanticMutationIsolatedVerificationFailureEvidence = Readonly<{
+  readonly stage: string;
+}>;
+
 export type SemanticMutationIsolatedVerificationEvidence =
   | Readonly<{
       readonly status: 'passed';
@@ -31,7 +34,7 @@ export type SemanticMutationIsolatedVerificationEvidence =
     }>
   | Readonly<{
       readonly status: 'blocked';
-      readonly failure?: SemanticMutationIsolatedVerificationFailure;
+      readonly failure?: SemanticMutationIsolatedVerificationFailureEvidence;
     }>;
 
 export function semanticMutationIsolatedVerificationEvidenceDigest(
