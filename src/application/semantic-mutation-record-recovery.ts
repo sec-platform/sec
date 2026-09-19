@@ -87,7 +87,7 @@ function ensureOperations(operations: SemanticMutationRecordRecoveryOperations):
   }
 }
 
-async function markRecoveryRequired(
+export async function markRecoveryRequired(
   record: SemanticMutationRecoveryRecord,
   state: SemanticMutationRecoveryFailureState,
   diagnostic: SemanticMutationDiagnostic,
@@ -100,7 +100,7 @@ async function markRecoveryRequired(
   };
 }
 
-async function rollbackCommitted(
+export async function rollbackCommitted(
   record: SemanticMutationRecoveryRecord,
   cause: SemanticMutationDiagnostic,
   operations: SemanticMutationRecordRecoveryOperations
@@ -138,7 +138,7 @@ async function rollbackCommitted(
   }
 }
 
-async function completeCommitted(
+export async function completeCommitted(
   record: SemanticMutationRecoveryRecord,
   operations: SemanticMutationRecordRecoveryOperations,
   stagedVerificationProof?: StagedVerificationProof
