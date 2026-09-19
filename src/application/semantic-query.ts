@@ -58,6 +58,12 @@ export function evaluateSemanticQuery(
   return Object.freeze({ purpose: 'generate', compilation, artifacts });
 }
 
+export interface SemanticRuntimeOptions {
+  /** Finite in-flight admission, including source capture. The synchronous
+   * compiler profile defaults to one call; excess work is rejected, not queued. */
+  readonly maximumPendingQueries?: number;
+}
+
 /** The current pure semantic profile. It advertises only its real operations;
  * save, build, execute and verification remain separate effectful use cases. */
 export interface SemanticRuntime {
@@ -65,6 +71,7 @@ export interface SemanticRuntime {
     input: 'captured-semantic-values';
     purposes: readonly SemanticQueryPurpose[];
     target: 'typescript-runtime-contract';
+    maximumPendingQueries: number;
   }>;
   handle(request: SemanticQueryRequest): Promise<SemanticQueryResult>;
   close(): Promise<void>;

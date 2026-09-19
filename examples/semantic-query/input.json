@@ -1,0 +1,152 @@
+{
+  "engineeringIRInput": {
+    "app": {
+      "id": "item-app",
+      "name": "item-app"
+    },
+    "resolvedBlocks": [
+      {
+        "id": "item/basic",
+        "version": "0.1.0",
+        "kind": "capability",
+        "installOrder": 1,
+        "manifestPath": "example-components/item/block.manifest.yaml",
+        "registrySourceId": "example",
+        "registryKind": "private",
+        "registryLocation": "workspace",
+        "registryPath": "example-components/item"
+      }
+    ],
+    "manifests": [
+      {
+        "blockId": "item/basic",
+        "manifestPath": "example-components/item/block.manifest.yaml",
+        "manifest": {
+          "requires": [],
+          "provides": [
+            "item/write"
+          ],
+          "pins": {
+            "inputs": [],
+            "outputs": []
+          },
+          "generators": [
+            {
+              "id": "item-status-runtime-contract",
+              "kind": "generate-state-transition-map",
+              "contract": "item-core",
+              "state": "item-status",
+              "target": "src/installed/item/item-semantic-contract.ts",
+              "consumes": [
+                "transition",
+                "state"
+              ],
+              "produces": "typescript-runtime-contract",
+              "typeBinding": {
+                "name": "ItemStatus",
+                "importFrom": "../../runtime/database.ts"
+              },
+              "verification": [
+                "typecheck",
+                "item_can_transition"
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "acceptanceIds": [
+      "item_can_transition"
+    ],
+    "policyDeclarations": [],
+    "semanticContracts": [
+      {
+        "blockId": "item/basic",
+        "contractPath": "example-components/item/contracts/item.yaml",
+        "contract": {
+          "formatVersion": "1",
+          "id": "item-core",
+          "namespace": "item",
+          "entities": [
+            {
+              "id": "Item",
+              "fields": [
+                {
+                  "id": "status",
+                  "type": "ItemStatus",
+                  "required": true,
+                  "mutable": true
+                }
+              ]
+            }
+          ],
+          "states": [
+            {
+              "id": "item-status",
+              "entity": "Item",
+              "field": "status",
+              "owner": "ItemStateMachine",
+              "values": [
+                "closed",
+                "open"
+              ],
+              "transitions": [
+                {
+                  "from": "closed",
+                  "to": "open",
+                  "by": "transitionItemStatus"
+                },
+                {
+                  "from": "open",
+                  "to": "closed",
+                  "by": "transitionItemStatus"
+                }
+              ]
+            }
+          ],
+          "responsibilities": [
+            {
+              "id": "ItemStateMachine",
+              "role": "Own item status",
+              "owns": [
+                "Item.status"
+              ],
+              "implements": [
+                "transitionItemStatus"
+              ],
+              "dependsOn": []
+            }
+          ],
+          "operations": [
+            {
+              "id": "transitionItemStatus",
+              "responsibility": "ItemStateMachine",
+              "inputs": [
+                "ItemStatus"
+              ],
+              "output": "ItemStatus",
+              "reads": [
+                "Item"
+              ],
+              "writes": [],
+              "mutates": [
+                "Item.status"
+              ],
+              "requiresPolicies": [],
+              "requiresPermissions": [],
+              "performsEffects": [],
+              "emits": [],
+              "invokes": [],
+              "awaits": []
+            }
+          ],
+          "events": [],
+          "policies": [],
+          "permissions": [],
+          "effects": [],
+          "scenarios": []
+        }
+      }
+    ]
+  }
+}

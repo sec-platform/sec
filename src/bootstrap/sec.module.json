@@ -1,4 +1,6 @@
 {
   "importGraph": "runtime",
-  "externalEntrypoints": []
+  "externalEntrypoints": [
+    "src/bootstrap/create-runtime.ts"
+  ]
 }

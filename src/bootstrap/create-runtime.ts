@@ -1,9 +1,14 @@
 import { SecError } from '../contracts/failure.ts';
-import { evaluateSemanticQuery, prepareSemanticQuery, type SemanticQueryRequest, type SemanticQueryResult, type SemanticRuntime } from '../application/semantic-query.ts';
+import { evaluateSemanticQuery, prepareSemanticQuery, type SemanticQueryRequest, type SemanticQueryResult, type SemanticRuntime, type SemanticRuntimeOptions } from '../application/semantic-query.ts';
 
 /** Assemble the existing pure compiler and target, without a workspace, store,
  * watcher or effect provider. Every request owns its captured values. */
-export function createRuntime(): SemanticRuntime {
+export function createRuntime(options: SemanticRuntimeOptions = {}): SemanticRuntime {
+  const { maximumPendingQueries = 1 } = options;
+  if (!Number.isSafeInteger(maximumPendingQueries) || maximumPendingQueries < 1) {
+    throw new TypeError('Semantic runtime maximumPendingQueries must be a positive safe integer');
+  }
+  let admittedCount = 0;
   let accepting = true;
   let closed: Promise<void> | undefined;
   const pending = new Set<Promise<SemanticQueryResult>>();
@@ -12,17 +17,26 @@ export function createRuntime(): SemanticRuntime {
   const capabilities: SemanticRuntime['capabilities'] = Object.freeze({
     input: 'captured-semantic-values',
     purposes: Object.freeze(['analyze', 'generate'] as const),
-    target: 'typescript-runtime-contract'
+    target: 'typescript-runtime-contract',
+    maximumPendingQueries
   });
 
   const handle = (request: SemanticQueryRequest): Promise<SemanticQueryResult> => {
     if (!accepting) return Promise.reject(new SecError('RUNTIME-CLOSED-001', 'Semantic runtime is closed'));
+    if (admittedCount >= maximumPendingQueries) {
+      return Promise.reject(new SecError('RUNTIME-BUSY-001', 'Semantic runtime query capacity is exhausted'));
+    }
+    // Reserve before source capture, including reentrant calls from getters.
+    admittedCount++;
     let query: ReturnType<typeof prepareSemanticQuery>;
     try { query = prepareSemanticQuery(request); }
-    catch (error) { return Promise.reject(error); }
+    catch (error) { admittedCount--; return Promise.reject(error); }
     // Preparing caller-owned values can run accessors. Recheck admission before
     // starting work if a reentrant close happened during source capture.
-    if (!accepting) return Promise.reject(new SecError('RUNTIME-CLOSED-001', 'Semantic runtime is closed'));
+    if (!accepting) {
+      admittedCount--;
+      return Promise.reject(new SecError('RUNTIME-CLOSED-001', 'Semantic runtime is closed'));
+    }
     const result = Promise.resolve().then(async () => {
       if (query.purpose === 'analyze') return evaluateSemanticQuery(query);
       target ??= import('../adapters/targets/typescript/state-transition-source.ts');
@@ -30,7 +44,7 @@ export function createRuntime(): SemanticRuntime {
       return evaluateSemanticQuery(query, renderTypeScriptSemanticTask);
     });
     pending.add(result);
-    const release = () => { pending.delete(result); };
+    const release = () => { pending.delete(result); admittedCount--; };
     void result.then(release, release);
     return result;
   };
@@ -48,5 +62,5 @@ export function createRuntime(): SemanticRuntime {
   });
 }
 
-export type { SemanticQueryRequest, SemanticQueryResult, SemanticRuntime } from '../application/semantic-query.ts';
+export type { SemanticQueryRequest, SemanticQueryResult, SemanticRuntime, SemanticRuntimeOptions } from '../application/semantic-query.ts';
 export type { SemanticCompilationInput } from '../compiler/semantic-compiler.ts';

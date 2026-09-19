@@ -49,6 +49,24 @@ bun run demo:governance
 bun run demo:closed-loop
 ```
 
+### Pure semantic queries in the source preview
+
+The source library factory at `src/bootstrap/create-runtime.ts` exposes `handle()` and `close()` for the current pure semantic profile. It accepts captured semantic values; it does not require a writable workspace, acquire a workspace write lease, or publish a Lock. `analyze` returns the existing validated IR, generator plan and semantic views. `generate` uses the same compiler and TypeScript renderer as the fenced workspace publisher, but returns artifact source in memory.
+
+A runnable closed input and library consumer are retained under [`examples/semantic-query/`](examples/semantic-query/). With the pinned dependencies already available, either consumer can run directly:
+
+```console
+bun src/bootstrap/cli/cli.ts semantic analyze --input examples/semantic-query/input.json --json
+bun src/bootstrap/cli/cli.ts semantic generate --input examples/semantic-query/input.json --json --compact
+bun examples/semantic-query/consume.ts
+```
+
+The JSON contains `engineeringIRInput`, the existing captured IR-build profile, not a new general authoring language. Generator declarations are derived from its manifests and selected blocks unless explicitly supplied by an existing adapter. JSON provenance fields are input values, not new registry or write authority. Without `--input`, the CLI reads the existing workspace through its normal read adapter; neither query mode writes the workspace.
+
+The current generator emits state-transition maps. The returned set is explicitly scoped to `semantic-tasks`; required native types/imports still belong to the supplied target implementation. This is not a complete native package, a build result, or proof of passed verification. Change the transition in the same input JSON and generate again to obtain a new semantic revision; previous query results remain detached from later author edits.
+
+A runtime defaults to one in-flight query. The host may select a positive finite `maximumPendingQueries` when constructing it; excess requests fail with `RUNTIME-BUSY-001` before copying their inputs, rather than entering an unbounded queue. `close()` stops admission and drains accepted calls. Native cancellation stays live, but these boundaries are not heap hard limits or preemption of synchronous compiler work. The API remains a revision-pinned development preview.
+
 The supported repository checks are listed in `package.json`; contribution work should follow the current development entry in [`AGENTS.md`](AGENTS.md) rather than treating one fixed command as sufficient for every change.
 
 ## Release and compatibility policy
