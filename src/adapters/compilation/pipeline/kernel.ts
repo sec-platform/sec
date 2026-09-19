@@ -12,10 +12,10 @@ import {
   saveLock
 } from '../../workspace/lock.ts';
 import {
-  capturePipelineRequestedStages,
   requirePipelineSource,
   sealPipelineExecutionContext
 } from './execution-context.ts';
+import { capturePipelineRequestedStages } from '../../../compiler/pipeline/stages.ts';
 import {
   capturePipelineStageExecutionOptions,
   type PipelineStageExecutionOptions
