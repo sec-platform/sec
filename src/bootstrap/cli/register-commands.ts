@@ -8,6 +8,7 @@ import { addJsonFlags, commandPath, jsonOpts, usageError } from '../../entry/cli
 import { registerReferenceCommands } from '../../entry/cli/register-reference-commands.ts';
 import { registerVerificationToolingCommands } from '../../entry/cli/register-verification-tooling-commands.ts';
 import { registerTextCommands } from '../../entry/cli/register-text-commands.ts';
+import { registerEnvironmentCommands } from '../../entry/cli/register-environment-commands.ts';
 import { platformCommand } from '../../adapters/verification/platform/sec-command.ts';
 import { printJsonOrText } from '../../entry/cli/format-utils.ts';
 import { formatTextByteCensus } from '../../entry/cli/text-byte-census.ts';
@@ -175,36 +176,35 @@ export function registerCommands(
     }
   });
 
-  const envCmd = program.command('environment').description('Environment settlement inspection');
-  addJsonFlags(envCmd.command('container-engine'))
-    .description('Observe the retained local Container Engine, optionally starting Docker Desktop')
-    .option('--start', 'Issue one bounded Docker Desktop start intent when the endpoint is unavailable')
-    .action(async (opts: Record<string, unknown>) => {
-      const output = jsonOpts(opts);
+  registerEnvironmentCommands(program, {
+    containerEngine: async ({ workspaceRoot, output, start }) => {
       const result = await observeLocalContainerEngineReadiness({
-        cwd: process.cwd(),
-        mode: opts.start ? 'ensure-started' : 'observe'
+        cwd: workspaceRoot,
+        mode: start ? 'ensure-started' : 'observe'
       });
       printJsonOrText(
         result,
         output,
-        (value) => value.status === 'ready'
+        value => value.status === 'ready'
           ? `Container Engine ready: ${value.endpoint.contextName} (${value.endpoint.daemonId})`
           : `Container Engine unavailable: ${value.reason} (${value.phase})`
       );
       if (result.status !== 'ready') process.exitCode = 1;
-    });
-  addJsonFlags(envCmd.command('settle'))
-    .description('Non-destructive worktree settlement preflight')
-    .option('--fix', 'Re-checkout governed text files to enforce canonical LF materialization')
-    .action(async (opts: Record<string, unknown>) => {
-      const output = jsonOpts(opts);
-      const workspaceRoot = process.cwd();
-      const fix = !!opts.fix;
-      const receipt = await runWithOptionalSpinner('Settling worktree', output, () => runSettlement(workspaceRoot, { fix }));
-      printJsonOrText(receipt, output, (value) => formatWorktreeSettlement(projectWorktreeSettlementReceipt(value)));
+    },
+    settle: async ({ workspaceRoot, output, fix }) => {
+      const receipt = await runWithOptionalSpinner(
+        'Settling worktree',
+        output,
+        () => runSettlement(workspaceRoot, { fix })
+      );
+      printJsonOrText(
+        receipt,
+        output,
+        value => formatWorktreeSettlement(projectWorktreeSettlementReceipt(value))
+      );
       if (receipt.status !== 'settled') {
         throw new Error(`Worktree not settled: ${receipt.status}`);
       }
-    });
+    }
+  });
 }
