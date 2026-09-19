@@ -7,6 +7,7 @@ import {
   usageError,
   type JsonOpts
 } from './command-options.ts';
+import { printJsonOrText } from './format-utils.ts';
 
 export type DependencyCleanRequest = Readonly<{
   project?: boolean;
@@ -21,6 +22,23 @@ interface WorkspaceJsonContext {
   readonly output: JsonOpts;
 }
 
+export type DependencyCommandProjection = Readonly<{
+  value: unknown;
+  text: string;
+}>;
+
+export interface DependencyCommandOperations {
+  doctor(workspaceRoot: string): Promise<DependencyCommandProjection>;
+  status(workspaceRoot: string): Promise<DependencyCommandProjection>;
+  freshness(): Promise<DependencyCommandProjection>;
+  warmup(workspaceRoot: string): Promise<DependencyCommandProjection>;
+  relink(workspaceRoot: string): Promise<DependencyCommandProjection>;
+  clean(
+    workspaceRoot: string,
+    request: DependencyCleanRequest
+  ): Promise<Readonly<{ removedCount: number }>>;
+}
+
 export interface DependencyCommandHandlers {
   doctor(context: WorkspaceJsonContext): Promise<void>;
   status(context: WorkspaceJsonContext): Promise<void>;
@@ -31,6 +49,45 @@ export interface DependencyCommandHandlers {
     workspaceRoot: string;
     request: DependencyCleanRequest;
   }>): Promise<void>;
+}
+
+export function bindDependencyCommandHandlers(
+  operations: DependencyCommandOperations
+): DependencyCommandHandlers {
+  const required = [
+    operations.doctor,
+    operations.status,
+    operations.freshness,
+    operations.warmup,
+    operations.relink,
+    operations.clean
+  ];
+  if (required.some(operation => typeof operation !== 'function')) {
+    throw new TypeError('Dependency command operations must be callable');
+  }
+  const render = async (
+    output: JsonOpts,
+    projection: Promise<DependencyCommandProjection>
+  ): Promise<void> => {
+    const resolved = await projection;
+    printJsonOrText(resolved.value, output, () => resolved.text);
+  };
+  return Object.freeze({
+    doctor: ({ workspaceRoot, output }) =>
+      render(output, operations.doctor.call(operations, workspaceRoot)),
+    status: ({ workspaceRoot, output }) =>
+      render(output, operations.status.call(operations, workspaceRoot)),
+    freshness: ({ output }) =>
+      render(output, operations.freshness.call(operations)),
+    warmup: ({ workspaceRoot, output }) =>
+      render(output, operations.warmup.call(operations, workspaceRoot)),
+    relink: ({ workspaceRoot, output }) =>
+      render(output, operations.relink.call(operations, workspaceRoot)),
+    clean: async ({ workspaceRoot, request }) => {
+      const result = await operations.clean.call(operations, workspaceRoot, request);
+      console.log(`Cleaned ${result.removedCount} dependency paths`);
+    }
+  });
 }
 
 /** Entry owns dependency/environment command grammar and clean-option admission. */
