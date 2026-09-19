@@ -10,6 +10,7 @@ import {
   type UpgradeAppliedWorkspaceResult
 } from '../../application/upgrade-apply.ts';
 import {
+  planUpgradeWorkspaceFromWorkspace,
   planWorkspaceUpgrade,
   type PlannedWorkspaceUpgrade,
   type UpgradePlanningUseCaseOperations
@@ -61,9 +62,14 @@ const UPGRADE_PLANNING_OPERATIONS: UpgradePlanningUseCaseOperations = Object.fre
   matchesVersionRange: matchesUpgradeVersionRange
 });
 
+const UPGRADE_PREVIEW_READ_OPERATIONS = Object.freeze({
+  loadWorkspacePlan,
+  readLockFile
+});
+
 /**
- * Computes an Upgrade preview from retained workspace inputs without acquiring
- * write authority or publishing diagnostics, plans, provenance, or Lock state.
+ * Bootstrap binds concrete workspace readers and planning providers only.
+ * Application owns the preview request sequencing.
  */
 export async function planUpgradeWorkspace(
   workspaceRoot: string,
@@ -76,18 +82,13 @@ export async function planUpgradeWorkspace(
   upgradePlan: UpgradePreview;
 }> {
   workspaceRoot = getWorkspacePaths(workspaceRoot).workspaceRoot;
-  const plan = await loadWorkspacePlan(workspaceRoot);
-  const lock = await readLockFile(workspaceRoot);
-  const currentBlock = plan.blocks.find((block) => block.id === blockId);
-  const plannedUpgrade = await planWorkspaceUpgrade({
+  return planUpgradeWorkspaceFromWorkspace(
+    workspaceRoot,
     blockId,
-    currentBlock,
-    lock,
-    plan,
     targetVersion,
-    workspaceRoot
-  }, UPGRADE_PLANNING_OPERATIONS);
-  return { resultKind: 'preview', plan, lock, upgradePlan: plannedUpgrade.upgradePreview };
+    UPGRADE_PLANNING_OPERATIONS,
+    UPGRADE_PREVIEW_READ_OPERATIONS
+  );
 }
 
 export async function runUpgradeWorkspaceWithLease(
