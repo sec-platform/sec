@@ -47,6 +47,11 @@ export type PlannedWorkspaceUpgrade = Readonly<{
   upgradePreview: UpgradePreview;
 }>;
 
+export interface UpgradeWorkspacePreviewReadOperations {
+  loadWorkspacePlan(workspaceRoot: string): Promise<PlanFile>;
+  readLockFile(workspaceRoot: string): Promise<LockFile>;
+}
+
 export interface UpgradePlanningUseCaseOperations {
   loadTargetManifest(input: Readonly<{
     blockId: string;
@@ -181,6 +186,46 @@ export async function planWorkspaceUpgrade(
       migrations,
       migrationEntries
     )
+  });
+}
+
+/**
+ * Read one retained workspace snapshot and compute the Upgrade preview.
+ * Application owns the use-case ordering; bootstrap only binds the concrete
+ * workspace readers and planning providers.
+ */
+export async function planUpgradeWorkspaceFromWorkspace(
+  workspaceRoot: string,
+  blockId: string,
+  targetVersion: string,
+  planningOperations: UpgradePlanningUseCaseOperations,
+  readOperations: UpgradeWorkspacePreviewReadOperations
+): Promise<{
+  resultKind: 'preview';
+  plan: PlanFile;
+  lock: LockFile;
+  upgradePlan: UpgradePreview;
+}> {
+  if (typeof readOperations.loadWorkspacePlan !== 'function' ||
+      typeof readOperations.readLockFile !== 'function') {
+    throw new TypeError('Upgrade workspace preview readers must be callable');
+  }
+  const plan = await readOperations.loadWorkspacePlan.call(readOperations, workspaceRoot);
+  const lock = await readOperations.readLockFile.call(readOperations, workspaceRoot);
+  const currentBlock = plan.blocks.find((block) => block.id === blockId);
+  const plannedUpgrade = await planWorkspaceUpgrade({
+    blockId,
+    currentBlock,
+    lock,
+    plan,
+    targetVersion,
+    workspaceRoot
+  }, planningOperations);
+  return Object.freeze({
+    resultKind: 'preview' as const,
+    plan,
+    lock,
+    upgradePlan: plannedUpgrade.upgradePreview
   });
 }
 
