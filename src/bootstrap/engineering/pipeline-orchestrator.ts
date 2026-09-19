@@ -9,7 +9,7 @@ import {
   type CompileWorkspaceResult
 } from '../../application/compile-workspace.ts';
 import { emitPipelineExecutionBoundary } from '../../adapters/compilation/pipeline/journal.ts';
-import { withPipelineTransaction } from '../../adapters/compilation/pipeline/kernel.ts';
+import { withPipelineTransaction } from './pipeline-kernel.ts';
 import { withLeaseObservationMonitor } from '../../execution/lease-observation-monitor.ts';
 import { requirePipelineSemanticContext } from '../../adapters/compilation/pipeline/semantic-context.ts';
 import { buildPipelineCompletionProof } from '../../adapters/verification/pipeline-completion-proof.ts';
