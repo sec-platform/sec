@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { printRequiredJson } from '../../src/bootstrap/cli/artifact-command-read.ts';
 import { readRequiredJson } from '../../src/adapters/workspace/required-artifact-read.ts';
+import { presentRequiredValue } from '../../src/entry/cli/required-value-presentation.ts';
 
 async function fixture(run: (root: string) => Promise<void>): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-artifact-read-'));
@@ -53,12 +53,13 @@ test('native path errors retain their platform code and only ENOENT is translate
 });
 
 test('read failure emits no success frame', async () => {
-  await fixture(async root => {
-    let writes = 0; const log = console.log; console.log = () => { writes++; };
-    try {
-      await assert.rejects(printRequiredJson(path.join(root, 'missing.json'), 'missing fixture',
-        { json: true, compact: true }, () => assert.fail('format on missing value')));
-      assert.equal(writes, 0);
-    } finally { console.log = log; }
-  });
+  let writes = 0; const log = console.log; console.log = () => { writes++; };
+  try {
+    await assert.rejects(presentRequiredValue(
+      async () => { throw new Error('missing fixture'); },
+      { json: true, compact: true },
+      () => assert.fail('format on missing value')
+    ));
+    assert.equal(writes, 0);
+  } finally { console.log = log; }
 });
