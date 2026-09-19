@@ -1052,7 +1052,7 @@ async function buildIsolatedRunnerBundle(): Promise<Uint8Array> {
   );
   const sourceBundle = await readSemanticMutationIsolatedRunnerBuildOutput(
     () => Bun.build({
-      entrypoints: ['src/bootstrap/engineering/semantic-mutation-isolated-verification-runner.ts'],
+      entrypoints: ['src/bootstrap/engineering/semantic-mutation-isolated-verification-bootstrap.ts'],
       format: 'esm',
       minify: {
         whitespace: true,
