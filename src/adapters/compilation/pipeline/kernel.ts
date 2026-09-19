@@ -5,7 +5,10 @@ import { PASS_INITIAL_STATES } from '../../../compiler/contract/pass-status.ts';
 import { CompilerError, getErrorCode } from '../../../compiler/errors.ts';
 import { readLockFile, saveLock } from "../../workspace/lock.ts";
 import { capturePipelineRequestedStages, capturePipelineStageExecutionOptions, requirePipelineSource, sealPipelineExecutionContext, type PipelineStageExecutionOptions } from './execution-context.ts';
-import { describePipelineFailure, settlePipelineFailure } from './failure.ts';
+import {
+  describePipelineFailure,
+  settlePipelineFailure
+} from '../../../application/pipeline-failure.ts';
 import {
   commitPipelineTransaction,
   failPipelineTransaction,
