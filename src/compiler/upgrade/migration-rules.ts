@@ -1,5 +1,6 @@
 import { CompilerError } from '../errors.ts';
 import type { UpgradeMigrationEntry } from '../../semantics/upgrade/manifest-types.ts';
+import type { UpgradePlan } from '../../semantics/upgrade/upgrade-artifact.ts';
 
 export function ensureMigrationString(value: unknown, field: string, entryPath: string): string {
   if (typeof value !== 'string' || value.length === 0) {
@@ -272,4 +273,88 @@ export function applyTextReplace(source: string, entry: Extract<UpgradeMigration
     throw new CompilerError('UPGRADE-MIGRATION-015', `Text replacement pattern did not match "${entry.target}"`);
   }
   return source.split(entry.search).join(entry.replacement);
+}
+
+
+export type UpgradeMigrationOperation = UpgradePlan['migrationOperations'][number];
+export type UpgradeMigrationProjectPath = readonly ['source' | 'target', string];
+
+function migrationOperationRecord(
+  entry: UpgradeMigrationEntry,
+  role: UpgradeMigrationOperation['role'],
+  details: Omit<Partial<UpgradeMigrationOperation>, 'id' | 'kind' | 'target' | 'role'> = {}
+): UpgradeMigrationOperation {
+  return {
+    id: entry.id,
+    kind: entry.kind,
+    target: entry.target,
+    role,
+    ...details
+  };
+}
+
+export function compileUpgradeMigrationOperation(
+  entry: UpgradeMigrationEntry
+): UpgradeMigrationOperation {
+  switch (entry.kind) {
+    case 'file-replace':
+    case 'copy-file':
+      return migrationOperationRecord(entry, 'file', { source: entry.source });
+    case 'copy-directory':
+      return migrationOperationRecord(entry, 'directory', { source: entry.source });
+    case 'config-rewrite':
+      return migrationOperationRecord(entry, 'json', { updateCount: entry.updates.length });
+    case 'json-array-append':
+    case 'json-array-remove':
+      return migrationOperationRecord(entry, 'json', {
+        path: [...entry.path],
+        itemCount: entry.items.length
+      });
+    case 'json-object-merge':
+      return migrationOperationRecord(entry, 'json', {
+        path: [...entry.path],
+        valueKeyCount: Object.keys(entry.value).length
+      });
+    case 'text-append':
+      return migrationOperationRecord(entry, 'text', { contentLength: entry.content.length });
+    case 'text-replace':
+      return migrationOperationRecord(entry, 'text', {
+        searchLength: entry.search.length,
+        replacementLength: entry.replacement.length
+      });
+    case 'create-directory':
+      return migrationOperationRecord(entry, 'directory');
+    case 'delete-file':
+      return migrationOperationRecord(entry, 'file');
+    case 'delete-directory':
+      return migrationOperationRecord(entry, 'directory');
+    case 'rename-file':
+      return migrationOperationRecord(entry, 'file', { source: entry.source });
+    case 'rename-directory':
+      return migrationOperationRecord(entry, 'directory', { source: entry.source });
+    case 'db-expand-contract':
+      return migrationOperationRecord(entry, 'prisma', {
+        entity: entry.entity,
+        expandField: entry.expandField,
+        contractField: entry.contractField
+      });
+    default: {
+      const unsupported = entry as { kind: string };
+      throw new CompilerError(
+        'UPGRADE-MIGRATION-006',
+        `Unsupported migration kind "${unsupported.kind}"`
+      );
+    }
+  }
+}
+
+export function compileUpgradeMigrationProjectPaths(
+  entry: UpgradeMigrationEntry
+): readonly UpgradeMigrationProjectPath[] {
+  return entry.kind === 'rename-file' || entry.kind === 'rename-directory'
+    ? Object.freeze([
+        Object.freeze(['source', entry.source] as const),
+        Object.freeze(['target', entry.target] as const)
+      ])
+    : Object.freeze([Object.freeze(['target', entry.target] as const)]);
 }

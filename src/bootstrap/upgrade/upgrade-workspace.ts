@@ -15,6 +15,8 @@ import {
   applyJsonArrayRemove,
   applyJsonObjectMerge,
   applyTextReplace,
+  compileUpgradeMigrationOperation,
+  compileUpgradeMigrationProjectPaths,
   ensureJsonObject,
   ensureMigrationString,
   isJsonObject,
@@ -450,9 +452,7 @@ function getMigrationOperationSpec(entry: { kind: string }): AnyMigrationOperati
 }
 
 function collectMigrationProjectPaths(entry: UpgradeMigrationEntry): Array<readonly ['source' | 'target', string]> {
-  const spec = getMigrationOperationSpec(entry);
-  if (!spec) throw unsupportedMigrationKindError(entry as { kind: string });
-  return (spec.collectImpacts?.(entry) ?? [entry.target]).map((relativePath) => [relativePath === entry.target ? 'target' : 'source', relativePath]);
+  return [...compileUpgradeMigrationProjectPaths(entry)];
 }
 
 function resolveWorkspaceMigrationTarget(workspaceRoot: string, entry: UpgradeMigrationEntry): string {
@@ -1029,7 +1029,7 @@ async function collectFileOperationEvidence(
 
 function collectJsonShapeEvidence(migrationEntries: UpgradeMigrationEntry[]): string[] {
   return uniqueSorted(migrationEntries.flatMap((entry) => {
-    const operation = buildMigrationOperation(entry);
+    const operation = compileUpgradeMigrationOperation(entry);
     const path = operation.path?.join('.');
     return operation.role !== 'json' ? []
       : operation.updateCount !== undefined ? [`${entry.id}:updates:${operation.updateCount}`]
@@ -1233,13 +1233,9 @@ function buildUpgradePreflightChecks(input: UpgradePreflightCheckInput): Upgrade
 }
 
 function collectMigrationImpacts(migrationEntries: UpgradeMigrationEntry[]): string[] {
-  return migrationEntries.flatMap((entry) => {
-    const spec = getMigrationOperationSpec(entry);
-    if (!spec) {
-      throw unsupportedMigrationKindError(entry as { kind: string });
-    }
-    return spec.collectImpacts?.(entry) ?? [entry.target];
-  });
+  return migrationEntries.flatMap((entry) =>
+    compileUpgradeMigrationProjectPaths(entry).map(([, relativePath]) => relativePath)
+  );
 }
 
 type UpgradePreflightEvidenceOptions = {
@@ -1559,7 +1555,7 @@ function buildMigrationKindCounts(migrationEntries: UpgradeMigrationEntry[]): Re
 
 function buildMigrationSummary(entry: UpgradeMigrationEntry, migrations: UpgradeMigration[]): UpgradePlan['migrationSummaries'][number] {
   const migration = migrations.find((candidate) => candidate.id === entry.id);
-  const operation = buildMigrationOperation(entry);
+  const operation = compileUpgradeMigrationOperation(entry);
   return {
     id: entry.id,
     kind: entry.kind,
@@ -1591,7 +1587,7 @@ function buildUpgradePreview(
   migrations: UpgradeMigration[],
   migrationEntries: UpgradeMigrationEntry[]
 ): UpgradePreview {
-  const migrationOperations = migrationEntries.map(buildMigrationOperation);
+  const migrationOperations = migrationEntries.map(compileUpgradeMigrationOperation);
   return createUpgradePreview({
     artifactKind: 'unbound-upgrade-preview',
     blockId,
