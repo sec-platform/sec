@@ -1,6 +1,6 @@
 import type { CiArtifactManifest } from '../../assurance/verification/ci-artifacts/contract/types.ts';
 import type { ArtifactCommandInput } from '../../entry/cli/artifact-command-input.ts';
-import { formatJson, printJsonOrText } from '../../entry/cli/format-utils.ts';
+import { printJson, printJsonOrText } from '../../entry/cli/format-utils.ts';
 import { observeWorkspaceArtifacts, writeWorkspaceArtifacts } from './lazy-command-domains.ts';
 
 /** A route owns exactly one artifact operation; no raw options or live Command crosses it. */
@@ -32,7 +32,7 @@ export async function executeArtifactCommand(workspaceRoot: string, commandPath:
     case 'generate': {
       const { manifest } = await writeWorkspaceArtifacts(workspaceRoot);
       // Generation has always returned a JSON manifest, even without --json.
-      console.log(formatJson(manifest, input.output));
+      printJson(manifest, input.output);
       return;
     }
     default: {

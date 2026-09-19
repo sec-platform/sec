@@ -25,6 +25,10 @@ export function formatJson(value: unknown, options: Pick<JsonOutputOptions, 'com
   return stringifyJsonValue(value, options.compact ? 0 : 2, 'CLI JSON output');
 }
 
+export function printJson(value: unknown, options: Pick<JsonOutputOptions, 'compact'>): void {
+  console.log(formatJson(value, options));
+}
+
 export function printJsonOrText<T>(
   value: T,
   options: JsonOutputOptions,
