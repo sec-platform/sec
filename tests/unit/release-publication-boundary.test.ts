@@ -3,7 +3,7 @@ import fs, { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { buildReleaseArtifact } from '../../src/bootstrap/release/release-artifact.ts';
+import { buildReleaseArtifact } from '../../src/adapters/release/release-artifact.ts';
 
 test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('release publication rejects a non-directory accepted destination before source preparation', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-release-destination-file-'));

@@ -3,23 +3,6 @@
   "externalEntrypoints": [
     "src/bootstrap/release/build.ts"
   ],
-  "capabilityProviders": [
-    {
-      "capability": "release.frozen-source-builder",
-      "operations": [
-        "prepareFrozenReleaseSource",
-        "buildFrozenReleaseBundle"
-      ],
-      "effectKinds": [
-        "filesystem",
-        "process"
-      ],
-      "ownerInternalOperations": [
-        "prepareFrozenReleaseSource",
-        "buildFrozenReleaseBundle"
-      ],
-      "operationRoles": []
-    }
-  ],
+  "capabilityProviders": [],
   "operationObligations": []
 }

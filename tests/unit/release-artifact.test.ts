@@ -7,15 +7,15 @@ import path from 'node:path';
 import {
   RELEASE_BUN_ENTRYPOINT_SHEBANG,
   releaseBunEntrypointBytes
-} from '../../src/bootstrap/release/release-artifact.ts';
-import { materializeExactReleaseGitTree } from '../../src/bootstrap/release/release-git-tree-source.ts';
+} from '../../src/adapters/release/release-artifact.ts';
+import { materializeExactReleaseGitTree } from '../../src/adapters/release/release-git-tree-source.ts';
 import {
   assertReleaseBunRuntimeRequirement,
   buildFrozenReleaseBundle,
   disposeFrozenReleaseSource,
   prepareFrozenReleaseSource,
   type ReleaseBuilderIdentity
-} from '../../src/bootstrap/release/release-source-materialization.ts';
+} from '../../src/adapters/release/release-source-materialization.ts';
 import { PACKAGE_SOURCE_LAUNCHER_SCRIPT } from '../../src/adapters/toolchain/runtime.ts';
 
 const FIXTURE_ENTRYPOINT = Object.freeze({

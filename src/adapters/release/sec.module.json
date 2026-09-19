@@ -1,0 +1,23 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [],
+  "capabilityProviders": [
+    {
+      "capability": "release.frozen-source-builder",
+      "operations": [
+        "prepareFrozenReleaseSource",
+        "buildFrozenReleaseBundle"
+      ],
+      "effectKinds": [
+        "filesystem",
+        "process"
+      ],
+      "ownerInternalOperations": [
+        "prepareFrozenReleaseSource",
+        "buildFrozenReleaseBundle"
+      ],
+      "operationRoles": []
+    }
+  ],
+  "operationObligations": []
+}

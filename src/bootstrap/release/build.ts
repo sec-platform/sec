@@ -1,5 +1,5 @@
 import { compilerRuntimeLayout } from '../../adapters/toolchain/runtime.ts';
-import { buildReleaseArtifact } from './release-artifact.ts';
+import { buildReleaseArtifact } from '../../adapters/release/release-artifact.ts';
 
 async function main(): Promise<void> {
   const repositorySourceRoot = compilerRuntimeLayout.repositorySourceRoot;
