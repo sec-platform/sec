@@ -1,9 +1,9 @@
-import type { CiArtifactManifestInspectionSourceInspectionSource } from '../../application/ci-artifact-manifest-inspect.ts';
+import type { CiArtifactManifestInspectionSource } from '../../application/ci-artifact-manifest-inspect.ts';
 import { buildArtifactUploadPathContract } from '../../application/artifact-upload-paths.ts';
-import { projectCiArtifactManifestInspectionSource } from '../../application/ci-artifact-manifest-inspect.ts';
+import { projectCiArtifactManifest } from '../../application/ci-artifact-manifest-inspect.ts';
 import type { ArtifactCommandInput } from './artifact-command-input.ts';
 import { formatArtifactUploadPaths } from './artifact-upload-paths.ts';
-import { formatCiArtifactManifestInspectionSource } from './ci-artifact-manifest-inspect.ts';
+import { formatCiArtifactManifest } from './ci-artifact-manifest-inspect.ts';
 import { printJson, printJsonOrText } from './format-utils.ts';
 
 export interface ArtifactCommandOperations {
@@ -29,7 +29,7 @@ export async function executeArtifactCommandInput(
       printJsonOrText(
         manifest,
         input.output,
-        value => formatCiArtifactManifestInspectionSource(projectCiArtifactManifestInspectionSource(value))
+        value => formatCiArtifactManifest(projectCiArtifactManifest(value))
       );
       return;
     }
