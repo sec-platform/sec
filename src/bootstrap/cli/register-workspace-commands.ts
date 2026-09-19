@@ -49,7 +49,7 @@ export function registerWorkspaceCommands(program: Command): void {
         );
         return { value, text: formatRepairSummary(projectRepairSummary(value, true)) };
       },
-      readPlanIfPresent: async workspaceRoot => {
+      readPlanIfPresent: async (workspaceRoot, dryRun) => {
         const { CI_ARTIFACT_FILES } = await import('../../assurance/verification/ci-artifacts/contract/manifest.ts');
         const { pathExists } = await import('../../adapters/filesystem/files.ts');
         const { resolveWorkspaceArtifactPath } = await import('../../adapters/workspace-context.ts');
@@ -64,7 +64,7 @@ export function registerWorkspaceCommands(program: Command): void {
         );
         return {
           value,
-          text: formatRepairSummary(projectRepairSummary(value, false))
+          text: formatRepairSummary(projectRepairSummary(value, dryRun))
         };
       },
       execute: async (workspaceRoot, dryRun) => {
