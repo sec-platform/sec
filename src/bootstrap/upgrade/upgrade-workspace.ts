@@ -27,6 +27,16 @@ import {
   validateSourceMigrationEntry,
   type MigrationEntryValidationContext
 } from '../../compiler/upgrade/migration-rules.ts';
+import {
+  buildUpgradePreflightChecks,
+  buildUpgradePreview,
+  classifyPreflightFailure,
+  collectJsonShapeEvidence,
+  collectMigrationImpacts,
+  lockStateRevision,
+  planningRequestRevision,
+  type UpgradePreflightEvidence
+} from '../../compiler/upgrade/planning.ts';
 import { addGeneratedPaths } from "../../compiler/contract/lock-schema.ts";
 import { readLockFile } from "../../adapters/workspace/lock.ts";
 import { compileWorkspace } from '../engineering/pipeline-orchestrator.ts';
@@ -976,18 +986,6 @@ async function collectFileOperationEvidence(
   return uniqueSorted(evidence);
 }
 
-function collectJsonShapeEvidence(migrationEntries: UpgradeMigrationEntry[]): string[] {
-  return uniqueSorted(migrationEntries.flatMap((entry) => {
-    const operation = compileUpgradeMigrationOperation(entry);
-    const path = operation.path?.join('.');
-    return operation.role !== 'json' ? []
-      : operation.updateCount !== undefined ? [`${entry.id}:updates:${operation.updateCount}`]
-      : operation.itemCount !== undefined && path ? [`${entry.id}:path:${path}:array:${operation.itemCount}`]
-      : operation.valueKeyCount !== undefined && path ? [`${entry.id}:path:${path}:object:${operation.valueKeyCount}`]
-      : [];
-  }));
-}
-
 function isJsonMigrationEntry(entry: UpgradeMigrationEntry): entry is Extract<
   UpgradeMigrationEntry,
   { kind: 'config-rewrite' | 'json-array-append' | 'json-array-remove' | 'json-object-merge' }
@@ -1099,94 +1097,6 @@ async function collectJsonStructureEvidence(
   return uniqueSorted(evidence);
 }
 
-type UpgradePreflightEvidence = {
-  fileOperationEvidence: string[];
-  jsonShapeEvidence: string[];
-  jsonStructureEvidence: string[];
-  migrationTargetEvidence: string[];
-  scannedOverrides: string[];
-  textPatternEvidence: string[];
-};
-
-type UpgradePreflightCheckInput = {
-  acceptedRanges: string[];
-  currentVersion: string;
-  impacts: string[];
-  migrationEntries: UpgradeMigrationEntry[];
-  migrations: UpgradeMigration[];
-  targetVersion: string;
-  evidence: UpgradePreflightEvidence;
-};
-
-type UpgradePreflightCheckSpec = {
-  id: UpgradePreflightCheck['id'];
-  message: (input: UpgradePreflightCheckInput) => string;
-  evidence: (input: UpgradePreflightCheckInput) => string[];
-};
-
-const UPGRADE_PREFLIGHT_CHECK_SPECS = [
-  {
-    id: 'version-range',
-    message: ({ currentVersion, targetVersion }) => `Upgrade path ${currentVersion} -> ${targetVersion} is allowed`,
-    evidence: ({ acceptedRanges }) => acceptedRanges
-  },
-  {
-    id: 'migration-entries',
-    message: ({ migrationEntries }) => `${migrationEntries.length} migration entries loaded and validated`,
-    evidence: ({ migrations }) => migrations.map((migration) => `${migration.id}:${migration.entry}`)
-  },
-  {
-    id: 'migration-targets',
-    message: ({ evidence }) => `${evidence.migrationTargetEvidence.length} migration paths checked`,
-    evidence: ({ evidence }) => evidence.migrationTargetEvidence
-  },
-  {
-    id: 'migration-file-operations',
-    message: ({ evidence }) => `${evidence.fileOperationEvidence.length} file operations checked`,
-    evidence: ({ evidence }) => evidence.fileOperationEvidence
-  },
-  {
-    id: 'migration-json-shapes',
-    message: ({ evidence }) => `${evidence.jsonShapeEvidence.length} JSON migration shapes checked`,
-    evidence: ({ evidence }) => evidence.jsonShapeEvidence
-  },
-  {
-    id: 'migration-json-structure',
-    message: ({ evidence }) => `${evidence.jsonStructureEvidence.length} JSON migration targets checked`,
-    evidence: ({ evidence }) => evidence.jsonStructureEvidence
-  },
-  {
-    id: 'migration-text-patterns',
-    message: ({ evidence }) => `${evidence.textPatternEvidence.length} text replacement patterns checked`,
-    evidence: ({ evidence }) => evidence.textPatternEvidence
-  },
-  {
-    id: 'impact-scan',
-    message: ({ impacts }) => `${impacts.length} upgrade impacts calculated`,
-    evidence: ({ impacts }) => impacts
-  },
-  {
-    id: 'override-conflicts',
-    message: ({ evidence }) => `${evidence.scannedOverrides.length} overrides scanned with no conflicts`,
-    evidence: ({ evidence }) => evidence.scannedOverrides
-  }
-] satisfies readonly UpgradePreflightCheckSpec[];
-
-function buildUpgradePreflightChecks(input: UpgradePreflightCheckInput): UpgradePreflightCheck[] {
-  return UPGRADE_PREFLIGHT_CHECK_SPECS.map((spec) => ({
-    id: spec.id,
-    status: 'passed',
-    message: spec.message(input),
-    evidence: spec.evidence(input)
-  }));
-}
-
-function collectMigrationImpacts(migrationEntries: UpgradeMigrationEntry[]): string[] {
-  return migrationEntries.flatMap((entry) =>
-    compileUpgradeMigrationProjectPaths(entry).map(([, relativePath]) => relativePath)
-  );
-}
-
 type UpgradePreflightEvidenceOptions = {
   blockId: string;
   impacts: string[];
@@ -1232,20 +1142,6 @@ type PlannedWorkspaceUpgrade = {
   targetManifestRoot: string;
   upgradePreview: UpgradePreview;
 };
-
-function lockStateRevision(lock: LockFile | null): `sha256:${string}` {
-  return upgradeArtifactDigest({ domain: 'sec.upgrade.lock-state', state: lock === null ? 'absent' : 'present', lock });
-}
-
-function planningRequestRevision(input: {
-  workspaceIdentityDigest: string;
-  blockId: string;
-  targetVersion: string;
-  plan: PlanFile;
-  lock: LockFile | null;
-}): `sha256:${string}` {
-  return upgradeArtifactDigest({ domain: 'sec.upgrade.planning-request', ...input, lockRevision: lockStateRevision(input.lock) });
-}
 
 async function planWorkspaceUpgrade(options: UpgradePlanningOptions): Promise<PlannedWorkspaceUpgrade> {
   const { blockId, currentBlock, lock, plan, targetVersion, workspaceRoot } = options;
@@ -1379,48 +1275,6 @@ async function recordUpgradeGeneratedArtifact(
   await writeProvenance(workspaceRoot, lock, commitFence);
 }
 
-const PREFLIGHT_FAILURE_BY_ERROR_CODE = new Map<string, UpgradeDiagnostics['failedCheck']>([
-  ['UPGRADE-BLOCKED-003', 'plan-block'],
-  ['MANIFEST-SCHEMA-004', 'target-manifest'],
-  ['UPGRADE-NOOP-001', 'version-range'],
-  ['UPGRADE-BLOCKED-001', 'version-range'],
-  ['UPGRADE-BLOCKED-002', 'version-range'],
-  ['UPGRADE-MIGRATION-004', 'migration-targets'],
-  ['UPGRADE-MIGRATION-007', 'migration-targets'],
-  ['UPGRADE-MIGRATION-012', 'migration-json-structure'],
-  ['UPGRADE-MIGRATION-013', 'migration-json-structure'],
-  ['UPGRADE-MIGRATION-030', 'migration-json-structure'],
-  ['UPGRADE-MIGRATION-015', 'migration-text-patterns'],
-  ['UPGRADE-CONFLICT-001', 'override-conflicts']
-]);
-
-const MIGRATION_FILE_OPERATION_FAILURE_CODES = new Set([
-  'UPGRADE-MIGRATION-005',
-  'UPGRADE-MIGRATION-008',
-  'UPGRADE-MIGRATION-016',
-  'UPGRADE-MIGRATION-017',
-  'UPGRADE-MIGRATION-018',
-  'UPGRADE-MIGRATION-019',
-  'UPGRADE-MIGRATION-020',
-  'UPGRADE-MIGRATION-023',
-  'UPGRADE-MIGRATION-024',
-  'UPGRADE-MIGRATION-025',
-  'UPGRADE-MIGRATION-026',
-  'UPGRADE-MIGRATION-027',
-  'UPGRADE-MIGRATION-028'
-]);
-
-function classifyPreflightFailure(code: string): UpgradeDiagnostics['failedCheck'] {
-  const failedCheck = PREFLIGHT_FAILURE_BY_ERROR_CODE.get(code);
-  if (failedCheck) {
-    return failedCheck;
-  }
-  if (MIGRATION_FILE_OPERATION_FAILURE_CODES.has(code)) {
-    return 'migration-file-operations';
-  }
-  return code.startsWith('UPGRADE-MIGRATION-') ? 'migration-entries' : 'impact-scan';
-}
-
 async function writeUpgradeDiagnostics(
   workspaceRoot: string,
   blockId: string,
@@ -1493,69 +1347,6 @@ async function writeUpgradeDiagnostics(
         ],
     commitFence
   );
-}
-
-function buildMigrationKindCounts(migrationEntries: UpgradeMigrationEntry[]): Record<string, number> {
-  return migrationEntries.reduce<Record<string, number>>((counts, entry) => {
-    counts[entry.kind] = (counts[entry.kind] ?? 0) + 1;
-    return counts;
-  }, {});
-}
-
-function buildMigrationSummary(entry: UpgradeMigrationEntry, migrations: UpgradeMigration[]): UpgradePlan['migrationSummaries'][number] {
-  const migration = migrations.find((candidate) => candidate.id === entry.id);
-  const operation = compileUpgradeMigrationOperation(entry);
-  return {
-    id: entry.id,
-    kind: entry.kind,
-    target: entry.target,
-    reason: entry.reason,
-    requiresVerification: migration?.requiresVerification ?? true,
-    ...(operation.source ? { source: operation.source } : {})
-  };
-}
-
-function buildUpgradePreview(
-  blockId: string,
-  fromVersion: string,
-  toVersion: string,
-  planningInputRevision: `sha256:${string}`,
-  sourceRevision: `sha256:${string}`,
-  lockRevision: `sha256:${string}`,
-  compatibility: { blockApi: string; compilerApi: string; stackProfiles: string[] },
-  preflightChecks: UpgradePreflightCheck[],
-  impacts: string[],
-  migrations: UpgradeMigration[],
-  migrationEntries: UpgradeMigrationEntry[]
-): UpgradePreview {
-  const migrationOperations = migrationEntries.map(compileUpgradeMigrationOperation);
-  return createUpgradePreview({
-    artifactKind: 'unbound-upgrade-preview',
-    blockId,
-    fromVersion,
-    toVersion,
-    planningInputRevision,
-    sourceRevision,
-    lockRevision,
-    compatibility: {
-      blockApi: compatibility.blockApi,
-      compilerApi: compatibility.compilerApi,
-      stackProfiles: uniqueSorted(compatibility.stackProfiles)
-    },
-    preflightChecks,
-    impacts,
-    migrations,
-    migrationKindCounts: buildMigrationKindCounts(migrationEntries),
-    migrationSummaries: migrationEntries.map((entry) => buildMigrationSummary(entry, migrations)),
-    migrationOperations,
-    orderedSteps: migrationOperations.map((operation, ordinal) => ({
-      ordinal,
-      migrationId: operation.id,
-      kind: operation.kind,
-      target: operation.target,
-      operationRevision: upgradeArtifactDigest(operation)
-    }))
-  });
 }
 
 const PRESERVED_WORKSPACE_SNAPSHOT_ENTRIES = new Set([
