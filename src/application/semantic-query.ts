@@ -1,3 +1,4 @@
+import { captureSemanticRoots } from '../compiler/semantic-roots.ts';
 import { cloneAndDeepFreeze } from '../contracts/canonical.ts';
 import { readAuthorCandidate, type AuthorCandidate, type AuthorWorkspace } from '../workspace/author-candidate.ts';
 import { assertNativeAbortSignal, throwIfNativeAborted } from '../contracts/native-abort.ts';
@@ -9,6 +10,7 @@ import type { SemanticGeneratorPlanTask } from '../semantics/generation/types.ts
 export type SemanticQueryPurpose = 'analyze' | 'generate';
 export type SemanticQueryRequest = Readonly<{
   purpose: SemanticQueryPurpose;
+  roots?: readonly string[];
   signal?: AbortSignal;
 }> & (
   | Readonly<{ input: SemanticCompilationInput; candidate?: never }>
@@ -26,7 +28,7 @@ export function requireSemanticQueryPurpose(value: unknown): SemanticQueryPurpos
 /** Own source values at the request boundary; retain the original live signal.
  * This prepared query carries no workspace locator or publication permission. */
 export function prepareSemanticQuery(request: SemanticQueryRequest) {
-  const { purpose: requestedPurpose, input, candidate, signal } = request;
+  const { purpose: requestedPurpose, input, candidate, signal, roots } = request;
   const purpose = requireSemanticQueryPurpose(requestedPurpose);
   if (signal !== undefined) assertNativeAbortSignal(signal);
   throwIfNativeAborted(signal);
@@ -35,9 +37,10 @@ export function prepareSemanticQuery(request: SemanticQueryRequest) {
   }
   // A workspace candidate is already owned and immutable. Reuse its source;
   // one-shot callers still transfer a copy at this boundary.
+  const selectedRoots = captureSemanticRoots(roots);
   const captured = candidate === undefined ? cloneAndDeepFreeze(input!) : readAuthorCandidate(candidate);
   throwIfNativeAborted(signal);
-  return Object.freeze({ purpose, input: captured, signal });
+  return Object.freeze({ purpose, input: captured, signal, roots: selectedRoots });
 }
 export type PreparedSemanticQuery = ReturnType<typeof prepareSemanticQuery>;
 
@@ -49,7 +52,7 @@ export function evaluateSemanticQuery(
   if (query.purpose === 'generate' && typeof render !== 'function') {
     throw new SecError('SEMANTIC-QUERY-002', 'The requested semantic target is not assembled');
   }
-  const compilation = compileSemanticInput(query.input);
+  const compilation = compileSemanticInput(query.input, query.roots);
   throwIfNativeAborted(query.signal);
   if (query.purpose === 'analyze') return Object.freeze({ purpose: 'analyze', compilation });
   const artifacts = renderSemanticArtifacts(prepareSemanticLowering({

@@ -9,9 +9,9 @@ await runCli({
   version: packageMetadata.version,
   register: (program) => {
     registerCommands(program);
-    registerSemanticCommands(program, async (root, purpose, inputFile) => {
+    registerSemanticCommands(program, async (root, purpose, inputFile, roots) => {
       const { queryWorkspaceSemantics } = await import('../engineering/semantic-query.ts');
-      return queryWorkspaceSemantics(root, purpose, inputFile);
+      return queryWorkspaceSemantics(root, purpose, inputFile, roots);
     });
     registerPipelineCommands(program, {
       compile: async (workspaceRoot, invocation) => {

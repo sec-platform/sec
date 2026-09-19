@@ -8,19 +8,21 @@ import { registerWorkspaceAction } from './workspace-action.ts';
  * injected, not performed by transport code or an implicit write pipeline. */
 export function registerSemanticCommands(
   program: Command,
-  query: (root: string, purpose: SemanticQueryPurpose, inputFile?: string) => Promise<SemanticQueryResult>
+  query: (root: string, purpose: SemanticQueryPurpose, inputFile?: string, roots?: readonly string[]) => Promise<SemanticQueryResult>
 ): void {
   registerWorkspaceAction(addJsonFlags(optionalModeCommand(
     program.command('semantic')
       .description('Analyze or generate semantic artifacts in memory without writing the workspace')
-      .option('--input <file>', 'Read closed semantic input JSON instead of workspace artifacts'),
+      .option('--input <file>', 'Read closed semantic input JSON instead of workspace artifacts')
+      .option('--root <identities...>', 'Select exact generator entity identities; omit for all generators'),
     'mode', ['analyze', 'generate']
   )), {
     decode: (mode: unknown, options: Record<string, unknown>) => ({
-      request: { purpose: requireSemanticQueryPurpose(mode === undefined ? 'analyze' : mode), inputFile: options.input as string | undefined },
+      request: { purpose: requireSemanticQueryPurpose(mode === undefined ? 'analyze' : mode), inputFile: options.input as string | undefined,
+        roots: options.root === undefined ? undefined : Object.freeze([...(options.root as string[])]) },
       output: jsonOpts(options)
     }),
-    execute: (root, request) => query(root, request.purpose, request.inputFile),
+    execute: (root, request) => query(root, request.purpose, request.inputFile, request.roots),
     view: result => commandValue(result, value => value.purpose === 'generate'
       ? `Generated ${value.artifacts.members.length} semantic artifacts in memory; no files written\n${value.artifacts.members.map(member => member.task.target).join('\n')}`
       : `Analyzed ${value.compilation.snapshot.ir.entities.length} entities and ${value.compilation.snapshot.ir.facts.length} facts; no files written`)

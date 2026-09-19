@@ -2,6 +2,7 @@ import type { ValidatedEngineeringIRSnapshot } from '../semantics/engineering-ir
 import type { SemanticGeneratorDeclaration, SemanticGeneratorPlan } from '../semantics/generation/types.ts';
 import type { SemanticViewSet } from '../semantics/projection/types.ts';
 import { CompilerError } from './errors.ts';
+import { captureSemanticRoots, selectSemanticGeneratorRoots } from './semantic-roots.ts';
 import type { BuildEngineeringIRInput } from './ir/build-engineering-ir.ts';
 import { buildValidatedEngineeringIR } from './ir/validate-engineering-ir.ts';
 import { buildSemanticViewSet } from './projection/build-semantic-view-set.ts';
@@ -41,11 +42,14 @@ export function deriveSemanticGeneratorDeclarations(input: BuildEngineeringIRInp
  * Capturing a coherent read set remains the caller's responsibility; this
  * function does not turn independently captured values into an atomic snapshot.
  */
-export function compileSemanticInput(input: SemanticCompilationInput): SemanticCompilation {
+export function compileSemanticInput(input: SemanticCompilationInput, roots?: readonly string[]): SemanticCompilation {
+  const selectedRoots = captureSemanticRoots(roots);
   const snapshot = buildValidatedEngineeringIR(input.engineeringIRInput);
   return Object.freeze({
     snapshot,
-    generatorPlan: buildSemanticGeneratorPlan(snapshot, input.generatorDeclarations ?? deriveSemanticGeneratorDeclarations(input.engineeringIRInput)),
+    generatorPlan: buildSemanticGeneratorPlan(snapshot, selectSemanticGeneratorRoots(
+      input.generatorDeclarations ?? deriveSemanticGeneratorDeclarations(input.engineeringIRInput), selectedRoots
+    )),
     semanticViews: buildSemanticViewSet(snapshot)
   });
 }

@@ -1,3 +1,4 @@
+import { captureSemanticRoots } from '../../compiler/semantic-roots.ts';
 import path from 'node:path';
 import type { SemanticQueryPurpose, SemanticQueryResult } from '../../application/semantic-query.ts';
 import { requireSemanticQueryPurpose } from '../../application/semantic-query.ts';
@@ -10,16 +11,18 @@ import { createRuntime } from '../create-runtime.ts';
 export async function queryWorkspaceSemantics(
   workspaceRoot: string,
   purpose: SemanticQueryPurpose,
-  inputFile?: string
+  inputFile?: string,
+  roots?: readonly string[]
 ): Promise<SemanticQueryResult> {
   const root = path.resolve(workspaceRoot);
+  const selectedRoots = captureSemanticRoots(roots);
   const selectedPurpose = requireSemanticQueryPurpose(purpose);
   const input = inputFile === undefined
     ? await loadWorkspaceEngineeringIRBuildInput(root)
     : readSemanticQueryInput(path.resolve(root, inputFile));
   const runtime = createRuntime();
   try {
-    return await runtime.handle({ purpose: selectedPurpose, input });
+    return await runtime.handle({ purpose: selectedPurpose, input, roots: selectedRoots });
   } finally {
     await runtime.close();
   }
