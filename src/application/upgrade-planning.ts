@@ -15,10 +15,12 @@ import {
   buildUpgradePreview,
   collectMigrationImpacts,
   lockStateRevision,
+  planningRequestRevision,
   type UpgradePreflightEvidence,
   type UpgradeVersionRangeMatcher
 } from '../compiler/upgrade/planning.ts';
 import type { UpgradeMigrationEntry } from '../semantics/upgrade/manifest-types.ts';
+import { executeUpgradePlanningWithFailurePublication } from './upgrade-failure-publication.ts';
 import {
   upgradeArtifactDigest,
   type UpgradeExecutionTerminal,
@@ -51,6 +53,31 @@ export interface UpgradeWorkspacePreviewReadOperations {
   loadWorkspacePlan(workspaceRoot: string): Promise<PlanFile>;
   readLockFile(workspaceRoot: string): Promise<LockFile>;
 }
+
+export type UpgradeApplyPlanningFailureContext = Readonly<{
+  blockId: string;
+  targetVersion: string;
+  workspaceIdentityDigest: string;
+  planningRequestRevision: string;
+  existingLock: LockFile | null;
+}>;
+
+export interface UpgradeApplyPlanningOperations extends UpgradeWorkspacePreviewReadOperations {
+  readOptionalLock(workspaceRoot: string): Promise<LockFile | null>;
+  clearPlan(): Promise<void>;
+  clearExecutionTerminal(): Promise<void>;
+  publishDiagnostics(
+    failure: CompilerError,
+    context: UpgradeApplyPlanningFailureContext
+  ): Promise<void>;
+}
+
+export type PreparedUpgradeApplyPlanning = Readonly<{
+  plan: PlanFile;
+  existingLock: LockFile | null;
+  plannedUpgrade: PlannedWorkspaceUpgrade;
+  planningRequestRevision: string;
+}>;
 
 export interface UpgradePlanningUseCaseOperations {
   loadTargetManifest(input: Readonly<{
@@ -226,6 +253,74 @@ export async function planUpgradeWorkspaceFromWorkspace(
     plan,
     lock,
     upgradePlan: plannedUpgrade.upgradePreview
+  });
+}
+
+/**
+ * Prepare one write-authorized Upgrade apply from a retained workspace view.
+ * Application owns request-revision binding, planning failure behavior and the
+ * resulting planned use-case state. Bootstrap supplies only concrete I/O.
+ */
+export async function prepareUpgradeApplyPlanning(
+  input: Readonly<{
+    workspaceRoot: string;
+    blockId: string;
+    targetVersion: string;
+    workspaceIdentityDigest: string;
+  }>,
+  planningOperations: UpgradePlanningUseCaseOperations,
+  operations: UpgradeApplyPlanningOperations
+): Promise<PreparedUpgradeApplyPlanning> {
+  if (typeof operations.loadWorkspacePlan !== 'function' ||
+      typeof operations.readOptionalLock !== 'function' ||
+      typeof operations.clearPlan !== 'function' ||
+      typeof operations.clearExecutionTerminal !== 'function' ||
+      typeof operations.publishDiagnostics !== 'function') {
+    throw new TypeError('Upgrade apply planning operations must be callable');
+  }
+
+  const plan = await operations.loadWorkspacePlan.call(operations, input.workspaceRoot);
+  const existingLock = await operations.readOptionalLock.call(operations, input.workspaceRoot);
+  const currentBlock = plan.blocks.find((block) => block.id === input.blockId);
+  const requestRevision = planningRequestRevision({
+    workspaceIdentityDigest: input.workspaceIdentityDigest,
+    blockId: input.blockId,
+    targetVersion: input.targetVersion,
+    plan,
+    lock: existingLock
+  });
+
+  const plannedUpgrade = await executeUpgradePlanningWithFailurePublication(
+    () => planWorkspaceUpgrade({
+      blockId: input.blockId,
+      currentBlock,
+      lock: existingLock,
+      plan,
+      targetVersion: input.targetVersion,
+      workspaceRoot: input.workspaceRoot
+    }, planningOperations),
+    {
+      clearPlan: () => operations.clearPlan.call(operations),
+      clearExecutionTerminal: () => operations.clearExecutionTerminal.call(operations),
+      publishDiagnostics: failure => operations.publishDiagnostics.call(
+        operations,
+        failure,
+        {
+          blockId: input.blockId,
+          targetVersion: input.targetVersion,
+          workspaceIdentityDigest: input.workspaceIdentityDigest,
+          planningRequestRevision: requestRevision,
+          existingLock
+        }
+      )
+    }
+  );
+
+  return Object.freeze({
+    plan,
+    existingLock,
+    plannedUpgrade,
+    planningRequestRevision: requestRevision
   });
 }
 
