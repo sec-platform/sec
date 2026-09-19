@@ -10,6 +10,11 @@ import {
   materializeExactReleaseGitTree,
   type ExactReleaseGitTree
 } from './release-git-tree-source.ts';
+import {
+  assertPublishedCanonicalDocumentationSource,
+  materializeCanonicalDocumentationSource,
+  type DocumentationReleaseFile
+} from './documentation-source.ts';
 
 export const DOCUMENTATION_ARTIFACT_MANIFEST_RELATIVE_PATH =
   'documentation-artifact-manifest.json' as const;
@@ -20,18 +25,14 @@ export interface ReleaseSourceIdentity {
   readonly sourceTree: string;
 }
 
-export interface DocumentationArtifactFile {
-  readonly path: string;
-  readonly bytes: number;
-  readonly digest: `sha256:${string}`;
-  readonly executable: boolean;
-}
+export type DocumentationArtifactFile = DocumentationReleaseFile;
 
 export interface DocumentationArtifactManifest {
   readonly schema: 'sec.release-documentation-artifact/1';
   readonly packageVersion: string;
   readonly sourceCommit: string;
   readonly sourceTree: string;
+  readonly documentationSourceSetDigest: `sha256:${string}`;
   readonly license: Readonly<{
     readonly spdx: 'CC-BY-4.0';
     readonly textPath: 'LICENSES/CC-BY-4.0.txt';
@@ -81,21 +82,6 @@ function documentationCleanupFinding(
   });
 }
 
-export function isDocumentationReleasePath(relativePath: string): boolean {
-  const normalized = relativePath.replaceAll('\\', '/');
-  if (normalized.endsWith('.md')) return true;
-  if (
-    normalized === 'CITATION.cff'
-    || normalized === 'NOTICE'
-    || normalized === 'LICENSE'
-    || normalized === 'REUSE.toml'
-  ) return true;
-  if (normalized === 'LICENSES/CC-BY-4.0.txt') return true;
-  return normalized.startsWith('docs/')
-    || normalized.startsWith('alternatives/')
-    || normalized.startsWith('.documentation/');
-}
-
 async function readPackageIdentity(sourceRoot: string): Promise<Readonly<{
   packageVersion: string;
   creator: typeof DOCUMENTATION_RELEASE_CREATOR;
@@ -130,60 +116,6 @@ function assertExpectedSource(
       `actualTree=${source.sourceTree}`
     ].join(' '));
   }
-}
-
-async function materializeDocumentationFiles(
-  sourceRoot: string,
-  artifactRoot: string
-): Promise<readonly DocumentationArtifactFile[]> {
-  const files: DocumentationArtifactFile[] = [];
-
-  async function walk(directory: string, prefix: string): Promise<void> {
-    const entries = await fs.readdir(directory, { withFileTypes: true });
-    entries.sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
-    for (const entry of entries) {
-      const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
-      const sourcePath = path.join(directory, entry.name);
-      if (entry.isSymbolicLink()) {
-        throw new Error(`Documentation release source contains a symbolic link: ${relativePath}`);
-      }
-      if (entry.isDirectory()) {
-        await walk(sourcePath, relativePath);
-        continue;
-      }
-      if (!entry.isFile()) {
-        throw new Error(`Documentation release source contains a non-ordinary entry: ${relativePath}`);
-      }
-      if (!isDocumentationReleasePath(relativePath)) continue;
-
-      const bytes = await fs.readFile(sourcePath);
-      const metadata = await fs.stat(sourcePath);
-      const destinationPath = path.join(artifactRoot, ...relativePath.split('/'));
-      await fs.mkdir(path.dirname(destinationPath), { recursive: true });
-      await fs.writeFile(destinationPath, bytes, { flag: 'wx' });
-      if (process.platform !== 'win32') {
-        await fs.chmod(destinationPath, metadata.mode & 0o777);
-      }
-      files.push(Object.freeze({
-        path: relativePath,
-        bytes: bytes.byteLength,
-        digest: `sha256:${digest(bytes)}` as `sha256:${string}`,
-        executable: (metadata.mode & 0o111) !== 0
-      }));
-    }
-  }
-
-  await walk(sourceRoot, '');
-  for (const requiredLegalPath of [
-    'LICENSES/CC-BY-4.0.txt',
-    'LICENSE',
-    'REUSE.toml'
-  ] as const) {
-    if (!files.some((file) => file.path === requiredLegalPath)) {
-      throw new Error(`Documentation release artifact requires legal metadata: ${requiredLegalPath}`);
-    }
-  }
-  return Object.freeze(files);
 }
 
 function documentationManifestMaterial(
@@ -251,6 +183,9 @@ export async function readDocumentationArtifactManifest(
   ) {
     throw new Error('Documentation artifact license/attribution contract is invalid');
   }
+  if (!/^sha256:[0-9a-f]{64}$/u.test(manifest.documentationSourceSetDigest)) {
+    throw new Error('Documentation artifact source-set digest is invalid');
+  }
   const { contentDigest, ...material } = manifest;
   if (sha256(documentationManifestMaterial(material)) !== contentDigest) {
     throw new Error('Documentation artifact manifest digest is invalid');
@@ -266,6 +201,10 @@ export async function readDocumentationArtifactManifest(
   ) {
     throw new Error('Documentation artifact legal metadata is absent');
   }
+  await assertPublishedCanonicalDocumentationSource(
+    artifactRoot,
+    manifest.documentationSourceSetDigest
+  );
   return Object.freeze(manifest);
 }
 
@@ -276,6 +215,7 @@ async function writeDocumentationManifest(
     creator: typeof DOCUMENTATION_RELEASE_CREATOR;
     sourceCommit: string;
     sourceTree: string;
+    documentationSourceSetDigest: `sha256:${string}`;
     files: readonly DocumentationArtifactFile[];
   }>
 ): Promise<DocumentationArtifactManifest> {
@@ -284,6 +224,7 @@ async function writeDocumentationManifest(
     packageVersion: input.packageVersion,
     sourceCommit: input.sourceCommit,
     sourceTree: input.sourceTree,
+    documentationSourceSetDigest: input.documentationSourceSetDigest,
     license: Object.freeze({
       spdx: 'CC-BY-4.0' as const,
       textPath: 'LICENSES/CC-BY-4.0.txt' as const,
@@ -346,12 +287,16 @@ export async function buildDocumentationArtifact(
       path.join(destinationParent.path, '.sec-documentation-artifact-stage-')
     );
     inspectNoFollowDirectoryChain(artifactStageRoot, 'Documentation artifact staging root');
-    const files = await materializeDocumentationFiles(source.root, artifactStageRoot);
+    const documentationSource = await materializeCanonicalDocumentationSource(
+      source.root,
+      artifactStageRoot
+    );
     manifest = await writeDocumentationManifest(artifactStageRoot, {
       ...packageIdentity,
       sourceCommit: source.sourceCommit,
       sourceTree: source.sourceTree,
-      files
+      documentationSourceSetDigest: documentationSource.sourceSetDigest,
+      files: documentationSource.files
     });
 
     const existing = inspectExactNoFollowDirectoryPresence(
