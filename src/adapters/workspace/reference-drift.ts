@@ -1,9 +1,9 @@
-import { GitReadAuthorityError, withAuthorityGitReadSession } from '../../../adapters/providers/git-read/authority.ts';
-import { type ByteCommandResult } from '../../../adapters/runtime-state/physical/runtime/process.ts';
+import { GitReadAuthorityError, withAuthorityGitReadSession } from '../providers/git-read/authority.ts';
+import { type ByteCommandResult } from '../runtime-state/physical/runtime/process.ts';
 import {
   sha256,
   uniqueSorted
-} from '../../../contracts/canonical.ts';
+} from '../../contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
@@ -11,7 +11,7 @@ import {
   issueSecSemanticOperationAttemptContext,
   type SecBoundSemanticOperation,
   type SecOperationDigest
-} from '../../../execution/operation/semantic.ts';
+} from '../../execution/operation/semantic.ts';
 export type ReferenceDriftScan = {
   exitCode: number;
   trackedExitCode: number;
