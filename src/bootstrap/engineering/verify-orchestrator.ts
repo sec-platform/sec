@@ -9,7 +9,7 @@ import type { VerificationReport } from '../../assurance/verification/contract/t
 import type { LockFile } from '../../compiler/contract.ts';
 import { assertWorkspaceWriteLease } from '../../adapters/filesystem/write-lease.ts';
 import { readLockFile } from '../../adapters/workspace/lock.ts';
-import { executePipelineStage } from '../../adapters/compilation/pipeline/kernel.ts';
+import { executePipelineStage } from './pipeline-kernel.ts';
 import { settlePipelineFailure } from '../../application/pipeline-failure.ts';
 import type { PipelineExecutionContext } from '../../adapters/compilation-protocol/types.ts';
 import { writeBlockedVerificationSnapshot } from '../../adapters/verification/blocked-verification-publication.ts';
