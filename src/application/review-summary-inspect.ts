@@ -3,6 +3,8 @@ import {
   reviewArtifactUploadGroupCount
 } from '../assurance/verification/review/contract/artifact.ts';
 import type { ReviewSummary } from '../assurance/verification/review/contract/types.ts';
+
+export type ReviewSummaryProjectionSource = ReviewSummary;
 import { upgradeDiagnosticsAttributionParts } from '../assurance/verification/review/contract/upgrade.ts';
 
 export type ReviewSummaryInspectView = Readonly<{
