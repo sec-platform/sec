@@ -1,6 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { requirePipelineSource, sealPipelineExecutionContext } from '../../src/adapters/compilation/pipeline/execution-context.ts';
+import { sealPipelineExecutionContext } from '../../src/adapters/compilation/pipeline/execution-context.ts';
+import { requirePipelineSource } from '../../src/compiler/pipeline/source.ts';
 import { capturePipelineRequestedStages } from '../../src/compiler/pipeline/stages.ts';
 import { capturePipelineStageExecutionOptions } from '../../src/application/pipeline-stage-lifecycle.ts';
 
