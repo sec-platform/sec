@@ -4,6 +4,9 @@ import { addJsonFlags, commandPath, optionalModeCommand } from './command-option
 import { printJsonOrText } from './format-utils.ts';
 import { reportRepairFailureReadback } from './repair-failure-readback.ts';
 import { runRepairWithFailureReadback } from '../../application/repair-execution.ts';
+import { projectRepairSummary } from '../../application/repair-summary.ts';
+import type { RepairPlan } from '../../semantics/repair/types.ts';
+import { formatRepairSummary } from './repair-summary.ts';
 import {
   WORKSPACE_DRY_RUN_OPTION,
   WORKSPACE_INSPECTION_MODES,
@@ -23,24 +26,18 @@ interface CommandContext<Input> {
   readonly input: Input;
 }
 
-export type RepairCommandProjection = Readonly<{
-  value: unknown;
-  text: string;
-}>;
-
 export interface RepairCommandOperations {
   readPlan(
     workspaceRoot: string,
     missingMessage: string
-  ): Promise<RepairCommandProjection>;
+  ): Promise<RepairPlan>;
   readPlanIfPresent(
-    workspaceRoot: string,
-    dryRun: boolean
-  ): Promise<RepairCommandProjection | null>;
+    workspaceRoot: string
+  ): Promise<RepairPlan | null>;
   execute(
     workspaceRoot: string,
     dryRun: boolean
-  ): Promise<RepairCommandProjection>;
+  ): Promise<RepairPlan>;
   progress<T>(
     text: string,
     output: RepairInput['output'],
@@ -63,18 +60,30 @@ export function bindRepairCommandHandler(
     throw new TypeError('Repair command operations must be callable');
   }
 
+  const present = (
+    plan: RepairPlan,
+    dryRun: boolean,
+    output: RepairInput['output']
+  ): void => {
+    printJsonOrText(
+      plan,
+      output,
+      value => formatRepairSummary(projectRepairSummary(value, dryRun))
+    );
+  };
+
   return async ({ workspaceRoot, invocationPath, input }) => {
     if (input.kind === 'plan') {
-      const projection = await operations.readPlan.call(
+      const plan = await operations.readPlan.call(
         operations,
         workspaceRoot,
         `Repair plan not found; run ${invocationPath} --dry-run first`
       );
-      printJsonOrText(projection.value, input.output, () => projection.text);
+      present(plan, true, input.output);
       return;
     }
 
-    const projection = await runRepairWithFailureReadback(
+    const plan = await runRepairWithFailureReadback(
       () => operations.progress.call(
         operations,
         input.request.dryRun ? 'Previewing repair' : 'Running repair',
@@ -88,18 +97,17 @@ export function bindRepairCommandHandler(
       async () => {
         const retained = await operations.readPlanIfPresent.call(
           operations,
-          workspaceRoot,
-          input.request.dryRun
+          workspaceRoot
         );
         if (retained !== null) {
-          printJsonOrText(retained.value, input.output, () => retained.text);
+          present(retained, input.request.dryRun, input.output);
         }
       },
       secondary => reportRepairFailureReadback(
         operations.formatFailure.call(operations, secondary)
       )
     );
-    printJsonOrText(projection.value, input.output, () => projection.text);
+    present(plan, input.request.dryRun, input.output);
   };
 }
 
