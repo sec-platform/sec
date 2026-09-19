@@ -12,8 +12,6 @@ import {
   type SecBoundSemanticOperation,
   type SecOperationDigest
 } from '../../../execution/operation/semantic.ts';
-import { referenceWorkspaceRelativePath } from '../workspace.ts';
-
 export type ReferenceDriftScan = {
   exitCode: number;
   trackedExitCode: number;
@@ -21,7 +19,6 @@ export type ReferenceDriftScan = {
   changedPaths: string[];
 };
 
-const REFERENCE_PATHS = [referenceWorkspaceRelativePath] as const;
 const REFERENCE_GIT_DURATION_MS = 30_000;
 const REFERENCE_GIT_PROCESS_MAXIMUM = 2;
 const REFERENCE_GIT_STDOUT_MAX_BYTES = 64 * 1024 * 1024;
@@ -29,10 +26,29 @@ const REFERENCE_GIT_STDERR_MAX_BYTES = 1024 * 1024;
 const REFERENCE_GIT_COMMAND_OUTPUT_MAX_BYTES = 32 * 1024 * 1024;
 const REFERENCE_GIT_COMMAND_STDERR_MAX_BYTES = 512 * 1024;
 const REFERENCE_GIT_RECORD_MAXIMUM = 250_000;
-export const REFERENCE_TRACKED_DIFF_ARGS = ['diff', '--name-only', '--exit-code', '-z', '--', ...REFERENCE_PATHS];
-export const REFERENCE_UNTRACKED_SCAN_ARGS = ['ls-files', '-z', '--others', '--exclude-standard', '--', ...REFERENCE_PATHS];
+export type ReferenceDriftCommands = Readonly<{
+  tracked: readonly string[];
+  untracked: readonly string[];
+}>;
 
-function compileReferenceDriftOperation(root: string): SecBoundSemanticOperation {
+export function buildReferenceDriftCommands(
+  referencePaths: readonly string[]
+): ReferenceDriftCommands {
+  if (referencePaths.length === 0 ||
+      referencePaths.some(value => typeof value !== 'string' || value.length === 0 || value.includes('\0'))) {
+    throw new TypeError('Reference drift scan requires non-empty NUL-free relative paths');
+  }
+  const paths = uniqueSorted(referencePaths);
+  return Object.freeze({
+    tracked: Object.freeze(['diff', '--name-only', '--exit-code', '-z', '--', ...paths]),
+    untracked: Object.freeze(['ls-files', '-z', '--others', '--exclude-standard', '--', ...paths])
+  });
+}
+
+function compileReferenceDriftOperation(
+  root: string,
+  commands: ReferenceDriftCommands
+): SecBoundSemanticOperation {
   const contractDigest = sha256({
     operation: 'reference.scan-drift',
     provider: 'external-capabilities.git-read',
@@ -42,8 +58,8 @@ function compileReferenceDriftOperation(root: string): SecBoundSemanticOperation
     operation: 'reference.scan-drift',
     intentDigest: sha256({
       root,
-      trackedCommand: REFERENCE_TRACKED_DIFF_ARGS,
-      untrackedCommand: REFERENCE_UNTRACKED_SCAN_ARGS
+      trackedCommand: commands.tracked,
+      untrackedCommand: commands.untracked
     }) as SecOperationDigest,
     decisionDigest: contractDigest,
     deadlineAtUnixMs: Date.now() + REFERENCE_GIT_DURATION_MS,
@@ -106,8 +122,11 @@ function aggregateExitCode(
   return tracked.code === 1 || untrackedPaths.length > 0 ? 1 : 0;
 }
 
-export async function scanReferenceDrift(root: string): Promise<ReferenceDriftScan> {
-  const operation = compileReferenceDriftOperation(root);
+export async function scanReferenceDrift(
+  root: string,
+  commands: ReferenceDriftCommands
+): Promise<ReferenceDriftScan> {
+  const operation = compileReferenceDriftOperation(root, commands);
   return withAuthorityGitReadSession({
       cwd: root,
       environment: { LANG: 'C', LC_ALL: 'C' },
@@ -130,7 +149,7 @@ export async function scanReferenceDrift(root: string): Promise<ReferenceDriftSc
         }
         return command.result;
       };
-      const tracked = await run(REFERENCE_TRACKED_DIFF_ARGS);
+      const tracked = await run(commands.tracked);
       if (tracked.code !== 0 && tracked.code !== 1) {
         return {
           exitCode: tracked.code,
@@ -140,7 +159,7 @@ export async function scanReferenceDrift(root: string): Promise<ReferenceDriftSc
         };
       }
       const trackedPaths = parseReferenceGitPathRecords(tracked.stdout, 'git diff');
-      const untracked = await run(REFERENCE_UNTRACKED_SCAN_ARGS);
+      const untracked = await run(commands.untracked);
       const untrackedPaths = untracked.code === 0
         ? parseReferenceGitPathRecords(untracked.stdout, 'git ls-files')
         : [];
