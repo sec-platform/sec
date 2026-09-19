@@ -1,4 +1,6 @@
 import type { PolicyReport } from '../semantics/policies/types.ts';
+
+export type PolicyReportProjectionSource = PolicyReport;
 import { buildReviewPolicySummary } from '../assurance/verification/review/contract/policy.ts';
 import { compareCodeUnits } from '../contracts/canonical.ts';
 
