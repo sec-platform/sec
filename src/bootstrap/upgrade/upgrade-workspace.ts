@@ -5,7 +5,7 @@ import type {
 import { CompilerError } from '../../compiler/errors.ts';
 import {
   publishUpgradeApplyFailureArtifacts,
-  publishUpgradeFailureArtifacts
+  publishUpgradePlanningFailure
 } from '../../application/upgrade-failure-publication.ts';
 import {
   buildUpgradeCommittedFailure,
@@ -156,36 +156,29 @@ export async function runUpgradeWorkspaceWithLease(
       workspaceRoot
     }, UPGRADE_PLANNING_OPERATIONS);
   } catch (error) {
-    if (error instanceof CompilerError) {
-      await publishUpgradeFailureArtifacts(
-        error,
-        [
-          () => removeDir(
-            resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan),
-            commitFence
-          ),
-          () => removeDir(
-            resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeExecutionTerminal),
-            commitFence
-          ),
-          () => writeUpgradeDiagnostics(
-            workspaceRoot,
-            blockId,
-            targetVersion,
-            {
-              phase: 'planning',
-              workspaceIdentityDigest: workspaceWriteLease.workspaceIdentityDigest,
-              planningRequestRevision: requestRevision
-            },
-            error,
-            existingLock,
-            commitFence
-          )
-        ],
-        'Upgrade planning failed and failure artifact publication did not complete'
-      );
-    }
-    throw error;
+    return publishUpgradePlanningFailure(error, [
+      () => removeDir(
+        resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan),
+        commitFence
+      ),
+      () => removeDir(
+        resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeExecutionTerminal),
+        commitFence
+      ),
+      () => writeUpgradeDiagnostics(
+        workspaceRoot,
+        blockId,
+        targetVersion,
+        {
+          phase: 'planning',
+          workspaceIdentityDigest: workspaceWriteLease.workspaceIdentityDigest,
+          planningRequestRevision: requestRevision
+        },
+        error as CompilerError,
+        existingLock,
+        commitFence
+      )
+    ]);
   }
 
   const { artifactKind: ignoredPreviewKind, ...previewMaterial } = plannedUpgrade.upgradePreview;

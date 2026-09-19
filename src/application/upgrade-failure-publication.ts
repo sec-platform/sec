@@ -1,3 +1,4 @@
+import { CompilerError } from '../compiler/errors.ts';
 import { throwUpgradeFailureWithSecondaryFailures } from '../compiler/upgrade/failure.ts';
 
 /**
@@ -66,5 +67,23 @@ export async function publishUpgradeApplyFailureArtifacts<TTerminal>(
     primary,
     secondaryFailures,
     'Upgrade apply failed and failure artifact publication did not complete'
+  );
+}
+
+
+/**
+ * Planning failures own blocked Upgrade evidence only when they are canonical
+ * compiler failures. Unknown/provider failures propagate without inventing an
+ * Upgrade diagnostic classification.
+ */
+export async function publishUpgradePlanningFailure(
+  failure: unknown,
+  publications: readonly (() => Promise<void>)[]
+): Promise<never> {
+  if (!(failure instanceof CompilerError)) throw failure;
+  return publishUpgradeFailureArtifacts(
+    failure,
+    publications,
+    'Upgrade planning failed and failure artifact publication did not complete'
   );
 }
