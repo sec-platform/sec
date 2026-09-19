@@ -1,7 +1,7 @@
 import type { Command } from 'commander';
 
 import type { ErrorProtocolContract } from '../../application/error-protocol-contract.ts';
-import type { CiContract } from '../../adapters/verification/platform/ci/contract/core.ts';
+import type { CiContractInspectionSourceInspectionSource } from '../../application/ci-contract-inspect.ts';
 import {
   ciContractInspectionView,
   errorProtocolContractInspectionView
@@ -10,7 +10,7 @@ import { registerNamedInspectionQuery } from './named-inspection-query.ts';
 
 export interface ContractInspectionOperations {
   errors(): ErrorProtocolContract | PromiseLike<ErrorProtocolContract>;
-  ci(): CiContract | PromiseLike<CiContract>;
+  ci(): CiContractInspectionSource | PromiseLike<CiContractInspectionSource>;
 }
 
 /** Entry owns contract inspection selector grammar, projection and JSON transport. */
