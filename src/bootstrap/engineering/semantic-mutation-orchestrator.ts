@@ -89,6 +89,7 @@ import {
 } from '../../application/semantic-mutation-isolated-verification.ts';
 import { compileWorkspace } from './pipeline-orchestrator.ts';
 import { executeWorkspaceWriteEffect } from '../../execution/workspace-write-effect.ts';
+import { projectSemanticMutationLiveRebuild } from '../../application/semantic-mutation-live-rebuild.ts';
 
 type ReadyPlan = ReadySemanticMutationPlan;
 
@@ -206,19 +207,7 @@ async function liveRebuild(
     ...(stagedVerificationProof ? { stagedVerificationProof } : {}),
     workspaceWriteLease: token
   });
-  const proof = compiled.completionProof;
-  if (!compiled.semanticContext || !proof ||
-    proof.transactionId !== compiled.transactionId ||
-    proof.transactionId !== compiled.semanticContext.transactionId ||
-    proof.inputRevision !== compiled.semanticContext.inputRevision ||
-    proof.semanticRevision !== compiled.semanticContext.semanticRevision) {
-    throw new Error('Live Semantic Mutation rebuild did not complete the registry-owned downstream closure');
-  }
-  return {
-    transactionId: compiled.semanticContext.transactionId,
-    inputRevision: compiled.semanticContext.inputRevision,
-    semanticRevision: compiled.semanticContext.semanticRevision
-  };
+  return projectSemanticMutationLiveRebuild(compiled);
 }
 
 interface SemanticMutationCoordinatorDependencies {
