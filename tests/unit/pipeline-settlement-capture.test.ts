@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { PipelineSettlementFailure, settlePipelineFailure } from '../../src/adapters/compilation/pipeline/failure.ts';
+import { PipelineSettlementFailure, settlePipelineFailure } from '../../src/application/pipeline-failure.ts';
 
 test('all settlement actions and diagnostic labels are fixed before the first callback', async () => {
   const order: string[] = [], primary = new Error('primary'), secondary = new Error('secondary');
