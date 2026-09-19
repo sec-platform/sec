@@ -33,7 +33,10 @@ export interface RepairCommandOperations {
     workspaceRoot: string,
     missingMessage: string
   ): Promise<RepairCommandProjection>;
-  readPlanIfPresent(workspaceRoot: string): Promise<RepairCommandProjection | null>;
+  readPlanIfPresent(
+    workspaceRoot: string,
+    dryRun: boolean
+  ): Promise<RepairCommandProjection | null>;
   execute(
     workspaceRoot: string,
     dryRun: boolean
@@ -85,7 +88,8 @@ export function bindRepairCommandHandler(
       async () => {
         const retained = await operations.readPlanIfPresent.call(
           operations,
-          workspaceRoot
+          workspaceRoot,
+          input.request.dryRun
         );
         if (retained !== null) {
           printJsonOrText(retained.value, input.output, () => retained.text);
