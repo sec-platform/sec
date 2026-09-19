@@ -16,6 +16,8 @@ import {
   buildReleaseArtifact,
   readReleaseArtifactManifest,
   RELEASE_ARTIFACT_MANIFEST_RELATIVE_PATH,
+  RELEASE_RUNTIME_LICENSE_RELATIVE_PATH,
+  RELEASE_SOURCE_REPOSITORY,
   type ReleaseCleanupFinding
 } from './release-artifact.ts';
 
@@ -28,6 +30,7 @@ export interface ReleaseSetManifest {
   readonly packageVersion: string;
   readonly sourceCommit: string;
   readonly sourceTree: string;
+  readonly sourceRepository: typeof RELEASE_SOURCE_REPOSITORY;
   readonly members: Readonly<{
     runtime: Readonly<{
       path: typeof RELEASE_SET_RUNTIME_RELATIVE_PATH;
@@ -78,20 +81,23 @@ export function createReleaseSetManifest(input: Readonly<{
     packageVersion: input.packageVersion,
     sourceCommit: input.sourceCommit,
     sourceTree: input.sourceTree,
+    sourceRepository: RELEASE_SOURCE_REPOSITORY,
     members: Object.freeze({
       runtime: Object.freeze({
         path: RELEASE_SET_RUNTIME_RELATIVE_PATH,
         manifestPath: `${RELEASE_SET_RUNTIME_RELATIVE_PATH}/${RELEASE_ARTIFACT_MANIFEST_RELATIVE_PATH}`,
         manifestDigest: input.runtimeManifestDigest,
         fileCount: input.runtimeFileCount,
-        license: 'MPL-2.0' as const
+        license: 'MPL-2.0' as const,
+        licenseTextPath: `${RELEASE_SET_RUNTIME_RELATIVE_PATH}/${RELEASE_RUNTIME_LICENSE_RELATIVE_PATH}` as 'runtime/LICENSE'
       }),
       documentation: Object.freeze({
         path: RELEASE_SET_DOCUMENTATION_RELATIVE_PATH,
         manifestPath: `${RELEASE_SET_DOCUMENTATION_RELATIVE_PATH}/${DOCUMENTATION_ARTIFACT_MANIFEST_RELATIVE_PATH}`,
         manifestDigest: input.documentationManifestDigest,
         fileCount: input.documentationFileCount,
-        license: 'CC-BY-4.0' as const
+        license: 'CC-BY-4.0' as const,
+        licenseTextPath: `${RELEASE_SET_DOCUMENTATION_RELATIVE_PATH}/LICENSES/CC-BY-4.0.txt` as 'documentation/LICENSES/CC-BY-4.0.txt'
       })
     })
   });
@@ -115,12 +121,19 @@ export async function readReleaseSetManifest(releaseRoot: string): Promise<Relea
     throw new Error('Release set manifest digest is invalid');
   }
   if (
-    manifest.members.runtime.path !== RELEASE_SET_RUNTIME_RELATIVE_PATH
+    manifest.sourceRepository !== RELEASE_SOURCE_REPOSITORY
+    || manifest.members.runtime.path !== RELEASE_SET_RUNTIME_RELATIVE_PATH
     || manifest.members.documentation.path !== RELEASE_SET_DOCUMENTATION_RELATIVE_PATH
+    || manifest.members.runtime.manifestPath
+      !== `${RELEASE_SET_RUNTIME_RELATIVE_PATH}/${RELEASE_ARTIFACT_MANIFEST_RELATIVE_PATH}`
+    || manifest.members.documentation.manifestPath
+      !== `${RELEASE_SET_DOCUMENTATION_RELATIVE_PATH}/${DOCUMENTATION_ARTIFACT_MANIFEST_RELATIVE_PATH}`
     || manifest.members.runtime.license !== 'MPL-2.0'
+    || manifest.members.runtime.licenseTextPath !== 'runtime/LICENSE'
     || manifest.members.documentation.license !== 'CC-BY-4.0'
+    || manifest.members.documentation.licenseTextPath !== 'documentation/LICENSES/CC-BY-4.0.txt'
   ) {
-    throw new Error('Release set member contract is invalid');
+    throw new Error('Release set member/source contract is invalid');
   }
 
   const [runtime, documentation] = await Promise.all([
@@ -138,6 +151,7 @@ export async function readReleaseSetManifest(releaseRoot: string): Promise<Relea
     || documentation.contentDigest !== manifest.members.documentation.manifestDigest
     || runtime.files.length !== manifest.members.runtime.fileCount
     || documentation.files.length !== manifest.members.documentation.fileCount
+    || !runtime.files.some((file) => file.path === RELEASE_RUNTIME_LICENSE_RELATIVE_PATH)
   ) {
     throw new Error('Release set members do not match the shared release identity');
   }
