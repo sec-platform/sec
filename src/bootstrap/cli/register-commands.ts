@@ -4,7 +4,10 @@ import { admitTextByteCensusThreshold, projectTextByteCensusReport, textByteCens
 import { projectWorktreeSettlementReceipt } from '../../application/worktree-settlement.ts';
 import { buildBenchmarkTaskCatalog, formatBenchmarkTaskCatalog } from '../../adapters/verification/platform/benchmark/catalog.ts';
 import { addJsonFlags, jsonOpts, usageError } from '../../entry/cli/command-options.ts';
-import { registerReferenceCommands } from '../../entry/cli/register-reference-commands.ts';
+import {
+  bindReferenceCommandHandlers,
+  registerReferenceCommands
+} from '../../entry/cli/register-reference-commands.ts';
 import { registerVerificationToolingCommands } from '../../entry/cli/register-verification-tooling-commands.ts';
 import {
   bindTextCommandHandlers,
@@ -90,19 +93,18 @@ export function registerCommands(
     }
   }));
 
-  registerReferenceCommands(program, {
-    check: async ({ output }) => {
+  registerReferenceCommands(program, bindReferenceCommandHandlers({
+    check: async () => {
       const domain = await loadReferenceCheckDomain();
       const report = await domain.buildReferenceCheckReport();
       const command = platformCommand('reference', 'check', '--json');
-      printJsonOrText(
-        { ...report, command },
-        output,
-        () => formatReferenceCheck(report, command)
-      );
-      assertReferenceCheckClean(report);
+      return {
+        value: { ...report, command },
+        text: formatReferenceCheck(report, command),
+        assertAccepted: () => assertReferenceCheckClean(report)
+      };
     }
-  });
+  }));
 
   registerVerificationToolingCommands(program, {
     benchmarkCatalog: ({ output }) => {
