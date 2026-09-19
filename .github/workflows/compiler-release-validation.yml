@@ -47,6 +47,7 @@ jobs:
             }
             core.setOutput('sha', commit.sha);
             core.setOutput('base', commit.parents[0].sha);
+            core.setOutput('tree', commit.commit.tree.sha);
 
       - name: Checkout exact release head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -82,6 +83,34 @@ jobs:
           SEC_CHANGED_BASE: ${{ steps.verification.outputs.base }}
           SEC_AFFECTED_TESTS_BASE: ${{ steps.verification.outputs.base }}
         run: bun scripts/ci-verification.ts --profile full --expected-head "$SEC_EXPECTED_HEAD_SHA"
+
+      - name: Build exact-head release set
+        shell: bash
+        run: bun run release:build
+
+      - name: Verify exact-head release set identity
+        shell: bash
+        env:
+          SEC_EXPECTED_HEAD_SHA: ${{ steps.verification.outputs.sha }}
+          SEC_EXPECTED_TREE_SHA: ${{ steps.verification.outputs.tree }}
+        run: |
+          bun -e '
+            const manifest = JSON.parse(await Bun.file(".tmp/release-set/release-set-manifest.json").text());
+            if (manifest.sourceCommit !== process.env.SEC_EXPECTED_HEAD_SHA ||
+                manifest.sourceTree !== process.env.SEC_EXPECTED_TREE_SHA) {
+              throw new Error("Release set source identity differs from the trusted release request.");
+            }
+          '
+
+      - name: Upload exact-head release set
+        id: release-set
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sec-release-head-${{ steps.verification.outputs.sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: .tmp/release-set
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Upload compact full verification evidence
         id: evidence
