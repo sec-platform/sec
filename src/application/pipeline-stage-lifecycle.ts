@@ -44,6 +44,29 @@ export function capturePipelineStageExecutionOptions<T>(
   });
 }
 
+export interface PipelineStageAdmissionOperations<TContext, TResult> {
+  runWithContext(context: TContext): Promise<TResult>;
+  runStandalone(): Promise<TResult>;
+}
+
+/**
+ * Decide whether one stage joins an existing transaction or obtains a
+ * standalone transaction. Application owns this orchestration choice; the
+ * injected providers own physical transaction/context mechanics.
+ */
+export function coordinatePipelineStageAdmission<TContext, TResult>(
+  context: TContext | undefined,
+  operations: PipelineStageAdmissionOperations<TContext, TResult>
+): Promise<TResult> {
+  if (typeof operations.runWithContext !== 'function' ||
+      typeof operations.runStandalone !== 'function') {
+    throw new TypeError('Pipeline stage admission operations must be callable');
+  }
+  return context === undefined
+    ? operations.runStandalone.call(operations)
+    : operations.runWithContext.call(operations, context);
+}
+
 export interface PipelineStageLifecycleOperations<T> {
   readExistingLock(): Awaitable<LockFile | null>;
   assertWrite(): Awaitable<void>;
