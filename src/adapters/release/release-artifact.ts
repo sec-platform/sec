@@ -18,6 +18,9 @@ import {
 
 export const RELEASE_ARTIFACT_MANIFEST_RELATIVE_PATH = 'release-artifact-manifest.json' as const;
 export const RELEASE_BUN_ENTRYPOINT_SHEBANG = '#!/usr/bin/env bun\n' as const;
+export const RELEASE_RUNTIME_LICENSE_RELATIVE_PATH = 'LICENSE' as const;
+export const RELEASE_SOURCE_PROVENANCE_RELATIVE_PATH = 'source-provenance.json' as const;
+export const RELEASE_SOURCE_REPOSITORY = 'https://github.com/sec-platform/sec' as const;
 
 export interface ReleaseArtifactFile {
   readonly path: string;
@@ -181,6 +184,26 @@ async function assertReleaseArtifactReadback(
   const physicalFiles = await listArtifactFiles(artifactRoot);
   if (sha256(physicalFiles) !== sha256(readback.files)) {
     throw new Error(`${label} release artifact physical file inventory differs from manifest`);
+  }
+  if (!physicalFiles.some((file) => file.path === RELEASE_RUNTIME_LICENSE_RELATIVE_PATH)) {
+    throw new Error(`${label} release artifact MPL-2.0 license text is absent`);
+  }
+  const sourceProvenance = JSON.parse(await fs.readFile(
+    path.join(artifactRoot, RELEASE_SOURCE_PROVENANCE_RELATIVE_PATH),
+    'utf8'
+  )) as {
+    schema?: unknown;
+    repository?: unknown;
+    sourceCommit?: unknown;
+    sourceTree?: unknown;
+  };
+  if (
+    sourceProvenance.schema !== 'sec.release-source/1'
+    || sourceProvenance.repository !== RELEASE_SOURCE_REPOSITORY
+    || sourceProvenance.sourceCommit !== readback.sourceCommit
+    || sourceProvenance.sourceTree !== readback.sourceTree
+  ) {
+    throw new Error(`${label} release artifact source provenance is invalid`);
   }
   return readback;
 }
@@ -565,6 +588,21 @@ export async function buildReleaseArtifact(
       await fs.mkdir(path.dirname(destinationPath), { recursive: true });
       await fs.cp(sourcePath, destinationPath, { recursive: true });
     }
+
+    await fs.copyFile(
+      path.join(source.root, RELEASE_RUNTIME_LICENSE_RELATIVE_PATH),
+      path.join(stagedArtifactRoot, RELEASE_RUNTIME_LICENSE_RELATIVE_PATH)
+    );
+    await fs.writeFile(
+      path.join(stagedArtifactRoot, RELEASE_SOURCE_PROVENANCE_RELATIVE_PATH),
+      `${JSON.stringify({
+        schema: 'sec.release-source/1',
+        repository: RELEASE_SOURCE_REPOSITORY,
+        sourceCommit: source.sourceCommit,
+        sourceTree: source.sourceTree
+      }, null, 2)}\n`,
+      { flag: 'wx' }
+    );
 
     const entrypoint = path.join(
       artifactStageRoot,
