@@ -37,6 +37,8 @@ async function createDocumentationRepository(root: string): Promise<void> {
     'examples/guide.md': '# Example guide\n',
     'LICENSES/README.md': '# License map\n',
     'LICENSES/CC-BY-4.0.txt': 'Creative Commons Attribution 4.0\n',
+    'LICENSE': 'Mozilla Public License Version 2.0\n',
+    'REUSE.toml': 'version = 1\n',
     'CITATION.cff': 'cff-version: 1.2.0\n',
     'src/code.ts': 'export const implementation = true;\n'
   };
@@ -55,6 +57,8 @@ test('documentation release path follows the repository documentation/license bo
   expect(isDocumentationReleasePath('alternatives/model.sec')).toBe(true);
   expect(isDocumentationReleasePath('.documentation/documents.json')).toBe(true);
   expect(isDocumentationReleasePath('LICENSES/CC-BY-4.0.txt')).toBe(true);
+  expect(isDocumentationReleasePath('LICENSE')).toBe(true);
+  expect(isDocumentationReleasePath('REUSE.toml')).toBe(true);
   expect(isDocumentationReleasePath('src/code.ts')).toBe(false);
   expect(isDocumentationReleasePath('package.json')).toBe(false);
 });
@@ -79,15 +83,20 @@ test('documentation artifact packages exact revision documentation with CC BY at
     });
     expect(manifest.license).toMatchObject({
       spdx: 'CC-BY-4.0',
+      textPath: 'LICENSES/CC-BY-4.0.txt',
+      softwareLicenseTextPath: 'LICENSE',
+      classificationPath: 'REUSE.toml',
       creator: 'Jeremy Yang',
       work: 'Engineering Workspace Compiler (SEC)'
     });
     expect(manifest.files.map((file) => file.path)).toEqual([
       '.documentation/documents.json',
       'CITATION.cff',
+      'LICENSE',
       'LICENSES/CC-BY-4.0.txt',
       'LICENSES/README.md',
       'README.md',
+      'REUSE.toml',
       'alternatives/model.sec',
       'docs/design.md',
       'examples/guide.md'
