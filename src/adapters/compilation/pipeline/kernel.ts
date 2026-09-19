@@ -16,7 +16,11 @@ import {
   startPipelineTransaction
 } from './journal.ts';
 import { getPipelineStageDefinition } from '../../../compiler/pipeline/stage-definitions.ts';
-import { pipelineStageBlockers, pipelineStageStatePatch, type PipelineStageTransition } from './stage-state.ts';
+import {
+  pipelineStageBlockers,
+  pipelineStageStatePatch,
+  type PipelineStageTransition
+} from '../../../compiler/pipeline/stage-state.ts';
 import type {
   PassId,
   PipelineEventHandler,
