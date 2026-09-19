@@ -28,6 +28,10 @@ import {
   type UpgradePreview
 } from '../semantics/upgrade/upgrade-artifact.ts';
 
+export type UpgradePlanSource = UpgradePlan;
+export type UpgradePreviewSource = UpgradePreview;
+export type UpgradeExecutionTerminalSource = UpgradeExecutionTerminal;
+
 type UpgradePlanningMaterial = UpgradePlan | UpgradePreview;
 
 type Awaitable<T> = T | PromiseLike<T>;
