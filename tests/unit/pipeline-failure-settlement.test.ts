@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { CompilerError } from '../../src/compiler/errors.ts';
-import { describePipelineFailure, PipelineSettlementFailure, settlePipelineFailure } from '../../src/adapters/compilation/pipeline/failure.ts';
+import { describePipelineFailure, PipelineSettlementFailure, settlePipelineFailure } from '../../src/application/pipeline-failure.ts';
 
 for (const reason of [undefined, null, false, 0, 'failure', Symbol('reason')]) {
   test(`settled failure preserves ${String(reason)} without converting it to success`, async () => {
