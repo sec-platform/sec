@@ -14,8 +14,7 @@ import {
 } from '../../adapters/mutation/atomic-source-publish.ts';
 import {
   mutationDiagnostic,
-  semanticMutationByteDigest,
-  sha256
+  semanticMutationByteDigest
 } from '../../compiler/semantic-mutation/canonical.ts';
 import {
   deriveStagedSemanticMutation,
@@ -43,11 +42,9 @@ import {
   semanticMutationTransactionRoot,
   type SemanticMutationCommitFence
 } from '../../adapters/mutation/transaction-identity.ts';
-import { semanticMutationRequiredVerificationDigest } from '../../compiler/semantic-mutation/verification-policy.ts';
 import {
   probeSemanticMutationIsolatedRuntimeCapability,
-  runSemanticMutationIsolatedVerificationChild,
-  type IsolatedVerificationArtifacts
+  runSemanticMutationIsolatedVerificationChild
 } from '../../adapters/verification/run-semantic-mutation-isolated-child.ts';
 import { semanticMutationIsolatedVerificationEvidenceDigest } from '../../adapters/verification/semantic-mutation-isolated-verification-evidence.ts';
 import {
@@ -94,6 +91,10 @@ import {
   resolveSemanticMutationRejectedPlan,
   resolveSemanticMutationRetainedRequest
 } from '../../application/semantic-mutation-apply.ts';
+import {
+  coordinateSemanticMutationIsolatedVerification,
+  type SemanticMutationIsolationFailureObservation
+} from '../../application/semantic-mutation-isolated-verification.ts';
 import { compileWorkspace } from './pipeline-orchestrator.ts';
 
 type ReadyPlan = ReadySemanticMutationPlan;
@@ -216,21 +217,6 @@ async function writeRejectedTerminalAndPrune(
 
 
 
-function isolatedVerificationBlockedResult(
-  failure?: SemanticMutationIsolatedVerificationFailure
-): {
-  readonly status: 'blocked';
-  readonly evidenceDigest: string;
-} {
-  return {
-    status: 'blocked',
-    evidenceDigest: semanticMutationIsolatedVerificationEvidenceDigest({
-      status: 'blocked',
-      ...(failure === undefined ? {} : { failure })
-    })
-  };
-}
-
 async function runIsolatedVerification(
   derived: DerivedSemanticMutationTransaction & {
     readonly plan: ReadyPlan;
@@ -251,85 +237,46 @@ async function runIsolatedVerification(
   }
 ): Promise<SemanticMutationVerificationExecutionRef> {
   const { commitFence, workspaceRoot, workspaceWriteLease } = leaseContext;
-  await commitFence();
-  const requiredDigest = semanticMutationRequiredVerificationDigest(derived.plan.requiredVerification);
-  let passedArtifacts: IsolatedVerificationArtifacts | undefined;
-  const report = await executeSemanticMutationVerification({
-    capabilityPlan: derived.verificationCapabilityPlan,
-    requirements: derived.plan.requiredVerification,
-    planRevision: derived.plan.planRevision,
-    attempted: derived.plan.staged,
-    stagedSourceDigest: derived.plan.sourceChanges[0].stagedByteDigest,
-    requiredVerificationDigest: requiredDigest
-  }, async () => {
-    try {
-      const artifacts = await runSemanticMutationIsolatedVerificationChild(
+  return coordinateSemanticMutationIsolatedVerification(
+    derived.plan,
+    derived.verificationCapabilityPlan,
+    {
+      commitFence,
+      executeVerification: executeSemanticMutationVerification,
+      runArtifacts: () => runSemanticMutationIsolatedVerificationChild(
         derived.stagingWorkspaceRoot,
         {
           capabilityPlan: derived.verificationCapabilityPlan,
           workspaceRoot,
           workspaceWriteLease
         }
-      );
-      await commitFence();
-      const snapshot = artifacts.semanticBundle.snapshot.ir;
-      const generatedReport = artifacts.verificationReport;
-      if (snapshot.inputRevision !== derived.plan.staged.inputRevision ||
-        snapshot.semanticRevision !== derived.plan.staged.semanticRevision ||
-        generatedReport.summary.status !== artifacts.status ||
-        (artifacts.status === 'passed' &&
-          (generatedReport.summary.failedLanes.length !== 0 ||
-            generatedReport.fast.status !== 'passed' || generatedReport.runtime.status !== 'passed'))) {
-        const failure = Object.freeze({ stage: 'binding-mismatch' as const });
-        leaseContext.recordBlockedFailure?.(failure);
-        return isolatedVerificationBlockedResult(failure);
-      }
-      if (artifacts.status === 'passed') passedArtifacts = artifacts;
-      return {
-        status: artifacts.status,
-        evidenceDigest: semanticMutationIsolatedVerificationEvidenceDigest({
-          status: 'passed',
-          artifacts
-        })
-      };
-    } catch (error) {
-      const failure = error instanceof SemanticMutationIsolatedVerificationUnavailableError
-        ? error.failure
-        : Object.freeze({ stage: 'binding-mismatch' as const });
-      leaseContext.recordBlockedFailure?.(failure);
-      return isolatedVerificationBlockedResult(failure);
+      ),
+      classifyFailure: (error): SemanticMutationIsolationFailureObservation =>
+        error instanceof SemanticMutationIsolatedVerificationUnavailableError
+          ? error.failure
+          : Object.freeze({ stage: 'binding-mismatch' as const }),
+      blockedEvidenceDigest: failure =>
+        semanticMutationIsolatedVerificationEvidenceDigest({
+          status: 'blocked',
+          failure: failure as SemanticMutationIsolatedVerificationFailure
+        }),
+      buildExecutionRef: buildSemanticMutationVerificationExecutionRef,
+      issueProof: issueStagedVerificationProof,
+      assertProofBinding: assertStagedVerificationProofBinding,
+      ...(leaseContext.recordBlockedFailure === undefined
+        ? {}
+        : {
+            recordBlockedFailure: failure =>
+              leaseContext.recordBlockedFailure!(
+                failure as SemanticMutationIsolatedVerificationFailure
+              )
+          }),
+      ...(leaseContext.recordPassedVerificationProof === undefined
+        ? {}
+        : { recordPassedVerificationProof: leaseContext.recordPassedVerificationProof })
     }
-  });
-  await commitFence();
-  const execution = buildSemanticMutationVerificationExecutionRef(report);
-  if (execution.status === 'passed') {
-    if (!passedArtifacts) {
-      throw new Error('Passed isolated Verification is missing its canonical artifact set');
-    }
-    const passedExecution = Object.freeze({ ...execution, status: 'passed' as const });
-    const evidenceDigest = semanticMutationIsolatedVerificationEvidenceDigest({
-      status: 'passed',
-      artifacts: passedArtifacts
-    });
-    if (!passedArtifacts.stagedVerificationProofSource ||
-      report.status !== 'passed' || report.executions.some((candidate) =>
-        candidate.status !== 'passed' || candidate.runner !== 'verify-all' ||
-        candidate.evidenceDigest !== evidenceDigest)) {
-      throw new Error('Passed isolated Verification does not own one exact staged proof source');
-    }
-    const binding = buildStagedVerificationProofBinding(passedExecution, sha256(report));
-    const proof = await issueStagedVerificationProof({
-      source: passedArtifacts.stagedVerificationProofSource,
-      evidenceDigest,
-      binding
-    });
-    assertStagedVerificationProofBinding(proof, binding);
-    await commitFence();
-    leaseContext.recordPassedVerificationProof?.(proof);
-  }
-  return execution;
+  );
 }
-
 async function liveRebuild(
   workspaceRoot: string,
   token: WorkspaceWriteLeaseToken,
