@@ -13,7 +13,7 @@ import {
   nonEmptyString,
   sha256
 } from '../../compiler/semantic-mutation/canonical.ts';
-import { semanticMutationResultRevision } from './semantic-mutation-result.ts';
+import { semanticMutationResultRevision } from '../../compiler/semantic-mutation/result.ts';
 import {
   assertSemanticMutationTerminalOrderDirectory,
   assertSemanticMutationTransactionRoot,

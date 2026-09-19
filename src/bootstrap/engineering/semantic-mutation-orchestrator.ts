@@ -29,7 +29,7 @@ import {
 } from '../../adapters/mutation/recovery-authority.ts';
 import {
   buildSemanticMutationVerificationExecutionRef
-} from '../../adapters/mutation/semantic-mutation-result.ts';
+} from '../../assurance/verification/semantic-mutation/execution-ref.ts';
 import { readSemanticMutationSource } from '../../adapters/mutation/source-path-boundary.ts';
 import {
   assertSemanticMutationTransactionRoot,
@@ -39,7 +39,7 @@ import {
 import {
   runSemanticMutationIsolatedVerificationChild
 } from '../../adapters/verification/run-semantic-mutation-isolated-child.ts';
-import { semanticMutationIsolatedVerificationEvidenceDigest } from '../../adapters/verification/semantic-mutation-isolated-verification-evidence.ts';
+import { semanticMutationIsolatedVerificationEvidenceDigest } from '../../assurance/verification/semantic-mutation/isolated-evidence.ts';
 import {
   SemanticMutationIsolatedVerificationUnavailableError,
   type SemanticMutationIsolatedVerificationFailure

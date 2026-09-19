@@ -8,12 +8,12 @@ import {
   type PipelineExecutionContext
 } from '../../src/adapters/compilation-protocol/types.ts';
 import { sha256 } from '../../src/compiler/semantic-mutation/canonical.ts';
-import { buildSemanticMutationVerificationExecutionRef } from '../../src/adapters/mutation/semantic-mutation-result.ts';
+import { buildSemanticMutationVerificationExecutionRef } from '../../src/assurance/verification/semantic-mutation/execution-ref.ts';
 import { semanticMutationTransactionRoot } from '../../src/adapters/mutation/transaction-identity.ts';
 import {
   semanticMutationIsolatedVerificationEvidenceDigest,
   type SemanticMutationIsolatedVerificationEvidence
-} from '../../src/adapters/verification/semantic-mutation-isolated-verification-evidence.ts';
+} from '../../src/assurance/verification/semantic-mutation/isolated-evidence.ts';
 import { assertSemanticMutationVerificationReportInvariant, executeSemanticMutationVerification, planSemanticMutationVerificationCapabilities } from '../../src/adapters/verification/semantic-mutation-verification-adapter.ts';
 import { type SemanticMutationApplyOutcome, type SemanticMutationRequestRecordView } from '../../src/semantics/mutation/transaction.ts';
 import { isSemanticMutationStagingWorkspace } from '../../src/workspace/contract/semantic-mutation-staging.ts';

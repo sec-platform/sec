@@ -7,7 +7,8 @@ import { expectationFromFactDelta } from '../../src/compiler/semantic-mutation/m
 import { semanticMutationAuthorizationRevision } from '../../src/compiler/semantic-mutation/normalize-request.ts';
 import { planSemanticMutation } from '../../src/compiler/semantic-mutation/plan-semantic-mutation.ts';
 import { preflightSemanticMutation } from '../../src/compiler/semantic-mutation/preflight-semantic-mutation.ts';
-import { buildSemanticMutationResult, buildSemanticMutationVerificationExecutionRef } from '../../src/adapters/mutation/semantic-mutation-result.ts';
+import { buildSemanticMutationResult } from '../../src/compiler/semantic-mutation/result.ts';
+import { buildSemanticMutationVerificationExecutionRef } from '../../src/assurance/verification/semantic-mutation/execution-ref.ts';
 import { semanticMutationRequestIdentityDigest } from '../../src/adapters/mutation/transaction-identity.ts';
 import { buildSemanticMutationVerificationPlanningContext, semanticMutationRequiredVerificationDigest } from '../../src/compiler/semantic-mutation/verification-policy.ts';
 import type { LoadedSemanticContract } from '../../src/semantics/definitions/types.ts';

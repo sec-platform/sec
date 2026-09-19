@@ -24,7 +24,7 @@ import {
   normalizeSemanticMutationRequest
 } from '../../compiler/semantic-mutation/normalize-request.ts';
 import { assertSemanticMutationPlanInvariant } from '../../compiler/semantic-mutation/plan-semantic-mutation.ts';
-import { assertSemanticMutationResultInvariant } from './semantic-mutation-result.ts';
+import { assertSemanticMutationResultInvariant } from '../../compiler/semantic-mutation/result.ts';
 import {
   assertSemanticMutationRecoveryRecordsDirectory,
   assertSemanticMutationTransactionRoot,

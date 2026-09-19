@@ -77,7 +77,7 @@ import {
   type SemanticMutationIsolatedRuntimeInputSources,
   type SemanticMutationIsolatedRuntimeSourcePaths
 } from './semantic-mutation-isolated-runtime-plan.ts';
-import { semanticMutationIsolatedVerificationEvidenceDigest } from './semantic-mutation-isolated-verification-evidence.ts';
+import { semanticMutationIsolatedVerificationEvidenceDigest } from '../../assurance/verification/semantic-mutation/isolated-evidence.ts';
 import {
   SemanticMutationIsolatedVerificationUnavailableError,
   type SemanticMutationIsolatedVerificationArtifact,

@@ -28,7 +28,7 @@ import { expectationFromFactDelta } from '../../src/compiler/semantic-mutation/m
 import { appendSemanticMutationRecoveryRecord, loadSemanticMutationRecoveryRecords } from '../../src/adapters/mutation/mutation-recovery-record.ts';
 import { semanticMutationAuthorizationRevision } from '../../src/compiler/semantic-mutation/normalize-request.ts';
 import { renderSemanticContractYamlEdit } from '../../src/adapters/mutation/semantic-contract-yaml-adapter.ts';
-import { buildSemanticMutationVerificationExecutionRef } from '../../src/adapters/mutation/semantic-mutation-result.ts';
+import { buildSemanticMutationVerificationExecutionRef } from '../../src/assurance/verification/semantic-mutation/execution-ref.ts';
 import {
   semanticMutationRequestIdentityDigest,
   semanticMutationTransactionRoot
