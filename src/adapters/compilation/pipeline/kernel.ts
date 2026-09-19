@@ -22,6 +22,7 @@ import {
   executePipelineTransactionLifecycle
 } from '../../../application/pipeline-transaction-lifecycle.ts';
 import {
+  coordinatePipelineStageAdmission,
   executePipelineStageLifecycle
 } from '../../../application/pipeline-stage-lifecycle.ts';
 export { runPipelinePass } from '../../../application/pipeline-pass.ts';
@@ -196,31 +197,32 @@ export async function executePipelineStage<T>(
     throw new TypeError('Pipeline stage executor must be callable');
   }
 
-  if (context !== undefined) {
-    sealPipelineExecutionContext(context);
-    return executeStageWithContext(
-      workspaceRoot,
-      stageId,
-      context,
-      execute,
-      effectiveOptions,
-      true
-    );
-  }
-
-  return withPipelineTransaction(
-    workspaceRoot,
-    'api',
-    [stageId],
-    undefined,
-    transaction =>
-      executeStageWithContext(
+  return coordinatePipelineStageAdmission(context, {
+    runWithContext: transaction => {
+      sealPipelineExecutionContext(transaction);
+      return executeStageWithContext(
         workspaceRoot,
         stageId,
         transaction,
         execute,
         effectiveOptions,
-        false
-      )
-  );
+        true
+      );
+    },
+    runStandalone: () => withPipelineTransaction(
+      workspaceRoot,
+      'api',
+      [stageId],
+      undefined,
+      transaction =>
+        executeStageWithContext(
+          workspaceRoot,
+          stageId,
+          transaction,
+          execute,
+          effectiveOptions,
+          false
+        )
+    )
+  });
 }
