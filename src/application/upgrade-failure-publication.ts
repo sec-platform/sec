@@ -87,3 +87,41 @@ export async function publishUpgradePlanningFailure(
     'Upgrade planning failed and failure artifact publication did not complete'
   );
 }
+
+
+export interface UpgradePlanningFailurePublicationOperations {
+  clearPlan(): Promise<void>;
+  clearExecutionTerminal(): Promise<void>;
+  publishDiagnostics(failure: CompilerError): Promise<void>;
+}
+
+/**
+ * Execute one Upgrade planning operation and own canonical planning-failure
+ * publication. Unknown/provider failures propagate unchanged and never acquire
+ * an Upgrade diagnostic classification merely because they crossed bootstrap.
+ */
+export async function executeUpgradePlanningWithFailurePublication<T>(
+  plan: () => Promise<T>,
+  operations: UpgradePlanningFailurePublicationOperations
+): Promise<T> {
+  if (typeof plan !== 'function' ||
+      typeof operations.clearPlan !== 'function' ||
+      typeof operations.clearExecutionTerminal !== 'function' ||
+      typeof operations.publishDiagnostics !== 'function') {
+    throw new TypeError('Upgrade planning lifecycle operations must be callable');
+  }
+  try {
+    return await plan();
+  } catch (failure) {
+    if (!(failure instanceof CompilerError)) throw failure;
+    return publishUpgradeFailureArtifacts(
+      failure,
+      [
+        () => operations.clearPlan.call(operations),
+        () => operations.clearExecutionTerminal.call(operations),
+        () => operations.publishDiagnostics.call(operations, failure)
+      ],
+      'Upgrade planning failed and failure artifact publication did not complete'
+    );
+  }
+}

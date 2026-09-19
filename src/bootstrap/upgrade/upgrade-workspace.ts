@@ -2,8 +2,7 @@ import type {
   LockFile,
   PlanFile
 } from '../../compiler/contract.ts';
-import { CompilerError } from '../../compiler/errors.ts';
-import { publishUpgradePlanningFailure } from '../../application/upgrade-failure-publication.ts';
+import { executeUpgradePlanningWithFailurePublication } from '../../application/upgrade-failure-publication.ts';
 import {
   bindPlannedUpgradeExecution,
   executePlannedWorkspaceUpgrade,
@@ -112,41 +111,43 @@ export async function runUpgradeWorkspaceWithLease(
     plan,
     lock: existingLock
   });
-  let plannedUpgrade: PlannedWorkspaceUpgrade;
-  try {
-    plannedUpgrade = await planWorkspaceUpgrade({
-      blockId,
-      currentBlock,
-      lock: existingLock,
-      plan,
-      targetVersion,
-      workspaceRoot
-    }, UPGRADE_PLANNING_OPERATIONS);
-  } catch (error) {
-    return publishUpgradePlanningFailure(error, [
-      () => removeDir(
-        resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan),
-        commitFence
-      ),
-      () => removeDir(
-        resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeExecutionTerminal),
-        commitFence
-      ),
-      () => writeUpgradeDiagnostics(
-        workspaceRoot,
+  const plannedUpgrade: PlannedWorkspaceUpgrade =
+    await executeUpgradePlanningWithFailurePublication(
+      () => planWorkspaceUpgrade({
         blockId,
+        currentBlock,
+        lock: existingLock,
+        plan,
         targetVersion,
-        {
-          phase: 'planning',
-          workspaceIdentityDigest: workspaceWriteLease.workspaceIdentityDigest,
-          planningRequestRevision: requestRevision
-        },
-        error as CompilerError,
-        existingLock,
-        commitFence
-      )
-    ]);
-  }
+        workspaceRoot
+      }, UPGRADE_PLANNING_OPERATIONS),
+      {
+        clearPlan: () => removeDir(
+          resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan),
+          commitFence
+        ),
+        clearExecutionTerminal: () => removeDir(
+          resolveWorkspaceArtifactPath(
+            workspaceRoot,
+            CI_ARTIFACT_FILES.upgradeExecutionTerminal
+          ),
+          commitFence
+        ),
+        publishDiagnostics: failure => writeUpgradeDiagnostics(
+          workspaceRoot,
+          blockId,
+          targetVersion,
+          {
+            phase: 'planning',
+            workspaceIdentityDigest: workspaceWriteLease.workspaceIdentityDigest,
+            planningRequestRevision: requestRevision
+          },
+          failure,
+          existingLock,
+          commitFence
+        )
+      }
+    );
 
   const { upgradePlan, attempt } = bindPlannedUpgradeExecution(
     plannedUpgrade,
