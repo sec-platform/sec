@@ -41,40 +41,26 @@ export function registerWorkspaceCommands(program: Command): void {
         const { CI_ARTIFACT_FILES } = await import('../../assurance/verification/ci-artifacts/contract/manifest.ts');
         const { resolveWorkspaceArtifactPath } = await import('../../adapters/workspace-context.ts');
         const { readRequiredRepairPlan } = await import('../../adapters/workspace/required-artifact-read.ts');
-        const { projectRepairSummary } = await import('../../application/repair-summary.ts');
-        const { formatRepairSummary } = await import('../../entry/cli/repair-summary.ts');
-        const value = readRequiredRepairPlan(
+        return readRequiredRepairPlan(
           resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.repairPlan),
           missingMessage
         );
-        return { value, text: formatRepairSummary(projectRepairSummary(value, true)) };
       },
-      readPlanIfPresent: async (workspaceRoot, dryRun) => {
+      readPlanIfPresent: async workspaceRoot => {
         const { CI_ARTIFACT_FILES } = await import('../../assurance/verification/ci-artifacts/contract/manifest.ts');
         const { pathExists } = await import('../../adapters/filesystem/files.ts');
         const { resolveWorkspaceArtifactPath } = await import('../../adapters/workspace-context.ts');
         const { readRequiredRepairPlan } = await import('../../adapters/workspace/required-artifact-read.ts');
-        const { projectRepairSummary } = await import('../../application/repair-summary.ts');
-        const { formatRepairSummary } = await import('../../entry/cli/repair-summary.ts');
         const path = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.repairPlan);
         if (!(await pathExists(path))) return null;
-        const value = readRequiredRepairPlan(
+        return readRequiredRepairPlan(
           path,
           'Repair plan disappeared before it could be read back.'
         );
-        return {
-          value,
-          text: formatRepairSummary(projectRepairSummary(value, dryRun))
-        };
       },
       execute: async (workspaceRoot, dryRun) => {
-        const { projectRepairSummary } = await import('../../application/repair-summary.ts');
-        const { formatRepairSummary } = await import('../../entry/cli/repair-summary.ts');
-        const { repairPlan: value } = await repairWorkspace(workspaceRoot, { dryRun });
-        return {
-          value,
-          text: formatRepairSummary(projectRepairSummary(value, dryRun))
-        };
+        const { repairPlan } = await repairWorkspace(workspaceRoot, { dryRun });
+        return repairPlan;
       },
       progress: runWithOptionalSpinner,
       formatFailure: formatCompilerFailure
