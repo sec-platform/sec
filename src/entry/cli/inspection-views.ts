@@ -67,7 +67,7 @@ export async function runtimeStepsInspectionView(
 }
 
 export async function verificationReportInspectionView(
-  report: VerificationReport
+  report: VerificationReportInspectProjectionSource
 ): Promise<CommandValue> {
   const { projectVerificationReportInspect } = await import('../../application/verification-report-inspect.ts');
   const { formatVerificationReport } = await import('./verification-report-inspect.ts');
@@ -89,7 +89,7 @@ export async function provenanceRegistryInspectionView(
 }
 
 export async function reviewSummaryInspectionView(
-  report: ReviewSummary
+  report: ReviewSummaryProjectionSource
 ): Promise<CommandValue> {
   const { projectReviewSummary } = await import('../../application/review-summary-inspect.ts');
   const { formatReviewSummary } = await import('./review-summary-inspect.ts');
@@ -97,12 +97,12 @@ export async function reviewSummaryInspectionView(
 }
 
 export async function reviewMatrixInspectionView(
-  matrix: E2eMatrix
+  matrix: E2eMatrixProjectionSource
 ): Promise<CommandValue> {
   const { projectE2eMatrix } = await import('../../application/e2e-matrix-inspect.ts');
   const { formatE2eMatrix } = await import('./e2e-matrix-inspect.ts');
   const value = projectE2eMatrix(matrix);
-  return commandValue(value, formatE2eMatrixProjectionSource);
+  return commandValue(value, formatE2eMatrix);
 }
 
 export async function reviewDiagnosticsInspectionView(
