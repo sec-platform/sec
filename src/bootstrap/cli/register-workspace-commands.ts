@@ -110,14 +110,9 @@ export function registerWorkspaceCommands(program: Command): void {
           await import('../../adapters/workspace-context.ts');
         const { readRequiredJson } =
           await import('../../adapters/workspace/required-artifact-read.ts');
-        const { projectLockInspect } =
-          await import('../../application/lock-inspect.ts');
-        const { formatLockInspect } =
-          await import('../../entry/cli/lock-inspect.ts');
-        const value = await readRequiredJson<
+        return readRequiredJson<
           import('../../application/lock-inspect.ts').LockInspectProjectionSource
         >(await resolveWorkspaceLockPath(workspaceRoot), missingMessage);
-        return { value, text: formatLockInspect(projectLockInspect(value)) };
       },
       lock: workspaceRoot => lockWorkspace(workspaceRoot),
       readExplain: async (workspaceRoot, missingMessage) => {
@@ -127,11 +122,7 @@ export function registerWorkspaceCommands(program: Command): void {
           await import('../../adapters/workspace-context.ts');
         const { readRequiredJson } =
           await import('../../adapters/workspace/required-artifact-read.ts');
-        const { projectExplainGraphInspect } =
-          await import('../../application/explain-graph-inspect.ts');
-        const { formatExplainGraphInspect } =
-          await import('../../entry/cli/explain-graph-inspect.ts');
-        const value = await readRequiredJson<
+        return readRequiredJson<
           import('../../application/explain-graph-inspect.ts').ExplainGraphInspectProjectionSource
         >(
           resolveWorkspaceArtifactPath(
@@ -140,25 +131,15 @@ export function registerWorkspaceCommands(program: Command): void {
           ),
           missingMessage
         );
-        return {
-          value,
-          text: formatExplainGraphInspect(projectExplainGraphInspect(value))
-        };
       },
       explain: async workspaceRoot => {
         const { buildE2eMatrix } =
           await import('../../assurance/verification/review/matrix.ts');
-        const { projectExplainSummary } =
-          await import('../../application/explain-summary.ts');
-        const { formatExplainSummary } =
-          await import('../../entry/cli/explain-summary.ts');
         const { graph, reviewSummary } = await explainWorkspace(workspaceRoot);
-        const e2eMatrix = buildE2eMatrix(reviewSummary);
         return {
-          value: { graph, reviewSummary, e2eMatrix },
-          text: formatExplainSummary(
-            projectExplainSummary(graph, reviewSummary, e2eMatrix)
-          )
+          graph,
+          reviewSummary,
+          e2eMatrix: buildE2eMatrix(reviewSummary)
         };
       },
       progress: runWithOptionalSpinner
