@@ -22,37 +22,16 @@ import {
   withSemanticMutationIsolatedPhaseTelemetry
 } from '../../adapters/verification/isolation/isolated-verification-phase-telemetry.ts';
 import { assertIsolatedStagingTree } from '../../adapters/verification/assert-isolated-staging-tree.ts';
+import { runSemanticMutationIsolatedVerifyAll } from '../../application/semantic-mutation-isolated-runner.ts';
 import {
-  runSemanticMutationIsolatedVerifyAll,
-  SemanticMutationIsolatedCatchTreeFailure,
-  SemanticMutationIsolatedStagingTreeFailure
-} from '../../application/semantic-mutation-isolated-runner.ts';
+  runSemanticMutationIsolatedVerificationProcess
+} from '../../entry/semantic-mutation-isolated-verification-runner.ts';
 import { mintIsolatedVerificationCapability } from '../../execution/isolated-verification-capability.ts';
 import { compileWorkspace } from './pipeline-orchestrator.ts';
 
-class SemanticMutationIsolatedEnvironmentBoundaryFailure extends Error {
-  constructor() {
-    super('Semantic Mutation isolated runner environment boundary is invalid');
-    this.name = 'SemanticMutationIsolatedEnvironmentBoundaryFailure';
-  }
-}
-
-class SemanticMutationIsolatedStagingLayoutBoundaryFailure extends Error {
-  constructor() {
-    super('Semantic Mutation isolated runner staging layout boundary is invalid');
-    this.name = 'SemanticMutationIsolatedStagingLayoutBoundaryFailure';
-  }
-}
-
-async function main(): Promise<SemanticMutationIsolatedChildOutcome | null> {
-  const stagingWorkspaceRoot = path.resolve(process.cwd());
-  if (process.env[ISOLATED_VERIFICATION_ENV_KEY] !== '1') {
-    throw new SemanticMutationIsolatedEnvironmentBoundaryFailure();
-  }
-  if (!isSemanticMutationStagingWorkspace(stagingWorkspaceRoot)) {
-    throw new SemanticMutationIsolatedStagingLayoutBoundaryFailure();
-  }
-
+async function executeSemanticMutationIsolatedVerification(
+  stagingWorkspaceRoot: string
+): Promise<SemanticMutationIsolatedChildOutcome | null> {
   const result = await runSemanticMutationIsolatedVerifyAll<PipelineExecutionBoundary>({
     initialVerifyBoundary: 'pipeline-bootstrap',
     transactionBoundary: 'pipeline-transaction',
@@ -103,35 +82,13 @@ async function main(): Promise<SemanticMutationIsolatedChildOutcome | null> {
   );
 }
 
-try {
-  await publishSemanticMutationIsolatedProgressCheckpoint(process.cwd(), 'module-entered');
-  const outcome = await main();
-  if (outcome !== null) {
-    await publishSemanticMutationIsolatedProgressCheckpoint(process.cwd(), 'outcome-publish-started');
-    let outcomePublished = false;
-    try {
-      await publishSemanticMutationIsolatedChildOutcome(process.cwd(), outcome);
-      outcomePublished = true;
-    } catch {
-      console.error('Semantic Mutation isolated verification failed');
-      process.exitCode = SEMANTIC_MUTATION_ISOLATED_EXIT_CODES.outcomePublicationFailure;
-    }
-    if (outcomePublished) {
-      console.error('Semantic Mutation isolated verification failed');
-      process.exitCode = SEMANTIC_MUTATION_ISOLATED_EXIT_CODES.runnerControlledFailure;
-    }
-  }
-} catch (error) {
-  console.error('Semantic Mutation isolated verification failed');
-  process.exitCode = error instanceof SemanticMutationIsolatedProgressPublicationError
-    ? SEMANTIC_MUTATION_ISOLATED_EXIT_CODES.progressPublicationFailure
-    : error instanceof SemanticMutationIsolatedEnvironmentBoundaryFailure
-      ? SEMANTIC_MUTATION_ISOLATED_EXIT_CODES.runnerEnvironmentBoundaryFailure
-      : error instanceof SemanticMutationIsolatedStagingLayoutBoundaryFailure
-        ? SEMANTIC_MUTATION_ISOLATED_EXIT_CODES.runnerStagingLayoutBoundaryFailure
-    : error instanceof SemanticMutationIsolatedCatchTreeFailure
-      ? SEMANTIC_MUTATION_ISOLATED_EXIT_CODES.runnerCatchTreeFailure
-      : error instanceof SemanticMutationIsolatedStagingTreeFailure
-        ? SEMANTIC_MUTATION_ISOLATED_EXIT_CODES.runnerStagingTreeFailure
-        : SEMANTIC_MUTATION_ISOLATED_EXIT_CODES.runnerEntryFailure;
-}
+await runSemanticMutationIsolatedVerificationProcess({
+  isolatedEnvironmentKey: ISOLATED_VERIFICATION_ENV_KEY,
+  exitCodes: SEMANTIC_MUTATION_ISOLATED_EXIT_CODES,
+  isStagingWorkspace: isSemanticMutationStagingWorkspace,
+  execute: executeSemanticMutationIsolatedVerification,
+  publishProgress: publishSemanticMutationIsolatedProgressCheckpoint,
+  publishOutcome: publishSemanticMutationIsolatedChildOutcome,
+  isProgressPublicationError: error =>
+    error instanceof SemanticMutationIsolatedProgressPublicationError
+});
