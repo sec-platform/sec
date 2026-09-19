@@ -1,7 +1,9 @@
 {
   "importGraph": "runtime",
   "externalEntrypoints": [
-    "src/bootstrap/release/build.ts"
+    "src/bootstrap/release/build.ts",
+    "src/bootstrap/release/build-documentation.ts",
+    "src/bootstrap/release/build-set.ts"
   ],
   "capabilityProviders": [],
   "operationObligations": []
