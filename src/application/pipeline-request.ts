@@ -88,3 +88,32 @@ export function bindPipelineCompileRequest(input: Readonly<PipelineCompileReques
   const source = requirePipelineSource(requestedSource === undefined ? 'api' : requestedSource);
   return Object.freeze({ ...selection, source, verificationLane });
 }
+
+
+/** Preserve admitted stage ordering while rejecting holes, accessors, duplicates
+ * and unknown stage identities before any transaction capability is acquired. */
+export function capturePipelineRequestedStages(
+  value: readonly PipelineStageId[]
+): readonly PipelineStageId[] {
+  if (!Array.isArray(value)) {
+    throw new CompilerError('PIPELINE-USAGE-001', 'Pipeline stages must be an array');
+  }
+  const result: PipelineStageId[] = [];
+  const seen = new Set<PipelineStageId>();
+  const length = value.length;
+  for (let index = 0; index < length; index += 1) {
+    const slot = Object.getOwnPropertyDescriptor(value, index);
+    const candidate: unknown = slot && 'value' in slot ? slot.value : undefined;
+    if (typeof candidate !== 'string' ||
+        !PIPELINE_STAGE_IDS.includes(candidate as PipelineStageId) ||
+        seen.has(candidate as PipelineStageId)) {
+      throw new CompilerError(
+        'PIPELINE-USAGE-001',
+        'Pipeline stages must be dense, known and unique'
+      );
+    }
+    result.push(candidate as PipelineStageId);
+    seen.add(candidate as PipelineStageId);
+  }
+  return Object.freeze(result);
+}
