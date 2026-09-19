@@ -153,6 +153,49 @@ test('release verification never loads repository bytes from a caller-selected r
     });
 });
 
+test('release verification publishes one exact runtime/documentation release set', async () => {
+  const release = parseYaml(
+    await readCompilerFile('.github/workflows/compiler-release-validation.yml')
+  ) as Workflow;
+  const resolver = step(
+    release,
+    'compiler-release-verification',
+    'Resolve trusted release request, exact head, and verifier boundary'
+  );
+  expect(resolver.with?.script).toContain("core.setOutput('tree', commit.commit.tree.sha)");
+
+  expect(step(
+    release,
+    'compiler-release-verification',
+    'Build exact-head release set'
+  ).run).toBe('bun run release:build');
+
+  expect(step(
+    release,
+    'compiler-release-verification',
+    'Verify exact-head release set identity'
+  ).env).toMatchObject({
+    SEC_EXPECTED_HEAD_SHA: '${{ steps.verification.outputs.sha }}',
+    SEC_EXPECTED_TREE_SHA: '${{ steps.verification.outputs.tree }}'
+  });
+
+  const upload = step(
+    release,
+    'compiler-release-verification',
+    'Upload exact-head release set'
+  );
+  expect(upload.uses).toBe(
+    'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a'
+  );
+  expect(upload.with).toMatchObject({
+    name: 'sec-release-head-${{ steps.verification.outputs.sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}',
+    path: '.tmp/release-set',
+    'include-hidden-files': true,
+    'if-no-files-found': 'error',
+    'retention-days': 90
+  });
+});
+
 test('coordinators never occupy the sole role of a downstream producer they join', () => {
   const compilerRoles = WORKFLOW_RUNNER_ROLES['.github/workflows/compiler-pr-validation.yml'];
   const sessionCoordinatorRole = compilerRoles['coordinate-verification-session'];
