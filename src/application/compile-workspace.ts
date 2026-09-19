@@ -1,6 +1,9 @@
 import type { PipelineCompletionProof } from '../assurance/verification/pipeline/completion-proof.ts';
 import type { LockFile } from '../compiler/contract.ts';
-import type { PipelineExecutionBoundary } from '../compiler/pipeline/execution-boundaries.ts';
+import {
+  pipelineStageBoundary,
+  type PipelineExecutionBoundary
+} from '../compiler/pipeline/execution-boundaries.ts';
 import type { PipelineStageId } from '../compiler/pipeline/stages.ts';
 import {
   coordinatePipelineStages,
@@ -15,7 +18,10 @@ export interface WorkspaceCompilationCompletionInput extends PipelineUseCaseResu
   readonly lock: LockFile;
 }
 
-export interface WorkspaceCompilationTransactionOperations extends PipelineUseCaseOperations {
+export interface WorkspaceCompilationTransactionOperations
+  extends Omit<PipelineUseCaseOperations, 'beforeStage'> {
+  assertStageLease(): Awaitable<void>;
+  emitStageBoundary(stage: PipelineStageId, boundary: PipelineExecutionBoundary): Awaitable<void>;
   readLock(): Awaitable<LockFile>;
   buildCompletionProof(input: WorkspaceCompilationCompletionInput): Awaitable<PipelineCompletionProof | null>;
   revalidateStagedProof?(lock: LockFile): Awaitable<void>;
@@ -35,12 +41,27 @@ export async function completeWorkspaceCompilationTransaction(
   if (typeof transactionId !== 'string' || transactionId.length === 0) {
     throw new TypeError('Workspace compilation transactionId must be non-empty');
   }
-  const { readLock, buildCompletionProof, revalidateStagedProof } = operations;
-  if (typeof readLock !== 'function' || typeof buildCompletionProof !== 'function'
-      || (revalidateStagedProof !== undefined && typeof revalidateStagedProof !== 'function')) {
+  const {
+    assertStageLease,
+    emitStageBoundary,
+    readLock,
+    buildCompletionProof,
+    revalidateStagedProof
+  } = operations;
+  if (typeof assertStageLease !== 'function' ||
+      typeof emitStageBoundary !== 'function' ||
+      typeof readLock !== 'function' ||
+      typeof buildCompletionProof !== 'function' ||
+      (revalidateStagedProof !== undefined && typeof revalidateStagedProof !== 'function')) {
     throw new TypeError('Workspace compilation completion operations must be callable');
   }
-  const stageResult = await coordinatePipelineStages(stages, operations);
+  const stageResult = await coordinatePipelineStages(stages, {
+    ...operations,
+    beforeStage: async stage => {
+      await assertStageLease.call(operations);
+      await emitStageBoundary.call(operations, stage, pipelineStageBoundary(stage));
+    }
+  });
   const lock = await readLock.call(operations);
   const completionInput = Object.freeze({ transactionId, lock, ...stageResult });
   const completionProof = await buildCompletionProof.call(operations, completionInput);

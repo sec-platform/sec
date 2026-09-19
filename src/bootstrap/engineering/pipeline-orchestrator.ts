@@ -1,6 +1,4 @@
 import path from 'node:path';
-import { pipelineStageBoundary } from '../../compiler/pipeline/execution-boundaries.ts';
-
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../adapters/filesystem/write-lease.ts';
 import { readLockFile } from '../../adapters/workspace/lock.ts';
 import { bindPipelineCompileRequest, type PipelineCompileRequest } from '../../application/pipeline-request.ts';
@@ -81,10 +79,10 @@ export async function compileWorkspace(
         stages,
         bindings.onEvent,
         async context => completeWorkspaceCompilationTransaction(context.transactionId, stages, {
-          beforeStage: async stage => {
-            await assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease);
-            await emitPipelineExecutionBoundary(context.onEvent, context.transactionId, pipelineStageBoundary(stage));
-          },
+          assertStageLease: () =>
+            assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease),
+          emitStageBoundary: (_stage, boundary) =>
+            emitPipelineExecutionBoundary(context.onEvent, context.transactionId, boundary),
           resolve: () => resolveWorkspace(workspaceRoot, context),
           semantic: () => runWorkspaceSemanticFrontend(workspaceRoot, context),
           compose: async () => {
