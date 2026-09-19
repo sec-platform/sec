@@ -41,7 +41,6 @@ import {
   type SemanticMutationCommitFence
 } from '../../adapters/mutation/transaction-identity.ts';
 import {
-  probeSemanticMutationIsolatedRuntimeCapability,
   runSemanticMutationIsolatedVerificationChild
 } from '../../adapters/verification/run-semantic-mutation-isolated-child.ts';
 import { semanticMutationIsolatedVerificationEvidenceDigest } from '../../adapters/verification/semantic-mutation-isolated-verification-evidence.ts';
@@ -50,9 +49,13 @@ import {
   type SemanticMutationIsolatedVerificationFailure
 } from '../../adapters/verification/semantic-mutation-isolated-verification-failure.ts';
 import {
-  executeSemanticMutationVerification,
-  planSemanticMutationVerificationCapabilities
+  executeSemanticMutationVerification
 } from '../../adapters/verification/semantic-mutation-verification-adapter.ts';
+import {
+  createSemanticMutationVerificationPlanningAdapter,
+  DEFAULT_SEMANTIC_MUTATION_ISOLATION_CAPABILITY_PROBE,
+  type SemanticMutationIsolationCapabilityProbeFactory
+} from '../../adapters/verification/semantic-mutation-planning-adapter.ts';
 import {
   assertStagedVerificationProofBinding,
   issueStagedVerificationProof,
@@ -93,74 +96,6 @@ interface SemanticMutationInternalApplyOptions {
   readonly testCrashPoint?: 'after-prepared';
   readonly testDependencies?: Partial<SemanticMutationCoordinatorDependencies>;
 }
-
-interface SemanticMutationIsolationCapabilityProbeRequest {
-  readonly stagingWorkspaceRoot: string;
-  readonly workspaceRoot: string;
-  readonly workspaceWriteLease: WorkspaceWriteLeaseToken;
-}
-
-type SemanticMutationIsolationCapabilityProbeFactory = (
-  request: SemanticMutationIsolationCapabilityProbeRequest
-) => unknown | Promise<unknown>;
-
-const DEFAULT_SEMANTIC_MUTATION_ISOLATION_CAPABILITY_PROBE:
-  SemanticMutationIsolationCapabilityProbeFactory = async (request) => {
-    const runtime = await probeSemanticMutationIsolatedRuntimeCapability(
-      request.stagingWorkspaceRoot
-    );
-    return runtime.status === 'available'
-      ? runtime
-      : Object.freeze({ status: 'unavailable' as const });
-  };
-
-function crashAfterPreparedForTest(): never {
-  const error = new Error(
-    'Semantic Mutation test crash after the prepared generation became durable'
-  ) as NodeJS.ErrnoException;
-  error.name = 'SemanticMutationAfterPreparedTestCrash';
-  error.code = 'SEMANTIC_MUTATION_TEST_CRASH_AFTER_PREPARED';
-  throw error;
-}
-
-function endpointFromBundle(
-  transactionId: string,
-  snapshot: Awaited<ReturnType<typeof buildWorkspaceSemanticBundle>>['snapshot']
-): FactDeltaEndpointContext {
-  return {
-    transactionId,
-    inputRevision: snapshot.ir.inputRevision,
-    semanticRevision: snapshot.ir.semanticRevision,
-    snapshot
-  };
-}
-
-function planningAdapter(
-  workspaceRoot: string,
-  workspaceWriteLease: WorkspaceWriteLeaseToken,
-  isolationCapabilityProbe = DEFAULT_SEMANTIC_MUTATION_ISOLATION_CAPABILITY_PROBE
-) {
-  return {
-    adapterId: SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
-    adapterRevision: SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION,
-    capabilityPlan(
-      staged: FactDeltaEndpointContext,
-      requirements: ReadyPlan['requiredVerification'],
-      stagingWorkspaceRoot: string
-    ) {
-      return planSemanticMutationVerificationCapabilities({
-        snapshot: staged.snapshot,
-        requirements,
-        isolationCapabilityProbe: () => isolationCapabilityProbe({
-          stagingWorkspaceRoot,
-          workspaceRoot,
-          workspaceWriteLease
-        })
-      });
-    }
-  } as const;
-}
-
 
 
 async function writeRejectedTerminalAndPrune(
@@ -381,11 +316,13 @@ function semanticMutationRecordRecoveryOperations(
             base,
             authorization: current.authorization
           },
-          planningAdapter(
+          createSemanticMutationVerificationPlanningAdapter({
+            adapterId: SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
+            adapterRevision: SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION,
             workspaceRoot,
-            token,
-            dependencies.isolationCapabilityProbe
-          ),
+            workspaceWriteLease: token,
+            isolationCapabilityProbe: dependencies.isolationCapabilityProbe
+          }),
           commitFence
         )
       ) as Promise<SemanticMutationPreparedRecoveryDerivation>;
@@ -530,7 +467,13 @@ async function planSemanticMutationTransactionInternal(
       deriveStagedSemanticMutation(
         workspaceRoot,
         input,
-        planningAdapter(workspaceRoot, token, isolationCapabilityProbe),
+        createSemanticMutationVerificationPlanningAdapter({
+        adapterId: SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
+        adapterRevision: SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION,
+        workspaceRoot,
+        workspaceWriteLease: token,
+        isolationCapabilityProbe
+      }),
         commitFence
       )
     )
@@ -589,7 +532,13 @@ async function applySemanticMutationInternal(
         dependencies.derive(
           workspaceRoot,
           input,
-          planningAdapter(workspaceRoot, token, dependencies.isolationCapabilityProbe),
+          createSemanticMutationVerificationPlanningAdapter({
+            adapterId: SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
+            adapterRevision: SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION,
+            workspaceRoot,
+            workspaceWriteLease: token,
+            isolationCapabilityProbe: dependencies.isolationCapabilityProbe
+          }),
           commitFence
         )
       ),
