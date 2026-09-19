@@ -1,7 +1,6 @@
 import path from 'node:path';
 import { createWorkspaceWriteCommitFence, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../filesystem/write-lease.ts';
 import type { LockFile } from '../../../compiler/contract.ts';
-import { PASS_INITIAL_STATES } from '../../../compiler/contract/pass-status.ts';
 import { CompilerError, getErrorCode } from '../../../compiler/errors.ts';
 import { readLockFile, saveLock } from "../../workspace/lock.ts";
 import { capturePipelineRequestedStages, capturePipelineStageExecutionOptions, requirePipelineSource, sealPipelineExecutionContext, type PipelineStageExecutionOptions } from './execution-context.ts';
@@ -9,6 +8,11 @@ import {
   describePipelineFailure,
   settlePipelineFailure
 } from '../../../application/pipeline-failure.ts';
+import {
+  isPipelinePassFailure,
+  runPipelinePass
+} from '../../../application/pipeline-pass.ts';
+export { runPipelinePass } from '../../../application/pipeline-pass.ts';
 import {
   commitPipelineTransaction,
   failPipelineTransaction,
@@ -33,42 +37,6 @@ import type {
 } from '../../compilation-protocol/types.ts';
 
 type StageExecutionOptions<T> = PipelineStageExecutionOptions<T>;
-
-const issuedPassFailures = new WeakSet<object>();
-
-class PipelinePassFailure extends CompilerError {
-  readonly originPass: PassId;
-
-  constructor(originPass: PassId, error: unknown) {
-    const failure = describePipelineFailure(error);
-    let details = {};
-    try { if (error instanceof CompilerError) details = error.details ?? {}; }
-    catch { /* Keep the original cause when its diagnostic details are unreadable. */ }
-    super(failure.code, failure.message, details);
-    this.name = 'PipelinePassFailure';
-    this.originPass = originPass;
-    Object.defineProperty(this, 'originPass', { value: originPass, enumerable: true, writable: false, configurable: false });
-    this.cause = error;
-    issuedPassFailures.add(this);
-  }
-}
-
-export async function runPipelinePass<T>(
-  originPass: PassId,
-  execute: () => T | Promise<T>
-): Promise<T> {
-  if (!Object.hasOwn(PASS_INITIAL_STATES, originPass)) throw new CompilerError('PIPELINE-USAGE-001', 'Unknown pipeline pass');
-  try {
-    return await execute();
-  } catch (error) {
-    if (isPipelinePassFailure(error)) throw error;
-    throw new PipelinePassFailure(originPass, error);
-  }
-}
-
-function isPipelinePassFailure(value: unknown): value is PipelinePassFailure {
-  return typeof value === 'object' && value !== null && issuedPassFailures.has(value);
-}
 
 function readExistingLock(workspaceRoot: string): LockFile | null {
   try {
