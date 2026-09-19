@@ -1,7 +1,7 @@
 import type { Command } from 'commander';
 
 import type { ErrorProtocolContract } from '../../application/error-protocol-contract.ts';
-import type { CiContractInspectionSourceInspectionSource } from '../../application/ci-contract-inspect.ts';
+import type { CiContractInspectionSource } from '../../application/ci-contract-inspect.ts';
 import {
   ciContractInspectionView,
   errorProtocolContractInspectionView
