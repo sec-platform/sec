@@ -1,13 +1,12 @@
 import type { Command } from 'commander';
-import type { LockInspectProjectionSource } from '../../application/lock-inspect.ts';
 import { CompilerError, formatCompilerFailure } from '../../compiler/errors.ts';
 import {
   bindRepairCommandHandler,
   bindUpgradeCommandHandler,
+  bindWorkspaceViewCommandHandler,
   registerAdvancedWorkspaceCommands
 } from '../../entry/cli/register-advanced-workspace-commands.ts';
 import { registerCoreWorkspaceCommands } from '../../entry/cli/register-core-workspace-commands.ts';
-import { printJsonOrText } from '../../entry/cli/format-utils.ts';
 import { runWithOptionalSpinner } from './command-progress.ts';
 import { explainWorkspace, lockWorkspace, repairWorkspace, upgradeWorkspace } from './lazy-command-domains.ts';
 
@@ -138,53 +137,65 @@ export function registerWorkspaceCommands(program: Command): void {
       progress: runWithOptionalSpinner
     }),
 
-    view: async ({ command, workspaceRoot: cwd, invocationPath, input }) => {
-      const { output } = input;
-      if (command === 'lock') {
-        if (input.kind === 'inspect') {
-          const { resolveWorkspaceLockPath } = await import('../../adapters/workspace-context.ts');
-          const { projectLockInspect } = await import('../../application/lock-inspect.ts');
-          const { formatLockInspect } = await import('../../entry/cli/lock-inspect.ts');
-          const { printRequiredJson } = await import('./artifact-command-read.ts');
-          const lockPath = await resolveWorkspaceLockPath(cwd);
-          await printRequiredJson<LockInspectProjectionSource>(
-            lockPath,
-            `Graph lock not found; run ${invocationPath} first`,
-            output,
-            (lock) => formatLockInspect(projectLockInspect(lock))
-          );
-          return;
-        }
-        await runWithOptionalSpinner('Locking project', output, () => lockWorkspace(cwd));
-        printJsonOrText({ status: 'locked' as const }, output, () => 'Locked project');
-        return;
-      }
-
-      if (input.kind === 'inspect') {
-        const { projectExplainGraphInspect } = await import('../../application/explain-graph-inspect.ts');
-        const { formatExplainGraphInspect } = await import('../../entry/cli/explain-graph-inspect.ts');
-        const { CI_ARTIFACT_FILES } = await import('../../assurance/verification/ci-artifacts/contract/manifest.ts');
-        const { resolveWorkspaceArtifactPath } = await import('../../adapters/workspace-context.ts');
-        const { printWorkspaceJson } = await import('./artifact-command-read.ts');
-        await printWorkspaceJson<import('../../application/explain-graph-inspect.ts').ExplainGraphInspectProjectionSource>(
-          cwd,
-          (root) => resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.explainGraph),
-          `Explain graph not found; run ${invocationPath} first`,
-          output,
-          (graph) => formatExplainGraphInspect(projectExplainGraphInspect(graph))
+    view: bindWorkspaceViewCommandHandler({
+      readLock: async (workspaceRoot, missingMessage) => {
+        const { resolveWorkspaceLockPath } =
+          await import('../../adapters/workspace-context.ts');
+        const { readRequiredJson } =
+          await import('../../adapters/workspace/required-artifact-read.ts');
+        const { projectLockInspect } =
+          await import('../../application/lock-inspect.ts');
+        const { formatLockInspect } =
+          await import('../../entry/cli/lock-inspect.ts');
+        const value = await readRequiredJson<
+          import('../../application/lock-inspect.ts').LockInspectProjectionSource
+        >(await resolveWorkspaceLockPath(workspaceRoot), missingMessage);
+        return { value, text: formatLockInspect(projectLockInspect(value)) };
+      },
+      lock: workspaceRoot => lockWorkspace(workspaceRoot),
+      readExplain: async (workspaceRoot, missingMessage) => {
+        const { CI_ARTIFACT_FILES } =
+          await import('../../assurance/verification/ci-artifacts/contract/manifest.ts');
+        const { resolveWorkspaceArtifactPath } =
+          await import('../../adapters/workspace-context.ts');
+        const { readRequiredJson } =
+          await import('../../adapters/workspace/required-artifact-read.ts');
+        const { projectExplainGraphInspect } =
+          await import('../../application/explain-graph-inspect.ts');
+        const { formatExplainGraphInspect } =
+          await import('../../entry/cli/explain-graph-inspect.ts');
+        const value = await readRequiredJson<
+          import('../../application/explain-graph-inspect.ts').ExplainGraphInspectProjectionSource
+        >(
+          resolveWorkspaceArtifactPath(
+            workspaceRoot,
+            CI_ARTIFACT_FILES.explainGraph
+          ),
+          missingMessage
         );
-        return;
-      }
-      const { buildE2eMatrix } = await import('../../assurance/verification/review/matrix.ts');
-      const { projectExplainSummary } = await import('../../application/explain-summary.ts');
-      const { formatExplainSummary } = await import('../../entry/cli/explain-summary.ts');
-      const { graph, reviewSummary } = await runWithOptionalSpinner('Explaining project', output, () => explainWorkspace(cwd));
-      printJsonOrText(
-        { graph, reviewSummary, e2eMatrix: buildE2eMatrix(reviewSummary) },
-        output,
-        (summary) => formatExplainSummary(projectExplainSummary(summary.graph, summary.reviewSummary, summary.e2eMatrix))
-      );
-    },
+        return {
+          value,
+          text: formatExplainGraphInspect(projectExplainGraphInspect(value))
+        };
+      },
+      explain: async workspaceRoot => {
+        const { buildE2eMatrix } =
+          await import('../../assurance/verification/review/matrix.ts');
+        const { projectExplainSummary } =
+          await import('../../application/explain-summary.ts');
+        const { formatExplainSummary } =
+          await import('../../entry/cli/explain-summary.ts');
+        const { graph, reviewSummary } = await explainWorkspace(workspaceRoot);
+        const e2eMatrix = buildE2eMatrix(reviewSummary);
+        return {
+          value: { graph, reviewSummary, e2eMatrix },
+          text: formatExplainSummary(
+            projectExplainSummary(graph, reviewSummary, e2eMatrix)
+          )
+        };
+      },
+      progress: runWithOptionalSpinner
+    }),
 
     artifacts: async ({ workspaceRoot, invocationPath, input }) => {
       const { executeArtifactCommand } = await import('./artifact-command-execution.ts');
