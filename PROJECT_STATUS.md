@@ -73,6 +73,8 @@ The supported repository checks are listed in `package.json`; contribution work 
 
 Public repository visibility means that the project can be inspected and contributed to. It does not declare a stable API, production readiness, long-term support, or a versioned product release.
 
+The source preview now contains exact-revision release tooling that can build a runtime artifact and a separately licensed documentation artifact, bind both to one `release-set-manifest.json`, read back their physical inventories and digests, and let the release-verification workflow upload that exact set after full verification. This establishes a reproducible artifact/provenance mechanism; it does **not** turn `0.1.0`, the current branch, or any commit into a declared stable product release.
+
 A future release must state its supported capabilities, targets, compatibility boundary, verification coverage, installation path, and known limitations. Until then, consumers should pin an exact revision and expect architecture and implementation interfaces to change.
 
 Repository-owned software and executable engineering material are available under [MPL-2.0](LICENSE). Repository-owned documentation and specifications are available under [CC BY 4.0](LICENSES/CC-BY-4.0.txt). The exact boundary is recorded in [`LICENSES/README.md`](LICENSES/README.md) and [`REUSE.toml`](REUSE.toml); third-party dependencies and materials remain subject to their own licenses and notices.
