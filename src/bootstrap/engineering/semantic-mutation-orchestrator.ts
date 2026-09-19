@@ -87,6 +87,8 @@ import {
 } from '../../application/semantic-mutation-recovery.ts';
 import { planSemanticMutation } from '../../application/semantic-mutation-plan.ts';
 import { coordinateSemanticMutationRecovery } from '../../application/semantic-mutation-recovery-coordinator.ts';
+import { publishRejectedSemanticMutationTerminal } from '../../application/semantic-mutation-terminal-publication.ts';
+import { querySemanticMutationRequestView } from '../../application/semantic-mutation-query.ts';
 import { compileWorkspace } from './pipeline-orchestrator.ts';
 
 type ReadyPlan = ReadySemanticMutationPlan;
@@ -184,21 +186,23 @@ async function writeRejectedTerminalAndPrune(
   planRevision: string,
   result: Extract<SemanticMutationResult, { readonly status: 'rejected' }>
 ): Promise<void> {
-  await fencedWorkspaceWrite(workspaceRoot, token, (commitFence) =>
-    writeRejectedSemanticMutationTerminal(
-      transactionRoot,
-      requestIdentityDigest,
-      requestRevision,
-      planRevision,
-      result,
-      commitFence
+  return publishRejectedSemanticMutationTerminal({
+    publish: () => fencedWorkspaceWrite(workspaceRoot, token, commitFence =>
+      writeRejectedSemanticMutationTerminal(
+        transactionRoot,
+        requestIdentityDigest,
+        requestRevision,
+        planRevision,
+        result,
+        commitFence
+      )
+    ),
+    prune: () => fencedWorkspaceWrite(
+      workspaceRoot,
+      token,
+      commitFence => pruneSemanticMutationTerminalRecords(workspaceRoot, commitFence)
     )
-  );
-  await fencedWorkspaceWrite(
-    workspaceRoot,
-    token,
-    (commitFence) => pruneSemanticMutationTerminalRecords(workspaceRoot, commitFence)
-  );
+  });
 }
 
 
@@ -811,12 +815,14 @@ export async function recoverSemanticMutationWorkspaceWithTestDependencies(
     : outcome;
 }
 
-export async function querySemanticMutationRequest(
+export function querySemanticMutationRequest(
   workspaceRoot: string,
   identity: SemanticMutationRequestIdentity
 ): Promise<SemanticMutationRequestRecordView | null> {
-  const record = await querySemanticMutationRequestRecord(workspaceRoot, identity);
-  return record === null ? null : projectSemanticMutationRequestRecordView(record, identity);
+  return querySemanticMutationRequestView(identity, {
+    read: requested => querySemanticMutationRequestRecord(workspaceRoot, requested),
+    project: (record, requested) => projectSemanticMutationRequestRecordView(record, requested)
+  });
 }
 
 async function planSemanticMutationTransactionInternal(
