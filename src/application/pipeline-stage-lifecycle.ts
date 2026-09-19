@@ -21,6 +21,29 @@ export interface PipelineStageLifecycleOptions<T> {
   readonly preserveOwnedPassStates?: boolean;
 }
 
+export type PipelineStageExecutionOptions<T> = PipelineStageLifecycleOptions<T>;
+
+/** Capture option method identity and policy before any suspension point. */
+export function capturePipelineStageExecutionOptions<T>(
+  options: PipelineStageExecutionOptions<T>
+): Readonly<PipelineStageExecutionOptions<T>> {
+  const { extractLock, preserveOwnedPassStates } = options;
+  if (extractLock !== undefined && typeof extractLock !== 'function') {
+    throw new TypeError('Pipeline lock extractor must be callable');
+  }
+  if (preserveOwnedPassStates !== undefined &&
+      typeof preserveOwnedPassStates !== 'boolean') {
+    throw new TypeError('Pipeline preserveOwnedPassStates must be boolean');
+  }
+  return Object.freeze({
+    preserveOwnedPassStates,
+    extractLock: extractLock === undefined
+      ? undefined
+      : (result: T): Awaitable<LockFile> =>
+          Reflect.apply(extractLock, options, [result]) as Awaitable<LockFile>
+  });
+}
+
 export interface PipelineStageLifecycleOperations<T> {
   readExistingLock(): Awaitable<LockFile | null>;
   assertWrite(): Awaitable<void>;
