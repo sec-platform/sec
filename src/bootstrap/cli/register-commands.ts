@@ -6,7 +6,10 @@ import { buildBenchmarkTaskCatalog, formatBenchmarkTaskCatalog } from '../../ada
 import { addJsonFlags, jsonOpts, usageError } from '../../entry/cli/command-options.ts';
 import { registerReferenceCommands } from '../../entry/cli/register-reference-commands.ts';
 import { registerVerificationToolingCommands } from '../../entry/cli/register-verification-tooling-commands.ts';
-import { registerTextCommands } from '../../entry/cli/register-text-commands.ts';
+import {
+  bindTextCommandHandlers,
+  registerTextCommands
+} from '../../entry/cli/register-text-commands.ts';
 import {
   bindEnvironmentCommandHandlers,
   registerEnvironmentCommands
@@ -122,40 +125,31 @@ export function registerCommands(
   registerInspectionCommands(program);
 
 
-  registerTextCommands(program, {
-    census: async ({ output, failOn }) => {
-      const thresholdAdmission = admitTextByteCensusThreshold(
+  registerTextCommands(program, bindTextCommandHandlers({
+    admitThreshold: failOn => {
+      const admission = admitTextByteCensusThreshold(
         failOn,
         TEXT_BYTE_CLASSIFICATIONS
       );
-      if (thresholdAdmission.status === 'rejected') {
-        throw usageError(
-          `Text census --fail-on must be any or one of: ${TEXT_BYTE_CLASSIFICATIONS.join(', ')}`
-        );
-      }
-      const workspaceRoot = process.cwd();
-      const report = await runWithOptionalSpinner(
-        'Scanning text bytes',
-        output,
-        () => runCensus(workspaceRoot)
-      );
-      printJsonOrText(
-        report,
-        output,
-        value => formatTextByteCensus(projectTextByteCensusReport(value, {
+      return admission.status === 'rejected'
+        ? { status: 'rejected' as const, expected: TEXT_BYTE_CLASSIFICATIONS }
+        : { status: 'accepted' as const, threshold: admission.threshold };
+    },
+    runCensus: async (workspaceRoot, threshold) => {
+      const value = await runCensus(workspaceRoot);
+      return {
+        value,
+        text: formatTextByteCensus(projectTextByteCensusReport(value, {
           classifications: TEXT_BYTE_CLASSIFICATIONS,
           anomalies: TEXT_BYTE_ANOMALIES
-        }))
-      );
-      const failed = thresholdAdmission.status === 'accepted'
-        && textByteCensusThresholdMatched(report, thresholdAdmission.threshold);
-      if (failed) {
-        throw new Error(
-          `Text census --fail-on ${thresholdAdmission.threshold} threshold matched.`
-        );
-      }
-    }
-  });
+        })),
+        thresholdMatched: threshold === undefined
+          ? false
+          : textByteCensusThresholdMatched(value, threshold)
+      };
+    },
+    progress: runWithOptionalSpinner
+  }));
 
   registerEnvironmentCommands(program, bindEnvironmentCommandHandlers({
     containerEngine: async ({ workspaceRoot, start }) => {
