@@ -103,6 +103,81 @@ export function bindRepairCommandHandler(
   };
 }
 
+export type UpgradeCommandProjection = Readonly<{
+  value: unknown;
+  text: string;
+}>;
+
+export interface UpgradeCommandOperations {
+  readPlan(
+    workspaceRoot: string,
+    missingMessage: string
+  ): Promise<UpgradeCommandProjection>;
+  readDiagnostics(
+    workspaceRoot: string,
+    missingMessage: string
+  ): Promise<UpgradeCommandProjection>;
+  execute(
+    workspaceRoot: string,
+    blockId: string,
+    targetVersion: string,
+    dryRun: boolean
+  ): Promise<UpgradeCommandProjection>;
+  progress<T>(
+    text: string,
+    output: UpgradeInput['output'],
+    operation: () => Promise<T>
+  ): Promise<T>;
+}
+
+export function bindUpgradeCommandHandler(
+  operations: UpgradeCommandOperations
+): AdvancedWorkspaceCommandHandlers['upgrade'] {
+  const required = [
+    operations.readPlan,
+    operations.readDiagnostics,
+    operations.execute,
+    operations.progress
+  ];
+  if (required.some(operation => typeof operation !== 'function')) {
+    throw new TypeError('Upgrade command operations must be callable');
+  }
+
+  return async ({ workspaceRoot, invocationPath, input }) => {
+    if (input.kind === 'plan') {
+      const result = await operations.readPlan.call(
+        operations,
+        workspaceRoot,
+        `Upgrade plan not found; run ${invocationPath} <block-id> <target-version>`
+      );
+      printJsonOrText(result.value, input.output, () => result.text);
+      return;
+    }
+    if (input.kind === 'diagnostics') {
+      const result = await operations.readDiagnostics.call(
+        operations,
+        workspaceRoot,
+        `Upgrade diagnostics not found; run ${invocationPath} <block-id> <target-version>`
+      );
+      printJsonOrText(result.value, input.output, () => result.text);
+      return;
+    }
+    const result = await operations.progress.call(
+      operations,
+      input.request.dryRun ? 'Previewing upgrade' : 'Running upgrade',
+      input.output,
+      () => operations.execute.call(
+        operations,
+        workspaceRoot,
+        input.subject,
+        input.targetVersion,
+        input.request.dryRun
+      )
+    );
+    printJsonOrText(result.value, input.output, () => result.text);
+  };
+}
+
 export interface AdvancedWorkspaceCommandHandlers {
   readonly repair: (context: CommandContext<RepairInput>) => Promise<void>;
   readonly upgrade: (context: CommandContext<UpgradeInput>) => Promise<void>;
