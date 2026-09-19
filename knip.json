@@ -24,6 +24,8 @@
     "src/bootstrap/reference/compile-workspace.ts!",
     "src/bootstrap/reference/demo.ts!",
     "src/bootstrap/release/build.ts!",
+    "src/bootstrap/release/build-documentation.ts!",
+    "src/bootstrap/release/build-set.ts!",
     "src/adapters/toolchain/dependencies/runtime.ts!",
     "src/adapters/toolchain/runtime/package-source-launcher.ts!",
     "src/adapters/toolchain/typescript/canary.ts!",
