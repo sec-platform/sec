@@ -4,7 +4,7 @@ import type { FactDeltaEndpointContext } from '../../semantics/engineering-ir/de
 import { type SemanticMutationApplyInput, type SemanticMutationApplyOutcome, type SemanticMutationInternalRecoveryOutcome, type SemanticMutationRecoveryFailureState, type SemanticMutationRecoveryOutcome, type SemanticMutationRecoveryRecord, type SemanticMutationRequestIdentity, type SemanticMutationRequestRecordView, type SemanticMutationTransactionInput } from '../../semantics/mutation/transaction.ts';
 import type { SemanticMutationBase, SemanticMutationDiagnostic, SemanticMutationPlan, SemanticMutationResult, SemanticMutationVerificationExecutionRef } from '../../semantics/mutation/types.ts';
 import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION, type SemanticMutationVerificationCapabilityPlan } from '../../assurance/verification/contract/types.ts';
-import { acquireWorkspaceWriteLease, assertWorkspaceWriteLease, createWorkspaceWriteCommitFence, withWorkspaceWriteLease, WorkspaceWriteLeaseError, type WorkspaceWriteLeaseToken } from '../../adapters/filesystem/write-lease.ts';
+import { acquireWorkspaceWriteLease, assertWorkspaceWriteLease, withWorkspaceWriteLease, WorkspaceWriteLeaseError, type WorkspaceWriteLeaseToken } from '../../adapters/filesystem/write-lease.ts';
 import { buildWorkspaceSemanticBundle } from '../../adapters/workspace/semantic-bundle.ts';
 import {
   atomicPublishSemanticMutationSource,
@@ -96,6 +96,7 @@ import {
   type SemanticMutationIsolationFailureObservation
 } from '../../application/semantic-mutation-isolated-verification.ts';
 import { compileWorkspace } from './pipeline-orchestrator.ts';
+import { executeWorkspaceWriteEffect } from '../../execution/workspace-write-effect.ts';
 
 type ReadyPlan = ReadySemanticMutationPlan;
 
@@ -173,16 +174,6 @@ function planningAdapter(
 
 
 
-async function fencedWorkspaceWrite<Value>(
-  workspaceRoot: string,
-  token: WorkspaceWriteLeaseToken,
-  operation: (commitFence: SemanticMutationCommitFence) => Promise<Value>
-): Promise<Value> {
-  const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, token);
-  await commitFence();
-  return operation(commitFence);
-}
-
 async function writeRejectedTerminalAndPrune(
   workspaceRoot: string,
   transactionRoot: string,
@@ -193,7 +184,7 @@ async function writeRejectedTerminalAndPrune(
   result: Extract<SemanticMutationResult, { readonly status: 'rejected' }>
 ): Promise<void> {
   return publishRejectedSemanticMutationTerminal({
-    publish: () => fencedWorkspaceWrite(workspaceRoot, token, commitFence =>
+    publish: () => executeWorkspaceWriteEffect(workspaceRoot, token, commitFence =>
       writeRejectedSemanticMutationTerminal(
         transactionRoot,
         requestIdentityDigest,
@@ -203,7 +194,7 @@ async function writeRejectedTerminalAndPrune(
         commitFence
       )
     ),
-    prune: () => fencedWorkspaceWrite(
+    prune: () => executeWorkspaceWriteEffect(
       workspaceRoot,
       token,
       commitFence => pruneSemanticMutationTerminalRecords(workspaceRoot, commitFence)
@@ -360,7 +351,7 @@ async function markRecoveryRequired(
     recoveryState,
     diagnostic
   );
-  const terminal = await fencedWorkspaceWrite(workspaceRoot, token, commitFence =>
+  const terminal = await executeWorkspaceWriteEffect(workspaceRoot, token, commitFence =>
     dependencies.appendRecoveryRecord(transactionRoot, transition.draft, commitFence)
   );
   return { status: 'recovery-required', record: terminal };
@@ -400,7 +391,7 @@ async function rollbackCommittedMutation(
       );
     }
     const transition = prepareSemanticMutationRolledBackTransition(record, cause);
-    await fencedWorkspaceWrite(workspaceRoot, token, commitFence =>
+    await executeWorkspaceWriteEffect(workspaceRoot, token, commitFence =>
       dependencies.appendRecoveryRecord(transactionRoot, transition.draft, commitFence)
     );
     return { status: 'terminal', result: transition.result };
@@ -471,7 +462,7 @@ async function completeCommittedMutation(
   }
   try {
     const transition = prepareSemanticMutationAcceptedTransition(record, result.accepted);
-    await fencedWorkspaceWrite(workspaceRoot, token, commitFence =>
+    await executeWorkspaceWriteEffect(workspaceRoot, token, commitFence =>
       dependencies.appendRecoveryRecord(transactionRoot, transition.draft, commitFence)
     );
     return { status: 'terminal', result: transition.result };
@@ -571,7 +562,7 @@ async function recoverRecord(
     try {
       await assertWorkspaceWriteLease(workspaceRoot, token);
       const base = endpointFromBundle(record.base.transactionId, bundle.snapshot);
-      const derived = await fencedWorkspaceWrite(workspaceRoot, token, (commitFence) =>
+      const derived = await executeWorkspaceWriteEffect(workspaceRoot, token, (commitFence) =>
         dependencies.derive(workspaceRoot, {
           request: record.request,
           base,
@@ -596,7 +587,7 @@ async function recoverRecord(
           )
         );
       }
-      const verification = await fencedWorkspaceWrite(workspaceRoot, token, (commitFence) =>
+      const verification = await executeWorkspaceWriteEffect(workspaceRoot, token, (commitFence) =>
         dependencies.verify(derived as typeof derived & {
           readonly plan: ReadyPlan;
           readonly staged: FactDeltaEndpointContext;
@@ -642,7 +633,7 @@ async function recoverRecord(
       );
     }
     if (!artifactsForPublish) throw new Error('Prepared recovery lost its exact publish artifacts');
-    await fencedWorkspaceWrite(workspaceRoot, token, (commitFence) =>
+    await executeWorkspaceWriteEffect(workspaceRoot, token, (commitFence) =>
       dependencies.publishSource(
         workspaceRoot,
         transactionRoot,
@@ -654,7 +645,7 @@ async function recoverRecord(
   }
   let committedRecord = record;
   if (record.state === 'prepared') {
-    committedRecord = await fencedWorkspaceWrite(workspaceRoot, token, (commitFence) =>
+    committedRecord = await executeWorkspaceWriteEffect(workspaceRoot, token, (commitFence) =>
       dependencies.appendRecoveryRecord(
         transactionRoot,
         nextRecordDraft(record, 'authoring-committed'),
@@ -694,7 +685,7 @@ async function recoverRecord(
       record,
       recoveryDiagnostic('Crash recovery verified an already-restored source')
     );
-    await fencedWorkspaceWrite(workspaceRoot, token, commitFence =>
+    await executeWorkspaceWriteEffect(workspaceRoot, token, commitFence =>
       dependencies.appendRecoveryRecord(transactionRoot, transition.draft, commitFence)
     );
     return { status: 'terminal', result: transition.result };
@@ -723,7 +714,7 @@ async function recoverWithLease(
       token,
       dependencies
     ),
-    prune: () => fencedWorkspaceWrite(
+    prune: () => executeWorkspaceWriteEffect(
       workspaceRoot,
       token,
       commitFence => pruneSemanticMutationTerminalRecords(workspaceRoot, commitFence)
@@ -784,7 +775,7 @@ async function planSemanticMutationTransactionInternal(
 ): Promise<SemanticMutationPlan> {
   return withWorkspaceWriteLease(workspaceRoot, undefined, token => planSemanticMutation({
     inspectRecovery: () => inspectSemanticMutationRecoveryAuthority(workspaceRoot),
-    derive: () => fencedWorkspaceWrite(workspaceRoot, token, commitFence =>
+    derive: () => executeWorkspaceWriteEffect(workspaceRoot, token, commitFence =>
       deriveStagedSemanticMutation(
         workspaceRoot,
         input,
@@ -842,7 +833,7 @@ async function applySemanticMutationInternal(
     const retainedDecision = resolveSemanticMutationRetainedRequest(preparation, retained);
     if (retainedDecision !== null) return retainedDecision;
 
-    const derived = await fencedWorkspaceWrite(workspaceRoot, token, (commitFence) =>
+    const derived = await executeWorkspaceWriteEffect(workspaceRoot, token, (commitFence) =>
       dependencies.derive(
         workspaceRoot,
         input,
@@ -890,7 +881,7 @@ async function applySemanticMutationInternal(
 
     let isolatedVerificationFailure: SemanticMutationIsolatedVerificationFailure | undefined;
     let stagedVerificationProof: StagedVerificationProof | undefined;
-    const verification = await fencedWorkspaceWrite(workspaceRoot, token, (commitFence) =>
+    const verification = await executeWorkspaceWriteEffect(workspaceRoot, token, (commitFence) =>
       dependencies.verify(derived as typeof derived & {
         readonly plan: ReadyPlan;
         readonly staged: FactDeltaEndpointContext;
@@ -930,7 +921,7 @@ async function applySemanticMutationInternal(
       return { status: 'terminal', result };
     }
 
-    await fencedWorkspaceWrite(workspaceRoot, token, (commitFence) =>
+    await executeWorkspaceWriteEffect(workspaceRoot, token, (commitFence) =>
       dependencies.writeTransactionArtifacts(
         transactionRoot,
         editPlan,
@@ -940,7 +931,7 @@ async function applySemanticMutationInternal(
         commitFence
       )
     );
-    let record = await fencedWorkspaceWrite(workspaceRoot, token, (commitFence) =>
+    let record = await executeWorkspaceWriteEffect(workspaceRoot, token, (commitFence) =>
       dependencies.appendRecoveryRecord(
         transactionRoot,
         buildPreparedSemanticMutationRecoveryRecord({
@@ -986,7 +977,7 @@ async function applySemanticMutationInternal(
         return terminalRecoveryOutcome(recoveryRequired);
       }
       if (currentDigest === editPlan.stagedByteDigest) {
-        record = await fencedWorkspaceWrite(workspaceRoot, token, (commitFence) =>
+        record = await executeWorkspaceWriteEffect(workspaceRoot, token, (commitFence) =>
           dependencies.appendRecoveryRecord(
             transactionRoot,
             nextRecordDraft(record, 'authoring-committed', { diagnostics: [diagnostic] }),
@@ -1002,7 +993,7 @@ async function applySemanticMutationInternal(
           dependencies
         );
         if (rolledBack.status === 'terminal') {
-          await fencedWorkspaceWrite(
+          await executeWorkspaceWriteEffect(
             workspaceRoot,
             token,
             (commitFence) => pruneSemanticMutationTerminalRecords(workspaceRoot, commitFence)
@@ -1044,7 +1035,7 @@ async function applySemanticMutationInternal(
       return { status: 'terminal', result };
     }
     try {
-      record = await fencedWorkspaceWrite(workspaceRoot, token, (commitFence) =>
+      record = await executeWorkspaceWriteEffect(workspaceRoot, token, (commitFence) =>
         dependencies.appendRecoveryRecord(
           transactionRoot,
           nextRecordDraft(record, 'authoring-committed'),
@@ -1072,7 +1063,7 @@ async function applySemanticMutationInternal(
       dependencies,
       stagedVerificationProof
     );
-    await fencedWorkspaceWrite(
+    await executeWorkspaceWriteEffect(
       workspaceRoot,
       token,
       (commitFence) => pruneSemanticMutationTerminalRecords(workspaceRoot, commitFence)
