@@ -1,14 +1,14 @@
 import path from 'node:path';
 import { pipelineStageBoundary } from '../../adapters/compilation-protocol/execution-boundaries.ts';
 
-import type { ExplainGraph } from '../../semantics/projection/explain.ts';
-import type { VerificationReport } from '../../assurance/verification/contract/types.ts';
-import { type ReviewSummary } from '../../assurance/verification/review/contract/types.ts';
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../adapters/filesystem/write-lease.ts';
-import type { LockFile, PlanFile } from '../../compiler/contract.ts';
 import { readLockFile } from '../../adapters/workspace/lock.ts';
 import { bindPipelineCompileRequest, type PipelineCompileRequest } from '../../application/pipeline-request.ts';
-import { completeWorkspaceCompilationTransaction } from '../../application/compile-workspace.ts';
+import {
+  completeWorkspaceCompilationTransaction,
+  projectWorkspaceCompilationResult,
+  type CompileWorkspaceResult
+} from '../../application/compile-workspace.ts';
 import { emitPipelineExecutionBoundary } from '../../adapters/compilation/pipeline/journal.ts';
 import { withPipelineTransaction } from '../../adapters/compilation/pipeline/kernel.ts';
 import { withLeaseObservationMonitor } from '../../adapters/compilation/pipeline/lease-monitor.ts';
@@ -17,12 +17,7 @@ import { buildPipelineCompletionProof } from '../../adapters/verification/pipeli
 import { revalidateStagedVerificationProofAfterPipeline } from '../../adapters/verification/pipeline-staged-proof.ts';
 export { buildPipelineCompletionProof } from '../../adapters/verification/pipeline-completion-proof.ts';
 export type { PipelineCompletionProofStageEvidence } from '../../adapters/verification/pipeline-completion-proof.ts';
-import {
-  type PipelineEventHandler,
-  type PipelineSemanticContext,
-  type PipelineStageId
-} from '../../adapters/compilation-protocol/types.ts';
-import type { PipelineCompletionProof } from '../../assurance/verification/pipeline/completion-proof.ts';
+import { type PipelineEventHandler } from '../../adapters/compilation-protocol/types.ts';
 export { assertPipelineCompletionProofInvariant, createPipelineCompletionProof } from '../../assurance/verification/pipeline/completion-proof.ts';
 export type { PipelineCompletionProofEvidence } from '../../assurance/verification/pipeline/completion-proof.ts';
 import { resolveWorkspace } from './block-orchestrator.ts';
@@ -56,18 +51,6 @@ export async function withMonitoredWorkspaceWriteLease<T>(
   return withLeaseObservationMonitor(
     () => assertWorkspaceWriteLease(root, workspaceWriteLease), callback
   );
-}
-
-export interface CompileWorkspaceResult {
-  transactionId: string;
-  completedStages: PipelineStageId[];
-  semanticContext?: PipelineSemanticContext;
-  plan?: PlanFile;
-  lock: LockFile;
-  verificationReport?: VerificationReport;
-  explainGraph?: ExplainGraph;
-  reviewSummary?: ReviewSummary;
-  completionProof?: PipelineCompletionProof;
 }
 
 export async function compileWorkspace(
@@ -167,17 +150,7 @@ export async function compileWorkspace(
           } : {})
         }),
         workspaceWriteLease
-      ).then(result => ({
-        transactionId: result.transactionId,
-        completedStages: [...result.completedStages],
-        ...(result.semanticContext ? { semanticContext: result.semanticContext } : {}),
-        ...(result.plan ? { plan: result.plan } : {}),
-        lock: result.lock,
-        ...(result.verificationReport ? { verificationReport: result.verificationReport } : {}),
-        ...(result.explainGraph ? { explainGraph: result.explainGraph } : {}),
-        ...(result.reviewSummary ? { reviewSummary: result.reviewSummary } : {}),
-        ...(result.completionProof ? { completionProof: result.completionProof } : {})
-      }));
+      ).then(projectWorkspaceCompilationResult);
     });
   });
 }

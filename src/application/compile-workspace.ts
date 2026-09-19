@@ -51,3 +51,37 @@ export async function completeWorkspaceCompilationTransaction(
     ...(completionProof === null ? {} : { completionProof })
   };
 }
+
+
+export type CompileWorkspaceResult = Readonly<{
+  transactionId: string;
+  completedStages: PipelineStageId[];
+  semanticContext?: WorkspaceCompilationTransactionResult['semanticContext'];
+  plan?: WorkspaceCompilationTransactionResult['plan'];
+  lock: LockFile;
+  verificationReport?: WorkspaceCompilationTransactionResult['verificationReport'];
+  explainGraph?: WorkspaceCompilationTransactionResult['explainGraph'];
+  reviewSummary?: WorkspaceCompilationTransactionResult['reviewSummary'];
+  completionProof?: PipelineCompletionProof;
+}>;
+
+/** Project one completed internal transaction into the public compile result.
+ * Application owns the use-case result shape; bootstrap only supplies and
+ * executes physical stage operations. */
+export function projectWorkspaceCompilationResult(
+  result: WorkspaceCompilationTransactionResult
+): CompileWorkspaceResult {
+  return {
+    transactionId: result.transactionId,
+    completedStages: [...result.completedStages],
+    ...(result.semanticContext ? { semanticContext: result.semanticContext } : {}),
+    ...(result.plan ? { plan: result.plan } : {}),
+    lock: result.lock,
+    ...(result.verificationReport
+      ? { verificationReport: result.verificationReport }
+      : {}),
+    ...(result.explainGraph ? { explainGraph: result.explainGraph } : {}),
+    ...(result.reviewSummary ? { reviewSummary: result.reviewSummary } : {}),
+    ...(result.completionProof ? { completionProof: result.completionProof } : {})
+  };
+}
