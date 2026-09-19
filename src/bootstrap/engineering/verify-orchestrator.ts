@@ -1,31 +1,16 @@
 import path from 'node:path';
-import { CI_ARTIFACT_FILES } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
+import { verifyWorkspaceResult } from '../../application/verify-workspace.ts';
 import type { VerificationLane, VerificationReport } from '../../assurance/verification/contract/types.ts';
-import { buildBlockedVerificationReport } from '../../assurance/verification/contract/blocked-report.ts';
-import { ProjectIntegrityError } from '../../workspace/contract/project-integrity.ts';
-import { assertWorkspaceWriteLease } from '../../adapters/filesystem/write-lease.ts';
 import type { LockFile } from '../../compiler/contract.ts';
-import { formatCompilerFailure } from '../../compiler/errors.ts';
-import { addGeneratedPaths } from "../../compiler/contract/lock-schema.ts";
-import { readLockFile } from "../../adapters/workspace/lock.ts";
+import { assertWorkspaceWriteLease } from '../../adapters/filesystem/write-lease.ts';
+import { readLockFile } from '../../adapters/workspace/lock.ts';
 import { executePipelineStage } from '../../adapters/compilation/pipeline/kernel.ts';
 import { settlePipelineFailure } from '../../adapters/compilation/pipeline/failure.ts';
 import type { PipelineExecutionContext } from '../../adapters/compilation-protocol/types.ts';
-import { buildAcceptanceCoverage } from '../../adapters/verification/build-acceptance-coverage.ts';
-import { runPolicyGate } from '../../adapters/verification/run-policy-gate.ts';
-import { createSkippedRuntimeLane } from '../../adapters/verification/run-runtime-verification.ts';
-import {
-  type StagedVerificationProof
-} from '../../adapters/verification/staged-verification-proof.ts';
-import { publishVerificationArtifactSet } from '../../adapters/verification/verification-artifact-publication.ts';
-import {
-  productVerificationObservationBindings,
-  verifyProject
-} from '../../adapters/verification/verify-project.ts';
-import {
-  assertIsolatedVerificationCapability,
-  type IsolatedVerificationCapability
-} from '../../execution/isolated-verification-capability.ts';
+import { writeBlockedVerificationSnapshot } from '../../adapters/verification/blocked-verification-publication.ts';
+import type { StagedVerificationProof } from '../../adapters/verification/staged-verification-proof.ts';
+import { verifyProject } from '../../adapters/verification/verify-project.ts';
+import { assertIsolatedVerificationCapability, type IsolatedVerificationCapability } from '../../execution/isolated-verification-capability.ts';
 export type { StagedVerificationProof };
 
 export interface VerifyWorkspaceOptions {
@@ -36,57 +21,14 @@ export interface VerifyWorkspaceOptions {
   readonly stagedVerificationProof?: StagedVerificationProof;
 }
 
-async function writeBlockedVerificationSnapshot(
-  workspaceRoot: string,
-  lock: LockFile,
-  lane: Exclude<VerificationLane, 'runtime'>,
-  failure: unknown,
-  beforeCommit: () => Promise<void>
-): Promise<void> {
-  const policyReport = await runPolicyGate(workspaceRoot);
-  const runtime = createSkippedRuntimeLane();
-  const message = formatCompilerFailure(failure);
-  const report = buildBlockedVerificationReport({
-    lane, policyReport, runtime, message,
-    observations: productVerificationObservationBindings(lock, lane, 'service')
-  });
-  const coverage = await buildAcceptanceCoverage(workspaceRoot, lock, runtime, report.fast);
-
-  addGeneratedPaths(lock, [
-    CI_ARTIFACT_FILES.verificationReport,
-    CI_ARTIFACT_FILES.runtimeReport,
-    CI_ARTIFACT_FILES.policyReport,
-    CI_ARTIFACT_FILES.acceptanceCoverage
-  ]);
-  lock.passStatus.verify = 'failed';
-
-  await publishVerificationArtifactSet({
-    workspaceRoot,
-    lock,
-    artifacts: {
-      verificationReport: report,
-      runtimeReport: runtime,
-      policyReport,
-      acceptanceCoverage: coverage
-    },
-    commitFence: beforeCommit
-  });
-}
-
-async function verifyWorkspaceCore(
-  workspaceRoot: string,
-  options: VerifyWorkspaceOptions,
-  context: PipelineExecutionContext
-): Promise<{ lock: LockFile; report: VerificationReport }> {
-  const lock = readLockFile(workspaceRoot);
+function verifyWorkspaceCore(workspaceRoot: string, options: VerifyWorkspaceOptions, context: PipelineExecutionContext) {
   const lane = options.lane ?? 'all';
   const isolated = options.isolatedVerificationCapability !== undefined;
-  if (isolated) {
-    assertIsolatedVerificationCapability(workspaceRoot, options.isolatedVerificationCapability);
-  }
   const beforeCommit = () => assertWorkspaceWriteLease(workspaceRoot, context.workspaceWriteLease);
-  try {
-    const report = await verifyProject(workspaceRoot, lock, lane, {
+  return verifyWorkspaceResult(lane, {
+    readLock: () => readLockFile(workspaceRoot),
+    ...(isolated ? { admit: () => assertIsolatedVerificationCapability(workspaceRoot, options.isolatedVerificationCapability) } : {}),
+    verify: lock => verifyProject(workspaceRoot, lock, lane, {
       emitTiming: isolated ? false : options.emitTiming,
       isolated,
       beforeCommit,
@@ -94,27 +36,15 @@ async function verifyWorkspaceCore(
         ? { pipelineObserver: { onEvent: context.onEvent, transactionId: context.transactionId } }
         : {}),
       signal: options.signal,
-      ...(options.stagedVerificationProof
-        ? { stagedVerificationProof: options.stagedVerificationProof }
-        : {}),
-      ...(isolated
-        ? {
-            stagingTreeOptions: {
-              workspaceWriteLease: context.workspaceWriteLease
-            }
-          }
-        : {})
-    });
-    return { lock, report };
-  } catch (error) {
-    if (lane !== 'runtime' && error instanceof ProjectIntegrityError) {
-      return settlePipelineFailure(error, [{
-        operation: 'verification-blocked-snapshot',
-        run: () => writeBlockedVerificationSnapshot(workspaceRoot, lock, lane, error, beforeCommit)
-      }]);
-    }
-    throw error;
-  }
+      ...(options.stagedVerificationProof ? { stagedVerificationProof: options.stagedVerificationProof } : {}),
+      ...(isolated ? { stagingTreeOptions: { workspaceWriteLease: context.workspaceWriteLease } } : {})
+    }),
+    publishBlocked: (lock, selectedLane, failure) =>
+      writeBlockedVerificationSnapshot(workspaceRoot, lock, selectedLane, failure, beforeCommit),
+    settleFailure: (failure, publish) => settlePipelineFailure(failure, [{
+      operation: 'verification-blocked-snapshot', run: publish
+    }])
+  });
 }
 
 export async function verifyWorkspace(
