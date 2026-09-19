@@ -5,7 +5,6 @@ import type {
   PlanFile,
   UpgradeMigration
 } from '../../compiler/contract.ts';
-import { writeProvenance } from '../../adapters/compilation/emit/write-provenance.ts';
 import { CompilerError } from '../../compiler/errors.ts';
 import {
   isEmptyDiagnosticsDetails,
@@ -18,12 +17,10 @@ import {
 import {
   buildUpgradePreflightChecks,
   buildUpgradePreview,
-  classifyPreflightFailure,
   collectMigrationImpacts,
   lockStateRevision,
   planningRequestRevision,
 } from '../../compiler/upgrade/planning.ts';
-import { addGeneratedPaths } from "../../compiler/contract/lock-schema.ts";
 import { readLockFile } from "../../adapters/workspace/lock.ts";
 import {
   restoreWorkspace,
@@ -37,17 +34,21 @@ import {
   loadMigrationEntries
 } from '../../adapters/upgrade/migration-runtime.ts';
 export { applyMigrationEntries } from '../../adapters/upgrade/migration-runtime.ts';
+import { requirePersistedUpgradePlan } from '../../adapters/upgrade/artifact-readback.ts';
+import {
+  publishUpgradeExecutionTerminal,
+  publishUpgradePlan,
+  resolveUpgradeExecutionTerminalPublication,
+  writeUpgradeDiagnostics
+} from '../../adapters/upgrade/artifact-publication.ts';
 import { compileWorkspace } from '../engineering/pipeline-orchestrator.ts';
 import { loadManifestById } from '../../adapters/workspace/sources/load-manifest.ts';
 import { loadWorkspacePlan } from '../../adapters/workspace/sources/load-plan.ts';
 import { settlePhysicalResourcesAsync } from '../../adapters/runtime-state/physical/runtime/resource-settlement.ts';
-import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../adapters/runtime-state/physical/runtime/retained-file-read.ts';
 import { isCanonicalRegistryVersion } from '../../semantics/identity/block.ts';
 import { uniqueSorted } from '../../contracts/canonical.ts';
 import { CI_ARTIFACT_FILES } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
-import { readJson, readOptionalJson, removeDir, writeJson } from "../../adapters/filesystem/files.ts";
-import { formatJsonFile } from "../../contracts/json-text.ts";
-import { publishExistingParentCanonicalWorkspaceFile } from "../../adapters/filesystem/file-publication.ts";
+import { readOptionalJson, removeDir } from "../../adapters/filesystem/files.ts";
 import { type CommitFence } from "../../contracts/commit-fence.ts";
 import { assertWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../adapters/filesystem/write-lease.ts';
 import { classifyCanonicalWorkspacePublicationFailure } from '../../adapters/filesystem/file-publication.ts';
@@ -60,13 +61,8 @@ import {
   createUpgradeExecutionTerminal,
   createUpgradePlan,
   createUpgradePreview,
-  parseUpgradeExecutionTerminalJson,
-  parseUpgradePlanJson,
   requireUpgradeDigest,
-  UPGRADE_DIAGNOSTICS_FORMAT_VERSION,
   upgradeArtifactDigest,
-  validateUpgradeDiagnostics,
-  type UpgradeDiagnostics,
   type UpgradeExecutionTerminal,
   type UpgradePlan,
   type UpgradePreflightCheck,
@@ -264,90 +260,6 @@ export async function planUpgradeWorkspace(
   return { resultKind: 'preview', plan, lock, upgradePlan: plannedUpgrade.upgradePreview };
 }
 
-async function recordUpgradeGeneratedArtifact(
-  workspaceRoot: string,
-  lock: LockFile,
-  artifactPaths: readonly string[],
-  commitFence: CommitFence
-): Promise<void> {
-  addGeneratedPaths(lock, artifactPaths);
-  await writeProvenance(workspaceRoot, lock, commitFence);
-}
-
-async function writeUpgradeDiagnostics(
-  workspaceRoot: string,
-  blockId: string,
-  targetVersion: string,
-  provenance:
-    | {
-        phase: 'planning';
-        workspaceIdentityDigest: string;
-        planningRequestRevision: `sha256:${string}`;
-      }
-    | {
-        phase: 'apply' | 'recovery';
-        plan: UpgradePlan;
-        terminal: UpgradeExecutionTerminal;
-      },
-  error: CompilerError,
-  lock: LockFile | null,
-  commitFence: CommitFence
-): Promise<void> {
-  const upgradeDiagnosticsPath = resolveWorkspaceArtifactPath(
-    workspaceRoot,
-    CI_ARTIFACT_FILES.upgradeDiagnostics
-  );
-  const details = isEmptyDiagnosticsDetails(error.details) ? undefined : error.details;
-  const diagnostics: UpgradeDiagnostics = provenance.phase === 'planning'
-    ? validateUpgradeDiagnostics({
-        formatVersion: UPGRADE_DIAGNOSTICS_FORMAT_VERSION,
-        artifactKind: 'upgrade-diagnostics',
-        status: 'blocked',
-        phase: 'planning',
-        workspaceIdentityDigest: provenance.workspaceIdentityDigest,
-        planningRequestRevision: provenance.planningRequestRevision,
-        blockId,
-        targetVersion,
-        failedCheck: classifyPreflightFailure(error.code),
-        errorCode: error.code,
-        message: error.message,
-        ...(details === undefined ? {} : { details })
-      })
-    : validateUpgradeDiagnostics({
-        formatVersion: UPGRADE_DIAGNOSTICS_FORMAT_VERSION,
-        artifactKind: 'upgrade-diagnostics',
-        status: 'blocked',
-        phase: provenance.phase,
-        workspaceIdentityDigest: provenance.plan.workspaceIdentityDigest,
-        operationIdentityDigest: provenance.plan.operationIdentityDigest,
-        planRevision: provenance.plan.planRevision,
-        attemptRevision: provenance.terminal.attempt.attemptRevision,
-        executionTerminalRevision: provenance.terminal.terminalRevision,
-        blockId,
-        targetVersion,
-        failedCheck: classifyPreflightFailure(error.code),
-        errorCode: error.code,
-        message: error.message,
-        ...(details === undefined ? {} : { details })
-      });
-  await writeJson(upgradeDiagnosticsPath, diagnostics, commitFence);
-  if (!lock) {
-    return;
-  }
-  await recordUpgradeGeneratedArtifact(
-    workspaceRoot,
-    lock,
-    provenance.phase === 'planning'
-      ? [CI_ARTIFACT_FILES.upgradeDiagnostics]
-      : [
-          CI_ARTIFACT_FILES.upgradePlan,
-          CI_ARTIFACT_FILES.upgradeExecutionTerminal,
-          CI_ARTIFACT_FILES.upgradeDiagnostics
-        ],
-    commitFence
-  );
-}
-
 type UpgradeApplyContext = PlannedWorkspaceUpgrade & {
   commitFence: CommitFence;
   plan: PlanFile;
@@ -388,27 +300,6 @@ async function applyPlannedWorkspaceUpgrade(context: UpgradeApplyContext): Promi
   return lock;
 }
 
-function readPersistedUpgradePlan(workspaceRoot: string): UpgradePlan {
-  const artifactPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan);
-  const bytes = readOptionalRetainedOrdinaryFile(artifactPath, 'Upgrade plan readback');
-  if (bytes === null) {
-    throw new CompilerError('UPGRADE-BLOCKED-005', 'Upgrade plan readback is absent after publication');
-  }
-  return parseUpgradePlanJson(decodeExactUtf8(bytes, 'Upgrade plan readback'));
-}
-
-function readPersistedUpgradeExecutionTerminal(workspaceRoot: string): UpgradeExecutionTerminal {
-  const artifactPath = resolveWorkspaceArtifactPath(
-    workspaceRoot,
-    CI_ARTIFACT_FILES.upgradeExecutionTerminal
-  );
-  const bytes = readOptionalRetainedOrdinaryFile(artifactPath, 'Upgrade execution terminal readback');
-  if (bytes === null) {
-    throw new CompilerError('UPGRADE-BLOCKED-005', 'Upgrade execution terminal readback is absent after publication');
-  }
-  return parseUpgradeExecutionTerminalJson(decodeExactUtf8(bytes, 'Upgrade execution terminal readback'));
-}
-
 async function buildUpgradeExecutionTerminal(input: {
   workspaceRoot: string;
   plan: UpgradePlan;
@@ -416,7 +307,7 @@ async function buildUpgradeExecutionTerminal(input: {
   resultLock: LockFile | null;
   settlement: UpgradeExecutionTerminal['settlement'];
 }): Promise<UpgradeExecutionTerminal> {
-  const persistedPlan = readPersistedUpgradePlan(input.workspaceRoot);
+  const persistedPlan = requirePersistedUpgradePlan(input.workspaceRoot);
   let workspacePlan: PlanFile | null = null;
   try {
     workspacePlan = await loadWorkspacePlan(input.workspaceRoot);
@@ -446,44 +337,6 @@ async function buildUpgradeExecutionTerminal(input: {
       resolvedBlockVersion
     }
   });
-}
-
-async function publishUpgradeExecutionTerminal(
-  workspaceRoot: string,
-  terminal: UpgradeExecutionTerminal,
-  commitFence: CommitFence
-): Promise<UpgradeExecutionTerminal> {
-  await publishExistingParentCanonicalWorkspaceFile({
-    workspaceRoot,
-    targetPath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeExecutionTerminal),
-    bytes: Buffer.from(formatJsonFile(terminal), 'utf8'),
-    label: 'Upgrade execution terminal',
-    commitFence
-  });
-  const readback = readPersistedUpgradeExecutionTerminal(workspaceRoot);
-  if (readback.terminalRevision !== terminal.terminalRevision) {
-    throw new CompilerError('UPGRADE-BLOCKED-005', 'Upgrade execution terminal readback differs from publication');
-  }
-  return readback;
-}
-
-function resolveUpgradeExecutionTerminalPublication(
-  workspaceRoot: string,
-  expected: UpgradeExecutionTerminal
-): 'committed' | 'absent' | 'unknown' {
-  try {
-    const bytes = readOptionalRetainedOrdinaryFile(
-      resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeExecutionTerminal),
-      'Upgrade execution terminal commit resolution'
-    );
-    if (bytes === null) return 'absent';
-    const expectedBytes = Buffer.from(formatJsonFile(expected), 'utf8');
-    if (!Buffer.from(bytes).equals(expectedBytes)) return 'unknown';
-    const parsed = parseUpgradeExecutionTerminalJson(decodeExactUtf8(bytes, 'Upgrade execution terminal commit resolution'));
-    return parsed.terminalRevision === expected.terminalRevision ? 'committed' : 'unknown';
-  } catch {
-    return 'unknown';
-  }
 }
 
 export async function runUpgradeWorkspaceWithLease(
@@ -587,15 +440,7 @@ export async function runUpgradeWorkspaceWithLease(
       resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
       commitFence
     );
-    await writeJson(
-      resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan),
-      upgradePlan,
-      commitFence
-    );
-    const persistedPlan = readPersistedUpgradePlan(workspaceRoot);
-    if (persistedPlan.planRevision !== upgradePlan.planRevision) {
-      throw new CompilerError('UPGRADE-BLOCKED-005', 'Upgrade plan readback differs from publication');
-    }
+    await publishUpgradePlan(workspaceRoot, upgradePlan, commitFence);
     const lock = await withProjectWriteAuthorization(
       {
         workspaceRoot,

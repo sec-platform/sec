@@ -7,12 +7,15 @@ import {
 } from '../runtime-state/physical/runtime/retained-file-read.ts';
 import { CI_ARTIFACT_FILES } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import { resolveWorkspaceArtifactPath } from "../workspace-context.ts";
+import { CompilerError } from '../../compiler/errors.ts';
 import {
   parseUpgradeDiagnosticsJson,
   parseUpgradeExecutionTerminalJson,
   parseUpgradePlanJson,
   validateUpgradeArtifactSet,
-  type UpgradeArtifactSet
+  type UpgradeArtifactSet,
+  type UpgradeExecutionTerminal,
+  type UpgradePlan
 } from '../../semantics/upgrade/upgrade-artifact.ts';
 
 function readOptionalCanonicalJson<T>(
@@ -62,4 +65,42 @@ export function readUpgradeArtifactSet(workspaceRoot: string): UpgradeArtifactSe
           parseUpgradeDiagnosticsJson
         )
   });
+}
+
+
+function requireCanonicalUpgradeJson<T>(
+  absolutePath: string,
+  label: string,
+  parse: (source: string) => T,
+  missingMessage: string
+): T {
+  const parent = retainOptionalDirectory(path.dirname(absolutePath), `${label} parent`);
+  if (parent === null) {
+    throw new CompilerError('UPGRADE-BLOCKED-005', missingMessage);
+  }
+  const bytes = readOptionalRetainedOrdinaryLeaf(parent, path.basename(absolutePath));
+  if (bytes === null) {
+    throw new CompilerError('UPGRADE-BLOCKED-005', missingMessage);
+  }
+  return parse(decodeExactUtf8(bytes, label));
+}
+
+export function requirePersistedUpgradePlan(workspaceRoot: string): UpgradePlan {
+  return requireCanonicalUpgradeJson(
+    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan),
+    'Upgrade plan readback',
+    parseUpgradePlanJson,
+    'Upgrade plan readback is absent after publication'
+  );
+}
+
+export function requirePersistedUpgradeExecutionTerminal(
+  workspaceRoot: string
+): UpgradeExecutionTerminal {
+  return requireCanonicalUpgradeJson(
+    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeExecutionTerminal),
+    'Upgrade execution terminal readback',
+    parseUpgradeExecutionTerminalJson,
+    'Upgrade execution terminal readback is absent after publication'
+  );
 }
