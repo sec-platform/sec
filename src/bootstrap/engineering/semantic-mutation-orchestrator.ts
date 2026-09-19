@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type { FactDeltaEndpointContext } from '../../semantics/engineering-ir/delta-types.ts';
 import { type SemanticMutationApplyInput, type SemanticMutationApplyOutcome, type SemanticMutationInternalRecoveryOutcome, type SemanticMutationRecoveryFailureState, type SemanticMutationRecoveryOutcome, type SemanticMutationRecoveryRecord, type SemanticMutationRequestIdentity, type SemanticMutationRequestRecordView, type SemanticMutationTransactionInput } from '../../semantics/mutation/transaction.ts';
-import type { NormalizedSemanticMutationRequest, SemanticMutationBase, SemanticMutationDiagnostic, SemanticMutationPlan, SemanticMutationResult, SemanticMutationVerificationExecutionRef } from '../../semantics/mutation/types.ts';
+import type { SemanticMutationBase, SemanticMutationDiagnostic, SemanticMutationPlan, SemanticMutationResult, SemanticMutationVerificationExecutionRef } from '../../semantics/mutation/types.ts';
 import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION, type SemanticMutationVerificationCapabilityPlan } from '../../assurance/verification/contract/types.ts';
 import { acquireWorkspaceWriteLease, assertWorkspaceWriteLease, createWorkspaceWriteCommitFence, withWorkspaceWriteLease, WorkspaceWriteLeaseError, type WorkspaceWriteLeaseToken } from '../../adapters/filesystem/write-lease.ts';
 import { buildWorkspaceSemanticBundle } from '../../adapters/workspace/semantic-bundle.ts';
@@ -14,7 +14,6 @@ import {
 } from '../../adapters/mutation/atomic-source-publish.ts';
 import {
   mutationDiagnostic,
-  SemanticMutationContractError,
   semanticMutationByteDigest,
   sha256
 } from '../../compiler/semantic-mutation/canonical.ts';
@@ -34,7 +33,6 @@ import { readRejectedSemanticMutationTerminal, writeRejectedSemanticMutationTerm
 import {
   inspectSemanticMutationRecoveryAuthority
 } from '../../adapters/mutation/recovery-authority.ts';
-import { normalizeSemanticMutationRequest } from '../../compiler/semantic-mutation/normalize-request.ts';
 import {
   buildSemanticMutationResult,
   buildSemanticMutationVerificationExecutionRef
@@ -42,7 +40,6 @@ import {
 import { readSemanticMutationSource } from '../../adapters/mutation/source-path-boundary.ts';
 import {
   assertSemanticMutationTransactionRoot,
-  semanticMutationRequestIdentityDigest,
   semanticMutationTransactionRoot,
   type SemanticMutationCommitFence
 } from '../../adapters/mutation/transaction-identity.ts';
@@ -89,6 +86,11 @@ import { planSemanticMutation } from '../../application/semantic-mutation-plan.t
 import { coordinateSemanticMutationRecovery } from '../../application/semantic-mutation-recovery-coordinator.ts';
 import { publishRejectedSemanticMutationTerminal } from '../../application/semantic-mutation-terminal-publication.ts';
 import { querySemanticMutationRequestView } from '../../application/semantic-mutation-query.ts';
+import {
+  prepareSemanticMutationApply,
+  resolveSemanticMutationApplyRecovery,
+  resolveSemanticMutationRetainedRequest
+} from '../../application/semantic-mutation-apply.ts';
 import { compileWorkspace } from './pipeline-orchestrator.ts';
 
 type ReadyPlan = ReadySemanticMutationPlan;
@@ -860,21 +862,9 @@ async function applySemanticMutationInternal(
   options: SemanticMutationInternalApplyOptions = {}
 ): Promise<SemanticMutationApplyOutcome> {
   const dependencies = coordinatorDependencies(options.testDependencies);
-  let normalized: NormalizedSemanticMutationRequest;
-  try {
-    normalized = normalizeSemanticMutationRequest(input.request);
-  } catch (error) {
-    if (error instanceof SemanticMutationContractError) {
-      return requestRejected(untrustedRequestId(input), '', [error.diagnostic]);
-    }
-    throw error;
-  }
-  const identity = {
-    graphId: normalized.graphId,
-    appId: normalized.appId,
-    requestId: normalized.requestId
-  } as const;
-  const requestIdentityDigest = semanticMutationRequestIdentityDigest(identity);
+  const preparation = prepareSemanticMutationApply(input);
+  if (preparation.status === 'rejected') return preparation.outcome;
+  const { normalized, identity, requestIdentityDigest } = preparation.prepared;
   let handle: Awaited<ReturnType<typeof acquireWorkspaceWriteLease>>;
   try {
     handle = await acquireWorkspaceWriteLease(workspaceRoot);
@@ -895,37 +885,12 @@ async function applySemanticMutationInternal(
       token,
       dependencies
     );
-    if (recovery.status === 'recovery-required') {
-      if (recovery.record.requestIdentityDigest === requestIdentityDigest) {
-        return terminalRecoveryOutcome(recovery);
-      }
-      return requestRejected(normalized.requestId, normalized.requestRevision, [mutationDiagnostic(
-        'SEMANTIC-MUTATION-012',
-        'rollback',
-        'Workspace has an unresolved Semantic Mutation recovery record'
-      )]);
-    }
+    const recoveryDecision = resolveSemanticMutationApplyRecovery(preparation, recovery);
+    if (recoveryDecision !== null) return recoveryDecision;
     const transactionRoot = semanticMutationTransactionRoot(workspaceRoot, requestIdentityDigest);
     const retained = await querySemanticMutationRequestRecord(workspaceRoot, identity);
-    if (retained) {
-      if (retained.requestRevision !== normalized.requestRevision) {
-        return requestRejected(normalized.requestId, normalized.requestRevision, [mutationDiagnostic(
-          'SEMANTIC-MUTATION-001',
-          'request',
-          'Retained request identity is already bound to a different request revision'
-        )]);
-      }
-      if ('formatRevision' in retained && retained.formatRevision === 'semantic-mutation-rejected-terminal-record-v1') {
-        return { status: 'terminal', result: retained.result };
-      }
-      if ('state' in retained && (retained.state === 'verified' || retained.state === 'rolled-back')) {
-        if (!retained.result) throw new Error('Retained terminal history is missing its immutable result');
-        return { status: 'terminal', result: retained.result };
-      }
-      if ('state' in retained) {
-        throw new Error('Semantic Mutation recovery left an unfinished request authority');
-      }
-    }
+    const retainedDecision = resolveSemanticMutationRetainedRequest(preparation, retained);
+    if (retainedDecision !== null) return retainedDecision;
 
     const derived = await fencedWorkspaceWrite(workspaceRoot, token, (commitFence) =>
       dependencies.derive(
