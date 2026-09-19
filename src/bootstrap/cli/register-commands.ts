@@ -6,6 +6,7 @@ import type { DependencyCleanOptions } from '../../adapters/toolchain/dependenci
 import { buildBenchmarkTaskCatalog, formatBenchmarkTaskCatalog } from '../../adapters/verification/platform/benchmark/catalog.ts';
 import { addJsonFlags, commandPath, jsonOpts, usageError } from '../../entry/cli/command-options.ts';
 import { registerReferenceCommands } from '../../entry/cli/register-reference-commands.ts';
+import { registerVerificationToolingCommands } from '../../entry/cli/register-verification-tooling-commands.ts';
 import { platformCommand } from '../../adapters/verification/platform/sec-command.ts';
 import { printJsonOrText } from '../../entry/cli/format-utils.ts';
 import { formatTextByteCensus } from '../../entry/cli/text-byte-census.ts';
@@ -117,18 +118,23 @@ export function registerCommands(
     }
   });
 
-  const benchmarkCmd = program.command('benchmark');
-  addJsonFlags(benchmarkCmd.command('catalog')).action(async (opts: Record<string, unknown>) => {
-    const output = jsonOpts(opts);
-    printJsonOrText(buildBenchmarkTaskCatalog(), output, formatBenchmarkTaskCatalog);
-  });
-
-  addJsonFlags(program.command('test').command('budget')).action(async (opts: Record<string, unknown>) => {
-    const output = jsonOpts(opts);
-    const domain = await loadTestBudgetDomain();
-    const { issueCurrentTestBudgetProjection } = await import('../../adapters/self-hosting/development/runner/test-runner.ts');
-    const contract = domain.buildTestBudgetContract(await issueCurrentTestBudgetProjection());
-    printJsonOrText(contract, output, domain.formatTestBudgetContract);
+  registerVerificationToolingCommands(program, {
+    benchmarkCatalog: ({ output }) => {
+      printJsonOrText(
+        buildBenchmarkTaskCatalog(),
+        output,
+        formatBenchmarkTaskCatalog
+      );
+    },
+    testBudget: async ({ output }) => {
+      const domain = await loadTestBudgetDomain();
+      const { issueCurrentTestBudgetProjection } =
+        await import('../../adapters/self-hosting/development/runner/test-runner.ts');
+      const contract = domain.buildTestBudgetContract(
+        await issueCurrentTestBudgetProjection()
+      );
+      printJsonOrText(contract, output, domain.formatTestBudgetContract);
+    }
   });
   registerInspectionCommands(program);
 
