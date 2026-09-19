@@ -8,6 +8,8 @@ import type {
   SemanticMutationApplyInput,
   SemanticMutationApplyOutcome,
   SemanticMutationInternalRecoveryOutcome,
+  SemanticMutationRecoveryFailureState,
+  SemanticMutationRecoveryRecord,
   SemanticMutationRequestIdentity,
   SemanticMutationRequestRecord
 } from '../semantics/mutation/transaction.ts';
@@ -15,8 +17,13 @@ import type {
   NormalizedSemanticMutationRequest,
   SemanticMutationPlan,
   SemanticMutationResult,
+  SemanticMutationRollbackManifest,
+  SemanticMutationSourceEditPlan,
   SemanticMutationVerificationExecutionRef
 } from '../semantics/mutation/types.ts';
+import type { FactDeltaEndpointContext } from '../semantics/engineering-ir/delta-types.ts';
+import type { SemanticMutationVerificationCapabilityPlan } from '../assurance/verification/contract/types.ts';
+import type { StagedVerificationProof } from '../assurance/verification/staged-proof/contract.ts';
 import { buildSemanticMutationResult } from '../compiler/semantic-mutation/result.ts';
 import {
   semanticMutationRequestRejected,
@@ -210,5 +217,272 @@ export function buildSemanticMutationVerificationRejection(input: Readonly<{
     throw new Error('Verification rejection did not form rejected result');
   }
   return result;
+}
+
+export interface SemanticMutationApplyDerivation {
+  readonly plan: SemanticMutationPlan;
+  readonly transactionRoot?: string;
+  readonly stagingWorkspaceRoot?: string;
+  readonly editPlan?: SemanticMutationSourceEditPlan;
+  readonly rollbackManifest?: SemanticMutationRollbackManifest;
+  readonly originalBytes?: Uint8Array;
+  readonly stagedBytes?: Uint8Array;
+  readonly staged?: FactDeltaEndpointContext;
+  readonly verificationCapabilityPlan?: SemanticMutationVerificationCapabilityPlan;
+}
+
+export type ReadySemanticMutationApplyDerivation = SemanticMutationApplyDerivation & Readonly<{
+  plan: Extract<SemanticMutationPlan, { readonly status: 'ready' }>;
+  transactionRoot: string;
+  stagingWorkspaceRoot: string;
+  editPlan: SemanticMutationSourceEditPlan;
+  rollbackManifest: SemanticMutationRollbackManifest;
+  originalBytes: Uint8Array;
+  stagedBytes: Uint8Array;
+  staged: FactDeltaEndpointContext;
+  verificationCapabilityPlan: SemanticMutationVerificationCapabilityPlan;
+}>;
+
+export interface SemanticMutationApplyVerificationOutcome {
+  readonly verification: SemanticMutationVerificationExecutionRef;
+  readonly isolatedVerificationFailure?: unknown;
+  readonly stagedVerificationProof?: StagedVerificationProof;
+}
+
+export interface SemanticMutationApplyExecutionOperations {
+  recover(): Promise<SemanticMutationInternalRecoveryOutcome>;
+  readRetained(identity: SemanticMutationRequestIdentity): Promise<SemanticMutationRequestRecord | null>;
+  derive(): Promise<SemanticMutationApplyDerivation>;
+  publishRejected(
+    result: Extract<SemanticMutationResult, { readonly status: 'rejected' }>,
+    planRevision: string
+  ): Promise<void>;
+  verify(derived: ReadySemanticMutationApplyDerivation): Promise<SemanticMutationApplyVerificationOutcome>;
+  issueTransactionId(): string;
+  writeTransactionArtifacts(derived: ReadySemanticMutationApplyDerivation): Promise<void>;
+  persistPrepared(
+    derived: ReadySemanticMutationApplyDerivation,
+    verification: SemanticMutationVerificationExecutionRef,
+    transactionId: string
+  ): Promise<SemanticMutationRecoveryRecord>;
+  afterPrepared?(): void;
+  publishSource(derived: ReadySemanticMutationApplyDerivation): Promise<void>;
+  observeCurrentDigest(derived: ReadySemanticMutationApplyDerivation): Promise<string>;
+  appendAuthoringCommitted(
+    record: SemanticMutationRecoveryRecord,
+    diagnostics?: readonly import('../semantics/mutation/types.ts').SemanticMutationDiagnostic[]
+  ): Promise<SemanticMutationRecoveryRecord>;
+  markRecoveryRequired(
+    record: SemanticMutationRecoveryRecord,
+    state: SemanticMutationRecoveryFailureState,
+    diagnostic: import('../semantics/mutation/types.ts').SemanticMutationDiagnostic
+  ): Promise<Extract<SemanticMutationInternalRecoveryOutcome, { readonly status: 'recovery-required' }>>;
+  rollbackCommitted(
+    record: SemanticMutationRecoveryRecord,
+    diagnostic: import('../semantics/mutation/types.ts').SemanticMutationDiagnostic
+  ): Promise<SemanticMutationInternalRecoveryOutcome>;
+  completeCommitted(
+    record: SemanticMutationRecoveryRecord,
+    proof?: StagedVerificationProof
+  ): Promise<SemanticMutationInternalRecoveryOutcome>;
+  prune(): Promise<void>;
+  isExecutionBoundaryFailure(error: unknown): boolean;
+}
+
+function semanticMutationRollbackDiagnostic(message: string) {
+  return mutationDiagnostic('SEMANTIC-MUTATION-012', 'rollback', message);
+}
+
+function semanticMutationPublishFailureDiagnostic(error: unknown) {
+  return error instanceof Error && 'diagnostic' in error
+    ? (error as { readonly diagnostic: import('../semantics/mutation/types.ts').SemanticMutationDiagnostic }).diagnostic
+    : mutationDiagnostic('SEMANTIC-MUTATION-011', 'publish', 'Atomic source publish failed');
+}
+
+function readyDerivation(
+  derived: SemanticMutationApplyDerivation
+): ReadySemanticMutationApplyDerivation {
+  if (derived.plan.status !== 'ready' ||
+    !derived.transactionRoot || !derived.stagingWorkspaceRoot || !derived.editPlan ||
+    !derived.rollbackManifest || !derived.originalBytes || !derived.stagedBytes ||
+    !derived.staged || !derived.verificationCapabilityPlan) {
+    throw new Error('Ready Semantic Mutation plan is missing staged transaction evidence');
+  }
+  return derived as ReadySemanticMutationApplyDerivation;
+}
+
+/** Run the business state machine under an already-acquired workspace lease.
+ * Physical writes, isolated execution, journal persistence and rebuilds are
+ * injected effects; this layer owns terminal/recovery decisions and ordering. */
+export async function executePreparedSemanticMutationApply(
+  prepared: PreparedSemanticMutationApply,
+  operations: SemanticMutationApplyExecutionOperations
+): Promise<SemanticMutationApplyOutcome> {
+  const required = [
+    operations.recover, operations.readRetained, operations.derive,
+    operations.publishRejected, operations.verify, operations.issueTransactionId,
+    operations.writeTransactionArtifacts, operations.persistPrepared,
+    operations.publishSource, operations.observeCurrentDigest,
+    operations.appendAuthoringCommitted, operations.markRecoveryRequired,
+    operations.rollbackCommitted, operations.completeCommitted, operations.prune,
+    operations.isExecutionBoundaryFailure
+  ];
+  if (required.some(operation => typeof operation !== 'function') ||
+      (operations.afterPrepared !== undefined && typeof operations.afterPrepared !== 'function')) {
+    throw new TypeError('Semantic Mutation apply execution operations must be callable');
+  }
+  const preparation = Object.freeze({ status: 'ready' as const, prepared });
+
+  const recovery = await operations.recover.call(operations);
+  const recoveryDecision = resolveSemanticMutationApplyRecovery(preparation, recovery);
+  if (recoveryDecision !== null) return recoveryDecision;
+
+  const retained = await operations.readRetained.call(operations, prepared.identity);
+  const retainedDecision = resolveSemanticMutationRetainedRequest(preparation, retained);
+  if (retainedDecision !== null) return retainedDecision;
+
+  const derived = await operations.derive.call(operations);
+  if (derived.plan.status === 'rejected') {
+    const decision = resolveSemanticMutationRejectedPlan(preparation, derived.plan);
+    if (decision.status === 'request-rejected') return decision.outcome;
+    await operations.publishRejected.call(
+      operations,
+      decision.result,
+      decision.planRevision
+    );
+    return { status: 'terminal', result: decision.result };
+  }
+
+  const ready = readyDerivation(derived);
+  const casRejection = resolveSemanticMutationPlanCas(preparation, ready.plan);
+  if (casRejection !== null) {
+    await operations.publishRejected.call(operations, casRejection, ready.plan.planRevision);
+    return { status: 'terminal', result: casRejection };
+  }
+
+  const verified = await operations.verify.call(operations, ready);
+  const transactionId = operations.issueTransactionId.call(operations);
+  if (typeof transactionId !== 'string' || transactionId.length === 0) {
+    throw new TypeError('Semantic Mutation live transaction identity must be non-empty');
+  }
+  if (verified.verification.status !== 'passed') {
+    const result = buildSemanticMutationVerificationRejection({
+      plan: ready.plan,
+      transactionId,
+      verification: verified.verification,
+      ...(verified.isolatedVerificationFailure === undefined
+        ? {}
+        : { isolatedVerificationFailure: verified.isolatedVerificationFailure })
+    });
+    await operations.publishRejected.call(operations, result, ready.plan.planRevision);
+    return { status: 'terminal', result };
+  }
+
+  await operations.writeTransactionArtifacts.call(operations, ready);
+  let record = await operations.persistPrepared.call(
+    operations,
+    ready,
+    verified.verification,
+    transactionId
+  );
+  operations.afterPrepared?.call(operations);
+
+  try {
+    await operations.publishSource.call(operations, ready);
+  } catch (error) {
+    const diagnostic = semanticMutationPublishFailureDiagnostic(error);
+    let currentDigest: string;
+    try {
+      currentDigest = await operations.observeCurrentDigest.call(operations, ready);
+    } catch {
+      return semanticMutationTerminalRecoveryOutcome(
+        await operations.markRecoveryRequired.call(
+          operations,
+          record,
+          'rebuild-failed',
+          semanticMutationRollbackDiagnostic(
+            'Atomic publish failure could not prove the current live source digest'
+          )
+        )
+      );
+    }
+
+    if (currentDigest === ready.editPlan.stagedByteDigest) {
+      record = await operations.appendAuthoringCommitted.call(
+        operations,
+        record,
+        [diagnostic]
+      );
+      const rolledBack = await operations.rollbackCommitted.call(
+        operations,
+        record,
+        diagnostic
+      );
+      if (rolledBack.status === 'terminal') {
+        await operations.prune.call(operations);
+        return { status: 'terminal', result: rolledBack.result };
+      }
+      if (rolledBack.status === 'recovery-required') {
+        return semanticMutationTerminalRecoveryOutcome(rolledBack);
+      }
+      throw new Error('Post-publish rollback returned a non-terminal recovery outcome');
+    }
+
+    if (currentDigest !== ready.editPlan.beforeByteDigest) {
+      return semanticMutationTerminalRecoveryOutcome(
+        await operations.markRecoveryRequired.call(
+          operations,
+          record,
+          'concurrent-write',
+          semanticMutationRollbackDiagnostic(
+            'Atomic publish failure left unowned live source bytes'
+          )
+        )
+      );
+    }
+
+    const result = buildSemanticMutationResult(ready.plan, {
+      status: 'rejected',
+      transactionId,
+      attempted: ready.plan.staged,
+      verification: verified.verification,
+      diagnostics: [diagnostic]
+    });
+    if (result.status !== 'rejected') {
+      throw new Error('Publish rejection did not form rejected result');
+    }
+    await operations.publishRejected.call(operations, result, ready.plan.planRevision);
+    return { status: 'terminal', result };
+  }
+
+  try {
+    record = await operations.appendAuthoringCommitted.call(operations, record);
+  } catch (error) {
+    if (operations.isExecutionBoundaryFailure.call(operations, error)) throw error;
+    return semanticMutationTerminalRecoveryOutcome(
+      await operations.markRecoveryRequired.call(
+        operations,
+        record,
+        'rebuild-failed',
+        semanticMutationRollbackDiagnostic(
+          'Published source could not durably record its authoring commit'
+        )
+      )
+    );
+  }
+
+  const terminal = await operations.completeCommitted.call(
+    operations,
+    record,
+    verified.stagedVerificationProof
+  );
+  await operations.prune.call(operations);
+  if (terminal.status === 'terminal') {
+    return { status: 'terminal', result: terminal.result };
+  }
+  if (terminal.status === 'recovery-required') {
+    return semanticMutationTerminalRecoveryOutcome(terminal);
+  }
+  throw new Error('Committed Semantic Mutation did not reach a terminal recovery outcome');
 }
 

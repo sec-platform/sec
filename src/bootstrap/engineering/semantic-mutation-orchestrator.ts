@@ -33,7 +33,6 @@ import {
   inspectSemanticMutationRecoveryAuthority
 } from '../../adapters/mutation/recovery-authority.ts';
 import {
-  buildSemanticMutationResult,
   buildSemanticMutationVerificationExecutionRef
 } from '../../adapters/mutation/semantic-mutation-result.ts';
 import { readSemanticMutationSource } from '../../adapters/mutation/source-path-boundary.ts';
@@ -66,8 +65,6 @@ import {
 import {
   requireReadySemanticMutationPlan as readyPlan,
   semanticMutationRequestRejected as requestRejected,
-  semanticMutationTerminalRecoveryOutcome as terminalRecoveryOutcome,
-  semanticMutationUntrustedRequestId as untrustedRequestId,
   type ReadySemanticMutationPlan
 } from '../../application/semantic-mutation-state.ts';
 import {
@@ -84,12 +81,9 @@ import { coordinateSemanticMutationRecovery } from '../../application/semantic-m
 import { publishRejectedSemanticMutationTerminal } from '../../application/semantic-mutation-terminal-publication.ts';
 import { querySemanticMutationRequestView } from '../../application/semantic-mutation-query.ts';
 import {
+  executePreparedSemanticMutationApply,
   prepareSemanticMutationApply,
-  buildSemanticMutationVerificationRejection,
-  resolveSemanticMutationApplyRecovery,
-  resolveSemanticMutationPlanCas,
-  resolveSemanticMutationRejectedPlan,
-  resolveSemanticMutationRetainedRequest
+  type ReadySemanticMutationApplyDerivation
 } from '../../application/semantic-mutation-apply.ts';
 import {
   coordinateSemanticMutationIsolatedVerification,
@@ -805,277 +799,175 @@ async function applySemanticMutationInternal(
   const dependencies = coordinatorDependencies(options.testDependencies);
   const preparation = prepareSemanticMutationApply(input);
   if (preparation.status === 'rejected') return preparation.outcome;
-  const { normalized, identity, requestIdentityDigest } = preparation.prepared;
+  const prepared = preparation.prepared;
+
   let handle: Awaited<ReturnType<typeof acquireWorkspaceWriteLease>>;
   try {
     handle = await acquireWorkspaceWriteLease(workspaceRoot);
   } catch (error) {
     if (error instanceof WorkspaceWriteLeaseError) {
-      return requestRejected(normalized.requestId, normalized.requestRevision, [mutationDiagnostic(
-        'SEMANTIC-MUTATION-007',
-        'cas',
-        'Workspace writer lease is busy or cannot be safely reclaimed'
-      )]);
+      return requestRejected(
+        prepared.normalized.requestId,
+        prepared.normalized.requestRevision,
+        [mutationDiagnostic(
+          'SEMANTIC-MUTATION-007',
+          'cas',
+          'Workspace writer lease is busy or cannot be safely reclaimed'
+        )]
+      );
     }
     throw error;
   }
+
   const token = handle.token;
+  const transactionRoot = semanticMutationTransactionRoot(
+    workspaceRoot,
+    prepared.requestIdentityDigest
+  );
   try {
-    const recovery = await recoverWithLease(
-      workspaceRoot,
-      token,
-      dependencies
-    );
-    const recoveryDecision = resolveSemanticMutationApplyRecovery(preparation, recovery);
-    if (recoveryDecision !== null) return recoveryDecision;
-    const transactionRoot = semanticMutationTransactionRoot(workspaceRoot, requestIdentityDigest);
-    const retained = await querySemanticMutationRequestRecord(workspaceRoot, identity);
-    const retainedDecision = resolveSemanticMutationRetainedRequest(preparation, retained);
-    if (retainedDecision !== null) return retainedDecision;
-
-    const derived = await executeWorkspaceWriteEffect(workspaceRoot, token, (commitFence) =>
-      dependencies.derive(
-        workspaceRoot,
-        input,
-        planningAdapter(workspaceRoot, token, dependencies.isolationCapabilityProbe),
-        commitFence
-      )
-    );
-    if (derived.plan.status === 'rejected') {
-      const decision = resolveSemanticMutationRejectedPlan(preparation, derived.plan);
-      if (decision.status === 'request-rejected') return decision.outcome;
-      await writeRejectedTerminalAndPrune(
-        workspaceRoot,
-        transactionRoot,
-        token,
-        requestIdentityDigest,
-        normalized.requestRevision,
-        decision.planRevision,
-        decision.result
-      );
-      return { status: 'terminal', result: decision.result };
-    }
-    if (!derived.transactionRoot || !derived.stagingWorkspaceRoot || !derived.editPlan ||
-      !derived.rollbackManifest || !derived.originalBytes || !derived.stagedBytes || !derived.staged ||
-      !derived.verificationCapabilityPlan) {
-      throw new Error('Ready Semantic Mutation plan is missing staged transaction evidence');
-    }
-    const ready = derived.plan;
-    const editPlan = derived.editPlan;
-    const rollbackManifest = derived.rollbackManifest;
-    const originalBytes = derived.originalBytes;
-    const stagedBytes = derived.stagedBytes;
-    const casRejection = resolveSemanticMutationPlanCas(preparation, ready);
-    if (casRejection !== null) {
-      await writeRejectedTerminalAndPrune(
-        workspaceRoot,
-        transactionRoot,
-        token,
-        requestIdentityDigest,
-        normalized.requestRevision,
-        ready.planRevision,
-        casRejection
-      );
-      return { status: 'terminal', result: casRejection };
-    }
-
-    let isolatedVerificationFailure: SemanticMutationIsolatedVerificationFailure | undefined;
-    let stagedVerificationProof: StagedVerificationProof | undefined;
-    const verification = await executeWorkspaceWriteEffect(workspaceRoot, token, (commitFence) =>
-      dependencies.verify(derived as typeof derived & {
-        readonly plan: ReadyPlan;
-        readonly staged: FactDeltaEndpointContext;
-        readonly stagingWorkspaceRoot: string;
-        readonly verificationCapabilityPlan: SemanticMutationVerificationCapabilityPlan;
-      }, {
-        commitFence,
-        recordBlockedFailure: (failure) => {
-          isolatedVerificationFailure = failure;
-        },
-        recordPassedVerificationProof: (proof) => {
-          stagedVerificationProof = proof;
-        },
-        workspaceRoot,
-        workspaceWriteLease: token
-      })
-    );
-    const transactionId = `tx:semantic-mutation-live:${randomUUID()}`;
-    if (verification.status !== 'passed') {
-      const result = buildSemanticMutationVerificationRejection({
-        plan: ready,
-        transactionId,
-        verification,
-        ...(isolatedVerificationFailure === undefined
-          ? {}
-          : { isolatedVerificationFailure })
-      });
-      await writeRejectedTerminalAndPrune(
-        workspaceRoot,
-        transactionRoot,
-        token,
-        requestIdentityDigest,
-        normalized.requestRevision,
-        ready.planRevision,
-        result
-      );
-      return { status: 'terminal', result };
-    }
-
-    await executeWorkspaceWriteEffect(workspaceRoot, token, (commitFence) =>
-      dependencies.writeTransactionArtifacts(
-        transactionRoot,
-        editPlan,
-        rollbackManifest,
-        originalBytes,
-        stagedBytes,
-        commitFence
-      )
-    );
-    let record = await executeWorkspaceWriteEffect(workspaceRoot, token, (commitFence) =>
-      dependencies.appendRecoveryRecord(
-        transactionRoot,
-        buildPreparedSemanticMutationRecoveryRecord({
-          request: input,
-          plan: ready,
-          editPlan,
-          rollbackManifest,
-          transactionId,
-          requestIdentityDigest,
-          verification
-        }),
-        commitFence
-      )
-    );
-    if (options.testCrashPoint === 'after-prepared') crashAfterPreparedForTest();
-    try {
-      await assertWorkspaceWriteLease(workspaceRoot, token);
-      await dependencies.publishSource(
-        workspaceRoot,
-        transactionRoot,
-        editPlan,
-        rollbackManifest,
-        () => assertWorkspaceWriteLease(workspaceRoot, token)
-      );
-    } catch (error) {
-      const diagnostic = error instanceof Error && 'diagnostic' in error
-        ? (error as { readonly diagnostic: SemanticMutationDiagnostic }).diagnostic
-        : mutationDiagnostic('SEMANTIC-MUTATION-011', 'publish', 'Atomic source publish failed');
-      let currentDigest: string;
-      try {
-        const current = await readSemanticMutationSource(workspaceRoot, transactionRoot, editPlan.relativePath);
-        currentDigest = semanticMutationByteDigest(current.bytes);
-      } catch {
-        const recoveryRequired = await markRecoveryRequired(
+    return await executePreparedSemanticMutationApply(prepared, {
+      recover: () => recoverWithLease(workspaceRoot, token, dependencies),
+      readRetained: identity => querySemanticMutationRequestRecord(workspaceRoot, identity),
+      derive: () => executeWorkspaceWriteEffect(workspaceRoot, token, commitFence =>
+        dependencies.derive(
           workspaceRoot,
-          transactionRoot,
-          record,
-          token,
-          'rebuild-failed',
-          recoveryDiagnostic('Atomic publish failure could not prove the current live source digest'),
-          dependencies
-        );
-        return terminalRecoveryOutcome(recoveryRequired);
-      }
-      if (currentDigest === editPlan.stagedByteDigest) {
-        record = await executeWorkspaceWriteEffect(workspaceRoot, token, (commitFence) =>
-          dependencies.appendRecoveryRecord(
-            transactionRoot,
-            nextRecordDraft(record, 'authoring-committed', { diagnostics: [diagnostic] }),
-            commitFence
-          )
-        );
-        const rolledBack = await rollbackCommittedMutation(
-          workspaceRoot,
-          transactionRoot,
-          record,
-          token,
-          diagnostic,
-          dependencies
-        );
-        if (rolledBack.status === 'terminal') {
-          await executeWorkspaceWriteEffect(
-            workspaceRoot,
-            token,
-            (commitFence) => pruneSemanticMutationTerminalRecords(workspaceRoot, commitFence)
-          );
-          return { status: 'terminal', result: rolledBack.result };
-        }
-        if (rolledBack.status === 'recovery-required') return terminalRecoveryOutcome(rolledBack);
-        throw new Error('Post-publish rollback returned a non-terminal recovery outcome');
-      }
-      if (currentDigest !== editPlan.beforeByteDigest) {
-        const recoveryRequired = await markRecoveryRequired(
-          workspaceRoot,
-          transactionRoot,
-          record,
-          token,
-          'concurrent-write',
-          recoveryDiagnostic('Atomic publish failure left unowned live source bytes'),
-          dependencies
-        );
-        return terminalRecoveryOutcome(recoveryRequired);
-      }
-      const result = buildSemanticMutationResult(ready, {
-        status: 'rejected',
-        transactionId,
-        attempted: ready.staged,
-        verification,
-        diagnostics: [diagnostic]
-      });
-      if (result.status !== 'rejected') throw new Error('Publish rejection did not form rejected result');
-      await writeRejectedTerminalAndPrune(
-        workspaceRoot,
-        transactionRoot,
-        token,
-        requestIdentityDigest,
-        normalized.requestRevision,
-        ready.planRevision,
-        result
-      );
-      return { status: 'terminal', result };
-    }
-    try {
-      record = await executeWorkspaceWriteEffect(workspaceRoot, token, (commitFence) =>
-        dependencies.appendRecoveryRecord(
-          transactionRoot,
-          nextRecordDraft(record, 'authoring-committed'),
+          input,
+          planningAdapter(workspaceRoot, token, dependencies.isolationCapabilityProbe),
           commitFence
         )
-      );
-    } catch (error) {
-      if (error instanceof WorkspaceWriteLeaseError) throw error;
-      const recoveryRequired = await markRecoveryRequired(
+      ),
+      publishRejected: (result, planRevision) => writeRejectedTerminalAndPrune(
+        workspaceRoot,
+        transactionRoot,
+        token,
+        prepared.requestIdentityDigest,
+        prepared.normalized.requestRevision,
+        planRevision,
+        result
+      ),
+      verify: async derived => {
+        let isolatedVerificationFailure: SemanticMutationIsolatedVerificationFailure | undefined;
+        let stagedVerificationProof: StagedVerificationProof | undefined;
+        const verification = await executeWorkspaceWriteEffect(
+          workspaceRoot,
+          token,
+          commitFence => dependencies.verify(
+            derived as DerivedSemanticMutationTransaction & ReadySemanticMutationApplyDerivation,
+            {
+              commitFence,
+              recordBlockedFailure: failure => { isolatedVerificationFailure = failure; },
+              recordPassedVerificationProof: proof => { stagedVerificationProof = proof; },
+              workspaceRoot,
+              workspaceWriteLease: token
+            }
+          )
+        );
+        return {
+          verification,
+          ...(isolatedVerificationFailure === undefined
+            ? {}
+            : { isolatedVerificationFailure }),
+          ...(stagedVerificationProof === undefined ? {} : { stagedVerificationProof })
+        };
+      },
+      issueTransactionId: () => `tx:semantic-mutation-live:${randomUUID()}`,
+      writeTransactionArtifacts: derived => executeWorkspaceWriteEffect(
+        workspaceRoot,
+        token,
+        commitFence => dependencies.writeTransactionArtifacts(
+          transactionRoot,
+          derived.editPlan,
+          derived.rollbackManifest,
+          derived.originalBytes,
+          derived.stagedBytes,
+          commitFence
+        )
+      ),
+      persistPrepared: (derived, verification, transactionId) =>
+        executeWorkspaceWriteEffect(workspaceRoot, token, commitFence =>
+          dependencies.appendRecoveryRecord(
+            transactionRoot,
+            buildPreparedSemanticMutationRecoveryRecord({
+              request: input,
+              plan: derived.plan,
+              editPlan: derived.editPlan,
+              rollbackManifest: derived.rollbackManifest,
+              transactionId,
+              requestIdentityDigest: prepared.requestIdentityDigest,
+              verification
+            }),
+            commitFence
+          )
+        ),
+      ...(options.testCrashPoint === 'after-prepared'
+        ? { afterPrepared: crashAfterPreparedForTest }
+        : {}),
+      publishSource: async derived => {
+        await assertWorkspaceWriteLease(workspaceRoot, token);
+        return dependencies.publishSource(
+          workspaceRoot,
+          transactionRoot,
+          derived.editPlan,
+          derived.rollbackManifest,
+          () => assertWorkspaceWriteLease(workspaceRoot, token)
+        );
+      },
+      observeCurrentDigest: async derived => {
+        const current = await readSemanticMutationSource(
+          workspaceRoot,
+          transactionRoot,
+          derived.editPlan.relativePath
+        );
+        return semanticMutationByteDigest(current.bytes);
+      },
+      appendAuthoringCommitted: (record, diagnostics) =>
+        executeWorkspaceWriteEffect(workspaceRoot, token, commitFence =>
+          dependencies.appendRecoveryRecord(
+            transactionRoot,
+            nextRecordDraft(
+              record,
+              'authoring-committed',
+              diagnostics === undefined ? {} : { diagnostics }
+            ),
+            commitFence
+          )
+        ),
+      markRecoveryRequired: (record, state, diagnostic) => markRecoveryRequired(
         workspaceRoot,
         transactionRoot,
         record,
         token,
-        'rebuild-failed',
-        recoveryDiagnostic('Published source could not durably record its authoring commit'),
+        state,
+        diagnostic,
         dependencies
-      );
-      return terminalRecoveryOutcome(recoveryRequired);
-    }
-    const terminal = await completeCommittedMutation(
-      workspaceRoot,
-      transactionRoot,
-      record,
-      token,
-      dependencies,
-      stagedVerificationProof
-    );
-    await executeWorkspaceWriteEffect(
-      workspaceRoot,
-      token,
-      (commitFence) => pruneSemanticMutationTerminalRecords(workspaceRoot, commitFence)
-    );
-    if (terminal.status === 'terminal') return { status: 'terminal', result: terminal.result };
-    if (terminal.status === 'recovery-required') return terminalRecoveryOutcome(terminal);
-    throw new Error('Committed Semantic Mutation did not reach a terminal recovery outcome');
+      ),
+      rollbackCommitted: (record, diagnostic) => rollbackCommittedMutation(
+        workspaceRoot,
+        transactionRoot,
+        record,
+        token,
+        diagnostic,
+        dependencies
+      ),
+      completeCommitted: (record, proof) => completeCommittedMutation(
+        workspaceRoot,
+        transactionRoot,
+        record,
+        token,
+        dependencies,
+        proof
+      ),
+      prune: () => executeWorkspaceWriteEffect(
+        workspaceRoot,
+        token,
+        commitFence => pruneSemanticMutationTerminalRecords(workspaceRoot, commitFence)
+      ),
+      isExecutionBoundaryFailure: error => error instanceof WorkspaceWriteLeaseError
+    });
   } finally {
     await handle.release();
   }
 }
-
 export async function applySemanticMutation(
   workspaceRoot: string,
   input: SemanticMutationApplyInput
