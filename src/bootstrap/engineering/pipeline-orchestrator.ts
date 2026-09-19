@@ -6,6 +6,7 @@ import { readLockFile } from '../../adapters/workspace/lock.ts';
 import { bindPipelineCompileRequest, type PipelineCompileRequest } from '../../application/pipeline-request.ts';
 import {
   completeWorkspaceCompilationTransaction,
+  coordinateWorkspaceCompilationAdmission,
   projectWorkspaceCompilationResult,
   type CompileWorkspaceResult
 } from '../../application/compile-workspace.ts';
@@ -32,8 +33,6 @@ import {
   verifyWorkspace,
   type StagedVerificationProof
 } from './verify-orchestrator.ts';
-
-const PIPELINE_PENDING_TRANSACTION_ID = 'tx:pending';
 
 export interface CompileWorkspaceOptions extends PipelineCompileRequest {
   onEvent?: PipelineEventHandler;
@@ -68,24 +67,15 @@ export async function compileWorkspace(
   if (bindings.isolatedVerificationCapability) {
     assertIsolatedVerificationCapability(workspaceRoot, bindings.isolatedVerificationCapability);
   }
-  await emitPipelineExecutionBoundary(
-    bindings.onEvent,
-    PIPELINE_PENDING_TRANSACTION_ID,
-    'pipeline-lease-bind'
-  );
-  return withWorkspaceWriteLease(workspaceRoot, bindings.requestedLease, async workspaceWriteLease => {
-    await emitPipelineExecutionBoundary(
-      bindings.onEvent,
-      PIPELINE_PENDING_TRANSACTION_ID,
-      'pipeline-lease-bound'
-    );
-    return withMonitoredWorkspaceWriteLease(workspaceRoot, workspaceWriteLease, async leaseSignal => {
-      await emitPipelineExecutionBoundary(
-        bindings.onEvent,
-        PIPELINE_PENDING_TRANSACTION_ID,
-        'pipeline-transaction-bootstrap'
-      );
-      return withPipelineTransaction(
+  return coordinateWorkspaceCompilationAdmission({
+    emitBoundary: (transactionId, boundary) =>
+      emitPipelineExecutionBoundary(bindings.onEvent, transactionId, boundary),
+    withLease: callback =>
+      withWorkspaceWriteLease(workspaceRoot, bindings.requestedLease, callback),
+    withLeaseMonitor: (workspaceWriteLease, callback) =>
+      withMonitoredWorkspaceWriteLease(workspaceRoot, workspaceWriteLease, callback),
+    runTransaction: (leaseSignal, workspaceWriteLease) =>
+      withPipelineTransaction(
         workspaceRoot,
         request.source,
         stages,
@@ -151,6 +141,5 @@ export async function compileWorkspace(
         }),
         workspaceWriteLease
       ).then(projectWorkspaceCompilationResult);
-    });
   });
 }

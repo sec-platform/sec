@@ -1,5 +1,6 @@
 import type { PipelineCompletionProof } from '../assurance/verification/pipeline/completion-proof.ts';
 import type { LockFile } from '../compiler/contract.ts';
+import type { PipelineExecutionBoundary } from '../compiler/pipeline/execution-boundaries.ts';
 import type { PipelineStageId } from '../compiler/pipeline/stages.ts';
 import {
   coordinatePipelineStages,
@@ -84,4 +85,56 @@ export function projectWorkspaceCompilationResult(
     ...(result.reviewSummary ? { reviewSummary: result.reviewSummary } : {}),
     ...(result.completionProof ? { completionProof: result.completionProof } : {})
   };
+}
+
+
+const PIPELINE_PENDING_TRANSACTION_ID = 'tx:pending' as const;
+
+export interface WorkspaceCompilationAdmissionOperations<TLease, TResult> {
+  emitBoundary(
+    transactionId: string,
+    boundary: PipelineExecutionBoundary
+  ): Awaitable<void>;
+  withLease(callback: (lease: TLease) => Promise<TResult>): Promise<TResult>;
+  withLeaseMonitor(
+    lease: TLease,
+    callback: (signal: AbortSignal) => Promise<TResult>
+  ): Promise<TResult>;
+  runTransaction(signal: AbortSignal, lease: TLease): Promise<TResult>;
+}
+
+/**
+ * Coordinate compile admission around the physical workspace writer lease.
+ * Application owns ordering and boundary semantics; bootstrap injects lease,
+ * monitoring, journal publication and transaction execution providers.
+ */
+export async function coordinateWorkspaceCompilationAdmission<TLease, TResult>(
+  operations: WorkspaceCompilationAdmissionOperations<TLease, TResult>
+): Promise<TResult> {
+  const { emitBoundary, withLease, withLeaseMonitor, runTransaction } = operations;
+  if ([emitBoundary, withLease, withLeaseMonitor, runTransaction]
+      .some(operation => typeof operation !== 'function')) {
+    throw new TypeError('Workspace compilation admission operations must be callable');
+  }
+
+  await emitBoundary.call(
+    operations,
+    PIPELINE_PENDING_TRANSACTION_ID,
+    'pipeline-lease-bind'
+  );
+  return withLease.call(operations, async lease => {
+    await emitBoundary.call(
+      operations,
+      PIPELINE_PENDING_TRANSACTION_ID,
+      'pipeline-lease-bound'
+    );
+    return withLeaseMonitor.call(operations, lease, async signal => {
+      await emitBoundary.call(
+        operations,
+        PIPELINE_PENDING_TRANSACTION_ID,
+        'pipeline-transaction-bootstrap'
+      );
+      return runTransaction.call(operations, signal, lease);
+    });
+  });
 }
