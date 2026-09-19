@@ -68,7 +68,10 @@ import {
   projectSemanticMutationRecoveryOutcome
 } from '../../application/semantic-mutation-recovery-coordinator.ts';
 import {
+  completeCommitted as completeCommittedSemanticMutation,
+  markRecoveryRequired as markSemanticMutationRecoveryRequired,
   recoverSemanticMutationRecord,
+  rollbackCommitted as rollbackCommittedSemanticMutation,
   type SemanticMutationPreparedRecoveryDerivation,
   type SemanticMutationRecordRecoveryOperations
 } from '../../application/semantic-mutation-record-recovery.ts';
@@ -291,7 +294,12 @@ function semanticMutationRecordRecoveryOperations(
     buildPreparedBase: async record => {
       await assertWorkspaceWriteLease(workspaceRoot, token);
       const bundle = await buildWorkspaceSemanticBundle(workspaceRoot);
-      return endpointFromBundle(record.base.transactionId, bundle.snapshot);
+      return {
+        transactionId: record.base.transactionId,
+        inputRevision: bundle.snapshot.ir.inputRevision,
+        semanticRevision: bundle.snapshot.ir.semanticRevision,
+        snapshot: bundle.snapshot
+      };
     },
     derivePrepared: async (current, base) => {
       await assertWorkspaceWriteLease(workspaceRoot, token);
@@ -476,6 +484,15 @@ export async function planSemanticMutationTransaction(
   );
 }
 
+function crashAfterPreparedForTest(): never {
+  const error = new Error(
+    'Semantic Mutation test crash after the prepared generation became durable'
+  ) as NodeJS.ErrnoException;
+  error.name = 'SemanticMutationAfterPreparedTestCrash';
+  error.code = 'SEMANTIC_MUTATION_TEST_CRASH_AFTER_PREPARED';
+  throw error;
+}
+
 async function applySemanticMutationInternal(
   workspaceRoot: string,
   input: SemanticMutationApplyInput,
@@ -626,31 +643,42 @@ async function applySemanticMutationInternal(
             )
           ),
         markRecoveryRequired: (record, state, diagnostic) =>
-          markRecoveryRequired(
-            workspaceRoot,
-            transactionRoot,
+          markSemanticMutationRecoveryRequired(
             record,
-            token,
             state,
             diagnostic,
-            dependencies
+            semanticMutationRecordRecoveryOperations(
+              workspaceRoot,
+              transactionRoot,
+              record,
+              token,
+              dependencies
+            )
           ),
-        rollbackCommitted: (record, diagnostic) => rollbackCommittedMutation(
-          workspaceRoot,
-          transactionRoot,
-          record,
-          token,
-          diagnostic,
-          dependencies
-        ),
-        completeCommitted: (record, proof) => completeCommittedMutation(
-          workspaceRoot,
-          transactionRoot,
-          record,
-          token,
-          dependencies,
-          proof
-        ),
+        rollbackCommitted: (record, diagnostic) =>
+          rollbackCommittedSemanticMutation(
+            record,
+            diagnostic,
+            semanticMutationRecordRecoveryOperations(
+              workspaceRoot,
+              transactionRoot,
+              record,
+              token,
+              dependencies
+            )
+          ),
+        completeCommitted: (record, proof) =>
+          completeCommittedSemanticMutation(
+            record,
+            semanticMutationRecordRecoveryOperations(
+              workspaceRoot,
+              transactionRoot,
+              record,
+              token,
+              dependencies
+            ),
+            proof
+          ),
         prune: () => executeWorkspaceWriteEffect(
           workspaceRoot,
           token,
