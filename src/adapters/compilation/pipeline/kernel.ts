@@ -13,11 +13,13 @@ import {
 } from '../../workspace/lock.ts';
 import {
   capturePipelineRequestedStages,
-  capturePipelineStageExecutionOptions,
   requirePipelineSource,
-  sealPipelineExecutionContext,
-  type PipelineStageExecutionOptions
+  sealPipelineExecutionContext
 } from './execution-context.ts';
+import {
+  capturePipelineStageExecutionOptions,
+  type PipelineStageExecutionOptions
+} from '../../../application/pipeline-stage-lifecycle.ts';
 import {
   executePipelineTransactionLifecycle
 } from '../../../application/pipeline-transaction-lifecycle.ts';
