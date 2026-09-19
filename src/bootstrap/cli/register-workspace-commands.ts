@@ -1,7 +1,10 @@
 import type { Command } from 'commander';
 import type { LockInspectProjectionSource } from '../../application/lock-inspect.ts';
-import { CompilerError } from '../../compiler/errors.ts';
-import { registerAdvancedWorkspaceCommands } from '../../entry/cli/register-advanced-workspace-commands.ts';
+import { CompilerError, formatCompilerFailure } from '../../compiler/errors.ts';
+import {
+  bindRepairCommandHandler,
+  registerAdvancedWorkspaceCommands
+} from '../../entry/cli/register-advanced-workspace-commands.ts';
 import { registerCoreWorkspaceCommands } from '../../entry/cli/register-core-workspace-commands.ts';
 import { printJsonOrText } from '../../entry/cli/format-utils.ts';
 import { runWithOptionalSpinner } from './command-progress.ts';
@@ -33,40 +36,49 @@ export function registerWorkspaceCommands(program: Command): void {
   });
 
   registerAdvancedWorkspaceCommands(program, {
-    repair: async ({ workspaceRoot: cwd, invocationPath, input }) => {
-      const { output } = input;
-      const { CI_ARTIFACT_FILES } = await import('../../assurance/verification/ci-artifacts/contract/manifest.ts');
-      const { pathExists } = await import('../../adapters/filesystem/files.ts');
-      const { resolveWorkspaceArtifactPath } = await import('../../adapters/workspace-context.ts');
-      const { projectRepairSummary } = await import('../../application/repair-summary.ts');
-      const { formatRepairSummary } = await import('../../entry/cli/repair-summary.ts');
-      const { readRequiredRepairPlan } = await import('../../adapters/workspace/required-artifact-read.ts');
-      if (input.kind === 'plan') {
-        const repairPlanPath = resolveWorkspaceArtifactPath(cwd, CI_ARTIFACT_FILES.repairPlan);
-        const repairPlan = readRequiredRepairPlan(
-          repairPlanPath,
-          `Repair plan not found; run ${invocationPath} --dry-run first`
+    repair: bindRepairCommandHandler({
+      readPlan: async (workspaceRoot, missingMessage) => {
+        const { CI_ARTIFACT_FILES } = await import('../../assurance/verification/ci-artifacts/contract/manifest.ts');
+        const { resolveWorkspaceArtifactPath } = await import('../../adapters/workspace-context.ts');
+        const { readRequiredRepairPlan } = await import('../../adapters/workspace/required-artifact-read.ts');
+        const { projectRepairSummary } = await import('../../application/repair-summary.ts');
+        const { formatRepairSummary } = await import('../../entry/cli/repair-summary.ts');
+        const value = readRequiredRepairPlan(
+          resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.repairPlan),
+          missingMessage
         );
-        printJsonOrText(repairPlan, output, (plan) => formatRepairSummary(projectRepairSummary(plan, true)));
-        return;
-      }
-      const { runRepairWithFailureReadback } = await import('./repair-command-execution.ts');
-      const { repairPlan } = await runRepairWithFailureReadback(
-        () => runWithOptionalSpinner(
-          input.request.dryRun ? 'Previewing repair' : 'Running repair',
-          output,
-          () => repairWorkspace(cwd, { dryRun: input.request.dryRun })
-        ),
-        async () => {
-          const repairPlanPath = resolveWorkspaceArtifactPath(cwd, CI_ARTIFACT_FILES.repairPlan);
-          if (await pathExists(repairPlanPath)) {
-            const plan = readRequiredRepairPlan(repairPlanPath, 'Repair plan disappeared before it could be read back.');
-            printJsonOrText(plan, output, (value) => formatRepairSummary(projectRepairSummary(value, input.request.dryRun)));
-          }
-        }
-      );
-      printJsonOrText(repairPlan, output, (plan) => formatRepairSummary(projectRepairSummary(plan, input.request.dryRun)));
-    },
+        return { value, text: formatRepairSummary(projectRepairSummary(value, true)) };
+      },
+      readPlanIfPresent: async workspaceRoot => {
+        const { CI_ARTIFACT_FILES } = await import('../../assurance/verification/ci-artifacts/contract/manifest.ts');
+        const { pathExists } = await import('../../adapters/filesystem/files.ts');
+        const { resolveWorkspaceArtifactPath } = await import('../../adapters/workspace-context.ts');
+        const { readRequiredRepairPlan } = await import('../../adapters/workspace/required-artifact-read.ts');
+        const { projectRepairSummary } = await import('../../application/repair-summary.ts');
+        const { formatRepairSummary } = await import('../../entry/cli/repair-summary.ts');
+        const path = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.repairPlan);
+        if (!(await pathExists(path))) return null;
+        const value = readRequiredRepairPlan(
+          path,
+          'Repair plan disappeared before it could be read back.'
+        );
+        return {
+          value,
+          text: formatRepairSummary(projectRepairSummary(value, false))
+        };
+      },
+      execute: async (workspaceRoot, dryRun) => {
+        const { projectRepairSummary } = await import('../../application/repair-summary.ts');
+        const { formatRepairSummary } = await import('../../entry/cli/repair-summary.ts');
+        const { repairPlan: value } = await repairWorkspace(workspaceRoot, { dryRun });
+        return {
+          value,
+          text: formatRepairSummary(projectRepairSummary(value, dryRun))
+        };
+      },
+      progress: runWithOptionalSpinner,
+      formatFailure: formatCompilerFailure
+    }),
 
     upgrade: async ({ workspaceRoot: cwd, invocationPath, input }) => {
       const { output } = input;
