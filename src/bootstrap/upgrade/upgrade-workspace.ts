@@ -1,12 +1,8 @@
-import fs from 'node:fs/promises';
 import type {
   LockFile,
   PlanFile
 } from '../../compiler/contract.ts';
 import { CompilerError } from '../../compiler/errors.ts';
-import {
-  throwUpgradeFailureWithSecondaryFailures
-} from '../../compiler/upgrade/failure.ts';
 import {
   publishUpgradeApplyFailureArtifacts,
   publishUpgradeFailureArtifacts
@@ -44,6 +40,7 @@ import { requirePersistedUpgradePlan } from '../../adapters/upgrade/artifact-rea
 import {
   publishUpgradeExecutionTerminal,
   publishUpgradePlan,
+  recordUpgradeGeneratedArtifact,
   resolveUpgradeExecutionTerminalPublication,
   writeUpgradeDiagnostics
 } from '../../adapters/upgrade/artifact-publication.ts';
@@ -294,16 +291,6 @@ export async function runUpgradeWorkspaceWithLease(
       [CI_ARTIFACT_FILES.upgradePlan, CI_ARTIFACT_FILES.upgradeExecutionTerminal],
       commitFence
     );
-    if (postCommitFailures.length > 0) {
-      const primary = postCommitFailures[0] instanceof Error
-        ? postCommitFailures[0]
-        : new Error(String(postCommitFailures[0]));
-      throwUpgradeFailureWithSecondaryFailures(
-        primary,
-        postCommitFailures.slice(1),
-        'Upgrade applied terminal committed with later publication failures'
-      );
-    }
     return {
       resultKind: 'applied',
       plan,

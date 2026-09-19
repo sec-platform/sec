@@ -24,7 +24,7 @@ import {
 import { resolveWorkspaceArtifactPath } from '../workspace-context.ts';
 import { requirePersistedUpgradeExecutionTerminal, requirePersistedUpgradePlan } from './artifact-readback.ts';
 
-async function recordUpgradeGeneratedArtifact(
+export async function recordUpgradeGeneratedArtifact(
   workspaceRoot: string,
   lock: LockFile,
   artifactPaths: readonly string[],
