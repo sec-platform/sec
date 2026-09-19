@@ -1,3 +1,4 @@
+import { assertNativeAbortSignal, isNativeAborted } from '../../../contracts/native-abort.ts';
 import { observeOptionalDiagnostic } from '../../../execution/optional-diagnostic.ts';
 
 export type SourceProgramCompilationPhase =
@@ -89,6 +90,7 @@ function issueSourceProgramCompilationOperation(
       || requestedDeadline! <= 0)) {
     throw new Error('Source Program compilation deadline must be a positive safe Unix timestamp');
   }
+  if (signal !== null) assertNativeAbortSignal(signal);
   const startedAtUnixMs = Date.now();
   const startedAtMonotonicMs = performance.now();
   const deadlineAtUnixMs = Math.min(
@@ -133,7 +135,8 @@ export function sourceProgramCompilationCheckpoint(
 ): void {
   const operationState = sourceProgramCompilationOperationState(operation);
   const now = performance.now();
-  if (operationState.signal?.aborted === true) {
+  // Read the native signal state; an own aborted property is not cancellation.
+  if (isNativeAborted(operationState.signal ?? undefined)) {
     throw new SourceProgramCompilationInterruptedError(
       'source-program-compilation-cancelled',
       phase,
