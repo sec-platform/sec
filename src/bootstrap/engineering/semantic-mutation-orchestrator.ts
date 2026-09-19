@@ -20,7 +20,6 @@ import {
 import {
   appendSemanticMutationRecoveryRecord,
   loadLatestSemanticMutationRecoveryRecord,
-  projectSemanticMutationRequestRecordView,
   pruneSemanticMutationTerminalRecords,
   querySemanticMutationRequestRecord
 } from '../../adapters/mutation/mutation-recovery-record.ts';
@@ -71,7 +70,10 @@ import {
   type SemanticMutationRecordRecoveryOperations
 } from '../../application/semantic-mutation-record-recovery.ts';
 import { publishRejectedSemanticMutationTerminal } from '../../application/semantic-mutation-terminal-publication.ts';
-import { querySemanticMutationRequestView } from '../../application/semantic-mutation-query.ts';
+import {
+  projectSemanticMutationRequestRecordView,
+  querySemanticMutationRequestView
+} from '../../application/semantic-mutation-query.ts';
 import {
   executePreparedSemanticMutationApply,
   prepareSemanticMutationApply,

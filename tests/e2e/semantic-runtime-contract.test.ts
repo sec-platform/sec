@@ -10,6 +10,7 @@ import {
   querySemanticMutationRequest,
   recoverSemanticMutationWorkspace
 } from '../../src/bootstrap/engineering/cli.ts';
+import { projectSemanticMutationRequestRecordView } from '../../src/application/semantic-mutation-query.ts';
 import { projectArchitectureView } from '../../src/compiler/projection/project-architecture-view.ts';
 import { projectScenarioView } from '../../src/compiler/projection/project-scenario-view.ts';
 import { projectStateView } from '../../src/compiler/projection/project-state-view.ts';
@@ -18,7 +19,6 @@ import {
   appendSemanticMutationRecoveryRecord,
   assertSemanticMutationRecoveryRecordInvariant,
   loadSemanticMutationRecoveryRecords,
-  projectSemanticMutationRequestRecordView,
   pruneSemanticMutationTerminalRecords,
   querySemanticMutationRequestRecord,
   semanticMutationRecoveryRecordRevision
