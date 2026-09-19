@@ -69,56 +69,37 @@ export function registerWorkspaceCommands(program: Command): void {
     upgrade: bindUpgradeCommandHandler({
       readPlan: async (workspaceRoot, missingMessage) => {
         const { readUpgradeArtifactSet } = await import('../../adapters/upgrade/artifact-readback.ts');
-        const { projectUpgradePlan } = await import('../../application/upgrade-planning.ts');
-        const { formatUpgradePlanning } = await import('../../entry/cli/upgrade-planning.ts');
         const { plan, executionTerminal } = readUpgradeArtifactSet(workspaceRoot);
         if (plan === null) {
           throw new CompilerError('UPGRADE-BLOCKED-003', missingMessage);
         }
-        return {
-          value: plan,
-          text: formatUpgradePlanning(projectUpgradePlan(plan, executionTerminal))
-        };
+        return { plan, executionTerminal };
       },
       readDiagnostics: async (workspaceRoot, missingMessage) => {
         const { readUpgradeArtifactSet } = await import('../../adapters/upgrade/artifact-readback.ts');
-        const { projectUpgradeDiagnostics } = await import('../../application/upgrade-diagnostics.ts');
-        const { formatUpgradeDiagnostics } = await import('../../entry/cli/upgrade-diagnostics.ts');
         const { diagnostics } = readUpgradeArtifactSet(workspaceRoot);
         if (diagnostics === null) {
           throw new CompilerError('UPGRADE-BLOCKED-003', missingMessage);
         }
-        return {
-          value: diagnostics,
-          text: formatUpgradeDiagnostics(projectUpgradeDiagnostics(diagnostics))
-        };
+        return diagnostics;
       },
       execute: async (workspaceRoot, blockId, targetVersion, dryRun) => {
-        const { projectUpgradePlan, projectUpgradePreview } =
-          await import('../../application/upgrade-planning.ts');
-        const { formatUpgradePlanning } =
-          await import('../../entry/cli/upgrade-planning.ts');
         const result = await upgradeWorkspace(
           workspaceRoot,
           blockId,
           targetVersion,
           { dryRun }
         );
-        if (result.resultKind === 'preview') {
-          return {
-            value: result.upgradePlan,
-            text: formatUpgradePlanning(projectUpgradePreview(result.upgradePlan))
-          };
-        }
-        return {
-          value: result.upgradePlan,
-          text: formatUpgradePlanning(
-            projectUpgradePlan(
-              result.upgradePlan,
-              result.upgradeExecutionTerminal
-            )
-          )
-        };
+        return result.resultKind === 'preview'
+          ? {
+              resultKind: 'preview' as const,
+              upgradePlan: result.upgradePlan
+            }
+          : {
+              resultKind: 'applied' as const,
+              upgradePlan: result.upgradePlan,
+              upgradeExecutionTerminal: result.upgradeExecutionTerminal
+            };
       },
       progress: runWithOptionalSpinner
     }),
