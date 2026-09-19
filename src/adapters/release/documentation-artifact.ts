@@ -13,6 +13,7 @@ import {
 
 export const DOCUMENTATION_ARTIFACT_MANIFEST_RELATIVE_PATH =
   'documentation-artifact-manifest.json' as const;
+export const DOCUMENTATION_RELEASE_CREATOR = 'Jeremy Yang' as const;
 
 export interface ReleaseSourceIdentity {
   readonly sourceCommit: string;
@@ -34,7 +35,7 @@ export interface DocumentationArtifactManifest {
   readonly license: Readonly<{
     readonly spdx: 'CC-BY-4.0';
     readonly textPath: 'LICENSES/CC-BY-4.0.txt';
-    readonly creator: string;
+    readonly creator: typeof DOCUMENTATION_RELEASE_CREATOR;
     readonly work: 'Engineering Workspace Compiler (SEC)';
     readonly source: 'https://github.com/sec-platform/sec';
   }>;
@@ -90,7 +91,7 @@ export function isDocumentationReleasePath(relativePath: string): boolean {
 
 async function readPackageIdentity(sourceRoot: string): Promise<Readonly<{
   packageVersion: string;
-  creator: string;
+  creator: typeof DOCUMENTATION_RELEASE_CREATOR;
 }>> {
   const value = JSON.parse(await fs.readFile(path.join(sourceRoot, 'package.json'), 'utf8')) as {
     version?: unknown;
@@ -99,10 +100,10 @@ async function readPackageIdentity(sourceRoot: string): Promise<Readonly<{
   if (typeof value.version !== 'string' || value.version.length === 0) {
     throw new Error('Documentation release source package version is absent');
   }
-  if (typeof value.author !== 'string' || value.author.length === 0) {
-    throw new Error('Documentation release source author is absent');
+  if (value.author !== DOCUMENTATION_RELEASE_CREATOR) {
+    throw new Error('Documentation release source author does not match the required CC BY attribution');
   }
-  return Object.freeze({ packageVersion: value.version, creator: value.author });
+  return Object.freeze({ packageVersion: value.version, creator: DOCUMENTATION_RELEASE_CREATOR });
 }
 
 function assertExpectedSource(
@@ -229,6 +230,7 @@ export async function readDocumentationArtifactManifest(
   if (
     manifest.license?.spdx !== 'CC-BY-4.0'
     || manifest.license.textPath !== 'LICENSES/CC-BY-4.0.txt'
+    || manifest.license.creator !== DOCUMENTATION_RELEASE_CREATOR
     || manifest.license.work !== 'Engineering Workspace Compiler (SEC)'
     || manifest.license.source !== 'https://github.com/sec-platform/sec'
   ) {
@@ -252,7 +254,7 @@ async function writeDocumentationManifest(
   artifactRoot: string,
   input: Readonly<{
     packageVersion: string;
-    creator: string;
+    creator: typeof DOCUMENTATION_RELEASE_CREATOR;
     sourceCommit: string;
     sourceTree: string;
     files: readonly DocumentationArtifactFile[];
