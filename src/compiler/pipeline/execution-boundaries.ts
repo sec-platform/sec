@@ -1,4 +1,4 @@
-import { PIPELINE_STAGE_IDS, type PipelineStageId } from '../../compiler/pipeline/stages.ts';
+import { PIPELINE_STAGE_IDS, type PipelineStageId } from './stages.ts';
 
 /** Stage boundary identity derives from the same declared stages that execute. */
 export function pipelineStageBoundary<Stage extends PipelineStageId>(stage: Stage): `pipeline-${Stage}` {

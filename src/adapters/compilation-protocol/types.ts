@@ -7,13 +7,13 @@ export { PIPELINE_STAGE_IDS, PIPELINE_VERIFY_STAGE_IDS } from '../../compiler/pi
 export type { PipelineStageId } from '../../compiler/pipeline/stages.ts';
 
 export type { PassId } from '../../compiler/contract/pass-status.ts';
-export { PIPELINE_EXECUTION_BOUNDARIES } from './execution-boundaries.ts';
-export type { PipelineExecutionBoundary } from './execution-boundaries.ts';
+export { PIPELINE_EXECUTION_BOUNDARIES } from '../../compiler/pipeline/execution-boundaries.ts';
+export type { PipelineExecutionBoundary } from '../../compiler/pipeline/execution-boundaries.ts';
 export { PIPELINE_ADAPT_RETIREMENT_SCHEMA, PIPELINE_JOURNAL_FORMAT_VERSION } from './journal-types.ts';
 export type { PipelineAdaptRetirementRecord, PipelineJournal, PipelinePassRecord, PipelinePassStatus, PipelineTransactionRecord, PipelineTransactionStatus } from './journal-types.ts';
 export type { PipelineSource } from '../../compiler/pipeline/source.ts';
 
-import type { PipelineExecutionBoundary } from './execution-boundaries.ts';
+import type { PipelineExecutionBoundary } from '../../compiler/pipeline/execution-boundaries.ts';
 
 export { PIPELINE_COMPLETION_PROOF_REVISION } from '../../assurance/verification/pipeline/completion-proof.ts';
 export type { PipelineCompletionProof } from '../../assurance/verification/pipeline/completion-proof.ts';

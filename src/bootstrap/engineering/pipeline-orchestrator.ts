@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { pipelineStageBoundary } from '../../adapters/compilation-protocol/execution-boundaries.ts';
+import { pipelineStageBoundary } from '../../compiler/pipeline/execution-boundaries.ts';
 
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../adapters/filesystem/write-lease.ts';
 import { readLockFile } from '../../adapters/workspace/lock.ts';
