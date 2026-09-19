@@ -2,13 +2,13 @@ import type { Command } from 'commander';
 import { TEXT_BYTE_ANOMALIES, TEXT_BYTE_CLASSIFICATIONS } from '../../adapters/runtime-state/text-byte-census.ts';
 import { admitTextByteCensusThreshold, projectTextByteCensusReport, textByteCensusThresholdMatched } from '../../application/text-byte-census.ts';
 import { projectWorktreeSettlementReceipt } from '../../application/worktree-settlement.ts';
-import type { DependencyCleanOptions } from '../../adapters/toolchain/dependencies/environment.ts';
 import { buildBenchmarkTaskCatalog, formatBenchmarkTaskCatalog } from '../../adapters/verification/platform/benchmark/catalog.ts';
-import { addJsonFlags, commandPath, jsonOpts, usageError } from '../../entry/cli/command-options.ts';
+import { addJsonFlags, jsonOpts, usageError } from '../../entry/cli/command-options.ts';
 import { registerReferenceCommands } from '../../entry/cli/register-reference-commands.ts';
 import { registerVerificationToolingCommands } from '../../entry/cli/register-verification-tooling-commands.ts';
 import { registerTextCommands } from '../../entry/cli/register-text-commands.ts';
 import { registerEnvironmentCommands } from '../../entry/cli/register-environment-commands.ts';
+import { registerDependencyCommands } from '../../entry/cli/register-dependency-commands.ts';
 import { platformCommand } from '../../adapters/verification/platform/sec-command.ts';
 import { printJsonOrText } from '../../entry/cli/format-utils.ts';
 import { formatTextByteCensus } from '../../entry/cli/text-byte-census.ts';
@@ -48,63 +48,38 @@ export function registerCommands(
   registerWorkspaceCommands(program);
 
 
-  addJsonFlags(program.command('doctor'))
-    .description('Check environment readiness')
-    .action(async (opts: Record<string, unknown>) => {
-      const workspaceRoot = process.cwd();
-      const output = jsonOpts(opts);
+  registerDependencyCommands(program, {
+    doctor: async ({ workspaceRoot, output }) => {
       const domain = await loadDependencyEnvironment();
       const report = await domain.getDoctorReport(workspaceRoot);
       printJsonOrText(report, output, domain.formatDoctorReport);
-    });
-
-  const deps = program.command('deps').description('Dependency management');
-  addJsonFlags(deps.command('status')).action(async (opts: Record<string, unknown>) => {
-    const workspaceRoot = process.cwd();
-    const output = jsonOpts(opts);
-    const domain = await loadDependencyEnvironment();
-    const status = await domain.getDependencyEnvironmentStatus(workspaceRoot);
-    printJsonOrText(status, output, domain.formatDependencyEnvironmentStatus);
-  });
-  addJsonFlags(deps.command('freshness')).action(async (opts: Record<string, unknown>) => {
-    const output = jsonOpts(opts);
-    const domain = await loadDependencyEnvironment();
-    const status = await domain.getDependencyFreshness();
-    printJsonOrText(status, output, domain.formatDependencyFreshnessDecision);
-  });
-  addJsonFlags(deps.command('warmup')).action(async (opts: Record<string, unknown>) => {
-    const workspaceRoot = process.cwd();
-    const output = jsonOpts(opts);
-    const domain = await loadDependencyEnvironment();
-    const status = await domain.warmupDependencyEnvironment(workspaceRoot);
-    printJsonOrText(status, output, domain.formatDependencyEnvironmentStatus);
-  });
-  addJsonFlags(deps.command('relink')).action(async (opts: Record<string, unknown>) => {
-    const workspaceRoot = process.cwd();
-    const output = jsonOpts(opts);
-    const domain = await loadDependencyEnvironment();
-    const status = await domain.relinkProjectDependencies(workspaceRoot);
-    printJsonOrText(status, output, domain.formatDependencyEnvironmentStatus);
-  });
-  deps.command('clean')
-    .option('--project', 'Clean project deps')
-    .option('--shared', 'Clean shared deps')
-    .option('--bun-cache', 'Clean Bun cache')
-    .option('--all', 'Clean all')
-    .option('--force', 'Force clean')
-    .action(async (opts: Record<string, unknown>, cmd: Command) => {
-      const options: DependencyCleanOptions = Object.freeze({
-        project: opts.project as boolean | undefined, shared: opts.shared as boolean | undefined,
-        bunCache: opts.bunCache as boolean | undefined, all: opts.all as boolean | undefined,
-        force: opts.force as boolean | undefined
-      });
-      if (options.all && !options.force) throw usageError(`Usage: ${commandPath(cmd)} --all --force`);
-      if (!options.all && options.force) throw usageError(`Usage: ${commandPath(cmd)} --all --force`);
-      const workspaceRoot = process.cwd();
+    },
+    status: async ({ workspaceRoot, output }) => {
       const domain = await loadDependencyEnvironment();
-      const removed = await domain.cleanDependencyEnvironment(workspaceRoot, options);
+      const status = await domain.getDependencyEnvironmentStatus(workspaceRoot);
+      printJsonOrText(status, output, domain.formatDependencyEnvironmentStatus);
+    },
+    freshness: async ({ output }) => {
+      const domain = await loadDependencyEnvironment();
+      const status = await domain.getDependencyFreshness();
+      printJsonOrText(status, output, domain.formatDependencyFreshnessDecision);
+    },
+    warmup: async ({ workspaceRoot, output }) => {
+      const domain = await loadDependencyEnvironment();
+      const status = await domain.warmupDependencyEnvironment(workspaceRoot);
+      printJsonOrText(status, output, domain.formatDependencyEnvironmentStatus);
+    },
+    relink: async ({ workspaceRoot, output }) => {
+      const domain = await loadDependencyEnvironment();
+      const status = await domain.relinkProjectDependencies(workspaceRoot);
+      printJsonOrText(status, output, domain.formatDependencyEnvironmentStatus);
+    },
+    clean: async ({ workspaceRoot, request }) => {
+      const domain = await loadDependencyEnvironment();
+      const removed = await domain.cleanDependencyEnvironment(workspaceRoot, request);
       console.log(`Cleaned ${removed.length} dependency paths`);
-    });
+    }
+  });
 
   registerReferenceCommands(program, {
     check: async ({ output }) => {
