@@ -178,6 +178,87 @@ export function bindUpgradeCommandHandler(
   };
 }
 
+export type WorkspaceViewProjection = Readonly<{
+  value: unknown;
+  text: string;
+}>;
+
+export interface WorkspaceViewCommandOperations {
+  readLock(
+    workspaceRoot: string,
+    missingMessage: string
+  ): Promise<WorkspaceViewProjection>;
+  lock(workspaceRoot: string): Promise<void>;
+  readExplain(
+    workspaceRoot: string,
+    missingMessage: string
+  ): Promise<WorkspaceViewProjection>;
+  explain(workspaceRoot: string): Promise<WorkspaceViewProjection>;
+  progress<T>(
+    text: string,
+    output: WorkspaceViewInput['output'],
+    operation: () => Promise<T>
+  ): Promise<T>;
+}
+
+export function bindWorkspaceViewCommandHandler(
+  operations: WorkspaceViewCommandOperations
+): AdvancedWorkspaceCommandHandlers['view'] {
+  const required = [
+    operations.readLock,
+    operations.lock,
+    operations.readExplain,
+    operations.explain,
+    operations.progress
+  ];
+  if (required.some(operation => typeof operation !== 'function')) {
+    throw new TypeError('Workspace view command operations must be callable');
+  }
+
+  return async ({ command, workspaceRoot, invocationPath, input }) => {
+    if (command === 'lock') {
+      if (input.kind === 'inspect') {
+        const result = await operations.readLock.call(
+          operations,
+          workspaceRoot,
+          `Graph lock not found; run ${invocationPath} first`
+        );
+        printJsonOrText(result.value, input.output, () => result.text);
+        return;
+      }
+      await operations.progress.call(
+        operations,
+        'Locking project',
+        input.output,
+        () => operations.lock.call(operations, workspaceRoot)
+      );
+      printJsonOrText(
+        { status: 'locked' as const },
+        input.output,
+        () => 'Locked project'
+      );
+      return;
+    }
+
+    if (input.kind === 'inspect') {
+      const result = await operations.readExplain.call(
+        operations,
+        workspaceRoot,
+        `Explain graph not found; run ${invocationPath} first`
+      );
+      printJsonOrText(result.value, input.output, () => result.text);
+      return;
+    }
+    const result = await operations.progress.call(
+      operations,
+      'Explaining project',
+      input.output,
+      () => operations.explain.call(operations, workspaceRoot)
+    );
+    printJsonOrText(result.value, input.output, () => result.text);
+  };
+}
+
 export interface AdvancedWorkspaceCommandHandlers {
   readonly repair: (context: CommandContext<RepairInput>) => Promise<void>;
   readonly upgrade: (context: CommandContext<UpgradeInput>) => Promise<void>;
