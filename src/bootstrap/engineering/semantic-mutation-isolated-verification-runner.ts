@@ -6,13 +6,11 @@ import { pathExists } from "../../adapters/filesystem/files.ts";
 import { listFilesRecursive } from '../../adapters/filesystem/discovery.ts';
 import { readProjectBaseline } from '../../adapters/workspace/project-baseline.ts';
 import {
-  PIPELINE_VERIFY_STAGE_IDS,
   type PipelineExecutionBoundary
 } from '../../adapters/compilation-protocol/types.ts';
 import {
   buildSemanticMutationIsolatedChildOutcome,
   publishSemanticMutationIsolatedChildOutcome,
-  type SemanticMutationIsolatedChildFailureStage,
   type SemanticMutationIsolatedChildOutcome
 } from '../../adapters/verification/isolation/isolated-verification-child-outcome.ts';
 import {
@@ -24,22 +22,13 @@ import {
   withSemanticMutationIsolatedPhaseTelemetry
 } from '../../adapters/verification/isolation/isolated-verification-phase-telemetry.ts';
 import { assertIsolatedStagingTree } from '../../adapters/verification/assert-isolated-staging-tree.ts';
+import {
+  runSemanticMutationIsolatedVerifyAll,
+  SemanticMutationIsolatedCatchTreeFailure,
+  SemanticMutationIsolatedStagingTreeFailure
+} from '../../application/semantic-mutation-isolated-runner.ts';
 import { mintIsolatedVerificationCapability } from '../../execution/isolated-verification-capability.ts';
 import { compileWorkspace } from './pipeline-orchestrator.ts';
-
-class SemanticMutationIsolatedCatchTreeFailure extends Error {
-  constructor() {
-    super('Semantic Mutation isolated catch tree validation failed');
-    this.name = 'SemanticMutationIsolatedCatchTreeFailure';
-  }
-}
-
-class SemanticMutationIsolatedStagingTreeFailure extends Error {
-  constructor() {
-    super('Semantic Mutation isolated staging tree validation failed');
-    this.name = 'SemanticMutationIsolatedStagingTreeFailure';
-  }
-}
 
 class SemanticMutationIsolatedEnvironmentBoundaryFailure extends Error {
   constructor() {
@@ -55,11 +44,6 @@ class SemanticMutationIsolatedStagingLayoutBoundaryFailure extends Error {
   }
 }
 
-function sameStages(actual: readonly string[]): boolean {
-  return actual.length === PIPELINE_VERIFY_STAGE_IDS.length &&
-    actual.every((stage, index) => stage === PIPELINE_VERIFY_STAGE_IDS[index]);
-}
-
 async function main(): Promise<SemanticMutationIsolatedChildOutcome | null> {
   const stagingWorkspaceRoot = path.resolve(process.cwd());
   if (process.env[ISOLATED_VERIFICATION_ENV_KEY] !== '1') {
@@ -68,69 +52,55 @@ async function main(): Promise<SemanticMutationIsolatedChildOutcome | null> {
   if (!isSemanticMutationStagingWorkspace(stagingWorkspaceRoot)) {
     throw new SemanticMutationIsolatedStagingLayoutBoundaryFailure();
   }
-  try {
-    await assertIsolatedStagingTree(stagingWorkspaceRoot);
-  } catch {
-    throw new SemanticMutationIsolatedStagingTreeFailure();
-  }
-  let failureStage: SemanticMutationIsolatedChildFailureStage = 'preflight';
-  let failureBoundary: PipelineExecutionBoundary | undefined;
-  try {
-    await publishSemanticMutationIsolatedProgressCheckpoint(stagingWorkspaceRoot, 'catch-armed');
-    if (await pathExists(path.join(stagingWorkspaceRoot, 'source', 'schema', 'db.prisma.template'))) {
-      throw new Error('Semantic Mutation isolated runner cannot execute Prisma without a staged toolchain');
-    }
-    const opaqueModulesRoot = path.join(stagingWorkspaceRoot, 'source', 'code', 'opaque');
-    if ((await pathExists(opaqueModulesRoot)) &&
-      (await listFilesRecursive(opaqueModulesRoot)).some((file) => path.basename(file) === 'module.yaml')) {
-      throw new Error('Semantic Mutation isolated runner cannot install linked opaque modules');
-    }
-    const isolatedVerificationCapability = mintIsolatedVerificationCapability(stagingWorkspaceRoot);
-    failureStage = 'verify-all';
-    failureBoundary = 'pipeline-bootstrap';
-    await publishSemanticMutationIsolatedProgressCheckpoint(stagingWorkspaceRoot, 'verify-all');
-    const compiled = await withSemanticMutationIsolatedPhaseTelemetry(
-      stagingWorkspaceRoot,
-      'compile-workspace',
-      async () => await compileWorkspace(stagingWorkspaceRoot, {
-        source: 'api',
-        from: 'resolve',
-        through: 'verify',
-        isolatedVerificationCapability,
-        onEvent: (event) => {
-          if (event.type === 'execution-boundary' && event.boundary) {
-            failureBoundary = event.boundary;
-          } else if (event.type === 'transaction-start') {
-            failureBoundary = 'pipeline-transaction';
-          }
-        },
-        verificationLane: 'all'
-      })
-    );
-    failureStage = 'postcondition';
-    await publishSemanticMutationIsolatedProgressCheckpoint(stagingWorkspaceRoot, 'postcondition');
-    const baseline = await readProjectBaseline(stagingWorkspaceRoot);
-    if (!baseline || !sameStages(compiled.completedStages) ||
-      !compiled.semanticContext ||
-      compiled.verificationReport?.summary.status !== 'passed' ||
-      compiled.verificationReport.summary.requestedLane !== 'all') {
-      throw new Error('Semantic Mutation isolated runner did not complete verify-all');
-    }
-    return null;
-  } catch (error) {
-    if (error instanceof SemanticMutationIsolatedProgressPublicationError) throw error;
-    await publishSemanticMutationIsolatedProgressCheckpoint(stagingWorkspaceRoot, 'failure-caught');
-    try {
-      await assertIsolatedStagingTree(stagingWorkspaceRoot);
-    } catch {
-      throw new SemanticMutationIsolatedCatchTreeFailure();
-    }
-    await publishSemanticMutationIsolatedProgressCheckpoint(stagingWorkspaceRoot, 'catch-tree-validated');
-    return buildSemanticMutationIsolatedChildOutcome(
-      failureStage,
-      failureStage === 'verify-all' ? failureBoundary : undefined
-    );
-  }
+
+  const result = await runSemanticMutationIsolatedVerifyAll<PipelineExecutionBoundary>({
+    initialVerifyBoundary: 'pipeline-bootstrap',
+    transactionBoundary: 'pipeline-transaction',
+    publishProgress: checkpoint =>
+      publishSemanticMutationIsolatedProgressCheckpoint(stagingWorkspaceRoot, checkpoint),
+    assertStagingTree: () => assertIsolatedStagingTree(stagingWorkspaceRoot),
+    inspectUnsupportedStagedSources: async () => {
+      const prismaTemplatePresent = await pathExists(
+        path.join(stagingWorkspaceRoot, 'source', 'schema', 'db.prisma.template')
+      );
+      const opaqueModulesRoot = path.join(stagingWorkspaceRoot, 'source', 'code', 'opaque');
+      const linkedOpaqueModulePresent = (await pathExists(opaqueModulesRoot)) &&
+        (await listFilesRecursive(opaqueModulesRoot))
+          .some(file => path.basename(file) === 'module.yaml');
+      return { prismaTemplatePresent, linkedOpaqueModulePresent };
+    },
+    compileVerifyAll: async observer => {
+      const isolatedVerificationCapability =
+        mintIsolatedVerificationCapability(stagingWorkspaceRoot);
+      return withSemanticMutationIsolatedPhaseTelemetry(
+        stagingWorkspaceRoot,
+        'compile-workspace',
+        async () => await compileWorkspace(stagingWorkspaceRoot, {
+          source: 'api',
+          from: 'resolve',
+          through: 'verify',
+          isolatedVerificationCapability,
+          onEvent: event => {
+            if (event.type === 'execution-boundary' && event.boundary) {
+              observer.onExecutionBoundary(event.boundary);
+            } else if (event.type === 'transaction-start') {
+              observer.onTransactionStart();
+            }
+          },
+          verificationLane: 'all'
+        })
+      );
+    },
+    hasProjectBaseline: async () => Boolean(await readProjectBaseline(stagingWorkspaceRoot)),
+    isProgressPublicationError: error =>
+      error instanceof SemanticMutationIsolatedProgressPublicationError
+  });
+
+  if (result === null) return null;
+  return buildSemanticMutationIsolatedChildOutcome(
+    result.failureStage,
+    result.failureStage === 'verify-all' ? result.failureBoundary : undefined
+  );
 }
 
 try {
