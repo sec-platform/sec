@@ -82,6 +82,7 @@ import {
   exactPreparedSemanticMutationRecoveryBinding as exactPreparedRecoveryBinding
 } from '../../application/semantic-mutation-recovery.ts';
 import { planSemanticMutation } from '../../application/semantic-mutation-plan.ts';
+import { coordinateSemanticMutationRecovery } from '../../application/semantic-mutation-recovery-coordinator.ts';
 import { compileWorkspace } from './pipeline-orchestrator.ts';
 
 type ReadyPlan = ReadySemanticMutationPlan;
@@ -802,35 +803,21 @@ async function recoverWithLease(
   dependencies: SemanticMutationCoordinatorDependencies =
     DEFAULT_SEMANTIC_MUTATION_COORDINATOR_DEPENDENCIES
 ): Promise<SemanticMutationInternalRecoveryOutcome> {
-  const { unfinished, blocked } = await inspectSemanticMutationRecoveryAuthority(workspaceRoot);
-  if (blocked) return { status: 'recovery-required', record: blocked.record };
-
-  let lastTerminal: SemanticMutationInternalRecoveryOutcome = { status: 'clean' };
-  for (const { transactionRoot, record } of unfinished) {
-    const outcome = await recoverRecord(
+  return coordinateSemanticMutationRecovery({
+    inspectAuthority: () => inspectSemanticMutationRecoveryAuthority(workspaceRoot),
+    recoverRecord: (transactionRoot, record) => recoverRecord(
       workspaceRoot,
       transactionRoot,
       record,
       token,
       dependencies
-    );
-    if (outcome.status === 'recovery-required') return outcome;
-    if (outcome.status === 'terminal' &&
-      (outcome.result.status === 'accepted' || outcome.result.status === 'rolled-back')) {
-      await fencedWorkspaceWrite(
-        workspaceRoot,
-        token,
-        (commitFence) => pruneSemanticMutationTerminalRecords(workspaceRoot, commitFence)
-      );
-    }
-    lastTerminal = outcome;
-  }
-  await fencedWorkspaceWrite(
-    workspaceRoot,
-    token,
-    (commitFence) => pruneSemanticMutationTerminalRecords(workspaceRoot, commitFence)
-  );
-  return lastTerminal;
+    ),
+    prune: () => fencedWorkspaceWrite(
+      workspaceRoot,
+      token,
+      commitFence => pruneSemanticMutationTerminalRecords(workspaceRoot, commitFence)
+    )
+  });
 }
 
 export async function recoverSemanticMutationWorkspace(
