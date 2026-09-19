@@ -3,12 +3,14 @@ import { TEXT_BYTE_ANOMALIES, TEXT_BYTE_CLASSIFICATIONS } from '../../adapters/r
 import { admitTextByteCensusThreshold, projectTextByteCensusReport, textByteCensusThresholdMatched } from '../../application/text-byte-census.ts';
 import { projectWorktreeSettlementReceipt } from '../../application/worktree-settlement.ts';
 import { buildBenchmarkTaskCatalog, formatBenchmarkTaskCatalog } from '../../adapters/verification/platform/benchmark/catalog.ts';
-import { addJsonFlags, jsonOpts, usageError } from '../../entry/cli/command-options.ts';
 import {
   bindReferenceCommandHandlers,
   registerReferenceCommands
 } from '../../entry/cli/register-reference-commands.ts';
-import { registerVerificationToolingCommands } from '../../entry/cli/register-verification-tooling-commands.ts';
+import {
+  bindVerificationToolingCommandHandlers,
+  registerVerificationToolingCommands
+} from '../../entry/cli/register-verification-tooling-commands.ts';
 import {
   bindTextCommandHandlers,
   registerTextCommands
@@ -22,7 +24,6 @@ import {
   registerDependencyCommands
 } from '../../entry/cli/register-dependency-commands.ts';
 import { platformCommand } from '../../adapters/verification/platform/sec-command.ts';
-import { printJsonOrText } from '../../entry/cli/format-utils.ts';
 import { formatTextByteCensus } from '../../entry/cli/text-byte-census.ts';
 import { formatWorktreeSettlement } from '../../entry/cli/worktree-settlement.ts';
 import { loadDependencyEnvironmentDomain, loadReferenceCheckDomain, loadTestBudgetDomain, observeLocalContainerEngineReadiness, runCensus, runSettlement } from './lazy-command-domains.ts';
@@ -106,24 +107,24 @@ export function registerCommands(
     }
   }));
 
-  registerVerificationToolingCommands(program, {
-    benchmarkCatalog: ({ output }) => {
-      printJsonOrText(
-        buildBenchmarkTaskCatalog(),
-        output,
-        formatBenchmarkTaskCatalog
-      );
-    },
-    testBudget: async ({ output }) => {
-      const domain = await loadTestBudgetDomain();
-      const { issueCurrentTestBudgetProjection } =
-        await import('../../adapters/self-hosting/development/runner/test-runner.ts');
-      const contract = domain.buildTestBudgetContract(
-        await issueCurrentTestBudgetProjection()
-      );
-      printJsonOrText(contract, output, domain.formatTestBudgetContract);
-    }
-  });
+  registerVerificationToolingCommands(
+    program,
+    bindVerificationToolingCommandHandlers({
+      benchmarkCatalog: () => {
+        const value = buildBenchmarkTaskCatalog();
+        return { value, text: formatBenchmarkTaskCatalog(value) };
+      },
+      testBudget: async () => {
+        const domain = await loadTestBudgetDomain();
+        const { issueCurrentTestBudgetProjection } =
+          await import('../../adapters/self-hosting/development/runner/test-runner.ts');
+        const value = domain.buildTestBudgetContract(
+          await issueCurrentTestBudgetProjection()
+        );
+        return { value, text: domain.formatTestBudgetContract(value) };
+      }
+    })
+  );
   registerInspectionCommands(program);
 
 
