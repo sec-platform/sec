@@ -425,14 +425,10 @@ type ManifestFileOperationEvidenceContext = BaseMigrationOperationContext & {
   entry: Extract<UpgradeMigrationEntry, { kind: ManifestFileMigrationKind }>;
 };
 
-type UpgradeMigrationOperationRecord = UpgradePlan['migrationOperations'][number];
-
 type MigrationOperationSpec<K extends UpgradeMigrationEntry['kind'] = UpgradeMigrationEntry['kind']> = {
   validate?: (context: MigrationEntryValidationContext<K>) => void;
   apply: (context: MigrationApplyContext<K>) => Promise<void>;
   collectFileEvidence?: (context: FileOperationEvidenceContext<K>) => Promise<string[]>;
-  collectImpacts?: (entry: Extract<UpgradeMigrationEntry, { kind: K }>) => string[];
-  buildOperation: (entry: Extract<UpgradeMigrationEntry, { kind: K }>) => UpgradeMigrationOperationRecord;
 };
 
 type MigrationOperationSpecs = {
@@ -443,8 +439,6 @@ type AnyMigrationOperationSpec = {
   validate?: (context: MigrationEntryValidationContext) => void;
   apply: (context: MigrationApplyContext) => Promise<void>;
   collectFileEvidence?: (context: FileOperationEvidenceContext) => Promise<string[]>;
-  collectImpacts?: (entry: UpgradeMigrationEntry) => string[];
-  buildOperation: (entry: UpgradeMigrationEntry) => UpgradeMigrationOperationRecord;
 };
 
 function getMigrationOperationSpec(entry: { kind: string }): AnyMigrationOperationSpec | undefined {
@@ -774,37 +768,14 @@ async function collectManifestFileOperationEvidence(
   ];
 }
 
-function buildMigrationOperationRecord(
-  entry: UpgradeMigrationEntry,
-  role: UpgradeMigrationOperationRecord['role'],
-  details: Omit<Partial<UpgradeMigrationOperationRecord>, 'id' | 'kind' | 'target' | 'role'> = {}
-): UpgradeMigrationOperationRecord {
-  return {
-    id: entry.id,
-    kind: entry.kind,
-    target: entry.target,
-    role,
-    ...details
-  };
-}
-
 type ManifestFileMigrationKind = 'file-replace' | 'copy-file';
-type JsonItemMigrationEntry = Extract<UpgradeMigrationEntry, { kind: 'json-array-append' | 'json-array-remove' }>;
 type JsonTargetMigrationEntry = Extract<UpgradeMigrationEntry, { kind: 'json-array-append' | 'json-array-remove' | 'json-object-merge' }>;
-
-function buildJsonItemMigrationOperation(entry: JsonItemMigrationEntry): UpgradeMigrationOperationRecord {
-  return buildMigrationOperationRecord(entry, 'json', {
-    path: [...entry.path],
-    itemCount: entry.items.length
-  });
-}
 
 function createManifestFileMigrationSpec<K extends ManifestFileMigrationKind>(): MigrationOperationSpec<K> {
   return {
     validate: validateSourceMigrationEntry,
     apply: applyManifestFileMigration,
-    collectFileEvidence: collectManifestFileOperationEvidence,
-    buildOperation: (entry: Extract<UpgradeMigrationEntry, { kind: ManifestFileMigrationKind }>) => buildMigrationOperationRecord(entry, 'file', { source: entry.source })
+    collectFileEvidence: collectManifestFileOperationEvidence
   };
 }
 
@@ -820,8 +791,7 @@ function createDeleteMigrationSpec<K extends 'delete-file' | 'delete-directory'>
     collectFileEvidence: async ({ entry, targetPath }: FileOperationEvidenceContext<'delete-file' | 'delete-directory'>) => {
       await stat(targetPath, entry.target);
       return [`${entry.id}:target:${role}`];
-    },
-    buildOperation: (entry: Extract<UpgradeMigrationEntry, { kind: 'delete-file' | 'delete-directory' }>) => buildMigrationOperationRecord(entry, role)
+    }
   };
 }
 
@@ -847,7 +817,6 @@ function createRenameMigrationSpec<K extends ProjectSourceMigrationEntry['kind']
 ): MigrationOperationSpec<K> {
   return {
     validate: validateSourceMigrationEntry,
-    collectImpacts: (entry: ProjectSourceMigrationEntry) => [entry.source, entry.target],
     apply: async ({ commitFence, entry, workspaceRoot, targetPath }: MigrationApplyContext<ProjectSourceMigrationEntry['kind']>) => {
       const sourcePath = await prepareRenameMigrationTarget(entry, workspaceRoot, targetPath, label, statSource);
       await ensureDir(path.dirname(targetPath), commitFence);
@@ -857,8 +826,7 @@ function createRenameMigrationSpec<K extends ProjectSourceMigrationEntry['kind']
     collectFileEvidence: async ({ entry, workspaceRoot, targetPath }: FileOperationEvidenceContext<ProjectSourceMigrationEntry['kind']>) => {
       await prepareRenameMigrationTarget(entry, workspaceRoot, targetPath, label, statSource);
       return [`${entry.id}:source:${role}`, `${entry.id}:target:available`];
-    },
-    buildOperation: (entry: ProjectSourceMigrationEntry) => buildMigrationOperationRecord(entry, role, { source: entry.source })
+    }
   };
 }
 
@@ -904,7 +872,6 @@ const migrationOperationSpecs = {
       await prepareCopyDirectoryMigration(context);
       return [`${context.entry.id}:manifest-source:directory`];
     },
-    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'directory', { source: entry.source })
   },
   'config-rewrite': {
     validate: validateConfigRewriteMigrationEntry,
@@ -913,7 +880,6 @@ const migrationOperationSpecs = {
       const config = applyConfigUpdates(await readJson<unknown>(targetPath), entry.updates);
       await writeJson(targetPath, config, commitFence);
     },
-    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'json', { updateCount: entry.updates.length })
   },
   'json-array-append': {
     validate: validateJsonArrayMigrationEntry,
@@ -926,7 +892,6 @@ const migrationOperationSpecs = {
         commitFence
       );
     },
-    buildOperation: buildJsonItemMigrationOperation
   },
   'json-array-remove': {
     validate: validateJsonArrayMigrationEntry,
@@ -939,7 +904,6 @@ const migrationOperationSpecs = {
         commitFence
       );
     },
-    buildOperation: buildJsonItemMigrationOperation
   },
   'json-object-merge': {
     validate: validateJsonObjectMergeMigrationEntry,
@@ -952,10 +916,6 @@ const migrationOperationSpecs = {
         commitFence
       );
     },
-    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'json', {
-      path: [...entry.path],
-      valueKeyCount: Object.keys(entry.value).length
-    })
   },
   'text-append': {
     validate: ({ entry, entryPath }) => {
@@ -967,7 +927,6 @@ const migrationOperationSpecs = {
     collectFileEvidence: async ({ entry, targetPath }) => [
       `${entry.id}:target:${await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true })}`
     ],
-    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'text', { contentLength: entry.content.length })
   },
   'text-replace': {
     validate: ({ entry, entryPath }) => {
@@ -975,10 +934,6 @@ const migrationOperationSpecs = {
       ensureMigrationString(entry.replacement, 'replacement', entryPath);
     },
     apply: applyTextReplaceMigration,
-    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'text', {
-      searchLength: entry.search.length,
-      replacementLength: entry.replacement.length
-    })
   },
   'create-directory': {
     apply: async ({ commitFence, entry, targetPath }) => {
@@ -989,7 +944,6 @@ const migrationOperationSpecs = {
       await statCreateDirectoryMigrationTarget(targetPath, entry.target);
       return [];
     },
-    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'directory')
   },
   'delete-file': createDeleteMigrationSpec<'delete-file'>('file', removeFileMigrationTarget, statFileMigrationTarget),
   'delete-directory': createDeleteMigrationSpec<'delete-directory'>('directory', removeDirectoryMigrationTarget, statDirectoryMigrationTarget),
@@ -998,11 +952,6 @@ const migrationOperationSpecs = {
   'db-expand-contract': {
     validate: validateDbExpandContractMigrationEntry,
     apply: applyDbExpandContractMigration,
-    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'prisma', {
-      entity: entry.entity,
-      expandField: entry.expandField,
-      contractField: entry.contractField
-    })
   }
 } satisfies MigrationOperationSpecs;
 
@@ -1564,14 +1513,6 @@ function buildMigrationSummary(entry: UpgradeMigrationEntry, migrations: Upgrade
     requiresVerification: migration?.requiresVerification ?? true,
     ...(operation.source ? { source: operation.source } : {})
   };
-}
-
-function buildMigrationOperation(entry: UpgradeMigrationEntry): UpgradeMigrationOperationRecord {
-  const spec = getMigrationOperationSpec(entry);
-  if (!spec) {
-    throw unsupportedMigrationKindError(entry as { kind: string });
-  }
-  return spec.buildOperation(entry);
 }
 
 function buildUpgradePreview(
