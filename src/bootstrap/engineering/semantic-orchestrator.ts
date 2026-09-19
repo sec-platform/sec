@@ -3,7 +3,6 @@ import { buildWorkspaceEngineeringIRResult } from '../../application/workspace-e
 import { publishSemanticCompilation } from '../../application/semantic-publication.ts';
 import type { EngineeringIR } from '../../semantics/engineering-ir/root-types.ts';
 import { createWorkspaceWriteCommitFence } from '../../adapters/filesystem/write-lease.ts';
-import type { LockFile } from '../../compiler/contract.ts';
 import { loadWorkspaceEngineeringIRBuildInput } from '../../adapters/workspace/engineering-input.ts';
 import { saveLock } from "../../adapters/workspace/lock.ts";
 import { executePipelineStage } from '../../adapters/compilation/pipeline/kernel.ts';
@@ -26,29 +25,27 @@ export async function runWorkspaceSemanticFrontend(
   context: PipelineExecutionContext
 ): Promise<PipelineSemanticContext> {
   workspaceRoot = path.resolve(workspaceRoot);
-  let publishedLock: LockFile | undefined;
-  return executePipelineStage(
+  const result = await executePipelineStage(
     workspaceRoot,
     'semantic',
     context,
     async stageContext => {
-      const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, stageContext.workspaceWriteLease);
+      const commitFence = createWorkspaceWriteCommitFence(
+        workspaceRoot,
+        stageContext.workspaceWriteLease
+      );
       const bundle = await buildWorkspaceSemanticBundle(workspaceRoot);
       const published = await publishSemanticCompilation(bundle.sourceLock, bundle, {
         bind: ({ snapshot, generatorPlan, semanticViews }) =>
           bindPipelineSemanticContext(stageContext, snapshot, generatorPlan, semanticViews),
         persist: lock => saveLock(workspaceRoot, lock, commitFence)
       });
-      publishedLock = published.lock;
-      return published.context;
+      return Object.freeze({
+        context: published.context,
+        lock: published.lock
+      });
     },
-    {
-      extractLock: () => {
-        if (!publishedLock) {
-          throw new Error('Semantic stage completed without one published Lock');
-        }
-        return publishedLock;
-      }
-    }
+    { extractLock: stageResult => stageResult.lock }
   );
+  return result.context;
 }
