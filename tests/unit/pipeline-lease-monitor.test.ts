@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { withLeaseObservationMonitor } from '../../src/adapters/compilation/pipeline/lease-monitor.ts';
+import { withLeaseObservationMonitor } from '../../src/execution/lease-observation-monitor.ts';
 
 function deferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
