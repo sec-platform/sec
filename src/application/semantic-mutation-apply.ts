@@ -77,6 +77,25 @@ export function prepareSemanticMutationApply(
   });
 }
 
+/**
+ * Project a physical workspace-writer admission refusal into the stable
+ * Semantic Mutation request outcome. Bootstrap decides whether the physical
+ * error is this admission class; application owns the domain diagnostic.
+ */
+export function rejectSemanticMutationWorkspaceWriterAdmission(
+  prepared: PreparedSemanticMutationApply
+): SemanticMutationApplyOutcome {
+  return semanticMutationRequestRejected(
+    prepared.normalized.requestId,
+    prepared.normalized.requestRevision,
+    [mutationDiagnostic(
+      'SEMANTIC-MUTATION-007',
+      'cas',
+      'Workspace writer lease is busy or cannot be safely reclaimed'
+    )]
+  );
+}
+
 function preparedValue(
   preparation: SemanticMutationApplyPreparation
 ): PreparedSemanticMutationApply {

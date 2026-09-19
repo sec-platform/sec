@@ -12,10 +12,7 @@ import {
   readSemanticMutationTransactionArtifacts,
   writeSemanticMutationTransactionArtifacts
 } from '../../adapters/mutation/atomic-source-publish.ts';
-import {
-  mutationDiagnostic,
-  semanticMutationByteDigest
-} from '../../compiler/semantic-mutation/canonical.ts';
+import { semanticMutationByteDigest } from '../../compiler/semantic-mutation/canonical.ts';
 import {
   deriveStagedSemanticMutation,
   type DerivedSemanticMutationTransaction
@@ -61,10 +58,7 @@ import {
   issueStagedVerificationProof,
   type StagedVerificationProof
 } from '../../adapters/verification/staged-verification-proof.ts';
-import {
-  semanticMutationRequestRejected as requestRejected,
-  type ReadySemanticMutationPlan
-} from '../../application/semantic-mutation-state.ts';
+import { type ReadySemanticMutationPlan } from '../../application/semantic-mutation-state.ts';
 import {
   advanceSemanticMutationRecoveryRecord as nextRecordDraft,
   buildPreparedSemanticMutationRecoveryRecord
@@ -81,6 +75,7 @@ import { querySemanticMutationRequestView } from '../../application/semantic-mut
 import {
   executePreparedSemanticMutationApply,
   prepareSemanticMutationApply,
+  rejectSemanticMutationWorkspaceWriterAdmission,
   type ReadySemanticMutationApplyDerivation
 } from '../../application/semantic-mutation-apply.ts';
 import {
@@ -495,15 +490,7 @@ async function applySemanticMutationInternal(
     handle = await acquireWorkspaceWriteLease(workspaceRoot);
   } catch (error) {
     if (error instanceof WorkspaceWriteLeaseError) {
-      return requestRejected(
-        prepared.normalized.requestId,
-        prepared.normalized.requestRevision,
-        [mutationDiagnostic(
-          'SEMANTIC-MUTATION-007',
-          'cas',
-          'Workspace writer lease is busy or cannot be safely reclaimed'
-        )]
-      );
+      return rejectSemanticMutationWorkspaceWriterAdmission(prepared);
     }
     throw error;
   }
