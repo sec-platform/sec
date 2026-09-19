@@ -19,6 +19,21 @@ import {
 import { projectUpgradeDiagnostics } from '../../application/upgrade-diagnostics.ts';
 import { formatUpgradePlanning } from './upgrade-planning.ts';
 import { formatUpgradeDiagnostics } from './upgrade-diagnostics.ts';
+import {
+  projectLockInspect,
+  type LockInspectProjectionSource
+} from '../../application/lock-inspect.ts';
+import {
+  projectExplainGraphInspect,
+  type ExplainGraphInspectProjectionSource
+} from '../../application/explain-graph-inspect.ts';
+import { projectExplainSummary } from '../../application/explain-summary.ts';
+import type { ExplainGraph } from '../../semantics/projection/explain.ts';
+import type { ReviewSummary } from '../../assurance/verification/review/contract/types.ts';
+import type { E2eMatrix } from '../../assurance/verification/review/matrix.ts';
+import { formatLockInspect } from './lock-inspect.ts';
+import { formatExplainGraphInspect } from './explain-graph-inspect.ts';
+import { formatExplainSummary } from './explain-summary.ts';
 import { formatRepairSummary } from './repair-summary.ts';
 import {
   WORKSPACE_DRY_RUN_OPTION,
@@ -226,22 +241,21 @@ export function bindUpgradeCommandHandler(
   };
 }
 
-export type WorkspaceViewProjection = Readonly<{
-  value: unknown;
-  text: string;
-}>;
-
 export interface WorkspaceViewCommandOperations {
   readLock(
     workspaceRoot: string,
     missingMessage: string
-  ): Promise<WorkspaceViewProjection>;
+  ): Promise<LockInspectProjectionSource>;
   lock(workspaceRoot: string): Promise<void>;
   readExplain(
     workspaceRoot: string,
     missingMessage: string
-  ): Promise<WorkspaceViewProjection>;
-  explain(workspaceRoot: string): Promise<WorkspaceViewProjection>;
+  ): Promise<ExplainGraphInspectProjectionSource>;
+  explain(workspaceRoot: string): Promise<Readonly<{
+    graph: ExplainGraph;
+    reviewSummary: ReviewSummary;
+    e2eMatrix: E2eMatrix;
+  }>>;
   progress<T>(
     text: string,
     output: WorkspaceViewInput['output'],
@@ -266,12 +280,16 @@ export function bindWorkspaceViewCommandHandler(
   return async ({ command, workspaceRoot, invocationPath, input }) => {
     if (command === 'lock') {
       if (input.kind === 'inspect') {
-        const result = await operations.readLock.call(
+        const value = await operations.readLock.call(
           operations,
           workspaceRoot,
           `Graph lock not found; run ${invocationPath} first`
         );
-        printJsonOrText(result.value, input.output, () => result.text);
+        printJsonOrText(
+          value,
+          input.output,
+          source => formatLockInspect(projectLockInspect(source))
+        );
         return;
       }
       await operations.progress.call(
@@ -289,12 +307,16 @@ export function bindWorkspaceViewCommandHandler(
     }
 
     if (input.kind === 'inspect') {
-      const result = await operations.readExplain.call(
+      const value = await operations.readExplain.call(
         operations,
         workspaceRoot,
         `Explain graph not found; run ${invocationPath} first`
       );
-      printJsonOrText(result.value, input.output, () => result.text);
+      printJsonOrText(
+        value,
+        input.output,
+        source => formatExplainGraphInspect(projectExplainGraphInspect(source))
+      );
       return;
     }
     const result = await operations.progress.call(
@@ -303,7 +325,17 @@ export function bindWorkspaceViewCommandHandler(
       input.output,
       () => operations.explain.call(operations, workspaceRoot)
     );
-    printJsonOrText(result.value, input.output, () => result.text);
+    printJsonOrText(
+      result,
+      input.output,
+      value => formatExplainSummary(
+        projectExplainSummary(
+          value.graph,
+          value.reviewSummary,
+          value.e2eMatrix
+        )
+      )
+    );
   };
 }
 
