@@ -6,14 +6,14 @@ import type {
 import { CompilerError } from '../../compiler/errors.ts';
 import {
   throwUpgradeFailureWithSecondaryFailures,
-  upgradeFailureWithSecondaryFailures,
-  withRollbackDiagnostics
+  upgradeFailureWithSecondaryFailures
 } from '../../compiler/upgrade/failure.ts';
 import { publishUpgradeFailureArtifacts } from '../../application/upgrade-failure-publication.ts';
 import {
   buildUpgradeExecutionTerminal,
   executePlannedWorkspaceUpgrade,
   publishAppliedUpgradeTerminal,
+  resolveUpgradeRollback,
   type AppliedUpgradeTerminalPublicationOperations,
   type UpgradeExecutionTerminalReadbackOperations
 } from '../../application/upgrade-apply.ts';
@@ -337,61 +337,30 @@ export async function runUpgradeWorkspaceWithLease(
       );
       throw pendingApplyFailure;
     }
-    let settlement: UpgradeExecutionTerminal['settlement'] = 'rolled-back';
-    let rollbackFailure: unknown = appliedTerminalCommitUnknown
-      ? new CompilerError(
-          'UPGRADE-BLOCKED-005',
-          'Upgrade applied terminal publication could not be resolved as committed or absent'
-        )
-      : null;
-    if (appliedTerminalCommitUnknown) {
-      settlement = 'recovery-required';
-      retainBackupForRecovery = true;
-    }
-    if (rollbackFailure === null) {
-      try {
-        await commitFence();
-        await restoreWorkspace(backup, lockPath, commitFence);
-      } catch (recoveryError) {
-        settlement = 'recovery-required';
-        rollbackFailure = recoveryError;
-        retainBackupForRecovery = true;
+    const rollback = await resolveUpgradeRollback(
+      {
+        applyFailure: error,
+        appliedTerminalCommitUnknown,
+        recoverySnapshot: {
+          path: backup.backup.path,
+          device: backup.backup.device,
+          inode: backup.backup.inode,
+          parentPath: backup.temporaryParent.path,
+          parentDevice: backup.temporaryParent.device,
+          parentInode: backup.temporaryParent.inode,
+          status: 'retained-locator-only'
+        }
+      },
+      {
+        restore: async () => {
+          await commitFence();
+          await restoreWorkspace(backup, lockPath, commitFence);
+        }
       }
-    }
-    const failure = error instanceof CompilerError
-      ? withRollbackDiagnostics(error)
-      : new CompilerError(
-          'UPGRADE-BLOCKED-005',
-          `Upgrade apply failed: ${error instanceof Error ? error.message : String(error)}`,
-          { rollbackStatus: settlement === 'rolled-back' ? 'restored' : 'recovery-required' },
-          { cause: error }
-        );
-    const diagnosticFailure = rollbackFailure === null
-      ? failure
-      : new CompilerError(
-          'UPGRADE-BLOCKED-005',
-          `Upgrade recovery is required: ${rollbackFailure instanceof Error ? rollbackFailure.message : String(rollbackFailure)}`,
-          {
-            rollbackStatus: 'recovery-required',
-            originalErrorCode: failure.code,
-            recoverySnapshot: {
-              path: backup.backup.path,
-              device: backup.backup.device,
-              inode: backup.backup.inode,
-              parentPath: backup.temporaryParent.path,
-              parentDevice: backup.temporaryParent.device,
-              parentInode: backup.temporaryParent.inode,
-              status: 'retained-locator-only'
-            }
-          },
-          {
-            cause: new AggregateError(
-              [error, rollbackFailure],
-              'Upgrade apply and rollback failed',
-              { cause: error }
-            )
-          }
-        );
+    );
+    const settlement = rollback.settlement;
+    if (rollback.retainBackupForRecovery) retainBackupForRecovery = true;
+    const diagnosticFailure = rollback.diagnosticFailure;
     let terminal: UpgradeExecutionTerminal | null = null;
     const publicationFailures: unknown[] = [];
     if (!appliedTerminalCommitUnknown) {

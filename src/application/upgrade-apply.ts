@@ -1,4 +1,6 @@
 import type { LockFile, PlanFile } from '../compiler/contract.ts';
+import { CompilerError } from '../compiler/errors.ts';
+import { withRollbackDiagnostics } from '../compiler/upgrade/failure.ts';
 import { compileUpgradeExecutionTerminal } from '../compiler/upgrade/execution-terminal.ts';
 import type {
   UpgradeExecutionTerminal,
@@ -134,4 +136,110 @@ export async function publishAppliedUpgradeTerminal(
       publicationFailure
     });
   }
+}
+
+
+export type UpgradeRecoverySnapshotLocator = Readonly<{
+  path: string;
+  device: string;
+  inode: string;
+  parentPath: string;
+  parentDevice: string;
+  parentInode: string;
+  status: 'retained-locator-only';
+}>;
+
+export type UpgradeRollbackResolution = Readonly<{
+  settlement: UpgradeExecutionTerminal['settlement'];
+  retainBackupForRecovery: boolean;
+  diagnosticFailure: CompilerError;
+}>;
+
+export interface UpgradeRollbackOperations {
+  restore(): Promise<void>;
+}
+
+/**
+ * Resolve an Upgrade apply failure before any failure-terminal publication.
+ * Physical snapshot restoration is injected; application owns whether restore
+ * is admissible, when the outcome becomes recovery-required, and the canonical
+ * diagnostic that carries the retained recovery locator.
+ */
+export async function resolveUpgradeRollback(
+  input: Readonly<{
+    applyFailure: unknown;
+    appliedTerminalCommitUnknown: boolean;
+    recoverySnapshot: UpgradeRecoverySnapshotLocator;
+  }>,
+  operations: UpgradeRollbackOperations
+): Promise<UpgradeRollbackResolution> {
+  if (typeof operations.restore !== 'function') {
+    throw new TypeError('Upgrade rollback operation must be callable');
+  }
+
+  let settlement: UpgradeExecutionTerminal['settlement'] = 'rolled-back';
+  let rollbackFailure: unknown = input.appliedTerminalCommitUnknown
+    ? new CompilerError(
+        'UPGRADE-BLOCKED-005',
+        'Upgrade applied terminal publication could not be resolved as committed or absent'
+      )
+    : null;
+  let retainBackupForRecovery = input.appliedTerminalCommitUnknown;
+
+  if (rollbackFailure === null) {
+    try {
+      await operations.restore.call(operations);
+    } catch (recoveryError) {
+      settlement = 'recovery-required';
+      rollbackFailure = recoveryError;
+      retainBackupForRecovery = true;
+    }
+  } else {
+    settlement = 'recovery-required';
+  }
+
+  const failure = input.applyFailure instanceof CompilerError
+    ? withRollbackDiagnostics(input.applyFailure)
+    : new CompilerError(
+        'UPGRADE-BLOCKED-005',
+        `Upgrade apply failed: ${
+          input.applyFailure instanceof Error
+            ? input.applyFailure.message
+            : String(input.applyFailure)
+        }`,
+        {
+          rollbackStatus:
+            settlement === 'rolled-back' ? 'restored' : 'recovery-required'
+        },
+        { cause: input.applyFailure }
+      );
+
+  const diagnosticFailure = rollbackFailure === null
+    ? failure
+    : new CompilerError(
+        'UPGRADE-BLOCKED-005',
+        `Upgrade recovery is required: ${
+          rollbackFailure instanceof Error
+            ? rollbackFailure.message
+            : String(rollbackFailure)
+        }`,
+        {
+          rollbackStatus: 'recovery-required',
+          originalErrorCode: failure.code,
+          recoverySnapshot: input.recoverySnapshot
+        },
+        {
+          cause: new AggregateError(
+            [input.applyFailure, rollbackFailure],
+            'Upgrade apply and rollback failed',
+            { cause: input.applyFailure }
+          )
+        }
+      );
+
+  return Object.freeze({
+    settlement,
+    retainBackupForRecovery,
+    diagnosticFailure
+  });
 }
