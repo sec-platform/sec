@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { publishSemanticCompilation } from '../../application/semantic-publication.ts';
 import type { EngineeringIR } from '../../semantics/engineering-ir/root-types.ts';
 import { createWorkspaceWriteCommitFence } from '../../adapters/filesystem/write-lease.ts';
 import type { LockFile } from '../../compiler/contract.ts';
@@ -30,28 +31,14 @@ export async function runWorkspaceSemanticFrontend(
     context,
     async (stageContext) => {
       const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, stageContext.workspaceWriteLease);
-      const {
-        snapshot,
-        generatorPlan,
-        semanticViews,
-        sourceLock: lock
-      } = await buildWorkspaceSemanticBundle(workspaceRoot);
-
-      // Mutate exactly the Lock object that participated in semantic-input
-      // derivation. Reopening live Lock here would mix two physical revisions
-      // before #296 can bind the whole read set into one Workspace Observation.
-      delete lock.semanticLoweringTasks;
-      delete lock.semanticViews;
-
-      const semanticContext = bindPipelineSemanticContext(stageContext, snapshot, generatorPlan, semanticViews);
-      lock.semanticLoweringTasks = generatorPlan.tasks.map((task) => ({
-        ...structuredClone(task),
-        status: 'pending'
-      }));
-      lock.semanticViews = structuredClone(semanticViews);
-      await saveLock(workspaceRoot, lock, commitFence);
-      publishedLock = lock;
-      return semanticContext;
+      const bundle = await buildWorkspaceSemanticBundle(workspaceRoot);
+      const published = await publishSemanticCompilation(bundle.sourceLock, bundle, {
+        bind: ({ snapshot, generatorPlan, semanticViews }) =>
+          bindPipelineSemanticContext(stageContext, snapshot, generatorPlan, semanticViews),
+        persist: lock => saveLock(workspaceRoot, lock, commitFence)
+      });
+      publishedLock = published.lock;
+      return published.context;
     },
     {
       extractLock: () => {
