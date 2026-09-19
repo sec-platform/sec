@@ -1,8 +1,6 @@
 import { requirePipelineSource } from '../../../compiler/pipeline/source.ts';
 import type { PipelineExecutionContext } from '../../compilation-protocol/types.ts';
 
-export { requirePipelineSource } from '../../../compiler/pipeline/source.ts';
-
 /** Enforce the existing readonly identity contract on both API and internal
  * contexts. Keep the real context object so its semantic producer is shared.
  * This never issues a lease; the physical lease owner must still admit it. */
