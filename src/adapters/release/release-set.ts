@@ -38,6 +38,7 @@ export interface ReleaseSetManifest {
       manifestDigest: `sha256:${string}`;
       fileCount: number;
       license: 'MPL-2.0';
+      licenseTextPath: 'runtime/LICENSE';
     }>;
     documentation: Readonly<{
       path: typeof RELEASE_SET_DOCUMENTATION_RELATIVE_PATH;
@@ -45,6 +46,7 @@ export interface ReleaseSetManifest {
       manifestDigest: `sha256:${string}`;
       fileCount: number;
       license: 'CC-BY-4.0';
+      licenseTextPath: 'documentation/LICENSES/CC-BY-4.0.txt';
     }>;
   }>;
   readonly contentDigest: `sha256:${string}`;
