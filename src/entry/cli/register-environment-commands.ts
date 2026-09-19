@@ -1,10 +1,29 @@
 import type { Command } from 'commander';
 
 import { addJsonFlags, jsonOpts, type JsonOpts } from './command-options.ts';
+import { printJsonOrText } from './format-utils.ts';
 
 interface EnvironmentCommandContext {
   readonly workspaceRoot: string;
   readonly output: JsonOpts;
+}
+
+export type EnvironmentCommandProjection = Readonly<{
+  value: unknown;
+  text: string;
+  status: string;
+  successful: boolean;
+}>;
+
+export interface EnvironmentCommandOperations {
+  containerEngine(input: Readonly<{
+    workspaceRoot: string;
+    start: boolean;
+  }>): Promise<EnvironmentCommandProjection>;
+  settle(input: Readonly<{
+    workspaceRoot: string;
+    fix: boolean;
+  }>): Promise<EnvironmentCommandProjection>;
 }
 
 export interface EnvironmentCommandHandlers {
@@ -14,6 +33,35 @@ export interface EnvironmentCommandHandlers {
   settle(
     context: EnvironmentCommandContext & Readonly<{ fix: boolean }>
   ): Promise<void>;
+}
+
+export function bindEnvironmentCommandHandlers(
+  operations: EnvironmentCommandOperations
+): EnvironmentCommandHandlers {
+  if (typeof operations.containerEngine !== 'function' ||
+      typeof operations.settle !== 'function') {
+    throw new TypeError('Environment command operations must be callable');
+  }
+  return Object.freeze({
+    containerEngine: async ({ workspaceRoot, output, start }) => {
+      const result = await operations.containerEngine.call(operations, {
+        workspaceRoot,
+        start
+      });
+      printJsonOrText(result.value, output, () => result.text);
+      if (!result.successful) process.exitCode = 1;
+    },
+    settle: async ({ workspaceRoot, output, fix }) => {
+      const result = await operations.settle.call(operations, {
+        workspaceRoot,
+        fix
+      });
+      printJsonOrText(result.value, output, () => result.text);
+      if (!result.successful) {
+        throw new Error(`Worktree not settled: ${result.status}`);
+      }
+    }
+  });
 }
 
 /** Entry owns environment command grammar, cwd capture and option decoding. */
