@@ -35,11 +35,7 @@ export async function repairWorkspace(
     buildPlan: buildRepairPlan
   };
   if (request.mode === 'preview') {
-    return repairWorkspaceResult(request, {
-      ...baseOperations,
-      publish: () => { throw new Error('Preview repair cannot publish'); },
-      recordFailure: () => { throw new Error('Preview repair cannot persist failure state'); }
-    });
+    return repairWorkspaceResult(request, baseOperations);
   }
   return withWorkspaceWriteLease(workspaceRoot, workspaceWriteLease, token => {
     const commitFence = () => assertWorkspaceWriteLease(workspaceRoot, token);

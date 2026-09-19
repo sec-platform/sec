@@ -11,8 +11,8 @@ export interface RepairWorkspaceOperations {
   readLock(): LockFile;
   readVerification(): VerificationReport | null;
   buildPlan(report: VerificationReport): RepairPlan;
-  publish(plan: RepairPlan, lock: LockFile): void | PromiseLike<void>;
-  recordFailure(lock: LockFile): void | PromiseLike<void>;
+  publish?(plan: RepairPlan, lock: LockFile): void | PromiseLike<void>;
+  recordFailure?(lock: LockFile): void | PromiseLike<void>;
 }
 
 export function prepareRepairWorkspaceRequest(options: Readonly<{ dryRun?: boolean }> = {}): RepairWorkspaceRequest {
@@ -30,9 +30,9 @@ export async function repairWorkspaceResult(
   operations: RepairWorkspaceOperations
 ): Promise<{ lock: LockFile; repairPlan: RepairPlan }> {
   const { readLock, readVerification, buildPlan, publish, recordFailure } = operations;
-  if ([readLock, readVerification, buildPlan, publish, recordFailure]
+  if ([readLock, readVerification, buildPlan]
       .some(operation => typeof operation !== 'function')) {
-    throw new TypeError('Workspace repair operations must be callable');
+    throw new TypeError('Workspace repair read/plan operations must be callable');
   }
   const lock = readLock.call(operations);
   assertPassStatus(
@@ -48,5 +48,8 @@ export async function repairWorkspaceResult(
   }
   const repairPlan = buildPlan.call(operations, report);
   if (request.mode === 'preview') return { lock, repairPlan };
+  if (typeof publish !== 'function' || typeof recordFailure !== 'function') {
+    throw new TypeError('Workspace repair publication operations must be callable');
+  }
   return publishRepairPlanResult({ lock, repairPlan }, { publish, recordFailure });
 }
