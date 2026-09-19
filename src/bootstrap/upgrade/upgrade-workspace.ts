@@ -8,6 +8,7 @@ import {
   publishUpgradePlanningFailure
 } from '../../application/upgrade-failure-publication.ts';
 import {
+  bindPlannedUpgradeExecution,
   buildUpgradeCommittedFailure,
   buildUpgradeExecutionTerminal,
   executePlannedWorkspaceUpgrade,
@@ -56,13 +57,10 @@ import { classifyCanonicalWorkspacePublicationFailure } from '../../adapters/fil
 import { getWorkspacePaths, resolveWorkspaceArtifactPath, resolveWorkspaceLockPath } from "../../adapters/workspace-context.ts";
 import { withProjectWriteAuthorization } from '../../adapters/workspace/project-write-authorization.ts';
 import { writeYaml } from '../../adapters/workspace/yaml.ts';
-import {
-  createUpgradeExecutionAttempt,
-  createUpgradePlan,
-  requireUpgradeDigest,
-  type UpgradeExecutionTerminal,
-  type UpgradePlan,
-  type UpgradePreview
+import type {
+  UpgradeExecutionTerminal,
+  UpgradePlan,
+  UpgradePreview
 } from '../../semantics/upgrade/upgrade-artifact.ts';
 
 const UPGRADE_PLANNING_OPERATIONS: UpgradePlanningUseCaseOperations = Object.freeze({
@@ -181,19 +179,15 @@ export async function runUpgradeWorkspaceWithLease(
     ]);
   }
 
-  const { artifactKind: ignoredPreviewKind, ...previewMaterial } = plannedUpgrade.upgradePreview;
-  const upgradePlan = createUpgradePlan({
-    workspaceIdentityDigest: requireUpgradeDigest(
-      workspaceWriteLease.workspaceIdentityDigest,
-      'Workspace write lease identity'
-    ),
-    ...previewMaterial
-  });
-  const attempt = createUpgradeExecutionAttempt({
-    leaseGeneration: workspaceWriteLease.generation,
-    leaseId: workspaceWriteLease.leaseId,
-    ownerFileIdentityDigest: workspaceWriteLease.ownerFileIdentityDigest
-  });
+  const { upgradePlan, attempt } = bindPlannedUpgradeExecution(
+    plannedUpgrade,
+    {
+      workspaceIdentityDigest: workspaceWriteLease.workspaceIdentityDigest,
+      leaseGeneration: workspaceWriteLease.generation,
+      leaseId: workspaceWriteLease.leaseId,
+      ownerFileIdentityDigest: workspaceWriteLease.ownerFileIdentityDigest
+    }
+  );
 
   const backup = await snapshotWorkspace(workspaceRoot, lockPath, commitFence);
   let pendingApplyFailure: Error | null = null;

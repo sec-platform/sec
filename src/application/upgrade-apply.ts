@@ -5,10 +5,14 @@ import {
   withRollbackDiagnostics
 } from '../compiler/upgrade/failure.ts';
 import { compileUpgradeExecutionTerminal } from '../compiler/upgrade/execution-terminal.ts';
-import type {
-  UpgradeExecutionTerminal,
-  UpgradePlan
+import {
+  createUpgradeExecutionAttempt,
+  createUpgradePlan,
+  requireUpgradeDigest,
+  type UpgradeExecutionTerminal,
+  type UpgradePlan
 } from '../semantics/upgrade/upgrade-artifact.ts';
+import type { PlannedWorkspaceUpgrade } from './upgrade-planning.ts';
 
 export interface PlannedUpgradeApplyInput {
   readonly currentBlock: PlanFile['blocks'][number];
@@ -278,4 +282,36 @@ export function buildUpgradeCommittedFailure(input: Readonly<{
     input.postCommitFailures.filter(failure => failure !== input.failure),
     'Upgrade applied terminal committed but post-commit work failed'
   );
+}
+
+
+export type UpgradeExecutionLeaseIdentity = Readonly<{
+  workspaceIdentityDigest: string;
+  leaseGeneration: number;
+  leaseId: string;
+  ownerFileIdentityDigest: string;
+}>;
+
+export function bindPlannedUpgradeExecution(
+  planned: PlannedWorkspaceUpgrade,
+  lease: UpgradeExecutionLeaseIdentity
+): Readonly<{
+  upgradePlan: UpgradePlan;
+  attempt: UpgradeExecutionTerminal['attempt'];
+}> {
+  const { artifactKind: ignoredArtifactKind, ...previewMaterial } =
+    planned.upgradePreview;
+  const upgradePlan = createUpgradePlan({
+    workspaceIdentityDigest: requireUpgradeDigest(
+      lease.workspaceIdentityDigest,
+      'Workspace write lease identity'
+    ),
+    ...previewMaterial
+  });
+  const attempt = createUpgradeExecutionAttempt({
+    leaseGeneration: lease.leaseGeneration,
+    leaseId: lease.leaseId,
+    ownerFileIdentityDigest: lease.ownerFileIdentityDigest
+  });
+  return Object.freeze({ upgradePlan, attempt });
 }
