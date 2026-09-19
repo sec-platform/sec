@@ -185,6 +185,12 @@ async function assertReleaseArtifactReadback(
   return readback;
 }
 
+export async function readReleaseArtifactManifest(
+  artifactRoot: string
+): Promise<ReleaseArtifactManifest> {
+  return assertReleaseArtifactReadback(artifactRoot, 'published');
+}
+
 async function writeAndVerifyManifest(
   artifactRoot: string,
   input: Omit<ReleaseArtifactManifest, 'files' | 'contentDigest'>
