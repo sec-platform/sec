@@ -19,3 +19,52 @@ export async function publishUpgradeFailureArtifacts(
   }
   throwUpgradeFailureWithSecondaryFailures(primary, secondaryFailures, message);
 }
+
+
+export interface UpgradeApplyFailurePublicationOperations<TTerminal> {
+  buildTerminal(): Promise<TTerminal>;
+  publishTerminal(terminal: TTerminal): Promise<TTerminal>;
+  publishDiagnostics(terminal: TTerminal): Promise<void>;
+}
+
+/**
+ * Publish rollback/recovery evidence without allowing one secondary publication
+ * failure to suppress the remaining independent evidence. Unknown applied-
+ * terminal commit state deliberately suppresses a competing failure terminal.
+ */
+export async function publishUpgradeApplyFailureArtifacts<TTerminal>(
+  primary: Error,
+  appliedTerminalCommitUnknown: boolean,
+  operations: UpgradeApplyFailurePublicationOperations<TTerminal>
+): Promise<never> {
+  if (typeof operations.buildTerminal !== 'function' ||
+      typeof operations.publishTerminal !== 'function' ||
+      typeof operations.publishDiagnostics !== 'function') {
+    throw new TypeError('Upgrade apply failure publication operations must be callable');
+  }
+
+  const secondaryFailures: unknown[] = [];
+  let terminal: TTerminal | null = null;
+  if (!appliedTerminalCommitUnknown) {
+    try {
+      terminal = await operations.publishTerminal.call(
+        operations,
+        await operations.buildTerminal.call(operations)
+      );
+    } catch (error) {
+      secondaryFailures.push(error);
+    }
+  }
+  if (terminal !== null) {
+    try {
+      await operations.publishDiagnostics.call(operations, terminal);
+    } catch (error) {
+      secondaryFailures.push(error);
+    }
+  }
+  throwUpgradeFailureWithSecondaryFailures(
+    primary,
+    secondaryFailures,
+    'Upgrade apply failed and failure artifact publication did not complete'
+  );
+}

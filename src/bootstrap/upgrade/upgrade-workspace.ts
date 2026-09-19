@@ -5,10 +5,12 @@ import type {
 } from '../../compiler/contract.ts';
 import { CompilerError } from '../../compiler/errors.ts';
 import {
-  throwUpgradeFailureWithSecondaryFailures,
-  upgradeFailureWithSecondaryFailures
+  throwUpgradeFailureWithSecondaryFailures
 } from '../../compiler/upgrade/failure.ts';
-import { publishUpgradeFailureArtifacts } from '../../application/upgrade-failure-publication.ts';
+import {
+  publishUpgradeApplyFailureArtifacts,
+  publishUpgradeFailureArtifacts
+} from '../../application/upgrade-failure-publication.ts';
 import {
   buildUpgradeCommittedFailure,
   buildUpgradeExecutionTerminal,
@@ -351,45 +353,39 @@ export async function runUpgradeWorkspaceWithLease(
     const settlement = rollback.settlement;
     if (rollback.retainBackupForRecovery) retainBackupForRecovery = true;
     const diagnosticFailure = rollback.diagnosticFailure;
-    let terminal: UpgradeExecutionTerminal | null = null;
-    const publicationFailures: unknown[] = [];
-    if (!appliedTerminalCommitUnknown) {
-      try {
-        terminal = await publishUpgradeExecutionTerminal(
-          workspaceRoot,
-          await buildUpgradeExecutionTerminal({
+    try {
+      await publishUpgradeApplyFailureArtifacts(
+        diagnosticFailure,
+        appliedTerminalCommitUnknown,
+        {
+          buildTerminal: () => buildUpgradeExecutionTerminal({
             plan: upgradePlan,
             attempt,
             resultLock: settlement === 'rolled-back' ? existingLock : null,
             settlement
           }, terminalReadbackOperations),
-          commitFence
-        );
-      } catch (publicationFailure) {
-        publicationFailures.push(publicationFailure);
-      }
+          publishTerminal: terminal =>
+            publishUpgradeExecutionTerminal(workspaceRoot, terminal, commitFence),
+          publishDiagnostics: terminal => writeUpgradeDiagnostics(
+            workspaceRoot,
+            blockId,
+            targetVersion,
+            {
+              phase: settlement === 'rolled-back' ? 'apply' : 'recovery',
+              plan: upgradePlan,
+              terminal
+            },
+            diagnosticFailure,
+            settlement === 'rolled-back' ? null : existingLock,
+            commitFence
+          )
+        }
+      );
+      throw new Error('Upgrade failure publication returned unexpectedly');
+    } catch (failure) {
+      pendingApplyFailure = failure instanceof Error ? failure : new Error(String(failure));
+      throw pendingApplyFailure;
     }
-    if (terminal !== null) {
-      try {
-        await writeUpgradeDiagnostics(
-          workspaceRoot,
-          blockId,
-          targetVersion,
-          { phase: settlement === 'rolled-back' ? 'apply' : 'recovery', plan: upgradePlan, terminal },
-          diagnosticFailure,
-          settlement === 'rolled-back' ? null : existingLock,
-          commitFence
-        );
-      } catch (publicationFailure) {
-        publicationFailures.push(publicationFailure);
-      }
-    }
-    pendingApplyFailure = upgradeFailureWithSecondaryFailures(
-      diagnosticFailure,
-      publicationFailures,
-      'Upgrade apply failed and failure artifact publication did not complete'
-    );
-    throw pendingApplyFailure;
   } finally {
     if (!retainBackupForRecovery) {
       await settlePhysicalResourcesAsync({
