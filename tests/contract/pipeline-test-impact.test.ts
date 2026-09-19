@@ -52,22 +52,23 @@ function pipelineProvider(sources: Readonly<Record<string, string>>) {
   }
 }
 
-test('compiler pipeline changes select their real transitive consumers', () => {
-  const source = 'src/adapters/compilation/pipeline/kernel.ts';
-  const consumer = 'tests/integration/pipeline-kernel.test.ts';
+test('pipeline lifecycle binding changes select their real transitive consumers', () => {
+  const source = 'src/bootstrap/engineering/pipeline-kernel.ts';
+  const consumer = 'tests/integration/pipeline-workspace-write-lease.test.ts';
   const provider = pipelineProvider({
-    'src/adapters/compilation/sec.module.json': '{"importGraph":"runtime","externalEntrypoints":[]}',
+    'src/bootstrap/engineering/sec.module.json':
+      '{"importGraph":"runtime","externalEntrypoints":["src/bootstrap/engineering/cli.ts"]}',
     [source]: 'export const kernel = true;',
-    [consumer]: "import { kernel } from '../../src/adapters/compilation/pipeline/kernel.ts'; void kernel;"
+    [consumer]: "import { kernel } from '../../src/bootstrap/engineering/pipeline-kernel.ts'; void kernel;"
   });
   const selection = selectTestsForSources([source], provider);
 
-  expect(selection.owners).toEqual(['adapters.compilation']);
+  expect(selection.owners).toEqual(['bootstrap.engineering']);
   expect(selection.fast).toEqual([consumer]);
   expect(resolveTestOwnership([source], provider)).toEqual([{
     source,
-    owner: 'adapters.compilation',
-    identity: { kind: 'module', id: 'adapters.compilation' }
+    owner: 'bootstrap.engineering',
+    identity: { kind: 'module', id: 'bootstrap.engineering' }
   }]);
 });
 
