@@ -2,19 +2,18 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type {
   LockFile,
-  PlanFile,
-  UpgradeMigration
+  PlanFile
 } from '../../compiler/contract.ts';
 import { CompilerError } from '../../compiler/errors.ts';
 import {
   isEmptyDiagnosticsDetails,
   isPlainObjectDetails,
-  migrationManifestDetails,
   normalizeCauseDetails,
   throwUpgradeFailureWithSecondaryFailures,
   upgradeFailureWithSecondaryFailures
 } from '../../compiler/upgrade/failure.ts';
 import {
+  assertUpgradeAllowed,
   buildUpgradePreflightChecks,
   buildUpgradePreview,
   collectMigrationImpacts,
@@ -23,6 +22,7 @@ import {
 } from '../../compiler/upgrade/planning.ts';
 import { compileUpgradeExecutionTerminal } from '../../compiler/upgrade/execution-terminal.ts';
 import { readLockFile } from "../../adapters/workspace/lock.ts";
+import { matchesUpgradeVersionRange } from '../../adapters/upgrade/version-range.ts';
 import {
   restoreWorkspace,
   retireUpgradeBackup,
@@ -46,7 +46,6 @@ import { compileWorkspace } from '../engineering/pipeline-orchestrator.ts';
 import { loadManifestById } from '../../adapters/workspace/sources/load-manifest.ts';
 import { loadWorkspacePlan } from '../../adapters/workspace/sources/load-plan.ts';
 import { settlePhysicalResourcesAsync } from '../../adapters/runtime-state/physical/runtime/resource-settlement.ts';
-import { isCanonicalRegistryVersion } from '../../semantics/identity/block.ts';
 import { uniqueSorted } from '../../contracts/canonical.ts';
 import { CI_ARTIFACT_FILES } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import { readOptionalJson, removeDir } from "../../adapters/filesystem/files.ts";
@@ -68,35 +67,6 @@ import {
   type UpgradePreflightCheck,
   type UpgradePreview
 } from '../../semantics/upgrade/upgrade-artifact.ts';
-
-function matchesUpgradeRange(version: string, range: string): boolean {
-  const supportedRange = isCanonicalRegistryVersion(range) || /^\d+\.\d+\.x$/u.test(range);
-  return supportedRange && Bun.semver.satisfies(version, range);
-}
-
-function ensureUpgradeAllowed(currentVersion: string, targetVersion: string, migrations: UpgradeMigration[], from: string[]): void {
-  if (currentVersion === targetVersion) {
-    throw new CompilerError('UPGRADE-NOOP-001', `Block is already at version "${targetVersion}"`);
-  }
-  if (from.length === 0) {
-    throw new CompilerError('UPGRADE-BLOCKED-001', `Target version "${targetVersion}" does not support automatic upgrade`);
-  }
-  if (!from.some((range) => matchesUpgradeRange(currentVersion, range))) {
-    throw new CompilerError(
-      'UPGRADE-BLOCKED-002',
-      `Target version "${targetVersion}" does not accept upgrade from "${currentVersion}"`
-    );
-  }
-  for (const migration of migrations) {
-    if (!migration.entry) {
-      throw new CompilerError(
-        'UPGRADE-MIGRATION-001',
-        `Migration "${migration.id}" is missing entry`,
-        migrationManifestDetails(migration)
-      );
-    }
-  }
-}
 
 function withRollbackDiagnostics(error: CompilerError): CompilerError {
   const rollbackDetails = { rollbackStatus: 'restored' };
@@ -162,7 +132,13 @@ async function planWorkspaceUpgrade(options: UpgradePlanningOptions): Promise<Pl
   });
   const migrations = targetEntry.manifest.upgrade?.migrations ?? [];
   const acceptedRanges = targetEntry.manifest.upgrade?.from ?? [];
-  ensureUpgradeAllowed(currentVersion, targetVersion, migrations, acceptedRanges);
+  assertUpgradeAllowed(
+    currentVersion,
+    targetVersion,
+    migrations,
+    acceptedRanges,
+    matchesUpgradeVersionRange
+  );
 
   const targetManifestRoot = path.dirname(targetEntry.manifestPath);
   const migrationEntries = await loadMigrationEntries(targetManifestRoot, blockId, targetVersion, migrations);

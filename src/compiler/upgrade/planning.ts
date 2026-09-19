@@ -1,4 +1,6 @@
 import { uniqueSorted } from '../../contracts/canonical.ts';
+import { CompilerError } from '../errors.ts';
+import { migrationManifestDetails } from './failure.ts';
 import type { LockFile, PlanFile, UpgradeMigration } from '../contract.ts';
 import type { UpgradeMigrationEntry } from '../../semantics/upgrade/manifest-types.ts';
 import {
@@ -13,6 +15,47 @@ import {
   compileUpgradeMigrationOperation,
   compileUpgradeMigrationProjectPaths
 } from './migration-rules.ts';
+
+export type UpgradeVersionRangeMatcher = (
+  version: string,
+  range: string
+) => boolean;
+
+export function assertUpgradeAllowed(
+  currentVersion: string,
+  targetVersion: string,
+  migrations: UpgradeMigration[],
+  acceptedRanges: string[],
+  matchesVersionRange: UpgradeVersionRangeMatcher
+): void {
+  if (currentVersion === targetVersion) {
+    throw new CompilerError(
+      'UPGRADE-NOOP-001',
+      `Block is already at version "${targetVersion}"`
+    );
+  }
+  if (acceptedRanges.length === 0) {
+    throw new CompilerError(
+      'UPGRADE-BLOCKED-001',
+      `Target version "${targetVersion}" does not support automatic upgrade`
+    );
+  }
+  if (!acceptedRanges.some((range) => matchesVersionRange(currentVersion, range))) {
+    throw new CompilerError(
+      'UPGRADE-BLOCKED-002',
+      `Target version "${targetVersion}" does not accept upgrade from "${currentVersion}"`
+    );
+  }
+  for (const migration of migrations) {
+    if (!migration.entry) {
+      throw new CompilerError(
+        'UPGRADE-MIGRATION-001',
+        `Migration "${migration.id}" is missing entry`,
+        migrationManifestDetails(migration)
+      );
+    }
+  }
+}
 
 export function collectJsonShapeEvidence(migrationEntries: UpgradeMigrationEntry[]): string[] {
   return uniqueSorted(migrationEntries.flatMap((entry) => {
