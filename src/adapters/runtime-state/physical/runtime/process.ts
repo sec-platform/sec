@@ -3,7 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
-import type { CommitFence } from '../contract/commit-fence.ts';
+import type { CommitFence } from '../../../../contracts/commit-fence.ts';
 import type { IndependentProviderProcessCapability } from './independent-provider-process.ts';
 import {
   copyBoundedCommandInput,

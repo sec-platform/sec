@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
 
-import type { CommitFence } from '../contract/commit-fence.ts';
+import type { CommitFence } from '../../../../contracts/commit-fence.ts';
 import {
   assertIndependentProviderProcessCapability,
   type IndependentProviderProcessCapability
