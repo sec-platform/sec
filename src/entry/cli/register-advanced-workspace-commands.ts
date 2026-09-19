@@ -6,6 +6,19 @@ import { reportRepairFailureReadback } from './repair-failure-readback.ts';
 import { runRepairWithFailureReadback } from '../../application/repair-execution.ts';
 import { projectRepairSummary } from '../../application/repair-summary.ts';
 import type { RepairPlan } from '../../semantics/repair/types.ts';
+import type {
+  UpgradeDiagnostics,
+  UpgradeExecutionTerminal,
+  UpgradePlan,
+  UpgradePreview
+} from '../../semantics/upgrade/upgrade-artifact.ts';
+import {
+  projectUpgradePlan,
+  projectUpgradePreview
+} from '../../application/upgrade-planning.ts';
+import { projectUpgradeDiagnostics } from '../../application/upgrade-diagnostics.ts';
+import { formatUpgradePlanning } from './upgrade-planning.ts';
+import { formatUpgradeDiagnostics } from './upgrade-diagnostics.ts';
 import { formatRepairSummary } from './repair-summary.ts';
 import {
   WORKSPACE_DRY_RUN_OPTION,
@@ -111,26 +124,31 @@ export function bindRepairCommandHandler(
   };
 }
 
-export type UpgradeCommandProjection = Readonly<{
-  value: unknown;
-  text: string;
-}>;
-
 export interface UpgradeCommandOperations {
   readPlan(
     workspaceRoot: string,
     missingMessage: string
-  ): Promise<UpgradeCommandProjection>;
+  ): Promise<Readonly<{
+    plan: UpgradePlan;
+    executionTerminal: UpgradeExecutionTerminal | null;
+  }>>;
   readDiagnostics(
     workspaceRoot: string,
     missingMessage: string
-  ): Promise<UpgradeCommandProjection>;
+  ): Promise<UpgradeDiagnostics>;
   execute(
     workspaceRoot: string,
     blockId: string,
     targetVersion: string,
     dryRun: boolean
-  ): Promise<UpgradeCommandProjection>;
+  ): Promise<
+    | Readonly<{ resultKind: 'preview'; upgradePlan: UpgradePreview }>
+    | Readonly<{
+        resultKind: 'applied';
+        upgradePlan: UpgradePlan;
+        upgradeExecutionTerminal: UpgradeExecutionTerminal;
+      }>
+  >;
   progress<T>(
     text: string,
     output: UpgradeInput['output'],
@@ -153,21 +171,29 @@ export function bindUpgradeCommandHandler(
 
   return async ({ workspaceRoot, invocationPath, input }) => {
     if (input.kind === 'plan') {
-      const result = await operations.readPlan.call(
+      const { plan, executionTerminal } = await operations.readPlan.call(
         operations,
         workspaceRoot,
         `Upgrade plan not found; run ${invocationPath} <block-id> <target-version>`
       );
-      printJsonOrText(result.value, input.output, () => result.text);
+      printJsonOrText(
+        plan,
+        input.output,
+        value => formatUpgradePlanning(projectUpgradePlan(value, executionTerminal))
+      );
       return;
     }
     if (input.kind === 'diagnostics') {
-      const result = await operations.readDiagnostics.call(
+      const diagnostics = await operations.readDiagnostics.call(
         operations,
         workspaceRoot,
         `Upgrade diagnostics not found; run ${invocationPath} <block-id> <target-version>`
       );
-      printJsonOrText(result.value, input.output, () => result.text);
+      printJsonOrText(
+        diagnostics,
+        input.output,
+        value => formatUpgradeDiagnostics(projectUpgradeDiagnostics(value))
+      );
       return;
     }
     const result = await operations.progress.call(
@@ -182,7 +208,21 @@ export function bindUpgradeCommandHandler(
         input.request.dryRun
       )
     );
-    printJsonOrText(result.value, input.output, () => result.text);
+    if (result.resultKind === 'preview') {
+      printJsonOrText(
+        result.upgradePlan,
+        input.output,
+        value => formatUpgradePlanning(projectUpgradePreview(value))
+      );
+      return;
+    }
+    printJsonOrText(
+      result.upgradePlan,
+      input.output,
+      value => formatUpgradePlanning(
+        projectUpgradePlan(value, result.upgradeExecutionTerminal)
+      )
+    );
   };
 }
 
