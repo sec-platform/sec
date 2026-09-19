@@ -1,5 +1,4 @@
 import fs from 'node:fs/promises';
-import path from 'node:path';
 import type {
   LockFile,
   PlanFile
@@ -13,13 +12,11 @@ import {
 import { publishUpgradeFailureArtifacts } from '../../application/upgrade-failure-publication.ts';
 import { executePlannedWorkspaceUpgrade } from '../../application/upgrade-apply.ts';
 import {
-  assertUpgradeAllowed,
-  buildUpgradePreflightChecks,
-  buildUpgradePreview,
-  collectMigrationImpacts,
-  lockStateRevision,
-  planningRequestRevision,
-} from '../../compiler/upgrade/planning.ts';
+  planWorkspaceUpgrade,
+  type PlannedWorkspaceUpgrade,
+  type UpgradePlanningUseCaseOperations
+} from '../../application/upgrade-planning.ts';
+import { planningRequestRevision } from '../../compiler/upgrade/planning.ts';
 import { compileUpgradeExecutionTerminal } from '../../compiler/upgrade/execution-terminal.ts';
 import { readLockFile } from "../../adapters/workspace/lock.ts";
 import { matchesUpgradeVersionRange } from '../../adapters/upgrade/version-range.ts';
@@ -46,7 +43,6 @@ import { compileWorkspace } from '../engineering/pipeline-orchestrator.ts';
 import { loadManifestById } from '../../adapters/workspace/sources/load-manifest.ts';
 import { loadWorkspacePlan } from '../../adapters/workspace/sources/load-plan.ts';
 import { settlePhysicalResourcesAsync } from '../../adapters/runtime-state/physical/runtime/resource-settlement.ts';
-import { uniqueSorted } from '../../contracts/canonical.ts';
 import { CI_ARTIFACT_FILES } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import { readOptionalJson, removeDir } from "../../adapters/filesystem/files.ts";
 import { type CommitFence } from "../../contracts/commit-fence.ts";
@@ -55,124 +51,26 @@ import { classifyCanonicalWorkspacePublicationFailure } from '../../adapters/fil
 import { getWorkspacePaths, resolveWorkspaceArtifactPath, resolveWorkspaceLockPath } from "../../adapters/workspace-context.ts";
 import { withProjectWriteAuthorization } from '../../adapters/workspace/project-write-authorization.ts';
 import { writeYaml } from '../../adapters/workspace/yaml.ts';
-import type { UpgradeMigrationEntry } from '../../semantics/upgrade/manifest-types.ts';
 import {
   createUpgradeExecutionAttempt,
   createUpgradePlan,
-  createUpgradePreview,
   requireUpgradeDigest,
-  upgradeArtifactDigest,
   type UpgradeExecutionTerminal,
   type UpgradePlan,
-  type UpgradePreflightCheck,
   type UpgradePreview
 } from '../../semantics/upgrade/upgrade-artifact.ts';
 
-type UpgradePlanningOptions = {
-  blockId: string;
-  currentBlock: PlanFile['blocks'][number] | undefined;
-  lock: LockFile | null;
-  plan: PlanFile;
-  targetVersion: string;
-  workspaceRoot: string;
-};
-
-type PlannedWorkspaceUpgrade = {
-  currentBlock: PlanFile['blocks'][number];
-  impacts: string[];
-  migrationEntries: UpgradeMigrationEntry[];
-  targetManifestRoot: string;
-  upgradePreview: UpgradePreview;
-};
-
-async function planWorkspaceUpgrade(options: UpgradePlanningOptions): Promise<PlannedWorkspaceUpgrade> {
-  const { blockId, currentBlock, lock, plan, targetVersion, workspaceRoot } = options;
-  if (!currentBlock?.version) {
-    throw new CompilerError('UPGRADE-BLOCKED-003', `Block "${blockId}" is not declared in app.plan.yaml`);
-  }
-
-  const currentVersion = currentBlock.version;
-  const targetEntry = await loadManifestById(blockId, {
-    workspaceRoot,
-    version: targetVersion,
-    registrySources: plan.registry.sources
-  });
-  const migrations = targetEntry.manifest.upgrade?.migrations ?? [];
-  const acceptedRanges = targetEntry.manifest.upgrade?.from ?? [];
-  assertUpgradeAllowed(
-    currentVersion,
-    targetVersion,
-    migrations,
-    acceptedRanges,
-    matchesUpgradeVersionRange
-  );
-
-  const targetManifestRoot = path.dirname(targetEntry.manifestPath);
-  const migrationEntries = await loadMigrationEntries(targetManifestRoot, blockId, targetVersion, migrations);
-  const impacts = uniqueSorted([
-    ...targetEntry.manifest.installs.map((install) => install.to),
-    ...collectMigrationImpacts(migrationEntries)
-  ]);
-  const evidence = await collectUpgradePreflightEvidence({
-    blockId,
-    impacts,
-    migrationEntries,
-    targetManifestRoot,
-    workspaceRoot
-  });
-  const preflightChecks = buildUpgradePreflightChecks({
-    acceptedRanges,
-    currentVersion,
-    evidence,
-    impacts,
-    migrationEntries,
-    migrations,
-    targetVersion
-  });
-  const compatibility = targetEntry.manifest.compatibility;
-  if (!compatibility) {
-    throw new CompilerError('UPGRADE-BLOCKED-004', `Block "${blockId}" target compatibility is unresolved`);
-  }
-  const sourceRevision = upgradeArtifactDigest({
-    domain: 'sec.upgrade.source',
-    manifest: targetEntry.manifest,
-    manifestPath: targetEntry.manifestPath,
-    registrySourceId: targetEntry.registrySourceId,
-    registryKind: targetEntry.registryKind,
-    registryLocation: targetEntry.registryLocation,
-    registryPath: targetEntry.registryPath,
-    migrationEntries
-  });
-  const lockRevision = lockStateRevision(lock);
-
-  return {
-    currentBlock,
-    impacts,
-    migrationEntries,
-    targetManifestRoot,
-    upgradePreview: buildUpgradePreview(
-      blockId,
-      currentVersion,
-      targetVersion,
-      upgradeArtifactDigest({
-        domain: 'sec.upgrade.planning-input',
-        blockId,
-        targetVersion,
-        workspacePlan: plan,
-        sourceRevision,
-        lockRevision,
-        compatibility
-      }),
-      sourceRevision,
-      lockRevision,
-      compatibility,
-      preflightChecks,
-      impacts,
-      migrations,
-      migrationEntries
-    )
-  };
-}
+const UPGRADE_PLANNING_OPERATIONS: UpgradePlanningUseCaseOperations = Object.freeze({
+  loadTargetManifest: ({ blockId, targetVersion, workspaceRoot, registrySources }) =>
+    loadManifestById(blockId, {
+      workspaceRoot,
+      version: targetVersion,
+      registrySources
+    }),
+  loadMigrationEntries,
+  collectPreflightEvidence: collectUpgradePreflightEvidence,
+  matchesVersionRange: matchesUpgradeVersionRange
+});
 
 /**
  * Computes an Upgrade preview from retained workspace inputs without acquiring
@@ -199,7 +97,7 @@ export async function planUpgradeWorkspace(
     plan,
     targetVersion,
     workspaceRoot
-  });
+  }, UPGRADE_PLANNING_OPERATIONS);
   return { resultKind: 'preview', plan, lock, upgradePlan: plannedUpgrade.upgradePreview };
 }
 
@@ -263,7 +161,7 @@ export async function runUpgradeWorkspaceWithLease(
       plan,
       targetVersion,
       workspaceRoot
-    });
+    }, UPGRADE_PLANNING_OPERATIONS);
   } catch (error) {
     if (error instanceof CompilerError) {
       await publishUpgradeFailureArtifacts(
