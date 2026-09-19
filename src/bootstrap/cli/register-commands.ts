@@ -8,7 +8,10 @@ import { registerReferenceCommands } from '../../entry/cli/register-reference-co
 import { registerVerificationToolingCommands } from '../../entry/cli/register-verification-tooling-commands.ts';
 import { registerTextCommands } from '../../entry/cli/register-text-commands.ts';
 import { registerEnvironmentCommands } from '../../entry/cli/register-environment-commands.ts';
-import { registerDependencyCommands } from '../../entry/cli/register-dependency-commands.ts';
+import {
+  bindDependencyCommandHandlers,
+  registerDependencyCommands
+} from '../../entry/cli/register-dependency-commands.ts';
 import { platformCommand } from '../../adapters/verification/platform/sec-command.ts';
 import { printJsonOrText } from '../../entry/cli/format-utils.ts';
 import { formatTextByteCensus } from '../../entry/cli/text-byte-census.ts';
@@ -48,38 +51,38 @@ export function registerCommands(
   registerWorkspaceCommands(program);
 
 
-  registerDependencyCommands(program, {
-    doctor: async ({ workspaceRoot, output }) => {
+  registerDependencyCommands(program, bindDependencyCommandHandlers({
+    doctor: async workspaceRoot => {
       const domain = await loadDependencyEnvironment();
-      const report = await domain.getDoctorReport(workspaceRoot);
-      printJsonOrText(report, output, domain.formatDoctorReport);
+      const value = await domain.getDoctorReport(workspaceRoot);
+      return { value, text: domain.formatDoctorReport(value) };
     },
-    status: async ({ workspaceRoot, output }) => {
+    status: async workspaceRoot => {
       const domain = await loadDependencyEnvironment();
-      const status = await domain.getDependencyEnvironmentStatus(workspaceRoot);
-      printJsonOrText(status, output, domain.formatDependencyEnvironmentStatus);
+      const value = await domain.getDependencyEnvironmentStatus(workspaceRoot);
+      return { value, text: domain.formatDependencyEnvironmentStatus(value) };
     },
-    freshness: async ({ output }) => {
+    freshness: async () => {
       const domain = await loadDependencyEnvironment();
-      const status = await domain.getDependencyFreshness();
-      printJsonOrText(status, output, domain.formatDependencyFreshnessDecision);
+      const value = await domain.getDependencyFreshness();
+      return { value, text: domain.formatDependencyFreshnessDecision(value) };
     },
-    warmup: async ({ workspaceRoot, output }) => {
+    warmup: async workspaceRoot => {
       const domain = await loadDependencyEnvironment();
-      const status = await domain.warmupDependencyEnvironment(workspaceRoot);
-      printJsonOrText(status, output, domain.formatDependencyEnvironmentStatus);
+      const value = await domain.warmupDependencyEnvironment(workspaceRoot);
+      return { value, text: domain.formatDependencyEnvironmentStatus(value) };
     },
-    relink: async ({ workspaceRoot, output }) => {
+    relink: async workspaceRoot => {
       const domain = await loadDependencyEnvironment();
-      const status = await domain.relinkProjectDependencies(workspaceRoot);
-      printJsonOrText(status, output, domain.formatDependencyEnvironmentStatus);
+      const value = await domain.relinkProjectDependencies(workspaceRoot);
+      return { value, text: domain.formatDependencyEnvironmentStatus(value) };
     },
-    clean: async ({ workspaceRoot, request }) => {
+    clean: async (workspaceRoot, request) => {
       const domain = await loadDependencyEnvironment();
       const removed = await domain.cleanDependencyEnvironment(workspaceRoot, request);
-      console.log(`Cleaned ${removed.length} dependency paths`);
+      return { removedCount: removed.length };
     }
-  });
+  }));
 
   registerReferenceCommands(program, {
     check: async ({ output }) => {
