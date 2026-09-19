@@ -1,6 +1,8 @@
 import { upgradeDiagnosticsAttributionParts } from '../assurance/verification/review/contract/upgrade.ts';
 import type { UpgradeDiagnostics } from '../semantics/upgrade/upgrade-artifact.ts';
 
+export type UpgradeDiagnosticsSource = UpgradeDiagnostics;
+
 export type UpgradeDiagnosticsView = Readonly<{
   phase: UpgradeDiagnostics['phase'];
   blockId: string;
