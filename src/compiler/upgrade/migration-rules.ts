@@ -16,10 +16,8 @@ function ensureMigrationStringArray(value: unknown, field: string, entryPath: st
   return value;
 }
 
-const UNSAFE_JSON_MUTATION_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
-
 function assertSafeJsonMutationKey(key: string, field: string): void {
-  if (UNSAFE_JSON_MUTATION_KEYS.has(key)) {
+  if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
     throw new CompilerError(
       'UPGRADE-MIGRATION-030',
       `${field} contains reserved JSON mutation key "${key}"`
@@ -27,13 +25,31 @@ function assertSafeJsonMutationKey(key: string, field: string): void {
   }
 }
 
+// JSON paths address own data, never an inherited object or an accessor.
+function ownJsonValue(object: Record<string, unknown>, key: string): unknown {
+  assertSafeJsonMutationKey(key, 'JSON mutation property');
+  const descriptor = Object.getOwnPropertyDescriptor(object, key);
+  if (descriptor === undefined) return undefined;
+  if (!Object.hasOwn(descriptor, 'value')) {
+    throw new CompilerError('UPGRADE-MIGRATION-030', 'JSON mutation properties must be data properties');
+  }
+  return descriptor.value;
+}
+
+function setOwnJsonValue(object: Record<string, unknown>, key: string, value: unknown): void {
+  assertSafeJsonMutationKey(key, 'JSON mutation property');
+  // Defining an own property cannot dispatch an inherited setter.
+  Object.defineProperty(object, key, { value, writable: true, enumerable: true, configurable: true });
+}
+
 function assertSafeJsonMutationPath(pathSegments: string[], field: string): void {
   for (const segment of pathSegments) assertSafeJsonMutationKey(segment, field);
 }
 
 function assertSafeJsonMergeObject(value: Record<string, unknown>, field: string): void {
-  for (const [key, child] of Object.entries(value)) {
+  for (const key of Object.keys(value)) {
     assertSafeJsonMutationKey(key, field);
+    const child = ownJsonValue(value, key);
     if (isJsonObject(child)) assertSafeJsonMergeObject(child, field);
   }
 }
@@ -144,22 +160,22 @@ export function applyConfigUpdates(config: unknown, updates: Array<{ path: strin
     assertSafeJsonMutationPath(update.path, 'Config rewrite path');
     let current = root;
     for (const segment of update.path.slice(0, -1)) {
-      const next = current[segment];
+      const next = ownJsonValue(current, segment);
       if (update.operation === 'delete' && (typeof next !== 'object' || next === null || Array.isArray(next))) {
         current = {};
         break;
       }
       if (typeof next !== 'object' || next === null || Array.isArray(next)) {
-        current[segment] = {};
+        setOwnJsonValue(current, segment, {});
       }
-      current = current[segment] as Record<string, unknown>;
+      current = ownJsonValue(current, segment) as Record<string, unknown>;
     }
     const key = update.path[update.path.length - 1];
     if (update.operation === 'delete') {
       delete current[key];
       continue;
     }
-    current[key] = update.value;
+    setOwnJsonValue(current, key, update.value);
   }
 
   return config;
@@ -178,18 +194,18 @@ function resolveJsonArrayTarget(
   const root = ensureJsonObject(config, label);
   let current = root;
   for (const segment of pathSegments.slice(0, -1)) {
-    const next = current[segment];
+    const next = ownJsonValue(current, segment);
     if (typeof next !== 'object' || next === null || Array.isArray(next)) {
       if (!options.createParents) {
         return { root, parent: {}, key: pathSegments[pathSegments.length - 1], target: undefined };
       }
-      current[segment] = {};
+      setOwnJsonValue(current, segment, {});
     }
-    current = current[segment] as Record<string, unknown>;
+    current = ownJsonValue(current, segment) as Record<string, unknown>;
   }
 
   const key = pathSegments[pathSegments.length - 1];
-  return { root, parent: current, key, target: current[key] };
+  return { root, parent: current, key, target: ownJsonValue(current, key) };
 }
 
 export function applyJsonArrayAppend(config: unknown, entry: Extract<UpgradeMigrationEntry, { kind: 'json-array-append' }>): unknown {
@@ -207,7 +223,7 @@ export function applyJsonArrayAppend(config: unknown, entry: Extract<UpgradeMigr
       seen.add(serialized);
     }
   }
-  parent[key] = existing;
+  setOwnJsonValue(parent, key, existing);
 
   return config;
 }
@@ -222,19 +238,20 @@ export function applyJsonArrayRemove(config: unknown, entry: Extract<UpgradeMigr
   }
 
   const removeItems = new Set(entry.items.map((item) => JSON.stringify(item)));
-  parent[key] = target.filter((item) => !removeItems.has(JSON.stringify(item)));
+  setOwnJsonValue(parent, key, target.filter((item) => !removeItems.has(JSON.stringify(item))));
   return config;
 }
 
 function mergeJsonObjects(target: Record<string, unknown>, source: Record<string, unknown>): void {
-  for (const [key, value] of Object.entries(source)) {
+  for (const key of Object.keys(source)) {
     assertSafeJsonMutationKey(key, 'JSON object merge value');
-    const existing = target[key];
+    const value = ownJsonValue(source, key);
+    const existing = ownJsonValue(target, key);
     if (isJsonObject(existing) && isJsonObject(value)) {
       mergeJsonObjects(existing, value);
       continue;
     }
-    target[key] = value;
+    setOwnJsonValue(target, key, value);
   }
 }
 
@@ -247,24 +264,24 @@ export function applyJsonObjectMerge(config: unknown, entry: Extract<UpgradeMigr
   const root = ensureJsonObject(config, 'JSON object merge');
   let current = root;
   for (const segment of entry.path.slice(0, -1)) {
-    const next = current[segment];
+    const next = ownJsonValue(current, segment);
     if (next !== undefined && !isJsonObject(next)) {
       throw new CompilerError('UPGRADE-MIGRATION-013', 'JSON object merge parent must be an object');
     }
     if (next === undefined) {
-      current[segment] = {};
+      setOwnJsonValue(current, segment, {});
     }
-    current = current[segment] as Record<string, unknown>;
+    current = ownJsonValue(current, segment) as Record<string, unknown>;
   }
 
   const key = entry.path[entry.path.length - 1];
-  const target = current[key];
+  const target = ownJsonValue(current, key);
   if (target !== undefined && !isJsonObject(target)) {
     throw new CompilerError('UPGRADE-MIGRATION-013', 'JSON object merge target must be an object');
   }
   const targetObject = isJsonObject(target) ? target : {};
   mergeJsonObjects(targetObject, entry.value);
-  current[key] = targetObject;
+  setOwnJsonValue(current, key, targetObject);
   return config;
 }
 
