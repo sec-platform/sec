@@ -134,7 +134,7 @@ jobs:
             for (const key of ['manifestDigest', 'expectedScopeProposalDigest', 'expectedActionPlanDigest', 'expectedSessionRevision', 'reviewPolicyDigest', 'requestOperationId']) digest(sessionRequest[key], key);
             if (!['quick', 'full'].includes(sessionRequest.profile) ||
                 typeof sessionRequest.manifestPath !== 'string' ||
-                !/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/.test(sessionRequest.manifestPath)) {
+                !/^config\/repository\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/.test(sessionRequest.manifestPath)) {
               throw new Error('Session profile or manifest path is invalid.');
             }
             const [repository, pull] = await Promise.all([
@@ -289,7 +289,7 @@ jobs:
                 (request.phase === 'prepare' ? request.preparationCommentId !== null :
                   !Number.isSafeInteger(request.preparationCommentId) || request.preparationCommentId < 1) ||
                 typeof request.manifestPath !== 'string' ||
-                !/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/.test(request.manifestPath) ||
+                !/^config\/repository\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/.test(request.manifestPath) ||
                 sha256(request.manifestDigest, 'manifestDigest') !== request.manifestDigest ||
                 sha256(request.requestOperationId, 'requestOperationId') !== digest(material)) {
               throw new Error('Activation request content or digest is invalid.');
