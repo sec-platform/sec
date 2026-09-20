@@ -1,16 +1,16 @@
 import { describe, expect, test } from 'bun:test';
 import path from 'node:path';
 
-import { createBranchCloseoutPreparation } from '../../src/control/branch-lifecycle/branch-closeout-contract.ts';
+import { createBranchCloseoutPreparation } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
 import {
   BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA,
   type PreparedBranchCloseoutEnvelope
-} from '../../src/control/branch-lifecycle/branch-closeout.ts';
-import { branchLifecycleDigest } from '../../src/control/branch-lifecycle/branch-lifecycle-audit.ts';
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout.ts';
+import { branchLifecycleDigest } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-audit.ts';
 import type {
   BranchLifecycleInventory,
   BranchPublishedCloseoutReceipt
-} from '../../src/control/branch-lifecycle/branch-lifecycle-types.ts';
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
 import {
   compileClosedUnmergedCloseoutOperation,
   createClosedSupersededDispositionEvidence,
@@ -20,7 +20,7 @@ import {
   type ClosedUnmergedCloseoutEffectAdapter,
   type ClosedUnmergedCloseoutEffectStartReceipt,
   type ClosedUnmergedProviderMutation
-} from '../../src/control/branch-lifecycle/closed-unmerged-closeout.ts';
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/closed-unmerged-closeout.ts';
 
 const MAIN_SHA = '1'.repeat(40);
 const BASE_SHA = '2'.repeat(40);

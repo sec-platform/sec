@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   SEC_INTEGRATION_PLATFORM_POLICY,
   canonicalizeIntegrationPlatformObservation
-} from '../../src/control/integration/platform-policy.ts';
+} from '../../src/adapters/self-hosting/control/integration/platform-policy.ts';
 
 const DIGEST = `sha256:${'1'.repeat(64)}` as const;
 

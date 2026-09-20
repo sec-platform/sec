@@ -8,9 +8,9 @@ function moduleHref(repositoryPath: string): string {
 }
 
 test('document-control required admission shares one MainHealth session and routes before selection', () => {
-  const documentControlHref = moduleHref('src/control/documentation/document-control-plane.ts');
-  const mainHealthHref = moduleHref('src/control/main-health/work-selection-main-health.ts');
-  const selectionHref = moduleHref('src/control/work-selection/runtime.ts');
+  const documentControlHref = moduleHref('src/adapters/self-hosting/control/documentation/document-control-plane.ts');
+  const mainHealthHref = moduleHref('src/adapters/self-hosting/control/main-health/work-selection-main-health.ts');
+  const selectionHref = moduleHref('src/adapters/self-hosting/control/work-selection/runtime.ts');
   const source = `
 import { mock } from 'bun:test';
 

@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test';
 
 import { CompilerError } from '../../src/compiler/errors.ts';
-import { normalizeSemanticContract } from '../../src/compiler/parse/load-semantic-contract.ts';
-import type { SemanticContract } from '../../src/semantic/contracts/contract/types.ts';
+import { normalizeSemanticContract } from '../../src/semantics/definitions/normalize.ts';
+import type { SemanticContract } from '../../src/semantics/definitions/types.ts';
 
 function baseContract(): SemanticContract {
   return {

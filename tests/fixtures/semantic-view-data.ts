@@ -1,8 +1,8 @@
-import type { SemanticEntity, SemanticEntityKind } from '../../src/semantic/engineering-ir/contract/entity-types.ts';
-import type { FactAssertion, SemanticFact, SemanticPredicate, SemanticValue } from '../../src/semantic/engineering-ir/contract/fact-types.ts';
-import type { EngineeringIR } from '../../src/semantic/engineering-ir/contract/root-types.ts';
-import type { ValidatedEngineeringIRSnapshot } from '../../src/semantic/engineering-ir/contract/validated-types.ts';
-import { deepFreeze } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import type { SemanticEntity, SemanticEntityKind } from '../../src/semantics/engineering-ir/entity-types.ts';
+import type { FactAssertion, SemanticFact, SemanticPredicate, SemanticValue } from '../../src/semantics/engineering-ir/fact-types.ts';
+import type { EngineeringIR } from '../../src/semantics/engineering-ir/root-types.ts';
+import type { ValidatedEngineeringIRSnapshot } from '../../src/semantics/engineering-ir/validated-types.ts';
+import { deepFreeze } from '../../src/contracts/canonical.ts';
 
 export function entity(id: string, kind: SemanticEntityKind, label = id): SemanticEntity {
   return { id, kind, label, attributes: [] };

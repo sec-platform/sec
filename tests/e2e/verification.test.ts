@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import type { VerificationReport } from '../../src/verification/contract/types.ts';
+import type { VerificationReport } from '../../src/assurance/verification/contract/types.ts';
 import { expectCliJson, expectCliText, expectCliVariants } from '../testkit/cli.ts';
 import { withWorkspaceScenario } from '../testkit/workspace.ts';
 

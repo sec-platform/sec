@@ -67,7 +67,7 @@ jobs:
             }
             if (
               typeof payload.manifest_path !== 'string' ||
-              !/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/.test(payload.manifest_path)
+              !/^config\/repository\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/.test(payload.manifest_path)
             ) throw new Error('manifest_path is invalid.');
             if (typeof payload.manifest_digest !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(payload.manifest_digest)) {
               throw new Error('manifest_digest is invalid.');
@@ -179,7 +179,7 @@ jobs:
               throw new Error('Work Package manifest digest is stale.');
             }
 
-            const registryPath = 'src/verification/trust/contract/ci-trust-root-registry.json';
+            const registryPath = 'src/adapters/verification/platform/trust/contract/ci-trust-root-registry.json';
             const registryBlob = await readBlobFromTree(baseTree, registryPath, 'Trusted-base trust-root registry');
             let registry;
             try {
@@ -363,8 +363,8 @@ jobs:
               const importFromTrustedBase = async (repositoryPath) => import(pathToFileURL(
                 path.join(trustedRoot, ...repositoryPath.split("/"))
               ).href);
-              const tcb = await importFromTrustedBase("src/verification/trust/runtime/closure-lock.ts");
-              const registryContract = await importFromTrustedBase("src/verification/trust/contract/root.ts");
+              const tcb = await importFromTrustedBase("src/adapters/verification/platform/trust/runtime/closure-lock.ts");
+              const registryContract = await importFromTrustedBase("src/adapters/verification/platform/trust/contract/root.ts");
               const gitEnvironment = Object.fromEntries(Object.entries(process.env)
                 .filter(([name]) => !name.startsWith("GIT_")));
               gitEnvironment.GIT_NO_REPLACE_OBJECTS = "1";
@@ -642,9 +642,9 @@ jobs:
                 candidateTrustRevision: candidateAction?.identity.trustRevision ?? null,
                 candidateModuleCount: candidateAction?.identity.moduleCount ?? null,
                 checkerProgramDigest: digest(readFileSync(import.meta.path)),
-                checkerToolBlob: blob(trustedRoot, "src/verification/trust/runtime/closure-lock.ts"),
+                checkerToolBlob: blob(trustedRoot, "src/adapters/verification/platform/trust/runtime/closure-lock.ts"),
                 checkerWorkflowBlob: blob(trustedRoot, ".github/workflows/sec-trusted-bootstrap.yml"),
-                candidateToolBlob: blob(candidateRoot, "src/verification/trust/runtime/closure-lock.ts"),
+                candidateToolBlob: blob(candidateRoot, "src/adapters/verification/platform/trust/runtime/closure-lock.ts"),
                 candidateWorkflowBlob: blob(candidateRoot, ".github/workflows/sec-trusted-bootstrap.yml"),
                 authorityVerdict,
                 authorityReason,
@@ -761,7 +761,7 @@ jobs:
           set -euo pipefail
           unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
           unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
-          bun src/verification/ci/verification.ts execute-trusted-bootstrap-sut \
+          bun src/adapters/verification/platform/ci/verification.ts execute-trusted-bootstrap-sut \
             --base-root "$BASE_SUT_ROOT" \
             --candidate-root "$CANDIDATE_ROOT" \
             --output-directory "$SUT_EVIDENCE_ROOT" \

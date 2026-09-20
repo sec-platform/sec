@@ -13,7 +13,7 @@ import {
   runImportCheck,
   runStagedIndexOnlyImportOrganizer,
   workingTreeTypeScriptTargets
-} from '../../src/development/runner/import-organizer.ts';
+} from '../../src/adapters/self-hosting/development/runner/import-organizer.ts';
 
 function git(
   repoRoot: string,

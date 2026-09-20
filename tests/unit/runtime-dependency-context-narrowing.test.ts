@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { SecError } from '../../src/system-architecture/foundation/contract/failure.ts';
+import { SecError } from '../../src/contracts/failure.ts';
 import {
   runtimeDependencyOperationContext as contextOf,
   runtimeDependencyOperationEffectFence as fence,
@@ -8,7 +8,7 @@ import {
   runtimeDependencyOperationRemainingMs as remaining,
   waitForRuntimeDependencyOperation as wait,
   type RuntimeDependencyInstallOptions
-} from '../../src/toolchain/dependencies/runtime/operation-context.ts';
+} from '../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
 
 const deadlineError = (error: unknown): boolean => error instanceof SecError && error.code === 'RUNTIME-DEPS-003';
 

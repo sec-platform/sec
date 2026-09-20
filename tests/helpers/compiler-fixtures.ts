@@ -1,8 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { readJson } from '../../src/workspace/files.ts';
-import { compilerRoot } from '../../src/workspace/runtime/paths.ts';
+import { readJson } from "../../src/adapters/filesystem/files.ts";
+import { compilerRoot } from "../../src/adapters/workspace-context.ts";
 
 const compilerFileCache = new Map<string, string>();
 

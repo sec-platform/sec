@@ -1,10 +1,7 @@
 import { expect, test } from 'bun:test';
 
-import {
-  buildJsonLogRecord,
-  createLogger,
-  resolveLogLevel
-} from '../../src/system-architecture/foundation/logger.ts';
+import { buildJsonLogRecord, resolveLogLevel } from '../../src/contracts/logging.ts';
+import { createLogger } from '../../src/adapters/diagnostics/json-logger.ts';
 
 test('log-level admission accepts only the exact canonical vocabulary', () => {
   expect(resolveLogLevel(undefined)).toBe('info');

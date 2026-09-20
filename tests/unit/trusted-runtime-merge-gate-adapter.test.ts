@@ -4,7 +4,7 @@ import {
   CodexDevelopmentMergeGateProducerIdentity,
   createTrustedRuntimeArtifactObservation,
   createTrustedRuntimeMergeGateProvenance
-} from '../../src/control/integration/merge-gate.ts';
+} from '../../src/adapters/self-hosting/control/integration/merge-gate.ts';
 
 const BASE = '1'.repeat(40);
 const D = (value: string): `sha256:${string}` => `sha256:${value.repeat(64).slice(0, 64)}`;

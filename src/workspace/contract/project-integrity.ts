@@ -1,7 +1,7 @@
 import {
   SecError,
   type SecErrorDetails
-} from '../../system-architecture/foundation/contract/failure.ts';
+} from '../../contracts/failure.ts';
 
 export const PROJECT_INTEGRITY_DRIFT_CODE = 'ERROR-DRIFT-001' as const;
 

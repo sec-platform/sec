@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { REGISTRY_KINDS, REGISTRY_LOCATIONS } from '../registry/contract/types.ts';
+import { REGISTRY_KINDS, REGISTRY_LOCATIONS } from '../../contracts/registry-source.ts';
 
 // Structural values only. Uniqueness, supported stacks, canonical paths,
 // capability selection and authority remain decisions of their existing owners.
@@ -24,8 +24,8 @@ export type PlanRegistry = z.infer<typeof PlanRegistrySchema>;
 export type PlanBlock = z.infer<typeof PlanBlockSchema>;
 
 // Normalization historically accepts omitted/null scalar decisions, but not a
-// null app, registry or collection. Preserve that boundary and keep defaults in
-// normalizePlan, where their workspace-dependent meaning already belongs.
+// null app, registry or collection. Preserve that boundary; normalizePlan owns
+// defaulting semantics while its caller supplies runtime-dependent registry paths.
 const appInput = PlanAppSchema.extend({
   id: PlanAppSchema.shape.id.nullish(),
   name: PlanAppSchema.shape.name.nullish(),

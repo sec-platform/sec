@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { generateRuntimeLibraryScaffold } from '../../src/compiler/compose/generate-runtime-library.ts';
-import { TemplateEngine } from '../../src/compiler/compose/template-engine.ts';
+import { generateRuntimeLibraryScaffold } from '../../src/adapters/compilation/compose/generate-runtime-library.ts';
+import { TemplateEngine } from '../../src/adapters/compilation/compose/template-engine.ts';
 
 const lock = () => ({ resolvedBlocks: [] } as never);
 async function fixture(run: (root: string, target: string) => Promise<void>) {

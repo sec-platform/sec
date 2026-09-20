@@ -8,7 +8,7 @@ import {
   projectSecSkillEnvelopeFromOperationReadPlan,
   SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
   type SecOperationReadPlanInput
-} from '../../src/control/agent/read-plan.ts';
+} from '../../src/adapters/self-hosting/control/agent/read-plan.ts';
 import {
   evaluateSecSkillApplicability,
   isSecSkillQuarantinePath,
@@ -17,13 +17,13 @@ import {
   type SecAgentSkillId,
   type SecOperationKind,
   type SecSkillApplicabilityDecision
-} from '../../src/control/agent/skill.ts';
+} from '../../src/adapters/self-hosting/control/agent/skill.ts';
 import {
   compileSecTaskCapsule,
   SEC_TASK_CAPSULE_INPUT_SCHEMA,
   type SecDigest,
   type SecTaskCapsulePlanningContext
-} from '../../src/control/agent/task-capsule.ts';
+} from '../../src/adapters/self-hosting/control/agent/task-capsule.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 const digest = (character: string): SecDigest => `sha256:${character.repeat(64)}`;

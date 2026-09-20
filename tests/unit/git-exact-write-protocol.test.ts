@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { canonicalCommitTreeInput, gitCommitEnvironment } from '../../src/external-capabilities/git-read/runtime/commit-contract.ts';
-import { captureGitScratchIndexDelta, formatGitScratchIndexRecord } from '../../src/external-capabilities/git-read/runtime/scratch-input.ts';
+import { canonicalCommitTreeInput, gitCommitEnvironment } from '../../src/adapters/providers/git-read/runtime/commit-contract.ts';
+import { captureGitScratchIndexDelta, formatGitScratchIndexRecord } from '../../src/adapters/providers/git-read/runtime/scratch-input.ts';
 import { gitProtocolSuccess, inGitProtocolRepository } from '../testkit/git-protocol.ts';
 
 // Real installed-Git tests, not a SEC physical provider. Expected object bytes

@@ -1,5 +1,5 @@
-import type { SemanticImpactPropagation } from '../../semantic/impact/contract/types.ts';
-import { SEMANTIC_MUTATION_VERIFICATION_POLICY_REVISION, type SemanticMutationDiagnostic, type SemanticMutationVerificationCapability, type SemanticMutationVerificationPlanningContext, type VerificationRequirement } from '../../semantic/mutation/contract/types.ts';
+import type { SemanticImpactPropagation } from '../../semantics/impact/types.ts';
+import { SEMANTIC_MUTATION_VERIFICATION_POLICY_REVISION, type SemanticMutationDiagnostic, type SemanticMutationVerificationCapability, type SemanticMutationVerificationPlanningContext, type VerificationRequirement } from '../../semantics/mutation/types.ts';
 import {
   canonicalEquals,
   cloneAndDeepFreeze,

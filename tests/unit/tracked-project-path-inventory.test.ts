@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { decodeTrackedProjectPathInventory, isTrackedProjectRepositoryAbsent } from '../../src/workspace/runtime/tracked-path-inventory.ts';
+import { decodeTrackedProjectPathInventory, isTrackedProjectRepositoryAbsent } from '../../src/adapters/workspace/tracked-path-inventory.ts';
 const decode = (source: string) => decodeTrackedProjectPathInventory(Buffer.from(source), () => {});
 
 test('actual record count is admitted before identical index-stage paths coalesce', () => {

@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { getPipelineStageDefinition, PASS_DEFINITIONS, PIPELINE_STAGE_DEFINITIONS } from '../../src/compiler/pipeline/pass-registry.ts';
+import { getPipelineStageDefinition, PASS_DEFINITIONS, PIPELINE_STAGE_DEFINITIONS } from '../../src/compiler/pipeline/stage-definitions.ts';
 import { PIPELINE_STAGE_IDS, PIPELINE_STAGE_OWNERSHIP, PIPELINE_VERIFY_STAGE_IDS } from '../../src/compiler/pipeline/stages.ts';
 
 test('the resolving stage produces its internal prerequisites, not external blockers', () => {

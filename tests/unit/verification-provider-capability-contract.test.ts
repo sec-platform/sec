@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
-import { parseVerificationProviderCapabilityLedger } from '../../src/verification/provider/capability-ledger.ts';
-import { assertProviderCapabilityUsableV1, assertProviderRetryGuard, classifyProviderDiagnosticTextV1, createVerificationProviderAvailabilityEpoch, createVerificationProviderCapability, resolveProviderAvailability } from '../../src/verification/provider/contract/capability.ts';
+import { parseVerificationProviderCapabilityLedger } from '../../src/adapters/verification/platform/provider/capability-ledger.ts';
+import { assertProviderCapabilityUsableV1, assertProviderRetryGuard, classifyProviderDiagnosticTextV1, createVerificationProviderAvailabilityEpoch, createVerificationProviderCapability, resolveProviderAvailability } from '../../src/adapters/verification/platform/provider/contract/capability.ts';
 
 const OBSERVED_AT = '2026-08-11T00:00:00.000Z';
 const EXPIRES_AT = '2026-08-12T00:00:00.000Z';

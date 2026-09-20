@@ -4,8 +4,8 @@ import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
-import { YamlInputLimitError, YamlSyntaxError } from '../../src/system-architecture/foundation/runtime/yaml.ts';
-import { readYaml, WORKSPACE_YAML_MAX_INPUT_BYTES, writeYaml } from '../../src/workspace/yaml.ts';
+import { YamlInputLimitError, YamlSyntaxError } from '../../src/adapters/formats/yaml.ts';
+import { readYaml, WORKSPACE_YAML_MAX_INPUT_BYTES, writeYaml } from '../../src/adapters/workspace/yaml.ts';
 
 // Real YAML and ordinary filesystem semantics are required. No JSON-parser,
 // serializer or physical-write substitutes may establish these results.

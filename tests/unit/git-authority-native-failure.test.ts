@@ -1,8 +1,8 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_TEST_TIMEOUT_MS } from '../../src/development/runner/test-execution-policy.ts';
-import { withAuthorityGitReadOperation, withAuthorityGitReadSession } from '../../src/external-capabilities/git-read/authority.ts';
-import { resolveGitReadSessionBudget } from '../../src/external-capabilities/git-read/runtime/session.ts';
+import { DEFAULT_TEST_TIMEOUT_MS } from '../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
+import { withAuthorityGitReadOperation, withAuthorityGitReadSession } from '../../src/adapters/providers/git-read/authority.ts';
+import { resolveGitReadSessionBudget } from '../../src/adapters/providers/git-read/runtime/session.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 // Real production session issuance and physical closure are required here.
