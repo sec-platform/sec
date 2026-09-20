@@ -67,7 +67,7 @@ jobs:
             }
             if (
               typeof payload.manifest_path !== 'string' ||
-              !/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/.test(payload.manifest_path)
+              !/^config\/repository\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/.test(payload.manifest_path)
             ) throw new Error('manifest_path is invalid.');
             if (typeof payload.manifest_digest !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(payload.manifest_digest)) {
               throw new Error('manifest_digest is invalid.');
