@@ -32,7 +32,11 @@ try {
   assert.equal(JSON.stringify(first.artifacts), firstBytes);
   assert.equal(JSON.stringify(workspace.read(workspace.initial)), initialBytes);
   assert.deepEqual(repeated.artifacts, first.artifacts);
-  assert.notDeepEqual(second.artifacts, first.artifacts);
+  assert.ok(first.artifacts.members.length > 0, 'The example must produce actual source');
+  assert.deepEqual(second.artifacts.members.map(member => member.task.target),
+    first.artifacts.members.map(member => member.task.target));
+  assert.notDeepEqual(second.artifacts.members.map(member => member.source),
+    first.artifacts.members.map(member => member.source));
   assert.notEqual(second.compilation.snapshot.ir.semanticRevision,
     first.compilation.snapshot.ir.semanticRevision);
   const save = workspace.planSave(workspace.initial, candidate);
