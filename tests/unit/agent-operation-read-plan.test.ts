@@ -7,13 +7,13 @@ import {
   resolveSecMaintainerMutationV1,
   SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
   type SecOperationReadPlanInput
-} from '../../src/control/agent/read-plan.ts';
+} from '../../src/adapters/self-hosting/control/agent/read-plan.ts';
 import {
   compileSecTaskCapsule,
   SEC_TASK_CAPSULE_INPUT_SCHEMA,
   type SecDigest,
   type SecTaskCapsulePlanningContext
-} from '../../src/control/agent/task-capsule.ts';
+} from '../../src/adapters/self-hosting/control/agent/task-capsule.ts';
 
 const digest = (character: string): SecDigest => `sha256:${character.repeat(64)}`;
 
@@ -54,12 +54,12 @@ function input(): SecOperationReadPlanInput {
         }
       ],
       scopeProposal: {
-        readPaths: ['.documentation/', 'docs/', 'src/control/agent/'],
-        writePaths: ['src/control/agent/'],
+        readPaths: ['.documentation/', 'docs/', 'src/adapters/self-hosting/control/agent/'],
+        writePaths: ['src/adapters/self-hosting/control/agent/'],
         forbiddenPaths: ['.agents/skills/', '.github/workflows/'],
         authorizedResources: ['github:issue/346/comments'],
         authorizedGates: [],
-        changedPaths: ['src/control/agent/read-plan.ts']
+        changedPaths: ['src/adapters/self-hosting/control/agent/read-plan.ts']
       },
       verificationObligations: [
         { id: 'focused-contracts', revision: 'v1', reasonCode: 'public-contract-change' }
@@ -266,7 +266,7 @@ test('Task Capsule digest binds all planning content and scope proposal rejects 
       scopeProposal: {
         ...planningContext.scopeProposal,
         writePaths: ['docs/'],
-        changedPaths: ['src/control/agent/read-plan.ts']
+        changedPaths: ['src/adapters/self-hosting/control/agent/read-plan.ts']
       }
     })
   })).toThrow(/outside every proposed write path/u);

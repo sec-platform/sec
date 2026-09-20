@@ -22,7 +22,7 @@ const {
   CodexDevelopmentGitHubArtifactMaxBytesV1,
   CodexDevelopmentGitHubArtifactSafetyWindowMsV1,
   canonicalizeGitHubArtifactMetadataV1
-} = require('../../src/verification/ci/runtime/github-artifact-metadata.cjs') as {
+} = require('../../src/adapters/verification/platform/ci/runtime/github-artifact-metadata.cjs') as {
   CodexDevelopmentGitHubArtifactMaxBytesV1: number;
   CodexDevelopmentGitHubArtifactSafetyWindowMsV1: number;
   canonicalizeGitHubArtifactMetadataV1: (

@@ -4,20 +4,20 @@ import {
   buildMinimalWorkspacePlan,
   buildReferenceWorkspacePlan,
   buildWorkspaceCreatePlan
-} from '../../src/compiler/orchestration/workspace-create-template.ts';
+} from '../../src/application/workspace-create.ts';
 
 test('ordinary workspace creation defaults to business-neutral minimal Plan data', () => {
-  const minimal = buildMinimalWorkspacePlan();
+  const minimal = buildMinimalWorkspacePlan({ officialRegistryRelativePath: 'registry/official' });
   expect(minimal.app.id).toBe('app');
   expect(minimal.app.name).toBe('app');
   expect(minimal.blocks).toEqual([]);
   expect(minimal.acceptance).toEqual([]);
-  expect(buildWorkspaceCreatePlan('minimal')).toEqual(minimal);
+  expect(buildWorkspaceCreatePlan('minimal', { officialRegistryRelativePath: 'registry/official' })).toEqual(minimal);
 });
 
 test('reference Customer choices require the explicit reference-customer template', () => {
-  const plan = buildReferenceWorkspacePlan();
-  expect(buildWorkspaceCreatePlan('reference-customer')).toEqual(plan);
+  const plan = buildReferenceWorkspacePlan({ officialRegistryRelativePath: 'registry/official' });
+  expect(buildWorkspaceCreatePlan('reference-customer', { officialRegistryRelativePath: 'registry/official' })).toEqual(plan);
   expect(plan.app.id).toBe('customer-admin');
   expect(plan.blocks.map((block) => block.id)).toEqual([
     'auth/basic-session',

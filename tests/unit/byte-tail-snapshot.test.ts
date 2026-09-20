@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { snapshotByteTail, snapshotByteView } from '../../src/system-architecture/foundation/runtime/byte-snapshot.ts';
+import { snapshotByteTail, snapshotByteView } from '../../src/contracts/byte-snapshot.ts';
 
 test('suffix selection matches an independent array slice for sizes and nonzero offsets', () => {
   for (const length of [0, 1, 5, 127, 4096]) {

@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { executeFastCheckStages, type FastCheckStages } from '../../src/development/runner/fast-check-stages.ts';
+import { executeFastCheckStages, type FastCheckStages } from '../../src/adapters/self-hosting/development/runner/fast-check-stages.ts';
 
 function stages(events: string[], overrides: Partial<FastCheckStages> = {}): FastCheckStages {
   const run = (name: string) => async () => { events.push(name); return 0; };

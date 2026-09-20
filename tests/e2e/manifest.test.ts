@@ -2,11 +2,11 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { composeWorkspace, explainWorkspace, lockWorkspace, verifyWorkspace } from '../../src/compiler/orchestration/cli.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { readJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
-import { writeYaml } from '../../src/workspace/yaml.ts';
+import { composeWorkspace, explainWorkspace, lockWorkspace, verifyWorkspace } from '../../src/bootstrap/engineering/cli.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import { readJson } from "../../src/adapters/filesystem/files.ts";
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
+import { writeYaml } from '../../src/adapters/workspace/yaml.ts';
 import { expectGraphEdge, expectGraphNode, expectReviewConflictHint, expectReviewRegressionRisk } from '../helpers/graph-assertions.ts';
 import { prepareComposedWorkspace } from '../testkit/workspace.ts';
 

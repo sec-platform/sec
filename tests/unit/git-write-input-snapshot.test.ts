@@ -5,8 +5,8 @@ import path from 'node:path';
 import {
   canonicalCommitTreeInput, captureGitDevelopmentCommitContract,
   compileGitDevelopmentCommitContractDigest
-} from '../../src/external-capabilities/git-read/runtime/commit-contract.ts';
-import { captureGitScratchIndexDelta } from '../../src/external-capabilities/git-read/runtime/scratch-input.ts';
+} from '../../src/adapters/providers/git-read/runtime/commit-contract.ts';
+import { captureGitScratchIndexDelta } from '../../src/adapters/providers/git-read/runtime/scratch-input.ts';
 
 const tree = 'a'.repeat(40), parent = 'b'.repeat(40), target = 'c'.repeat(40);
 const person = () => ({ name: 'Maintainer', email: 'maintainer@example.test', date: '0 +0000' });

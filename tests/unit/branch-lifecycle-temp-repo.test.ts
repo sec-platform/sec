@@ -18,16 +18,16 @@ import {
   preparationFilePath,
   prepareBranchCloseout,
   rehydratePreparedBranchCloseoutRecoveryArtifact
-} from '../../src/control/branch-lifecycle/branch-closeout.ts';
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout.ts';
 import {
   createBranchLifecycleGitChildEnvironment,
   createBranchLifecycleGitHubCredentialArgs
-} from '../../src/control/branch-lifecycle/branch-lifecycle-command.ts';
-import { collectBranchLifecycleInventory } from '../../src/control/branch-lifecycle/branch-lifecycle-inventory.ts';
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts';
+import { collectBranchLifecycleInventory } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-inventory.ts';
 import {
   issueActiveWorkPackageOwnerObservation,
   type ActiveWorkPackageOwnerObservation
-} from '../../src/control/task/contract/active-work-observation.ts';
+} from '../../src/adapters/self-hosting/control/task/contract/active-work-observation.ts';
 
 test('canonical Git child environment removes ambient steering and preserves host integration', () => {
   const environment = createBranchLifecycleGitChildEnvironment({

@@ -4,8 +4,8 @@ import {
   CI_ARTIFACT_FILES,
   ciArtifactUploadName,
   emptyCiArtifactManifest
-} from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { validateCiArtifactManifest } from '../../src/verification/ci-artifacts/runtime/authority.ts';
+} from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import { validateCiArtifactManifest } from '../../src/adapters/verification/platform/ci-artifacts/runtime/authority.ts';
 
 test('CI artifact authority accepts canonical derived empty manifest', () => {
   const manifest = validateCiArtifactManifest(emptyCiArtifactManifest());

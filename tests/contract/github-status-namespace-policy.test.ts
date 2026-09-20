@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test';
 import { parse as parseYaml } from 'yaml';
 
-import { INTEGRATION_AUTHORIZATION_STATUS_CONTEXT } from '../../src/control/main-health/github-status-namespace.ts';
-import { VERIFICATION_ACTION_PROVIDER_POLICY } from '../../src/verification/action/contract/provider.ts';
+import { INTEGRATION_AUTHORIZATION_STATUS_CONTEXT } from '../../src/adapters/self-hosting/control/main-health/github-status-namespace.ts';
+import { VERIFICATION_ACTION_PROVIDER_POLICY } from '../../src/adapters/verification/platform/action/contract/provider.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 
 type Workflow = Readonly<{

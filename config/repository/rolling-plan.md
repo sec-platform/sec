@@ -2,7 +2,7 @@
 title: SEC 滚动近期计划
 status: active
 domain: current-control
-last-reviewed: 2026-09-16
+last-reviewed: 2026-09-21
 ---
 
 # SEC 滚动近期计划
@@ -12,46 +12,51 @@ last-reviewed: 2026-09-16
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:7df1cfacdfba02c699cae9515e1a427fa10da9495a5ed3fb41259eedc373e293",
-    "manifestPath": "config/repository/work-packages/documentation-control-convergence-v1.md",
-    "packageId": "documentation-control-convergence-v1",
+    "manifestDigest": "sha256:47322d29ca5a1a4b2fc12833fb24c3de64c318e66772124a115abc53fbd2ff87",
+    "manifestPath": "config/repository/work-packages/sec086-current-main-convergence-v1.md",
+    "packageId": "sec086-current-main-convergence-v1",
     "tracking": "none"
   },
   "authority": "none",
   "candidates": [
+    "development-critical-path-spine-v1",
     "operation-read-plan-authority-canary-v1",
     "sec-static-convergence-v1",
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "551b147ab8702d4f58dd1f65fcc919f0c4a200dc",
-  "exactMainTree": "5b2adaca33cbc63d45782c5e205e4f524f32bfa0",
-  "projectionDigest": "sha256:209ee68257f0d23f629aefb1289d3ade59acd4745886571036bd850b083eb410",
+  "exactMain": "69b321e4eeac478a5400d456a5fff92ceb37ace8",
+  "exactMainTree": "49943fb5f3f26de2e02c8803f13c6f7692d9f9c0",
+  "projectionDigest": "sha256:13534868e7d711405f11420dcdccef065c21bb11123ad575180ff45e73ff33cf",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### documentation-control-convergence-v1
+### sec086-current-main-convergence-v1
 
-Proposal-only target manifest `config/repository/work-packages/documentation-control-convergence-v1.md` at `sha256:7df1cfacdfba02c699cae9515e1a427fa10da9495a5ed3fb41259eedc373e293`, based on exact main `551b147ab8702d4f58dd1f65fcc919f0c4a200dc` and tree `5b2adaca33cbc63d45782c5e205e4f524f32bfa0`.
+Proposal-only target manifest `config/repository/work-packages/sec086-current-main-convergence-v1.md` at `sha256:47322d29ca5a1a4b2fc12833fb24c3de64c318e66772124a115abc53fbd2ff87`, based on exact main `69b321e4eeac478a5400d456a5fff92ceb37ace8` and tree `49943fb5f3f26de2e02c8803f13c6f7692d9f9c0`.
 
 ## 候选 Work Package
 
-### 1. operation-read-plan-authority-canary-v1
+### 1. development-critical-path-spine-v1
 
 Retained ordered candidate identity from the published baseline; no selection authority is implied.
 
-### 2. sec-static-convergence-v1
+### 2. operation-read-plan-authority-canary-v1
 
 Retained ordered candidate identity from the published baseline; no selection authority is implied.
 
-### 3. candidate-control-transaction-v1
+### 3. sec-static-convergence-v1
 
 Retained ordered candidate identity from the published baseline; no selection authority is implied.
 
-### 4. typescript-7-checker-acceleration-v1
+### 4. candidate-control-transaction-v1
+
+Retained ordered candidate identity from the published baseline; no selection authority is implied.
+
+### 5. typescript-7-checker-acceleration-v1
 
 Retained ordered candidate identity from the published baseline; no selection authority is implied.
 

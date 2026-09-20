@@ -1,6 +1,6 @@
-import type { AcceptanceItem } from '../../semantic/acceptance/contract/types.ts';
-import type { ManifestGenerator } from '../../semantic/generation/contract/types.ts';
-import type { RegistryKind, RegistryLocation } from '../registry/contract/types.ts';
+import type { AcceptanceItem } from '../../semantics/acceptance/types.ts';
+import type { ManifestGenerator } from '../../semantics/generation/types.ts';
+import type { RegistryKind, RegistryLocation } from '../../contracts/registry-source.ts';
 
 import type { PlanApp, PlanBlock, PlanRegistry } from './plan-schema.ts';
 export type { AppMode, PackageManager, PlanApp, PlanBlock, PlanRegistry, PlanRegistrySource } from './plan-schema.ts';

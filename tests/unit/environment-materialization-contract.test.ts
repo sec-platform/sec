@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   compileEnvironmentMaterializationPlan,
   createEnvironmentMaterializationSpec
-} from '../../src/external-capabilities/linux-verification/materialization.ts';
+} from '../../src/adapters/providers/linux-verification/materialization.ts';
 
 const A = `sha256:${'a'.repeat(64)}` as const;
 const B = `sha256:${'b'.repeat(64)}` as const;

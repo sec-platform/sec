@@ -2,15 +2,15 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { writeCiArtifactManifest } from '../../src/compiler/emit/ci-artifacts.ts';
-import { saveLock } from '../../src/compiler/lock.ts';
-import { PhysicalNoFollowError } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { writeCiArtifactManifest } from '../../src/adapters/compilation/emit/ci-artifacts.ts';
+import { saveLock } from "../../src/adapters/workspace/lock.ts";
+import { PhysicalNoFollowError } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   CI_ARTIFACT_FILES,
   isCanonicalCiArtifactPath
-} from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { readOptionalCiArtifactManifest } from '../../src/verification/ci-artifacts/runtime/authority.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+} from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import { readOptionalCiArtifactManifest } from '../../src/adapters/verification/platform/ci-artifacts/runtime/authority.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { buildReviewLock } from '../helpers/review-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 

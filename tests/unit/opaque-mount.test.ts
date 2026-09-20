@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { installOpaqueModules } from '../../src/compiler/compose/install-opaque-modules.ts';
-import { resolveOpaqueModuleMaterializationMode } from '../../src/compiler/compose/opaque-module-materialization.ts';
-import { pathExists, readJson, writeJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
-import { writeYaml } from '../../src/workspace/yaml.ts';
+import { installOpaqueModules } from '../../src/adapters/compilation/compose/install-opaque-modules.ts';
+import { resolveOpaqueModuleMaterializationMode } from '../../src/compiler/target-materialization.ts';
+import { pathExists, readJson, writeJson } from "../../src/adapters/filesystem/files.ts";
+import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
+import { writeYaml } from '../../src/adapters/workspace/yaml.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 describe('resolveOpaqueModuleMaterializationMode', () => {
@@ -217,5 +217,56 @@ describe('installOpaqueModules', () => {
         materializationMode: 'workspace-link'
       })).rejects.toThrow(/declared more than once/);
     });
+  });
+});
+
+// The lease/temporary workspace cannot be released while an admitted module
+// installation is still suspended in its effect fence.
+test('opaque failure closes the queue, joins admitted work and fences late writes', async () => {
+  await withTempWorkspace(async workspaceRoot => {
+    const { srcRoot, packageJsonPath } = getWorkspacePaths(workspaceRoot);
+    await writeJson(packageJsonPath, { dependencies: { stable: '1.0.0' } });
+    const before = await fs.readFile(packageJsonPath);
+    const modules = Array.from({ length: 12 }, (_, index) => `module-${String(index).padStart(2, '0')}`);
+    for (const id of modules) {
+      const root = path.join(srcRoot, 'opaque', id);
+      await fs.mkdir(root, { recursive: true });
+      await writeYaml(path.join(root, 'module.yaml'), { id });
+    }
+    const nodeModules = path.join(workspaceRoot, 'node_modules');
+    await fs.mkdir(nodeModules, { recursive: true });
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    let notifyFailure!: () => void;
+    const failureEntered = new Promise<void>(resolve => { notifyFailure = resolve; });
+    const primary = Object.freeze({ reason: 'module fence refused' });
+    let fences = 0, settled = false;
+    const operation = installOpaqueModules(workspaceRoot, {
+      materializationMode: 'workspace-link',
+      commitFence: async () => {
+        const call = ++fences;
+        if (call === 1) await held;
+        else if (call === 2) { notifyFailure(); throw primary; }
+      }
+    }).then(
+      value => { settled = true; return { status: 'succeeded' as const, value }; },
+      error => { settled = true; return { status: 'failed' as const, error }; }
+    );
+    try {
+      await failureEntered;
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+      expect(settled).toBe(false);
+    } finally {
+      release();
+      await operation;
+    }
+    const outcome = await operation;
+    expect(outcome.status).toBe('failed');
+    if (outcome.status !== 'failed') throw new Error('Expected installation refusal');
+    const reasons = outcome.error instanceof AggregateError ? outcome.error.errors : [outcome.error];
+    expect(reasons.every(reason => reason === primary)).toBe(true);
+    expect(await fs.readFile(packageJsonPath)).toEqual(before);
+    expect((await fs.readdir(nodeModules)).filter(name => name.startsWith('opaque-'))).toEqual([]);
+    expect(fences).toBe(2);
   });
 });

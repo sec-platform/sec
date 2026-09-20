@@ -1,6 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { bindPipelineSemanticContext, createPipelineSemanticContext, requirePipelineSemanticContext } from '../../src/compiler/pipeline/semantic-context.ts';
+import { createPipelineSemanticContext } from '../../src/compiler/pipeline/semantic-context.ts';
+import { bindPipelineSemanticContext, requirePipelineSemanticContext } from '../../src/adapters/compilation/pipeline/semantic-context.ts';
 
 function input() {
   const ir = { inputRevision: 'input', semanticRevision: 'semantic' };

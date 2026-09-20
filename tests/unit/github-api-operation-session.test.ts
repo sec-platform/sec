@@ -1,18 +1,18 @@
 import { expect, test } from 'bun:test';
 
-import { compileSecRepositoryModuleGraph } from '../../src/brownfield/source-program-model/typescript.ts';
+import { compileSecRepositoryModuleGraph } from '../../src/adapters/repository/source-program-model/typescript.ts';
 import {
   executeGitHubApiOperation,
   inspectGitHubApiCapability,
   type GitHubApiCapability,
   type GitHubApiPrincipal
-} from '../../src/external-capabilities/github-api/operation-session.ts';
+} from '../../src/adapters/providers/github-api/operation-session.ts';
 import {
   issueGitHubApiTestCapability,
   withGitHubApiTestEnrollmentSession,
   withGitHubApiTestSession,
   type GitHubApiTransport
-} from '../../src/external-capabilities/github-api/test/operation-session.ts';
+} from '../../src/adapters/providers/github-api/test/operation-session.ts';
 
 const TOKEN = 'test-token-0123456789';
 const SHA = '1'.repeat(40);
@@ -39,13 +39,13 @@ function capability(input: Readonly<{
 }
 
 test('production surface excludes test issuers and the repository graph rejects their import', async () => {
-  const production = await import('../../src/external-capabilities/github-api/operation-session.ts');
+  const production = await import('../../src/adapters/providers/github-api/operation-session.ts');
   expect(Object.keys(production).sort()).not.toContain('issueGitHubApiTestCapability');
   expect(Object.keys(production).sort()).not.toContain('withGitHubApiTestSession');
   expect(() => compileSecRepositoryModuleGraph({
     files: [
-      'src/external-capabilities/github-api/production-consumer.ts',
-      'src/external-capabilities/github-api/test/operation-session.ts'
+      'src/adapters/providers/github-api/production-consumer.ts',
+      'src/adapters/providers/github-api/test/operation-session.ts'
     ],
     readSource: (file) => file.endsWith('/production-consumer.ts')
       ? "import { issueGitHubApiTestCapability } from './test/operation-session.ts';"
@@ -478,4 +478,311 @@ test('aggregate response-byte budget cancels a bounded stream once its ceiling i
     capability: api,
     operation: async () => await executeGitHubApiOperation(api, { kind: 'repository' })
   })).rejects.toThrow('response-byte budget exceeded');
+});
+
+for (const effect of ['read', 'status-write', 'merge-write', 'runner-admin'] as const) {
+  for (const reason of [undefined, null, false, 0, '', new Error('operation failed')] as const) {
+    test(`${effect} session distinguishes failure occurrence from ${String(reason)} payload`, async () => {
+      const api = capability({
+        effect,
+        principal: Object.freeze({ ...PRINCIPAL, permission: 'admin' }),
+        transport: async () => Response.json({})
+      });
+      const outcome = await withGitHubApiTestSession({
+        capability: api,
+        operation: async () => { throw reason; }
+      }).then(
+        (value) => ({ status: 'succeeded' as const, value }),
+        (error: unknown) => ({ status: 'failed' as const, error })
+      );
+      expect(outcome.status).toBe('failed');
+      if (outcome.status === 'failed') expect(outcome.error).toBe(reason);
+    });
+  }
+}
+
+for (const value of [undefined, null, false, 0, ''] as const) {
+  test(`normal ${String(value)} results are distinct from thrown payloads`, async () => {
+    const api = capability({ effect: 'read', transport: async () => Response.json({}) });
+    const result = await withGitHubApiTestSession({ capability: api, operation: async () => value });
+    expect(result).toBe(value);
+  });
+}
+
+for (const reason of [undefined, null, false, 0, new Error('primary failure')] as const) {
+  test(`primary ${String(reason)} failure and unjoined work both survive terminal closure`, async () => {
+    let notifyStarted!: () => void;
+    const started = new Promise<void>((resolve) => { notifyStarted = resolve; });
+    let dangling: Promise<unknown> | undefined;
+    const observed: { requestSignal: AbortSignal | null } = { requestSignal: null };
+    const api = capability({
+      effect: 'read',
+      transport: async (_target, init) => await new Promise<Response>((_resolve, reject) => {
+        observed.requestSignal = init?.signal ?? null;
+        observed.requestSignal?.addEventListener('abort', () => reject(new Error('terminal cancellation')), { once: true });
+        notifyStarted();
+      })
+    });
+    const outcome = await withGitHubApiTestSession({
+      capability: api,
+      operation: async () => {
+        dangling = executeGitHubApiOperation(api, { kind: 'repository' }).catch((error: unknown) => error);
+        await started;
+        throw reason;
+      }
+    }).then(
+      (value) => ({ status: 'succeeded' as const, value }),
+      (error: unknown) => ({ status: 'failed' as const, error })
+    );
+    await dangling;
+    expect(outcome.status).toBe('failed');
+    if (outcome.status === 'failed') {
+      expect(outcome.error).toBeInstanceOf(AggregateError);
+      if (outcome.error instanceof AggregateError) {
+        expect(outcome.error.errors).toHaveLength(2);
+        expect(outcome.error.errors[0]).toBe(reason);
+        expect(outcome.error.errors[1]).toBeInstanceOf(Error);
+        expect((outcome.error.errors[1] as Error).message).toContain('requests remain in flight');
+      }
+    }
+    expect(observed.requestSignal?.aborted).toBe(true);
+  });
+}
+
+for (const reason of [undefined, null] as const) {
+  test(`enrollment and nested reuse preserve ${String(reason)} rejection through the common owner`, async () => {
+    const outcome = await withGitHubApiTestEnrollmentSession({
+      repository: 'sec-platform/sec',
+      effect: 'read',
+      readToken: async () => TOKEN,
+      transport: async (target) => String(target).endsWith('/user')
+        ? Response.json({ login: 'maintainer', node_id: 'MDQ6VXNlcjE=', id: 900001 })
+        : Response.json({ permission: 'maintain' }),
+      operation: async (api) => await withGitHubApiTestSession({
+        capability: api,
+        operation: () => { throw reason; }
+      })
+    }).then(
+      (value) => ({ status: 'succeeded' as const, value }),
+      (error: unknown) => ({ status: 'failed' as const, error })
+    );
+    expect(outcome.status).toBe('failed');
+    if (outcome.status === 'failed') expect(outcome.error).toBe(reason);
+  });
+}
+
+function deferredResponse<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((accept) => { resolve = accept; });
+  return { promise, resolve };
+}
+const responseTick = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+for (const [body, status, succeeds] of [['{"ok":true}', 200, true], ['{"failed":true}', 500, false], ['{', 200, false]] as const) {
+  test(`response reader lock is released after status ${status} and body ${body}`, async () => {
+    const response = new Response(body, { status });
+    const api = capability({ effect: 'read', transport: async () => response });
+    const outcome = await withGitHubApiTestSession({ capability: api,
+      operation: () => executeGitHubApiOperation(api, { kind: 'repository' })
+    }).then(() => 'succeeded', () => 'failed');
+    expect(outcome).toBe(succeeds ? 'succeeded' : 'failed');
+    expect(response.body!.locked).toBe(false);
+  });
+}
+
+test('a failed response joins cancellation before releasing its reader and returning', async () => {
+  const gate = deferredResponse<void>();
+  let cancellations = 0;
+  const response = new Response(new ReadableStream<Uint8Array>({
+    start(controller) { controller.enqueue(new Uint8Array([255])); },
+    cancel() { cancellations += 1; return gate.promise; }
+  }));
+  const api = capability({ effect: 'read', transport: async () => response });
+  let settled = false;
+  const outcome = withGitHubApiTestSession({ capability: api,
+    operation: () => executeGitHubApiOperation(api, { kind: 'repository' })
+  }).then(value => ({ value }), error => ({ error })).finally(() => { settled = true; });
+  try {
+    await responseTick();
+    expect(cancellations).toBe(1);
+    expect(settled).toBe(false);
+  } finally { gate.resolve(); await outcome; }
+  expect(response.body!.locked).toBe(false);
+});
+
+test('response failure and a rejected cancellation both remain observable', async () => {
+  const cleanupFailure = Object.freeze({ cleanup: 'rejected' });
+  const response = new Response(new ReadableStream<Uint8Array>({
+    start(controller) { controller.enqueue(new Uint8Array([255])); },
+    cancel() { throw cleanupFailure; }
+  }));
+  const api = capability({ effect: 'read', transport: async () => response });
+  const outcome = await withGitHubApiTestSession({ capability: api,
+    operation: () => executeGitHubApiOperation(api, { kind: 'repository' })
+  }).then(value => ({ value }), error => ({ error }));
+  expect('error' in outcome).toBe(true);
+  if ('error' in outcome) {
+    expect(outcome.error).toBeInstanceOf(AggregateError);
+    if (outcome.error instanceof AggregateError) {
+      expect(outcome.error.errors[0]).toBeInstanceOf(Error);
+      expect(outcome.error.errors[1]).toBe(cleanupFailure);
+    }
+  }
+  expect(response.body!.locked).toBe(false);
+});
+
+test('observer deadline retains unfinished transport responsibility and cancels a late response', async () => {
+  const delivery = deferredResponse<Response>();
+  let cancellations = 0;
+  const response = new Response(new ReadableStream<Uint8Array>({ cancel() { cancellations += 1; } }));
+  const api = capability({ effect: 'read', transport: async () => delivery.promise });
+  try {
+    const outcome = await withGitHubApiTestSession({ capability: api, timeoutMs: 30,
+      operation: async () => {
+        try { await executeGitHubApiOperation(api, { kind: 'repository' }); }
+        catch { return 'the caller handled the deadline'; }
+      }
+    }).then(value => ({ value }), error => ({ error }));
+    expect('error' in outcome).toBe(true);
+    if ('error' in outcome) {
+      expect(outcome.error).toBeInstanceOf(AggregateError);
+      expect(outcome.error.errors.some((error: unknown) => String(error).includes('requests remain in flight'))).toBe(true);
+    }
+  } finally {
+    delivery.resolve(response);
+    await responseTick();
+  }
+  expect(cancellations).toBe(1);
+  expect(response.body!.locked).toBe(false);
+});
+
+function containsError(root: unknown, predicate: (error: unknown) => boolean): boolean {
+  return predicate(root) || root instanceof AggregateError && root.errors.some(error => containsError(error, predicate));
+}
+
+test('a caught response cleanup error closes future request admission and cannot become session success', async () => {
+  const cleanup = Object.freeze({ cleanup: 'not acknowledged' });
+  let requests = 0;
+  const response = new Response(new ReadableStream<Uint8Array>({
+    start(c) { c.enqueue(new Uint8Array([255])); }, cancel() { throw cleanup; }
+  }));
+  const api = capability({ effect: 'read', transport: async () => { requests++; return response; } });
+  const outcome = await withGitHubApiTestSession({ capability: api, operation: async () => {
+    try { await executeGitHubApiOperation(api, { kind: 'repository' }); } catch { /* recovery is not settlement */ }
+    await expect(executeGitHubApiOperation(api, { kind: 'repository' })).rejects.toThrow('unresolved settlement');
+    return 'handled';
+  } }).then(value => ({ value }), error => ({ error }));
+  expect('error' in outcome).toBe(true);
+  if ('error' in outcome) expect(containsError(outcome.error, error => error === cleanup)).toBe(true);
+  expect(requests).toBe(1);
+  expect(response.body!.locked).toBe(false);
+});
+
+test('observer deadline retains an earlier decoder error while cancellation acknowledgement is pending', async () => {
+  const gate = deferredResponse<void>();
+  const entered = deferredResponse<void>();
+  const response = new Response(new ReadableStream<Uint8Array>({
+    start(c) { c.enqueue(new Uint8Array([255])); }, cancel() { entered.resolve(); return gate.promise; }
+  }));
+  const api = capability({ effect: 'read', transport: async () => response });
+  try {
+    const outcome = await withGitHubApiTestSession({ capability: api, timeoutMs: 30,
+      operation: () => executeGitHubApiOperation(api, { kind: 'repository' })
+    }).then(value => ({ value }), error => ({ error }));
+    await entered.promise;
+    expect('error' in outcome).toBe(true);
+    if ('error' in outcome) {
+      expect(containsError(outcome.error, error => String(error).includes('encoded data'))).toBe(true);
+      expect(containsError(outcome.error, error => String(error).includes('deadline exceeded'))).toBe(true);
+      expect(containsError(outcome.error, error => String(error).includes('requests remain in flight'))).toBe(true);
+    }
+    expect(response.body!.locked).toBe(true);
+  } finally { gate.resolve(); await responseTick(); }
+  expect(response.body!.locked).toBe(false);
+});
+
+test('cancellation-induced EOF cannot be published as a normal response after the deadline', async () => {
+  const response = new Response(new ReadableStream<Uint8Array>());
+  const api = capability({ effect: 'read', transport: async () => response });
+  const error = await withGitHubApiTestSession({ capability: api, timeoutMs: 30,
+    operation: () => executeGitHubApiOperation(api, { kind: 'repository' })
+  }).then(() => null, error => error);
+  expect(containsError(error, error => String(error).includes('deadline'))).toBe(true);
+  await responseTick();
+  expect(response.body!.locked).toBe(false);
+});
+
+test('a fired native deadline stays expired when the supplied wall clock does not advance', async () => {
+  const response = new Response(new ReadableStream<Uint8Array>());
+  const api = capability({ effect: 'read', transport: async () => response });
+  const result = await withGitHubApiTestSession({ capability: api, now: () => 1_000, timeoutMs: 30,
+    operation: async () => {
+      try { await executeGitHubApiOperation(api, { kind: 'repository' }); } catch { /* keep processing locally */ }
+      return 'not a fresh request window';
+    }
+  }).then(value => ({ value }), error => ({ error }));
+  expect('error' in result).toBe(true);
+  if ('error' in result) expect(containsError(result.error, error => String(error).includes('deadline'))).toBe(true);
+  await responseTick();
+  expect(response.body!.locked).toBe(false);
+});
+
+test('request discriminator is captured once for permission, route and response interpretation', async () => {
+  let reads = 0;
+  const operation = Object.defineProperty({}, 'kind', {
+    get() { reads++; return reads === 1 ? 'current-user' : 'repository'; }
+  }) as Parameters<typeof executeGitHubApiOperation>[1];
+  const targets: string[] = [];
+  const api = capability({ effect: 'runner-admin', principal: { ...PRINCIPAL, permission: 'admin' },
+    transport: async target => { targets.push(String(target)); return Response.json({ login: 'admin' }); }
+  });
+  expect(await withGitHubApiTestSession({ capability: api,
+    operation: () => executeGitHubApiOperation(api, operation)
+  })).toEqual({ login: 'admin' });
+  expect(reads).toBe(1);
+  expect(targets).toEqual(['https://api.github.com/user']);
+});
+
+test('a validated workflow locator is not re-read while compiling its request route', async () => {
+  let reads = 0;
+  const operation = Object.defineProperty({ kind: 'workflow-run' as const }, 'runId', {
+    get() { reads++; return reads === 1 ? '123' : '../../different-resource'; }
+  }) as Parameters<typeof executeGitHubApiOperation>[1];
+  const targets: string[] = [];
+  const api = capability({ effect: 'read', transport: async target => { targets.push(String(target)); return Response.json({ id: 123 }); } });
+  await withGitHubApiTestSession({ capability: api, operation: () => executeGitHubApiOperation(api, operation) });
+  expect(reads).toBe(1);
+  expect(targets).toEqual(['https://api.github.com/repos/sec-platform/sec/actions/runs/123']);
+});
+
+test('caller mutation cannot revoke or reinterpret an already admitted DELETE response', async () => {
+  const operation = { kind: 'delete-repository-runner', runnerId: 42 };
+  const api = capability({ effect: 'runner-admin', principal: { ...PRINCIPAL, permission: 'admin' },
+    transport: async () => { operation.kind = 'repository'; return new Response(null, { status: 204 }); }
+  });
+  expect(await withGitHubApiTestSession({ capability: api, operation: () => executeGitHubApiOperation(
+    api, operation as Parameters<typeof executeGitHubApiOperation>[1]
+  ) })).toBeNull();
+});
+
+test('request grammar rejects coercible identifiers and unsupported status states before transport', async () => {
+  let coerced = 0, requests = 0;
+  const text = { toString() { coerced++; return '123'; } };
+  const api = capability({ effect: 'status-write', transport: async () => { requests++; return Response.json({}); } });
+  const requestsToReject: unknown[] = [
+    { kind: 'workflow-run', runId: text }, { kind: 'workflow-run', runId: 123 },
+    { kind: 'commit-statuses', sha: { toString() { coerced++; return 'a'.repeat(40); } }, page: 1 },
+    { kind: 'branch', branch: new String('main') }, { kind: 'unsupported' },
+    { kind: 'create-commit-status', sha: 'a'.repeat(40), status: {
+      state: 'failure', context: 'CI', description: 'different meaning', targetUrl: 'https://github.com/sec-platform/sec/actions'
+    } }
+  ];
+  await withGitHubApiTestSession({ capability: api, operation: async () => {
+    for (const request of requestsToReject) {
+      await expect(executeGitHubApiOperation(api, request as Parameters<typeof executeGitHubApiOperation>[1]))
+        .rejects.toBeInstanceOf(Error);
+    }
+  } });
+  expect(coerced).toBe(0);
+  expect(requests).toBe(0);
 });

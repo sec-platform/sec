@@ -1,9 +1,9 @@
 import type { PassStatus } from '../../src/compiler/contract/pass-status.ts';
-import { PASS_STATUS_PENDING } from '../../src/compiler/pipeline/defaults.ts';
-import type { PipelineSettlementFailure } from '../../src/compiler/pipeline/failure.ts';
-import { PIPELINE_STAGE_DEFINITIONS } from '../../src/compiler/pipeline/pass-registry.ts';
-import { commandValue } from '../../src/interface/cli/command-value.ts';
-import { captureCliOptions } from '../../src/interface/cli/own-options.ts';
+import { PASS_STATUS_PENDING } from '../../src/adapters/compilation/pipeline/defaults.ts';
+import type { PipelineSettlementFailure } from '../../src/application/pipeline-failure.ts';
+import { PIPELINE_STAGE_DEFINITIONS } from '../../src/compiler/pipeline/stage-definitions.ts';
+import { commandValue } from '../../src/entry/cli/command-value.ts';
+import { captureCliOptions } from '../../src/entry/cli/own-options.ts';
 
 function contracts(failure: PipelineSettlementFailure) {
   const { 'build-ir': _, ...legacy } = PASS_STATUS_PENDING;

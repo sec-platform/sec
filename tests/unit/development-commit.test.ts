@@ -9,9 +9,9 @@ import {
   issueDevelopmentCommitAdmission,
   type DevelopmentCommitAdmission,
   type DevelopmentCommitRequest
-} from '../../src/development/commit-admission/operation.ts';
-import { runDevelopmentCommit } from '../../src/development/commit/operation.ts';
-import { IMPORT_NORMALIZATION_OPERATION } from '../../src/development/import-normalization/contract.ts';
+} from '../../src/adapters/self-hosting/development/commit-admission/operation.ts';
+import { runDevelopmentCommit } from '../../src/adapters/self-hosting/development/commit/operation.ts';
+import { IMPORT_NORMALIZATION_OPERATION } from '../../src/adapters/self-hosting/development/import-normalization/contract.ts';
 
 function git(root: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], {
@@ -42,7 +42,7 @@ async function fixture(): Promise<Readonly<{
     ),
     writeFile(path.join(moduleRoot, 'sec.module.json'), `${JSON.stringify({
       importGraph: 'runtime',
-      externalEntrypoints: ['src/development/import-normalization/runtime.ts'],
+      externalEntrypoints: ['src/adapters/self-hosting/development/import-normalization/runtime.ts'],
       capabilityProviders: [{
         capability: IMPORT_NORMALIZATION_OPERATION.capability,
         operations: [IMPORT_NORMALIZATION_OPERATION.operation]
@@ -102,7 +102,7 @@ test('development.commit consumes one exact staged admission before publishing i
 test('development.commit reports failed staged normalization without publishing the candidate', async () => {
   const { root, request } = await fixture();
   try {
-    const kernelPath = 'src/development/import-normalization/kernel.ts';
+    const kernelPath = 'src/adapters/self-hosting/development/import-normalization/kernel.ts';
     await writeFile(path.join(root, kernelPath),
       "import path from 'node:path';\nimport fs from 'node:fs';\nexport function normalize(): void { void fs; void path; }\n");
     git(root, ['add', '--', kernelPath]);

@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { assertNativeAbortSignal, isNativeAborted, linkNativeAbortSignals, throwIfNativeAborted } from '../../src/system-architecture/foundation/runtime/native-abort.ts';
+import { assertNativeAbortSignal, isNativeAborted, linkNativeAbortSignals, throwIfNativeAborted } from '../../src/contracts/native-abort.ts';
 
 for (const reason of [null, false, 0, 'cancelled', Object.freeze({ source: 'parent' })]) {
   test(`native state and exact cancellation reason survive shadowed signal properties (${String(reason)})`, () => {

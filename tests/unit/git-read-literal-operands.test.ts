@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { captureGitReadArguments, gitReadCommandIsObservation } from '../../src/external-capabilities/git-read/runtime/read-command.ts';
+import { captureGitReadArguments, gitReadCommandIsObservation } from '../../src/adapters/providers/git-read/runtime/read-command.ts';
 
 const head = 'a'.repeat(40);
 const pathCommands = [
@@ -51,4 +51,14 @@ test('literal support is downstream of byte admission, not a bypass for NUL or m
   const captured = captureGitReadArguments(['ls-files', '--', '--textconv'], 100);
   assert.equal(captured.status, 'ready');
   if (captured.status === 'ready') assert.equal(gitReadCommandIsObservation(captured.args), true);
+});
+
+test('registry batch metadata and revision filtering remain observation-only closed grammars', () => {
+  assert.equal(gitReadCommandIsObservation(['cat-file', '--batch-check']), true);
+  assert.equal(gitReadCommandIsObservation(['rev-parse', '--revs-only', '--end-of-options', `${head}^{tree}`, `${head}:manifest.md`]), true);
+  for (const args of [
+    ['cat-file', '--batch-check', '--textconv'], ['cat-file', '--batch-check', '--filters'],
+    ['cat-file', '--batch-check=%(objectname)'], ['cat-file', '--batch-command'],
+    ['rev-parse', '--revs-only', '--exec=unsafe'], ['rev-parse', '--revs-only', '--upload-pack=unsafe']
+  ]) assert.equal(gitReadCommandIsObservation(args), false, JSON.stringify(args));
 });
