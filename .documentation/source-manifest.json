@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "415b3ed4548afad43f5141904cd856d30ed387788a9e14d88b8db3089cd96c2b",
+  "source_set_sha256": "0014ecba94599847829aad7764ef94b5bf0ff8652d1beaeabbcdf5a12b220de9",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -1204,8 +1204,8 @@
     },
     {
       "path": "examples/semantic-query/consume.ts",
-      "bytes": 649,
-      "sha256": "1fef29c80e12ccb9fac0a0fac68402a5326df4fa127a937114e809d016158cfb"
+      "bytes": 3200,
+      "sha256": "5eac8441e338f8418fdccc9fc8c95b3712fd7e2d14225b5072abf97704bd228b"
     },
     {
       "path": "examples/semantic-query/input.json",
