@@ -38,13 +38,21 @@ function signature(s: Awaited<ReturnType<typeof fs.lstat>>): string {
 }
 async function readOrdinary(root: string, relative: string): Promise<Buffer> {
   const file = await ordinaryPath(root, relative);
-  const before = await fs.lstat(file);
-  if (!before.isFile() || before.size > DOCUMENTATION_LIMITS.fileBytes) throw new Error(`Invalid documentation file: ${relative}`);
-  const handle = await fs.open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  // Bind type and size to the opened object, not a pathname checked before open.
+  // Nonblocking open prevents a substituted FIFO from waiting for a writer on
+  // hosts that support this flag. This does not fence hostile ancestor changes.
+  const handle = await fs.open(file,
+    constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
   let primary: { error: unknown } | undefined;
   try {
     const opened = await handle.stat();
-    if (signature(before) !== signature(opened)) throw new Error(`Documentation input changed before capture: ${relative}`);
+    if (!opened.isFile() || !Number.isSafeInteger(opened.size) || opened.size < 0
+        || opened.size > DOCUMENTATION_LIMITS.fileBytes) {
+      throw new Error(`Invalid documentation file: ${relative}`);
+    }
+    // Recheck the locator before reading, including on hosts without O_NOFOLLOW.
+    const capturedPath = await fs.lstat(await ordinaryPath(root, relative));
+    if (signature(capturedPath) !== signature(opened)) throw new Error(`Documentation input changed before capture: ${relative}`);
     const data = Buffer.alloc(opened.size);
     let offset = 0;
     while (offset < data.length) {
