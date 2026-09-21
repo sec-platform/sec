@@ -10,8 +10,12 @@ permissions:
   security-events: read
 
 jobs:
-  javascript-typescript:
+  analyze:
     if: github.head_ref == 'diagnostic/sec086-codeql'
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, python, actions]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -24,7 +28,7 @@ jobs:
       - name: Initialize exact diagnostic CodeQL
         uses: github/codeql-action/init@1c5b675653bb5c22dbe9b12b556ec555138e09fd
         with:
-          languages: javascript-typescript
+          languages: ${{ matrix.language }}
           build-mode: none
           queries: security-extended
           config: |
@@ -40,28 +44,29 @@ jobs:
         with:
           upload: false
           output: sec-codeql-sarif
-      - name: Emit compact SARIF findings
+      - name: Emit compact SARIF findings and flows
         shell: bash
         run: |
           set -euo pipefail
-          echo 'SEC_CODEQL_FINDINGS_BEGIN'
+          echo "SEC_CODEQL_FINDINGS_BEGIN:${{ matrix.language }}"
           find sec-codeql-sarif -type f -name '*.sarif' -print0 |
             sort -z |
             xargs -0 jq -c '
               .runs[] |
-              .tool.driver.rules as $rules |
               .results[] |
               {
                 ruleId: .ruleId,
-                level: (.level // null),
-                securitySeverity: (
-                  .ruleId as $id |
-                  [$rules[] | select(.id == $id) | .properties["security-severity"]] |
-                  .[0] // null
-                ),
                 path: (.locations[0].physicalLocation.artifactLocation.uri // null),
                 line: (.locations[0].physicalLocation.region.startLine // null),
-                message: (.message.text // null)
+                message: (.message.text // null),
+                flows: [
+                  (.codeFlows // [])[]?.threadFlows[]?.locations[]? |
+                  {
+                    path: (.location.physicalLocation.artifactLocation.uri // null),
+                    line: (.location.physicalLocation.region.startLine // null),
+                    message: (.location.message.text // null)
+                  }
+                ]
               }' |
             sort
-          echo 'SEC_CODEQL_FINDINGS_END'
+          echo "SEC_CODEQL_FINDINGS_END:${{ matrix.language }}"
