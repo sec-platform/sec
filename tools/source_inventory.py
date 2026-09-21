@@ -458,11 +458,15 @@ def refresh_source_manifest(root: Path) -> dict[str, object]:
         return _refresh_source_manifest(root)
 
 
+def repository_root() -> Path:
+    """The writer is repository-local; callers cannot redirect it to another tree."""
+    return _root(Path(__file__).absolute().parent.parent)
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('root', nargs='?', type=Path, default=Path(__file__).resolve().parent.parent)
-    parser.add_argument('--write', action='store_true', help='refresh projections, never authority')
+    parser.add_argument('--write', action='store_true', help='refresh this repository projections, never authority')
     args = parser.parse_args()
     if not args.write:
         parser.error('--write is required; ordinary verification uses tools/check_docs.py')
-    print(json.dumps(refresh_source_manifest(args.root), ensure_ascii=False, indent=2))
+    print(json.dumps(refresh_source_manifest(repository_root()), ensure_ascii=False, indent=2))
