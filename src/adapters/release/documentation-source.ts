@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import { constants } from 'node:fs';
 import path from 'node:path';
-import { settleResourcesAsync } from '../../execution/resource-settlement.ts';
+import { settleResourcesAsync, withAcquiredResource } from '../../execution/resource-settlement.ts';
 import { digest, sha256 } from '../../contracts/canonical.ts';
 import { portableLogicalPathCollisionKey } from '../../contracts/logical-path.ts';
 import {
@@ -78,9 +78,34 @@ async function readOrdinary(root: string, relative: string): Promise<Buffer> {
 }
 async function optionalBytes(root: string, relative: string): Promise<Buffer | null> {
   // Only the registered output's own absence is optional, never a missing source ancestor.
+  const parent = relative.slice(0, relative.lastIndexOf('/'));
+  await ordinaryPath(root, parent);
   try { await fs.lstat(path.join(root, relative)); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    // ENOENT also describes a missing ancestor; only leaf absence is optional.
+    await ordinaryPath(root, parent);
+    return null;
+  }
   return readOrdinary(root, relative);
+}
+/** Consume a bounded native directory stream; body and close failures retain
+ * the existing resource owner's settlement semantics. Never materialize an
+ * unbounded readdir array merely to inspect or reject a directory. */
+async function visitDirectory(absolute: string, consume: (name: string) => void): Promise<void> {
+  await withAcquiredResource({
+    operationLabel: 'documentation directory traversal',
+    resourceLabel: 'documentation directory handle',
+    acquire: () => fs.opendir(absolute),
+    use: async directory => {
+      for (;;) {
+        const entry = await directory.read();
+        if (entry === null) return;
+        consume(entry.name);
+      }
+    },
+    release: directory => directory.close()
+  });
 }
 async function enumerateSource(root: string, boundary: DocumentationBoundary): Promise<readonly string[]> {
   const files: string[] = [];
@@ -94,8 +119,12 @@ async function enumerateSource(root: string, boundary: DocumentationBoundary): P
     const absolute = await ordinaryPath(root, relative);
     const metadata = await fs.lstat(absolute);
     if (metadata.isDirectory()) {
-      const entries = await fs.readdir(absolute);
-      pending.push(...entries.map(name => `${relative}/${name}`));
+      await visitDirectory(absolute, name => {
+        if (visited + pending.length >= DOCUMENTATION_LIMITS.members) {
+          throw new Error('Documentation traversal budget exceeded');
+        }
+        pending.push(`${relative}/${name}`);
+      });
     } else if (metadata.isFile()) {
       if (relative.startsWith('.documentation/') && !(DOCUMENTATION_AUTHORED_METADATA as readonly string[]).includes(relative)) {
         throw new Error(`Unknown documentation metadata role: ${relative}`);
@@ -113,7 +142,12 @@ async function enumerateSource(root: string, boundary: DocumentationBoundary): P
     if (documentationIsNonSource(relative) || boundary.nonDocumentationRoots.some(exemption => documentationPathWithin(relative, exemption))) continue;
     const absolute = await ordinaryPath(root, relative);
     const metadata = await fs.lstat(absolute);
-    if (metadata.isDirectory()) audit.push(...(await fs.readdir(absolute)).map(name => `${relative}/${name}`));
+    if (metadata.isDirectory()) await visitDirectory(absolute, name => {
+      if (visited + audit.length >= DOCUMENTATION_LIMITS.members * 2) {
+        throw new Error('Documentation namespace audit budget exceeded');
+      }
+      audit.push(`${relative}/${name}`);
+    });
     else if (!metadata.isFile() || !members.has(relative)) throw new Error(`Undeclared documentation namespace member: ${relative}`);
   }
   return Object.freeze(files.sort(compareDocumentationPaths));
@@ -216,7 +250,9 @@ async function validateRequirementProjection(root: string, contract: Documentati
 export async function materializeDocumentationPackage(sourceRoot: string, targetRoot: string): Promise<DocumentationSourceContract> {
   sourceRoot = await checkedRoot(sourceRoot);
   targetRoot = await checkedRoot(targetRoot);  // Caller supplies its own empty staging directory.
-  if ((await fs.readdir(targetRoot)).length !== 0) throw new Error('Documentation staging root must be empty');
+  await visitDirectory(targetRoot, () => {
+    throw new Error('Documentation staging root must be empty');
+  });
   const contract = await readDocumentationSource(sourceRoot);
   const outputs = new Map<string, Buffer>();
   outputs.set(DOCUMENTATION_SOURCE_MANIFEST, await readOrdinary(sourceRoot, DOCUMENTATION_SOURCE_MANIFEST));
