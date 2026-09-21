@@ -48,6 +48,7 @@ tests:
   - tests/unit/documentation-source.test.ts
   - tests/unit/runtime-layout.test.ts
   - tests/unit/runtime-query-scope.test.ts
+  - tests/unit/semantic-query-input-boundary.test.ts
   - tests/unit/work-selection-live.test.ts
 ---
 

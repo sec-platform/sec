@@ -11,7 +11,7 @@ selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
 manifest: config/repository/work-packages/sec086-current-main-convergence-v1.md
-manifestDigest: sha256:e67697dd0a9e3903b1e9a6a24438ebcb7274ee652fa17b046928c5cedbb4bbb4
+manifestDigest: sha256:7bd0c207d9098a7d5deadecb87effcb50844200fc01348f3caad2f9f81aa5afc
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
