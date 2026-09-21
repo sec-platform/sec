@@ -1,16 +1,12 @@
 import { expect, test } from 'bun:test';
 
-import { TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE, policySemanticRule } from '../../src/compiler/policies/contract/rules.ts';
-import type { PolicyReport } from '../../src/compiler/policies/contract/types.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { buildReviewPolicySummary } from '../../src/verification/review/contract/policy.ts';
-import { writeJson } from '../../src/workspace/files.ts';
-import {
-  policiesRelativePath,
-  posixPath,
-  resolveWorkspaceArtifactPath,
-  srcRelativePath
-} from '../../src/workspace/runtime/paths.ts';
+import { TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE, policySemanticRule } from '../../src/semantics/policies/rules.ts';
+import type { PolicyReport } from '../../src/semantics/policies/types.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import { buildReviewPolicySummary } from '../../src/assurance/verification/review/contract/policy.ts';
+import { writeJson } from "../../src/adapters/filesystem/files.ts";
+import { policiesRelativePath, resolveWorkspaceArtifactPath, srcRelativePath } from "../../src/adapters/workspace-context.ts";
+import { posixPath } from '../../src/contracts/relative-path.ts';
 import {
   buildPassingReviewReport,
   buildReviewSummaryInTempWorkspace

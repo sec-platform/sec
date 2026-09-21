@@ -3,13 +3,9 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 import type { LockFile } from '../../src/compiler/contract.ts';
-import {
-  readLockFile,
-  saveLock,
-  writeLockWithGeneratedPaths
-} from '../../src/compiler/lock.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+import { readLockFile, saveLock, writeLockWithGeneratedPaths } from "../../src/adapters/workspace/lock.ts";
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { semanticArtifactLock } from '../testkit/semantic-lock.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 

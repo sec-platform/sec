@@ -1,13 +1,13 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { getEventListeners } from 'node:events';
-import { SecError } from '../../src/system-architecture/foundation/contract/failure.ts';
+import { SecError } from '../../src/contracts/failure.ts';
 import {
   runtimeDependencyOperationContext,
   runtimeDependencyOperationEffectFence,
   runtimeDependencyOperationOptions,
   waitForRuntimeDependencyOperation
-} from '../../src/toolchain/dependencies/runtime/operation-context.ts';
+} from '../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
 
 type Outcome = { kind: 'fulfilled' } | { kind: 'rejected'; error: unknown };
 function observed(work: Promise<void>): { outcome: () => Outcome | undefined; settled: Promise<Outcome> } {

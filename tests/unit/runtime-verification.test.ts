@@ -3,12 +3,12 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
+import { createSkippedRuntimeLane } from '../../src/assurance/verification/project/report.ts';
 import {
-  createSkippedRuntimeLane,
   normalizeRuntimeVerificationLog,
   runRuntimeVerification,
   runtimeVerificationInvocation
-} from '../../src/compiler/verify/run-runtime-verification.ts';
+} from '../../src/adapters/verification/run-runtime-verification.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('runtime verification skips empty inventory without preparing dependencies or launching a process', async () => {

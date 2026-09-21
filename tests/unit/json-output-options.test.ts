@@ -2,12 +2,17 @@ import { test } from 'bun:test';
 import { Command } from 'commander';
 import assert from 'node:assert/strict';
 
-import { addJsonFlags, jsonOpts } from '../../src/interface/cli/command-options.ts';
-import { JSON_OUTPUT_OPTIONS, parseJsonOutputOptions, type JsonOutputIssue } from '../../src/interface/cli/json-output-options.ts';
-import { parsePipelineOutputOptions } from '../../src/interface/cli/pipeline-command-input.ts';
-import { registerPipelineCommands } from '../../src/interface/cli/register-pipeline-commands.ts';
+import { addJsonFlags, jsonOpts } from '../../src/entry/cli/command-options.ts';
+import { JSON_OUTPUT_OPTIONS, parseJsonOutputOptions, type JsonOutputIssue } from '../../src/entry/cli/json-output-options.ts';
+import { parsePipelineOutputOptions } from '../../src/entry/cli/pipeline-command-input.ts';
+import { registerPipelineCommands } from '../../src/entry/cli/register-pipeline-commands.ts';
 
 const reject = (issue: JsonOutputIssue): never => { throw issue; };
+
+const inertPipelineOperations = {
+  compile: async () => { throw new Error('pipeline compile operation must not run'); },
+  inspect: async () => { throw new Error('pipeline inspect operation must not run'); }
+} as const;
 
 test('all three entry paths agree on each admitted boolean configuration', () => {
   for (const json of [undefined, false, true]) for (const compact of [undefined, false, true]) {
@@ -119,7 +124,7 @@ test('valid flags execute the actual selected action exactly once', async () => 
 test('pipeline registration consumes the same flags but preserves pipeline error codes', async () => {
   for (const path of [['compile'], ['pipeline', 'inspect']]) {
     const program = new Command().name('sec').exitOverride();
-    registerPipelineCommands(program);
+    registerPipelineCommands(program, inertPipelineOperations);
     let selected = program;
     for (const name of path) selected = selected.commands.find((child) => child.name() === name)!;
     selected.setOptionValue('json', 'false');

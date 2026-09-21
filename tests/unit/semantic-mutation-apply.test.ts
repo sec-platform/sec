@@ -1,26 +1,25 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, rename, symlink } from 'node:fs/promises';
+import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
 import {
   querySemanticMutationRequest
-} from '../../src/compiler/orchestration/cli.ts';
-import { semanticMutationStagedRebuildDiagnostic } from '../../src/compiler/semantic-mutation/derive-staged-mutation.ts';
+} from '../../src/bootstrap/engineering/cli.ts';
+import { semanticMutationStagedRebuildDiagnostic } from '../../src/adapters/mutation/derive-staged-mutation.ts';
 import {
   appendSemanticMutationRecoveryRecord,
-  assertSemanticMutationRecoveryRecordInvariant,
   loadSemanticMutationRecoveryRecords,
-  semanticMutationRecoveryRecordRevision
-} from '../../src/compiler/semantic-mutation/mutation-recovery-record.ts';
+} from '../../src/adapters/mutation/mutation-recovery-record.ts';
+import { assertSemanticMutationRecoveryRecordInvariant, semanticMutationRecoveryRecordRevision } from '../../src/compiler/semantic-mutation/recovery-record.ts';
 import {
   writeRejectedSemanticMutationTerminal
-} from '../../src/compiler/semantic-mutation/mutation-terminal-record.ts';
+} from '../../src/adapters/mutation/mutation-terminal-record.ts';
 import {
-  semanticMutationRequestIdentityDigest,
-  semanticMutationStagedTransactionId,
   semanticMutationTransactionRoot
-} from '../../src/compiler/semantic-mutation/transaction-identity.ts';
-import { type SemanticMutationRecoveryRecord } from '../../src/semantic/mutation/contract/transaction.ts';
+} from '../../src/adapters/mutation/transaction-identity.ts';
+import { semanticMutationRequestIdentityDigest, semanticMutationStagedTransactionId } from '../../src/compiler/semantic-mutation/identity.ts';
+import { type SemanticMutationRecoveryRecord } from '../../src/semantics/mutation/transaction.ts';
 import {
   digest,
   recoveryDraft,
@@ -126,3 +125,24 @@ test('SM-3 recovery generations are immutable, chained, digest-bound, and fail c
     expect(semanticMutationRecoveryRecordRevision(withoutRevision)).toBe(committed.recordRevision);
   });
 });
+
+
+test.skipIf(process.platform === 'win32')(
+  'SM-3 recovery reader rejects a symlink-substituted generation leaf',
+  async () => {
+    await withTempWorkspace(async (workspaceRoot) => {
+      const draft = recoveryDraft('request:recovery-leaf-substitution');
+      const transactionRoot = semanticMutationTransactionRoot(workspaceRoot, draft.requestIdentityDigest);
+      await mkdir(transactionRoot, { recursive: true });
+      await appendSemanticMutationRecoveryRecord(transactionRoot, draft, allowCommit);
+
+      const generation = path.join(transactionRoot, 'records', '000001-prepared.json');
+      const displaced = path.join(transactionRoot, 'records', 'displaced-prepared.json');
+      await rename(generation, displaced);
+      await symlink(displaced, generation, 'file');
+
+      await expect(loadSemanticMutationRecoveryRecords(transactionRoot))
+        .rejects.toThrow('recovery generation is not an ordinary file');
+    }, 'engineering-compiler-sm3-recovery-leaf-substitution-');
+  }
+);

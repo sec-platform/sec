@@ -25,10 +25,10 @@ import path from 'node:path';
 
 import { runRetainedGitWriteTreeProbeV1 } from '../helpers/retained-git-write-tree-probe.ts';
 
-import type { LinuxNoFollowDirectoryCreateRaceActor, LinuxNoFollowDirectoryCreateRacePoint } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { assertRetainedNoFollowCapability, assertSameNoFollowDirectoryIdentity, copyNoFollowDirectoryTreesBulk, createExclusiveNoFollowDirectory, createLinuxNoFollowDirectoryCreateRaceActorForTests, createNoFollowDirectoryChain, createWindowsDurableCanonicalFileReplacementInterruptionActorForTests, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowDirectoryLeaf, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileDigest, inspectNoFollowOrdinaryFileEntry, PhysicalNoFollowError, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, recoverDurableCanonicalFileReplacement, relocateRetainedNoFollowDirectory, replaceDurableCanonicalFile, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, retainNoFollowOrdinaryFileForChildProcess, retainNoFollowSealedDirectoryGeneration, retireNoFollowDirectoryTree, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, scanNoFollowDirectoryTreeSelectedForest } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { sealExistingWindowsReadOnlyTreeAuthority } from '../../src/runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
-import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import type { LinuxNoFollowDirectoryCreateRaceActor, LinuxNoFollowDirectoryCreateRacePoint } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { assertRetainedNoFollowCapability, assertSameNoFollowDirectoryIdentity, copyNoFollowDirectoryTreesBulk, createExclusiveNoFollowDirectory, createLinuxNoFollowDirectoryCreateRaceActorForTests, createNoFollowDirectoryChain, createWindowsDurableCanonicalFileReplacementInterruptionActorForTests, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowDirectoryLeaf, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileDigest, inspectNoFollowOrdinaryFileEntry, PhysicalNoFollowError, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, recoverDurableCanonicalFileReplacement, relocateRetainedNoFollowDirectory, replaceDurableCanonicalFile, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, retainNoFollowOrdinaryFileForChildProcess, retainNoFollowSealedDirectoryGeneration, retireNoFollowDirectoryTree, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, scanNoFollowDirectoryTreeSelectedForest } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { sealExistingWindowsReadOnlyTreeAuthority } from '../../src/adapters/runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
+import { sha256 } from '../../src/contracts/canonical.ts';
 
 function fixtureRoot(): string {
   return mkdtempSync(path.join(tmpdir(), 'sec-physical-no-follow-'));
@@ -554,6 +554,9 @@ test('retained child-process file reads the observed inode after leaf replacemen
     try {
       expect(capability.physical).toEqual({ device: entry!.device, inode: entry!.inode });
       expect(capability.size).toBe(Buffer.byteLength('authorized-index\n'));
+      const expectedDigest = `sha256:${createHash('sha256').update('authorized-index\n').digest('hex')}` as const;
+      expect(capability.digest().byteDigest).toBe(expectedDigest);
+      capability.assertCurrent();
       if (process.platform === 'linux') {
         expect(capability.stdioSourceDescriptor).toEqual(expect.any(Number));
         expect(capability.stdioSourceDescriptor!).toBeGreaterThanOrEqual(5);
@@ -576,10 +579,15 @@ test('retained child-process file reads the observed inode after leaf replacemen
       });
       expect(child.status).toBe(0);
       expect(child.stdout).toBe('authorized-index\n');
-      expect(capability.digest().byteDigest).toBe(
-        `sha256:${createHash('sha256').update('authorized-index\n').digest('hex')}`
-      );
-      capability.assertCurrent();
+      if (process.platform === 'linux') {
+        // A retained descriptor can still read the old inode. That fact does
+        // not renew the current lexical/source binding after replacement.
+        expectPhysicalCode(() => capability.digest(), 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED');
+        expectPhysicalCode(() => capability.assertCurrent(), 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED');
+      } else {
+        expect(capability.digest().byteDigest).toBe(expectedDigest);
+        capability.assertCurrent();
+      }
     } finally {
       capability.dispose();
     }
@@ -661,7 +669,7 @@ test('Linux exact ordinary leaf rejects a FIFO without a blocking open', async (
   try {
     const created = Bun.spawnSync({ cmd: ['mkfifo', fifoPath], stdout: 'pipe', stderr: 'pipe' });
     expect(created.exitCode).toBe(0);
-    const moduleUrl = new URL('../../src/runtime-state/physical/runtime/physical-no-follow.ts', import.meta.url).href;
+    const moduleUrl = new URL('../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts', import.meta.url).href;
     const child = Bun.spawn({
       cmd: [process.execPath, '-e', `
         import { inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry } from ${JSON.stringify(moduleUrl)};
@@ -1037,6 +1045,13 @@ test('streaming tree inventory preserves the canonical digest domain beyond the 
       size: smallBytes.byteLength,
       byteDigest: `sha256:${createHash('sha256').update(smallBytes).digest('hex')}`
     });
+    const rawInventory = new Map(scanNoFollowDirectoryTreeInventory(identity, {
+      includeByteDigest: true
+    }).map((entry) => [entry.relativePath, entry]));
+    expect(rawInventory.get('small.txt')?.byteDigest).toBe(
+      `sha256:${createHash('sha256').update(smallBytes).digest('hex')}`
+    );
+    expect(first.get('small.txt')).not.toHaveProperty('byteDigest');
     expect(first.get('large.bin')).toMatchObject({ kind: 'file', size: largeSize });
     expect(first.get('large.bin')?.contentDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
     expect(second.get('large.bin')?.contentDigest).toBe(first.get('large.bin')?.contentDigest);
@@ -1110,6 +1125,7 @@ test('retained ordinary-file digest rejects a same-size in-place rewrite', () =>
     expect(replacement.byteLength).toBe(original.byteLength);
     mkdirSync(target);
     writeFileSync(filePath, original);
+    chmodSync(filePath, 0o755);
     const parent = inspectNoFollowDirectoryChain(target, 'same-size rewrite parent');
     const capability = retainNoFollowOrdinaryFile(
       parent,
@@ -1199,7 +1215,7 @@ test.skipIf(process.platform !== 'win32')(
 );
 
 test.skipIf(process.platform !== 'linux')(
-  'executable role admission is typed-unavailable without sealed image support',
+  'Linux executable admission rejects non-executable files before issuing a sealed image',
   () => {
     const root = fixtureRoot();
     try {
@@ -1212,10 +1228,10 @@ test.skipIf(process.platform !== 'linux')(
         parent,
         'executable.bin',
         undefined,
-        'unsealed executable role admission',
+        'non-executable role admission',
         3,
         'executable'
-      )).toThrow('sealed image or mandatory writer-exclusion primitive');
+      )).toThrow('is not an executable ordinary file');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -1648,3 +1664,28 @@ test('Linux retained deletion accepts selected-name absence when another hard li
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+
+test.skipIf(process.platform !== 'linux')(
+  'durable publication applies an authenticated ordinary POSIX creation mode',
+  () => {
+    const root = fixtureRoot();
+    try {
+      const target = path.join(root, 'target');
+      mkdirSync(target);
+      const parent = inspectNoFollowDirectoryChain(target, 'explicit-mode publication parent').target;
+      const bytes = Buffer.from('exact git-mode bytes\n');
+      const receipt = publishExclusiveDurableCanonicalFile({
+        parent,
+        name: 'tool.sh',
+        bytes,
+        permissionMode: 0o755,
+        validate: (current) => expect(Buffer.from(current)).toEqual(bytes)
+      });
+      expect(receipt.created).toBe(true);
+      expect(statSync(path.join(target, 'tool.sh')).mode & 0o777).toBe(0o755);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+);

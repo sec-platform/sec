@@ -1,5 +1,5 @@
-import type { SemanticGeneratorPlanTask } from '../semantic/generation/contract/types.ts';
-import { portableLogicalPathCollisionKey } from '../system-architecture/foundation/contract/logical-path.ts';
+import type { SemanticGeneratorPlanTask } from '../semantics/generation/types.ts';
+import { portableLogicalPathCollisionKey } from '../contracts/logical-path.ts';
 import { CompilerError } from './errors.ts';
 
 /** Every output task owns one identity and one ordinary-file target. Repeated

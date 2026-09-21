@@ -7,7 +7,7 @@ import { expect, test } from 'bun:test';
 import {
   GIT_READ_OPERATION_BUDGET,
   runGitRead
-} from '../../src/development/tooling/git/git-read.ts';
+} from '../../src/adapters/self-hosting/development/tooling/git/git-read.ts';
 import {
   assertGitReadSessionReceipt,
   assertProductionGitReadSession,
@@ -18,9 +18,9 @@ import {
   isTestGitReadSession,
   isolatedGitChildEnvironment,
   isolatedGitReadEnvironment
-} from '../../src/external-capabilities/git-read/test/session.ts';
-import { openProcessResourceSession } from '../../src/runtime-state/physical/runtime/process-resource-session.ts';
-import { issueSecOperationRequirementBindingContext } from '../../src/system-architecture/operation/requirement-binding-context.ts';
+} from '../../src/adapters/providers/git-read/test/session.ts';
+import { openProcessResourceSession } from '../../src/adapters/runtime-state/physical/runtime/process-resource-session.ts';
+import { issueSecOperationRequirementBindingContext } from '../../src/execution/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
@@ -28,7 +28,7 @@ import {
   issueSecSemanticOperationAttemptContext,
   type SecBoundSemanticOperation,
   type SecOperationDigest
-} from '../../src/system-architecture/operation/semantic.ts';
+} from '../../src/execution/operation/semantic.ts';
 
 const TEST_GIT_READ_CONTRACT_DIGEST = `sha256:${'1'.repeat(64)}` as SecOperationDigest;
 const TEST_GIT_READ_PROVIDER_DIGEST = `sha256:${'2'.repeat(64)}` as SecOperationDigest;

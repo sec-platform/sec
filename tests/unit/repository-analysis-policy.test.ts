@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import {
   captureRepositoryAnalysisPolicy as capture,
   repositoryAnalysisPolicyDigest as readDigest
-} from '../../src/brownfield/source-program-model/repository-analysis-policy.ts';
+} from '../../src/adapters/repository/source-program-model/repository-analysis-policy.ts';
 
 const a = 'src/alpha.ts::function-declaration:run::spawn#1';
 const b = 'src/beta.ts::function-declaration:run::spawn#1';

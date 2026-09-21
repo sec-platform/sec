@@ -1,6 +1,6 @@
-import { SEMANTIC_ENTITY_KINDS, type SemanticEntityKind } from '../../semantic/engineering-ir/contract/entity-types.ts';
-import { SEMANTIC_PREDICATES, type SemanticFactObject, type SemanticPredicate, type SemanticValue } from '../../semantic/engineering-ir/contract/fact-types.ts';
-import { SEMANTIC_MUTATION_CONTRACT_VERSION, SEMANTIC_MUTATION_EXPECTATION_REVISION, SEMANTIC_MUTATION_OPERATION_REGISTRY_REVISION, type ExpectedFactAssertionChange, type ExpectedSemanticFact, type NormalizedSemanticMutationRequest, type SemanticFactSelector, type SemanticMutationAuthorizationContext, type SemanticMutationCondition, type SemanticMutationExpectation, type SemanticMutationOperation, type SemanticMutationRequest, type VerificationRequirement } from '../../semantic/mutation/contract/types.ts';
+import { SEMANTIC_ENTITY_KINDS, type SemanticEntityKind } from '../../semantics/engineering-ir/entity-types.ts';
+import { SEMANTIC_PREDICATES, type SemanticFactObject, type SemanticPredicate, type SemanticValue } from '../../semantics/engineering-ir/fact-types.ts';
+import { SEMANTIC_MUTATION_CONTRACT_VERSION, SEMANTIC_MUTATION_EXPECTATION_REVISION, SEMANTIC_MUTATION_OPERATION_REGISTRY_REVISION, type ExpectedFactAssertionChange, type ExpectedSemanticFact, type NormalizedSemanticMutationRequest, type SemanticFactSelector, type SemanticMutationAuthorizationContext, type SemanticMutationCondition, type SemanticMutationExpectation, type SemanticMutationOperation, type SemanticMutationRequest, type VerificationRequirement } from '../../semantics/mutation/types.ts';
 import {
   canonicalJson,
   cloneAndDeepFreeze,

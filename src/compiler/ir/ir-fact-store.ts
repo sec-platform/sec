@@ -1,6 +1,6 @@
-import type { SemanticEntityId } from '../../semantic/engineering-ir/contract/entity-types.ts';
-import type { EvidenceReference, FactAssertion, FactProvenance, SemanticAuthority, SemanticFact, SemanticFactObject, SemanticPredicate } from '../../semantic/engineering-ir/contract/fact-types.ts';
-import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
+import type { SemanticEntityId } from '../../semantics/engineering-ir/entity-types.ts';
+import type { EvidenceReference, FactAssertion, FactProvenance, SemanticAuthority, SemanticFact, SemanticFactObject, SemanticPredicate } from '../../semantics/engineering-ir/fact-types.ts';
+import { compareCodeUnits } from '../../contracts/canonical.ts';
 import { CompilerError } from '../errors.ts';
 import { factIdentity } from './ir-identity.ts';
 import { normalizeEvidence, normalizeFactObject, normalizeProvenance } from './ir-normalization.ts';

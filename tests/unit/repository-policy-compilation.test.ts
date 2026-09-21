@@ -1,13 +1,13 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { compileSourceProgramFindingDelta } from '../../src/brownfield/source-program-model/reconciliation-findings.ts';
+import { compileSourceProgramFindingDelta } from '../../src/adapters/repository/source-program-model/reconciliation-findings.ts';
 import {
   assertRepositorySourceProgramCompilationReceipt,
   compileVirtualRepositorySourceProgramCompilation as compile
-} from '../../src/brownfield/source-program-model/repository-compilation.ts';
-import { compileVirtualWorkspaceSourceSnapshot } from '../../src/brownfield/source-program-model/workspace-source-snapshot.ts';
-import { rawSha256, sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
-import { compileSecRepositoryModuleMembershipSnapshot } from '../../src/system-architecture/repository-modules/contract.ts';
+} from '../../src/adapters/repository/source-program-model/repository-compilation.ts';
+import { compileVirtualWorkspaceSourceSnapshot } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
+import { rawSha256, sha256 } from '../../src/contracts/canonical.ts';
+import { compileSecRepositoryModuleMembershipSnapshot } from '../../src/adapters/repository/architecture/contract.ts';
 
 // These integration cases require the actual compiler and virtual snapshot
 // issuers. No fixture can stand in for a source model or a compilation receipt.

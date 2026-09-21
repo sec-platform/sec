@@ -1,13 +1,13 @@
 import { expect, test } from 'bun:test';
-import { createMainHealthLedger } from '../../src/control/main-health/contract.ts';
+import { createMainHealthLedger } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
 import {
   resolveWorkSelectionMainHealthProviders
-} from '../../src/control/main-health/work-selection-main-health.ts';
+} from '../../src/adapters/self-hosting/control/main-health/work-selection-main-health.ts';
 import {
   withGitHubApiTestEnrollmentSession,
   withGitHubApiTestReadOperationBudget,
   withGitHubApiTestSession
-} from '../../src/external-capabilities/github-api/test/operation-session.ts';
+} from '../../src/adapters/providers/github-api/test/operation-session.ts';
 
 const MAIN = '1'.repeat(40);
 const TREE = '2'.repeat(40);
@@ -54,7 +54,7 @@ test('WorkSelection resolves only registered hosted repository health', () => {
     trustRevision: base.mainSha,
     observedAt: base.now,
     producer: {
-      identity: 'src/control/main-health/main-health-observation.ts',
+      identity: 'src/adapters/self-hosting/control/main-health/main-health-observation.ts',
       trustRevision: base.mainSha,
       sourceTransport: 'github-api',
       sourceRunId: '33109458351',
@@ -130,9 +130,9 @@ test('MainHealth GitHub enrollment carries credential budget through principal r
   expect(operationCalls).toBe(0);
 });
 
-test('nested MainHealth GitHub test sessions reuse the outer absolute budget', async () => {
+test('nested MainHealth sessions cannot revive an expired outer budget by rolling back the clock', async () => {
   let now = 0;
-  const result = await withGitHubApiTestEnrollmentSession({
+  await expect(withGitHubApiTestEnrollmentSession({
     repository: 'sec-platform/sec',
     effect: 'read',
     timeoutMs: 10,
@@ -159,8 +159,7 @@ test('nested MainHealth GitHub test sessions reuse the outer absolute budget', a
       now = 9;
       return 'completed';
     }
-  });
-  expect(result).toBe('completed');
+  })).rejects.toThrow('deadline exceeded');
 });
 
 test('MainHealth parent read budget admits T1 and fresh T2 but no third session', async () => {
@@ -224,4 +223,22 @@ test('MainHealth parent read budget carries its absolute deadline into T2', asyn
   })).rejects.toThrow('deadline exceeded');
   expect(tokenTimeouts).toEqual([20, 1]);
   expect(fetchCalls).toBe(2);
+});
+
+test('nested MainHealth sessions still reuse a live outer budget without replacing its deadline', async () => {
+  let now = 0;
+  const result = await withGitHubApiTestEnrollmentSession({
+    repository: 'sec-platform/sec', effect: 'read', timeoutMs: 10, now: () => now,
+    readToken: async () => TEST_TOKEN,
+    transport: async inputUrl => String(inputUrl).endsWith('/user')
+      ? Response.json({ login: 'maintainer', node_id: 'MDQ6VXNlcjE=' }) : Response.json({ permission: 'read' }),
+    operation: async capability => {
+      now = 5;
+      const nested = await withGitHubApiTestSession({ capability, timeoutMs: 1_000,
+        operation: async () => { now = 9; return 'inside original window'; } });
+      expect(nested).toBe('inside original window');
+      return 'completed';
+    }
+  });
+  expect(result).toBe('completed');
 });

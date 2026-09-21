@@ -1,7 +1,7 @@
-import { SEMANTIC_PREDICATES, type SemanticPredicate } from '../../semantic/engineering-ir/contract/fact-types.ts';
-import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { SEMANTIC_PREDICATES, type SemanticPredicate } from '../../semantics/engineering-ir/fact-types.ts';
+import { compareCodeUnits } from '../../contracts/canonical.ts';
 import { CompilerError } from '../errors.ts';
-import { PREDICATE_SIGNATURE_REGISTRY } from '../ir/predicate-signatures.ts';
+import { PREDICATE_SIGNATURE_REGISTRY } from '../../semantics/engineering-ir/predicate-signatures.ts';
 
 export type ImpactPropagationRule =
   | {

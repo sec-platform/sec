@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
-import { ExactJsonError, parseExactJson, parseExactJsonBytes } from '../../src/system-architecture/foundation/runtime/exact-json.ts';
+import { ExactJsonError, parseExactJson, parseExactJsonBytes } from '../../src/contracts/exact-json.ts';
 
 const bytes = (text: string): Uint8Array => new TextEncoder().encode(text);
 const admission = { maximumInputBytes: 1024, maximumDepth: 10 } as const;

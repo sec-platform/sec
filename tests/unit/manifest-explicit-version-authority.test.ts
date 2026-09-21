@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { loadManifestById } from '../../src/compiler/parse/load-manifest.ts';
+import { loadManifestById } from '../../src/adapters/workspace/sources/load-manifest.ts';
 
 const rootManifest = `id: example/basic
 version: 2.0.0

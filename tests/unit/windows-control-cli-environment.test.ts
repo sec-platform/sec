@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { computeSecWindowsControlCliEnvironmentSpecDigest, getSecWindowsControlCliExecutableBindingV1, parseSecWindowsControlCliEnvironmentAuthority, projectSecWindowsControlCliEnvironmentV1, SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY, SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_DIGEST } from '../../src/external-capabilities/windows-control-cli/contract/environment.ts';
+import { computeSecWindowsControlCliEnvironmentSpecDigest, getSecWindowsControlCliExecutableBindingV1, parseSecWindowsControlCliEnvironmentAuthority, projectSecWindowsControlCliEnvironmentV1, SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY, SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_DIGEST } from '../../src/adapters/providers/windows-control-cli/contract/environment.ts';
 
 function source(): Record<string, unknown> {
   const { specDigest: _specDigest, ...body } = SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY;

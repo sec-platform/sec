@@ -2,9 +2,13 @@ import { expect, test } from 'bun:test';
 
 import type { PlanFile } from '../../src/compiler/contract.ts';
 import { SUPPORTED_STACK } from '../../src/compiler/contract.ts';
-import { loadManifestById, resolveRegistrySources } from '../../src/compiler/parse/load-manifest.ts';
-import { normalizePlan, validatePlan } from '../../src/compiler/parse/load-plan.ts';
-import { isCanonicalBlockId, isCanonicalRegistryVersion } from '../../src/semantic/identity/contract/block.ts';
+import { loadManifestById, resolveRegistrySources } from '../../src/adapters/workspace/sources/load-manifest.ts';
+import { normalizePlan, validatePlan } from '../../src/compiler/contract/plan-validation.ts';
+import { isCanonicalBlockId, isCanonicalRegistryVersion } from '../../src/semantics/identity/block.ts';
+const PLAN_NORMALIZATION_DEFAULTS = Object.freeze({
+  officialPath: 'catalog/registry/official',
+  privatePath: 'model/blocks/private'
+});
 
 test('canonical block identity is cross-platform path-safe and injective', () => {
   for (const value of [
@@ -80,13 +84,13 @@ test('direct registry source callers cannot bypass Plan enum and path validation
 test('Plan raw-shape normalization fails closed before array/property operations', () => {
   expect(() => normalizePlan({
     registry: { sources: { id: 'not-an-array' } }
-  } as unknown as PlanFile)).toThrow();
+  } as unknown as PlanFile, PLAN_NORMALIZATION_DEFAULTS)).toThrow();
   expect(() => normalizePlan({
     registry: { sources: [null] }
-  } as unknown as PlanFile)).toThrow();
+  } as unknown as PlanFile, PLAN_NORMALIZATION_DEFAULTS)).toThrow();
   expect(() => normalizePlan({
     blocks: { id: 'ticket/basic' }
-  } as unknown as PlanFile)).toThrow();
+  } as unknown as PlanFile, PLAN_NORMALIZATION_DEFAULTS)).toThrow();
 });
 
 test('Plan runtime validation rejects values TypeScript unions cannot protect after YAML parsing', () => {

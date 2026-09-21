@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { acquireHeavyVerificationGateLease, heavyVerificationGateLockPath } from '../../src/verification/gate/state/heavy-lease.ts';
+import { acquireHeavyVerificationGateLease, heavyVerificationGateLockPath } from '../../src/adapters/verification/platform/gate/state/heavy-lease.ts';
 
 const TOKEN_A = '11111111111111111111111111111111';
 const TOKEN_B = '22222222222222222222222222222222';

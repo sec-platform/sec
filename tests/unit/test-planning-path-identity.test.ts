@@ -1,19 +1,19 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { compileVirtualWorkspaceSourceSnapshot } from '../../src/brownfield/source-program-model/workspace-source-snapshot.ts';
+import { compileVirtualWorkspaceSourceSnapshot } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
 import {
   assertFastTestProcessPolicyInventory, assertUniqueFastTestProcessIsolationDefinitions,
   DEFAULT_FAST_TEST_EXCLUDED_FILES, FAST_TEST_PROCESS_ISOLATION_REGISTRY,
   isDefaultFastTestFile, partitionFastTestFiles, planFastTestProcesses
-} from '../../src/development/runner/fast-test-policy.ts';
-import { rawSha256, sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
-import { isSecRepositoryTestModulePath } from '../../src/system-architecture/repository-modules/test-module-path.ts';
+} from '../../src/adapters/self-hosting/development/runner/fast-test-policy.ts';
+import { rawSha256, sha256 } from '../../src/contracts/canonical.ts';
+import { isSecRepositoryTestModulePath } from '../../src/contracts/repository-test-path.ts';
 import {
   type IssuedTestInventoryProjection,
   compileTestBudgetProjection,
   issueTestInventoryProjection,
   slowTestSuiteIdsForFile
-} from '../../src/verification/test-impact/contract/budget.ts';
+} from '../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 
 const spellings = (file: string) => [file, `./${file}`, file.replaceAll('/', '\\'), `.\\${file.replaceAll('/', '\\')}`];
 const independent = 'tests/unit/command-runner.test.ts';
