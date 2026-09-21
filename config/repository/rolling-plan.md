@@ -12,7 +12,7 @@ last-reviewed: 2026-09-21
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:47322d29ca5a1a4b2fc12833fb24c3de64c318e66772124a115abc53fbd2ff87",
+    "manifestDigest": "sha256:e67697dd0a9e3903b1e9a6a24438ebcb7274ee652fa17b046928c5cedbb4bbb4",
     "manifestPath": "config/repository/work-packages/sec086-current-main-convergence-v1.md",
     "packageId": "sec086-current-main-convergence-v1",
     "tracking": "none"
@@ -27,7 +27,7 @@ last-reviewed: 2026-09-21
   ],
   "exactMain": "69b321e4eeac478a5400d456a5fff92ceb37ace8",
   "exactMainTree": "49943fb5f3f26de2e02c8803f13c6f7692d9f9c0",
-  "projectionDigest": "sha256:13534868e7d711405f11420dcdccef065c21bb11123ad575180ff45e73ff33cf",
+  "projectionDigest": "sha256:952f4fc6ebdb58f8b61261d34fa8cdc72afe5db678434f5beade5f643c4290db",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
@@ -36,7 +36,7 @@ last-reviewed: 2026-09-21
 
 ### sec086-current-main-convergence-v1
 
-Proposal-only target manifest `config/repository/work-packages/sec086-current-main-convergence-v1.md` at `sha256:47322d29ca5a1a4b2fc12833fb24c3de64c318e66772124a115abc53fbd2ff87`, based on exact main `69b321e4eeac478a5400d456a5fff92ceb37ace8` and tree `49943fb5f3f26de2e02c8803f13c6f7692d9f9c0`.
+Proposal-only target manifest `config/repository/work-packages/sec086-current-main-convergence-v1.md` at `sha256:e67697dd0a9e3903b1e9a6a24438ebcb7274ee652fa17b046928c5cedbb4bbb4`, based on exact main `69b321e4eeac478a5400d456a5fff92ceb37ace8` and tree `49943fb5f3f26de2e02c8803f13c6f7692d9f9c0`.
 
 ## 候选 Work Package
 

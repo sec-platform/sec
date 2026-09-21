@@ -38,12 +38,16 @@ acceptance:
   - source, portable runtime, documentation artifact and release-set identities remain separated and revision-bound
   - no merge release workflow dispatch or default-branch mutation is claimed before exact-candidate verification and readback
 tests:
+  - src/compiler/upgrade/migration-rules.test.ts
   - tests/contract/document-control-plane-lifecycle.test.ts
   - tests/contract/repository-audit.test.ts
+  - tests/integration/documentation-source-capture.test.ts
   - tests/integration/release-set-portable.test.ts
+  - tests/unit/author-candidate.test.ts
   - tests/unit/codex-work-package-contract.test.ts
   - tests/unit/documentation-source.test.ts
   - tests/unit/runtime-layout.test.ts
+  - tests/unit/runtime-query-scope.test.ts
   - tests/unit/work-selection-live.test.ts
 ---
 
