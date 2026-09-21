@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 
 import { CompilerError } from '../../src/compiler/errors.ts';
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
-import type { LoadedSemanticContract } from '../../src/semantic/contracts/contract/types.ts';
+import type { LoadedSemanticContract } from '../../src/semantics/definitions/types.ts';
 
 function baseInput(): BuildEngineeringIRInput {
   return {

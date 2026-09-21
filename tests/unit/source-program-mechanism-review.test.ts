@@ -5,7 +5,7 @@ import {
   MECHANISM_REVIEW_RULES,
   compileSourceProgramMechanismReview as review,
   type MechanismReviewModel
-} from '../../src/brownfield/repository-audit/mechanism-review.ts';
+} from '../../src/adapters/repository/repository-audit/mechanism-review.ts';
 
 function model(): MechanismReviewModel {
   return {

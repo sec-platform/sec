@@ -14,7 +14,7 @@ import {
   repositoryAuditWorkerRequestPayload as requestPayload,
   requireRepositoryAuditWorkerCandidateStream as requireResult,
   compileRepositoryAuditWorkerResultCandidate as resultFor
-} from '../../src/brownfield/repository-audit/worker-protocol.ts';
+} from '../../src/adapters/repository/repository-audit/worker-protocol.ts';
 
 const digest = (text: string) => `sha256:${createHash('sha256').update(text).digest('hex')}` as const;
 const budget = { maximumRequestBytes: 16_384, maximumResultBytes: 65_536 };

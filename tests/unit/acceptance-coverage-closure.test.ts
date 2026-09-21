@@ -6,9 +6,9 @@ import type {
   BlockManifest,
   LockFile
 } from '../../src/compiler/contract.ts';
-import { buildAcceptanceCoverage } from '../../src/compiler/verify/build-acceptance-coverage.ts';
-import type { FastVerificationLaneReport, RuntimeVerificationLaneReport } from '../../src/verification/contract/types.ts';
-import { writeYaml } from '../../src/workspace/yaml.ts';
+import { buildAcceptanceCoverage } from '../../src/adapters/verification/build-acceptance-coverage.ts';
+import type { FastVerificationLaneReport, RuntimeVerificationLaneReport } from '../../src/assurance/verification/contract/types.ts';
+import { writeYaml } from '../../src/adapters/workspace/yaml.ts';
 import { buildPassingReviewReport } from '../helpers/review-fixtures.ts';
 import {
   emptyVerificationLogs,

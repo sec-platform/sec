@@ -27,7 +27,7 @@ async function diagnostics(source: string, surface: 'src' | 'tests', provider?: 
     if (provider !== undefined) await fs.writeFile(path.join(directory, 'provider.ts'), provider);
     const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, root);
     assert.deepEqual(parsed.errors.map(value => value.code), []);
-    assert.ok(parsed.fileNames.includes(path.join(directory, 'entry.ts')), 'The repository configuration must select the fixture');
+    assert.ok(parsed.fileNames.some(file => path.resolve(file) === path.join(directory, 'entry.ts')), 'The repository configuration must select the fixture');
     const options: ts.CompilerOptions = { ...parsed.options, types: [] };
     return ts.getPreEmitDiagnostics(ts.createProgram(parsed.fileNames, options));
   }, () => fs.rm(root, { recursive: true, force: true }));

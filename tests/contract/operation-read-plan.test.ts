@@ -9,14 +9,14 @@ import {
   SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
   type SecOperationReadPlan,
   type SecOperationReadPlanInput
-} from '../../src/control/agent/read-plan.ts';
+} from '../../src/adapters/self-hosting/control/agent/read-plan.ts';
 import {
   compileSecTaskCapsule,
   SEC_TASK_CAPSULE_COMPILE_REQUEST_SCHEMA,
   SEC_TASK_CAPSULE_INPUT_SCHEMA,
   type SecDigest,
   type SecTaskCapsulePlanningContext
-} from '../../src/control/agent/task-capsule.ts';
+} from '../../src/adapters/self-hosting/control/agent/task-capsule.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 const digest = (character: string): SecDigest => `sha256:${character.repeat(64)}`;
@@ -117,7 +117,7 @@ test('pure compiler and verify CLI produce one content-bound Read Plan without c
   expect(plan.requiredRefs.map((reference) => reference.id)).toEqual(['development-governance']);
   expect(plan.preApplicabilitySkillBodiesRead).toBe(0);
 
-  const verified = run('src/control/agent/operation-read-plan.ts', [
+  const verified = run('src/adapters/self-hosting/control/agent/operation-read-plan.ts', [
     'verify', '--plan', JSON.stringify(plan)
   ]);
   expect(verified.status).toBe(0);
@@ -132,7 +132,7 @@ test('pure compiler and verify CLI produce one content-bound Read Plan without c
 
 test('Task Capsule verify is content-only and compile rejects caller authority before observation', () => {
   const compiled = input().taskCapsule;
-  const verified = run('src/control/agent/task-capsule-host.ts', [
+  const verified = run('src/adapters/self-hosting/control/agent/task-capsule-host.ts', [
     'verify', '--capsule', JSON.stringify(compiled)
   ]);
   expect(verified.status).toBe(0);
@@ -143,7 +143,7 @@ test('Task Capsule verify is content-only and compile rejects caller authority b
     taskCapsuleDigest: compiled.digest
   });
 
-  const rejected = run('src/control/agent/task-capsule-host.ts', [
+  const rejected = run('src/adapters/self-hosting/control/agent/task-capsule-host.ts', [
     'compile',
     '--input',
     JSON.stringify({ schema: SEC_TASK_CAPSULE_COMPILE_REQUEST_SCHEMA, authority: {} }),
@@ -153,7 +153,7 @@ test('Task Capsule verify is content-only and compile rejects caller authority b
   expect(rejected.status).not.toBe(0);
   expect(rejected.stderr).toContain('authority-free schema-only request');
 
-  const blocked = run('src/control/agent/task-capsule-host.ts', [
+  const blocked = run('src/adapters/self-hosting/control/agent/task-capsule-host.ts', [
     'compile',
     '--input',
     JSON.stringify({ schema: SEC_TASK_CAPSULE_COMPILE_REQUEST_SCHEMA }),
@@ -173,7 +173,7 @@ test('Task Capsule verify is content-only and compile rejects caller authority b
 
 test('compile CLI rejects caller-provided Capsule authority before live observation', () => {
   const supplied = input();
-  const result = run('src/control/agent/operation-read-plan.ts', [
+  const result = run('src/adapters/self-hosting/control/agent/operation-read-plan.ts', [
     'compile',
     '--input',
     JSON.stringify({ ...supplied, schema: SEC_OPERATION_READ_CLOSURE_REQUEST_SCHEMA }),
@@ -185,7 +185,7 @@ test('compile CLI rejects caller-provided Capsule authority before live observat
 });
 
 test('compile CLI rejects caller-provided read refs and policy before live observation', () => {
-  const result = run('src/control/agent/operation-read-plan.ts', [
+  const result = run('src/adapters/self-hosting/control/agent/operation-read-plan.ts', [
     'compile',
     '--input',
     JSON.stringify({
@@ -201,7 +201,7 @@ test('compile CLI rejects caller-provided read refs and policy before live obser
 });
 
 test('schema-only Read Plan production compile fails closed without a trusted issuer', () => {
-  const result = run('src/control/agent/operation-read-plan.ts', [
+  const result = run('src/adapters/self-hosting/control/agent/operation-read-plan.ts', [
     'compile',
     '--input',
     JSON.stringify({ schema: SEC_OPERATION_READ_CLOSURE_REQUEST_SCHEMA }),
@@ -217,7 +217,7 @@ test('schema-only Read Plan production compile fails closed without a trusted is
 
 test('Skill CLI requires an explicit candidate root before live authority observation', () => {
   const plan = compileSecOperationReadPlan(input());
-  const selected = run('src/control/agent/skill-applicability.ts', [
+  const selected = run('src/adapters/self-hosting/control/agent/skill-applicability.ts', [
     '--read-plan', JSON.stringify(plan)
   ]);
   expect(selected.status).not.toBe(0);

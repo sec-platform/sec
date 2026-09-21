@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { copyRecursive } from '../../src/workspace/runtime/discovery.ts';
+import { copyRecursive } from '../../src/adapters/filesystem/discovery.ts';
 
 function deferred() {
   let resolve!: () => void;

@@ -1,5 +1,5 @@
-import type { FactDeltaEndpointContext } from '../../semantic/engineering-ir/contract/delta-types.ts';
-import { SEMANTIC_MUTATION_CONTRACT_VERSION, SEMANTIC_MUTATION_EXPECTATION_REVISION, SEMANTIC_MUTATION_OPERATION_REGISTRY_REVISION, type SemanticMutationBase, type SemanticMutationDiagnostic, type SemanticMutationPreflight, type SemanticMutationPreflightInput } from '../../semantic/mutation/contract/types.ts';
+import type { FactDeltaEndpointContext } from '../../semantics/engineering-ir/delta-types.ts';
+import { SEMANTIC_MUTATION_CONTRACT_VERSION, SEMANTIC_MUTATION_EXPECTATION_REVISION, SEMANTIC_MUTATION_OPERATION_REGISTRY_REVISION, type SemanticMutationBase, type SemanticMutationDiagnostic, type SemanticMutationPreflight, type SemanticMutationPreflightInput } from '../../semantics/mutation/types.ts';
 import {
   canonicalDiagnostics,
   cloneAndDeepFreeze,

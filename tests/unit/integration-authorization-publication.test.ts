@@ -6,13 +6,13 @@ import {
   assertHostedIntegrationPhaseOwnership,
   selectCanonicalIntegrationRunOwner,
   type HostedIntegrationPhase
-} from '../../src/control/integration/integration-authorization-publication.ts';
+} from '../../src/adapters/self-hosting/control/integration/integration-authorization-publication.ts';
 import type {
   GitHubWorkflowJobObservation,
   GitHubWorkflowJobStepObservation,
   GitHubWorkflowRunObservation
-} from '../../src/external-capabilities/github-api/contract.ts';
-import { parseGitHubWorkflowJobsForAttempt } from '../../src/verification/ci/runtime/verification-session-github.ts';
+} from '../../src/adapters/providers/github-api/contract.ts';
+import { parseGitHubWorkflowJobsForAttempt } from '../../src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
 
 const WORKFLOW_SHA = '1111111111111111111111111111111111111111';
 

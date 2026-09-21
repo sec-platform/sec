@@ -3,12 +3,12 @@ import { expect, test } from 'bun:test';
 import {
   projectBranchLifecycleForWorkSelection,
   selectBranchLifecyclePullRequests
-} from '../../src/control/branch-lifecycle/branch-lifecycle-audit.ts';
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-audit.ts';
 import {
   createBranchLifecycleGitChildEnvironment,
   createBranchLifecycleGitHubCredentialArgs,
   createBranchLifecycleGitHubRemoteObservation
-} from '../../src/control/branch-lifecycle/branch-lifecycle-command.ts';
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts';
 import {
   BRANCH_REF_CLOSEOUT_CAPABILITY,
   auditBranchLifecycle,
@@ -20,7 +20,7 @@ import {
   parseBranchCloseoutReceipt,
   type BranchCloseoutPreparation,
   type BranchLifecycleInventory
-} from '../../src/control/branch-lifecycle/branch-lifecycle-contract.ts';
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-contract.ts';
 const MAIN_SHA = '1111111111111111111111111111111111111111';
 const HEAD_SHA = '2222222222222222222222222222222222222222';
 const RACE_SHA = '3333333333333333333333333333333333333333';

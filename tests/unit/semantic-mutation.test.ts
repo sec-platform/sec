@@ -25,15 +25,16 @@ import {
   type SemanticMutationPlanProducerSeamForTest
 } from '../../src/compiler/semantic-mutation/plan-semantic-mutation.ts';
 import { preflightSemanticMutation } from '../../src/compiler/semantic-mutation/preflight-semantic-mutation.ts';
-import { assertSemanticMutationResultInvariant, buildSemanticMutationResult, buildSemanticMutationVerificationExecutionRef, semanticMutationResultRevision } from '../../src/compiler/semantic-mutation/semantic-mutation-result.ts';
+import { assertSemanticMutationResultInvariant, buildSemanticMutationResult, semanticMutationResultRevision } from '../../src/compiler/semantic-mutation/result.ts';
+import { buildSemanticMutationVerificationExecutionRef } from '../../src/assurance/verification/semantic-mutation/execution-ref.ts';
 import {
   buildSemanticMutationVerificationPlanningContext, evaluateSemanticMutationVerificationPlanning,
   semanticMutationRequiredVerificationDigest
 } from '../../src/compiler/semantic-mutation/verification-policy.ts';
-import type { LoadedSemanticContract } from '../../src/semantic/contracts/contract/types.ts';
-import type { FactDeltaEndpointContext } from '../../src/semantic/engineering-ir/contract/delta-types.ts';
-import { type SemanticMutationAuthorizationContext, type SemanticMutationInput, type SemanticMutationPlan, type SemanticMutationRequest, type VerificationRequirement } from '../../src/semantic/mutation/contract/types.ts';
-import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION } from '../../src/verification/contract/types.ts';
+import type { LoadedSemanticContract } from '../../src/semantics/definitions/types.ts';
+import type { FactDeltaEndpointContext } from '../../src/semantics/engineering-ir/delta-types.ts';
+import { type SemanticMutationAuthorizationContext, type SemanticMutationInput, type SemanticMutationPlan, type SemanticMutationRequest, type VerificationRequirement } from '../../src/semantics/mutation/types.ts';
+import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION } from '../../src/assurance/verification/contract/types.ts';
 import { semanticMutationVerificationReportFixture } from '../helpers/semantic-mutation-verification-report.ts';
 
 function contract(withTransition: boolean): LoadedSemanticContract {

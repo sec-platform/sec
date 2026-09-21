@@ -1,8 +1,8 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
-import { uniqueSorted } from '../../src/system-architecture/foundation/runtime/canonical.ts';
-import { countMatching, countPositiveValues, mergeCountSummaries, normalizeNewlines, summarizeCounts, uniqueSortedLines } from '../../src/system-architecture/foundation/runtime/collections.ts';
+import { uniqueSorted } from '../../src/contracts/canonical.ts';
+import { countMatching, countPositiveValues, mergeCountSummaries, normalizeNewlines, summarizeCounts, uniqueSortedLines } from '../../src/contracts/collections.ts';
 
 test('collection counting and newline normalization retain their value contracts', () => {
   assert.equal(countPositiveValues([-2, 0, 1, 3, Number.NaN]), 2);

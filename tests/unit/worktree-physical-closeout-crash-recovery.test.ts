@@ -4,8 +4,8 @@ import { existsSync, lstatSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { assertTrustedCompletedWorktreePhysicalCloseout, prepareTrustedWorktreePhysicalCloseout } from '../../src/control/branch-lifecycle/worktree-physical-closeout.ts';
-import { detailDigest } from '../../src/runtime-state/worktree-closeout-contract.ts';
+import { assertTrustedCompletedWorktreePhysicalCloseout, prepareTrustedWorktreePhysicalCloseout } from '../../src/adapters/self-hosting/control/branch-lifecycle/worktree-physical-closeout.ts';
+import { detailDigest } from '../../src/adapters/runtime-state/worktree-closeout-contract.ts';
 
 function git(cwd: string, args: string[]): string { const r = spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true }); if (r.status !== 0) throw new Error(r.stderr); return r.stdout.trim(); }
 async function waitFor(check: () => boolean): Promise<boolean> { const until = Date.now() + 20_000; while (Date.now() < until) { if (check()) return true; await Bun.sleep(10); } return check(); }

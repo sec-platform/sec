@@ -1,9 +1,9 @@
 import { expect, test } from 'bun:test';
 import pLimit from 'p-limit';
 
-import { loadAllManifests } from '../../src/compiler/parse/load-manifest.ts';
-import { resolveGraph } from '../../src/compiler/resolve/resolve-graph.ts';
-import { validateResolvedTemplates } from '../../src/compiler/verify/validate-resolved-templates.ts';
+import { loadAllManifests } from '../../src/adapters/workspace/sources/load-manifest.ts';
+import { resolveGraph } from '../../src/adapters/workspace/resolve-graph.ts';
+import { validateResolvedTemplates } from '../../src/adapters/verification/validate-resolved-templates.ts';
 import { buildManifestValidationPlan } from '../helpers/plan-fixtures.ts';
 
 type RegistryValidationFailure = {

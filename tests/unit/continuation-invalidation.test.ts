@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { compileContinuationInvalidation } from '../../src/control/continuation/invalidation.ts';
+import { compileContinuationInvalidation } from '../../src/adapters/self-hosting/control/continuation/invalidation.ts';
 
 const CHECKPOINT = `sha256:${'a'.repeat(64)}` as const;
 

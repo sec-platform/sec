@@ -1,7 +1,7 @@
-import type { SemanticFact, SemanticValueObject } from '../../semantic/engineering-ir/contract/fact-types.ts';
-import type { ValidatedEngineeringIRSnapshot } from '../../semantic/engineering-ir/contract/validated-types.ts';
-import { SEMANTIC_VIEW_FORMAT_VERSION, type SemanticView, type ViewEdge, type ViewNode } from '../../semantic/projection/contract/types.ts';
-import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
+import type { SemanticFact, SemanticValueObject } from '../../semantics/engineering-ir/fact-types.ts';
+import type { ValidatedEngineeringIRSnapshot } from '../../semantics/engineering-ir/validated-types.ts';
+import { SEMANTIC_VIEW_FORMAT_VERSION, type SemanticView, type ViewEdge, type ViewNode } from '../../semantics/projection/types.ts';
+import { compareCodeUnits } from '../../contracts/canonical.ts';
 import { CompilerError } from '../errors.ts';
 import { indexValidatedEngineeringIR } from '../ir/index-engineering-ir.ts';
 import {

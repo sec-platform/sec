@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { InstallStrategyRegistry, type InstallStrategy } from '../../src/compiler/compose/install-strategies.ts';
+import { InstallStrategyRegistry, type InstallStrategy } from '../../src/adapters/compilation/compose/install-strategies.ts';
 import type { InstallPlanStep } from '../../src/compiler/contract.ts';
 
 function step(): InstallPlanStep { return { action: 'probe', to: 'src/a.ts' } as unknown as InstallPlanStep; }

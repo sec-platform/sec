@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { runtimeDependencyOperationOptions as install } from '../../src/toolchain/dependencies/runtime/operation-context.ts';
+import { runtimeDependencyOperationOptions as install } from '../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
 import {
   awaitRuntimeDependencyOperation,
   runtimeDependencyOperationControls as bind,
@@ -8,8 +8,8 @@ import {
   runtimeDependencyOperationDeadlineAt as deadline,
   runtimeDependencyOperationRemainingMs as remaining,
   waitForRuntimeDependencyOperation
-} from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
-import { measureRuntimeDependencyOperationPhase, readRuntimeDependencyOperationTelemetry } from '../../src/toolchain/dependencies/runtime/operation-telemetry.ts';
+} from '../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
+import { measureRuntimeDependencyOperationPhase, readRuntimeDependencyOperationTelemetry } from '../../src/adapters/toolchain/dependencies/runtime/operation-telemetry.ts';
 
 const rejected = (error: unknown) => (error as { code?: string }).code === 'RUNTIME-DEPS-003';
 function parent() { return bind({ lockTimeoutMs: 100, monotonicNowMs: () => 0 }); }

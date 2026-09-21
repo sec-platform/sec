@@ -5,12 +5,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 
-import { createLocalContinuationCheckpoint } from '../../src/control/continuation/checkpoint.ts';
-import { encodeVerificationActionData } from '../../src/verification/action/contract/action.ts';
+import { createLocalContinuationCheckpoint } from '../../src/adapters/self-hosting/control/continuation/checkpoint.ts';
+import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
 
 const LOCAL_CONTINUATION_PROGRAM_PATH = path.resolve(
   import.meta.dir,
-  '../../src/control/continuation/local-continuation.ts'
+  '../../src/adapters/self-hosting/control/continuation/local-continuation.ts'
 );
 
 function run(cwd: string, command: string, args: readonly string[], env: NodeJS.ProcessEnv = process.env) {

@@ -1,14 +1,14 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { getEventListeners } from 'node:events';
-import { SecError } from '../../src/system-architecture/foundation/contract/failure.ts';
+import { SecError } from '../../src/contracts/failure.ts';
 import {
   runtimeDependencyOperationContext,
   runtimeDependencyOperationEffectFence,
   runtimeDependencyOperationOptions,
   runtimeDependencyOperationRemainingMs,
   waitForRuntimeDependencyOperation
-} from '../../src/toolchain/dependencies/runtime/operation-context.ts';
+} from '../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
 
 const deadlineFailure = (error: unknown): boolean =>
   error instanceof SecError && error.code === 'RUNTIME-DEPS-003';

@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { UTF8_BOM, classifyBlobBytes } from '../../src/runtime-state/text-byte-census.ts';
+import { UTF8_BOM, classifyBlobBytes } from '../../src/adapters/runtime-state/text-byte-census.ts';
 
 function toBytes(text: string): Uint8Array {
   return new TextEncoder().encode(text);
