@@ -99,28 +99,60 @@ def _root(root: Path) -> Path:
     return absolute
 
 
+@contextmanager
+def _closing(close):
+    """One settlement owner for captured files, directory streams and writer locks."""
+    primary = None
+    try:
+        yield
+    except BaseException as error:
+        primary = error
+        raise
+    finally:
+        try:
+            close()
+        except BaseException as error:
+            if primary is not None:
+                raise ProjectionSettlementError(primary, error) from primary
+            raise
+
+
 def read_ordinary(root: Path, name: str) -> bytes:
     path = local_path(root, name)
-    before = path.lstat()
-    if not stat.S_ISREG(before.st_mode) or before.st_size > MAX_FILE_BYTES:
-        raise ValueError(f'non-ordinary or oversized documentation file: {name}')
-    descriptor = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0))
-    try:
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0)
+                         | getattr(os, 'O_NONBLOCK', 0))
+    with _closing(lambda: os.close(descriptor)):
         opened = os.fstat(descriptor)
-        if (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino):
+        if (not stat.S_ISREG(opened.st_mode) or opened.st_size < 0
+                or opened.st_size > MAX_FILE_BYTES):
+            raise ValueError(f'non-ordinary or oversized documentation file: {name}')
+        def identity(s):
+            return s.st_dev, s.st_ino, s.st_mode, s.st_size, s.st_mtime_ns, s.st_ctime_ns
+        before = local_path(root, name).lstat()
+        if identity(before) != identity(opened):
             raise ValueError(f'documentation file changed before capture: {name}')
-        with os.fdopen(descriptor, 'rb', closefd=False) as stream:
-            data = stream.read(MAX_FILE_BYTES + 1)
+        data = bytearray()
+        while len(data) < opened.st_size:
+            block = os.read(descriptor, min(65_536, opened.st_size - len(data)))
+            if not block:
+                raise ValueError(f'short documentation read: {name}')
+            data.extend(block)
         after = os.fstat(descriptor)
-    finally:
-        os.close(descriptor)
-    path_after = local_path(root, name).lstat()
-    def identity(s):
-        return s.st_dev, s.st_ino, s.st_mode, s.st_size, s.st_mtime_ns, s.st_ctime_ns
-    if (identity(before) != identity(after) or identity(after) != identity(path_after)
-            or len(data) != after.st_size or len(data) > MAX_FILE_BYTES):
-        raise ValueError(f'documentation file changed during capture: {name}')
-    return data
+        path_after = local_path(root, name).lstat()
+        if identity(opened) != identity(after) or identity(after) != identity(path_after):
+            raise ValueError(f'documentation file changed during capture: {name}')
+        return bytes(data)
+
+
+def _enqueue_directory(entry: Path, pending: list[Path], visited: int, limit: int) -> None:
+    # Check admission during streaming, before retaining each child. A post-read
+    # bound cannot prevent an unbounded iterdir/list expansion or allocation.
+    directory = os.scandir(entry)
+    with _closing(directory.close):
+        for child in directory:
+            if visited + len(pending) >= limit:
+                raise ValueError('documentation traversal budget exceeded')
+            pending.append(entry / child.name)
 
 
 def baseline(root: Path) -> dict:
@@ -160,11 +192,15 @@ def source_files(root: Path) -> tuple[Path, ...]:
     root = _root(root)
     declaration = baseline(root)
     names = declaration['source_roots']
+    if len(names) > MAX_MEMBERS:
+        raise ValueError('documentation source root budget exceeded')
     roots = [local_path(root, name) for name in names]
-    for index, first in enumerate(roots):
-        for second in roots[index + 1:]:
-            if first == second or first in second.parents or second in first.parents:
-                raise ValueError('documentation source roots overlap')
+    # Component ordering keeps a parent next to its first descendant even when
+    # another root shares only a textual prefix, e.g. docs-other versus docs/x.
+    ordered_roots = sorted(roots, key=lambda entry: entry.parts)
+    for first, second in zip(ordered_roots, ordered_roots[1:]):
+        if first == second or first in second.parents:
+            raise ValueError('documentation source roots overlap')
     files = []
     pending = list(roots)
     collisions = {}
@@ -191,7 +227,7 @@ def source_files(root: Path) -> tuple[Path, ...]:
             collisions[key] = name
             files.append(entry)
         elif stat.S_ISDIR(metadata.st_mode):
-            pending.extend(entry.iterdir())
+            _enqueue_directory(entry, pending, visited, MAX_MEMBERS)
         else:
             raise ValueError(f'non-ordinary documentation source: {name}')
         if len(files) + len(pending) > MAX_MEMBERS:
@@ -221,8 +257,8 @@ def source_files(root: Path) -> tuple[Path, ...]:
         entry = local_path(root, name)
         metadata = entry.lstat()  # Missing audited namespaces fail instead of silently disappearing.
         if stat.S_ISDIR(metadata.st_mode):
-            pending.extend(entry.iterdir())
-        elif entry not in members:
+            _enqueue_directory(entry, pending, visited, MAX_MEMBERS * 2)
+        elif not stat.S_ISREG(metadata.st_mode) or entry not in members:
             raise ValueError(f'unexpected file in documentation namespace: {name}')
     return tuple(sorted(files, key=lambda entry: entry.relative_to(root).as_posix()))
 
@@ -234,10 +270,20 @@ def documentation_files(root: Path, include_cache: bool = True) -> tuple[Path, .
     selected = EXCLUDED_FROM_SOURCE_HASH if include_cache else PROJECTION_PATHS
     for name in selected:
         path = local_path(root, name)
-        if path.exists():
-            if not path.is_file():
-                raise ValueError(f'non-ordinary documentation output: {name}')
-            files.add(path)
+        parent = local_path(root, path.parent.relative_to(root).as_posix())
+        if not stat.S_ISDIR(parent.lstat().st_mode):
+            raise ValueError('documentation output parent is not a directory')
+        try:
+            metadata = path.lstat()
+        except FileNotFoundError:
+            # A missing output is optional; a lost ancestor is not.
+            parent = local_path(root, path.parent.relative_to(root).as_posix())
+            if not stat.S_ISDIR(parent.lstat().st_mode):
+                raise ValueError('documentation output parent is not a directory')
+            continue
+        if not stat.S_ISREG(metadata.st_mode) or _linked(metadata):
+            raise ValueError(f'non-ordinary documentation output: {name}')
+        files.add(path)
     return tuple(sorted(files, key=lambda p: p.relative_to(root).as_posix()))
 
 
@@ -345,8 +391,7 @@ def projection_writer(root: Path):
     lock = _staging_root(root) / 'documentation-projection.lock'
     local_path(root, lock.relative_to(root).as_posix())
     fd = os.open(lock, os.O_RDWR | os.O_CREAT | getattr(os, 'O_NOFOLLOW', 0), 0o600)
-    primary = None
-    try:
+    with _closing(lambda: os.close(fd)):
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             raise ValueError('projection coordination handle is not an ordinary file')
         if os.name == 'nt':
@@ -361,16 +406,6 @@ def projection_writer(root: Path):
         if (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino):
             raise ValueError('projection writer identity changed')
         yield
-    except BaseException as error:
-        primary = error
-        raise
-    finally:
-        try:
-            os.close(fd)  # Releases this descriptor's lock; never steals another writer's lock.
-        except BaseException as error:
-            if primary is not None:
-                raise ProjectionSettlementError(primary, error) from primary
-            raise
 
 
 def _replace_json(path: Path, value: object) -> None:
@@ -382,10 +417,15 @@ def _replace_json(path: Path, value: object) -> None:
         dir=_staging_root(root), prefix='doc-projection-', suffix='.tmp')
     temporary = Path(temporary_name)
     try:
-        with os.fdopen(descriptor, 'wb') as stream:
-            stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
+        with _closing(lambda: os.close(descriptor)):
+            view = memoryview(payload)
+            offset = 0
+            while offset < len(view):
+                written = os.write(descriptor, view[offset:])
+                if written <= 0:
+                    raise OSError('short documentation projection write')
+                offset += written
+            os.fsync(descriptor)
         temporary.replace(path)
     except BaseException as primary:
         try:

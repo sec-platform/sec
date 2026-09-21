@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "415b3ed4548afad43f5141904cd856d30ed387788a9e14d88b8db3089cd96c2b",
+  "source_set_sha256": "b79bb4debe08606f3ebcb5e002034657a8cc31be6b2e62654d529a92af53d4f4",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -1204,8 +1204,8 @@
     },
     {
       "path": "examples/semantic-query/consume.ts",
-      "bytes": 649,
-      "sha256": "1fef29c80e12ccb9fac0a0fac68402a5326df4fa127a937114e809d016158cfb"
+      "bytes": 3200,
+      "sha256": "5eac8441e338f8418fdccc9fc8c95b3712fd7e2d14225b5072abf97704bd228b"
     },
     {
       "path": "examples/semantic-query/input.json",
@@ -1794,8 +1794,8 @@
     },
     {
       "path": "tools/source_inventory.py",
-      "bytes": 19707,
-      "sha256": "47dbf9bbc0673ec0693235a5d152062deee474ebb369a67371b1a99ee50445a9"
+      "bytes": 21751,
+      "sha256": "a142f5210fdb835177aefaa0b62a8962830bff605dadf71c6da78fb4eae3aeac"
     },
     {
       "path": "tools/test_build_html.py",
@@ -1821,6 +1821,11 @@
       "path": "tools/test_reading_modes.py",
       "bytes": 7250,
       "sha256": "8858f0b679c1decd420401ef830746d07a83cd881bb760ed4a33f40e0517ba5f"
+    },
+    {
+      "path": "tools/test_source_capture_resources.py",
+      "bytes": 8111,
+      "sha256": "b39d4faf8231b550bcc764c93548053c9204011f528b8f9502229e2484a0ec44"
     }
   ]
 }
