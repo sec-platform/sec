@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { digest } from '../../src/contracts/canonical.ts';
+import { digest, sha256 } from '../../src/contracts/canonical.ts';
 import {
   RELEASE_SET_MANIFEST,
   assertReleaseSetReadback,
@@ -152,8 +152,14 @@ test('release set is self-contained, relocatable and documentation-exact', async
       'runtime',
       PACKAGE_SOURCE_LAUNCHER_RELATIVE_PATH
     ))).rejects.toMatchObject({ code: 'ENOENT' });
+    const fixtureDependencyEvidenceDirectory = `package-${sha256(Object.freeze({
+      name: 'fixture-dependency',
+      version: '1.0.0'
+    })).slice('sha256:'.length)}`;
+    expect(await fs.readdir(path.join(destination, 'runtime', 'THIRD_PARTY_LICENSES')))
+      .toEqual([fixtureDependencyEvidenceDirectory]);
     await expect(fs.readFile(
-      path.join(destination, 'runtime', 'THIRD_PARTY_LICENSES', 'fixture-dependency@1.0.0', 'LICENSE'),
+      path.join(destination, 'runtime', 'THIRD_PARTY_LICENSES', fixtureDependencyEvidenceDirectory, 'LICENSE'),
       'utf8'
     )).resolves.toBe('fixture dependency license\n');
 

@@ -427,7 +427,11 @@ async function materializeThirdPartyLicenseEvidence(
     if (licenseNames.length === 0) {
       throw new Error(`Bundled package has no distributable license file: ${parsed.name}@${parsed.version}`);
     }
-    const directoryName = `${String(parsed.name).replaceAll('/', '__')}@${parsed.version}`;
+    const packageIdentityDigest = sha256(Object.freeze({
+      name: parsed.name,
+      version: parsed.version
+    })).slice('sha256:'.length);
+    const directoryName = `package-${packageIdentityDigest}`;
     const destinationRoot = path.join(evidenceRoot, directoryName);
     for (const fileName of licenseNames) {
       await copyOrdinaryFile(path.join(packageRoot, fileName), path.join(destinationRoot, fileName));
