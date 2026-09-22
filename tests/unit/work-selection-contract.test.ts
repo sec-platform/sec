@@ -10,7 +10,7 @@ import {
   type SecWorkCandidate,
   type SecWorkDigest,
   type SecWorkSelectionInput
-} from '../../src/control/work-selection/contract.ts';
+} from '../../src/adapters/self-hosting/control/work-selection/contract.ts';
 
 const digest = (character: string): SecWorkDigest => `sha256:${character.repeat(64)}`;
 

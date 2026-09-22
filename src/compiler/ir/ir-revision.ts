@@ -1,12 +1,12 @@
-import type { LoadedSemanticContract, SemanticContract } from '../../semantic/contracts/contract/types.ts';
-import { type SemanticEntity } from '../../semantic/engineering-ir/contract/entity-types.ts';
-import { type SemanticFact } from '../../semantic/engineering-ir/contract/fact-types.ts';
-import { ENGINEERING_IR_FORMAT_VERSION } from '../../semantic/engineering-ir/contract/root-types.ts';
-import { type ScenarioDefinition } from '../../semantic/engineering-ir/contract/scenario-types.ts';
-import type { ManifestGenerator } from '../../semantic/generation/contract/types.ts';
-import { compareCodeUnits, digest, normalizedArtifactTarget, stableById, uniqueSorted, uniqueSortedByKey } from '../../system-architecture/foundation/runtime/canonical.ts';
+import type { LoadedSemanticContract, SemanticContract } from '../../semantics/definitions/types.ts';
+import { type SemanticEntity } from '../../semantics/engineering-ir/entity-types.ts';
+import { type SemanticFact } from '../../semantics/engineering-ir/fact-types.ts';
+import { ENGINEERING_IR_FORMAT_VERSION } from '../../semantics/engineering-ir/root-types.ts';
+import { type ScenarioDefinition } from '../../semantics/engineering-ir/scenario-types.ts';
+import type { ManifestGenerator } from '../../semantics/generation/types.ts';
+import { compareCodeUnits, digest, normalizedArtifactTarget, stableById, uniqueSorted, uniqueSortedByKey } from '../../contracts/canonical.ts';
 import type { BlockManifest, ManifestPin, ResolvedBlock } from '../contract.ts';
-import type { PolicyRule } from '../policies/contract/types.ts';
+import type { PolicyRule } from '../../semantics/policies/types.ts';
 
 export { digest };
 

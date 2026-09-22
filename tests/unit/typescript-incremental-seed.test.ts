@@ -6,7 +6,7 @@ import {
   BUILD_INFO_MAXIMUM_BYTES,
   encodeStableSeed, parseStableSeed,
   STABLE_SEED_MAXIMUM_BYTES
-} from '../../src/toolchain/typescript/incremental-seed.ts';
+} from '../../src/adapters/toolchain/typescript/incremental-seed.ts';
 
 const binding = `sha256:${'a'.repeat(64)}` as const;
 // An independent wire fixture: field order, newline, content digest and base64

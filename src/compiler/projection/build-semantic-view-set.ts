@@ -1,6 +1,6 @@
-import type { ValidatedEngineeringIRSnapshot } from '../../semantic/engineering-ir/contract/validated-types.ts';
-import { SEMANTIC_VIEW_SET_FORMAT_VERSION, type SemanticViewSet } from '../../semantic/projection/contract/types.ts';
-import { compareCodeUnits, deepFreeze } from '../../system-architecture/foundation/runtime/canonical.ts';
+import type { ValidatedEngineeringIRSnapshot } from '../../semantics/engineering-ir/validated-types.ts';
+import { SEMANTIC_VIEW_SET_FORMAT_VERSION, type SemanticViewSet } from '../../semantics/projection/types.ts';
+import { compareCodeUnits, deepFreeze } from '../../contracts/canonical.ts';
 import { projectArchitectureView } from './project-architecture-view.ts';
 import { projectScenarioView } from './project-scenario-view.ts';
 import { projectStateView } from './project-state-view.ts';

@@ -1,9 +1,10 @@
 import { expect, test } from 'bun:test';
 
 import { CompilerError } from '../../src/compiler/errors.ts';
-import { loadManifestById } from '../../src/compiler/parse/load-manifest.ts';
-import { loadSemanticContractsForManifestEntry, normalizeSemanticContract } from '../../src/compiler/parse/load-semantic-contract.ts';
-import type { SemanticContract } from '../../src/semantic/contracts/contract/types.ts';
+import { loadManifestById } from '../../src/adapters/workspace/sources/load-manifest.ts';
+import { loadSemanticContractsForManifestEntry } from '../../src/adapters/workspace/sources/load-semantic-contract.ts';
+import { normalizeSemanticContract } from '../../src/semantics/definitions/normalize.ts';
+import type { SemanticContract } from '../../src/semantics/definitions/types.ts';
 
 function minimalContract(): SemanticContract {
   return {

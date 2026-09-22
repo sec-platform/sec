@@ -4,7 +4,7 @@ import path from 'node:path';
 import {
   createSemanticMutationIsolatedRunnerBundleLoaderForTests,
   relocateSemanticMutationIsolatedRunnerBundleForTests
-} from '../../src/compiler/verify/run-semantic-mutation-isolated-child.ts';
+} from '../../src/adapters/verification/run-semantic-mutation-isolated-child.ts';
 
 function deferred(): { readonly promise: Promise<void>; readonly resolve: () => void } {
   let resolve!: () => void;

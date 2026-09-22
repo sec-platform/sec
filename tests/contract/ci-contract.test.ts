@@ -1,13 +1,13 @@
 import { expect, test } from 'bun:test';
 import { parse as parseYaml } from 'yaml';
 
-import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/external-capabilities/linux-verification/contract.ts';
-import { CI_VERIFICATION_ACTION_DISPATCH_TYPE, CI_VERIFICATION_ACTION_PARENT_DISPATCH_PLAN_FILE } from '../../src/verification/action/contract/ci.ts';
-import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION, CI_VERIFICATION_HOSTED_TOOLCHAIN_REVISION, createCiVerificationHostedProviderRevision, createCiVerificationHostedToolchainRevision } from '../../src/verification/action/contract/environment.ts';
-import { CI_COMPILER_WORKFLOW_RUN_IDENTITY, matchesCiCompilerWorkflowRunIdentity, matchesCiWorkflowRunIdentity } from '../../src/verification/action/contract/provider.ts';
-import { buildCiContract, CI_VERIFICATION_PR_EVENT, CI_VERIFICATION_PR_STEP_ORDER } from '../../src/verification/ci/contract/core.ts';
-import { CI_VERIFICATION_EXECUTION_MODEL } from '../../src/verification/ci/contract/plan.ts';
-import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../src/verification/ci/contract/revision.ts';
+import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/adapters/providers/linux-verification/contract.ts';
+import { CI_VERIFICATION_ACTION_DISPATCH_TYPE, CI_VERIFICATION_ACTION_PARENT_DISPATCH_PLAN_FILE } from '../../src/adapters/verification/platform/action/contract/ci.ts';
+import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION, CI_VERIFICATION_HOSTED_TOOLCHAIN_REVISION, createCiVerificationHostedProviderRevision, createCiVerificationHostedToolchainRevision } from '../../src/adapters/verification/platform/action/contract/environment.ts';
+import { CI_COMPILER_WORKFLOW_RUN_IDENTITY, matchesCiCompilerWorkflowRunIdentity, matchesCiWorkflowRunIdentity } from '../../src/adapters/verification/platform/action/contract/provider.ts';
+import { buildCiContract, CI_VERIFICATION_PR_EVENT, CI_VERIFICATION_PR_STEP_ORDER } from '../../src/adapters/verification/platform/ci/contract/core.ts';
+import { CI_VERIFICATION_EXECUTION_MODEL } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
+import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 
 type WorkflowStep = Readonly<{

@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { issueGitReadAuthorityOperation, withAuthorityGitReadSession } from '../../src/external-capabilities/git-read/authority.ts';
-import { createAuthorityGitScratchIndexTreeSession } from '../../src/external-capabilities/git-read/runtime/session.ts';
+import { issueGitReadAuthorityOperation, withAuthorityGitReadSession } from '../../src/adapters/providers/git-read/authority.ts';
+import { createAuthorityGitScratchIndexTreeSession } from '../../src/adapters/providers/git-read/runtime/session.ts';
 import { gitProtocolSuccess, inGitProtocolRepository } from '../testkit/git-protocol.ts';
 import { settleWorkspaceCallback } from '../testkit/workspace-cleanup.ts';
 

@@ -8,8 +8,8 @@ import { expect, test } from 'bun:test';
 import {
   runStagedIndexOnlyImportOrganizer,
   runSynchronizedStagedImportOrganizer
-} from '../../src/development/runner/import-organizer.ts';
-import { generatedStateProducerHooks } from '../../src/runtime-state/generated-state/lifecycle.ts';
+} from '../../src/adapters/self-hosting/development/runner/import-organizer.ts';
+import { generatedStateProducerHooks } from '../../src/adapters/runtime-state/generated-state/lifecycle.ts';
 
 function git(repoRoot: string, args: readonly string[], bytes = false): string | Buffer {
   const result = spawnSync('git', [...args], {

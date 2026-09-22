@@ -1,19 +1,20 @@
 import { expect, test } from 'bun:test';
 
 import type { LockFile } from '../../src/compiler/contract.ts';
-import type { PolicyReport } from '../../src/compiler/policies/contract/types.ts';
+import type { PolicyReport } from '../../src/semantics/policies/types.ts';
 import {
   buildProjectOverview,
-  buildProjectOverviewFromWorkspace,
-  formatProjectOverview
-} from '../../src/interface/cli/project-overview.ts';
-import type { AcceptanceCoverageReport } from '../../src/semantic/acceptance/contract/types.ts';
-import type { ExplainGraph } from '../../src/semantic/projection/contract/explain.ts';
-import type { ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import type { CiArtifactManifest } from '../../src/verification/ci-artifacts/contract/types.ts';
-import type { VerificationReport } from '../../src/verification/contract/types.ts';
-import type { ReviewSummary } from '../../src/verification/review/contract/types.ts';
+  buildProjectOverviewFromWorkspace
+} from '../../src/bootstrap/cli/project-overview.ts';
+import { formatProjectOverview } from '../../src/entry/cli/project-overview.ts';
+import { platformCommand } from '../../src/adapters/verification/platform/sec-command.ts';
+import type { AcceptanceCoverageReport } from '../../src/assurance/acceptance/coverage.ts';
+import type { ExplainGraph } from '../../src/semantics/projection/explain.ts';
+import type { ProvenanceFile } from '../../src/semantics/provenance/types.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import type { CiArtifactManifest } from '../../src/assurance/verification/ci-artifacts/contract/types.ts';
+import type { VerificationReport } from '../../src/assurance/verification/contract/types.ts';
+import type { ReviewSummary } from '../../src/assurance/verification/review/contract/types.ts';
 import { buildSemanticViewFixture } from '../helpers/semantic-view-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -465,9 +466,15 @@ test('buildProjectOverview summarizes shared project status and review prioritie
       reasons: ['unverified provenance']
     }
   ]);
-  expect(formatProjectOverview(overview)).toContain('Project overview attention');
-  expect(formatProjectOverview(overview)).toContain('Graph: 3 nodes / 2 edges; blocks=2');
-  expect(formatProjectOverview(overview)).toContain(
+  const presentation = {
+    explainCommand: platformCommand('explain'),
+    verifyCompactCommand: platformCommand('verify', '--json', '--compact'),
+    graphArtifactPath: CI_ARTIFACT_FILES.explainGraph,
+    reviewArtifactPath: CI_ARTIFACT_FILES.reviewSummary
+  };
+  expect(formatProjectOverview(overview, presentation)).toContain('Project overview attention');
+  expect(formatProjectOverview(overview, presentation)).toContain('Graph: 3 nodes / 2 edges; blocks=2');
+  expect(formatProjectOverview(overview, presentation)).toContain(
     'Risks: failures=0; regressions=1; conflicts=0; missingArtifacts=1'
   );
 });

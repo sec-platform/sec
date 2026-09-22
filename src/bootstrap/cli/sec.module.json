@@ -1,0 +1,9 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [
+    "src/bootstrap/cli/cli.ts"
+  ],
+  "capabilityProviders": [],
+  "causalRelations": [],
+  "preDependencyBootstrap": false
+}

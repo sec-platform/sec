@@ -5,18 +5,23 @@ import * as path from 'node:path';
 
 import {
   assertReferenceCheckClean,
-  formatReferenceCheck,
   projectReferenceCheckReport
-} from '../../src/reference/application/check.ts';
+} from '../../src/application/reference-check.ts';
+import { formatReferenceCheck } from '../../src/entry/reference-check.ts';
 import {
+  buildReferenceDriftCommands,
   parseReferenceGitPathRecords,
   scanReferenceDrift
-} from '../../src/reference/runtime/drift-scan.ts';
-import { runCommand } from '../../src/runtime-state/physical/runtime/process.ts';
+} from '../../src/adapters/workspace/reference-drift.ts';
+import { runCommand } from '../../src/adapters/runtime-state/physical/runtime/process.ts';
 
 function bytes(value: string): Uint8Array {
   return new TextEncoder().encode(value);
 }
+
+const referenceDriftCommands = buildReferenceDriftCommands([
+  'examples/reference-workspace'
+]);
 
 async function withReferenceGitFixture<T>(
   callback: (root: string, referenceRoot: string) => Promise<T>
@@ -39,9 +44,13 @@ test('reference check blocks tracked and untracked workspace drift', async () =>
     await fs.writeFile(path.join(referenceRoot, 'sec.yaml'), 'name: changed\n', 'utf8');
     await fs.mkdir(path.join(referenceRoot, 'model'), { recursive: true });
     await fs.writeFile(path.join(referenceRoot, 'model', 'new-policy.yaml'), 'policy: new\n', 'utf8');
-    const drift = await scanReferenceDrift(root);
+    const drift = await scanReferenceDrift(root, referenceDriftCommands);
     const report = projectReferenceCheckReport({
       root,
+      runnerCommand: 'bun run reference:check',
+      refreshCommand: 'bun run reference:refresh',
+      diffCommand: 'git diff --name-only --exit-code -z -- examples/reference-workspace',
+      untrackedScanCommand: 'git ls-files -z --others --exclude-standard -- examples/reference-workspace',
       refreshExitCode: 0,
       drift
     });
@@ -61,6 +70,10 @@ test('reference check blocks tracked and untracked workspace drift', async () =>
 test('reference check never reports clean when refresh or Git observation fails', async () => {
   const refreshFailed = projectReferenceCheckReport({
     root: path.join(os.tmpdir(), 'sec-reference-root-must-not-be-read'),
+    runnerCommand: 'bun run reference:check',
+    refreshCommand: 'bun run reference:refresh',
+    diffCommand: 'git diff --name-only --exit-code -z -- examples/reference-workspace',
+    untrackedScanCommand: 'git ls-files -z --others --exclude-standard -- examples/reference-workspace',
     refreshExitCode: 2,
     drift: {
       exitCode: -1,
@@ -73,9 +86,13 @@ test('reference check never reports clean when refresh or Git observation fails'
 
   const nonRepositoryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-reference-nonrepo-'));
   try {
-    const drift = await scanReferenceDrift(nonRepositoryRoot);
+    const drift = await scanReferenceDrift(nonRepositoryRoot, referenceDriftCommands);
     const gitFailed = projectReferenceCheckReport({
       root: nonRepositoryRoot,
+      runnerCommand: 'bun run reference:check',
+      refreshCommand: 'bun run reference:refresh',
+      diffCommand: 'git diff --name-only --exit-code -z -- examples/reference-workspace',
+      untrackedScanCommand: 'git ls-files -z --others --exclude-standard -- examples/reference-workspace',
       refreshExitCode: 0,
       drift
     });

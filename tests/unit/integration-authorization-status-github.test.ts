@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { createIntegrationAuthorization } from '../../src/control/integration/authorization.ts';
+import { createIntegrationAuthorization } from '../../src/adapters/self-hosting/control/integration/authorization.ts';
 import {
   createIntegrationAuthorizationStatusDescription,
   createIntegrationAuthorizationStatusPublication,
@@ -8,13 +8,13 @@ import {
   parseIntegrationAuthorizationStatusPublication,
   publishIntegrationAuthorizationStatus,
   type IntegrationAuthorizationGateResult
-} from '../../src/control/integration/integration-authorization-status-github.ts';
+} from '../../src/adapters/self-hosting/control/integration/integration-authorization-status-github.ts';
 import {
   issueGitHubApiTestCapability,
   withGitHubApiTestSession,
   type GitHubApiTransport
-} from '../../src/external-capabilities/github-api/test/operation-session.ts';
-import { encodeVerificationActionData } from '../../src/verification/action/contract/action.ts';
+} from '../../src/adapters/providers/github-api/test/operation-session.ts';
+import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
 
 const D = (char: string): `sha256:${string}` => `sha256:${char.repeat(64).slice(0, 64)}`;
 const BASE = '1'.repeat(40);
@@ -49,11 +49,11 @@ function result(): IntegrationAuthorizationGateResult {
       expiresAt: '2026-08-19T01:00:00.000Z',
       issuer: {
         principalId: 'APP_sec_integrator',
-        producerIdentity: 'src/control/integration/merge-gate.ts',
+        producerIdentity: 'src/adapters/self-hosting/control/integration/merge-gate.ts',
         trustedRevision: BASE,
         sourceTransport: 'trusted-integration-runtime',
         sourceRunId: 'trusted-runtime-1',
-        sourceRef: `src/control/integration/merge-gate.ts@${BASE}`,
+        sourceRef: `src/adapters/self-hosting/control/integration/merge-gate.ts@${BASE}`,
         sourceDigest: D('9')
       }
     }),

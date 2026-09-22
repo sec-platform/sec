@@ -1,6 +1,6 @@
-import type { SemanticGeneratorTask as SemanticLoweringTask } from '../../semantic/generation/contract/types.ts';
-import type { SemanticViewSet } from '../../semantic/projection/contract/types.ts';
-import type { RegistryKind, RegistryLocation } from '../registry/contract/types.ts';
+import type { SemanticGeneratorTask as SemanticLoweringTask } from '../../semantics/generation/types.ts';
+import type { SemanticViewSet } from '../../semantics/projection/types.ts';
+import type { RegistryKind, RegistryLocation } from '../../contracts/registry-source.ts';
 import type { PassStatus } from './pass-status.ts';
 import type { ManifestKind } from './plan-manifest.ts';
 

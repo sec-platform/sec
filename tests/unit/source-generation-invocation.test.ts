@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { generatedStateDigest } from '../../src/runtime-state/generated-state/contract.ts';
-import { runtimeDependencyOperationControls } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
-import { assertRuntimeDependencySourceGenerationIssued, runtimeDependencySourceGeneration } from '../../src/toolchain/dependencies/runtime/source-generation.ts';
+import { generatedStateDigest } from '../../src/adapters/runtime-state/generated-state/contract.ts';
+import { runtimeDependencyOperationControls } from '../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
+import { assertRuntimeDependencySourceGenerationIssued, runtimeDependencySourceGeneration } from '../../src/adapters/toolchain/dependencies/runtime/source-generation.ts';
 
 // In repository execution these retain the real source compiler and physical
 // owner. The standalone local replay substitutes only the declared physical,

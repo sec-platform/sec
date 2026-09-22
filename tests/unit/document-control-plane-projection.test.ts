@@ -13,13 +13,13 @@ import {
   CodexDevelopmentRenderActivePointer,
   CodexDevelopmentRenderCommittedCandidateReplanRollingPlan,
   CodexDevelopmentRequiresCommittedCandidateProjectionRefresh
-} from '../../src/control/documentation/document-control-plane-contract.ts';
-import { CodexDevelopmentWorkPackageManifestDigest } from '../../src/control/task/contract/work-package.ts';
+} from '../../src/adapters/self-hosting/control/documentation/document-control-plane-contract.ts';
+import { CodexDevelopmentWorkPackageManifestDigest } from '../../src/adapters/self-hosting/control/task/contract/work-package.ts';
 import {
   compileSecWorkRollingTransitionProjection,
   renderSecWorkRollingTransitionPlan
-} from '../../src/control/work-selection/live-contract.ts';
-import { rawSha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+} from '../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
+import { rawSha256 } from '../../src/contracts/canonical.ts';
 
 const exactMain = 'a'.repeat(40);
 const exactMainTree = 'b'.repeat(40);
@@ -86,7 +86,7 @@ test('proposal-only freeze renders one authority-free tracking:none successor', 
   const targetManifest = proposalManifest(proposalPackageId, 'none');
   const spec = CodexDevelopmentParseCurrentStateSpec(`schema: sec-current-state-live-v1
 resolver:
-  command: bun src/control/documentation/document-control-plane.ts status --json
+  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
   remote: origin
   defaultBranch: main
@@ -265,7 +265,7 @@ tests:
 `, 'utf8');
   const spec = CodexDevelopmentParseCurrentStateSpec(`schema: sec-current-state-live-v1
 resolver:
-  command: bun src/control/documentation/document-control-plane.ts status --json
+  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
   remote: origin
   defaultBranch: main
@@ -499,7 +499,7 @@ matchingDefaultBlob: none
   };
   const spec = CodexDevelopmentParseCurrentStateSpec(`schema: sec-current-state-live-v1
 resolver:
-  command: bun src/control/documentation/document-control-plane.ts status --json
+  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
   remote: origin
   defaultBranch: main

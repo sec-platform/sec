@@ -2,9 +2,9 @@ import { test } from 'bun:test';
 import { Command } from 'commander';
 import assert from 'node:assert/strict';
 
-import { commandFromRoot, commandPath, jsonOpts, optionalModeCommand } from '../../src/interface/cli/command-options.ts';
-import { registerInspectionCommands } from '../../src/interface/cli/register-inspection-commands.ts';
-import { registerWorkspaceCommands } from '../../src/interface/cli/register-workspace-commands.ts';
+import { commandFromRoot, commandPath, jsonOpts, optionalModeCommand } from '../../src/entry/cli/command-options.ts';
+import { registerInspectionCommands } from '../../src/bootstrap/cli/register-inspection-commands.ts';
+import { registerWorkspaceCommands } from '../../src/bootstrap/cli/register-workspace-commands.ts';
 
 function program() {
   let output = '';

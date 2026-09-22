@@ -1,9 +1,7 @@
 import { expect, test } from 'bun:test';
 
-import {
-  readOptionalProvenanceFile,
-  validateProvenanceFile
-} from '../../src/semantic/provenance/authority.ts';
+import { readOptionalProvenanceFile } from '../../src/adapters/workspace/provenance-reader.ts';
+import { validateProvenanceFile } from '../../src/semantics/provenance/authority.ts';
 
 function validArtifact(path = 'src/generated.ts') {
   return {

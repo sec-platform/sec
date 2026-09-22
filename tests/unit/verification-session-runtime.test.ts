@@ -21,20 +21,20 @@ const PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS = 30_000;
 const VERIFICATION_ACTION_TEST_PROCESS_ISSUER =
   issueVerificationActionTestProcessIssuerForTests();
 
-import { createIntegrationAuthorization } from '../../src/control/integration/authorization.ts';
+import { createIntegrationAuthorization } from '../../src/adapters/self-hosting/control/integration/authorization.ts';
 import {
   createMainHealthLedger,
   createMainHealthRepairWorkPackagePath,
   resolveOrdinaryMainHealthLane,
   resolveRepairMainHealthLane
-} from '../../src/control/main-health/contract.ts';
-import { createScopeAuthorization, type ScopeAuthorization } from '../../src/control/scope/authorization.ts';
-import { encodeVerificationActionData } from '../../src/verification/action/contract/action.ts';
-import { ciVerificationActionParentDispatchPlanPayloadDigest, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment } from '../../src/verification/action/contract/ci.ts';
-import { CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, CodexDevelopmentFinalizeVerificationSessionArtifact } from '../../src/verification/ci/contract/evidence.ts';
-import { CodexDevelopmentBuildVerificationGateResult } from '../../src/verification/result/contract/result.ts';
-import { createReviewSnapshotDigest, createReviewStabilityReceipt, renderIndependentReviewTrailer, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY } from '../../src/verification/review/contract/stability.ts';
-import { CodexDevelopmentCreateTestImpactTransitionObservation, CodexDevelopmentTestImpactTransitionDigest, type CodexDevelopmentTestImpactTransitionObservation } from '../../src/verification/test-impact/runtime/transition.ts';
+} from '../../src/adapters/self-hosting/control/main-health/contract.ts';
+import { createScopeAuthorization, type ScopeAuthorization } from '../../src/adapters/self-hosting/control/scope/authorization.ts';
+import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
+import { ciVerificationActionParentDispatchPlanPayloadDigest, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment } from '../../src/adapters/verification/platform/action/contract/ci.ts';
+import { CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, CodexDevelopmentFinalizeVerificationSessionArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
+import { CodexDevelopmentBuildVerificationGateResult } from '../../src/assurance/verification/result/contract/result.ts';
+import { createReviewSnapshotDigest, createReviewStabilityReceipt, renderIndependentReviewTrailer, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY } from '../../src/adapters/verification/platform/review/contract/stability.ts';
+import { CodexDevelopmentCreateTestImpactTransitionObservation, CodexDevelopmentTestImpactTransitionDigest, type CodexDevelopmentTestImpactTransitionObservation } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 
 import {
   authorizeBranchCloseout,
@@ -43,50 +43,50 @@ import {
   createBranchCloseoutPreparation,
   createBranchCloseoutRecoveryArtifact,
   parseBranchCloseoutRecoveryArtifact
-} from '../../src/control/branch-lifecycle/branch-closeout-contract.ts';
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
 import {
   BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME,
   createBranchCloseoutEffectStartPublication,
   createHostedWorkflowCommentProvenance,
   renderBranchCloseoutEffectStartPublicationComment
-} from '../../src/control/branch-lifecycle/branch-closeout-receipt.ts';
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-receipt.ts';
 import {
   BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA,
   parsePreparedBranchCloseoutEnvelope,
   prepareBranchCloseout,
   rehydratePreparedBranchCloseoutEnvelope,
   rehydratePreparedBranchCloseoutRecoveryArtifact
-} from '../../src/control/branch-lifecycle/branch-closeout.ts';
-import { branchLifecycleDigest } from '../../src/control/branch-lifecycle/branch-lifecycle-audit.ts';
-import { createBranchLifecycleGitChildEnvironment } from '../../src/control/branch-lifecycle/branch-lifecycle-command.ts';
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout.ts';
+import { branchLifecycleDigest } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-audit.ts';
+import { createBranchLifecycleGitChildEnvironment } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts';
 import {
   BRANCH_REF_CLOSEOUT_CAPABILITY,
   type BranchLifecycleInventory
-} from '../../src/control/branch-lifecycle/branch-lifecycle-types.ts';
-import type { IntegrationAuthorizationOperationPublication } from '../../src/control/integration/integration-authorization-publication.ts';
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
+import type { IntegrationAuthorizationOperationPublication } from '../../src/adapters/self-hosting/control/integration/integration-authorization-publication.ts';
 import {
   createIntegrationAuthorizationOperationPublication,
   HOSTED_INTEGRATION_PHASE_STEP_NAMES,
   renderIntegrationAuthorizationOperationPublicationComment
-} from '../../src/control/integration/integration-authorization-publication.ts';
+} from '../../src/adapters/self-hosting/control/integration/integration-authorization-publication.ts';
 import {
   CodexDevelopmentEvaluateMergeGate,
   type CodexDevelopmentMergeGateResult
-} from '../../src/control/integration/merge-gate.ts';
-import { createObservedMainHealthInput } from '../../src/control/main-health/main-health-observation.ts';
-import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../src/control/main-health/provider-policy.ts';
+} from '../../src/adapters/self-hosting/control/integration/merge-gate.ts';
+import { createObservedMainHealthInput } from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
+import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
 import type {
   GitHubCheckObservation, GitHubWorkflowJobObservation,
   GitHubWorkflowRunObservation
-} from '../../src/external-capabilities/github-api/contract.ts';
-import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../src/verification/action/contract/environment.ts';
-import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../src/verification/action/contract/provider.ts';
+} from '../../src/adapters/providers/github-api/contract.ts';
+import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../src/adapters/verification/platform/action/contract/environment.ts';
+import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../src/adapters/verification/platform/action/contract/provider.ts';
 import {
   executeLocalVerificationActionDag,
   issueVerificationActionTestProcessIssuerForTests
-} from '../../src/verification/action/runner.ts';
-import { CI_VERIFICATION_SESSION_ARTIFACT_PREFIX, CI_VERIFICATION_SESSION_DISPATCH_TYPE, CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from '../../src/verification/ci/contract/revision.ts';
-import type { VerificationSessionHostedRequest } from '../../src/verification/ci/contract/session-request.ts';
+} from '../../src/adapters/verification/platform/action/runner.ts';
+import { CI_VERIFICATION_SESSION_ARTIFACT_PREFIX, CI_VERIFICATION_SESSION_DISPATCH_TYPE, CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
+import type { VerificationSessionHostedRequest } from '../../src/adapters/verification/platform/ci/contract/session-request.ts';
 import {
   assertGitHubReviewAuthorityObservation,
   classifyGitHubGraphQLSchemaFailure,
@@ -122,10 +122,10 @@ import {
   type VerificationSessionGitHubClient,
   type VerificationSessionReviewObservationTransaction,
   type VerificationSessionWorkflowObservationTransaction
-} from '../../src/verification/ci/runtime/verification-session-github.ts';
+} from '../../src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
 import {
   createEphemeralVerificationSessionJournalFs
-} from '../../src/verification/ci/runtime/verification-session-journal.ts';
+} from '../../src/adapters/verification/platform/ci/runtime/verification-session-journal.ts';
 import {
   assertTrustedExactRevisionRuntime,
   assertTrustedMainRuntime,
@@ -149,7 +149,7 @@ import {
   type VerificationSessionHostedEnvelope,
   type VerificationSessionHostedFacts,
   type VerificationSessionRuntimeExternal
-} from '../../src/verification/ci/runtime/verification-session-runtime.ts';
+} from '../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
 import {
   assertHostedCompilerDispatchPayload,
   assertHostedCompilerInternalProvenance,
@@ -160,10 +160,10 @@ import {
   routeHostedIntegration,
   routePreparedWorktreeCleanupAttempt,
   verificationSessionCli
-} from '../../src/verification/ci/runtime/verification-session.ts';
-import { createVerificationSession, type VerificationSession } from '../../src/verification/session/contract/session.ts';
-import { compileTcbClosureIdentity } from '../../src/verification/trust/compiler.ts';
-import { SEC_TRUSTED_BOOTSTRAP_REGISTRY } from '../../src/verification/trust/contract/root.ts';
+} from '../../src/adapters/verification/platform/ci/runtime/verification-session.ts';
+import { createVerificationSession, type VerificationSession } from '../../src/adapters/verification/platform/session/contract/session.ts';
+import { compileTcbClosureIdentity } from '../../src/adapters/verification/platform/trust/compiler.ts';
+import { SEC_TRUSTED_BOOTSTRAP_REGISTRY } from '../../src/adapters/verification/platform/trust/contract/root.ts';
 import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
 import { runRetainedBunTestProcess } from '../testkit/process-resource.ts';
 
@@ -898,7 +898,7 @@ function createPureReviewFixture(input: {
     independence: { candidateAuthorNodeId: input.candidateAuthorNodeId,
       integrationPrincipalNodeId: input.integrationPrincipalNodeId },
     producer: {
-      identity: 'src/verification/ci/runtime/verification-session-github.ts',
+      identity: 'src/adapters/verification/platform/ci/runtime/verification-session-github.ts',
       executionIdentity: input.barrier.authority.executionIdentity,
       providerIdentity: input.barrier.authority.providerIdentity,
       candidateWriteCapability: input.barrier.authority.candidateWriteCapability,
@@ -981,7 +981,7 @@ function reducerFixture(options: {
   const barrier = github.observeReviewBarrier({ repository: 'sec-platform/sec', prNumber: 42,
     headSha: HEAD, excludedPrincipalNodeIds: new Set(['AUTHOR', 'INTEGRATOR']), observedAt: VERIFIED_AT });
   if (barrier.status !== 'clear') throw new Error('fixture Review must be clear');
-  const changedPaths = ['src/verification/ci/runtime/verification-session.ts'];
+  const changedPaths = ['src/adapters/verification/platform/ci/runtime/verification-session.ts'];
   const testImpactTransition = changedTransition(changedPaths);
   const local = prepareTrustedMainVerificationSession({ repository: 'sec-platform/sec',
     candidate: transport.candidate(), manifestPath: V6_MANIFEST_PATH, manifestDigest: V6_MANIFEST_DIGEST,
@@ -2140,7 +2140,7 @@ test('trusted-main proposal and hosted sole issuer reconstruct the same stable S
   const barrier = observe(transport);
   if (barrier.status !== 'clear') throw new Error('expected clear review');
   const candidate = transport.candidate();
-  const changedPaths = ['src/verification/ci/runtime/verification-session.ts'];
+  const changedPaths = ['src/adapters/verification/platform/ci/runtime/verification-session.ts'];
   const testImpactTransition = changedTransition(changedPaths);
   const manifestDigest = `sha256:${'b'.repeat(64)}` as const;
   const local = prepareTrustedMainVerificationSession({ repository: candidate.repository, candidate,
@@ -2189,12 +2189,12 @@ test('trusted-main proposal and hosted sole issuer reconstruct the same stable S
 test('VerificationSession binds the exact deletion transition through Scope, Action, Session, and hosted reconstruction', () => {
   const baseSha = '9ed0291a0b51b4f3f6769ab317c4cc1a2753cb4b';
   const headSha = 'b'.repeat(40);
-  const retiredPath = 'src/verification/ci/runtime/verification-session-github.ts';
+  const retiredPath = 'src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
   const unownedRetiredPath =
     'docs/evidence/v0-4-semantic-mutation-single-job-owner-production-pass-2026-07-18.json';
-  const changedPaths = [retiredPath, 'src/verification/ci/runtime/verification-session.ts'];
+  const changedPaths = [retiredPath, 'src/adapters/verification/platform/ci/runtime/verification-session.ts'];
   const records = [
-    { status: 'changed' as const, path: 'src/verification/ci/runtime/verification-session.ts' },
+    { status: 'changed' as const, path: 'src/adapters/verification/platform/ci/runtime/verification-session.ts' },
     { status: 'removed' as const, path: retiredPath }
   ];
   const readPathBlob = (revision: string, repositoryPath: string) => (
@@ -2312,7 +2312,7 @@ test('same paths with a different Git transition change the complete Verificatio
   const barrier = observe(transport);
   if (barrier.status !== 'clear') throw new Error('expected clear review');
   const candidate = transport.candidate();
-  const changedPaths = ['src/verification/ci/runtime/verification-session.ts'];
+  const changedPaths = ['src/adapters/verification/platform/ci/runtime/verification-session.ts'];
   const prepare = (status: 'added' | 'changed') => prepareTrustedMainVerificationSession({
     repository: candidate.repository, candidate,
     manifestPath: 'config/repository/work-packages/example.md', manifestDigest: `sha256:${'e'.repeat(64)}`,
@@ -2392,14 +2392,14 @@ test('Session local quick DAG keeps durable journals in external Runtime State a
       os: process.platform, arch: process.arch, bunVersion: Bun.version
     });
     const testImpactTransition = changedTransition(
-      ['src/verification/ci/runtime/verification-session.ts'],
+      ['src/adapters/verification/platform/ci/runtime/verification-session.ts'],
       baseSha,
       headSha
     );
     const testImpactTransitionDigest = CodexDevelopmentTestImpactTransitionDigest(testImpactTransition);
     const closure = prepareLocalQuickVerificationActionPlan({ candidate,
       manifestPath: 'config/repository/work-packages/verification-action-trusted-cutover-v6.md',
-      manifestDigest: `sha256:${'9'.repeat(64)}`, changedPaths: ['src/verification/ci/runtime/verification-session.ts'],
+      manifestDigest: `sha256:${'9'.repeat(64)}`, changedPaths: ['src/adapters/verification/platform/ci/runtime/verification-session.ts'],
       testImpactTransition,
       testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
       expectedTestImpactTransitionDigest: testImpactTransitionDigest,
@@ -2407,7 +2407,7 @@ test('Session local quick DAG keeps durable journals in external Runtime State a
       dependencyBlobs: actionDependencyBlobs() });
     expect(() => prepareLocalQuickVerificationActionPlan({ candidate,
       manifestPath: 'config/repository/work-packages/verification-action-trusted-cutover-v6.md',
-      manifestDigest: `sha256:${'9'.repeat(64)}`, changedPaths: ['src/verification/ci/runtime/verification-session.ts'],
+      manifestDigest: `sha256:${'9'.repeat(64)}`, changedPaths: ['src/adapters/verification/platform/ci/runtime/verification-session.ts'],
       testImpactTransition,
       testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
       expectedTestImpactTransitionDigest: testImpactTransitionDigest,
@@ -2481,7 +2481,7 @@ test('synchronous hosted merge rejects queued effects and requires exact physica
     principal: { kind: 'github-app', actorNodeId: BOT, appId: 1144995,
       appNodeId: 'A_kwHOAOQ6Gs4AEXij', appSlug: 'chatgpt-codex-connector', reviewState: 'COMMENTED' },
     independence: { candidateAuthorNodeId: 'AUTHOR', integrationPrincipalNodeId: 'INTEGRATOR' },
-    producer: { identity: 'src/verification/ci/runtime/verification-session-github.ts',
+    producer: { identity: 'src/adapters/verification/platform/ci/runtime/verification-session-github.ts',
       executionIdentity: `github-review-observer:sec-platform/sec:42:${HEAD}`,
       providerIdentity: 'github', candidateWriteCapability: 'read-only',
       capabilityReceiptDigest: REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT,
@@ -3205,7 +3205,7 @@ if (args[0] === 'bundle' && args[1] === 'create') {
 }
 if (args[0] === 'bundle' && args[1] === 'verify') out('verified V6 recovery bundle');
 if (args[0] === 'cat-file' && args[1] === '-e') {
-  if (String(args[2]).includes('src/control/branch-lifecycle/branch-closeout-receipt.ts')) fail('missing enforcement marker');
+  if (String(args[2]).includes('src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-receipt.ts')) fail('missing enforcement marker');
   out('');
 }
 if (args[0] === 'update-ref' && args[1] === '-d') {
@@ -3310,7 +3310,7 @@ if (args[0] === 'pr' && args[1] === 'list') {
     baseRefName: 'main', baseRefOid: state.baseSha, state: state.inventoryPrState,
     isDraft: false, isCrossRepository: false, url: 'https://github.example/pull/42' }]);
 }
-if (endpoint.includes('/contents/src/control/branch-lifecycle/branch-closeout-receipt.ts')) fail('HTTP 404 Not Found');
+if (endpoint.includes('/contents/src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-receipt.ts')) fail('HTTP 404 Not Found');
 if (endpoint === '/repos/' + state.repository && args.includes('.delete_branch_on_merge')) out('true');
 if (endpoint === '/repos/' + state.repository) {
   out({ id: Number(state.repositoryId), full_name: state.repository,
@@ -3588,7 +3588,7 @@ function createCloseoutCliScenario(input: {
     crashReleasePath: path.join(root, 'crash-shim.release'),
     crashShimPid: null,
     tcbBlobs,
-    runtimeBlob: tcbBlobs['src/verification/ci/runtime/verification-session-runtime.ts'] ?? 'e'.repeat(40),
+    runtimeBlob: tcbBlobs['src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts'] ?? 'e'.repeat(40),
     publisher: CI_GITHUB_ACTIONS_IDENTITY_POLICY,
     phaseStepNames: HOSTED_INTEGRATION_PHASE_STEP_NAMES,
     currentPhase: 'closeoutMutation',
@@ -3830,7 +3830,7 @@ function runCloseoutCliProcess(
   const ghResolution = resolveCloseoutCliGh(environment);
   const startedAt = Date.now();
   const result = spawnSync(process.execPath, [
-    path.resolve(import.meta.dir, '../../src/verification/ci/runtime/verification-session.ts'),
+    path.resolve(import.meta.dir, '../../src/adapters/verification/platform/ci/runtime/verification-session.ts'),
     command,
     '--repository', 'sec-platform/sec',
     '--output', output,
@@ -3858,7 +3858,7 @@ function startCloseoutCliProcess(
   const environment = closeoutCliProcessEnvironment(shimRoot, scenario);
   const ghResolution = resolveCloseoutCliGh(environment);
   const child = spawn(process.execPath, [
-    path.resolve(import.meta.dir, '../../src/verification/ci/runtime/verification-session.ts'),
+    path.resolve(import.meta.dir, '../../src/adapters/verification/platform/ci/runtime/verification-session.ts'),
     command,
     '--repository', 'sec-platform/sec',
     '--output', output,
@@ -4636,7 +4636,7 @@ test('GitHub GraphQL schema drift is classified as typed provider-schema-unsuppo
 
 test('the implementation session cannot issue an independent Review receipt', async () => {
   const { SEC_REVIEW_STABILITY_POLICY: SEC_REVIEW_STABILITY_POLICY_V1, createReviewStabilityReceipt: createReviewStabilityReceiptV1 } =
-    await import('../../src/verification/review/contract/stability.ts');
+    await import('../../src/adapters/verification/platform/review/contract/stability.ts');
   const sha = 'a'.repeat(40);
   const digest = (value: string) => `sha256:${value}` as const;
   const principal = {
@@ -4680,7 +4680,7 @@ test('the implementation session cannot issue an independent Review receipt', as
   expect(() => createReviewStabilityReceiptV1({
       ...baseInput,
       producer: {
-        identity: 'src/verification/ci/runtime/verification-session-github.ts',
+        identity: 'src/adapters/verification/platform/ci/runtime/verification-session-github.ts',
         executionIdentity: SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY,
         providerIdentity: 'github',
         candidateWriteCapability: 'read-only',

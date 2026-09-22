@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { createLocalContinuationCheckpoint } from '../../src/control/continuation/checkpoint.ts';
-import { clearActiveContinuation, gcContinuationObjects, loadActiveContinuationCheckpoint, persistActiveContinuationCheckpoint } from '../../src/control/continuation/runtime-store.ts';
-import { resolveSecRuntimeStateForRepository } from '../../src/runtime-state/workspace-state/paths.ts';
+import { createLocalContinuationCheckpoint } from '../../src/adapters/self-hosting/control/continuation/checkpoint.ts';
+import { clearActiveContinuation, gcContinuationObjects, loadActiveContinuationCheckpoint, persistActiveContinuationCheckpoint } from '../../src/adapters/self-hosting/control/continuation/runtime-store.ts';
+import { resolveSecRuntimeStateForRepository } from '../../src/adapters/runtime-state/workspace-state/paths.ts';
 
 // Native owner integration: intentionally uses the real physical authority and
 // gate. Must run under the repository's supported Bun/host profile, not a stub.

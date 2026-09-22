@@ -2,11 +2,11 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { PhysicalNoFollowError } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { PhysicalNoFollowError } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   calculateCanonicalProjectFileHash,
   calculateProjectFileHash
-} from '../../src/workspace/runtime/project-file-hash.ts';
+} from '../../src/adapters/workspace/project-file-hash.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('canonical provenance hashes normalize UTF-8 line endings without weakening raw baseline hashes', async () => {

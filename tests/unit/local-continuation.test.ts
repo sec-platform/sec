@@ -3,10 +3,11 @@ import { expect, test } from 'bun:test';
 import {
   admitLocalContinuation,
   createLocalContinuationCheckpoint,
+  LOCAL_CONTINUATION_CHECKPOINT_MAX_BYTES,
   parseLocalContinuationCheckpoint,
   type LocalContinuationObservation
-} from '../../src/control/continuation/checkpoint.ts';
-import { encodeVerificationActionData } from '../../src/verification/action/contract/action.ts';
+} from '../../src/adapters/self-hosting/control/continuation/checkpoint.ts';
+import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
 
 const BASE = '1'.repeat(40);
 const BASE_TREE = '2'.repeat(40);
@@ -77,6 +78,11 @@ test('checkpoint carries only irreducible remote/frozen facts and admission deri
     nextAuthorityBoundary: 'trusted-base-physical-verification'
   });
   expect(admitted.admissionDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+});
+
+test('checkpoint parser rejects input beyond the canonical byte bound before JSON admission', () => {
+  expect(() => parseLocalContinuationCheckpoint(' '.repeat(LOCAL_CONTINUATION_CHECKPOINT_MAX_BYTES + 1)))
+    .toThrow('checkpoint input exceeds the canonical byte bound');
 });
 
 test('checkpoint tamper and local identity/scope admission drift fail closed', () => {

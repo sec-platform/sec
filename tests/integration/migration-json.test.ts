@@ -2,7 +2,8 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { formatJsonFile, writeJson } from '../../src/workspace/files.ts';
+import { formatJsonFile } from "../../src/contracts/json-text.ts";
+import { writeJson } from "../../src/adapters/filesystem/files.ts";
 import {
   configRewrite,
   jsonArrayAppend,
@@ -195,6 +196,22 @@ test('JSON migrations reject reserved mutation path segments without changing ob
       code: 'UPGRADE-MIGRATION-030'
     });
     expect(({} as { polluted?: boolean }).polluted).toBeUndefined();
+  });
+});
+
+test('JSON object merge treats inherited Object.prototype names as absent own JSON data', async () => {
+  await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
+    await writeJson(path.join(workspaceRoot, 'app.config.json'), {});
+
+    await apply(['app.config.json'], [
+      jsonObjectMerge('app.config.json', ['toString'], { enabled: true })
+    ]);
+
+    const parsed = JSON.parse(
+      await fs.readFile(path.join(workspaceRoot, 'app.config.json'), 'utf8')
+    ) as Record<string, unknown>;
+    expect(Object.hasOwn(parsed, 'toString')).toBe(true);
+    expect(parsed.toString).toEqual({ enabled: true });
   });
 });
 

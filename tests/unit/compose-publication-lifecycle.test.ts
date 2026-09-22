@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { formatOutputFiles } from '../../src/compiler/compose/format-output-files.ts';
-import { generateRuntimeLibraryScaffold } from '../../src/compiler/compose/generate-runtime-library.ts';
+import { formatOutputFiles } from '../../src/adapters/compilation/compose/format-output-files.ts';
+import { generateRuntimeLibraryScaffold } from '../../src/adapters/compilation/compose/generate-runtime-library.ts';
 import type { LockFile } from '../../src/compiler/contract.ts';
 
 function deferred() {

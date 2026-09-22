@@ -3,7 +3,7 @@ import { expect, test } from 'bun:test';
 import {
   detectLineEnding,
   differsOnlyInLineEnding
-} from '../../src/runtime-state/worktree-settlement.ts';
+} from '../../src/adapters/runtime-state/worktree-settlement.ts';
 
 function toBytes(text: string): Uint8Array {
   return new TextEncoder().encode(text);
