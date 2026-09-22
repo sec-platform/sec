@@ -6,8 +6,8 @@ import {
   GitReadBudgetError,
   boundedGitReadDeadlineAt,
   resolveGitReadSessionBudget
-} from '../../src/external-capabilities/git-read/runtime/budget.ts';
-import { captureGitReadArguments, gitReadCommandIsObservation } from '../../src/external-capabilities/git-read/runtime/read-command.ts';
+} from '../../src/adapters/providers/git-read/runtime/budget.ts';
+import { captureGitReadArguments, gitReadCommandIsObservation } from '../../src/adapters/providers/git-read/runtime/read-command.ts';
 
 // Expected command forms and forbidden mutations are independent protocol
 // vectors, not generated from the implementation's sets or regular expressions.

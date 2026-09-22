@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { parseGitAbsolutePathReply, parseGitLineReply, parseGitObjectIdReply } from '../../src/runtime-state/physical/contract/git-worktree-observation.ts';
+import { parseGitAbsolutePathReply, parseGitLineReply, parseGitObjectIdReply } from '../../src/adapters/runtime-state/physical/contract/git-worktree-observation.ts';
 import { gitProtocolSuccess, inGitProtocolRepository } from '../testkit/git-protocol.ts';
 
 test('Git path reply preserves spaces, tabs and CR data instead of applying trim', () => {

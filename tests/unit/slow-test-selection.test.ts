@@ -1,15 +1,16 @@
 import { afterAll, expect, test } from 'bun:test';
 
-import { AFFECTED_SELECTION_OPERATION_DURATION_MS } from '../../src/development/runner/affected-plan-contract.ts';
+import { DEFAULT_FAST_TEST_MAX_CONCURRENCY } from '../../src/adapters/self-hosting/development/runner/fast-test-policy.ts';
+import { AFFECTED_SELECTION_OPERATION_DURATION_MS } from '../../src/adapters/self-hosting/development/runner/affected-plan-contract.ts';
 import {
   admitTestSuiteExecutionPolicy,
   issueTestSuiteExecutionPolicy
-} from '../../src/development/runner/test-execution-policy.ts';
-import { compileTestBudgetProjection, slowTestPrRiskBaselineSuiteIds } from '../../src/verification/test-impact/contract/budget.ts';
-import { hasTestImpactForFile } from '../../src/verification/test-impact/runtime/impact.ts';
-import { CodexDevelopmentCreateTestImpactTransitionObservation } from '../../src/verification/test-impact/runtime/transition.ts';
-import { selectSlowTestRiskClosure as selectSlowTestClosureWithProvider } from '../../src/verification/test-impact/slow-risk-selection.ts';
-import { compilerRoot } from '../../src/workspace/runtime/paths.ts';
+} from '../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
+import { compileTestBudgetProjection, slowTestPrRiskBaselineSuiteIds } from '../../src/adapters/verification/platform/test-impact/contract/budget.ts';
+import { hasTestImpactForFile } from '../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
+import { CodexDevelopmentCreateTestImpactTransitionObservation } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
+import { selectSlowTestRiskClosure as selectSlowTestClosureWithProvider } from '../../src/adapters/verification/platform/test-impact/slow-risk-selection.ts';
+import { compilerRoot } from "../../src/adapters/workspace-context.ts";
 import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
 
 const testImpactFixture = await acquireExactRepositoryTestImpactProviderFixture();
@@ -55,7 +56,7 @@ test('source changes fail closed without an owner-issued test-impact projection'
     files: string[] | null
   ) => unknown;
   expect(() => providerlessSelection([
-    'src/compiler/verify/run-runtime-verification.ts'
+    'src/adapters/verification/run-runtime-verification.ts'
   ])).toThrow('requires an owner-issued snapshot projection');
 });
 
@@ -78,7 +79,7 @@ test('repository configuration resolves only through the snapshot-bound owner pr
 
 test('owner-issued projection maps source and managed-hook changes to their canonical slow suites', () => {
   const sourceSelection = selectSlowTestRiskClosure([
-    'src/compiler/verify/run-runtime-verification.ts'
+    'src/adapters/verification/run-runtime-verification.ts'
   ]);
   expect(sourceSelection).toMatchObject({ resolved: true });
   expect(sourceSelection.affectedSlowTests).toContain('tests/e2e/dry-run-plan.test.ts');
@@ -86,13 +87,13 @@ test('owner-issued projection maps source and managed-hook changes to their cano
 
   const hookSelection = selectSlowTestRiskClosure(['.githooks/post-merge']);
   expect(hookSelection).toMatchObject({ resolved: true });
-  expect(hookSelection.owners).toContain('development.hooks');
+  expect(hookSelection.owners).toContain('adapters.self-hosting.development.hooks');
   expect(hookSelection.affectedSlowTests).toContain('tests/e2e/install-git-hooks.test.ts');
   expect(hookSelection.suites).toContain('e2e-install-git-hooks');
 });
 
 test('selection and direct impact queries consume the same owner-issued projection', () => {
-  const resolvedFile = 'src/compiler/verify/run-runtime-verification.ts';
+  const resolvedFile = 'src/adapters/verification/run-runtime-verification.ts';
   const unresolvedFile = 'fixtures/nonexistent-affected-test.txt';
   expect(hasTestImpactForFile(resolvedFile, provider)).toBe(true);
   expect(selectSlowTestRiskClosure([resolvedFile]).resolved).toBe(true);
@@ -103,7 +104,7 @@ test('selection and direct impact queries consume the same owner-issued projecti
   });
   for (const path of [
     'platform/shared/new-owner.ts',
-    'src/development/tooling/new-runtime-owner.ts',
+    'src/adapters/self-hosting/development/tooling/new-runtime-owner.ts',
     'scripts/codex/new-control-sink.ts'
   ]) {
     expect(hasTestImpactForFile(path, provider)).toBe(false);
@@ -113,7 +114,7 @@ test('selection and direct impact queries consume the same owner-issued projecti
 test('heterogeneous owned inputs form one resolved union', () => {
   const selection = selectSlowTestRiskClosure([
     'package.json',
-    'src/compiler/verify/run-runtime-verification.ts'
+    'src/adapters/verification/run-runtime-verification.ts'
   ]);
   expect(selection.resolved).toBe(true);
   expect(selection.owners.length).toBeGreaterThan(0);
@@ -244,7 +245,7 @@ test('long suite admission retains its exact issued test inventory and finite re
     workingDirectory: compilerRoot
   });
   expect(concurrentPolicy.canonicalArgv).toEqual([
-    'bun', 'test', ...suite.files, '--concurrent', '--max-concurrency', '3',
+    'bun', 'test', ...suite.files, '--concurrent', '--max-concurrency', String(DEFAULT_FAST_TEST_MAX_CONCURRENCY),
     '--timeout', '180000'
   ]);
 

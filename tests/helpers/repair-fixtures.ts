@@ -1,5 +1,5 @@
-import type { RepairPlan } from '../../src/semantic/repair/contract/types.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import type { RepairPlan } from '../../src/semantics/repair/types.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 
 type RepairFailurePoint = RepairPlan['tasks'][number]['failurePoints'][number];
 type RepairTask = RepairPlan['tasks'][number];

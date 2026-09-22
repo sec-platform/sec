@@ -10,36 +10,36 @@ import {
   planSemanticMutationTransaction,
   querySemanticMutationRequest,
   resolveWorkspace
-} from '../../src/compiler/orchestration/cli.ts';
+} from '../../src/bootstrap/engineering/cli.ts';
 import {
   applySemanticMutationWithTestDependencies,
   planSemanticMutationTransactionWithTestDependencies
-} from '../../src/compiler/orchestration/semantic-mutation-orchestrator.ts';
-import { buildWorkspaceSemanticBundle } from '../../src/compiler/semantic-frontend.ts';
+} from '../../src/bootstrap/engineering/semantic-mutation-orchestrator.ts';
+import { buildWorkspaceSemanticBundle } from '../../src/adapters/workspace/semantic-bundle.ts';
 import {
   atomicPublishSemanticMutationSource,
   writeSemanticMutationTransactionArtifacts
-} from '../../src/compiler/semantic-mutation/atomic-source-publish.ts';
+} from '../../src/adapters/mutation/atomic-source-publish.ts';
 import {
   deriveStagedSemanticMutation,
   type DerivedSemanticMutationTransaction
-} from '../../src/compiler/semantic-mutation/derive-staged-mutation.ts';
+} from '../../src/adapters/mutation/derive-staged-mutation.ts';
 import { expectationFromFactDelta } from '../../src/compiler/semantic-mutation/match-expectation.ts';
-import { appendSemanticMutationRecoveryRecord, loadSemanticMutationRecoveryRecords } from '../../src/compiler/semantic-mutation/mutation-recovery-record.ts';
+import { appendSemanticMutationRecoveryRecord, loadSemanticMutationRecoveryRecords } from '../../src/adapters/mutation/mutation-recovery-record.ts';
 import { semanticMutationAuthorizationRevision } from '../../src/compiler/semantic-mutation/normalize-request.ts';
-import { renderSemanticContractYamlEdit } from '../../src/compiler/semantic-mutation/semantic-contract-yaml-adapter.ts';
-import { buildSemanticMutationVerificationExecutionRef } from '../../src/compiler/semantic-mutation/semantic-mutation-result.ts';
+import { renderSemanticContractYamlEdit } from '../../src/adapters/mutation/semantic-contract-yaml-adapter.ts';
+import { buildSemanticMutationVerificationExecutionRef } from '../../src/assurance/verification/semantic-mutation/execution-ref.ts';
 import {
-  semanticMutationRequestIdentityDigest,
   semanticMutationTransactionRoot
-} from '../../src/compiler/semantic-mutation/transaction-identity.ts';
+} from '../../src/adapters/mutation/transaction-identity.ts';
+import { semanticMutationRequestIdentityDigest } from '../../src/compiler/semantic-mutation/identity.ts';
 import { semanticMutationRequiredVerificationDigest } from '../../src/compiler/semantic-mutation/verification-policy.ts';
 import {
   SEMANTIC_MUTATION_ISOLATED_VERIFICATION_TIMEOUT_MS
-} from '../../src/compiler/verify/run-semantic-mutation-isolated-child.ts';
-import type { FactDeltaEndpointContext } from '../../src/semantic/engineering-ir/contract/delta-types.ts';
-import type { SemanticMutationApplyInput, SemanticMutationRecoveryState } from '../../src/semantic/mutation/contract/transaction.ts';
-import { type SemanticMutationAuthorizationContext, type SemanticMutationPlan, type SemanticMutationRequest } from '../../src/semantic/mutation/contract/types.ts';
+} from '../../src/adapters/verification/run-semantic-mutation-isolated-child.ts';
+import type { FactDeltaEndpointContext } from '../../src/semantics/engineering-ir/delta-types.ts';
+import type { SemanticMutationApplyInput, SemanticMutationRecoveryState } from '../../src/semantics/mutation/transaction.ts';
+import { type SemanticMutationAuthorizationContext, type SemanticMutationPlan, type SemanticMutationRequest } from '../../src/semantics/mutation/types.ts';
 import { semanticMutationVerificationReportFixture } from '../helpers/semantic-mutation-verification-report.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 

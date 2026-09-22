@@ -1,4 +1,4 @@
-import { canonicalEquals, compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalEquals, compareCodeUnits } from '../../contracts/canonical.ts';
 import type { ManifestEntry } from '../contract/plan-manifest.ts';
 import { CompilerError } from '../errors.ts';
 import { KIND_PRIORITY } from '../registry/kind-priority.ts';

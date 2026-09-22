@@ -1,6 +1,6 @@
-import type { SemanticAttribute, SemanticAttributeValue } from '../../semantic/engineering-ir/contract/entity-types.ts';
-import type { EvidenceReference, FactProvenance, SemanticFactObject, SemanticValue } from '../../semantic/engineering-ir/contract/fact-types.ts';
-import { compareCodeUnits, uniqueSorted, uniqueSortedByKey } from '../../system-architecture/foundation/runtime/canonical.ts';
+import type { SemanticAttribute, SemanticAttributeValue } from '../../semantics/engineering-ir/entity-types.ts';
+import type { EvidenceReference, FactProvenance, SemanticFactObject, SemanticValue } from '../../semantics/engineering-ir/fact-types.ts';
+import { compareCodeUnits, uniqueSorted, uniqueSortedByKey } from '../../contracts/canonical.ts';
 
 export { uniqueSorted };
 

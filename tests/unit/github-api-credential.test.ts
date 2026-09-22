@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { readGitHubToken } from '../../src/external-capabilities/github-api/credential.ts';
+import { readGitHubToken } from '../../src/adapters/providers/github-api/credential.ts';
 
 if (import.meta.main && path.basename(process.execPath).toLowerCase() === 'gh.exe') {
   const forbidden = [

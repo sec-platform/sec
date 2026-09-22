@@ -10,8 +10,8 @@ import {
   parseIssueDispositionPlan,
   parseIssueDispositionV1,
   renderPullRequestBodyV1
-} from '../../src/control/issues/disposition.ts';
-import { encodeVerificationActionData } from '../../src/verification/action/contract/action.ts';
+} from '../../src/adapters/self-hosting/control/issues/disposition.ts';
+import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
 
 const REPOSITORY = 'sec-platform/sec';
 const MANIFEST = 'config/repository/work-packages/controlled-pr-issue-disposition-single-writer-v1.md';

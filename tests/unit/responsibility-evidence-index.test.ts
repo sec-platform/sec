@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { indexResponsibilityEvidenceInputs as index } from '../../src/brownfield/source-program-model/responsibility-evidence-index.ts';
+import { indexResponsibilityEvidenceInputs as index } from '../../src/adapters/repository/source-program-model/responsibility-evidence-index.ts';
 
 const row = (id = 'b', path: string | null = 'src/a.ts', name: string | null = 'f') => ({
   binding: { id }, declarationPath: path, exportName: name

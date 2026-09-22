@@ -1,14 +1,15 @@
 import { expect, test } from 'bun:test';
 
+import { parseRepositoryFullName } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-inventory.ts';
 import {
   projectBranchLifecycleForWorkSelection,
   selectBranchLifecyclePullRequests
-} from '../../src/control/branch-lifecycle/branch-lifecycle-audit.ts';
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-audit.ts';
 import {
   createBranchLifecycleGitChildEnvironment,
   createBranchLifecycleGitHubCredentialArgs,
   createBranchLifecycleGitHubRemoteObservation
-} from '../../src/control/branch-lifecycle/branch-lifecycle-command.ts';
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts';
 import {
   BRANCH_REF_CLOSEOUT_CAPABILITY,
   auditBranchLifecycle,
@@ -20,7 +21,7 @@ import {
   parseBranchCloseoutReceipt,
   type BranchCloseoutPreparation,
   type BranchLifecycleInventory
-} from '../../src/control/branch-lifecycle/branch-lifecycle-contract.ts';
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-contract.ts';
 const MAIN_SHA = '1111111111111111111111111111111111111111';
 const HEAD_SHA = '2222222222222222222222222222222222222222';
 const RACE_SHA = '3333333333333333333333333333333333333333';
@@ -73,6 +74,14 @@ test('lifecycle inventory retains live PRs and only exact physical historical he
   expect(selectBranchLifecyclePullRequests(pullRequests, [
     { branch: 'fix/residue', headSha: HEAD_SHA }
   ]).map(({ number }) => number)).toEqual([1, 2]);
+});
+
+test('GitHub repository identity parser accepts only exact supported remote forms', () => {
+  expect(parseRepositoryFullName('https://github.com/sec-platform/sec.git')).toBe('sec-platform/sec');
+  expect(parseRepositoryFullName('git@github.com:sec-platform/sec.git')).toBe('sec-platform/sec');
+  expect(parseRepositoryFullName('ssh://git@github.com/sec-platform/sec.git')).toBe('sec-platform/sec');
+  expect(parseRepositoryFullName('https://attacker.invalid/github.com/sec-platform/sec.git')).toBeNull();
+  expect(parseRepositoryFullName('https://github.com/sec-platform/sec/extra')).toBeNull();
 });
 
 test('canonical bounded GitHub credential helper is deterministic', () => {

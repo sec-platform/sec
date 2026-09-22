@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { classifyDependencyEnvironment, observeDependencyEntry, sameObservedDependencyDirectory } from '../../src/toolchain/dependencies/runtime/environment-observation.ts';
+import { classifyDependencyEnvironment, observeDependencyEntry, sameObservedDependencyDirectory } from '../../src/adapters/toolchain/dependencies/runtime/environment-observation.ts';
 
 async function fixture(run: (root: string) => Promise<void>): Promise<void> {
   const root = await fs.mkdtemp(path.join(tmpdir(), 'sec-environment-observation-'));

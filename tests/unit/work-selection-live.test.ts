@@ -10,8 +10,8 @@ function independentRawSha256(value: string): `sha256:${string}` {
   return `sha256:${createHash('sha256').update(value, 'utf8').digest('hex')}`;
 }
 
-import { createMainHealthRepairWorkPackagePath } from '../../src/control/main-health/contract.ts';
-import type { SecCurrentWorkLifecycle } from '../../src/control/work-selection/contract.ts';
+import { createMainHealthRepairWorkPackagePath } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
+import type { SecCurrentWorkLifecycle } from '../../src/adapters/self-hosting/control/work-selection/contract.ts';
 import {
   SEC_ROADMAP_WORK_CATALOG_BEGIN,
   SEC_ROADMAP_WORK_CATALOG_END,
@@ -37,7 +37,7 @@ import {
   type SecRoadmapWorkCatalog,
   type SecWorkCurrentSpecObservation,
   type SecWorkRegistryObservation
-} from '../../src/control/work-selection/live-contract.ts';
+} from '../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
 import {
   isExactWorkSelectionActiveIdentity,
   isWorkSelectionProspectiveTransport,
@@ -46,8 +46,8 @@ import {
   observeSecWorkSelectionWithProviderV1,
   requireResolvedSecWorkDecisionReceipt,
   type SecWorkSelectionProvider
-} from '../../src/control/work-selection/runtime.ts';
-import { rawSha256, sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+} from '../../src/adapters/self-hosting/control/work-selection/runtime.ts';
+import { rawSha256, sha256 } from '../../src/contracts/canonical.ts';
 
 const exactMain = 'a'.repeat(40);
 const exactMainTree = 'b'.repeat(40);
@@ -713,7 +713,7 @@ describe('work-selection live contract', () => {
         baseRefOid: baseSha,
         body: `Work-Package: ${secondaryManifestPath}`
       };
-      const provider = ((command, args, cwd, environment) => {
+      const provider = ((command, args, cwd, environment, input) => {
         if (command === 'gh') {
           const value = args[0] === 'api'
             ? { data: { repository: issueRecords } }
@@ -737,6 +737,7 @@ describe('work-selection live contract', () => {
         }
         const result = spawnSync('git', [...args], {
           cwd,
+          input,
           encoding: 'buffer',
           windowsHide: true,
           env: environment === undefined ? process.env : { ...process.env, ...environment }
@@ -821,7 +822,7 @@ describe('work-selection live contract', () => {
         cwd: root,
         exactMain: baseSha,
         exactMainTree: baseTreeSha
-      }, (command, args, cwd, environment) => {
+      }, (command, args, cwd, environment, input) => {
         if (command === 'gh') {
           const value = args[0] === 'api'
             ? {
@@ -838,7 +839,7 @@ describe('work-selection live contract', () => {
             stderr: Buffer.alloc(0)
           };
         }
-        return provider(command, args, cwd, environment);
+        return provider(command, args, cwd, environment, input);
       }, async () => ({
         state: 'healthy',
         ref: rawSha256('multi-pr-current-main-health')
@@ -862,7 +863,7 @@ describe('work-selection live contract', () => {
         cwd: root,
         exactMain: baseSha,
         exactMainTree: baseTreeSha
-      }, (command, args, cwd, environment) => {
+      }, (command, args, cwd, environment, input) => {
         if (command === 'gh' && args[0] !== 'api') {
           return {
             status: 0,
@@ -886,7 +887,7 @@ describe('work-selection live contract', () => {
             stderr: Buffer.alloc(0)
           };
         }
-        return provider(command, args, cwd, environment);
+        return provider(command, args, cwd, environment, input);
       }, async () => ({
         state: 'healthy',
         ref: rawSha256('multi-pr-malformed-main-health')
@@ -903,7 +904,7 @@ describe('work-selection live contract', () => {
         cwd: root,
         exactMain: baseSha,
         exactMainTree: baseTreeSha
-      }, (command, args, cwd, environment) => {
+      }, (command, args, cwd, environment, input) => {
         if (command === 'gh' && args[0] !== 'api') {
           return {
             status: 0,
@@ -911,7 +912,7 @@ describe('work-selection live contract', () => {
             stderr: Buffer.alloc(0)
           };
         }
-        return provider(command, args, cwd, environment);
+        return provider(command, args, cwd, environment, input);
       }, async () => ({
         state: 'healthy',
         ref: rawSha256('terminal-provider-replay-main-health')
@@ -926,7 +927,7 @@ describe('work-selection live contract', () => {
         cwd: root,
         exactMain: baseSha,
         exactMainTree: baseTreeSha
-      }, (command, args, cwd, environment) => {
+      }, (command, args, cwd, environment, input) => {
         if (command === 'gh' && args[0] !== 'api') {
           return {
             status: 0,
@@ -937,7 +938,7 @@ describe('work-selection live contract', () => {
             stderr: Buffer.alloc(0)
           };
         }
-        return provider(command, args, cwd, environment);
+        return provider(command, args, cwd, environment, input);
       }, async () => ({
         state: 'healthy',
         ref: rawSha256('duplicate-current-main-health')
@@ -953,7 +954,7 @@ describe('work-selection live contract', () => {
         cwd: root,
         exactMain: baseSha,
         exactMainTree: baseTreeSha
-      }, (command, args, cwd, environment) => {
+      }, (command, args, cwd, environment, input) => {
         if (command === 'git' && args.join('\0') === 'branch\0--show-current') {
           currentBranchReads += 1;
           if (currentBranchReads === 2) {
@@ -964,7 +965,7 @@ describe('work-selection live contract', () => {
             };
           }
         }
-        return provider(command, args, cwd, environment);
+        return provider(command, args, cwd, environment, input);
       }, async () => ({
         state: 'healthy',
         ref: rawSha256('current-checkout-drift-main-health')

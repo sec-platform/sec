@@ -10,11 +10,11 @@ import {
   EFFECTFUL_TEST_CASE_SETTLEMENT_GUARD_MS,
   EFFECTFUL_TEST_SEMANTIC_OPERATION,
   TEST_SUPERVISOR_SETTLEMENT_MARGIN_MS
-} from '../../src/development/runner/test-execution-policy.ts';
+} from '../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
 import {
   disposeCompilerDependencyEnvironment,
   type CompilerDependencyEnvironmentRetirementReceipt
-} from '../../src/toolchain/dependencies/test/runtime.ts';
+} from '../../src/adapters/toolchain/dependencies/test/runtime.ts';
 import {
   effectfulTest,
   EffectfulTestPhysicalResidueError,

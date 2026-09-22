@@ -1,7 +1,7 @@
-import type { SemanticEntity } from '../../semantic/engineering-ir/contract/entity-types.ts';
-import type { SemanticFact, SemanticValue } from '../../semantic/engineering-ir/contract/fact-types.ts';
-import type { ScenarioDefinition, ScenarioStepDefinition } from '../../semantic/engineering-ir/contract/scenario-types.ts';
-import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
+import type { SemanticEntity } from '../../semantics/engineering-ir/entity-types.ts';
+import type { SemanticFact, SemanticValue } from '../../semantics/engineering-ir/fact-types.ts';
+import type { ScenarioDefinition, ScenarioStepDefinition } from '../../semantics/engineering-ir/scenario-types.ts';
+import { compareCodeUnits } from '../../contracts/canonical.ts';
 import { CompilerError } from '../errors.ts';
 
 function entityObjectId(fact: SemanticFact): string | undefined {
@@ -36,16 +36,29 @@ export function deriveScenarioDefinitions(
   entities: readonly SemanticEntity[],
   facts: readonly SemanticFact[]
 ): ScenarioDefinition[] {
+  const scenarios = entities.filter((entity) => entity.kind === 'scenario');
+  if (scenarios.length === 0) return [];
   const entityById = new Map(entities.map((entity) => [entity.id, entity]));
   const outgoing = new Map<string, SemanticFact[]>();
+  const incomingRelations = new Map<string, SemanticFact[]>();
+  const relationOrder = new Map<SemanticFact, number>();
   for (const fact of facts) {
     const existing = outgoing.get(fact.subject);
     if (existing) existing.push(fact);
     else outgoing.set(fact.subject, [fact]);
+    if (fact.predicate === 'PRECEDES' || fact.predicate === 'HANDLES') {
+      // Keep the original first-error order, including repeated object references.
+      if (!relationOrder.has(fact)) relationOrder.set(fact, relationOrder.size);
+      const objectId = entityObjectId(fact);
+      if (objectId !== undefined) {
+        const incoming = incomingRelations.get(objectId);
+        if (incoming) incoming.push(fact);
+        else incomingRelations.set(objectId, [fact]);
+      }
+    }
   }
 
-  return entities
-    .filter((entity) => entity.kind === 'scenario')
+  return scenarios
     .map((scenarioEntity) => {
       const scenarioFacts = outgoing.get(scenarioEntity.id) ?? [];
       const entryFact = singleFact(
@@ -64,12 +77,23 @@ export function deriveScenarioDefinitions(
         .sort((left, right) => compareCodeUnits(left.id, right.id));
       const stepIds = new Set(stepEntities.map((entity) => entity.id));
 
-      for (const fact of facts.filter((candidate) => candidate.predicate === 'PRECEDES' || candidate.predicate === 'HANDLES')) {
-        const objectId = entityObjectId(fact);
-        if ((stepIds.has(fact.subject) || (objectId !== undefined && stepIds.has(objectId))) &&
-          (!stepIds.has(fact.subject) || objectId === undefined || !stepIds.has(objectId))) {
-          throw new CompilerError('IR-SCENARIO-004', `Scenario relation Fact "${fact.id}" crosses the contained step boundary`);
+      // Inspect only incident relations, not every Fact for every scenario.
+      // Both directions matter: an outside step can point into this scenario.
+      let crossingFact: SemanticFact | undefined;
+      for (const stepId of stepIds) {
+        for (const incident of [outgoing.get(stepId) ?? [], incomingRelations.get(stepId) ?? []]) {
+          for (const fact of incident) {
+            if (fact.predicate !== 'PRECEDES' && fact.predicate !== 'HANDLES') continue;
+            const objectId = entityObjectId(fact);
+            if ((!stepIds.has(fact.subject) || objectId === undefined || !stepIds.has(objectId)) &&
+              (crossingFact === undefined || relationOrder.get(fact)! < relationOrder.get(crossingFact)!)) {
+              crossingFact = fact;
+            }
+          }
         }
+      }
+      if (crossingFact !== undefined) {
+        throw new CompilerError('IR-SCENARIO-004', `Scenario relation Fact "${crossingFact.id}" crosses the contained step boundary`);
       }
 
       const steps: ScenarioStepDefinition[] = stepEntities.map((stepEntity) => {
@@ -91,11 +115,12 @@ export function deriveScenarioDefinitions(
         if (retryFacts.length > 1 || (retryFacts[0] && retryFacts[0].object.kind !== 'value')) {
           throw new CompilerError('IR-SCENARIO-002', `Scenario step "${stepEntity.id}" requires at most one value RETRIES Fact`);
         }
-        const afterStepIds = facts
-          .filter((fact) => fact.predicate === 'PRECEDES' && entityObjectId(fact) === stepEntity.id)
+        const incoming = incomingRelations.get(stepEntity.id) ?? [];
+        const afterStepIds = incoming
+          .filter((fact) => fact.predicate === 'PRECEDES')
           .map((fact) => fact.subject)
           .sort((left, right) => compareCodeUnits(left, right));
-        const handlerFacts = facts.filter((fact) => fact.predicate === 'HANDLES' && entityObjectId(fact) === stepEntity.id);
+        const handlerFacts = incoming.filter((fact) => fact.predicate === 'HANDLES');
         if (handlerFacts.length > 1) {
           throw new CompilerError('IR-SCENARIO-006', `Scenario step "${stepEntity.id}" has multiple error handlers`);
         }
@@ -120,9 +145,8 @@ export function deriveScenarioDefinitions(
         id: scenarioEntity.id,
         label: scenarioEntity.label,
         entryEntityId,
-        factIds: facts
-          .filter((fact) => relatedSubjectIds.has(fact.subject))
-          .map((fact) => fact.id)
+        factIds: [...relatedSubjectIds]
+          .flatMap((subject) => (outgoing.get(subject) ?? []).map((fact) => fact.id))
           .sort((left, right) => compareCodeUnits(left, right)),
         steps,
         acceptanceEntityIds

@@ -1,0 +1,396 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [],
+  "capabilityProviders": [
+    {
+      "capability": "development.commit",
+      "operations": [
+        "runDevelopmentCommit",
+        "readDevelopmentCommitOutcome",
+        "recoverDevelopmentCommit",
+        "prepareClosedAbsentDevelopmentCommitJournalRetirement",
+        "acknowledgeClosedAbsentDevelopmentCommitJournalRetirement",
+        "settleDevelopmentCommitJournalsForRef"
+      ],
+      "effectKinds": [
+        "filesystem",
+        "process"
+      ],
+      "operationRoles": [
+        {
+          "operation": "runDevelopmentCommit",
+          "role": "domain-owner",
+          "semanticOperation": "development.commit",
+          "requirementId": null,
+          "recovery": null
+        },
+        {
+          "operation": "readDevelopmentCommitOutcome",
+          "role": "readback-issuer",
+          "semanticOperation": "development.commit",
+          "requirementId": "repository.commit",
+          "recovery": null
+        },
+        {
+          "operation": "recoverDevelopmentCommit",
+          "role": "domain-owner",
+          "semanticOperation": "development.commit-recovery",
+          "requirementId": null,
+          "recovery": null
+        },
+        {
+          "operation": "prepareClosedAbsentDevelopmentCommitJournalRetirement",
+          "role": "readback-issuer",
+          "semanticOperation": "development.commit-closed-absent-retirement",
+          "requirementId": "repository.closed-absent-development-commit-journal-retirement",
+          "recovery": null
+        },
+        {
+          "operation": "acknowledgeClosedAbsentDevelopmentCommitJournalRetirement",
+          "role": "domain-owner",
+          "semanticOperation": "development.commit-closed-absent-retirement",
+          "requirementId": null,
+          "recovery": null
+        },
+        {
+          "operation": "settleDevelopmentCommitJournalsForRef",
+          "role": "domain-owner",
+          "semanticOperation": "development.commit-ref-journal-settlement",
+          "requirementId": null,
+          "recovery": "owner-intervention"
+        }
+      ]
+    }
+  ],
+  "operationObligations": [
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "development.commit",
+        "operation": "runDevelopmentCommit"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "development.runner"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem",
+          "process"
+        ],
+        "failureKinds": [
+          "development.commit.cas-conflict",
+          "development.commit.index-drift",
+          "development.commit.lost-handle",
+          "development.commit.precommit-rejected",
+          "development.commit.provider-failed"
+        ],
+        "recovery": "resume"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 30000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 65536
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 8388608
+          },
+          {
+            "resource": "processes",
+            "maximum": 32
+          },
+          {
+            "resource": "records",
+            "maximum": 32
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "development.commit",
+        "operation": "readDevelopmentCommitOutcome"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "development.commit"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem",
+          "process"
+        ],
+        "failureKinds": [
+          "development.commit.readback-invalid",
+          "development.commit.readback-unknown"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 30000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 65536
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 8388608
+          },
+          {
+            "resource": "processes",
+            "maximum": 32
+          },
+          {
+            "resource": "records",
+            "maximum": 32
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "development.commit",
+        "operation": "recoverDevelopmentCommit"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "development.runner"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem",
+          "process"
+        ],
+        "failureKinds": [
+          "development.commit.readback-invalid",
+          "development.commit.readback-unknown"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 30000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 65536
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 8388608
+          },
+          {
+            "resource": "processes",
+            "maximum": 32
+          },
+          {
+            "resource": "records",
+            "maximum": 32
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "development.commit",
+        "operation": "prepareClosedAbsentDevelopmentCommitJournalRetirement"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "control.branch-lifecycle"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem",
+          "process",
+          "provider"
+        ],
+        "failureKinds": [
+          "development.commit.readback-invalid",
+          "development.commit.readback-unknown"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 30000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 65536
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 67108864
+          },
+          {
+            "resource": "processes",
+            "maximum": 64
+          },
+          {
+            "resource": "records",
+            "maximum": 256
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "development.commit",
+        "operation": "acknowledgeClosedAbsentDevelopmentCommitJournalRetirement"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "control.branch-lifecycle"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem",
+          "process",
+          "provider"
+        ],
+        "failureKinds": [
+          "development.commit.readback-invalid",
+          "development.commit.readback-unknown"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 30000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 65536
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 67108864
+          },
+          {
+            "resource": "processes",
+            "maximum": 64
+          },
+          {
+            "resource": "records",
+            "maximum": 256
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "development.commit",
+        "operation": "settleDevelopmentCommitJournalsForRef"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "control.branch-lifecycle"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem",
+          "process"
+        ],
+        "failureKinds": [
+          "development.commit.readback-invalid",
+          "development.commit.readback-unknown"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 30000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 65536
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 67108864
+          },
+          {
+            "resource": "processes",
+            "maximum": 64
+          },
+          {
+            "resource": "records",
+            "maximum": 256
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    }
+  ]
+}

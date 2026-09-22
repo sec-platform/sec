@@ -1,14 +1,14 @@
 import { expect, test } from "bun:test";
 
-import { CompilerError } from "../../src/compiler/errors.ts";
+import { CompilerError } from '../../src/compiler/errors.ts';
 import {
   PREDICATE_SIGNATURE_REGISTRY,
   assertEngineeringIRPredicateSignatures,
   assertPredicateSignatureRegistry,
-} from "../../src/compiler/ir/predicate-signatures.ts";
-import { TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE, policySemanticRule } from '../../src/compiler/policies/contract/rules.ts';
-import { type SemanticEntity, type SemanticEntityKind } from '../../src/semantic/engineering-ir/contract/entity-types.ts';
-import { SEMANTIC_PREDICATES, type SemanticFact, type SemanticFactObject, type SemanticPredicate } from '../../src/semantic/engineering-ir/contract/fact-types.ts';
+} from "../../src/semantics/engineering-ir/predicate-signatures.ts";
+import { TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE, policySemanticRule } from '../../src/semantics/policies/rules.ts';
+import { type SemanticEntity, type SemanticEntityKind } from '../../src/semantics/engineering-ir/entity-types.ts';
+import { SEMANTIC_PREDICATES, type SemanticFact, type SemanticFactObject, type SemanticPredicate } from '../../src/semantics/engineering-ir/fact-types.ts';
 
 function entity(id: string, kind: SemanticEntityKind): SemanticEntity {
   return { id, kind, label: id, attributes: [] };

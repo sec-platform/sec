@@ -1,13 +1,13 @@
 import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 
-import { CI_ARTIFACT_FILES, CI_ARTIFACT_PATHS } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { CI_ARTIFACT_FILES, CI_ARTIFACT_PATHS } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import {
   CI_ARTIFACT_KINDS,
   CI_ARTIFACT_MISSING_REASON,
   type CiArtifactManifest
-} from '../../src/verification/ci-artifacts/contract/types.ts';
-import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+} from '../../src/assurance/verification/ci-artifacts/contract/types.ts';
+import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { expectCliJson } from '../testkit/cli.ts';
 import { withWorkspaceScenario } from '../testkit/workspace.ts';
 

@@ -1,6 +1,6 @@
 import { expect } from 'bun:test';
 
-import type { CiContract } from '../../src/verification/ci/contract/core.ts';
+import type { CiContract } from '../../src/adapters/verification/platform/ci/contract/core.ts';
 
 export function expectPrFastLaneBoundary(contract: CiContract): void {
   expect(contract.prQuickLaneCommands).toContain('bun run imports:check');

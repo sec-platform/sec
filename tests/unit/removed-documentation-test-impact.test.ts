@@ -1,12 +1,12 @@
 import { expect, test } from 'bun:test';
 
-import { CodexDevelopmentBuildAffectedTestInventory } from '../../src/verification/test-impact/affected.ts';
-import { createRepositoryTestImpactSourceProvider } from '../../src/verification/test-impact/runtime/impact.ts';
-import { CodexDevelopmentCreateTestImpactTransitionObservation } from '../../src/verification/test-impact/runtime/transition.ts';
-import { selectSlowTestRiskClosure } from '../../src/verification/test-impact/slow-risk-selection.ts';
+import { CodexDevelopmentBuildAffectedTestInventory } from '../../src/adapters/verification/platform/test-impact/affected.ts';
+import { createRepositoryTestImpactSourceProvider } from '../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
+import { CodexDevelopmentCreateTestImpactTransitionObservation } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
+import { selectSlowTestRiskClosure } from '../../src/adapters/verification/platform/test-impact/slow-risk-selection.ts';
 import { createRemovedDocumentationTestImpactFixture } from '../helpers/test-impact-provider.ts';
 
-const readme = 'src/external-capabilities/docker/README.md';
+const readme = 'src/adapters/providers/docker/README.md';
 
 test('an exact removed Markdown blob retains its compiler-issued module test responsibility', async () => {
   const fixture = await createRemovedDocumentationTestImpactFixture();

@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { createTaskGroupEffectFence, mapTaskGroup, runTaskGroup } from '../../src/system-architecture/foundation/runtime/concurrency.ts';
+import { createTaskGroupEffectFence, mapTaskGroup, runTaskGroup } from '../../src/execution/task-group.ts';
 
 function deferred() {
   let resolve!: () => void;

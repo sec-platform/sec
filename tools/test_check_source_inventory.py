@@ -3,6 +3,7 @@ from pathlib import Path
 import json
 import tempfile
 import unittest
+from test_check_documentation_identity import declaration
 from source_inventory import (
     load,
     local_path,
@@ -24,18 +25,8 @@ class SourceBoundary(unittest.TestCase):
 
     def declare(self, roots, exemptions=()):
         (self.root / '.documentation/baseline.json').write_text(
-            json.dumps({
-                'schema': 'sec.documentation-baseline/1',
-                'source_set_sha256': '0' * 64,
-                'source_roots': roots,
-                'source_manifest': 'source-manifest.json',
-                'excluded_from_source_hash': [
-                    '.documentation/baseline.json',
-                    '.documentation/source-manifest.json',
-                ],
-                'audited_namespaces': ['docs'],
-                'non_documentation_roots': list(exemptions),
-            }), encoding='utf-8')
+            json.dumps({**declaration(roots),
+                'non_documentation_roots': list(exemptions)}), encoding='utf-8')
 
     def names(self):
         return {p.relative_to(self.root).as_posix() for p in source_files(self.root)}
@@ -103,15 +94,18 @@ class SourceBoundary(unittest.TestCase):
             source_files(self.root)
 
     def test_refresh_publishes_complete_canonical_members_and_matching_digest(self):
+        authority = self.root / 'docs/产品/产品要求与工作约束.md'
+        authority.parent.mkdir()
+        authority.write_text('\n\n'.join(f'### REQ{i:03d}｜R {i}\ntext' for i in range(1,52)))
         result = refresh_source_manifest(self.root)
         manifest = load(self.root / '.documentation/source-manifest.json')
         baseline = load(self.root / '.documentation/baseline.json')
         names = [member['path'] for member in manifest['members']]
         self.assertEqual(names, sorted(names))
-        self.assertEqual(names, ['docs/规则.md'])
+        self.assertEqual(names, ['.documentation/baseline.json', 'docs/产品/产品要求与工作约束.md', 'docs/规则.md'])
         self.assertEqual(manifest['source_set_sha256'], source_set_digest(manifest['members']))
-        self.assertEqual(baseline['source_set_sha256'], manifest['source_set_sha256'])
-        self.assertEqual(result['source_members'], 1)
+        self.assertNotIn('source_set_sha256', baseline)
+        self.assertEqual(result['source_members'], 3)
 
 
 if __name__ == '__main__':
