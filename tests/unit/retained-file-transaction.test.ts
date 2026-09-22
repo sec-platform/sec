@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -12,7 +12,7 @@ import {
   inspectNoFollowOrdinaryFileEntry,
   retainNoFollowFileTransaction,
   scanNoFollowDirectoryDirectMetadata
-} from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+} from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 
 
 test.skipIf(process.platform !== 'win32')('Windows retained file transaction transfers a cross-parent file and retires its exact successor', async () => {
@@ -60,6 +60,23 @@ test.skipIf(process.platform !== 'win32')('Windows retained file transaction tra
     expect(durability).toEqual([
       'renamed', 'namespace-hook', 'file-flushed', 'parent-barrier'
     ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('retained file transaction exposes its retained root identity and current fence', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-file-transaction-root-'));
+  try {
+    const expected = inspectNoFollowDirectoryChain(root, 'retained root fixture').target;
+    const transaction = retainNoFollowFileTransaction(root, 'retained root fixture');
+    try {
+      expect(transaction.rootPath).toBe(expected.path);
+      expect(transaction.rootIdentity).toEqual(expected);
+      expect(() => transaction.assertCurrent()).not.toThrow();
+    } finally {
+      transaction.dispose();
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -280,3 +297,59 @@ test.skipIf(process.platform !== 'win32')('Windows ordinary-file inspection clas
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('retained file transaction rewrites the exact inode without changing its permission surface', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-file-rewrite-'));
+  try {
+    mkdirSync(path.join(root, 'work'));
+    const target = path.join(root, 'work', 'value.txt');
+    writeFileSync(target, 'before\\n', 'utf8');
+    if (process.platform === 'linux') chmodSync(target, 0o640);
+    const before = statSync(target, { bigint: true });
+    const transaction = retainNoFollowFileTransaction(root, 'retained rewrite fixture');
+    try {
+      const observed = transaction.observe('work/value.txt', 'rewrite source')!;
+      const rewritten = await transaction.rewriteExact(
+        'work/value.txt', observed, Buffer.from('after\\n', 'utf8'), 'rewrite exact file'
+      );
+      const after = statSync(target, { bigint: true });
+      expect(String(after.dev)).toBe(String(before.dev));
+      expect(String(after.ino)).toBe(String(before.ino));
+      if (process.platform === 'linux') expect(Number(after.mode & 0o7777n)).toBe(0o640);
+      expect(readFileSync(target, 'utf8')).toBe('after\\n');
+      await expect(transaction.rewriteExact(
+        'work/value.txt', observed, Buffer.from('stale\\n', 'utf8'), 'stale rewrite'
+      )).rejects.toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE' });
+      expect(rewritten.bytes).toEqual(Buffer.from('after\\n', 'utf8'));
+    } finally {
+      transaction.dispose();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('retained file transaction refuses to rewrite a hard-linked inode', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-file-hardlink-'));
+  try {
+    mkdirSync(path.join(root, 'work'));
+    const target = path.join(root, 'work', 'value.txt');
+    const alias = path.join(root, 'alias.txt');
+    writeFileSync(target, 'shared\\n', 'utf8');
+    linkSync(target, alias);
+    const transaction = retainNoFollowFileTransaction(root, 'retained hardlink fixture');
+    try {
+      const observed = transaction.observe('work/value.txt', 'hardlink source')!;
+      await expect(transaction.rewriteExact(
+        'work/value.txt', observed, Buffer.from('mutated\\n', 'utf8'), 'hardlink rewrite'
+      )).rejects.toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH' });
+      expect(readFileSync(target, 'utf8')).toBe('shared\\n');
+      expect(readFileSync(alias, 'utf8')).toBe('shared\\n');
+    } finally {
+      transaction.dispose();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+

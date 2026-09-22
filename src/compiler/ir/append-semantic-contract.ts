@@ -1,8 +1,8 @@
-import type { LoadedSemanticContract, SemanticContractResponsibilityBinding } from '../../semantic/contracts/contract/types.ts';
-import type { SemanticEntity } from '../../semantic/engineering-ir/contract/entity-types.ts';
-import type { FactProvenance } from '../../semantic/engineering-ir/contract/fact-types.ts';
-import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { splitLinkedSemanticReference } from '../semantic-linker.ts';
+import type { LoadedSemanticContract, SemanticContractResponsibilityBinding } from '../../semantics/definitions/types.ts';
+import type { SemanticEntity } from '../../semantics/engineering-ir/entity-types.ts';
+import type { FactProvenance } from '../../semantics/engineering-ir/fact-types.ts';
+import { compareCodeUnits } from '../../contracts/canonical.ts';
+import { splitLinkedSemanticReference } from '../../semantics/definitions/link.ts';
 import type { FactInput } from './ir-fact-store.ts';
 import {
   contractEffectId,

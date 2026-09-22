@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { generatedStateDigest } from '../../src/runtime-state/generated-state/contract.ts';
-import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { generatedStatePhysicalIdentity, runtimeDependencySourceGenerationEpoch } from '../../src/toolchain/dependencies/runtime/dependency-transition/contract.ts';
-import { migrateLegacyDependencyTransitionUnderLease, readDependencyTransitionMigrationIntents } from '../../src/toolchain/dependencies/runtime/dependency-transition/migration.ts';
-import { dependencyTransitionNamespacePaths, inspectDependencyTransitionNamespace } from '../../src/toolchain/dependencies/runtime/dependency-transition/store.ts';
-import { runtimeDependencyOperationControls } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
+import { generatedStateDigest } from '../../src/adapters/runtime-state/generated-state/contract.ts';
+import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { generatedStatePhysicalIdentity, runtimeDependencySourceGenerationEpoch } from '../../src/adapters/toolchain/dependencies/runtime/dependency-transition/contract.ts';
+import { migrateLegacyDependencyTransitionUnderLease, readDependencyTransitionMigrationIntents } from '../../src/adapters/toolchain/dependencies/runtime/dependency-transition/migration.ts';
+import { dependencyTransitionNamespacePaths, inspectDependencyTransitionNamespace } from '../../src/adapters/toolchain/dependencies/runtime/dependency-transition/store.ts';
+import { runtimeDependencyOperationControls } from '../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
 
 // Uses native retained providers in repository execution. Local replay declares
 // ordinary-FS physical and digest/codec boundaries explicitly; it is not FFI proof.

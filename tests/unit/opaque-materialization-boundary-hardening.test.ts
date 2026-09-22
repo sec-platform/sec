@@ -5,7 +5,7 @@ import {
   opaqueModuleMaterializationEnvironment,
   resolveOpaqueModuleMaterializationMode,
   type OpaqueModuleMaterializationMode
-} from '../../src/compiler/compose/opaque-module-materialization.ts';
+} from '../../src/compiler/target-materialization.ts';
 import { CompilerError } from '../../src/compiler/errors.ts';
 
 const invalid = (error: unknown): boolean =>

@@ -1,10 +1,10 @@
 import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 
-import { upgradeWorkspace } from '../../src/change-management/upgrade/orchestration.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { readJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+import { upgradeWorkspace } from '../../src/bootstrap/upgrade/orchestration.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import { readJson } from "../../src/adapters/filesystem/files.ts";
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { writeBlockUpgradeFixture } from '../helpers/block-upgrade-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 

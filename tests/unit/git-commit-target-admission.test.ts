@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { captureGitDevelopmentCommitContract, compileGitDevelopmentCommitContractDigest } from '../../src/external-capabilities/git-read/runtime/commit-contract.ts';
+import { captureGitDevelopmentCommitContract, compileGitDevelopmentCommitContractDigest } from '../../src/adapters/providers/git-read/runtime/commit-contract.ts';
 
 function input(ref = 'refs/heads/feature') {
   const person = () => ({ name: 'Maintainer', email: 'maintainer@example.test', date: '0 +0000' });

@@ -3,20 +3,20 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { readLockFile } from '../../src/compiler/lock.ts';
-import { composeWorkspace, initWorkspace } from '../../src/compiler/orchestration/cli.ts';
+import { readLockFile } from "../../src/adapters/workspace/lock.ts";
+import { composeWorkspace, initWorkspace } from '../../src/bootstrap/engineering/cli.ts';
 import {
   assertIsolatedVerificationCapability,
   mintIsolatedVerificationCapability
-} from '../../src/compiler/orchestration/isolated-verification-capability.ts';
+} from '../../src/execution/isolated-verification-capability.ts';
 import {
   commitPipelineTransaction,
   readPipelineJournal,
   recordPipelinePassStart,
   REFERENCE_PIPELINE_TRANSACTION_ID,
   startPipelineTransaction
-} from '../../src/compiler/pipeline/journal.ts';
-import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
+} from '../../src/adapters/compilation/pipeline/journal.ts';
+import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function legacyAdaptJournal(overrides?: Readonly<{

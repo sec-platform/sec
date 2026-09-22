@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import YAML, { type Document } from 'yaml';
 import type { PlanRegistrySource } from '../../src/compiler/contract.ts';
-import { loadAllManifests, loadManifestById } from '../../src/compiler/parse/load-manifest.ts';
-import { manifestCache } from '../../src/compiler/parse/manifest-cache.ts';
+import { loadAllManifests, loadManifestById } from '../../src/adapters/workspace/sources/load-manifest.ts';
+import { manifestCache } from '../../src/adapters/workspace/sources/manifest-cache.ts';
 
 // Native runs use the actual YAML parser, semantic validator and retained reads.
 // The counter wraps the existing Document value-decoding boundary. Both the

@@ -4,10 +4,10 @@ import { link, lstat, mkdir, open, readFile, readdir, rename, rm, symlink, unlin
 import os from 'node:os';
 import path from 'node:path';
 
-import { initWorkspace } from '../../src/compiler/orchestration/workspace-orchestrator.ts';
-import { inspectNoFollowDirectoryChain, scanNoFollowDirectoryTree } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { sha256 as canonicalSha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
-import { pathExists } from '../../src/workspace/files.ts';
+import { initWorkspace } from '../../src/bootstrap/engineering/workspace-orchestrator.ts';
+import { inspectNoFollowDirectoryChain, scanNoFollowDirectoryTree } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { sha256 as canonicalSha256 } from '../../src/contracts/canonical.ts';
+import { pathExists } from "../../src/adapters/filesystem/files.ts";
 import {
   WorkspaceWriteLeaseError,
   completeWorkspaceWriteLeaseRetirement,
@@ -16,7 +16,7 @@ import {
   recoverWorkspaceWriteLeaseRetirement,
   resumeWorkspaceWriteLeaseRetirement,
   type WorkspaceWriteLeaseToken
-} from '../../src/workspace/lease.ts';
+} from '../../src/adapters/filesystem/write-lease.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('retirement recovery and physically absent completion ignore an oversized unrelated sibling', async () => {
@@ -1167,6 +1167,36 @@ test('workspace writer lease control-plane quiescence queues heartbeat mutation'
       await handle.release();
     }
   }, 'workspace-write-lease-quiescence-');
+});
+
+test('workspace writer lease closeout blocks new heartbeats and drains the admitted heartbeat', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const manager = createWorkspaceWriteLeaseManager({
+      heartbeatIntervalMs: 10_000,
+      staleAfterMs: 30_000
+    });
+    const handle = await manager.acquire(workspaceRoot);
+    let releaseSettled = false;
+    let releasePromise!: Promise<void>;
+    await manager.withControlPlaneQuiesced(workspaceRoot, handle.token, async () => {
+      const admittedHeartbeat = handle.heartbeat();
+      releasePromise = handle.release().then(() => { releaseSettled = true; });
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(releaseSettled).toBe(false);
+      await expect(handle.heartbeat()).rejects.toMatchObject({
+        code: 'WORKSPACE-WRITE-LEASE-002',
+        message: 'Workspace writer lease handle is closing'
+      });
+      void admittedHeartbeat;
+    });
+    await releasePromise;
+    expect(releaseSettled).toBe(true);
+    await expect(handle.assertOwned()).rejects.toMatchObject({
+      code: 'WORKSPACE-WRITE-LEASE-002',
+      message: 'Workspace writer lease handle is released'
+    });
+  }, 'workspace-write-lease-release-drain-');
 });
 
 test('workspace writer lease quiescence rejects any stable temporary owner artifact', async () => {

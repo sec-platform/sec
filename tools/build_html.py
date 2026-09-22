@@ -14,11 +14,12 @@ from html.parser import HTMLParser
 from urllib.parse import urlsplit, unquote, quote
 sys.dont_write_bytecode = True
 import check_docs
-from source_inventory import source_files
+from source_inventory import documentation_files, source_identity_from_capture, EXCLUDED_FROM_SOURCE_HASH
 
-TEXT_SUFFIXES = {'.md','.json','.sec','.ts','.tsx','.py','.txt','.toml','.yaml','.yml','.js','.mjs','.cjs','.css','.sh','.ps1'}
+TEXT_SUFFIXES = {'.md','.json','.sec','.ts','.tsx','.py','.txt','.toml','.yaml','.yml','.js','.mjs','.cjs','.css','.sh','.ps1','.cff'}
+TEXT_BASENAMES = {'LICENSE','NOTICE'}
 BINARY_SUFFIXES = {'.png','.jpg','.jpeg','.webp','.gif','.svg','.pdf','.zip'}
-VERSION = 'sec-reading/2'
+VERSION = 'sec-reading/3'
 CSS = r'''
 :root{font-family:system-ui,"Microsoft YaHei","Noto Sans CJK SC",sans-serif;color:#202a36;background:#f4f6f8;line-height:1.8;scroll-behavior:auto}*{box-sizing:border-box}body{margin:0}a{color:#165485;overflow-wrap:anywhere}a:hover{text-decoration:underline}header{padding:2.5rem max(2rem,5vw);background:#183047;color:#fff}header a{color:#dbeeff}header p{max-width:75rem}.layout{display:grid;grid-template-columns:21rem minmax(0,1fr);gap:2rem;max-width:1600px;margin:auto;padding:2rem}aside{position:sticky;top:0;align-self:start;max-height:100vh;overflow:auto;background:#fff;border:1px solid #dce2e8;padding:1rem}aside input{width:100%;padding:.65rem;font:inherit}aside li{margin:.4rem 0}aside ul{padding-left:1.3rem}main{min-width:0}.doc{background:white;padding:2rem;margin:0 0 2rem;border:1px solid #dde3e9;border-radius:.4rem;min-width:0}.doc h1{font-size:1.9rem;line-height:1.45}.doc h2{font-size:1.45rem;border-bottom:1px solid #dde3e9;padding-bottom:.35rem;margin-top:2.5rem}.doc h3{font-size:1.17rem;margin-top:2rem}h1,h2,h3,h4,h5,h6{overflow-wrap:anywhere}h1,h2,h3,h4,h5,h6,[id]{scroll-margin-top:1rem}.meta{font-size:.82rem;color:#596778;overflow-wrap:anywhere}.back{font-size:.85rem}p,li,td{overflow-wrap:anywhere}pre{white-space:pre;overflow:auto;background:#f4f6f8;padding:1rem;border:1px solid #dce2e8;border-radius:.3rem;font-size:.88rem;line-height:1.65;tab-size:4}code{font-family:ui-monospace,Consolas,"Noto Sans Mono CJK SC",monospace}p code,li code{white-space:normal;overflow-wrap:anywhere}.table-wrap{overflow:auto;max-width:100%;margin:1.2rem 0}table{border-collapse:collapse;min-width:34rem;width:100%;font-size:.9rem}td,th{border:1px solid #cdd6df;padding:.55rem .7rem;vertical-align:top;text-align:left}th{background:#edf2f6}blockquote{margin:1rem 0;padding:.2rem 1rem;border-left:.25rem solid #718a9e;background:#f5f8fa}details{margin:.8rem 0}summary{cursor:pointer;font-weight:600}.diagram{margin:1.8rem 0;padding:1rem;border:1px solid #dce2e8;border-radius:.4rem}.image-scroll{overflow:auto;max-width:100%;padding:.6rem;background:#fff}.image-scroll img{display:block;max-width:none;height:auto;margin:0 auto}.diagram figcaption{overflow-wrap:anywhere;font-size:.85rem;color:#45576a;margin-top:.6rem}.notice{padding:1rem;border-left:.3rem solid #b88b1d;background:#fff8df}.blocked-markup{white-space:pre-wrap}.binary-preview{max-width:100%;height:auto}.source-data{font-size:.8rem}hr{border:0;border-top:1px solid #dde3e9;margin:2rem 0}@media(max-width:1000px){.layout{display:block;padding:1rem}aside{position:static;max-height:24rem;margin-bottom:1rem}.doc{padding:1.2rem}header{padding:1.6rem}}@media print{aside,.back,.source-data{display:none}.layout{display:block;padding:0}.doc{border:0;break-before:page;padding:0}header{background:none;color:#000}pre{white-space:pre-wrap}.image-scroll{overflow:visible}.image-scroll img{max-width:100%}table{min-width:0}h1,h2,h3,figure{break-after:avoid}}
 '''
@@ -33,26 +34,26 @@ def opaque(name): return 's-'+name.encode('utf-8').hex()
 def fragment_id(name,fragment): return opaque(name)+'--'+quote(fragment,safe='-_.~')
 def esc(value): return html.escape(str(value),quote=True)
 
-def safe_files(root: Path) -> list[Path]:
+def safe_files(root: Path, args=None) -> list[Path]:
     if not (root/'README.md').is_file() or not (root/'docs').is_dir(): raise BuildError('Expected SEC root with README.md and docs/')
-    return list(source_files(root))
+    return list(documentation_files(root, include_cache=args is None or (args.diagrams in ('cached', 'browser') and not args.diagram_cache)))
 
 def capture(root,args):
-    paths=safe_files(root); captured={}; total=0
+    paths=safe_files(root,args); captured={}; total=0
     for p in paths:
         name=p.relative_to(root).as_posix()
-        if p.suffix.lower() not in TEXT_SUFFIXES|BINARY_SUFFIXES: raise BuildError('Unclassified source file (no silent omission): '+name)
+        if p.suffix.lower() not in TEXT_SUFFIXES|BINARY_SUFFIXES and p.name not in TEXT_BASENAMES: raise BuildError('Unclassified source file (no silent omission): '+name)
         if p.stat().st_size>args.max_file_bytes: raise BuildError('File budget exceeded: '+name)
         data=p.read_bytes();total+=len(data)
         if len(data)>args.max_file_bytes or total>args.max_total_bytes: raise BuildError('Source byte budget exceeded')
-        if p.suffix.lower() in TEXT_SUFFIXES:
+        if p.suffix.lower() in TEXT_SUFFIXES or p.name in TEXT_BASENAMES:
             try: data.decode('utf-8')
             except UnicodeDecodeError as e: raise BuildError('Expected UTF-8; original retained: '+name) from e
         captured[name]=data
     return captured
 
-def unchanged(root,captured):
-    paths=safe_files(root)
+def unchanged(root,captured,args=None):
+    paths=safe_files(root,args)
     if {p.relative_to(root).as_posix() for p in paths} != set(captured): raise BuildError('Input membership changed during build; output not replaced')
     for p in paths:
         name=p.relative_to(root).as_posix()
@@ -136,10 +137,11 @@ def read_diagram_cache(root: Path, captured, args, book):
         return d
     try:cache=json.loads(raw,object_pairs_hook=unique)
     except (ValueError,UnicodeError) as e:raise BuildError('Invalid diagram cache JSON')from e
-    if cache.get('schema')!='sec.diagram-cache/1' or not isinstance(cache.get('entries'),dict) or not isinstance(cache.get('renderer'),dict):raise BuildError('Unknown diagram cache contract')
+    if not isinstance(cache,dict) or cache.get('schema')!='sec.diagram-cache/1' or not isinstance(cache.get('entries'),dict) or not isinstance(cache.get('renderer'),dict):raise BuildError('Unknown diagram cache contract')
     for job in book.diagrams:
         entry=cache['entries'].get(job['sha256'])
         if entry is None:continue
+        if not isinstance(entry,dict):raise BuildError('Invalid diagram cache entry: '+job['sha256'])
         if entry.get('source_sha256')!=job['sha256']:raise BuildError('Cache source hash mismatch')
         if not isinstance(entry.get('data'),str) or len(entry['data'])>20_000_000:raise BuildError('Cache encoding budget')
         try:
@@ -315,7 +317,7 @@ class Book:
         self.md=MarkdownIt('commonmark',{'html':True}).enable('table').enable('strikethrough')
         for name,data in captured.items():
             if name.endswith('.md'):
-                text=data.decode('utf-8');self.anchors[name]=check_docs.anchor_locations(text)
+                text=data.decode('utf-8');lines=text.splitlines();self.anchors[name]=check_docs.anchor_locations(text)
                 dup=[k for k,v in self.anchors[name].items() if len(v)!=1]
                 if dup:raise BuildError('Ambiguous source anchors: '+name+' '+repr(dup))
                 tokens=self.md.parse(text);self.tokens[name]=tokens
@@ -323,14 +325,15 @@ class Book:
                 for t in tokens:
                     if t.type=='heading_open':
                         line=t.map[0]+1
-                        title=re.sub(r'^ {0,3}#{1,6}[ \t]+','',text.splitlines()[line-1]);title=re.sub(r'[ \t]+#+[ \t]*$','',title).strip()
+                        title=re.sub(r'^ {0,3}#{1,6}[ \t]+','',lines[line-1]);title=re.sub(r'[ \t]+#+[ \t]*$','',title).strip()
                         slug=re.sub(r'\s','-',re.sub(r'[^\w\s-]','',check_docs.plain_heading(title).lower()))
                         n=counts[slug];counts[slug]+=1;frag=slug+(f'-{n}'if n else '')
                         if self.anchors[name].get(frag)!=[line]:raise BuildError('Anchor rule disagreement: '+name+':'+str(line))
                         t.attrSet('id',fragment_id(name,frag))
                     if t.type=='fence' and t.info.strip().split()[0:1]==['mermaid']:
                         did='fig-'+sha((name+'\0'+str(t.map[0])).encode())[:20]
-                        t.meta['diagram_id']=did;self.diagrams.append({'id':did,'path':name,'line':t.map[0]+1,'source':t.content,'sha256':sha(t.content.encode())})
+                        record={'id':did,'path':name,'line':t.map[0]+1,'source':t.content,'sha256':sha(t.content.encode())}
+                        t.meta['diagram']=record;self.diagrams.append(record)
                         if len(t.content)>100000 or re.search(r'(?m)^\s*(?:%%\{\s*(?:init|config)|click\b|---\s*$)',t.content):raise BuildError('Diagram-local configuration/callback or budget outside safe profile: '+name)
         def link_open(tokens,i,options,env):
             t=tokens[i]; t.attrSet('href',self.href(env['path'],t.attrGet('href') or ''))
@@ -346,8 +349,8 @@ class Book:
         old_fence=self.md.renderer.rules.get('fence')
         def fence(tokens,i,options,env):
             t=tokens[i]
-            if 'diagram_id' not in t.meta:return old_fence(tokens,i,options,env)
-            did=t.meta['diagram_id'];record=next(x for x in self.diagrams if x['id']==did)
+            if 'diagram' not in t.meta:return old_fence(tokens,i,options,env)
+            record=t.meta['diagram'];did=record['id']
             source='<details><summary>准确图源</summary><pre><code class="language-mermaid">'+esc(t.content)+'</code></pre></details>'
             if self.args.diagrams=='source':return '<figure class="diagram"><figcaption>图源保留；本阅读版明确未渲染。</figcaption><pre><code>'+esc(t.content)+'</code></pre></figure>'
             if did not in self.svg:
@@ -400,15 +403,15 @@ class Book:
         name,frag=self.resolve(current,url)
         return '#'+(fragment_id(name,frag)if frag else opaque(name))
     def build(self,renderer_info):
-        entries=[{'path':n,'bytes':len(b),'sha256':sha(b)} for n,b in sorted(self.data.items())];digest=sha(canon(entries))
-        meta={'schema':VERSION,'source_set_sha256':digest,'source_mode':'sealed'if self.args.sealed else 'working-tree-capture','source_consistency':'captured byte vector; same membership and bytes rechecked before publish, not a filesystem-wide atomic snapshot','builder_sha256':sha(Path(__file__).read_bytes()),'markdown_it_py':importlib.metadata.version('markdown-it-py'),'renderer':renderer_info,'source_files':entries,'markdown_count':len(self.tokens),'diagram_mode':self.args.diagrams,'diagrams':[ {k:v for k,v in x.items()if k!='source'} for x in self.diagrams]}
+        entries=[{'path':n,'bytes':len(b),'sha256':sha(b)} for n,b in sorted(self.data.items())];digest=source_identity_from_capture(self.data)
+        meta={'schema':VERSION,'source_set_sha256':digest,'source_mode':'sealed'if self.args.sealed else 'working-tree-capture','source_consistency':'captured byte vector; same membership and bytes rechecked before publish, not a filesystem-wide atomic snapshot','builder_sha256':sha(Path(__file__).read_bytes()),'markdown_it_py':importlib.metadata.version('markdown-it-py'),'renderer':renderer_info,'input_set_sha256':sha(canon(entries)),'input_files':entries,'source_files':[e for e in entries if e['path'] not in EXCLUDED_FROM_SOURCE_HASH],'markdown_count':len(self.tokens),'diagram_mode':self.args.diagrams,'diagrams':[ {k:v for k,v in x.items()if k!='source'} for x in self.diagrams]}
         def sortkey(name):return (0 if name=='README.md' else 1 if name.startswith('docs/') else 2 if name.startswith('examples/') else 3 if name.startswith('alternatives/') else 4,name)
         names=sorted(self.data,key=sortkey);nav=[];articles=[]
         for name in names:
             data=self.data[name];sid=opaque(name)
             if name.endswith('.md'):
                 content=self.md.renderer.render(self.tokens[name],self.md.options,{'path':name})
-            elif Path(name).suffix.lower() in TEXT_SUFFIXES:
+            elif Path(name).suffix.lower() in TEXT_SUFFIXES or Path(name).name in TEXT_BASENAMES:
                 content='<h1>'+esc(name)+'</h1><pre><code>'+esc(data.decode('utf-8'))+'</code></pre>'
             else:
                 content='<h1>'+esc(name)+'</h1><p>独立二进制原件；不推断其正文已纳入文本阅读。</p>'
@@ -423,7 +426,7 @@ class Book:
             articles.append('<article class="doc" id="'+sid+'" data-source-path="'+esc(name)+'" data-source-sha256="'+sha(data)+'"><p class="meta">'+esc(name)+'</p>'+download+content+'<p class="back"><a href="#sec-contents">返回导航</a></p></article>')
             nav.append('<li data-nav-item><a href="#'+sid+'">'+esc(name)+'</a></li>')
         meta['links_rewritten']=self.links;meta['raw_html_review']=[{'path':p,'tag_or_attribute':t} for p,t in sorted(self.markup_warnings)];meta['embedded_images']=len(self.svg)+self.images
-        script=JS;extra='';nonce='sec-'+digest[:32]
+        script=JS;extra='';nonce='sec-'+digest[:32];engine=b''
         if self.args.diagrams=='browser':
             script+='\n'+(Path(__file__).with_name('browser_diagrams.js')).read_text(encoding='utf-8')
             engine=b''
@@ -436,6 +439,13 @@ class Book:
         else:
             csp="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'sha256-"+b64(hashlib.sha256(script.encode()).digest())+"'; base-uri 'none'; form-action 'none'; object-src 'none'; connect-src 'none'"
         if re.search(r'</script',script,re.I):raise BuildError('Unsafe script serialization')
+
+        meta['captured_files_sha256']=sha(canon(entries))
+        meta['input_set_sha256']=sha(canon({'files':entries,'recipe':{
+            'builder_sha256':meta['builder_sha256'],'markdown_it_py':meta['markdown_it_py'],
+            'diagram_mode':self.args.diagrams,'renderer':renderer_info,
+            'script_sha256':sha(script.encode()),'style_sha256':sha(CSS.encode()),
+            'browser_engine_sha256':sha(engine) if engine else None}}))
 
         title='SEC 工程设计'
         note={'required':'完整当前源阅读版；图已按本次固定工具渲染。','cached':'完整当前源阅读版；图由逐源核对的渲染缓存取得，不要求无头浏览器。','browser':'完整正文与原件；未命中准确缓存的图等待本地浏览器渲染，页面明确显示完成数。','source':'完整正文与原件；本版明确只显示图源，未渲染图。'}[self.args.diagrams]
@@ -480,7 +490,9 @@ def main(argv=None):
     if out.exists() and not out.is_file():raise BuildError('Output must be a regular file')
     if out.exists() and not args.replace:raise BuildError('Output exists; use --replace explicitly')
     if args.diagrams=='required' and not args.mermaid_js:raise BuildError('All diagrams are required. Set --mermaid-js to local mermaid.min.js; or explicitly choose --diagrams source')
-    if args.sealed:check_docs.verify(root)
+    if args.sealed:
+        if not (root/'.documentation/source-manifest.json').is_file():raise BuildError('Sealed reading requires a source snapshot; run docs:refresh')
+        check_docs.verify(root)
     before=out.read_bytes()if out.is_file()else None
     captured=capture(root,args);book=Book(root,captured,args)
     renderer_info={'state':'not-rendered'}
@@ -497,8 +509,10 @@ def main(argv=None):
                 except BuildError as e:raise BuildError(job['path']+':'+str(job['line'])+' — '+str(e)) from e
             renderer_info=engine.info
     content,meta=book.build(renderer_info)
-    unchanged(root,captured)
-    if args.sealed:check_docs.verify(root)
+    unchanged(root,captured,args)
+    if args.sealed:
+        if not (root/'.documentation/source-manifest.json').is_file():raise BuildError('Sealed reading requires a source snapshot; run docs:refresh')
+        check_docs.verify(root)
     out.parent.mkdir(parents=True,exist_ok=True)
     lock=out.with_name(out.name+'.lock');temp=None;fd=None
     try:
@@ -509,13 +523,13 @@ def main(argv=None):
         if before!=now:raise BuildError('Output changed during build; not overwritten')
         fd,temp=tempfile.mkstemp(prefix='.'+out.name+'.',suffix='.tmp',dir=out.parent)
         with os.fdopen(fd,'wb')as f:fd=None;f.write(content);f.flush();os.fsync(f.fileno())
-        unchanged(root,captured)
+        unchanged(root,captured,args)
         os.replace(temp,out);temp=None
     finally:
         if fd is not None:os.close(fd)
         if temp is not None:Path(temp).unlink(missing_ok=True)
         lock.unlink(missing_ok=True)
-    print(json.dumps({'output':str(out),'html_sha256':sha(content),'bytes':len(content),'source_files':len(captured),'markdown':len(book.tokens),'diagram_mode':args.diagrams,'diagrams':len(book.diagrams),'rendered':len(book.svg),'cached':len(book.svg) if args.diagrams in ('cached','browser') else 0,'rendered_this_build':len(book.svg) if args.diagrams=='required' else 0,'derived_table_views':1 if 'docs/架构/装配/模块与运行实例.md' in captured else 0,'pending':len(book.diagrams)-len(book.svg),'source_set_sha256':meta['source_set_sha256'],'external_asset_requests':0,'raw_html_review':meta['raw_html_review']},ensure_ascii=False,indent=2))
+    print(json.dumps({'output':str(out),'html_sha256':sha(content),'bytes':len(content),'source_files':len(meta['source_files']),'input_files':len(captured),'markdown':len(book.tokens),'diagram_mode':args.diagrams,'diagrams':len(book.diagrams),'rendered':len(book.svg),'cached':len(book.svg) if args.diagrams in ('cached','browser') else 0,'rendered_this_build':len(book.svg) if args.diagrams=='required' else 0,'derived_table_views':1 if 'docs/架构/装配/模块与运行实例.md' in captured else 0,'pending':len(book.diagrams)-len(book.svg),'source_set_sha256':meta['source_set_sha256'],'input_set_sha256':meta['input_set_sha256'],'external_asset_requests':0,'raw_html_review':meta['raw_html_review']},ensure_ascii=False,indent=2))
     return 0
 
 if __name__=='__main__':

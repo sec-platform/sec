@@ -10,14 +10,14 @@ import {
   installGitHooksForTest as installGitHooksImplementation,
   installGitHooksMain,
   installGitHooks as installGitHooksProduction
-} from '../../src/development/hooks/install.ts';
-import { DEV_RUNNER_ENTRYPOINT_PATH } from '../../src/development/runner/contract.ts';
+} from '../../src/adapters/self-hosting/development/hooks/install.ts';
+import { DEV_RUNNER_ENTRYPOINT_PATH } from '../../src/adapters/self-hosting/development/runner/contract.ts';
 import {
   createHostGitReadSessionForTests,
   type GitReadSessionResolution
-} from '../../src/external-capabilities/git-read/test/session.ts';
-import { acquirePhysicalMutationLease } from '../../src/runtime-state/physical/runtime/mutation-lease.ts';
-import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+} from '../../src/adapters/providers/git-read/test/session.ts';
+import { acquirePhysicalMutationLease } from '../../src/adapters/runtime-state/physical/runtime/mutation-lease.ts';
+import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 
 // Real repository, linked-worktree, and managed-hook lifecycle acceptance belongs to the slow lane.
 
@@ -1435,7 +1435,7 @@ test('primary bootstrap rejects staged managed-hook bytes that are not the remot
   await withCanonicalRemoteRepository(async (repoRoot) => {
     await writeFile(
       path.join(repoRoot, '.githooks', 'pre-commit'),
-      '#!/usr/bin/env sh\nset -ux\n\n bun ./src/development/runner/cli.ts imports:freeze\n',
+      '#!/usr/bin/env sh\nset -ux\n\n bun ./src/adapters/self-hosting/development/runner/cli.ts imports:freeze\n',
       'utf8'
     );
     await chmod(path.join(repoRoot, '.githooks', 'pre-commit'), 0o755);

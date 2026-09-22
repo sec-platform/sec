@@ -3,18 +3,18 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { generatedStateProducerHooks } from '../../src/runtime-state/generated-state/lifecycle.ts';
-import { SecError } from '../../src/system-architecture/foundation/contract/failure.ts';
+import { generatedStateProducerHooks } from '../../src/adapters/runtime-state/generated-state/lifecycle.ts';
+import { SecError } from '../../src/contracts/failure.ts';
 import {
   cleanDependencyEnvironment,
   getDoctorReport
-} from '../../src/toolchain/dependencies/environment.ts';
+} from '../../src/adapters/toolchain/dependencies/environment.ts';
 import {
   dependencyAuthorityPaths,
   disposeCanonicalSharedDependencies,
   migrateDependencyTransitionJournal
-} from '../../src/toolchain/dependencies/runtime/project-runtime.ts';
-import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
+} from '../../src/adapters/toolchain/dependencies/runtime/project-runtime.ts';
+import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 async function withDependencyRetirementFixture(

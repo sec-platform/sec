@@ -5,7 +5,7 @@ import { projectArchitectureView } from '../../src/compiler/projection/project-a
 import { projectScenarioView } from '../../src/compiler/projection/project-scenario-view.ts';
 import { projectStateView } from '../../src/compiler/projection/project-state-view.ts';
 import { buildSemanticInspector } from '../../src/compiler/projection/semantic-view-utils.ts';
-import { semanticViewFactIds } from '../../src/semantic/projection/contract/types.ts';
+import { semanticViewFactIds } from '../../src/semantics/projection/types.ts';
 import { addFact, entity, projectionSnapshot, viewIR } from '../fixtures/semantic-view-data.ts';
 
 const code = (value: string) => (error: unknown): boolean =>

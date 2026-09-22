@@ -7,15 +7,15 @@ import { pathToFileURL } from 'node:url';
 
 import {
   compileAffectedTestSelectionSemanticOperation
-} from '../../src/development/runner/affected-plan-contract.ts';
+} from '../../src/adapters/self-hosting/development/runner/affected-plan-contract.ts';
 import {
   projectRepositoryObserverFailureDiagnostic,
   runRepositoryZeroWriteOperation
-} from '../../src/development/runner/repository-mutation-fence.ts';
+} from '../../src/adapters/self-hosting/development/runner/repository-mutation-fence.ts';
 import {
   withRepositoryFinalStateObservation
-} from '../../src/development/runner/repository-observation.ts';
-import type { FastTestBatchExecutionAdmission } from '../../src/development/runner/test-execution-policy.ts';
+} from '../../src/adapters/self-hosting/development/runner/repository-observation.ts';
+import type { FastTestBatchExecutionAdmission } from '../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
 import {
   assertGitObjectId,
   GIT_READ_OPERATION_BUDGET,
@@ -24,11 +24,11 @@ import {
   readTextAttributesBatch,
   resolveExactHeadCommit,
   runGitRead
-} from '../../src/development/tooling/git/git-read.ts';
-import { runCensus } from '../../src/development/tooling/text/text-byte-census.ts';
-import { runSettlement } from '../../src/development/tooling/workspace/worktree-settlement.ts';
-import { withAuthorityGitReadSession } from '../../src/external-capabilities/git-read/authority.ts';
-import { createAuthorityGitReadSession } from '../../src/external-capabilities/git-read/runtime/session.ts';
+} from '../../src/adapters/self-hosting/development/tooling/git/git-read.ts';
+import { runCensus } from '../../src/adapters/self-hosting/development/tooling/text/text-byte-census.ts';
+import { runSettlement } from '../../src/adapters/self-hosting/development/tooling/workspace/worktree-settlement.ts';
+import { withAuthorityGitReadSession } from '../../src/adapters/providers/git-read/authority.ts';
+import { createAuthorityGitReadSession } from '../../src/adapters/providers/git-read/runtime/session.ts';
 
 function git(repositoryRoot: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], {
@@ -141,10 +141,10 @@ test('trusted Git reads isolate ambient config and alternate index injection', a
     });
     expect(redirectedRead.status).toBe(0);
     expect(redirectedRead.stdout).toBe('');
-    const moduleUrl = pathToFileURL(path.resolve('src/development/tooling/git/git-read.ts')).href;
+    const moduleUrl = pathToFileURL(path.resolve('src/adapters/self-hosting/development/tooling/git/git-read.ts')).href;
     const source = [
-      `import { withAuthorityGitReadSession } from ${JSON.stringify(pathToFileURL(path.resolve('src/external-capabilities/git-read/authority.ts')).href)};`,
-      `import { compileAffectedTestSelectionSemanticOperation } from ${JSON.stringify(pathToFileURL(path.resolve('src/development/runner/affected-plan-contract.ts')).href)};`,
+      `import { withAuthorityGitReadSession } from ${JSON.stringify(pathToFileURL(path.resolve('src/adapters/providers/git-read/authority.ts')).href)};`,
+      `import { compileAffectedTestSelectionSemanticOperation } from ${JSON.stringify(pathToFileURL(path.resolve('src/adapters/self-hosting/development/runner/affected-plan-contract.ts')).href)};`,
       `import { GIT_READ_OPERATION_BUDGET, runGitRead } from ${JSON.stringify(moduleUrl)};`,
       `const operation = compileAffectedTestSelectionSemanticOperation({ purpose: 'check-affected' });`,
       `const result = await withAuthorityGitReadSession({ cwd: ${JSON.stringify(root)}, operation, budget: GIT_READ_OPERATION_BUDGET }, async (session) => {`,

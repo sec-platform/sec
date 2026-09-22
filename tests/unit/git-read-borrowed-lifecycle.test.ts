@@ -1,11 +1,11 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { DEFAULT_TEST_TIMEOUT_MS } from '../../src/development/runner/test-execution-policy.ts';
-import { issueGitReadAuthorityOperation } from '../../src/external-capabilities/git-read/authority.ts';
-import { createAuthorityGitReadSession } from '../../src/external-capabilities/git-read/runtime/session.ts';
-import { assertProcessResourceSessionReceipt, openProcessResourceSession } from '../../src/runtime-state/physical/runtime/process-resource-session.ts';
-import { issueSecOperationRequirementBindingContext } from '../../src/system-architecture/operation/requirement-binding-context.ts';
+import { DEFAULT_TEST_TIMEOUT_MS } from '../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
+import { issueGitReadAuthorityOperation } from '../../src/adapters/providers/git-read/authority.ts';
+import { createAuthorityGitReadSession } from '../../src/adapters/providers/git-read/runtime/session.ts';
+import { assertProcessResourceSessionReceipt, openProcessResourceSession } from '../../src/adapters/runtime-state/physical/runtime/process-resource-session.ts';
+import { issueSecOperationRequirementBindingContext } from '../../src/execution/operation/requirement-binding-context.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 // Native execution only: these tests borrow an actual owner-issued process

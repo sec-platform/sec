@@ -10,9 +10,9 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { compileRepositorySourceProgramModel } from '../../src/brownfield/source-program-model/repository.ts';
-import { rawSha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
-import { compileSecRepositoryModuleMembershipSnapshot } from '../../src/system-architecture/repository-modules/contract.ts';
+import { compileRepositorySourceProgramModel } from '../../src/adapters/repository/source-program-model/repository.ts';
+import { rawSha256 } from '../../src/contracts/canonical.ts';
+import { compileSecRepositoryModuleMembershipSnapshot } from '../../src/adapters/repository/architecture/contract.ts';
 import {
   TCB_REVIEWED_NETWORK_DISPATCHERS,
   TCB_REVIEWED_PROCESS_DISPATCHERS,
@@ -28,8 +28,8 @@ import {
   runtimeRelativeImportsFromSource,
   selectTcbClosureCandidateAction,
   verifyTcbClosureLock as verifyTcbClosureLockAgainstExactTree
-} from '../../src/verification/trust/compiler.ts';
-import { SEC_TCB_CLOSURE_RUNTIME_PATH, SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER, SEC_TRUSTED_BOOTSTRAP_REGISTRY } from '../../src/verification/trust/contract/root.ts';
+} from '../../src/adapters/verification/platform/trust/compiler.ts';
+import { SEC_TCB_CLOSURE_RUNTIME_PATH, SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER, SEC_TRUSTED_BOOTSTRAP_REGISTRY } from '../../src/adapters/verification/platform/trust/contract/root.ts';
 
 const LIVE_TCB_CLOSURE = compileTrustedRuntimeClosure();
 const TCB_CLOSURE_LOCK = computeTcbClosureLock(LIVE_TCB_CLOSURE);
@@ -315,16 +315,16 @@ test('TCB closure lock binds the reviewed causal module set', () => {
   expect(TCB_CLOSURE_LOCK.moduleCount).toBe(TCB_CLOSURE_LOCK.modules.length);
   expect(new Set(TCB_CLOSURE_LOCK.modules).size).toBe(TCB_CLOSURE_LOCK.moduleCount);
   expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports)
-    .toContain('src/development/runner/env-manager.ts -> node:net');
+    .toContain('src/adapters/self-hosting/development/runner/env-manager.ts -> node:net');
   expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports).toContain(
-    'src/external-capabilities/linux-verification/contract.ts -> zod'
+    'src/adapters/providers/linux-verification/contract.ts -> zod'
   );
   expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports).toContain(
-    'src/brownfield/source-program-model/test-impact-projection.ts -> zod'
+    'src/adapters/repository/source-program-model/test-impact-projection.ts -> zod'
   );
   expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports).not.toContain('zod');
   expect(TCB_CLOSURE_LOCK.reviewedExternalImports)
-    .toContain('src/development/runner/env-manager.ts -> node:net');
+    .toContain('src/adapters/self-hosting/development/runner/env-manager.ts -> node:net');
 });
 
 test('TCB closure lock is the sole causal-runtime identity consumed by the trust-root view', () => {
@@ -395,7 +395,7 @@ test('reviewed dispatcher census remains non-authorizing source observation', ()
 });
 
 test('verification-action runner receives a narrow repository capability and cannot dispatch processes', () => {
-  const repositoryPath = 'src/verification/action/runner.ts';
+  const repositoryPath = 'src/adapters/verification/platform/action/runner.ts';
   expect(TCB_CLOSURE_LOCK.reviewedProcessDispatchers.some((entry) =>
     entry.startsWith(`${repositoryPath}::`)
   )).toBe(false);
@@ -450,7 +450,7 @@ test('live network dispatcher allowlist exactly matches the derived identity', (
 
 test.serial('TCB generation rejects a stale reviewed dispatcher authorization', () => {
   const stale =
-    'src/verification/ci/verification.ts::function-declaration:retiredDispatcher::spawnSync#1';
+    'src/adapters/verification/platform/ci/verification.ts::function-declaration:retiredDispatcher::spawnSync#1';
   expect(TCB_REVIEWED_PROCESS_DISPATCHERS.has(stale)).toBe(false);
   TCB_REVIEWED_PROCESS_DISPATCHERS.add(stale);
   try {
@@ -465,7 +465,7 @@ test.serial('TCB generation rejects a stale reviewed dispatcher authorization', 
 
 test.serial('TCB generation rejects a stale reviewed network dispatcher authorization', () => {
   const stale =
-    'src/control/integration/integration-authorization-status-github.ts::function-declaration:retiredNetwork::globalThis.fetch#1';
+    'src/adapters/self-hosting/control/integration/integration-authorization-status-github.ts::function-declaration:retiredNetwork::globalThis.fetch#1';
   expect(TCB_REVIEWED_NETWORK_DISPATCHERS.has(stale)).toBe(false);
   TCB_REVIEWED_NETWORK_DISPATCHERS.add(stale);
   try {
@@ -548,7 +548,7 @@ test('introducing an unauthorized edge causes the lock to break', () => {
   const tampered = {
     closure: closure.closure,
     reviewedEdges: new Set(closure.reviewedEdges).add(
-      'src/verification/ci/verification.ts -> src/compiler/orchestration/unauthorized-target.ts'
+      'src/adapters/verification/platform/ci/verification.ts -> src/compiler/orchestration/unauthorized-target.ts'
     ),
     reviewedBoundaryEdges: closure.reviewedBoundaryEdges,
     reviewedExternalImports: closure.reviewedExternalImports,
@@ -572,7 +572,7 @@ test('adding an unauthorized boundary causes the lock to break', () => {
   const verification = verifyTcbClosureLock({
     ...closure,
     reviewedBoundaryEdges: new Set(closure.reviewedBoundaryEdges).add(
-      'src/verification/ci/runtime/verification-session.ts -> src/verification/ci/contract/core.ts'
+      'src/adapters/verification/platform/ci/runtime/verification-session.ts -> src/adapters/verification/platform/ci/contract/core.ts'
     )
   });
   expect(verification.status).toBe('failed');

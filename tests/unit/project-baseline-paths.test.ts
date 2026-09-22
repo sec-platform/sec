@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import type { ProjectBaselinePathInput } from '../../src/workspace/contract/project-baseline.ts';
-import { currentReadOnlyProjectPaths } from '../../src/workspace/runtime/project-baseline.ts';
+import { currentReadOnlyProjectPaths } from '../../src/adapters/workspace/project-baseline.ts';
 
 function baselinePathInput(): ProjectBaselinePathInput {
   return {

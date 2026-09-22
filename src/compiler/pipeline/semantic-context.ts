@@ -1,15 +1,20 @@
-import type { ValidatedEngineeringIRSnapshot } from '../../semantic/engineering-ir/contract/validated-types.ts';
-import type { SemanticGeneratorPlan } from '../../semantic/generation/contract/types.ts';
-import type { SemanticViewSet } from '../../semantic/projection/contract/types.ts';
+import type { ValidatedEngineeringIRSnapshot } from '../../semantics/engineering-ir/validated-types.ts';
+import type { SemanticGeneratorPlan } from '../../semantics/generation/types.ts';
+import type { SemanticViewSet } from '../../semantics/projection/types.ts';
 import { CompilerError } from '../errors.ts';
-import type { PipelineExecutionContext, PipelineSemanticContext } from './types.ts';
+
+export interface PipelineSemanticContext {
+  readonly transactionId: string;
+  readonly inputRevision: string;
+  readonly semanticRevision: string;
+  readonly snapshot: ValidatedEngineeringIRSnapshot;
+  readonly generatorPlan: SemanticGeneratorPlan;
+  readonly semanticViews: SemanticViewSet;
+}
 
 // Local linkage identity, not an IR validation or operation authorization grant.
-// The IR validator, generator and view owners retain their existing contracts.
 const issuedSemanticLinks = new WeakMap<PipelineSemanticContext, ValidatedEngineeringIRSnapshot['ir']>();
 
-/** Revision linkage reads data slots, not user code. This is deliberately not
- * a parser or validator for the IR/plan/view payloads themselves. */
 function semanticDataField<T extends object, K extends keyof T>(value: T, field: K): T[K] {
   const descriptor = value !== null && typeof value === 'object'
     ? Object.getOwnPropertyDescriptor(value, field) : undefined;
@@ -45,29 +50,6 @@ function assertAligned(transactionId: string, observed: ReturnType<typeof revisi
   }
 }
 
-export function bindPipelineSemanticContext(
-  context: PipelineExecutionContext,
-  snapshot: ValidatedEngineeringIRSnapshot,
-  generatorPlan: SemanticGeneratorPlan,
-  semanticViews: SemanticViewSet
-): PipelineSemanticContext {
-  const transactionId = context.transactionId;
-  const before = Object.getOwnPropertyDescriptor(context, 'semantic');
-  if (before !== undefined && (!('value' in before) || before.value !== undefined)) {
-    throw new CompilerError('PIPELINE-SEMANTIC-001', 'Pipeline transaction already owns a semantic snapshot', { transactionId });
-  }
-  const semantic = createPipelineSemanticContext(transactionId, snapshot, generatorPlan, semanticViews);
-  const after = Object.getOwnPropertyDescriptor(context, 'semantic');
-  // Descriptor traps may synchronously re-enter the producer. Never overwrite
-  // a link installed during observation or attach to a retargeted transaction.
-  if (context.transactionId !== transactionId ||
-      (after !== undefined && (!('value' in after) || after.value !== undefined))) {
-    throw new CompilerError('PIPELINE-SEMANTIC-001', 'Pipeline semantic binding changed during creation', { transactionId });
-  }
-  Object.defineProperty(context, 'semantic', { value: semantic, enumerable: true, writable: false, configurable: false });
-  return semantic;
-}
-
 export function createPipelineSemanticContext(
   transactionId: string,
   snapshot: ValidatedEngineeringIRSnapshot,
@@ -88,24 +70,22 @@ export function createPipelineSemanticContext(
   return semantic;
 }
 
-export function requirePipelineSemanticContext(context: PipelineExecutionContext): PipelineSemanticContext {
-  const transactionId = context.transactionId;
-  const descriptor = Object.getOwnPropertyDescriptor(context, 'semantic');
-  const semantic: PipelineSemanticContext | undefined = descriptor && 'value' in descriptor ? descriptor.value : undefined;
-  const expectedIr = semantic === undefined ? undefined : issuedSemanticLinks.get(semantic);
-  if (expectedIr === undefined || semantic === undefined || semantic.transactionId !== transactionId) {
+export function assertIssuedPipelineSemanticContext(
+  transactionId: string,
+  semantic: unknown
+): asserts semantic is PipelineSemanticContext {
+  if (!semantic || typeof semantic !== 'object') {
     throw new CompilerError('PIPELINE-SEMANTIC-002', 'Pipeline transaction does not own a semantic linkage', { transactionId });
   }
-  const observed = revisions(semantic.snapshot, semantic.generatorPlan, semantic.semanticViews);
+  const typed = semantic as PipelineSemanticContext;
+  const expectedIr = issuedSemanticLinks.get(typed);
+  if (expectedIr === undefined || typed.transactionId !== transactionId) {
+    throw new CompilerError('PIPELINE-SEMANTIC-002', 'Pipeline transaction does not own a semantic linkage', { transactionId });
+  }
+  const observed = revisions(typed.snapshot, typed.generatorPlan, typed.semanticViews);
   assertAligned(transactionId, observed);
-  if (observed.ir !== expectedIr || observed.snapshotInputRevision !== semantic.inputRevision ||
-      observed.snapshotSemanticRevision !== semantic.semanticRevision) {
+  if (observed.ir !== expectedIr || observed.snapshotInputRevision !== typed.inputRevision ||
+      observed.snapshotSemanticRevision !== typed.semanticRevision) {
     throw new CompilerError('PIPELINE-SEMANTIC-003', 'Pipeline semantic linkage became stale', { transactionId });
   }
-  // A getter may have rebound an externally constructed execution context.
-  const current = Object.getOwnPropertyDescriptor(context, 'semantic');
-  if (context.transactionId !== transactionId || !current || !('value' in current) || current.value !== semantic) {
-    throw new CompilerError('PIPELINE-SEMANTIC-002', 'Pipeline semantic linkage changed during readback', { transactionId });
-  }
-  return semantic;
 }

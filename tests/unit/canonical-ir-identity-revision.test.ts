@@ -6,9 +6,13 @@ import { CompilerError } from '../../src/compiler/errors.ts';
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
 import { artifactEntityId, normalizedArtifactTarget } from '../../src/compiler/ir/ir-identity.ts';
 import { digest } from '../../src/compiler/ir/ir-revision.ts';
-import { normalizePlan, validatePlan } from '../../src/compiler/parse/load-plan.ts';
-import { TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE } from '../../src/compiler/policies/contract/rules.ts';
-import type { LoadedSemanticContract } from '../../src/semantic/contracts/contract/types.ts';
+import { normalizePlan, validatePlan } from '../../src/compiler/contract/plan-validation.ts';
+import { TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE } from '../../src/semantics/policies/rules.ts';
+import type { LoadedSemanticContract } from '../../src/semantics/definitions/types.ts';
+const PLAN_NORMALIZATION_DEFAULTS = Object.freeze({
+  officialPath: 'catalog/registry/official',
+  privatePath: 'model/blocks/private'
+});
 
 function semanticContract(): LoadedSemanticContract {
   return {
@@ -349,7 +353,7 @@ test('plan validation hard fails when app.id is absent', () => {
     registry: { sources: [] },
     blocks: [],
     acceptance: []
-  } as unknown as PlanFile);
+  } as unknown as PlanFile, PLAN_NORMALIZATION_DEFAULTS);
 
   expectCompilerError(() => validatePlan(normalized), 'PLAN-VALIDATION-014');
 });
