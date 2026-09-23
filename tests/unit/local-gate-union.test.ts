@@ -2,14 +2,15 @@ import { expect, test } from 'bun:test';
 
 import {
   buildLocalAffectedCheckPlan,
+  isDocumentationOnlyAffectedSelection,
   type AffectedTestPlan,
   type LocalAffectedGateId
-} from '../../src/development/runner/affected-plan-contract.ts';
+} from '../../src/adapters/self-hosting/development/runner/affected-plan-contract.ts';
 import {
   classifyAffectedSelectionTrustBoundary,
   defaultAffectedSelectionProjectionContext,
   projectAffectedSelectionToVerificationGateResult
-} from '../../src/verification/test-impact/affected.ts';
+} from '../../src/adapters/verification/platform/test-impact/affected.ts';
 
 function affectedPlan(
   changedPaths: string[],
@@ -71,11 +72,21 @@ test('local affected plan selects docs doctor alone for pure active documentatio
   expect(plan.subsumedStandaloneCommands).toEqual(['bun run docs:doctor']);
 });
 
+test('docs-only pre-compilation admission excludes Source Program roots and tool inputs', () => {
+  expect(isDocumentationOnlyAffectedSelection(['docs/运行/保证/要求证据与裁决.md'])).toBe(true);
+  expect(isDocumentationOnlyAffectedSelection(['docs/运行/保证/要求证据与裁决.md', '.documentation/source-manifest.json'])).toBe(true);
+  expect(isDocumentationOnlyAffectedSelection([])).toBe(false);
+  expect(isDocumentationOnlyAffectedSelection(['.documentation/documents.json'])).toBe(false);
+  expect(isDocumentationOnlyAffectedSelection(['.documentation/baseline.json'])).toBe(false);
+  expect(isDocumentationOnlyAffectedSelection(['tools/check_docs.py'])).toBe(false);
+  expect(isDocumentationOnlyAffectedSelection(['docs/运行/保证/要求证据与裁决.md', 'src/index.ts'])).toBe(false);
+});
+
 test('local affected plan forms one ordered union for mixed TypeScript and docs changes', () => {
   const plan = buildLocalAffectedCheckPlan(affectedPlan(
     [
       'docs/运行/保证/要求证据与裁决.md',
-      'src/development/runner/check-runner.ts'
+      'src/adapters/self-hosting/development/runner/check-runner.ts'
     ],
     [
       'tests/unit/local-gate-union.test.ts',
@@ -113,7 +124,7 @@ test('local affected plan keeps non-TypeScript contracts narrow', () => {
 
 test('local affected plan does not turn Source Program invalidation into full-repository conformance', () => {
   expect(gateIds(buildLocalAffectedCheckPlan(affectedPlan(
-    ['src/development/runner/check-runner.ts']
+    ['src/adapters/self-hosting/development/runner/check-runner.ts']
   )))).toEqual(['imports:check', 'typecheck', 'test:affected']);
 
   expect(gateIds(buildLocalAffectedCheckPlan(affectedPlan(

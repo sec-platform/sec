@@ -7,8 +7,8 @@ import { digest, semanticRevisionPayload } from '../../src/compiler/ir/ir-revisi
 import { validateEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
 import { projectArchitectureView } from '../../src/compiler/projection/project-architecture-view.ts';
 import { summarizeFactAssertions } from '../../src/compiler/projection/semantic-view-utils.ts';
-import type { SemanticFact } from '../../src/semantic/engineering-ir/contract/fact-types.ts';
-import type { EngineeringIR } from '../../src/semantic/engineering-ir/contract/root-types.ts';
+import type { SemanticFact } from '../../src/semantics/engineering-ir/fact-types.ts';
+import type { EngineeringIR } from '../../src/semantics/engineering-ir/root-types.ts';
 
 function factInput(overrides: Partial<FactInput> = {}): FactInput {
   return {

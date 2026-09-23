@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import type { RuntimeDependencyGeneratedStateLifecycle } from '../../src/toolchain/dependencies/runtime/lifecycle-capabilities.ts';
+import type { RuntimeDependencyGeneratedStateLifecycle } from '../../src/adapters/toolchain/dependencies/runtime/lifecycle-capabilities.ts';
 import {
   bindAndRetireCompilerDependencyPreimage,
   bindExistingCompilerDependencyGeneration, bindExistingSharedDependencyRoot, birthAndBindCompilerDependencyGeneration,
@@ -8,8 +8,8 @@ import {
   ensureCompilerDependencyPreimageRetiredForRecovery,
   settleRetiredCompilerDependencyGeneration,
   sharedDependencyLifecycleExpectation
-} from '../../src/toolchain/dependencies/runtime/lifecycle-registration.ts';
-import { runtimeDependencyOperationControls } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
+} from '../../src/adapters/toolchain/dependencies/runtime/lifecycle-registration.ts';
+import { runtimeDependencyOperationControls } from '../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
 
 const physical = () => ({ device: 'device', inode: 'inode-a', objectId: 'object-a' });
 const receipt = { registrationDigest: `sha256:${'a'.repeat(64)}` } as never;

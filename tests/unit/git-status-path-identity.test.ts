@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { parseWorktreePorcelainZ, parseWorktreeStatusPorcelainZ } from '../../src/runtime-state/physical/contract/git-worktree-observation.ts';
+import { parseWorktreePorcelainZ, parseWorktreeStatusPorcelainZ } from '../../src/adapters/runtime-state/physical/contract/git-worktree-observation.ts';
 import { gitProtocolSuccess, inGitProtocolRepository } from '../testkit/git-protocol.ts';
 
 // These vectors are machine records with independently declared path/status

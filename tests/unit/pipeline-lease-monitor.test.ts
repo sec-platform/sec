@@ -1,6 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { withLeaseObservationMonitor } from '../../src/compiler/pipeline/lease-monitor.ts';
+import { withLeaseObservationMonitor } from '../../src/execution/lease-observation-monitor.ts';
+import { ResourceCompositeSettlementError } from '../../src/execution/resource-settlement.ts';
 
 function deferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -74,17 +75,56 @@ test('an observed lease failure retains precedence over the callback cancellatio
   await rejectsWith(run, reason);
 });
 
-test('failure return retires observation and late rejection cannot abort the retired signal', async () => {
+test('failure return drains the already-started observation before the caller can release its lease', async () => {
   const held = deferred(), started = deferred(); const reason = Object.freeze({ callback: 'failed' });
-  let calls = 0, signal!: AbortSignal;
-  const run = withLeaseObservationMonitor(async () => { if (++calls === 2) { started.resolve(); await held.promise; } }, async (observed) => {
+  let calls = 0, returned = false, signal!: AbortSignal;
+  const run = withLeaseObservationMonitor(async () => {
+    if (++calls === 2) { started.resolve(); await held.promise; }
+  }, async (observed) => {
     signal = observed; await started.promise; throw reason;
   });
-  await rejectsWith(run, reason); assert.equal(signal.aborted, false);
-  held.reject(new Error('late check rejection'));
+  const checked = rejectsWith(run, reason).then(() => { returned = true; });
+  try {
+    await started.promise; await delay(20);
+    assert.equal(returned, false);
+    assert.equal(calls, 2);
+  } finally { held.resolve(); }
+  await checked;
+  assert.equal(signal.aborted, false);
   await delay(300);
-  assert.equal(signal.aborted, false); assert.equal(calls, 2);
+  assert.equal(calls, 2);
 });
+
+for (const [primary, observation] of [
+  [undefined, Object.freeze({ observation: 'lost' })],
+  [Object.freeze({ callback: 'failed' }), undefined]
+]) {
+  test('body failure remains primary when a pending observation fails during drain (' + typeof primary + ')', async () => {
+    const held = deferred(), started = deferred();
+    let calls = 0, signal!: AbortSignal;
+    const run = withLeaseObservationMonitor(async () => {
+      if (++calls === 2) { started.resolve(); await held.promise; }
+    }, async (observed) => {
+      signal = observed; await started.promise; throw primary;
+    });
+    const result = run.then(
+      value => ({ kind: 'returned' as const, value }),
+      error => ({ kind: 'rejected' as const, error })
+    );
+    try { await started.promise; await delay(20); }
+    finally { held.reject(observation); }
+    const terminal = await result;
+    assert.equal(terminal.kind, 'rejected');
+    if (terminal.kind !== 'rejected') assert.fail('body failure cannot become success');
+    assert.ok(terminal.error instanceof ResourceCompositeSettlementError);
+    assert.deepEqual(terminal.error.failures, [
+      { label: 'lease-monitored-operation', error: primary },
+      { label: 'lease-observation', error: observation }
+    ]);
+    assert.equal(signal.aborted, true);
+    assert.equal(calls, 2);
+  });
+}
 
 test('final validation failure, including undefined, is never returned as callback success', async () => {
   let calls = 0;

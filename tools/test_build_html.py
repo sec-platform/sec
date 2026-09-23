@@ -17,6 +17,7 @@ from unittest.mock import patch
 from html.parser import HTMLParser
 sys.dont_write_bytecode = True
 import build_html as b
+from test_check_documentation_identity import declaration
 
 class Originals(HTMLParser):
     def __init__(self):
@@ -34,7 +35,7 @@ class ReadingTests(unittest.TestCase):
         self.home=Path(self.temp.name);self.root=self.home/'SEC';self.root.mkdir()
         (self.root/'docs').mkdir();(self.root/'examples').mkdir()
         (self.root/'.documentation').mkdir()
-        (self.root/'.documentation/baseline.json').write_text(json.dumps({'source_roots':['README.md','docs','examples','.documentation'],'audited_namespaces':['docs'],'non_documentation_roots':[]}),encoding='utf-8')
+        (self.root/'.documentation/baseline.json').write_text(json.dumps({**declaration(['README.md','docs','examples','.documentation']), 'entry':'../README.md'}),encoding='utf-8')
         (self.root/'README.md').write_text('# Fixture\n\n[主题](docs/主题.md#字段)\n',encoding='utf-8')
         (self.root/'docs/主题.md').write_text('# 主题\n\n## 字段\n\n完整文字。\n',encoding='utf-8')
         self.out=self.home/'reading.html'

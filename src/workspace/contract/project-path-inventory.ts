@@ -1,4 +1,4 @@
-import { portableLogicalPathCollisionKey } from '../../system-architecture/foundation/contract/logical-path.ts';
+import { portableLogicalPathCollisionKey } from '../../contracts/logical-path.ts';
 
 /** Logical project-file inventory, not a filesystem observation or write grant.
  * The baseline can coalesce repeated producer paths; authorization requires an

@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 
 import {
   resolveSecMarkdownSkillCoverage
-} from '../../src/control/agent/skill.ts';
+} from '../../src/adapters/self-hosting/control/agent/skill.ts';
 
 test('ordinary root policies carry no Skill authority and unknown external Markdown stays unclassified', () => {
   for (const path of [

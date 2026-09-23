@@ -1,8 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { readJson } from '../../src/workspace/files.ts';
-import { compilerRoot } from '../../src/workspace/runtime/paths.ts';
+import { readJson } from "../../src/adapters/filesystem/files.ts";
+import { compilerRoot } from "../../src/adapters/workspace-context.ts";
 
 const compilerFileCache = new Map<string, string>();
 
@@ -21,13 +21,6 @@ export async function readCompilerFile(relativePath: string): Promise<string> {
     throw new Error(
       `Production TypeScript is not a text fixture; use an explicit hostile-mutation, TCB-analysis, or transpile-input capability: ${relativePath}`
     );
-  }
-  return readCompilerText(relativePath);
-}
-
-export async function readCompilerTextFile(relativePath: string): Promise<string> {
-  if (/\.(?:ts|tsx)$/u.test(relativePath)) {
-    throw new Error(`TypeScript implementation source requires a parsed view or explicit mutation fixture: ${relativePath}`);
   }
   return readCompilerText(relativePath);
 }

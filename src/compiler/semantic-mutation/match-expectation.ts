@@ -1,7 +1,7 @@
-import type { FactDelta } from '../../semantic/engineering-ir/contract/delta-types.ts';
-import type { FactAssertion, SemanticFact } from '../../semantic/engineering-ir/contract/fact-types.ts';
-import type { ValidatedEngineeringIRSnapshot } from '../../semantic/engineering-ir/contract/validated-types.ts';
-import type { ExpectedFactAssertionChange, ExpectedSemanticFact, SemanticFactSelector, SemanticMutationDiagnostic, SemanticMutationExpectation } from '../../semantic/mutation/contract/types.ts';
+import type { FactDelta } from '../../semantics/engineering-ir/delta-types.ts';
+import type { FactAssertion, SemanticFact } from '../../semantics/engineering-ir/fact-types.ts';
+import type { ValidatedEngineeringIRSnapshot } from '../../semantics/engineering-ir/validated-types.ts';
+import type { ExpectedFactAssertionChange, ExpectedSemanticFact, SemanticFactSelector, SemanticMutationDiagnostic, SemanticMutationExpectation } from '../../semantics/mutation/types.ts';
 import {
   canonicalEquals,
   compareCodeUnits,

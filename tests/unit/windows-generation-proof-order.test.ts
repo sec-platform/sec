@@ -4,8 +4,8 @@ import {
   assertWindowsReadOnlyTreeGenerationProofForTests,
   WINDOWS_READ_ONLY_TREE_GENERATION_PROOF_SCHEMA,
   WindowsHostDirectoryAuthorityError
-} from '../../src/runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
-import { rawSha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+} from '../../src/adapters/runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
+import { rawSha256 } from '../../src/contracts/canonical.ts';
 
 type FixtureEntry = Readonly<{
   aclDigest: string;

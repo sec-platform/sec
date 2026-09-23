@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import type { TestBudgetContract } from '../../src/verification/test-impact/contract/budget.ts';
+import type { TestBudgetContract } from '../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 import { expectCliJson } from '../testkit/cli.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 

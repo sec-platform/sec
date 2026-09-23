@@ -5,7 +5,7 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 import { parse as parseYaml } from 'yaml';
 
-import { projectRepositorySourceGovernance } from '../../src/brownfield/repository-audit/cli.ts';
+import { projectRepositorySourceGovernance } from '../../src/adapters/repository/repository-audit/cli.ts';
 import {
   classifySecRepositorySurface,
   isSecRepositoryHeuristicSurface,
@@ -14,16 +14,16 @@ import {
   resolveSecRepositoryHeuristicSkills,
   SEC_AGENT_SKILL_IDS,
   SEC_REPOSITORY_HEURISTIC_BEHAVIOR_IDS
-} from '../../src/control/agent/skill.ts';
+} from '../../src/adapters/self-hosting/control/agent/skill.ts';
 import {
   activeDocumentationPaths,
   isActiveDocumentationPath,
   parseDocumentationIdentityRegistry
-} from '../../src/control/documentation/active.ts';
+} from '../../src/adapters/self-hosting/control/documentation/active.ts';
 import {
   classifyTestImpactSource,
   testImpactModuleIdsForSourceKind
-} from '../../src/verification/test-impact/contract/ownership.ts';
+} from '../../src/adapters/verification/platform/test-impact/contract/ownership.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 const SKILLS_ROOT = path.join(REPOSITORY_ROOT, '.agents', 'skills');
@@ -174,8 +174,8 @@ test('repository surface classification follows canonical source and test identi
     skills: []
   });
   for (const testPath of [
-    'src/system-architecture/repository-modules/dependency-policy.test.ts',
-    'src/control/agent/example.test.ts'
+    'src/adapters/repository/architecture/dependency-policy.test.ts',
+    'src/adapters/self-hosting/control/agent/example.test.ts'
   ]) expect(classifySecRepositorySurface(testPath)).toEqual({
     kind: 'verification-test',
     skills: []
@@ -213,7 +213,7 @@ test('registered heuristic runtime surfaces resolve at least one Skill', () => {
   expect(resolveSecRepositoryHeuristicSkills(
     'config/external-capabilities/ledger.yaml'
   )).toEqual(['sec-external-capability-governance', 'sec-heuristic-governance']);
-  expect(resolveSecRepositoryHeuristicSkills('src/verification/ci/runtime/ci-orchestration-core.ts')).toEqual([
+  expect(resolveSecRepositoryHeuristicSkills('src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts')).toEqual([
   ]);
   expect(resolveSecRepositoryHeuristicSkills('package.json')).toEqual([
   ]);
@@ -227,14 +227,14 @@ test('documentation and Agent trust-root kinds have focused governance ownership
     isActiveDocumentationPath
   );
   expect(skillKind).toBe('agent-skill');
-  expect(testImpactModuleIdsForSourceKind(skillKind)).toEqual(['control.agent']);
+  expect(testImpactModuleIdsForSourceKind(skillKind)).toEqual(['adapters.self-hosting.control.agent']);
 
   const documentationKind = classifyTestImpactSource(
     '.documentation/documents.json',
     isActiveDocumentationPath
   );
   expect(documentationKind).toBe('active-documentation');
-  expect(testImpactModuleIdsForSourceKind(documentationKind)).toEqual(['control.documentation']);
+  expect(testImpactModuleIdsForSourceKind(documentationKind)).toEqual(['adapters.self-hosting.control.documentation']);
 });
 
 test('external capability ledger binds repository authority and keeps rejected standing providers retired', async () => {

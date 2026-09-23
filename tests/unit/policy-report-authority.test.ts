@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { validatePolicyReport } from '../../src/compiler/policies/report.ts';
+import { validatePolicyReport } from "../../src/assurance/policies/report.ts";
 
 function emptyPolicyReport() {
   return {

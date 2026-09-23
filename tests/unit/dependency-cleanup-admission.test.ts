@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { cleanDependencyEnvironment } from '../../src/toolchain/dependencies/application/dependency-environment.ts';
+import { cleanDependencyEnvironment } from '../../src/adapters/toolchain/dependencies/application/dependency-environment.ts';
 
 // Native consumer tests: do not replace Workspace removal or lifecycle owners.
 // All possible deletion targets are inside this fixture; the shared target is
