@@ -40,7 +40,7 @@ type WindowsControlCliSessionAvailability =
   | 'unknown'
   | 'ready';
 
-export type WindowsControlCliSessionResolutionReason =
+type WindowsControlCliSessionResolutionReason =
   | 'unsupported-platform'
   | 'unsupported-architecture'
   | 'session-request-invalid'
@@ -61,7 +61,7 @@ type WindowsControlCliSessionFailure = Readonly<{
   readonly detailDigest: `sha256:${string}`;
 }>;
 
-export type WindowsControlCliSessionResolution =
+type WindowsControlCliSessionResolution =
   | WindowsControlCliSessionFailure
   | Readonly<{ readonly status: 'ready'; readonly session: WindowsControlCliLiveSession }>;
 

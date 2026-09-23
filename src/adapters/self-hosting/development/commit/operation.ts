@@ -90,7 +90,7 @@ export const CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_RESOURCE_CEILIN
 ]) satisfies readonly SecOperationResourceCeiling[];
 export const CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUEST_CEILING = 8;
 
-export type DevelopmentCommitDisposition = 'applied' | 'not-applied' | 'unknown';
+type DevelopmentCommitDisposition = 'applied' | 'not-applied' | 'unknown';
 
 export type { DevelopmentCommitRequest } from '../commit-admission/operation.ts';
 
@@ -111,7 +111,7 @@ export type DevelopmentCommitReadbackReceipt = Readonly<{
   readonly readbackReceiptDigest: SecOperationDigest;
 }>;
 
-export type DevelopmentCommitRecovery = Readonly<{
+type DevelopmentCommitRecovery = Readonly<{
   readonly result: DevelopmentCommitResult;
   readonly readbackReceiptDigest: SecOperationDigest;
 }>;
@@ -484,7 +484,7 @@ async function execute(
   return result;
 }
 
-export function assertDevelopmentCommitReadbackReceipt(value: DevelopmentCommitReadbackReceipt): void {
+function assertDevelopmentCommitReadbackReceipt(value: DevelopmentCommitReadbackReceipt): void {
   if (!ISSUED_DEVELOPMENT_COMMIT_READBACKS.has(value)) {
     throw new Error('Development commit retirement requires an exact readback-issued receipt.');
   }
@@ -505,7 +505,7 @@ export function acknowledgeDevelopmentCommitResult(result: DevelopmentCommitResu
   retireEmptyJournalDirectory(issued.commonDirectory);
 }
 
-export async function acknowledgeNotAppliedDevelopmentCommitResult(result: DevelopmentCommitResult): Promise<void> {
+async function acknowledgeNotAppliedDevelopmentCommitResult(result: DevelopmentCommitResult): Promise<void> {
   const issued = ISSUED_DEVELOPMENT_COMMIT_RESULTS.get(result);
   if (issued === undefined) throw new Error('Development commit cancellation requires one owner-issued result.');
   assertDevelopmentCommitReadbackReceipt(issued.readback);
@@ -790,7 +790,7 @@ export async function acknowledgeClosedAbsentDevelopmentCommitJournalRetirement(
 }
 
 /** Historical merged transport proves consumer termination, not a lost local CAS. */
-export async function retireMergedDevelopmentCommitJournals(input: Readonly<{
+async function retireMergedDevelopmentCommitJournals(input: Readonly<{
   repositoryRoot: string;
   capability: GitHubApiCapability;
   pullRequestNumber: number;
@@ -922,7 +922,7 @@ async function recoverDevelopmentCommitWithReadback(input: Readonly<{
 }
 
 /** Independent lost-handle projection; journal bytes never authorize replay. */
-export async function recoverDevelopmentCommit(input: Readonly<{
+async function recoverDevelopmentCommit(input: Readonly<{
   readonly repositoryRoot: string;
   readonly journalPath: string;
 }>): Promise<DevelopmentCommitRecovery> {
