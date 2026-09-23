@@ -41,17 +41,12 @@ async function executeLocalAffectedGate(
   if (step.id === 'typecheck') {
     const projectGenerationEvidence = affectedExecution.projectGenerationEvidence;
     if (compilerDependencies === undefined || projectGenerationEvidence === null) {
-      console.error('Local affected typecheck requires completed compiler and ProjectInput evidence admission.');
+      console.error('Local affected native typecheck requires completed dependency and ProjectInput admission.');
       return 1;
     }
     return runObservedReadOnlyStage(step.id, async () => {
-      const { runTypecheckWithDependencyRootAndProjectGenerationEvidence } = await import(
-        './typecheck-runner.ts'
-      );
-      return runTypecheckWithDependencyRootAndProjectGenerationEvidence(
-        compilerDependencies,
-        projectGenerationEvidence
-      );
+      const { runDevCommand } = await import('./command-runner.ts');
+      return runDevCommand('bun', ['run', 'typecheck'], {});
     });
   }
   if (step.id === 'docs:doctor') {
