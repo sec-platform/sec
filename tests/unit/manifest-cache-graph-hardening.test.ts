@@ -1,7 +1,7 @@
 import { afterEach, test } from 'bun:test';
 import assert from 'node:assert/strict';
+import { manifestCache, type ManifestCacheKey } from '../../src/adapters/workspace/sources/manifest-cache.ts';
 import type { ManifestEntry } from '../../src/compiler/contract/plan-manifest.ts';
-import { manifestCache, type ManifestCacheKey } from '../../src/compiler/parse/manifest-cache.ts';
 
 function key(sourceDigest: `sha256:${string}` = 'sha256:first'): ManifestCacheKey {
   return {
@@ -62,9 +62,13 @@ test('manifest cache keeps causal digest isolation and replaces obsolete revisio
   const second = entry();
   manifestCache.set(key(), first);
   assert.equal(manifestCache.get(key('sha256:second')), undefined);
+  // A miss already retires the locator, rather than retaining stale history.
+  assert.equal(manifestCache.size, 0);
   manifestCache.set(key('sha256:second'), second);
-  assert.equal(manifestCache.get(key()), undefined);
   assert.strictEqual(manifestCache.get(key('sha256:second')), second);
+  assert.equal(manifestCache.get(key()), undefined);
+  assert.equal(manifestCache.size, 0);
+  assert.equal(manifestCache.get(key('sha256:second')), undefined);
 });
 
 test('rejected manifest cache identity does not publish or replace a valid record', () => {

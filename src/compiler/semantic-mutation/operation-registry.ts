@@ -1,6 +1,6 @@
-import type { FactAssertion, FactProvenance, SemanticFact } from '../../semantic/engineering-ir/contract/fact-types.ts';
-import type { ValidatedEngineeringIRSnapshot } from '../../semantic/engineering-ir/contract/validated-types.ts';
-import type { AddStateTransitionOperation, SemanticMutationAuthorizationContext, SemanticMutationDiagnostic, VerificationRequirement } from '../../semantic/mutation/contract/types.ts';
+import type { FactAssertion, FactProvenance, SemanticFact } from '../../semantics/engineering-ir/fact-types.ts';
+import type { ValidatedEngineeringIRSnapshot } from '../../semantics/engineering-ir/validated-types.ts';
+import type { AddStateTransitionOperation, SemanticMutationAuthorizationContext, SemanticMutationDiagnostic, VerificationRequirement } from '../../semantics/mutation/types.ts';
 import { contractOperationId, contractStateId } from '../ir/ir-identity.ts';
 import { canonicalEquals, compareCodeUnits, mutationDiagnostic } from './canonical.ts';
 

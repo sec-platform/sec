@@ -15,7 +15,7 @@ import {
   parseGitHubPullRequestReviewThreadPages,
   parseGitHubRepositoryIdentityFromRemoteUrl,
   replaceIncompleteGitHubReviewThreads
-} from '../../src/control/documentation/document-control-plane-github-observation.ts';
+} from '../../src/adapters/self-hosting/control/documentation/document-control-plane-github-observation.ts';
 
 const REPOSITORY = 'sec-platform/sec';
 

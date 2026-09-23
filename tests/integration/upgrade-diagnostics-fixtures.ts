@@ -1,7 +1,7 @@
 import { expect } from 'bun:test';
 import fs from 'node:fs/promises';
 
-import { upgradeWorkspace } from '../../src/change-management/upgrade/orchestration.ts';
+import { upgradeWorkspace } from '../../src/bootstrap/upgrade/orchestration.ts';
 
 type UpgradeDiagnosticsSnapshot = {
   failedCheck: string;

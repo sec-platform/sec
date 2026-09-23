@@ -5,7 +5,7 @@ import path from 'node:path';
 import {
   currentProjectWriteAuthorization, projectProjectWriteAuthorization, withProjectWriteAuthorization,
   type ProjectWriteAuthorization
-} from '../../src/workspace/runtime/project-write-authorization.ts';
+} from '../../src/adapters/workspace/project-write-authorization.ts';
 const root = path.join(tmpdir(), 'sec-authority-contract');
 const input = () => ({ workspaceRoot: root, operation: 'upgrade.apply', impactPaths: ['src/a.ts'] });
 function deferred() { let resolve!: () => void; const promise = new Promise<void>(yes => { resolve = yes; }); return { resolve, promise }; }

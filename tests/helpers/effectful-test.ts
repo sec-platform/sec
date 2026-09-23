@@ -4,11 +4,11 @@ import {
   compileEffectfulTestExecutionPolicy,
   type EffectfulTestExecutionPolicy,
   type EffectfulTestTerminalState
-} from '../../src/development/runner/test-execution-policy.ts';
+} from '../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
 import {
   assertCompilerDependencyEnvironmentRetirementReceipt,
   type CompilerDependencyEnvironmentRetirementReceipt
-} from '../../src/toolchain/dependencies/test/runtime.ts';
+} from '../../src/adapters/toolchain/dependencies/test/runtime.ts';
 
 export type EffectfulTestContext = Readonly<{
   policy: EffectfulTestExecutionPolicy;

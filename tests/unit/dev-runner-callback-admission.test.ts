@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { runCheckAffectedCommand, type CheckAffectedCommandOperations } from '../../src/development/runner/cli.ts';
-import type { MaterializedOperationDependencyBootstrapResult } from '../../src/development/runner/dependency-bootstrap.ts';
+import { runCheckAffectedCommand, type CheckAffectedCommandOperations } from '../../src/adapters/self-hosting/development/runner/cli.ts';
+import type { MaterializedOperationDependencyBootstrapResult } from '../../src/adapters/self-hosting/development/runner/dependency-bootstrap.ts';
 
 // This sentinel passes only between explicitly supplied callbacks. It is never
 // presented to a production materialization/session owner as an issued grant.

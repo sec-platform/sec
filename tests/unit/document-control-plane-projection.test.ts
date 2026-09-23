@@ -13,13 +13,13 @@ import {
   CodexDevelopmentRenderActivePointer,
   CodexDevelopmentRenderCommittedCandidateReplanRollingPlan,
   CodexDevelopmentRequiresCommittedCandidateProjectionRefresh
-} from '../../src/control/documentation/document-control-plane-contract.ts';
-import { CodexDevelopmentWorkPackageManifestDigest } from '../../src/control/task/contract/work-package.ts';
+} from '../../src/adapters/self-hosting/control/documentation/document-control-plane-contract.ts';
+import { CodexDevelopmentWorkPackageManifestDigest } from '../../src/adapters/self-hosting/control/task/contract/work-package.ts';
 import {
   compileSecWorkRollingTransitionProjection,
   renderSecWorkRollingTransitionPlan
-} from '../../src/control/work-selection/live-contract.ts';
-import { rawSha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+} from '../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
+import { rawSha256 } from '../../src/contracts/canonical.ts';
 
 const exactMain = 'a'.repeat(40);
 const exactMainTree = 'b'.repeat(40);

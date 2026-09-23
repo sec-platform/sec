@@ -6,13 +6,13 @@ import { pathToFileURL } from 'node:url';
 
 import { expect, test } from 'bun:test';
 
-import { installGitHooksForTest, observeManagedGitHooksWithSession } from '../../src/development/hooks/install.ts';
-import { withAuthorityGitReadSession } from '../../src/external-capabilities/git-read/authority.ts';
+import { withAuthorityGitReadSession } from '../../src/adapters/providers/git-read/authority.ts';
 import {
   GIT_READ_DEFAULT_OPERATION_BUDGET,
   isolatedGitReadEnvironment,
   type GitReadProviderResolutionFailure
-} from '../../src/external-capabilities/git-read/runtime/session.ts';
+} from '../../src/adapters/providers/git-read/runtime/session.ts';
+import { installGitHooksForTest, observeManagedGitHooksWithSession } from '../../src/adapters/self-hosting/development/hooks/install.ts';
 
 test('tracked hooks bind deterministic staged normalization and candidate freeze without ambient EOL drift', async () => {
   const repoRoot = path.resolve(import.meta.dir, '../..');
@@ -62,7 +62,7 @@ test('transition hooks supply canonical package identity and preserve Git argume
   const repoRoot = path.resolve(import.meta.dir, '../..');
   const root = await mkdtemp(path.join(tmpdir(), 'sec hook package '));
   try {
-    const authority = pathToFileURL(path.join(repoRoot, 'src/toolchain/runtime/bun-version.ts')).href;
+    const authority = pathToFileURL(path.join(repoRoot, 'src/adapters/toolchain/runtime/bun-version.ts')).href;
     await writeFile(path.join(root, 'package.json'), JSON.stringify({
       type: 'module',
       scripts: { dev: '"$npm_execpath" ./runner.ts' }

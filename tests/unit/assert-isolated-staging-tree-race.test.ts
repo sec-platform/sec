@@ -3,8 +3,8 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { assertIsolatedStagingTreeForTests } from '../../src/compiler/verify/assert-isolated-staging-tree.ts';
-import { acquireWorkspaceWriteLease } from '../../src/workspace/lease.ts';
+import { acquireWorkspaceWriteLease } from '../../src/adapters/filesystem/write-lease.ts';
+import { assertIsolatedStagingTreeForTests } from '../../src/adapters/verification/assert-isolated-staging-tree.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('isolated staging tree rejects a nested entry added after initial traversal', async () => {
