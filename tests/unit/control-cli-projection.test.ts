@@ -1,31 +1,31 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
+  compileSecRepositoryModuleMembershipSnapshot,
+  compileSecRepositoryModuleTopologyProjection,
+  parseSecModuleDescriptor,
+  type SecRepositoryModuleMembership
+} from '../../src/adapters/repository/architecture/contract.ts';
+import { compileSecRepositoryModulePlacementAdmission } from '../../src/adapters/repository/architecture/placement.ts';
+import {
   projectRepositoryAuditCli,
   projectRepositoryModuleArchitectureAudit,
   RepositoryAuditCliProjectionContractError,
   repositoryModuleArchitectureShouldBlock,
   type RepositoryAuditReport
-} from '../../src/brownfield/repository-audit/cli.ts';
-import { compileSourceProgramDeclarationTopology } from '../../src/brownfield/source-program-model/declaration-topology.ts';
-import { compileVirtualRepositorySourceProgramCompilation } from '../../src/brownfield/source-program-model/repository-compilation.ts';
-import { compileSecRepositoryModuleGraph } from '../../src/brownfield/source-program-model/typescript.ts';
-import { compileVirtualWorkspaceSourceSnapshot } from '../../src/brownfield/source-program-model/workspace-source-snapshot.ts';
+} from '../../src/adapters/repository/repository-audit/cli.ts';
+import { compileSourceProgramDeclarationTopology } from '../../src/adapters/repository/source-program-model/declaration-topology.ts';
+import { compileVirtualRepositorySourceProgramCompilation } from '../../src/adapters/repository/source-program-model/repository-compilation.ts';
+import { compileSecRepositoryModuleGraph } from '../../src/adapters/repository/source-program-model/typescript.ts';
+import { compileVirtualWorkspaceSourceSnapshot } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
 import {
   projectDocumentControlPlaneStatusCli
-} from '../../src/control/documentation/document-control-plane.ts';
-import { compileSecOperationDemandGraph } from '../../src/control/operation/demand.ts';
-import type { SecWorkSelectionLiveResult } from '../../src/control/work-selection/live-contract.ts';
-import { projectSecWorkSelectionCli } from '../../src/control/work-selection/runtime.ts';
-import { shouldReportDevRunnerSuccess } from '../../src/development/runner/cli.ts';
-import { rawSha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
-import {
-  compileSecRepositoryModuleMembershipSnapshot,
-  compileSecRepositoryModuleTopologyProjection,
-  parseSecModuleDescriptor,
-  type SecRepositoryModuleMembership
-} from '../../src/system-architecture/repository-modules/contract.ts';
-import { compileSecRepositoryModulePlacementAdmission } from '../../src/system-architecture/repository-modules/placement.ts';
+} from '../../src/adapters/self-hosting/control/documentation/document-control-plane.ts';
+import { compileSecOperationDemandGraph } from '../../src/adapters/self-hosting/control/operation/demand.ts';
+import type { SecWorkSelectionLiveResult } from '../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
+import { projectSecWorkSelectionCli } from '../../src/adapters/self-hosting/control/work-selection/runtime.ts';
+import { shouldReportDevRunnerSuccess } from '../../src/adapters/self-hosting/development/runner/cli.ts';
+import { rawSha256 } from '../../src/contracts/canonical.ts';
 
 function declarationTopologyFixture() {
   const descriptorPath = 'src/projection-owner/sec.module.json';

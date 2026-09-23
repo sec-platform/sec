@@ -2,22 +2,13 @@ import path from 'node:path';
 
 import { describe, expect, test } from 'bun:test';
 
-import { parseDockerEndpointIdentity } from '../../src/external-capabilities/docker/contract/daemon.ts';
+import { parseDockerEndpointIdentity } from '../../src/adapters/providers/docker/contract/daemon.ts';
 import {
   SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY,
   SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST,
   SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH,
   SEC_LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH
-} from '../../src/external-capabilities/linux-verification/contract.ts';
-import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
-import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecProviderSettlementReceipt,
-  issueSecSemanticOperationAttemptContext,
-  type SecOperationDigest
-} from '../../src/system-architecture/operation/semantic.ts';
+} from '../../src/adapters/providers/linux-verification/contract.ts';
 import {
   TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID,
   TRUSTED_RUNTIME_CONTAINER_BUN_ARCHIVE_SHA256,
@@ -39,7 +30,16 @@ import {
   issueTrustedRuntimeContainerEngineOwnerTerminalJoin,
   parseTrustedRuntimeContainerIdentity,
   renderTrustedRuntimeCommandFailureDetail
-} from '../../src/verification/trusted-runtime/trusted-runtime-container.ts';
+} from '../../src/adapters/verification/platform/trusted-runtime/trusted-runtime-container.ts';
+import { sha256 } from '../../src/contracts/canonical.ts';
+import {
+  bindSecSemanticOperation,
+  compileSecCapabilityBinding,
+  compileSecSemanticOperationPlan,
+  issueSecProviderSettlementReceipt,
+  issueSecSemanticOperationAttemptContext,
+  type SecOperationDigest
+} from '../../src/execution/operation/semantic.ts';
 
 const dockerEndpoint = Object.freeze({
   schema: 'sec-docker-endpoint-identity-v1' as const,
@@ -141,7 +141,7 @@ describe('provider-neutral trusted runtime container', () => {
       `CI=1 ${SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH} run deps:ensure`
     );
     expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT).not.toContain(
-      'src/development/runner/cli.ts deps:ensure'
+      'src/adapters/self-hosting/development/runner/cli.ts deps:ensure'
     );
   });
 

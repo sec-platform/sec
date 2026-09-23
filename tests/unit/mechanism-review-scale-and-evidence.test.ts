@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   compileSourceProgramMechanismReview as review,
   type MechanismReviewModel
-} from '../../src/brownfield/repository-audit/mechanism-review.ts';
+} from '../../src/adapters/repository/repository-audit/mechanism-review.ts';
 
 type Capability = MechanismReviewModel['capabilities'][number];
 type Reference = MechanismReviewModel['references'][number];

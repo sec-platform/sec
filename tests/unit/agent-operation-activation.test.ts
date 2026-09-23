@@ -7,7 +7,7 @@ import path from 'node:path';
 import {
   assertAgentOperationActivationTestCensus,
   assertAgentOperationActivationWorkPackageCensus
-} from '../../src/control/agent/agent-operation-activation-census.ts';
+} from '../../src/adapters/self-hosting/control/agent/agent-operation-activation-census.ts';
 import {
   createSecAgentOperationActivationPreparation,
   createSecAgentOperationActivationProvider,
@@ -23,13 +23,13 @@ import {
   type SecAgentOperationActivationPreparationInput,
   type SecAgentOperationActivationProvider,
   type SecAgentOperationActivationRequest
-} from '../../src/control/agent/operation-activation.ts';
+} from '../../src/adapters/self-hosting/control/agent/operation-activation.ts';
 
 const sha = (character: string): string => character.repeat(40);
 const digest = (character: string): `sha256:${string}` => `sha256:${character.repeat(64)}`;
 
 test('activation test census accepts colocated regular blobs and rejects non-file or incomplete evidence', () => {
-  const paths = ['src/control/agent/行为.test.ts', 'tests/unit/example.spec.ts'];
+  const paths = ['src/adapters/self-hosting/control/agent/行为.test.ts', 'tests/unit/example.spec.ts'];
   const records = [
     `100644 blob ${sha('a')}\t${paths[0]}\0`,
     `100755 blob ${sha('b')}\t${paths[1]}\0`
@@ -109,8 +109,8 @@ function preparationInput(): SecAgentOperationActivationPreparationInput {
       'config/repository/active-work-package.md',
       'config/repository/rolling-plan.md',
       'config/repository/work-packages/delegation-consumer-zero-retirement-v1.md',
-      'src/control/agent/task-capsule-host.ts',
-      'src/control/agent/task-capsule.ts',
+      'src/adapters/self-hosting/control/agent/task-capsule-host.ts',
+      'src/adapters/self-hosting/control/agent/task-capsule.ts',
       'scripts/codex/'
     ],
     forbiddenPaths: ['source/'],
@@ -228,7 +228,7 @@ test('FINAL binds a distinct request, exact PRE comment, PR identity, and PRE sc
     controlDigests: preparation.controlDigests,
     changedPaths: [
       'config/repository/active-work-package.md',
-      'src/control/agent/task-capsule-host.ts'
+      'src/adapters/self-hosting/control/agent/task-capsule-host.ts'
     ],
     workDecisionReceiptDigest: digest('8'),
     workDecisionDecisionDigest: digest('9'),
@@ -301,7 +301,7 @@ test.skipIf(process.platform !== 'win32')('Windows activation fails closed befor
   installFake('gh', ghExecutionSentinel);
 
   try {
-    const runner = path.resolve(import.meta.dir, '../../src/control/agent/agent-operation-activation.ts');
+    const runner = path.resolve(import.meta.dir, '../../src/adapters/self-hosting/control/agent/agent-operation-activation.ts');
     const result = spawnSync(process.execPath, [
       runner,
       'request',

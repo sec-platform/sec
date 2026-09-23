@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import {
   awaitRuntimeDependencyOperation, runtimeDependencyOperationContext,
   runtimeDependencyOperationControls, runtimeDependencyOperationRemainingMs
-} from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
-import { measureRuntimeDependencyOperationPhase, readRuntimeDependencyOperationTelemetry } from '../../src/toolchain/dependencies/runtime/operation-telemetry.ts';
+} from '../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
+import { measureRuntimeDependencyOperationPhase, readRuntimeDependencyOperationTelemetry } from '../../src/adapters/toolchain/dependencies/runtime/operation-telemetry.ts';
 
 function controls(signal?: AbortSignal) { return runtimeDependencyOperationControls({ lockTimeoutMs: 1000, monotonicNowMs: () => 0, signal }); }
 

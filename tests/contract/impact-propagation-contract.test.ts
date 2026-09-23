@@ -1,12 +1,12 @@
 import { expect, test } from 'bun:test';
 
-import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { sha256 } from '../../src/contracts/canonical.ts';
 
 import { buildFactDelta } from '../../src/compiler/ir/build-fact-delta.ts';
 import { buildImpactPropagation } from '../../src/compiler/semantic-impact/build-impact-propagation.ts';
-import type { FactDeltaEndpointContext } from '../../src/semantic/engineering-ir/contract/delta-types.ts';
-import type { SemanticFact } from '../../src/semantic/engineering-ir/contract/fact-types.ts';
-import type { ValidatedEngineeringIRSnapshot } from '../../src/semantic/engineering-ir/contract/validated-types.ts';
+import type { FactDeltaEndpointContext } from '../../src/semantics/engineering-ir/delta-types.ts';
+import type { SemanticFact } from '../../src/semantics/engineering-ir/fact-types.ts';
+import type { ValidatedEngineeringIRSnapshot } from '../../src/semantics/engineering-ir/validated-types.ts';
 
 const FROM_SEMANTIC_REVISION = `sha256:${'1'.repeat(64)}`;
 const TO_SEMANTIC_REVISION = `sha256:${'2'.repeat(64)}`;

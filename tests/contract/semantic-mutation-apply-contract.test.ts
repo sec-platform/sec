@@ -2,21 +2,23 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { applySemanticMutation } from '../../src/compiler/orchestration/cli.ts';
-import type { IsolatedVerificationCapability } from '../../src/compiler/orchestration/isolated-verification-capability.ts';
 import {
   type PipelineExecutionContext
-} from '../../src/compiler/pipeline/types.ts';
-import { sha256 } from '../../src/compiler/semantic-mutation/canonical.ts';
-import { buildSemanticMutationVerificationExecutionRef } from '../../src/compiler/semantic-mutation/semantic-mutation-result.ts';
-import { semanticMutationTransactionRoot } from '../../src/compiler/semantic-mutation/transaction-identity.ts';
+} from '../../src/adapters/compilation-protocol/types.ts';
+import { semanticMutationTransactionRoot } from '../../src/adapters/mutation/transaction-identity.ts';
+import { planSemanticMutationVerificationCapabilities } from '../../src/adapters/verification/semantic-mutation-verification-adapter.ts';
+import { buildSemanticMutationVerificationExecutionRef } from '../../src/assurance/verification/semantic-mutation/execution-ref.ts';
 import {
   semanticMutationIsolatedVerificationEvidenceDigest,
   type SemanticMutationIsolatedVerificationEvidence
-} from '../../src/compiler/verify/semantic-mutation-isolated-verification-evidence.ts';
-import { assertSemanticMutationVerificationReportInvariant, executeSemanticMutationVerification, planSemanticMutationVerificationCapabilities } from '../../src/compiler/verify/semantic-mutation-verification-adapter.ts';
-import { type SemanticMutationApplyOutcome, type SemanticMutationRequestRecordView } from '../../src/semantic/mutation/contract/transaction.ts';
-import { isSemanticMutationStagingWorkspace } from '../../src/semantic/mutation/runtime/staging-boundary.ts';
+} from '../../src/assurance/verification/semantic-mutation/isolated-evidence.ts';
+import { assertSemanticMutationVerificationReportInvariant } from '../../src/assurance/verification/semantic-mutation/report-contract.ts';
+import { executeSemanticMutationVerification } from '../../src/assurance/verification/semantic-mutation/verification-runtime.ts';
+import { applySemanticMutation } from '../../src/bootstrap/engineering/cli.ts';
+import { sha256 } from '../../src/compiler/semantic-mutation/canonical.ts';
+import type { IsolatedVerificationCapability } from '../../src/execution/isolated-verification-capability.ts';
+import { type SemanticMutationApplyOutcome, type SemanticMutationRequestRecordView } from '../../src/semantics/mutation/transaction.ts';
+import { isSemanticMutationStagingWorkspace } from '../../src/workspace/contract/semantic-mutation-staging.ts';
 
 test('semantic mutation staging layout is exactly the canonical transaction workspace', () => {
   const workspaceRoot = path.resolve('contract-workspace');
@@ -118,6 +120,27 @@ test('Verification adapter emits the exact frozen report and execution binding, 
     ...withoutReportRevision
   }));
   expect(() => assertSemanticMutationVerificationReportInvariant(report)).not.toThrow();
+
+  for (const key of ['inputRevision', 'semanticRevision'] as const) {
+    let coercions = 0;
+    const candidate = { ...report, attempted: { ...report.attempted,
+      [key]: { toString() { coercions++; return report.attempted[key]; } } } };
+    expect(() => assertSemanticMutationVerificationReportInvariant(candidate)).toThrow();
+    expect(coercions).toBe(0);
+    await expect(executeSemanticMutationVerification({ capabilityPlan, requirements,
+      planRevision, attempted: candidate.attempted as never, stagedSourceDigest,
+      requiredVerificationDigest }, runner)).rejects.toThrow('invalid or blocked');
+    expect(coercions).toBe(0);
+    expect(calls).toBe(1);
+  }
+  for (const key of ['planRevision', 'stagedSourceDigest', 'requiredVerificationDigest'] as const) {
+    let coercions = 0;
+    expect(() => assertSemanticMutationVerificationReportInvariant({ ...report,
+      [key]: { toString() { coercions++; return report[key]; } } })).toThrow();
+    expect(coercions).toBe(0);
+    expect(() => assertSemanticMutationVerificationReportInvariant({ ...report,
+      [key]: `blake3:${'a'.repeat(64)}` })).toThrow();
+  }
 
   const execution = buildSemanticMutationVerificationExecutionRef(report);
   expect(Object.keys(execution)).toEqual([

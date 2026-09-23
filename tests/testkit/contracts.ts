@@ -1,10 +1,10 @@
 import { expect } from 'bun:test';
 
-import type { CiContract } from '../../src/verification/ci/contract/core.ts';
+import type { CiContract } from '../../src/adapters/verification/platform/ci/contract/core.ts';
 
 export function expectPrFastLaneBoundary(contract: CiContract): void {
   expect(contract.prQuickLaneCommands).toContain('bun run imports:check');
-  expect(contract.prQuickLaneCommands).toContain('bun run typecheck');
+  expect(contract.prQuickLaneCommands).toContain('bun run typecheck:verified');
   expect(contract.prQuickLaneCommands).toContain('bun run test:affected');
   expect(contract.prQuickLaneCommands).not.toContain('bun scripts/ci-pr-quick.ts');
   expect(contract.prQuickLaneCommands).not.toContain('bun run imports:prepare');
@@ -25,7 +25,7 @@ export function expectFullLaneCoversCorrectnessBackstop(contract: CiContract): v
   expect(contract.fullLaneCommands).not.toContain('bun run imports:prepare');
   expect(contract.fullLaneCommands).toEqual(expect.arrayContaining([
     'bun run imports:check',
-    'bun run typecheck',
+    'bun run typecheck:verified',
     'bun run docs:doctor',
     'bun run test:fast',
     'bun run sec -- verify --lane all --json --compact',

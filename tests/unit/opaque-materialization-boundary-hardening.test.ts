@@ -1,12 +1,12 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
+import { CompilerError } from '../../src/compiler/errors.ts';
 import {
   OPAQUE_MODULE_MATERIALIZATION_MODES,
   opaqueModuleMaterializationEnvironment,
   resolveOpaqueModuleMaterializationMode,
   type OpaqueModuleMaterializationMode
-} from '../../src/compiler/compose/opaque-module-materialization.ts';
-import { CompilerError } from '../../src/compiler/errors.ts';
+} from '../../src/compiler/target-materialization.ts';
 
 const invalid = (error: unknown): boolean =>
   error instanceof CompilerError && error.code === 'OPAQUE-MODULE-004';

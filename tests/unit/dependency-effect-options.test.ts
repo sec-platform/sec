@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { runtimeDependencyEffectFenceOptions, runtimeDependencyOperationEffectFence } from '../../src/toolchain/dependencies/runtime/operation-context.ts';
-import { runtimeDependencyOperationContext, runtimeDependencyOperationControls, runtimeDependencyOperationRemainingMs } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
+import { runtimeDependencyEffectFenceOptions, runtimeDependencyOperationEffectFence } from '../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
+import { runtimeDependencyOperationContext, runtimeDependencyOperationControls, runtimeDependencyOperationRemainingMs } from '../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
 
 test('the effect view neither enumerates nor retains installation and lifecycle fields', () => {
   const raw = new Proxy({ lockTimeoutMs: 100, monotonicNowMs: () => 0,

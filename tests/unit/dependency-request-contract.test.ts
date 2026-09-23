@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { captureRuntimeDependencyInstallRequest, isRuntimeDependencyInstallMode, RUNTIME_DEPENDENCY_INSTALL_MODES } from '../../src/toolchain/dependencies/contract/install-request.ts';
+import { captureRuntimeDependencyInstallRequest, isRuntimeDependencyInstallMode, RUNTIME_DEPENDENCY_INSTALL_MODES } from '../../src/adapters/toolchain/dependencies/contract/install-request.ts';
 
 for(const mode of RUNTIME_DEPENDENCY_INSTALL_MODES)test(`request retains supported ${mode} without interpretation`,()=>{
  const result=captureRuntimeDependencyInstallRequest({installMode:mode});assert.equal(result.installMode,mode);assert.ok(isRuntimeDependencyInstallMode(mode));

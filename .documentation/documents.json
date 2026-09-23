@@ -925,6 +925,138 @@
     {
       "document_id": "urn:uuid:ff91d628-5de0-44a7-ae70-185f4ca9f8f6",
       "path": "examples/领域组合/领域应用与算法.md"
+    },
+    {
+      "document_id": "urn:uuid:988326d1-b9a4-4626-b146-fe0e464670f4",
+      "path": "docs/依据/来源/Rust与C++映射依据.md"
+    },
+    {
+      "document_id": "urn:uuid:9243655a-ebdf-4fc4-be5e-6451e9d4cba0",
+      "path": "docs/编译/原生映射/README.md"
+    },
+    {
+      "document_id": "urn:uuid:7f49353b-4a4e-4e4f-bbdc-eb9d7541dc3c",
+      "path": "docs/编译/原生映射/外部调用与原子.md"
+    },
+    {
+      "document_id": "urn:uuid:09e64fd3-d254-4de5-8c00-dfb96d0cd8a0",
+      "path": "docs/编译/原生映射/存储与资源.md"
+    },
+    {
+      "document_id": "urn:uuid:48976805-3ffc-48b3-b9e9-b9edb93f0f47",
+      "path": "docs/编译/原生映射/对象与调用.md"
+    },
+    {
+      "document_id": "urn:uuid:3f76942c-8ba1-467c-9b85-a53c9d8bb0e3",
+      "path": "docs/编译/原生映射/数值与控制流.md"
+    },
+    {
+      "document_id": "urn:uuid:7f0adade-f6cb-4085-a762-122c7de18169",
+      "path": "docs/编译/原生映射/泛型与编译期.md"
+    },
+    {
+      "document_id": "urn:uuid:0ade7c78-4cdf-4ae8-9b1e-74839fb5d5f8",
+      "path": "docs/编译/原生映射/采用与导出边界.md"
+    },
+    {
+      "document_id": "urn:uuid:8ea2ab2b-440a-4d2a-8ad9-4b967851a0f3",
+      "path": "docs/编译/有限抽象与观察策略.md"
+    },
+    {
+      "document_id": "urn:uuid:79537576-936c-47c9-bcc6-413025fc077e",
+      "path": "docs/运行/验收/原生映射与组合.md"
+    },
+    {
+      "document_id": "urn:uuid:58c40331-5d36-5c66-99bf-d00a468b5cbe",
+      "path": "docs/领域/对象与控制/子对象视图与兼容构造.md"
+    },
+    {
+      "document_id": "urn:uuid:17288670-f0ed-5c0c-935e-ed62a785835d",
+      "path": "docs/作者/组合/访问投影与不完整类型.md"
+    },
+    {
+      "document_id": "urn:uuid:ee9cdb8b-f62c-545d-b317-656d220ccb1a",
+      "path": "docs/领域/计算基础/调用定制与源语言选择.md"
+    },
+    {
+      "document_id": "urn:uuid:d56b9e3b-a498-58f5-805b-fa2775f45d9f",
+      "path": "docs/作者/组合/参数包与类型级值.md"
+    },
+    {
+      "document_id": "urn:uuid:e9fc9206-9ba8-5bb3-8768-d8da25e1a8e6",
+      "path": "docs/编译/特化与结构查询.md"
+    },
+    {
+      "document_id": "urn:uuid:01411187-01ec-5ed1-9026-7108bdede12f",
+      "path": "docs/编译/内核/阶段求值与反射生成.md"
+    },
+    {
+      "document_id": "urn:uuid:c670211e-1b9f-5241-8b1f-1d8ac2abf3f3",
+      "path": "docs/编译/目标/泛型分发与实例归属.md"
+    },
+    {
+      "document_id": "urn:uuid:7b0a3935-eefb-5ff4-9422-aa4429d13cf7",
+      "path": "docs/领域/对象与控制/位置初始化与转移.md"
+    },
+    {
+      "document_id": "urn:uuid:bd5414dc-7155-59ba-a69a-2268b73eb81d",
+      "path": "docs/运行/分配域与退出责任.md"
+    },
+    {
+      "document_id": "urn:uuid:461dc983-c452-5169-91b6-fcc44407f8aa",
+      "path": "docs/编译/目标/布局与设备访问.md"
+    },
+    {
+      "document_id": "urn:uuid:729b3e97-31e8-5ebb-acf7-c4e332a17e9e",
+      "path": "docs/领域/数值/格式环境与向量控制.md"
+    },
+    {
+      "document_id": "urn:uuid:8260404e-bf13-5103-9a88-fc2573f8c148",
+      "path": "docs/领域/计算基础/错误传播与契约保持.md"
+    },
+    {
+      "document_id": "urn:uuid:8aa5c3ef-165b-5d41-920f-e68c841515a2",
+      "path": "docs/领域/对象与控制/协程帧与控制流降低.md"
+    },
+    {
+      "document_id": "urn:uuid:58b86cd3-d23c-51bb-a9f4-e329ca6fa562",
+      "path": "docs/运行/原生边界与模块驻留.md"
+    },
+    {
+      "document_id": "urn:uuid:c9f95ecc-194f-5281-8515-5afeca040f2a",
+      "path": "docs/领域/计算基础/原子存储与进展条件.md"
+    },
+    {
+      "document_id": "urn:uuid:c2b34dd7-2393-5869-926c-7e2e27263a13",
+      "path": "docs/编译/目标/能力履行与接口差额.md"
+    },
+    {
+      "document_id": "urn:uuid:cda6c04f-1d1c-56ab-9c21-3de6db542edb",
+      "path": "docs/依据/来源/Rust与C++能力比较.md"
+    },
+    {
+      "document_id": "urn:uuid:5c0b7f0d-8286-5e7e-b4a5-beaa4efb9c1f",
+      "path": "docs/运行/验收/跨语言控制与组合案例.md"
+    },
+    {
+      "document_id": "urn:uuid:f0eb1dff-4d3f-5182-985f-77f277fd6617",
+      "path": "examples/连续开发/跨语言能力连续开发.md"
+    },
+    {
+      "document_id": "urn:uuid:f27872e7-9132-5c2f-a278-b56e6a52d649",
+      "path": "docs/运行/验收/系统组合挑战与反例.md"
+    },
+    {
+      "document_id": "urn:uuid:fd006e2c-485e-5234-b979-26e4905d5fb1",
+      "path": "docs/开发/跨语言开发面接合.md"
+    },
+    {
+      "document_id": "urn:uuid:ceef93d3-7c17-54b0-a1b8-f9d77449090f",
+      "path": "docs/编译/目标/Rust目标画像与降低.md"
+    },
+    {
+      "document_id": "urn:uuid:87c3e816-90c7-5197-b092-32f11d53254d",
+      "path": "docs/状态/设计剩余全量清单.md"
     }
   ]
 }

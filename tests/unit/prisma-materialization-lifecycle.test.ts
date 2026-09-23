@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { InstallStrategyRegistry } from '../../src/compiler/compose/install-strategies.ts';
-import { materializePrismaSource, mergePrismaTemplate } from '../../src/compiler/compose/merge-prisma-template.ts';
+import { InstallStrategyRegistry } from '../../src/adapters/compilation/compose/install-strategies.ts';
+import { materializePrismaSource, mergePrismaTemplate } from '../../src/adapters/compilation/compose/merge-prisma-template.ts';
+import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
 import type { InstallPlanStep } from '../../src/compiler/contract.ts';
-import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
 
 const schema = (name: string, fields = '  id Int @id') => `model ${name} {\n${fields}\n}\n`;
 async function fixture(run: (f: { root: string; source: string; target: string }) => Promise<void>) {

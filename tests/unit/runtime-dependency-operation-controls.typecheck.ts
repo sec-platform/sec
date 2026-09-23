@@ -2,8 +2,8 @@ import {
   runtimeDependencyOperationControls,
   waitForRuntimeDependencyOperation,
   type RuntimeDependencyOperationControlInput
-} from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
-import { readRuntimeDependencyOperationTelemetry } from '../../src/toolchain/dependencies/runtime/operation-telemetry.ts';
+} from '../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
+import { readRuntimeDependencyOperationTelemetry } from '../../src/adapters/toolchain/dependencies/runtime/operation-telemetry.ts';
 
 // A compile-only contract: mutable requests become immutable, capability-free controls.
 function controlTypes(input: RuntimeDependencyOperationControlInput) {

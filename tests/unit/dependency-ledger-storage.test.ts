@@ -3,16 +3,16 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { generatedStateDigest } from '../../src/runtime-state/generated-state/contract.ts';
-import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { dependencyTransitionDigestWithoutRecord, dependencyTransitionRecordBytes, transitionRecordName } from '../../src/toolchain/dependencies/runtime/dependency-transition/codec.ts';
-import { generatedStatePhysicalIdentity, runtimeDependencySourceGenerationEpoch, type DependencyTransitionJournal } from '../../src/toolchain/dependencies/runtime/dependency-transition/contract.ts';
+import { generatedStateDigest } from '../../src/adapters/runtime-state/generated-state/contract.ts';
+import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { dependencyTransitionDigestWithoutRecord, dependencyTransitionRecordBytes, transitionRecordName } from '../../src/adapters/toolchain/dependencies/runtime/dependency-transition/codec.ts';
+import { generatedStatePhysicalIdentity, runtimeDependencySourceGenerationEpoch, type DependencyTransitionJournal } from '../../src/adapters/toolchain/dependencies/runtime/dependency-transition/contract.ts';
 import {
   dependencyTransitionNamespacePaths, ensureDependencyTransitionNamespace, inspectDependencyTransitionNamespace,
   readDependencyTransitionRecordSet,
   readNoFollowDirectNames
-} from '../../src/toolchain/dependencies/runtime/dependency-transition/store.ts';
-import { runtimeDependencyOperationContext, runtimeDependencyOperationControls } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
+} from '../../src/adapters/toolchain/dependencies/runtime/dependency-transition/store.ts';
+import { runtimeDependencyOperationContext, runtimeDependencyOperationControls } from '../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
 
 async function fixture(run: (root: string) => Promise<void>) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ledger-storage-'));

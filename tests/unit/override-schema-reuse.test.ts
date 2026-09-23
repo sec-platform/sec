@@ -1,8 +1,8 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { validateOverrideManifest } from '../../src/compiler/parse/load-override-manifest.ts';
-import { OverrideManifestSchema, OverrideSourceSchema } from '../../src/semantic/provenance/contract/override-schema.ts';
-import { emptyOverrideManifest, type OverrideManifest, type OverrideSource } from '../../src/semantic/provenance/contract/types.ts';
+import { validateOverrideManifest } from '../../src/compiler/contract/override-validation.ts';
+import { OverrideManifestSchema, OverrideSourceSchema } from '../../src/semantics/provenance/override-schema.ts';
+import { emptyOverrideManifest, type OverrideManifest, type OverrideSource } from '../../src/semantics/provenance/types.ts';
 
 const row = (id = 'first', target = 'src/value.ts') => ({ id, entry: `patches/${id}.ts`, target, reason: '  reason  ' });
 const validate = (input: unknown) => validateOverrideManifest(input as OverrideManifest);

@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { runTaskGroup } from '../../src/system-architecture/foundation/runtime/concurrency.ts';
+import { runTaskGroup } from '../../src/execution/task-group.ts';
 
 function held() { let release!: () => void; const promise = new Promise<void>(r => { release = r; }); return { promise, release }; }
 

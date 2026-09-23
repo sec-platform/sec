@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { applyOverrides } from '../../src/compiler/compose/apply-overrides.ts';
-import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
+import { applyOverrides } from '../../src/adapters/compilation/compose/apply-overrides.ts';
+import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
 
 // Native integration: use the actual manifest parser, retained file readers and
 // conditional publishers. These require the supported repository Bun/host profile.

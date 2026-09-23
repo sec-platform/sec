@@ -1,6 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { buildJsonLogRecord, createLogger } from '../../src/system-architecture/foundation/logger.ts';
+import { createLogger } from '../../src/adapters/diagnostics/json-logger.ts';
+import { buildJsonLogRecord } from '../../src/contracts/logging.ts';
 
 const invalidMessages: ReadonlyArray<readonly [string, unknown]> = [
   ['undefined', undefined], ['null', null], ['number', 1], ['boolean', false],

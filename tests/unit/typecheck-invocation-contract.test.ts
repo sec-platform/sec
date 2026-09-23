@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { captureTypecheckInvocation } from '../../src/compiler/verify/typecheck-invocation.ts';
+import { captureTypecheckInvocation } from '../../src/adapters/verification/typecheck-invocation.ts';
 
 for (const isolated of [undefined, false, true]) test(`typecheck captures explicit/default mode ${String(isolated)}`, () => {
   const value = captureTypecheckInvocation('project', { isolated });
