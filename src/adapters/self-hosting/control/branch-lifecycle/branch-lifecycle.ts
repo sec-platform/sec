@@ -118,64 +118,53 @@ function parseCliArguments(argv: readonly string[]): CliArguments {
   };
   for (let index = 1; index < argv.length; index += 1) {
     const arg = argv[index]!;
-    // CLI option decoding selects intent/format only; branch effects re-authorize exact Git identities.
-    // codeql[js/user-controlled-bypass]
-    if (arg === '--json') result.json = true;
-    // CLI option decoding selects intent/format only; branch effects re-authorize exact Git identities.
-    // codeql[js/user-controlled-bypass]
-    else if (arg === '--compact') result.compact = true;
-    // CLI option decoding selects intent/subject only; branch effects re-authorize exact Git identities.
-    // codeql[js/user-controlled-bypass]
-    else if (arg === '--branch') {
-      result.branch = argv[index + 1] ?? null;
-      index += 1;
-    }
-    // CLI option decoding selects expected state only; it cannot authorize a branch effect.
-    // codeql[js/user-controlled-bypass]
-    else if (arg === '--ref-state') {
-      const value = argv[index + 1];
-      if (value !== 'present' && value !== 'absent') {
-        throw new Error('--ref-state must be present or absent.');
+    // This switch only parses a fixed CLI vocabulary; every branch effect rechecks live authority.
+    switch (arg) {
+      case '--json':
+        result.json = true;
+        break;
+      case '--compact':
+        result.compact = true;
+        break;
+      case '--branch':
+        result.branch = argv[++index] ?? null;
+        break;
+      case '--ref-state': {
+        const value = argv[++index];
+        if (value !== 'present' && value !== 'absent') {
+          throw new Error('--ref-state must be present or absent.');
+        }
+        result.refState = value;
+        break;
       }
-      result.refState = value;
-      index += 1;
-    }
-    // CLI option decoding captures an expected identity; later CAS/readback owns authorization.
-    // codeql[js/user-controlled-bypass]
-    else if (arg === '--expected-head-sha') {
-      const value = argv[index + 1];
-      if (value === undefined || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(value)) {
-        throw new Error('--expected-head-sha must be a 40- or 64-character Git object ID.');
+      case '--expected-head-sha': {
+        const value = argv[++index];
+        if (value === undefined || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(value)) {
+          throw new Error('--expected-head-sha must be a 40- or 64-character Git object ID.');
+        }
+        result.expectedHeadSha = value;
+        break;
       }
-      result.expectedHeadSha = value;
-      index += 1;
-    }
-    // CLI option decoding captures an expected identity; later CAS/readback owns authorization.
-    // codeql[js/user-controlled-bypass]
-    else if (arg === '--pr-head-sha') {
-      const value = argv[index + 1];
-      if (value === undefined || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(value)) {
-        throw new Error('--pr-head-sha must be a 40- or 64-character Git object ID.');
+      case '--pr-head-sha': {
+        const value = argv[++index];
+        if (value === undefined || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(value)) {
+          throw new Error('--pr-head-sha must be a 40- or 64-character Git object ID.');
+        }
+        result.expectedPrHeadSha = value;
+        break;
       }
-      result.expectedPrHeadSha = value;
-      index += 1;
-    }
-    // CLI option decoding captures a PR locator; live GitHub/Git observations own authorization.
-    // codeql[js/user-controlled-bypass]
-    else if (arg === '--pr') {
-      result.prNumber = parsePositiveInteger(argv[index + 1], '--pr');
-      index += 1;
-    }
-    // CLI option decoding selects a recovery locator; physical no-follow/disjoint admission owns authority.
-    // codeql[js/user-controlled-bypass]
-    else if (arg === '--recovery-root') {
-      result.recoveryRoot = argv[index + 1] ?? null;
-      index += 1;
-    } else if (arg === '--help' || arg === '-h') {
-      process.stdout.write(USAGE);
-      process.exit(0);
-    } else {
-      throw new Error(`Unknown argument: ${arg}\n${USAGE}`);
+      case '--pr':
+        result.prNumber = parsePositiveInteger(argv[++index], '--pr');
+        break;
+      case '--recovery-root':
+        result.recoveryRoot = argv[++index] ?? null;
+        break;
+      case '--help':
+      case '-h':
+        process.stdout.write(USAGE);
+        process.exit(0);
+      default:
+        throw new Error(`Unknown argument: ${arg}\n${USAGE}`);
     }
   }
   if (result.compact && !result.json) throw new Error('--compact requires --json.');

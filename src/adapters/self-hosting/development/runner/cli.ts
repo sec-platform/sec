@@ -263,7 +263,7 @@ async function main(): Promise<void> {
   }
 
   if (target === 'commit:recover') {
-    const { runDevelopmentCommitRecoveryCommand } = await import('../commit/operation.ts');
+    const { runDevelopmentCommitRecoveryCommand } = await import('../commit/recovery-cli.ts');
     process.exitCode = await runDevelopmentCommitRecoveryCommand(args);
     return;
   }

@@ -27,7 +27,6 @@ import {
   executeGitHubApiOperation,
   GitHubApiProviderError,
   inspectGitHubApiCapability,
-  withGitHubApiReadSession,
   type GitHubApiCapability
 } from '../../../providers/github-api/operation-session.ts';
 import { parseWorktreePorcelainZ } from '../../../runtime-state/physical/contract/git-worktree-observation.ts';
@@ -505,7 +504,7 @@ export function acknowledgeDevelopmentCommitResult(result: DevelopmentCommitResu
   retireEmptyJournalDirectory(issued.commonDirectory);
 }
 
-async function acknowledgeNotAppliedDevelopmentCommitResult(result: DevelopmentCommitResult): Promise<void> {
+export async function acknowledgeNotAppliedDevelopmentCommitResult(result: DevelopmentCommitResult): Promise<void> {
   const issued = ISSUED_DEVELOPMENT_COMMIT_RESULTS.get(result);
   if (issued === undefined) throw new Error('Development commit cancellation requires one owner-issued result.');
   assertDevelopmentCommitReadbackReceipt(issued.readback);
@@ -578,6 +577,7 @@ export type DevelopmentCommitJournalRetirementPlan = Readonly<{
 type PullObservation = Readonly<{ branch: string; headSha: string }>;
 type ClosedAbsentRetirementDetails = Readonly<{
   repositoryRoot: string;
+  remote: string;
   capability: GitHubApiCapability;
   pullRequestNumber: number;
   repository: string;
@@ -630,11 +630,11 @@ async function assertNativeRefAbsent(session: GitReadSession, ref: string, label
 
 async function assertNoTopicConsumers(input: Readonly<{
   session: GitReadSession; capability: GitHubApiCapability; repository: string;
-  branch: string; pullRequestNumber: number;
+  branch: string; remote: string; pullRequestNumber: number;
 }>): Promise<void> {
   await assertGitHubRepositoryBinding(input.session, input.repository);
   await assertNativeRefAbsent(input.session, `refs/heads/${input.branch}`, 'local ref');
-  await assertNativeRefAbsent(input.session, `refs/remotes/origin/${input.branch}`, 'remote-tracking ref');
+  await assertNativeRefAbsent(input.session, `refs/remotes/${input.remote}/${input.branch}`, 'remote-tracking ref');
   await assertNativeRefAbsent(input.session, `refs/pull/${input.pullRequestNumber}/head`, 'local pull ref');
   const worktreeList = await input.session.run(['worktree', 'list', '--porcelain', '-z']);
   if (worktreeList.kind !== 'completed' || worktreeList.result.code !== 0
@@ -677,7 +677,7 @@ async function classifyTransportedJournals(input: Readonly<{
 
 async function assertClosedAbsentTerminal(input: Readonly<{
   session: GitReadSession; capability: GitHubApiCapability; pullRequestNumber: number;
-  repository: string; defaultBranch: string; pull: PullObservation;
+  repository: string; remote: string; defaultBranch: string; pull: PullObservation;
 }>): Promise<void> {
   const observed = await readClosedAbsentPull(input);
   if (JSON.stringify(observed) !== JSON.stringify(input.pull)) {
@@ -689,6 +689,7 @@ async function assertClosedAbsentTerminal(input: Readonly<{
 /** The plan is process-local; caller projections never authorize filesystem effects. */
 export async function prepareClosedAbsentDevelopmentCommitJournalRetirement(input: Readonly<{
   repositoryRoot: string;
+  remote: string;
   ref: string;
   capability: GitHubApiCapability;
   pullRequestNumber: number;
@@ -698,6 +699,10 @@ export async function prepareClosedAbsentDevelopmentCommitJournalRetirement(inpu
     throw new Error('Closed-absent commit journal retirement PR number is invalid.');
   }
   if (!REF.test(input.ref)) throw new Error('Closed-absent commit journal retirement ref is invalid.');
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(input.remote) || input.remote.includes('..')
+      || input.remote.endsWith('.')) {
+    throw new Error('Closed-absent commit journal retirement remote is invalid.');
+  }
   assertClosedAbsentRetirementBinding(input.requirementBindingContext);
   const binding = inspectGitHubApiCapability(input.capability);
   const repositoryRoot = path.resolve(input.repositoryRoot);
@@ -725,7 +730,7 @@ export async function prepareClosedAbsentDevelopmentCommitJournalRetirement(inpu
       }
       await assertClosedAbsentTerminal({
         session, capability: input.capability, pullRequestNumber: input.pullRequestNumber,
-        repository: binding.repository, defaultBranch, pull
+        repository: binding.repository, remote: input.remote, defaultBranch, pull
       });
       await classifyTransportedJournals({ session, matching: census.matching, headSha: pull.headSha, label: 'Closed-absent PR' });
       return Object.freeze({ commonDirectory, matching: census.matching, defaultBranch, pull });
@@ -733,7 +738,7 @@ export async function prepareClosedAbsentDevelopmentCommitJournalRetirement(inpu
   );
   const plan = Object.freeze({}) as DevelopmentCommitJournalRetirementPlan;
   ISSUED_CLOSED_ABSENT_RETIREMENT_PLANS.set(plan, Object.freeze({
-    repositoryRoot, capability: input.capability, pullRequestNumber: input.pullRequestNumber,
+    repositoryRoot, remote: input.remote, capability: input.capability, pullRequestNumber: input.pullRequestNumber,
     repository: binding.repository, defaultBranch: observed.defaultBranch, pull: observed.pull,
     ref: input.ref, commonDirectory: observed.commonDirectory,
     initialCount: observed.matching.length, remaining: observed.matching
@@ -751,7 +756,7 @@ export async function acknowledgeClosedAbsentDevelopmentCommitJournalRetirement(
     if (issued.pull !== null && issued.defaultBranch !== null) {
       await assertClosedAbsentTerminal({
         session, capability: issued.capability, pullRequestNumber: issued.pullRequestNumber,
-        repository: issued.repository, defaultBranch: issued.defaultBranch, pull: issued.pull
+        repository: issued.repository, remote: issued.remote, defaultBranch: issued.defaultBranch, pull: issued.pull
       });
     }
     const commonDirectory = path.resolve(await commandText(
@@ -772,7 +777,7 @@ export async function acknowledgeClosedAbsentDevelopmentCommitJournalRetirement(
       await classifyTransportedJournals({ session, matching, headSha: issued.pull.headSha, label: 'Closed-absent PR' });
       await assertClosedAbsentTerminal({
         session, capability: issued.capability, pullRequestNumber: issued.pullRequestNumber,
-        repository: issued.repository, defaultBranch: issued.defaultBranch!, pull: issued.pull
+        repository: issued.repository, remote: issued.remote, defaultBranch: issued.defaultBranch!, pull: issued.pull
       });
     }
     for (const [index, candidate] of matching.entries()) {
@@ -790,7 +795,7 @@ export async function acknowledgeClosedAbsentDevelopmentCommitJournalRetirement(
 }
 
 /** Historical merged transport proves consumer termination, not a lost local CAS. */
-async function retireMergedDevelopmentCommitJournals(input: Readonly<{
+export async function retireMergedDevelopmentCommitJournals(input: Readonly<{
   repositoryRoot: string;
   capability: GitHubApiCapability;
   pullRequestNumber: number;
@@ -830,7 +835,7 @@ async function retireMergedDevelopmentCommitJournals(input: Readonly<{
       }
       await assertNoTopicConsumers({
         session, capability: input.capability, repository: binding.repository,
-        branch: pull.branch, pullRequestNumber: input.pullRequestNumber
+        branch: pull.branch, remote: 'origin', pullRequestNumber: input.pullRequestNumber
       });
       const remoteMain = await executeGitHubApiOperation(input.capability, {
         kind: 'git-ref', branch: String(repository.default_branch)
@@ -922,7 +927,7 @@ async function recoverDevelopmentCommitWithReadback(input: Readonly<{
 }
 
 /** Independent lost-handle projection; journal bytes never authorize replay. */
-async function recoverDevelopmentCommit(input: Readonly<{
+export async function recoverDevelopmentCommit(input: Readonly<{
   readonly repositoryRoot: string;
   readonly journalPath: string;
 }>): Promise<DevelopmentCommitRecovery> {
@@ -940,31 +945,4 @@ async function recoverDevelopmentCommit(input: Readonly<{
     readback: details.readback
   }));
   return recovery;
-}
-
-/** CLI recovery consumer; journal reference is observation-only. */
-export async function runDevelopmentCommitRecoveryCommand(args: readonly string[]): Promise<number> {
-  if (args.length === 3 && args[0] === '--retire-merged-pr' && /^[1-9][0-9]*$/u.test(args[2]!)) {
-    const result = await withGitHubApiReadSession({
-      repositoryRoot: path.resolve(process.cwd()), repository: args[1]!,
-      operation: (capability) => retireMergedDevelopmentCommitJournals({
-        repositoryRoot: path.resolve(process.cwd()), capability, pullRequestNumber: Number(args[2])
-      })
-    });
-    console.log(JSON.stringify(result, null, 2));
-    return 0;
-  }
-  if (args.length !== 1 || !path.isAbsolute(args[0]!)) {
-    throw new Error('development commit recovery requires one absolute journal path.');
-  }
-  const recovery = await recoverDevelopmentCommit({
-    repositoryRoot: path.resolve(process.cwd()),
-    journalPath: path.resolve(args[0]!)
-  });
-  console.log(JSON.stringify(recovery.result, null, 2));
-  if (recovery.result.disposition === 'applied') acknowledgeDevelopmentCommitResult(recovery.result);
-  if (recovery.result.disposition === 'not-applied') {
-    await acknowledgeNotAppliedDevelopmentCommitResult(recovery.result);
-  }
-  return recovery.result.disposition === 'unknown' ? 1 : 0;
 }

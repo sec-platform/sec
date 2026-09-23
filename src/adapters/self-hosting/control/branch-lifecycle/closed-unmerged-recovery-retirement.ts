@@ -96,6 +96,7 @@ async function retireCommitJournalConsumers(input: Readonly<{
   );
   const plan = await prepareClosedAbsentDevelopmentCommitJournalRetirement({
     repositoryRoot: input.operation.prepared.preparation.repository.root,
+    remote: input.operation.prepared.preparation.repository.remote,
     ref: `refs/heads/${input.operation.evidence.branch}`,
     capability: input.capability,
     pullRequestNumber: input.operation.evidence.pullRequestNumber,

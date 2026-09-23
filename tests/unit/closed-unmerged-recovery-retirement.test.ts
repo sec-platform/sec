@@ -50,7 +50,7 @@ function git(root: string, args: readonly string[]): string {
   return result.stdout.trim();
 }
 
-function fixture(): Readonly<{
+function fixture(remote = 'origin'): Readonly<{
   root: string;
   recoveryRoot: string;
   bundlePath: string;
@@ -64,6 +64,7 @@ function fixture(): Readonly<{
   git(root, ['config', 'user.name', 'SEC Tests']);
   git(root, ['config', 'user.email', 'tests@example.com']);
   git(root, ['remote', 'add', 'origin', `https://github.com/${REPOSITORY}.git`]);
+  if (remote !== 'origin') git(root, ['remote', 'add', remote, `https://github.com/${REPOSITORY}.git`]);
   writeFileSync(path.join(root, 'tracked.txt'), 'closed branch behavior\n', 'utf8');
   git(root, ['add', 'tracked.txt']);
   git(root, ['commit', '--quiet', '-m', 'closed branch head']);
@@ -74,7 +75,7 @@ function fixture(): Readonly<{
   const commonDir = path.resolve(root, '.git');
   const inventory: BranchLifecycleInventory = {
     schema: 'sec-branch-lifecycle-inventory-v1', observedAt: '2026-09-16T00:00:00.000Z',
-    repository: { root, commonDir, fullName: REPOSITORY, remote: 'origin',
+    repository: { root, commonDir, fullName: REPOSITORY, remote,
       remoteUrl: `https://github.com/${REPOSITORY}.git`, defaultBranch: 'main' },
     main: { localSha: mainSha, remoteSha: mainSha },
     localBranches: [{ branch: 'main', sha: mainSha }],
@@ -316,6 +317,36 @@ test('matching unknown journal preserves recovery before and after an absent-roo
     await expect(retireWithGitHubObservation(value, settlement))
       .rejects.toThrow(/nonterminal or unknown journal consumers/u);
     expect(existsSync(journalPath)).toBe(true);
+  } finally {
+    rmSync(path.dirname(value.root), { recursive: true, force: true });
+  }
+}, 30_000);
+
+test('non-origin prepared remote tracking ref blocks journal and recovery retirement', async () => {
+  const value = fixture('upstream');
+  try {
+    const settlement = await completed(value);
+    const headSha = value.inventory.pullRequests[0]!.headSha;
+    if (headSha === null) throw new Error('fixture PR head is absent');
+    const journalRoot = path.join(value.root, '.git', 'sec-development-commit');
+    mkdirSync(journalRoot, { recursive: true });
+    const journalPath = path.join(journalRoot, `${'b'.repeat(64)}.json`);
+    writeFileSync(journalPath, `${JSON.stringify(canonicalJson({
+      schema: 'sec-development-commit-journal-v1',
+      operation: `sha256:${'1'.repeat(64)}`,
+      attempt: `sha256:${'2'.repeat(64)}`,
+      ref: `refs/heads/${BRANCH}`,
+      preimage: headSha,
+      target: headSha,
+      object: headSha,
+      tree: git(value.root, ['rev-parse', `${headSha}^{tree}`]),
+      terminal: 'unknown'
+    }))}\n`, 'utf8');
+    git(value.root, ['update-ref', `refs/remotes/upstream/${BRANCH}`, headSha]);
+    await expect(retireWithGitHubObservation(value, settlement))
+      .rejects.toThrow(/remote-tracking ref consumer/u);
+    expect(existsSync(journalPath)).toBe(true);
+    expect(existsSync(value.bundlePath)).toBe(true);
   } finally {
     rmSync(path.dirname(value.root), { recursive: true, force: true });
   }
