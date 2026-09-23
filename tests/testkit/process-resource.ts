@@ -4,14 +4,14 @@ import {
   inspectNoFollowDirectoryChain,
   retainNoFollowDirectoryForChildProcess,
   retainNoFollowOrdinaryFile
-} from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import type { ProcessResourceRunResult } from '../../src/runtime-state/physical/runtime/process-resource-session.ts';
+} from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import type { ProcessResourceRunResult } from '../../src/adapters/runtime-state/physical/runtime/process-resource-session.ts';
 import {
   issueRetainedCommandBoundary,
   RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
   RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR
-} from '../../src/runtime-state/physical/runtime/process.ts';
-import type { VerificationActionProcessExecutionContext } from '../../src/verification/action/runner.ts';
+} from '../../src/adapters/runtime-state/physical/runtime/process.ts';
+import type { VerificationActionProcessExecutionContext } from '../../src/adapters/verification/platform/action/runner.ts';
 
 /** Test-only physical child used to exercise the real retained process owner. */
 export async function runRetainedBunTestProcess(

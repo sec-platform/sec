@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { indexOwnerIntentInputs as index } from '../../src/brownfield/source-program-model/owner-intent-index.ts';
+import { indexOwnerIntentInputs as index } from '../../src/adapters/repository/source-program-model/owner-intent-index.ts';
 
 function fixture() {
   return {

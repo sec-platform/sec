@@ -2,11 +2,7 @@ import { expect, test } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import {
-  ensureDir,
-  pathEntryExists,
-  pathExists
-} from '../../src/workspace/files.ts';
+import { ensureDir, pathEntryExists, pathExists } from "../../src/adapters/filesystem/files.ts";
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('path entry existence is distinct from target reachability for dangling links', async () => {

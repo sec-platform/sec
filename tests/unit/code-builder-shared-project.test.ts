@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import ts from 'typescript';
 
-import { CodeBuilder } from '../../src/compiler/codegen/code-builder.ts';
+import { CodeBuilder } from '../../src/adapters/targets/typescript/code-builder.ts';
 
 function parsed(source: string): ts.SourceFile {
   return ts.createSourceFile(

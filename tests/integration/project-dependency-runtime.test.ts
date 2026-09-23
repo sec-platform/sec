@@ -2,21 +2,21 @@ import { describe, expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { readJson } from "../../src/adapters/filesystem/files.ts";
 import {
   buildRuntimeDepsPreboundBinding,
   loadRuntimeDependencySpec,
   RUNTIME_DEPENDENCY_PACKAGE_NAMES,
   RUNTIME_DEPS_PREBOUND_BINDING_FILE
-} from '../../src/toolchain/dependencies/contract/runtime-dependency-spec.ts';
+} from '../../src/adapters/toolchain/dependencies/contract/runtime-dependency-spec.ts';
 import {
   ensureProjectDependencies,
   ensureSharedDepsReady,
   readRuntimeDepsStamp,
   SHARED_DEPENDENCY_FORBIDDEN_AUTHORITY_FILES,
   withProjectDependencyBridge
-} from '../../src/toolchain/dependencies/test/runtime.ts';
-import { ensureProjectBase } from '../../src/workspace/application/project-base.ts';
-import { readJson } from '../../src/workspace/files.ts';
+} from '../../src/adapters/toolchain/dependencies/test/runtime.ts';
+import { ensureProjectBase } from '../../src/adapters/workspace/project-base.ts';
 import { readCompilerPackageJson } from '../helpers/compiler-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 

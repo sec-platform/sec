@@ -4,12 +4,12 @@ import {
   buildLocalAffectedCheckPlan,
   type AffectedTestPlan,
   type LocalAffectedGateId
-} from '../../src/development/runner/affected-plan-contract.ts';
+} from '../../src/adapters/self-hosting/development/runner/affected-plan-contract.ts';
 import {
   classifyAffectedSelectionTrustBoundary,
   defaultAffectedSelectionProjectionContext,
   projectAffectedSelectionToVerificationGateResult
-} from '../../src/verification/test-impact/affected.ts';
+} from '../../src/adapters/verification/platform/test-impact/affected.ts';
 
 function affectedPlan(
   changedPaths: string[],
@@ -75,7 +75,7 @@ test('local affected plan forms one ordered union for mixed TypeScript and docs 
   const plan = buildLocalAffectedCheckPlan(affectedPlan(
     [
       'docs/运行/保证/要求证据与裁决.md',
-      'src/development/runner/check-runner.ts'
+      'src/adapters/self-hosting/development/runner/check-runner.ts'
     ],
     [
       'tests/unit/local-gate-union.test.ts',
@@ -113,7 +113,7 @@ test('local affected plan keeps non-TypeScript contracts narrow', () => {
 
 test('local affected plan does not turn Source Program invalidation into full-repository conformance', () => {
   expect(gateIds(buildLocalAffectedCheckPlan(affectedPlan(
-    ['src/development/runner/check-runner.ts']
+    ['src/adapters/self-hosting/development/runner/check-runner.ts']
   )))).toEqual(['imports:check', 'typecheck', 'test:affected']);
 
   expect(gateIds(buildLocalAffectedCheckPlan(affectedPlan(

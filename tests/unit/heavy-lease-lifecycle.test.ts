@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   HeavyVerificationGateBusyError, onceHeavyVerificationGateRelease, waitForHeavyVerificationGateLease,
   withAcquiredHeavyVerificationGateLease
-} from '../../src/verification/gate/state/heavy-lease-lifecycle.ts';
+} from '../../src/adapters/verification/platform/gate/state/heavy-lease-lifecycle.ts';
 
 for (const reason of [undefined, null, false, 0]) test(`operation ${String(reason)} and release failure both survive`, async () => {
   const release = new Error('release');

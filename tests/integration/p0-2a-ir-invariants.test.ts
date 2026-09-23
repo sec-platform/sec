@@ -1,17 +1,17 @@
 import { beforeAll, expect, test } from "bun:test";
 
+import { loadWorkspaceEngineeringIRBuildInput } from '../../src/adapters/workspace/engineering-input.ts';
 import { type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
-import { loadWorkspaceEngineeringIRBuildInput } from '../../src/compiler/ir/load-workspace-engineering-ir-input.ts';
+import { deriveScenarioDefinitions } from "../../src/compiler/ir/scenario-facts.ts";
+import { buildValidatedEngineeringIR, validateEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
+import { projectScenarioView } from '../../src/compiler/projection/project-scenario-view.ts';
 import {
   PREDICATE_SIGNATURE_REGISTRY,
   assertEngineeringIRPredicateSignatures,
   assertPredicateSignatureRegistry,
-} from "../../src/compiler/ir/predicate-signatures.ts";
-import { deriveScenarioDefinitions } from "../../src/compiler/ir/scenario-facts.ts";
-import { buildValidatedEngineeringIR, validateEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
-import { projectScenarioView } from '../../src/compiler/projection/project-scenario-view.ts';
-import { type EngineeringIR } from '../../src/semantic/engineering-ir/contract/root-types.ts';
-import { type ValidatedEngineeringIRSnapshot } from '../../src/semantic/engineering-ir/contract/validated-types.ts';
+} from "../../src/semantics/engineering-ir/predicate-signatures.ts";
+import { type EngineeringIR } from '../../src/semantics/engineering-ir/root-types.ts';
+import { type ValidatedEngineeringIRSnapshot } from '../../src/semantics/engineering-ir/validated-types.ts';
 import { prepareResolvedWorkspace } from "../testkit/workspace.ts";
 
 let ticketIR: EngineeringIR;

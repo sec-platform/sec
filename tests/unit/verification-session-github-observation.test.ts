@@ -3,7 +3,7 @@ import { expect, test } from 'bun:test';
 import {
   classifyGitHubObservationFailureV1,
   parseGitHubCheckPages
-} from '../../src/verification/ci/runtime/verification-session-github.ts';
+} from '../../src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
 
 const HEAD = '1'.repeat(40);
 

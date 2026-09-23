@@ -3,7 +3,7 @@ import { expect, test } from 'bun:test';
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
 import { buildValidatedEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
 import { projectArchitectureView } from '../../src/compiler/projection/project-architecture-view.ts';
-import type { EngineeringIR } from '../../src/semantic/engineering-ir/contract/root-types.ts';
+import type { EngineeringIR } from '../../src/semantics/engineering-ir/root-types.ts';
 
 function ticketFixture(): BuildEngineeringIRInput {
   return {

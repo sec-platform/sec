@@ -7,6 +7,11 @@ import path from 'node:path';
 import { afterAll, test as bunTest, expect } from 'bun:test';
 
 import {
+  issueGitHubApiTestCapability,
+  withGitHubApiTestSession,
+  type GitHubApiTransport
+} from '../../src/adapters/providers/github-api/test/operation-session.ts';
+import {
   CodexDevelopmentActivateMainHealthRepairRollingPlan,
   CodexDevelopmentAssertControlPlaneBinding,
   CodexDevelopmentAssertInitiallyAbsentEntryTransition,
@@ -29,7 +34,7 @@ import {
   type CodexDevelopmentInitiallyAbsentTupleEntry,
   type CodexDevelopmentInitiallyAbsentTuplePlatform,
   type CodexDevelopmentInitiallyAbsentTupleState
-} from '../../src/control/documentation/document-control-plane-contract.ts';
+} from '../../src/adapters/self-hosting/control/documentation/document-control-plane-contract.ts';
 import {
   CodexDevelopmentDurabilityBarrierError,
   CodexDevelopmentUnsafeAnchoredPathError,
@@ -41,18 +46,18 @@ import {
   type CodexDevelopmentDurabilityEvent,
   type CodexDevelopmentFreezeFault,
   type CodexDevelopmentFreezeResult
-} from '../../src/control/documentation/document-control-plane.ts';
+} from '../../src/adapters/self-hosting/control/documentation/document-control-plane.ts';
 import {
   createMainHealthLedger,
   createMainHealthRepairWorkPackagePath
-} from '../../src/control/main-health/contract.ts';
-import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../src/control/main-health/provider-policy.ts';
-import { compileMainHealthRepairDecision } from '../../src/control/main-health/repair.ts';
+} from '../../src/adapters/self-hosting/control/main-health/contract.ts';
+import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
+import { compileMainHealthRepairDecision } from '../../src/adapters/self-hosting/control/main-health/repair.ts';
 import {
   requireActiveWorkPackageOwnerObservation,
   type ActiveWorkPackageOwnerObservation
-} from '../../src/control/task/contract/active-work-observation.ts';
-import { CodexDevelopmentWorkPackageManifestDigest } from '../../src/control/task/contract/work-package.ts';
+} from '../../src/adapters/self-hosting/control/task/contract/active-work-observation.ts';
+import { CodexDevelopmentWorkPackageManifestDigest } from '../../src/adapters/self-hosting/control/task/contract/work-package.ts';
 import {
   SEC_ROADMAP_WORK_CATALOG_BEGIN,
   SEC_ROADMAP_WORK_CATALOG_END,
@@ -63,13 +68,8 @@ import {
   currentSpecRevisionFromBody,
   parseSecRoadmapWorkCatalog,
   renderSecWorkRollingPlan
-} from '../../src/control/work-selection/live-contract.ts';
-import {
-  issueGitHubApiTestCapability,
-  withGitHubApiTestSession,
-  type GitHubApiTransport
-} from '../../src/external-capabilities/github-api/test/operation-session.ts';
-import { digest, rawSha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+} from '../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
+import { digest, rawSha256 } from '../../src/contracts/canonical.ts';
 import {
   SEC_DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_MAX_BYTES_V1,
   SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1,
@@ -500,7 +500,7 @@ interface FreezeFixture {
 function currentStateSource(remoteName = 'origin'): string {
   return `schema: sec-current-state-live-v1
 resolver:
-  command: bun src/control/documentation/document-control-plane.ts status --json
+  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
   remote: ${remoteName}
   defaultBranch: main
@@ -1016,7 +1016,7 @@ matchingDefaultBlob: none
   expect(() => CodexDevelopmentParseCurrentStateSpec(`
 schema: sec-current-state-live-v1
 resolver:
-  command: bun src/control/documentation/document-control-plane.ts status --json
+  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
   remote: origin
   defaultBranch: main
@@ -1028,7 +1028,7 @@ stableFacts: {}
   const validSpec = CodexDevelopmentParseCurrentStateSpec(`
 schema: sec-current-state-live-v1
 resolver:
-  command: bun src/control/documentation/document-control-plane.ts status --json
+  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
   remote: origin
   defaultBranch: main
@@ -1041,7 +1041,7 @@ stableFacts: {}
   const requiredWorkSelectionSpec = CodexDevelopmentParseCurrentStateSpec(`
 schema: sec-current-state-live-v1
 resolver:
-  command: bun src/control/documentation/document-control-plane.ts status --json
+  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
   remote: origin
   defaultBranch: main
@@ -1073,7 +1073,7 @@ stableFacts:
       `
 schema: sec-current-state-live-v1
 resolver:
-  command: bun src/control/documentation/document-control-plane.ts status --json
+  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
   remote: origin
   defaultBranch: main
@@ -1822,8 +1822,11 @@ test('proposal-only live readback rejects pointer and manifest identity drift', 
     runGit(fixture.repositoryRoot, ['add', POINTER_PATH]);
     await writeFile(proposalFile, proposalBytes.toString('utf8').replace('tracking: none', 'tracking: issue-999'));
     runGit(fixture.repositoryRoot, ['add', proposalPath]);
+    // A well-formed observation of invalid input is data, not service failure.
     await expect(resolveLiveControlPlane(fixture.repositoryRoot, { observeGitHub: false }))
-      .rejects.toThrow('does not bind the exact active manifest identity');
+      .resolves.toMatchObject({
+        activeWorkPackage: { state: 'invalid', reason: 'candidate-digest-mismatch' }
+      });
     await writeFile(proposalFile, proposalBytes);
     runGit(fixture.repositoryRoot, ['add', proposalPath]);
   } finally {
@@ -4252,6 +4255,8 @@ test('anchored rename cannot be redirected by a parent-to-junction swap after ha
   const external = path.join(fixture.parent, 'anchored-rename-external');
   const externalPointer = path.join(external, 'active-work-package.md');
   const activePointer = path.join(workPath, 'active-work-package.md');
+  const preRecoveryPaths: string[] = [];
+  let nextSourcePath: string | undefined;
   let swapAttempted = false;
   let swapped = false;
   let windowsSwapFailure: NodeJS.ErrnoException | undefined;
@@ -4266,6 +4271,10 @@ test('anchored rename cannot be redirected by a parent-to-junction swap after ha
         manifestPath: FREEZE_TARGET_PATH,
         reviewedOn: '2026-08-09',
         beforeAnchoredRename: async (event) => {
+          if (event.label.startsWith('Active pointer ') && event.label.includes('PRE')) {
+            preRecoveryPaths.push(event.targetPath);
+          }
+          if (event.label === 'Active pointer exact NEXT install') nextSourcePath = event.sourcePath;
           const exactSwapSeam = process.platform === 'win32'
             ? 'Active pointer PRE quarantine'
             : 'Active pointer exact NEXT install';
@@ -4304,9 +4313,31 @@ test('anchored rename cannot be redirected by a parent-to-junction swap after ha
       expect(swapped).toBe(true);
       expect(freezeFailure).toBeInstanceOf(CodexDevelopmentUnsafeAnchoredPathError);
       expect(freezeFailure).toMatchObject({ code: 'DOCUMENT-CONTROL-UNSAFE-PATH-001' });
-      expect(CodexDevelopmentParseActivePointer(
-        await readFile(path.join(heldWorkPath, 'active-work-package.md'), 'utf8')
-      ).manifest).toBe(FREEZE_TARGET_PATH);
+      // Admission rejected the changed parent before installing NEXT. The
+      // canonical target can be absent here; exact PRE and NEXT must survive.
+      const heldPath = (original: string): string => {
+        const withinRepository = path.relative(fixture.repositoryRoot, original);
+        expect(path.isAbsolute(withinRepository)).toBe(false);
+        expect(withinRepository === '..' || withinRepository.startsWith('../')).toBe(false);
+        const relative = path.relative(workPath, original);
+        // Journal-owned recovery entries outside the moved directory retain
+        // their original locations; only descendants travel with the parent.
+        return relative === '..' || relative.startsWith('../')
+          ? original
+          : path.join(heldWorkPath, relative);
+      };
+      await expect(readFile(path.join(heldWorkPath, 'active-work-package.md')))
+        .rejects.toMatchObject({ code: 'ENOENT' });
+      expect(preRecoveryPaths.length).toBeGreaterThan(0);
+      for (const original of preRecoveryPaths) {
+        expect(await readFile(heldPath(original))).toEqual(activePointerBefore);
+      }
+      expect(nextSourcePath).toBeDefined();
+      const journal = JSON.parse(await readFile(path.join(
+        fixture.repositoryRoot, '.tmp/codex/document-control-plane-freeze-v1/journal.json'
+      ), 'utf8')) as { files: { pointer: { next: string } } };
+      expect(await readFile(heldPath(nextSourcePath!)))
+        .toEqual(Buffer.from(journal.files.pointer.next, 'base64'));
     }
 
     if (swapped) {
@@ -4321,6 +4352,9 @@ test('anchored rename cannot be redirected by a parent-to-junction swap after ha
       reviewedOn: '2026-08-09'
     });
     expect(recovered.status).toBe('ACTIVATED_INDEX_PENDING_COMMIT');
+    expect(CodexDevelopmentParseActivePointer(await readFile(activePointer, 'utf8')).manifest)
+      .toBe(FREEZE_TARGET_PATH);
+    expect(await readFile(externalPointer, 'utf8')).toBe('external sentinel\n');
   } finally {
     if (swapped) {
       await rm(workPath, { recursive: true, force: true }).catch(() => undefined);
@@ -4447,7 +4481,7 @@ if (process.platform === 'linux') {
           await rename(event.sourcePath, heldNextPath);
           await writeFile(event.sourcePath, unknown);
         }
-      })).rejects.toThrow(/retained link source|opened source fd|current source entry/u);
+      })).rejects.toMatchObject({ code: 'DOCUMENT-CONTROL-UNSAFE-PATH-001' });
       expect(originalNextPath).toBeDefined();
       expect(heldNextPath).toBeDefined();
       expect(await readFile(originalNextPath!)).toEqual(unknown);
@@ -5104,7 +5138,7 @@ test('repository controls use the shared live resolver and preserve one bounded 
   const activePackageId = path.basename(pointer.manifest, '.md');
 
   expect(currentState.resolver).toEqual({
-    command: 'bun src/control/documentation/document-control-plane.ts status --json',
+    command: 'bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json',
     repository: 'sec-platform/sec',
     remote: 'origin',
     defaultBranch: 'main',

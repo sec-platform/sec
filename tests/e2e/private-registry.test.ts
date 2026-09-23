@@ -1,5 +1,8 @@
 import { expect, test } from 'bun:test';
 
+import { readJson } from "../../src/adapters/filesystem/files.ts";
+import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import {
   addBlock,
   composeWorkspace,
@@ -8,10 +11,7 @@ import {
   lockWorkspace,
   resolveWorkspace,
   verifyWorkspace
-} from '../../src/compiler/orchestration/cli.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { readJson } from '../../src/workspace/files.ts';
-import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+} from '../../src/bootstrap/engineering/cli.ts';
 import { installPrivateBannerBlock } from '../helpers/private-registry-fixtures.ts';
 import { createWorkspace } from '../testkit/workspace.ts';
 

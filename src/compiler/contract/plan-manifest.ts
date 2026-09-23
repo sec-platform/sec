@@ -1,9 +1,9 @@
-import type { AcceptanceItem } from '../../semantic/acceptance/contract/types.ts';
-import type { ManifestGenerator } from '../../semantic/generation/contract/types.ts';
-import type { RegistryKind, RegistryLocation } from '../registry/contract/types.ts';
+import type { RegistryKind, RegistryLocation } from '../../contracts/registry-source.ts';
+import type { AcceptanceItem } from '../../semantics/acceptance/types.ts';
+import type { ManifestGenerator } from '../../semantics/generation/types.ts';
 
 import type { PlanApp, PlanBlock, PlanRegistry } from './plan-schema.ts';
-export type { AppMode, PackageManager, PlanApp, PlanBlock, PlanRegistry, PlanRegistrySource } from './plan-schema.ts';
+export type { AppMode, PlanRegistry, PlanRegistrySource } from './plan-schema.ts';
 
 export const MANIFEST_KINDS = ['capability', 'strategy', 'infra', 'governance'] as const;
 export type ManifestKind = (typeof MANIFEST_KINDS)[number];
@@ -16,16 +16,16 @@ export interface PlanFile {
 }
 
 export interface ManifestPin { id: string; type: string; required?: boolean; }
-export interface ManifestContractReference { path: string; }
-export interface InstallInstruction { kind: string; from: string; to: string; }
+interface ManifestContractReference { path: string; }
+interface InstallInstruction { kind: string; from: string; to: string; }
 
-export interface ManifestCompatibility {
+interface ManifestCompatibility {
   blockApi: string;
   compilerApi: string;
   stackProfiles: string[];
 }
 
-export interface ManifestPins { inputs: ManifestPin[]; outputs: ManifestPin[]; }
+interface ManifestPins { inputs: ManifestPin[]; outputs: ManifestPin[]; }
 
 export interface UpgradeMigration {
   id: string;
@@ -36,7 +36,7 @@ export interface UpgradeMigration {
   requiresVerification?: boolean;
 }
 
-export interface UpgradeConfig {
+interface UpgradeConfig {
   from: string[];
   migrations: UpgradeMigration[];
 }

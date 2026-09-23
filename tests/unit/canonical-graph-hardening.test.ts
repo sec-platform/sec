@@ -6,7 +6,7 @@ import {
   cloneAndDeepFreeze,
   deepFreeze,
   sha256
-} from '../../src/system-architecture/foundation/runtime/canonical.ts';
+} from '../../src/contracts/canonical.ts';
 
 function rejectsCycle(value: unknown): void {
   assert.throws(() => canonicalJson(value), (error: unknown) =>

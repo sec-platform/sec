@@ -1,0 +1,37 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [],
+  "capabilityProviders": [
+    {
+      "capability": "release.frozen-source-builder",
+      "operations": [
+        "prepareFrozenReleaseSource",
+        "buildFrozenReleaseBundle"
+      ],
+      "effectKinds": [
+        "filesystem",
+        "process"
+      ],
+      "ownerInternalOperations": [
+        "prepareFrozenReleaseSource",
+        "buildFrozenReleaseBundle"
+      ],
+      "operationRoles": []
+    },
+    {
+      "capability": "release.set-builder",
+      "operations": [
+        "buildReleaseSet"
+      ],
+      "effectKinds": [
+        "filesystem",
+        "process"
+      ],
+      "ownerInternalOperations": [
+        "buildReleaseSet"
+      ],
+      "operationRoles": []
+    }
+  ],
+  "operationObligations": []
+}

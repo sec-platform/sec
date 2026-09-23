@@ -5,26 +5,26 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { currentDocumentationVerificationBaseline } from '../../src/control/documentation/active.ts';
 import {
   GitReadAuthorityError,
   withAuthorityGitReadOperation,
   withAuthorityGitReadSession
-} from '../../src/external-capabilities/git-read/authority.ts';
-import { GIT_READ_DEFAULT_OPERATION_BUDGET } from '../../src/external-capabilities/git-read/runtime/session.ts';
+} from '../../src/adapters/providers/git-read/authority.ts';
+import { GIT_READ_DEFAULT_OPERATION_BUDGET } from '../../src/adapters/providers/git-read/runtime/session.ts';
+import { currentDocumentationVerificationBaseline } from '../../src/adapters/self-hosting/control/documentation/active.ts';
 import {
   bindDocumentationVerificationGateInput,
   CodexDevelopmentBuildVerificationPlan
-} from '../../src/verification/ci/contract/plan.ts';
+} from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import {
   CodexDevelopmentDefaultChangedPaths,
   CodexDevelopmentDefaultGitRevision,
   CodexDevelopmentDefaultTrackedTreeIsClean,
   CodexDevelopmentExactGitWorkspaceSourceSnapshot,
   CodexDevelopmentTestImpactSourceProviderFromSnapshot
-} from '../../src/verification/ci/runtime/ci-orchestration-core.ts';
-import { selectTestsForSources } from '../../src/verification/test-impact/runtime/impact.ts';
-import { selectSlowTestRiskClosure } from '../../src/verification/test-impact/slow-risk-selection.ts';
+} from '../../src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts';
+import { selectTestsForSources } from '../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
+import { selectSlowTestRiskClosure } from '../../src/adapters/verification/platform/test-impact/slow-risk-selection.ts';
 
 function git(repositoryRoot: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], {
@@ -260,13 +260,13 @@ test('trusted-base TestImpact reads a new candidate module graph from exact Git 
       }]
     }), 'utf8');
     writeFileSync(path.join(repositoryRoot, '.documentation', 'baseline.json'), JSON.stringify({
-      schema: 'sec.documentation-baseline/1',
-      source_set_sha256: '0'.repeat(64),
+      schema: 'sec.documentation-baseline/2',
       source_root: '..',
       source_roots: ['README.md', '.documentation', 'docs/candidate.md', 'candidate-doc-assets', 'src'],
       source_manifest: 'source-manifest.json',
       excluded_from_source_hash: [
-        '.documentation/baseline.json',
+        '.documentation/figures.json',
+        '.documentation/requirements.json',
         '.documentation/source-manifest.json'
       ],
       audited_namespaces: ['docs'],

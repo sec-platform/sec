@@ -1,0 +1,6 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [
+    "src/bootstrap/engineering/cli.ts"
+  ]
+}

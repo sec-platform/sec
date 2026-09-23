@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import ts from 'typescript';
-import { CodeBuilder } from '../../src/compiler/codegen/code-builder.ts';
+import { CodeBuilder } from '../../src/adapters/targets/typescript/code-builder.ts';
 
 function sourceFile(text: string, tsx = false): ts.SourceFile {
   return ts.createSourceFile(tsx ? 'view.tsx' : 'generated.ts', text,

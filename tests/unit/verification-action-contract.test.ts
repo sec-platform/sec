@@ -2,8 +2,11 @@ import { expect, test } from 'bun:test';
 
 import {
   createBoundedProcessDiagnosticObjectReceipt
-} from '../../src/runtime-state/workspace-state/bounded-process-diagnostic-contract.ts';
-import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+} from '../../src/adapters/runtime-state/workspace-state/bounded-process-diagnostic-contract.ts';
+import { createVerificationActionKey, createVerificationActionPlan, createVerificationActionTerminal, encodeVerificationActionData, issueNonProcessVerificationActionTerminalSettlement, issueProcessVerificationActionTerminalSettlement, issueVerificationActionOwnerTerminalReceipt, isVerificationActionRunnable, parseVerificationActionKey, projectVerificationActionTerminal, VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY, verificationActionDependsOnChangedInputs, type VerificationActionKeyInput } from '../../src/adapters/verification/platform/action/contract/action.ts';
+import { CodexDevelopmentAssertVerificationGateResult } from '../../src/assurance/verification/result/contract/result.ts';
+import { VERIFICATION_GATE_RESULT_SCHEMA } from '../../src/assurance/verification/result/contract/schema.ts';
+import { sha256 } from '../../src/contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
@@ -13,10 +16,7 @@ import {
   issueSecNormalOwnerTerminalJoinReceipt,
   issueSecProviderSettlementReceipt,
   issueSecSemanticOperationAttemptContext
-} from '../../src/system-architecture/operation/semantic.ts';
-import { createVerificationActionKey, createVerificationActionPlan, createVerificationActionTerminal, encodeVerificationActionData, issueNonProcessVerificationActionTerminalSettlement, issueProcessVerificationActionTerminalSettlement, issueVerificationActionOwnerTerminalReceipt, isVerificationActionRunnable, parseVerificationActionKey, projectVerificationActionTerminal, VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY, verificationActionDependsOnChangedInputs, type VerificationActionKeyInput } from '../../src/verification/action/contract/action.ts';
-import { CodexDevelopmentAssertVerificationGateResult } from '../../src/verification/result/contract/result.ts';
-import { VERIFICATION_GATE_RESULT_SCHEMA } from '../../src/verification/result/contract/schema.ts';
+} from '../../src/execution/operation/semantic.ts';
 
 const DIGEST_A = `sha256:${'a'.repeat(64)}` as const;
 const DIGEST_B = `sha256:${'b'.repeat(64)}` as const;

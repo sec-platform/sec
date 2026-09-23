@@ -5,7 +5,7 @@ import { PassThrough } from 'node:stream';
 
 import { expect, test } from 'bun:test';
 
-import { runObservedCommand, type ObservedCommandDependencies } from '../../src/runtime-state/physical/runtime/observed-process-stdin.ts';
+import { runObservedCommand, type ObservedCommandDependencies } from '../../src/adapters/runtime-state/physical/runtime/observed-process-stdin.ts';
 
 interface FakeChild extends EventEmitter {
   readonly stdin: PassThrough;

@@ -3,7 +3,7 @@ import { expect, test } from 'bun:test';
 import {
   assertSecOperationDemandGraph,
   compileSecOperationDemandGraph
-} from '../../src/control/operation/demand.ts';
+} from '../../src/adapters/self-hosting/control/operation/demand.ts';
 
 test('one demand compiler derives terminal transition and no ambient execution capability', () => {
   const graph = compileSecOperationDemandGraph({
