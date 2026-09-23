@@ -1,8 +1,8 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { bindCompilerInstallInvocation } from '../../src/toolchain/dependencies/runtime/install-invocation.ts';
-import { issueRuntimeDependencyTestMaterialization } from '../../src/toolchain/dependencies/runtime/materialization-fixture-capability.ts';
-import { runtimeDependencyOperationRemainingMs } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
+import { bindCompilerInstallInvocation } from '../../src/adapters/toolchain/dependencies/runtime/install-invocation.ts';
+import { issueRuntimeDependencyTestMaterialization } from '../../src/adapters/toolchain/dependencies/runtime/materialization-fixture-capability.ts';
+import { runtimeDependencyOperationRemainingMs } from '../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
 
 test('the installer never enumerates unrelated lifecycle/test fields', () => {
   const raw = new Proxy({ lockTimeoutMs: 100, monotonicNowMs: () => 0,

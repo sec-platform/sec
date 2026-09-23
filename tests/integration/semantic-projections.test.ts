@@ -1,14 +1,14 @@
 import { beforeAll, expect, test } from 'bun:test';
 
+import { loadWorkspaceEngineeringIRBuildInput } from '../../src/adapters/workspace/engineering-input.ts';
 import { type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
-import { loadWorkspaceEngineeringIRBuildInput } from '../../src/compiler/ir/load-workspace-engineering-ir-input.ts';
 import { buildValidatedEngineeringIR, validateEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
 import { buildSemanticViewSet } from '../../src/compiler/projection/build-semantic-view-set.ts';
 import { projectArchitectureView } from '../../src/compiler/projection/project-architecture-view.ts';
 import { projectScenarioView } from '../../src/compiler/projection/project-scenario-view.ts';
 import { projectStateView } from '../../src/compiler/projection/project-state-view.ts';
-import type { ValidatedEngineeringIRSnapshot } from '../../src/semantic/engineering-ir/contract/validated-types.ts';
-import { INSPECTOR_SECTION_IDS } from '../../src/semantic/projection/contract/types.ts';
+import type { ValidatedEngineeringIRSnapshot } from '../../src/semantics/engineering-ir/validated-types.ts';
+import { INSPECTOR_SECTION_IDS } from '../../src/semantics/projection/types.ts';
 import { prepareResolvedWorkspace } from '../testkit/workspace.ts';
 
 let ticketSnapshot: ValidatedEngineeringIRSnapshot;

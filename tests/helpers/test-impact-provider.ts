@@ -3,48 +3,48 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { createSourceProgramCompilationOperation } from '../../src/brownfield/source-program-model/compilation-operation.ts';
-import { compileRepositorySourceProgramWithCache } from '../../src/brownfield/source-program-model/repository-compilation-cache-session.ts';
+import { withAuthorityGitReadSession } from '../../src/adapters/providers/git-read/authority.ts';
+import { isolatedGitReadEnvironment } from '../../src/adapters/providers/git-read/runtime/session.ts';
+import { createSourceProgramCompilationOperation } from '../../src/adapters/repository/source-program-model/compilation-operation.ts';
+import { compileRepositorySourceProgramWithCache } from '../../src/adapters/repository/source-program-model/repository-compilation-cache-session.ts';
 import {
   compileRepositorySourceProgramCompilation,
   repositoryCompilationDiagnosticsForTests
-} from '../../src/brownfield/source-program-model/repository-compilation.ts';
-import { issueTestImpactProjection } from '../../src/brownfield/source-program-model/test-impact-projection.ts';
+} from '../../src/adapters/repository/source-program-model/repository-compilation.ts';
+import { issueTestImpactProjection } from '../../src/adapters/repository/source-program-model/test-impact-projection.ts';
 import {
   acquireExactGitTreeWorkspaceSourceSnapshot,
   acquireWorkingTreeWorkspaceSourceSnapshot,
   compileWorkspaceTypeScriptProjectInput,
   issueWorkspaceTypeScriptProjectGenerationEvidence
-} from '../../src/brownfield/source-program-model/workspace-source-snapshot.ts';
+} from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
 import {
   activeDocumentationPaths,
   currentActiveDocumentationPaths,
   DOCUMENTATION_IDENTITY_PATH,
   parseDocumentationIdentityRegistry
-} from '../../src/control/documentation/active.ts';
-import type { AffectedTestImpactProjectionIssuer } from '../../src/development/runner/check-affected-source.ts';
+} from '../../src/adapters/self-hosting/control/documentation/active.ts';
+import type { AffectedTestImpactProjectionIssuer } from '../../src/adapters/self-hosting/development/runner/check-affected-source.ts';
 import {
   DEFAULT_TEST_TIMEOUT_MS,
   EFFECTFUL_TEST_CASE_SETTLEMENT_GUARD_MS,
   TEST_SUPERVISOR_SETTLEMENT_MARGIN_MS
-} from '../../src/development/runner/test-execution-policy.ts';
-import { withAuthorityGitReadSession } from '../../src/external-capabilities/git-read/authority.ts';
-import { isolatedGitReadEnvironment } from '../../src/external-capabilities/git-read/runtime/session.ts';
-import { isSecRepositoryTestModulePath } from '../../src/system-architecture/repository-modules/test-module-path.ts';
-import { issueTestInventoryProjection } from '../../src/verification/test-impact/contract/budget.ts';
+} from '../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
+import { issueTestInventoryProjection } from '../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 import {
   issueAffectedTestImpactSource,
   readIssuedAffectedTestImpactBinding
-} from '../../src/verification/test-impact/runtime/affected-source.ts';
+} from '../../src/adapters/verification/platform/test-impact/runtime/affected-source.ts';
 import {
   createRepositoryTestImpactSourceProvider,
   type CodexDevelopmentTestImpactSourceProvider
-} from '../../src/verification/test-impact/runtime/impact.ts';
+} from '../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
 import {
   CodexDevelopmentCreateTestImpactTransitionObservation,
   type CodexDevelopmentTestImpactTransitionObservation
-} from '../../src/verification/test-impact/runtime/transition.ts';
-import { tsconfigRelativePath } from '../../src/workspace/runtime/paths.ts';
+} from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
+import { tsconfigRelativePath } from "../../src/adapters/workspace-context.ts";
+import { isSecRepositoryTestModulePath } from '../../src/contracts/repository-test-path.ts';
 
 const GIT_OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const FIXTURE_ROOT_PREFIX = 'sec-test-impact-exact-tree-';
@@ -65,6 +65,7 @@ export type ExactRepositoryTestImpactProviderFixture = ExactGitFixtureBase & Rea
 
 export type ExactGitTreeTestRunnerFixture = ExactGitFixtureBase & Readonly<{
   workspaceSnapshot: ReturnType<typeof acquireExactGitTreeWorkspaceSourceSnapshot>;
+  workingTreeSnapshot: Awaited<ReturnType<typeof acquireWorkingTreeWorkspaceSourceSnapshot>>;
   indexStageOutput: Uint8Array;
   deletedTrackedOutput: Uint8Array;
   affectedObservation: Awaited<ReturnType<AffectedTestImpactProjectionIssuer>>;
@@ -239,19 +240,19 @@ export async function createRemovedDocumentationTestImpactFixture(
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), FIXTURE_ROOT_PREFIX));
   const repositoryRoot = path.join(fixtureRoot, 'repository');
   const dispose = guardedFixtureDisposer(fixtureRoot);
-  const documentationPath = 'src/external-capabilities/docker/README.md';
-  const descriptorPath = 'src/external-capabilities/docker/sec.module.json';
+  const documentationPath = 'src/adapters/providers/docker/README.md';
+  const descriptorPath = 'src/adapters/providers/docker/sec.module.json';
   try {
     initializeFixtureRepository(repositoryRoot);
     const sources = new Map<string, string>([
       [descriptorPath, readFileSync(path.join(sourceRepositoryRoot, ...descriptorPath.split('/')), 'utf8')],
-      ['src/external-capabilities/docker/runtime/fixture.ts', 'export const dockerFixture = true;\n'],
+      ['src/adapters/providers/docker/runtime/fixture.ts', 'export const dockerFixture = true;\n'],
       [documentationPath, '# Docker fixture\n']
     ]);
     if (includeConsumer) {
       sources.set('tests/unit/trusted-runtime-container.test.ts', [
         "import { test } from 'bun:test';",
-        "import { dockerFixture } from '../../src/external-capabilities/docker/runtime/fixture.ts';",
+        "import { dockerFixture } from '../../src/adapters/providers/docker/runtime/fixture.ts';",
         "test('docker owner', () => { if (!dockerFixture) throw new Error(); });",
         ''
       ].join('\n'));
@@ -380,6 +381,7 @@ export async function createExactGitTreeTestRunnerFixture(
     });
     const previousWorkingDirectory = process.cwd();
     let affectedObservation: Awaited<ReturnType<AffectedTestImpactProjectionIssuer>>;
+    let workingTreeSnapshot: Awaited<ReturnType<typeof acquireWorkingTreeWorkspaceSourceSnapshot>> | undefined;
     try {
       process.chdir(repositoryRoot);
       affectedObservation = await withAuthorityGitReadSession({
@@ -387,6 +389,7 @@ export async function createExactGitTreeTestRunnerFixture(
         budget: { deadlineMs: 120_000 }
       }, async (session) => {
         const workspaceSnapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
+        workingTreeSnapshot = workspaceSnapshot;
         const projectInput = compileWorkspaceTypeScriptProjectInput(
           workspaceSnapshot,
           tsconfigRelativePath
@@ -414,8 +417,12 @@ export async function createExactGitTreeTestRunnerFixture(
     } finally {
       process.chdir(previousWorkingDirectory);
     }
+    if (workingTreeSnapshot === undefined) {
+      throw new Error('Exact TestImpact fixture lost its working-tree snapshot.');
+    }
     const fixture = Object.freeze({
       workspaceSnapshot: exactSnapshot,
+      workingTreeSnapshot,
       provider,
       sourceCommitSha,
       fixtureCommitSha,
@@ -490,7 +497,7 @@ async function createExactRepositoryTestImpactProviderFixture(
       parseDocumentationIdentityRegistry(documentationIdentity.source)
     );
     observeFixturePhase(options, deadlineAtUnixMs, 'dependency-retain');
-    const runtime = await import('../../src/toolchain/dependencies/runtime.ts');
+    const runtime = await import('../../src/adapters/toolchain/dependencies/runtime.ts');
     const dependencyAuthority = await runtime.observeCompilerDependencyExecutionGenerationAuthority({
       deadlineAtUnixMs: operationDeadlineAtUnixMs
     });

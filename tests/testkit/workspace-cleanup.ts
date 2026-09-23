@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { getErrorCode } from '../../src/system-architecture/foundation/runtime/failure-inspection.ts';
+import { getErrorCode } from '../../src/contracts/failure-inspection.ts';
 
 export type WorkspaceDirectoryRemoveOptions = {
   readonly recursive: true;

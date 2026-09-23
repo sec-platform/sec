@@ -1,8 +1,8 @@
-import type { FactAssertionUpdate, FactAssertionUpdateField, FactDelta, FactDeltaEndpoint, FactDeltaEndpointContext, SemanticFactChange } from '../../semantic/engineering-ir/contract/delta-types.ts';
-import { FACT_DELTA_CONTRACT_VERSION, FACT_DELTA_SCOPE } from '../../semantic/engineering-ir/contract/delta-types.ts';
-import type { FactAssertion, SemanticFact } from '../../semantic/engineering-ir/contract/fact-types.ts';
-import { cloneAndDeepFreeze, compareCodeUnits, deepFreeze } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { fail } from '../errors.ts';
+import { cloneAndDeepFreeze, compareCodeUnits, deepFreeze } from '../../contracts/canonical.ts';
+import { fail } from '../../contracts/failure.ts';
+import type { FactAssertionUpdate, FactAssertionUpdateField, FactDelta, FactDeltaEndpoint, FactDeltaEndpointContext, SemanticFactChange } from '../../semantics/engineering-ir/delta-types.ts';
+import { FACT_DELTA_CONTRACT_VERSION, FACT_DELTA_SCOPE } from '../../semantics/engineering-ir/delta-types.ts';
+import type { FactAssertion, SemanticFact } from '../../semantics/engineering-ir/fact-types.ts';
 import { digest, semanticRevisionPayload } from './ir-revision.ts';
 
 type CanonicalFactPayload = Omit<SemanticFact, 'assertions'> & {

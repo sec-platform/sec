@@ -9,7 +9,7 @@ import {
   isDocumentationVerificationInputPath,
   parseDocumentationIdentityRegistry,
   parseDocumentationVerificationBaseline
-} from '../../src/control/documentation/active.ts';
+} from '../../src/adapters/self-hosting/control/documentation/active.ts';
 
 const ROOT = path.resolve(import.meta.dir, '../..');
 
@@ -26,13 +26,13 @@ const SECOND_ID = 'urn:uuid:00000000-0000-4000-8000-000000000002';
 
 function baselineSource(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
-    schema: 'sec.documentation-baseline/1',
-    source_set_sha256: '0'.repeat(64),
+    schema: 'sec.documentation-baseline/2',
     source_root: '..',
     source_roots: ['README.md', '.documentation', 'docs/产品', 'examples', 'tools'],
     source_manifest: 'source-manifest.json',
     excluded_from_source_hash: [
-      '.documentation/baseline.json',
+      '.documentation/figures.json',
+      '.documentation/requirements.json',
       '.documentation/source-manifest.json'
     ],
     audited_namespaces: ['docs'],
@@ -121,16 +121,22 @@ test('documentation verification baseline rejects ambiguous or competing roots',
     non_documentation_roots: []
   })).nonDocumentationRoots).toEqual([]);
   expect(() => parseDocumentationVerificationBaseline(baselineSource({
-    source_roots: ['README.md'],
+    source_roots: ['README.md', '.documentation'],
     non_documentation_roots: ['docs']
   }))).toThrow(/outside audited_namespaces/u);
   expect(() => parseDocumentationVerificationBaseline(baselineSource({
     non_documentation_roots: ['src']
   }))).toThrow(/outside audited_namespaces/u);
   expect(() => parseDocumentationVerificationBaseline(baselineSource({
-    source_roots: ['docs'],
+    source_roots: ['docs', '.documentation'],
     non_documentation_roots: ['docs/generated']
   }))).toThrow(/overlaps source_roots/u);
   expect(() => parseDocumentationVerificationBaseline(baselineSource({ unexpected: true })))
     .toThrow(/unsupported root key/u);
+});
+
+// A changed rendering cache is a reading input, never a source-verification authority.
+test('rendering cache does not select the normative source gate', () => {
+  expect(isDocumentationVerificationInputPath('.documentation/figures.json')).toBe(false);
+  expect(isDocumentationVerificationInputPath('.documentation/requirements.json')).toBe(true);
 });

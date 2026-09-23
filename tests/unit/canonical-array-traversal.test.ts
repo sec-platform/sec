@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import {
   canonicalEquals, canonicalJson, sha256
-} from '../../src/system-architecture/foundation/runtime/canonical.ts';
+} from '../../src/contracts/canonical.ts';
 
 test('canonical array traversal never dispatches an own map method', () => {
   const input = [1, { z: 2, a: 3 }];

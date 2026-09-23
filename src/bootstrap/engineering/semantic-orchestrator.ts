@@ -1,0 +1,49 @@
+import path from 'node:path';
+import type { PipelineExecutionContext } from '../../adapters/compilation-protocol/types.ts';
+import { bindPipelineSemanticContext } from '../../adapters/compilation/pipeline/semantic-context.ts';
+import { createWorkspaceWriteCommitFence } from '../../adapters/filesystem/write-lease.ts';
+import { loadWorkspaceEngineeringIRBuildInput } from '../../adapters/workspace/engineering-input.ts';
+import { saveLock } from "../../adapters/workspace/lock.ts";
+import { buildWorkspaceSemanticBundle } from '../../adapters/workspace/semantic-bundle.ts';
+import { publishSemanticCompilation } from '../../application/semantic-publication.ts';
+import { buildWorkspaceEngineeringIRResult } from '../../application/workspace-engineering-ir.ts';
+import type { PipelineSemanticContext } from '../../compiler/pipeline/semantic-context.ts';
+import type { EngineeringIR } from '../../semantics/engineering-ir/root-types.ts';
+import { executePipelineStage } from './pipeline-kernel.ts';
+
+export function buildWorkspaceEngineeringIR(workspaceRoot = process.cwd()): Promise<EngineeringIR> {
+  workspaceRoot = path.resolve(workspaceRoot);
+  return buildWorkspaceEngineeringIRResult({
+    readInput: () => loadWorkspaceEngineeringIRBuildInput(workspaceRoot)
+  });
+}
+
+export async function runWorkspaceSemanticFrontend(
+  workspaceRoot: string,
+  context: PipelineExecutionContext
+): Promise<PipelineSemanticContext> {
+  workspaceRoot = path.resolve(workspaceRoot);
+  const result = await executePipelineStage(
+    workspaceRoot,
+    'semantic',
+    context,
+    async stageContext => {
+      const commitFence = createWorkspaceWriteCommitFence(
+        workspaceRoot,
+        stageContext.workspaceWriteLease
+      );
+      const bundle = await buildWorkspaceSemanticBundle(workspaceRoot);
+      const published = await publishSemanticCompilation(bundle.sourceLock, bundle, {
+        bind: ({ snapshot, generatorPlan, semanticViews }) =>
+          bindPipelineSemanticContext(stageContext, snapshot, generatorPlan, semanticViews),
+        persist: lock => saveLock(workspaceRoot, lock, commitFence)
+      });
+      return Object.freeze({
+        context: published.context,
+        lock: published.lock
+      });
+    },
+    { extractLock: stageResult => stageResult.lock }
+  );
+  return result.context;
+}

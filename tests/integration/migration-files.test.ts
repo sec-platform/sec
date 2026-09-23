@@ -2,7 +2,8 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { formatJsonFile, writeJson } from '../../src/workspace/files.ts';
+import { writeJson } from "../../src/adapters/filesystem/files.ts";
+import { formatJsonFile } from "../../src/contracts/json-text.ts";
 import { applyMigrationEntries } from '../helpers/apply-migration-entries.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 import {
@@ -556,5 +557,23 @@ test('file-replace migration rejects paths escaping project or manifest roots', 
     ).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-005'
     });
+  });
+});
+
+test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('file migration refuses a workspace parent alias instead of writing outside the workspace', async () => {
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = path.join(tempRoot, 'workspace');
+    const manifestRoot = path.join(tempRoot, 'manifest');
+    const outside = path.join(tempRoot, 'outside');
+    await fs.mkdir(workspaceRoot, { recursive: true });
+    await fs.mkdir(path.join(manifestRoot, 'files'), { recursive: true });
+    await fs.mkdir(outside, { recursive: true });
+    await fs.writeFile(path.join(manifestRoot, 'files', 'source.ts'), 'export const escaped = true;\n', 'utf8');
+    await fs.symlink(outside, path.join(workspaceRoot, 'src'), process.platform === 'win32' ? 'junction' : 'dir');
+
+    await expect(
+      applyMigrationEntries(workspaceRoot, manifestRoot, ['src/copied.ts'], [copyFile('src/copied.ts')])
+    ).rejects.toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH' });
+    await expect(fs.readFile(path.join(outside, 'copied.ts'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });

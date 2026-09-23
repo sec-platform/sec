@@ -925,6 +925,46 @@
     {
       "document_id": "urn:uuid:ff91d628-5de0-44a7-ae70-185f4ca9f8f6",
       "path": "examples/领域组合/领域应用与算法.md"
+    },
+    {
+      "document_id": "urn:uuid:988326d1-b9a4-4626-b146-fe0e464670f4",
+      "path": "docs/依据/来源/Rust与C++映射依据.md"
+    },
+    {
+      "document_id": "urn:uuid:9243655a-ebdf-4fc4-be5e-6451e9d4cba0",
+      "path": "docs/编译/原生映射/README.md"
+    },
+    {
+      "document_id": "urn:uuid:7f49353b-4a4e-4e4f-bbdc-eb9d7541dc3c",
+      "path": "docs/编译/原生映射/外部调用与原子.md"
+    },
+    {
+      "document_id": "urn:uuid:09e64fd3-d254-4de5-8c00-dfb96d0cd8a0",
+      "path": "docs/编译/原生映射/存储与资源.md"
+    },
+    {
+      "document_id": "urn:uuid:48976805-3ffc-48b3-b9e9-b9edb93f0f47",
+      "path": "docs/编译/原生映射/对象与调用.md"
+    },
+    {
+      "document_id": "urn:uuid:3f76942c-8ba1-467c-9b85-a53c9d8bb0e3",
+      "path": "docs/编译/原生映射/数值与控制流.md"
+    },
+    {
+      "document_id": "urn:uuid:7f0adade-f6cb-4085-a762-122c7de18169",
+      "path": "docs/编译/原生映射/泛型与编译期.md"
+    },
+    {
+      "document_id": "urn:uuid:0ade7c78-4cdf-4ae8-9b1e-74839fb5d5f8",
+      "path": "docs/编译/原生映射/采用与导出边界.md"
+    },
+    {
+      "document_id": "urn:uuid:8ea2ab2b-440a-4d2a-8ad9-4b967851a0f3",
+      "path": "docs/编译/有限抽象与观察策略.md"
+    },
+    {
+      "document_id": "urn:uuid:79537576-936c-47c9-bcc6-413025fc077e",
+      "path": "docs/运行/验收/原生映射与组合.md"
     }
   ]
 }

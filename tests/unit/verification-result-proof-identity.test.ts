@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { CodexDevelopmentAggregateVerificationClaims, CodexDevelopmentBuildVerificationGateResult, CodexDevelopmentVerificationEnvironmentIdentity, type VerificationGateResult, type VerificationResultStatus } from '../../src/verification/result/contract/result.ts';
+import { CodexDevelopmentAggregateVerificationClaims, CodexDevelopmentBuildVerificationGateResult, CodexDevelopmentVerificationEnvironmentIdentity, type VerificationGateResult, type VerificationResultStatus } from '../../src/assurance/verification/result/contract/result.ts';
 
 const CLAIM_ID = 'claim:product';
 const GATE_ID = 'gate:product';

@@ -4,10 +4,10 @@ import { pathToFileURL } from 'node:url';
 
 import { expect, test } from 'bun:test';
 
-import { loadRuntimeDependencySpec } from '../../src/toolchain/dependencies/contract/runtime-dependency-spec.ts';
-import { ensureProjectBase, RUNTIME_DATABASE_TEMPLATE_PATH } from '../../src/workspace/application/project-base.ts';
-import { readJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
+import { readJson } from "../../src/adapters/filesystem/files.ts";
+import { loadRuntimeDependencySpec } from '../../src/adapters/toolchain/dependencies/contract/runtime-dependency-spec.ts';
+import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
+import { ensureProjectBase, RUNTIME_DATABASE_TEMPLATE_PATH } from '../../src/adapters/workspace/project-base.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 type RuntimePackageJson = {

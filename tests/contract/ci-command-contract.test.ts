@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { buildCiContract } from '../../src/verification/ci/contract/core.ts';
+import { buildCiContract } from '../../src/adapters/verification/platform/ci/contract/core.ts';
 import { expectCliVariants } from '../testkit/cli.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 

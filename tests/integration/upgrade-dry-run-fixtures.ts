@@ -1,7 +1,7 @@
 import { expect } from 'bun:test';
 
-import type { UpgradePreview } from '../../src/change-management/upgrade/contract/upgrade-artifact.ts';
-import { upgradeWorkspace } from '../../src/change-management/upgrade/orchestration.ts';
+import { upgradeWorkspace } from '../../src/bootstrap/upgrade/orchestration.ts';
+import type { UpgradePreview } from '../../src/semantics/upgrade/upgrade-artifact.ts';
 import { expectFileUnchanged } from '../helpers/assertion-helpers.ts';
 import { prepareBlockUpgradeDryRunFixture } from '../helpers/block-upgrade-fixtures.ts';
 

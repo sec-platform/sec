@@ -3,7 +3,7 @@ import fs, { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { buildReleaseArtifact } from '../../src/release/release-artifact.ts';
+import { buildReleaseArtifact } from '../../src/adapters/release/release-artifact.ts';
 
 test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('release publication rejects a non-directory accepted destination before source preparation', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-release-destination-file-'));
@@ -14,7 +14,7 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('relea
     await fs.writeFile(destination, 'not-an-artifact-directory\n');
 
     await expect(buildReleaseArtifact(path.join(root, 'not-a-repository'), destination))
-      .rejects.toThrow('Existing release artifact destination is not one ordinary directory');
+      .rejects.toThrow('Existing release artifact destination is not an ordinary non-reparse directory');
     await expect(fs.readFile(destination, 'utf8')).resolves.toBe('not-an-artifact-directory\n');
   } finally {
     await rm(root, { recursive: true, force: true });

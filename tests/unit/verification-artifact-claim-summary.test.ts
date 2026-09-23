@@ -1,13 +1,13 @@
 import { expect, test } from 'bun:test';
 
+import { ACCEPTANCE_COVERAGE_FORMAT_VERSION, type AcceptanceCoverageReport } from '../../src/assurance/acceptance/coverage.ts';
+import { isCanonicalVerificationArtifactSet } from '../../src/assurance/verification/artifact/contract/artifact.ts';
+import { buildExpectedProductVerificationClaimSummary, PRODUCT_FAST_GATE_ID, PRODUCT_POLICY_CLAIM_ID, PRODUCT_POLICY_GATE_ID } from '../../src/assurance/verification/profile/contract/product.ts';
+import type { VerificationClaimResult, VerificationGateResult, VerificationReasonCode, VerificationResultStatus } from '../../src/assurance/verification/result/contract/result.ts';
 import {
   classifySemanticMutationIsolatedVerificationArtifactSet,
   type SemanticMutationIsolatedVerificationArtifactSet
-} from '../../src/compiler/semantic-mutation/isolated-verification-classifier.ts';
-import { ACCEPTANCE_COVERAGE_FORMAT_VERSION, type AcceptanceCoverageReport } from '../../src/semantic/acceptance/contract/types.ts';
-import { isCanonicalVerificationArtifactSet } from '../../src/verification/artifact/contract/artifact.ts';
-import { buildExpectedProductVerificationClaimSummary, PRODUCT_FAST_GATE_ID, PRODUCT_POLICY_CLAIM_ID, PRODUCT_POLICY_GATE_ID } from '../../src/verification/profile/contract/product.ts';
-import type { VerificationClaimResult, VerificationGateResult, VerificationReasonCode, VerificationResultStatus } from '../../src/verification/result/contract/result.ts';
+} from '../../src/assurance/verification/semantic-mutation/isolated-classification.ts';
 import { productVerificationObservationsFixture } from '../helpers/verification-fixtures.ts';
 
 const INPUT_REVISION = `sha256:${'1'.repeat(64)}`;

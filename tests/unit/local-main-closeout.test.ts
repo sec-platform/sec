@@ -6,12 +6,12 @@ import path from 'node:path';
 
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 
+import { withWorkspaceWriteLease } from '../../src/adapters/filesystem/write-lease.ts';
 import {
   createLocalMainCloseoutBinding,
   executeLocalMainCloseout,
   inspectLocalMainCloseout
-} from '../../src/control/branch-lifecycle/local-main-closeout.ts';
-import { withWorkspaceWriteLease } from '../../src/workspace/lease.ts';
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/local-main-closeout.ts';
 
 function git(repoRoot: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], { cwd: repoRoot, encoding: 'utf8', windowsHide: true });

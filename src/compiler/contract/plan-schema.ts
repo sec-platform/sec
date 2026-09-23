@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { REGISTRY_KINDS, REGISTRY_LOCATIONS } from '../registry/contract/types.ts';
+import { REGISTRY_KINDS, REGISTRY_LOCATIONS } from '../../contracts/registry-source.ts';
 
 // Structural values only. Uniqueness, supported stacks, canonical paths,
 // capability selection and authority remain decisions of their existing owners.
@@ -13,10 +13,9 @@ export const PlanRegistrySourceSchema = z.object({
   id: z.string(), kind: z.enum(REGISTRY_KINDS),
   location: z.enum(REGISTRY_LOCATIONS), path: z.string()
 });
-export const PlanRegistrySchema = z.object({ sources: z.array(PlanRegistrySourceSchema) });
-export const PlanBlockSchema = z.object({ id: z.string(), version: z.string().optional() });
+const PlanRegistrySchema = z.object({ sources: z.array(PlanRegistrySourceSchema) });
+const PlanBlockSchema = z.object({ id: z.string(), version: z.string().optional() });
 
-export type PackageManager = z.infer<typeof PackageManagerSchema>;
 export type AppMode = z.infer<typeof AppModeSchema>;
 export type PlanApp = z.infer<typeof PlanAppSchema>;
 export type PlanRegistrySource = z.infer<typeof PlanRegistrySourceSchema>;
@@ -24,8 +23,8 @@ export type PlanRegistry = z.infer<typeof PlanRegistrySchema>;
 export type PlanBlock = z.infer<typeof PlanBlockSchema>;
 
 // Normalization historically accepts omitted/null scalar decisions, but not a
-// null app, registry or collection. Preserve that boundary and keep defaults in
-// normalizePlan, where their workspace-dependent meaning already belongs.
+// null app, registry or collection. Preserve that boundary; normalizePlan owns
+// defaulting semantics while its caller supplies runtime-dependent registry paths.
 const appInput = PlanAppSchema.extend({
   id: PlanAppSchema.shape.id.nullish(),
   name: PlanAppSchema.shape.name.nullish(),
@@ -33,7 +32,7 @@ const appInput = PlanAppSchema.extend({
   packageManager: PlanAppSchema.shape.packageManager.nullish(),
   mode: PlanAppSchema.shape.mode.nullish()
 });
-export const PlanRegistrySourceInputSchema = PlanRegistrySourceSchema.extend({
+const PlanRegistrySourceInputSchema = PlanRegistrySourceSchema.extend({
   id: PlanRegistrySourceSchema.shape.id.nullish(),
   kind: PlanRegistrySourceSchema.shape.kind.nullish(),
   location: PlanRegistrySourceSchema.shape.location.nullish(),

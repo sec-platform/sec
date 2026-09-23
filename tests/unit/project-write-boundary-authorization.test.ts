@@ -2,11 +2,11 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { checkProjectWriteBoundary } from '../../src/workspace/application/project-write-boundary.ts';
-import { writeText } from '../../src/workspace/files.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
-import { writeProjectBaseline } from '../../src/workspace/runtime/project-baseline.ts';
+import { writeText } from "../../src/adapters/filesystem/files.ts";
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
+import { writeProjectBaseline } from '../../src/adapters/workspace/project-baseline.ts';
+import { checkProjectWriteBoundary } from '../../src/adapters/workspace/project-write-boundary.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { buildUpgradePlanArtifact } from '../helpers/upgrade-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
