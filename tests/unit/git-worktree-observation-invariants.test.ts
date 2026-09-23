@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { assertLowercaseGitSha, parseWorktreePorcelainZ, parseWorktreeStatusPorcelainZ } from '../../src/runtime-state/physical/contract/git-worktree-observation.ts';
+import { assertLowercaseGitSha, parseWorktreePorcelainZ, parseWorktreeStatusPorcelainZ } from '../../src/adapters/runtime-state/physical/contract/git-worktree-observation.ts';
 import { gitProtocolSuccess, inGitProtocolRepository } from '../testkit/git-protocol.ts';
 
 const oid = 'a'.repeat(40);
@@ -41,8 +41,12 @@ test('object-id assertion never coerces a non-string or evaluates caller convers
   assert.equal(coerced, false);
   assert.throws(() => assertLowercaseGitSha(BigInt('1'.repeat(40)) as never, 'HEAD'));
   assertLowercaseGitSha(oid, 'HEAD');
-  // The closeout contract remains SHA1-only; this change does not silently widen it.
-  assert.throws(() => assertLowercaseGitSha('a'.repeat(64), 'HEAD'));
+  assertLowercaseGitSha('a'.repeat(64), 'HEAD');
+  assert.throws(() => assertLowercaseGitSha('a'.repeat(63), 'HEAD'));
+  assert.equal(
+    parseWorktreePorcelainZ(record(`HEAD ${'b'.repeat(64)}`, 'detached'))[0]!.headSha,
+    'b'.repeat(64)
+  );
 });
 
 test('only documented conflict pairs may contain an unmerged marker', () => {
@@ -105,7 +109,12 @@ test('real worktree inventory preserves branch, detached, locked and bare varian
   gitProtocolSuccess(git(['worktree', 'add', '--quiet', '--detach', detached, head]));
   gitProtocolSuccess(git(['worktree', 'lock', '--reason', 'fixture\nreason', detached]));
   const rows = parseWorktreePorcelainZ(Buffer.from(gitProtocolSuccess(git(['worktree', 'list', '--porcelain', '-z']))));
-  const main = rows.find(row => row.path === root)!, child = rows.find(row => row.path === detached)!;
+  const hostPathKey = (value: string): string => {
+    const resolved = path.resolve(value).replaceAll('\\', '/');
+    return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+  };
+  const main = rows.find(row => hostPathKey(row.path) === hostPathKey(root))!;
+  const child = rows.find(row => hostPathKey(row.path) === hostPathKey(detached))!;
   assert.equal(main.headSha, head); assert.equal(main.bare, false); assert.equal(main.detached, false);
   assert.ok(main.branch); assert.equal(child.headSha, head); assert.equal(child.detached, true);
   assert.equal(child.branch, null); assert.equal(child.locked, true);

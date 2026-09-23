@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
+import { ManifestCache, type ManifestCacheKey } from '../../src/adapters/workspace/sources/manifest-cache.ts';
 import type { ManifestEntry } from '../../src/compiler/contract.ts';
-import { ManifestCache, type ManifestCacheKey } from '../../src/compiler/parse/manifest-cache.ts';
 function fixture(id: string, workspaceRoot = '/one') {
   const key: ManifestCacheKey = { workspaceRoot, registrySourceId: 'registry', registryKind: 'private', registryLocation: 'workspace',
     registryPath: 'registry', blockId: id, sourceDigest: 'sha256:one' };

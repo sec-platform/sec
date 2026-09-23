@@ -3,13 +3,13 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { blockDirName, resolveRegistryRoot } from "../../src/adapters/workspace-context.ts";
 import {
   loadAllManifests,
   loadManifestById,
   loadManifestForResolvedBlock
-} from '../../src/compiler/parse/load-manifest.ts';
-import { manifestCache } from '../../src/compiler/parse/manifest-cache.ts';
-import { blockDirName, resolveRegistryRoot } from '../../src/workspace/runtime/paths.ts';
+} from '../../src/adapters/workspace/sources/load-manifest.ts';
+import { manifestCache } from '../../src/adapters/workspace/sources/manifest-cache.ts';
 
 const BLOCK_ID = 'ticket/basic';
 const temporaryRoots: string[] = [];

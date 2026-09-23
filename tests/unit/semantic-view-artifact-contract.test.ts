@@ -2,20 +2,20 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { buildCiArtifactManifest } from '../../src/compiler/emit/ci-artifacts.ts';
+import { buildCiArtifactManifest } from '../../src/adapters/compilation/emit/ci-artifacts.ts';
+import { buildSemanticViewSummary } from '../../src/adapters/compilation/emit/write-review-summary.ts';
+import { writeJson } from "../../src/adapters/filesystem/files.ts";
+import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
+import { CI_ARTIFACT_FILES, CI_EMIT_ARTIFACT_PATHS } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import { CI_ARTIFACT_MISSING_REASON } from '../../src/assurance/verification/ci-artifacts/contract/types.ts';
 import {
   assertSemanticViewArtifactsAreCurrent,
   requireLockSemanticViews,
   semanticViewArtifactsAreCurrent
-} from '../../src/compiler/emit/semantic-view-artifact-contract.ts';
-import { buildSemanticViewSummary } from '../../src/compiler/emit/write-review-summary.ts';
-import { writeWorkspaceArtifacts } from '../../src/compiler/orchestration/cli.ts';
-import type { ExplainGraph } from '../../src/semantic/projection/contract/explain.ts';
-import { semanticViewFactIds, type SemanticView } from '../../src/semantic/projection/contract/types.ts';
-import { CI_ARTIFACT_FILES, CI_EMIT_ARTIFACT_PATHS } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { CI_ARTIFACT_MISSING_REASON } from '../../src/verification/ci-artifacts/contract/types.ts';
-import { writeJson } from '../../src/workspace/files.ts';
-import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+} from '../../src/assurance/verification/review/semantic-view-artifact-contract.ts';
+import { writeWorkspaceArtifacts } from '../../src/bootstrap/engineering/cli.ts';
+import type { ExplainGraph } from '../../src/semantics/projection/explain.ts';
+import { semanticViewFactIds, type SemanticView } from '../../src/semantics/projection/types.ts';
 import { buildReviewLock } from '../helpers/review-fixtures.ts';
 import { buildSemanticViewFixture } from '../helpers/semantic-view-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';

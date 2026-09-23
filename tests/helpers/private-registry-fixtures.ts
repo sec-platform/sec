@@ -1,8 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
-import { writeYaml } from '../../src/workspace/yaml.ts';
+import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
+import { writeYaml } from '../../src/adapters/workspace/yaml.ts';
 
 export async function installPrivateBannerBlock(workspaceRoot: string): Promise<void> {
   const { privateRegistryRoot } = getWorkspacePaths(workspaceRoot);

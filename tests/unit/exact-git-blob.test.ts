@@ -16,7 +16,7 @@ import {
   CodexDevelopmentReadExactGitBlob,
   CodexDevelopmentReadExactGitTextBlobsBatch,
   type CodexDevelopmentExactGitBlobCommandResult
-} from '../../src/external-capabilities/git-read/exact-blob.ts';
+} from '../../src/adapters/providers/git-read/exact-blob.ts';
 
 function git(
   repositoryRoot: string,

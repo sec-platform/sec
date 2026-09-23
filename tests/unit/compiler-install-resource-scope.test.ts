@@ -1,14 +1,14 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import type { RetainedNoFollowChildProcessDirectory, RetainedNoFollowOrdinaryFile } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { openProcessResourceSession, type ProcessResourceSession } from '../../src/runtime-state/physical/runtime/process-resource-session.ts';
-import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
-import { issueSecOperationRequirementBindingContext } from '../../src/system-architecture/operation/requirement-binding-context.ts';
+import type { RetainedNoFollowChildProcessDirectory, RetainedNoFollowOrdinaryFile } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { openProcessResourceSession, type ProcessResourceSession } from '../../src/adapters/runtime-state/physical/runtime/process-resource-session.ts';
+import { CompilerInstallSettlementFailure, withCompilerInstallResources } from '../../src/adapters/toolchain/dependencies/runtime/install-resource-scope.ts';
+import { sha256 } from '../../src/contracts/canonical.ts';
+import { issueSecOperationRequirementBindingContext } from '../../src/execution/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation, compileSecCapabilityBinding, compileSecSemanticOperationPlan,
   issueSecSemanticOperationAttemptContext, type SecOperationDigest
-} from '../../src/system-architecture/operation/semantic.ts';
-import { CompilerInstallSettlementFailure, withCompilerInstallResources } from '../../src/toolchain/dependencies/runtime/install-resource-scope.ts';
+} from '../../src/execution/operation/semantic.ts';
 
 // Mechanical resources here prove order and failure preservation, not physical
 // retention. A successful session receipt comes from the real process owner;

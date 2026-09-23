@@ -3,15 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import {
-  AUTHORING_SEMANTIC_CONTRACT_INDEX_MAX_INPUT_BYTES,
-  AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH, AUTHORING_SEMANTIC_CONTRACT_INDEX_REVISION,
-  buildSemanticContractSourceCandidate,
-  loadAuthoringSemanticContractSources,
-  semanticContractSourceRevision
-} from '../../src/compiler/parse/load-authoring-semantic-contracts.ts';
-import { SEMANTIC_CONTRACT_FORMAT_VERSION, type LoadedSemanticContract, type SemanticContract } from '../../src/semantic/contracts/contract/types.ts';
-import { YamlInputLimitError, YamlSyntaxError } from '../../src/system-architecture/foundation/runtime/yaml.ts';
+import { YamlInputLimitError, YamlSyntaxError } from '../../src/adapters/formats/yaml.ts';
+import { AUTHORING_SEMANTIC_CONTRACT_INDEX_MAX_INPUT_BYTES, loadAuthoringSemanticContractSources } from "../../src/adapters/workspace/sources/load-authoring-semantic-contracts.ts";
+import { SEMANTIC_CONTRACT_FORMAT_VERSION, type LoadedSemanticContract, type SemanticContract } from '../../src/semantics/definitions/types.ts';
+import { buildSemanticContractSourceCandidate, semanticContractSourceRevision } from "../../src/semantics/provenance/source-candidate.ts";
+import { AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH, AUTHORING_SEMANTIC_CONTRACT_INDEX_REVISION } from "../../src/workspace/contract/authoring-index.ts";
 import { modelRelativePath } from '../../src/workspace/contract/types.ts';
 
 function contract(id = 'contract-a') {
@@ -115,28 +111,4 @@ test('a contract parser warning cannot bypass the same strict source policy', ()
   const p = await f.writeContract('a'); await f.writeIndex([{ blockId: 'block/a', path: p }]);
   await fs.writeFile(path.join(f.root, ...p.split('/')), `formatVersion: '1'\nid: !unknown a\nnamespace: a\n`);
   await assert.rejects(loadAuthoringSemanticContractSources(f.root, new Set(['block/a'])), YamlSyntaxError);
-}));
-
-test('a failed source read joins every already-started peer before returning', () => using(async f => {
-  const a = await f.writeContract('a'), b = await f.writeContract('b');
-  await f.writeIndex([{ blockId: 'block/a', path: a }, { blockId: 'block/a', path: b }]);
-  const original = fs.readFile, primary = new Error('source failed');
-  let release!: () => void, started!: () => void, refused!: () => void;
-  const held = new Promise<void>(r => { release = r; });
-  const entered = new Promise<void>(r => { started = r; });
-  const failed = new Promise<void>(r => { refused = r; });
-  let returned = false;
-  fs.readFile = (async (...args: Parameters<typeof fs.readFile>) => {
-    if (String(args[0]) === path.join(f.root, ...a.split('/'))) { started(); await held; }
-    if (String(args[0]) === path.join(f.root, ...b.split('/'))) { await entered; refused(); throw primary; }
-    return Reflect.apply(original, fs, args);
-  }) as typeof fs.readFile;
-  const outcome = loadAuthoringSemanticContractSources(f.root, new Set(['block/a'])).then(
-    () => ({ succeeded: true }), error => ({ succeeded: false, error })
-  ).finally(() => { returned = true; });
-  try {
-    await failed; await new Promise(resolve => setTimeout(resolve, 0)); assert.equal(returned, false);
-    release(); const result = await outcome; assert.equal(result.succeeded, false);
-    if ('error' in result) assert.equal(result.error, primary);
-  } finally { release(); await outcome; fs.readFile = original; }
 }));

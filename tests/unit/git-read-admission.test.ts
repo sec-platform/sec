@@ -6,8 +6,8 @@ import {
   GitReadBudgetError,
   boundedGitReadDeadlineAt,
   resolveGitReadSessionBudget
-} from '../../src/external-capabilities/git-read/runtime/budget.ts';
-import { captureGitReadArguments, gitReadCommandIsObservation } from '../../src/external-capabilities/git-read/runtime/read-command.ts';
+} from '../../src/adapters/providers/git-read/runtime/budget.ts';
+import { captureGitReadArguments, gitReadCommandIsObservation } from '../../src/adapters/providers/git-read/runtime/read-command.ts';
 
 // Expected command forms and forbidden mutations are independent protocol
 // vectors, not generated from the implementation's sets or regular expressions.
@@ -66,6 +66,25 @@ test('invalid containers and numbers cannot select implicit or expanded budget p
   }
   assert.throws(() => resolveGitReadSessionBudget({ maxProcesses: 129 }), error =>
     error instanceof GitReadBudgetError && error.reason === 'canonical-ceiling-exceeded');
+  assert.throws(() => resolveGitReadSessionBudget({ maxStdoutBytes: 256 * 1024 * 1024 + 1 }), error =>
+    error instanceof GitReadBudgetError && error.reason === 'canonical-ceiling-exceeded');
+  assert.throws(() => resolveGitReadSessionBudget({
+    maxCommandStdoutBytes: GIT_READ_EXACT_TREE_OPERATION_BUDGET.maxCommandStdoutBytes + 1
+  }), error => error instanceof GitReadBudgetError && error.reason === 'canonical-ceiling-exceeded');
+});
+
+test('exact-tree budget explicitly admits the bounded source snapshot envelope', () => {
+  assert.equal(GIT_READ_DEFAULT_OPERATION_BUDGET.maxStdoutBytes, 64 * 1024 * 1024);
+  assert.equal(GIT_READ_DEFAULT_OPERATION_BUDGET.maxCommandStdoutBytes, 32 * 1024 * 1024);
+  assert.equal(GIT_READ_EXACT_TREE_OPERATION_BUDGET.maxStdoutBytes, 256 * 1024 * 1024);
+  assert.equal(
+    GIT_READ_EXACT_TREE_OPERATION_BUDGET.maxCommandStdoutBytes,
+    128 * 1024 * 1024 + 250_000 * 128
+  );
+  assert.deepEqual(
+    resolveGitReadSessionBudget(GIT_READ_EXACT_TREE_OPERATION_BUDGET),
+    GIT_READ_EXACT_TREE_OPERATION_BUDGET
+  );
 });
 
 test('parent deadlines only tighten the selected local observation window', () => {

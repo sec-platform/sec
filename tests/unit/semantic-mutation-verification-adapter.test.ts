@@ -1,23 +1,26 @@
 import { expect, test } from 'bun:test';
 
-import { type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
-import { buildValidatedEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
-import { sha256 } from '../../src/compiler/semantic-mutation/canonical.ts';
+import {
+  type SemanticMutationIsolationCapabilityProbe
+} from '../../src/adapters/verification/semantic-mutation-isolation-capability.ts';
+import {
+  planSemanticMutationVerificationCapabilities
+} from '../../src/adapters/verification/semantic-mutation-verification-adapter.ts';
+import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION, SEMANTIC_MUTATION_VERIFICATION_REPORT_REVISION } from '../../src/assurance/verification/contract/types.ts';
+import { buildExpectedProductVerificationClaimSummary } from '../../src/assurance/verification/profile/contract/product.ts';
 import {
   classifySemanticMutationIsolatedVerificationArtifactSet,
   classifySemanticMutationIsolatedVerificationOutcome,
+  projectSemanticMutationIsolatedSemanticBundle,
   type SemanticMutationIsolatedVerificationArtifactSet
-} from '../../src/compiler/semantic-mutation/isolated-verification-classifier.ts';
+} from '../../src/assurance/verification/semantic-mutation/isolated-classification.ts';
 import {
-  type SemanticMutationIsolationCapabilityProbe
-} from '../../src/compiler/verify/semantic-mutation-isolation-capability.ts';
-import {
-  executeSemanticMutationVerification,
-  planSemanticMutationVerificationCapabilities
-} from '../../src/compiler/verify/semantic-mutation-verification-adapter.ts';
-import type { VerificationRequirement } from '../../src/semantic/mutation/contract/types.ts';
-import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION, SEMANTIC_MUTATION_VERIFICATION_REPORT_REVISION } from '../../src/verification/contract/types.ts';
-import { buildExpectedProductVerificationClaimSummary } from '../../src/verification/profile/contract/product.ts';
+  executeSemanticMutationVerification
+} from '../../src/assurance/verification/semantic-mutation/verification-runtime.ts';
+import { type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
+import { buildValidatedEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
+import { sha256 } from '../../src/compiler/semantic-mutation/canonical.ts';
+import type { VerificationRequirement } from '../../src/semantics/mutation/types.ts';
 import { productVerificationObservationsFixture } from '../helpers/verification-fixtures.ts';
 
 function buildInput(): BuildEngineeringIRInput {
@@ -462,6 +465,29 @@ function isolatedArtifactSet(status: 'passed' | 'failed'): SemanticMutationIsola
     semanticBundle: isolatedSemanticBundle()
   };
 }
+
+test('isolated semantic evidence projection strips workspace authority before classification', () => {
+  const fullBundle = {
+    ...isolatedSemanticBundle(),
+    sourceLock: { internalAuthority: true }
+  };
+  const projected = projectSemanticMutationIsolatedSemanticBundle(fullBundle);
+  expect(Object.keys(projected).sort()).toEqual([
+    'generatorPlan',
+    'semanticContractSources',
+    'semanticViews',
+    'snapshot'
+  ]);
+  expect('sourceLock' in projected).toBe(false);
+  expect(classifySemanticMutationIsolatedVerificationArtifactSet({
+    ...isolatedArtifactSet('failed'),
+    semanticBundle: fullBundle
+  })).toBe('blocked');
+  expect(classifySemanticMutationIsolatedVerificationArtifactSet({
+    ...isolatedArtifactSet('failed'),
+    semanticBundle: projected
+  })).toBe('failed');
+});
 
 test('isolated child outcome blocks zero-test pseudo-pass and accepts physical failure', () => {
   expect(classifySemanticMutationIsolatedVerificationArtifactSet(isolatedArtifactSet('passed'))).toBe('blocked');

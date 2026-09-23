@@ -6,8 +6,8 @@ import path from 'node:path';
 import {
   captureDevCommandInput,
   type DevCommandOptions
-} from '../../src/development/runner/command-input.ts';
-import { DEV_COMMAND_MAX_DURATION_MS, DEV_COMMAND_MAX_STDIN_BYTES } from '../../src/development/runner/contract.ts';
+} from '../../src/adapters/self-hosting/development/runner/command-input.ts';
+import { DEV_COMMAND_MAX_DURATION_MS, DEV_COMMAND_MAX_STDIN_BYTES } from '../../src/adapters/self-hosting/development/runner/contract.ts';
 
 const capture = (options?: DevCommandOptions, args: string[] = [], env: NodeJS.ProcessEnv = {}) =>
   captureDevCommandInput(args, env, options, process.cwd());

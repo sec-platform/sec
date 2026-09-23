@@ -2,9 +2,9 @@ import { expect, test } from 'bun:test';
 
 import { CompilerError } from '../../src/compiler/errors.ts';
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
-import { normalizeSemanticContract } from '../../src/compiler/parse/load-semantic-contract.ts';
-import { linkWorkspaceSemanticContracts } from '../../src/compiler/semantic-linker.ts';
-import type { LoadedSemanticContract, SemanticContract } from '../../src/semantic/contracts/contract/types.ts';
+import { linkWorkspaceSemanticContracts } from '../../src/semantics/definitions/link.ts';
+import { normalizeSemanticContract } from '../../src/semantics/definitions/normalize.ts';
+import type { LoadedSemanticContract, SemanticContract } from '../../src/semantics/definitions/types.ts';
 
 function contract(
   blockId: string,
@@ -323,4 +323,39 @@ test('linker emits deterministic diagnostics for namespace, import, reference, a
     () => buildEngineeringIR(input([missingVerificationPolicy, consumerContract()])),
     'SEMANTIC-LINK-006'
   );
+});
+
+test('field lookup indexes repeated local and imported references within one link invocation', () => {
+  const provider = providerContract();
+  const consumer = consumerContract();
+  const ids = [...Array.from({ length: 128 }, (_, index) => `field${index}`), '__proto__', 'constructor'];
+  provider.contract.entities[0]!.fields.push(...ids.map((id) => ({ id, type: 'string', required: true })));
+  consumer.contract.entities[0]!.fields.push(...ids.map((id) => ({ id, type: 'string', required: true })));
+  const references = ids.flatMap((id) => [`Ticket.${id}`, `tenant::TenantContext.${id}`, `Ticket.${id}`]);
+  consumer.contract.operations[0]!.reads = references;
+  const original = JSON.stringify([provider, consumer]);
+  const linked = linkWorkspaceSemanticContracts([consumer, provider], ['tenant-scope-required']);
+  expect(linked.find((entry) => entry.contract.namespace === 'ticket')!.contract.operations[0]!.reads)
+    .toEqual(references.map((reference) => reference.startsWith('tenant::') ? reference : `ticket::${reference}`));
+  expect(JSON.stringify([provider, consumer])).toBe(original);
+});
+
+test('field indexes do not survive source edits or leak between namespaces', () => {
+  const provider = providerContract();
+  const consumer = consumerContract();
+  linkWorkspaceSemanticContracts([provider, consumer], ['tenant-scope-required']);
+  provider.contract.entities[0]!.fields[0]!.id = 'newTenantId';
+  provider.contract.responsibilities[0]!.owns = ['TenantContext.newTenantId'];
+  provider.contract.operations[0]!.reads = ['TenantContext.newTenantId'];
+  const error = expectCompilerError(
+    () => linkWorkspaceSemanticContracts([provider, consumer], ['tenant-scope-required']),
+    'SEMANTIC-LINK-004'
+  );
+  expect(error.details).toMatchObject({ ownerNamespace: 'ticket', targetNamespace: 'tenant', reference: 'tenant::TenantContext.tenantId' });
+  consumer.contract.operations[0]!.reads = ['Ticket.tenantId', 'tenant::TenantContext.newTenantId'];
+  const linked = linkWorkspaceSemanticContracts([provider, consumer], ['tenant-scope-required']);
+  expect(linked.find((entry) => entry.contract.namespace === 'ticket')!.contract.operations[0]!.reads)
+    .toEqual(['ticket::Ticket.tenantId', 'tenant::TenantContext.newTenantId']);
+  consumer.contract.operations[0]!.reads = ['Ticket.newTenantId'];
+  expectCompilerError(() => linkWorkspaceSemanticContracts([provider, consumer], ['tenant-scope-required']), 'SEMANTIC-LINK-004');
 });

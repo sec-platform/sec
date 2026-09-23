@@ -1,19 +1,18 @@
-import { afterAll, expect, test } from 'bun:test';
+import { expect, test } from 'bun:test';
 import { parse as parseYaml } from 'yaml';
 
-import { currentDocumentationVerificationBaseline } from '../../src/control/documentation/active.ts';
-import { CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST, createCiMainHealthRequestOperationId } from '../../src/control/main-health/provider-policy.ts';
-import { buildCiContract, CI_MAIN_HEALTH_COMMANDS, CI_MAIN_HEALTH_JOB_NAME, CI_MAIN_HEALTH_STEP_ORDER } from '../../src/verification/ci/contract/core.ts';
-import { assertCiExpectedHead, bindDocumentationVerificationGateInput, buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentBuildVerificationPlan } from '../../src/verification/ci/contract/plan.ts';
-import { slowTestSuiteIds } from '../../src/verification/test-impact/contract/budget.ts';
-import { TCB_TRUST_ROOT } from '../../src/verification/trust/compiler.ts';
+import { CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST, createCiMainHealthRequestOperationId } from '../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
+import { buildCiContract, CI_MAIN_HEALTH_COMMANDS, CI_MAIN_HEALTH_JOB_NAME, CI_MAIN_HEALTH_STEP_ORDER } from '../../src/adapters/verification/platform/ci/contract/core.ts';
+import { assertCiExpectedHead, buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentBuildVerificationPlan } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
+import { slowTestSuiteIds } from '../../src/adapters/verification/platform/test-impact/contract/budget.ts';
+import { TCB_TRUST_ROOT } from '../../src/adapters/verification/platform/trust/compiler.ts';
 import {
   createSecTrustedBootstrapTrustRoot,
   matchSecTrustedBootstrapPath,
   parseSecTrustedBootstrapRegistry,
   SEC_TCB_CLOSURE_RUNTIME_PATH,
   SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH
-} from '../../src/verification/trust/contract/root.ts';
+} from '../../src/adapters/verification/platform/trust/contract/root.ts';
 import {
   compileTcbClosureActionResult,
   createTcbClosureActionPlan,
@@ -21,16 +20,8 @@ import {
   finalizeTcbClosureCandidateSnapshot,
   readTcbClosureCandidateFile,
   selectTcbClosureCandidateAction
-} from '../../src/verification/trust/runtime/closure-lock.ts';
+} from '../../src/adapters/verification/platform/trust/runtime/closure-lock.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
-import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
-
-const testImpactFixture = await acquireExactRepositoryTestImpactProviderFixture();
-const testImpactProvider = bindDocumentationVerificationGateInput(
-  testImpactFixture.provider,
-  currentDocumentationVerificationBaseline()
-);
-afterAll(() => testImpactFixture.dispose());
 
 type WorkflowStep = Readonly<{
   name: string;
@@ -96,17 +87,19 @@ test('Quick and Full plan topology remains deterministic behind the Action norma
   ]);
   const fullGateIds = buildCiFullGatePlan().map(({ id }) => id);
   expect(fullGateIds).toEqual(expect.arrayContaining([
-    'imports', 'typecheck', 'docs-doctor', 'affected-tests', 'full-fast', 'test-budget',
+    'imports', 'typecheck', 'docs-doctor', 'full-fast', 'test-budget',
     'deps-warmup', 'resolve', 'compose',
     'verify-all', 'lock', 'explain', 'reference-check'
   ]));
   expect(fullGateIds.filter((id) => id.startsWith('slow-suite-')).sort()).toEqual(
     slowTestSuiteIds().map((suite) => `slow-suite-${suite}`).sort()
   );
-  expect(CodexDevelopmentBuildVerificationPlan('full', [], testImpactProvider).gates.map(({ id }) => id))
-    .not.toContain('docs-doctor');
-  expect(CodexDevelopmentBuildVerificationPlan('full', null, testImpactProvider).gates.map(({ id }) => id))
+  expect(CodexDevelopmentBuildVerificationPlan('full', [], null).gates.map(({ id }) => id))
     .toContain('docs-doctor');
+  expect(CodexDevelopmentBuildVerificationPlan('full', null, null).gates.map(({ id }) => id))
+    .toContain('docs-doctor');
+  expect(() => CodexDevelopmentBuildVerificationPlan('quick', [], null))
+    .toThrow('owner-issued test-impact source provider');
   expect(() => assertCiExpectedHead('head-a', undefined)).toThrow('requires an exact expected head SHA');
   expect(() => assertCiExpectedHead('head-a', 'head-b')).toThrow('expected head-b, actual head-a');
   expect(() => assertCiExpectedHead('head-a', 'head-a')).not.toThrow();
@@ -163,7 +156,7 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
     createSecTrustedBootstrapTrustRoot
   ].every((contract) => typeof contract === 'function')).toBe(true);
   expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH)
-    .toBe('src/verification/trust/contract/ci-trust-root-registry.json');
+    .toBe('src/adapters/verification/platform/trust/contract/ci-trust-root-registry.json');
   expect(checkerSource).not.toMatch(/TcbClosure[A-Za-z]+V1|TrustedBootstrap[A-Za-z]+V3|terminal\.resultDigest/u);
   expect(workflow.jobs.resolve?.outputs).toMatchObject({
     base: '${{ steps.resolve.outputs.base }}',
@@ -255,7 +248,7 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
       SUT_EVIDENCE_ROOT: '${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}'
     });
   expect(step(workflow, 'candidate-sut', 'Run candidate SUT through trusted private sandbox').run)
-    .toContain('bun src/verification/ci/verification.ts execute-trusted-bootstrap-sut');
+    .toContain('bun src/adapters/verification/platform/ci/verification.ts execute-trusted-bootstrap-sut');
   expect(sutSteps.some((candidate) =>
     candidate.name === 'Install candidate SUT dependencies without lifecycle scripts')).toBe(false);
   const postSteps = workflow.jobs['checker-post']?.steps ?? [];

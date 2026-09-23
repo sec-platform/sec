@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { runStagedImportCheck } from '../../src/development/runner/import-organizer.ts';
+import { runStagedImportCheck } from '../../src/adapters/self-hosting/development/runner/import-organizer.ts';
 
 function git(repoRoot: string, args: readonly string[], bytes = false): string | Buffer {
   const result = spawnSync('git', [...args], {

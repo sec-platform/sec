@@ -10,7 +10,7 @@ import {
   semanticMutationIsolatedPhaseTelemetryOwnedPaths,
   withSemanticMutationIsolatedPhaseTelemetry,
   type SemanticMutationIsolatedPhase
-} from '../../src/compiler/semantic-mutation/isolated-verification-phase-telemetry.ts';
+} from '../../src/adapters/verification/isolation/isolated-verification-phase-telemetry.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 const RUNTIME_PRECOMMAND_PHASES = [
