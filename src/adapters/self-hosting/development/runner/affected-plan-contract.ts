@@ -115,16 +115,20 @@ function gate(id: LocalAffectedGateId): LocalAffectedGateStep {
   return { id, command: `bun run ${id}` };
 }
 
+/** Git-issued paths only; semantic selection still owns every other input. */
+export function isDocumentationOnlyAffectedSelection(changedPaths: readonly string[]): boolean {
+  return changedPaths.length > 0
+    && changedPaths.every((file) => isDocumentationVerificationInputPath(file)
+      && !isSourceProgramInputPath(file)
+      && !file.startsWith('tools/'));
+}
+
 export function buildLocalAffectedCheckPlan(
   affectedPlan: AffectedTestPlan
 ): LocalAffectedCheckPlan {
   const changedPaths = [...affectedPlan.changedPaths];
   const documentationGateChanged = changedPaths.some((file) => isDocumentationVerificationInputPath(file));
-  const sourceProgramInvalidated = changedPaths.some(isSourceProgramInputPath);
-  const documentationGateOnly = changedPaths.length > 0
-    && changedPaths.every((file) => isDocumentationVerificationInputPath(file))
-    && !sourceProgramInvalidated
-    && !changedPaths.some((file) => file.startsWith('tools/'));
+  const documentationGateOnly = isDocumentationOnlyAffectedSelection(changedPaths);
   const typescriptChanged = changedPaths.some((file) => (
     /\.[cm]?tsx?$/u.test(file)
     && (isSourceProgramInputPath(file) || !isDocumentationVerificationInputPath(file))

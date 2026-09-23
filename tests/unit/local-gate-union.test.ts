@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 
 import {
   buildLocalAffectedCheckPlan,
+  isDocumentationOnlyAffectedSelection,
   type AffectedTestPlan,
   type LocalAffectedGateId
 } from '../../src/adapters/self-hosting/development/runner/affected-plan-contract.ts';
@@ -69,6 +70,16 @@ test('local affected plan selects docs doctor alone for pure active documentatio
 
   expect(gateIds(plan)).toEqual(['docs:doctor']);
   expect(plan.subsumedStandaloneCommands).toEqual(['bun run docs:doctor']);
+});
+
+test('docs-only pre-compilation admission excludes Source Program roots and tool inputs', () => {
+  expect(isDocumentationOnlyAffectedSelection(['docs/运行/保证/要求证据与裁决.md'])).toBe(true);
+  expect(isDocumentationOnlyAffectedSelection(['docs/运行/保证/要求证据与裁决.md', '.documentation/source-manifest.json'])).toBe(true);
+  expect(isDocumentationOnlyAffectedSelection([])).toBe(false);
+  expect(isDocumentationOnlyAffectedSelection(['.documentation/documents.json'])).toBe(false);
+  expect(isDocumentationOnlyAffectedSelection(['.documentation/baseline.json'])).toBe(false);
+  expect(isDocumentationOnlyAffectedSelection(['tools/check_docs.py'])).toBe(false);
+  expect(isDocumentationOnlyAffectedSelection(['docs/运行/保证/要求证据与裁决.md', 'src/index.ts'])).toBe(false);
 });
 
 test('local affected plan forms one ordered union for mixed TypeScript and docs changes', () => {

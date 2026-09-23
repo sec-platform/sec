@@ -6,7 +6,11 @@ import path from 'node:path';
 import ts from 'typescript';
 
 import type { GitReadSession } from '../../src/adapters/providers/git-read/runtime/session.ts';
-import { assertWorkspaceTypeScriptProjectGenerationEvidence } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
+import {
+  assertWorkspaceTypeScriptProjectGenerationEvidence,
+  compileVirtualWorkspaceSourceSnapshot,
+  type WorkspaceSourceSnapshot
+} from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
 import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import type { PreparedWindowsRepositoryChangeObserver } from '../../src/adapters/runtime-state/physical/runtime/windows-repository-change-observer.ts';
 import { AFFECTED_SELECTION_OPERATION_DURATION_MS, compileAffectedTestSelectionSemanticOperation } from '../../src/adapters/self-hosting/development/runner/affected-plan-contract.ts';
@@ -43,6 +47,7 @@ import {
 } from '../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
 import { compileTestBudgetProjection, FAST_TEST_PROCESS_POLICY_TEST_FILE, TEST_ARCHITECTURE_POLICY_TEST_FILE } from '../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 import { compilerRoot } from "../../src/adapters/workspace-context.ts";
+import { rawSha256 } from '../../src/contracts/canonical.ts';
 import { isSecRepositoryTestModulePath, normalizeSecRepositoryTestModulePath } from '../../src/contracts/repository-test-path.ts';
 import { createExactGitTreeTestRunnerFixture } from '../helpers/test-impact-provider.ts';
 
@@ -50,8 +55,32 @@ const actualCommandRunner = await import('../../src/adapters/self-hosting/develo
 const actualPhysicalProcess = await import('../../src/adapters/runtime-state/physical/runtime/process.ts');
 const testImpactFixture = await createExactGitTreeTestRunnerFixture();
 afterAll(() => testImpactFixture.dispose());
+const samePathContentDriftPath = 'tests/unit/path-containment.test.ts';
+const samePathContentDriftBefore = testImpactFixture.workingTreeSnapshot;
+if (samePathContentDriftBefore.file(samePathContentDriftPath) === null) {
+  throw new Error(`Drift fixture source is absent: ${samePathContentDriftPath}`);
+}
+const samePathContentDriftSnapshot = compileVirtualWorkspaceSourceSnapshot({
+  subject: Object.freeze({
+    kind: 'virtual-mutation' as const,
+    provenance: Object.freeze({
+      kind: 'source-program-virtual-mutation' as const,
+      baseSnapshotDigest: samePathContentDriftBefore.snapshotDigest,
+      mutationDigest: rawSha256('same-path-content-drift')
+    })
+  }),
+  files: samePathContentDriftBefore.files.map((file) => {
+    if (file.path !== samePathContentDriftPath) return file;
+    const source = `${file.source}\n// same-path-content-drift\n`;
+    return Object.freeze({ ...file, source, contentDigest: rawSha256(source) });
+  }),
+  moduleMembership: samePathContentDriftBefore.moduleMembership
+});
+if (samePathContentDriftSnapshot.snapshotDigest === samePathContentDriftBefore.snapshotDigest) {
+  throw new Error('Drift fixture did not change the source snapshot digest.');
+}
 const actualWorkspaceSnapshots = await import('../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts');
-const testBudgetSnapshotOverrides: Array<typeof testImpactFixture.workspaceSnapshot | Error> = [];
+const testBudgetSnapshotOverrides: Array<WorkspaceSourceSnapshot | Error> = [];
 mock.module('../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts', () => ({
   ...actualWorkspaceSnapshots,
   acquireWorkingTreeWorkspaceSourceSnapshot: async () => {
@@ -447,6 +476,9 @@ mock.module('../../src/adapters/self-hosting/development/runner/repository-mutat
 }));
 
 const testRunnerModule = await import('../../src/adapters/self-hosting/development/runner/test-runner.ts');
+const canonicalAffectedIssuer = (await import(
+  '../../src/adapters/self-hosting/development/runner/check-affected-source.ts'
+)).issueCheckAffectedTestImpactProjection;
 const {
   resolveAffectedTestExecution: resolveAffectedTestExecutionWithIssuer,
   runAffectedTests: runAffectedTestsWithIssuer,
@@ -2265,6 +2297,23 @@ test.serial('affected plan reports resolved selection without dependency or test
   }
 });
 
+test.serial('canonical docs-only Git selection does not construct ProjectInput or select tests', async () => {
+  changedFiles = ['docs/运行/保证/要求证据与裁决.md'];
+  const execution = await resolveAffectedTestExecutionWithIssuer({
+    operation: compileAffectedTestSelectionSemanticOperation({ purpose: 'check-affected' }),
+    issueTestImpactProjection: canonicalAffectedIssuer
+  });
+
+  expect(execution).not.toBeNull();
+  expect(execution!.projectGenerationEvidence).toBeNull();
+  expect(execution!.plan.changedPaths).toEqual(changedFiles);
+  expect(execution!.plan.selectedFastTests).toEqual([]);
+  expect(execution!.plan.identity?.sourceEpoch).toBeNull();
+  expect(await execution!.run()).toBe(0);
+  expect(testDependencyBootstrapCalls).toBe(0);
+  expect(devCommandCalls).toEqual([]);
+});
+
 test.serial('affected plan applies the same process-policy sentinel to a default-excluded fast test', async () => {
   changedFiles = ['tests/unit/semantic-mutation-isolated-child-fence.test.ts'];
   const logs: string[] = [];
@@ -2374,26 +2423,22 @@ test.serial('resolved affected plan executes only after its final Git revalidati
 });
 
 test.serial('affected execution rejects same-path modified content drift even when Git summaries are unchanged', async () => {
-  changedFiles = ['tests/unit/path-containment.test.ts'];
+  changedFiles = [samePathContentDriftPath];
   let observationCount = 0;
   const execution = await resolveAffectedTestExecutionWithIssuer({
     operation: compileAffectedTestSelectionSemanticOperation({ purpose: 'check-affected' }),
     verifyAtResolution: false,
     issueTestImpactProjection: async () => {
       observationCount += 1;
-      return observationCount === 1
-        ? testImpactFixture.affectedObservation
-        : Object.freeze({
-            ...testImpactFixture.affectedObservation,
-            projection: testImpactFixture.provider.projection
-          });
+      return testImpactFixture.affectedObservation;
     }
   });
   expect(execution).not.toBeNull();
   const initialGitCommandCount = commandCalls.length;
+  testBudgetSnapshotOverrides.push(samePathContentDriftSnapshot);
 
   expect(await execution!.run()).toBe(1);
-  expect(observationCount).toBe(2);
+  expect(observationCount).toBe(1);
   expect(commandCalls.length).toBeGreaterThan(initialGitCommandCount);
   expect(devCommandCalls).toEqual([]);
 });

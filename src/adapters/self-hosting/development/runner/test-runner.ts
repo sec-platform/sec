@@ -53,6 +53,7 @@ import {
   affectedSelectionSourceCompilationDeadlineAtUnixMs,
   affectedTestPlanExitCode,
   compileAffectedTestSelectionSemanticOperation,
+  isDocumentationOnlyAffectedSelection,
   type AffectedTestPlan,
   type AffectedTestSelection
 } from './affected-plan-contract.ts';
@@ -1181,7 +1182,8 @@ export interface ResolvedAffectedTestExecution {
   readonly run: (preparedDependencies?: OperationDependencyBootstrapResult) => Promise<number>;
 }
 
-function noChangeAffectedTestPlan(
+function gitOnlyAffectedTestPlan(
+  files: readonly string[],
   gitObservation: GitSelectionGitObservation,
   broadFallbackEnabled: boolean,
   gitDiscoveryFailed = false
@@ -1205,10 +1207,10 @@ function noChangeAffectedTestPlan(
     selectedFastTestCount: 0,
     broadFallbackEnabled
   });
-  const inputDigest = framedChangedPathDigest([]);
+  const inputDigest = framedChangedPathDigest(files);
   return freezeAffectedTestPlan({
     schema: 'sec-affected-test-plan-v1',
-    changedPaths: [],
+    changedPaths: [...files],
     owners: [],
     selectedFastTests: [],
     selectedSlowTests: [],
@@ -1224,7 +1226,7 @@ function noChangeAffectedTestPlan(
       defaultAffectedSelectionProjectionContext(
         gitObservation.headSha,
         inputDigest,
-        gitDiscoveryFailed ? 'Affected Git observation drifted after empty selection.' : null
+        gitDiscoveryFailed ? 'Affected Git observation drifted after Git-only selection.' : null
       )
     ),
     broadFallbackEnabled,
@@ -1237,7 +1239,9 @@ function noChangeAffectedTestPlan(
       changedPathsDigest: inputDigest,
       sourceObservationDigest: null,
       sourceEpoch: null,
-      ruleRevision: 'affected-selection-trust-boundary-v5-git-empty',
+      ruleRevision: files.length === 0
+        ? 'affected-selection-trust-boundary-v5-git-empty'
+        : 'affected-selection-trust-boundary-v6-docs-only',
       broadFallbackEnabled,
       gitProviderRoute: gitObservation.gitProviderRoute,
       gitProviderIdentityDigest: rawSha256(JSON.stringify(gitObservation.gitProviderIdentity)),
@@ -1462,22 +1466,6 @@ export async function resolveAffectedTestExecution(options: Readonly<{
   /** Callers with an explicit pre-effect fence may defer this first recheck. */
   verifyAtResolution?: boolean;
 }>): Promise<ResolvedAffectedTestExecution | null> {
-  const ownedDependencyResolution = options.dependencyGeneration === undefined
-    ? await observeExecutionProgressPhase('affected-selection', 'dependency-generation',
-      () => observeOperationDependencyReadGeneration({
-        deadlineAtUnixMs: options.operation.plan.attempt.deadlineAtUnixMs
-      }))
-    : null;
-  if (ownedDependencyResolution?.status === 'unavailable') {
-    console.error(`Affected ProjectInput dependency generation is unavailable: ${ownedDependencyResolution.reason}`);
-    return null;
-  }
-  const dependencyGeneration = options.dependencyGeneration
-    ?? ownedDependencyResolution!.generation;
-  const compilationOperation = createSourceProgramCompilationOperation({
-    deadlineAtUnixMs: affectedSelectionSourceCompilationDeadlineAtUnixMs(options.operation),
-    observePhase: sourceProgramProgressObserver('affected-selection')
-  });
   const gitResolution = createAuthorityGitReadSession({
     cwd: compilerRoot,
     operation: options.operation,
@@ -1485,15 +1473,38 @@ export async function resolveAffectedTestExecution(options: Readonly<{
     budget: GIT_READ_OPERATION_BUDGET
   });
   if (gitResolution.status !== 'ready') {
-    if (ownedDependencyResolution?.status === 'ready') {
-      await ownedDependencyResolution.generation.retire();
-    }
     console.error('Affected Git provider admission failed:', gitResolution);
     return null;
   }
   const gitSession = gitResolution.session;
   let changed: GitChangedFilesResult | null = null;
   let testImpactObservation: Awaited<ReturnType<AffectedTestImpactProjectionIssuer>> | null = null;
+  const ownedDependency = {
+    resolution: null as Awaited<ReturnType<typeof observeOperationDependencyReadGeneration>> | null
+  };
+  const acquireSourceCompilation = async () => {
+    let dependencyGeneration = options.dependencyGeneration;
+    if (dependencyGeneration === undefined) {
+      ownedDependency.resolution = await observeExecutionProgressPhase(
+        'affected-selection', 'dependency-generation',
+        () => observeOperationDependencyReadGeneration({
+          deadlineAtUnixMs: options.operation.plan.attempt.deadlineAtUnixMs
+        })
+      );
+      if (ownedDependency.resolution.status === 'unavailable') {
+        console.error(`Affected ProjectInput dependency generation is unavailable: ${ownedDependency.resolution.reason}`);
+        return null;
+      }
+      dependencyGeneration = ownedDependency.resolution.generation;
+    }
+    return {
+      dependencyGeneration,
+      compilationOperation: createSourceProgramCompilationOperation({
+        deadlineAtUnixMs: affectedSelectionSourceCompilationDeadlineAtUnixMs(options.operation),
+        observePhase: sourceProgramProgressObserver('affected-selection')
+      })
+    };
+  };
   let initialSessionFailure = gitSession.failure;
   let initialSessionClosed = false;
   try {
@@ -1506,15 +1517,17 @@ export async function resolveAffectedTestExecution(options: Readonly<{
           session: gitSession,
           baseRef
         }));
-      if (selection !== null && selection.files.length === 0) {
+      if (selection !== null && (selection.files.length === 0
+          || isDocumentationOnlyAffectedSelection(selection.files))) {
         changed = {
-          files: [],
+          files: [...selection.files],
           gitObservation: selection.gitObservation
         };
       } else if (selection !== null) {
+        const sourceCompilation = await acquireSourceCompilation();
+        if (sourceCompilation === null) return null;
         const source = await issueAffectedTestImpactSource({
-          dependencyGeneration,
-          compilationOperation,
+          ...sourceCompilation,
           repositoryRoot: compilerRoot,
           session: gitSession,
           baseRef,
@@ -1532,17 +1545,19 @@ export async function resolveAffectedTestExecution(options: Readonly<{
     } else {
       changed = await gitChangedFiles(gitSession);
       if (changed !== null) {
-      const projected = await issueAffectedWorkingTreeTestImpactProjection(
-        gitSession,
-        options.issueTestImpactProjection,
-        dependencyGeneration,
-        compilationOperation
-      );
-      if (projected.status === 'ready') {
-        testImpactObservation = projected;
-      } else {
-        console.error(`Affected Test Impact projection is unavailable: ${projected.reason}`);
-      }
+        const sourceCompilation = await acquireSourceCompilation();
+        if (sourceCompilation === null) return null;
+        const projected = await issueAffectedWorkingTreeTestImpactProjection(
+          gitSession,
+          options.issueTestImpactProjection,
+          sourceCompilation.dependencyGeneration,
+          sourceCompilation.compilationOperation
+        );
+        if (projected.status === 'ready') {
+          testImpactObservation = projected;
+        } else {
+          console.error(`Affected Test Impact projection is unavailable: ${projected.reason}`);
+        }
       }
     }
     initialSessionFailure = gitSession.failure;
@@ -1557,8 +1572,8 @@ export async function resolveAffectedTestExecution(options: Readonly<{
       initialSessionClosed = false;
     }
     initialSessionFailure = gitSession.failure;
-    if (ownedDependencyResolution?.status === 'ready') {
-      await ownedDependencyResolution.generation.retire();
+    if (ownedDependency.resolution?.status === 'ready') {
+      await ownedDependency.resolution.generation.retire();
     }
   }
   if (!initialSessionClosed || initialSessionFailure !== null || changed === null) {
@@ -1570,10 +1585,10 @@ export async function resolveAffectedTestExecution(options: Readonly<{
     return null;
   }
   if (testImpactObservation === null) {
-    if (changed.files.length !== 0) return null;
+    if (changed.files.length !== 0 && !isDocumentationOnlyAffectedSelection(changed.files)) return null;
     const broadFallbackEnabled = allowFullFastFallback();
     const initialGitObservation = changed.gitObservation;
-    const initialPlan = noChangeAffectedTestPlan(initialGitObservation, broadFallbackEnabled);
+    const initialPlan = gitOnlyAffectedTestPlan(changed.files, initialGitObservation, broadFallbackEnabled);
     const assertCurrent = async (): Promise<boolean> => {
       try {
         const finalGitObservation = await reobserveAffectedGitSelectionState(
@@ -1588,7 +1603,7 @@ export async function resolveAffectedTestExecution(options: Readonly<{
     };
     const verifyAtResolution = options.verifyAtResolution ?? true;
     const plan = verifyAtResolution && !(await assertCurrent())
-      ? noChangeAffectedTestPlan(initialGitObservation, broadFallbackEnabled, true)
+      ? gitOnlyAffectedTestPlan(changed.files, initialGitObservation, broadFallbackEnabled, true)
       : initialPlan;
     return Object.freeze({
       plan,
